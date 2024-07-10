@@ -7,10 +7,10 @@ import (
 )
 
 type BackupAgentTemplate struct {
-	Username      string `json:"username"`
-	Password      string `json:"password"`
-	SSLPemKeyFile string `json:"sslPEMKeyFile"`
-	LdapGroupDN   string `json:"ldapGroupDN"`
+	Username      string `json:"username,omitempty"`
+	Password      string `json:"password,omitempty"`
+	SSLPemKeyFile string `json:"sslPEMKeyFile,omitempty"`
+	LdapGroupDN   string `json:"ldapGroupDN,omitempty"`
 }
 
 type BackupAgentConfig struct {

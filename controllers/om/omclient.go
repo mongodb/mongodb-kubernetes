@@ -688,11 +688,19 @@ func (oc *HTTPOmConnection) ReadMonitoringAgentConfig() (*MonitoringAgentConfig,
 }
 
 func (oc *HTTPOmConnection) UpdateMonitoringAgentConfig(mat *MonitoringAgentConfig, log *zap.SugaredLogger) ([]byte, error) {
+	original, _ := util.MapDeepCopy(mat.BackingMap)
+
 	err := mat.Apply()
 	if err != nil {
 		return nil, err
 	}
-	return oc.put(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/monitoringAgentConfig", oc.GroupID()), mat.BackingMap)
+
+	if reflect.DeepEqual(original, mat.BackingMap) {
+		log.Debug("Monitoring Configuration has not changed, not pushing changes to Ops Manager")
+	} else {
+		return oc.put(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/monitoringAgentConfig", oc.GroupID()), mat.BackingMap)
+	}
+	return nil, nil
 }
 
 func (oc *HTTPOmConnection) ReadUpdateMonitoringAgentConfig(modifyMonitoringAgentFunction func(*MonitoringAgentConfig) error, log *zap.SugaredLogger) error {

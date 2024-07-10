@@ -5,9 +5,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/generate"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
-	"github.com/blang/semver"
 	"golang.org/x/xerrors"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
@@ -98,10 +95,6 @@ func Configure(conn om.Connection, opts Options, isRecovering bool, log *zap.Sug
 		return om.WaitForReadyState(conn, opts.ProcessNames, false, log)
 	}
 
-	if stringutil.Contains(opts.Mechanisms, util.X509) && !canEnableX509(conn) {
-		return xerrors.Errorf("unable to configure X509 with this version of Ops Manager, 4.0.11 is the minimum required version to enable X509")
-	}
-
 	// we need to make sure the desired authentication mechanism for the agent exists. If the desired agent
 	// authentication mechanism does not exist in auth.deploymentAuthMechanisms, it is an invalid config
 	if err := ensureDeploymentsMechanismsExist(conn, opts, log); err != nil {
@@ -152,16 +145,6 @@ func Configure(conn om.Connection, opts Options, isRecovering bool, log *zap.Sug
 	}
 	if err := waitForReadyStateIfNeeded(); err != nil {
 		return err
-	}
-
-	// if scram if the specified authentication mechanism rotate passwrd
-	// remove this code("rotateAgentUserPassword" logic) when we remove support for OM version 4.4, and ask users to move to OM version 5.0.7+
-	if err := rotateAgentUserPassword(conn, opts, log); err != nil {
-		return xerrors.Errorf("error rotating password for agent user: %w", err)
-	}
-
-	if err := om.WaitForReadyState(conn, opts.ProcessNames, isRecovering, log); err != nil {
-		return xerrors.Errorf("error waiting for ready state: %w", err)
 	}
 
 	return nil
@@ -362,7 +345,7 @@ func enableAgentAuthentication(conn om.Connection, opts Options, log *zap.Sugare
 
 	// we then configure the agent authentication for that type
 	agentAuthMechanism := getMechanismName(opts.AgentMechanism, ac, opts.MinimumMajorVersion)
-	if err := ensureAgentAuthenticationIsConfigured(conn, opts, agentAuthMechanism, log); err != nil {
+	if err := ensureAgentAuthenticationIsConfigured(conn, opts, ac, agentAuthMechanism, log); err != nil {
 		return xerrors.Errorf("error ensuring agent authentication is configured: %w", err)
 	}
 
@@ -422,7 +405,7 @@ func removeUnrequiredDeploymentMechanisms(conn om.Connection, opts Options, log 
 
 	toDisable := mechanismsToDisable(automationConfigAuthMechanismNames)
 	log.Infow("Removing unrequired deployment authentication mechanisms", "Mechanisms", toDisable)
-	if err := ensureDeploymentMechanismsAreDisabled(conn, toDisable, opts, log); err != nil {
+	if err := ensureDeploymentMechanismsAreDisabled(conn, ac, toDisable, opts, log); err != nil {
 		return xerrors.Errorf("error ensuring deployment mechanisms are disabled: %w", err)
 	}
 
@@ -454,49 +437,6 @@ func addOrRemoveAgentClientCertificate(conn om.Connection, opts Options, log *za
 				AutoPEMKeyFilePath:    util.MergoDelete,
 				ClientCertificateMode: util.OptionalClientCertficates,
 			}
-		}
-		return nil
-	}, log)
-}
-
-func AreBackupAndMonitoringAgentPresent(users []*om.MongoDBUser) bool {
-	count := 0
-	for _, user := range users {
-		if user.Username == "mms-backup-agent" {
-			count += 1
-		}
-		if user.Username == "mms-monitoring-agent" {
-			count += 1
-		}
-	}
-	return count == 2
-}
-
-func rotateAgentUserPassword(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
-	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
-		if conn.OpsManagerVersion().IsCloudManager() {
-			return nil
-		}
-
-		omVersion, err := conn.OpsManagerVersion().Semver()
-		if err != nil {
-			log.Debugw("Failed to fetch OpsManager version: %s", err)
-			return nil
-		}
-		// This bug has been fixed in OpsManager version 5.0.7 and there is no need to rotate agent password:
-		// https://www.mongodb.com/docs/ops-manager/current/release-notes/application/#onprem-server-5-0-7
-		if omVersion.GTE(semver.MustParse("5.0.7")) {
-			return nil
-		}
-		// check if nonitoring and backup agent users are already present
-		if AreBackupAndMonitoringAgentPresent(ac.Auth.Users) {
-			log.Debug("Skipping rotating agent password since monitoring and backup agent is present.")
-			return nil
-		}
-
-		log.Debug("Configuring agent password rotation.")
-		if getMechanismName(opts.AgentMechanism, ac, opts.MinimumMajorVersion) == ScramSha256 {
-			ac.Auth.NewAutoPwd = generate.GenerateRandomPassword()
 		}
 		return nil
 	}, log)
@@ -565,12 +505,7 @@ func mechanismsToDisable(desiredMechanisms []MechanismName) []MechanismName {
 }
 
 // ensureAgentAuthenticationIsConfigured will configure the agent authentication settings based on the desiredAgentAuthMechanism
-func ensureAgentAuthenticationIsConfigured(conn om.Connection, opts Options, desiredAgentAuthMechanismName MechanismName, log *zap.SugaredLogger) error {
-	ac, err := conn.ReadAutomationConfig()
-	if err != nil {
-		return xerrors.Errorf("error reading automation config: %w", err)
-	}
-
+func ensureAgentAuthenticationIsConfigured(conn om.Connection, opts Options, ac *om.AutomationConfig, desiredAgentAuthMechanismName MechanismName, log *zap.SugaredLogger) error {
 	m := fromName(desiredAgentAuthMechanismName, ac, conn, opts)
 	if m.IsAgentAuthenticationConfigured() {
 		log.Infof("Agent authentication mechanism %s is already configured", desiredAgentAuthMechanismName)
@@ -611,12 +546,7 @@ func ensureDeploymentMechanisms(conn om.Connection, ac *om.AutomationConfig, des
 
 // ensureDeploymentMechanismsAreDisabled configures the given AutomationConfig to allow deployments to
 // authenticate using the specified mechanisms
-func ensureDeploymentMechanismsAreDisabled(conn om.Connection, mechanismsToDisable []MechanismName, opts Options, log *zap.SugaredLogger) error {
-	ac, err := conn.ReadAutomationConfig()
-	if err != nil {
-		return xerrors.Errorf("error reading automation config: %w", err)
-	}
-
+func ensureDeploymentMechanismsAreDisabled(conn om.Connection, ac *om.AutomationConfig, mechanismsToDisable []MechanismName, opts Options, log *zap.SugaredLogger) error {
 	allDeploymentMechanismsAreDisabled := true
 	for _, mn := range mechanismsToDisable {
 		if fromName(mn, ac, conn, opts).IsDeploymentAuthenticationConfigured() {
