@@ -13,10 +13,8 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/deployment"
 
-	"github.com/stretchr/testify/require"
-	"golang.org/x/xerrors"
-
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	"github.com/stretchr/testify/require"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
 	"github.com/google/uuid"
@@ -337,24 +335,6 @@ func TestCreateDeleteReplicaSet(t *testing.T) {
 	omConn.CheckOrderOfOperations(t,
 		reflect.ValueOf(omConn.ReadUpdateDeployment), reflect.ValueOf(omConn.ReadAutomationStatus),
 		reflect.ValueOf(omConn.GetHosts), reflect.ValueOf(omConn.RemoveHost))
-}
-
-func TestX509IsNotEnabledWithOlderVersionsOfOpsManager(t *testing.T) {
-	ctx := context.Background()
-	rs := DefaultReplicaSetBuilder().EnableAuth().EnableTLS().SetTLSCA("custom-ca").SetAuthModes([]mdbv1.AuthMode{util.X509}).Build()
-	reconciler, client := defaultReplicaSetReconciler(ctx, rs)
-	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
-		conn := om.NewEmptyMockedOmConnection(context)
-
-		// make the mocked connection return an error behaving as an older version of Ops Manager
-		conn.(*om.MockedOmConnection).UpdateMonitoringAgentConfigFunc = func(mac *om.MonitoringAgentConfig, log *zap.SugaredLogger) (bytes []byte, e error) {
-			return nil, xerrors.Errorf("some error. Detail: %s", util.MethodNotAllowed)
-		}
-		return conn
-	}
-
-	addKubernetesTlsResources(ctx, client, rs)
-	checkReconcileFailed(ctx, t, reconciler, rs, true, "unable to configure X509 with this version of Ops Manager", client)
 }
 
 func TestReplicaSetScramUpgradeDowngrade(t *testing.T) {

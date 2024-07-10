@@ -2,16 +2,12 @@ package authentication
 
 import (
 	"regexp"
-	"strings"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
-	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
 )
 
 const ExternalDB = "$external"
@@ -160,26 +156,4 @@ func isValidX509Subject(subject string) bool {
 		}
 	}
 	return true
-}
-
-// canEnableX509 determines if it's possible to enable/disable x509 configuration options in the current
-// version of Ops Manager
-func canEnableX509(conn om.Connection) bool {
-	err := conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
-		return nil
-	}, nil)
-	if err != nil && strings.Contains(err.Error(), util.MethodNotAllowed) {
-		return false
-	}
-	return true
-}
-
-func ConfigureStatefulSetSecret(sts *appsv1.StatefulSet, secretName string) {
-	secretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, secretName)
-	sts.Spec.Template.Spec.Containers[0].VolumeMounts = append(sts.Spec.Template.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
-		MountPath: "/mongodb-automation/" + util.AgentSecretName,
-		Name:      secretVolume.Name,
-		ReadOnly:  true,
-	})
-	sts.Spec.Template.Spec.Volumes = append(sts.Spec.Template.Spec.Volumes, secretVolume)
 }

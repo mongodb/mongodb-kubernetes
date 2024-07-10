@@ -13,9 +13,9 @@ type MonitoringAgentConfig struct {
 
 type MonitoringAgentTemplate struct {
 	Username      string `json:"username,omitempty"`
-	Password      string `json:"password"`
+	Password      string `json:"password,omitempty"`
 	SSLPemKeyFile string `json:"sslPEMKeyFile,omitempty"`
-	LdapGroupDN   string `json:"ldapGroupDN"`
+	LdapGroupDN   string `json:"ldapGroupDN,omitempty"`
 }
 
 func (m *MonitoringAgentConfig) Apply() error {
