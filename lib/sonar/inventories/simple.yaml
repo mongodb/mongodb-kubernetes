@@ -1,0 +1,35 @@
+vars:
+  # start a local registry with:
+  # docker run -d -p 5000:5000 --restart=always --name registry registry:2
+  registry: localhost:5000
+
+images:
+- name: sonar-test-runner
+
+  vars:
+    context: .
+
+  # First stage builds a Docker image. The resulting image will be
+  # pushed to the registry in the `output` section.
+  stages:
+  - name: build-sonar-tester-image
+    task_type: docker_build
+
+    dockerfile: docker/Dockerfile
+
+    output:
+    - registry: $(inputs.params.registry)/sonar-tester-image
+      tag: $(inputs.params.version_id)
+
+  # Second stage pushes the previously built image into a new
+  # registry.
+  - name: tag-image
+    task_type: tag_image
+
+    source:
+      registry: $(stages['build-sonar-tester-image'].outputs[0].registry)
+      tag: $(stages['build-sonar-tester-image'].outputs[0].tag)
+
+    destination:
+    - registry: $(inputs.params.registry)/sonar-tester-image
+      tag: latest

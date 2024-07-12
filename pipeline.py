@@ -21,7 +21,8 @@ from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 import requests
 import semver
-from sonar.sonar import process_image
+
+from lib.sonar.sonar import process_image
 
 import docker
 from scripts.evergreen.release.agent_matrix import (
@@ -388,6 +389,7 @@ def build_tests_image(build_configuration: BuildConfiguration):
 
     shutil.rmtree(helm_dest, ignore_errors=True)
     copy_tree(helm_src, helm_dest)
+
     shutil.copyfile("requirements.txt", requirements_dest)
 
     sonar_build_image(image_name, build_configuration, {}, "inventories/test.yaml")
