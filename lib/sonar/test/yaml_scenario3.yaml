@@ -1,0 +1,44 @@
+vars:
+  inventory_var0: inventory_var_value0
+  inventory_var1: inventory_var_value1
+
+images:
+  - name: image0
+    vars:
+      image_var0: image_var_value0
+      image_var1: image_var_value1
+
+      context: some-context
+
+    inputs:
+    - image_input0
+    - image_input1
+
+    stages:
+    - name: stage0
+      task_type: docker_build
+
+      vars:
+        stage_var0: stage_value0
+        stage_var1: stage_value1
+
+      tags: ["tag0"]
+
+      dockerfile: Dockerfile
+      output:
+      - registry: some-registry
+        tag: something
+
+    - name: stage1
+      task_type: docker_build
+
+      vars:
+        stage_var0: stage_value0
+        stage_var1: stage_value1
+
+      tags: ["tag1"]
+
+      dockerfile: Dockerfile
+      output:
+      - registry: some-registry
+        tag: something
