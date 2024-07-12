@@ -243,14 +243,21 @@ endif
 
 # Run tests
 ENVTEST_ASSETS_DIR=$(shell pwd)/testbin
-test: generate fmt vet manifests
+
+golang-tests:
 	scripts/evergreen/unit-tests.sh
+
+golang-tests-race:
+	USE_RACE=true scripts/evergreen/unit-tests.sh
+
+python-tests:
 	@ scripts/evergreen/run_python.sh -m pytest pipeline_test.py
+	@ scripts/evergreen/run_python.sh lib/sonar/tests.py
 
 # test-race runs test with race enabled
-test-race: generate fmt vet manifests
-	USE_RACE=true scripts/evergreen/unit-tests.sh
-	@ scripts/evergreen/run_python.sh -m pytest pipeline_test.py
+test-race: generate fmt vet manifests golang-tests-race python-tests
+
+test: generate fmt vet manifests golang-tests python-tests
 
 # Build manager binary
 manager: generate fmt vet
