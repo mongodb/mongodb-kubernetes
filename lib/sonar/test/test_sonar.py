@@ -2,6 +2,7 @@ import logging
 from unittest.mock import Mock, call, patch
 
 import pytest
+
 from ..sonar import (
     SonarAPIError,
     create_ecr_repository,

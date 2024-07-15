@@ -22,9 +22,8 @@ from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple, Union
 import requests
 import semver
 
-from lib.sonar.sonar import process_image
-
 import docker
+from lib.sonar.sonar import process_image
 from scripts.evergreen.release.agent_matrix import (
     get_supported_version_for_image_matrix_handling,
 )
@@ -965,8 +964,15 @@ def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
     This function takes care of that.
     """
     release = get_release()
+    is_release = build_configuration.is_release_step_executed()
 
-    agent_versions_to_build = build_latest_agent_versions(release)
+    # we only need to release the latest images to quay during a release, on non-releases we should re-push all images
+    # otherwise ecr lifecycle will clean them up.
+    if is_release:
+        agent_versions_to_build = build_latest_agent_versions(release)
+    else:
+        agent_versions_to_build = build_agent_gather_versions(release)
+
     legacy_agent_versions_to_build = release["supportedImages"]["mongodb-agent"]["versions"]
     min_supported_version_operator_for_static = "1.25.0"
     supported_operator_versions = [
@@ -975,7 +981,6 @@ def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
         if v >= min_supported_version_operator_for_static
     ]
 
-    is_release = build_configuration.is_release_step_executed()
     tasks_queue = Queue()
     max_workers = 1
     if build_configuration.parallel:

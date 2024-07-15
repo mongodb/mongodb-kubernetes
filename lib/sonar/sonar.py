@@ -20,6 +20,8 @@ from urllib.request import urlretrieve
 import boto3
 import click
 import yaml
+
+from . import DCT_ENV_VARIABLE, DCT_PASSPHRASE
 from .builders.docker import (
     SonarAPIError,
     docker_build,
@@ -28,7 +30,6 @@ from .builders.docker import (
     docker_tag,
 )
 from .template import render
-from . import DCT_ENV_VARIABLE, DCT_PASSPHRASE
 
 LOGLEVEL = os.environ.get("LOGLEVEL", "WARNING").upper()
 logging.basicConfig(level=LOGLEVEL)
