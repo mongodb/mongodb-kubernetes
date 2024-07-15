@@ -3,6 +3,7 @@
 from unittest.mock import mock_open, patch
 
 import pytest
+
 from ..sonar import (
     Context,
     append_output_in_context,

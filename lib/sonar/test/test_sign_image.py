@@ -5,6 +5,7 @@ from unittest.mock import call, mock_open, patch
 
 import pytest
 from sonar import DCT_ENV_VARIABLE, DCT_PASSPHRASE
+
 from ..sonar import is_signing_enabled, process_image
 
 

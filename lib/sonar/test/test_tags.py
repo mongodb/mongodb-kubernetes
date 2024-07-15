@@ -1,6 +1,7 @@
 from unittest.mock import mock_open, patch
 
 import pytest
+
 from ..sonar import (
     find_include_tags,
     find_skip_tags,
