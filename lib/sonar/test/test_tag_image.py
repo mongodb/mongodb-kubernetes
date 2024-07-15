@@ -1,6 +1,7 @@
 from unittest.mock import call, mock_open, patch
 
 import pytest
+
 from ..sonar import process_image
 
 

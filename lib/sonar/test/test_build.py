@@ -2,6 +2,7 @@ from types import SimpleNamespace as sn
 from unittest.mock import call, mock_open, patch
 
 from sonar.builders.docker import get_docker_build_cli_args
+
 from ..sonar import find_dockerfile, process_image
 
 
