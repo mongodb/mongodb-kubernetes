@@ -1,5 +1,15 @@
 [//]: # (Consider renaming or removing the header for next release, otherwise it appears as duplicate in the published release, e.g: https://github.com/mongodb/mongodb-enterprise-kubernetes/releases/tag/1.22.0 )
 <!-- Next Release -->
+# MongoDB Enterprise Kubernetes Operator 1.27.0
+
+## Bug Fixes
+
+* **Agent** launcher: under some resync scenarios we can have corrupted journal data in `/journal`. 
+The agent now makes sure that there are not conflicting journal data and prioritizes the data from `/data/journal`.
+  * To deactivate this behaviour set the environment variable in the operator `MDB_CLEAN_JOURNAL` 
+    to any other value than 1. 
+
+<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.26.0
 
 ## New Features
@@ -22,7 +32,6 @@
 * **MongoDB, MongoDBMultiCluster**: Fixed a bug where the operator wouldn't watch for changes in the X509 certificates configured for agent authentication.
 * **MongoDB**: Fixed a bug where boolean flags passed to the agent cannot be set to `false` if their default value is `true`.
 
-<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.25.0
 
 ## New Features
