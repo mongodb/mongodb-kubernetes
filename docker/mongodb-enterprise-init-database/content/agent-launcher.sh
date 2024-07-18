@@ -62,9 +62,21 @@ fi
 # to copy it to the correct location first and remove a directory
 if [[ -d /data/journal ]] && [[ ! -L /data/journal ]]; then
     script_log "The journal directory /data/journal already exists - moving its content to /journal"
+
+    # Check if /journal is not empty, if so, empty it
+    if [[ $(ls -A /journal) && ${MDB_CLEAN_JOURNAL:-1} -eq 1 ]]; then
+       # we can only create a dir under tmp, since its read only
+        MDB_JOURNAL_BACKUP_DIR="/tmp/journal_backup_$(date +%Y%m%d%H%M%S)"
+        script_log "The /journal directory is not empty - moving its content to $MDB_JOURNAL_BACKUP_DIR"
+        mkdir -p "$MDB_JOURNAL_BACKUP_DIR"
+        mv /journal/* "$MDB_JOURNAL_BACKUP_DIR"
+    fi
+
+
     if [[ $(find /data/journal -maxdepth 1 | wc -l) -gt 0 ]]; then
         mv /data/journal/* /journal
     fi
+
     rm -rf /data/journal
 fi
 
