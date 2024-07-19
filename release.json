@@ -13,6 +13,7 @@
   },
   "supportedImages": {
     "mongodb-kubernetes-readinessprobe": {
+      "ssdlc_name": "MongoDB Community Operator Readiness Probe",
       "versions": [
         "1.0.19"
       ],
@@ -21,6 +22,7 @@
       ]
     },
     "mongodb-kubernetes-operator-version-upgrade-post-start-hook": {
+      "ssdlc_name": "MongoDB Community Operator Version Upgrade Hook",
       "versions": [
         "1.0.8"
       ],
@@ -29,6 +31,7 @@
       ]
     },
     "ops-manager": {
+      "ssdlc_name": "MongoDB Enterprise Kubernetes Operator Ops Manager",
       "versions": [
         "6.0.0",
         "6.0.1",
@@ -70,6 +73,7 @@
     },
     "operator": {
       "Description": "We support 3 last versions, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
+      "ssdlc_name": "MongoDB Enterprise Kubernetes Operator",
       "versions": [
         "1.24.0",
         "1.23.0",
@@ -92,6 +96,7 @@
     },
     "mongodb-kubernetes-operator": {
       "Description": "Community Operator daily rebuilds",
+      "ssdlc_name": "MongoDB Community Operator",
       "versions": [
         "0.10.0",
         "0.9.0",
@@ -110,6 +115,7 @@
     },
     "mongodb-agent": {
       "Description": "Agents corresponding to OpsManager 5.x and 6.x series",
+      "ssdlc_name": "MongoDB Enterprise Kubernetes Operator MongoDB Agent",
       "Description for specific versions": {
         "11.0.5.6963-1": "An upgraded version for OM 5.0 we use for Operator-only deployments",
         "12.0.28.7763-1": "OM 6 basic version"
@@ -186,6 +192,7 @@
     },
     "init-ops-manager": {
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
+      "ssdlc_name": "MongoDB Enterprise Kubernetes Operator Init Ops Manager",
       "versions": [
         "1.24.0",
         "1.23.0",
@@ -204,6 +211,7 @@
     },
     "init-database": {
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
+      "ssdlc_name": "MongoDB Enterprise Kubernetes Operator Init Database",
       "versions": [
         "1.24.0",
         "1.23.0",
@@ -227,6 +235,7 @@
     },
     "init-appdb": {
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
+      "ssdlc_name": "MongoDB Enterprise Kubernetes Operator Init AppDB",
       "versions": [
         "1.24.0",
         "1.23.0",
@@ -249,6 +258,7 @@
     },
     "database": {
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
+      "ssdlc_name": "MongoDB Enterprise Kubernetes Operator Database",
       "versions": [
         "1.24.0",
         "1.23.0",
@@ -262,6 +272,7 @@
     },
     "mongodb-enterprise-server": {
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
+      "ssdlc_name": "MongoDB Enterprise Server",
       "versions": [
         "4.4.0-ubi8",
         "4.4.1-ubi8",
@@ -317,6 +328,7 @@
     },
     "appdb-database": {
       "Description": "4.2 onwards, see https://www.mongodb.com/support-policy/lifecycles",
+      "ssdlc_name": "[Deprecated] MongoDB Enterprise Kubernetes Operator AppDB",
       "versions": [
         "4.2.11-ent",
         "4.2.2-ent",

@@ -253,6 +253,10 @@ golang-tests-race:
 python-tests:
 	@ scripts/evergreen/run_python.sh -m pytest pipeline_test.py
 	@ scripts/evergreen/run_python.sh lib/sonar/tests.py
+	@ scripts/evergreen/run_python.sh -m pytest generate_ssdlc_report_test.py
+
+generate-ssdlc-report:
+	@ scripts/evergreen/run_python.sh generate_ssdlc_report.py
 
 # test-race runs test with race enabled
 test-race: generate fmt vet manifests golang-tests-race python-tests
