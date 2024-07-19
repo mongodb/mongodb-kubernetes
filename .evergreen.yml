@@ -2673,7 +2673,7 @@ buildvariants:
     - name: e2e_smoke_task_group
 
 - name: e2e_smoke_release
-  display_name: e2e_smoke
+  display_name: e2e_smoke_release
   run_on:
     - ubuntu2204-large
   git_tag_only: true
@@ -2686,7 +2686,7 @@ buildvariants:
     - name: e2e_smoke_task_group
 
 - name: e2e_static_smoke_release
-  display_name: e2e_static_smoke
+  display_name: e2e_static_smoke_release
   run_on:
     - ubuntu2204-large
   git_tag_only: true

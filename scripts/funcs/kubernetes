@@ -81,6 +81,11 @@ wait_for_operator_start() {
 
 # recreates docker credentials secret in the cluster
 create_image_registries_secret() {
+  if ! kubectl cluster-info > /dev/null 2>&1; then
+    echo "Cluster does not exist yet - skipping image creation"
+    return
+  fi
+
   secret_name="image-registries-secret"
 
   if [[ "${NAMESPACE:-""}" == "" ]]; then
