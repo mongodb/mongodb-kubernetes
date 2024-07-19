@@ -657,6 +657,7 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 				container.WithResourceRequirements(buildRequirementsFromPodSpec(*NewDefaultPodSpecWrapper(*appDB.PodSpec))),
 				container.WithVolumeMounts(monitoringMounts),
 				container.WithEnvs(appdbContainerEnv(appDB)...),
+				container.WithEnvs(readinessEnvironmentVariablesToEnvVars(appDB.AutomationAgent.ReadinessProbe.EnvironmentVariables)...),
 			)(monitoringContainer)
 			podTemplateSpec.Spec.Containers = append(podTemplateSpec.Spec.Containers, *monitoringContainer)
 		},

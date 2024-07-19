@@ -1181,7 +1181,7 @@ tasks:
   commands:
     - func: "e2e_test"
 
-- name: e2e_replica_set_agent_flags
+- name: e2e_replica_set_agent_flags_and_readinessProbe
   tags: ["patch-run"]
   commands:
     - func: "e2e_test"
@@ -2059,7 +2059,7 @@ task_groups:
     - e2e_replica_set_report_pending_pods
     - e2e_replica_set_recovery
     - e2e_replica_set_upgrade_downgrade
-    - e2e_replica_set_agent_flags
+    - e2e_replica_set_agent_flags_and_readinessProbe
     - e2e_sharded_cluster
     - e2e_sharded_cluster_secret
     - e2e_sharded_cluster_upgrade_downgrade
@@ -2149,7 +2149,7 @@ task_groups:
   <<: *setup_group
   <<: *setup_and_teardown_task_cloudqa
   tasks:
-    - e2e_replica_set_agent_flags
+    - e2e_replica_set_agent_flags_and_readinessProbe
   <<: *teardown_group
 
 # This task group mostly duplicates tests running in e2e_mdb_kind_ubi_cloudqa

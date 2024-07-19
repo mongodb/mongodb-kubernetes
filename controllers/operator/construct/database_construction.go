@@ -775,6 +775,7 @@ func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions, mdb databaseSt
 			container.WithLivenessProbe(DatabaseLivenessProbe()),
 			container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
 			container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
+			container.WithEnvs(readinessEnvironmentVariablesToEnvVars(opts.AgentConfig.ReadinessProbe.EnvironmentVariables)...),
 			configureContainerSecurityContext,
 		),
 	)
@@ -800,6 +801,7 @@ func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions, mdb databaseSt
 				container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
 				container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
 				container.WithEnvs(staticContainersEnvVars(opts)...),
+				container.WithEnvs(readinessEnvironmentVariablesToEnvVars(opts.AgentConfig.ReadinessProbe.EnvironmentVariables)...),
 				container.WithArgs([]string{}),
 				container.WithCommand([]string{"/opt/scripts/agent-launcher.sh"}),
 				configureContainerSecurityContext,
@@ -851,6 +853,22 @@ func startupParametersToAgentFlag(parameters mdbv1.StartupParameters) corev1.Env
 	}
 
 	return corev1.EnvVar{Name: "AGENT_FLAGS", Value: agentParams}
+}
+
+// readinessEnvironmentVariablesToEnvVars returns the environment variables to bet set in the readinessProbe container
+func readinessEnvironmentVariablesToEnvVars(parameters mdbv1.EnvironmentVariables) []corev1.EnvVar {
+	var finalParameters []corev1.EnvVar
+	for key, value := range parameters {
+		finalParameters = append(finalParameters, corev1.EnvVar{
+			Name:  key,
+			Value: value,
+		})
+	}
+	sort.SliceStable(finalParameters, func(i, j int) bool {
+		return finalParameters[i].Name > finalParameters[j].Name
+	})
+
+	return finalParameters
 }
 
 func defaultAgentParameters() mdbv1.StartupParameters {

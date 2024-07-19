@@ -548,6 +548,8 @@ type AgentConfig struct {
 	// +optional
 	Mongod AgentLoggingMongodConfig `json:"mongod,omitempty"`
 	// +optional
+	ReadinessProbe ReadinessProbe `json:"readinessProbe,omitempty"`
+	// +optional
 	StartupParameters StartupParameters `json:"startupOptions"`
 	// +optional
 	LogLevel LogLevel `json:"logLevel"`
@@ -563,6 +565,12 @@ type AgentConfig struct {
 
 type MonitoringAgentConfig struct {
 	StartupParameters StartupParameters `json:"startupOptions"`
+}
+
+type EnvironmentVariables map[string]string
+
+type ReadinessProbe struct {
+	EnvironmentVariables `json:"environmentVariables,omitempty"`
 }
 
 // StartupParameters can be used to configure the startup parameters with which the agent starts. That also contains
