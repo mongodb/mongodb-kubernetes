@@ -216,6 +216,13 @@ spec:
                             type: integer
                         type: object
                     type: object
+                  readinessProbe:
+                    properties:
+                      environmentVariables:
+                        additionalProperties:
+                          type: string
+                        type: object
+                    type: object
                   startupOptions:
                     additionalProperties:
                       type: string

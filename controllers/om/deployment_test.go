@@ -542,7 +542,7 @@ func TestAddMonitoringTls(t *testing.T) {
 	assert.Equal(t, expectedMonitoringVersions, d.getMonitoringVersions())
 
 	// adding again - nothing changes
-	d.AddMonitoring(zap.S(), true, util.CAFilePathInContainer)
+	d.AddMonitoring(zap.S(), false, util.CAFilePathInContainer)
 	assert.Equal(t, expectedMonitoringVersions, d.getMonitoringVersions())
 }
 
