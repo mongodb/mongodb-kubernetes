@@ -1,6 +1,7 @@
 package maputil
 
 import (
+	"encoding/json"
 	"sort"
 	"strings"
 
@@ -135,4 +136,20 @@ func RemoveFieldsBasedOnDesiredAndPrevious(currentMap, desiredMap, previousMap m
 	}
 
 	return currentMap
+}
+
+// StructToMap is a function to convert struct to map using JSON tags
+func StructToMap(v interface{}) (map[string]interface{}, error) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+
+	var result map[string]interface{}
+	err = json.Unmarshal(data, &result)
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
 }

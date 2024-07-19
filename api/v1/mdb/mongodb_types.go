@@ -271,6 +271,7 @@ type DbSpec interface {
 	GetAdditionalMongodConfig() *AdditionalMongodConfig
 	GetExternalDomain() *string
 	GetMemberOptions() []automationconfig.MemberOptions
+	GetAgentConfig() AgentConfig
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -377,6 +378,10 @@ type MongoDbSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +optional
 	MemberConfig []automationconfig.MemberOptions `json:"memberConfig,omitempty"`
+}
+
+func (s *MongoDbSpec) GetAgentConfig() AgentConfig {
+	return s.Agent
 }
 
 func (s *MongoDbSpec) GetExternalDomain() *string {
@@ -501,26 +506,67 @@ type KmipConfig struct {
 	Client v1.KmipClientConfig `json:"client"`
 }
 
+type LogRotateForBackupAndMonitoring struct {
+	// Maximum size for an individual log file before rotation.
+	// OM only supports ints
+	SizeThresholdMB int `json:"sizeThresholdMB,omitempty"`
+	// Number of hours after which this MongoDB Agent rotates the log file.
+	TimeThresholdHrs int `json:"timeThresholdHrs,omitempty"`
+}
+
+// AgentLoggingMongodConfig contain settings for the mongodb processes configured by the agent
+type AgentLoggingMongodConfig struct {
+	// +optional
+	// LogRotate configures log rotation for the mongodb processes
+	LogRotate *automationconfig.CrdLogRotate `json:"logRotate,omitempty"`
+
+	// LogRotate configures audit log rotation for the mongodb processes
+	AuditLogRotate *automationconfig.CrdLogRotate `json:"auditlogRotate,omitempty"`
+
+	// +optional
+	// SystemLog configures system log of mongod
+	SystemLog *automationconfig.SystemLog `json:"systemLog,omitempty"`
+}
+
+type BackupAgent struct {
+	// +optional
+	// LogRotate configures log rotation for the BackupAgent processes
+	LogRotate *LogRotateForBackupAndMonitoring `json:"logRotate,omitempty"`
+}
+
+type MonitoringAgent struct {
+	// +optional
+	// LogRotate configures log rotation for the BackupAgent processes
+	LogRotate *LogRotateForBackupAndMonitoring `json:"logRotate,omitempty"`
+}
+
 type AgentConfig struct {
+	// +optional
+	BackupAgent BackupAgent `json:"backupAgent,omitempty"`
+	// +optional
+	MonitoringAgent MonitoringAgent `json:"monitoringAgent,omitempty"`
+	// +optional
+	Mongod AgentLoggingMongodConfig `json:"mongod,omitempty"`
 	// +optional
 	StartupParameters StartupParameters `json:"startupOptions"`
 	// +optional
 	LogLevel LogLevel `json:"logLevel"`
 	// +optional
 	MaxLogFileDurationHours int `json:"maxLogFileDurationHours"`
-}
-
-// AgentConfigAppDBAutomation contains agent configuration settings which are specific to appdb.
-type AgentConfigAppDBAutomation struct {
-	AgentConfig `json:",inline"`
+	// DEPRECATED please use mongod.logRotate
 	// +optional
-	// LogRotate if enabled, will enable LogRotate for all processes.
 	LogRotate *automationconfig.CrdLogRotate `json:"logRotate,omitempty"`
+	// DEPRECATED please use mongod.systemLog
 	// +optional
-	// SystemLog configures system log of mongod
 	SystemLog *automationconfig.SystemLog `json:"systemLog,omitempty"`
 }
 
+type MonitoringAgentConfig struct {
+	StartupParameters StartupParameters `json:"startupOptions"`
+}
+
+// StartupParameters can be used to configure the startup parameters with which the agent starts. That also contains
+// log rotation settings as defined here:
 type StartupParameters map[string]string
 
 func (s StartupParameters) ToCommandLineArgs() string {
@@ -566,7 +612,6 @@ func (ms MongoDbSpec) GetClusterDomain() string {
 	return "cluster.local"
 }
 
-// TODO docs
 func (m MongoDbSpec) MinimumMajorVersion() uint64 {
 	if m.FeatureCompatibilityVersion != nil && *m.FeatureCompatibilityVersion != "" {
 		fcv := *m.FeatureCompatibilityVersion
@@ -672,6 +717,10 @@ func (d DbCommonSpec) GetExternalDomain() *string {
 		return d.ExternalAccessConfiguration.ExternalDomain
 	}
 	return nil
+}
+
+func (d DbCommonSpec) GetAgentConfig() AgentConfig {
+	return d.Agent
 }
 
 func (d DbCommonSpec) GetAdditionalMongodConfig() *AdditionalMongodConfig {

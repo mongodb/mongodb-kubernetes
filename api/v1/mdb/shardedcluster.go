@@ -19,7 +19,9 @@ type ShardedClusterSpec struct {
 type ShardedClusterComponentSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	AdditionalMongodConfig *AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
-	Agent                  AgentConfig             `json:"agent,omitempty"`
+	// Configuring logRotation is not allowed under this section.
+	// Please use the most top level resource fields for this; spec.Agent
+	Agent AgentConfig `json:"agent,omitempty"`
 }
 
 func (s *ShardedClusterComponentSpec) GetAdditionalMongodConfig() *AdditionalMongodConfig {

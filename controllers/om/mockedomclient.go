@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
 	"golang.org/x/xerrors"
 
@@ -317,8 +319,8 @@ func (oc *MockedOmConnection) ReadBackupAgentConfig() (*BackupAgentConfig, error
 	return oc.backupAgentConfig, nil
 }
 
-func (oc *MockedOmConnection) UpdateBackupAgentConfig(bac *BackupAgentConfig, log *zap.SugaredLogger) ([]byte, error) {
-	oc.addToHistory(reflect.ValueOf(oc.UpdateBackupAgentConfig))
+func (oc *MockedOmConnection) UpdateBackupAgentConfigFromConfigWrapper(bac *BackupAgentConfig, log *zap.SugaredLogger) ([]byte, error) {
+	oc.addToHistory(reflect.ValueOf(oc.UpdateBackupAgentConfigFromConfigWrapper))
 	oc.backupAgentConfig = bac
 	return nil, nil
 }
@@ -329,6 +331,11 @@ func (oc *MockedOmConnection) ReadUpdateBackupAgentConfig(bacFunc func(*BackupAg
 		oc.backupAgentConfig = &BackupAgentConfig{BackupAgentTemplate: &BackupAgentTemplate{}}
 	}
 	return bacFunc(oc.backupAgentConfig)
+}
+
+func (oc *MockedOmConnection) ReadUpdateAgentsLogRotation(logRotateSetting mdbv1.AgentConfig, log *zap.SugaredLogger) error {
+	oc.addToHistory(reflect.ValueOf(oc.ReadUpdateAgentsLogRotation))
+	return nil
 }
 
 func (oc *MockedOmConnection) ReadMonitoringAgentConfig() (*MonitoringAgentConfig, error) {

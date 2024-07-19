@@ -235,6 +235,10 @@ type MongoDBMultiSpec struct {
 	Mapping map[string]int `json:"-"`
 }
 
+func (m *MongoDBMultiSpec) GetAgentConfig() mdbv1.AgentConfig {
+	return m.Agent
+}
+
 func (m *MongoDBMultiCluster) GetPlural() string {
 	return "mongodbmulticluster"
 }
@@ -520,7 +524,7 @@ func (m *MongoDBMultiSpec) GetHorizonConfig() []mdbv1.MongoDBHorizonConfig {
 
 func (m *MongoDBMultiSpec) GetMemberOptions() []automationconfig.MemberOptions {
 	specList := m.GetClusterSpecList()
-	options := []automationconfig.MemberOptions{}
+	var options []automationconfig.MemberOptions
 	for _, item := range specList {
 		options = append(options, item.MemberConfig...)
 	}

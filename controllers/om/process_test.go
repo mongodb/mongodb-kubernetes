@@ -17,7 +17,7 @@ import (
 )
 
 func TestCreateMongodProcess(t *testing.T) {
-	t.Run("Create Mongod", func(t *testing.T) {
+	t.Run("Create AgentLoggingMongodConfig", func(t *testing.T) {
 		spec := defaultMongoDBVersioned("4.0.5")
 		process := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", spec.GetAdditionalMongodConfig(), spec, "", nil)
 
@@ -29,6 +29,7 @@ func TestCreateMongodProcess(t *testing.T) {
 		assert.Equal(t, "/var/log/mongodb-mms-automation/mongodb.log", process.LogPath())
 		assert.Equal(t, 5, process.authSchemaVersion())
 		assert.Equal(t, "", process.replicaSetName())
+		assert.Equal(t, nil, process.LogRotateSizeThresholdMB())
 
 		expectedMap := map[string]interface{}{"port": int32(util.MongoDbDefaultPort), "tls": map[string]interface{}{
 			"mode": "disabled",
@@ -52,7 +53,7 @@ func TestCreateMongodProcess(t *testing.T) {
 func TestCreateMongodProcessStatic(t *testing.T) {
 	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
 	t.Setenv(construct.MongodbImageEnv, "mongodb/mongodb-enterprise-server")
-	t.Run("Create Mongod", func(t *testing.T) {
+	t.Run("Create AgentLoggingMongodConfig", func(t *testing.T) {
 		spec := defaultMongoDBVersioned("4.0.5")
 		process := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", spec.GetAdditionalMongodConfig(), spec, "", map[string]string{})
 

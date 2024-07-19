@@ -15,7 +15,11 @@ from kubetester.kubetester import is_static_containers_architecture, skip_if_loc
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongotester import ReplicaSetTester
 from pytest import fixture
-from tests.opsmanager.conftest import ensure_ent_version
+from tests.conftest import (
+    assert_log_rotation_backup_monitoring,
+    assert_log_rotation_process,
+    setup_log_rotate_for_agents,
+)
 
 DEFAULT_BACKUP_VERSION = "11.12.0.7388-1"
 DEFAULT_MONITORING_AGENT_VERSION = "11.12.0.7388-1"
@@ -75,6 +79,8 @@ def replica_set(namespace: str, custom_mdb_version: str, cluster_domain: str) ->
                 }
             }
         }
+
+    setup_log_rotate_for_agents(resource)
     create_or_update(resource)
 
     return resource
@@ -251,8 +257,7 @@ class TestReplicaSetCreation(KubernetesTester):
             assert p["args2_6"]["storage"]["dbPath"] == "/data"
             assert p["args2_6"]["systemLog"]["destination"] == "file"
             assert p["args2_6"]["systemLog"]["path"] == "/var/log/mongodb-mms-automation/mongodb.log"
-            assert p["logRotate"]["sizeThresholdMB"] == 1000
-            assert p["logRotate"]["timeThresholdHrs"] == 24
+            assert_log_rotation_process(p)
 
     def test_om_replica_set(self):
         config = self.get_automation_config()
@@ -283,6 +288,10 @@ class TestReplicaSetCreation(KubernetesTester):
             assert mv[i]["hostname"] == hostname
             assert mv[i]["name"] == DEFAULT_MONITORING_AGENT_VERSION
 
+    def test_monitoring_log_rotation(self, cluster_domain: str):
+        mv = self.get_monitoring_config()
+        assert_log_rotation_backup_monitoring(mv)
+
     def test_backup(self, cluster_domain):
         config = self.get_automation_config()
         # 1 backup agent per host
@@ -295,14 +304,19 @@ class TestReplicaSetCreation(KubernetesTester):
             assert bkp[i]["hostname"] == hostname
             assert bkp[i]["name"] == DEFAULT_BACKUP_VERSION
 
+    def test_backup_log_rotation(self):
+        bvk = self.get_backup_config()
+        assert_log_rotation_backup_monitoring(bvk)
+
     def test_proper_automation_config_version(self, config_version):
         config = self.get_automation_config()
         # We create 3 members of the replicaset here, so there will be 2 changes.
-        # Anything more than 2 changes indicates that we're sending more things to the Ops/Cloud Manager than we should.
+        # Anything more than 2 + 4 (logRotation has 4 changes) changes
+        # indicates that we're sending more things to the Ops/Cloud Manager than we should.
         if is_static_containers_architecture():
-            assert (config["version"] - config_version.version) == 1
+            assert (config["version"] - config_version.version) == 5
         else:
-            assert (config["version"] - config_version.version) == 2
+            assert (config["version"] - config_version.version) == 6
 
     @skip_if_local
     def test_replica_set_was_configured(self, cluster_domain: str):
@@ -432,8 +446,8 @@ class TestReplicaSetScaleUp(KubernetesTester):
             assert p["args2_6"]["storage"]["dbPath"] == "/data"
             assert p["args2_6"]["systemLog"]["destination"] == "file"
             assert p["args2_6"]["systemLog"]["path"] == "/var/log/mongodb-mms-automation/mongodb.log"
-            assert p["logRotate"]["sizeThresholdMB"] == 1000
-            assert p["logRotate"]["timeThresholdHrs"] == 24
+            assert p["logRotate"]["sizeThresholdMB"] == 100
+            assert p["logRotate"]["timeThresholdHrs"] == 1
 
     def test_om_replica_set(self):
         config = self.get_automation_config()

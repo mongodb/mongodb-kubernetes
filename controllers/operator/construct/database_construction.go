@@ -816,7 +816,7 @@ func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions, mdb databaseSt
 		podtemplatespec.WithTopologyKey(opts.PodSpec.GetTopologyKeyOrDefault(), 0),
 		// The Agent
 		agentModification,
-		// Mongod if static container
+		// AgentLoggingMongodConfig if static container
 		staticMongodModification,
 	)
 }
