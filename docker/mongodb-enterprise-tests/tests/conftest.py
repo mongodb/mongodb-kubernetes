@@ -442,6 +442,8 @@ def get_custom_appdb_version(custom_mdb_version: str = get_custom_mdb_version())
 def custom_version() -> str:
     """Returns a CUSTOM_OM_VERSION for OM.
     Defaults to 5.0+ (for development)"""
+    # The variable is set in context files with one of the values ops_manager_60_latest or ops_manager_70_latest
+    # in .evergreen.yml
     return get_custom_om_version()
 
 

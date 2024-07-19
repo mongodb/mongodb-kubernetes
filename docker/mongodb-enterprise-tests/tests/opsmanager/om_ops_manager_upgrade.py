@@ -16,6 +16,8 @@ from kubetester.kubetester import (
 from kubetester.mongodb import Phase, get_pods
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture
+
+from tests import test_logger
 from tests.conftest import is_multi_cluster
 from tests.opsmanager.conftest import ensure_ent_version
 from tests.opsmanager.om_appdb_scram import OM_USER_NAME
@@ -31,6 +33,8 @@ from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_de
 # Current test focuses on Ops Manager upgrade which involves upgrade for both OpsManager and AppDB.
 # MongoDBs are also upgraded. In case of major OM version upgrade (5.x -> 6.x) agents are expected to be upgraded
 # for the existing MongoDBs.
+
+logger = test_logger.get_test_logger(__name__)
 
 
 @fixture(scope="module")
@@ -98,6 +102,7 @@ class TestOpsManagerCreation:
     """
 
     def test_create_om(self, ops_manager: MongoDBOpsManager):
+        logger.info(f"Creating OM with version {ops_manager.get_version()}")
         create_or_update(ops_manager)
         ops_manager.om_status().assert_reaches_phase(Phase.Running)
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
@@ -287,7 +292,10 @@ class TestOpsManagerVersionUpgrade:
         custom_version: Optional[str],
         custom_appdb_version: str,
     ):
+        logger.info(f"Upgrading OM from {ops_manager.get_version()} to {custom_version}")
         ops_manager.load()
+        # custom_version fixture loads CUSTOM_OM_VERSION env variable, which is set in context files with one of the
+        # values ops_manager_60_latest or ops_manager_70_latest in .evergreen.yml
         ops_manager.set_version(custom_version)
         ops_manager.set_appdb_version(custom_appdb_version)
 

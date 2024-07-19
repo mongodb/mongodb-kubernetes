@@ -8,9 +8,11 @@ script_dir=$(dirname "${script_name}")
 source "$script_dir/root-context"
 source "$script_dir/variables/om60"
 
-# The earliest version supporting Static Containers
+# The earliest version supporting Static Containers for OM
+# We started supporting Static Containers in 6.0.21, except for OM
+# This CUSTOM version is required for upgrade tests to work
 # shellcheck disable=SC2034
-export CUSTOM_OM_PREV_VERSION=6.0.21
+export CUSTOM_OM_PREV_VERSION=6.0.23
 
 export KUBE_ENVIRONMENT_NAME=multi
 export CLUSTER_NAME="kind-e2e-cluster-1"
