@@ -6,6 +6,8 @@ import (
 	"path"
 	"strings"
 
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -131,9 +133,15 @@ func NewMongodProcess(name, hostName string, additionalConfig *mdbv1.AdditionalM
 
 	// default values for configurable values
 	p.SetDbPath("/data")
-	// CLOUDP-33467: we put mongod logs to the same directory as AA/Monitoring/Backup ones to provide single mount point
-	// for all types of logs
-	p.SetLogPath(path.Join(util.PvcMountPathLogs, "mongodb.log"))
+	agentConfig := spec.GetAgentConfig()
+	if agentConfig.Mongod.SystemLog != nil {
+		p.SetLogPathFromCommunitySystemLog(agentConfig.Mongod.SystemLog)
+	} else {
+		// CLOUDP-33467: we put mongod logs to the same directory as AA/Monitoring/Backup ones to provide single mount point
+		// for all types of logs
+		p.SetLogPath(path.Join(util.PvcMountPathLogs, "mongodb.log"))
+	}
+
 	if certificateFilePath == "" {
 		certificateFilePath = util.PEMKeyFilePathInContainer
 	}
@@ -177,6 +185,20 @@ func (p Process) GetPriority() float32 {
 		return cast.ToFloat32(priority)
 	}
 	return 1.0
+}
+
+func (p Process) GetLogRotate() map[string]interface{} {
+	if logRotate, ok := p["logRotate"]; ok {
+		return logRotate.(map[string]interface{})
+	}
+	return make(map[string]interface{})
+}
+
+func (p Process) GetAuditLogRotate() map[string]interface{} {
+	if logRotate, ok := p["auditLogRotate"]; ok {
+		return logRotate.(map[string]interface{})
+	}
+	return make(map[string]interface{})
 }
 
 // GetTags returns the requested tags for the member using this process.
@@ -235,8 +257,20 @@ func (p Process) SetLogPath(logPath string) Process {
 	return p
 }
 
+func (p Process) SetLogPathFromCommunitySystemLog(systemLog *automationconfig.SystemLog) Process {
+	sysLogMap := util.ReadOrCreateMap(p.Args(), "systemLog")
+	sysLogMap["destination"] = string(systemLog.Destination)
+	sysLogMap["path"] = systemLog.Path
+	sysLogMap["logAppend"] = systemLog.LogAppend
+	return p
+}
+
 func (p Process) LogPath() string {
 	return maputil.ReadMapValueAsString(p.Args(), "systemLog", "path")
+}
+
+func (p Process) LogRotateSizeThresholdMB() interface{} {
+	return maputil.ReadMapValueAsInterface(p, "logRotate", "sizeThresholdMB")
 }
 
 // Args returns the "args" attribute in the form of a map, creates if it doesn't exist
@@ -249,7 +283,7 @@ func (p Process) Version() string {
 	return p["version"].(string)
 }
 
-// ProcessType returs the type of process for the current process.
+// ProcessType returns the type of process for the current process.
 // It can be `mongos` or `mongod`.
 func (p Process) ProcessType() MongoType {
 	switch v := p["processType"].(type) {

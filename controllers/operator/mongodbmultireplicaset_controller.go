@@ -705,12 +705,17 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
-			return ReconcileReplicaSetAC(ctx, d, processes, mrs.Spec.DbCommonSpec, lastMongodbConfig, mrs.Name, rs, caFilePath, internalClusterPath, nil, log)
+			return ReconcileReplicaSetAC(ctx, d, mrs.Spec.DbCommonSpec, lastMongodbConfig, mrs.Name, rs, caFilePath, internalClusterPath, nil, log)
 		},
 		log,
 	)
 	if err != nil && !isRecovering {
 		return err
+	}
+
+	reconcileResult, err := ReconcileLogRotateSetting(conn, mrs.Spec.Agent, log)
+	if !reconcileResult.IsOK() {
+		return xerrors.Errorf("failed to configure logrotation for MongoDBMultiCluster RS, err: %w", err)
 	}
 
 	if additionalReconciliationRequired {

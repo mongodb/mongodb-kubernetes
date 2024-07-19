@@ -331,6 +331,7 @@ func (d Deployment) AddMonitoring(log *zap.SugaredLogger, tls bool, caFilePath s
 
 			monitoringVersion["additionalParams"] = additionalParams
 		}
+
 	}
 	d.setMonitoringVersions(monitoringVersions)
 }
@@ -1074,17 +1075,18 @@ func (d Deployment) addBackup(log *zap.SugaredLogger) {
 	backupVersions := d.getBackupVersions()
 	for _, p := range d.getProcesses() {
 		found := false
+		var backupVersion map[string]interface{}
 		for _, b := range backupVersions {
-			backup := b.(map[string]interface{})
-			if backup["hostname"] == p.HostName() {
+			backupVersion = b.(map[string]interface{})
+			if backupVersion["hostname"] == p.HostName() {
 				found = true
 				break
 			}
 		}
-		if !found {
-			backupVersions = append(backupVersions,
-				map[string]interface{}{"hostname": p.HostName(), "name": BackupAgentDefaultVersion})
 
+		if !found {
+			backupVersion = map[string]interface{}{"hostname": p.HostName(), "name": BackupAgentDefaultVersion}
+			backupVersions = append(backupVersions, backupVersion)
 			log.Debugw("Added backup agent configuration", "host", p.HostName())
 		}
 	}

@@ -447,7 +447,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
-			return ReconcileReplicaSetAC(ctx, d, replicaSet.Processes, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.Name, replicaSet, caFilePath, internalClusterPath, &p, log)
+			return ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.Name, replicaSet, caFilePath, internalClusterPath, &p, log)
 		},
 		log,
 	)
@@ -458,6 +458,11 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 
 	if err := om.WaitForReadyState(conn, processNames, isRecovering, log); err != nil {
 		return workflow.Failed(err)
+	}
+
+	reconcileResult, _ := ReconcileLogRotateSetting(conn, rs.Spec.Agent, log)
+	if !reconcileResult.IsOK() {
+		return reconcileResult
 	}
 
 	if additionalReconciliationRequired {

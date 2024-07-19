@@ -928,6 +928,15 @@ class KubernetesTester(object):
         return response.json()
 
     @staticmethod
+    def get_backup_config(group_id=None):
+        if group_id is None:
+            group_id = KubernetesTester.get_om_group_id()
+        url = build_backup_config_endpoint(KubernetesTester.get_om_base_url(), group_id)
+        response = KubernetesTester.om_request("get", url)
+
+        return response.json()
+
+    @staticmethod
     def put_automation_config(config):
         url = build_automation_config_endpoint(KubernetesTester.get_om_base_url(), KubernetesTester.get_om_group_id())
         response = KubernetesTester.om_request("put", url, config)
@@ -1498,6 +1507,10 @@ def build_automation_config_endpoint(base_url, group_id):
 
 def build_monitoring_config_endpoint(base_url, group_id):
     return "{}/api/public/v1.0/groups/{}/automationConfig/monitoringAgentConfig".format(base_url, group_id)
+
+
+def build_backup_config_endpoint(base_url, group_id):
+    return "{}/api/public/v1.0/groups/{}/automationConfig/backupAgentConfig".format(base_url, group_id)
 
 
 def build_hosts_endpoint(base_url, group_id):

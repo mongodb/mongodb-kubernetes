@@ -438,6 +438,14 @@ class OMTester(object):
         json = self.om_request("get", f"/groups/{self.context.project_id}/automationConfig").json()
         return AutomationConfigTester(json, **kwargs)
 
+    def get_backup_config(self) -> List:
+        return self.om_request("get", f"/groups/{self.context.project_id}/automationConfig/backupAgentConfig").json()
+
+    def get_monitoring_config(self) -> List:
+        return self.om_request(
+            "get", f"/groups/{self.context.project_id}/automationConfig/monitoringAgentConfig"
+        ).json()
+
     def api_read_backup_configs(self) -> List:
         return self.om_request("get", f"/groups/{self.context.project_id}/backupConfigs").json()["results"]
 

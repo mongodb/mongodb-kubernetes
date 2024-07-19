@@ -2,12 +2,22 @@
 <!-- Next Release -->
 # MongoDB Enterprise Kubernetes Operator 1.27.0
 
+## New Features
+
+* Added Support for enabling LogRotation for MongoDB processes, MonitoringAgent and BackupAgent. More can be found in the following [documentation](LINK TO DOCS). 
+  * `spec.agent.mongod.logRotation` to configure the mongoDB processes
+  * `spec.agent.mongod.auditLogRotation` to configure the mongoDB processes audit logs
+  * `spec.agent.backupAgent.LogRotation` to configure the backup agent
+  * `spec.agent.monitoringAgent.LogRotation` to configure the backup agent
+  * Please Note: For shardedCluster we only support configuring logRotation under `spec.Agent` 
+  and not per process type (mongos, configsrv etc.) 
+
 ## Bug Fixes
 
-* **Agent** launcher: under some resync scenarios we can have corrupted journal data in `/journal`. 
-The agent now makes sure that there are not conflicting journal data and prioritizes the data from `/data/journal`.
-  * To deactivate this behaviour set the environment variable in the operator `MDB_CLEAN_JOURNAL` 
-    to any other value than 1. 
+* **Agent** launcher: under some resync scenarios we can have corrupted journal data in `/journal`.
+  The agent now makes sure that there are not conflicting journal data and prioritizes the data from `/data/journal`.
+    * To deactivate this behaviour set the environment variable in the operator `MDB_CLEAN_JOURNAL`
+      to any other value than 1.
 
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.26.0

@@ -125,6 +125,7 @@ mongodbLegacyAppDb:
   name: mongodb-enterprise-appdb-database-ubi
   repo: quay.io/mongodb
 
+# This is used by AppDB and by static containers to determine the image that the operator uses for databases.
 mongodb:
   name: mongodb-enterprise-server
   repo: quay.io/mongodb
