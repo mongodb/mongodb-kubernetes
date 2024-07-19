@@ -11,7 +11,11 @@ from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.operator import Operator
-from tests.conftest import member_cluster_clients
+from tests.conftest import (
+    assert_log_rotation_process,
+    member_cluster_clients,
+    setup_log_rotate_for_agents,
+)
 from tests.multicluster.conftest import cluster_spec_list
 
 MONGODB_PORT = 30000
@@ -38,6 +42,7 @@ def mongodb_multi(
     }
 
     resource["spec"]["additionalMongodConfig"] = additional_mongod_config
+    setup_log_rotate_for_agents(resource)
 
     # TODO: incorporate this into the base class.
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
@@ -147,6 +152,7 @@ def test_mongodb_options(mongodb_multi: MongoDBMulti):
         assert process["args2_6"]["systemLog"]["logAppend"]
         assert process["args2_6"]["operationProfiling"]["mode"] == "slowOp"
         assert process["args2_6"]["net"]["port"] == MONGODB_PORT
+        assert_log_rotation_process(process)
 
 
 @pytest.mark.e2e_multi_cluster_replica_set

@@ -7,7 +7,6 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
-	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -55,21 +54,4 @@ func CreateMongodProcessesWithLimitMulti(mrs mdbmultiv1.MongoDBMultiCluster, cer
 	}
 
 	return processes, nil
-}
-
-func CreateAppDBProcesses(set appsv1.StatefulSet, mongoType om.MongoType,
-	mdb omv1.AppDBSpec,
-) []om.Process {
-	hostnames, names := dns.GetDnsForStatefulSet(set, mdb.GetClusterDomain(), nil)
-	processes := make([]om.Process, len(hostnames))
-
-	if mongoType != om.ProcessTypeMongod {
-		panic("Dev error: Wrong process type passed!")
-	}
-
-	for idx, hostname := range hostnames {
-		processes[idx] = om.NewMongodProcessAppDB(names[idx], hostname, &mdb)
-	}
-
-	return processes
 }

@@ -5,6 +5,7 @@ import tempfile
 from typing import Callable, Dict, List, Optional
 
 import kubernetes
+import semver
 from kubernetes import client
 from kubernetes.client import ApiextensionsV1Api
 from kubetester import (
@@ -793,6 +794,54 @@ def official_operator(
         helm_options=helm_options,
         name=name,
     ).install()
+
+
+def setup_agent_config(agent, with_process_support):
+    log_rotate_config_for_process = {
+        "sizeThresholdMB": "100",
+        "percentOfDiskspace": "0.4",
+        "numTotal": 10,
+        "timeThresholdHrs": 1,
+        "numUncompressed": 2,
+    }
+
+    log_rotate_for_backup_monitoring = {"sizeThresholdMB": 100, "timeThresholdHrs": 10}
+
+    agent["backupAgent"] = {}
+    agent["monitoringAgent"] = {}
+
+    if with_process_support:
+        agent["mongod"] = {}
+        agent["mongod"]["logRotate"] = log_rotate_config_for_process
+        agent["mongod"]["auditlogRotate"] = log_rotate_config_for_process
+
+    agent["backupAgent"]["logRotate"] = log_rotate_for_backup_monitoring
+    agent["monitoringAgent"]["logRotate"] = log_rotate_for_backup_monitoring
+
+
+def setup_log_rotate_for_agents(resource, with_process_support=True):
+    if "agent" not in resource["spec"] or resource["spec"]["agent"] is None:
+        resource["spec"]["agent"] = {}
+    setup_agent_config(resource["spec"]["agent"], with_process_support)
+
+
+def assert_log_rotation_process(process, with_process_support=True):
+    if with_process_support:
+        _assert_log_rotation_process(process, "logRotate")
+        _assert_log_rotation_process(process, "auditLogRotate")
+
+
+def _assert_log_rotation_process(process, key):
+    assert process[key]["sizeThresholdMB"] == 100
+    assert process[key]["timeThresholdHrs"] == 1
+    assert process[key]["percentOfDiskspace"] == 0.4
+    assert process[key]["numTotal"] == 10
+    assert process[key]["numUncompressed"] == 2
+
+
+def assert_log_rotation_backup_monitoring(agent_config):
+    assert agent_config["logRotate"]["sizeThresholdMB"] == 100
+    assert agent_config["logRotate"]["timeThresholdHrs"] == 10
 
 
 def _read_multi_cluster_config_value(value: str) -> str:

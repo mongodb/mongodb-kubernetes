@@ -3,14 +3,17 @@ package om
 import (
 	"encoding/json"
 
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
 type BackupAgentTemplate struct {
-	Username      string `json:"username,omitempty"`
-	Password      string `json:"password,omitempty"`
-	SSLPemKeyFile string `json:"sslPEMKeyFile,omitempty"`
-	LdapGroupDN   string `json:"ldapGroupDN,omitempty"`
+	Username      string                                `json:"username,omitempty"`
+	Password      string                                `json:"password,omitempty"`
+	SSLPemKeyFile string                                `json:"sslPEMKeyFile,omitempty"`
+	LdapGroupDN   string                                `json:"ldapGroupDN,omitempty"`
+	LogRotate     mdbv1.LogRotateForBackupAndMonitoring `json:"logRotate,omitempty"`
 }
 
 type BackupAgentConfig struct {
@@ -29,6 +32,10 @@ func (bac *BackupAgentConfig) Apply() error {
 
 func (bac *BackupAgentConfig) SetAgentUserName(backupAgentSubject string) {
 	bac.BackupAgentTemplate.Username = backupAgentSubject
+}
+
+func (bac *BackupAgentConfig) SetLogRotate(logRotate mdbv1.LogRotateForBackupAndMonitoring) {
+	bac.BackupAgentTemplate.LogRotate = logRotate
 }
 
 func (bac *BackupAgentConfig) UnsetAgentUsername() {

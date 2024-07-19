@@ -9,6 +9,16 @@ import (
 	"strings"
 	"sync"
 
+	"golang.org/x/xerrors"
+
+	"github.com/blang/semver"
+
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
+	"k8s.io/apimachinery/pkg/api/equality"
+
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
+
 	"k8s.io/utils/ptr"
 
 	"github.com/r3labs/diff/v3"
@@ -39,7 +49,7 @@ type Connection interface {
 
 	// ReadUpdateDeployment reads Deployment from Ops Manager, applies the update function to it and pushes it back
 	ReadUpdateDeployment(depFunc func(Deployment) error, log *zap.SugaredLogger) error
-
+	ReadUpdateAgentsLogRotation(logRotateSetting mdbv1.AgentConfig, log *zap.SugaredLogger) error
 	ReadAutomationStatus() (*AutomationStatus, error)
 	ReadAutomationAgents(page int) (Paginated, error)
 	MarkProjectAsBackingDatabase(databaseType BackingDatabaseType) error
@@ -175,6 +185,84 @@ type HTTPOmConnection struct {
 	context *OMContext
 	once    sync.Once
 	client  *api.Client
+}
+
+func (oc *HTTPOmConnection) ReadUpdateAgentsLogRotation(logRotateSetting mdbv1.AgentConfig, log *zap.SugaredLogger) error {
+	// We don't have to wait for each step for the agent to reach goal state as setting logrotation does not require order
+	if logRotateSetting.Mongod.LogRotate == nil && logRotateSetting.MonitoringAgent.LogRotate == nil &&
+		logRotateSetting.BackupAgent.LogRotate == nil && logRotateSetting.Mongod.AuditLogRotate == nil {
+		return nil
+	}
+
+	automationConfig, err := oc.ReadAutomationConfig()
+	if err != nil {
+		return err
+	}
+
+	if len(automationConfig.Deployment.getProcesses()) > 0 && logRotateSetting.Mongod.LogRotate != nil {
+		omVersion, err := oc.OpsManagerVersion().Semver()
+		if err != nil {
+			log.Debugw("Failed to fetch OpsManager version: %s", err)
+			return nil
+		}
+
+		// We only support process configuration for OM larger than 7.0.4 or 6.0.24
+		if !(oc.OpsManagerVersion().IsCloudManager() || omVersion.GTE(semver.MustParse("7.0.4")) || omVersion.GTE(semver.MustParse("6.0.24"))) {
+			return xerrors.Errorf("configuring log rotation for mongod processes is supported only with Cloud Manager or Ops Manager with versions >= 7.0.4 or >= 6.0.24")
+		}
+
+		// We only retrieve the first process, since logRotation is configured the same for all processes
+		process := automationConfig.Deployment.getProcesses()[0]
+		if err = updateProcessLogRotateIfChanged(logRotateSetting.Mongod.LogRotate, process.GetLogRotate(), oc.UpdateProcessLogRotation); err != nil {
+			return err
+		}
+		if err = updateProcessLogRotateIfChanged(logRotateSetting.Mongod.AuditLogRotate, process.GetAuditLogRotate(), oc.UpdateAuditLogRotation); err != nil {
+			return err
+		}
+	}
+
+	if len(automationConfig.Deployment.getBackupVersions()) > 0 && logRotateSetting.BackupAgent.LogRotate != nil {
+		err = oc.ReadUpdateBackupAgentConfig(func(config *BackupAgentConfig) error {
+			config.SetLogRotate(*logRotateSetting.BackupAgent.LogRotate)
+			return nil
+		}, log)
+	}
+
+	if len(automationConfig.Deployment.getMonitoringVersions()) > 0 && logRotateSetting.MonitoringAgent.LogRotate != nil {
+		err = oc.ReadUpdateMonitoringAgentConfig(func(config *MonitoringAgentConfig) error {
+			config.SetLogRotate(*logRotateSetting.MonitoringAgent.LogRotate)
+			return nil
+		}, log)
+	}
+
+	return err
+}
+
+func updateProcessLogRotateIfChanged(logRotateSettingFromCRD *automationconfig.CrdLogRotate, logRotationSettingFromWire map[string]interface{}, updateLogRotationSetting func(logRotateSetting automationconfig.AcLogRotate) ([]byte, error)) error {
+	logRotationToSetInAC := automationconfig.ConvertCrdLogRotateToAC(logRotateSettingFromCRD)
+	if logRotationToSetInAC == nil {
+		return nil
+	}
+	toMap, err := maputil.StructToMap(logRotationToSetInAC)
+	if err != nil {
+		return err
+	}
+
+	// We only support setting the same log rotation for all agents for the same type the same rotation config
+	if equality.Semantic.DeepEqual(logRotationSettingFromWire, toMap) {
+		return nil
+	}
+
+	_, err = updateLogRotationSetting(*logRotationToSetInAC)
+	return err
+}
+
+func (oc *HTTPOmConnection) UpdateProcessLogRotation(logRotateSetting automationconfig.AcLogRotate) ([]byte, error) {
+	return oc.put(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/systemLogRotateConfig", oc.GroupID()), logRotateSetting)
+}
+
+func (oc *HTTPOmConnection) UpdateAuditLogRotation(logRotateSetting automationconfig.AcLogRotate) ([]byte, error) {
+	return oc.put(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/auditLogRotateConfig", oc.GroupID()), logRotateSetting)
 }
 
 func (oc *HTTPOmConnection) GetAgentAuthMode() (string, error) {

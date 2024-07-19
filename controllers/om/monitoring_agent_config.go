@@ -3,6 +3,7 @@ package om
 import (
 	"encoding/json"
 
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
@@ -12,10 +13,11 @@ type MonitoringAgentConfig struct {
 }
 
 type MonitoringAgentTemplate struct {
-	Username      string `json:"username,omitempty"`
-	Password      string `json:"password,omitempty"`
-	SSLPemKeyFile string `json:"sslPEMKeyFile,omitempty"`
-	LdapGroupDN   string `json:"ldapGroupDN,omitempty"`
+	Username      string                                `json:"username,omitempty"`
+	Password      string                                `json:"password,omitempty"`
+	SSLPemKeyFile string                                `json:"sslPEMKeyFile,omitempty"`
+	LdapGroupDN   string                                `json:"ldapGroupDN,omitempty"`
+	LogRotate     mdbv1.LogRotateForBackupAndMonitoring `json:"logRotate,omitempty"`
 }
 
 func (m *MonitoringAgentConfig) Apply() error {
@@ -70,6 +72,10 @@ func (m *MonitoringAgentConfig) SetLdapGroupDN(ldapGroupDn string) {
 
 func (m *MonitoringAgentConfig) UnsetLdapGroupDN() {
 	m.MonitoringAgentTemplate.LdapGroupDN = util.MergoDelete
+}
+
+func (m *MonitoringAgentConfig) SetLogRotate(logRotateConfig mdbv1.LogRotateForBackupAndMonitoring) {
+	m.MonitoringAgentTemplate.LogRotate = logRotateConfig
 }
 
 func BuildMonitoringAgentConfigFromBytes(jsonBytes []byte) (*MonitoringAgentConfig, error) {

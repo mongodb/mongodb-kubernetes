@@ -3,6 +3,8 @@ package om
 import (
 	"encoding/json"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
+
 	"github.com/google/go-cmp/cmp"
 
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -18,7 +20,8 @@ import (
 // and constructs structs to make use of go's type safety
 // Dev notes: actually, this object is just a wrapper for the `Deployment` object which is received from Ops Manager,
 // and it's not equal to the AutomationConfig object from mms! It contains some transient struct fields for easier
-// configuration which are merged into the `Deployment` object before sending it back to Ops Manager
+// configuration which are merged into the `Deployment` object before sending it back to Ops Manager.
+// As of right now only support configuring LogRotate for monitoring and backup via dedicated endpoints.
 type AutomationConfig struct {
 	Auth       *Auth
 	AgentSSL   *AgentSSL
@@ -119,12 +122,7 @@ func isEqualAfterModification(changeDeploymentFunc func(Deployment) error, deplo
 		return false, err
 	}
 
-	deploymentWithoutTypes := map[string]interface{}{}
-	b, err := json.Marshal(deployment)
-	if err != nil {
-		return false, err
-	}
-	err = json.Unmarshal(b, &deploymentWithoutTypes)
+	deploymentWithoutTypes, err := maputil.StructToMap(deployment)
 	if err != nil {
 		return false, err
 	}

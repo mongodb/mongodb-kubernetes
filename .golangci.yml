@@ -31,7 +31,7 @@ linters:
 
 run:
   modules-download-mode: mod
-  # timeout for analysis, e.g. 30s, 5m, default is 1m
+  # timeout for analysis, e.g., 30s, 5m, default is 1m
   timeout: 5m
-  # default concurrency is a available CPU number
+  # default concurrency is an available CPU number
   concurrency: 4

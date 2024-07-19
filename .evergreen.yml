@@ -1025,7 +1025,7 @@ tasks:
   commands:
     - func: "e2e_test"
 
-- name: e2e_om_ops_manager_backup_delete_sts
+- name: e2e_om_ops_manager_backup_delete_sts_and_log_rotation
   tags: ["patch-run"]
   commands:
     - func: "e2e_test"
@@ -1226,7 +1226,7 @@ tasks:
   commands:
     - func: "e2e_test"
 
-- name: e2e_sharded_cluster_mongod_options
+- name: e2e_sharded_cluster_mongod_options_and_log_rotation
   tags: ["patch-run"]
   commands:
     - func: "e2e_test"
@@ -2088,7 +2088,7 @@ task_groups:
     - e2e_replica_set_readiness_probe
     - e2e_replica_set_update_delete_parallel
     - e2e_sharded_cluster_scale_shards
-    - e2e_sharded_cluster_mongod_options
+    - e2e_sharded_cluster_mongod_options_and_log_rotation
     - e2e_tls_rs_external_access
     - e2e_replica_set_tls_require
     - e2e_replica_set_tls_certs_secret_prefix
@@ -2288,7 +2288,7 @@ task_groups:
     - e2e_om_ops_manager_enable_local_mode_running_om
     - e2e_om_localmode_multiple_pv
     - e2e_om_weak_password
-    - e2e_om_ops_manager_backup_delete_sts
+    - e2e_om_ops_manager_backup_delete_sts_and_log_rotation
     - e2e_om_ops_manager_backup_tls
     - e2e_om_ops_manager_backup_s3_tls
     - e2e_om_ops_manager_backup_tls_custom_ca
@@ -2343,7 +2343,7 @@ task_groups:
     - e2e_om_ops_manager_https_enabled_prefix
     - e2e_om_ops_manager_enable_local_mode_running_om
     - e2e_om_weak_password
-    - e2e_om_ops_manager_backup_delete_sts
+    - e2e_om_ops_manager_backup_delete_sts_and_log_rotation
     - e2e_om_ops_manager_backup_tls
     - e2e_om_ops_manager_backup_s3_tls
     - e2e_om_ops_manager_backup_tls_custom_ca
@@ -2387,7 +2387,7 @@ task_groups:
     - e2e_om_ops_manager_enable_local_mode_running_om
     - e2e_om_localmode_multiple_pv
     - e2e_om_weak_password
-    - e2e_om_ops_manager_backup_delete_sts
+    - e2e_om_ops_manager_backup_delete_sts_and_log_rotation
     - e2e_om_ops_manager_backup_light
     - e2e_om_ops_manager_backup_tls
     - e2e_om_ops_manager_backup_s3_tls
@@ -2427,7 +2427,7 @@ task_groups:
     - e2e_om_external_connectivity
     - e2e_om_jvm_params
     - e2e_om_weak_password
-    - e2e_om_ops_manager_backup_delete_sts
+    - e2e_om_ops_manager_backup_delete_sts_and_log_rotation
     - e2e_om_ops_manager_backup_light
     - e2e_om_ops_manager_backup_tls
     - e2e_om_ops_manager_backup_s3_tls

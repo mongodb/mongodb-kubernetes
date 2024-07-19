@@ -11,10 +11,7 @@ sudo sysctl -w fs.inotify.max_user_instances=8192
 ARCH=${1-"amd64"}
 
 download_kind() {
-  echo "Downloading kind..."
-  curl -s -o ./kind -L https://kind.sigs.k8s.io/dl/v0.19.0/kind-linux-"${ARCH}"
-  chmod +x ./kind
-  sudo mv ./kind /usr/local/bin/kind
+  scripts/evergreen/setup_kind.sh /usr/local
 }
 
 download_curl() {

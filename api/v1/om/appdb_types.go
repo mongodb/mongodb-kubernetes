@@ -56,12 +56,12 @@ type AppDBSpec struct {
 	AdditionalMongodConfig *mdbv1.AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
 
 	// specify configuration like startup flags and automation config settings for the AutomationAgent and MonitoringAgent
-	AutomationAgent mdbv1.AgentConfigAppDBAutomation `json:"agent,omitempty"`
+	AutomationAgent mdbv1.AgentConfig `json:"agent,omitempty"`
 
 	// Specify configuration like startup flags just for the MonitoringAgent.
 	// These take precedence over
 	// the flags set in AutomationAgent
-	MonitoringAgent mdbv1.AgentConfig `json:"monitoringAgent,omitempty"`
+	MonitoringAgent mdbv1.MonitoringAgentConfig `json:"monitoringAgent,omitempty"`
 	ConnectionSpec  `json:",inline"`
 
 	// PasswordSecretKeyRef contains a reference to the secret which contains the password
@@ -96,6 +96,10 @@ type AppDBSpec struct {
 	Topology string `json:"topology,omitempty"`
 	// +optional
 	ClusterSpecList []mdbv1.ClusterSpecItem `json:"clusterSpecList,omitempty"`
+}
+
+func (m *AppDBSpec) GetAgentConfig() mdbv1.AgentConfig {
+	return m.AutomationAgent
 }
 
 func (m *AppDBSpec) GetAgentLogLevel() mdbcv1.LogLevel {

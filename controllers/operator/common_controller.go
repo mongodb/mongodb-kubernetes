@@ -1065,9 +1065,9 @@ type PrometheusConfiguration struct {
 	prometheusCertHash string
 }
 
-func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, processes []om.Process, spec mdbv1.DbCommonSpec, lastMongodConfig map[string]interface{}, resourceName string, rs om.ReplicaSetWithProcesses, caFilePath string, internalClusterPath string, pc *PrometheusConfiguration, log *zap.SugaredLogger) error {
+func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCommonSpec, lastMongodConfig map[string]interface{}, resourceName string, rs om.ReplicaSetWithProcesses, caFilePath string, internalClusterPath string, pc *PrometheusConfiguration, log *zap.SugaredLogger) error {
 	// it is not possible to disable internal cluster authentication once enabled
-	if d.ExistingProcessesHaveInternalClusterAuthentication(processes) && spec.Security.GetInternalClusterAuthenticationMode() == "" {
+	if d.ExistingProcessesHaveInternalClusterAuthentication(rs.Processes) && spec.Security.GetInternalClusterAuthenticationMode() == "" {
 		return xerrors.Errorf("cannot disable x509 internal cluster authentication")
 	}
 
@@ -1090,4 +1090,11 @@ func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, processes []om.
 	}
 
 	return nil
+}
+
+func ReconcileLogRotateSetting(conn om.Connection, agentConfig mdbv1.AgentConfig, log *zap.SugaredLogger) (workflow.Status, error) {
+	if err := conn.ReadUpdateAgentsLogRotation(agentConfig, log); err != nil {
+		return workflow.Failed(err), err
+	}
+	return workflow.OK(), nil
 }
