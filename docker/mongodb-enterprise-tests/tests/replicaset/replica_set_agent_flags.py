@@ -11,41 +11,48 @@ from tests.pod_logs import (
     get_all_log_types,
 )
 
+custom_agent_log_path = "/var/log/mongodb-mms-automation/customLogFile"
+custom_readiness_log_path = "/var/log/mongodb-mms-automation/customReadinessLogFile"
+
 
 @fixture(scope="module")
 def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(find_fixture("replica-set-basic.yaml"), namespace=namespace)
 
     resource.set_version(ensure_ent_version(custom_mdb_version))
-
     create_or_update(resource)
     return resource
 
 
-@mark.e2e_replica_set_agent_flags
+@mark.e2e_replica_set_agent_flags_and_readinessProbe
 def test_replica_set(replica_set: MongoDB):
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 
-@mark.e2e_replica_set_agent_flags
+@mark.e2e_replica_set_agent_flags_and_readinessProbe
 def test_log_types_with_default_automation_log_file(replica_set: MongoDB):
     assert_pod_log_types(replica_set, get_all_default_log_types())
 
 
-@mark.e2e_replica_set_agent_flags
+@mark.e2e_replica_set_agent_flags_and_readinessProbe
 def test_set_custom_log_file(replica_set: MongoDB):
     replica_set.load()
     replica_set["spec"]["agent"] = {
         "startupOptions": {
-            "logFile": "/var/log/mongodb-mms-automation/customLogFile",
+            "logFile": custom_agent_log_path,
         }
+    }
+    replica_set["spec"]["agent"].setdefault("readinessProbe", {})
+    # LOG_FILE_PATH is an env var used by the readinessProbe to configure where we log to
+    replica_set["spec"]["agent"]["readinessProbe"] = {
+        "environmentVariables": {"LOG_FILE_PATH": custom_readiness_log_path}
     }
     create_or_update(replica_set)
 
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 
-@mark.e2e_replica_set_agent_flags
+@mark.e2e_replica_set_agent_flags_and_readinessProbe
 def test_replica_set_has_agent_flags(replica_set: MongoDB, namespace: str):
     cmd = [
         "/bin/sh",
@@ -61,12 +68,28 @@ def test_replica_set_has_agent_flags(replica_set: MongoDB, namespace: str):
         assert result != "0"
 
 
-@mark.e2e_replica_set_agent_flags
+@mark.e2e_replica_set_agent_flags_and_readinessProbe
+def test_log_readiness_probe_path_set_via_env_var(replica_set: MongoDB, namespace: str):
+    cmd = [
+        "/bin/sh",
+        "-c",
+        f"ls {custom_readiness_log_path}* | wc -l",
+    ]
+    for i in range(3):
+        result = KubernetesTester.run_command_in_pod_container(
+            f"replica-set-{i}",
+            namespace,
+            cmd,
+        )
+        assert result != "0"
+
+
+@mark.e2e_replica_set_agent_flags_and_readinessProbe
 def test_log_types_with_custom_automation_log_file(replica_set: MongoDB):
     assert_pod_log_types(replica_set, get_all_default_log_types())
 
 
-@mark.e2e_replica_set_agent_flags
+@mark.e2e_replica_set_agent_flags_and_readinessProbe
 def test_enable_audit_log(replica_set: MongoDB):
     additional_mongod_config = {
         "auditLog": {
@@ -81,7 +104,7 @@ def test_enable_audit_log(replica_set: MongoDB):
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 
-@mark.e2e_replica_set_agent_flags
+@mark.e2e_replica_set_agent_flags_and_readinessProbe
 def test_log_types_with_audit_enabled(replica_set: MongoDB):
     assert_pod_log_types(replica_set, get_all_log_types())
 

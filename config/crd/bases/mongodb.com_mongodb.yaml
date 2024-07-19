@@ -225,6 +225,13 @@ spec:
                             type: integer
                         type: object
                     type: object
+                  readinessProbe:
+                    properties:
+                      environmentVariables:
+                        additionalProperties:
+                          type: string
+                        type: object
+                    type: object
                   startupOptions:
                     additionalProperties:
                       type: string
@@ -561,6 +568,13 @@ spec:
                                 type: integer
                             type: object
                         type: object
+                      readinessProbe:
+                        properties:
+                          environmentVariables:
+                            additionalProperties:
+                              type: string
+                            type: object
+                        type: object
                       startupOptions:
                         additionalProperties:
                           type: string
@@ -888,6 +902,13 @@ spec:
                                 description: Number of hours after which this MongoDB
                                   Agent rotates the log file.
                                 type: integer
+                            type: object
+                        type: object
+                      readinessProbe:
+                        properties:
+                          environmentVariables:
+                            additionalProperties:
+                              type: string
                             type: object
                         type: object
                       startupOptions:
@@ -1455,6 +1476,13 @@ spec:
                                 description: Number of hours after which this MongoDB
                                   Agent rotates the log file.
                                 type: integer
+                            type: object
+                        type: object
+                      readinessProbe:
+                        properties:
+                          environmentVariables:
+                            additionalProperties:
+                              type: string
                             type: object
                         type: object
                       startupOptions:
