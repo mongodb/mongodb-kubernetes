@@ -1,0 +1,47 @@
+"""
+This file tests the SSDLC generation report. This file assumes it's been called from the project root
+"""
+
+import json
+import os
+from typing import Dict
+
+import pytest
+
+import generate_ssdlc_report
+
+
+def get_release() -> Dict:
+    with open("release.json") as release:
+        return json.load(release)
+
+
+def test_report_generation():
+    # Given
+    release = get_release()
+    current_version = release["mongodbOperator"]
+    current_directory = os.getcwd()
+
+    # When
+    generate_ssdlc_report.generate_ssdlc_report()
+
+    # Then
+    assert os.path.exists(f"{current_directory}/ssdlc-report/MEKO-{current_version}")
+    assert os.path.exists(f"{current_directory}/ssdlc-report/MEKO-{current_version}/Containerized MongoDB Agent")
+    assert os.listdir(f"{current_directory}/ssdlc-report/MEKO-{current_version}/Containerized MongoDB Agent") != []
+    assert os.path.exists(f"{current_directory}/ssdlc-report/MEKO-{current_version}/Containerized OpsManager")
+    assert os.listdir(f"{current_directory}/ssdlc-report/MEKO-{current_version}/Containerized OpsManager") != []
+    assert os.path.exists(f"{current_directory}/ssdlc-report/MEKO-{current_version}/Enterprise Kubernetes Operator")
+    assert os.listdir(f"{current_directory}/ssdlc-report/MEKO-{current_version}/Enterprise Kubernetes Operator") != []
+    assert os.path.exists(
+        f"{current_directory}/ssdlc-report/MEKO-{current_version}/SSDLC Containerized MongoDB Agent {current_version}.md"
+    )
+    assert os.path.exists(
+        f"{current_directory}/ssdlc-report/MEKO-{current_version}/SSDLC Containerized MongoDB Enterprise Kubernetes Operator {current_version}.md"
+    )
+    assert os.path.exists(
+        f"{current_directory}/ssdlc-report/MEKO-{current_version}/SSDLC Containerized MongoDB Enterprise OpsManager {current_version}.md"
+    )
+    assert os.path.exists(
+        f"{current_directory}/ssdlc-report/MEKO-{current_version}/SSDLC MongoDB Enterprise Operator Testing Report {current_version}.md"
+    )
