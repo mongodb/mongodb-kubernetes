@@ -83,7 +83,7 @@ wait_for_operator_start() {
 create_image_registries_secret() {
   if ! kubectl cluster-info > /dev/null 2>&1; then
     echo "Cluster does not exist yet - skipping image creation"
-    return
+    exit 0
   fi
 
   secret_name="image-registries-secret"
