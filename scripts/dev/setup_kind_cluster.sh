@@ -8,6 +8,11 @@ source scripts/dev/set_env_context.sh
 # Do not edit !!!
 ####
 
+
+run_docker() {
+  docker run -d --restart=always -p "127.0.0.1:${reg_port}:5000" --name "${reg_name}" registry:2
+}
+
 function usage() {
   echo "Deploy local registry and create kind cluster configured to use this registry. Local Docker registry is deployed at localhost:5000.
 
@@ -63,8 +68,27 @@ docker network create kind || true
 reg_name='kind-registry'
 reg_port='5000'
 running="$(docker inspect -f '{{.State.Running}}' "${reg_name}" 2>/dev/null || true)"
+
+max_retries=3
+retry_count=0
+
+success=false
+
 if [ "${running}" != 'true' ]; then
-  docker run -d --restart=always -p "127.0.0.1:${reg_port}:5000" --name "${reg_name}" registry:2
+  while [ "$retry_count" -lt "$max_retries" ]; do
+    if run_docker; then
+      echo "Docker container started successfully."
+      success=true
+      break
+    else
+      echo "Docker run failed. Attempting to restart Docker service and retrying"
+    fi
+  done
+
+  if [ "$success" = false ]; then
+    echo "Docker run command failed after $max_retries attempts!"
+    exit 1
+  fi
 fi
 
 if [ "${recreate}" != 0 ]; then
