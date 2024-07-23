@@ -85,3 +85,4 @@ docker/mongodb-enterprise-tests/.test_identifiers*
 
 __debug_bin
 logs-debug/
+/ssdlc-report/*
