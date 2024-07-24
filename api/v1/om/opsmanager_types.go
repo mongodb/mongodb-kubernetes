@@ -137,6 +137,7 @@ type MongoDBOpsManagerSpec struct {
 	AdminSecret string    `json:"adminCredentials,omitempty"`
 	AppDB       AppDBSpec `json:"applicationDatabase"`
 
+	Logging *Logging `json:"logging,omitempty"`
 	// Custom JVM parameters passed to the Ops Manager JVM
 	// +optional
 	JVMParams []string `json:"jvmParameters,omitempty"`
@@ -179,6 +180,14 @@ type MongoDBOpsManagerSpec struct {
 	// then clusterSpecList field is mandatory and at least one member cluster has to be specified.
 	// +optional
 	OpsManagerURL string `json:"opsManagerURL,omitempty"`
+}
+
+type Logging struct {
+	// LogBackAccessRef points at a ConfigMap/key with the logback access configuration file to mount on the Pod
+	LogBackAccessRef *mdbv1.ConfigMapRef `json:"LogBackAccessRef,omitempty"`
+
+	// LogBackRef points at a ConfigMap/key with the logback configuration file to mount on the Pod
+	LogBackRef *mdbv1.ConfigMapRef `json:"LogBackRef,omitempty"`
 }
 
 // ClusterSpecOMItem defines members cluster details for Ops Manager multi-cluster deployment.
@@ -404,6 +413,8 @@ type MongoDBOpsManagerBackup struct {
 	// Encryption settings
 	// +optional
 	Encryption *Encryption `json:"encryption,omitempty"`
+
+	Logging *Logging `json:"logging,omitempty"`
 }
 
 // MongoDBOpsManagerBackupClusterSpecItem backup structure for overriding top-level backup definition in Ops Manager's clusterSpecList.

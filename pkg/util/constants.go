@@ -231,6 +231,14 @@ const (
 	OpsManagerPvcNameEtc        = "etc-ops-manager"
 	OpsManagerPvcMountPathEtc   = "/etc/mongodb-mms"
 
+	OpsManagerPvcLogBackNameVolume = "logback-volume"
+	OpsManagerPvcLogbackMountPath  = "/mongodb-ops-manager/conf-template/logback.xml"
+	OpsManagerPvcLogbackSubPath    = "logback.xml"
+
+	OpsManagerPvcLogBackAccessNameVolume = "logback-access-volume"
+	OpsManagerPvcLogbackAccessMountPath  = "/mongodb-ops-manager/conf-template/logback-access.xml"
+	OpsManagerPvcLogbackAccessSubPath    = "logback-access.xml"
+
 	// Ops Manager configuration properties
 	MmsCentralUrlPropKey = "mms.centralUrl"
 	MmsMongoUri          = "mongo.mongoUri"

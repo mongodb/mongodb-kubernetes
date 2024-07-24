@@ -969,6 +969,23 @@ spec:
                     items:
                       type: string
                     type: array
+                  logging:
+                    properties:
+                      LogBackAccessRef:
+                        description: LogBackAccessRef points at a ConfigMap/key with
+                          the logback access configuration file to mount on the Pod
+                        properties:
+                          name:
+                            type: string
+                        type: object
+                      LogBackRef:
+                        description: LogBackRef points at a ConfigMap/key with the
+                          logback configuration file to mount on the Pod
+                        properties:
+                          name:
+                            type: string
+                        type: object
+                    type: object
                   members:
                     description: Members indicate the number of backup daemon pods
                       to create.
@@ -1490,6 +1507,23 @@ spec:
                 items:
                   type: string
                 type: array
+              logging:
+                properties:
+                  LogBackAccessRef:
+                    description: LogBackAccessRef points at a ConfigMap/key with the
+                      logback access configuration file to mount on the Pod
+                    properties:
+                      name:
+                        type: string
+                    type: object
+                  LogBackRef:
+                    description: LogBackRef points at a ConfigMap/key with the logback
+                      configuration file to mount on the Pod
+                    properties:
+                      name:
+                        type: string
+                    type: object
+                type: object
               opsManagerURL:
                 description: |-
                   OpsManagerURL specified the URL with which the operator and AppDB monitoring agent should access Ops Manager instance (or instances).

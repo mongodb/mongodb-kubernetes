@@ -561,7 +561,12 @@ func (r *OpsManagerReconciler) reconcileOpsManager(ctx context.Context, reconcil
 	if err := r.replicateKMIPCAInMemberClusters(ctx, reconcilerHelper); err != nil {
 		return workflow.Failed(xerrors.Errorf("error in replicateKMIPCAInMemberClusters: %w", err)), nil
 	}
+
 	if err := r.replicateQueryableBackupTLSSecretInMemberClusters(ctx, reconcilerHelper); err != nil {
+		return workflow.Failed(xerrors.Errorf("error in replicateQueryableBackupTLSSecretInMemberClusters: %w", err)), nil
+	}
+
+	if err := r.replicateLogBackInMemberClusters(ctx, reconcilerHelper); err != nil {
 		return workflow.Failed(xerrors.Errorf("error in replicateQueryableBackupTLSSecretInMemberClusters: %w", err)), nil
 	}
 
@@ -1154,6 +1159,39 @@ func (r *OpsManagerReconciler) replicateTLSCAInMemberClusters(ctx context.Contex
 	}
 
 	return r.replicateConfigMapInMemberClusters(ctx, reconcileHelper, reconcileHelper.opsManager.Namespace, reconcileHelper.opsManager.Spec.GetOpsManagerCA())
+}
+
+func (r *OpsManagerReconciler) replicateLogBackInMemberClusters(ctx context.Context, reconcileHelper *OpsManagerReconcilerHelper) error {
+	if !reconcileHelper.opsManager.Spec.IsMultiCluster() || reconcileHelper.opsManager.Spec.Logging == nil {
+		return nil
+	}
+
+	if reconcileHelper.opsManager.Spec.Logging.LogBackRef != nil {
+		if err := r.replicateConfigMapInMemberClusters(ctx, reconcileHelper, reconcileHelper.opsManager.Namespace, reconcileHelper.opsManager.Spec.Logging.LogBackRef.Name); err != nil {
+			return err
+		}
+	}
+	if reconcileHelper.opsManager.Spec.Logging.LogBackAccessRef != nil {
+		if err := r.replicateConfigMapInMemberClusters(ctx, reconcileHelper, reconcileHelper.opsManager.Namespace, reconcileHelper.opsManager.Spec.Logging.LogBackAccessRef.Name); err != nil {
+			return err
+		}
+	}
+
+	if !reconcileHelper.opsManager.Spec.Backup.Enabled {
+		return nil
+	}
+
+	if reconcileHelper.opsManager.Spec.Backup.Logging.LogBackRef != nil {
+		if err := r.replicateConfigMapInMemberClusters(ctx, reconcileHelper, reconcileHelper.opsManager.Namespace, reconcileHelper.opsManager.Spec.Backup.Logging.LogBackRef.Name); err != nil {
+			return err
+		}
+	}
+	if reconcileHelper.opsManager.Spec.Backup.Logging.LogBackAccessRef != nil {
+		if err := r.replicateConfigMapInMemberClusters(ctx, reconcileHelper, reconcileHelper.opsManager.Namespace, reconcileHelper.opsManager.Spec.Backup.Logging.LogBackAccessRef.Name); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *OpsManagerReconciler) replicateAppDBTLSCAInMemberClusters(ctx context.Context, reconcileHelper *OpsManagerReconcilerHelper) error {

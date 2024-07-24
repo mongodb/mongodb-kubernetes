@@ -292,6 +292,11 @@ def get_issuer_ca_filepath():
 
 
 @fixture(scope="module")
+def custom_logback_file_path():
+    return _fixture("custom_logback.xml")
+
+
+@fixture(scope="module")
 def amazon_ca_1_filepath():
     return _fixture("amazon-ca-1.pem")
 
