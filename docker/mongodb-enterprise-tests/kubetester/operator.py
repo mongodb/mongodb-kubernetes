@@ -8,6 +8,8 @@ import requests
 from kubernetes import client
 from kubernetes.client import V1beta1CustomResourceDefinition, V1Deployment, V1Pod
 from kubernetes.client.rest import ApiException
+
+from kubetester import wait_for_webhook
 from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
 from kubetester.helm import (
     helm_install,
@@ -210,13 +212,8 @@ class Operator(object):
             logging.info("Operator spec: %s", pods[0].spec)
             logging.info("Operator status: %s", pods[0].status)
 
-    def wait_for_webhook(self):
-        time.sleep(20)
-        webhook_api = client.AdmissionregistrationV1Api()
-        client.CoreV1Api().read_namespaced_service("operator-webhook", self.namespace)
-
-        # make sure the validating_webhook is installed.
-        webhook_api.read_validating_webhook_configuration("mdbpolicy.mongodb.com")
+    def wait_for_webhook(self, retries=5, delay=5):
+        return wait_for_webhook(namespace=self.namespace, retries=retries, delay=delay)
 
     def disable_webhook(self):
         webhook_api = client.AdmissionregistrationV1Api()

@@ -16,7 +16,6 @@ from kubetester.kubetester import (
 from kubetester.mongodb import Phase, get_pods
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture
-
 from tests import test_logger
 from tests.conftest import is_multi_cluster
 from tests.opsmanager.conftest import ensure_ent_version

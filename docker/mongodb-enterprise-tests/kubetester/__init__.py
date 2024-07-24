@@ -523,3 +523,23 @@ def try_load(resource: CustomObject) -> bool:
             return False
 
     return True
+
+
+def wait_for_webhook(namespace, retries=5, delay=5, service_name="operator-webhook"):
+    webhook_api = client.AdmissionregistrationV1Api()
+    core_api = client.CoreV1Api()
+
+    for attempt in range(retries):
+        try:
+            core_api.read_namespaced_service(service_name, namespace)
+
+            # make sure the validating_webhook is installed.
+            webhook_api.read_validating_webhook_configuration("mdbpolicy.mongodb.com")
+            print("Webhook is ready.")
+            return True
+        except kubernetes.client.ApiException as e:
+            print(f"Attempt {attempt + 1} failed, webhook not ready. Sleeping: {delay}, error: {e}")
+            time.sleep(delay)
+
+    print("Webhook did not become ready in time.")
+    return False
