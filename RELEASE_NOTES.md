@@ -4,13 +4,28 @@
 
 ## New Features
 
-* Added Support for enabling LogRotation for MongoDB processes, MonitoringAgent and BackupAgent. More can be found in the following [documentation](LINK TO DOCS). 
+* **MongoDB** Added Support for enabling LogRotation for MongoDB processes, MonitoringAgent and BackupAgent. More can be found in the following [documentation](LINK TO DOCS). 
   * `spec.agent.mongod.logRotation` to configure the mongoDB processes
   * `spec.agent.mongod.auditLogRotation` to configure the mongoDB processes audit logs
-  * `spec.agent.backupAgent.LogRotation` to configure the backup agent
-  * `spec.agent.monitoringAgent.LogRotation` to configure the backup agent
+  * `spec.agent.backupAgent.logRotation` to configure the backup agent
+  * `spec.agent.monitoringAgent.logRotation` to configure the backup agent
+  * `spec.agent.readinessProbe.environmentVariables` to configure the environment variables the readinessProbe runs with.
+  That also applies to settings related to the logRotation,
+  the supported environment settings can be found [here](https://github.com/mongodb/mongodb-kubernetes-operator/blob/master/docs/logging.md#readinessprobe).
+  * the same applies for AppDB:
+    * you can configure AppDB via `spec.applicationDatabase.agent.mongod.logRotation`
   * Please Note: For shardedCluster we only support configuring logRotation under `spec.Agent` 
   and not per process type (mongos, configsrv etc.) 
+
+* **Opsmanager** Added support for replacing the logback.xml which configures general logging settings like logRotation
+  * `spec.logging.LogBackAccessRef` points at a ConfigMap/key with the logback access configuration file to mount on the Pod
+    * the key of the configmap has to be `logback-access.xml`
+  * `spec.logging.LogBackRef` points at a ConfigMap/key with the logback access configuration file to mount on the Pod
+    * the key of the configmap has to be `logback.xml` 
+
+## Deprecations
+* **AppDB** logRotate for appdb has been deprecated in favor for the new field
+  * this `spec.applicationDatabase.agent.logRotation` has been deprecated for `spec.applicationDatabase.agent.mongod.logRotation`
 
 ## Bug Fixes
 

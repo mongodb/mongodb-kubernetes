@@ -83,6 +83,8 @@ func backupOptions(memberCluster multicluster.MemberCluster, additionalOpts ...f
 		opts.Replicas = opsManager.Spec.Backup.Members
 		opts.AppDBConnectionSecretName = opsManager.AppDBMongoConnectionStringSecretName()
 
+		opts.LoggingConfiguration = opsManager.Spec.Backup.Logging
+
 		if opsManager.Spec.Backup != nil {
 			if opsManager.Spec.Backup.StatefulSetConfiguration != nil {
 				opts.StatefulSetSpecOverride = &opsManager.Spec.Backup.StatefulSetConfiguration.SpecWrapper.Spec

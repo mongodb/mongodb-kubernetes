@@ -1,12 +1,13 @@
 from typing import Optional
 
-from kubetester import MongoDB, create_or_update
+from kubetester import MongoDB, create_or_update, create_or_update_configmap
 from kubetester.certs import create_mongodb_tls_certs
+from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
-from tests.conftest import create_appdb_certs, is_multi_cluster
+from tests.conftest import create_appdb_certs, is_multi_cluster, get_member_cluster_api_client
 from tests.opsmanager.conftest import ensure_ent_version
 from tests.opsmanager.om_ops_manager_backup import (
     BLOCKSTORE_RS_NAME,
@@ -54,7 +55,14 @@ def ops_manager(
     resource.allow_mdb_rc_versions()
     resource["spec"]["security"]["tls"]["ca"] = ops_manager_issuer_ca_configmap
     resource["spec"]["applicationDatabase"]["security"]["tls"]["ca"] = app_db_issuer_ca_configmap
-
+    resource["spec"]["backup"]["logging"] = {
+        "LogBackAccessRef": {"name": "logback-access-config"},
+        "LogBackRef": {"name": "logback-config"},
+    }
+    resource["spec"]["logging"] = {
+        "LogBackAccessRef": {"name": "logback-access-config"},
+        "LogBackRef": {"name": "logback-config"},
+    }
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
@@ -90,6 +98,18 @@ def blockstore_replica_set(ops_manager, app_db_issuer_ca_configmap: str, blockst
 
 @mark.e2e_om_ops_manager_backup_tls
 class TestOpsManagerCreation:
+
+    def test_create_logback_xml_configmap(self, namespace: str, custom_logback_file_path: str,  central_cluster_client):
+        logback = open(custom_logback_file_path).read()
+        data = {"logback.xml": logback}
+        create_or_update_configmap(namespace, "logback-config", data, api_client=central_cluster_client)
+
+    def test_create_logback_access_xml_configmap(self, namespace: str,
+                                                 custom_logback_file_path: str, central_cluster_client):
+        logback = open(custom_logback_file_path).read()
+        data = {"logback-access.xml": logback}
+        create_or_update_configmap(namespace, "logback-access-config", data, api_client=central_cluster_client)
+
     def test_create_om(self, ops_manager: MongoDBOpsManager):
         ops_manager.om_status().assert_reaches_phase(Phase.Running)
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
@@ -121,6 +141,52 @@ class TestOpsManagerCreation:
         om_tester.assert_healthiness()
         om_tester.assert_oplog_stores([new_om_data_store(oplog_replica_set, "oplog1")])
         om_tester.assert_block_stores([new_om_data_store(blockstore_replica_set, "blockStore1")])
+
+    def test_logback_xml_mounted_correctly_om(self, ops_manager: MongoDBOpsManager, namespace):
+        cmd_normal = [
+            "/bin/sh",
+            "-c",
+            "cat /mongodb-ops-manager/conf/logback.xml",
+        ]
+        cmd_access = [
+            "/bin/sh",
+            "-c",
+            "cat /mongodb-ops-manager/conf/logback-access.xml",
+        ]
+
+        for member_cluster_name, pod_name in ops_manager.get_om_pod_names_in_member_clusters():
+            member_api_client = get_member_cluster_api_client(member_cluster_name)
+            result = KubernetesTester.run_command_in_pod_container(
+                pod_name, namespace, cmd_normal, container="mongodb-ops-manager", api_client=member_api_client
+            )
+            assert "<!--everything here is custom and DEBUG is set to INFO-->" in result
+            result = KubernetesTester.run_command_in_pod_container(
+                pod_name, namespace, cmd_access, container="mongodb-ops-manager", api_client=member_api_client
+            )
+            assert "<!--everything here is custom and DEBUG is set to INFO-->" in result
+
+    def test_logback_xml_mounted_correctly_backup(self, ops_manager: MongoDBOpsManager, namespace):
+        cmd_normal = [
+            "/bin/sh",
+            "-c",
+            "cat /mongodb-ops-manager/conf/logback.xml",
+        ]
+        cmd_access = [
+            "/bin/sh",
+            "-c",
+            "cat /mongodb-ops-manager/conf/logback-access.xml",
+        ]
+
+        for member_cluster_name, pod_name in ops_manager.backup_daemon_pod_names():
+            member_api_client = get_member_cluster_api_client(member_cluster_name)
+            result = KubernetesTester.run_command_in_pod_container(
+                pod_name, namespace, cmd_normal, container="mongodb-backup-daemon", api_client=member_api_client
+            )
+            assert "<!--everything here is custom and DEBUG is set to INFO-->" in result
+            result = KubernetesTester.run_command_in_pod_container(
+                pod_name, namespace, cmd_access, container="mongodb-backup-daemon", api_client=member_api_client
+            )
+            assert "<!--everything here is custom and DEBUG is set to INFO-->" in result
 
 
 @mark.e2e_om_ops_manager_backup_tls

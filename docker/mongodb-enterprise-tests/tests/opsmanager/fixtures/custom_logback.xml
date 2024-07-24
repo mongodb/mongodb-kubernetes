@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--everything here is custom and DEBUG is set to INFO-->
+<configuration>
+
+    <turboFilter class="com.xgen.cloud.logging._public.svc.LogLevelOverrideFilter" />
+
+    <contextListener class="ch.qos.logback.classic.jul.LevelChangePropagator">
+        <resetJUL>true</resetJUL>
+    </contextListener>
+
+    <conversionRule conversionWord="XF" converterClass="com.xgen.cloud.common.util._public.logging.MDCFormatConverter"/>
+    <conversionRule conversionWord="caller" converterClass="com.xgen.svc.mms.util.logger.CallerConverter"/>
+
+    <variable scope="context" name="marker" value="%replace(marker=%marker ){'marker= ', ''}"/>
+
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${log_path}.log</file>
+        <encoder class="com.xgen.svc.mms.util.logger.HeaderPatternLayoutEncoder$Classic">
+            <pattern>
+                %d{"yyyy-MM-dd'T'HH:mm:ss.SSSZ"} [%thread] %XF{groupId, "gid:%s "}%XF{jobId, "jobId:%s "}%XF{planId, "planId:%s "}%-5level ${marker}%logger [%caller] - %msg%n
+            </pattern>
+        </encoder>
+        <!-- Rollover the logs once per day, keep 30 days, compressed -->
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${log_path}.%d{yyyyMMdd}.log.gz</fileNamePattern>
+            <maxHistory>10</maxHistory>
+        </rollingPolicy>
+    </appender>
+
+    <logger name="com.xgen.svc.brs" level="INFO"/>
+    <logger name="backup.assignment" level="INFO"/>
+    <logger name="backup.clusterjobs" level="INFO"/>
+    <logger name="backup.groom" level="INFO"/>
+    <logger name="backup.jobs" level="INFO"/>
+    <logger name="com.xgen.cloud" level="INFO"/>
+    <logger name="com.xgen.cloud.brs" level="INFO"/>
+
+    <!--Turn off NDS and serverless logs here. -->
+    <logger name="com.xgen.cloud.nds" level="OFF"/>
+    <logger name="com.xgen.svc.nds" level="OFF"/>
+
+    <logger name="com.xgen.svc" level="INFO"/>
+    <logger name="org.quartz.core" level="INFO"/>
+    <logger name="com.xgen.module" level="INFO"/>
+
+    <logger name="com.xgen.cloud.brs.core._private.dao.PhysicalMachineDao" level="WARN"/>
+    <logger name="org.eclipse.jetty.server" level="WARN"/>
+
+    <logger name="com.xgen.cloud.user._private.dao.UserDao" level="ERROR"/>
+    <logger name="com.xgen.cloud.common.jackson._public.CustomJacksonJsonProvider" level="ERROR"/>
+
+    <logger name="dev.morphia.mapping.MappedField" level="ERROR" />
+    <logger name="freemarker.cache" level="ERROR"/>
+    <logger name="httpclient.wire.content" level="ERROR"/>
+    <logger name="httpclient.wire.header" level="ERROR"/>
+    <logger name="org.apache.commons.httpclient" level="ERROR"/>
+    <logger name="org.eclipse.jetty" level="ERROR"/>
+    <logger name="org.eclipse.jetty.util.UrlEncoded" level="ERROR"/>
+    <logger name="org.eclipse.jetty.servlet.ServletHandler" level="ERROR"/>
+    <logger name="org.eclipse.jetty.util.LeakDetector" level="WARN"/>
+    <logger name="org.eclipse.jetty.io.LeakTrackingByteBufferPool" level="WARN"/>
+
+
+    <!-- Everything not mentioned above is logged at WARN -->
+    <root level="WARN">
+        <appender-ref ref="FILE"/>
+    </root>
+
+</configuration>

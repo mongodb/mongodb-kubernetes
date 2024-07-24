@@ -8,7 +8,7 @@ from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
-from tests.conftest import is_multi_cluster
+from tests.conftest import assert_log_rotation_process, is_multi_cluster
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 OM_CONF_PATH_DIR = "mongodb-ops-manager/conf/mms.conf"
@@ -114,24 +114,47 @@ class TestOpsManagerCreationWithJvmParams:
             assert "-Xms4352m" in java_params
 
     def test_om_log_rotate_configured(self, ops_manager: MongoDBOpsManager):
-        for api_client, pod in ops_manager.read_appdb_pods():
-            cmd = ["/bin/sh", "-c", "ls " + APPDB_LOG_DIR]
+        processes = ops_manager.get_automation_config_tester().automation_config["processes"]
+        expected = {
+            "timeThresholdHrs": 1,
+            "numUncompressed": 2,
+            "numTotal": 10,
+            "sizeThresholdMB": 0.0001,
+            "percentOfDiskspace": 10,
+        }
+        for p in processes:
+            assert p["logRotate"] == expected
 
-            result = KubernetesTester.run_command_in_pod_container(
-                pod.metadata.name,
-                ops_manager.namespace,
-                cmd,
-                container="mongodb-agent",
-                api_client=api_client,
-            )
+    def test_update_appdb_log_rotation_keep_deprecated_fields(self, ops_manager):
+        # configuration over mongod takes precedence over deprecated logRotation directly under agent
+        ops_manager["spec"]["applicationDatabase"]["agent"]["mongod"] = {
+            "logRotate": {
+                "sizeThresholdMB": "1",
+                "percentOfDiskspace": "1",
+                "numTotal": 1,
+                "timeThresholdHrs": 1,
+                "numUncompressed": 1,
+            }
+        }
 
-            found = False
-            for row in result.split("\n"):
-                if "mongodb.log" in row and is_date(row):
-                    found = True
-                    break
+        create_or_update(ops_manager)
+        ops_manager.backup_status().assert_reaches_phase(
+            Phase.Pending,
+            timeout=900,
+            msg_regexp="Oplog Store configuration is required for backup.*",
+        )
 
-            assert found
+    def test_om_log_rotate_has_changed(self, ops_manager: MongoDBOpsManager):
+        processes = ops_manager.get_automation_config_tester().automation_config["processes"]
+        expected = {
+            "timeThresholdHrs": 1,
+            "numUncompressed": 1,
+            "numTotal": 1,
+            "sizeThresholdMB": 1,
+            "percentOfDiskspace": 1,
+        }
+        for p in processes:
+            assert p["logRotate"] == expected
 
     def parse_java_params(self, conf: str, opts_key: str) -> str:
         java_params = ""

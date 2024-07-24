@@ -107,3 +107,5 @@ require (
 //   go mod edit -replace github.com/mongodb/mongodb-kubernetes-operator=github.com/mongodb/mongodb-kubernetes-operator@master
 
 go 1.22.0
+
+replace github.com/mongodb/mongodb-kubernetes-operator => github.com/mongodb/mongodb-kubernetes-operator v0.10.1-0.20240722095502-35e9ae1f85a6

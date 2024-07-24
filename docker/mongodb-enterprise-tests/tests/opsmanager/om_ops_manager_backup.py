@@ -7,6 +7,7 @@ from kubetester import (
     assert_pod_container_security_context,
     assert_pod_security_context,
     create_or_update,
+    create_or_update_configmap,
     create_or_update_secret,
     get_default_storage_class,
     run_periodically,
@@ -235,6 +236,11 @@ class TestOpsManagerCreation:
       Creates an Ops Manager instance with backup enabled. The OM is expected to get to 'Pending' state
       eventually as it will wait for oplog db to be created
     """
+
+    def test_create_access_logback_xml_configmap(self, namespace: str, custom_logback_file_path: str):
+        logback = open(custom_logback_file_path).read()
+        data = {"logback-access.xml": logback}
+        create_or_update_configmap(namespace, "logback-access-config", data)
 
     def test_create_om(
         self,
