@@ -2,6 +2,7 @@ from typing import Optional
 
 import pytest
 from kubernetes.client import ApiException
+from kubetester import wait_for_webhook
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.opsmanager import MongoDBOpsManager
@@ -12,6 +13,11 @@ from kubetester.opsmanager import MongoDBOpsManager
 
 def om_resource(namespace: str) -> MongoDBOpsManager:
     return MongoDBOpsManager.from_yaml(yaml_fixture("om_validation.yaml"), namespace=namespace)
+
+
+@pytest.mark.e2e_om_appdb_validation
+def test_wait_for_webhook(namespace: str):
+    wait_for_webhook(namespace)
 
 
 @pytest.mark.e2e_om_appdb_validation

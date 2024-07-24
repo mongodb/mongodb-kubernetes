@@ -1,7 +1,8 @@
+import time
+
 import pytest
-from kubernetes import client
 from kubernetes.client.rest import ApiException
-from kubetester import MongoDB, create_or_update, read_service
+from kubetester import MongoDB, create_or_update, read_service, wait_for_webhook
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.opsmanager import MongoDBOpsManager
 from tests.olm.olm_test_commons import (
@@ -63,6 +64,11 @@ def test_operator_webhook_is_deleted_and_not_installed_anymore(namespace: str):
     with pytest.raises(ApiException) as e:
         read_service(namespace, "operator-webhook")
     assert e.value.status == 404
+
+
+@pytest.mark.e2e_olm_operator_upgrade
+def test_wait_for_webhook(namespace: str):
+    wait_for_webhook(namespace=namespace, service_name="mongodb-enterprise-operator-service")
 
 
 @pytest.mark.e2e_olm_operator_upgrade
