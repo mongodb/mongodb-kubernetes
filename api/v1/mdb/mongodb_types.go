@@ -528,6 +528,13 @@ type AgentLoggingMongodConfig struct {
 	SystemLog *automationconfig.SystemLog `json:"systemLog,omitempty"`
 }
 
+func (a *AgentLoggingMongodConfig) HasLoggingConfigured() bool {
+	if a.LogRotate != nil || a.AuditLogRotate != nil || a.SystemLog != nil {
+		return true
+	}
+	return false
+}
+
 type BackupAgent struct {
 	// +optional
 	// LogRotate configures log rotation for the BackupAgent processes

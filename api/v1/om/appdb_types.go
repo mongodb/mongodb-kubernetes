@@ -105,9 +105,9 @@ func (m *AppDBSpec) GetAgentConfig() mdbv1.AgentConfig {
 func (m *AppDBSpec) GetAgentLogLevel() mdbcv1.LogLevel {
 	agentLogLevel := mdbcv1.LogLevelInfo
 	if m.AutomationAgent.LogLevel != "" {
-		agentLogLevel = string(m.AutomationAgent.LogLevel)
+		agentLogLevel = mdbcv1.LogLevel(m.AutomationAgent.LogLevel)
 	}
-	return mdbcv1.LogLevel(agentLogLevel)
+	return agentLogLevel
 }
 
 func (m *AppDBSpec) GetAgentMaxLogFileDurationHours() int {

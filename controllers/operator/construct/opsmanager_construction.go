@@ -69,6 +69,7 @@ type OpsManagerStatefulSetOptions struct {
 	// backup daemon only
 	HeadDbPersistenceConfig *mdbv1.PersistenceConfig
 	Annotations             map[string]string
+	LoggingConfiguration    *omv1.Logging
 }
 
 type KmipClientConfiguration struct {
@@ -226,6 +227,8 @@ func OpsManagerStatefulSet(ctx context.Context, centralClusterSecretClient secre
 			return appsv1.StatefulSet{}, xerrors.Errorf("error reading queryable.pem key from secret %s/%s: %w", opsManager.Namespace, secretName, err)
 		}
 	}
+
+	opts.LoggingConfiguration = opsManager.Spec.Logging
 
 	omSts := statefulset.New(opsManagerStatefulSetFunc(opts))
 	var err error
@@ -655,6 +658,16 @@ func getNonPersistentOpsManagerVolumeMounts(volumes []corev1.Volume, volumeMount
 	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.OpsManagerPvcMountPathTmp, statefulset.WithSubPath(util.OpsManagerPvcNameTmp)))
 	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.OpsManagerPvcMountPathLogs, statefulset.WithSubPath(util.OpsManagerPvcNameLogs)))
 	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.OpsManagerPvcMountPathEtc, statefulset.WithSubPath(util.OpsManagerPvcNameEtc)))
+
+	if opts.LoggingConfiguration != nil && opts.LoggingConfiguration.LogBackRef != nil {
+		volumes = append(volumes, statefulset.CreateVolumeFromConfigMap(util.OpsManagerPvcLogBackNameVolume, opts.LoggingConfiguration.LogBackRef.Name))
+		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcLogBackNameVolume, util.OpsManagerPvcLogbackMountPath, statefulset.WithSubPath(util.OpsManagerPvcLogbackSubPath)))
+	}
+
+	if opts.LoggingConfiguration != nil && opts.LoggingConfiguration.LogBackAccessRef != nil {
+		volumes = append(volumes, statefulset.CreateVolumeFromConfigMap(util.OpsManagerPvcLogBackAccessNameVolume, opts.LoggingConfiguration.LogBackAccessRef.Name))
+		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcLogBackAccessNameVolume, util.OpsManagerPvcLogbackAccessMountPath, statefulset.WithSubPath(util.OpsManagerPvcLogbackAccessSubPath)))
+	}
 
 	// This content is used by the Ops Manager to download mongodbs. Mount it only if there's no downloads override (like in om_localmode-multiple-pv.yaml for example)
 	if !hasReleasesVolumeMount(opts) {
