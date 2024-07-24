@@ -3,12 +3,18 @@ from kubernetes import client
 from kubernetes.client.rest import ApiException
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
+from kubetester.operator import Operator
 from pytest import fixture
 
 
 @fixture(scope="function")
 def mdb(namespace: str) -> str:
     return MongoDB.from_yaml(yaml_fixture("role-validation-base.yaml"), namespace=namespace)
+
+
+@pytest.mark.e2e_mongodb_roles_validation_webhook
+def test_wait_for_webhook(namespace: str, default_operator: Operator):
+    default_operator.wait_for_webhook()
 
 
 # Basic testing for invalid empty values
