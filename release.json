@@ -130,7 +130,7 @@
       ],
       "opsManagerMapping": {
         "Description": "These are the agents from which we start supporting static containers.",
-        "cloud_manager": "13.19.0.8951-1",
+        "cloud_manager": "13.20.0.8995-1",
         "cloud_manager_tools": "100.9.5",
         "ops_manager": {
           "6.0.0": {

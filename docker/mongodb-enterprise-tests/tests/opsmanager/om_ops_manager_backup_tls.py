@@ -7,7 +7,11 @@ from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
-from tests.conftest import create_appdb_certs, is_multi_cluster, get_member_cluster_api_client
+from tests.conftest import (
+    create_appdb_certs,
+    get_member_cluster_api_client,
+    is_multi_cluster,
+)
 from tests.opsmanager.conftest import ensure_ent_version
 from tests.opsmanager.om_ops_manager_backup import (
     BLOCKSTORE_RS_NAME,
@@ -99,13 +103,14 @@ def blockstore_replica_set(ops_manager, app_db_issuer_ca_configmap: str, blockst
 @mark.e2e_om_ops_manager_backup_tls
 class TestOpsManagerCreation:
 
-    def test_create_logback_xml_configmap(self, namespace: str, custom_logback_file_path: str,  central_cluster_client):
+    def test_create_logback_xml_configmap(self, namespace: str, custom_logback_file_path: str, central_cluster_client):
         logback = open(custom_logback_file_path).read()
         data = {"logback.xml": logback}
         create_or_update_configmap(namespace, "logback-config", data, api_client=central_cluster_client)
 
-    def test_create_logback_access_xml_configmap(self, namespace: str,
-                                                 custom_logback_file_path: str, central_cluster_client):
+    def test_create_logback_access_xml_configmap(
+        self, namespace: str, custom_logback_file_path: str, central_cluster_client
+    ):
         logback = open(custom_logback_file_path).read()
         data = {"logback-access.xml": logback}
         create_or_update_configmap(namespace, "logback-access-config", data, api_client=central_cluster_client)
