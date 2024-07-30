@@ -82,28 +82,18 @@ def test_turn_tls_on_CLOUDP_189433(replica_set: MongoDB):
     Before updating the AutomationConfig, we need to ensure the operator pushed the wrong one to Ops Manager.
     """
 
-    def wait_for_ac_exists() -> bool:
-        ac = replica_set.get_automation_config_tester().automation_config
-        try:
-            _ = ac["ldap"]["transportSecurity"]
-            _ = ac["version"]
-            return True
-        except KeyError:
-            return False
-
-    wait_until(wait_for_ac_exists, timeout=200)
-    current_version = replica_set.get_automation_config_tester().automation_config["version"]
-
     def wait_for_ac_pushed() -> bool:
         ac = replica_set.get_automation_config_tester().automation_config
         try:
-            _ = ac["ldap"]["transportSecurity"]
-            new_version = ac["version"]
-            if new_version != current_version:
-                return True
+            transport_security = ac["ldap"]["transportSecurity"]
+            version = ac["version"]
+            if version < 4:
+                return False
+            if transport_security != "none":
+                return False
+            return True
         except KeyError:
             return False
-        return False
 
     wait_until(wait_for_ac_pushed, timeout=200)
 
