@@ -1368,7 +1368,7 @@ func (r *OpsManagerReconciler) prepareOpsManager(ctx context.Context, opsManager
 
 	cred, err := project.ReadCredentials(ctx, r.SecretClient, kube.ObjectKey(operatorNamespace(), APIKeySecretName), log)
 	if err != nil {
-		return workflow.Failed(err), nil
+		return workflow.Failed(xerrors.Errorf("failed to locate the api key secret. The error : %w", err)), nil
 	}
 
 	admin := r.omAdminProvider(centralURL, cred.PublicAPIKey, cred.PrivateAPIKey, ca)
