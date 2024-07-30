@@ -530,7 +530,7 @@ def image_config(
     It returns a dictionary with registries and S3 configuration."""
     args = {
         "quay_registry": "{}/{}{}".format(QUAY_REGISTRY_URL, name_prefix, image_name),
-        "ecr_registry_ubi": "268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi/{}{}".format(
+        "ecr_registry_ubi": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/{}{}".format(
             name_prefix, image_name
         ),
         "s3_bucket_http": "https://{}.s3.amazonaws.com/dockerfiles/{}{}".format(s3_bucket, name_prefix, image_name),
