@@ -900,6 +900,12 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             timeout=None,
             ignore_errors=False,
         ):
+            intermediate_events = (
+                # This can be an intermediate error, right before we check for this secret we create it.
+                # The cluster might just be slow
+                "failed to locate the api key secret",
+            )
+
             start_time = time.time()
             self.ops_manager.wait_for(
                 lambda s: in_desired_state(
@@ -910,6 +916,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
                     current_message=self.get_message(),
                     msg_regexp=msg_regexp,
                     ignore_errors=ignore_errors,
+                    intermediate_events=intermediate_events
                 ),
                 timeout,
                 should_raise=True,
