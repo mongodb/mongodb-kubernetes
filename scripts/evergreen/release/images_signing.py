@@ -1,6 +1,8 @@
 import os
+import random
 import subprocess
 import sys
+import time
 from typing import List, Optional
 
 import requests
@@ -10,6 +12,48 @@ from scripts.evergreen.release.base_logger import logger
 SIGNING_IMAGE_URI = os.environ.get(
     "SIGNING_IMAGE_URI", "artifactory.corp.mongodb.com/release-tools-container-registry-local/garasign-cosign"
 )
+
+RETRYABLE_ERRORS = [500, 502, 503, 504, 429, "timeout"]
+
+
+def is_retryable_error(stderr: str) -> bool:
+    """
+    Determines if the error message is retryable.
+
+    :param stderr: The standard error output from the subprocess.
+    :return: True if the error is retryable, False otherwise.
+    """
+    return any(str(error) in stderr for error in RETRYABLE_ERRORS)
+
+
+def run_command_with_retries(command, retries=3, base_delay=2):
+    """
+    Runs a subprocess command with retries and exponential backoff.
+
+    :param command: The command to run.
+    :param retries: Number of retries before failing.
+    :param base_delay: Base delay in seconds for exponential backoff.
+    :raises subprocess.CalledProcessError: If the command fails after retries.
+    """
+    for attempt in range(retries):
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, check=True)
+            logger.debug("Command executed successfully")
+            return result
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Attempt {attempt + 1} failed: {e.stderr}")
+            if is_retryable_error(e.stderr):
+                logger.error(f"Attempt {attempt + 1} failed with retryable error: {e.stderr}")
+                if attempt + 1 < retries:
+                    delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
+                    logger.info(f"Retrying in {delay:.2f} seconds...")
+                    time.sleep(delay)
+                else:
+                    logger.error(f"All {retries} attempts failed for command: {command}")
+                    raise
+            else:
+                logger.error(f"Non-retryable error occurred: {e.stderr}")
+                raise
 
 
 def mongodb_artifactory_login() -> None:
@@ -72,7 +116,7 @@ def get_image_digest(image_name: str) -> Optional[str]:
     digest_command.append(f"{transport_protocol}{image_name}")
 
     try:
-        result = subprocess.run(digest_command, capture_output=True, text=True, check=True)
+        result = run_command_with_retries(digest_command)
         digest = result.stdout.strip()
         return digest
     except subprocess.CalledProcessError as e:
@@ -142,7 +186,7 @@ def sign_image(repository: str, tag: str) -> None:
     command = build_cosign_docker_command(additional_args, cosign_command)
 
     try:
-        subprocess.run(command, check=True)
+        run_command_with_retries(command)
     except subprocess.CalledProcessError as e:
         # Fail the pipeline if signing fails
         logger.error(f"Failed to sign image {image}: {e.stderr}")
@@ -174,7 +218,7 @@ def verify_signature(repository: str, tag: str) -> bool:
     command = build_cosign_docker_command(additional_args, cosign_command)
 
     try:
-        subprocess.run(command, capture_output=True, text=True, check=True)
+        run_command_with_retries(command)
     except subprocess.CalledProcessError as e:
         # Fail the pipeline if verification fails
         logger.error(f"Failed to verify signature for image {image}: {e.stderr}")
