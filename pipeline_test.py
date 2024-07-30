@@ -1,4 +1,6 @@
 import os
+import subprocess
+import unittest
 from unittest.mock import patch
 
 import pytest
@@ -14,6 +16,7 @@ from pipeline import (
 from scripts.evergreen.release.agent_matrix import (
     get_supported_version_for_image_matrix_handling,
 )
+from scripts.evergreen.release.images_signing import run_command_with_retries
 
 release_json = {
     "supportedImages": {
@@ -147,3 +150,58 @@ def test_get_versions_to_rebuild_multiple_versions():
     for a in agents:
         actual_agents.append(a)
     assert actual_agents == expected_agents
+
+
+command = ["echo", "Hello World"]
+
+
+class TestRunCommandWithRetries(unittest.TestCase):
+
+    @patch("subprocess.run")
+    @patch("time.sleep", return_value=None)  # to avoid actual sleeping during tests
+    def test_successful_command(self, mock_sleep, mock_run):
+        # Mock a successful command execution
+        mock_run.return_value = subprocess.CompletedProcess(command, 0, stdout="Hello World", stderr="")
+
+        result = run_command_with_retries(command)
+        self.assertEqual(result.stdout, "Hello World")
+        mock_run.assert_called_once()
+        mock_sleep.assert_not_called()
+
+    @patch("subprocess.run")
+    @patch("time.sleep", return_value=None)  # to avoid actual sleeping during tests
+    def test_retryable_error(self, mock_sleep, mock_run):
+        # Mock a retryable error first, then a successful command execution
+        mock_run.side_effect = [
+            subprocess.CalledProcessError(500, command, stderr="500 Internal Server Error"),
+            subprocess.CompletedProcess(command, 0, stdout="Hello World", stderr="")
+        ]
+
+        result = run_command_with_retries(command)
+        self.assertEqual(result.stdout, "Hello World")
+        self.assertEqual(mock_run.call_count, 2)
+        mock_sleep.assert_called_once()
+
+    @patch("subprocess.run")
+    @patch("time.sleep", return_value=None)  # to avoid actual sleeping during tests
+    def test_non_retryable_error(self, mock_sleep, mock_run):
+        # Mock a non-retryable error
+        mock_run.side_effect = subprocess.CalledProcessError(1, command, stderr="1 Some Error")
+
+        with self.assertRaises(subprocess.CalledProcessError):
+            run_command_with_retries(command)
+
+        self.assertEqual(mock_run.call_count, 1)
+        mock_sleep.assert_not_called()
+
+    @patch("subprocess.run")
+    @patch("time.sleep", return_value=None)  # to avoid actual sleeping during tests
+    def test_all_retries_fail(self, mock_sleep, mock_run):
+        # Mock all attempts to fail with a retryable error
+        mock_run.side_effect = subprocess.CalledProcessError(500, command, stderr="500 Internal Server Error")
+
+        with self.assertRaises(subprocess.CalledProcessError):
+            run_command_with_retries(command, retries=3)
+
+        self.assertEqual(mock_run.call_count, 3)
+        self.assertEqual(mock_sleep.call_count, 2)
