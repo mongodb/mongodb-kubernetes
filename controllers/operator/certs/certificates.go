@@ -88,6 +88,11 @@ func VerifyTLSSecretForStatefulSet(secretData map[string][]byte, opts Options) (
 	data := append(crt, key...)
 
 	var additionalDomains []string
+	if len(opts.horizons) > 0 && len(opts.horizons) < opts.Replicas {
+		return "", xerrors.Errorf("less horizon configs than number for replicas this reconcile. Please make sure that "+
+			"enough horizon configs are configured as members are until the scale down has finished. "+
+			"Current number of replicas for this reconciliation: %d, number of horizons: %d", opts.Replicas, len(opts.horizons))
+	}
 	for i := range getPodNames(opts) {
 		additionalDomains = append(additionalDomains, GetAdditionalCertDomainsForMember(opts, i)...)
 	}

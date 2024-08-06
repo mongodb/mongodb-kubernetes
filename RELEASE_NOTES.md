@@ -24,6 +24,7 @@
     * the key of the configmap has to be `logback.xml` 
 
 ## Deprecations
+
 * **AppDB** logRotate for appdb has been deprecated in favor for the new field
   * this `spec.applicationDatabase.agent.logRotation` has been deprecated for `spec.applicationDatabase.agent.mongod.logRotation`
 
@@ -33,6 +34,9 @@
   The agent now makes sure that there are not conflicting journal data and prioritizes the data from `/data/journal`.
     * To deactivate this behaviour set the environment variable in the operator `MDB_CLEAN_JOURNAL`
       to any other value than 1.
+
+* **MongoDB**: remove panic when configuring shorter horizon config compared to number of members. Instead return a
+descriptive error.
 
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.26.0

@@ -3,6 +3,8 @@ package certs
 import (
 	"testing"
 
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+
 	"github.com/stretchr/testify/assert"
 )
 
@@ -71,4 +73,17 @@ EHE1zXjECRf87xR2aKbPUR+44bG/ILCbUypquP48GC+S6OqVF7utkXgF
 
 	_, err := VerifyTLSSecretForStatefulSet(secretData, Options{})
 	assert.NoError(t, err)
+}
+
+func TestVerifyTLSSecretForStatefulSetHorizonMemberDifference(t *testing.T) {
+	_, err := VerifyTLSSecretForStatefulSet(map[string][]byte{}, Options{
+		Replicas: 4,
+		horizons: []mdbv1.MongoDBHorizonConfig{
+			{"1": "a"},
+			{"2": "b"},
+			{"3": "c"},
+		},
+	})
+
+	assert.ErrorContains(t, err, "horizon configs")
 }
