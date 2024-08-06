@@ -8,7 +8,6 @@ import requests
 from kubernetes import client
 from kubernetes.client import V1beta1CustomResourceDefinition, V1Deployment, V1Pod
 from kubernetes.client.rest import ApiException
-
 from kubetester import wait_for_webhook
 from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
 from kubetester.helm import (

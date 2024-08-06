@@ -99,7 +99,7 @@ func GetDnsForStatefulSetReplicasSpecified(set appsv1.StatefulSet, clusterDomain
 	return GetDNSNames(set.Name, set.Spec.ServiceName, set.Namespace, clusterDomain, replicas, externalDomain)
 }
 
-// GetDnsNames returns hostnames and names of pods in stateful set, it's less preferable than "GetDnsForStatefulSet" and
+// GetDNSNames returns hostnames and names of pods in stateful set, it's less preferable than "GetDnsForStatefulSet" and
 // should be used only in situations when statefulset doesn't exist any more (the main example is when the mongodb custom
 // resource is being deleted - then the dependant statefulsets cannot be read any more as they get into Terminated state)
 func GetDNSNames(statefulSetName, service, namespace, clusterDomain string, replicas int, externalDomain *string) (hostnames, names []string) {
