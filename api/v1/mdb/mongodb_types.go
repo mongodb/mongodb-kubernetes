@@ -1537,6 +1537,7 @@ func (m *MongoDB) BuildConnectionString(username, password string, scheme connec
 		SetVersion(m.Spec.GetMongoDBVersion(nil)).
 		SetAuthenticationModes(m.Spec.GetSecurityAuthenticationModes()).
 		SetClusterDomain(m.Spec.GetClusterDomain()).
+		SetExternalDomain(m.Spec.GetExternalDomain()).
 		SetIsReplicaSet(m.Spec.ResourceType == ReplicaSet).
 		SetIsTLSEnabled(m.Spec.IsSecurityTLSConfigEnabled()).
 		SetConnectionParams(connectionParams).

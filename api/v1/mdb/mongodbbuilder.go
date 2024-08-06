@@ -1,6 +1,7 @@
 package mdb
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -37,6 +38,18 @@ func NewClusterBuilder() *MongoDBBuilder {
 	mongodb := defaultMongoDB(ShardedCluster)
 	mongodb.mdb.Spec.MongodbShardedClusterSizeConfig = sizeConfig
 	return mongodb
+}
+
+func (b *MongoDBBuilder) ExposedExternally(specOverride *corev1.ServiceSpec, annotationsOverride map[string]string, externalDomain *string) *MongoDBBuilder {
+	b.mdb.Spec.ExternalAccessConfiguration = &ExternalAccessConfiguration{}
+	b.mdb.Spec.ExternalAccessConfiguration.ExternalDomain = externalDomain
+	if specOverride != nil {
+		b.mdb.Spec.ExternalAccessConfiguration.ExternalService.SpecWrapper = &ServiceSpecWrapper{Spec: *specOverride}
+	}
+	if len(annotationsOverride) > 0 {
+		b.mdb.Spec.ExternalAccessConfiguration.ExternalService.Annotations = annotationsOverride
+	}
+	return b
 }
 
 func (b *MongoDBBuilder) SetVersion(version string) *MongoDBBuilder {
