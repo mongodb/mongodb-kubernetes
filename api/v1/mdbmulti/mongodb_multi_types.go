@@ -649,6 +649,7 @@ func (m *MongoDBMultiCluster) BuildConnectionString(username, password string, s
 		SetVersion(m.Spec.GetMongoDBVersion(nil)).
 		SetAuthenticationModes(m.Spec.GetSecurityAuthenticationModes()).
 		SetClusterDomain(m.Spec.GetClusterDomain()).
+		SetExternalDomain(m.Spec.GetExternalDomain()).
 		SetIsReplicaSet(true).
 		SetIsTLSEnabled(m.Spec.IsSecurityTLSConfigEnabled()).
 		SetMultiClusterHosts(hostnames).

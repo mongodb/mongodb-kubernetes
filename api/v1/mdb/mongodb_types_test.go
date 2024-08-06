@@ -201,6 +201,17 @@ func TestMongoDB_ConnectionURL_Secure(t *testing.T) {
 		cnx)
 }
 
+func TestMongoDBConnectionURLExternalDomainWithAuth(t *testing.T) {
+	externalDomain := "example.com"
+
+	rs := NewReplicaSetBuilder().SetMembers(2).EnableAuth([]AuthMode{util.SCRAM}).ExposedExternally(nil, nil, &externalDomain).Build()
+	cnx := rs.BuildConnectionString("the_user", "", connectionstring.SchemeMongoDB, nil)
+	assert.Equal(t, "mongodb://test-mdb-0.example.com:27017,"+
+		"test-mdb-1.example.com:27017/?authMechanism=SCRAM-SHA-256&authSource=admin&"+
+		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000",
+		cnx)
+}
+
 func TestMongoDB_AddWarningIfNotExists(t *testing.T) {
 	resource := &MongoDB{}
 	resource.AddWarningIfNotExists("my test warning")
