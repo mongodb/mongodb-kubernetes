@@ -221,6 +221,18 @@ functions:
         source .generated/context.export.env
         make test-race
 
+  test_sboms:
+    - *python_venv
+    - *python_requirements
+    - command: shell.exec
+      type: test
+      params:
+        shell: bash
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        script: |
+          source .generated/context.export.env
+          make sbom-tests
+
   setup_preflight:
   - command: subprocess.exec
     type: setup
@@ -699,6 +711,15 @@ tasks:
   tags: ["unit_tests"]
   commands:
     - func: "test_operator"
+
+- name: sbom_tests
+  tags: ["unit_tests"]
+  # The SBOM tests run only on commit builds. Running this on patches might cause false-positive failures
+  # because certain images might not be there yet. Such situation happens for OM image upgrades for example.
+  # See https://docs.devprod.prod.corp.mongodb.com/evergreen/Project-Configuration/Project-Configuration-Files#limiting-when-a-task-or-variant-will-run
+  patchable: false
+  commands:
+    - func: "test_sboms"
 
 - name: lint_repo
   tags: ["unit_tests"]
@@ -2025,6 +2046,7 @@ task_groups:
   tasks:
     - lint_repo
     - unit_tests
+    - sbom_tests
 
 # This is the task group that contains all the tests run in the e2e_mdb_kind_ubuntu_cloudqa build variant
 - name: e2e_mdb_kind_cloudqa_task_group
