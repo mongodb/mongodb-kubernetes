@@ -250,10 +250,12 @@ golang-tests:
 golang-tests-race:
 	USE_RACE=true scripts/evergreen/unit-tests.sh
 
+sbom-tests:
+	@ scripts/evergreen/run_python.sh -m pytest generate_ssdlc_report_test.py
+
 python-tests:
 	@ scripts/evergreen/run_python.sh -m pytest pipeline_test.py
 	@ scripts/evergreen/run_python.sh lib/sonar/tests.py
-	@ scripts/evergreen/run_python.sh -m pytest generate_ssdlc_report_test.py
 
 generate-ssdlc-report:
 	@ scripts/evergreen/run_python.sh generate_ssdlc_report.py
