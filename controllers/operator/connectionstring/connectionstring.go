@@ -45,6 +45,7 @@ type builder struct {
 
 	authenticationModes []string
 	clusterDomain       string
+	externalDomain      *string
 	isReplicaSet        bool
 	isTLSEnabled        bool
 
@@ -104,6 +105,11 @@ func (b *builder) SetClusterDomain(clusterDomain string) *builder {
 	return b
 }
 
+func (b *builder) SetExternalDomain(externalDomain *string) *builder {
+	b.externalDomain = externalDomain
+	return b
+}
+
 func (b *builder) SetIsReplicaSet(isReplicaSet bool) *builder {
 	b.isReplicaSet = isReplicaSet
 	return b
@@ -132,7 +138,7 @@ func (b *builder) SetConnectionParams(cParams map[string]string) *builder {
 }
 
 // Build builds a new connection string from the builder.
-func (b builder) Build() string {
+func (b *builder) Build() string {
 	var userAuth string
 	if stringutil.Contains(b.authenticationModes, util.SCRAM) &&
 		b.username != "" && b.password != "" {
@@ -150,7 +156,7 @@ func (b builder) Build() string {
 		if len(b.multiClusterHosts) > 0 {
 			hostnames = b.multiClusterHosts
 		} else {
-			hostnames, _ = dns.GetDNSNames(b.name, b.service, b.namespace, b.clusterDomain, b.replicas, nil)
+			hostnames, _ = dns.GetDNSNames(b.name, b.service, b.namespace, b.clusterDomain, b.replicas, b.externalDomain)
 			for i, h := range hostnames {
 				hostnames[i] = fmt.Sprintf("%s:%d", h, b.port)
 			}

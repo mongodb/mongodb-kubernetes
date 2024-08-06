@@ -34,6 +34,7 @@
   The agent now makes sure that there are not conflicting journal data and prioritizes the data from `/data/journal`.
     * To deactivate this behaviour set the environment variable in the operator `MDB_CLEAN_JOURNAL`
       to any other value than 1.
+* **MongoDB**, **AppDB**, **MongoDBMulti**: make sure to use external domains in the connectionString created if configured.  
 
 * **MongoDB**: remove panic when configuring shorter horizon config compared to number of members. Instead return a
 descriptive error.

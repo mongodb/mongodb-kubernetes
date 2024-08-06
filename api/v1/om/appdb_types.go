@@ -510,6 +510,7 @@ func (m *AppDBSpec) BuildConnectionURL(username, password string, scheme connect
 		SetVersion(m.GetMongoDBVersion(nil)).
 		SetAuthenticationModes(m.GetSecurityAuthenticationModes()).
 		SetClusterDomain(m.GetClusterDomain()).
+		SetExternalDomain(m.GetExternalDomain()).
 		SetIsReplicaSet(true).
 		SetIsTLSEnabled(m.IsSecurityTLSConfigEnabled()).
 		SetConnectionParams(connectionParams).
