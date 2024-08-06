@@ -2496,7 +2496,10 @@ task_groups:
 - name: e2e_kind_olm_group
   max_hosts: 30
   <<: *setup_group
+  <<: *setup_and_teardown_task
   setup_task:
+    # Even if the two first tasks are already part of setup_and_teardown_task,
+    # we need to repeat them because we are overriding the setup_task variable of the YAML anchor
     - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
     - func: setup_prepare_openshift_bundles
