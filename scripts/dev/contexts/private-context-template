@@ -122,7 +122,6 @@ export ALWAYS_REMOVE_TESTING_NAMESPACE="true"
 # - global: <registry>/dev is the shared registry
 # - dedicated: <registry>/<my-registry>
 # Note: in our root-context we default the image tag to latest, if VERSION_ID is not preset on your machine
-export BASE_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
 export QUAY_REGISTRY=quay.io/mongodb
 export REGISTRY="$BASE_REPO_URL"
 export OPERATOR_REGISTRY=${REGISTRY}
@@ -142,4 +141,3 @@ export MDB_AGENT_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-agent-ubi"
 export INIT_APPDB_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-init-appdb"
 export OPS_MANAGER_IMAGE_REPOSITORY="${QUAY_REGISTRY}/mongodb-enterprise-ops-manager-ubi"
 export INIT_OPS_MANAGER_IMAGE_REPOSITORY=${INIT_IMAGES_REGISTRY}/mongodb-enterprise-init-ops-manager
-
