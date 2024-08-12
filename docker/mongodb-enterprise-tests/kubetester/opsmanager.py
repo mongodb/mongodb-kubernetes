@@ -916,7 +916,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
                     current_message=self.get_message(),
                     msg_regexp=msg_regexp,
                     ignore_errors=ignore_errors,
-                    intermediate_events=intermediate_events
+                    intermediate_events=intermediate_events,
                 ),
                 timeout,
                 should_raise=True,

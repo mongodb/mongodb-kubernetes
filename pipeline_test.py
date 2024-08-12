@@ -156,7 +156,6 @@ command = ["echo", "Hello World"]
 
 
 class TestRunCommandWithRetries(unittest.TestCase):
-
     @patch("subprocess.run")
     @patch("time.sleep", return_value=None)  # to avoid actual sleeping during tests
     def test_successful_command(self, mock_sleep, mock_run):
@@ -174,7 +173,7 @@ class TestRunCommandWithRetries(unittest.TestCase):
         # Mock a retryable error first, then a successful command execution
         mock_run.side_effect = [
             subprocess.CalledProcessError(500, command, stderr="500 Internal Server Error"),
-            subprocess.CompletedProcess(command, 0, stdout="Hello World", stderr="")
+            subprocess.CompletedProcess(command, 0, stdout="Hello World", stderr=""),
         ]
 
         result = run_command_with_retries(command)

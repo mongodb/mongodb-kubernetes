@@ -45,7 +45,7 @@ def run_command_with_retries(command, retries=3, base_delay=2):
             if is_retryable_error(e.stderr):
                 logger.error(f"Attempt {attempt + 1} failed with retryable error: {e.stderr}")
                 if attempt + 1 < retries:
-                    delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
+                    delay = base_delay * (2**attempt) + random.uniform(0, 1)
                     logger.info(f"Retrying in {delay:.2f} seconds...")
                     time.sleep(delay)
                 else:
