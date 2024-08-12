@@ -532,9 +532,7 @@ def image_config(
     It returns a dictionary with registries and S3 configuration."""
     args = {
         "quay_registry": "{}/{}{}".format(QUAY_REGISTRY_URL, name_prefix, image_name),
-        "ecr_registry_ubi": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/{}{}".format(
-            name_prefix, image_name
-        ),
+        "ecr_registry_ubi": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/{}{}".format(name_prefix, image_name),
         "s3_bucket_http": "https://{}.s3.amazonaws.com/dockerfiles/{}{}".format(s3_bucket, name_prefix, image_name),
         "ubi_suffix": ubi_suffix,
         "base_suffix": base_suffix,
@@ -876,7 +874,7 @@ def build_agent_in_sonar(
         inventory_file="inventories/agent.yaml",
         extra_args=args,
         registry_address=agent_quay_registry,
-        is_run_in_parallel=True
+        is_run_in_parallel=True,
     )
 
 
@@ -917,7 +915,7 @@ def build_multi_arch_agent_in_sonar(
         multi_arch_args_list=joined_args,
         registry_address=quay_agent_registry if is_release else ecr_agent_registry,
         is_multi_arch=True,
-        is_run_in_parallel=True
+        is_run_in_parallel=True,
     )
 
 

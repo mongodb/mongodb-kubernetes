@@ -102,7 +102,6 @@ def blockstore_replica_set(ops_manager, app_db_issuer_ca_configmap: str, blockst
 
 @mark.e2e_om_ops_manager_backup_tls
 class TestOpsManagerCreation:
-
     def test_create_logback_xml_configmap(self, namespace: str, custom_logback_file_path: str, central_cluster_client):
         logback = open(custom_logback_file_path).read()
         data = {"logback.xml": logback}
