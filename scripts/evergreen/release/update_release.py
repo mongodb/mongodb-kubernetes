@@ -75,7 +75,9 @@ def update_agent_and_tools_version(data, missing_version):
         agent_version = config.get("DEFAULT", "automation.agent.version")
         update_om_mapping(agent_version, data, missing_version, mongo_tool_version)
 
-        version_name = f"mongodb-database-tools-rhel80-x86_64-{mongo_tool_version}.tgz"
+        new_rhel_tools_version = "100.10.0"
+        arch = "rhel88" if Version(mongo_tool_version) >= Version(new_rhel_tools_version) else "rhel80"
+        version_name = f"mongodb-database-tools-{arch}-x86_64-{mongo_tool_version}.tgz"
         data["mongodbToolsBundle"]["ubi"] = version_name
     else:
         print(f"was not able to request file from {url}: {response.text}")
