@@ -2728,6 +2728,14 @@ buildvariants:
   tasks:
     - name: e2e_multi_cluster_kind_task_group
 
+- name: e2e_static_multi_cluster_kind
+  display_name: e2e_static_multi_cluster_kind
+  run_on:
+    - ubuntu1804-xlarge
+  <<: *base_om6_dependency
+  tasks:
+    - name: e2e_multi_cluster_kind_task_group
+
 - name: e2e_multi_cluster_2_clusters
   display_name: e2e_multi_cluster_2_clusters
   run_on:
