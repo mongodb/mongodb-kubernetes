@@ -23,6 +23,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 import requests
 import semver
+from packaging.version import Version
 
 import docker
 from lib.sonar.sonar import process_image
@@ -899,8 +900,14 @@ def build_multi_arch_agent_in_sonar(
         "tools_version": tools_version,
     }
 
+    ## if tools version < 100.10.0 , use rhel82 for tools_distro, otherwise rhel88
     arch_arm = {"agent_distro": "amzn2_aarch64", "tools_distro": "rhel82-aarch64", "architecture": "arm64"}
-    arch_amd = {"agent_distro": "rhel7_x86_64", "tools_distro": "rhel70-x86_64", "architecture": "amd64"}
+    arch_amd = {"agent_distro": "rhel8_x86_64", "tools_distro": "rhel80-x86_64", "architecture": "amd64"}
+
+    new_rhel_tools_version = "100.10.0"
+    if Version(tools_version) >= Version(new_rhel_tools_version):
+        arch_arm["tools_distro"] = "rhel88-aarch64"
+        arch_amd["tools_distro"] = "rhel88-x86_64"
 
     ecr_registry = os.environ.get("REGISTRY", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
     ecr_agent_registry = ecr_registry + f"/mongodb-agent-ubi"
