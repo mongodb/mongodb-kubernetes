@@ -5,7 +5,6 @@ Implements Sonar's main functionality.
 """
 
 import json
-import logging
 import os
 import re
 import subprocess
@@ -21,6 +20,8 @@ import boto3
 import click
 import yaml
 
+from scripts.evergreen.release.base_logger import logger
+
 from . import DCT_ENV_VARIABLE, DCT_PASSPHRASE
 from .builders.docker import (
     SonarAPIError,
@@ -32,7 +33,6 @@ from .builders.docker import (
 from .template import render
 
 LOGLEVEL = os.environ.get("LOGLEVEL", "WARNING").upper()
-logging.basicConfig(level=LOGLEVEL)
 
 
 # pylint: disable=R0902
@@ -46,15 +46,15 @@ class Context:
     """
 
     inventory: Dict[str, str]
-    image: Dict[str, str]
+    image: Dict[str, Dict]
 
     # Store parameters passed as arguments
     parameters: Dict[str, str]
 
-    skip_tags: Dict[str, str] = None
-    include_tags: Dict[str, str] = None
+    skip_tags: List[str] = None
+    include_tags: List[str] = None
 
-    stage: Dict[str, str] = None
+    stage: Dict = None
 
     # If continue_on_errors is set to true, errors will
     # be captured and logged, but will not raise, and will
@@ -398,7 +398,6 @@ def run_dockerfile_template(ctx: Context, dockerfile_context: str, distro: str) 
     """
     Renders a template and returns a file name pointing at the render.
     """
-    logger = logging.getLogger(__name__)
     path = dockerfile_context
     params = get_rendering_params(ctx)
 
@@ -435,7 +434,6 @@ def create_ecr_repository(tag: str):
     """
     Creates ecr repository if it doesn't exist
     """
-    logger = logging.getLogger(__name__)
     if not is_valid_ecr_repo(tag):
         logger.info("Not an ECR repository: %s", tag)
         return
@@ -691,6 +689,7 @@ def process_image(
     for idx, stage in enumerate(ctx.image.get("stages", [])):
         ctx.stage = stage
         name = ctx.stage["name"]
+        task = stage["task_type"]
         if should_skip_stage(stage, ctx.skip_tags):
             echo(ctx, "skipping-stage", name, foreground="green")
             continue
@@ -699,22 +698,20 @@ def process_image(
             echo(ctx, "skipping-stage", name, foreground="green")
             continue
 
-        echo(
-            ctx,
-            "stage-started {}".format(stage["name"]),
-            "{}/{}".format(idx + 1, len(ctx.image["stages"])),
-        )
+        stages_len = len(ctx.image["stages"])
 
-        if stage["task_type"] == "dockerfile_create":
+        echo(ctx, f"stage-started {name} - task-started {task}", f"{idx + 1}/{stages_len}")
+
+        if task == "dockerfile_create":
             task_dockerfile_create(ctx)
-        elif stage["task_type"] == "dockerfile_template":
+        elif task == "dockerfile_template":
             task_dockerfile_template(ctx)
-        elif stage["task_type"] == "docker_build":
+        elif task == "docker_build":
             task_docker_build(ctx)
-        elif stage["task_type"] == "tag_image":
+        elif task == "tag_image":
             task_tag_image(ctx)
         else:
-            raise NotImplementedError("task_type {} not supported".format(stage["task_type"]))
+            raise NotImplementedError("task_type {} not supported".format(task))
 
     if len(ctx.captured_errors) > 0 and ctx.fail_on_errors:
         echo(ctx, "docker-image-push/captured-errors", ctx.captured_errors)
@@ -750,7 +747,6 @@ def build_context(
 ) -> Context:
     """A Context includes the whole inventory, the image to build, the current stage,
     and the `I` interpolation function."""
-    logger = logging.getLogger(__name__)
     image = find_image(image_name, inventory)
 
     if build_args is None:

@@ -1,4 +1,3 @@
-import logging
 import random
 import subprocess
 from typing import Dict, Optional
@@ -6,8 +5,9 @@ from typing import Dict, Optional
 import docker.errors
 
 import docker
+from scripts.evergreen.release.base_logger import logger
 
-from . import SonarAPIError, SonarBuildError, buildarg_from_dict, labels_from_dict
+from . import SonarAPIError
 
 
 def docker_client() -> docker.DockerClient:
@@ -22,7 +22,6 @@ def docker_build(
     platform: Optional[str] = None,
 ):
     """Builds a docker image."""
-    logger = logging.getLogger(__name__)
 
     image_name = "sonar-docker-build-{}".format(random.randint(1, 10000))
 
@@ -35,7 +34,6 @@ def docker_build(
     try:
         # docker build from docker-py has bugs resulting in errors or invalid platform when building with specified --platform=linux/amd64 on M1
         docker_build_cli(
-            logger=logger,
             path=path,
             dockerfile=dockerfile,
             tag=image_name,
@@ -61,7 +59,6 @@ def _get_build_log(e: docker.errors.BuildError) -> str:
 
 
 def docker_build_cli(
-    logger: logging.Logger,
     path: str,
     dockerfile: str,
     tag: str,
@@ -135,6 +132,22 @@ def docker_tag(
         raise SonarAPIError from e
 
 
+def image_exists(repository, tag):
+    """Check if a Docker image with the specified tag exists in the repository."""
+    logger.info(f"checking image {tag}, exists in remote repository: {repository}")
+    client = docker_client()
+
+    try:
+        # Pull the repository's image list
+        image = client.images.get_registry_data(f"{repository}:{tag}")
+
+        # If the image is found, return True
+        return True
+    except Exception as e:
+        logger.warning(f"An error occurred while checking the image: {e}")
+        return False
+
+
 def docker_push(registry: str, tag: str):
     def inner_docker_push(should_raise=False):
 
@@ -154,8 +167,19 @@ def docker_push(registry: str, tag: str):
 
         return True
 
-    retries = 3
-    while retries >= 0:
-        if inner_docker_push(retries == 0):
-            break
-        retries -= 1
+    # We don't want to rebuild context images if they already exist.
+    # Context images should be out and immutable.
+    # This is especially important for base image changes like ubi8 to ubi9, we don't want to replace our existing
+    # agent-ubi8 with agent-ubi9 images and break for older operators.
+    # Instead of doing the hack here, we should instead either:
+    # - make sonar aware of context images
+    # - move the logic out of sonar to pipeline.py to all the places where we build context images
+    if "-context" in tag and image_exists(registry, tag):
+        logger.info(f"Image: {tag} in registry: {registry} already exists skipping pushing it")
+    else:
+        logger.info("Image does not exist remotely or is not a context image, pushing it!")
+        retries = 3
+        while retries >= 0:
+            if inner_docker_push(retries == 0):
+                break
+            retries -= 1
