@@ -161,6 +161,9 @@ appdb-init-image:
 agent-image:
 	@ scripts/evergreen/run_python.sh pipeline.py --include agent --all-agents --parallel --parallel-factor 6
 
+agent-image-slow:
+	@ scripts/evergreen/run_python.sh pipeline.py --include agent --parallel-factor 1
+
 operator-image:
 	@ scripts/evergreen/run_python.sh pipeline.py --include operator
 
