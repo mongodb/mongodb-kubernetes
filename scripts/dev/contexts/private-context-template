@@ -2,15 +2,8 @@
 
 set -Eeou pipefail
 
-script_name=$(readlink -f "${BASH_SOURCE[0]}")
-script_dir=$(dirname "${script_name}")
-
 ## This file contains properties that need to overridden by a user.
 ## Rename it to "private-context" and fill in with your data.
-
-# The workdir is used in many places and needs to point into the project root.
-# Don't change it unless you know what you're doing.
-export workdir="$script_dir/../../../"
 
 # Kubernetes namespace for deploying a test
 # Allowed values:
@@ -83,8 +76,7 @@ export AWS_DEFAULT_REGION="eu-central-1"
 export OM_USER=""
 export OM_API_KEY=""
 export OM_ORGID=""
-export OM_HOST=https://cloud-qa.mongodb.com
-export OM_BASE_URL=https://cloud-qa.mongodb.com
+
 
 # The settings below are used by teardown.sh and setup_cloud_qa.py.
 # Typically, in a local environment they are empty but with provided default settings
@@ -98,46 +90,6 @@ export OM_BASE_URL=https://cloud-qa.mongodb.com
 export e2e_cloud_qa_orgid_owner="$OM_ORGID"
 export e2e_cloud_qa_apikey_owner="$OM_API_KEY"
 export e2e_cloud_qa_user_owner="$OM_USER"
-export e2e_cloud_qa_baseurl="$OM_HOST"
 export e2e_cloud_qa_orgid_owner_static_2="$OM_ORGID"
 export e2e_cloud_qa_apikey_owner_static_2="$OM_API_KEY"
 export e2e_cloud_qa_user_owner_static_2="$OM_USER"
-export e2e_cloud_qa_baseurl_static_2="$OM_HOST"
-export ENV_FILE="$workdir/.ops-manager-env"
-export NAMESPACE_FILE="$workdir/.namespace"
-
-# Environment variable needed for local development
-# Used in controllers/operator/mongodbopsmanager_controller.go
-# The file is created by scripts/dev/prepare_local_e2e_run.sh
-export MDB_OM_VERSION_MAPPING_PATH="$workdir/release.json"
-
-# TO ensure we don't release by accident via pipeline.py
-export skip_tags="release"
-
-# This setting is set if you want to remove your namespaces after running the tests
-export ALWAYS_REMOVE_TESTING_NAMESPACE="true"
-
-# Here are all the required registries used by the Operator. We are defaulting to images ecr
-# The main registry to use for local test runs
-# - global: <registry>/dev is the shared registry
-# - dedicated: <registry>/<my-registry>
-# Note: in our root-context we default the image tag to latest, if VERSION_ID is not preset on your machine
-export QUAY_REGISTRY=quay.io/mongodb
-export REGISTRY="$BASE_REPO_URL"
-export OPERATOR_REGISTRY=${REGISTRY}
-
-export INIT_IMAGES_REGISTRY=${INIT_IMAGES_REGISTRY:-${REGISTRY}}
-
-export INIT_APPDB_REGISTRY=${INIT_IMAGES_REGISTRY}
-export INIT_OPS_MANAGER_REGISTRY=${INIT_IMAGES_REGISTRY-"${QUAY_REGISTRY}"}
-export INIT_DATABASE_REGISTRY=${INIT_IMAGES_REGISTRY:-"${QUAY_REGISTRY}"}
-export DATABASE_REGISTRY=${INIT_IMAGES_REGISTRY:-"${QUAY_REGISTRY}"}
-export OPS_MANAGER_REGISTRY=${QUAY_REGISTRY}
-export APPDB_REGISTRY=${QUAY_REGISTRY}
-export MONGODB_ENTERPRISE_DATABASE_IMAGE="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-database"
-export INIT_DATABASE_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-init-database"
-export MDB_AGENT_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-agent-ubi"
-# these are needed to deploy OM
-export INIT_APPDB_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-init-appdb"
-export OPS_MANAGER_IMAGE_REPOSITORY="${QUAY_REGISTRY}/mongodb-enterprise-ops-manager-ubi"
-export INIT_OPS_MANAGER_IMAGE_REPOSITORY=${INIT_IMAGES_REGISTRY}/mongodb-enterprise-init-ops-manager
