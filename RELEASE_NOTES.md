@@ -36,8 +36,12 @@
       to any other value than 1.
 * **MongoDB**, **AppDB**, **MongoDBMulti**: make sure to use external domains in the connectionString created if configured.  
 
-* **MongoDB**: remove panic when configuring shorter horizon config compared to number of members. Instead return a
-descriptive error.
+* **MongoDB**: Removed panic response when configuring shorter horizon config compared to number of members. The operator now signals a
+descriptive error in the status of the **MongoDB** resource.
+
+* **MongoDB**: Fixed a bug where creating a resource in a new project named as a prefix of another project would fail, preventing the `MongoDB` resource to be created.
+
+
 
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.26.0
