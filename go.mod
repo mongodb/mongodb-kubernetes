@@ -10,7 +10,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/hashicorp/go-retryablehttp v0.7.7
-	github.com/hashicorp/vault/api v1.12.2
+	github.com/hashicorp/vault/api v1.14.0
 	github.com/imdario/mergo v0.3.15
 	github.com/mongodb/mongodb-kubernetes-operator v0.11.1-0.20240809111247-f1d5c04c984c
 	github.com/pkg/errors v0.9.1
@@ -45,7 +45,7 @@ require (
 	github.com/evanphx/json-patch v5.9.0+incompatible // indirect
 	github.com/evanphx/json-patch/v5 v5.6.0 // indirect
 	github.com/fsnotify/fsnotify v1.6.0 // indirect
-	github.com/go-jose/go-jose/v3 v3.0.3 // indirect
+	github.com/go-jose/go-jose/v4 v4.0.1 // indirect
 	github.com/go-openapi/jsonpointer v0.19.6 // indirect
 	github.com/go-openapi/jsonreference v0.20.2 // indirect
 	github.com/go-openapi/swag v0.22.3 // indirect
