@@ -15,6 +15,7 @@ context="$1"
 additional_override="${2:-}"
 
 context_file="scripts/dev/contexts/${context}"
+local_development_default_file="scripts/dev/contexts/local-defaults-context"
 override_context_file="scripts/dev/contexts/private-context-override"
 additional_override_file="scripts/dev/contexts/private-context-${additional_override}"
 
@@ -26,26 +27,31 @@ fi
 
 echo "Switching context to: ${context}"
 
-# shellcheck disable=SC1090
-source "${context_file}"
 
 # This means we are running on evergreen, in this case we need the environment variables from evg expansions.
 # If running locally, we don't need them since they are defined in the private-context already, so we don't need
 # any kind of current env var expansions
 if [ -n "${EVR_TASK_ID-}" ]; then
-  # shellcheck disable=SC2207
-  current_envs=$(env)
+  # shellcheck disable=SC1090
+    source "${context_file}"
+    # shellcheck disable=SC2207
+    current_envs=$(env)
 else
+  # shellcheck disable=SC1090
+  source "$local_development_default_file"
+  # shellcheck disable=SC1090
+  source "${context_file}"
+
   # env -i makes sure to start the shell with an empty shell, such that we only save into context.env the env vars we have
   # defined.
   if [ -n "$additional_override" ]; then
       echo "Using additional override file: $additional_override_file."
-      current_envs=$(env -i bash -c "source ${context_file} && source ${additional_override_file} && env")
+      current_envs=$(env -i bash -c "source ${local_development_default_file} && source ${context_file} && source ${additional_override_file} && env")
   elif [ -f "$override_context_file" ]; then
       echo "Using override file: $override_context_file. If you do not want to use one, remove the file or content."
-      current_envs=$(env -i bash -c "source ${context_file} && source ${override_context_file} && env")
+      current_envs=$(env -i bash -c "source ${local_development_default_file} && source ${context_file} && source ${override_context_file} && env")
   else
-      current_envs=$(env -i bash -c "source ${context_file} && env")
+      current_envs=$(env -i bash -c "source ${local_development_default_file} && source ${context_file} && env")
   fi
 fi
 
@@ -67,7 +73,8 @@ scripts/dev/print_operator_env.sh | sort | uniq >"${destination_envs_file}.opera
 awk '{print "export " $0}' < "${destination_envs_file}".operator.env > "${destination_envs_file}".operator.export.env
 
 echo "Generated env files in $(readlink -f "$destination_envs_dir"):"
-ls -l1 "$destination_envs_dir"
+# shellcheck disable=SC2010
+ls -l1 "$destination_envs_dir" | grep "context"
 
 if which kubectl > /dev/null; then
     if [ "${CLUSTER_NAME-}" ]; then
