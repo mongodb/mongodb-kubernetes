@@ -145,41 +145,46 @@ func findProject(projectName string, organization *om.Organization, conn om.Conn
 	return nil, nil
 }
 
+// findProjectInsideOrganization looks up a project by name inside an organization and returns the project if it was the only one found by that name.
+// If no project was found, the function returns a nil project to indicate that no such project exists.
+// In all other cases, a non nil error is returned.
 func findProjectInsideOrganization(conn om.Connection, projectName string, organization *om.Organization, log *zap.SugaredLogger) (*om.Project, error) {
-	// 1. Trying to find the project by name
 	projects, err := conn.ReadProjectsInOrganizationByName(organization.ID, projectName)
 	if err != nil {
 		if v, ok := err.(*apierror.Error); ok {
+			// If the project was not found, return an empty project and no error.
 			if v.ErrorCode == apierror.ProjectNotFound {
 				// ProjectNotFound is an expected condition.
+
 				return nil, nil
 			}
 		}
-		log.Error(err)
+		// Return an empty project and the OM api error in case there is a different API error.
+		return nil, xerrors.Errorf("error looking up project %s in organization %s: %w", projectName, organization.ID, err)
 	}
 
-	if err == nil {
-		// there is no error so we need to check if the project found has this name
-		// (the project found could be just the page of one single project if the OM is old and "name"
-		// parameter is not supported)
-		var projectsFound []*om.Project
-		for _, project := range projects {
-			if project.Name == projectName {
-				projectsFound = append(projectsFound, project)
-			}
-		}
-
-		if len(projectsFound) == 1 {
-			return projectsFound[0], nil
-		} else if len(projectsFound) > 0 {
-			projectsList := util.Transform(projectsFound, func(project *om.Project) string {
-				return fmt.Sprintf("%s (%s)", project.Name, project.ID)
-			})
-			return nil, xerrors.Errorf("found more than one project with name %s in organization %s (%s): %v", projectName, organization.ID, organization.Name, strings.Join(projectsList, ", "))
+	// There is no API error. We check if the project found has the exact name.
+	// The API endpoint returns a list of projects and in case of no exact match, it would return the first item that matches the search term as a prefix.
+	var projectsFound []*om.Project
+	for _, project := range projects {
+		if project.Name == projectName {
+			projectsFound = append(projectsFound, project)
 		}
 	}
 
-	return nil, xerrors.Errorf("could not find project %s in organization %s", projectName, organization.ID)
+	if len(projectsFound) == 1 {
+		// If there is just one project returned, and it matches the name, return it.
+		return projectsFound[0], nil
+	} else if len(projectsFound) > 0 {
+		projectsList := util.Transform(projectsFound, func(project *om.Project) string {
+			return fmt.Sprintf("%s (%s)", project.Name, project.ID)
+		})
+		// This should not happen, but older versions of OM supported the same name for a project in an org. We cannot proceed here so we return an error.
+		return nil, xerrors.Errorf("found more than one project with name %s in organization %s (%s): %v", projectName, organization.ID, organization.Name, strings.Join(projectsList, ", "))
+	}
+
+	// If there is no error from the API and no match in the response, return an empty project and no error.
+	return nil, nil
 }
 
 func findOrganizationByName(conn om.Connection, name string, log *zap.SugaredLogger) (string, error) {

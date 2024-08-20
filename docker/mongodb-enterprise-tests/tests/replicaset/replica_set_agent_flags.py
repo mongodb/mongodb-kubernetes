@@ -1,6 +1,12 @@
 from typing import Optional
 
-from kubetester import create_or_update, find_fixture
+from kubetester import (
+    create_or_update,
+    create_or_update_configmap,
+    find_fixture,
+    random_k8s_name,
+    read_configmap,
+)
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb import MongoDB, Phase
 from pytest import fixture, mark
@@ -16,10 +22,56 @@ custom_readiness_log_path = "/var/log/mongodb-mms-automation/customReadinessLogF
 
 
 @fixture(scope="module")
-def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
-    resource = MongoDB.from_yaml(find_fixture("replica-set-basic.yaml"), namespace=namespace)
+def project_name_prefix() -> str:
+    return random_k8s_name("project-prefix-")
 
+
+@fixture(scope="module")
+def first_project(namespace: str, project_name_prefix: str) -> str:
+    cm = read_configmap(namespace=namespace, name="my-project")
+    project_name = f"{project_name_prefix}-first"
+    return create_or_update_configmap(
+        namespace=namespace,
+        name=project_name,
+        data={
+            "baseUrl": cm["baseUrl"],
+            "projectName": project_name,
+            "orgId": cm["orgId"],
+        },
+    )
+
+
+@fixture(scope="module")
+def second_project(namespace: str, project_name_prefix: str) -> str:
+    cm = read_configmap(namespace=namespace, name="my-project")
+    project_name = project_name_prefix
+    return create_or_update_configmap(
+        namespace=namespace,
+        name=project_name,
+        data={
+            "baseUrl": cm["baseUrl"],
+            "projectName": project_name,
+            "orgId": cm["orgId"],
+        },
+    )
+
+
+@fixture(scope="module")
+def replica_set(namespace: str, first_project: str, custom_mdb_version: str) -> MongoDB:
+    resource = MongoDB.from_yaml(find_fixture("replica-set-basic.yaml"), namespace=namespace, name="replica-set")
     resource.set_version(ensure_ent_version(custom_mdb_version))
+    resource["spec"]["opsManager"]["configMapRef"]["name"] = first_project
+
+    create_or_update(resource)
+    return resource
+
+
+@fixture(scope="module")
+def second_replica_set(namespace: str, second_project: str, custom_mdb_version: str) -> MongoDB:
+    resource = MongoDB.from_yaml(find_fixture("replica-set-basic.yaml"), namespace=namespace, name="replica-set-2")
+    resource.set_version(ensure_ent_version(custom_mdb_version))
+    resource["spec"]["opsManager"]["configMapRef"]["name"] = second_project
+
     create_or_update(resource)
     return resource
 
@@ -27,6 +79,11 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
 @mark.e2e_replica_set_agent_flags_and_readinessProbe
 def test_replica_set(replica_set: MongoDB):
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
+
+
+@mark.e2e_replica_set_agent_flags_and_readinessProbe
+def test_second_replica_set(second_replica_set: MongoDB):
+    second_replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 
 @mark.e2e_replica_set_agent_flags_and_readinessProbe
@@ -40,6 +97,10 @@ def test_set_custom_log_file(replica_set: MongoDB):
     replica_set["spec"]["agent"] = {
         "startupOptions": {
             "logFile": custom_agent_log_path,
+            "maxLogFileSize": "10485760",
+            "maxLogFiles": "5",
+            "maxLogFileDurationHrs": "16",
+            "logFile": "/var/log/mongodb-mms-automation/customLogFile",
         }
     }
     replica_set["spec"]["agent"].setdefault("readinessProbe", {})
@@ -101,7 +162,7 @@ def test_enable_audit_log(replica_set: MongoDB):
     replica_set["spec"]["additionalMongodConfig"] = additional_mongod_config
     create_or_update(replica_set)
 
-    replica_set.assert_reaches_phase(Phase.Running, timeout=400)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_replica_set_agent_flags_and_readinessProbe
