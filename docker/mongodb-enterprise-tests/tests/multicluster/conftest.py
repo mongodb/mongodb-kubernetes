@@ -256,7 +256,7 @@ def create_service_entries_objects(
 def cluster_spec_list(
     member_cluster_names: List[str],
     members: List[int],
-    member_configs: Optional[List[Dict]] = None,
+    member_configs: Optional[List[List[Dict]]] = None,
     backup_configs: Optional[List[Dict]] = None,
 ):
     if member_configs is None and backup_configs is None:

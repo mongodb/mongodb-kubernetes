@@ -46,6 +46,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -73,6 +74,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 	"go.uber.org/zap"
+	"k8s.io/utils/ptr"
 )
 
 type agentType string
@@ -647,7 +649,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 		// this doesn't requeue the reconciliation immediately, the calling OM controller
 		// requeues after Ops Manager has been fully configured.
 		log.Infof("Requeuing reconciliation to configure Monitoring in Ops Manager.")
-		// FIXME: use correct MembersOption for scaler
+
 		return r.updateStatus(ctx, opsManager, workflow.Pending("Enabling monitoring").Requeue(), log, appDbStatusOption, status.AppDBMemberOptions(appDBScalers...))
 	}
 
@@ -990,12 +992,9 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 
 	}
 
-	// get member options from appDB spec
-	appDBSpec := opsManager.Spec.AppDB
-	memberOptions := appDBSpec.GetMemberOptions()
-
 	processList := r.generateProcessList(opsManager)
-	existingAutomationMemberIds, nextId := getExistingAutomationMemberIds(existingAutomationConfig)
+	existingAutomationMembers, nextId := getExistingAutomationReplicaSetMembers(existingAutomationConfig)
+	memberOptions := r.generateMemberOptions(opsManager, existingAutomationMembers)
 	replicasThisReconciliation := 0
 	// we want to use all member clusters to maintain the same process list despite having some clusters down
 	for _, memberCluster := range r.getAllMemberClusters() {
@@ -1075,8 +1074,8 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 		AddModifications(func(automationConfig *automationconfig.AutomationConfig) {
 			if len(automationConfig.ReplicaSets) == 1 {
 				for idx, member := range automationConfig.ReplicaSets[0].Members {
-					if existingId, ok := existingAutomationMemberIds[member.Host]; ok {
-						automationConfig.ReplicaSets[0].Members[idx].Id = existingId
+					if existingMember, ok := existingAutomationMembers[member.Host]; ok {
+						automationConfig.ReplicaSets[0].Members[idx].Id = existingMember.Id
 					} else {
 						automationConfig.ReplicaSets[0].Members[idx].Id = nextId
 						nextId = nextId + 1
@@ -1145,48 +1144,95 @@ func shouldPerformForcedReconfigure(annotations map[string]string) bool {
 	return false
 }
 
-func getExistingAutomationMemberIds(automationConfig automationconfig.AutomationConfig) (map[string]int, int) {
+func getExistingAutomationReplicaSetMembers(automationConfig automationconfig.AutomationConfig) (map[string]automationconfig.ReplicaSetMember, int) {
 	nextId := 0
-	existingIds := map[string]int{}
+	existingMembers := map[string]automationconfig.ReplicaSetMember{}
 	if len(automationConfig.ReplicaSets) != 1 {
-		return existingIds, nextId
+		return existingMembers, nextId
 	}
 	for _, member := range automationConfig.ReplicaSets[0].Members {
-		existingIds[member.Host] = member.Id
+		existingMembers[member.Host] = member
 		if member.Id >= nextId {
 			nextId = member.Id + 1
 		}
 	}
-	return existingIds, nextId
+	return existingMembers, nextId
+}
+
+func (r *ReconcileAppDbReplicaSet) generateProcessHostnames(opsManager *omv1.MongoDBOpsManager, memberCluster multicluster.MemberCluster) []string {
+	members := scale.ReplicasThisReconciliation(scalers.GetAppDBScaler(opsManager, memberCluster.Name, r.getMemberClusterIndex(memberCluster.Name), r.memberClusters))
+	var hostnames []string
+	if opsManager.Spec.AppDB.IsMultiCluster() {
+		hostnames = dns.GetMultiClusterProcessHostnames(opsManager.Spec.AppDB.GetName(), opsManager.GetNamespace(), memberCluster.Index, members, opsManager.Spec.GetClusterDomain(), nil)
+	} else {
+		hostnames, _ = dns.GetDNSNames(opsManager.Spec.AppDB.GetName(), opsManager.Spec.AppDB.ServiceName(), opsManager.GetNamespace(), opsManager.Spec.GetClusterDomain(), members, nil)
+	}
+	return hostnames
 }
 
 func (r *ReconcileAppDbReplicaSet) generateProcessList(opsManager *omv1.MongoDBOpsManager) []automationconfig.Process {
 	var processList []automationconfig.Process
 	// We want all clusters to generate stable process list in case of some clusters being down. Process list cannot change regardless of the cluster health.
 	for _, memberCluster := range r.getAllMemberClusters() {
-		members := scale.ReplicasThisReconciliation(scalers.GetAppDBScaler(opsManager, memberCluster.Name, r.getMemberClusterIndex(memberCluster.Name), r.memberClusters))
-		var hostnames []string
-		if opsManager.Spec.AppDB.IsMultiCluster() {
-			hostnames = dns.GetMultiClusterProcessHostnames(opsManager.Spec.AppDB.GetName(), opsManager.GetNamespace(), memberCluster.Index, members, opsManager.Spec.GetClusterDomain(), nil)
-		} else {
-			hostnames, _ = dns.GetDNSNames(opsManager.Spec.AppDB.GetName(), opsManager.Spec.AppDB.ServiceName(), opsManager.GetNamespace(), opsManager.Spec.GetClusterDomain(), members, nil)
-		}
-
+		hostnames := r.generateProcessHostnames(opsManager, memberCluster)
 		for idx, hostname := range hostnames {
-			processList = append(processList, automationconfig.Process{
+			process := automationconfig.Process{
 				Name:     fmt.Sprintf("%s-%d", opsManager.Spec.AppDB.NameForCluster(memberCluster.Index), idx),
 				HostName: hostname,
-			})
+			}
+			processList = append(processList, process)
 		}
 	}
 	return processList
+}
+
+func (r *ReconcileAppDbReplicaSet) generateMemberOptions(opsManager *omv1.MongoDBOpsManager, previousMembers map[string]automationconfig.ReplicaSetMember) []automationconfig.MemberOptions {
+	var memberOptionsList []automationconfig.MemberOptions
+	for _, memberCluster := range r.getAllMemberClusters() {
+		hostnames := r.generateProcessHostnames(opsManager, memberCluster)
+		memberConfig := make([]automationconfig.MemberOptions, 0)
+		if memberCluster.Active {
+			memberConfigForCluster := opsManager.Spec.AppDB.GetMemberClusterSpecByName(memberCluster.Name).MemberConfig
+			if memberConfigForCluster != nil {
+				memberConfig = append(memberConfig, memberConfigForCluster...)
+			}
+		}
+		for idx, hostname := range hostnames {
+			memberOptions := automationconfig.MemberOptions{}
+			if idx < len(memberConfig) { // There are member options configured in the spec
+				memberOptions.Votes = memberConfig[idx].Votes
+				memberOptions.Priority = memberConfig[idx].Priority
+				memberOptions.Tags = memberConfig[idx].Tags
+			} else {
+				// There are three cases we might not have memberOptions in spec:
+				//   1. user never specified member config in the spec
+				//   2. user scaled down members e.g. from 5 to 2 removing memberConfig elements at the same time
+				//   3. user removed whole clusterSpecItem from the list (removing cluster entirely)
+				// For 2. and 3. we should have those members in existing AC
+				if replicaSetMember, ok := previousMembers[hostname]; ok {
+					memberOptions.Votes = replicaSetMember.Votes
+					if replicaSetMember.Priority != nil {
+						memberOptions.Priority = ptr.To(fmt.Sprintf("%f", *replicaSetMember.Priority))
+					}
+					memberOptions.Tags = replicaSetMember.Tags
+
+				} else {
+					// If the member does not exist in the previous automation config, we populate the member options with defaults
+					memberOptions.Votes = ptr.To(1)
+					memberOptions.Priority = ptr.To("1.0")
+				}
+			}
+			memberOptionsList = append(memberOptionsList, memberOptions)
+		}
+
+	}
+	return memberOptionsList
 }
 
 func (r *ReconcileAppDbReplicaSet) generateHeadlessHostnamesForMonitoring(opsManager *omv1.MongoDBOpsManager) []string {
 	var hostnames []string
 	// We want all clusters to generate stable process list in case of some clusters being down. Process list cannot change regardless of the cluster health.
 	for _, memberCluster := range r.getAllMemberClusters() {
-		// TODO for now scaling is disabled - we create all desired processes
 		members := scale.ReplicasThisReconciliation(scalers.GetAppDBScaler(opsManager, memberCluster.Name, r.getMemberClusterIndex(memberCluster.Name), r.memberClusters))
 		if opsManager.Spec.AppDB.IsMultiCluster() {
 			hostnames = append(hostnames, dns.GetMultiClusterHostnamesForMonitoring(opsManager.Spec.AppDB.GetName(), opsManager.GetNamespace(), memberCluster.Index, members)...)
