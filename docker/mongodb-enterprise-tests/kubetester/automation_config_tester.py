@@ -26,7 +26,7 @@ class AutomationConfigTester:
 
     def get_replica_set_members(self, rs_name: str) -> List[Dict]:
         replica_set = ([rs for rs in self.automation_config["replicaSets"] if rs["_id"] == rs_name])[0]
-        return replica_set["members"]
+        return sorted(replica_set["members"], key=lambda member: member["_id"])
 
     def get_mongos_processes(self):
         """ " Returns all mongos processes in deployment. We don't need to filter by sharded cluster name as

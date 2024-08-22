@@ -530,8 +530,9 @@ func (m *AppDBSpec) GetClusterSpecList() []mdbv1.ClusterSpecItem {
 	} else {
 		return []mdbv1.ClusterSpecItem{
 			{
-				ClusterName: multicluster.LegacyCentralClusterName,
-				Members:     m.Members,
+				ClusterName:  multicluster.LegacyCentralClusterName,
+				Members:      m.Members,
+				MemberConfig: m.GetMemberOptions(),
 			},
 		}
 	}

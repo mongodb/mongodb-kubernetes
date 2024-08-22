@@ -34,6 +34,7 @@ def enable_multi_cluster_deployment(
     resource: MongoDBOpsManager,
     om_cluster_spec_list: Optional[list[int]] = None,
     appdb_cluster_spec_list: Optional[list[int]] = None,
+    appdb_member_configs: Optional[list[list[dict]]] = None,
 ):
     resource["spec"]["topology"] = "MultiCluster"
     backup_configs = None
@@ -75,6 +76,6 @@ def enable_multi_cluster_deployment(
     )
     resource["spec"]["applicationDatabase"]["topology"] = "MultiCluster"
     resource["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(
-        get_appdb_member_cluster_names(), appdb_cluster_spec_list
+        get_appdb_member_cluster_names(), appdb_cluster_spec_list, appdb_member_configs
     )
     resource.api = kubernetes.client.CustomObjectsApi(api_client=get_central_cluster_client())
