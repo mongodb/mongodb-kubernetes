@@ -1534,7 +1534,7 @@ tasks:
     - func: "e2e_test"
 
 # E2E tests for Ops Manager (sorted alphabetically):
-- name: e2e_om_appdb_agent_flags
+- name: e2e_om_appdb_flags_and_config
   tags: ["patch-run"]
   commands:
     - func: "e2e_test"
@@ -2293,7 +2293,7 @@ task_groups:
     - e2e_multi_cluster_appdb_disaster_recovery_force_reconfigure
     - e2e_multi_cluster_om_networking_clusterwide
     # Reused OM tests with AppDB Multi-Cluster topology
-    - e2e_om_appdb_agent_flags
+    - e2e_om_appdb_flags_and_config
     - e2e_om_appdb_upgrade
     - e2e_om_appdb_monitoring_tls
     - e2e_om_ops_manager_backup
@@ -2343,7 +2343,7 @@ task_groups:
     - e2e_multi_cluster_appdb_disaster_recovery_force_reconfigure
     - e2e_multi_cluster_om_networking_clusterwide
     # Reused OM tests with AppDB Multi-Cluster topology
-    - e2e_om_appdb_agent_flags
+    - e2e_om_appdb_flags_and_config
     - e2e_om_appdb_upgrade
     - e2e_om_appdb_monitoring_tls
     - e2e_om_ops_manager_backup
@@ -2395,7 +2395,7 @@ task_groups:
   <<: *setup_group
   <<: *setup_and_teardown_task_cloudqa
   tasks:
-    - e2e_om_appdb_agent_flags
+    - e2e_om_appdb_flags_and_config
     - e2e_om_appdb_monitoring_tls
     - e2e_om_appdb_multi_change
     - e2e_om_appdb_scale_up_down
@@ -2439,7 +2439,7 @@ task_groups:
   <<: *setup_group
   <<: *setup_and_teardown_task_cloudqa
   tasks:
-    - e2e_om_appdb_agent_flags
+    - e2e_om_appdb_flags_and_config
     - e2e_om_appdb_monitoring_tls
     - e2e_om_appdb_multi_change
     - e2e_om_appdb_scale_up_down
