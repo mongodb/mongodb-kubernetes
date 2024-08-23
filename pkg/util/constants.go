@@ -298,6 +298,8 @@ const (
 	OfficialServerImageAppdbUrl = "mongodb-enterprise-server"
 
 	MdbAppdbAssumeOldFormat = "MDB_APPDB_ASSUME_OLD_FORMAT"
+
+	Finalizer = "mongodb.com/v1.userRemovalFinalizer"
 )
 
 const (

@@ -377,6 +377,71 @@ func TestMultipleAuthMethod_CreateAgentUsers(t *testing.T) {
 	})
 }
 
+func TestFinalizerIsAdded_WhenUserIsCreated(t *testing.T) {
+	ctx := context.Background()
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
+	reconciler, client := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
+
+	// initialize resources required for the tests
+	_ = client.Create(ctx, DefaultReplicaSetBuilder().EnableAuth().AgentAuthMode("SCRAM").
+		SetName("my-rs").Build())
+	createUserControllerConfigMap(ctx, client)
+	createPasswordSecret(ctx, client, user.Spec.PasswordSecretKeyRef, "password")
+
+	actual, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+
+	expected, _ := workflow.OK().ReconcileResult()
+
+	assert.Nil(t, err, "there should be no error on successful reconciliation")
+	assert.Equal(t, expected, actual, "there should be a successful reconciliation if the password is a valid reference")
+
+	connection := om.CurrMockedConnection
+	ac, _ := connection.ReadAutomationConfig()
+
+	// the automation config should have been updated during reconciliation
+	assert.Len(t, ac.Auth.Users, 1, "the MongoDBUser should have been added to the AutomationConfig")
+
+	_ = client.Get(ctx, kube.ObjectKey(user.Namespace, user.Name), user)
+
+	assert.Contains(t, user.GetFinalizers(), util.Finalizer)
+}
+
+func TestFinalizerIsRemoved_WhenUserIsDeleted(t *testing.T) {
+	ctx := context.Background()
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
+	reconciler, client := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
+
+	// initialize resources required for the tests
+	_ = client.Create(ctx, DefaultReplicaSetBuilder().EnableAuth().AgentAuthMode("SCRAM").
+		SetName("my-rs").Build())
+	createUserControllerConfigMap(ctx, client)
+	createPasswordSecret(ctx, client, user.Spec.PasswordSecretKeyRef, "password")
+
+	actual, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+
+	expected, _ := workflow.OK().ReconcileResult()
+
+	assert.Nil(t, err, "there should be no error on successful reconciliation")
+	assert.Equal(t, expected, actual, "there should be a successful reconciliation if the password is a valid reference")
+
+	connection := om.CurrMockedConnection
+	ac, _ := connection.ReadAutomationConfig()
+
+	// the automation config should have been updated during reconciliation
+	assert.Len(t, ac.Auth.Users, 1, "the MongoDBUser should have been added to the AutomationConfig")
+
+	_ = client.Delete(ctx, user)
+
+	newResult, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+
+	newExpected, _ := workflow.OK().ReconcileResult()
+
+	assert.Nil(t, err, "there should be no error on successful reconciliation")
+	assert.Equal(t, newExpected, newResult, "there should be a successful reconciliation if the password is a valid reference")
+
+	assert.Empty(t, user.GetFinalizers())
+}
+
 // BuildAuthenticationEnabledReplicaSet returns a AutomationConfig after creating a Replica Set with a set of
 // different Authentication values. It should be used to test different combination of authentication modes enabled
 // and agent authentication modes.
