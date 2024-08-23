@@ -20,7 +20,7 @@ operator:
   deployment_name: mongodb-enterprise-operator
 
   # Version of mongodb-enterprise-operator
-  version: 1.26.0
+  version: 1.27.0
 
   # The Custom Resources that will be watched by the Operator. Needs to be changed if only some of the CRDs are installed
   watchedResources:
@@ -98,11 +98,11 @@ operator:
 ## Database
 database:
   name: mongodb-enterprise-database-ubi
-  version: 1.26.0
+  version: 1.27.0
 
 initDatabase:
   name: mongodb-enterprise-init-database-ubi
-  version: 1.26.0
+  version: 1.27.0
 
 ## Ops Manager
 opsManager:
@@ -110,12 +110,12 @@ opsManager:
 
 initOpsManager:
   name: mongodb-enterprise-init-ops-manager-ubi
-  version: 1.26.0
+  version: 1.27.0
 
 ## Application Database
 initAppDb:
   name: mongodb-enterprise-init-appdb-ubi
-  version: 1.26.0
+  version: 1.27.0
 
 agent:
   name: mongodb-agent-ubi
