@@ -8,6 +8,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 	"golang.org/x/xerrors"
@@ -150,6 +151,15 @@ func (r *MongoDBUserReconciler) Reconcile(ctx context.Context, request reconcile
 		if mdb, err = r.getMongoDB(ctx, *user); err != nil {
 			log.Warnf("Couldn't fetch MongoDB Single/Multi Cluster Resource with name: %s, namespace: %s, err: %s",
 				user.Spec.MongoDBResourceRef.Name, user.Spec.MongoDBResourceRef.Namespace, err)
+
+			if controllerutil.ContainsFinalizer(user, util.Finalizer) {
+				controllerutil.RemoveFinalizer(user, util.Finalizer)
+				if err := r.client.Update(ctx, user); err != nil {
+					return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to update the user with the removed finalizer: %w", err)), log)
+				}
+				return r.updateStatus(ctx, user, workflow.Pending("Finalizer will be removed. MongoDB resource not found"), log)
+			}
+
 			return r.updateStatus(ctx, user, workflow.Pending(err.Error()), log)
 		}
 	} else {
@@ -178,6 +188,18 @@ func (r *MongoDBUserReconciler) Reconcile(ctx context.Context, request reconcile
 		return r.updateStatus(ctx, user, workflow.Failed(err), log)
 	}
 
+	if !user.ObjectMeta.DeletionTimestamp.IsZero() {
+		log.Info("MongoDBUser is being deleted")
+
+		if controllerutil.ContainsFinalizer(user, util.Finalizer) {
+			return r.preDeletionCleanup(ctx, user, conn, log)
+		}
+	}
+
+	if err := r.ensureFinalizer(ctx, user, log); err != nil {
+		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to add finalizer: %w", err)), log)
+	}
+
 	if user.Spec.Database == authentication.ExternalDB {
 		return r.handleExternalAuthUser(ctx, user, conn, log)
 	} else {
@@ -198,7 +220,7 @@ func (r *MongoDBUserReconciler) delete(ctx context.Context, obj interface{}, log
 		return err
 	}
 
-	conn, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, user.Namespace, log)
+	_, err = connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, user.Namespace, log)
 	if err != nil {
 		log.Errorf("Failed to prepare Ops Manager connection: %s", err)
 		return err
@@ -206,10 +228,7 @@ func (r *MongoDBUserReconciler) delete(ctx context.Context, obj interface{}, log
 
 	r.resourceWatcher.RemoveAllDependentWatchedResources(user.Namespace, kube.ObjectKeyFromApiObject(user))
 
-	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
-		ac.Auth.EnsureUserRemoved(user.Spec.Username, user.Spec.Database)
-		return nil
-	}, log)
+	return nil
 }
 
 func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context, user userv1.MongoDBUser, log *zap.SugaredLogger) error {
@@ -427,4 +446,37 @@ func getAnnotationsForUserResource(user *userv1.MongoDBUser) (map[string]string,
 	}
 	finalAnnotations[util.LastAchievedSpec] = string(specBytes)
 	return finalAnnotations, nil
+}
+
+func (r *MongoDBUserReconciler) preDeletionCleanup(ctx context.Context, user *userv1.MongoDBUser, conn om.Connection, log *zap.SugaredLogger) (reconcile.Result, error) {
+	log.Info("Performing pre deletion cleanup before deleting MongoDBUser")
+
+	err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		ac.Auth.EnsureUserRemoved(user.Spec.Username, user.Spec.Database)
+		return nil
+	}, log)
+	if err != nil {
+		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to perform AutomationConfig cleanup: %w", err)), log)
+	}
+
+	if finalizerRemoved := controllerutil.RemoveFinalizer(user, util.Finalizer); !finalizerRemoved {
+		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to remove finalizer: %w", err)), log)
+	}
+
+	if err := r.client.Update(ctx, user); err != nil {
+		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to update the user with the removed finalizer: %w", err)), log)
+	}
+	return r.updateStatus(ctx, user, workflow.OK(), log)
+}
+
+func (r *MongoDBUserReconciler) ensureFinalizer(ctx context.Context, user *userv1.MongoDBUser, log *zap.SugaredLogger) error {
+	log.Info("Adding finalizer to the MongoDBUser resource")
+
+	if finalizerAdded := controllerutil.AddFinalizer(user, util.Finalizer); finalizerAdded {
+		if err := r.client.Update(ctx, user); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
