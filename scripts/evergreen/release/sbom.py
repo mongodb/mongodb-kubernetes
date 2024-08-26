@@ -148,20 +148,11 @@ def upload_sbom_lite_to_silk(directory: str, file_name: str, asset_group: str, p
         f"sboms/{file_name}",
     ]
 
-    max_retries = 5
-    for attempt in range(max_retries):
-        try:
-            logger.debug(f"Calling Silk upload: {' '.join(command)}")
-            subprocess.run(command, check=True)
-            logger.debug(f"Uploading SBOM Lite done")
-            break
-        except subprocess.CalledProcessError as e:
-            err = e
-            wait_time = (2**attempt) + random.uniform(0, 1)
-            logger.warning(f"Rate limited. Retrying in {wait_time:.2f} seconds...")
-            time.sleep(wait_time)
-        logger.error(f"Failed to upload SBOM Lite, lass error: {err}")
-        raise
+    logger.debug(f"Calling Silk upload: {' '.join(command)}")
+    if retry(subprocess.run(command, check=True)):
+        logger.debug(f"Uploading SBOM Lite done")
+    else:
+        logger.error(f"Failed to upload SBOM Lite")
 
 
 def download_augmented_sbom_from_silk(directory: str, file_name: str, asset_group: str, platform: str):
@@ -188,20 +179,27 @@ def download_augmented_sbom_from_silk(directory: str, file_name: str, asset_grou
         f"sboms/{file_name}",
     ]
 
-    max_retries = 5
+    logger.debug(f"Calling Silk download: {' '.join(command)}")
+    if retry(subprocess.run(command, check=True)):
+        logger.debug(f"Downloading Augmented SBOM done")
+    else:
+        logger.error(f"Failed to download Augmented SBOM")
+
+
+def retry(f, max_retries=5) -> bool:
     for attempt in range(max_retries):
         try:
-            logger.debug(f"Calling Silk download: {' '.join(command)}")
-            subprocess.run(command, check=True)
-            logger.debug(f"Downloading Augmented SBOM done")
-            break
+            logger.debug(f"Calling function with retries")
+            f()
+            logger.debug(f"Calling function with retries done")
+            return True
         except subprocess.CalledProcessError as e:
             err = e
             wait_time = (2**attempt) + random.uniform(0, 1)
             logger.warning(f"Rate limited. Retrying in {wait_time:.2f} seconds...")
             time.sleep(wait_time)
-        logger.error(f"Failed to download Augmented SBOM, lass error: {err}")
-        raise
+    logger.error(f"Calling function with retries failed with error: {err}")
+    return False
 
 
 def download_file(url: str, directory: str, file_path: str):
