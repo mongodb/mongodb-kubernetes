@@ -139,22 +139,22 @@ export DOCKER_PLATFORM=${DOCKER_PLATFORM:-"linux/amd64"}
 CERTIFIED_OPERATORS_REPO="https://github.com/redhat-openshift-ecosystem/certified-operators.git"
 
 certified_repo_cloned="$(clone_git_repo_into_temp ${CERTIFIED_OPERATORS_REPO})"
+latest_released_operator_version="$(find_the_latest_certified_operator "$certified_repo_cloned")"
+current_operator_version_from_release_json=$(jq -r .mongodbOperator < release.json)
+current_incremented_operator_version_from_release_json=$(increment_version "${current_operator_version_from_release_json}")
+current_incremented_operator_version_from_release_json_with_version_id="${current_incremented_operator_version_from_release_json}-${VERSION_ID:-"latest"}"
+certified_catalog_image="${base_repo_url}/mongodb-enterprise-operator-certified-catalog:${current_incremented_operator_version_from_release_json_with_version_id}"
 
-current_operator_version="$(find_the_latest_certified_operator "$certified_repo_cloned")"
-current_incremented_version=$(increment_version "${current_operator_version}")
-incremented_version_with_version_id="${current_incremented_version}-${VERSION_ID:-"latest"}"
-certified_catalog_image="${base_repo_url}/mongodb-enterprise-operator-certified-catalog:${incremented_version_with_version_id}"
-
-export LATEST_CERTIFIED_BUNDLE_IMAGE="${base_repo_url}/mongodb-enterprise-operator-certified-bundle:${current_operator_version}"
-export CURRENT_BUNDLE_IMAGE="${base_repo_url}/mongodb-enterprise-operator-certified-bundle:${incremented_version_with_version_id}"
-export CURRENT_COMMUNITY_BUNDLE_IMAGE="${base_repo_url}/mongodb-enterprise-operator-community-bundle:${incremented_version_with_version_id}"
+export LATEST_CERTIFIED_BUNDLE_IMAGE="${base_repo_url}/mongodb-enterprise-operator-certified-bundle:${latest_released_operator_version}"
+export CURRENT_BUNDLE_IMAGE="${base_repo_url}/mongodb-enterprise-operator-certified-bundle:${current_incremented_operator_version_from_release_json_with_version_id}"
+export CURRENT_COMMUNITY_BUNDLE_IMAGE="${base_repo_url}/mongodb-enterprise-operator-community-bundle:${current_incremented_operator_version_from_release_json_with_version_id}"
 
 
 header "Configuration:"
 echo "certified_repo_cloned: $certified_repo_cloned"
-echo "current_operator_version: $current_operator_version"
-echo "current_incremented_version: $current_incremented_version"
-echo "incremented_version_with_version_id: $incremented_version_with_version_id"
+echo "latest_released_operator_version: $latest_released_operator_version"
+echo "current_incremented_operator_version_from_release_json: $current_incremented_operator_version_from_release_json"
+echo "current_incremented_operator_version_from_release_json_with_version_id: $current_incremented_operator_version_from_release_json_with_version_id"
 echo "LATEST_CERTIFIED_BUNDLE_IMAGE: $LATEST_CERTIFIED_BUNDLE_IMAGE"
 echo "CURRENT_BUNDLE_IMAGE: $CURRENT_BUNDLE_IMAGE"
 echo "CURRENT_COMMUNITY_BUNDLE_IMAGE: $CURRENT_COMMUNITY_BUNDLE_IMAGE"
@@ -164,7 +164,7 @@ echo "CERTIFIED_OPERATORS_REPO: $CERTIFIED_OPERATORS_REPO"
 
 # Build latest published bundle form RedHat's certified operators repository.
 header "Building bundle:"
-build_bundle_from_git_repo "$certified_repo_cloned" "${current_operator_version}" "${LATEST_CERTIFIED_BUNDLE_IMAGE}"
+build_bundle_from_git_repo "$certified_repo_cloned" "${latest_released_operator_version}" "${LATEST_CERTIFIED_BUNDLE_IMAGE}"
 
 # Generate helm charts providing overrides for images to reference images build in EVG pipeline.
 header "Building Helm charts:"
@@ -173,14 +173,14 @@ generate_helm_charts
 # prepare openshift bundles the same way it's built in release process from the current sources and helm charts.
 export CERTIFIED_BUNDLE_IMAGE=${CURRENT_BUNDLE_IMAGE}
 export COMMUNITY_BUNDLE_IMAGE=${CURRENT_COMMUNITY_BUNDLE_IMAGE}
-export VERSION="${current_incremented_version}"
+export VERSION="${current_incremented_operator_version_from_release_json}"
 export OPERATOR_IMAGE="${OPERATOR_REGISTRY:-${REGISTRY}}/mongodb-enterprise-operator-ubi:${VERSION_ID}"
 header "Preparing OpenShift bundles:"
 scripts/evergreen/operator-sdk/prepare-openshift-bundles.sh
 
 # publish two-channel catalog source to be used in e2e test.
 header "Building and pushing the catalog:"
-build_and_publish_catalog_with_two_channels "$certified_repo_cloned" "${current_operator_version}" "${LATEST_CERTIFIED_BUNDLE_IMAGE}" "${current_incremented_version}" "${CURRENT_BUNDLE_IMAGE}" "${certified_catalog_image}"
+build_and_publish_catalog_with_two_channels "$certified_repo_cloned" "${latest_released_operator_version}" "${LATEST_CERTIFIED_BUNDLE_IMAGE}" "${current_incremented_operator_version_from_release_json}" "${CURRENT_BUNDLE_IMAGE}" "${certified_catalog_image}"
 
 header "Cleaning up tmp directory"
 rm -rf "$certified_repo_cloned"
