@@ -22,6 +22,7 @@ from tests.olm.olm_test_commons import (
     get_catalog_image,
     get_catalog_source_resource,
     get_current_operator_version,
+    get_latest_released_operator_version,
     get_operator_group_resource,
     get_subscription_custom_object,
     increment_patch_version,
@@ -46,7 +47,7 @@ from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_
 
 @fixture
 def catalog_source(namespace: str, version_id: str):
-    current_operator_version = get_current_operator_version(namespace)
+    current_operator_version = get_current_operator_version()
     incremented_operator_version = increment_patch_version(current_operator_version)
 
     create_or_update(get_operator_group_resource(namespace, namespace))
@@ -77,8 +78,8 @@ def subscription(namespace: str, catalog_source: CustomObject):
 
 
 @fixture
-def current_operator_version(namespace: str):
-    return get_current_operator_version(namespace)
+def current_operator_version():
+    return get_latest_released_operator_version()
 
 
 @pytest.mark.e2e_olm_operator_upgrade_with_resources
@@ -339,7 +340,7 @@ def test_operator_upgrade_to_fast(
     catalog_source: CustomObject,
     subscription: CustomObject,
 ):
-    current_operator_version = get_current_operator_version(namespace)
+    current_operator_version = get_current_operator_version()
     incremented_operator_version = increment_patch_version(current_operator_version)
 
     # It is very likely that OLM will be doing a series of status updates during this time.

@@ -1,9 +1,12 @@
+import json
 import os
+import re
 import tempfile
 import time
 from typing import Callable
 
 import kubetester
+import requests
 import yaml
 from kubeobject import CustomObject
 from kubernetes import client
@@ -123,18 +126,54 @@ def get_pod_condition_env_var(pod):
     return operator_condition_env[0].value
 
 
-def get_current_operator_version(namespace: str):
-    package_manifest = get_package_manifest_resource(namespace)
-    if not kubetester.try_load(package_manifest):
-        print("The PackageManifest doesn't exist. Falling back to using Helm Chart for obtaining version")
-        with open("helm_chart/values.yaml", "r") as f:
-            values = yaml.safe_load(f)
-            return values.get("operator", {}).get("version", None)
-    for channel in package_manifest["status"]["channels"]:
-        if channel["name"] == "stable":
-            return channel["currentCSVDesc"]["version"]
-            # [0] is the fast channel and [1] is the stable one.
-    raise Exception(f"Could not find the stable channel in the PackageManifest. The full object: {package_manifest}")
+def get_release_json_path() -> str:
+    # when running in pod, release.json will be available in /release.json (it's copied there in Dockerfile)
+    if os.path.exists("release.json"):
+        return "release.json"
+    else:
+        # when running locally, we try to read it from the project's dir
+        release_json_path = os.path.join(os.environ["PROJECT_DIR"], "release.json")
+        print(f"release.json not found in current path, checking {release_json_path}")
+        if os.path.exists(release_json_path):
+            return release_json_path
+        else:
+            raise Exception(
+                "release.json file not found, ensure it's copied into test pod or $PROJECT_DIR ({os.environ['PROJECT_DIR']}) is set to ops-manager-kubernetes dir"
+            )
+
+
+def get_release_json() -> dict[str, any]:
+    with open(get_release_json_path()) as f:
+        return json.load(f)
+
+
+def get_current_operator_version() -> str:
+    return get_release_json()["mongodbOperator"]
+
+
+def get_latest_released_operator_version() -> str:
+    released_operators_url = f"https://api.github.com/repos/redhat-openshift-ecosystem/certified-operators/contents/operators/mongodb-enterprise"
+    response = requests.get(released_operators_url, headers={"Accept": "application/vnd.github.v3+json"})
+
+    if response.status_code != 200:
+        raise Exception(
+            f"Error getting contents of released operators dir {released_operators_url} in certified operators repo: {response.status_code}"
+        )
+
+    data = response.json()
+    version_pattern = re.compile(r"(\d+\.\d+\.\d+)")
+    versioned_directories = [
+        item["name"] for item in data if item["type"] == "dir" and version_pattern.match(item["name"])
+    ]
+    if not versioned_directories:
+        raise Exception(
+            f"Error getting contents of released operators dir {released_operators_url} in certified operators repo: there are no versions"
+        )
+
+    print(f"Received list of versions from {released_operators_url}: {versioned_directories}")
+
+    # GitHub is returning sorted directories, so the last one is the latest released operator
+    return versioned_directories[-1]
 
 
 def increment_patch_version(version: str):

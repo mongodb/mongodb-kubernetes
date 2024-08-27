@@ -392,6 +392,8 @@ def build_tests_image(build_configuration: BuildConfiguration):
     shutil.rmtree(helm_dest, ignore_errors=True)
     copy_tree(helm_src, helm_dest)
 
+    shutil.copyfile("release.json", "docker/mongodb-enterprise-tests/release.json")
+
     shutil.copyfile("requirements.txt", requirements_dest)
 
     sonar_build_image(image_name, build_configuration, {}, "inventories/test.yaml")
