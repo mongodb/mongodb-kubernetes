@@ -9,6 +9,7 @@ from tests.olm.olm_test_commons import (
     get_catalog_image,
     get_catalog_source_resource,
     get_current_operator_version,
+    get_latest_released_operator_version,
     get_operator_group_resource,
     get_subscription_custom_object,
     increment_patch_version,
@@ -22,7 +23,8 @@ from tests.olm.olm_test_commons import (
 
 @pytest.mark.e2e_olm_operator_upgrade
 def test_upgrade_operator_only(namespace: str, version_id: str):
-    current_operator_version = get_current_operator_version(namespace)
+    latest_released_operator_version = get_latest_released_operator_version()
+    current_operator_version = get_current_operator_version()
     incremented_operator_version = increment_patch_version(current_operator_version)
 
     create_or_update(get_operator_group_resource(namespace, namespace))
@@ -48,7 +50,7 @@ def test_upgrade_operator_only(namespace: str, version_id: str):
 
     create_or_update(subscription)
 
-    wait_for_operator_ready(namespace, f"mongodb-enterprise.v{current_operator_version}")
+    wait_for_operator_ready(namespace, f"mongodb-enterprise.v{latest_released_operator_version}")
 
     subscription.load()
     subscription["spec"]["channel"] = "fast"  # fast channel contains operator build from the current branch

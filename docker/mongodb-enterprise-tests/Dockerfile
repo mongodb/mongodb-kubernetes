@@ -46,5 +46,6 @@ WORKDIR /tests
 COPY . /tests
 # copying the helm_chart directory as well to support installation of the Operator from the test application
 COPY helm_chart /helm_chart
+COPY release.json /release.json
 
 ADD multi-cluster-kube-config-creator_linux /usr/local/bin/multi-cluster-kube-config-creator
