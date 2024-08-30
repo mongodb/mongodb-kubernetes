@@ -5,12 +5,13 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
+
 	"k8s.io/utils/ptr"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -19,34 +20,36 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-func backupSnapshotScheduleTests(mdb backup.ConfigReaderUpdater, client *mock.MockedClient, reconciler reconcile.Reconciler, clusterID string) func(t *testing.T) {
+func backupSnapshotScheduleTests(mdb backup.ConfigReaderUpdater, client client.Client, reconciler reconcile.Reconciler, omConnectionFactory *om.CachedOMConnectionFactory, clusterID string) func(t *testing.T) {
 	ctx := context.Background()
 	return func(t *testing.T) {
-		t.Run("Backup schedule is not read and not updated if not specified in spec", testBackupScheduleNotReadAndNotUpdatedIfNotSpecifiedInSpec(ctx, mdb, client, reconciler, clusterID))
-		t.Run("Backup schedule is updated if specified in spec", testBackupScheduleIsUpdatedIfSpecifiedInSpec(ctx, mdb, client, reconciler, clusterID))
-		t.Run("Backup schedule is not updated if not changed", testBackupScheduleNotUpdatedIfNotChanged(ctx, mdb, client, reconciler, clusterID))
+		t.Run("Backup schedule is not read and not updated if not specified in spec", testBackupScheduleNotReadAndNotUpdatedIfNotSpecifiedInSpec(ctx, mdb, client, reconciler, omConnectionFactory, clusterID))
+		t.Run("Backup schedule is updated if specified in spec", testBackupScheduleIsUpdatedIfSpecifiedInSpec(ctx, mdb, client, reconciler, omConnectionFactory, clusterID))
+		t.Run("Backup schedule is not updated if not changed", testBackupScheduleNotUpdatedIfNotChanged(ctx, mdb, client, reconciler, omConnectionFactory, clusterID))
 	}
 }
 
-func testBackupScheduleNotReadAndNotUpdatedIfNotSpecifiedInSpec(ctx context.Context, mdb backup.ConfigReaderUpdater, client *mock.MockedClient, reconciler reconcile.Reconciler, clusterID string) func(t *testing.T) {
+func testBackupScheduleNotReadAndNotUpdatedIfNotSpecifiedInSpec(ctx context.Context, mdb backup.ConfigReaderUpdater, client client.Client, reconciler reconcile.Reconciler, omConnectionFactory *om.CachedOMConnectionFactory, clusterID string) func(t *testing.T) {
 	return func(t *testing.T) {
-		insertDefaultBackupSchedule(t, clusterID)
+		require.NoError(t, client.Get(ctx, kube.ObjectKeyFromApiObject(mdb), mdb))
+		insertDefaultBackupSchedule(t, omConnectionFactory, clusterID)
 
 		mdb.GetBackupSpec().SnapshotSchedule = nil
 
 		err := client.Update(ctx, mdb)
 		assert.NoError(t, err)
 
-		om.CurrMockedConnection.CleanHistory()
+		omConnectionFactory.GetConnection().(*om.MockedOmConnection).CleanHistory()
 		checkReconcile(ctx, t, reconciler, mdb)
-		om.CurrMockedConnection.CheckOperationsDidntHappen(t, reflect.ValueOf(om.CurrMockedConnection.UpdateSnapshotSchedule))
-		om.CurrMockedConnection.CheckOperationsDidntHappen(t, reflect.ValueOf(om.CurrMockedConnection.ReadSnapshotSchedule))
+		omConnectionFactory.GetConnection().(*om.MockedOmConnection).CheckOperationsDidntHappen(t, reflect.ValueOf(omConnectionFactory.GetConnection().UpdateSnapshotSchedule))
+		omConnectionFactory.GetConnection().(*om.MockedOmConnection).CheckOperationsDidntHappen(t, reflect.ValueOf(omConnectionFactory.GetConnection().ReadSnapshotSchedule))
 	}
 }
 
-func testBackupScheduleIsUpdatedIfSpecifiedInSpec(ctx context.Context, mdb backup.ConfigReaderUpdater, client *mock.MockedClient, reconciler reconcile.Reconciler, clusterID string) func(t *testing.T) {
+func testBackupScheduleIsUpdatedIfSpecifiedInSpec(ctx context.Context, mdb backup.ConfigReaderUpdater, client client.Client, reconciler reconcile.Reconciler, omConnectionFactory *om.CachedOMConnectionFactory, clusterID string) func(t *testing.T) {
 	return func(t *testing.T) {
-		insertDefaultBackupSchedule(t, clusterID)
+		require.NoError(t, client.Get(ctx, kube.ObjectKeyFromApiObject(mdb), mdb))
+		insertDefaultBackupSchedule(t, omConnectionFactory, clusterID)
 
 		mdb.GetBackupSpec().SnapshotSchedule = &mdbv1.SnapshotSchedule{
 			SnapshotIntervalHours:          ptr.To(1),
@@ -63,18 +66,20 @@ func testBackupScheduleIsUpdatedIfSpecifiedInSpec(ctx context.Context, mdb backu
 
 		err := client.Update(ctx, mdb)
 		require.NoError(t, err)
+		require.NoError(t, client.Get(ctx, kube.ObjectKeyFromApiObject(mdb), mdb))
 
 		checkReconcile(ctx, t, reconciler, mdb)
 
-		snapshotSchedule, err := om.CurrMockedConnection.ReadSnapshotSchedule(clusterID)
+		snapshotSchedule, err := omConnectionFactory.GetConnection().ReadSnapshotSchedule(clusterID)
 		require.NoError(t, err)
 		assertSnapshotScheduleEqual(t, mdb.GetBackupSpec().SnapshotSchedule, snapshotSchedule)
 	}
 }
 
-func testBackupScheduleNotUpdatedIfNotChanged(ctx context.Context, mdb backup.ConfigReaderUpdater, kubeClient client.Client, reconciler reconcile.Reconciler, clusterID string) func(t *testing.T) {
+func testBackupScheduleNotUpdatedIfNotChanged(ctx context.Context, mdb backup.ConfigReaderUpdater, kubeClient client.Client, reconciler reconcile.Reconciler, omConnectionFactory *om.CachedOMConnectionFactory, clusterID string) func(t *testing.T) {
 	return func(t *testing.T) {
-		insertDefaultBackupSchedule(t, clusterID)
+		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKeyFromApiObject(mdb), mdb))
+		insertDefaultBackupSchedule(t, omConnectionFactory, clusterID)
 
 		snapshotSchedule := &mdbv1.SnapshotSchedule{
 			SnapshotIntervalHours:          ptr.To(11),
@@ -95,24 +100,27 @@ func testBackupScheduleNotUpdatedIfNotChanged(ctx context.Context, mdb backup.Co
 		require.NoError(t, err)
 
 		checkReconcile(ctx, t, reconciler, mdb)
+		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKeyFromApiObject(mdb), mdb))
 
-		omSnapshotSchedule, err := om.CurrMockedConnection.ReadSnapshotSchedule(clusterID)
+		omSnapshotSchedule, err := omConnectionFactory.GetConnection().ReadSnapshotSchedule(clusterID)
 		require.NoError(t, err)
 
 		assertSnapshotScheduleEqual(t, mdb.GetBackupSpec().SnapshotSchedule, omSnapshotSchedule)
 
-		om.CurrMockedConnection.CleanHistory()
+		omConnectionFactory.GetConnection().(*om.MockedOmConnection).CleanHistory()
 		checkReconcile(ctx, t, reconciler, mdb)
+		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKeyFromApiObject(mdb), mdb))
 
-		om.CurrMockedConnection.CheckOperationsDidntHappen(t, reflect.ValueOf(om.CurrMockedConnection.UpdateSnapshotSchedule))
+		omConnectionFactory.GetConnection().(*om.MockedOmConnection).CheckOperationsDidntHappen(t, reflect.ValueOf(omConnectionFactory.GetConnection().UpdateSnapshotSchedule))
 
 		mdb.GetBackupSpec().SnapshotSchedule.FullIncrementalDayOfWeek = ptr.To("Monday")
 		err = kubeClient.Update(ctx, mdb)
 		require.NoError(t, err)
 
 		checkReconcile(ctx, t, reconciler, mdb)
+		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKeyFromApiObject(mdb), mdb))
 
-		omSnapshotSchedule, err = om.CurrMockedConnection.ReadSnapshotSchedule(clusterID)
+		omSnapshotSchedule, err = omConnectionFactory.GetConnection().ReadSnapshotSchedule(clusterID)
 		assert.NoError(t, err)
 		require.NotNil(t, omSnapshotSchedule)
 		require.NotNil(t, omSnapshotSchedule.FullIncrementalDayOfWeek)
@@ -120,9 +128,9 @@ func testBackupScheduleNotUpdatedIfNotChanged(ctx context.Context, mdb backup.Co
 	}
 }
 
-func insertDefaultBackupSchedule(t *testing.T, clusterID string) {
+func insertDefaultBackupSchedule(t *testing.T, omConnectionFactory *om.CachedOMConnectionFactory, clusterID string) {
 	// insert default backup schedule
-	err := om.CurrMockedConnection.UpdateSnapshotSchedule(clusterID, &backup.SnapshotSchedule{
+	err := omConnectionFactory.GetConnection().UpdateSnapshotSchedule(clusterID, &backup.SnapshotSchedule{
 		GroupID:   om.TestGroupID,
 		ClusterID: clusterID,
 	})

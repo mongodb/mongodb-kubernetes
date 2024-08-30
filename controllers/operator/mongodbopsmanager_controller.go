@@ -109,9 +109,9 @@ type OpsManagerReconciler struct {
 
 var _ reconcile.Reconciler = &OpsManagerReconciler{}
 
-func newOpsManagerReconciler(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, omFunc om.ConnectionFactory, initializer api.Initializer, adminProvider api.AdminProvider) *OpsManagerReconciler {
+func newOpsManagerReconciler(ctx context.Context, kubeClient client.Client, memberClustersMap map[string]cluster.Cluster, omFunc om.ConnectionFactory, initializer api.Initializer, adminProvider api.AdminProvider) *OpsManagerReconciler {
 	return &OpsManagerReconciler{
-		ReconcileCommonController: newReconcileCommonController(ctx, mgr),
+		ReconcileCommonController: newReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:       omFunc,
 		omInitializer:             initializer,
 		omAdminProvider:           adminProvider,
@@ -821,7 +821,7 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulsetInMemberCluster(ctx co
 }
 
 func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
-	reconciler := newOpsManagerReconciler(ctx, mgr, memberClustersMap, om.NewOpsManagerConnection, &api.DefaultInitializer{}, api.NewOmAdmin)
+	reconciler := newOpsManagerReconciler(ctx, mgr.GetClient(), memberClustersMap, om.NewOpsManagerConnection, &api.DefaultInitializer{}, api.NewOmAdmin)
 	c, err := controller.New(util.MongoDbOpsManagerController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)})
 	if err != nil {
 		return err

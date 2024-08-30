@@ -47,8 +47,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
 	"github.com/blang/semver"
 
-	"sigs.k8s.io/controller-runtime/pkg/manager"
-
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
@@ -59,7 +57,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -81,15 +78,14 @@ type patchValue struct {
 type ReconcileCommonController struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver
-	scheme *runtime.Scheme
 	client kubernetesClient.Client
 	secrets.SecretClient
 
 	resourceWatcher *watch.ResourceWatcher
 }
 
-func newReconcileCommonController(ctx context.Context, mgr manager.Manager) *ReconcileCommonController {
-	newClient := kubernetesClient.NewClient(mgr.GetClient())
+func newReconcileCommonController(ctx context.Context, c client.Client) *ReconcileCommonController {
+	newClient := kubernetesClient.NewClient(c)
 	var vaultClient *vault.VaultClient
 
 	if vault.IsVaultSecretBackend() {
@@ -118,7 +114,6 @@ func newReconcileCommonController(ctx context.Context, mgr manager.Manager) *Rec
 			VaultClient: vaultClient,
 			KubeClient:  newClient,
 		},
-		scheme:          mgr.GetScheme(),
 		resourceWatcher: watch.NewResourceWatcher(),
 	}
 }

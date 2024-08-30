@@ -14,8 +14,7 @@ import (
 
 func TestSSLOptionsArePassedCorrectly_SSLRequireValidMMSServerCertificates(t *testing.T) {
 	ctx := context.Background()
-	client := mock.NewClient()
-
+	client, _ := mock.NewDefaultFakeClient()
 	cm := defaultConfigMap("cm1")
 	cm.Data[util.SSLRequireValidMMSServerCertificates] = "true"
 	err := client.Create(ctx, &cm)
@@ -60,8 +59,7 @@ func TestSSLOptionsArePassedCorrectly_SSLRequireValidMMSServerCertificates(t *te
 
 func TestSSLOptionsArePassedCorrectly_SSLMMSCAConfigMap(t *testing.T) {
 	ctx := context.Background()
-	client := mock.NewClient()
-
+	client, _ := mock.NewDefaultFakeClient()
 	// This represents the ConfigMap holding the CustomCA
 	cm := defaultConfigMap("configmap-with-ca-entry")
 	cm.Data["mms-ca.crt"] = "---- some cert ----"
@@ -88,8 +86,7 @@ func TestSSLOptionsArePassedCorrectly_SSLMMSCAConfigMap(t *testing.T) {
 
 func TestSSLOptionsArePassedCorrectly_UseCustomCAConfigMap(t *testing.T) {
 	ctx := context.Background()
-	client := mock.NewClient()
-
+	client, _ := mock.NewDefaultFakeClient()
 	// Passing "false" results in false to UseCustomCA
 	cm := defaultConfigMap("cm")
 	cm.Data[util.UseCustomCAConfigMap] = "false"
@@ -147,8 +144,7 @@ func TestSSLOptionsArePassedCorrectly_UseCustomCAConfigMap(t *testing.T) {
 
 func TestMissingRequiredFieldsFromCM(t *testing.T) {
 	ctx := context.Background()
-	client := mock.NewClient()
-
+	client, _ := mock.NewDefaultFakeClient()
 	t.Run("missing url", func(t *testing.T) {
 		cm := defaultConfigMap("cm1")
 		delete(cm.Data, util.OmBaseUrl)
@@ -171,7 +167,7 @@ func defaultConfigMap(name string) corev1.ConfigMap {
 	return configmap.Builder().
 		SetName(name).
 		SetNamespace(mock.TestNamespace).
-		SetDataField(util.OmBaseUrl, "http://mycompany.com:8080").
+		SetDataField(util.OmBaseUrl, "http://mycompany.example.com:8080").
 		SetDataField(util.OmOrgId, "123abc").
 		SetDataField(util.OmProjectName, "my-name").
 		Build()

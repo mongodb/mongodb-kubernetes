@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"runtime"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -45,29 +46,21 @@ import (
 //   configured using 'AgentsDelayCount' property
 // * As Deployment has package access to most of its data to preserve encapsulation (processes, ssl etc.) this class can
 //   be used as an access point to those fields for testing (see 'getProcesses' as an example)
-// * Note that the variable 'CurrMockedConnection' is global (as Go tests don't allow to have setup/teardown hooks)
-//  The state is cleaned as soon as a new mocked api object is built (which usually occurs when the new reconciler is
-//   built)
 // ********************************************************************************************************************
-
-// CurrMockedConnection is a Global variable for current OM connection object that was created by MongoDbController
-// its - just for tests
-var (
-	CurrMockedConnection *MockedOmConnection
-)
 
 const (
 	TestGroupID   = "abcd1234"
 	TestGroupName = "my-project"
 	TestOrgID     = "xyz9876"
 	TestAgentKey  = "qwerty9876"
-	TestURL       = "http://mycompany.com:8080"
-	TestUser      = "test@mycompany.com"
+	TestURL       = "http://mycompany.example.com:8080"
+	TestUser      = "test@mycompany.example.com"
 	TestApiKey    = "36lj245asg06s0h70245dstgft" //nolint
 )
 
 type MockedOmConnection struct {
-	HTTPOmConnection
+	context *OMContext
+
 	deployment            Deployment
 	automationConfig      *AutomationConfig
 	backupAgentConfig     *BackupAgentConfig
@@ -99,9 +92,47 @@ type MockedOmConnection struct {
 	// mocked client keeps track of all implemented functions called - uses reflection Func for this to enable type-safety
 	// and make function names rename easier
 	history []*runtime.Func
+}
 
-	// noSingleton defines whether the omConnection should keep and configure the singleton
-	noSingleton bool
+func (oc *MockedOmConnection) ReadGroupBackupConfig() (backup.GroupBackupConfig, error) {
+	return backup.GroupBackupConfig{}, xerrors.Errorf("not implemented")
+}
+
+func (oc *MockedOmConnection) UpdateGroupBackupConfig(config backup.GroupBackupConfig) ([]byte, error) {
+	return nil, xerrors.Errorf("not implemented")
+}
+
+func (oc *MockedOmConnection) UpdateBackupAgentConfig(mat *BackupAgentConfig, log *zap.SugaredLogger) ([]byte, error) {
+	return nil, xerrors.Errorf("not implemented")
+}
+
+func (oc *MockedOmConnection) BaseURL() string {
+	return oc.context.BaseURL
+}
+
+func (oc *MockedOmConnection) GroupID() string {
+	return oc.context.GroupID
+}
+
+func (oc *MockedOmConnection) GroupName() string {
+	return oc.context.GroupName
+}
+
+func (oc *MockedOmConnection) OrgID() string {
+	return oc.context.OrgID
+}
+
+func (oc *MockedOmConnection) PublicKey() string {
+	return oc.context.PublicKey
+}
+
+func (oc *MockedOmConnection) PrivateKey() string {
+	return oc.context.PrivateKey
+}
+
+func (oc *MockedOmConnection) ConfigureProject(project *Project) {
+	oc.context.GroupID = project.ID
+	oc.context.OrgID = project.OrgID
 }
 
 var _ Connection = &MockedOmConnection{}
@@ -110,25 +141,6 @@ var _ Connection = &MockedOmConnection{}
 // "full cycle" mocked controller. It has group created already, but doesn't have the deployment. Also it "survives"
 // recreations (as this is what we do in 'ReconcileCommonController.prepareConnection')
 func NewEmptyMockedOmConnection(ctx *OMContext) Connection {
-	conn := NewEmptyMockedOmConnectionNoGroup(ctx)
-	// by default each connection just "reuses" "already created" group with agent keys existing
-	conn.(*MockedOmConnection).OrganizationsWithGroups = map[*Organization][]*Project{
-		{ID: TestOrgID, Name: TestGroupName}: {{
-			Name:        TestGroupName,
-			ID:          TestGroupID,
-			Tags:        []string{util.OmGroupExternallyManagedTag},
-			AgentAPIKey: TestAgentKey,
-			OrgID:       TestOrgID,
-		}},
-	}
-
-	return conn
-}
-
-// NewEmptyMockedOmConnectionNoSingleton is the standard function for creating mocked connections that is usually used for testing
-// "full cycle" mocked controller. It has group created already, but doesn't have the deployment. Also it "survives"
-// recreations (as this is what we do in 'ReconcileCommonController.prepareConnection')
-func NewEmptyMockedOmConnectionNoSingleton(ctx *OMContext) Connection {
 	connection := NewMockedOmConnection(nil)
 	connection.OrganizationsWithGroups = make(map[*Organization][]*Project)
 	connection.OrganizationsWithGroups = map[*Organization][]*Project{
@@ -140,17 +152,9 @@ func NewEmptyMockedOmConnectionNoSingleton(ctx *OMContext) Connection {
 			OrgID:       TestOrgID,
 		}},
 	}
-	connection.noSingleton = true
+	connection.context = ctx
 
 	return connection
-}
-
-// NewEmptyMockedOmConnectionWithDelay is the function that builds the mocked connection with some "delay" for agents
-// to reach goal state, apart from this it's the same as 'NewEmptyMockedOmConnection'
-func NewEmptyMockedOmConnectionWithDelay(ctx *OMContext) Connection {
-	conn := NewEmptyMockedOmConnection(ctx)
-	conn.(*MockedOmConnection).AgentsDelayCount = 1
-	return conn
 }
 
 // NewMockedConnection is the simplified connection wrapping some deployment that already exists. Should be used for
@@ -166,41 +170,8 @@ func NewMockedOmConnection(d Deployment) *MockedOmConnection {
 	// We use a simplified version of context as this is the only thing needed to get lock for the update
 	connection.context = &OMContext{GroupName: TestGroupName, OrgID: TestOrgID, GroupID: TestGroupID}
 	connection.AgentAPIKey = TestAgentKey
+	connection.history = make([]*runtime.Func, 0)
 	return &connection
-}
-
-// NewEmptyMockedOmConnectionWithAutomationConfigChanges returns a Connect instance that has had
-// changes applied to the underlying AutomationConfig. This is to update the state of the AutomationConfig
-// before the connection is used.
-func NewEmptyMockedOmConnectionWithAutomationConfigChanges(ctx *OMContext, acFunc func(ac *AutomationConfig)) Connection {
-	connection := NewEmptyMockedOmConnection(ctx)
-	_ = connection.ReadUpdateAutomationConfig(func(ac *AutomationConfig) error {
-		acFunc(ac)
-		return nil
-	}, nil)
-	return connection
-}
-
-// NewEmptyMockedOmConnectionNoGroup is the standard function for creating mocked connections that is usually used for testing
-// "full cycle" mocked controller. It doesn't have the group created.
-func NewEmptyMockedOmConnectionNoGroup(ctx *OMContext) Connection {
-	var connection *MockedOmConnection
-
-	// That's how we can "survive" multiple calls to this function: so we can create groups or add/delete entities
-	// Note, that the global connection variable is cleaned before each test (see kubeapi_test.newMockedKubeApi)
-	if CurrMockedConnection != nil {
-		connection = CurrMockedConnection
-	} else {
-		connection = NewMockedOmConnection(nil)
-		connection.OrganizationsWithGroups = make(map[*Organization][]*Project)
-	}
-	connection.HTTPOmConnection = HTTPOmConnection{
-		context: ctx,
-	}
-
-	CurrMockedConnection = connection
-
-	return connection
 }
 
 func NewEmptyMockedOmConnectionWithAgentVersion(agentVersion string, agentMinimumVersion string) Connection {
@@ -208,6 +179,59 @@ func NewEmptyMockedOmConnectionWithAgentVersion(agentVersion string, agentMinimu
 	connection.agentVersion = agentVersion
 	connection.agentMinimumVersion = agentMinimumVersion
 	return connection
+}
+
+// CachedOMConnectionFactory is a wrapper over om.ConnectionFactory that is caching a single instance of om.Connection when it's requested from connectionFactoryFunc.
+// It's used to replace globally shared mock.CurrMockedConnection.
+// WARNING: while this class alone is thread safe, it's not suitable for concurrent tests because it returns one cached instance of connection and our MockedOMConnection is not thread safe.
+// In order to handle concurrent tests it is required to introduce map of connections and refactor all GetConnection usages by adding parameter with e.g. resource/OM project name.
+// WARNING #2: This class won't create different connections when different OMContexts are passed into connectionFactoryFunc. It's caching a single instance of OMConnection.
+type CachedOMConnectionFactory struct {
+	connectionFactoryFunc ConnectionFactory
+	conn                  Connection
+	lock                  sync.Mutex
+	postCreateHook        func(Connection)
+}
+
+func NewCachedOMConnectionFactory(connectionFactoryFunc ConnectionFactory) *CachedOMConnectionFactory {
+	return &CachedOMConnectionFactory{connectionFactoryFunc: connectionFactoryFunc}
+}
+
+func NewCachedOMConnectionFactoryWithInitializedConnection(conn Connection) *CachedOMConnectionFactory {
+	return &CachedOMConnectionFactory{conn: conn}
+}
+
+func NewDefaultCachedOMConnectionFactory() *CachedOMConnectionFactory {
+	return NewCachedOMConnectionFactory(NewEmptyMockedOmConnection)
+}
+
+// GetConnectionFunc can be used as om.ConnectionFactory function to always return a single, cached instance of OMConnection
+func (c *CachedOMConnectionFactory) GetConnectionFunc(ctx *OMContext) Connection {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	if c.conn == nil {
+		c.conn = c.connectionFactoryFunc(ctx)
+		if c.postCreateHook != nil {
+			c.postCreateHook(c.conn)
+		}
+	}
+
+	return c.conn
+}
+
+func (c *CachedOMConnectionFactory) GetConnection() Connection {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	return c.conn
+}
+
+// SetPostCreateHook is a workaround to alter mocked connection state after it was created by the reconciler.
+// It's used e.g. to set initial deployment processes.
+// The proper way would be to define om.Connection interceptor but it's impractical due to a large number of methods there.
+func (c *CachedOMConnectionFactory) SetPostCreateHook(postCreateHook func(Connection)) {
+	c.postCreateHook = postCreateHook
 }
 
 func (oc *MockedOmConnection) UpdateDeployment(d Deployment) ([]byte, error) {
@@ -374,34 +398,8 @@ func (oc *MockedOmConnection) ReadAutomationStatus() (*AutomationStatus, error) 
 	return oc.buildAutomationStatusFromDeployment(oc.deployment, false), nil
 }
 
-type mockedAutomationAgentStatusResponse struct{}
-
-func (m mockedAutomationAgentStatusResponse) HasNext() bool {
-	return false
-}
-
-func (m mockedAutomationAgentStatusResponse) Results() []interface{} {
-	var ans []interface{}
-	ans = append(ans, mockedAgentStatus{})
-	return ans
-}
-
-func (m mockedAutomationAgentStatusResponse) ItemsCount() int {
-	// TODO implement me
-	panic("implement me")
-}
-
-type mockedAgentStatus struct{}
-
-func (m mockedAgentStatus) IsRegistered(hostnamePrefix string, log *zap.SugaredLogger) bool {
-	return true
-}
-
 func (oc *MockedOmConnection) ReadAutomationAgents(pageNum int) (Paginated, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadAutomationAgents))
-	if oc.noSingleton {
-		return mockedAutomationAgentStatusResponse{}, nil
-	}
 
 	results := make([]AgentStatus, 0)
 	for _, r := range oc.hostResults.Results {
@@ -682,6 +680,7 @@ func (oc *MockedOmConnection) CheckResourcesAndBackupDeleted(t *testing.T, resou
 
 func (oc *MockedOmConnection) CleanHistory() {
 	oc.history = make([]*runtime.Func, 0)
+	oc.numRequestsSent = 0
 }
 
 // CheckOrderOfOperations verifies the mocked client operations were called in specified order
@@ -689,8 +688,9 @@ func (oc *MockedOmConnection) CheckOrderOfOperations(t *testing.T, value ...refl
 	j := 0
 	matched := ""
 	for _, h := range oc.history {
-		zap.S().Info(h.Name())
-		if h.Name() == runtime.FuncForPC(value[j].Pointer()).Name() {
+		valueName := runtime.FuncForPC(value[j].Pointer()).Name()
+		zap.S().Infof("Comparing history func %s with %s (value[%d])", h.Name(), valueName, j)
+		if h.Name() == valueName {
 			matched += h.Name() + " "
 			j++
 		}
