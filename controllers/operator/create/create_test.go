@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	"k8s.io/utils/ptr"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
@@ -85,19 +86,19 @@ func TestOpsManagerInKubernetes_InternalConnectivityOverride(t *testing.T) {
 	}).AddConfiguration("brs.queryable.proxyPort", "1234").
 		Build()
 
-	client := mock.NewClient()
+	fakeClient, _ := mock.NewDefaultFakeClient()
 	secretsClient := secrets.SecretClient{
 		VaultClient: &vault.VaultClient{},
-		KubeClient:  client,
+		KubeClient:  fakeClient,
 	}
 
-	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, multicluster.GetLegacyCentralMemberCluster(testOm.Spec.Replicas, 0, client, secretsClient), zap.S())
+	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, multicluster.GetLegacyCentralMemberCluster(testOm.Spec.Replicas, 0, fakeClient, secretsClient), zap.S())
 	assert.NoError(t, err)
 
-	err = OpsManagerInKubernetes(ctx, client, testOm, sts, zap.S())
+	err = OpsManagerInKubernetes(ctx, fakeClient, testOm, sts, zap.S())
 	assert.NoError(t, err)
 
-	svc, err := client.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()))
+	svc, err := fakeClient.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()))
 	assert.NoError(t, err, "Internal service exists")
 
 	assert.Equal(t, svc.Spec.Type, corev1.ServiceTypeClusterIP, "The operator creates a ClusterIP service if explicitly requested to do so.")
@@ -123,19 +124,19 @@ func TestOpsManagerInKubernetes_DefaultInternalServiceForMultiCluster(t *testing
 	}).AddConfiguration("brs.queryable.proxyPort", "1234").
 		Build()
 
-	client := mock.NewClient()
+	fakeClient, _ := mock.NewDefaultFakeClient()
 	secretsClient := secrets.SecretClient{
 		VaultClient: &vault.VaultClient{},
-		KubeClient:  client,
+		KubeClient:  fakeClient,
 	}
 
-	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, multicluster.GetLegacyCentralMemberCluster(testOm.Spec.Replicas, 0, client, secretsClient), zap.S())
+	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, multicluster.GetLegacyCentralMemberCluster(testOm.Spec.Replicas, 0, fakeClient, secretsClient), zap.S())
 	assert.NoError(t, err)
 
-	err = OpsManagerInKubernetes(ctx, client, testOm, sts, zap.S())
+	err = OpsManagerInKubernetes(ctx, fakeClient, testOm, sts, zap.S())
 	assert.NoError(t, err)
 
-	svc, err := client.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()))
+	svc, err := fakeClient.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()))
 	assert.NoError(t, err, "Internal service exists")
 
 	assert.Equal(t, svc.Spec.Type, corev1.ServiceTypeClusterIP, "Default internal service for OM multicluster is of type ClusterIP")
@@ -151,22 +152,22 @@ func TestBackupServiceCreated_NoExternalConnectivity(t *testing.T) {
 	}).AddConfiguration("brs.queryable.proxyPort", "1234").
 		Build()
 
-	client := mock.NewClient()
+	fakeClient, _ := mock.NewDefaultFakeClient()
 	secretsClient := secrets.SecretClient{
 		VaultClient: &vault.VaultClient{},
-		KubeClient:  client,
+		KubeClient:  fakeClient,
 	}
 
-	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, multicluster.GetLegacyCentralMemberCluster(testOm.Spec.Replicas, 0, client, secretsClient), zap.S())
+	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, multicluster.GetLegacyCentralMemberCluster(testOm.Spec.Replicas, 0, fakeClient, secretsClient), zap.S())
 	assert.NoError(t, err)
 
-	err = OpsManagerInKubernetes(ctx, client, testOm, sts, zap.S())
+	err = OpsManagerInKubernetes(ctx, fakeClient, testOm, sts, zap.S())
 	assert.NoError(t, err)
 
-	_, err = client.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()+"-ext"))
+	_, err = fakeClient.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()+"-ext"))
 	assert.Error(t, err, "No external service should have been created")
 
-	svc, err := client.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()))
+	svc, err := fakeClient.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()))
 	assert.NoError(t, err, "Internal service exists")
 
 	assert.Equal(t, svc.Spec.Type, corev1.ServiceTypeClusterIP, "Default internal service is of type ClusterIP")
@@ -195,18 +196,18 @@ func TestBackupServiceCreated_ExternalConnectivity(t *testing.T) {
 			Port: 5000,
 		}).
 		Build()
-	client := mock.NewClient()
+	fakeClient, _ := mock.NewDefaultFakeClient()
 	secretsClient := secrets.SecretClient{
 		VaultClient: &vault.VaultClient{},
-		KubeClient:  client,
+		KubeClient:  fakeClient,
 	}
-	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, multicluster.GetLegacyCentralMemberCluster(testOm.Spec.Replicas, 0, client, secretsClient), zap.S())
+	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, multicluster.GetLegacyCentralMemberCluster(testOm.Spec.Replicas, 0, fakeClient, secretsClient), zap.S())
 	assert.NoError(t, err)
 
-	err = OpsManagerInKubernetes(ctx, client, testOm, sts, zap.S())
+	err = OpsManagerInKubernetes(ctx, fakeClient, testOm, sts, zap.S())
 	assert.NoError(t, err)
 
-	externalService, err := client.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()+"-ext"))
+	externalService, err := fakeClient.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()+"-ext"))
 	assert.NoError(t, err, "An External service should have been created")
 
 	assert.Len(t, externalService.Spec.Ports, 2, "Backup port should have been added to existing external service")
@@ -476,9 +477,7 @@ func TestDatabaseInKubernetes_ExternalServicesWithPlaceholders_WithExternalDomai
 
 func testDatabaseInKubernetesExternalServices(ctx context.Context, t *testing.T, externalAccessConfiguration mdbv1.ExternalAccessConfiguration, expectedServices []corev1.Service) {
 	log := zap.S()
-	manager := mock.NewEmptyManager()
-	manager.Client.AddDefaultMdbConfigResources(ctx)
-
+	fakeClient, _ := mock.NewDefaultFakeClient()
 	mdb := mdbv1.NewReplicaSetBuilder().
 		SetName(defaultResourceName).
 		SetNamespace(defaultNamespace).
@@ -487,12 +486,12 @@ func testDatabaseInKubernetesExternalServices(ctx context.Context, t *testing.T,
 	mdb.Spec.ExternalAccessConfiguration = &externalAccessConfiguration
 
 	sts := construct.DatabaseStatefulSet(*mdb, construct.ReplicaSetOptions(construct.GetPodEnvOptions()), log)
-	err := DatabaseInKubernetes(ctx, manager.Client, *mdb, sts, construct.ReplicaSetOptions(), log)
+	err := DatabaseInKubernetes(ctx, fakeClient, *mdb, sts, construct.ReplicaSetOptions(), log)
 	assert.NoError(t, err)
 
 	// we only test a subset of fields from service spec, which are the most relevant for external services
 	for _, expectedService := range expectedServices {
-		actualService, err := manager.Client.GetService(ctx, types.NamespacedName{Name: expectedService.GetName(), Namespace: defaultNamespace})
+		actualService, err := fakeClient.GetService(ctx, types.NamespacedName{Name: expectedService.GetName(), Namespace: defaultNamespace})
 		require.NoError(t, err, "serviceName: %s", expectedService.GetName())
 		require.NotNil(t, actualService)
 		require.Len(t, actualService.Spec.Ports, len(expectedService.Spec.Ports))
@@ -510,11 +509,11 @@ func testDatabaseInKubernetesExternalServices(ctx context.Context, t *testing.T,
 
 	// disable external access -> remove external services
 	mdb.Spec.ExternalAccessConfiguration = nil
-	err = DatabaseInKubernetes(ctx, manager.Client, *mdb, sts, construct.ReplicaSetOptions(), log)
+	err = DatabaseInKubernetes(ctx, fakeClient, *mdb, sts, construct.ReplicaSetOptions(), log)
 	assert.NoError(t, err)
 
 	for _, expectedService := range expectedServices {
-		_, err := manager.Client.GetService(ctx, types.NamespacedName{Name: expectedService.GetName(), Namespace: defaultNamespace})
+		_, err := fakeClient.GetService(ctx, types.NamespacedName{Name: expectedService.GetName(), Namespace: defaultNamespace})
 		assert.True(t, errors.IsNotFound(err))
 	}
 }
@@ -522,9 +521,7 @@ func testDatabaseInKubernetesExternalServices(ctx context.Context, t *testing.T,
 func TestDatabaseInKubernetesExternalServicesSharded(t *testing.T) {
 	ctx := context.Background()
 	log := zap.S()
-	manager := mock.NewEmptyManager()
-	manager.Client.AddDefaultMdbConfigResources(ctx)
-
+	fakeClient, _ := mock.NewDefaultFakeClient()
 	mdb := mdbv1.NewDefaultShardedClusterBuilder().
 		SetName("mdb").
 		SetNamespace("my-namespace").
@@ -535,37 +532,37 @@ func TestDatabaseInKubernetesExternalServicesSharded(t *testing.T) {
 
 	mdb.Spec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{}
 
-	err := createShardSts(ctx, t, mdb, log, manager)
+	err := createShardSts(ctx, t, mdb, log, fakeClient)
 	require.NoError(t, err)
 
-	err = createMongosSts(ctx, t, mdb, log, manager)
+	err = createMongosSts(ctx, t, mdb, log, fakeClient)
 	require.NoError(t, err)
 
-	actualService, err := manager.Client.GetService(ctx, types.NamespacedName{Name: "mdb-mongos-0-svc-external", Namespace: "my-namespace"})
-	require.NoError(t, err)
-	require.NotNil(t, actualService)
-
-	actualService, err = manager.Client.GetService(ctx, types.NamespacedName{Name: "mdb-mongos-1-svc-external", Namespace: "my-namespace"})
+	actualService, err := fakeClient.GetService(ctx, types.NamespacedName{Name: "mdb-mongos-0-svc-external", Namespace: "my-namespace"})
 	require.NoError(t, err)
 	require.NotNil(t, actualService)
 
-	_, err = manager.Client.GetService(ctx, types.NamespacedName{Name: "mdb-config-0-svc-external", Namespace: "my-namespace"})
+	actualService, err = fakeClient.GetService(ctx, types.NamespacedName{Name: "mdb-mongos-1-svc-external", Namespace: "my-namespace"})
+	require.NoError(t, err)
+	require.NotNil(t, actualService)
+
+	_, err = fakeClient.GetService(ctx, types.NamespacedName{Name: "mdb-config-0-svc-external", Namespace: "my-namespace"})
 	require.Errorf(t, err, "expected no config service")
 
-	_, err = manager.Client.GetService(ctx, types.NamespacedName{Name: "mdb-0-svc-external", Namespace: "my-namespace"})
+	_, err = fakeClient.GetService(ctx, types.NamespacedName{Name: "mdb-0-svc-external", Namespace: "my-namespace"})
 	require.Errorf(t, err, "expected no shard service")
 }
 
-func createShardSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDB, log *zap.SugaredLogger, manager *mock.MockedManager) error {
+func createShardSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDB, log *zap.SugaredLogger, kubeClient kubernetesClient.Client) error {
 	sts := construct.DatabaseStatefulSet(*mdb, construct.ShardOptions(1, construct.GetPodEnvOptions()), log)
-	err := DatabaseInKubernetes(ctx, manager.Client, *mdb, sts, construct.ShardOptions(1), log)
+	err := DatabaseInKubernetes(ctx, kubeClient, *mdb, sts, construct.ShardOptions(1), log)
 	assert.NoError(t, err)
 	return err
 }
 
-func createMongosSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDB, log *zap.SugaredLogger, manager *mock.MockedManager) error {
+func createMongosSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDB, log *zap.SugaredLogger, kubeClient kubernetesClient.Client) error {
 	sts := construct.DatabaseStatefulSet(*mdb, construct.MongosOptions(construct.GetPodEnvOptions()), log)
-	err := DatabaseInKubernetes(ctx, manager.Client, *mdb, sts, construct.MongosOptions(), log)
+	err := DatabaseInKubernetes(ctx, kubeClient, *mdb, sts, construct.MongosOptions(), log)
 	assert.NoError(t, err)
 	return err
 }

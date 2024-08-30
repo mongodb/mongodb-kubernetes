@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/recovery"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
@@ -67,9 +69,9 @@ type ReconcileMongoDbShardedCluster struct {
 	omConnectionFactory om.ConnectionFactory
 }
 
-func newShardedClusterReconciler(ctx context.Context, mgr manager.Manager, omFunc om.ConnectionFactory) *ReconcileMongoDbShardedCluster {
+func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, omFunc om.ConnectionFactory) *ReconcileMongoDbShardedCluster {
 	return &ReconcileMongoDbShardedCluster{
-		ReconcileCommonController: newReconcileCommonController(ctx, mgr),
+		ReconcileCommonController: newReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:       omFunc,
 	}
 }
@@ -600,7 +602,7 @@ func (r *ShardedClusterReconcileHelper) OnDelete(ctx context.Context, obj runtim
 
 func AddShardedClusterController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
 	// Create a new controller
-	reconciler := newShardedClusterReconciler(ctx, mgr, om.NewOpsManagerConnection)
+	reconciler := newShardedClusterReconciler(ctx, mgr.GetClient(), om.NewOpsManagerConnection)
 	options := controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}
 	c, err := controller.New(util.MongoDbShardedClusterController, mgr, options)
 	if err != nil {

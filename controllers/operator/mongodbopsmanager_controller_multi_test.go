@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/om"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
@@ -199,7 +201,8 @@ func TestOpsManagerMultiCluster(t *testing.T) {
 	memberClusterName := "kind-e2e-cluster-1"
 	memberClusterName2 := "kind-e2e-cluster-2"
 	clusters := []string{memberClusterName, memberClusterName2}
-	memberClusterMap := getFakeMultiClusterMapWithClusters(clusters)
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	memberClusterMap := getFakeMultiClusterMapWithClusters(clusters, omConnectionFactory)
 
 	appDBClusterSpecItems := []mdbv1.ClusterSpecItem{
 		{
@@ -244,7 +247,7 @@ func TestOpsManagerMultiCluster(t *testing.T) {
 	opsManager.Spec.Security.CertificatesSecretsPrefix = "om-prefix"
 	appDB := opsManager.Spec.AppDB
 
-	reconciler, omClient, _ := defaultTestOmReconciler(ctx, t, opsManager, memberClusterMap)
+	reconciler, omClient, _ := defaultTestOmReconciler(ctx, t, opsManager, memberClusterMap, omConnectionFactory)
 
 	// prepare TLS certificates and CA in central cluster
 

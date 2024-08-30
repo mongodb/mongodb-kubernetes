@@ -53,10 +53,9 @@ func init() {
 
 func TestEnsureTagAdded(t *testing.T) {
 	ctx := context.Background()
-	manager := mock.NewEmptyManager()
-	manager.Client.AddDefaultMdbConfigResources(ctx)
-	controller := newReconcileCommonController(ctx, manager)
-	mockOm, _ := prepareConnection(ctx, controller, om.NewEmptyMockedOmConnection, t)
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
+	controller := newReconcileCommonController(ctx, kubeClient)
+	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 
 	// normal tag
 	err := connection.EnsureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "myTag", zap.S())
@@ -72,11 +71,10 @@ func TestEnsureTagAdded(t *testing.T) {
 
 func TestEnsureTagAddedDuplicates(t *testing.T) {
 	ctx := context.Background()
-	manager := mock.NewEmptyManager()
-	manager.Client.AddDefaultMdbConfigResources(ctx)
-	opsManagerController := newReconcileCommonController(ctx, manager)
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
+	opsManagerController := newReconcileCommonController(ctx, kubeClient)
 
-	mockOm, _ := prepareConnection(ctx, opsManagerController, om.NewEmptyMockedOmConnection, t)
+	mockOm, _ := prepareConnection(ctx, opsManagerController, omConnectionFactory.GetConnectionFunc, t)
 	err := connection.EnsureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "MYTAG", zap.S())
 	assert.NoError(t, err)
 	err = connection.EnsureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "MYTAG", zap.S())
@@ -91,12 +89,19 @@ func TestEnsureTagAddedDuplicates(t *testing.T) {
 // is created
 func TestPrepareOmConnection_FindExistingGroup(t *testing.T) {
 	ctx := context.Background()
-	manager := mock.NewEmptyManager()
-	manager.Client.AddCredentialsSecret(ctx, om.TestUser, om.TestApiKey)
-	manager.Client.AddProjectConfigMap(ctx, om.TestGroupName, om.TestOrgID)
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	kubeClient := mock.NewEmptyFakeClientWithInterceptor(omConnectionFactory, []client.Object{
+		mock.GetProjectConfigMap(mock.TestProjectConfigMapName, om.TestGroupName, om.TestOrgID),
+		mock.GetCredentialsSecret(om.TestUser, om.TestApiKey),
+	}...)
+	omConnectionFactory.SetPostCreateHook(func(c om.Connection) {
+		// Important: the organization for the group has a different name ("foo") then group (om.TestGroupName).
+		// So it won't work for cases when the group "was created before" by Operator
+		c.(*om.MockedOmConnection).OrganizationsWithGroups = map[*om.Organization][]*om.Project{{ID: om.TestOrgID, Name: "foo"}: {{Name: om.TestGroupName, ID: "existing-group-id", OrgID: om.TestOrgID}}}
+	})
 
-	controller := newReconcileCommonController(ctx, manager)
-	mockOm, _ := prepareConnection(ctx, controller, omConnGroupInOrganizationWithDifferentName(), t)
+	controller := newReconcileCommonController(ctx, kubeClient)
+	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 	assert.Equal(t, "existing-group-id", mockOm.GroupID())
 	// No new group was created
 	assert.Len(t, mockOm.OrganizationsWithGroups, 1)
@@ -109,14 +114,23 @@ func TestPrepareOmConnection_FindExistingGroup(t *testing.T) {
 // then the new group is created
 func TestPrepareOmConnection_DuplicatedGroups(t *testing.T) {
 	ctx := context.Background()
-	manager := mock.NewEmptyManager()
-	manager.Client.AddDefaultMdbConfigResources(ctx)
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	kubeClient := mock.NewEmptyFakeClientWithInterceptor(omConnectionFactory, []client.Object{
+		mock.GetProjectConfigMap(mock.TestProjectConfigMapName, om.TestGroupName, ""),
+		mock.GetCredentialsSecret(om.TestUser, om.TestApiKey),
+	}...)
+	omConnectionFactory.SetPostCreateHook(func(c om.Connection) {
+		// Important: the organization for the group has a different name ("foo") then group (om.TestGroupName).
+		// So it won't work for cases when the group "was created before" by Operator
+		c.(*om.MockedOmConnection).OrganizationsWithGroups = map[*om.Organization][]*om.Project{{ID: om.TestOrgID, Name: "foo"}: {{Name: om.TestGroupName, ID: "existing-group-id", OrgID: om.TestOrgID}}}
+	})
 
 	// The only difference from TestPrepareOmConnection_FindExistingGroup above is that the config map contains only project name
 	// but no org ID (see newMockedKubeApi())
-	controller := newReconcileCommonController(ctx, manager)
+	controller := newReconcileCommonController(ctx, kubeClient)
 
-	mockOm, _ := prepareConnection(ctx, controller, omConnGroupInOrganizationWithDifferentName(), t)
+	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 	assert.Equal(t, om.TestGroupID, mockOm.GroupID())
 	mockOm.CheckGroupInOrganization(t, om.TestGroupName, om.TestGroupName)
 	// New group and organization will be created in addition to existing ones
@@ -130,11 +144,14 @@ func TestPrepareOmConnection_DuplicatedGroups(t *testing.T) {
 // TestPrepareOmConnection_CreateGroup checks that if the group doesn't exist in OM - it is created
 func TestPrepareOmConnection_CreateGroup(t *testing.T) {
 	ctx := context.Background()
-	manager := mock.NewEmptyManager()
-	manager.Client.AddDefaultMdbConfigResources(ctx)
-	controller := newReconcileCommonController(ctx, manager)
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
+	omConnectionFactory.SetPostCreateHook(func(c om.Connection) {
+		c.(*om.MockedOmConnection).OrganizationsWithGroups = map[*om.Organization][]*om.Project{}
+	})
 
-	mockOm, vars := prepareConnection(ctx, controller, om.NewEmptyMockedOmConnectionNoGroup, t)
+	controller := newReconcileCommonController(ctx, kubeClient)
+
+	mockOm, vars := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 
 	assert.Equal(t, om.TestGroupID, vars.ProjectID)
 	assert.Equal(t, om.TestGroupID, mockOm.GroupID())
@@ -149,12 +166,26 @@ func TestPrepareOmConnection_CreateGroup(t *testing.T) {
 // TestPrepareOmConnection_CreateGroupFixTags fixes tags if they are not set for existing group
 func TestPrepareOmConnection_CreateGroupFixTags(t *testing.T) {
 	ctx := context.Background()
-	manager := mock.NewEmptyManager()
-	manager.Client.AddDefaultMdbConfigResources(ctx)
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
+	omConnectionFactory.SetPostCreateHook(func(c om.Connection) {
+		c.(*om.MockedOmConnection).OrganizationsWithGroups = map[*om.Organization][]*om.Project{
+			{
+				ID:   om.TestOrgID,
+				Name: om.TestGroupName,
+			}: {
+				{
+					Name:        om.TestGroupName,
+					ID:          "123",
+					AgentAPIKey: "12345abcd",
+					OrgID:       om.TestOrgID,
+				},
+			},
+		}
+	})
 
-	controller := newReconcileCommonController(ctx, manager)
+	controller := newReconcileCommonController(ctx, kubeClient)
 
-	mockOm, _ := prepareConnection(ctx, controller, omConnGroupWithoutTags(), t)
+	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 	assert.Contains(t, mockOm.FindGroup(om.TestGroupName).Tags, strings.ToUpper(mock.TestNamespace))
 
 	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.UpdateProject))
@@ -177,11 +208,10 @@ func readAgentApiKeyForProject(ctx context.Context, client kubernetesClient.Clie
 // TestPrepareOmConnection_PrepareAgentKeys checks that agent key is generated and put to secret
 func TestPrepareOmConnection_PrepareAgentKeys(t *testing.T) {
 	ctx := context.Background()
-	manager := mock.NewEmptyManager()
-	manager.Client.AddDefaultMdbConfigResources(ctx)
-	controller := newReconcileCommonController(ctx, manager)
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
+	controller := newReconcileCommonController(ctx, kubeClient)
 
-	prepareConnection(ctx, controller, om.NewEmptyMockedOmConnection, t)
+	prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 	key, e := readAgentApiKeyForProject(ctx, controller.client, mock.TestNamespace, agents.ApiKeySecretName(om.TestGroupID))
 
 	assert.NoError(t, e)
@@ -197,8 +227,8 @@ func TestPrepareOmConnection_PrepareAgentKeys(t *testing.T) {
 func TestUpdateStatus_Patched(t *testing.T) {
 	ctx := context.Background()
 	rs := DefaultReplicaSetBuilder().Build()
-	manager := mock.NewManager(ctx, rs)
-	controller := newReconcileCommonController(ctx, manager)
+	kubeClient, _ := mock.NewDefaultFakeClient(rs)
+	controller := newReconcileCommonController(ctx, kubeClient)
 	reconciledObject := rs.DeepCopy()
 	// The current reconciled object "has diverged" from the one in API server
 	reconciledObject.Spec.Version = "10.0.0"
@@ -207,7 +237,7 @@ func TestUpdateStatus_Patched(t *testing.T) {
 
 	// Verifying that the resource in API server still has the correct spec
 	currentRs := mdbv1.MongoDB{}
-	assert.NoError(t, manager.Client.Get(ctx, rs.ObjectKey(), &currentRs))
+	assert.NoError(t, kubeClient.Get(ctx, rs.ObjectKey(), &currentRs))
 
 	// The spec hasn't changed - only status
 	assert.Equal(t, rs.Spec, currentRs.Spec)
@@ -252,10 +282,9 @@ func TestDontSendNilPrivileges(t *testing.T) {
 	}
 	assert.Nil(t, customRole.Privileges)
 	rs := DefaultReplicaSetBuilder().SetRoles([]mdbv1.MongoDbRole{customRole}).Build()
-	manager := mock.NewManager(ctx, rs)
-	manager.Client.AddDefaultMdbConfigResources(ctx)
-	controller := newReconcileCommonController(ctx, manager)
-	mockOm, _ := prepareConnection(ctx, controller, om.NewEmptyMockedOmConnection, t)
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
+	controller := newReconcileCommonController(ctx, kubeClient)
+	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 	ensureRoles(rs.Spec.Security.Roles, mockOm, &zap.SugaredLogger{})
 	ac, err := mockOm.ReadAutomationConfig()
 	assert.NoError(t, err)
@@ -269,8 +298,8 @@ func TestSecretWatcherWithAllResources(t *testing.T) {
 	caName := "custom-ca"
 	rs := DefaultReplicaSetBuilder().EnableTLS().EnableX509().SetTLSCA(caName).Build()
 	rs.Spec.Security.Authentication.InternalCluster = "X509"
-	manager := mock.NewManager(ctx, rs)
-	controller := newReconcileCommonController(ctx, manager)
+	kubeClient, _ := mock.NewDefaultFakeClient(rs)
+	controller := newReconcileCommonController(ctx, kubeClient)
 
 	controller.SetupCommonWatchers(rs, nil, nil, rs.Name)
 
@@ -296,8 +325,8 @@ func TestSecretWatcherWithSelfProvidedTLSSecretNames(t *testing.T) {
 	caName := "custom-ca"
 
 	rs := DefaultReplicaSetBuilder().EnableTLS().EnableX509().SetTLSCA(caName).Build()
-	manager := mock.NewManager(ctx, rs)
-	controller := newReconcileCommonController(ctx, manager)
+	kubeClient, _ := mock.NewDefaultFakeClient(rs)
+	controller := newReconcileCommonController(ctx, kubeClient)
 
 	controller.SetupCommonWatchers(rs, func() []string {
 		return []string{"a-secret"}
@@ -357,30 +386,6 @@ func prepareConnection(ctx context.Context, controller *ReconcileCommonControlle
 	return mockOm, newPodVars(conn, projectConfig, spec)
 }
 
-func omConnGroupWithoutTags() om.ConnectionFactory {
-	return func(ctx *om.OMContext) om.Connection {
-		c := om.NewEmptyMockedOmConnectionNoGroup(ctx).(*om.MockedOmConnection)
-		if len(c.OrganizationsWithGroups) == 0 {
-			// initially OM contains the group without tags
-			c.OrganizationsWithGroups = map[*om.Organization][]*om.Project{{ID: om.TestOrgID, Name: om.TestGroupName}: {{Name: om.TestGroupName, ID: "123", AgentAPIKey: "12345abcd", OrgID: om.TestOrgID}}}
-		}
-		return c
-	}
-}
-
-func omConnGroupInOrganizationWithDifferentName() om.ConnectionFactory {
-	return func(omContext *om.OMContext) om.Connection {
-		c := om.NewEmptyMockedOmConnectionNoGroup(omContext).(*om.MockedOmConnection)
-		if len(c.OrganizationsWithGroups) == 0 {
-			// Important: the organization for the group has a different name ("foo") then group (om.TestGroupName).
-			// So it won't work for cases when the group "was created before" by Operator
-			c.OrganizationsWithGroups = map[*om.Organization][]*om.Project{{ID: om.TestOrgID, Name: "foo"}: {{Name: om.TestGroupName, ID: "existing-group-id", OrgID: om.TestOrgID}}}
-		}
-
-		return c
-	}
-}
-
 func requestFromObject(object metav1.Object) reconcile.Request {
 	return reconcile.Request{NamespacedName: mock.ObjectKeyFromApiObject(object)}
 }
@@ -398,7 +403,7 @@ func testConnectionSpec() mdbv1.ConnectionSpec {
 	}
 }
 
-func checkReconcileSuccessful(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, client *mock.MockedClient) {
+func checkReconcileSuccessful(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, client client.Client) {
 	e := client.Update(ctx, object)
 	require.NoError(t, e)
 
@@ -429,9 +434,10 @@ func checkReconcileSuccessful(ctx context.Context, t *testing.T, reconciler reco
 		assert.Equal(t, object.Spec.MongodsPerShardCount, object.Status.MongodsPerShardCount)
 		assert.Equal(t, object.Spec.ShardCount, object.Status.ShardCount)
 	}
+	require.NoError(t, client.Get(ctx, kube.ObjectKeyFromApiObject(object), object))
 }
 
-func checkOMReconciliationSuccessful(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, om *omv1.MongoDBOpsManager) {
+func checkOMReconciliationSuccessful(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, om *omv1.MongoDBOpsManager, client client.Client) {
 	res, err := reconciler.Reconcile(ctx, requestFromObject(om))
 	expected := reconcile.Result{Requeue: true}
 	assert.Equal(t, expected, res)
@@ -441,9 +447,11 @@ func checkOMReconciliationSuccessful(ctx context.Context, t *testing.T, reconcil
 	expected = reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}
 	assert.Equal(t, expected, res)
 	assert.NoError(t, err)
+
+	require.NoError(t, client.Get(ctx, kube.ObjectKeyFromApiObject(om), om))
 }
 
-func checkOMReconciliationInvalid(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, om *omv1.MongoDBOpsManager) {
+func checkOMReconciliationInvalid(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, om *omv1.MongoDBOpsManager, client client.Client) {
 	res, err := reconciler.Reconcile(ctx, requestFromObject(om))
 	expected, _ := workflow.OK().Requeue().ReconcileResult()
 	assert.Equal(t, expected, res)
@@ -453,6 +461,8 @@ func checkOMReconciliationInvalid(ctx context.Context, t *testing.T, reconciler 
 	expected, _ = workflow.Invalid("doesn't matter").ReconcileResult()
 	assert.Equal(t, expected, res)
 	assert.NoError(t, err)
+
+	require.NoError(t, client.Get(ctx, kube.ObjectKeyFromApiObject(om), om))
 }
 
 func checkOMReconciliationPending(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, om *omv1.MongoDBOpsManager) {
@@ -461,7 +471,7 @@ func checkOMReconciliationPending(ctx context.Context, t *testing.T, reconciler 
 	assert.True(t, res.Requeue || res.RequeueAfter == time.Duration(10000000000))
 }
 
-func checkReconcileFailed(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, expectedRetry bool, expectedErrorMessage string, client *mock.MockedClient) {
+func checkReconcileFailed(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, expectedRetry bool, expectedErrorMessage string, client client.Client) {
 	failedResult := reconcile.Result{}
 	if expectedRetry {
 		failedResult.RequeueAfter = 10 * time.Second
@@ -476,7 +486,7 @@ func checkReconcileFailed(ctx context.Context, t *testing.T, reconciler reconcil
 	assert.Contains(t, object.Status.Message, expectedErrorMessage)
 }
 
-func checkReconcilePending(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, expectedErrorMessage string, client *mock.MockedClient, requeueAfter time.Duration) {
+func checkReconcilePending(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, expectedErrorMessage string, client client.Client, requeueAfter time.Duration) {
 	failedResult := reconcile.Result{RequeueAfter: requeueAfter * time.Second}
 	result, e := reconciler.Reconcile(ctx, requestFromObject(object))
 	assert.Nil(t, e, "When pending, error should be nil")
@@ -501,7 +511,7 @@ func getWatch(namespace string, resourceName string, t watch.Type) watch.Object 
 
 type testReconciliationResources struct {
 	Resource          *mdbv1.MongoDB
-	ReconcilerFactory func(rs *mdbv1.MongoDB) (reconcile.Reconciler, *mock.MockedClient)
+	ReconcilerFactory func(rs *mdbv1.MongoDB) (reconcile.Reconciler, kubernetesClient.Client)
 }
 
 // agentVersionMappingTest is a helper function to verify that the version mapping mechanism works correctly in controllers
@@ -537,15 +547,16 @@ func agentVersionMappingTest(ctx context.Context, t *testing.T, defaultResource 
 	})
 }
 
-func testConcurrentReconciles(ctx context.Context, t *testing.T, mockedClient *mock.MockedClient, reconciler reconcile.Reconciler, objects ...client.Object) {
+func testConcurrentReconciles(ctx context.Context, t *testing.T, client client.Client, reconciler reconcile.Reconciler, objects ...client.Object) {
 	for _, object := range objects {
-		err := mockedClient.CreateOrUpdate(ctx, object)
+		err := mock.CreateOrUpdate(ctx, client, object)
 		require.NoError(t, err)
 	}
 
 	// Let's have one reconcile first, such that we have the same object reconciles multiple times
 	_, err := reconciler.Reconcile(ctx, requestFromObject(objects[0]))
 	require.NoError(t, err)
+	require.NoError(t, client.Get(ctx, kube.ObjectKeyFromApiObject(objects[0]), objects[0]))
 
 	var wg sync.WaitGroup
 

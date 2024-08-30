@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"sort"
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"k8s.io/utils/ptr"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
@@ -90,7 +92,7 @@ type ReconcileMongoDbMultiReplicaSet struct {
 
 var _ reconcile.Reconciler = &ReconcileMongoDbMultiReplicaSet{}
 
-func newMultiClusterReplicaSetReconciler(ctx context.Context, mgr manager.Manager, omFunc om.ConnectionFactory, memberClustersMap map[string]cluster.Cluster) *ReconcileMongoDbMultiReplicaSet {
+func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.Client, omFunc om.ConnectionFactory, memberClustersMap map[string]cluster.Cluster) *ReconcileMongoDbMultiReplicaSet {
 	clientsMap := make(map[string]kubernetesClient.Client)
 	secretClientsMap := make(map[string]secrets.SecretClient)
 
@@ -104,7 +106,7 @@ func newMultiClusterReplicaSetReconciler(ctx context.Context, mgr manager.Manage
 	}
 
 	return &ReconcileMongoDbMultiReplicaSet{
-		ReconcileCommonController:     newReconcileCommonController(ctx, mgr),
+		ReconcileCommonController:     newReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:           omFunc,
 		memberClusterClientsMap:       clientsMap,
 		memberClusterSecretClientsMap: secretClientsMap,
@@ -1050,7 +1052,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileOMCAConfigMap(ctx context.Con
 // and Start it when the Manager is Started.
 func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
 	// Create a new controller
-	reconciler := newMultiClusterReplicaSetReconciler(ctx, mgr, om.NewOpsManagerConnection, memberClustersMap)
+	reconciler := newMultiClusterReplicaSetReconciler(ctx, mgr.GetClient(), om.NewOpsManagerConnection, memberClustersMap)
 	c, err := controller.New(util.MongoDbMultiClusterController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)})
 	if err != nil {
 		return err

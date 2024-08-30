@@ -5,6 +5,11 @@ import (
 	"reflect"
 	"testing"
 
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
@@ -55,20 +60,20 @@ func TestOnAddStandalone(t *testing.T) {
 	ctx := context.Background()
 	st := DefaultStandaloneBuilder().SetVersion("4.1.0").SetService("mysvc").Build()
 
-	reconciler, client := defaultStandaloneReconciler(ctx, st)
+	reconciler, kubeClient, omConnectionFactory := defaultStandaloneReconciler(ctx, om.NewEmptyMockedOmConnection, st)
 
-	checkReconcileSuccessful(ctx, t, reconciler, st, client)
+	checkReconcileSuccessful(ctx, t, reconciler, st, kubeClient)
 
-	omConn := om.CurrMockedConnection
+	omConn := omConnectionFactory.GetConnection()
 
 	// seems we don't need very deep checks here as there should be smaller tests specially for those methods
-	assert.Len(t, client.GetMapForObject(&corev1.Service{}), 1)
-	assert.Len(t, client.GetMapForObject(&appsv1.StatefulSet{}), 1)
-	assert.Equal(t, *client.GetMapForObject(&appsv1.StatefulSet{})[st.ObjectKey()].(*appsv1.StatefulSet).Spec.Replicas, int32(1))
-	assert.Len(t, client.GetMapForObject(&corev1.Secret{}), 2)
+	assert.Len(t, mock.GetMapForObject(kubeClient, &corev1.Service{}), 1)
+	assert.Len(t, mock.GetMapForObject(kubeClient, &appsv1.StatefulSet{}), 1)
+	assert.Equal(t, *mock.GetMapForObject(kubeClient, &appsv1.StatefulSet{})[st.ObjectKey()].(*appsv1.StatefulSet).Spec.Replicas, int32(1))
+	assert.Len(t, mock.GetMapForObject(kubeClient, &corev1.Secret{}), 2)
 
-	omConn.CheckDeployment(t, createDeploymentFromStandalone(st), "auth", "tls")
-	omConn.CheckNumberOfUpdateRequests(t, 1)
+	omConn.(*om.MockedOmConnection).CheckDeployment(t, createDeploymentFromStandalone(st), "auth", "tls")
+	omConn.(*om.MockedOmConnection).CheckNumberOfUpdateRequests(t, 1)
 }
 
 // TestOnAddStandaloneWithDelay checks the reconciliation on standalone creation with some "delay" in getting
@@ -77,15 +82,23 @@ func TestOnAddStandaloneWithDelay(t *testing.T) {
 	ctx := context.Background()
 	st := DefaultStandaloneBuilder().SetVersion("4.1.0").SetService("mysvc").Build()
 
-	client := mock.NewClient().WithResource(ctx, st).WithStsReady(false).AddDefaultMdbConfigResources(ctx)
-	manager := mock.NewManagerSpecificClient(client)
+	markStsAsReady := false
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	kubeClient := mock.NewEmptyFakeClientBuilder().WithObjects(st).WithObjects(mock.GetDefaultResources()...).Build()
+	kubeClient = interceptor.NewClient(kubeClient, interceptor.Funcs{
+		Get: func(ctx context.Context, client client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			// we reference markAsStsReady from outside scope, which is modified to false below
+			return mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, markStsAsReady, markStsAsReady)(ctx, client, key, obj, opts...)
+		},
+	})
 
-	reconciler := newStandaloneReconciler(ctx, manager, om.NewEmptyMockedOmConnection)
+	reconciler := newStandaloneReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc)
 
-	checkReconcilePending(ctx, t, reconciler, st, "StatefulSet not ready", client, 3)
-	client.WithStsReady(true)
+	checkReconcilePending(ctx, t, reconciler, st, "StatefulSet not ready", kubeClient, 3)
+	// this affects Get interceptor func, blocking automatically marking sts as ready
+	markStsAsReady = true
 
-	checkReconcileSuccessful(ctx, t, reconciler, st, client)
+	checkReconcileSuccessful(ctx, t, reconciler, st, kubeClient)
 }
 
 // TestAddDeleteStandalone checks that no state is left in OpsManager on removal of the standalone
@@ -94,21 +107,21 @@ func TestAddDeleteStandalone(t *testing.T) {
 	// First we need to create a standalone
 	st := DefaultStandaloneBuilder().SetVersion("4.0.0").Build()
 
-	reconciler, client := defaultStandaloneReconciler(ctx, st)
+	reconciler, kubeClient, omConnectionFactory := defaultStandaloneReconciler(ctx, om.NewEmptyMockedOmConnection, st)
 
-	checkReconcileSuccessful(ctx, t, reconciler, st, client)
+	checkReconcileSuccessful(ctx, t, reconciler, st, kubeClient)
 
 	// Now delete it
 	assert.NoError(t, reconciler.OnDelete(ctx, st, zap.S()))
 
-	omConn := om.CurrMockedConnection
+	mockedConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
 	// Operator doesn't mutate K8s state, so we don't check its changes, only OM
-	omConn.CheckResourcesDeleted(t)
+	mockedConn.CheckResourcesDeleted(t)
 
 	// Note, that 'omConn.ReadAutomationStatus' happened twice - because the connection emulates agents delay in reaching goal state
-	omConn.CheckOrderOfOperations(t,
-		reflect.ValueOf(omConn.ReadUpdateDeployment), reflect.ValueOf(omConn.ReadAutomationStatus),
-		reflect.ValueOf(omConn.ReadAutomationStatus), reflect.ValueOf(omConn.GetHosts), reflect.ValueOf(omConn.RemoveHost))
+	mockedConn.CheckOrderOfOperations(t,
+		reflect.ValueOf(mockedConn.ReadUpdateDeployment), reflect.ValueOf(mockedConn.ReadAutomationStatus),
+		reflect.ValueOf(mockedConn.ReadAutomationStatus), reflect.ValueOf(mockedConn.GetHosts), reflect.ValueOf(mockedConn.RemoveHost))
 }
 
 func TestStandaloneAuthenticationOwnedByOpsManager(t *testing.T) {
@@ -117,19 +130,11 @@ func TestStandaloneAuthenticationOwnedByOpsManager(t *testing.T) {
 	stBuilder.Spec.Security = nil
 	st := stBuilder.Build()
 
-	reconciler, client := defaultStandaloneReconciler(ctx, st)
-	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
-		context.Version = versionutil.OpsManagerVersion{
-			VersionString: "5.0.0",
-		}
-		conn := om.NewEmptyMockedOmConnection(context)
-		return conn
-	}
+	reconciler, kubeClient, omConnectionFactory := defaultStandaloneReconciler(ctx, omConnectionFactoryFuncSettingVersion(), st)
 
-	checkReconcileSuccessful(ctx, t, reconciler, st, client)
+	checkReconcileSuccessful(ctx, t, reconciler, st, kubeClient)
 
-	mockedConn := om.CurrMockedConnection
-	cf, _ := mockedConn.GetControlledFeature()
+	cf, _ := omConnectionFactory.GetConnection().GetControlledFeature()
 
 	assert.Len(t, cf.Policies, 2)
 	assert.Equal(t, cf.ManagementSystem.Version, util.OperatorVersion)
@@ -138,22 +143,25 @@ func TestStandaloneAuthenticationOwnedByOpsManager(t *testing.T) {
 	assert.Len(t, cf.Policies[0].DisabledParams, 0)
 }
 
-func TestStandaloneAuthenticationOwnedByOperator(t *testing.T) {
-	ctx := context.Background()
-	st := DefaultStandaloneBuilder().Build()
-
-	reconciler, client := defaultStandaloneReconciler(ctx, st)
-	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
+func omConnectionFactoryFuncSettingVersion() func(context *om.OMContext) om.Connection {
+	return func(context *om.OMContext) om.Connection {
 		context.Version = versionutil.OpsManagerVersion{
 			VersionString: "5.0.0",
 		}
 		conn := om.NewEmptyMockedOmConnection(context)
 		return conn
 	}
+}
 
-	checkReconcileSuccessful(ctx, t, reconciler, st, client)
+func TestStandaloneAuthenticationOwnedByOperator(t *testing.T) {
+	ctx := context.Background()
+	st := DefaultStandaloneBuilder().Build()
 
-	mockedConn := om.CurrMockedConnection
+	reconciler, kubeClient, omConnectionFactory := defaultStandaloneReconciler(ctx, omConnectionFactoryFuncSettingVersion(), st)
+
+	checkReconcileSuccessful(ctx, t, reconciler, st, kubeClient)
+
+	mockedConn := omConnectionFactory.GetConnection()
 	cf, _ := mockedConn.GetControlledFeature()
 
 	assert.Len(t, cf.Policies, 3)
@@ -178,11 +186,11 @@ func TestStandalonePortIsConfigurable_WithAdditionalMongoConfig(t *testing.T) {
 		SetConnectionSpec(testConnectionSpec()).
 		Build()
 
-	reconciler, client := defaultStandaloneReconciler(ctx, st)
+	reconciler, kubeClient, _ := defaultStandaloneReconciler(ctx, om.NewEmptyMockedOmConnection, st)
 
-	checkReconcileSuccessful(ctx, t, reconciler, st, client)
+	checkReconcileSuccessful(ctx, t, reconciler, st, kubeClient)
 
-	svc, err := client.GetService(ctx, kube.ObjectKey(st.Namespace, st.ServiceName()))
+	svc, err := kubeClient.GetService(ctx, kube.ObjectKey(st.Namespace, st.ServiceName()))
 	assert.NoError(t, err)
 	assert.Equal(t, int32(30000), svc.Spec.Ports[0].Port)
 }
@@ -193,11 +201,11 @@ func TestStandaloneCustomPodSpecTemplate(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"first": "val"}},
 	}).Build()
 
-	reconciler, client := defaultStandaloneReconciler(ctx, st)
+	reconciler, kubeClient, _ := defaultStandaloneReconciler(ctx, om.NewEmptyMockedOmConnection, st)
 
-	checkReconcileSuccessful(ctx, t, reconciler, st, client)
+	checkReconcileSuccessful(ctx, t, reconciler, st, kubeClient)
 
-	statefulSet, err := client.GetStatefulSet(ctx, mock.ObjectKeyFromApiObject(st))
+	statefulSet, err := kubeClient.GetStatefulSet(ctx, mock.ObjectKeyFromApiObject(st))
 	assert.NoError(t, err)
 
 	expectedLabels := map[string]string{
@@ -212,9 +220,9 @@ func TestStandalone_ConfigMapAndSecretWatched(t *testing.T) {
 	ctx := context.Background()
 	s := DefaultStandaloneBuilder().Build()
 
-	reconciler, client := defaultStandaloneReconciler(ctx, s)
+	reconciler, kubeClient, _ := defaultStandaloneReconciler(ctx, om.NewEmptyMockedOmConnection, s)
 
-	checkReconcileSuccessful(ctx, t, reconciler, s, client)
+	checkReconcileSuccessful(ctx, t, reconciler, s, kubeClient)
 
 	expected := map[watch.Object][]types.NamespacedName{
 		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {kube.ObjectKey(mock.TestNamespace, s.Name)},
@@ -230,9 +238,9 @@ func TestStandaloneAgentVersionMapping(t *testing.T) {
 	defaultResource := DefaultStandaloneBuilder().Build()
 	// Go couldn't infer correctly that *ReconcileMongoDbReplicaset implemented *reconciler.Reconciler interface
 	// without this anonymous function
-	reconcilerFactory := func(s *mdbv1.MongoDB) (reconcile.Reconciler, *mock.MockedClient) {
+	reconcilerFactory := func(s *mdbv1.MongoDB) (reconcile.Reconciler, kubernetesClient.Client) {
 		// Call the original defaultReplicaSetReconciler, which returns a *ReconcileMongoDbReplicaSet that implements reconcile.Reconciler
-		reconciler, mockClient := defaultStandaloneReconciler(ctx, s)
+		reconciler, mockClient, _ := defaultStandaloneReconciler(ctx, om.NewEmptyMockedOmConnection, s)
 		// Return the reconciler as is, because it implements the reconcile.Reconciler interface
 		return reconciler, mockClient
 	}
@@ -248,23 +256,22 @@ func TestStandaloneAgentVersionMapping(t *testing.T) {
 		},
 	}
 
-	overridenResource := DefaultStandaloneBuilder().SetPodSpecTemplate(podTemplate).Build()
-	overridenResources := testReconciliationResources{
-		Resource:          overridenResource,
+	overriddenResource := DefaultStandaloneBuilder().SetPodSpecTemplate(podTemplate).Build()
+	overriddenResources := testReconciliationResources{
+		Resource:          overriddenResource,
 		ReconcilerFactory: reconcilerFactory,
 	}
 
-	agentVersionMappingTest(ctx, t, defaultResources, overridenResources)
+	agentVersionMappingTest(ctx, t, defaultResources, overriddenResources)
 }
 
 // defaultStandaloneReconciler is the standalone reconciler used in unit test. It "adds" necessary
 // additional K8s objects (st, connection config map and secrets) necessary for reconciliation,
 // so it's possible to call 'reconcileAppDB()' on it right away
-func defaultStandaloneReconciler(ctx context.Context, rs *mdbv1.MongoDB) (*ReconcileMongoDbStandalone, *mock.MockedClient) {
-	manager := mock.NewManager(ctx, rs)
-	manager.Client.AddDefaultMdbConfigResources(ctx)
-
-	return newStandaloneReconciler(ctx, manager, om.NewEmptyMockedOmConnection), manager.Client
+func defaultStandaloneReconciler(ctx context.Context, omConnectionFactoryFunc om.ConnectionFactory, rs *mdbv1.MongoDB) (*ReconcileMongoDbStandalone, kubernetesClient.Client, *om.CachedOMConnectionFactory) {
+	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFunc)
+	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
+	return newStandaloneReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc), kubeClient, omConnectionFactory
 }
 
 // TODO remove in favor of '/api/mongodbbuilder.go'

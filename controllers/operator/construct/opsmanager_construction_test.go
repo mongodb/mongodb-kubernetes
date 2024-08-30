@@ -103,7 +103,7 @@ func TestBuildJvmParamsEnvVars_FromCustomContainerResource(t *testing.T) {
 }
 
 func createOpsManagerStatefulset(ctx context.Context, om *omv1.MongoDBOpsManager) (appsv1.StatefulSet, error) {
-	client := mock.NewClient()
+	client, _ := mock.NewDefaultFakeClient()
 	secretsClient := secrets.SecretClient{
 		VaultClient: &vault.VaultClient{},
 		KubeClient:  client,
@@ -120,7 +120,7 @@ func TestBuildJvmParamsEnvVars_FromDefaultPodSpec(t *testing.T) {
 		AddConfiguration("mms.adminEmailAddr", "cloud-manager-support@mongodb.com").
 		Build()
 
-	client := mock.NewClient()
+	client, _ := mock.NewDefaultFakeClient()
 	secretsClient := secrets.SecretClient{
 		VaultClient: &vault.VaultClient{},
 		KubeClient:  client,

@@ -42,13 +42,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
-type ClusterType string
-
-const (
-	Single = "single"
-	Multi  = "multi"
-)
-
 type MongoDBUserReconciler struct {
 	*ReconcileCommonController
 	omConnectionFactory           om.ConnectionFactory
@@ -56,7 +49,7 @@ type MongoDBUserReconciler struct {
 	memberClusterSecretClientsMap map[string]secrets.SecretClient
 }
 
-func newMongoDBUserReconciler(ctx context.Context, mgr manager.Manager, omFunc om.ConnectionFactory, memberClustersMap map[string]cluster.Cluster) *MongoDBUserReconciler {
+func newMongoDBUserReconciler(ctx context.Context, kubeClient client.Client, omFunc om.ConnectionFactory, memberClustersMap map[string]cluster.Cluster) *MongoDBUserReconciler {
 	clientsMap := make(map[string]kubernetesClient.Client)
 	secretClientsMap := make(map[string]secrets.SecretClient)
 
@@ -68,7 +61,7 @@ func newMongoDBUserReconciler(ctx context.Context, mgr manager.Manager, omFunc o
 		}
 	}
 	return &MongoDBUserReconciler{
-		ReconcileCommonController:     newReconcileCommonController(ctx, mgr),
+		ReconcileCommonController:     newReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:           omFunc,
 		memberClusterClientsMap:       clientsMap,
 		memberClusterSecretClientsMap: secretClientsMap,
@@ -279,7 +272,7 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 }
 
 func AddMongoDBUserController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
-	reconciler := newMongoDBUserReconciler(ctx, mgr, om.NewOpsManagerConnection, memberClustersMap)
+	reconciler := newMongoDBUserReconciler(ctx, mgr.GetClient(), om.NewOpsManagerConnection, memberClustersMap)
 	c, err := controller.New(util.MongoDbUserController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)})
 	if err != nil {
 		return err

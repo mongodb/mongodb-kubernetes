@@ -6,18 +6,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
-
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 
 	"k8s.io/apimachinery/pkg/types"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/api/v1/om"
+	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
 	enterprisepem "github.com/10gen/ops-manager-kubernetes/controllers/operator/pem"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
@@ -45,7 +44,6 @@ func TestAppDB_MultiCluster(t *testing.T) {
 	memberClusterName := "member-cluster-1"
 	memberClusterName2 := "member-cluster-2"
 	clusters := []string{centralClusterName, memberClusterName, memberClusterName2}
-	memberClusterMap := getFakeMultiClusterMapWithClusters(clusters[1:])
 
 	clusterSpecItems := []mdbv1.ClusterSpecItem{
 		{
@@ -61,7 +59,7 @@ func TestAppDB_MultiCluster(t *testing.T) {
 	builder := DefaultOpsManagerBuilder().
 		SetAppDBClusterSpecList(clusterSpecItems).
 		SetAppDbMembers(0).
-		SetAppDBTopology(om.ClusterTopologyMultiCluster).
+		SetAppDBTopology(omv1.ClusterTopologyMultiCluster).
 		SetAppDBTLSConfig(mdbv1.TLSConfig{
 			Enabled:                      true,
 			AdditionalCertificateDomains: nil,
@@ -70,24 +68,25 @@ func TestAppDB_MultiCluster(t *testing.T) {
 
 	opsManager := builder.Build()
 	appdb := opsManager.Spec.AppDB
-	kubeManager := mock.NewManager(ctx, opsManager)
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
+	memberClusterMap := getFakeMultiClusterMapWithClusters(clusters[1:], omConnectionFactory)
 
 	// prepare CA config map in central cluster
-	caConfigMapName := createAppDbCAConfigMap(ctx, t, kubeManager.GetClient(), appdb)
-	tlsCertSecretName, tlsSecretPemHash := createAppDBTLSCert(ctx, t, kubeManager.GetClient(), appdb)
+	caConfigMapName := createAppDbCAConfigMap(ctx, t, kubeClient, appdb)
+	tlsCertSecretName, tlsSecretPemHash := createAppDBTLSCert(ctx, t, kubeClient, appdb)
 	pemSecretName := tlsCertSecretName + "-pem"
 
-	reconciler, err := newAppDbMultiReconciler(ctx, kubeManager, opsManager, memberClusterMap, zap.S())
+	reconciler, err := newAppDbMultiReconciler(ctx, kubeClient, opsManager, memberClusterMap, zap.S(), omConnectionFactory.GetConnectionFunc)
 	require.NoError(t, err)
 
-	err = createOpsManagerUserPasswordSecret(ctx, kubeManager.Client, opsManager, opsManagerUserPassword)
+	err = createOpsManagerUserPasswordSecret(ctx, kubeClient, opsManager, opsManagerUserPassword)
 	assert.NoError(t, err)
 	reconcileResult, err := reconciler.ReconcileAppDB(ctx, opsManager)
 	require.NoError(t, err)
 	// requeue is true to add monitoring
 	assert.True(t, reconcileResult.Requeue)
 
-	centralClusterChecks := newAppDBClusterChecks(t, opsManager, centralClusterName, kubeManager.Client, -1)
+	centralClusterChecks := newAppDBClusterChecks(t, opsManager, centralClusterName, kubeClient, -1)
 	// secrets and config maps created by the operator shouldn't be created in central cluster
 	centralClusterChecks.checkSecretNotFound(ctx, appdb.AutomationConfigSecretName())
 	centralClusterChecks.checkConfigMapNotFound(ctx, appdb.AutomationConfigConfigMapName())
@@ -152,7 +151,6 @@ func TestAppDB_MultiCluster_AutomationConfig(t *testing.T) {
 	memberClusterName2 := "member-cluster-2"
 	memberClusterName3 := "member-cluster-3"
 	clusters := []string{centralClusterName, memberClusterName, memberClusterName2, memberClusterName3}
-	globalClusterMap := getFakeMultiClusterMapWithClusters(clusters[1:])
 
 	builder := DefaultOpsManagerBuilder().
 		SetName("om").
@@ -165,15 +163,16 @@ func TestAppDB_MultiCluster_AutomationConfig(t *testing.T) {
 		},
 		).
 		SetAppDbMembers(0).
-		SetAppDBTopology(om.ClusterTopologyMultiCluster)
+		SetAppDBTopology(omv1.ClusterTopologyMultiCluster)
 
 	opsManager := builder.Build()
-	kubeManager := mock.NewManager(ctx, opsManager)
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
+	globalClusterMap := getFakeMultiClusterMapWithClusters(clusters[1:], omConnectionFactory)
 
-	err := createOpsManagerUserPasswordSecret(ctx, kubeManager.Client, opsManager, opsManagerUserPassword)
+	err := createOpsManagerUserPasswordSecret(ctx, kubeClient, opsManager, opsManagerUserPassword)
 	assert.NoError(t, err)
 
-	reconciler, err := newAppDbMultiReconciler(ctx, kubeManager, opsManager, globalClusterMap, log)
+	reconciler, err := newAppDbMultiReconciler(ctx, kubeClient, opsManager, globalClusterMap, log, omConnectionFactory.GetConnectionFunc)
 	require.NoError(t, err)
 
 	reconcileResult, err := reconciler.ReconcileAppDB(ctx, opsManager)
@@ -185,7 +184,7 @@ func TestAppDB_MultiCluster_AutomationConfig(t *testing.T) {
 	createOMAPIKeySecret(ctx, t, reconciler.SecretClient, opsManager)
 
 	// reconcile to add monitoring
-	reconciler, err = newAppDbMultiReconciler(ctx, kubeManager, opsManager, globalClusterMap, log)
+	reconciler, err = newAppDbMultiReconciler(ctx, kubeClient, opsManager, globalClusterMap, log, omConnectionFactory.GetConnectionFunc)
 	require.NoError(t, err)
 	reconcileResult, err = reconciler.ReconcileAppDB(ctx, opsManager)
 	require.NoError(t, err)
@@ -214,7 +213,7 @@ func TestAppDB_MultiCluster_AutomationConfig(t *testing.T) {
 			"om-db-0-1",
 			"om-db-1-0",
 		}
-		reconcileAppDBForExpectedNumberOfTimesAndCheckExpectedProcesses(ctx, t, kubeManager, opsManager, globalClusterMap, memberClusterName, clusterSpecItems, expectedHostnames, expectedProcessNames, 1, log)
+		reconcileAppDBForExpectedNumberOfTimesAndCheckExpectedProcesses(ctx, t, kubeClient, omConnectionFactory.GetConnectionFunc, opsManager, globalClusterMap, memberClusterName, clusterSpecItems, expectedHostnames, expectedProcessNames, 1, log)
 	})
 
 	t.Run("remove second cluster and add new one", func(t *testing.T) {
@@ -242,7 +241,7 @@ func TestAppDB_MultiCluster_AutomationConfig(t *testing.T) {
 		}
 
 		// 2 reconciles, remove 1 member from memberClusterName2 and add one from memberClusterName3
-		reconcileAppDBForExpectedNumberOfTimesAndCheckExpectedProcesses(ctx, t, kubeManager, opsManager, globalClusterMap, memberClusterName, clusterSpecItems, expectedHostnames, expectedProcessNames, 2, log)
+		reconcileAppDBForExpectedNumberOfTimesAndCheckExpectedProcesses(ctx, t, kubeClient, omConnectionFactory.GetConnectionFunc, opsManager, globalClusterMap, memberClusterName, clusterSpecItems, expectedHostnames, expectedProcessNames, 2, log)
 	})
 
 	t.Run("add second cluster back to check indexes are preserved with different clusterSpecItem order", func(t *testing.T) {
@@ -278,11 +277,11 @@ func TestAppDB_MultiCluster_AutomationConfig(t *testing.T) {
 		}
 
 		// 2 reconciles to add 2 members of memberClusterName2
-		reconcileAppDBForExpectedNumberOfTimesAndCheckExpectedProcesses(ctx, t, kubeManager, opsManager, globalClusterMap, memberClusterName, clusterSpecItems, expectedHostnames, expectedProcessNames, 2, log)
+		reconcileAppDBForExpectedNumberOfTimesAndCheckExpectedProcesses(ctx, t, kubeClient, omConnectionFactory.GetConnectionFunc, opsManager, globalClusterMap, memberClusterName, clusterSpecItems, expectedHostnames, expectedProcessNames, 2, log)
 	})
 
 	t.Run("remove second cluster from global cluster to simulate full-cluster failure", func(t *testing.T) {
-		globalMemberClusterMapWithoutCluster2 := getFakeMultiClusterMapWithClusters([]string{memberClusterName, memberClusterName3})
+		globalMemberClusterMapWithoutCluster2 := getFakeMultiClusterMapWithClusters([]string{memberClusterName, memberClusterName3}, omConnectionFactory)
 		// no changes to clusterSpecItems, nothing should be scaled, processes should be the same
 		clusterSpecItems := []mdbv1.ClusterSpecItem{
 			{
@@ -316,7 +315,7 @@ func TestAppDB_MultiCluster_AutomationConfig(t *testing.T) {
 		}
 
 		// nothing to be scaled
-		reconcileAppDBOnceAndCheckExpectedProcesses(ctx, t, kubeManager, opsManager, globalMemberClusterMapWithoutCluster2, memberClusterName, clusterSpecItems, false, expectedHostnames, expectedProcessNames, log)
+		reconcileAppDBOnceAndCheckExpectedProcesses(ctx, t, kubeClient, omConnectionFactory.GetConnectionFunc, opsManager, globalMemberClusterMapWithoutCluster2, memberClusterName, clusterSpecItems, false, expectedHostnames, expectedProcessNames, log)
 
 		// memberClusterName2 is removed
 		clusterSpecItems = []mdbv1.ClusterSpecItem{
@@ -345,7 +344,7 @@ func TestAppDB_MultiCluster_AutomationConfig(t *testing.T) {
 		}
 
 		// one process from memberClusterName2 should be removed
-		reconcileAppDBOnceAndCheckExpectedProcesses(ctx, t, kubeManager, opsManager, globalMemberClusterMapWithoutCluster2, memberClusterName, clusterSpecItems, true, expectedHostnames, expectedProcessNames, log)
+		reconcileAppDBOnceAndCheckExpectedProcesses(ctx, t, kubeClient, omConnectionFactory.GetConnectionFunc, opsManager, globalMemberClusterMapWithoutCluster2, memberClusterName, clusterSpecItems, true, expectedHostnames, expectedProcessNames, log)
 
 		expectedHostnames = []string{
 			"om-db-0-0-svc.ns.svc.cluster.local",
@@ -361,11 +360,11 @@ func TestAppDB_MultiCluster_AutomationConfig(t *testing.T) {
 
 		// the last process from memberClusterName2 should be removed
 		// this should be final reconcile
-		reconcileAppDBOnceAndCheckExpectedProcesses(ctx, t, kubeManager, opsManager, globalMemberClusterMapWithoutCluster2, memberClusterName, clusterSpecItems, false, expectedHostnames, expectedProcessNames, log)
+		reconcileAppDBOnceAndCheckExpectedProcesses(ctx, t, kubeClient, omConnectionFactory.GetConnectionFunc, opsManager, globalMemberClusterMapWithoutCluster2, memberClusterName, clusterSpecItems, false, expectedHostnames, expectedProcessNames, log)
 	})
 }
 
-func assertExpectedProcesses(ctx context.Context, t *testing.T, memberClusterName string, reconciler *ReconcileAppDbReplicaSet, opsManager *om.MongoDBOpsManager, expectedHostnames []string, expectedProcessNames []string) {
+func assertExpectedProcesses(ctx context.Context, t *testing.T, memberClusterName string, reconciler *ReconcileAppDbReplicaSet, opsManager *omv1.MongoDBOpsManager, expectedHostnames []string, expectedProcessNames []string) {
 	ac, err := automationconfig.ReadFromSecret(ctx, reconciler.getMemberCluster(memberClusterName).SecretClient, types.NamespacedName{
 		Namespace: opsManager.GetNamespace(),
 		Name:      opsManager.Spec.AppDB.AutomationConfigSecretName(),
@@ -382,10 +381,10 @@ func assertExpectedProcesses(ctx context.Context, t *testing.T, memberClusterNam
 	assert.Equal(t, expectedHostnames, reconciler.getCurrentStatefulsetHostnames(opsManager))
 }
 
-func reconcileAppDBOnceAndCheckExpectedProcesses(ctx context.Context, t *testing.T, kubeManager manager.Manager, opsManager *om.MongoDBOpsManager, memberClusterMap map[string]cluster.Cluster, memberClusterName string, clusterSpecItems []mdbv1.ClusterSpecItem, expectedRequeue bool, expectedHostnames []string, expectedProcessNames []string, log *zap.SugaredLogger) {
+func reconcileAppDBOnceAndCheckExpectedProcesses(ctx context.Context, t *testing.T, kubeClient client.Client, omConnectionFactoryFunc om.ConnectionFactory, opsManager *omv1.MongoDBOpsManager, memberClusterMap map[string]cluster.Cluster, memberClusterName string, clusterSpecItems []mdbv1.ClusterSpecItem, expectedRequeue bool, expectedHostnames []string, expectedProcessNames []string, log *zap.SugaredLogger) {
 	opsManager.Spec.AppDB.ClusterSpecList = clusterSpecItems
 
-	reconciler, err := newAppDbMultiReconciler(ctx, kubeManager, opsManager, memberClusterMap, log)
+	reconciler, err := newAppDbMultiReconciler(ctx, kubeClient, opsManager, memberClusterMap, log, omConnectionFactoryFunc)
 	require.NoError(t, err)
 	reconcileResult, err := reconciler.ReconcileAppDB(ctx, opsManager)
 	require.NoError(t, err)
@@ -400,13 +399,13 @@ func reconcileAppDBOnceAndCheckExpectedProcesses(ctx context.Context, t *testing
 	assertExpectedProcesses(ctx, t, memberClusterName, reconciler, opsManager, expectedHostnames, expectedProcessNames)
 }
 
-func reconcileAppDBForExpectedNumberOfTimesAndCheckExpectedProcesses(ctx context.Context, t *testing.T, kubeManager manager.Manager, opsManager *om.MongoDBOpsManager, memberClusterMap map[string]cluster.Cluster, memberClusterName string, clusterSpecItems []mdbv1.ClusterSpecItem, expectedHostnames []string, expectedProcessNames []string, expectedReconciles int, log *zap.SugaredLogger) {
+func reconcileAppDBForExpectedNumberOfTimesAndCheckExpectedProcesses(ctx context.Context, t *testing.T, kubeClient client.Client, omConnectionFactoryFunc om.ConnectionFactory, opsManager *omv1.MongoDBOpsManager, memberClusterMap map[string]cluster.Cluster, memberClusterName string, clusterSpecItems []mdbv1.ClusterSpecItem, expectedHostnames []string, expectedProcessNames []string, expectedReconciles int, log *zap.SugaredLogger) {
 	opsManager.Spec.AppDB.ClusterSpecList = clusterSpecItems
 
 	var reconciler *ReconcileAppDbReplicaSet
 	var err error
 	for i := 0; i < expectedReconciles; i++ {
-		reconciler, err = newAppDbMultiReconciler(ctx, kubeManager, opsManager, memberClusterMap, log)
+		reconciler, err = newAppDbMultiReconciler(ctx, kubeClient, opsManager, memberClusterMap, log, omConnectionFactoryFunc)
 		require.NoError(t, err)
 		reconcileResult, err := reconciler.ReconcileAppDB(ctx, opsManager)
 		require.NoError(t, err)
@@ -434,7 +433,6 @@ func TestAppDB_MultiCluster_ClusterMapping(t *testing.T) {
 	memberClusterName4 := "member-cluster-4"
 	memberClusterName5 := "member-cluster-5"
 	clusters := []string{centralClusterName, memberClusterName1, memberClusterName2, memberClusterName3, memberClusterName4, memberClusterName5}
-	memberClusterMap := getFakeMultiClusterMapWithClusters(clusters[1:])
 
 	// helper to simplify member cluster definition
 	makeClusterSpecList := func(clusters ...string) []mdbv1.ClusterSpecItem {
@@ -448,14 +446,15 @@ func TestAppDB_MultiCluster_ClusterMapping(t *testing.T) {
 	builder := DefaultOpsManagerBuilder().
 		SetAppDBClusterSpecList(makeClusterSpecList(memberClusterName1, memberClusterName2)).
 		SetAppDbMembers(0).
-		SetAppDBTopology(om.ClusterTopologyMultiCluster)
+		SetAppDBTopology(omv1.ClusterTopologyMultiCluster)
 
 	opsManager := builder.Build()
 	appdb := opsManager.Spec.AppDB
-	kubeManager := mock.NewManager(ctx, opsManager)
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
+	memberClusterMap := getFakeMultiClusterMapWithClusters(clusters[1:], omConnectionFactory)
 
 	// prepare CA config map in central cluster
-	reconciler, err := newAppDbMultiReconciler(ctx, kubeManager, opsManager, memberClusterMap, log)
+	reconciler, err := newAppDbMultiReconciler(ctx, kubeClient, opsManager, memberClusterMap, log, omConnectionFactory.GetConnectionFunc)
 	require.NoError(t, err)
 
 	t.Run("check mapping cm has been created", func(t *testing.T) {
@@ -468,7 +467,7 @@ func TestAppDB_MultiCluster_ClusterMapping(t *testing.T) {
 	})
 
 	t.Run("config map should be recreated after deletion", func(t *testing.T) {
-		deleteClusterMappingConfigMap(ctx, t, kubeManager, appdb)
+		deleteClusterMappingConfigMap(ctx, t, kubeClient, appdb)
 		_, err := reconciler.updateMemberClusterMapping(ctx, appdb)
 		require.NoError(t, err)
 		checkClusterMapping(ctx, t, reconciler, appdb, map[string]int{
@@ -554,15 +553,15 @@ func TestAppDB_MultiCluster_ClusterMapping(t *testing.T) {
 	})
 }
 
-func deleteClusterMappingConfigMap(ctx context.Context, t *testing.T, kubeManager *mock.MockedManager, appdb om.AppDBSpec) {
+func deleteClusterMappingConfigMap(ctx context.Context, t *testing.T, kubeClient client.Client, appdb omv1.AppDBSpec) {
 	cm := corev1.ConfigMap{}
-	err := kubeManager.GetClient().Get(ctx, kube.ObjectKey(appdb.Namespace, appdb.Name()+"-cluster-mapping"), &cm)
+	err := kubeClient.Get(ctx, kube.ObjectKey(appdb.Namespace, appdb.Name()+"-cluster-mapping"), &cm)
 	require.NoError(t, err)
-	err = kubeManager.GetClient().Delete(ctx, &cm)
+	err = kubeClient.Delete(ctx, &cm)
 	require.NoError(t, err)
 }
 
-func checkClusterMapping(ctx context.Context, t *testing.T, reconciler *ReconcileAppDbReplicaSet, appdb om.AppDBSpec, expectedMapping map[string]int) {
+func checkClusterMapping(ctx context.Context, t *testing.T, reconciler *ReconcileAppDbReplicaSet, appdb omv1.AppDBSpec, expectedMapping map[string]int) {
 	cm := corev1.ConfigMap{}
 	err := reconciler.centralClient.Get(ctx, kube.ObjectKey(appdb.Namespace, appdb.Name()+"-cluster-mapping"), &cm)
 	assert.NoError(t, err)
@@ -582,7 +581,7 @@ type appDBClusterChecks struct {
 	clusterIndex int
 }
 
-func newAppDBClusterChecks(t *testing.T, opsManager *om.MongoDBOpsManager, clusterName string, kubeClient client.Client, clusterIndex int) *appDBClusterChecks {
+func newAppDBClusterChecks(t *testing.T, opsManager *omv1.MongoDBOpsManager, clusterName string, kubeClient client.Client, clusterIndex int) *appDBClusterChecks {
 	result := appDBClusterChecks{
 		t:            t,
 		namespace:    opsManager.Namespace,
@@ -675,7 +674,7 @@ func (c *appDBClusterChecks) checkStatefulSet(ctx context.Context, statefulSetNa
 	require.Equal(c.t, statefulSetName, sts.ObjectMeta.Name)
 }
 
-func createOMAPIKeySecret(ctx context.Context, t *testing.T, secretClient secrets.SecretClient, opsManager *om.MongoDBOpsManager) {
+func createOMAPIKeySecret(ctx context.Context, t *testing.T, secretClient secrets.SecretClient, opsManager *omv1.MongoDBOpsManager) {
 	APIKeySecretName, err := opsManager.APIKeySecretName(ctx, secretClient, "")
 	assert.NoError(t, err)
 
@@ -694,7 +693,7 @@ func createOMAPIKeySecret(ctx context.Context, t *testing.T, secretClient secret
 	require.NoError(t, err)
 }
 
-func createAppDbCAConfigMap(ctx context.Context, t *testing.T, k8sClient client.Client, appDBSpec om.AppDBSpec) string {
+func createAppDbCAConfigMap(ctx context.Context, t *testing.T, k8sClient client.Client, appDBSpec omv1.AppDBSpec) string {
 	cert, _ := createMockCertAndKeyBytes()
 	cm := configmap.Builder().
 		SetName(appDBSpec.GetCAConfigMapName()).
@@ -708,7 +707,7 @@ func createAppDbCAConfigMap(ctx context.Context, t *testing.T, k8sClient client.
 	return appDBSpec.GetCAConfigMapName()
 }
 
-func createAppDBTLSCert(ctx context.Context, t *testing.T, k8sClient client.Client, appDBSpec om.AppDBSpec) (string, string) {
+func createAppDBTLSCert(ctx context.Context, t *testing.T, k8sClient client.Client, appDBSpec omv1.AppDBSpec) (string, string) {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      appDBSpec.GetTlsCertificatesSecretName(),
@@ -739,9 +738,10 @@ func TestAppDB_MultiCluster_ReconcilerFailsWhenThereIsNoClusterListConfigured(t 
 				Members:     2,
 			},
 		}).
-		SetAppDBTopology(om.ClusterTopologyMultiCluster)
+		SetAppDBTopology(omv1.ClusterTopologyMultiCluster)
 	opsManager := builder.Build()
-	_, err := newAppDbReconciler(ctx, mock.NewManager(ctx, opsManager), opsManager, zap.S())
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
+	_, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
 	assert.Error(t, err)
 }
 
@@ -768,17 +768,16 @@ func TestAppDBMultiClusterRemoveResources(t *testing.T) {
 				Members:     1,
 			},
 		}).
-		SetAppDBTopology(om.ClusterTopologyMultiCluster)
+		SetAppDBTopology(omv1.ClusterTopologyMultiCluster)
 
 	opsManager := builder.Build()
-
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
 	clusters = []string{"a", "b", "c"}
-	memberClusterMap := getFakeMultiClusterMapWithClusters(clusters)
+	memberClusterMap := getFakeMultiClusterMapWithClusters(clusters, omConnectionFactory)
+	reconciler, _, _ := defaultTestOmReconciler(ctx, t, opsManager, memberClusterMap, omConnectionFactory)
 
 	// create opsmanager reconciler
-	reconciler, _, _ := defaultTestOmReconciler(ctx, t, opsManager, memberClusterMap)
-
-	appDBReconciler, _ := newAppDbMultiReconciler(ctx, mock.NewManager(ctx, opsManager), opsManager, memberClusterMap, zap.S())
+	appDBReconciler, _ := newAppDbMultiReconciler(ctx, kubeClient, opsManager, memberClusterMap, zap.S(), omConnectionFactory.GetConnectionFunc)
 
 	// initially requeued as monitoring needs to be configured
 	_, err := appDBReconciler.ReconcileAppDB(ctx, opsManager)
