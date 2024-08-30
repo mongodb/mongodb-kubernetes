@@ -21,7 +21,7 @@ import (
 
 func TestBuildBackupDaemonStatefulSet(t *testing.T) {
 	ctx := context.Background()
-	client := mock.NewClient()
+	client, _ := mock.NewDefaultFakeClient()
 	secretsClient := secrets.SecretClient{
 		VaultClient: &vault.VaultClient{},
 		KubeClient:  client,
@@ -35,7 +35,7 @@ func TestBuildBackupDaemonStatefulSet(t *testing.T) {
 
 func TestBackupPodTemplate_TerminationTimeout(t *testing.T) {
 	ctx := context.Background()
-	client := mock.NewClient()
+	client, _ := mock.NewDefaultFakeClient()
 	secretsClient := secrets.SecretClient{
 		VaultClient: &vault.VaultClient{},
 		KubeClient:  client,
@@ -48,7 +48,7 @@ func TestBackupPodTemplate_TerminationTimeout(t *testing.T) {
 
 func TestBuildBackupDaemonContainer(t *testing.T) {
 	ctx := context.Background()
-	client := mock.NewClient()
+	client, _ := mock.NewDefaultFakeClient()
 	secretsClient := secrets.SecretClient{
 		VaultClient: &vault.VaultClient{},
 		KubeClient:  client,
@@ -76,7 +76,7 @@ func TestBuildBackupDaemonContainer(t *testing.T) {
 
 func TestMultipleBackupDaemons(t *testing.T) {
 	ctx := context.Background()
-	client := mock.NewClient()
+	client, _ := mock.NewDefaultFakeClient()
 	secretsClient := secrets.SecretClient{
 		VaultClient: &vault.VaultClient{},
 		KubeClient:  client,
@@ -97,7 +97,7 @@ func Test_BackupDaemonStatefulSetWithRelatedImages(t *testing.T) {
 	t.Setenv(initOpsManagerRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-init-ops-manager:@sha256:MONGODB_INIT_APPDB")
 	t.Setenv(opsManagerRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER")
 
-	client := mock.NewClient()
+	client, _ := mock.NewDefaultFakeClient()
 	secretsClient := secrets.SecretClient{
 		VaultClient: &vault.VaultClient{},
 		KubeClient:  client,

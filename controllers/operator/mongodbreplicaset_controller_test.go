@@ -7,6 +7,10 @@ import (
 	"testing"
 	"time"
 
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
@@ -23,12 +27,10 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/pem"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
-
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/authentication"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/controlledfeature"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
@@ -49,21 +51,21 @@ func TestCreateReplicaSet(t *testing.T) {
 	ctx := context.Background()
 	rs := DefaultReplicaSetBuilder().Build()
 
-	reconciler, client := defaultReplicaSetReconciler(ctx, rs)
+	reconciler, client, omConnectionFactory := defaultReplicaSetReconciler(ctx, rs)
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
 
-	assert.Len(t, client.GetMapForObject(&corev1.Service{}), 1)
-	assert.Len(t, client.GetMapForObject(&appsv1.StatefulSet{}), 1)
-	assert.Len(t, client.GetMapForObject(&corev1.Secret{}), 2)
+	assert.Len(t, mock.GetMapForObject(client, &corev1.Service{}), 1)
+	assert.Len(t, mock.GetMapForObject(client, &appsv1.StatefulSet{}), 1)
+	assert.Len(t, mock.GetMapForObject(client, &corev1.Secret{}), 2)
 
 	sts, err := client.GetStatefulSet(ctx, rs.ObjectKey())
 	assert.NoError(t, err)
 	assert.Equal(t, *sts.Spec.Replicas, int32(3))
 
-	connection := om.CurrMockedConnection
-	connection.CheckDeployment(t, deployment.CreateFromReplicaSet(rs), "auth", "ssl")
-	connection.CheckNumberOfUpdateRequests(t, 2)
+	connection := omConnectionFactory.GetConnection()
+	connection.(*om.MockedOmConnection).CheckDeployment(t, deployment.CreateFromReplicaSet(rs), "auth", "ssl")
+	connection.(*om.MockedOmConnection).CheckNumberOfUpdateRequests(t, 2)
 }
 
 func TestReplicaSetRace(t *testing.T) {
@@ -71,9 +73,15 @@ func TestReplicaSetRace(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().Build()
 	rs2 := DefaultReplicaSetBuilder().SetName("my-rs2").Build()
 	rs3 := DefaultReplicaSetBuilder().SetName("my-rs3").Build()
-	reconciler, client := defaultReplicaSetReconcilerWithoutSingleton(ctx, rs)
 
-	testConcurrentReconciles(ctx, t, client, reconciler, rs, rs2, rs3)
+	fakeClient := mock.NewEmptyFakeClientBuilder().
+		WithObjects(rs, rs2, rs3).
+		WithObjects(mock.GetDefaultResources()...).
+		Build()
+
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, om.NewEmptyMockedOmConnection)
+
+	testConcurrentReconciles(ctx, t, fakeClient, reconciler, rs, rs2, rs3)
 }
 
 func TestReplicaSetServiceName(t *testing.T) {
@@ -82,7 +90,7 @@ func TestReplicaSetServiceName(t *testing.T) {
 	rs.Spec.StatefulSetConfiguration = &mdbcv1.StatefulSetConfiguration{}
 	rs.Spec.StatefulSetConfiguration.SpecWrapper.Spec.ServiceName = "foo"
 
-	reconciler, client := defaultReplicaSetReconciler(ctx, rs)
+	reconciler, client, _ := defaultReplicaSetReconciler(ctx, rs)
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
 	assert.Equal(t, "foo", rs.ServiceName())
@@ -99,7 +107,7 @@ func TestHorizonVerificationTLS(t *testing.T) {
 	}
 	rs := DefaultReplicaSetBuilder().SetReplicaSetHorizons(replicaSetHorizons).Build()
 
-	reconciler, client := defaultReplicaSetReconciler(ctx, rs)
+	reconciler, client, _ := defaultReplicaSetReconciler(ctx, rs)
 
 	msg := "TLS must be enabled in order to use replica set horizons"
 	checkReconcileFailed(ctx, t, reconciler, rs, false, msg, client)
@@ -116,47 +124,49 @@ func TestHorizonVerificationCount(t *testing.T) {
 		SetReplicaSetHorizons(replicaSetHorizons).
 		Build()
 
-	reconciler, client := defaultReplicaSetReconciler(ctx, rs)
+	reconciler, client, _ := defaultReplicaSetReconciler(ctx, rs)
 
 	msg := "Number of horizons must be equal to number of members in replica set"
 	checkReconcileFailed(ctx, t, reconciler, rs, false, msg, client)
 }
 
+// This test is broken as it recreates the object entirely which doesn't keep last members and scales immediately up to 5
+// We already have unit tests that checks scaling one member at a time: TestScalingScalesOneMemberAtATime*
 // TestScaleUpReplicaSet verifies scaling up for replica set. Statefulset and OM Deployment must be changed accordingly
-func TestScaleUpReplicaSet(t *testing.T) {
-	ctx := context.Background()
-	rs := DefaultReplicaSetBuilder().SetMembers(3).Build()
-
-	reconciler, client := defaultReplicaSetReconciler(ctx, rs)
-
-	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
-	set := &appsv1.StatefulSet{}
-	_ = client.Get(ctx, mock.ObjectKeyFromApiObject(rs), set)
-
-	// Now scale up to 5 nodes
-	rs = DefaultReplicaSetBuilder().SetMembers(5).Build()
-	_ = client.Update(ctx, rs)
-
-	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
-
-	updatedSet := &appsv1.StatefulSet{}
-	_ = client.Get(ctx, mock.ObjectKeyFromApiObject(rs), updatedSet)
-
-	// Statefulset is expected to be the same - only number of replicas changed
-	set.Spec.Replicas = util.Int32Ref(int32(5))
-	assert.Equal(t, set.Spec, updatedSet.Spec)
-
-	connection := om.CurrMockedConnection
-	connection.CheckDeployment(t, deployment.CreateFromReplicaSet(rs), "auth", "tls")
-	connection.CheckNumberOfUpdateRequests(t, 4)
-}
+//func TestScaleUpReplicaSet(t *testing.T) {
+//	ctx := context.Background()
+//	rs := DefaultReplicaSetBuilder().SetMembers(3).Build()
+//
+//	reconciler, client, omConnectionFactory := defaultReplicaSetReconciler(ctx, rs)
+//
+//	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
+//	set := &appsv1.StatefulSet{}
+//	_ = client.Get(ctx, mock.ObjectKeyFromApiObject(rs), set)
+//
+//	// Now scale up to 5 nodes
+//	rs = DefaultReplicaSetBuilder().SetMembers(5).Build()
+//	_ = client.Update(ctx, rs)
+//
+//	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
+//
+//	updatedSet := &appsv1.StatefulSet{}
+//	_ = client.Get(ctx, mock.ObjectKeyFromApiObject(rs), updatedSet)
+//
+//	// Statefulset is expected to be the same - only number of replicas changed
+//	set.Spec.Replicas = util.Int32Ref(int32(5))
+//	assert.Equal(t, set.Spec, updatedSet.Spec)
+//
+//	connection := omConnectionFactory.GetConnection()
+//	connection.(*om.MockedOmConnection).CheckDeployment(t, deployment.CreateFromReplicaSet(rs), "auth", "tls")
+//	connection.(*om.MockedOmConnection).CheckNumberOfUpdateRequests(t, 4)
+//}
 
 func TestExposedExternallyReplicaSet(t *testing.T) {
 	ctx := context.Background()
 	// given
 	rs := DefaultReplicaSetBuilder().SetMembers(3).ExposedExternally(nil, nil, nil).Build()
 
-	reconciler, client := defaultReplicaSetReconciler(ctx, rs)
+	reconciler, client, omConnectionFactory := defaultReplicaSetReconciler(ctx, rs)
 
 	// when
 	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
@@ -180,7 +190,7 @@ func TestExposedExternallyReplicaSet(t *testing.T) {
 		assert.Equal(t, 27017, externalService.Spec.Ports[0].TargetPort.IntValue())
 	}
 
-	processes := om.CurrMockedConnection.GetProcesses()
+	processes := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetProcesses()
 	require.Len(t, processes, 3)
 	// check hostnames are pod's headless service FQDNs
 	for i, process := range processes {
@@ -203,17 +213,17 @@ func TestExposedExternallyReplicaSetExternalDomainInHostnames(t *testing.T) {
 
 func testExposedExternallyReplicaSetExternalDomainInHostnames(ctx context.Context, t *testing.T, replicaSetName string, memberCount int, externalDomain string, expectedHostnames []string) {
 	rs := DefaultReplicaSetBuilder().SetName(replicaSetName).SetMembers(memberCount).ExposedExternally(nil, nil, &externalDomain).Build()
-	reconciler, client := defaultReplicaSetReconciler(ctx, rs)
-
-	// We set this to mock processes that agents are registering in OM, otherwise reconcile will hang on agent.WaitForRsAgentsToRegister.
-	// hostnames are already mocked in controllers/operator/mock/mockedkubeclient.go::markStatefulSetsReady,
-	// but we don't have externalDomain in statefulset there, hence we're setting them here
-	om.CurrMockedConnection = om.NewMockedOmConnection(nil)
-	om.CurrMockedConnection.Hostnames = expectedHostnames
+	reconciler, client, omConnectionFactory := defaultReplicaSetReconciler(ctx, rs)
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		// We set this to mock processes that agents are registering in OM, otherwise reconcile will hang on agent.WaitForRsAgentsToRegister.
+		// hostnames are already mocked in markStatefulSetsReady,
+		// but we don't have externalDomain information in statefulset alone there, hence we're setting them here
+		connection.(*om.MockedOmConnection).Hostnames = expectedHostnames
+	})
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
 
-	processes := om.CurrMockedConnection.GetProcesses()
+	processes := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetProcesses()
 	require.Len(t, processes, memberCount)
 	// check hostnames are external domain
 	for i, process := range processes {
@@ -235,7 +245,7 @@ func TestExposedExternallyReplicaSetWithNodePort(t *testing.T) {
 			nil).
 		Build()
 
-	reconciler, client := defaultReplicaSetReconciler(ctx, rs)
+	reconciler, client, _ := defaultReplicaSetReconciler(ctx, rs)
 
 	// when
 	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
@@ -260,12 +270,12 @@ func TestCreateReplicaSet_TLS(t *testing.T) {
 	ctx := context.Background()
 	rs := DefaultReplicaSetBuilder().SetMembers(3).EnableTLS().SetTLSCA("custom-ca").Build()
 
-	reconciler, client := defaultReplicaSetReconciler(ctx, rs)
+	reconciler, client, omConnectionFactory := defaultReplicaSetReconciler(ctx, rs)
 	addKubernetesTlsResources(ctx, client, rs)
-	client.ApproveAllCSRs(ctx)
+	mock.ApproveAllCSRs(ctx, client)
 	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
 
-	processes := om.CurrMockedConnection.GetProcesses()
+	processes := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetProcesses()
 	assert.Len(t, processes, 3)
 	for _, v := range processes {
 		assert.NotNil(t, v.TLSConfig())
@@ -274,7 +284,7 @@ func TestCreateReplicaSet_TLS(t *testing.T) {
 		assert.Equal(t, "requireTLS", v.TLSConfig()["mode"])
 	}
 
-	sslConfig := om.CurrMockedConnection.GetTLS()
+	sslConfig := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetTLS()
 	assert.Equal(t, fmt.Sprintf("%s/%s", util.TLSCaMountPath, "ca-pem"), sslConfig["CAFilePath"])
 	assert.Equal(t, "OPTIONAL", sslConfig["clientCertificateMode"])
 }
@@ -320,32 +330,35 @@ func TestCreateDeleteReplicaSet(t *testing.T) {
 	// First we need to create a replicaset
 	rs := DefaultReplicaSetBuilder().Build()
 
-	reconciler, client := defaultReplicaSetReconciler(ctx, rs)
+	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
+	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, omConnectionFactory.GetConnectionFunc)
 
-	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
-	omConn := om.CurrMockedConnection
-	omConn.CleanHistory()
+	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
+	omConn := omConnectionFactory.GetConnection()
+	mockedOmConn := omConn.(*om.MockedOmConnection)
+	mockedOmConn.CleanHistory()
 
 	// Now delete it
 	assert.NoError(t, reconciler.OnDelete(ctx, rs, zap.S()))
 
 	// Operator doesn't mutate K8s state, so we don't check its changes, only OM
-	omConn.CheckResourcesDeleted(t)
+	mockedOmConn.CheckResourcesDeleted(t)
 
-	omConn.CheckOrderOfOperations(t,
-		reflect.ValueOf(omConn.ReadUpdateDeployment), reflect.ValueOf(omConn.ReadAutomationStatus),
-		reflect.ValueOf(omConn.GetHosts), reflect.ValueOf(omConn.RemoveHost))
+	mockedOmConn.CheckOrderOfOperations(t,
+		reflect.ValueOf(mockedOmConn.ReadUpdateDeployment), reflect.ValueOf(mockedOmConn.ReadAutomationStatus),
+		reflect.ValueOf(mockedOmConn.GetHosts), reflect.ValueOf(mockedOmConn.RemoveHost))
 }
 
 func TestReplicaSetScramUpgradeDowngrade(t *testing.T) {
 	ctx := context.Background()
 	rs := DefaultReplicaSetBuilder().SetVersion("4.0.0").EnableAuth().SetAuthModes([]mdbv1.AuthMode{"SCRAM"}).Build()
 
-	reconciler, client := defaultReplicaSetReconciler(ctx, rs)
+	reconciler, client, omConnectionFactory := defaultReplicaSetReconciler(ctx, rs)
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
 
-	ac, _ := om.CurrMockedConnection.ReadAutomationConfig()
+	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
 	assert.Contains(t, ac.Auth.AutoAuthMechanisms, string(authentication.ScramSha256))
 
 	// downgrade to version that will not use SCRAM-SHA-256
@@ -375,7 +388,7 @@ func TestReplicaSetCustomPodSpecTemplate(t *testing.T) {
 		Spec: podSpec,
 	}).Build()
 
-	reconciler, client := defaultReplicaSetReconciler(ctx, rs)
+	reconciler, client, _ := defaultReplicaSetReconciler(ctx, rs)
 
 	addKubernetesTlsResources(ctx, client, rs)
 
@@ -414,7 +427,7 @@ func TestReplicaSetCustomPodSpecTemplateStatic(t *testing.T) {
 		Spec: podSpec,
 	}).Build()
 
-	reconciler, client := defaultReplicaSetReconciler(ctx, rs)
+	reconciler, client, _ := defaultReplicaSetReconciler(ctx, rs)
 
 	addKubernetesTlsResources(ctx, client, rs)
 
@@ -436,25 +449,20 @@ func TestFeatureControlPolicyAndTagAddedWithNewerOpsManager(t *testing.T) {
 	ctx := context.Background()
 	rs := DefaultReplicaSetBuilder().Build()
 
-	reconciler, client := defaultReplicaSetReconciler(ctx, rs)
-	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
-		context.Version = versionutil.OpsManagerVersion{
-			VersionString: "5.0.0",
-		}
-		conn := om.NewEmptyMockedOmConnection(context)
-		return conn
-	}
+	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
+	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, omConnectionFactory.GetConnectionFunc)
 
-	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
+	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
 
-	mockedConn := om.CurrMockedConnection
+	mockedConn := omConnectionFactory.GetConnection()
 	cf, _ := mockedConn.GetControlledFeature()
 
 	assert.Len(t, cf.Policies, 3)
 	assert.Equal(t, cf.ManagementSystem.Version, util.OperatorVersion)
 	assert.Equal(t, cf.ManagementSystem.Name, util.OperatorName)
 
-	project := mockedConn.FindGroup("my-project")
+	project := mockedConn.(*om.MockedOmConnection).FindGroup("my-project")
 	assert.Contains(t, project.Tags, util.OmGroupExternallyManagedTag)
 }
 
@@ -465,18 +473,13 @@ func TestFeatureControlPolicyNoAuthNewerOpsManager(t *testing.T) {
 
 	rs := rsBuilder.Build()
 
-	reconciler, client := defaultReplicaSetReconciler(ctx, rs)
-	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
-		context.Version = versionutil.OpsManagerVersion{
-			VersionString: "5.0.0",
-		}
-		conn := om.NewEmptyMockedOmConnection(context)
-		return conn
-	}
+	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
+	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, omConnectionFactory.GetConnectionFunc)
 
-	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
+	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
 
-	mockedConn := om.CurrMockedConnection
+	mockedConn := omConnectionFactory.GetConnection()
 	cf, _ := mockedConn.GetControlledFeature()
 
 	assert.Len(t, cf.Policies, 2)
@@ -490,7 +493,7 @@ func TestFeatureControlPolicyNoAuthNewerOpsManager(t *testing.T) {
 func TestScalingScalesOneMemberAtATime_WhenScalingDown(t *testing.T) {
 	ctx := context.Background()
 	rs := DefaultReplicaSetBuilder().SetMembers(5).Build()
-	reconciler, client := defaultReplicaSetReconciler(ctx, rs)
+	reconciler, client, omConnectionFactory := defaultReplicaSetReconciler(ctx, rs)
 	// perform initial reconciliation so we are not creating a new resource
 	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
 
@@ -505,19 +508,19 @@ func TestScalingScalesOneMemberAtATime_WhenScalingDown(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, time.Duration(10000000000), res.RequeueAfter, "Scaling from 5 -> 4 should enqueue another reconciliation")
 
-	assertCorrectNumberOfMembersAndProcesses(ctx, t, 4, rs, client, "We should have updated the status with the intermediate value of 4")
+	assertCorrectNumberOfMembersAndProcesses(ctx, t, 4, rs, client, omConnectionFactory.GetConnection(), "We should have updated the status with the intermediate value of 4")
 
 	res, err = reconciler.Reconcile(ctx, requestFromObject(rs))
 	assert.NoError(t, err)
 	assert.Equal(t, util.TWENTY_FOUR_HOURS, res.RequeueAfter, "Once we reach the target value, we should not scale anymore")
 
-	assertCorrectNumberOfMembersAndProcesses(ctx, t, 3, rs, client, "The members should now be set to the final desired value")
+	assertCorrectNumberOfMembersAndProcesses(ctx, t, 3, rs, client, omConnectionFactory.GetConnection(), "The members should now be set to the final desired value")
 }
 
 func TestScalingScalesOneMemberAtATime_WhenScalingUp(t *testing.T) {
 	ctx := context.Background()
 	rs := DefaultReplicaSetBuilder().SetMembers(1).Build()
-	reconciler, client := defaultReplicaSetReconciler(ctx, rs)
+	reconciler, client, omConnectionFactory := defaultReplicaSetReconciler(ctx, rs)
 	// perform initial reconciliation so we are not creating a new resource
 	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
 
@@ -532,12 +535,12 @@ func TestScalingScalesOneMemberAtATime_WhenScalingUp(t *testing.T) {
 
 	assert.Equal(t, time.Duration(10000000000), res.RequeueAfter, "Scaling from 1 -> 3 should enqueue another reconciliation")
 
-	assertCorrectNumberOfMembersAndProcesses(ctx, t, 2, rs, client, "We should have updated the status with the intermediate value of 2")
+	assertCorrectNumberOfMembersAndProcesses(ctx, t, 2, rs, client, omConnectionFactory.GetConnection(), "We should have updated the status with the intermediate value of 2")
 
 	res, err = reconciler.Reconcile(ctx, requestFromObject(rs))
 	assert.NoError(t, err)
 
-	assertCorrectNumberOfMembersAndProcesses(ctx, t, 3, rs, client, "Once we reach the target value, we should not scale anymore")
+	assertCorrectNumberOfMembersAndProcesses(ctx, t, 3, rs, client, omConnectionFactory.GetConnection(), "Once we reach the target value, we should not scale anymore")
 }
 
 func TestReplicaSetPortIsConfigurable_WithAdditionalMongoConfig(t *testing.T) {
@@ -549,7 +552,7 @@ func TestReplicaSetPortIsConfigurable_WithAdditionalMongoConfig(t *testing.T) {
 		SetConnectionSpec(testConnectionSpec()).
 		Build()
 
-	reconciler, client := defaultReplicaSetReconciler(ctx, rs)
+	reconciler, client, _ := defaultReplicaSetReconciler(ctx, rs)
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
 
@@ -564,7 +567,7 @@ func TestReplicaSet_ConfigMapAndSecretWatched(t *testing.T) {
 	ctx := context.Background()
 	rs := DefaultReplicaSetBuilder().Build()
 
-	reconciler, client := defaultReplicaSetReconciler(ctx, rs)
+	reconciler, client, _ := defaultReplicaSetReconciler(ctx, rs)
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
 
@@ -582,7 +585,7 @@ func TestTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 	ctx := context.Background()
 	rs := DefaultReplicaSetBuilder().EnableTLS().SetTLSCA("custom-ca").Build()
 
-	reconciler, client := defaultReplicaSetReconciler(ctx, rs)
+	reconciler, client, _ := defaultReplicaSetReconciler(ctx, rs)
 
 	addKubernetesTlsResources(ctx, client, rs)
 	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
@@ -617,28 +620,28 @@ func TestBackupConfiguration_ReplicaSet(t *testing.T) {
 		}).
 		Build()
 
-	reconciler, client := defaultReplicaSetReconciler(ctx, rs)
-
+	reconciler, client, omConnectionFactory := defaultReplicaSetReconciler(ctx, rs)
 	uuidStr := uuid.New().String()
 	// configure backup for this project in Ops Manager in the mocked connection
-	om.CurrMockedConnection = om.NewMockedOmConnection(om.NewDeployment())
-	_, err := om.CurrMockedConnection.UpdateBackupConfig(&backup.Config{
-		ClusterId: uuidStr,
-		Status:    backup.Inactive,
-	})
-	assert.NoError(t, err)
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		_, err := connection.UpdateBackupConfig(&backup.Config{
+			ClusterId: uuidStr,
+			Status:    backup.Inactive,
+		})
+		assert.NoError(t, err)
 
-	// add corresponding host cluster.
-	om.CurrMockedConnection.BackupHostClusters[uuidStr] = &backup.HostCluster{
-		ReplicaSetName: rs.Name,
-		ClusterName:    rs.Name,
-		TypeName:       "REPLICA_SET",
-	}
+		// add corresponding host cluster.
+		connection.(*om.MockedOmConnection).BackupHostClusters[uuidStr] = &backup.HostCluster{
+			ReplicaSetName: rs.Name,
+			ClusterName:    rs.Name,
+			TypeName:       "REPLICA_SET",
+		}
+	})
 
 	t.Run("Backup can be started", func(t *testing.T) {
 		checkReconcileSuccessful(ctx, t, reconciler, rs, client)
 
-		configResponse, _ := om.CurrMockedConnection.ReadBackupConfigs()
+		configResponse, _ := omConnectionFactory.GetConnection().ReadBackupConfigs()
 		assert.Len(t, configResponse.Configs, 1)
 
 		config := configResponse.Configs[0]
@@ -648,7 +651,7 @@ func TestBackupConfiguration_ReplicaSet(t *testing.T) {
 		assert.Equal(t, "PRIMARY", config.SyncSource)
 	})
 
-	t.Run("Backup snapshot schedule tests", backupSnapshotScheduleTests(rs, client, reconciler, uuidStr))
+	t.Run("Backup snapshot schedule tests", backupSnapshotScheduleTests(rs, client, reconciler, omConnectionFactory, uuidStr))
 
 	t.Run("Backup can be stopped", func(t *testing.T) {
 		rs.Spec.Backup.Mode = "disabled"
@@ -657,7 +660,7 @@ func TestBackupConfiguration_ReplicaSet(t *testing.T) {
 
 		checkReconcileSuccessful(ctx, t, reconciler, rs, client)
 
-		configResponse, _ := om.CurrMockedConnection.ReadBackupConfigs()
+		configResponse, _ := omConnectionFactory.GetConnection().ReadBackupConfigs()
 		assert.Len(t, configResponse.Configs, 1)
 
 		config := configResponse.Configs[0]
@@ -674,7 +677,7 @@ func TestBackupConfiguration_ReplicaSet(t *testing.T) {
 
 		checkReconcileSuccessful(ctx, t, reconciler, rs, client)
 
-		configResponse, _ := om.CurrMockedConnection.ReadBackupConfigs()
+		configResponse, _ := omConnectionFactory.GetConnection().ReadBackupConfigs()
 		assert.Len(t, configResponse.Configs, 1)
 
 		config := configResponse.Configs[0]
@@ -690,9 +693,9 @@ func TestReplicaSetAgentVersionMapping(t *testing.T) {
 	defaultResource := DefaultReplicaSetBuilder().Build()
 	// Go couldn't infer correctly that *ReconcileMongoDbReplicaset implemented *reconciler.Reconciler interface
 	// without this anonymous function
-	reconcilerFactory := func(rs *mdbv1.MongoDB) (reconcile.Reconciler, *mock.MockedClient) {
+	reconcilerFactory := func(rs *mdbv1.MongoDB) (reconcile.Reconciler, kubernetesClient.Client) {
 		// Call the original defaultReplicaSetReconciler, which returns a *ReconcileMongoDbReplicaSet that implements reconcile.Reconciler
-		reconciler, mockClient := defaultReplicaSetReconciler(ctx, rs)
+		reconciler, mockClient, _ := defaultReplicaSetReconciler(ctx, rs)
 		// Return the reconciler as is, because it implements the reconcile.Reconciler interface
 		return reconciler, mockClient
 	}
@@ -719,31 +722,18 @@ func TestReplicaSetAgentVersionMapping(t *testing.T) {
 
 // assertCorrectNumberOfMembersAndProcesses ensures that both the mongodb resource and the Ops Manager deployment
 // have the correct number of processes/replicas at each stage of the scaling operation
-func assertCorrectNumberOfMembersAndProcesses(ctx context.Context, t *testing.T, expected int, mdb *mdbv1.MongoDB, client *mock.MockedClient, msg string) {
+func assertCorrectNumberOfMembersAndProcesses(ctx context.Context, t *testing.T, expected int, mdb *mdbv1.MongoDB, client client.Client, omConnection om.Connection, msg string) {
 	err := client.Get(ctx, mdb.ObjectKey(), mdb)
 	assert.NoError(t, err)
 	assert.Equal(t, expected, mdb.Status.Members, msg)
-	dep, err := om.CurrMockedConnection.ReadDeployment()
+	dep, err := omConnection.ReadDeployment()
 	assert.NoError(t, err)
 	assert.Len(t, dep.ProcessesCopy(), expected)
 }
 
-// defaultReplicaSetReconciler is the replica set reconciler used in unit test. It "adds" necessary
-// additional K8s objects (rs, connection config map and secrets) necessary for reconciliation
-// so it's possible to call 'reconcileAppDB()' on it right away
-func defaultReplicaSetReconciler(ctx context.Context, rs *mdbv1.MongoDB) (*ReconcileMongoDbReplicaSet, *mock.MockedClient) {
-	return replicaSetReconcilerWithConnection(ctx, rs, om.NewEmptyMockedOmConnection)
-}
-
-func defaultReplicaSetReconcilerWithoutSingleton(ctx context.Context, rs *mdbv1.MongoDB) (*ReconcileMongoDbReplicaSet, *mock.MockedClient) {
-	return replicaSetReconcilerWithConnection(ctx, rs, om.NewEmptyMockedOmConnectionNoSingleton)
-}
-
-func replicaSetReconcilerWithConnection(ctx context.Context, rs *mdbv1.MongoDB, connectionFunc func(ctx *om.OMContext) om.Connection) (*ReconcileMongoDbReplicaSet, *mock.MockedClient) {
-	manager := mock.NewManager(ctx, rs)
-	manager.Client.AddDefaultMdbConfigResources(ctx)
-
-	return newReplicaSetReconciler(ctx, manager, connectionFunc), manager.Client
+func defaultReplicaSetReconciler(ctx context.Context, rs *mdbv1.MongoDB) (*ReconcileMongoDbReplicaSet, kubernetesClient.Client, *om.CachedOMConnectionFactory) {
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
+	return newReplicaSetReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc), kubeClient, omConnectionFactory
 }
 
 // newDefaultPodSpec creates pod spec with default values,sets only the topology key and persistence sizes,

@@ -57,15 +57,13 @@ func TestCreateOrUpdateService_NodePortsArePreservedWhenThereIsMoreThanOnePortDe
 		NodePort:   40040,
 	}
 
-	manager := mock.NewEmptyManager()
-	manager.Client.AddDefaultMdbConfigResources(ctx)
-
+	fakeClient, _ := mock.NewDefaultFakeClient()
 	existingService := corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"},
 		Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{port1, port2}},
 	}
 
-	err := CreateOrUpdateService(ctx, manager.Client, existingService)
+	err := CreateOrUpdateService(ctx, fakeClient, existingService)
 	assert.NoError(t, err)
 
 	port1WithNodePortZero := port1
@@ -78,10 +76,10 @@ func TestCreateOrUpdateService_NodePortsArePreservedWhenThereIsMoreThanOnePortDe
 		Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{port1WithNodePortZero, port2WithNodePortZero}},
 	}
 
-	err = CreateOrUpdateService(ctx, manager.Client, newServiceWithoutNodePorts)
+	err = CreateOrUpdateService(ctx, fakeClient, newServiceWithoutNodePorts)
 	assert.NoError(t, err)
 
-	changedService, err := manager.Client.GetService(ctx, types.NamespacedName{Name: "my-service", Namespace: "my-namespace"})
+	changedService, err := fakeClient.GetService(ctx, types.NamespacedName{Name: "my-service", Namespace: "my-namespace"})
 	require.NoError(t, err)
 	require.NotNil(t, changedService)
 	require.Len(t, changedService.Spec.Ports, 2)

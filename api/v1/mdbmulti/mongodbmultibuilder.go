@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"math/big"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/om"
+
 	v1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	corev1 "k8s.io/api/core/v1"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -17,6 +18,12 @@ import (
 type MultiReplicaSetBuilder struct {
 	*MongoDBMultiCluster
 }
+
+const (
+	TestProjectConfigMapName  = om.TestGroupName
+	TestCredentialsSecretName = "my-credentials"
+	TestNamespace             = "my-namespace"
+)
 
 func DefaultMultiReplicaSetBuilder() *MultiReplicaSetBuilder {
 	spec := MongoDBMultiSpec{
@@ -28,11 +35,11 @@ func DefaultMultiReplicaSetBuilder() *MultiReplicaSetBuilder {
 				SharedConnectionSpec: mdbv1.SharedConnectionSpec{
 					OpsManagerConfig: &mdbv1.PrivateCloudConfig{
 						ConfigMapRef: mdbv1.ConfigMapRef{
-							Name: mock.TestProjectConfigMapName,
+							Name: TestProjectConfigMapName,
 						},
 					},
 				},
-				Credentials: mock.TestCredentialsSecretName,
+				Credentials: TestCredentialsSecretName,
 			},
 			ResourceType: mdbv1.ReplicaSet,
 			Security: &mdbv1.Security{
@@ -46,7 +53,7 @@ func DefaultMultiReplicaSetBuilder() *MultiReplicaSetBuilder {
 		DuplicateServiceObjects: util.BooleanRef(false),
 	}
 
-	mrs := &MongoDBMultiCluster{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "temple", Namespace: mock.TestNamespace}}
+	mrs := &MongoDBMultiCluster{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "temple", Namespace: TestNamespace}}
 	return &MultiReplicaSetBuilder{mrs}
 }
 
