@@ -381,7 +381,7 @@ func TestMultipleAuthMethod_CreateAgentUsers(t *testing.T) {
 func TestFinalizerIsAdded_WhenUserIsCreated(t *testing.T) {
 	ctx := context.Background()
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
-	reconciler, client := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
+	reconciler, client, omConnectionFactory := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
 
 	// initialize resources required for the tests
 	_ = client.Create(ctx, DefaultReplicaSetBuilder().EnableAuth().AgentAuthMode("SCRAM").
@@ -396,8 +396,7 @@ func TestFinalizerIsAdded_WhenUserIsCreated(t *testing.T) {
 	assert.Nil(t, err, "there should be no error on successful reconciliation")
 	assert.Equal(t, expected, actual, "there should be a successful reconciliation if the password is a valid reference")
 
-	connection := om.CurrMockedConnection
-	ac, _ := connection.ReadAutomationConfig()
+	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
 
 	// the automation config should have been updated during reconciliation
 	assert.Len(t, ac.Auth.Users, 1, "the MongoDBUser should have been added to the AutomationConfig")
@@ -410,7 +409,7 @@ func TestFinalizerIsAdded_WhenUserIsCreated(t *testing.T) {
 func TestFinalizerIsRemoved_WhenUserIsDeleted(t *testing.T) {
 	ctx := context.Background()
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
-	reconciler, client := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
+	reconciler, client, omConnectionFactory := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
 
 	// initialize resources required for the tests
 	_ = client.Create(ctx, DefaultReplicaSetBuilder().EnableAuth().AgentAuthMode("SCRAM").
@@ -425,8 +424,7 @@ func TestFinalizerIsRemoved_WhenUserIsDeleted(t *testing.T) {
 	assert.Nil(t, err, "there should be no error on successful reconciliation")
 	assert.Equal(t, expected, actual, "there should be a successful reconciliation if the password is a valid reference")
 
-	connection := om.CurrMockedConnection
-	ac, _ := connection.ReadAutomationConfig()
+	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
 
 	// the automation config should have been updated during reconciliation
 	assert.Len(t, ac.Auth.Users, 1, "the MongoDBUser should have been added to the AutomationConfig")
