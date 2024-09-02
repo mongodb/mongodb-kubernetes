@@ -11,3 +11,4 @@ if [[ -z ${cluster_name} ]]; then
 fi
 
 scripts/dev/setup_kind_cluster.sh -r -e -n "${cluster_name}" -l "172.18.255.200-172.18.255.250" -c "$CLUSTER_DOMAIN"
+CTX_CLUSTER1=${cluster_name}-kind scripts/dev/install_csi_driver.sh
