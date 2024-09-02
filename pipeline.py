@@ -26,11 +26,11 @@ import semver
 from packaging.version import Version
 
 import docker
+from lib.base_logger import logger
 from lib.sonar.sonar import process_image
 from scripts.evergreen.release.agent_matrix import (
     get_supported_version_for_image_matrix_handling,
 )
-from scripts.evergreen.release.base_logger import logger
 from scripts.evergreen.release.images_signing import (
     mongodb_artifactory_login,
     sign_image,
@@ -587,13 +587,12 @@ def args_for_daily_image(image_name: str) -> Dict[str, str]:
 def is_version_in_range(version: str, min_version: str, max_version: str) -> bool:
     """Check if the version is in the range"""
     try:
-        version_without_rc = semver.finalize_version(version)
+        parsed_version = semver.VersionInfo.parse(version)
+        version_without_rc = semver.VersionInfo.finalize_version(parsed_version)
     except ValueError:
         version_without_rc = version
     if min_version and max_version:
-        return semver.match(min_version, "<=" + version_without_rc) and semver.match(
-            max_version, ">" + version_without_rc
-        )
+        return version_without_rc.match(">=" + min_version) and version_without_rc.match("<" + max_version)
     return True
 
 
@@ -1129,10 +1128,10 @@ def build_latest_agent_versions(release: Dict) -> List[Tuple[str, str]]:
     latest_versions = {}
 
     for version in release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"].keys():
-        parsed_version = semver.parse(version)
-        major_version = parsed_version["major"]
+        parsed_version = semver.VersionInfo.parse(version)
+        major_version = parsed_version.major
         if major_version in latest_versions:
-            latest_versions[major_version] = semver.max_ver(version, latest_versions[major_version])
+            latest_versions[major_version] = max(version, latest_versions[major_version])
         else:
             latest_versions[major_version] = version
 

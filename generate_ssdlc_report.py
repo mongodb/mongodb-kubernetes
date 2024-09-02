@@ -25,10 +25,10 @@ from typing import Dict, List
 
 import boto3
 
+from lib.base_logger import logger
 from scripts.evergreen.release.agent_matrix import (
     get_supported_version_for_image_matrix_handling,
 )
-from scripts.evergreen.release.base_logger import logger
 
 NUMBER_OF_THREADS = 15
 S3_BUCKET = "kubernetes-operators-sboms"

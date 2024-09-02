@@ -35,7 +35,7 @@ import urllib
 import boto3
 import botocore
 
-from scripts.evergreen.release.base_logger import logger
+from lib.base_logger import logger
 from scripts.evergreen.release.images_signing import mongodb_artifactory_login
 
 S3_BUCKET = "kubernetes-operators-sboms"

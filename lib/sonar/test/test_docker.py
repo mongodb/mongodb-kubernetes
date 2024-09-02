@@ -3,8 +3,9 @@ from unittest.mock import Mock, call
 
 import pytest
 from pytest_mock import MockerFixture
-from sonar.builders import SonarAPIError
-from sonar.builders.docker import docker_push
+
+from ..builders import SonarAPIError
+from ..builders.docker import docker_push
 
 
 def test_docker_push_is_retried(mocker: MockerFixture):

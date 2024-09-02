@@ -11,6 +11,6 @@ def test_key_error_is_not_raised_on_empty_inputs(patched_render: Mock):
         include_tags=[],
         build_args={},
         build_options={},
-        inventory="test/yaml_scenario10.yaml",
+        inventory="lib/sonar/test/yaml_scenario10.yaml",
     )
     patched_render.assert_called()

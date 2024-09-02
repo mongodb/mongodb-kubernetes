@@ -20,7 +20,7 @@ import boto3
 import click
 import yaml
 
-from scripts.evergreen.release.base_logger import logger
+from lib.base_logger import logger
 
 from . import DCT_ENV_VARIABLE, DCT_PASSPHRASE
 from .builders.docker import (
@@ -31,8 +31,6 @@ from .builders.docker import (
     docker_tag,
 )
 from .template import render
-
-LOGLEVEL = os.environ.get("LOGLEVEL", "WARNING").upper()
 
 
 # pylint: disable=R0902
