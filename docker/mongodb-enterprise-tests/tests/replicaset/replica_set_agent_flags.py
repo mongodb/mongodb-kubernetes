@@ -22,8 +22,8 @@ custom_readiness_log_path = "/var/log/mongodb-mms-automation/customReadinessLogF
 
 
 @fixture(scope="module")
-def project_name_prefix() -> str:
-    return random_k8s_name("project-prefix-")
+def project_name_prefix(namespace: str) -> str:
+    return random_k8s_name(f"{namespace}-project")
 
 
 @fixture(scope="module")
