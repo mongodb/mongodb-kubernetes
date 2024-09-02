@@ -9,4 +9,6 @@ if [ -f "${workdir}"/venv/bin/activate ]; then
     source "${workdir}"/venv/bin/activate
 fi
 
+export PYTHONPATH="$workdir"
+
 python "$@"

@@ -5,7 +5,7 @@ from typing import Dict, Optional
 import docker.errors
 
 import docker
-from scripts.evergreen.release.base_logger import logger
+from lib.base_logger import logger
 
 from . import SonarAPIError
 

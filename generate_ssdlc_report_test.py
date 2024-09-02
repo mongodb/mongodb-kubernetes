@@ -6,8 +6,6 @@ import json
 import os
 from typing import Dict
 
-import pytest
-
 import generate_ssdlc_report
 
 

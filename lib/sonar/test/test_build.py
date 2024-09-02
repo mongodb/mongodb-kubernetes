@@ -1,8 +1,7 @@
 from types import SimpleNamespace as sn
 from unittest.mock import call, mock_open, patch
 
-from sonar.builders.docker import get_docker_build_cli_args
-
+from ..builders.docker import get_docker_build_cli_args
 from ..sonar import find_dockerfile, process_image
 
 
@@ -18,7 +17,7 @@ def test_dockerfile_from_url(
     patched_urlretrive,
     patched_create_ecr_repository,
 ):
-    with open("test/yaml_scenario6.yaml") as fd:
+    with open("lib/sonar/test/yaml_scenario6.yaml") as fd:
         with patch("builtins.open", mock_open(read_data=fd.read())) as _mock_file:
             pipeline = process_image(
                 image_name="image0",
@@ -62,7 +61,7 @@ def test_labels_are_passed_to_docker_build(_docker_build, _docker_tag):
         include_tags=[],
         build_args={},
         build_options={},
-        inventory="test/yaml_scenario9.yaml",
+        inventory="lib/sonar/test/yaml_scenario9.yaml",
     )
 
     # the labels have been specified in the test scenario and should be passed to docker_build.
@@ -90,7 +89,7 @@ def test_platform_is_passed_to_docker_build(_docker_build, _docker_tag):
         include_tags=[],
         build_args={},
         build_options={},
-        inventory="test/yaml_scenario11.yaml",
+        inventory="lib/sonar/test/yaml_scenario11.yaml",
     )
 
     # platform is not specified
@@ -100,7 +99,7 @@ def test_platform_is_passed_to_docker_build(_docker_build, _docker_tag):
         include_tags=[],
         build_args={},
         build_options={},
-        inventory="test/yaml_scenario11.yaml",
+        inventory="lib/sonar/test/yaml_scenario11.yaml",
     )
 
     calls = [

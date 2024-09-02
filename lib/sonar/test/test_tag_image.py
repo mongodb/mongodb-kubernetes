@@ -7,7 +7,7 @@ from ..sonar import process_image
 
 @pytest.fixture()
 def ys4():
-    return open("test/yaml_scenario4.yaml").read()
+    return open("lib/sonar/test/yaml_scenario4.yaml").read()
 
 
 @patch("sonar.sonar.create_ecr_repository")
