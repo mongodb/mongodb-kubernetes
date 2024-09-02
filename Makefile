@@ -258,7 +258,7 @@ sbom-tests:
 
 python-tests:
 	@ scripts/evergreen/run_python.sh -m pytest pipeline_test.py
-	@ scripts/evergreen/run_python.sh lib/sonar/sonar_tests.py
+	@ scripts/evergreen/run_python.sh -m pytest lib/sonar
 
 generate-ssdlc-report:
 	@ scripts/evergreen/run_python.sh generate_ssdlc_report.py

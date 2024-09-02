@@ -16,7 +16,7 @@ from ..sonar import (
 # yaml_scenario0
 @pytest.fixture()
 def ys0():
-    return open("test/yaml_scenario0.yaml").read()
+    return open("lib/sonar/test/yaml_scenario0.yaml").read()
 
 
 @pytest.fixture()
@@ -36,7 +36,7 @@ def cs0(ys0):
 # yaml_scenario1
 @pytest.fixture()
 def ys1():
-    return open("test/yaml_scenario1.yaml").read()
+    return open("lib/sonar/test/yaml_scenario1.yaml").read()
 
 
 @pytest.fixture()
@@ -56,7 +56,7 @@ def cs1(ys1):
 # yaml_scenario2
 @pytest.fixture()
 def ys2():
-    return open("test/yaml_scenario2.yaml").read()
+    return open("lib/sonar/test/yaml_scenario2.yaml").read()
 
 
 @pytest.fixture()
@@ -228,7 +228,7 @@ def test_variable_interpolation_stage_parameters_funny(ys1):
 @patch("sonar.sonar.find_image", return_value={})
 def test_build_context_skip_tags_from_str(_patched_find_image):
     ctx = build_context(
-        inventory="inventories/simple.yaml",
+        inventory="lib/sonar/inventories/simple.yaml",
         image_name="image-name",
         skip_tags="skip0,skip1",
         include_tags="included0, included1",
@@ -242,7 +242,11 @@ def test_build_context_skip_tags_from_str(_patched_find_image):
 @patch("sonar.sonar.find_image", return_value={})
 def test_build_context_skip_tags_from_empty_str(_patched_find_image):
     ctx = build_context(
-        inventory="inventories/simple.yaml", image_name="image-name", skip_tags="", include_tags="", build_args={}
+        inventory="lib/sonar/inventories/simple.yaml",
+        image_name="image-name",
+        skip_tags="",
+        include_tags="",
+        build_args={},
     )
 
     assert ctx.skip_tags == []
@@ -270,7 +274,7 @@ def test_use_specific_inventory():
         skip_tags="",
         include_tags="",
         build_args={"input0": "my-value"},
-        inventory="test/yaml_scenario0.yaml",
+        inventory="lib/sonar/test/yaml_scenario0.yaml",
     )
 
     assert context.image["name"] == "image0"
@@ -288,7 +292,7 @@ def test_can_provide_generic_configuration():
         skip_tags=[],
         include_tags=[],
         build_args={},
-        inventory="test/yaml_scenario0.yaml",
+        inventory="lib/sonar/test/yaml_scenario0.yaml",
         build_options={"invalid_options": False, "continue_on_errors": False},
     )
 

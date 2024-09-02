@@ -7,7 +7,7 @@ from typing import List, Optional
 
 import requests
 
-from scripts.evergreen.release.base_logger import logger
+from lib.base_logger import logger
 
 SIGNING_IMAGE_URI = os.environ.get(
     "SIGNING_IMAGE_URI", "artifactory.corp.mongodb.com/release-tools-container-registry-local/garasign-cosign"

@@ -103,7 +103,7 @@ def test_continue_on_errors(_docker_build, _docker_tag, mocked_docker_push):
         include_tags=["test_continue_on_errors"],
         build_args={},
         build_options={"pipeline": True, "continue_on_errors": True},
-        inventory="test/yaml_scenario6.yaml",
+        inventory="lib/sonar/test/yaml_scenario6.yaml",
     )
 
     # Assert docker_push was called three times, even if one of them failed
@@ -130,7 +130,7 @@ def test_do_not_continue_on_errors(_docker_build, _docker_tag, mocked_docker_pus
                 "pipeline": True,
                 "continue_on_errors": False,
             },
-            inventory="test/yaml_scenario6.yaml",
+            inventory="lib/sonar/test/yaml_scenario6.yaml",
         )
 
     # docker_push raised first time, only one call expected
@@ -159,7 +159,7 @@ def test_fail_on_captured_errors(_docker_build, _docker_tag, mocked_docker_push)
                 "continue_on_errors": True,
                 "fail_on_errors": True,
             },
-            inventory="test/yaml_scenario6.yaml",
+            inventory="lib/sonar/test/yaml_scenario6.yaml",
         )
 
     # docker_push raised second time time, but allowed to continue,

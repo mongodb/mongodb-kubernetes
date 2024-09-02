@@ -13,7 +13,7 @@ from ..sonar import (
 
 @pytest.fixture()
 def ys3():
-    return open("test/yaml_scenario3.yaml").read()
+    return open("lib/sonar/test/yaml_scenario3.yaml").read()
 
 
 def test_include_tags_empty_params():

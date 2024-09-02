@@ -11,12 +11,12 @@ from ..sonar import is_signing_enabled, process_image
 
 @pytest.fixture()
 def ys7():
-    return open("test/yaml_scenario7.yaml").read()
+    return open("lib/sonar/test/yaml_scenario7.yaml").read()
 
 
 @pytest.fixture()
 def ys8():
-    return open("test/yaml_scenario8.yaml").read()
+    return open("lib/sonar/test/yaml_scenario8.yaml").read()
 
 
 @patch("sonar.sonar.get_secret", return_value="SECRET")
