@@ -163,17 +163,20 @@ def _download_augmented_sbom(s3_path: str, directory: str, sbom_name: str):
             s3.download_fileobj(S3_BUCKET, augmented_sbom_key, data)
 
 
-def _queue_exception_handling(tasks_queue):
+def _queue_exception_handling(tasks_queue, ignore_sbom_download_errors: bool):
     exceptions_found = False
     for task in tasks_queue.queue:
         if task.exception() is not None:
             exceptions_found = True
             logger.fatal(f"The following exception has been found when downloading SBOMs: {task.exception()}")
     if exceptions_found:
-        raise Exception(f"Exception(s) found when downloading SBOMs")
+        if not ignore_sbom_download_errors:
+            raise Exception(f"Exception(s) found when downloading SBOMs")
 
 
-def download_sbom_lites(report_path: str, supported_images: Dict[str, SupportedImage]) -> Dict[str, SupportedImage]:
+def download_augmented_sboms(
+    report_path: str, supported_images: Dict[str, SupportedImage], ignore_sbom_download_errors: bool
+) -> Dict[str, SupportedImage]:
     tasks_queue = Queue()
     with ProcessPoolExecutor(max_workers=NUMBER_OF_THREADS) as executor:
         for supported_image_key in supported_images:
@@ -192,7 +195,7 @@ def download_sbom_lites(report_path: str, supported_images: Dict[str, SupportedI
                         )
                     )
                     supported_image.sbom_file_names.append(sbom_name)
-    _queue_exception_handling(tasks_queue)
+    _queue_exception_handling(tasks_queue, ignore_sbom_download_errors)
     return supported_images
 
 
@@ -214,7 +217,12 @@ def get_git_user_name() -> str:
     return res.stdout.strip().decode()
 
 
-def generate_ssdlc_report():
+def generate_ssdlc_report(ignore_sbom_download_errors: bool = False):
+    """Generates the SSDLC report.
+
+    :param ignore_sbom_download_errors: True if downloading SBOM errors should be ignored.
+    :return: N/A
+    """
     logger.info(f"Producing SSDLC report for more manual edits")
     release = get_release()
 
@@ -227,7 +235,7 @@ def generate_ssdlc_report():
             os.makedirs(report_path)
 
         logger.info(f"Downloading SBOMs")
-        downloaded_sboms = download_sbom_lites(report_path, supported_images)
+        downloaded_sboms = download_augmented_sboms(report_path, supported_images, ignore_sbom_download_errors)
 
         for subreport in Subreport:
             logger.info(f"Generating subreport {subreport.template_path}")

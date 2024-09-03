@@ -21,7 +21,12 @@ def test_report_generation():
     current_directory = os.getcwd()
 
     # When
-    generate_ssdlc_report.generate_ssdlc_report()
+
+    # We ignore Augmented SBOM download errors for this test as we quite often have a few days in transition state.
+    # For example, when we release a new Ops Manager or Agent image, we upload the corresponding SBOM Lite
+    # on d+1. Then on d+2 we have the Augmented SBOM available for download. This situation is perfectly normal
+    # but causes this test to fail. Therefore, we ignore these errors here.
+    generate_ssdlc_report.generate_ssdlc_report(True)
 
     # Then
     assert os.path.exists(f"{current_directory}/ssdlc-report/MEKO-{current_version}")
