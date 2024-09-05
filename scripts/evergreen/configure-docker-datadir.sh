@@ -5,6 +5,13 @@ source scripts/dev/set_env_context.sh
 
 echo "Configuring Docker data directory"
 
+# We need increased max_user_instances and max_user_watches to be able to handle multi-cluster workloads.
+# Without these settings metallb never ends up running when configuring multiple k8s clusters.
+echo "Increasing fs.inotify.max_user_instances"
+sudo sysctl -w fs.inotify.max_user_instances=8192
+echo "Increasing fs.inotify.max_user_watches"
+sudo sysctl -w fs.inotify.max_user_watches=10485760
+
 if docker info 2>/dev/null | grep "Docker Root Dir" | grep -q "/var/lib/docker"; then
     # we need to reconfigure Docker so its image storage points to a
     # directory with enough space, in this case /data
