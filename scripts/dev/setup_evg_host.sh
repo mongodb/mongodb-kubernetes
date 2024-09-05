@@ -7,6 +7,9 @@ set -Eeou pipefail
 echo "Increasing fs.inotify.max_user_instances"
 sudo sysctl -w fs.inotify.max_user_instances=8192
 
+echo "Increasing fs.inotify.max_user_watches"
+sudo sysctl -w fs.inotify.max_user_watches=10485760
+
 # retrieve arch variable off the shell command line
 ARCH=${1-"amd64"}
 
