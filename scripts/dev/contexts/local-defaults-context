@@ -22,8 +22,8 @@ export workdir="$script_dir/../../../"
 # Note2: For quick local development defaults we only use shared images
 export QUAY_REGISTRY=quay.io/mongodb
 export BASE_REPO_URL_SHARED="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
+# Note: the Operator registry (OPERATOR_REGISTRY variable) is defined in the private context
 export REGISTRY="$BASE_REPO_URL_SHARED"
-export OPERATOR_REGISTRY="${BASE_REPO_URL_SHARED}"
 
 export INIT_IMAGES_REGISTRY=${INIT_IMAGES_REGISTRY:-"${REGISTRY}"}
 
