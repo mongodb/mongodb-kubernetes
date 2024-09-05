@@ -146,9 +146,13 @@ def project_was_created_before(group_name: str, minutes_interval: int) -> bool:
     """Returns True if the group was created before 'current_time() - minutes_interval'"""
     try:
         group_seconds_epoch = int(group_name.split("-")[1])  # a-1598972093-yr3jzt3v7bsl -> 1598972093
-    except Exception as e:
-        print(e)
-        return False
+    except ValueError:
+        print(
+            f"group_name is: {group_name}, and the second part is not convertible to a timestamp this is unexpected "
+            f"and shouldn't happen. Deleting it, might cause"
+            f"failures in test until the test is fixed to not use wrong name patterns."
+        )
+        return True
     return is_before(group_seconds_epoch, minutes_interval)
 
 
@@ -156,8 +160,11 @@ def key_is_older_than(key_description: str, minutes_interval: int) -> bool:
     """Returns True if the key was created before 'current_time() - minutes_interval'"""
     try:
         key_seconds_epoch = int(key_description)
-    except Exception as e:
-        print(e)
+    except ValueError:
+        print(
+            f"deleting keys with wrong description since its not convertible to an int, "
+            f"it should not be the case; key description name {key_description}"
+        )
         # any keys with the wrong description format (old/manual?) need to be removed as well
         return True
     return is_before(key_seconds_epoch, minutes_interval)
