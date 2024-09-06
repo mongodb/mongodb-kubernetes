@@ -3,7 +3,6 @@ variables:
     include_expansions_in_env:
       - ecr_registry
       - ecr_registry_needs_auth
-      - GITHUB_TOKEN_READ
       - openshift_url
       - openshift_token
       - workdir

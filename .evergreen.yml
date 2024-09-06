@@ -107,7 +107,6 @@ variables:
     include_expansions_in_env:
       - ecr_registry
       - ecr_registry_needs_auth
-      - GITHUB_TOKEN_READ
       - openshift_url
       - openshift_token
       - workdir
@@ -363,7 +362,11 @@ functions:
       add_to_path:
         - ${workdir}/bin
       command: scripts/evergreen/setup_yq.sh
-
+  - command: github.generate_token
+    params:
+      owner: 10gen
+      repo: ops-manager-kubernetes
+      expansion_name: GITHUB_TOKEN_READ
   - command: subprocess.exec
     type: test
     params:
@@ -371,8 +374,6 @@ functions:
         - ${workdir}/bin
         - ${workdir}/venv/bin
       working_dir: src/github.com/10gen/ops-manager-kubernetes
-      include_expansions_in_env:
-        - GITHUB_TOKEN_READ
       binary: scripts/evergreen/check_precommit.sh
 
   setup_kubectl: &setup_kubectl
