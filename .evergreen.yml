@@ -675,6 +675,40 @@ functions:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         binary: scripts/evergreen/setup_docker_sbom.sh
 
+  # This is a generic function for conditionally running given task.
+  # It works by appending <task> to <variant> if <condition_script> returns no error.
+  #
+  # It has 3 input parameters:
+  #  - condition_script: path to the script that will be executed.
+  #     Error code == 0 resulting from the scripts indicates that <task> should be added dynamically to <variant>
+  #     Error code != 0 means that the task will not be executed
+  #  - variant: variant to which task will be appended
+  #  - task: task name to be executed
+  #
+  # Example usage:
+  #  - func: run_task_conditionally
+  #    vars:
+  #      condition_script: scripts/evergreen/should_prepare_openshift_bundles.sh
+  #      variant: prepare_openshift_bundles
+  #      task: prepare_and_upload_openshift_bundles
+  run_task_conditionally:
+    - command: shell.exec
+      params:
+        shell: bash
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        script: |
+          if ${condition_script}; then
+            echo "Adding ${task} task to ${variant} variant"
+            scripts/evergreen/add_evergreen_task.sh ${variant} ${task}
+          else
+            echo "skipping task ${task} due to ${condition_script} result: $?"
+          fi
+    - command: generate.tasks
+      params:
+        files:
+          - evergreen_tasks.json
+        optional: true
+
 tasks:
 - name: preflight_release_images
   commands:
@@ -815,27 +849,11 @@ tasks:
   allowed_requesters: ["patch", "github_pr"]
   commands:
     - func: clone
-    - func: setup_building_host
-    - command: shell.exec
-      params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
-        script: |
-          git fetch origin
-          if git diff --quiet -- release.json && git diff --quiet origin/master -- release.json; then
-            echo "skipping since release.json has not changed"
-          else
-            echo "release.json has changed, triggering ecr agent release"
-            echo "git diff"
-            git diff -- release.json
-            echo "diff master"
-            git diff origin/master
-            scripts/evergreen/add_evergreen_task.sh init_release_agents_on_ecr release_agents_on_ecr
-          fi
-    - command: generate.tasks
-      params:
-        files:
-          - evergreen_tasks.json
-        optional: true
+    - func: run_task_conditionally
+      vars:
+        condition_script: scripts/evergreen/should_release_agents_on_ecr.sh
+        variant: init_release_agents_on_ecr
+        task: release_agents_on_ecr
 
 - name: release_agents_on_ecr
   # this enables us to run this variant either manually (patch) which pct does or during an OM bump (github_pr)
