@@ -148,6 +148,8 @@ func buildAppDBInitContainer(volumeMounts []corev1.VolumeMount) container.Modifi
 	version := env.ReadOrDefault(initAppdbVersionEnv, "latest")
 	initContainerImageURL := ContainerImage(util.InitAppdbImageUrlEnv, version, nil)
 
+	_, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
+
 	return container.Apply(
 		container.WithName(InitAppDbContainerName),
 		container.WithImage(initContainerImageURL),
@@ -160,6 +162,7 @@ cp /probes/readinessprobe /opt/scripts/readinessprobe
 cp /probes/version-upgrade-hook /hooks/version-upgrade
 `}),
 		container.WithVolumeMounts(volumeMounts),
+		configureContainerSecurityContext,
 	)
 }
 

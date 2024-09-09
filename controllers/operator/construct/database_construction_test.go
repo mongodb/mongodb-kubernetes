@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"k8s.io/utils/ptr"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
@@ -42,6 +44,10 @@ func Test_buildDatabaseInitContainer(t *testing.T) {
 		Name:         InitDatabaseContainerName,
 		Image:        "quay.io/mongodb/mongodb-enterprise-init-database:" + tag,
 		VolumeMounts: expectedVolumeMounts,
+		SecurityContext: &corev1.SecurityContext{
+			ReadOnlyRootFilesystem:   ptr.To(true),
+			AllowPrivilegeEscalation: ptr.To(false),
+		},
 	}
 	assert.Equal(t, expectedContainer, container)
 }

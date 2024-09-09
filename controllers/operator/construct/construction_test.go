@@ -287,7 +287,7 @@ func pvClaim(pvName, size string, storageClass *string, labels map[string]string
 	return expectedClaim
 }
 
-func TestDefaultPodSpec_FsGroup(t *testing.T) {
+func TestDefaultPodSpec_SecurityContext(t *testing.T) {
 	defer mock.InitDefaultEnvVariables()
 
 	sts := DatabaseStatefulSet(*mdbv1.NewStandaloneBuilder().Build(), StandaloneOptions(GetPodEnvOptions()), nil)
@@ -295,7 +295,12 @@ func TestDefaultPodSpec_FsGroup(t *testing.T) {
 	spec := sts.Spec.Template.Spec
 	assert.Len(t, spec.InitContainers, 1)
 	assert.NotNil(t, spec.SecurityContext)
+	assert.NotNil(t, spec.InitContainers[0].SecurityContext)
 	assert.Equal(t, util.Int64Ref(util.FsGroup), spec.SecurityContext.FSGroup)
+	assert.Equal(t, util.Int64Ref(util.RunAsUser), spec.SecurityContext.RunAsUser)
+	assert.Equal(t, util.BooleanRef(true), spec.SecurityContext.RunAsNonRoot)
+	assert.Equal(t, util.BooleanRef(true), spec.InitContainers[0].SecurityContext.ReadOnlyRootFilesystem)
+	assert.Equal(t, util.BooleanRef(false), spec.InitContainers[0].SecurityContext.AllowPrivilegeEscalation)
 
 	t.Setenv(util.ManagedSecurityContextEnv, "true")
 
