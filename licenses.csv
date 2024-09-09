@@ -5,7 +5,6 @@ github.com/cenkalti/backoff/v3,v3.0.0,https://github.com/cenkalti/backoff/blob/v
 github.com/cespare/xxhash/v2,v2.2.0,https://github.com/cespare/xxhash/blob/v2.2.0/LICENSE.txt,MIT
 github.com/davecgh/go-spew/spew,v1.1.1,https://github.com/davecgh/go-spew/blob/v1.1.1/LICENSE,ISC
 github.com/emicklei/go-restful/v3,v3.11.0,https://github.com/emicklei/go-restful/blob/v3.11.0/LICENSE,MIT
-github.com/evanphx/json-patch,v5.9.0,https://github.com/evanphx/json-patch/blob/v5.9.0/LICENSE,BSD-3-Clause
 github.com/evanphx/json-patch/v5,v5.6.0,https://github.com/evanphx/json-patch/blob/v5.6.0/v5/LICENSE,BSD-3-Clause
 github.com/fsnotify/fsnotify,v1.6.0,https://github.com/fsnotify/fsnotify/blob/v1.6.0/LICENSE,BSD-3-Clause
 github.com/ghodss/yaml,v1.0.0,https://github.com/ghodss/yaml/blob/v1.0.0/LICENSE,MIT
@@ -36,7 +35,6 @@ github.com/imdario/mergo,v0.3.15,https://github.com/imdario/mergo/blob/v0.3.15/L
 github.com/josharian/intern,v1.0.0,https://github.com/josharian/intern/blob/v1.0.0/license.md,MIT
 github.com/json-iterator/go,v1.1.12,https://github.com/json-iterator/go/blob/v1.1.12/LICENSE,MIT
 github.com/mailru/easyjson,v0.7.7,https://github.com/mailru/easyjson/blob/v0.7.7/LICENSE,MIT
-github.com/mitchellh/go-homedir,v1.1.0,https://github.com/mitchellh/go-homedir/blob/v1.1.0/LICENSE,MIT
 github.com/mitchellh/mapstructure,v1.5.0,https://github.com/mitchellh/mapstructure/blob/v1.5.0/LICENSE,MIT
 github.com/modern-go/concurrent,v0.0.0-20180306012644-bacd9c7ef1dd,https://github.com/modern-go/concurrent/blob/bacd9c7ef1dd/LICENSE,Apache-2.0
 github.com/modern-go/reflect2,v1.0.2,https://github.com/modern-go/reflect2/blob/v1.0.2/LICENSE,Apache-2.0
@@ -71,7 +69,7 @@ k8s.io/apimachinery/pkg,v0.28.11,https://github.com/kubernetes/apimachinery/blob
 k8s.io/apimachinery/third_party/forked/golang,v0.28.11,https://github.com/kubernetes/apimachinery/blob/v0.28.11/third_party/forked/golang/LICENSE,BSD-3-Clause
 k8s.io/client-go,v0.28.11,https://github.com/kubernetes/client-go/blob/v0.28.11/LICENSE,Apache-2.0
 k8s.io/component-base/config,v0.28.9,https://github.com/kubernetes/component-base/blob/v0.28.9/LICENSE,Apache-2.0
-k8s.io/klog/v2,v2.120.1,https://github.com/kubernetes/klog/blob/v2.120.1/LICENSE,Apache-2.0
+k8s.io/klog/v2,v2.130.1,https://github.com/kubernetes/klog/blob/v2.130.1/LICENSE,Apache-2.0
 k8s.io/kube-openapi/pkg,v0.0.0-20230717233707-2695361300d9,https://github.com/kubernetes/kube-openapi/blob/2695361300d9/LICENSE,Apache-2.0
 k8s.io/kube-openapi/pkg/internal/third_party/go-json-experiment/json,v0.0.0-20230717233707-2695361300d9,https://github.com/kubernetes/kube-openapi/blob/2695361300d9/pkg/internal/third_party/go-json-experiment/json/LICENSE,BSD-3-Clause
 k8s.io/kube-openapi/pkg/validation/spec,v0.0.0-20230717233707-2695361300d9,https://github.com/kubernetes/kube-openapi/blob/2695361300d9/pkg/validation/spec/LICENSE,Apache-2.0

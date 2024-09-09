@@ -945,12 +945,15 @@ func buildDatabaseInitContainer() container.Modification {
 	version := env.ReadOrDefault(InitDatabaseVersionEnv, "latest")
 	initContainerImageURL := ContainerImage(util.InitDatabaseImageUrlEnv, version, nil)
 
+	_, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
+
 	return container.Apply(
 		container.WithName(InitDatabaseContainerName),
 		container.WithImage(initContainerImageURL),
 		container.WithVolumeMounts([]corev1.VolumeMount{
 			databaseScriptsVolumeMount(false),
 		}),
+		configureContainerSecurityContext,
 	)
 }
 
