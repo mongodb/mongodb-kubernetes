@@ -280,6 +280,13 @@ functions:
         add_to_path:
           - ${workdir}/bin
         command: scripts/evergreen/prepare_aws.sh
+    - command: subprocess.exec
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        add_to_path:
+          - ${workdir}/bin
+        # Below script deletes agent images created for an Evergreen patch older than 1 day
+        command: scripts/evergreen/run_python.sh scripts/evergreen/periodic-cleanup-aws.py
 
   # This is a generic function for conditionally running given task.
   # It works by appending <task> to <variant> if <condition_script> returns no error.
