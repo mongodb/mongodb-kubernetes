@@ -1131,7 +1131,8 @@ def build_latest_agent_versions(release: Dict) -> List[Tuple[str, str]]:
         parsed_version = semver.VersionInfo.parse(version)
         major_version = parsed_version.major
         if major_version in latest_versions:
-            latest_versions[major_version] = max(version, latest_versions[major_version])
+            latest_parsed_version = semver.VersionInfo.parse(str(latest_versions[major_version]))
+            latest_versions[major_version] = max(parsed_version, latest_parsed_version)
         else:
             latest_versions[major_version] = version
 
