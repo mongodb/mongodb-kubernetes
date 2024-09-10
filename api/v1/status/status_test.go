@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func Test_NotrefreshingLastTransitionTime(t *testing.T) {
+func Test_NotRefreshingLastTransitionTime(t *testing.T) {
 	// given
 	testTime := "test"
 

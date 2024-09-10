@@ -3,9 +3,14 @@ package create
 import (
 	"context"
 	"fmt"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+	appsv1 "k8s.io/api/apps/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/utils/ptr"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
@@ -532,11 +537,9 @@ func TestDatabaseInKubernetesExternalServicesSharded(t *testing.T) {
 
 	mdb.Spec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{}
 
-	err := createShardSts(ctx, t, mdb, log, fakeClient)
-	require.NoError(t, err)
+	createShardSts(ctx, t, mdb, log, fakeClient)
 
-	err = createMongosSts(ctx, t, mdb, log, fakeClient)
-	require.NoError(t, err)
+	createMongosSts(ctx, t, mdb, log, fakeClient)
 
 	actualService, err := fakeClient.GetService(ctx, types.NamespacedName{Name: "mdb-mongos-0-svc-external", Namespace: "my-namespace"})
 	require.NoError(t, err)
@@ -553,16 +556,482 @@ func TestDatabaseInKubernetesExternalServicesSharded(t *testing.T) {
 	require.Errorf(t, err, "expected no shard service")
 }
 
-func createShardSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDB, log *zap.SugaredLogger, kubeClient kubernetesClient.Client) error {
+func createShardSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDB, log *zap.SugaredLogger, kubeClient kubernetesClient.Client) {
 	sts := construct.DatabaseStatefulSet(*mdb, construct.ShardOptions(1, construct.GetPodEnvOptions()), log)
 	err := DatabaseInKubernetes(ctx, kubeClient, *mdb, sts, construct.ShardOptions(1), log)
 	assert.NoError(t, err)
-	return err
 }
 
-func createMongosSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDB, log *zap.SugaredLogger, kubeClient kubernetesClient.Client) error {
+func createMongosSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDB, log *zap.SugaredLogger, kubeClient kubernetesClient.Client) {
 	sts := construct.DatabaseStatefulSet(*mdb, construct.MongosOptions(construct.GetPodEnvOptions()), log)
 	err := DatabaseInKubernetes(ctx, kubeClient, *mdb, sts, construct.MongosOptions(), log)
 	assert.NoError(t, err)
-	return err
+}
+
+func TestResizePVCsStorage(t *testing.T) {
+	fakeClient, _ := mock.NewDefaultFakeClient()
+
+	initialSts := createStatefulSet("20Gi", "20Gi", "20Gi")
+
+	// Create the StatefulSet that we want to resize the PVC to
+	err := fakeClient.CreateStatefulSet(context.TODO(), *initialSts)
+	assert.NoError(t, err)
+
+	for _, template := range initialSts.Spec.VolumeClaimTemplates {
+		for i := range *initialSts.Spec.Replicas {
+			pvc := createPVCFromTemplate(template, initialSts.Name, i)
+			err = fakeClient.Create(context.TODO(), pvc)
+			assert.NoError(t, err)
+		}
+	}
+
+	err = resizePVCsStorage(fakeClient, createStatefulSet("30Gi", "30Gi", "20Gi"))
+	assert.NoError(t, err)
+
+	pvcList := corev1.PersistentVolumeClaimList{}
+	err = fakeClient.List(context.TODO(), &pvcList)
+	assert.NoError(t, err)
+
+	for _, pvc := range pvcList.Items {
+		if strings.HasPrefix(pvc.Name, "data") {
+			assert.Equal(t, pvc.Spec.Resources.Requests.Storage().String(), "30Gi")
+		} else if strings.HasPrefix(pvc.Name, "journal") {
+			assert.Equal(t, pvc.Spec.Resources.Requests.Storage().String(), "30Gi")
+		} else if strings.HasPrefix(pvc.Name, "logs") {
+			assert.Equal(t, pvc.Spec.Resources.Requests.Storage().String(), "20Gi")
+		} else {
+			t.Fatal("no pvc was compared while we should have at least detected and compared one")
+		}
+	}
+}
+
+// Helper function to create a StatefulSet
+func createStatefulSet(size1, size2, size3 string) *appsv1.StatefulSet {
+	return &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test",
+		},
+		Spec: appsv1.StatefulSetSpec{
+			Replicas: ptr.To(int32(3)),
+			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "data",
+					},
+					Spec: corev1.PersistentVolumeClaimSpec{
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceStorage: resource.MustParse(size1),
+							},
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "journal",
+					},
+					Spec: corev1.PersistentVolumeClaimSpec{
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceStorage: resource.MustParse(size2),
+							},
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "logs",
+					},
+					Spec: corev1.PersistentVolumeClaimSpec{
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceStorage: resource.MustParse(size3),
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func createPVCFromTemplate(pvcTemplate corev1.PersistentVolumeClaim, stsName string, ordinal int32) *corev1.PersistentVolumeClaim {
+	pvcName := fmt.Sprintf("%s-%s-%d", pvcTemplate.Name, stsName, ordinal)
+	return &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      pvcName,
+			Namespace: "default",
+		},
+		Spec: pvcTemplate.Spec,
+	}
+}
+
+func TestResourceStorageHasChanged(t *testing.T) {
+	type args struct {
+		existingPVC []corev1.PersistentVolumeClaim
+		toCreatePVC []corev1.PersistentVolumeClaim
+	}
+	tests := []struct {
+		name string
+		args args
+		want []pvcResize
+	}{
+		{
+			name: "empty",
+			want: nil,
+		},
+		{
+			name: "existing is larger",
+			args: args{
+				existingPVC: []corev1.PersistentVolumeClaim{
+					{
+						Spec: corev1.PersistentVolumeClaimSpec{
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("2Gi")},
+							},
+						},
+					},
+				},
+				toCreatePVC: []corev1.PersistentVolumeClaim{
+					{
+						Spec: corev1.PersistentVolumeClaimSpec{
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")},
+							},
+						},
+					},
+				},
+			},
+			want: []pvcResize{{resizeIndicator: 1, from: "2Gi", to: "1Gi"}},
+		},
+		{
+			name: "toCreate is larger",
+			args: args{
+				existingPVC: []corev1.PersistentVolumeClaim{
+					{
+						Spec: corev1.PersistentVolumeClaimSpec{
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")},
+							},
+						},
+					},
+				},
+				toCreatePVC: []corev1.PersistentVolumeClaim{
+					{
+						Spec: corev1.PersistentVolumeClaimSpec{
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("2Gi")},
+							},
+						},
+					},
+				},
+			},
+			want: []pvcResize{{resizeIndicator: -1, from: "1Gi", to: "2Gi"}},
+		},
+		{
+			name: "both are equal",
+			args: args{
+				existingPVC: []corev1.PersistentVolumeClaim{
+					{
+						Spec: corev1.PersistentVolumeClaimSpec{
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")},
+							},
+						},
+					},
+				},
+				toCreatePVC: []corev1.PersistentVolumeClaim{
+					{
+						Spec: corev1.PersistentVolumeClaimSpec{
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")},
+							},
+						},
+					},
+				},
+			},
+			want: []pvcResize{{resizeIndicator: 0, from: "1Gi", to: "1Gi"}},
+		},
+		{
+			name: "none exist",
+			args: args{
+				existingPVC: []corev1.PersistentVolumeClaim{},
+				toCreatePVC: []corev1.PersistentVolumeClaim{},
+			},
+			want: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equalf(t, tt.want, resourceStorageHasChanged(tt.args.existingPVC, tt.args.toCreatePVC), "resourceStorageHasChanged(%v, %v)", tt.args.existingPVC, tt.args.toCreatePVC)
+		})
+	}
+}
+
+func TestHasFinishedResizing(t *testing.T) {
+	stsName := "test"
+	desiredSts := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: stsName},
+		Spec: appsv1.StatefulSetSpec{
+			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "data",
+					},
+					Spec: corev1.PersistentVolumeClaimSpec{
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceStorage: resource.MustParse("20Gi"),
+							},
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "logs",
+					},
+					Spec: corev1.PersistentVolumeClaimSpec{
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceStorage: resource.MustParse("30Gi"),
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	ctx := context.TODO()
+	{
+		fakeClient, _ := mock.NewDefaultFakeClient()
+		// Scenario 1: All PVCs have finished resizing
+		pvc1 := createPVCWithCapacity("data-"+stsName+"-0", "20Gi")
+		pvc2 := createPVCWithCapacity("logs-"+stsName+"-0", "30Gi")
+		notPartOfSts := createPVCWithCapacity("random-sts-0", "30Gi")
+		err := fakeClient.Create(ctx, pvc1)
+		assert.NoError(t, err)
+		err = fakeClient.Create(ctx, pvc2)
+		assert.NoError(t, err)
+		err = fakeClient.Create(ctx, notPartOfSts)
+		assert.NoError(t, err)
+
+		finished, err := hasFinishedResizing(ctx, fakeClient, desiredSts)
+		assert.NoError(t, err)
+		assert.True(t, finished, "PVCs should be finished resizing")
+	}
+
+	{
+		// Scenario 2: Some PVCs are still resizing
+		fakeClient, _ := mock.NewDefaultFakeClient()
+		pvc2Incomplete := createPVCWithCapacity("logs-"+stsName+"-0", "10Gi")
+		err := fakeClient.Create(ctx, pvc2Incomplete)
+		assert.NoError(t, err)
+
+		finished, err := hasFinishedResizing(ctx, fakeClient, desiredSts)
+		assert.NoError(t, err)
+		assert.False(t, finished, "PVCs should not be finished resizing")
+	}
+}
+
+// Helper function to create a PVC with a specific capacity and status
+func createPVCWithCapacity(name string, capacity string) *corev1.PersistentVolumeClaim {
+	return &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: "default",
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceStorage: resource.MustParse(capacity),
+				},
+			},
+		},
+		Status: corev1.PersistentVolumeClaimStatus{
+			Capacity: corev1.ResourceList{
+				corev1.ResourceStorage: resource.MustParse(capacity),
+			},
+		},
+	}
+}
+
+func TestGetMatchingPVCTemplateFromSTS(t *testing.T) {
+	statefulSet := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "example-sts",
+		},
+		Spec: appsv1.StatefulSetSpec{
+			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "data-pvc",
+					},
+					Spec: corev1.PersistentVolumeClaimSpec{},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "logs-pvc",
+					},
+					Spec: corev1.PersistentVolumeClaimSpec{},
+				},
+			},
+		},
+	}
+
+	tests := []struct {
+		name             string
+		pvcName          string
+		expectedTemplate *corev1.PersistentVolumeClaim
+		expectedIndex    int
+	}{
+		{
+			name:    "Matching data-pvc with ordinal 0",
+			pvcName: "data-pvc-example-sts-0",
+			expectedTemplate: &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "data-pvc",
+				},
+			},
+			expectedIndex: 0,
+		},
+		{
+			name:    "Matching logs-pvc with ordinal 1",
+			pvcName: "logs-pvc-example-sts-1",
+			expectedTemplate: &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "logs-pvc",
+				},
+			},
+			expectedIndex: 1,
+		},
+		{
+			name:             "Non-matching PVC name",
+			pvcName:          "cache-pvc-example-sts-0",
+			expectedTemplate: nil,
+			expectedIndex:    -1,
+		},
+		{
+			name:    "Matching data-pvc with high ordinal",
+			pvcName: "data-pvc-example-sts-1000",
+			expectedTemplate: &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "data-pvc",
+				},
+			},
+			expectedIndex: 0,
+		},
+		{
+			name:             "PVC name with similar prefix but different StatefulSet name",
+			pvcName:          "data-pvc-other-sts-0",
+			expectedTemplate: nil,
+			expectedIndex:    -1,
+		},
+		{
+			name:             "Not matching logs-pvc without ordinal",
+			pvcName:          "logs-pvc-example-sts",
+			expectedTemplate: nil,
+			expectedIndex:    -1,
+		},
+		{
+			name:             "Empty PVC name",
+			pvcName:          "",
+			expectedTemplate: nil,
+			expectedIndex:    -1,
+		},
+		{
+			name:             "PVC name with extra suffix",
+			pvcName:          "data-pvc-example-sts-extra-0",
+			expectedTemplate: nil,
+			expectedIndex:    -1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: tt.pvcName,
+				},
+			}
+
+			template, index := getMatchingPVCTemplateFromSTS(statefulSet, p)
+
+			if tt.expectedTemplate == nil {
+				assert.Nil(t, template, "Expected no matching PVC template")
+			} else {
+				if assert.NotNil(t, template, "Expected a matching PVC template") {
+					assert.Equal(t, tt.expectedTemplate.Name, template.Name, "PVC template name should match")
+				}
+			}
+
+			assert.Equal(t, tt.expectedIndex, index, "PVC template index should match")
+		})
+	}
+}
+
+func TestCheckStatefulsetIsDeleted(t *testing.T) {
+	ctx := context.TODO()
+	sleepDuration := 10 * time.Millisecond
+	log := zap.NewNop().Sugar()
+
+	namespace := "default"
+	stsName := "test-sts"
+	desiredSts := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      stsName,
+			Namespace: namespace,
+		},
+		Spec: appsv1.StatefulSetSpec{Replicas: ptr.To(int32(3))},
+	}
+
+	t.Run("StatefulSet is deleted", func(t *testing.T) {
+		fakeClient, _ := mock.NewDefaultFakeClient()
+		err := fakeClient.CreateStatefulSet(ctx, *desiredSts)
+		assert.NoError(t, err)
+
+		// Simulate the deletion by deleting the StatefulSet
+		err = fakeClient.DeleteStatefulSet(ctx, kube.ObjectKey(desiredSts.Namespace, desiredSts.Name))
+		assert.NoError(t, err)
+
+		// Check if the StatefulSet is detected as deleted
+		result := checkStatefulsetIsDeleted(ctx, fakeClient, desiredSts, sleepDuration, log)
+
+		assert.True(t, result, "StatefulSet should be detected as deleted")
+	})
+
+	t.Run("StatefulSet is not deleted", func(t *testing.T) {
+		fakeClient, _ := mock.NewDefaultFakeClient()
+		err := fakeClient.CreateStatefulSet(ctx, *desiredSts)
+		assert.NoError(t, err)
+
+		// Do not delete the StatefulSet, to simulate it still existing
+		// Check if the StatefulSet is detected as not deleted
+		result := checkStatefulsetIsDeleted(ctx, fakeClient, desiredSts, sleepDuration, log)
+
+		assert.False(t, result, "StatefulSet should not be detected as deleted")
+	})
+
+	t.Run("StatefulSet is deleted after some retries", func(t *testing.T) {
+		fakeClient, _ := mock.NewDefaultFakeClient()
+		err := fakeClient.CreateStatefulSet(ctx, *desiredSts)
+		assert.NoError(t, err)
+
+		var wg sync.WaitGroup
+		wg.Add(1)
+		// Use a goroutine to delete the StatefulSet after a delay, making it race-safe
+		go func() {
+			defer wg.Done()
+			time.Sleep(20 * time.Millisecond) // Wait for a bit longer than the first sleep
+			err = fakeClient.DeleteStatefulSet(ctx, kube.ObjectKey(desiredSts.Namespace, desiredSts.Name))
+			assert.NoError(t, err)
+		}()
+
+		// Check if the StatefulSet is detected as deleted after retries
+		result := checkStatefulsetIsDeleted(ctx, fakeClient, desiredSts, sleepDuration, log)
+
+		wg.Wait()
+
+		assert.True(t, result, "StatefulSet should be detected as deleted after retries")
+	})
 }

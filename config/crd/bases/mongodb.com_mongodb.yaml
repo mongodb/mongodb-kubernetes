@@ -1687,6 +1687,18 @@ spec:
                 type: integer
               phase:
                 type: string
+              pvc:
+                items:
+                  properties:
+                    phase:
+                      type: string
+                    statefulsetName:
+                      type: string
+                  required:
+                  - phase
+                  - statefulsetName
+                  type: object
+                type: array
               resourcesNotReady:
                 items:
                   description: ResourceNotReady describes the dependent resource which

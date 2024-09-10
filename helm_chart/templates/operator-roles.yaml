@@ -90,7 +90,19 @@ rules:
       - list
       - watch
 {{- end}}
-
+{{ if .Values.operator.enablePVCResize }}
+  - apiGroups:
+      - ''
+    resources:
+      - persistentvolumeclaims
+    verbs:
+      - get
+      - delete
+      - list
+      - watch
+      - patch
+      - update
+{{- end}}
 {{- range $idx, $namespace := $watchNamespace }}
 
 {{- $namespaceBlock := "" }}

@@ -7,6 +7,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
+
+	"k8s.io/utils/ptr"
+
+	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
+	"github.com/10gen/ops-manager-kubernetes/api/v1/status/pvc"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
+
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -718,6 +728,158 @@ func TestReplicaSetAgentVersionMapping(t *testing.T) {
 	}
 
 	agentVersionMappingTest(ctx, t, defaultResources, overridenResources)
+}
+
+func TestHandlePVCResize(t *testing.T) {
+	statefulSet := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "example-sts",
+			Namespace: "default",
+		},
+		Spec: appsv1.StatefulSetSpec{
+			Replicas: ptr.To(int32(3)),
+			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "data-pvc",
+					},
+					Spec: corev1.PersistentVolumeClaimSpec{
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceStorage: resource.MustParse("1Gi"),
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	p := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "data-pvc-example-sts-0",
+			Namespace: "default",
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{Resources: corev1.ResourceRequirements{Requests: map[corev1.ResourceName]resource.Quantity{corev1.ResourceStorage: resource.MustParse("1Gi")}}},
+		Status: corev1.PersistentVolumeClaimStatus{
+			Capacity: corev1.ResourceList{
+				corev1.ResourceStorage: resource.MustParse("1Gi"),
+			},
+		},
+	}
+
+	ctx := context.TODO()
+	logger := zap.NewExample().Sugar()
+	reconciledResource := DefaultReplicaSetBuilder().SetName("temple").Build()
+
+	memberClient, _ := setupClients(t, ctx, p, statefulSet, reconciledResource)
+
+	// *** "PVC Phase: No Action" ***
+	testPhaseNoActionRequired(t, ctx, memberClient, statefulSet, logger)
+
+	// *** "PVC Phase: No Action, Storage Increase Detected" ***
+	testPVCResizeStarted(t, ctx, memberClient, reconciledResource, statefulSet, logger)
+
+	// *** "PVC Phase: PVCResize, Still Resizing" ***
+	testPVCStillResizing(t, ctx, memberClient, reconciledResource, statefulSet, logger)
+
+	// *** "PVC Phase: PVCResize, Finished Resizing ***
+	testPVCFinishedResizing(t, ctx, memberClient, p, reconciledResource, statefulSet, logger)
+}
+
+func testPVCFinishedResizing(t *testing.T, ctx context.Context, memberClient kubernetesClient.Client, p *corev1.PersistentVolumeClaim, reconciledResource *mdbv1.MongoDB, statefulSet *appsv1.StatefulSet, logger *zap.SugaredLogger) {
+	// Simulate that the PVC has finished resizing
+	setPVCWithUpdatedResource(ctx, t, memberClient, p)
+
+	st := create.HandlePVCResize(ctx, memberClient, statefulSet, logger)
+
+	assert.Equal(t, status.PhaseRunning, st.Phase())
+	assert.Equal(t, &status.PVC{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: "example-sts"}, getPVCOption(st))
+	// mirror reconciler.updateStatus() action, a new reconcile starts and the next step runs
+	reconciledResource.UpdateStatus(status.PhaseRunning, st.StatusOptions()...)
+
+	// *** "No Storage Change, No Action Required" ***
+	statefulSet.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests[corev1.ResourceStorage] = resource.MustParse("1Gi")
+	st = create.HandlePVCResize(ctx, memberClient, statefulSet, logger)
+
+	assert.Equal(t, status.PhaseRunning, st.Phase())
+
+	// Make sure the statefulset does not exist
+	stsToRetrieve := appsv1.StatefulSet{}
+	err := memberClient.Get(ctx, kube.ObjectKey(statefulSet.Namespace, statefulSet.Name), &stsToRetrieve)
+	if !apiErrors.IsNotFound(err) {
+		t.Fatal("STS should not be around anymore!")
+	}
+}
+
+func testPVCStillResizing(t *testing.T, ctx context.Context, memberClient kubernetesClient.Client, reconciledResource *mdbv1.MongoDB, statefulSet *appsv1.StatefulSet, logger *zap.SugaredLogger) {
+	// Simulate that the PVC is still resizing by not updating the Capacity in the PVC status
+
+	// Call the HandlePVCResize function
+	st := create.HandlePVCResize(ctx, memberClient, statefulSet, logger)
+
+	// Verify the function returns Pending
+	assert.Equal(t, status.PhasePending, st.Phase())
+	// Verify that the PVC resize is still ongoing
+	assert.Equal(t, &status.PVC{Phase: pvc.PhasePVCResize, StatefulsetName: "example-sts"}, getPVCOption(st))
+
+	// mirror reconciler.updateStatus() action, a new reconcile starts and the next step runs
+	reconciledResource.UpdateStatus(status.PhasePending, status.NewPVCsStatusOption(getPVCOption(st)))
+}
+
+func testPVCResizeStarted(t *testing.T, ctx context.Context, memberClient kubernetesClient.Client, reconciledResource *mdbv1.MongoDB, statefulSet *appsv1.StatefulSet, logger *zap.SugaredLogger) {
+	// Update the StatefulSet to request more storage
+	statefulSet.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests[corev1.ResourceStorage] = resource.MustParse("2Gi")
+
+	// Call the HandlePVCResize function
+	st := create.HandlePVCResize(ctx, memberClient, statefulSet, logger)
+
+	// Verify the function returns Pending
+	assert.Equal(t, status.PhasePending, st.Phase())
+	assert.Equal(t, &status.PVC{Phase: pvc.PhasePVCResize, StatefulsetName: "example-sts"}, getPVCOption(st))
+
+	// mirror reconciler.updateStatus() action, a new reconcile starts and the next step runs
+	reconciledResource.UpdateStatus(status.PhasePending, st.StatusOptions()...)
+}
+
+func testPhaseNoActionRequired(t *testing.T, ctx context.Context, memberClient kubernetesClient.Client, statefulSet *appsv1.StatefulSet, logger *zap.SugaredLogger) {
+	st := create.HandlePVCResize(ctx, memberClient, statefulSet, logger)
+	// Verify the function returns Pending
+	assert.Equal(t, status.PhaseRunning, st.Phase())
+	require.Nil(t, getPVCOption(st))
+}
+
+func setPVCWithUpdatedResource(ctx context.Context, t *testing.T, c client.Client, p *corev1.PersistentVolumeClaim) {
+	var updatedPVC corev1.PersistentVolumeClaim
+	err := c.Get(ctx, client.ObjectKey{Name: p.Name, Namespace: p.Namespace}, &updatedPVC)
+	assert.NoError(t, err)
+	updatedPVC.Status.Capacity = map[corev1.ResourceName]resource.Quantity{}
+	updatedPVC.Status.Capacity[corev1.ResourceStorage] = resource.MustParse("2Gi")
+	updatedPVC.Spec.Resources.Requests[corev1.ResourceStorage] = resource.MustParse("2Gi")
+
+	// This is required, otherwise the status subResource is reset to the initial field
+	err = c.SubResource("status").Update(ctx, &updatedPVC)
+	assert.NoError(t, err)
+}
+
+func setupClients(t *testing.T, ctx context.Context, p *corev1.PersistentVolumeClaim, statefulSet *appsv1.StatefulSet, reconciledResource *mdbv1.MongoDB) (kubernetesClient.Client, *kubernetesClient.Client) {
+	memberClient, _ := mock.NewDefaultFakeClient(reconciledResource)
+
+	err := memberClient.Create(ctx, p)
+	assert.NoError(t, err)
+	err = memberClient.Create(ctx, statefulSet)
+	assert.NoError(t, err)
+
+	return memberClient, nil
+}
+
+func getPVCOption(st workflow.Status) *status.PVC {
+	s, exists := status.GetOption(st.StatusOptions(), status.PVCStatusOption{})
+	if !exists {
+		return nil
+	}
+
+	return s.(status.PVCStatusOption).PVC
 }
 
 // assertCorrectNumberOfMembersAndProcesses ensures that both the mongodb resource and the Ops Manager deployment

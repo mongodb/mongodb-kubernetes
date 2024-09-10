@@ -242,6 +242,12 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 
 	sts := construct.DatabaseStatefulSet(*s, standaloneOpts, nil)
 
+	workflowStatus := create.HandlePVCResize(ctx, r.client, &sts, log)
+	if !workflowStatus.IsOK() {
+		return r.updateStatus(ctx, s, workflowStatus, log)
+	}
+	_, _ = r.updateStatus(ctx, s, workflow.Pending(""), log, workflowStatus.StatusOptions()...)
+
 	status := workflow.RunInGivenOrder(publishAutomationConfigFirst(ctx, r.client, *s, standaloneOpts, log),
 		func() workflow.Status {
 			return r.updateOmDeployment(ctx, conn, s, sts, false, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")

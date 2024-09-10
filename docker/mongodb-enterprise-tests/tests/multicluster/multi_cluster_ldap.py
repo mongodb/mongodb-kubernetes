@@ -13,6 +13,7 @@ from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.mongodb_user import MongoDBUser, Role, generic_user
 from kubetester.operator import Operator
 from pytest import fixture, mark
+from tests.conftest import get_multi_cluster_operator_installation_config
 from tests.multicluster.conftest import cluster_spec_list
 from tests.opsmanager.conftest import ensure_ent_version
 
@@ -25,8 +26,10 @@ LDAP_NAME = "openldap"
 
 
 @fixture(scope="module")
-def operator_installation_config(operator_installation_config_quick_recovery: Dict[str, str]) -> Dict[str, str]:
-    return operator_installation_config_quick_recovery
+def multi_cluster_operator_installation_config(namespace) -> Dict[str, str]:
+    config = get_multi_cluster_operator_installation_config(namespace=namespace)
+    config["customEnvVars"] = config["customEnvVars"] + "\&MDB_AUTOMATIC_RECOVERY_BACKOFF_TIME_S=10"
+    return config
 
 
 @fixture(scope="module")

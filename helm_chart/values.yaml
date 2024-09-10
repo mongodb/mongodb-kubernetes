@@ -62,6 +62,9 @@ operator:
   # kubectl mongodb plugin is used to configure multi-cluster resources
   createResourcesServiceAccountsAndRoles: true
 
+  # Set to false to not create the RBAC for enabling access to the PVC for resizing for the operator
+  enablePVCResize: true
+
   vaultSecretBackend:
     # set to true if you want the operator to store secrets in Vault
     enabled: false

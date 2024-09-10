@@ -170,7 +170,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	if recovery.ShouldTriggerRecovery(mrs.Status.Phase != mdbstatus.PhaseRunning, mrs.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", mrs.Namespace, mrs.Name, mrs.Status.Phase, mrs.Status.LastTransition)
 		automationConfigError := r.updateOmDeploymentRs(ctx, conn, mrs, true, log)
-		reconcileStatus := r.reconcileMemberResources(ctx, mrs, log, conn, projectConfig)
+		reconcileStatus := r.reconcileMemberResources(ctx, &mrs, log, conn, projectConfig)
 		if !reconcileStatus.IsOK() {
 			log.Errorf("Recovery failed because of reconcile errors, %v", reconcileStatus)
 		}
@@ -187,7 +187,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 			return workflow.OK()
 		},
 		func() workflow.Status {
-			return r.reconcileMemberResources(ctx, mrs, log, conn, projectConfig)
+			return r.reconcileMemberResources(ctx, &mrs, log, conn, projectConfig)
 		})
 
 	if !status.IsOK() {
@@ -220,7 +220,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	}
 
 	log.Infow("Finished reconciliation for MultiReplicaSet", "Spec", mrs.Spec, "Status", mrs.Status)
-	return r.updateStatus(ctx, &mrs, workflow.OK(), log)
+	return r.updateStatus(ctx, &mrs, workflow.OK(), log, mdbstatus.NewPVCsStatusOptionEmptyStatus())
 }
 
 // publishAutomationConfigFirstMultiCluster returns a boolean indicating whether Ops Manager
@@ -335,21 +335,21 @@ func (r *ReconcileMongoDbMultiReplicaSet) firstStatefulSet(ctx context.Context, 
 // reconcileMemberResources handles the synchronization of kubernetes resources, which can be statefulsets, services etc.
 // All the resources required in the k8s cluster (as opposed to the automation config) for creating the replicaset
 // should be reconciled in this method.
-func (r *ReconcileMongoDbMultiReplicaSet) reconcileMemberResources(ctx context.Context, mrs mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger, conn om.Connection, projectConfig mdb.ProjectConfig) workflow.Status {
-	err := r.reconcileServices(ctx, log, &mrs)
+func (r *ReconcileMongoDbMultiReplicaSet) reconcileMemberResources(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger, conn om.Connection, projectConfig mdb.ProjectConfig) workflow.Status {
+	err := r.reconcileServices(ctx, log, mrs)
 	if err != nil {
 		return workflow.Failed(err)
 	}
 
 	// create configmap with the hostname-override
-	err = r.reconcileHostnameOverrideConfigMap(ctx, log, mrs)
+	err = r.reconcileHostnameOverrideConfigMap(ctx, log, *mrs)
 	if err != nil {
 		return workflow.Failed(err)
 	}
 
 	// Copy over OM CustomCA if specified in project config
 	if projectConfig.SSLMMSCAConfigMap != "" {
-		err = r.reconcileOMCAConfigMap(ctx, log, mrs, projectConfig.SSLMMSCAConfigMap)
+		err = r.reconcileOMCAConfigMap(ctx, log, *mrs, projectConfig.SSLMMSCAConfigMap)
 		if err != nil {
 			return workflow.Failed(err)
 		}
@@ -369,7 +369,7 @@ type stsIdentifier struct {
 	clusterName string
 }
 
-func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Context, mrs mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger, conn om.Connection, projectConfig mdb.ProjectConfig) workflow.Status {
+func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger, conn om.Connection, projectConfig mdb.ProjectConfig) workflow.Status {
 	clusterSpecList, err := mrs.GetClusterSpecItems()
 	if err != nil {
 		return workflow.Failed(xerrors.Errorf("failed to read cluster spec list: %w", err))
@@ -393,7 +393,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			continue
 		}
 		secretMemberClient := r.memberClusterSecretClientsMap[item.ClusterName]
-		replicasThisReconciliation, err := getMembersForClusterSpecItemThisReconciliation(&mrs, item)
+		replicasThisReconciliation, err := getMembersForClusterSpecItemThisReconciliation(mrs, item)
 		clusterNum := mrs.ClusterNum(item.ClusterName)
 		if err != nil {
 			return workflow.Failed(err)
@@ -416,7 +416,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 		}
 
 		// Ensure TLS for multi-cluster statefulset in each cluster
-		mrsConfig := certs.MultiReplicaSetConfig(mrs, clusterNum, item.ClusterName, replicasThisReconciliation)
+		mrsConfig := certs.MultiReplicaSetConfig(*mrs, clusterNum, item.ClusterName, replicasThisReconciliation)
 		if status := certs.EnsureSSLCertsForStatefulSet(ctx, r.SecretClient, secretMemberClient, *mrs.Spec.Security, mrsConfig, log); !status.IsOK() {
 			return status
 		}
@@ -429,7 +429,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 		currentAgentAuthMode := automationConfig.GetAgentAuthMode()
 
 		certConfigurator := certs.MongoDBMultiX509CertConfigurator{
-			MongoDBMultiCluster: &mrs,
+			MongoDBMultiCluster: mrs,
 			ClusterNum:          clusterNum,
 			Replicas:            replicasThisReconciliation,
 			SecretReadClient:    r.SecretClient,
@@ -497,8 +497,8 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			WithAgentVersion(automationAgentVersion),
 		)
 
-		sts := mconstruct.MultiClusterStatefulSet(mrs, opts)
-		deleteSts, err := shouldDeleteStatefulSet(mrs, item)
+		sts := mconstruct.MultiClusterStatefulSet(*mrs, opts)
+		deleteSts, err := shouldDeleteStatefulSet(*mrs, item)
 		if err != nil {
 			return workflow.Failed(xerrors.Errorf("failed to create StatefulSet in cluster: %s, err: %w", item.ClusterName, err))
 		}
@@ -508,6 +508,14 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 				return workflow.Failed(xerrors.Errorf("failed to delete StatefulSet in cluster: %s, err: %w", item.ClusterName, err))
 			}
 			continue
+		}
+
+		workflowStatus := create.HandlePVCResize(ctx, memberClient, &sts, log)
+		if !workflowStatus.IsOK() {
+			return workflowStatus
+		}
+		if err = r.updateStatusFromInnerMethod(ctx, mrs, log, workflowStatus); err != nil {
+			return workflow.Failed(xerrors.Errorf("%w", err))
 		}
 
 		_, err = enterprisests.CreateOrUpdateStatefulset(ctx, memberClient, mrs.Namespace, log, &sts)
@@ -524,6 +532,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			if status := getStatefulSetStatus(ctx, sts.Namespace, sts.Name, memberClient); !status.IsOK() {
 				return status
 			}
+
 			log.Infof("Successfully ensured StatefulSet in cluster: %s", item.ClusterName)
 		} else {
 			// We create all sts in parallel and wait below for all of them to finish
@@ -546,6 +555,22 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 	}
 
 	return workflow.OK()
+}
+
+// updateStatusFromInnerMethod ensures to only update the status if it has been updated.
+// Since spec.Mapping is just a cache, it would be replaced; therefore, we need to cache it
+func (r *ReconcileMongoDbMultiReplicaSet) updateStatusFromInnerMethod(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger, workflowStatus workflow.Status) error {
+	// if there are no pvc changes, then we don't need to update the status
+	if !workflow.ContainsPVCOption(workflowStatus.StatusOptions()) {
+		return nil
+	}
+	tmpMapping := mrs.Spec.Mapping
+	_, err := r.updateStatus(ctx, mrs, workflow.Pending(""), log, workflowStatus.StatusOptions()...)
+	mrs.Spec.Mapping = tmpMapping
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // shouldDeleteStatefulSet returns a boolean value indicating whether the StatefulSet associated with

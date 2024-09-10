@@ -1,5 +1,31 @@
 [//]: # (Consider renaming or removing the header for next release, otherwise it appears as duplicate in the published release, e.g: https://github.com/mongodb/mongodb-enterprise-kubernetes/releases/tag/1.22.0 )
 <!-- Next Release -->
+# MongoDB Enterprise Kubernetes Operator 1.28.0
+
+## New Features
+* **MongoDB**, **MongoDBMulti**: support for automated expansion of the PVC.
+  More details can be found [here](to-be-added).
+  **Note**: Expansion of the pvc is only supported if the storageClass supports expansion.
+  Please ensure that the storageClass supports in-place expansion without data-loss.
+  * **MongoDB** This can be done by increasing the size of the PVC in the CRD setting: 
+    * one PVC - increase: `spec.persistence.single.storage`
+    * multiple PVCs - increase: `spec.persistence.multiple.(data/journal/logs).storage`
+  * **MongoDBMulti** This can be done by increasing the storage via the statefulset override:
+```yaml
+  statefulSet:
+    spec:
+      volumeClaimTemplates:
+        - metadata:
+            name: data
+          spec:
+            resources:
+              requests:
+                storage: 2Gi # this is my increased storage
+                storageClass: <my-class-that-supports-expansion>
+```
+
+
+<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.27.0
 
 ## New Features
@@ -41,9 +67,6 @@ descriptive error in the status of the **MongoDB** resource.
 
 * **MongoDB**: Fixed a bug where creating a resource in a new project named as a prefix of another project would fail, preventing the `MongoDB` resource to be created.
 
-
-
-<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.26.0
 
 ## New Features
