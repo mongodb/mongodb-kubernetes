@@ -9,7 +9,11 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
+	"github.com/10gen/ops-manager-kubernetes/api/v1/status/pvc"
+	v1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -81,6 +85,164 @@ func TestCreateMultiReplicaSet(t *testing.T) {
 
 	reconciler, client, _, _ := defaultMultiReplicaSetReconciler(ctx, mrs)
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
+}
+
+func TestReconcilePVCResizeMultiCluster(t *testing.T) {
+	ctx := context.Background()
+
+	configuration := v1.StatefulSetConfiguration{
+		SpecWrapper: mdbc.StatefulSetSpecWrapper{
+			Spec: appsv1.StatefulSetSpec{
+				VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: "data",
+						},
+						Spec: corev1.PersistentVolumeClaimSpec{
+							StorageClassName: ptr.To("test"),
+							Resources: corev1.ResourceRequirements{
+								Requests: map[corev1.ResourceName]resource.Quantity{corev1.ResourceStorage: resource.MustParse("1Gi")},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	mrs.Spec.StatefulSetConfiguration = &configuration
+
+	reconciler, c, clusterMap, _ := defaultMultiReplicaSetReconciler(ctx, mrs)
+
+	// first, we create the shardedCluster with sts and pvc,
+	// no resize happening, even after running reconcile multiple times
+	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, c, false)
+	testNoResizeMulti(t, c, ctx, mrs)
+
+	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, c, false)
+	testNoResizeMulti(t, c, ctx, mrs)
+
+	createdConfigPVCs := getPVCsMulti(t, ctx, mrs, clusterMap)
+
+	newSize := "2Gi"
+	configuration.SpecWrapper.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests = map[corev1.ResourceName]resource.Quantity{corev1.ResourceStorage: resource.MustParse(newSize)}
+	mrs.Spec.StatefulSetConfiguration = &configuration
+	err := c.Update(ctx, mrs)
+	assert.NoError(t, err)
+
+	_, e := reconciler.Reconcile(ctx, requestFromObject(mrs))
+	assert.NoError(t, e)
+
+	// its only one sts in the pvc status, since we haven't started the next one yet
+	testMDBStatusMulti(t, c, ctx, mrs, status.PhasePending, status.PVCS{{Phase: pvc.PhasePVCResize, StatefulsetName: "temple-0"}})
+
+	testPVCSizeHasIncreased(t, createdConfigPVCs[0].client, ctx, newSize, "temple-0")
+
+	// Running the same resize makes no difference, we are still resizing
+	_, e = reconciler.Reconcile(ctx, requestFromObject(mrs))
+	assert.NoError(t, e)
+
+	testMDBStatusMulti(t, c, ctx, mrs, status.PhasePending, status.PVCS{{Phase: pvc.PhasePVCResize, StatefulsetName: "temple-0"}})
+
+	// update the first stses pvc to be ready
+	for _, claim := range createdConfigPVCs[0].persistentVolumeClaims {
+		setPVCWithUpdatedResource(ctx, t, createdConfigPVCs[0].client, &claim)
+	}
+
+	// Running reconcile again should go into orphan
+	_, e = reconciler.Reconcile(ctx, requestFromObject(mrs))
+	assert.NoError(t, e)
+
+	// the second pvc is now getting resized
+	testMDBStatusMulti(t, c, ctx, mrs, status.PhasePending, status.PVCS{
+		{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: "temple-0"},
+		{Phase: pvc.PhasePVCResize, StatefulsetName: "temple-1"},
+	})
+	// Running reconcile again second pvcState should go into orphan, third one should start
+
+	// update the first stse pvc to be ready
+	for _, claim := range createdConfigPVCs[1].persistentVolumeClaims {
+		setPVCWithUpdatedResource(ctx, t, createdConfigPVCs[1].client, &claim)
+	}
+
+	_, e = reconciler.Reconcile(ctx, requestFromObject(mrs))
+	assert.NoError(t, e)
+
+	testMDBStatusMulti(t, c, ctx, mrs, status.PhasePending, status.PVCS{
+		{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: "temple-0"},
+		{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: "temple-1"},
+		{Phase: pvc.PhasePVCResize, StatefulsetName: "temple-2"},
+	})
+
+	// pvc aren't resized. therefore same status expected
+	_, e = reconciler.Reconcile(ctx, requestFromObject(mrs))
+	assert.NoError(t, e)
+
+	testMDBStatusMulti(t, c, ctx, mrs, status.PhasePending, status.PVCS{
+		{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: "temple-0"},
+		{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: "temple-1"},
+		{Phase: pvc.PhasePVCResize, StatefulsetName: "temple-2"},
+	})
+
+	// update the first stse pvc to be ready
+	for _, claim := range createdConfigPVCs[2].persistentVolumeClaims {
+		setPVCWithUpdatedResource(ctx, t, createdConfigPVCs[2].client, &claim)
+	}
+
+	// We move from resize → orphaned and in the final call in the reconciling to running and
+	// remove the PVCs.
+	_, err = reconciler.Reconcile(ctx, requestFromObject(mrs))
+	assert.NoError(t, err)
+
+	// We are now in the running phase, since all statefulsets have finished resizing; therefore,
+	// no pvc phase is shown anymore
+	testMDBStatusMulti(t, c, ctx, mrs, status.PhaseRunning, nil)
+
+	for _, item := range mrs.Spec.ClusterSpecList {
+		c := clusterMap[item.ClusterName]
+		stsName := mrs.MultiStatefulsetName(mrs.ClusterNum(item.ClusterName))
+		testStatefulsetHasAnnotationAndCorrectSize(t, c.GetClient(), ctx, mrs.Namespace, stsName)
+	}
+
+	_, e = reconciler.Reconcile(ctx, requestFromObject(mrs))
+	require.NoError(t, e)
+
+	// We are now in the running phase, since all statefulsets have finished resizing; therefore,
+	// no pvc phase is shown anymore
+	testMDBStatusMulti(t, c, ctx, mrs, status.PhaseRunning, nil)
+}
+
+type pvcClient struct {
+	persistentVolumeClaims []corev1.PersistentVolumeClaim
+	client                 client.Client
+}
+
+func getPVCsMulti(t *testing.T, ctx context.Context, mrs *mdbmulti.MongoDBMultiCluster, memberClusterMap map[string]cluster.Cluster) []pvcClient {
+	var createdConfigPVCs []pvcClient
+	for _, item := range mrs.Spec.ClusterSpecList {
+		c := memberClusterMap[item.ClusterName]
+		statefulSetName := mrs.MultiStatefulsetName(mrs.ClusterNum(item.ClusterName))
+		sts := appsv1.StatefulSet{}
+		err := c.GetClient().Get(ctx, kube.ObjectKey(mrs.Namespace, statefulSetName), &sts)
+		require.NoError(t, err)
+		createdConfigPVCs = append(createdConfigPVCs, pvcClient{persistentVolumeClaims: createPVCs(t, sts, c.GetClient()), client: c.GetClient()})
+	}
+	return createdConfigPVCs
+}
+
+func testNoResizeMulti(t *testing.T, c kubernetesClient.Client, ctx context.Context, mrs *mdbmulti.MongoDBMultiCluster) {
+	m := mdbmulti.MongoDBMultiCluster{}
+	err := c.Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.Name), &m)
+	assert.NoError(t, err)
+	assert.Nil(t, m.Status.PVCs)
+}
+
+func testMDBStatusMulti(t *testing.T, c kubernetesClient.Client, ctx context.Context, mrs *mdbmulti.MongoDBMultiCluster, expectedMDBPhase status.Phase, expectedPVCS status.PVCS) {
+	m := mdbmulti.MongoDBMultiCluster{}
+	err := c.Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.Name), &m)
+	require.NoError(t, err)
+	require.Equal(t, expectedMDBPhase, m.Status.Phase)
+	require.Equal(t, expectedPVCS, m.Status.PVCs)
 }
 
 func TestReconcileFails_WhenProjectConfig_IsNotFound(t *testing.T) {

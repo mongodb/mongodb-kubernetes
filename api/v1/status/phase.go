@@ -1,5 +1,9 @@
 package status
 
+import (
+	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
 type Phase string
 
 const (
@@ -22,3 +26,11 @@ const (
 	// PhaseUnsupported means a resource is not supported by the current Operator version
 	PhaseUnsupported Phase = "Unsupported"
 )
+
+type Updater interface {
+	GetStatusPath(options ...Option) string
+	GetStatus(options ...Option) interface{}
+	UpdateStatus(phase Phase, statusOptions ...Option)
+	GetCommonStatus(options ...Option) *Common
+	client.Object
+}

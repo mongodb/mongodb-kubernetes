@@ -44,7 +44,7 @@ ensure_namespace "${NAMESPACE}"
 # 3. Configure Operator resources
 . scripts/evergreen/e2e/configure_operator.sh
 
-if [[ "${RUNNING_IN_EVG}" == "true" ]]; then
+if [[ "${RUNNING_IN_EVG-"false"}" == "true" ]]; then
   # 4. install honeycomb observability
   . scripts/evergreen/e2e/performance/honeycomb/install-hc.sh
 fi

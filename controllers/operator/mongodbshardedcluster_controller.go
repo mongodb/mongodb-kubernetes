@@ -203,7 +203,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, request r
 	}
 
 	log.Infof("Finished reconciliation for Sharded Cluster! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
-	return r.updateStatus(ctx, sc, status, log, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), mdbstatus.MongodsPerShardOption(r.mongodsPerShardScaler), mdbstatus.ConfigServerOption(r.configSrvScaler), mdbstatus.MongosCountOption(r.mongosScaler))
+	return r.updateStatus(ctx, sc, status, log, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), mdbstatus.MongodsPerShardOption(r.mongodsPerShardScaler), mdbstatus.ConfigServerOption(r.configSrvScaler), mdbstatus.MongosCountOption(r.mongosScaler), mdbstatus.NewPVCsStatusOptionEmptyStatus())
 }
 
 func (r *ShardedClusterReconcileHelper) initCountsForThisReconciliation(sc mdbv1.MongoDB) {
@@ -477,9 +477,17 @@ func (r *ShardedClusterReconcileHelper) ensureSSLCertificates(ctx context.Contex
 func (r *ShardedClusterReconcileHelper) createKubernetesResources(ctx context.Context, s *mdbv1.MongoDB, opts deploymentOptions, log *zap.SugaredLogger) workflow.Status {
 	configSrvOpts := r.getConfigServerOptions(ctx, *s, opts, log)
 	configSrvSts := construct.DatabaseStatefulSet(*s, configSrvOpts, nil)
+
+	workflowStatus := create.HandlePVCResize(ctx, r.client, &configSrvSts, log)
+	if !workflowStatus.IsOK() {
+		return workflowStatus
+	}
+	_, _ = r.updateStatus(ctx, s, workflow.Pending(""), log, workflowStatus.StatusOptions()...)
+
 	if err := create.DatabaseInKubernetes(ctx, r.client, *s, configSrvSts, configSrvOpts, log); err != nil {
 		return workflow.Failed(xerrors.Errorf("Failed to create Config Server Stateful Set: %w", err))
 	}
+
 	if status := getStatefulSetStatus(ctx, s.Namespace, s.ConfigRsName(), r.client); !status.IsOK() {
 		return status
 	}
@@ -494,9 +502,16 @@ func (r *ShardedClusterReconcileHelper) createKubernetesResources(ctx context.Co
 		shardOpts := r.getShardOptions(ctx, *s, i, opts, log)
 		shardSts := construct.DatabaseStatefulSet(*s, shardOpts, nil)
 
+		workflowStatus := create.HandlePVCResize(ctx, r.client, &shardSts, log)
+		if !workflowStatus.IsOK() {
+			return workflowStatus
+		}
+		_, _ = r.updateStatus(ctx, s, workflow.Pending(""), log, workflowStatus.StatusOptions()...)
+
 		if err := create.DatabaseInKubernetes(ctx, r.client, *s, shardSts, shardOpts, log); err != nil {
 			return workflow.Failed(xerrors.Errorf("Failed to create Stateful Set for shard %s: %w", shardsNames[i], err))
 		}
+
 		if status := getStatefulSetStatus(ctx, s.Namespace, shardsNames[i], r.client); !status.IsOK() {
 			return status
 		}
@@ -515,6 +530,7 @@ func (r *ShardedClusterReconcileHelper) createKubernetesResources(ctx context.Co
 	if status := getStatefulSetStatus(ctx, s.Namespace, s.MongosRsName(), r.client); !status.IsOK() {
 		return status
 	}
+
 	_, _ = r.updateStatus(ctx, s, workflow.Pending("").WithResourcesNotReady([]mdbstatus.ResourceNotReady{}), log)
 
 	log.Infow("Created/updated StatefulSet for mongos servers", "name", s.MongosRsName(), "servers count", mongosSts.Spec.Replicas)

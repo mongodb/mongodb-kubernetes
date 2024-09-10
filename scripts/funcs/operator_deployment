@@ -28,6 +28,7 @@ get_operator_helm_values() {
     "agent.version=${AGENT_VERSION}"
     "mongodb.name=mongodb-enterprise-server"
     "operator.mdbDefaultArchitecture=${MDB_DEFAULT_ARCHITECTURE:-non-static}"
+    "operator.enablePVCResize=${MDB_ENABLE_PVC_RESIZE:-true}"
   )
 
    # shellcheck disable=SC2154

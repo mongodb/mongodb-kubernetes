@@ -4,10 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-
-	"k8s.io/utils/ptr"
+	"regexp"
+	"time"
 
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
+	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
+	"github.com/10gen/ops-manager-kubernetes/api/v1/status/pvc"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 
 	mekoService "github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 
@@ -84,6 +89,148 @@ func DatabaseInKubernetes(ctx context.Context, client kubernetesClient.Client, m
 	return nil
 }
 
+// HandlePVCResize handles the state machine of a PVC resize.
+// Note: it modifies the desiredSTS.annotation to trigger a rolling restart later
+// We leverage workflowStatus.WithAdditionalOptions(...) to merge/update/add to existing mdb.status.pvc
+func HandlePVCResize(ctx context.Context, memberClient kubernetesClient.Client, desiredSts *appsv1.StatefulSet, log *zap.SugaredLogger) workflow.Status {
+	existingStatefulSet, stsErr := memberClient.GetStatefulSet(ctx, kube.ObjectKey(desiredSts.Namespace, desiredSts.Name))
+	if stsErr != nil {
+		// if we are here it means its first reconciling, we can skip the whole pvc state machine
+		if apiErrors.IsNotFound(stsErr) {
+			return workflow.OK()
+		} else {
+			return workflow.Failed(stsErr)
+		}
+	}
+
+	pvcResizes := resourceStorageHasChanged(existingStatefulSet.Spec.VolumeClaimTemplates, desiredSts.Spec.VolumeClaimTemplates)
+
+	increaseStorageOfAtLeastOnePVC := false
+	// we have decreased the storage for at least one pvc, we do not support that
+	for _, pvcResize := range pvcResizes {
+		if pvcResize.resizeIndicator == 1 {
+			log.Debug("Can't update the stateful set, as we cannot decrease the pvc size")
+			return workflow.Failed(xerrors.Errorf("can't update pvc and statefulset to a smaller storage, from: %s - to:%s", pvcResize.from, pvcResize.to))
+		}
+		if pvcResize.resizeIndicator == -1 {
+			log.Infof("Detected PVC size expansion; for pvc %s, from: %s to: %s", pvcResize.pvcName, pvcResize.from, pvcResize.to)
+			increaseStorageOfAtLeastOnePVC = true
+		}
+	}
+
+	// The sts claim has been increased (based on resourceChangeIndicator) for at least one PVC,
+	// and we are not in the middle of a resize (that means pvcPhase is pvc.PhaseNoAction) for this statefulset.
+	// This means we want to start one
+	if increaseStorageOfAtLeastOnePVC {
+		err := enterprisests.AddPVCAnnotation(desiredSts)
+		if err != nil {
+			return workflow.Failed(xerrors.Errorf("can't add pvc annotation, err: %s", err))
+		}
+		log.Infof("Detected PVC size expansion; patching all pvcs and increasing the size for sts: %s", desiredSts.Name)
+		if err := resizePVCsStorage(memberClient, desiredSts); err != nil {
+			return workflow.Failed(xerrors.Errorf("can't resize pvc, err: %s", err))
+		}
+
+		finishedResizing, err := hasFinishedResizing(ctx, memberClient, desiredSts)
+		if err != nil {
+			return workflow.Failed(err)
+		}
+		if finishedResizing {
+			log.Info("PVCs finished resizing")
+			log.Info("Deleting StatefulSet and orphan pods")
+			// Cascade delete the StatefulSet
+			deletePolicy := metav1.DeletePropagationOrphan
+			if err := memberClient.Delete(context.TODO(), desiredSts, client.PropagationPolicy(deletePolicy)); err != nil && !apiErrors.IsNotFound(err) {
+				return workflow.Failed(xerrors.Errorf("error deleting sts, err: %s", err))
+			}
+
+			deletedIsStatefulset := checkStatefulsetIsDeleted(ctx, memberClient, desiredSts, 1*time.Second, log)
+
+			if !deletedIsStatefulset {
+				log.Info("deletion has not been reflected in kube yet, restarting the reconcile")
+				return workflow.Pending("STS has been orphaned but not yet reflected in kubernetes. " +
+					"Restarting the reconcile").WithAdditionalOptions(status.NewPVCsStatusOption(&status.PVC{Phase: pvc.PhasePVCResize, StatefulsetName: desiredSts.Name}))
+			}
+			log.Info("Statefulset have been orphaned")
+			return workflow.OK().WithAdditionalOptions(status.NewPVCsStatusOption(&status.PVC{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: desiredSts.Name}))
+		} else {
+			log.Info("PVCs are still resizing, waiting until it has finished")
+			return workflow.Pending("PVC resizes has not finished; current state of sts: %s: %s", desiredSts.Name, pvc.PhasePVCResize).WithAdditionalOptions(status.NewPVCsStatusOption(&status.PVC{Phase: pvc.PhasePVCResize, StatefulsetName: desiredSts.Name}))
+		}
+	}
+
+	return workflow.OK()
+}
+
+func checkStatefulsetIsDeleted(ctx context.Context, memberClient kubernetesClient.Client, desiredSts *appsv1.StatefulSet, sleepDuration time.Duration, log *zap.SugaredLogger) bool {
+	// After deleting the statefulset it can take seconds to be reflected in kubernetes.
+	// In case it is still not reflected
+	deletedIsStatefulset := false
+	for i := 0; i < 3; i++ {
+		time.Sleep(sleepDuration)
+		_, stsErr := memberClient.GetStatefulSet(ctx, kube.ObjectKey(desiredSts.Namespace, desiredSts.Name))
+		if apiErrors.IsNotFound(stsErr) {
+			deletedIsStatefulset = true
+			break
+		} else {
+			log.Info("Statefulset still exists, attempting again")
+		}
+	}
+	return deletedIsStatefulset
+}
+
+func hasFinishedResizing(ctx context.Context, memberClient kubernetesClient.Client, desiredSts *appsv1.StatefulSet) (bool, error) {
+	pvcList := corev1.PersistentVolumeClaimList{}
+	if err := memberClient.List(ctx, &pvcList); err != nil {
+		return false, err
+	}
+
+	finishedResizing := true
+	for _, currentPVC := range pvcList.Items {
+		if template, index := getMatchingPVCTemplateFromSTS(desiredSts, &currentPVC); template != nil {
+			if currentPVC.Status.Capacity.Storage().Cmp(*desiredSts.Spec.VolumeClaimTemplates[index].Spec.Resources.Requests.Storage()) != 0 {
+				finishedResizing = false
+			}
+		}
+	}
+	return finishedResizing, nil
+}
+
+// resizePVCsStorage takes the sts we want to create and update all matching pvc with the new storage
+func resizePVCsStorage(client kubernetesClient.Client, statefulSetToCreate *appsv1.StatefulSet) error {
+	pvcList := corev1.PersistentVolumeClaimList{}
+
+	// this is to ensure that requests to a potentially not allowed resource is not blocking the operator until the end
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	if err := client.List(ctx, &pvcList); err != nil {
+		return err
+	}
+	for _, existingPVC := range pvcList.Items {
+		if template, _ := getMatchingPVCTemplateFromSTS(statefulSetToCreate, &existingPVC); template != nil {
+			existingPVC.Spec.Resources.Requests[corev1.ResourceStorage] = *template.Spec.Resources.Requests.Storage()
+			if err := client.Update(ctx, &existingPVC); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func getMatchingPVCTemplateFromSTS(statefulSet *appsv1.StatefulSet, pvc *corev1.PersistentVolumeClaim) (*corev1.PersistentVolumeClaim, int) {
+	for i, claimTemplate := range statefulSet.Spec.VolumeClaimTemplates {
+		expectedPrefix := fmt.Sprintf("%s-%s", claimTemplate.Name, statefulSet.Name)
+
+		// Regex to match expectedPrefix followed by a dash and a number (ordinal)
+		regexPattern := fmt.Sprintf("^%s-[0-9]+$", regexp.QuoteMeta(expectedPrefix))
+		if matched, _ := regexp.MatchString(regexPattern, pvc.Name); matched {
+			return &claimTemplate, i
+		}
+	}
+	return nil, -1
+}
+
 // createExternalServices creates the external services. The function does not create external services for sharded clusters which given stateful-sets are not mongos.
 func createExternalServices(ctx context.Context, client kubernetesClient.Client, mdb mdbv1.MongoDB, opts construct.DatabaseStatefulSetOptions, namespacedName client.ObjectKey, set *appsv1.StatefulSet, podNum int, log *zap.SugaredLogger) error {
 	if mdb.IsShardedCluster() && !opts.IsMongos() {
@@ -99,7 +246,7 @@ func createExternalServices(ctx context.Context, client kubernetesClient.Client,
 		// external domain (e.g. for multi-cluster no-mesh), then we need to define backup port.
 		// In the agent process, we pass -ephemeralPortOffset 1 argument to define, that backup port should be a standard port+1.
 		backupPort := GetNonEphemeralBackupPort(opts.ServicePort)
-		externalService.Spec.Ports = append(externalService.Spec.Ports, corev1.ServicePort{Port: backupPort, TargetPort: intstr.FromInt(int(backupPort)), Name: "backup"})
+		externalService.Spec.Ports = append(externalService.Spec.Ports, corev1.ServicePort{Port: backupPort, TargetPort: intstr.FromInt32(backupPort), Name: "backup"})
 	}
 
 	if mdb.Spec.DbCommonSpec.ExternalAccessConfiguration.ExternalService.SpecWrapper != nil {
@@ -387,4 +534,44 @@ func BuildService(namespacedName types.NamespacedName, owner v1.CustomResourceRe
 // Non-ephemeral ports are used when we set process.hostname for anything other than headless service FQDN.
 func GetNonEphemeralBackupPort(mongodPort int32) int32 {
 	return mongodPort + 1
+}
+
+type pvcResize struct {
+	pvcName         string
+	resizeIndicator int
+	from            string
+	to              string
+}
+
+// resourceStorageHasChanged returns 0 if both storage sizes are equal or not exist at all,
+//
+//	 1: toCreateVolumeClaims < desiredVolumeClaims → decrease storage
+//	-1: toCreateVolumeClaims > desiredVolumeClaims → increase storage
+//	 0: toCreateVolumeClaims = desiredVolumeClaims → storage stays same
+func resourceStorageHasChanged(existingVolumeClaims []corev1.PersistentVolumeClaim, desiredVolumeClaims []corev1.PersistentVolumeClaim) []pvcResize {
+	existingClaimByName := map[string]*corev1.PersistentVolumeClaim{}
+	var pvcResizes []pvcResize
+
+	for _, existingClaim := range existingVolumeClaims {
+		existingClaimByName[existingClaim.Name] = &existingClaim
+	}
+
+	for _, desiredClaim := range desiredVolumeClaims {
+		// if the desiredClaim does not exist in the list of claims, then we don't need to consider resizing, since
+		// its most likely a new one
+		if existingPVCClaim, ok := existingClaimByName[desiredClaim.Name]; ok {
+			desiredPVCClaimStorage := desiredClaim.Spec.Resources.Requests.Storage()
+			existingPVCClaimStorage := existingPVCClaim.Spec.Resources.Requests.Storage()
+			if desiredPVCClaimStorage != nil && existingPVCClaimStorage != nil {
+				pvcResizes = append(pvcResizes, pvcResize{
+					pvcName:         desiredClaim.Name,
+					resizeIndicator: existingPVCClaimStorage.Cmp(*desiredPVCClaimStorage),
+					from:            existingPVCClaimStorage.String(),
+					to:              desiredPVCClaimStorage.String(),
+				})
+			}
+		}
+	}
+
+	return pvcResizes
 }

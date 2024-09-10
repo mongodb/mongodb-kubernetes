@@ -10,7 +10,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-// reconcileStatus serves as a container holding the status of the custom resource
+// Status serves as a container holding the status of the custom resource
 // The main reason why it's needed is to allow to pass the information about the state of the resource back to the
 // calling functions up to the top-level 'reconcile' avoiding multiple return parameters and 'if' statements
 type Status interface {
@@ -24,7 +24,7 @@ type Status interface {
 	// OnErrorPrepend prepends the msg in the case of an error reconcileStatus
 	OnErrorPrepend(msg string) Status
 
-	// Returns options that can be used to populate the CR status
+	// StatusOptions returns options that can be used to populate the CR status
 	StatusOptions() []status.Option
 
 	// Phase is the phase the status should get
@@ -41,6 +41,7 @@ type commonStatus struct {
 	msg               string
 	warnings          []status.Warning
 	resourcesNotReady []status.ResourceNotReady
+	options           []status.Option
 }
 
 func newCommonStatus(msg string, params ...interface{}) commonStatus {
@@ -57,9 +58,17 @@ func (c commonStatus) statusOptions() []status.Option {
 	if apierrors.IsTransientMessage(msg) {
 		msg = ""
 	}
-	return []status.Option{
+	options := []status.Option{
 		status.NewMessageOption(msg),
 		status.NewWarningsOption(c.warnings),
 		status.NewResourcesNotReadyOption(c.resourcesNotReady),
 	}
+	return append(options, c.options...)
+}
+
+func ContainsPVCOption(options []status.Option) bool {
+	if _, exists := status.GetOption(options, status.PVCStatusOption{}); exists {
+		return true
+	}
+	return false
 }

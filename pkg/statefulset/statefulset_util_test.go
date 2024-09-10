@@ -3,6 +3,8 @@ package statefulset
 import (
 	"testing"
 
+	"k8s.io/apimachinery/pkg/api/resource"
+
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -133,6 +135,24 @@ func TestIsVolumeClaimUpdatableTo(t *testing.T) {
 			desired: corev1.PersistentVolumeClaim{
 				Spec: corev1.PersistentVolumeClaimSpec{
 					AccessModes: []corev1.PersistentVolumeAccessMode{"b"},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "Storage: unequal",
+			existing: corev1.PersistentVolumeClaim{
+				Spec: corev1.PersistentVolumeClaimSpec{
+					Resources: corev1.ResourceRequirements{
+						Requests: map[corev1.ResourceName]resource.Quantity{corev1.ResourceStorage: resource.MustParse("1Gi")},
+					},
+				},
+			},
+			desired: corev1.PersistentVolumeClaim{
+				Spec: corev1.PersistentVolumeClaimSpec{
+					Resources: corev1.ResourceRequirements{
+						Requests: map[corev1.ResourceName]resource.Quantity{corev1.ResourceStorage: resource.MustParse("2Gi")},
+					},
 				},
 			},
 			want: false,

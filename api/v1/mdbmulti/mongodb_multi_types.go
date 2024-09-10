@@ -247,6 +247,10 @@ func (m *MongoDBMultiCluster) GetStatus(...status.Option) interface{} {
 	return m.Status
 }
 
+func (m *MongoDBMultiCluster) GetCommonStatus(...status.Option) *status.Common {
+	return &m.Status.Common
+}
+
 func (m *MongoDBMultiCluster) GetStatusPath(...status.Option) string {
 	return "/status"
 }

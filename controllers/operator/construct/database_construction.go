@@ -1045,7 +1045,7 @@ func DatabaseStartupProbe() probes.Modification {
 
 func defaultPodAnnotations(certHash string) map[string]string {
 	return map[string]string{
-		// this annotation is necessary in order to trigger a pod restart
+		// This annotation is necessary to trigger a pod restart
 		// if the certificate secret is out of date. This happens if
 		// existing certificates have been replaced/rotated/renewed.
 		certs.CertHashAnnotationKey: certHash,
