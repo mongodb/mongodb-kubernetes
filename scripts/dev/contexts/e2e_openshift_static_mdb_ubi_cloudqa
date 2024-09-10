@@ -22,7 +22,3 @@ export OPENSHIFT_URL="$openshift_url"
 # shellcheck disable=SC2154
 export OPENSHIFT_TOKEN="$openshift_token"
 export MDB_DEFAULT_ARCHITECTURE=static
-
-export e2e_cloud_qa_orgid_owner="${e2e_cloud_qa_orgid_owner_static_2}"
-export e2e_cloud_qa_apikey_owner="${e2e_cloud_qa_apikey_owner_static_2}"
-export e2e_cloud_qa_user_owner="${e2e_cloud_qa_user_owner_static_2}"
