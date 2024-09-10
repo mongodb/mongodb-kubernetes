@@ -67,6 +67,18 @@ rules:
       - mongodbusers/status
       - opsmanagers/status
       - mongodbmulticluster/status
+
+  - apiGroups:
+      - ''
+    resources:
+      - persistentvolumeclaims
+    verbs:
+      - get
+      - delete
+      - list
+      - watch
+      - patch
+      - update
 ---
 # Source: enterprise-operator/templates/operator-roles.yaml
 kind: RoleBinding

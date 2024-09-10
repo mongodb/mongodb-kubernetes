@@ -692,26 +692,26 @@ func (om *MongoDBOpsManager) UpdateStatus(phase status.Phase, statusOptions ...s
 	}
 }
 
-func (m *MongoDBOpsManager) updateStatusAppDb(phase status.Phase, statusOptions ...status.Option) {
-	m.Status.AppDbStatus.UpdateCommonFields(phase, m.GetGeneration(), statusOptions...)
+func (om *MongoDBOpsManager) updateStatusAppDb(phase status.Phase, statusOptions ...status.Option) {
+	om.Status.AppDbStatus.UpdateCommonFields(phase, om.GetGeneration(), statusOptions...)
 
 	if option, exists := status.GetOption(statusOptions, status.ReplicaSetMembersOption{}); exists {
-		m.Status.AppDbStatus.Members = option.(status.ReplicaSetMembersOption).Members
+		om.Status.AppDbStatus.Members = option.(status.ReplicaSetMembersOption).Members
 	}
 
 	if option, exists := status.GetOption(statusOptions, status.MultiReplicaSetMemberOption{}); exists {
-		m.Status.AppDbStatus.Members = option.(status.MultiReplicaSetMemberOption).Members
-		m.Status.AppDbStatus.ClusterStatusList = option.(status.MultiReplicaSetMemberOption).ClusterStatusList
+		om.Status.AppDbStatus.Members = option.(status.MultiReplicaSetMemberOption).Members
+		om.Status.AppDbStatus.ClusterStatusList = option.(status.MultiReplicaSetMemberOption).ClusterStatusList
 	}
 
 	if option, exists := status.GetOption(statusOptions, status.WarningsOption{}); exists {
-		m.Status.AppDbStatus.Warnings = append(m.Status.AppDbStatus.Warnings, option.(status.WarningsOption).Warnings...)
+		om.Status.AppDbStatus.Warnings = append(om.Status.AppDbStatus.Warnings, option.(status.WarningsOption).Warnings...)
 	}
 
 	if phase == status.PhaseRunning {
-		spec := m.Spec.AppDB
-		m.Status.AppDbStatus.Version = spec.GetMongoDBVersion(nil)
-		m.Status.AppDbStatus.Message = ""
+		spec := om.Spec.AppDB
+		om.Status.AppDbStatus.Version = spec.GetMongoDBVersion(nil)
+		om.Status.AppDbStatus.Message = ""
 	}
 }
 
@@ -788,6 +788,24 @@ func (om *MongoDBOpsManager) GetStatus(options ...status.Option) interface{} {
 		}
 	}
 	return om.Status
+}
+
+func (om *MongoDBOpsManager) GetCommonStatus(options ...status.Option) *status.Common {
+	if part, exists := status.GetOption(options, status.OMPartOption{}); exists {
+		switch part.Value().(status.Part) {
+		case status.OpsManager:
+			return &om.Status.OpsManagerStatus.Common
+		case status.AppDb:
+			return &om.Status.AppDbStatus.Common
+		case status.Backup:
+			return &om.Status.BackupStatus.Common
+		}
+	}
+	return nil
+}
+
+func (om *MongoDBOpsManager) GetPhase() status.Phase {
+	return om.Status.OpsManagerStatus.Phase
 }
 
 func (om *MongoDBOpsManager) GetStatusPath(options ...status.Option) string {

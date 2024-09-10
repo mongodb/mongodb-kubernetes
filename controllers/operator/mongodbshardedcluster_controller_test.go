@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +12,9 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
 	"github.com/stretchr/testify/require"
 
+	"github.com/10gen/ops-manager-kubernetes/api/v1/status/pvc"
+
+	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 
@@ -130,6 +134,173 @@ func TestReconcileCreateShardedCluster_ScaleDown(t *testing.T) {
 
 	// No matter how many members we scale down by, we will only have one fewer each reconciliation
 	assert.Len(t, mock.GetMapForObject(clusterClient, &appsv1.StatefulSet{}), 5)
+}
+
+func TestReconcilePVCResizeShardedCluster(t *testing.T) {
+	ctx := context.Background()
+	// First creation
+	sc := DefaultClusterBuilder().SetShardCountSpec(2).SetShardCountStatus(2).Build()
+	persistence := mdbv1.Persistence{
+		SingleConfig: &mdbv1.PersistenceConfig{
+			Storage: "1Gi",
+		},
+	}
+	sc.Spec.Persistent = util.BooleanRef(true)
+	sc.Spec.ConfigSrvPodSpec.Persistence = &persistence
+	sc.Spec.ShardPodSpec.Persistence = &persistence
+	reconciler, _, c, _, err := defaultClusterReconciler(ctx, sc, nil)
+	assert.NoError(t, err)
+
+	// first, we create the shardedCluster with sts and pvc,
+	// no resize happening, even after running reconcile multiple times
+	checkReconcileSuccessful(ctx, t, reconciler, sc, c)
+	testNoResize(t, c, ctx, sc)
+
+	checkReconcileSuccessful(ctx, t, reconciler, sc, c)
+	testNoResize(t, c, ctx, sc)
+
+	createdConfigPVCs, createdSharded0PVCs, createdSharded1PVCs := getPVCs(t, c, ctx, sc)
+
+	newSize := "2Gi"
+	// increasing the storage now and start a new reconciliation
+	persistence.SingleConfig.Storage = newSize
+
+	sc.Spec.ConfigSrvPodSpec.Persistence = &persistence
+	sc.Spec.ShardPodSpec.Persistence = &persistence
+	err = c.Update(ctx, sc)
+	assert.NoError(t, err)
+
+	_, e := reconciler.Reconcile(ctx, requestFromObject(sc))
+	assert.NoError(t, e)
+
+	// its only one sts in the pvc status, since we haven't started the next one yet
+	testMDBStatus(t, c, ctx, sc, status.PhasePending, status.PVCS{{Phase: pvc.PhasePVCResize, StatefulsetName: "slaney-config"}})
+
+	testPVCSizeHasIncreased(t, c, ctx, newSize, "slaney-config")
+
+	// Running the same resize makes no difference, we are still resizing
+	_, e = reconciler.Reconcile(ctx, requestFromObject(sc))
+	assert.NoError(t, e)
+
+	testMDBStatus(t, c, ctx, sc, status.PhasePending, status.PVCS{{Phase: pvc.PhasePVCResize, StatefulsetName: "slaney-config"}})
+
+	for _, claim := range createdConfigPVCs {
+		setPVCWithUpdatedResource(ctx, t, c, &claim)
+	}
+
+	// Running reconcile again should go into orphan
+	_, e = reconciler.Reconcile(ctx, requestFromObject(sc))
+	assert.NoError(t, e)
+
+	// the second pvc is now getting resized
+	testMDBStatus(t, c, ctx, sc, status.PhasePending, status.PVCS{
+		{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: "slaney-config"},
+		{Phase: pvc.PhasePVCResize, StatefulsetName: "slaney-0"},
+	})
+	testPVCSizeHasIncreased(t, c, ctx, newSize, "slaney-0")
+	testStatefulsetHasAnnotationAndCorrectSize(t, c, ctx, sc.Namespace, sc.Name+"-config")
+
+	for _, claim := range createdSharded0PVCs {
+		setPVCWithUpdatedResource(ctx, t, c, &claim)
+	}
+
+	// Running reconcile again second pvcState should go into orphan, third one should start
+	_, e = reconciler.Reconcile(ctx, requestFromObject(sc))
+	assert.NoError(t, e)
+
+	testMDBStatus(t, c, ctx, sc, status.PhasePending, status.PVCS{
+		{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: "slaney-config"},
+		{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: "slaney-0"},
+		{Phase: pvc.PhasePVCResize, StatefulsetName: "slaney-1"},
+	})
+	testPVCSizeHasIncreased(t, c, ctx, newSize, "slaney-1")
+	testStatefulsetHasAnnotationAndCorrectSize(t, c, ctx, sc.Namespace, sc.Name+"-0")
+
+	for _, claim := range createdSharded1PVCs {
+		setPVCWithUpdatedResource(ctx, t, c, &claim)
+	}
+
+	// We move from resize → orphaned and in the final call in the reconciling to running and
+	// remove the PVCs.
+	_, err = reconciler.Reconcile(ctx, requestFromObject(sc))
+	assert.NoError(t, err)
+
+	// We are now in the running phase, since all statefulsets have finished resizing; therefore,
+	// no pvc phase is shown anymore
+	testMDBStatus(t, c, ctx, sc, status.PhaseRunning, nil)
+	testStatefulsetHasAnnotationAndCorrectSize(t, c, ctx, sc.Namespace, sc.Name+"-1")
+}
+
+func testStatefulsetHasAnnotationAndCorrectSize(t *testing.T, c client.Client, ctx context.Context, namespace, stsName string) {
+	// verify config-sts has been re-created with new annotation
+	sts := &appsv1.StatefulSet{}
+	err := c.Get(ctx, kube.ObjectKey(namespace, stsName), sts)
+	assert.NoError(t, err)
+	assert.Equal(t, "[{\"Name\":\"data\",\"Size\":\"2Gi\"}]", sts.Spec.Template.Annotations["mongodb.com/storageSize"])
+	assert.Equal(t, "2Gi", sts.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests.Storage().String())
+	assert.Len(t, sts.Spec.VolumeClaimTemplates, 1)
+}
+
+func testMDBStatus(t *testing.T, c kubernetesClient.Client, ctx context.Context, sc *mdbv1.MongoDB, expectedMDBPhase status.Phase, expectedPVCS status.PVCS) {
+	mdb := mdbv1.MongoDB{}
+	err := c.Get(ctx, kube.ObjectKey(sc.Namespace, sc.Name), &mdb)
+	assert.NoError(t, err)
+	require.Equal(t, expectedMDBPhase, mdb.Status.Phase)
+	require.Equal(t, expectedPVCS, mdb.Status.PVCs)
+}
+
+func getPVCs(t *testing.T, c kubernetesClient.Client, ctx context.Context, sc *mdbv1.MongoDB) ([]corev1.PersistentVolumeClaim, []corev1.PersistentVolumeClaim, []corev1.PersistentVolumeClaim) {
+	sts, err := c.GetStatefulSet(ctx, kube.ObjectKey(sc.Namespace, sc.Name+"-config"))
+	assert.NoError(t, err)
+	createdConfigPVCs := createPVCs(t, sts, c)
+
+	sts, err = c.GetStatefulSet(ctx, kube.ObjectKey(sc.Namespace, sc.Name+"-0"))
+	assert.NoError(t, err)
+	createdSharded0PVCs := createPVCs(t, sts, c)
+
+	sts, err = c.GetStatefulSet(ctx, kube.ObjectKey(sc.Namespace, sc.Name+"-1"))
+	assert.NoError(t, err)
+	createdSharded1PVCs := createPVCs(t, sts, c)
+	return createdConfigPVCs, createdSharded0PVCs, createdSharded1PVCs
+}
+
+func testNoResize(t *testing.T, c kubernetesClient.Client, ctx context.Context, sc *mdbv1.MongoDB) {
+	mdb := mdbv1.MongoDB{}
+	err := c.Get(ctx, kube.ObjectKey(sc.Namespace, sc.Name), &mdb)
+	assert.NoError(t, err)
+	assert.Nil(t, mdb.Status.PVCs)
+}
+
+func testPVCSizeHasIncreased(t *testing.T, c client.Client, ctx context.Context, newSize string, pvcName string) {
+	list := corev1.PersistentVolumeClaimList{}
+	err := c.List(ctx, &list)
+	require.NoError(t, err)
+	for _, item := range list.Items {
+		if strings.Contains(item.Name, pvcName) {
+			assert.Equal(t, item.Spec.Resources.Requests.Storage().String(), newSize)
+		}
+	}
+	require.NoError(t, err)
+}
+
+func createPVCs(t *testing.T, sts appsv1.StatefulSet, c client.Writer) []corev1.PersistentVolumeClaim {
+	var createdPVCs []corev1.PersistentVolumeClaim
+	// Manually create the PVCs that would be generated by the StatefulSet controller
+	for i := 0; i < int(*sts.Spec.Replicas); i++ {
+		pvcName := fmt.Sprintf("%s-%s-%d", sts.Spec.VolumeClaimTemplates[0].Name, sts.Name, i)
+		p := &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      pvcName,
+				Namespace: sts.Namespace,
+				Labels:    sts.Spec.Template.Labels,
+			},
+			Spec: sts.Spec.VolumeClaimTemplates[0].Spec,
+		}
+		err := c.Create(context.TODO(), p)
+		require.NoError(t, err)
+		createdPVCs = append(createdPVCs, *p)
+	}
+	return createdPVCs
 }
 
 // TestAddDeleteShardedCluster checks that no state is left in OpsManager on removal of the sharded cluster
@@ -1209,7 +1380,7 @@ func createDeploymentFromShardedCluster(t *testing.T, updatable v1.CustomResourc
 }
 
 func defaultClusterReconciler(ctx context.Context, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]cluster.Cluster) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, kubernetesClient.Client, *om.CachedOMConnectionFactory, error) {
-	r, reconcileHelper, kubeClient, omConnectionFactory, err := newShardedClusterReconcilerFromResource(ctx, *sc, globalMemberClustersMap)
+	r, reconcileHelper, kubeClient, omConnectionFactory, err := newShardedClusterReconcilerFromResource(ctx, *sc)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -1219,7 +1390,7 @@ func defaultClusterReconciler(ctx context.Context, sc *mdbv1.MongoDB, globalMemb
 	return r, reconcileHelper, kubeClient, omConnectionFactory, nil
 }
 
-func newShardedClusterReconcilerFromResource(ctx context.Context, sc mdbv1.MongoDB, globalMemberClustersMap map[string]cluster.Cluster) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, kubernetesClient.Client, *om.CachedOMConnectionFactory, error) {
+func newShardedClusterReconcilerFromResource(ctx context.Context, sc mdbv1.MongoDB) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, kubernetesClient.Client, *om.CachedOMConnectionFactory, error) {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(&sc)
 
 	r := &ReconcileMongoDbShardedCluster{
@@ -1272,9 +1443,11 @@ func DefaultClusterBuilder() *ClusterBuilder {
 		},
 		MongodbShardedClusterSizeConfig: sizeConfig,
 		ShardedClusterSpec: mdbv1.ShardedClusterSpec{
-			ConfigSrvSpec: &mdbv1.ShardedClusterComponentSpec{},
-			MongosSpec:    &mdbv1.ShardedClusterComponentSpec{},
-			ShardSpec:     &mdbv1.ShardedClusterComponentSpec{},
+			ConfigSrvSpec:    &mdbv1.ShardedClusterComponentSpec{},
+			MongosSpec:       &mdbv1.ShardedClusterComponentSpec{},
+			ShardSpec:        &mdbv1.ShardedClusterComponentSpec{},
+			ConfigSrvPodSpec: mdbv1.NewMongoDbPodSpec(),
+			ShardPodSpec:     mdbv1.NewMongoDbPodSpec(),
 		},
 	}
 

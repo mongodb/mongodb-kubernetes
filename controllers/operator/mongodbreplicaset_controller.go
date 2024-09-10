@@ -245,6 +245,12 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 			return r.updateOmDeploymentRs(ctx, conn, rs.Status.Members, rs, sts, log, caFilePath, agentCertSecretName, prometheusCertHash, false).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
+			workflowStatus := create.HandlePVCResize(ctx, r.client, &sts, log)
+			if !workflowStatus.IsOK() {
+				return workflowStatus
+			}
+			_, _ = r.updateStatus(ctx, rs, workflow.Pending(""), log, workflowStatus.StatusOptions()...)
+
 			if err := create.DatabaseInKubernetes(ctx, r.client, *rs, sts, construct.ReplicaSetOptions(), log); err != nil {
 				return workflow.Failed(xerrors.Errorf("Failed to create/update (Kubernetes reconciliation phase): %w", err))
 			}
@@ -290,7 +296,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	}
 
 	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
-	return r.updateStatus(ctx, rs, workflow.OK(), log, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), mdbstatus.MembersOption(rs))
+	return r.updateStatus(ctx, rs, workflow.OK(), log, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), mdbstatus.MembersOption(rs), mdbstatus.NewPVCsStatusOptionEmptyStatus())
 }
 
 func getHostnameOverrideConfigMapForReplicaset(mdb mdbv1.MongoDB) corev1.ConfigMap {

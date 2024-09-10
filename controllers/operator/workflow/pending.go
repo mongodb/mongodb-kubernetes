@@ -36,6 +36,11 @@ func (p *pendingStatus) WithResourcesNotReady(resourcesNotReady []status.Resourc
 	return p
 }
 
+func (p *pendingStatus) WithAdditionalOptions(options ...status.Option) *pendingStatus {
+	p.options = options
+	return p
+}
+
 func (p pendingStatus) ReconcileResult() (reconcile.Result, error) {
 	return reconcile.Result{RequeueAfter: time.Second * time.Duration(p.retryInSeconds), Requeue: p.requeue}, nil
 }

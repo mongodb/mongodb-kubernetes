@@ -1,14 +1,17 @@
 package statefulset
 
 import (
+	"cmp"
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
+	"strings"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-
-	"github.com/google/go-cmp/cmp"
+	gocmp "github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 	"go.uber.org/zap"
@@ -17,17 +20,19 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
+const PVCSizeAnnotation = "mongodb.com/storageSize"
+
 // isVolumeClaimEqualOnForbiddenFields takes two sts PVCs
 // and returns whether we are allowed to update the first one to the second one.
 func isVolumeClaimEqualOnForbiddenFields(existing, desired corev1.PersistentVolumeClaim) bool {
 	oldSpec := existing.Spec
 	newSpec := desired.Spec
 
-	if !cmp.Equal(oldSpec.AccessModes, newSpec.AccessModes, cmpopts.EquateEmpty()) {
+	if !gocmp.Equal(oldSpec.AccessModes, newSpec.AccessModes, cmpopts.EquateEmpty()) {
 		return false
 	}
 
-	if newSpec.Selector != nil && !cmp.Equal(oldSpec.Selector, newSpec.Selector, cmpopts.EquateEmpty()) {
+	if newSpec.Selector != nil && !gocmp.Equal(oldSpec.Selector, newSpec.Selector, cmpopts.EquateEmpty()) {
 		return false
 	}
 
@@ -59,7 +64,7 @@ func isVolumeClaimEqualOnForbiddenFields(existing, desired corev1.PersistentVolu
 // This is decided on equality on forbidden fields.
 func isStatefulSetEqualOnForbiddenFields(existing, desired appsv1.StatefulSet) bool {
 	// We are using cmp equal on purpose to enforce equality between nil and []
-	selectorsEqual := desired.Spec.Selector == nil || cmp.Equal(existing.Spec.Selector, desired.Spec.Selector, cmpopts.EquateEmpty())
+	selectorsEqual := desired.Spec.Selector == nil || gocmp.Equal(existing.Spec.Selector, desired.Spec.Selector, cmpopts.EquateEmpty())
 	serviceNamesEqual := existing.Spec.ServiceName == desired.Spec.ServiceName
 	podMgmtEqual := desired.Spec.PodManagementPolicy == "" || desired.Spec.PodManagementPolicy == existing.Spec.PodManagementPolicy
 	revHistoryLimitEqual := desired.Spec.RevisionHistoryLimit == nil || reflect.DeepEqual(desired.Spec.RevisionHistoryLimit, existing.Spec.RevisionHistoryLimit)
@@ -109,12 +114,21 @@ func CreateOrUpdateStatefulset(ctx context.Context, getUpdateCreator statefulset
 		log.Debug("Created StatefulSet")
 		return statefulSetToCreate, nil
 	}
-
 	// preserve existing certificate hash if new one is not statefulSetToCreate
 	existingCertHash, okExisting := existingStatefulSet.Spec.Template.Annotations[certs.CertHashAnnotationKey]
-	newCertHash, okNew := statefulSetToCreate.Spec.Template.Annotations[certs.CertHashAnnotationKey]
-	if existingCertHash != "" && newCertHash == "" && okExisting && okNew {
+	if newCertHash, okNew := statefulSetToCreate.Spec.Template.Annotations[certs.CertHashAnnotationKey]; existingCertHash != "" && newCertHash == "" && okExisting && okNew {
+		if statefulSetToCreate.Spec.Template.Annotations == nil {
+			statefulSetToCreate.Spec.Template.Annotations = map[string]string{}
+		}
 		statefulSetToCreate.Spec.Template.Annotations[certs.CertHashAnnotationKey] = existingCertHash
+	}
+
+	// there already exists a pvc size annotation, that means we did resize at least once
+	// we need to make sure to keep the annotation.
+	if _, okExisting := existingStatefulSet.Spec.Template.Annotations[PVCSizeAnnotation]; okExisting {
+		if err := AddPVCAnnotation(statefulSetToCreate); err != nil {
+			return nil, err
+		}
 	}
 
 	log.Debug("Checking if we can update the current statefulset")
@@ -130,10 +144,42 @@ func CreateOrUpdateStatefulset(ctx context.Context, getUpdateCreator statefulset
 	if err != nil {
 		return nil, err
 	}
+
 	return &updatedSts, nil
 }
 
-// func GetFilePathFromAnnotationOrDefault returns a concatenation of a default path and an annotation, or a default value
+// AddPVCAnnotation adds pvc annotation to the statefulset.template, this can either trigger a rolling restart
+// if the template has changed is a noop for an already existing one.
+func AddPVCAnnotation(statefulSetToCreate *appsv1.StatefulSet) error {
+	type pvcSizes struct {
+		Name string
+		Size string
+	}
+	if statefulSetToCreate.Spec.Template.Annotations == nil {
+		statefulSetToCreate.Spec.Template.Annotations = map[string]string{}
+	}
+	var p []pvcSizes
+	for _, template := range statefulSetToCreate.Spec.VolumeClaimTemplates {
+		p = append(p, pvcSizes{
+			Name: template.Name,
+			Size: template.Spec.Resources.Requests.Storage().String(),
+		})
+	}
+
+	// ensure a strict order to not have unnecessary restarts
+	slices.SortFunc(p, func(a, b pvcSizes) int {
+		return cmp.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
+	})
+
+	jsonString, err := json.Marshal(p)
+	if err != nil {
+		return err
+	}
+	statefulSetToCreate.Spec.Template.Annotations[PVCSizeAnnotation] = string(jsonString)
+	return nil
+}
+
+// GetFilePathFromAnnotationOrDefault returns a concatenation of a default path and an annotation, or a default value
 // if the annotation is not present.
 func GetFilePathFromAnnotationOrDefault(sts appsv1.StatefulSet, key string, path string, defaultValue string) string {
 	val, ok := sts.Annotations[key]

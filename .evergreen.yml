@@ -1217,11 +1217,6 @@ tasks:
   commands:
     - func: "e2e_test"
 
-- name: e2e_standalone_type_change_recovery
-  tags: ["patch-run"]
-  commands:
-    - func: "e2e_test"
-
 - name: e2e_all_mongodb_resources_parallel
   tags: ["patch-run"]
   commands:
@@ -1474,6 +1469,16 @@ tasks:
     - func: "e2e_test"
 
 - name: e2e_replica_set_custom_roles
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_pv_resize
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_sharded_cluster_pv_resize
   tags: ["patch-run"]
   commands:
     - func: "e2e_test"
@@ -1967,6 +1972,11 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: e2e_multi_cluster_pvc_resize
+  tags: ["patch-run"]
+  commands:
+    - func: e2e_test
+
 # this test is run, with an operator with race enabled
 - name: e2e_om_reconcile_race
   tags: ["patch-run"]
@@ -2097,7 +2107,6 @@ task_groups:
     - e2e_sharded_cluster_upgrade_downgrade
     - e2e_sharded_cluster_custom_podspec
     - e2e_sharded_cluster_agent_flags
-    - e2e_standalone_type_change_recovery
     - e2e_standalone_upgrade_downgrade
     - e2e_standalone_custom_podspec
     - e2e_standalone_agent_flags
@@ -2172,6 +2181,8 @@ task_groups:
     - e2e_vault_setup_tls
     # this test will either migrate from static to non-static or the other way around
     - e2e_replica_set_migration
+    - e2e_replica_set_pv_resize
+    - e2e_sharded_cluster_pv_resize
   <<: *teardown_group
 
 # this task group contains just a one task, which is smoke testing whether the operator
@@ -2278,6 +2289,7 @@ task_groups:
     - e2e_multi_cluster_validation
     - e2e_multi_cluster_agent_flags
     - e2e_multi_cluster_replica_set_ignore_unknown_users
+    - e2e_multi_cluster_pvc_resize
   <<: *teardown_group
 
 - name: e2e_multi_cluster_2_clusters_task_group

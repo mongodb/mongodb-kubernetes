@@ -1193,6 +1193,14 @@ func (m *MongoDB) GetStatus(...status.Option) interface{} {
 	return m.Status
 }
 
+func (m *MongoDB) GetCommonStatus(...status.Option) *status.Common {
+	return &m.Status.Common
+}
+
+func (m *MongoDB) GetPhase() status.Phase {
+	return m.Status.Phase
+}
+
 func (m *MongoDB) GetStatusPath(...status.Option) string {
 	return "/status"
 }

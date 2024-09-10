@@ -101,3 +101,23 @@ func GetOption(statusOptions []Option, targetOption Option) (Option, bool) {
 	}
 	return noOption{}, false
 }
+
+// PVCStatusOption describes the resources pvc statuses
+type PVCStatusOption struct {
+	PVC *PVC
+}
+
+func NewPVCsStatusOption(pvc *PVC) PVCStatusOption {
+	return PVCStatusOption{PVC: pvc}
+}
+
+func (o PVCStatusOption) Value() interface{} {
+	return o.PVC
+}
+
+// NewPVCsStatusOptionEmptyStatus sets a nil status; such that later in r.updateStatus(), commonUpdate sets the field
+// explicitly to nil to remove that field.
+// Otherwise, that field will forever be in the status field.
+func NewPVCsStatusOptionEmptyStatus() PVCStatusOption {
+	return PVCStatusOption{PVC: nil}
+}

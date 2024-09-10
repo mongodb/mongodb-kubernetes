@@ -25,6 +25,11 @@ func (o *okStatus) WithWarnings(warnings []status.Warning) *okStatus {
 	return o
 }
 
+func (o *okStatus) WithAdditionalOptions(options ...status.Option) *okStatus {
+	o.options = options
+	return o
+}
+
 func (o okStatus) ReconcileResult() (reconcile.Result, error) {
 	return reconcile.Result{Requeue: o.requeue, RequeueAfter: o.requeueAfter}, nil
 }

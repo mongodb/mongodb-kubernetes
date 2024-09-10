@@ -38,6 +38,10 @@ type MongoDBUser struct {
 	Spec   MongoDBUserSpec   `json:"spec"`
 }
 
+func (user *MongoDBUser) GetCommonStatus(options ...status.Option) *status.Common {
+	return &user.Status.Common
+}
+
 // GetPassword returns the password of the user as stored in the referenced
 // secret. If the password secret reference is unset then a blank password and
 // a nil error will be returned.

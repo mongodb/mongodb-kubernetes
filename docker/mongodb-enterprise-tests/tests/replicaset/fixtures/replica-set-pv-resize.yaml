@@ -1,0 +1,26 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: rs001-pv
+spec:
+  members: 3
+  version: 4.4.0
+  type: ReplicaSet
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  persistent: true
+  podSpec:
+    persistence:
+      multiple:
+        data:
+          storage: 1Gi
+          storageClass: csi-hostpath-sc
+        journal:
+          storage: 1Gi
+          storageClass: csi-hostpath-sc
+        logs:
+          storage: 1Gi
+          storageClass: csi-hostpath-sc

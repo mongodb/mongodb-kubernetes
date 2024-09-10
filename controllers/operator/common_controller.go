@@ -150,15 +150,15 @@ func ensureRoles(roles []mdbv1.MongoDbRole, conn om.Connection, log *zap.Sugared
 
 // updateStatus updates the status for the CR using patch operation. Note, that the resource status is mutated and
 // it's important to pass resource by pointer to all methods which invoke current 'updateStatus'.
-func (r *ReconcileCommonController) updateStatus(ctx context.Context, reconciledResource v1.CustomResourceReadWriter, status workflow.Status, log *zap.SugaredLogger, statusOptions ...status.Option) (reconcile.Result, error) {
-	mergedOptions := append(statusOptions, status.StatusOptions()...)
-	log.Debugf("Updating status: phase=%v, options=%+v", status.Phase(), mergedOptions)
-	reconciledResource.UpdateStatus(status.Phase(), mergedOptions...)
+func (r *ReconcileCommonController) updateStatus(ctx context.Context, reconciledResource v1.CustomResourceReadWriter, st workflow.Status, log *zap.SugaredLogger, statusOptions ...status.Option) (reconcile.Result, error) {
+	mergedOptions := append(statusOptions, st.StatusOptions()...)
+	log.Debugf("Updating status: phase=%v, options=%+v", st.Phase(), mergedOptions)
+	reconciledResource.UpdateStatus(st.Phase(), mergedOptions...)
 	if err := r.patchUpdateStatus(ctx, reconciledResource, statusOptions...); err != nil {
-		log.Errorf("Error updating status to %s: %s", status.Phase(), err)
+		log.Errorf("Error updating status to %s: %s", st.Phase(), err)
 		return reconcile.Result{}, err
 	}
-	return status.ReconcileResult()
+	return st.ReconcileResult()
 }
 
 type WatcherResource interface {
@@ -433,6 +433,7 @@ func getStatefulSetStatus(ctx context.Context, namespace, name string, client ku
 			WithResourcesNotReady(statefulSetState.GetResourcesNotReadyStatus()).
 			WithRetry(3)
 	}
+
 	return workflow.OK()
 }
 
