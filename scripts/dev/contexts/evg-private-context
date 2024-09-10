@@ -72,22 +72,10 @@ export AWS_SECRET_ACCESS_KEY="$mms_eng_test_aws_secret"
 export AWS_DEFAULT_REGION="$mms_eng_test_aws_region"
 
 # setup_cloud_qa.py
-# In EVG we use two sorts of credentials to avoid 200 org and keys limitation.
-if [[ ${context:-} == "e2e_mdb_kind_ubi_cloudqa" ]]; then
-  export e2e_cloud_qa_orgid_owner="${e2e_cloud_qa_orgid_owner_ubi_cloudqa}"
-  export e2e_cloud_qa_apikey_owner="${e2e_cloud_qa_apikey_owner_ubi_cloudqa}"
-  export e2e_cloud_qa_user_owner="${e2e_cloud_qa_user_owner_ubi_cloudqa}"
-elif [[ $context == "root-context" ]]; then
-  echo "Skipping setting Cloud QA credentials for root builds"
-elif [[ $context == "e2e_static_mdb_kind_ubi_cloudqa" ]]; then
-  export e2e_cloud_qa_orgid_owner="${e2e_cloud_qa_orgid_owner_static}"
-  export e2e_cloud_qa_apikey_owner="${e2e_cloud_qa_apikey_owner_static}"
-  export e2e_cloud_qa_user_owner="${e2e_cloud_qa_user_owner_static}"
-else
-  export e2e_cloud_qa_orgid_owner="${e2e_cloud_qa_orgid_owner_ubi_cloudqa_2}"
-  export e2e_cloud_qa_apikey_owner="${e2e_cloud_qa_apikey_owner_ubi_cloudqa_2}"
-  export e2e_cloud_qa_user_owner="${e2e_cloud_qa_user_owner_ubi_cloudqa_2}"
-fi
+export e2e_cloud_qa_orgid_owner="${e2e_cloud_qa_orgid_owner_ubi_cloudqa}"
+export e2e_cloud_qa_apikey_owner="${e2e_cloud_qa_apikey_owner_ubi_cloudqa}"
+export e2e_cloud_qa_user_owner="${e2e_cloud_qa_user_owner_ubi_cloudqa}"
+
 
 export e2e_cloud_qa_baseurl="https://cloud-qa.mongodb.com"
 

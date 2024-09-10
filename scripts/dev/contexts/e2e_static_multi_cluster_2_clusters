@@ -14,7 +14,3 @@ export CENTRAL_CLUSTER=kind-e2e-cluster-1
 export test_pod_cluster=kind-e2e-cluster-1
 export ops_manager_version="cloud_qa"
 export MDB_DEFAULT_ARCHITECTURE=static
-
-export e2e_cloud_qa_orgid_owner="${e2e_cloud_qa_orgid_owner_static_2}"
-export e2e_cloud_qa_apikey_owner="${e2e_cloud_qa_apikey_owner_static_2}"
-export e2e_cloud_qa_user_owner="${e2e_cloud_qa_user_owner_static_2}"

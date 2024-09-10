@@ -17,21 +17,12 @@ NAMESPACE_FILE = "NAMESPACE_FILE"
 OPS_MANAGER_VERSION = "ops_manager_version"
 APIKEY_OWNERS = [
     "e2e_cloud_qa_apikey_owner",
-    "e2e_cloud_qa_apikey_owner_2",
-    "e2e_cloud_qa_apikey_owner_static",
-    "e2e_cloud_qa_apikey_owner_static_2",
 ]
 ORG_IDS = [
     "e2e_cloud_qa_orgid_owner",
-    "e2e_cloud_qa_orgid_owner_2",
-    "e2e_cloud_qa_orgid_owner_static",
-    "e2e_cloud_qa_orgid_owner_static_2",
 ]
 USER_OWNERS = [
     "e2e_cloud_qa_user_owner",
-    "e2e_cloud_qa_user_owner_2",
-    "e2e_cloud_qa_user_owner_static",
-    "e2e_cloud_qa_user_owner_static_2",
 ]
 
 APIKEY_OWNER = APIKEY_OWNERS[0]
