@@ -33,6 +33,8 @@ release_json = {
                     "7.0.4": {"agent_version": "107.0.4.8567-1", "tools_version": "100.9.4"},
                     "7.0.6": {"agent_version": "107.0.6.8587-1", "tools_version": "100.9.4"},
                     "7.0.7": {"agent_version": "107.0.7.8596-1", "tools_version": "100.9.4"},
+                    "7.0.10": {"agent_version": "107.0.10.8627-1", "tools_version": "100.9.5"},
+                    "7.0.11": {"agent_version": "107.0.11.8645-1", "tools_version": "100.10.0"},
                 },
             }
         }
@@ -128,7 +130,7 @@ def test_is_release_step_executed(description, case):
 
 def test_build_latest_agent_versions():
     latest_agents = build_latest_agent_versions(release_json)
-    expected_agents = [("107.0.7.8596-1", "100.9.4"), ("12.0.31.7825-1", "100.9.4"), ("13.19.0.8937-1", "100.9.4")]
+    expected_agents = [("107.0.11.8645-1", "100.10.0"), ("12.0.31.7825-1", "100.9.4"), ("13.19.0.8937-1", "100.9.4")]
     assert latest_agents == expected_agents
 
 
