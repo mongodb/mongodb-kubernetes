@@ -46,12 +46,13 @@ configure() {
 
   ssh -T -q "${host_url}" "sudo chown ubuntu:ubuntu ~/.docker || true; mkdir -p ~/.docker"
   if [[ -f "$HOME/.docker/config.json" ]]; then
-    scp "$HOME/.docker/config.json" "${host_url}:/home/ubuntu/.docker/"
+    echo "Copying local ~/.docker/config.json authorization credentials to EVG host"
+    jq '. | with_entries(select(.key == "auths"))' "$HOME/.docker/config.json" | ssh -T -q "${host_url}" 'cat > /home/ubuntu/.docker/config.json'
   fi
 
   sync
 
-  ssh -T -q "${host_url}" "cd ~/ops-manager-kubernetes; make switch context=root-context; scripts/dev/setup_evg_host.sh ${arch}"
+  ssh -T -q "${host_url}" "cd ~/ops-manager-kubernetes; scripts/dev/switch_context.sh root-context; scripts/dev/setup_evg_host.sh ${arch}"
 }
 
 sync() {
