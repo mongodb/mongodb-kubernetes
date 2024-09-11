@@ -247,7 +247,7 @@ func testMDBStatusMulti(t *testing.T, c kubernetesClient.Client, ctx context.Con
 
 func TestReconcileFails_WhenProjectConfig_IsNotFound(t *testing.T) {
 	ctx := context.Background()
-	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().Build()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
 
 	reconciler, _, _, _ := defaultMultiReplicaSetReconciler(ctx, mrs)
 
@@ -1213,6 +1213,27 @@ func TestMultiReplicaSet_AgentVersionMapping(t *testing.T) {
 		reconciler, client, _, _ := defaultMultiReplicaSetReconciler(ctx, defaultResource)
 		checkMultiReconcileSuccessful(ctx, t, reconciler, defaultResource, client, false)
 	})
+}
+
+func TestValidationsRunOnReconcile(t *testing.T) {
+	ctx := context.Background()
+	duplicateName := "duplicate"
+	clustersWithDuplicate := []string{duplicateName, duplicateName, "cluster-3"}
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clustersWithDuplicate).Build()
+	reconciler, client, _, _ := defaultMultiReplicaSetReconciler(ctx, mrs)
+
+	// copied
+	err := client.Update(ctx, mrs)
+	assert.NoError(t, err)
+
+	_, err = reconciler.Reconcile(ctx, requestFromObject(mrs))
+	assert.NoError(t, err)
+
+	// fetch the last updates as the reconciliation loop can update the mdb resource.
+	err = client.Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.Name), mrs)
+	assert.NoError(t, err)
+	assert.Equal(t, status.PhaseFailed, mrs.Status.Phase)
+	assert.Equal(t, fmt.Sprintf("Multiple clusters with the same name (%s) are not allowed", duplicateName), mrs.Status.Message)
 }
 
 func assertClusterpresent(t *testing.T, m map[string]int, specs []mdb.ClusterSpecItem, arr []int) {
