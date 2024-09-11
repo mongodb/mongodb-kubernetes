@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
+
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
@@ -30,6 +32,9 @@ func (m *MongoDBMultiCluster) ProcessValidationsOnReconcile(old *MongoDBMultiClu
 	for _, res := range m.RunValidations(old) {
 		if res.Level == v1.ErrorLevel {
 			return errors.New(res.Msg)
+		}
+		if res.Level == v1.WarningLevel {
+			m.AddWarningIfNotExists(status.Warning(res.Msg))
 		}
 	}
 	return nil
@@ -106,4 +111,8 @@ func validateUniqueExternalDomains(ms MongoDBMultiSpec) v1.ValidationResult {
 		present[externalDomain] = struct{}{}
 	}
 	return v1.ValidationSuccess()
+}
+
+func (m *MongoDBMultiCluster) AddWarningIfNotExists(warning status.Warning) {
+	m.Status.Warnings = status.Warnings(m.Status.Warnings).AddIfNotExists(warning)
 }
