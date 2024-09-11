@@ -3,6 +3,7 @@
 
 /pkg/client
 /vendor/
+public/tools/multicluster/vendor
 docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator
 docker/mongodb-enterprise-database/content/mongodb-mms-automation-agent-version.properties
 docker/mongodb-enterprise-database/content/readinessprobe
