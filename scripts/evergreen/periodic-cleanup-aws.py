@@ -8,21 +8,34 @@ REPOSITORIES_NAMES = ["dev/mongodb-agent-ubi"]
 REGISTRY_ID = "268558157000"
 REGION = "us-east-1"
 DEFAULT_AGE_THRESHOLD_DAYS = 1  # Number of days to consider as the age threshold
-MAX_BOTO_IMAGES = 1000
+BOTO_MAX_PAGE_SIZE = 1000
 
 ecr_client = boto3.client("ecr", region_name=REGION)
 
 
-def get_images_with_dates(repository: str) -> List[dict]:
-    """Retrieve the list of patch images, corresponding to the regex with push dates"""
-    images_with_dates = []
-    response = ecr_client.describe_images(
-        repositoryName=repository,
-        registryId=REGISTRY_ID,
-        maxResults=MAX_BOTO_IMAGES,
+def describe_all_ecr_images(repository: str) -> List[dict]:
+    """Retrieve all ECR images from the repository."""
+    images = []
+
+    # Boto3 can only return a maximum of 1000 images per request, we need a paginator to retrieve all images
+    # from the repository
+    paginator = ecr_client.get_paginator("describe_images")
+
+    page_iterator = paginator.paginate(
+        repositoryName=repository, registryId=REGISTRY_ID, PaginationConfig={"PageSize": BOTO_MAX_PAGE_SIZE}
     )
 
-    for image_detail in response["imageDetails"]:
+    for page in page_iterator:
+        details = page.get("imageDetails", [])
+        images.extend(details)
+
+    return images
+
+
+def filter_images_matching_tag(images: List[dict]) -> List[dict]:
+    """Filter list for images containing the target pattern"""
+    images_matching_tag = []
+    for image_detail in images:
         if "imageTags" in image_detail:
             for tag in image_detail["imageTags"]:
                 # The Evergreen patch id we use for building the test images tags uses an Object ID
@@ -33,9 +46,17 @@ def get_images_with_dates(repository: str) -> List[dict]:
                 # Note that if the operator ever gets to major version 6, some tags can unintentionally match '_6'
                 # It is an easy and relatively reliable way of identifying our test images tags
                 if "_6" in tag:
-                    images_with_dates.append({"imageTag": tag, "imagePushedAt": image_detail["imagePushedAt"]})
+                    images_matching_tag.append({"imageTag": tag, "imagePushedAt": image_detail["imagePushedAt"]})
+    return images_matching_tag
 
-    return images_with_dates
+
+def get_images_with_dates(repository: str) -> List[dict]:
+    """Retrieve the list of patch images, corresponding to the regex, with push dates"""
+    ecr_images = describe_all_ecr_images(repository)
+    print(f"Found {len(ecr_images)} images in repository {repository}")
+    images_matching_tag = filter_images_matching_tag(ecr_images)
+
+    return images_matching_tag
 
 
 def delete_image(repository: str, image_tag: str) -> None:
@@ -43,18 +64,14 @@ def delete_image(repository: str, image_tag: str) -> None:
     print(f"Deleted image with tag: {image_tag}")
 
 
-def cleanup_repository(repository: str, age_threshold: int = DEFAULT_AGE_THRESHOLD_DAYS, dry_run: bool = False):
-    print(f"Cleaning up images older than {DEFAULT_AGE_THRESHOLD_DAYS} day(s) from repository {repository}")
-    print(f"Due to boto3 limitations, only {MAX_BOTO_IMAGES} images are processed")
-    print("Getting list of images...")
-    images_with_dates = get_images_with_dates(repository)
-    print(f"Images matching the pattern: {len(images_with_dates)}")
-
+def delete_images(
+    repository: str,
+    images_with_dates: List[dict],
+    age_threshold: int = DEFAULT_AGE_THRESHOLD_DAYS,
+    dry_run: bool = False,
+) -> None:
     # Get the current time in UTC
     current_time = datetime.now(timezone.utc)
-
-    # Sort the images by their push date (oldest first)
-    images_with_dates.sort(key=lambda x: x["imagePushedAt"])
 
     # Process the images, deleting those older than the threshold
     delete_count = 0
@@ -75,6 +92,19 @@ def cleanup_repository(repository: str, age_threshold: int = DEFAULT_AGE_THRESHO
             print(f"{log_message_base}, not older than {age_threshold} day(s)")
     deleted_message = "need to be cleaned up" if dry_run else "deleted"
     print(f"{delete_count} images {deleted_message}")
+
+
+def cleanup_repository(repository: str, age_threshold: int = DEFAULT_AGE_THRESHOLD_DAYS, dry_run: bool = False):
+    print(f"Cleaning up images older than {DEFAULT_AGE_THRESHOLD_DAYS} day(s) from repository {repository}")
+    print("Getting list of images...")
+    images_with_dates = get_images_with_dates(repository)
+    print(f"Images matching the pattern: {len(images_with_dates)}")
+
+    # Sort the images by their push date (oldest first)
+    images_with_dates.sort(key=lambda x: x["imagePushedAt"])
+
+    delete_images(repository, images_with_dates, age_threshold, dry_run)
+    print(f"Repository {repository} cleaned up")
 
 
 def main():
