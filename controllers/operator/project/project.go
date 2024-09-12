@@ -191,25 +191,27 @@ func findOrganizationByName(conn om.Connection, name string, log *zap.SugaredLog
 	// 1. We try to find the organization using 'name' filter parameter first
 	organizations, err := conn.ReadOrganizationsByName(name)
 	if err != nil {
+		// This code is Ops Manager < 7 variant. Once 6 is EOL, it can be removed.
 		if v, ok := err.(*apierror.Error); ok {
 			if v.ErrorCode == apierror.OrganizationNotFound {
 				// the "name" API is supported and the organization not found - returning nil
 				return "", nil
 			}
 		}
-
-		log.Error(err)
+		return "", xerrors.Errorf("could not find organization %s: %w", name, err)
 	}
-	if err == nil {
-		for _, organization := range organizations {
-			// there is no error so we need to check if the organization found has this name
-			if organization.Name == name {
-				return organization.ID, nil
-			}
+	// There's no error, so now we're checking organizations and matching names.
+	// This code is needed as the Ops Manager selects organizations that "start by" the query. So potentially,
+	// it can return manu results.
+	// For example:
+	//   When looking for name "development", it may return ["development", "development-oplog"].
+	for _, organization := range organizations {
+		if organization.Name == name {
+			return organization.ID, nil
 		}
 	}
-
-	return "", xerrors.Errorf("could not find organization %s: %w", name, err)
+	// This is the fallback case - there is no org and in subsequent steps we'll create it.
+	return "", nil
 }
 
 func tryCreateProject(organization *om.Organization, projectName, orgId string, conn om.Connection, log *zap.SugaredLogger) (*om.Project, error) {

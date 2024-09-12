@@ -6,6 +6,8 @@ variables:
 
   - &ops_manager_70_latest 7.0.11 # The order/index is important, since these are anchors. Please do not change
 
+  - &ops_manager_80_latest 8.0.0-rc1 # The order/index is important, since these are anchors. Please do not change
+
 # The dependency unification between static and non-static is intentional here.
 # Even though some images are exclusive, in EVG they all are built once and in parallel.
 # It is not worth the effort of splitting them out.
@@ -88,6 +90,25 @@ variables:
     depends_on:
       - name: build_om_images
         variant: build_om70_images
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_init_appdb_images_ubi
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
+
+  - &base_om8_dependency
+    depends_on:
+      - name: build_om_images
+        variant: build_om80_images
       - name: build_operator_ubi
         variant: init_test_run
       - name: build_init_database_image_ubi
@@ -2667,7 +2688,15 @@ buildvariants:
   - name: e2e_static_ops_manager_kind_only_task_group
   - name: e2e_static_ops_manager_kind_6_0_only_task_group
 
-# Isolated Ops Manager Tests for 7.0 version
+- name: e2e_static_om80_kind_ubi
+  display_name: e2e_static_om80_kind_ubi
+  run_on:
+    - ubuntu2204-large
+  <<: *base_om8_dependency
+  tasks:
+    - name: e2e_static_ops_manager_kind_only_task_group
+    - name: e2e_static_ops_manager_kind_6_0_only_task_group
+
 - name: e2e_om70_kind_ubi
   display_name: e2e_om70_kind_ubi
   run_on:
@@ -2678,6 +2707,16 @@ buildvariants:
   - name: e2e_ops_manager_kind_5_0_only_task_group
   - name: e2e_ops_manager_kind_6_0_only_task_group
 
+- name: e2e_om80_kind_ubi
+  display_name: e2e_om80_kind_ubi
+  run_on:
+    - ubuntu2204-large
+  <<: *base_om8_dependency
+  tasks:
+    - name: e2e_ops_manager_kind_only_task_group
+    - name: e2e_ops_manager_kind_5_0_only_task_group
+    - name: e2e_ops_manager_kind_6_0_only_task_group
+
 - name: e2e_operator_race_ubi
   display_name: e2e_operator_race_ubi
   run_on:
@@ -2686,7 +2725,6 @@ buildvariants:
   tasks:
     - name: e2e_operator_race_task_group
 
-# Isolated Ops Manager Tests for 7.0 version
 - name: e2e_static_om70_kind_ubi
   display_name: e2e_static_om70_kind_ubi
   run_on:
@@ -3055,6 +3093,33 @@ buildvariants:
     - variant: e2e_om70_kind_ubi
       name: '*'
     - variant: e2e_static_om70_kind_ubi
+      name: '*'
+  tasks:
+    - name: publish_ops_manager
+    - name: release_agent
+
+- name: build_om80_images
+  display_name: build_om80_images
+  run_on:
+    - ubuntu2204-small
+  tasks:
+    - name: build_om_images
+
+- name: preflight_om80_images
+  display_name: preflight_om80_images
+  run_on:
+    - rhel90-small
+  tasks:
+    - name: preflight_om_image
+
+- name: publish_om80_images
+  display_name: publish_om80_images
+  run_on:
+    - ubuntu2204-large
+  depends_on:
+    - variant: e2e_om80_kind_ubi
+      name: '*'
+    - variant: e2e_static_om80_kind_ubi
       name: '*'
   tasks:
     - name: publish_ops_manager

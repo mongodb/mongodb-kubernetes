@@ -588,6 +588,9 @@ def is_version_in_range(version: str, min_version: str, max_version: str) -> boo
     """Check if the version is in the range"""
     try:
         parsed_version = semver.VersionInfo.parse(version)
+        if parsed_version.prerelease:
+            logger.info(f"Excluding {version} from range {min_version}-{max_version} because it's a pre-release")
+            return False
         version_without_rc = semver.VersionInfo.finalize_version(parsed_version)
     except ValueError:
         version_without_rc = version
@@ -1177,6 +1180,7 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         "init-ops-manager-daily": build_image_daily("init-ops-manager"),
         "ops-manager-6-daily": build_image_daily("ops-manager", min_version="6.0.0", max_version="7.0.0"),
         "ops-manager-7-daily": build_image_daily("ops-manager", min_version="7.0.0", max_version="8.0.0"),
+        "ops-manager-8-daily": build_image_daily("ops-manager", min_version="8.0.0", max_version="9.0.0"),
         #
         # Ops Manager image
         "ops-manager": build_om_image,
