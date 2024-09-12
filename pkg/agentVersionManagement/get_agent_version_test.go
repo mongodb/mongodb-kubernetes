@@ -49,6 +49,10 @@ var jsonContents = `
           "7.0.2": {
             "agent_version": "107.0.2.8531-1",
             "tools_version": "100.9.4"
+          },
+          "8.0.0-rc1": {
+            "agent_version": "108.0.0.8676-1",
+            "tools_version": "100.10.0"
           }
         }
       },
@@ -137,6 +141,14 @@ func TestGetAgentVersionManager(t *testing.T) {
 				omVersion: "5.0.10",
 			},
 			wantErr: true,
+		},
+		{
+			name: "Ops Manager RC interpreted correctly",
+			args: args{
+				readFromMapping: true,
+				omVersion:       "8.0.0-rc1",
+			},
+			want: "108.0.0.8676-1",
 		},
 		{
 			name: "Version not in mapping, does not matter since using connection",

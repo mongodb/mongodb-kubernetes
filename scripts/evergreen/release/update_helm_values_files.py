@@ -9,6 +9,7 @@ Usage:
 """
 import json
 import sys
+from typing import List
 
 from agent_matrix import get_supported_version_for_image_matrix_handling
 from helm_files_handler import set_value_in_yaml_file, update_all_helm_values_files
@@ -28,6 +29,11 @@ def load_release():
         return json.load(fd)
 
 
+def filterNonReleaseOut(versions: List[str]) -> List[str]:
+    """Filters out all Release Candidate versions"""
+    return list(filter(lambda x: "-rc" not in x, versions))
+
+
 def main() -> int:
     release = load_release()
     for k in release:
@@ -37,22 +43,22 @@ def main() -> int:
     set_value_in_yaml_file(
         "helm_chart/values-openshift.yaml",
         "relatedImages.opsManager",
-        release["supportedImages"]["ops-manager"]["versions"],
+        filterNonReleaseOut(release["supportedImages"]["ops-manager"]["versions"]),
     )
     set_value_in_yaml_file(
         "helm_chart/values-openshift.yaml",
         "relatedImages.mongodbLegacyAppDb",
-        release["supportedImages"]["appdb-database"]["versions"],
+        filterNonReleaseOut(release["supportedImages"]["appdb-database"]["versions"]),
     )
     set_value_in_yaml_file(
         "helm_chart/values-openshift.yaml",
         "relatedImages.mongodb",
-        release["supportedImages"]["mongodb-enterprise-server"]["versions"],
+        filterNonReleaseOut(release["supportedImages"]["mongodb-enterprise-server"]["versions"]),
     )
     set_value_in_yaml_file(
         "helm_chart/values-openshift.yaml",
         "relatedImages.agent",
-        get_supported_version_for_image_matrix_handling("mongodb-agent"),
+        filterNonReleaseOut(get_supported_version_for_image_matrix_handling("mongodb-agent")),
     )
 
     return 0
