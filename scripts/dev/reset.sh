@@ -33,6 +33,12 @@ reset_context() {
   if [ -n "$matching_resources" ]; then
     kubectl_cmd delete --context "${context}" "${matching_resources}"
   fi
+
+  # Deleting ClusterRoles
+  matching_resources=$(kubectl get clusterroles --context "${context}" -o name | grep mongodb || echo "")
+  if [ -n "$matching_resources" ]; then
+    kubectl_cmd delete --context "${context}" "${matching_resources}"
+  fi
 }
 
 reset_context_namespace() {
