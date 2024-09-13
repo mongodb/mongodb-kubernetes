@@ -89,7 +89,9 @@ remote-prepare-local-e2e-run() {
 }
 
 get-kubeconfig() {
-    scp "${host_url}:/home/ubuntu/.operator-dev/evg-host.kubeconfig" "${kubeconfig_path}"
+  remote_path="${host_url}:/home/ubuntu/.operator-dev/evg-host.kubeconfig"
+  echo "Copying remote kubeconfig from ${remote_path} to ${kubeconfig_path}"
+  scp "${remote_path}" "${kubeconfig_path}"
 }
 
 recreate-kind-clusters() {
@@ -113,7 +115,9 @@ recreate-kind-cluster() {
 
 tunnel() {
   shift 1
-  api_servers=$(yq '.clusters.[].cluster.server' < "${kubeconfig_path}" | sed 's/https:\/\///g')
+  # shellcheck disable=SC2016
+  api_servers=$(yq '.contexts[].context.cluster as $cluster | .clusters[] | select(.name == $cluster).cluster.server' < "${kubeconfig_path}" | sed 's/https:\/\///g')
+  echo "Extracted the following API server urls from ${kubeconfig_path}: ${api_servers}"
   port_forwards=()
   for api_server in ${api_servers}; do
     host=$(echo "${api_server}" | cut -d ':' -f1)
@@ -121,7 +125,7 @@ tunnel() {
     if [[ "${port}" == "${host}" ]]; then
       port="443"
     fi
-    port_forwards+=("-L" "${port}:${host}:${port}")
+   port_forwards+=("-L" "${port}:${host}:${port}")
   done
 
   set -x

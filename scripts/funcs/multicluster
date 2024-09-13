@@ -271,6 +271,8 @@ run_multi_cluster_kube_config_creator() {
 
   # when running e2e tests of multi-cluster appdb locally, installing this causes failures when installing operator using helm-chart in the testing code
   if [[ ${MULTI_CLUSTER_INSTALL_DATABASE_ROLES:-"true"} == "true" ]]; then
+    >&2 echo "WARNING: When running e2e tests for multicluster locally, installing database roles might cause failures."
+    >&2 echo "If you encounter errors when e2e tests install helm charts, try setting MULTI_CLUSTER_INSTALL_DATABASE_ROLES var to false in your private context."
     params+=("--install-database-roles")
   fi
 
