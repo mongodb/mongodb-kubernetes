@@ -60,6 +60,9 @@ def update_agent_and_tools_version(data, missing_version):
     # starting om 7 our tag starts with ops-manager-<version> instead
     if missing_version.startswith("7."):
         tag_to_search = f"ops-manager-{missing_version}"
+    # TODO: temporary fix to the pre-commit hook, to remove once the OM8 tags follow the same conventions as OM7 ones
+    elif missing_version.startswith("8."):
+        tag_to_search = f"ops-manager-8.0"
     else:
         tag_to_search = f"on-prem-{missing_version}"
     url = f"https://raw.githubusercontent.com/{repo_owner}/{repo_name}/{tag_to_search}/{file_path}"
