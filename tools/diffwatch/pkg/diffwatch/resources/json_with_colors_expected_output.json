@@ -1,0 +1,13 @@
+             "certificateKeyFile": "/var/lib/mongodb-automation/secrets/certs/LFKN25MS7RP2OSSJM3ORWIGPUW7VHJ24MOYDC2IXP77ADT45OR3A",
+[30;41m-            "mode": "requireTLS"[0m
+[30;42m+            "mode": "preferTLS"[0m
+           }
+--
+       "authSchemaVersion": 5,
+[30;41m-      "disabled": false,[0m
+[30;42m+      "disabled": true,[0m
+       "featureCompatibilityVersion": "6.0",
+--
+       "processType": "mongod",
+[30;42m+      "newField1": 1[0m
+     }
