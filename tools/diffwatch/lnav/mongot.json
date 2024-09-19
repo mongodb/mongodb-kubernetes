@@ -1,0 +1,54 @@
+{
+  "mongot_logs": {
+    "title": "MongoDB Search (mongot) Log Format",
+    "description": "Log format for MongoDB Search service (mongot)",
+    "url": "https://www.mongodb.com/docs/atlas/atlas-search/",
+    "json": true,
+    "file-pattern": "mongot.*\\.log|.*mongot.*\\.log",
+    "line-format": [
+      { "field": "__timestamp__" },
+      " ",
+      { "field": "s", "min-width": 5, "align": "left" },
+      " ",
+      { "field": "svc", "min-width": 6, "align": "left" },
+      " [",
+      {
+        "field": "ctx",
+        "max-width": 25,
+        "overflow": "truncate",
+        "align": "left"
+      },
+      "] ",
+      {
+        "field": "n",
+        "max-width": 30,
+        "overflow": "truncate",
+        "align": "left"
+      },
+      ": ",
+      { "field": "msg" },
+      " ",
+      { "field": "attr", "default-value": "" }
+    ],
+    "timestamp-field": "t",
+    "level-field": "s",
+    "body-field": "msg",
+    "opid-field": "ctx",
+    "level": {
+      "error": "ERROR",
+      "warning": "WARN",
+      "info": "INFO",
+      "debug": "DEBUG",
+      "trace": "TRACE"
+    },
+    "value": {
+      "t": { "kind": "string", "identifier": true },
+      "s": { "kind": "string", "identifier": true },
+      "svc": { "kind": "string", "identifier": true },
+      "ctx": { "kind": "string", "identifier": true },
+      "n": { "kind": "string", "identifier": true },
+      "msg": { "kind": "string" },
+      "attr": { "kind": "json" }
+    }
+  }
+}

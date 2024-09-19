@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "processes": [
+    {
+      "name": "om-backup-db-0-0",
+      "disabled": true,
+      "ignoredField": 3,
+      "timestamp": "2024-07-16T11:12:48.275Z",
+      "hostname": "om-backup-db-0-0-svc.lsierant-10.svc.cluster.local",
+      "args2_6": {
+        "net": {
+          "port": 27017,
+          "tls": {
+            "certificateKeyFile": "/var/lib/mongodb-automation/secrets/certs/LFKN25MS7RP2OSSJM3ORWIGPUW7VHJ24MOYDC2IXP77ADT45OR3A",
+            "mode": "preferTLS"
+          }
+        },
+        "replication": {
+          "replSetName": "om-backup-db"
+        },
+        "storage": {
+          "dbPath": "/data"
+        },
+        "systemLog": {
+          "destination": "file",
+          "logAppend": false,
+          "path": "/var/log/mongodb-mms-automation/mongodb.log"
+        }
+      },
+      "featureCompatibilityVersion": "6.0",
+      "processType": "mongod",
+      "version": "6.0.6-ent",
+      "authSchemaVersion": 5,
+      "newField1": 1,
+      "newField2": 2,
+      "newField3": 3,
+      "newField4": 4,
+      "newField5": 6,
+      "LogRotate": {
+        "timeThresholdHrs": 0,
+        "sizeThresholdMB": 0
+      },
+      "newField6": 6
+    }
+  ]
+}
