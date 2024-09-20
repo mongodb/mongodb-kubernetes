@@ -249,7 +249,9 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 			if !workflowStatus.IsOK() {
 				return workflowStatus
 			}
-			_, _ = r.updateStatus(ctx, rs, workflow.Pending(""), log, workflowStatus.StatusOptions()...)
+			if workflow.ContainsPVCOption(workflowStatus.StatusOptions()) {
+				_, _ = r.updateStatus(ctx, rs, workflow.Pending(""), log, workflowStatus.StatusOptions()...)
+			}
 
 			if err := create.DatabaseInKubernetes(ctx, r.client, *rs, sts, construct.ReplicaSetOptions(), log); err != nil {
 				return workflow.Failed(xerrors.Errorf("Failed to create/update (Kubernetes reconciliation phase): %w", err))

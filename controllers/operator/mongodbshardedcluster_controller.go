@@ -482,7 +482,9 @@ func (r *ShardedClusterReconcileHelper) createKubernetesResources(ctx context.Co
 	if !workflowStatus.IsOK() {
 		return workflowStatus
 	}
-	_, _ = r.updateStatus(ctx, s, workflow.Pending(""), log, workflowStatus.StatusOptions()...)
+	if workflow.ContainsPVCOption(workflowStatus.StatusOptions()) {
+		_, _ = r.updateStatus(ctx, s, workflow.Pending(""), log, workflowStatus.StatusOptions()...)
+	}
 
 	if err := create.DatabaseInKubernetes(ctx, r.client, *s, configSrvSts, configSrvOpts, log); err != nil {
 		return workflow.Failed(xerrors.Errorf("Failed to create Config Server Stateful Set: %w", err))
@@ -506,7 +508,9 @@ func (r *ShardedClusterReconcileHelper) createKubernetesResources(ctx context.Co
 		if !workflowStatus.IsOK() {
 			return workflowStatus
 		}
-		_, _ = r.updateStatus(ctx, s, workflow.Pending(""), log, workflowStatus.StatusOptions()...)
+		if workflow.ContainsPVCOption(workflowStatus.StatusOptions()) {
+			_, _ = r.updateStatus(ctx, s, workflow.Pending(""), log, workflowStatus.StatusOptions()...)
+		}
 
 		if err := create.DatabaseInKubernetes(ctx, r.client, *s, shardSts, shardOpts, log); err != nil {
 			return workflow.Failed(xerrors.Errorf("Failed to create Stateful Set for shard %s: %w", shardsNames[i], err))
