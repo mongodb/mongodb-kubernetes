@@ -78,7 +78,7 @@ python3.6 -m pip install venv --user
 python3.6 -m venv venv
 
 source venv/bin/activate
-python -m pip install -r requirements.txt
+PIP_CONSTRAINT=constraints.txt python -m pip install -r requirements.txt
 ```
 
 * After the first run, when coming back to the project it should be
