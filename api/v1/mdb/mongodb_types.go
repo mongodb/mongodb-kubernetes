@@ -1568,3 +1568,26 @@ func (m *MongoDB) IsInChangeVersion() bool {
 	}
 	return false
 }
+
+func (m *MongoDB) IsInDowngrade() bool {
+	spec, err := m.GetLastSpec()
+	if err != nil {
+		return false
+	}
+	if spec == nil {
+		return false
+	}
+	return isDowngrade(spec.Version, m.Spec.Version)
+}
+
+func isDowngrade(oldV string, currentV string) bool {
+	oldVersion, err := semver.Make(oldV)
+	if err != nil {
+		return false
+	}
+	currentVersion, err := semver.Make(currentV)
+	if err != nil {
+		return false
+	}
+	return oldVersion.GT(currentVersion)
+}
