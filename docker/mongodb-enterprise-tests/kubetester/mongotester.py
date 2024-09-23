@@ -112,6 +112,7 @@ class MongoTester:
         while True:
             attempts -= 1
             try:
+                logging.warning(f"connected nodes: {self.client.nodes}")
                 self.client.admin.command("ismaster")
                 if write_concern:
                     d = self.client.get_database(name=db, write_concern=write_concern)

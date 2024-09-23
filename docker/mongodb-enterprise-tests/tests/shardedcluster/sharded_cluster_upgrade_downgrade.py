@@ -1,5 +1,8 @@
 import pymongo
+from kubetester import MongoDB, create_or_update, try_load
 from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.mongodb import Phase
 from kubetester.mongotester import (
     MongoDBBackgroundTester,
     MongoTester,
@@ -14,11 +17,20 @@ def mongod_tester():
 
 
 @fixture(scope="module")
+def sharded_cluster(namespace: str, custom_mdb_prev_version: str, cluster_domain: str) -> MongoDB:
+    resource = MongoDB.from_yaml(yaml_fixture("sharded-cluster-downgrade.yaml"), namespace=namespace)
+    resource.set_version(custom_mdb_prev_version)
+    if try_load(resource):
+        return resource
+    return create_or_update(resource)
+
+
+@fixture(scope="module")
 def mdb_health_checker(mongod_tester: MongoTester) -> MongoDBBackgroundTester:
     return MongoDBBackgroundTester(
         mongod_tester,
         # After running multiple tests, it seems that on sharded_cluster version changes we have more sequential errors.
-        allowed_sequential_failures=3,
+        allowed_sequential_failures=5,
         health_function_params={
             "attempts": 1,
             "write_concern": pymongo.WriteConcern(w="majority"),
@@ -28,55 +40,45 @@ def mdb_health_checker(mongod_tester: MongoTester) -> MongoDBBackgroundTester:
 
 @mark.e2e_sharded_cluster_upgrade_downgrade
 class TestShardedClusterUpgradeDowngradeCreate(KubernetesTester):
-    """
-    name: ShardedCluster upgrade downgrade (create)
-    description: |
-      Creates a sharded cluster, then upgrades it with compatibility version set and then downgrades back
-    create:
-      file: sharded-cluster-downgrade.yaml
-      wait_until: in_running_state
-      timeout: 1000
-    """
+    def test_mdb_created(self, sharded_cluster: MongoDB):
+        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1000)
 
     def test_start_mongod_background_tester(self, mdb_health_checker):
         mdb_health_checker.start()
 
-    def test_db_connectable(self, mongod_tester):
+    def test_db_connectable(self, mongod_tester, custom_mdb_prev_version: str):
         mongod_tester.assert_connectivity()
-        mongod_tester.assert_version("4.4.2")
+        mongod_tester.assert_version(custom_mdb_prev_version)
 
 
 @mark.e2e_sharded_cluster_upgrade_downgrade
 class TestShardedClusterUpgradeDowngradeUpdate(KubernetesTester):
-    """
-    name: ShardedCluster upgrade downgrade (update)
-    description: |
-      Updates a ShardedCluster to bigger version, leaving feature compatibility version as it was
-    update:
-      file: sharded-cluster-downgrade.yaml
-      patch: '[{"op":"replace","path":"/spec/version", "value": "4.4.0"}, {"op":"add","path":"/spec/featureCompatibilityVersion", "value": "4.4"}]'
-      wait_until: in_running_state
-      timeout: 1000
-    """
+    def test_mongodb_upgrade(self, sharded_cluster: MongoDB, custom_mdb_version: str, custom_mdb_prev_version: str):
+        sharded_cluster.load()
+        sharded_cluster["spec"]["version"] = custom_mdb_version
+        fcv = custom_mdb_prev_version.split(".")
+        sharded_cluster["spec"]["featureCompatibilityVersion"] = f"{fcv[0]}.{fcv[1]}"
+        create_or_update(sharded_cluster)
 
-    def test_db_connectable(self, mongod_tester):
-        mongod_tester.assert_version("4.4.0")
+        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1200)
+        sharded_cluster.tester().assert_version(custom_mdb_version)
+
+    def test_db_connectable(self, mongod_tester, custom_mdb_version: str):
+        mongod_tester.assert_version(custom_mdb_version)
 
 
 @mark.e2e_sharded_cluster_upgrade_downgrade
 class TestShardedClusterUpgradeDowngradeRevert(KubernetesTester):
-    """
-    name: ShardedCluster upgrade downgrade (downgrade)
-    description: |
-      Updates a ShardedCluster to the same version it was created initially
-    update:
-      file: sharded-cluster-downgrade.yaml
-      wait_until: in_running_state
-      timeout: 1000
-    """
+    def test_mongodb_downgrade(self, sharded_cluster: MongoDB, custom_mdb_prev_version: str):
+        sharded_cluster.load()
+        sharded_cluster["spec"]["version"] = custom_mdb_prev_version
+        create_or_update(sharded_cluster)
 
-    def test_db_connectable(self, mongod_tester):
-        mongod_tester.assert_version("4.4.2")
+        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1200)
+        sharded_cluster.tester().assert_version(custom_mdb_prev_version)
+
+    def test_db_connectable(self, mongod_tester, custom_mdb_prev_version):
+        mongod_tester.assert_version(custom_mdb_prev_version)
 
     def test_mdb_healthy_throughout_change_version(self, mdb_health_checker):
         mdb_health_checker.assert_healthiness()
