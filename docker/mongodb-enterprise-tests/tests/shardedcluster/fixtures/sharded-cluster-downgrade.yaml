@@ -4,10 +4,10 @@ metadata:
   name: sh001-downgrade
 spec:
   type: ShardedCluster
-  shardCount: 2
-  mongodsPerShardCount: 1
-  mongosCount: 1
-  configServerCount: 1
+  shardCount: 3
+  mongodsPerShardCount: 3
+  mongosCount: 3
+  configServerCount: 3
   version: 4.4.2
   opsManager:
     configMapRef:

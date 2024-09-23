@@ -471,34 +471,69 @@ func (r *ShardedClusterReconcileHelper) ensureSSLCertificates(ctx context.Contex
 }
 
 // createKubernetesResources creates all Kubernetes objects that are specified in 'state' parameter.
-// This function returns errorStatus if any errors occured or pendingStatus if the statefulsets are not
+// This function returns errorStatus if any errors occurred or pendingStatus if the statefulsets are not
 // ready yet
 // Note, that it doesn't remove any existing shards - this will be done later
 func (r *ShardedClusterReconcileHelper) createKubernetesResources(ctx context.Context, s *mdbv1.MongoDB, opts deploymentOptions, log *zap.SugaredLogger) workflow.Status {
-	configSrvOpts := r.getConfigServerOptions(ctx, *s, opts, log)
-	configSrvSts := construct.DatabaseStatefulSet(*s, configSrvOpts, nil)
+	// In static containers, we control the order of the upgrades.
+	// That also means we need to ensure correct
+	// ordering during downgrades, which is the opposite order.
+	if s.IsInDowngrade() && architectures.IsRunningStaticArchitecture(s.Annotations) {
+		mongosWorkflowStatus := r.createOrUpdateMongos(ctx, s, opts, log)
+		if !mongosWorkflowStatus.IsOK() {
+			return mongosWorkflowStatus
+		}
 
-	workflowStatus := create.HandlePVCResize(ctx, r.client, &configSrvSts, log)
-	if !workflowStatus.IsOK() {
-		return workflowStatus
-	}
-	if workflow.ContainsPVCOption(workflowStatus.StatusOptions()) {
-		_, _ = r.updateStatus(ctx, s, workflow.Pending(""), log, workflowStatus.StatusOptions()...)
+		shardsWorkflowStatus := r.createOrUpdateShards(ctx, s, opts, log)
+		if !shardsWorkflowStatus.IsOK() {
+			return shardsWorkflowStatus
+		}
+
+		configWorkflowStatus := r.createOrUpdateConfigServer(ctx, s, opts, log)
+		if !configWorkflowStatus.IsOK() {
+			return configWorkflowStatus
+		}
+
+	} else {
+		configWorkflowStatus := r.createOrUpdateConfigServer(ctx, s, opts, log)
+		if !configWorkflowStatus.IsOK() {
+			return configWorkflowStatus
+		}
+
+		shardsWorkflowStatus := r.createOrUpdateShards(ctx, s, opts, log)
+		if !shardsWorkflowStatus.IsOK() {
+			return shardsWorkflowStatus
+		}
+
+		mongosWorkflowStatus := r.createOrUpdateMongos(ctx, s, opts, log)
+		if !mongosWorkflowStatus.IsOK() {
+			return mongosWorkflowStatus
+		}
 	}
 
-	if err := create.DatabaseInKubernetes(ctx, r.client, *s, configSrvSts, configSrvOpts, log); err != nil {
-		return workflow.Failed(xerrors.Errorf("Failed to create Config Server Stateful Set: %w", err))
+	return workflow.OK()
+}
+
+func (r *ShardedClusterReconcileHelper) createOrUpdateMongos(ctx context.Context, s *mdbv1.MongoDB, opts deploymentOptions, log *zap.SugaredLogger) workflow.Status {
+	mongosOpts := r.getMongosOptions(ctx, *s, opts, log)
+	mongosSts := construct.DatabaseStatefulSet(*s, mongosOpts, nil)
+
+	if err := create.DatabaseInKubernetes(ctx, r.client, *s, mongosSts, mongosOpts, log); err != nil {
+		return workflow.Failed(xerrors.Errorf("Failed to create Mongos Stateful Set: %w", err))
 	}
 
-	if status := getStatefulSetStatus(ctx, s.Namespace, s.ConfigRsName(), r.client); !status.IsOK() {
+	if status := getStatefulSetStatus(ctx, s.Namespace, s.MongosRsName(), r.client); !status.IsOK() {
 		return status
 	}
+
 	_, _ = r.updateStatus(ctx, s, workflow.Pending("").WithResourcesNotReady([]mdbstatus.ResourceNotReady{}), log)
 
-	log.Infow("Created/updated StatefulSet for config servers", "name", s.ConfigRsName(), "servers count", configSrvSts.Spec.Replicas)
+	log.Infow("Created/updated StatefulSet for mongos servers", "name", s.MongosRsName(), "servers count", mongosSts.Spec.Replicas)
+	return workflow.OK()
+}
 
+func (r *ShardedClusterReconcileHelper) createOrUpdateShards(ctx context.Context, s *mdbv1.MongoDB, opts deploymentOptions, log *zap.SugaredLogger) workflow.Status {
 	shardsNames := make([]string, s.Spec.ShardCount)
-
 	for i := 0; i < s.Spec.ShardCount; i++ {
 		shardsNames[i] = s.ShardRsName(i)
 		shardOpts := r.getShardOptions(ctx, *s, i, opts, log)
@@ -508,6 +543,7 @@ func (r *ShardedClusterReconcileHelper) createKubernetesResources(ctx context.Co
 		if !workflowStatus.IsOK() {
 			return workflowStatus
 		}
+
 		if workflow.ContainsPVCOption(workflowStatus.StatusOptions()) {
 			_, _ = r.updateStatus(ctx, s, workflow.Pending(""), log, workflowStatus.StatusOptions()...)
 		}
@@ -523,21 +559,33 @@ func (r *ShardedClusterReconcileHelper) createKubernetesResources(ctx context.Co
 	}
 
 	log.Infow("Created/updated Stateful Sets for shards in Kubernetes", "shards", shardsNames)
+	return workflow.OK()
+}
 
-	mongosOpts := r.getMongosOptions(ctx, *s, opts, log)
-	mongosSts := construct.DatabaseStatefulSet(*s, mongosOpts, nil)
+func (r *ShardedClusterReconcileHelper) createOrUpdateConfigServer(ctx context.Context, s *mdbv1.MongoDB, opts deploymentOptions, log *zap.SugaredLogger) workflow.Status {
+	configSrvOpts := r.getConfigServerOptions(ctx, *s, opts, log)
+	configSrvSts := construct.DatabaseStatefulSet(*s, configSrvOpts, nil)
 
-	if err := create.DatabaseInKubernetes(ctx, r.client, *s, mongosSts, mongosOpts, log); err != nil {
-		return workflow.Failed(xerrors.Errorf("Failed to create Mongos Stateful Set: %w", err))
+	workflowStatus := create.HandlePVCResize(ctx, r.client, &configSrvSts, log)
+	if !workflowStatus.IsOK() {
+		return workflowStatus
 	}
 
-	if status := getStatefulSetStatus(ctx, s.Namespace, s.MongosRsName(), r.client); !status.IsOK() {
+	if workflow.ContainsPVCOption(workflowStatus.StatusOptions()) {
+		_, _ = r.updateStatus(ctx, s, workflow.Pending(""), log, workflowStatus.StatusOptions()...)
+	}
+
+	if err := create.DatabaseInKubernetes(ctx, r.client, *s, configSrvSts, configSrvOpts, log); err != nil {
+		return workflow.Failed(xerrors.Errorf("Failed to create Config Server Stateful Set: %w", err))
+	}
+
+	if status := getStatefulSetStatus(ctx, s.Namespace, s.ConfigRsName(), r.client); !status.IsOK() {
 		return status
 	}
-
 	_, _ = r.updateStatus(ctx, s, workflow.Pending("").WithResourcesNotReady([]mdbstatus.ResourceNotReady{}), log)
 
-	log.Infow("Created/updated StatefulSet for mongos servers", "name", s.MongosRsName(), "servers count", mongosSts.Spec.Replicas)
+	log.Infow("Created/updated StatefulSet for config servers", "name", s.ConfigRsName(), "servers count", configSrvSts.Spec.Replicas)
+
 	return workflow.OK()
 }
 
