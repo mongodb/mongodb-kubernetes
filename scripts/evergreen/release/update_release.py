@@ -2,12 +2,15 @@
 
 import configparser
 import json
+import logging
 import os
 import sys
 
 import requests
 import yaml
 from packaging.version import Version
+
+logger = logging.getLogger(__name__)
 
 
 def get_latest_om_versions_from_evergreen_yml():
@@ -60,9 +63,10 @@ def update_agent_and_tools_version(data, missing_version):
     # starting om 7 our tag starts with ops-manager-<version> instead
     if missing_version.startswith("7."):
         tag_to_search = f"ops-manager-{missing_version}"
-    # TODO: temporary fix to the pre-commit hook, to remove once the OM8 tags follow the same conventions as OM7 ones
     elif missing_version.startswith("8."):
-        tag_to_search = f"ops-manager-8.0"
+        logger.warning("Update for Ops Manager 8.0 temporarily disabled due to RC builds")
+        # tag_to_search = f"ops-manager-8.0"
+        return
     else:
         tag_to_search = f"on-prem-{missing_version}"
     url = f"https://raw.githubusercontent.com/{repo_owner}/{repo_name}/{tag_to_search}/{file_path}"
