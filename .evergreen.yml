@@ -386,6 +386,8 @@ functions:
         - ${workdir}/bin
         - ${workdir}/venv/bin
       working_dir: src/github.com/10gen/ops-manager-kubernetes
+      include_expansions_in_env:
+        - GITHUB_TOKEN_READ
       binary: scripts/evergreen/check_precommit.sh
 
   setup_kubectl: &setup_kubectl

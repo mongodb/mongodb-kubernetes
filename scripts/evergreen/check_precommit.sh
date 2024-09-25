@@ -14,9 +14,7 @@ initial_index_state=$(git diff --name-only --cached --diff-filter=AM)
 
 export EVERGREEN_MODE=true
 
-# Capturing the output avoids to stop if an error occurs
-pre_commit_output=$(source .githooks/pre-commit) || true
-echo "$pre_commit_output"
+.githooks/pre-commit
 echo "Pre-commit hook has completed."
 
 # Stage any changes made by the pre-commit hook
