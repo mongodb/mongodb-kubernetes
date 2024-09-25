@@ -70,7 +70,8 @@ def update_agent_and_tools_version(data, missing_version):
     else:
         tag_to_search = f"on-prem-{missing_version}"
     url = f"https://raw.githubusercontent.com/{repo_owner}/{repo_name}/{tag_to_search}/{file_path}"
-    response = requests.get(url, headers=get_headers())
+
+    response = requests.get(url=url, headers=get_headers())
     # Check if the request was successful
     if response.status_code == 200:
         config = configparser.ConfigParser()

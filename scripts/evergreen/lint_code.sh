@@ -26,7 +26,7 @@ fi
 # important to turn off modules to ensure a global install
 if ! [[ -x "$(command -v goimports)" ]]; then
     echo "installing goimports..."
-    go install golang.org/x/tools/cmd/goimports
+    go install golang.org/x/tools/cmd/goimports@latest
 fi
 
 # format code with gofumpt
