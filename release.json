@@ -139,7 +139,7 @@
         "cloud_manager_tools": "100.10.0",
         "ops_manager": {
           "8.0.0-rc1": {
-            "agent_version": "108.0.0.8690-1",
+            "agent_version": "108.0.0.8676-1",
             "tools_version": "100.10.0"
           },
           "6.0.0": {
