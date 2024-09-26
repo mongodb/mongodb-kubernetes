@@ -146,7 +146,7 @@ func readFailedClusterAnnotation(annotations map[string]string) []failedcluster.
 }
 
 // clusterWithMinimumMembers returns the index of the cluster with the minimum number of nodes.
-func clusterWithMinimumMembers(clusters []mdb.ClusterSpecItem) int {
+func clusterWithMinimumMembers(clusters mdb.ClusterSpecList) int {
 	mini, index := math.MaxInt64, -1
 
 	for nn, c := range clusters {
@@ -159,7 +159,7 @@ func clusterWithMinimumMembers(clusters []mdb.ClusterSpecItem) int {
 }
 
 // distributeFailedMembers evenly distributes the failed cluster's members amongst the remaining healthy clusters.
-func distributeFailedMembers(clusters []mdb.ClusterSpecItem, clustername string) []mdb.ClusterSpecItem {
+func distributeFailedMembers(clusters mdb.ClusterSpecList, clustername string) mdb.ClusterSpecList {
 	// add the cluster override annotations. Get the current clusterspec list from the CR and
 	// increase the members of the first cluster by the number of failed nodes
 	membersToFailOver := 0
@@ -230,7 +230,7 @@ func addFailedClustersAnnotation(ctx context.Context, mrs mdbmulti.MongoDBMultiC
 	return annotations.SetAnnotations(ctx, &mrs, map[string]string{failedcluster.FailedClusterAnnotation: string(clusterDataBytes)}, client)
 }
 
-func getClusterMembers(clusterSpecList []mdb.ClusterSpecItem, clusterName string) int {
+func getClusterMembers(clusterSpecList mdb.ClusterSpecList, clusterName string) int {
 	for _, e := range clusterSpecList {
 		if e.ClusterName == clusterName {
 			return e.Members

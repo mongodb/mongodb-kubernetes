@@ -145,7 +145,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return r.updateStatus(ctx, &mrs, workflow.Failed(xerrors.Errorf("Error reading project config and credentials: %w", err)), log)
 	}
 
-	conn, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, mrs.Namespace, log)
+	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, mrs.Namespace, log)
 	if err != nil {
 		return r.updateStatus(ctx, &mrs, workflow.Failed(xerrors.Errorf("error establishing connection to Ops Manager: %w", err)), log)
 	}
@@ -488,11 +488,11 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 
 		opts := mconstruct.MultiClusterReplicaSetOptions(
 			mconstruct.WithClusterNum(clusterNum),
-			mconstruct.WithMemberCount(replicasThisReconciliation),
+			Replicas(replicasThisReconciliation),
 			mconstruct.WithStsOverride(&stsOverride),
 			mconstruct.WithAnnotations(mrs.Name, certHash),
 			mconstruct.WithServiceName(mrs.MultiHeadlessServiceName(clusterNum)),
-			PodEnvVars(newPodVars(conn, projectConfig, mrs.Spec.ConnectionSpec)),
+			PodEnvVars(newPodVars(conn, projectConfig, mrs.Spec.LogLevel)),
 			CurrentAgentAuthMechanism(currentAgentAuthMode),
 			CertificateHash(certHash),
 			InternalClusterHash(internalCertHash),
@@ -681,7 +681,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 		reachableHostnames = append(reachableHostnames, hostnamesToAdd...)
 	}
 
-	err = agents.WaitForRsAgentsToRegisterReplicasSpecifiedMultiCluster(conn, reachableHostnames, log)
+	err = agents.WaitForRsAgentsToRegisterSpecifiedHostnames(conn, reachableHostnames, log)
 	if err != nil && !isRecovering {
 		return err
 	}
@@ -1173,7 +1173,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(ctx context.Conte
 	}
 
 	log.Infow("Removing replica set from Ops Manager", "config", mrs.Spec)
-	conn, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, mrs.Namespace, log)
+	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, mrs.Namespace, log)
 	if err != nil {
 		return err
 	}
@@ -1244,9 +1244,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) deleteClusterResources(ctx context.Con
 	var errs error
 
 	// cleanup resources in the namespace as the MongoDBMultiCluster with the corresponding label.
-	cleanupOptions := mongodbCleanUpOptions{
-		namespace: mrs.Namespace,
-		labels:    mongoDBMultiLabels(mrs.Name, mrs.Namespace),
+	cleanupOptions := mdb.MongodbCleanUpOptions{
+		Namespace: mrs.Namespace,
+		Labels:    mongoDBMultiLabels(mrs.Name, mrs.Namespace),
 	}
 
 	if err := c.DeleteAllOf(ctx, &corev1.Service{}, &cleanupOptions); err != nil {
@@ -1279,8 +1279,8 @@ func (r *ReconcileMongoDbMultiReplicaSet) deleteClusterResources(ctx context.Con
 }
 
 // filterClusterSpecItem filters items out of a list based on provided predicate.
-func filterClusterSpecItem(items []mdb.ClusterSpecItem, fn func(item mdb.ClusterSpecItem) bool) []mdb.ClusterSpecItem {
-	var result []mdb.ClusterSpecItem
+func filterClusterSpecItem(items mdb.ClusterSpecList, fn func(item mdb.ClusterSpecItem) bool) mdb.ClusterSpecList {
+	var result mdb.ClusterSpecList
 	for _, item := range items {
 		if fn(item) {
 			result = append(result, item)
@@ -1289,13 +1289,13 @@ func filterClusterSpecItem(items []mdb.ClusterSpecItem, fn func(item mdb.Cluster
 	return result
 }
 
-func sortClusterSpecList(clusterSpecList []mdb.ClusterSpecItem) {
+func sortClusterSpecList(clusterSpecList mdb.ClusterSpecList) {
 	sort.SliceStable(clusterSpecList, func(i, j int) bool {
 		return clusterSpecList[i].ClusterName < clusterSpecList[j].ClusterName
 	})
 }
 
-func clusterSpecListsEqual(effective, desired []mdb.ClusterSpecItem) bool {
+func clusterSpecListsEqual(effective, desired mdb.ClusterSpecList) bool {
 	comparer := cmp.Comparer(func(x, y automationconfig.MemberOptions) bool {
 		return true
 	})

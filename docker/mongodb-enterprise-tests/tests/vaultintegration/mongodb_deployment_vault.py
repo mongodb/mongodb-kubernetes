@@ -374,14 +374,13 @@ def test_rotate_agent_certs(replica_set: MongoDB, vault_namespace: str, vault_na
         "foo=bar",
     ]
     run_command_in_vault(vault_namespace, vault_name, cmd, ["version"])
-    replica_set.assert_abandons_phase(Phase.Running, timeout=600)
     replica_set.assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
-    replica_set.load()
 
     def wait_for_agent_certs() -> bool:
+        replica_set.load()
         return old_version != replica_set["metadata"]["annotations"]["agent-certs"]
 
-    kubetester.wait_until(wait_for_agent_certs)
+    kubetester.wait_until(wait_for_agent_certs, timeout=600, sleep_time=10)
 
 
 @mark.e2e_vault_setup

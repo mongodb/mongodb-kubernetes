@@ -7,59 +7,66 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 )
 
-func GetMultiPodName(mdbmName string, clusterNum, podNum int) string {
-	return fmt.Sprintf("%s-%d-%d", mdbmName, clusterNum, podNum)
+func GetMultiPodName(stsName string, clusterNum, podNum int) string {
+	return fmt.Sprintf("%s-%d-%d", stsName, clusterNum, podNum)
 }
 
-func GetMultiServiceName(mdbmName string, clusterNum, podNum int) string {
-	return fmt.Sprintf("%s-svc", GetMultiPodName(mdbmName, clusterNum, podNum))
+func GetMultiServiceName(stsName string, clusterNum, podNum int) string {
+	return fmt.Sprintf("%s-svc", GetMultiPodName(stsName, clusterNum, podNum))
 }
 
-func GetMultiHeadlessServiceName(mdbmName string, clusterNum int) string {
-	return fmt.Sprintf("%s-%d-svc", mdbmName, clusterNum)
+func GetMultiHeadlessServiceName(stsName string, clusterNum int) string {
+	return fmt.Sprintf("%s-%d-svc", stsName, clusterNum)
 }
 
-func GetServiceName(mdbmName string) string {
-	return fmt.Sprintf("%s-svc", mdbmName)
+func GetServiceName(stsName string) string {
+	return fmt.Sprintf("%s-svc", stsName)
 }
 
-func GetExternalServiceName(mdbmName string, podNum int) string {
-	return fmt.Sprintf("%s-%d-svc-external", mdbmName, podNum)
+func GetExternalServiceName(stsName string, podNum int) string {
+	return fmt.Sprintf("%s-%d-svc-external", stsName, podNum)
 }
 
-func GetMultiExternalServiceName(mdbmName string, clusterNum, podNum int) string {
-	return fmt.Sprintf("%s-external", GetMultiServiceName(mdbmName, clusterNum, podNum))
+func GetMultiExternalServiceName(stsName string, clusterNum, podNum int) string {
+	return fmt.Sprintf("%s-external", GetMultiServiceName(stsName, clusterNum, podNum))
 }
 
-func GetMultiServiceFQDN(mdbmName string, namespace string, clusterNum int, podNum int, clusterDomain string) string {
+func GetMultiServiceFQDN(stsName string, namespace string, clusterNum int, podNum int, clusterDomain string) string {
 	domain := "cluster.local"
 	if len(clusterDomain) > 0 {
 		domain = strings.TrimPrefix(clusterDomain, ".")
 	}
 
-	return fmt.Sprintf("%s.%s.svc.%s", GetMultiServiceName(mdbmName, clusterNum, podNum), namespace, domain)
+	return fmt.Sprintf("%s.%s.svc.%s", GetMultiServiceName(stsName, clusterNum, podNum), namespace, domain)
 }
 
-func GetMultiServiceExternalDomain(mdbmName, externalDomain string, clusterNum, podNum int) string {
-	return fmt.Sprintf("%s.%s", GetMultiPodName(mdbmName, clusterNum, podNum), externalDomain)
+func GetMultiServiceExternalDomain(stsName, externalDomain string, clusterNum, podNum int) string {
+	return fmt.Sprintf("%s.%s", GetMultiPodName(stsName, clusterNum, podNum), externalDomain)
 }
 
 // GetMultiClusterProcessHostnames returns the agent hostnames, which they should be registered in OM in multi-cluster mode.
-func GetMultiClusterProcessHostnames(mdbmName, namespace string, clusterNum, members int, clusterDomain string, externalDomain *string) []string {
-	hostnames := make([]string, 0)
-
-	for podNum := 0; podNum < members; podNum++ {
-		hostnames = append(hostnames, GetMultiClusterPodServiceFQDN(mdbmName, namespace, clusterNum, externalDomain, podNum, clusterDomain))
-	}
-
+func GetMultiClusterProcessHostnames(stsName, namespace string, clusterNum, members int, clusterDomain string, externalDomain *string) []string {
+	hostnames, _ := GetMultiClusterProcessHostnamesAndPodNames(stsName, namespace, clusterNum, members, clusterDomain, externalDomain)
 	return hostnames
 }
 
-func GetMultiClusterPodServiceFQDN(mdbmName string, namespace string, clusterNum int, externalDomain *string, podNum int, clusterDomain string) string {
-	if externalDomain != nil {
-		return GetMultiServiceExternalDomain(mdbmName, *externalDomain, clusterNum, podNum)
+func GetMultiClusterProcessHostnamesAndPodNames(stsName, namespace string, clusterNum, members int, clusterDomain string, externalDomain *string) ([]string, []string) {
+	hostnames := make([]string, 0)
+	podNames := make([]string, 0)
+
+	for podNum := 0; podNum < members; podNum++ {
+		hostnames = append(hostnames, GetMultiClusterPodServiceFQDN(stsName, namespace, clusterNum, externalDomain, podNum, clusterDomain))
+		podNames = append(podNames, GetMultiPodName(stsName, clusterNum, podNum))
 	}
-	return GetMultiServiceFQDN(mdbmName, namespace, clusterNum, podNum, clusterDomain)
+
+	return hostnames, podNames
+}
+
+func GetMultiClusterPodServiceFQDN(stsName string, namespace string, clusterNum int, externalDomain *string, podNum int, clusterDomain string) string {
+	if externalDomain != nil {
+		return GetMultiServiceExternalDomain(stsName, *externalDomain, clusterNum, podNum)
+	}
+	return GetMultiServiceFQDN(stsName, namespace, clusterNum, podNum, clusterDomain)
 }
 
 func GetServiceDomain(namespace string, clusterDomain string, externalDomain *string) string {
@@ -73,11 +80,11 @@ func GetServiceDomain(namespace string, clusterDomain string, externalDomain *st
 }
 
 // GetMultiClusterHostnamesForMonitoring returns list of "headless fqdn" (equivalent to hostname -f on a pod) hostnames that are required for registering AppDB hosts for monitoring in OM.
-func GetMultiClusterHostnamesForMonitoring(mdbmName, namespace string, clusterNum, members int) []string {
+func GetMultiClusterHostnamesForMonitoring(stsName, namespace string, clusterNum, members int) []string {
 	hostnames := make([]string, 0)
 
 	for podNum := 0; podNum < members; podNum++ {
-		hostname := fmt.Sprintf("%s.%s.%s.svc.cluster.local", GetMultiPodName(mdbmName, clusterNum, podNum), GetMultiHeadlessServiceName(mdbmName, clusterNum), namespace)
+		hostname := fmt.Sprintf("%s.%s.%s.svc.cluster.local", GetMultiPodName(stsName, clusterNum, podNum), GetMultiHeadlessServiceName(stsName, clusterNum), namespace)
 		hostnames = append(hostnames, hostname)
 	}
 
@@ -126,10 +133,10 @@ func GetServiceFQDN(serviceName string, namespace string, clusterDomain string) 
 	return fmt.Sprintf("%s.%s", serviceName, GetServiceDomain(namespace, clusterDomain, nil))
 }
 
-func GetPodName(name string, idx int) string {
-	return fmt.Sprintf("%s-%d", name, idx)
+func GetPodName(stsName string, idx int) string {
+	return fmt.Sprintf("%s-%d", stsName, idx)
 }
 
-func GetMultiStatefulSetName(name string, clusterNum int) string {
-	return fmt.Sprintf("%s-%d", name, clusterNum)
+func GetMultiStatefulSetName(replicaSetName string, clusterNum int) string {
+	return fmt.Sprintf("%s-%d", replicaSetName, clusterNum)
 }

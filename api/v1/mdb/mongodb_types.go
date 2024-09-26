@@ -7,6 +7,10 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/pkg/errors"
+
+	"k8s.io/apimachinery/pkg/labels"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
@@ -58,6 +62,9 @@ const (
 
 	TransportSecurityNone TransportSecurity = "none"
 	TransportSecurityTLS  TransportSecurity = "tls"
+
+	ClusterTopologySingleCluster = "SingleCluster"
+	ClusterTopologyMultiCluster  = "MultiCluster"
 )
 
 // MongoDB resources allow you to deploy Standalones, ReplicaSets or SharedClusters
@@ -216,11 +223,9 @@ const (
 	ShardConfig
 )
 
-// GetLastAdditionalMongodConfigByType returns the last successfully achieved AdditionalMongodConfigType for the given component.
-func (m *MongoDB) GetLastAdditionalMongodConfigByType(configType AdditionalMongodConfigType) (*AdditionalMongodConfig, error) {
-	lastSpec, err := m.GetLastSpec()
-	if err != nil || lastSpec == nil {
-		return &AdditionalMongodConfig{}, err
+func GetLastAdditionalMongodConfigByType(lastSpec *MongoDbSpec, configType AdditionalMongodConfigType) (*AdditionalMongodConfig, error) {
+	if lastSpec == nil {
+		return &AdditionalMongodConfig{}, nil
 	}
 
 	switch configType {
@@ -236,6 +241,20 @@ func (m *MongoDB) GetLastAdditionalMongodConfigByType(configType AdditionalMongo
 	return &AdditionalMongodConfig{}, nil
 }
 
+// GetLastAdditionalMongodConfigByType returns the last successfully achieved AdditionalMongodConfigType for the given component.
+func (m *MongoDB) GetLastAdditionalMongodConfigByType(configType AdditionalMongodConfigType) (*AdditionalMongodConfig, error) {
+	if m.Spec.GetResourceType() == ShardedCluster {
+		panic(errors.Errorf("this method cannot be used from ShardedCluster controller; use non-method GetLastAdditionalMongodConfigByType and pass lastSpec from the deployment state."))
+	}
+	lastSpec, err := m.GetLastSpec()
+	if err != nil || lastSpec == nil {
+		return &AdditionalMongodConfig{}, err
+	}
+	return GetLastAdditionalMongodConfigByType(lastSpec, configType)
+}
+
+type ClusterSpecList []ClusterSpecItem
+
 // ClusterSpecItem is the mongodb multi-cluster spec that is specific to a
 // particular Kubernetes cluster, this maps to the statefulset created in each cluster
 type ClusterSpecItem struct {
@@ -250,12 +269,38 @@ type ClusterSpecItem struct {
 	ExternalAccessConfiguration *ExternalAccessConfiguration `json:"externalAccess,omitempty"`
 	// Amount of members for this MongoDB Replica Set
 	Members int `json:"members"`
-	// MemberConfig
+	// MemberConfig allows to specify votes, priorities and tags for each of the mongodb process.
+	// +optional
+	MemberConfig []automationconfig.MemberOptions `json:"memberConfig,omitempty"`
+	// +optional
+	StatefulSetConfiguration *mdbcv1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	// +optional
+	PodSpec *MongoDbPodSpec `json:"podSpec,omitempty"`
+}
+
+// ClusterSpecItemOverride is almost exact copy of ClusterSpecItem object.
+// The object is used in ClusterSpecList in ShardedClusterComponentOverrideSpec in shard overrides.
+// The difference lies in some fields being optional, e.g. Members to make it possible to NOT override fields and rely on
+// what was set in top level shard configuration.
+type ClusterSpecItemOverride struct {
+	// ClusterName is name of the cluster where the MongoDB Statefulset will be scheduled, the
+	// name should have a one on one mapping with the service-account created in the central cluster
+	// to talk to the workload clusters.
+	ClusterName string `json:"clusterName,omitempty"`
+	// ExternalAccessConfiguration provides external access configuration for Multi-Cluster.
+	// +optional
+	ExternalAccessConfiguration *ExternalAccessConfiguration `json:"externalAccess,omitempty"`
+	// Amount of members for this MongoDB Replica Set
+	// +optional
+	Members *int `json:"members"`
+	// MemberConfig allows to specify votes, priorities and tags for each of the mongodb process.
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +optional
 	MemberConfig []automationconfig.MemberOptions `json:"memberConfig,omitempty"`
 	// +optional
 	StatefulSetConfiguration *mdbcv1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	// +optional
+	PodSpec *MongoDbPodSpec `json:"podSpec,omitempty"`
 }
 
 // +kubebuilder:object:generate=false
@@ -305,13 +350,14 @@ type MongoDBConnectivity struct {
 }
 
 type MongoDbStatus struct {
-	status.Common                   `json:",inline"`
-	BackupStatus                    *BackupStatus `json:"backup,omitempty"`
-	MongodbShardedClusterSizeConfig `json:",inline"`
-	Members                         int              `json:"members,omitempty"`
-	Version                         string           `json:"version"`
-	Link                            string           `json:"link,omitempty"`
-	Warnings                        []status.Warning `json:"warnings,omitempty"`
+	status.Common                          `json:",inline"`
+	BackupStatus                           *BackupStatus `json:"backup,omitempty"`
+	status.MongodbShardedClusterSizeConfig `json:",inline"`
+	SizeStatusInClusters                   *status.MongodbShardedSizeStatusInClusters `json:"sizeStatusInClusters,omitempty"`
+	Members                                int                                        `json:"members,omitempty"`
+	Version                                string                                     `json:"version"`
+	Link                                   string                                     `json:"link,omitempty"`
+	Warnings                               []status.Warning                           `json:"warnings,omitempty"`
 }
 
 type BackupMode string
@@ -329,6 +375,9 @@ type DbCommonSpec struct {
 	// +kubebuilder:validation:Format="hostname"
 	ClusterDomain  string `json:"clusterDomain,omitempty"`
 	ConnectionSpec `json:",inline"`
+
+	// +kubebuilder:validation:Enum=DEBUG;INFO;WARN;ERROR;FATAL
+	LogLevel LogLevel `json:"logLevel,omitempty"`
 	// ExternalAccessConfiguration provides external access configuration.
 	// +optional
 	ExternalAccessConfiguration *ExternalAccessConfiguration `json:"externalAccess,omitempty"`
@@ -359,13 +408,28 @@ type DbCommonSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +optional
 	AdditionalMongodConfig *AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
+
+	// In few service mesh options for ex: Istio, by default we would need to duplicate the
+	// service objects created per pod in all the clusters to enable DNS resolution. Users can
+	// however configure their ServiceMesh with DNS proxy(https://istio.io/latest/docs/ops/configuration/traffic-management/dns-proxy/)
+	// enabled in which case the operator doesn't need to create the service objects per cluster. This options tells the operator
+	// whether it should create the service objects in all the clusters or not. By default, if not specified the operator would create the duplicate svc objects.
+	// +optional
+	DuplicateServiceObjects *bool `json:"duplicateServiceObjects,omitempty"`
+
+	// Topology sets the desired cluster topology of MongoDB resources
+	// It defaults (if empty or not set) to SingleCluster. If MultiCluster specified,
+	// then clusterSpecList field is mandatory and at least one member cluster has to be specified.
+	// +kubebuilder:validation:Enum=SingleCluster;MultiCluster
+	// +optional
+	Topology string `json:"topology,omitempty"`
 }
 
 type MongoDbSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
-	DbCommonSpec                    `json:",inline"`
-	ShardedClusterSpec              `json:",inline"`
-	MongodbShardedClusterSizeConfig `json:",inline"`
+	DbCommonSpec                           `json:",inline"`
+	ShardedClusterSpec                     `json:",inline"`
+	status.MongodbShardedClusterSizeConfig `json:",inline"`
 
 	// Amount of members for this MongoDB Replica Set
 	Members int             `json:"members,omitempty"`
@@ -374,29 +438,25 @@ type MongoDbSpec struct {
 	// this is an optional service, it will get the name "<rsName>-service" in case not provided
 	Service string `json:"service,omitempty"`
 
-	// MemberConfig
+	// MemberConfig allows to specify votes, priorities and tags for each of the mongodb process.
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +optional
 	MemberConfig []automationconfig.MemberOptions `json:"memberConfig,omitempty"`
 }
 
-func (s *MongoDbSpec) GetAgentConfig() AgentConfig {
-	return s.Agent
-}
-
-func (s *MongoDbSpec) GetExternalDomain() *string {
-	if s.ExternalAccessConfiguration != nil {
-		return s.ExternalAccessConfiguration.ExternalDomain
+func (m *MongoDbSpec) GetExternalDomain() *string {
+	if m.ExternalAccessConfiguration != nil {
+		return m.ExternalAccessConfiguration.ExternalDomain
 	}
 	return nil
 }
 
-func (s *MongoDbSpec) GetHorizonConfig() []MongoDBHorizonConfig {
-	return s.Connectivity.ReplicaSetHorizons
+func (m *MongoDbSpec) GetHorizonConfig() []MongoDBHorizonConfig {
+	return m.Connectivity.ReplicaSetHorizons
 }
 
-func (s *MongoDbSpec) GetMemberOptions() []automationconfig.MemberOptions {
-	return s.MemberConfig
+func (m *MongoDbSpec) GetMemberOptions() []automationconfig.MemberOptions {
+	return m.MemberConfig
 }
 
 type SnapshotSchedule struct {
@@ -422,13 +482,11 @@ type SnapshotSchedule struct {
 	// +kubebuilder:validation:Maximum=365
 	// +optional
 	WeeklySnapshotRetentionWeeks *int `json:"weeklySnapshotRetentionWeeks,omitempty"`
-
 	// Number of months to retain weekly snapshots. Setting 0 will disable this rule.
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=36
 	// +optional
 	MonthlySnapshotRetentionMonths *int `json:"monthlySnapshotRetentionMonths,omitempty"`
-
 	// Number of hours in the past for which a point-in-time snapshot can be created.
 	// +kubebuilder:validation:Enum=1;2;3;4;5;6;7;15;30;60;90;120;180;360
 	// +optional
@@ -616,18 +674,18 @@ func (m *MongoDB) CurrentReplicas() int {
 }
 
 // GetMongoDBVersion returns the version of the MongoDB.
-func (ms MongoDbSpec) GetMongoDBVersion(annotations map[string]string) string {
-	return architectures.GetMongoVersionForAutomationConfig(ms.Version, annotations)
+func (m *MongoDbSpec) GetMongoDBVersion(annotations map[string]string) string {
+	return architectures.GetMongoVersionForAutomationConfig(m.Version, annotations)
 }
 
-func (ms MongoDbSpec) GetClusterDomain() string {
-	if ms.ClusterDomain != "" {
-		return ms.ClusterDomain
+func (m *MongoDbSpec) GetClusterDomain() string {
+	if m.ClusterDomain != "" {
+		return m.ClusterDomain
 	}
 	return "cluster.local"
 }
 
-func (m MongoDbSpec) MinimumMajorVersion() uint64 {
+func (m *MongoDbSpec) MinimumMajorVersion() uint64 {
 	if m.FeatureCompatibilityVersion != nil && *m.FeatureCompatibilityVersion != "" {
 		fcv := *m.FeatureCompatibilityVersion
 
@@ -686,11 +744,6 @@ type SharedConnectionSpec struct {
 
 	OpsManagerConfig   *PrivateCloudConfig `json:"opsManager,omitempty"`
 	CloudManagerConfig *PrivateCloudConfig `json:"cloudManager,omitempty"`
-
-	// FIXME: LogLevel is not a required field for creating an Ops Manager connection, it should not be here.
-
-	// +kubebuilder:validation:Enum=DEBUG;INFO;WARN;ERROR;FATAL
-	LogLevel LogLevel `json:"logLevel,omitempty"`
 }
 
 type Security struct {
@@ -703,7 +756,7 @@ type Security struct {
 }
 
 // MemberCertificateSecretName returns the name of the secret containing the member TLS certs.
-func (s Security) MemberCertificateSecretName(defaultName string) string {
+func (s *Security) MemberCertificateSecretName(defaultName string) string {
 	if s.CertificatesSecretsPrefix != "" {
 		return fmt.Sprintf("%s-%s-cert", s.CertificatesSecretsPrefix, defaultName)
 	}
@@ -712,7 +765,7 @@ func (s Security) MemberCertificateSecretName(defaultName string) string {
 	return fmt.Sprintf("%s-cert", defaultName)
 }
 
-func (d DbCommonSpec) IsAgentImageOverridden() bool {
+func (d *DbCommonSpec) IsAgentImageOverridden() bool {
 	if d.StatefulSetConfiguration != nil && isAgentImageOverriden(d.StatefulSetConfiguration.SpecWrapper.Spec.Template.Spec.Containers) {
 		return true
 	}
@@ -720,14 +773,14 @@ func (d DbCommonSpec) IsAgentImageOverridden() bool {
 	return false
 }
 
-func (d DbCommonSpec) GetSecurity() *Security {
+func (d *DbCommonSpec) GetSecurity() *Security {
 	if d.Security == nil {
 		return &Security{}
 	}
 	return d.Security
 }
 
-func (d DbCommonSpec) GetExternalDomain() *string {
+func (d *DbCommonSpec) GetExternalDomain() *string {
 	if d.ExternalAccessConfiguration != nil {
 		return d.ExternalAccessConfiguration.ExternalDomain
 	}
@@ -738,11 +791,12 @@ func (d DbCommonSpec) GetAgentConfig() AgentConfig {
 	return d.Agent
 }
 
-func (d DbCommonSpec) GetAdditionalMongodConfig() *AdditionalMongodConfig {
-	if d.AdditionalMongodConfig != nil {
-		return d.AdditionalMongodConfig
+func (d *DbCommonSpec) GetAdditionalMongodConfig() *AdditionalMongodConfig {
+	if d == nil || d.AdditionalMongodConfig == nil {
+		return &AdditionalMongodConfig{}
 	}
-	return &AdditionalMongodConfig{}
+
+	return d.AdditionalMongodConfig
 }
 
 func (s *Security) IsTLSEnabled() bool {
@@ -1009,16 +1063,16 @@ type TLSConfig struct {
 	CA string `json:"ca,omitempty"`
 }
 
-func (spec MongoDbSpec) GetTLSConfig() *TLSConfig {
-	if spec.Security == nil || spec.Security.TLSConfig == nil {
+func (m *MongoDbSpec) GetTLSConfig() *TLSConfig {
+	if m.Security == nil || m.Security.TLSConfig == nil {
 		return &TLSConfig{}
 	}
 
-	return spec.Security.TLSConfig
+	return m.Security.TLSConfig
 }
 
-// when unmarshalling a MongoDB instance, we don't want to have any nil references
-// these are replaced with an empty instance to prevent nil references
+// UnmarshalJSON when unmarshalling a MongoDB instance, we don't want to have any nil references
+// these are replaced with an empty instance to prevent nil references by calling InitDefaults
 func (m *MongoDB) UnmarshalJSON(data []byte) error {
 	type MongoDBJSON *MongoDB
 	if err := json.Unmarshal(data, (MongoDBJSON)(m)); err != nil {
@@ -1042,51 +1096,7 @@ func (m *MongoDB) GetLastSpec() (*MongoDbSpec, error) {
 		return nil, err
 	}
 
-	conf, err := getMapFromAnnotation(m, util.LastAchievedMongodAdditionalOptions)
-	if err != nil {
-		return nil, err
-	}
-	if conf != nil {
-		lastSpec.AdditionalMongodConfig = &AdditionalMongodConfig{object: conf}
-	}
-
-	conf, err = getMapFromAnnotation(m, util.LastAchievedMongodAdditionalMongosOptions)
-	if err != nil {
-		return nil, err
-	}
-	if conf != nil {
-		lastSpec.MongosSpec.AdditionalMongodConfig = &AdditionalMongodConfig{object: conf}
-	}
-
-	conf, err = getMapFromAnnotation(m, util.LastAchievedMongodAdditionalConfigServerOptions)
-	if err != nil {
-		return nil, err
-	}
-	if conf != nil {
-		lastSpec.ConfigSrvSpec.AdditionalMongodConfig = &AdditionalMongodConfig{object: conf}
-	}
-
-	conf, err = getMapFromAnnotation(m, util.LastAchievedMongodAdditionalShardOptions)
-	if err != nil {
-		return nil, err
-	}
-	if conf != nil {
-		lastSpec.ShardSpec.AdditionalMongodConfig = &AdditionalMongodConfig{object: conf}
-	}
 	return &lastSpec, nil
-}
-
-// getMapFromAnnotation returns the additional config map from a given annotation.
-func getMapFromAnnotation(m client.Object, annotationKey string) (map[string]interface{}, error) {
-	additionConfigStr := annotations.GetAnnotation(m, annotationKey)
-	if additionConfigStr != "" {
-		var conf map[string]interface{}
-		if err := json.Unmarshal([]byte(additionConfigStr), &conf); err != nil {
-			return nil, err
-		}
-		return conf, nil
-	}
-	return nil, nil
 }
 
 func (m *MongoDB) ServiceName() string {
@@ -1126,6 +1136,18 @@ func (m *MongoDB) ShardRsName(i int) string {
 	return fmt.Sprintf("%s-%d", m.Name, i)
 }
 
+func (m *MongoDB) MultiShardRsName(clusterIdx int, shardIdx int) string {
+	return fmt.Sprintf("%s-%d-%d", m.Name, shardIdx, clusterIdx)
+}
+
+func (m *MongoDB) MultiMongosRsName(clusterIdx int) string {
+	return fmt.Sprintf("%s-mongos-%d", m.Name, clusterIdx)
+}
+
+func (m *MongoDB) MultiConfigRsName(clusterIdx int) string {
+	return fmt.Sprintf("%s-config-%d", m.Name, clusterIdx)
+}
+
 func (m *MongoDB) IsLDAPEnabled() bool {
 	if m.Spec.Security == nil || m.Spec.Security.Authentication == nil {
 		return false
@@ -1155,14 +1177,15 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 			m.Status.Members = option.(status.ReplicaSetMembersOption).Members
 		}
 	case ShardedCluster:
-		if option, exists := status.GetOption(statusOptions, status.ShardedClusterConfigServerOption{}); exists {
-			m.Status.ConfigServerCount = option.(status.ShardedClusterConfigServerOption).Members
+		if option, exists := status.GetOption(statusOptions, status.ShardedClusterSizeConfigOption{}); exists {
+			if sizeConfig := option.(status.ShardedClusterSizeConfigOption).SizeConfig; sizeConfig != nil {
+				m.Status.MongodbShardedClusterSizeConfig = *sizeConfig
+			}
 		}
-		if option, exists := status.GetOption(statusOptions, status.ShardedClusterMongodsPerShardCountOption{}); exists {
-			m.Status.MongodsPerShardCount = option.(status.ShardedClusterMongodsPerShardCountOption).Members
-		}
-		if option, exists := status.GetOption(statusOptions, status.ShardedClusterMongosOption{}); exists {
-			m.Status.MongosCount = option.(status.ShardedClusterMongosOption).Members
+		if option, exists := status.GetOption(statusOptions, status.ShardedClusterSizeStatusInClustersOption{}); exists {
+			if sizeConfigInClusters := option.(status.ShardedClusterSizeStatusInClustersOption).SizeConfigInClusters; sizeConfigInClusters != nil {
+				m.Status.SizeStatusInClusters = sizeConfigInClusters
+			}
 		}
 	}
 
@@ -1349,7 +1372,6 @@ type MongoDbPodSpec struct {
 	PodAntiAffinityTopologyKey string `json:"-"`
 
 	// Note, that this field is used by MongoDB resources only, let's keep it here for simplicity
-
 	Persistence *Persistence `json:"persistence,omitempty"`
 }
 
@@ -1467,34 +1489,34 @@ func NewMongoDbPodSpec() *MongoDbPodSpec {
 // Replicas returns the number of "user facing" replicas of the MongoDB resource. This method can be used for
 // constructing the mongodb URL for example.
 // 'Members' would be a more consistent function but go doesn't allow to have the same
-func (spec MongoDbSpec) Replicas() int {
+func (m *MongoDbSpec) Replicas() int {
 	var replicasCount int
-	switch spec.ResourceType {
+	switch m.ResourceType {
 	case Standalone:
 		replicasCount = 1
 	case ReplicaSet:
-		replicasCount = spec.Members
+		replicasCount = m.Members
 	case ShardedCluster:
-		replicasCount = spec.MongosCount
+		replicasCount = m.MongosCount
 	default:
 		panic("Unknown type of resource!")
 	}
 	return replicasCount
 }
 
-func (m MongoDbSpec) GetSecurityAuthenticationModes() []string {
+func (m *MongoDbSpec) GetSecurityAuthenticationModes() []string {
 	return m.GetSecurity().Authentication.GetModes()
 }
 
-func (m MongoDbSpec) GetResourceType() ResourceType {
+func (m *MongoDbSpec) GetResourceType() ResourceType {
 	return m.ResourceType
 }
 
-func (d DbCommonSpec) IsSecurityTLSConfigEnabled() bool {
+func (d *DbCommonSpec) IsSecurityTLSConfigEnabled() bool {
 	return d.GetSecurity().IsTLSEnabled()
 }
 
-func (m MongoDbSpec) GetFeatureCompatibilityVersion() *string {
+func (m *MongoDbSpec) GetFeatureCompatibilityVersion() *string {
 	return m.FeatureCompatibilityVersion
 }
 
@@ -1558,36 +1580,54 @@ func (m *MongoDB) GetAuthenticationModes() []string {
 	return m.Spec.Security.Authentication.GetModes()
 }
 
-func (m *MongoDB) IsInChangeVersion() bool {
-	spec, err := m.GetLastSpec()
-	if err != nil {
-		return false
-	}
-	if spec != nil && (spec.Version != m.Spec.Version) {
+func (m *MongoDbSpec) IsInChangeVersion(lastSpec *MongoDbSpec) bool {
+	if lastSpec != nil && (lastSpec.Version != m.Version) {
 		return true
 	}
 	return false
 }
 
-func (m *MongoDB) IsInDowngrade() bool {
-	spec, err := m.GetLastSpec()
-	if err != nil {
-		return false
+func (m *MongoDbSpec) GetTopology() string {
+	if m.Topology == "" {
+		return ClusterTopologySingleCluster
 	}
-	if spec == nil {
-		return false
-	}
-	return isDowngrade(spec.Version, m.Spec.Version)
+	return m.Topology
 }
 
-func isDowngrade(oldV string, currentV string) bool {
-	oldVersion, err := semver.Make(oldV)
-	if err != nil {
-		return false
+func (m *MongoDbSpec) IsMultiCluster() bool {
+	return m.GetTopology() == ClusterTopologyMultiCluster
+}
+
+// MongodbCleanUpOptions implements the required interface to be passed
+// to the DeleteAllOf function, this cleans up resources of a given type with
+// the provided Labels in a specific Namespace.
+type MongodbCleanUpOptions struct {
+	Namespace string
+	Labels    map[string]string
+}
+
+func (m *MongodbCleanUpOptions) ApplyToDeleteAllOf(opts *client.DeleteAllOfOptions) {
+	opts.Namespace = m.Namespace
+	opts.LabelSelector = labels.SelectorFromValidatedSet(m.Labels)
+}
+
+func (m *ClusterSpecList) GetExternalAccessConfigurationForMemberCluster(clusterName string) *ExternalAccessConfiguration {
+	var externalAccessConfiguration *ExternalAccessConfiguration
+	for _, csl := range *m {
+		if csl.ClusterName == clusterName {
+			externalAccessConfiguration = csl.ExternalAccessConfiguration
+			break
+		}
 	}
-	currentVersion, err := semver.Make(currentV)
-	if err != nil {
-		return false
+
+	return externalAccessConfiguration
+}
+
+func (m *ClusterSpecList) GetExternalDomainForMemberCluster(clusterName string) *string {
+	var externalDomain *string
+	if cfg := m.GetExternalAccessConfigurationForMemberCluster(clusterName); cfg != nil {
+		externalDomain = cfg.ExternalDomain
 	}
-	return oldVersion.GT(currentVersion)
+
+	return externalDomain
 }

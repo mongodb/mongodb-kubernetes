@@ -393,7 +393,8 @@ spec:
                               type: object
                           type: object
                         memberConfig:
-                          description: MemberConfig
+                          description: MemberConfig allows to specify votes, priorities
+                            and tags for each of the mongodb process.
                           items:
                             properties:
                               priority:
@@ -406,11 +407,64 @@ spec:
                                 type: integer
                             type: object
                           type: array
-                          x-kubernetes-preserve-unknown-fields: true
                         members:
                           description: Amount of members for this MongoDB Replica
                             Set
                           type: integer
+                        podSpec:
+                          properties:
+                            persistence:
+                              description: Note, that this field is used by MongoDB
+                                resources only, let's keep it here for simplicity
+                              properties:
+                                multiple:
+                                  properties:
+                                    data:
+                                      properties:
+                                        labelSelector:
+                                          type: object
+                                          x-kubernetes-preserve-unknown-fields: true
+                                        storage:
+                                          type: string
+                                        storageClass:
+                                          type: string
+                                      type: object
+                                    journal:
+                                      properties:
+                                        labelSelector:
+                                          type: object
+                                          x-kubernetes-preserve-unknown-fields: true
+                                        storage:
+                                          type: string
+                                        storageClass:
+                                          type: string
+                                      type: object
+                                    logs:
+                                      properties:
+                                        labelSelector:
+                                          type: object
+                                          x-kubernetes-preserve-unknown-fields: true
+                                        storage:
+                                          type: string
+                                        storageClass:
+                                          type: string
+                                      type: object
+                                  type: object
+                                single:
+                                  properties:
+                                    labelSelector:
+                                      type: object
+                                      x-kubernetes-preserve-unknown-fields: true
+                                    storage:
+                                      type: string
+                                    storageClass:
+                                      type: string
+                                  type: object
+                              type: object
+                            podTemplate:
+                              type: object
+                              x-kubernetes-preserve-unknown-fields: true
+                          type: object
                         service:
                           description: this is an optional service, it will get the
                             name "<rsName>-service" in case not provided
@@ -474,16 +528,9 @@ spec:
                     type: string
                   featureCompatibilityVersion:
                     type: string
-                  logLevel:
-                    enum:
-                    - DEBUG
-                    - INFO
-                    - WARN
-                    - ERROR
-                    - FATAL
-                    type: string
                   memberConfig:
-                    description: MemberConfig
+                    description: MemberConfig allows to specify votes, priorities
+                      and tags for each of the mongodb process.
                     items:
                       properties:
                         priority:
@@ -540,6 +587,8 @@ spec:
                   podSpec:
                     properties:
                       persistence:
+                        description: Note, that this field is used by MongoDB resources
+                          only, let's keep it here for simplicity
                         properties:
                           multiple:
                             properties:
@@ -1669,6 +1718,24 @@ spec:
                     type: array
                   shardCount:
                     type: integer
+                  sizeStatusInClusters:
+                    description: MongodbShardedSizeStatusInClusters describes the
+                      number and sizes of replica sets members deployed across member
+                      clusters
+                    properties:
+                      configServerMongodsInClusters:
+                        additionalProperties:
+                          type: integer
+                        type: object
+                      mongosCountInClusters:
+                        additionalProperties:
+                          type: integer
+                        type: object
+                      shardMongodsInClusters:
+                        additionalProperties:
+                          type: integer
+                        type: object
+                    type: object
                   version:
                     type: string
                   warnings:

@@ -151,7 +151,7 @@ func validateEmptyClusterSpecListSingleCluster(os MongoDBOpsManagerSpec) v1.Vali
 
 func validateTopologyIsSpecified(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	if len(os.ClusterSpecList) > 0 {
-		if os.Topology != ClusterTopologyMultiCluster {
+		if !os.IsMultiCluster() {
 			return v1.OpsManagerResourceValidationError("Topology 'MultiCluster' must be specified while setting a not empty spec.clusterSpecList", status.OpsManager)
 		}
 	}
@@ -199,7 +199,7 @@ func (om *MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 		validateClusterSpecList,
 	}
 
-	multiClusterAppDBSharedClusterValidators := []func(ms []mdb.ClusterSpecItem) v1.ValidationResult{
+	multiClusterAppDBSharedClusterValidators := []func(ms mdb.ClusterSpecList) v1.ValidationResult{
 		mdb.ValidateUniqueClusterNames,
 		mdb.ValidateNonEmptyClusterSpecList,
 		mdb.ValidateMemberClusterIsSubsetOfKubeConfig,

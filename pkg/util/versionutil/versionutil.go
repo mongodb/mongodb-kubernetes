@@ -92,3 +92,15 @@ func GetVersionFromOpsManagerApiHeader(versionString string) string {
 
 	return ""
 }
+
+func IsDowngrade(oldV string, currentV string) bool {
+	oldVersion, err := semver.Make(oldV)
+	if err != nil {
+		return false
+	}
+	currentVersion, err := semver.Make(currentV)
+	if err != nil {
+		return false
+	}
+	return oldVersion.GT(currentVersion)
+}

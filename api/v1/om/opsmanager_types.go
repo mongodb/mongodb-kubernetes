@@ -935,21 +935,12 @@ func (om *MongoDBOpsManager) GetVersionedImplForMemberCluster(memberClusterNum i
 }
 
 func (om *MongoDBOpsManager) IsChangingVersion() bool {
-	prevVersion := om.getPreviousVersion()
+	prevVersion := om.GetPreviousVersion()
 	return prevVersion != "" && prevVersion != om.Spec.AppDB.Version
 }
 
-func (om *MongoDBOpsManager) getPreviousVersion() string {
+func (om *MongoDBOpsManager) GetPreviousVersion() string {
 	return annotations.GetAnnotation(om, annotations.LastAppliedMongoDBVersion)
-}
-
-// GetAppDBUpdateStrategyType returns the update strategy type the AppDB Statefulset needs to be configured with.
-// This depends on whether a version change is in progress.
-func (om *MongoDBOpsManager) GetAppDBUpdateStrategyType() appsv1.StatefulSetUpdateStrategyType {
-	if !om.IsChangingVersion() {
-		return appsv1.RollingUpdateStatefulSetStrategyType
-	}
-	return appsv1.OnDeleteStatefulSetStrategyType
 }
 
 // GetSecretsMountedIntoPod returns the list of strings mounted into the pod that we need to watch.

@@ -4,7 +4,7 @@ import json
 import re
 import time
 from base64 import b64decode
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import kubernetes.client
 import requests
@@ -400,12 +400,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         if not self.is_appdb_multi_cluster():
             return self.get_legacy_central_cluster(self.get_appdb_members_count())
 
-        cluster_index_mapping = read_configmap(
-            self.namespace,
-            f"{self.app_db_name()}-cluster-mapping",
-            get_central_cluster_client(),
-        )
-
+        cluster_index_mapping = self.read_deployment_state(self.app_db_name())["clusterMapping"]
         result = []
         for cluster_spec_item in self["spec"]["applicationDatabase"].get("clusterSpecList", []):
             result.append(
@@ -424,17 +419,24 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         if not self.is_om_multi_cluster():
             return self.get_legacy_central_cluster(self.get_total_number_of_om_replicas())
 
-        cluster_index_mapping = read_configmap(
-            self.namespace, f"{self.name}-cluster-mapping", get_central_cluster_client()
-        )
+        cluster_mapping = self.read_deployment_state(self.name)["clusterMapping"]
         result = [
             (
-                int(cluster_index_mapping[cluster_spec_item["clusterName"]]),
+                int(cluster_mapping[cluster_spec_item["clusterName"]]),
                 cluster_spec_item,
             )
             for cluster_spec_item in self["spec"].get("clusterSpecList", [])
         ]
         return sorted(result, key=lambda x: x[0])
+
+    def read_deployment_state(self, resource_name: str) -> dict[str, Any]:
+        deployment_state_cm = read_configmap(
+            self.namespace,
+            f"{resource_name}-state",
+            get_central_cluster_client(),
+        )
+        state = json.loads(deployment_state_cm["state"])
+        return state
 
     @staticmethod
     def get_legacy_central_cluster(replicas: int) -> list[tuple[int, dict[str, str]]]:

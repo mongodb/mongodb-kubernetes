@@ -1,6 +1,7 @@
 package mdb
 
 import (
+	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -21,7 +22,24 @@ func NewDefaultReplicaSetBuilder() *MongoDBBuilder {
 }
 
 func NewDefaultShardedClusterBuilder() *MongoDBBuilder {
-	return defaultMongoDB(ShardedCluster)
+	return defaultMongoDB(ShardedCluster).AddDummyOpsManagerConfig()
+}
+
+func NewDefaultMultiShardedClusterBuilder() *MongoDBBuilder {
+	return NewDefaultShardedClusterBuilder().
+		SetMultiClusterTopology().
+		SetAllClusterSpecLists(
+			ClusterSpecList{
+				{
+					ClusterName: "test-cluster-0",
+					Members:     2,
+				},
+				{
+					ClusterName: "test-cluster-1",
+					Members:     3,
+				},
+			},
+		)
 }
 
 func NewStandaloneBuilder() *MongoDBBuilder {
@@ -29,7 +47,7 @@ func NewStandaloneBuilder() *MongoDBBuilder {
 }
 
 func NewClusterBuilder() *MongoDBBuilder {
-	sizeConfig := MongodbShardedClusterSizeConfig{
+	sizeConfig := status.MongodbShardedClusterSizeConfig{
 		ShardCount:           2,
 		MongodsPerShardCount: 3,
 		ConfigServerCount:    4,
@@ -208,6 +226,28 @@ func (b *MongoDBBuilder) SetPersistent(p *bool) *MongoDBBuilder {
 
 func (b *MongoDBBuilder) SetPodSpec(podSpec *MongoDbPodSpec) *MongoDBBuilder {
 	b.mdb.Spec.PodSpec = podSpec
+	return b
+}
+
+func (b *MongoDBBuilder) SetMultiClusterTopology() *MongoDBBuilder {
+	b.mdb.Spec.Topology = ClusterTopologyMultiCluster
+	return b
+}
+
+func (b *MongoDBBuilder) AddDummyOpsManagerConfig() *MongoDBBuilder {
+	b.mdb.Spec.OpsManagerConfig = &PrivateCloudConfig{ConfigMapRef: ConfigMapRef{Name: "dummy"}}
+	return b
+}
+
+func (b *MongoDBBuilder) SetAllClusterSpecLists(clusterSpecList ClusterSpecList) *MongoDBBuilder {
+	b.mdb.Spec.ShardSpec.ClusterSpecList = clusterSpecList
+	b.mdb.Spec.ConfigSrvSpec.ClusterSpecList = clusterSpecList
+	b.mdb.Spec.MongosSpec.ClusterSpecList = clusterSpecList
+	return b
+}
+
+func (b *MongoDBBuilder) SetShardOverrides(shardOverride []ShardOverride) *MongoDBBuilder {
+	b.mdb.Spec.ShardOverrides = shardOverride
 	return b
 }
 

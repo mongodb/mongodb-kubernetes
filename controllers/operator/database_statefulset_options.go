@@ -28,6 +28,24 @@ func Replicas(replicas int) func(options *construct.DatabaseStatefulSetOptions) 
 	}
 }
 
+func Name(name string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.Name = name
+	}
+}
+
+func StatefulSetNameOverride(statefulSetNameOverride string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.StatefulSetNameOverride = statefulSetNameOverride
+	}
+}
+
+func ServiceName(serviceName string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.ServiceName = serviceName
+	}
+}
+
 // CertificateHash will assign the given CertificateHash during StatefulSet construction.
 func CertificateHash(hash string) func(options *construct.DatabaseStatefulSetOptions) {
 	return func(options *construct.DatabaseStatefulSetOptions) {

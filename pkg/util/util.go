@@ -191,3 +191,13 @@ func Transform[T any, U any](objs []T, f func(obj T) U) []U {
 	}
 	return result
 }
+
+// TransformToMap converts a slice of objects to a map with key values returned from f.
+func TransformToMap[T any, K comparable, V any](objs []T, f func(obj T, idx int) (K, V)) map[K]V {
+	result := make(map[K]V, len(objs))
+	for i := 0; i < len(objs); i++ {
+		k, v := f(objs[i], i)
+		result[k] = v
+	}
+	return result
+}

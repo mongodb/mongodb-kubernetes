@@ -56,7 +56,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -432,6 +431,8 @@ func getStatefulSetStatus(ctx context.Context, namespace, name string, client ku
 			Pending(statefulSetState.GetMessage()).
 			WithResourcesNotReady(statefulSetState.GetResourcesNotReadyStatus()).
 			WithRetry(3)
+	} else {
+		zap.S().Debugf("StatefulSet %s/%s is ready on check attempt #%d, state: %+v: ", namespace, name, i, statefulSetState)
 	}
 
 	return workflow.OK()
@@ -850,12 +851,12 @@ func canConfigureAuthentication(ac *om.AutomationConfig, authenticationModes []s
 
 // newPodVars initializes a PodEnvVars instance based on the values of the provided Ops Manager connection, project config
 // and connection spec
-func newPodVars(conn om.Connection, projectConfig mdbv1.ProjectConfig, spec mdbv1.ConnectionSpec) *env.PodEnvVars {
+func newPodVars(conn om.Connection, projectConfig mdbv1.ProjectConfig, logLevel mdbv1.LogLevel) *env.PodEnvVars {
 	podVars := &env.PodEnvVars{}
 	podVars.BaseURL = conn.BaseURL()
 	podVars.ProjectID = conn.GroupID()
 	podVars.User = conn.PublicKey()
-	podVars.LogLevel = string(spec.LogLevel)
+	podVars.LogLevel = string(logLevel)
 	podVars.SSLProjectConfig = projectConfig.SSLProjectConfig
 	return podVars
 }
@@ -933,10 +934,10 @@ type ConfigMapStatefulSetSecretGetter interface {
 // needs to be updated first. In the case of unmounting certs, for instance, the certs should be not
 // required anymore before we unmount them, or the automation-agent and readiness probe will never
 // reach goal state.
-func publishAutomationConfigFirst(ctx context.Context, getter ConfigMapStatefulSetSecretGetter, mdb mdbv1.MongoDB, configFunc func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) bool {
+func publishAutomationConfigFirst(ctx context.Context, getter ConfigMapStatefulSetSecretGetter, mdb mdbv1.MongoDB, lastSpec *mdbv1.MongoDbSpec, configFunc func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) bool {
 	opts := configFunc(mdb)
 
-	namespacedName := kube.ObjectKey(mdb.Namespace, opts.Name)
+	namespacedName := kube.ObjectKey(mdb.Namespace, opts.GetStatefulSetName())
 	currentSts, err := getter.GetStatefulSet(ctx, namespacedName)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
@@ -979,7 +980,7 @@ func publishAutomationConfigFirst(ctx context.Context, getter ConfigMapStatefulS
 	}
 
 	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations()) {
-		if mdb.IsInChangeVersion() {
+		if mdb.Spec.IsInChangeVersion(lastSpec) {
 			return true
 		}
 	}
@@ -990,19 +991,6 @@ func publishAutomationConfigFirst(ctx context.Context, getter ConfigMapStatefulS
 // completionMessage is just a general message printed in the logs after mongodb resource is created/updated
 func completionMessage(url, projectID string) string {
 	return fmt.Sprintf("Please check the link %s/v2/%s to see the status of the deployment", url, projectID)
-}
-
-// mongodbCleanUpOptions implements the required interface to be passed
-// to the DeleteAllOf function, this cleans up resources of a given type with
-// the provided labels in a specific namespace.
-type mongodbCleanUpOptions struct {
-	namespace string
-	labels    map[string]string
-}
-
-func (m *mongodbCleanUpOptions) ApplyToDeleteAllOf(opts *client.DeleteAllOfOptions) {
-	opts.Namespace = m.namespace
-	opts.LabelSelector = labels.SelectorFromValidatedSet(m.labels)
 }
 
 // getAnnotationsForResource returns all of the annotations that should be applied to the resource
@@ -1016,40 +1004,6 @@ func getAnnotationsForResource(mdb *mdbv1.MongoDB) (map[string]string, error) {
 		return nil, err
 	}
 	finalAnnotations[util.LastAchievedSpec] = string(specBytes)
-
-	switch mdb.Spec.ResourceType {
-	case mdbv1.Standalone, mdbv1.ReplicaSet:
-		additionalConfigBytes, err := json.Marshal(mdb.Spec.AdditionalMongodConfig.ToMap())
-		if err != nil {
-			return nil, err
-		}
-		finalAnnotations[util.LastAchievedMongodAdditionalOptions] = string(additionalConfigBytes)
-	case mdbv1.ShardedCluster:
-		if mdb.Spec.ShardSpec != nil {
-			additionalShardBytes, err := json.Marshal(mdb.Spec.ShardSpec.AdditionalMongodConfig.ToMap())
-			if err != nil {
-				return nil, err
-			}
-			finalAnnotations[util.LastAchievedMongodAdditionalShardOptions] = string(additionalShardBytes)
-		}
-
-		if mdb.Spec.MongosSpec != nil {
-			additionalMongosBytes, err := json.Marshal(mdb.Spec.MongosSpec.AdditionalMongodConfig.ToMap())
-			if err != nil {
-				return nil, err
-			}
-			finalAnnotations[util.LastAchievedMongodAdditionalMongosOptions] = string(additionalMongosBytes)
-		}
-
-		if mdb.Spec.ConfigSrvSpec != nil {
-			additionalConfigServerBytes, err := json.Marshal(mdb.Spec.ConfigSrvSpec.AdditionalMongodConfig.ToMap())
-			if err != nil {
-				return nil, err
-			}
-			finalAnnotations[util.LastAchievedMongodAdditionalConfigServerOptions] = string(additionalConfigServerBytes)
-		}
-
-	}
 	return finalAnnotations, nil
 }
 

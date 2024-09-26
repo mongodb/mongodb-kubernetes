@@ -1,0 +1,20 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: sh001-base
+spec:
+  shardCount: 1
+  type: ShardedCluster
+  topology: MultiCluster
+  version: 5.0.15
+  cloudManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  logLevel: WARN
+  persistent: true
+  mongos: {}
+  shard: {}
+  configSrv: {}
+

@@ -6,6 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+
 	"k8s.io/utils/ptr"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
@@ -52,6 +56,18 @@ func Test_buildDatabaseInitContainer(t *testing.T) {
 	assert.Equal(t, expectedContainer, container)
 }
 
+func createShardSpecAndDefaultCluster(client kubernetesClient.Client, sc *mdbv1.MongoDB) (*mdbv1.ShardedClusterComponentSpec, multicluster.MemberCluster) {
+	shardSpec := sc.Spec.ShardSpec.DeepCopy()
+	shardSpec.ClusterSpecList = mdbv1.ClusterSpecList{
+		{
+			ClusterName: multicluster.LegacyCentralClusterName,
+			Members:     sc.Spec.MongodsPerShardCount,
+		},
+	}
+
+	return shardSpec, multicluster.GetLegacyCentralMemberCluster(sc.Spec.MongodsPerShardCount, 0, client, secrets.SecretClient{KubeClient: client})
+}
+
 func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
 	// NonStaticDatabaseEnterpriseImage is filled in static container
 	t.Run("Empty Agent Image", func(t *testing.T) {
@@ -65,8 +81,12 @@ func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
 	t.Run("Empty Image Pull Policy", func(t *testing.T) {
 		t.Setenv(util.AutomationAgentImagePullPolicy, "")
 		sc := mdbv1.NewClusterBuilder().Build()
+
+		kubeClient, _ := mock.NewDefaultFakeClient(sc)
+		shardSpec, memberCluster := createShardSpecAndDefaultCluster(kubeClient, sc)
+
 		assert.Panics(t, func() {
-			DatabaseStatefulSet(*sc, ShardOptions(0), nil)
+			DatabaseStatefulSet(*sc, ShardOptions(0, shardSpec, memberCluster), nil)
 		})
 		assert.Panics(t, func() {
 			DatabaseStatefulSet(*sc, ConfigServerOptions(), nil)
@@ -82,8 +102,10 @@ func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSetStatic(t *testing.T) {
 	t.Run("Empty Image Pull Policy", func(t *testing.T) {
 		t.Setenv(util.AutomationAgentImagePullPolicy, "")
 		sc := mdbv1.NewClusterBuilder().Build()
+		kubeClient, _ := mock.NewDefaultFakeClient(sc)
+		shardSpec, memberCluster := createShardSpecAndDefaultCluster(kubeClient, sc)
 		assert.Panics(t, func() {
-			DatabaseStatefulSet(*sc, ShardOptions(0), nil)
+			DatabaseStatefulSet(*sc, ShardOptions(0, shardSpec, memberCluster), nil)
 		})
 		assert.Panics(t, func() {
 			DatabaseStatefulSet(*sc, ConfigServerOptions(), nil)

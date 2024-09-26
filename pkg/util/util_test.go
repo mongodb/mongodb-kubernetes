@@ -208,6 +208,24 @@ func TestTransform(t *testing.T) {
 	}))
 }
 
+func TestTransformToMap(t *testing.T) {
+	assert.Equal(t, map[string]string{"0": "1", "1": "2", "2": "3"}, TransformToMap([]int{1, 2, 3}, func(v int, idx int) (string, string) {
+		return fmt.Sprintf("%d", idx), fmt.Sprintf("%d", v)
+	}))
+
+	assert.Equal(t, map[string]int{}, TransformToMap([]string{}, func(v string, idx int) (string, int) {
+		return "", 0
+	}))
+
+	type tmpStruct struct {
+		str string
+		int int
+	}
+	assert.Equal(t, map[string]int{"a": 0, "b": 1, "c": 2}, TransformToMap([]tmpStruct{{"a", 0}, {"b", 1}, {"c", 2}}, func(v tmpStruct, idx int) (string, int) {
+		return v.str, v.int
+	}))
+}
+
 func pair(left, right identifiable.Identifiable) []identifiable.Identifiable {
 	return []identifiable.Identifiable{left, right}
 }

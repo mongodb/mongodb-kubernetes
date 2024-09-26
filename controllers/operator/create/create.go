@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"time"
 
+	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
+
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status/pvc"
@@ -16,7 +18,6 @@ import (
 
 	mekoService "github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 
-	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"

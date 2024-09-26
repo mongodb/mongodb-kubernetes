@@ -87,7 +87,7 @@ type AppDBSpec struct {
 
 	UpdateStrategyType appsv1.StatefulSetUpdateStrategyType `json:"-"`
 
-	// MemberConfig
+	// MemberConfig allows to specify votes, priorities and tags for each of the mongodb process.
 	// +optional
 	MemberConfig []automationconfig.MemberOptions `json:"memberConfig,omitempty"`
 
@@ -95,7 +95,7 @@ type AppDBSpec struct {
 	// +optional
 	Topology string `json:"topology,omitempty"`
 	// +optional
-	ClusterSpecList []mdbv1.ClusterSpecItem `json:"clusterSpecList,omitempty"`
+	ClusterSpecList mdbv1.ClusterSpecList `json:"clusterSpecList,omitempty"`
 }
 
 func (m *AppDBSpec) GetAgentConfig() mdbv1.AgentConfig {
@@ -524,11 +524,11 @@ func (m *AppDBSpec) BuildConnectionURL(username, password string, scheme connect
 	return builder.Build()
 }
 
-func (m *AppDBSpec) GetClusterSpecList() []mdbv1.ClusterSpecItem {
+func (m *AppDBSpec) GetClusterSpecList() mdbv1.ClusterSpecList {
 	if m.IsMultiCluster() {
 		return m.ClusterSpecList
 	} else {
-		return []mdbv1.ClusterSpecItem{
+		return mdbv1.ClusterSpecList{
 			{
 				ClusterName:  multicluster.LegacyCentralClusterName,
 				Members:      m.Members,

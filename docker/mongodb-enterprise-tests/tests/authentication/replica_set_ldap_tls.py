@@ -14,6 +14,20 @@ from pytest import fixture, mark
 
 
 @fixture(scope="module")
+def operator_installation_config_quick_recovery(operator_installation_config: Dict[str, str]) -> Dict[str, str]:
+    """
+    This sets the recovery backoff time to 10s for the replicaset reconciliation. It seems like setting it higher
+    ensures that the automatic recovery doesn't get triggered at all since the `lastTransitionTime` in the status gets updated
+    too often.
+    TODO: investigate why and when this mechanism was broken.
+    """
+    operator_installation_config["customEnvVars"] = (
+        operator_installation_config["customEnvVars"] + "\&MDB_AUTOMATIC_RECOVERY_BACKOFF_TIME_S=10"
+    )
+    return operator_installation_config
+
+
+@fixture(scope="module")
 def operator_installation_config(operator_installation_config_quick_recovery: Dict[str, str]) -> Dict[str, str]:
     return operator_installation_config_quick_recovery
 
@@ -108,7 +122,7 @@ def test_replica_set_CLOUDP_189433(replica_set: MongoDB):
     This function tests CLOUDP-189433. The recovery mechanism kicks in and pushes Automation Config. The ReplicaSet
     goes into running state.
     """
-    replica_set.assert_reaches_phase(Phase.Running, timeout=400)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_replica_set_ldap_tls

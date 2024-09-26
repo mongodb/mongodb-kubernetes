@@ -12,6 +12,8 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status/pvc"
 	v1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	"k8s.io/apimachinery/pkg/api/resource"
 
@@ -927,7 +929,7 @@ func TestScaling(t *testing.T) {
 		assertStatefulSetReplicas(ctx, t, mrs, memberClusters, 2, 1, 2)
 
 		// remove first and last
-		mrs.Spec.ClusterSpecList = []mdb.ClusterSpecItem{mrs.Spec.ClusterSpecList[1]}
+		mrs.Spec.ClusterSpecList = mdb.ClusterSpecList{mrs.Spec.ClusterSpecList[1]}
 
 		err := client.Update(ctx, mrs)
 		assert.NoError(t, err)
@@ -998,7 +1000,7 @@ func TestClusterNumbering(t *testing.T) {
 		clusterOneIndex := clusterNumMap[clusters[1]]
 
 		// Remove cluster index 1 from the specs
-		mrs.Spec.ClusterSpecList = []mdb.ClusterSpecItem{
+		mrs.Spec.ClusterSpecList = mdb.ClusterSpecList{
 			{
 				ClusterName: clusters[0],
 				Members:     1,
@@ -1236,7 +1238,7 @@ func TestValidationsRunOnReconcile(t *testing.T) {
 	assert.Equal(t, fmt.Sprintf("Multiple clusters with the same name (%s) are not allowed", duplicateName), mrs.Status.Message)
 }
 
-func assertClusterpresent(t *testing.T, m map[string]int, specs []mdb.ClusterSpecItem, arr []int) {
+func assertClusterpresent(t *testing.T, m map[string]int, specs mdb.ClusterSpecList, arr []int) {
 	tmp := make([]int, 0)
 	for _, s := range specs {
 		tmp = append(tmp, m[s.ClusterName])
@@ -1332,11 +1334,19 @@ func getFakeMultiClusterMap(omConnectionFactory *om.CachedOMConnectionFactory) m
 }
 
 func getFakeMultiClusterMapWithClusters(clusters []string, omConnectionFactory *om.CachedOMConnectionFactory) map[string]cluster.Cluster {
+	return getFakeMultiClusterMapWithConfiguredInterceptor(clusters, omConnectionFactory, true, true)
+}
+
+func getFakeMultiClusterMapWithConfiguredInterceptor(clusters []string, omConnectionFactory *om.CachedOMConnectionFactory, markStsAsReady bool, addOMHosts bool) map[string]cluster.Cluster {
 	clusterMap := make(map[string]cluster.Cluster)
 
 	for _, e := range clusters {
-		memberClient := mock.NewEmptyFakeClientWithInterceptor(omConnectionFactory)
-		memberCluster := multicluster.New(memberClient)
+		fakeClientBuilder := mock.NewEmptyFakeClientBuilder()
+		fakeClientBuilder.WithInterceptorFuncs(interceptor.Funcs{
+			Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, markStsAsReady, addOMHosts),
+		})
+
+		memberCluster := multicluster.New(kubernetesClient.NewClient(fakeClientBuilder.Build()))
 		clusterMap[e] = memberCluster
 	}
 	return clusterMap

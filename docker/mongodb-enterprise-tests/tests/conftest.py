@@ -181,10 +181,11 @@ def operator_vault_secret_backend_tls(
 def operator_installation_config_quick_recovery(operator_installation_config: Dict[str, str]) -> Dict[str, str]:
     """
     This functions appends automatic recovery settings for CLOUDP-189433. In order to make the test runnable in reasonable time,
-    we override the Recovery back off to 10 seconds only. This way it immediately kicks in.
+    we override the Recovery back off to 120 seconds. This gives enough time for the initial automation config to be published
+    and statefulsets to be created before forcing the recovery.
     """
     operator_installation_config["customEnvVars"] = (
-        operator_installation_config["customEnvVars"] + "\&MDB_AUTOMATIC_RECOVERY_BACKOFF_TIME_S=10"
+        operator_installation_config["customEnvVars"] + "\&MDB_AUTOMATIC_RECOVERY_BACKOFF_TIME_S=120"
     )
     return operator_installation_config
 

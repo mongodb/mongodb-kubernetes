@@ -91,13 +91,15 @@ def test_sharded_cluster_turn_tls_on_CLOUDP_229222(sharded_cluster: MongoDB):
     def wait_for_ac_pushed() -> bool:
         ac = sharded_cluster.get_automation_config_tester().automation_config
         try:
-            _ = ac["ldap"]["transportSecurity"]
+            transport_security = ac["ldap"]["transportSecurity"]
             new_version = ac["version"]
-            if new_version != current_version:
-                return True
+            if transport_security != "none":
+                return False
+            if new_version <= current_version:
+                return False
+            return True
         except KeyError:
             return False
-        return False
 
     wait_until(wait_for_ac_pushed, timeout=800)
 
