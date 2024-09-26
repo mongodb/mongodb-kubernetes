@@ -30,6 +30,16 @@ if [[ "${RESET:-"true"}" == "true" ]]; then
   scripts/dev/reset.sh
 fi
 
+current_context=$(kubectl config current-context)
+# shellcheck disable=SC2154
+if [[ "${KUBE_ENVIRONMENT_NAME}" == "multi" ]]; then
+  current_context="${CENTRAL_CLUSTER}"
+  kubectl config set-context "${current_context}" "--namespace=${NAMESPACE}" &>/dev/null || true
+  kubectl config use-context "${current_context}"
+  echo "Current context: ${current_context}, namespace=${NAMESPACE}"
+  kubectl get nodes | grep "control-plane"
+fi
+
 echo "Ensuring namespace ${NAMESPACE}"
 ensure_namespace "${NAMESPACE}"
 

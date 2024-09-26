@@ -1,7 +1,11 @@
 import pytest
 from kubernetes import client
-from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import KubernetesTester, skip_if_local
 from kubetester.mongotester import ShardedClusterTester
+from tests import test_logger
+
+SHARDED_CLUSTER_NAME = "sh001-base"
+logger = test_logger.get_test_logger(__name__)
 
 
 @pytest.mark.e2e_sharded_cluster
@@ -18,26 +22,27 @@ class TestShardedClusterCreation(KubernetesTester):
     """
 
     def test_sharded_cluster_sts(self):
-        sts0 = self.appsv1.read_namespaced_stateful_set("sh001-base-0", self.namespace)
+        sts0 = self.appsv1.read_namespaced_stateful_set(f"{SHARDED_CLUSTER_NAME}-0", self.namespace)
         assert sts0
 
     def test_config_sts(self):
-        config = self.appsv1.read_namespaced_stateful_set("sh001-base-config", self.namespace)
+        config = self.appsv1.read_namespaced_stateful_set(f"{SHARDED_CLUSTER_NAME}-config", self.namespace)
         assert config
 
     def test_mongos_sts(self):
-        mongos = self.appsv1.read_namespaced_stateful_set("sh001-base-mongos", self.namespace)
+        mongos = self.appsv1.read_namespaced_stateful_set(f"{SHARDED_CLUSTER_NAME}-mongos", self.namespace)
         assert mongos
 
     def test_mongod_sharded_cluster_service(self):
-        svc0 = self.corev1.read_namespaced_service("sh001-base-sh", self.namespace)
+        svc0 = self.corev1.read_namespaced_service(f"{SHARDED_CLUSTER_NAME}-sh", self.namespace)
         assert svc0
 
     def test_shard0_was_configured(self):
-        ShardedClusterTester("sh001-base", 1).assert_connectivity()
+        ShardedClusterTester(SHARDED_CLUSTER_NAME, 1).assert_connectivity()
 
+    @skip_if_local()
     def test_shard0_was_configured_with_srv(self):
-        ShardedClusterTester("sh001-base", 1, ssl=False, srv=True).assert_connectivity()
+        ShardedClusterTester(SHARDED_CLUSTER_NAME, 1, ssl=False, srv=True).assert_connectivity()
 
     def test_monitoring_versions(self):
         """Verifies that monitoring agent is configured for each process in the deployment"""
@@ -71,9 +76,13 @@ class TestShardedClusterUpdate(KubernetesTester):
       timeout: 360
     """
 
+    @skip_if_local()
     def test_shard1_was_configured(self):
-        hosts = ["sh001-base-1-{}.sh001-base-sh.{}.svc.cluster.local:27017".format(i, self.namespace) for i in range(3)]
-
+        hosts = [
+            f"{SHARDED_CLUSTER_NAME}-1-{i}.{SHARDED_CLUSTER_NAME}-sh.{self.namespace}.svc.cluster.local:27017"
+            for i in range(3)
+        ]
+        logger.debug(f"Checking for connectivity of hosts: {hosts}")
         primary, secondaries = self.wait_for_rs_is_ready(hosts)
         assert primary is not None
         assert len(secondaries) == 2
@@ -116,4 +125,4 @@ class TestShardedClusterDeletion(KubernetesTester):
 
     def test_service_does_not_exist(self):
         with pytest.raises(client.rest.ApiException):
-            self.corev1.read_namespaced_service("sh001-base-sh", self.namespace)
+            self.corev1.read_namespaced_service(f"{SHARDED_CLUSTER_NAME}-sh", self.namespace)

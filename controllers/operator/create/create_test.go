@@ -123,7 +123,7 @@ func TestOpsManagerInKubernetes_DefaultInternalServiceForMultiCluster(t *testing
 	ctx := context.Background()
 	testOm := omv1.NewOpsManagerBuilderDefault().
 		SetName("test-om").
-		SetOpsManagerTopology(omv1.ClusterTopologyMultiCluster).
+		SetOpsManagerTopology(mdbv1.ClusterTopologyMultiCluster).
 		SetAppDBPassword("my-secret", "password").SetBackup(omv1.MongoDBOpsManagerBackup{
 		Enabled: true,
 	}).AddConfiguration("brs.queryable.proxyPort", "1234").
@@ -556,9 +556,23 @@ func TestDatabaseInKubernetesExternalServicesSharded(t *testing.T) {
 	require.Errorf(t, err, "expected no shard service")
 }
 
+func createShardSpecAndDefaultCluster(client kubernetesClient.Client, sc *mdbv1.MongoDB) (*mdbv1.ShardedClusterComponentSpec, multicluster.MemberCluster) {
+	shardSpec := sc.Spec.ShardSpec.DeepCopy()
+	shardSpec.ClusterSpecList = mdbv1.ClusterSpecList{
+		{
+			ClusterName: multicluster.LegacyCentralClusterName,
+			Members:     sc.Spec.MongodsPerShardCount,
+			PodSpec:     sc.Spec.PodSpec,
+		},
+	}
+
+	return shardSpec, multicluster.GetLegacyCentralMemberCluster(sc.Spec.MongodsPerShardCount, 0, client, secrets.SecretClient{KubeClient: client})
+}
+
 func createShardSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDB, log *zap.SugaredLogger, kubeClient kubernetesClient.Client) {
-	sts := construct.DatabaseStatefulSet(*mdb, construct.ShardOptions(1, construct.GetPodEnvOptions()), log)
-	err := DatabaseInKubernetes(ctx, kubeClient, *mdb, sts, construct.ShardOptions(1), log)
+	shardSpec, memberCluster := createShardSpecAndDefaultCluster(kubeClient, mdb)
+	sts := construct.DatabaseStatefulSet(*mdb, construct.ShardOptions(1, shardSpec, memberCluster, construct.GetPodEnvOptions()), log)
+	err := DatabaseInKubernetes(ctx, kubeClient, *mdb, sts, construct.ShardOptions(1, shardSpec, memberCluster), log)
 	assert.NoError(t, err)
 }
 

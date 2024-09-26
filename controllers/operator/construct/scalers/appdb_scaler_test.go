@@ -17,7 +17,7 @@ func TestAppDBMultiClusterScaler(t *testing.T) {
 		name                               string
 		memberClusterName                  string
 		memberClusterNum                   int
-		clusterSpecList                    []mdbv1.ClusterSpecItem
+		clusterSpecList                    mdbv1.ClusterSpecList
 		prevMembers                        []multicluster.MemberCluster
 		expectedDesiredReplicas            int
 		expectedCurrentReplicas            int
@@ -27,7 +27,7 @@ func TestAppDBMultiClusterScaler(t *testing.T) {
 			name:              "no previous members",
 			memberClusterName: "cluster-1",
 			memberClusterNum:  0,
-			clusterSpecList: []mdbv1.ClusterSpecItem{
+			clusterSpecList: mdbv1.ClusterSpecList{
 				{
 					ClusterName: "cluster-1",
 					Members:     3,
@@ -54,7 +54,7 @@ func TestAppDBMultiClusterScaler(t *testing.T) {
 			name:              "scaling up one member",
 			memberClusterName: "cluster-1",
 			memberClusterNum:  0,
-			clusterSpecList: []mdbv1.ClusterSpecItem{
+			clusterSpecList: mdbv1.ClusterSpecList{
 				{
 					ClusterName: "cluster-1",
 					Members:     3,
@@ -81,7 +81,7 @@ func TestAppDBMultiClusterScaler(t *testing.T) {
 			name:              "scaling down one member",
 			memberClusterName: "cluster-2",
 			memberClusterNum:  1,
-			clusterSpecList: []mdbv1.ClusterSpecItem{
+			clusterSpecList: mdbv1.ClusterSpecList{
 				{
 					ClusterName: "cluster-1",
 					Members:     3,
@@ -108,7 +108,7 @@ func TestAppDBMultiClusterScaler(t *testing.T) {
 			name:              "scaling up multiple members cluster currently scaling",
 			memberClusterName: "cluster-2",
 			memberClusterNum:  1,
-			clusterSpecList: []mdbv1.ClusterSpecItem{
+			clusterSpecList: mdbv1.ClusterSpecList{
 				{
 					ClusterName: "cluster-1",
 					Members:     3,
@@ -135,7 +135,7 @@ func TestAppDBMultiClusterScaler(t *testing.T) {
 			name:              "scaling up multiple members cluster currently not scaling",
 			memberClusterName: "cluster-3",
 			memberClusterNum:  2,
-			clusterSpecList: []mdbv1.ClusterSpecItem{
+			clusterSpecList: mdbv1.ClusterSpecList{
 				{
 					ClusterName: "cluster-1",
 					Members:     3,
@@ -162,7 +162,7 @@ func TestAppDBMultiClusterScaler(t *testing.T) {
 			name:              "scaling down multiple members cluster currently scaling",
 			memberClusterName: "cluster-2",
 			memberClusterNum:  1,
-			clusterSpecList: []mdbv1.ClusterSpecItem{
+			clusterSpecList: mdbv1.ClusterSpecList{
 				{
 					ClusterName: "cluster-1",
 					Members:     3,
@@ -189,7 +189,7 @@ func TestAppDBMultiClusterScaler(t *testing.T) {
 			name:              "scaling down multiple members cluster currently not scaling",
 			memberClusterName: "cluster-3",
 			memberClusterNum:  2,
-			clusterSpecList: []mdbv1.ClusterSpecItem{
+			clusterSpecList: mdbv1.ClusterSpecList{
 				{
 					ClusterName: "cluster-1",
 					Members:     3,
@@ -216,7 +216,7 @@ func TestAppDBMultiClusterScaler(t *testing.T) {
 			name:              "no scaling required",
 			memberClusterName: "cluster-3",
 			memberClusterNum:  2,
-			clusterSpecList: []mdbv1.ClusterSpecItem{
+			clusterSpecList: mdbv1.ClusterSpecList{
 				{
 					ClusterName: "cluster-1",
 					Members:     3,
@@ -243,7 +243,7 @@ func TestAppDBMultiClusterScaler(t *testing.T) {
 			name:              "adding a new cluster to an already populated config",
 			memberClusterName: "cluster-4",
 			memberClusterNum:  3,
-			clusterSpecList: []mdbv1.ClusterSpecItem{
+			clusterSpecList: mdbv1.ClusterSpecList{
 				{
 					ClusterName: "cluster-1",
 					Members:     3,
@@ -277,7 +277,7 @@ func TestAppDBMultiClusterScaler(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			builder := opsManagerBuilder().SetAppDBTopology(omv1.ClusterTopologyMultiCluster)
+			builder := opsManagerBuilder().SetAppDBTopology(mdbv1.ClusterTopologyMultiCluster)
 			opsManager := builder.SetAppDBClusterSpecList(tc.clusterSpecList).Build()
 			scaler := GetAppDBScaler(opsManager, tc.memberClusterName, tc.memberClusterNum, tc.prevMembers)
 

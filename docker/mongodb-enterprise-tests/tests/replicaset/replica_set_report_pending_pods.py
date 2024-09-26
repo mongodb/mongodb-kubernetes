@@ -1,5 +1,4 @@
 from kubetester import delete_pod, delete_pvc
-from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
 from pytest import fixture, mark

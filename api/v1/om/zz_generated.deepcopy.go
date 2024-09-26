@@ -116,7 +116,7 @@ func (in *AppDBSpec) DeepCopyInto(out *AppDBSpec) {
 	}
 	if in.ClusterSpecList != nil {
 		in, out := &in.ClusterSpecList, &out.ClusterSpecList
-		*out = make([]mdb.ClusterSpecItem, len(*in))
+		*out = make(mdb.ClusterSpecList, len(*in))
 		for i := range *in {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}

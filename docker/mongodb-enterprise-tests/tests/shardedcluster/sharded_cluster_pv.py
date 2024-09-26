@@ -2,24 +2,30 @@ import time
 
 import pytest
 from kubernetes import client
+from kubetester import MongoDB, create_or_update, try_load
 from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.mongodb import Phase
 from kubetester.mongotester import ShardedClusterTester
+
+
+@pytest.fixture(scope="module")
+def sharded_cluster(namespace: str) -> MongoDB:
+    resource = MongoDB.from_yaml(
+        yaml_fixture("sharded-cluster-pv.yaml"),
+        namespace=namespace,
+    )
+    try_load(resource)
+    return resource
 
 
 @pytest.mark.e2e_sharded_cluster_pv
 class TestShardedClusterCreation(KubernetesTester):
-    """
-    name: Sharded Cluster Creation with PV
-    description: |
-      Creates a simple Sharded Cluster with 1 shard, 2 mongos,
-      1 replica set as config server and basic PV
-    create:
-      file: sharded-cluster-pv.yaml
-      wait_until: in_running_state
-      timeout: 360
-    """
-
     custom_labels = {"label1": "val1", "label2": "val2"}
+
+    def test_sharded_cluster_created(self, sharded_cluster: MongoDB):
+        create_or_update(sharded_cluster)
+        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=360)
 
     def check_sts_labels(self, sts):
         sts_labels = sts.metadata.labels
@@ -79,16 +85,8 @@ class TestShardedClusterCreation(KubernetesTester):
 
 @pytest.mark.e2e_sharded_cluster_pv
 class TestShardedClusterDeletion(KubernetesTester):
-    """
-    name: Sharded Cluster Deletion with PV
-    description: |
-      Removes a Sharded Cluster with PV
-    delete:
-      file: sharded-cluster-pv.yaml
-      wait_until: mongo_resource_deleted_no_om
-      timeout: 300
-
-    """
+    def test_sharded_cluster_delete(self, sharded_cluster: MongoDB):
+        sharded_cluster.delete()
 
     def test_sharded_cluster_doesnt_exist(self):
         """The StatefulSet must be removed by Kubernetes as soon as the MongoDB resource is removed.

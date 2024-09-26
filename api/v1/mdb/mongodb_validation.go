@@ -21,9 +21,6 @@ import (
 
 var _ webhook.Validator = &MongoDB{}
 
-const UseOfDeprecatedShortcutFieldsWarning = `The use of the spec.podSpec to set cpu, cpuLimits, memory or memoryLimits has been DEPRECATED.
-Use spec.podSpec.podTemplate.spec.containers[].resources instead.`
-
 // ValidateCreate and ValidateUpdate should be the same if we intend to do this
 // on every reconciliation as well
 func (m *MongoDB) ValidateCreate() (admission.Warnings, error) {
@@ -169,6 +166,14 @@ func resourceTypeImmutable(newObj, oldObj MongoDbSpec) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
+// This validation blocks topology migrations for any MongoDB resource (Standalone, ReplicaSet, ShardedCluster)
+func noTopologyMigration(newObj, oldObj MongoDbSpec) v1.ValidationResult {
+	if oldObj.GetTopology() != newObj.GetTopology() {
+		return v1.ValidationError("Automatic Topology Migration (Single/Multi Cluster) is not supported for MongoDB resource")
+	}
+	return v1.ValidationSuccess()
+}
+
 // specWithExactlyOneSchema checks that exactly one among "Project/OpsManagerConfig/CloudManagerConfig"
 // is configured, doing the "oneOf" validation in the webhook.
 func specWithExactlyOneSchema(d DbCommonSpec) v1.ValidationResult {
@@ -202,8 +207,9 @@ func CommonValidators() []func(d DbCommonSpec) v1.ValidationResult {
 }
 
 func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
-	// apply validators specific to single cluster
-	singleClusterValidators := []func(m MongoDbSpec) v1.ValidationResult{
+	// The below validators apply to all MongoDB resource (but not MongoDBMulti), regardless of the value of the
+	// Topology field
+	mongoDBValidators := []func(m MongoDbSpec) v1.ValidationResult{
 		horizonsMustEqualMembers,
 		additionalMongodConfig,
 		replicasetMemberIsSpecified,
@@ -211,11 +217,12 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 
 	updateValidators := []func(newObj MongoDbSpec, oldObj MongoDbSpec) v1.ValidationResult{
 		resourceTypeImmutable,
+		noTopologyMigration,
 	}
 
 	var validationResults []v1.ValidationResult
 
-	for _, validator := range singleClusterValidators {
+	for _, validator := range mongoDBValidators {
 		res := validator(m.Spec)
 		if res.Level > 0 {
 			validationResults = append(validationResults, res)
@@ -229,6 +236,33 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 		}
 	}
 
+	if m.GetResourceType() == ShardedCluster {
+		for _, validator := range ShardedClusterCommonValidators() {
+			res := validator(*m)
+			if res.Level > 0 {
+				validationResults = append(validationResults, res)
+			}
+		}
+
+		if m.Spec.IsMultiCluster() {
+			for _, validator := range ShardedClusterMultiValidators() {
+				results := validator(*m)
+				for _, res := range results {
+					if res.Level > 0 {
+						validationResults = append(validationResults, res)
+					}
+				}
+			}
+		} else {
+			for _, validator := range ShardedClusterSingleValidators() {
+				res := validator(*m)
+				if res.Level > 0 {
+					validationResults = append(validationResults, res)
+				}
+			}
+		}
+	}
+
 	if old == nil {
 		return validationResults
 	}
@@ -238,6 +272,7 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 			validationResults = append(validationResults, res)
 		}
 	}
+
 	return validationResults
 }
 
@@ -255,7 +290,7 @@ func (m *MongoDB) ProcessValidationsOnReconcile(old *MongoDB) error {
 	return nil
 }
 
-func ValidateUniqueClusterNames(ms []ClusterSpecItem) v1.ValidationResult {
+func ValidateUniqueClusterNames(ms ClusterSpecList) v1.ValidationResult {
 	present := make(map[string]struct{})
 
 	for _, e := range ms {
@@ -268,14 +303,14 @@ func ValidateUniqueClusterNames(ms []ClusterSpecItem) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
-func ValidateNonEmptyClusterSpecList(ms []ClusterSpecItem) v1.ValidationResult {
+func ValidateNonEmptyClusterSpecList(ms ClusterSpecList) v1.ValidationResult {
 	if len(ms) == 0 {
 		return v1.ValidationError("ClusterSpecList empty is not allowed, please define at least one cluster")
 	}
 	return v1.ValidationSuccess()
 }
 
-func ValidateMemberClusterIsSubsetOfKubeConfig(ms []ClusterSpecItem) v1.ValidationResult {
+func ValidateMemberClusterIsSubsetOfKubeConfig(ms ClusterSpecList) v1.ValidationResult {
 	// read the mounted kubeconfig file and
 	kubeConfigFile, err := multicluster.NewKubeConfigFile()
 	if err != nil {

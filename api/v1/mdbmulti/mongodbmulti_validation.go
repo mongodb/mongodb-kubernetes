@@ -46,7 +46,7 @@ func (m *MongoDBMultiCluster) RunValidations(old *MongoDBMultiCluster) []v1.Vali
 	}
 
 	// shared validators between MongoDBMulti and AppDB
-	multiClusterAppDBSharedClusterValidators := []func(ms []mdbv1.ClusterSpecItem) v1.ValidationResult{
+	multiClusterAppDBSharedClusterValidators := []func(ms mdbv1.ClusterSpecList) v1.ValidationResult{
 		mdbv1.ValidateUniqueClusterNames,
 		mdbv1.ValidateNonEmptyClusterSpecList,
 		mdbv1.ValidateMemberClusterIsSubsetOfKubeConfig,

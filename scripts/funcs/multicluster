@@ -269,10 +269,10 @@ run_multi_cluster_kube_config_creator() {
     "--service-account" "mongodb-enterprise-operator-multi-cluster"
   )
 
-  # when running e2e tests of multi-cluster appdb locally, installing this causes failures when installing operator using helm-chart in the testing code
-  if [[ ${MULTI_CLUSTER_INSTALL_DATABASE_ROLES:-"true"} == "true" ]]; then
-    >&2 echo "WARNING: When running e2e tests for multicluster locally, installing database roles might cause failures."
-    >&2 echo "If you encounter errors when e2e tests install helm charts, try setting MULTI_CLUSTER_INSTALL_DATABASE_ROLES var to false in your private context."
+  # This is used to skip the database roles when the context configures clusters so that the operator cluster is also used as one of the member clusters.
+  # In case of this overlap we cannot install those roles here as otherwise multi-cluster cli tool
+  if [[ ! "${MEMBER_CLUSTERS}" == *"${CLUSTER_NAME}"* ]]; then
+    >&2 echo "WARNING: When running e2e tests for multicluster locally, installing database roles by cli tool might cause failures when installing the operator in e2e test."
     params+=("--install-database-roles")
   fi
 

@@ -999,7 +999,7 @@ func TestDependentResources_AreRemoved_WhenBackupIsDisabled(t *testing.T) {
 func TestUniqueClusterNames(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().Build()
 	testOm.Spec.AppDB.Topology = "MultiCluster"
-	testOm.Spec.AppDB.ClusterSpecList = []mdbv1.ClusterSpecItem{
+	testOm.Spec.AppDB.ClusterSpecList = mdbv1.ClusterSpecList{
 		{
 			ClusterName: "abc",
 			Members:     2,

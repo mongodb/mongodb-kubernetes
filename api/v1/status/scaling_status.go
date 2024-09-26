@@ -1,24 +1,14 @@
 package status
 
 import (
+	"fmt"
+
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/scalers/interfaces"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
 )
 
 func MembersOption(replicaSetscaler scale.ReplicaSetScaler) Option {
 	return ReplicaSetMembersOption{Members: scale.ReplicasThisReconciliation(replicaSetscaler)}
-}
-
-func MongosCountOption(replicaSetscaler scale.ReplicaSetScaler) Option {
-	return ShardedClusterMongosOption{Members: scale.ReplicasThisReconciliation(replicaSetscaler)}
-}
-
-func ConfigServerOption(replicaSetscaler scale.ReplicaSetScaler) Option {
-	return ShardedClusterConfigServerOption{Members: scale.ReplicasThisReconciliation(replicaSetscaler)}
-}
-
-func MongodsPerShardOption(replicaSetscaler scale.ReplicaSetScaler) Option {
-	return ShardedClusterMongodsPerShardCountOption{Members: scale.ReplicasThisReconciliation(replicaSetscaler)}
 }
 
 func AppDBMemberOptions(appDBScalers ...interfaces.AppDBScaler) Option {
@@ -96,4 +86,65 @@ type ShardedClusterMongosOption struct {
 
 func (o ShardedClusterMongosOption) Value() interface{} {
 	return o.Members
+}
+
+type ShardedClusterSizeConfigOption struct {
+	SizeConfig *MongodbShardedClusterSizeConfig
+}
+
+func (o ShardedClusterSizeConfigOption) Value() interface{} {
+	return o.SizeConfig
+}
+
+type ShardedClusterSizeStatusInClustersOption struct {
+	SizeConfigInClusters *MongodbShardedSizeStatusInClusters
+}
+
+func (o ShardedClusterSizeStatusInClustersOption) Value() interface{} {
+	return o.SizeConfigInClusters
+}
+
+// MongodbShardedClusterSizeConfig describes the numbers and sizes of replica sets inside sharded cluster
+// +k8s:deepcopy-gen=true
+type MongodbShardedClusterSizeConfig struct {
+	ShardCount           int `json:"shardCount,omitempty"`
+	MongodsPerShardCount int `json:"mongodsPerShardCount,omitempty"`
+	MongosCount          int `json:"mongosCount,omitempty"`
+	ConfigServerCount    int `json:"configServerCount,omitempty"`
+}
+
+func (m *MongodbShardedClusterSizeConfig) String() string {
+	return fmt.Sprintf("%+v", *m)
+}
+
+// MongodbShardedSizeStatusInClusters describes the number and sizes of replica sets members deployed across member clusters
+// +k8s:deepcopy-gen=true
+type MongodbShardedSizeStatusInClusters struct {
+	ShardMongodsInClusters        map[string]int `json:"shardMongodsInClusters,omitempty"`
+	MongosCountInClusters         map[string]int `json:"mongosCountInClusters,omitempty"`
+	ConfigServerMongodsInClusters map[string]int `json:"configServerMongodsInClusters,omitempty"`
+}
+
+func String(m *MongodbShardedSizeStatusInClusters) string {
+	return fmt.Sprintf("%+v", *m)
+}
+
+func sumMap(m map[string]int) int {
+	sum := 0
+	for _, v := range m {
+		sum += v
+	}
+	return sum
+}
+
+func (s *MongodbShardedSizeStatusInClusters) TotalShardMongodsInClusters() int {
+	return sumMap(s.ShardMongodsInClusters)
+}
+
+func (s *MongodbShardedSizeStatusInClusters) TotalConfigServerMongodsInClusters() int {
+	return sumMap(s.ConfigServerMongodsInClusters)
+}
+
+func (s *MongodbShardedSizeStatusInClusters) TotalMongosCountInClusters() int {
+	return sumMap(s.MongosCountInClusters)
 }

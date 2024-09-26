@@ -196,7 +196,8 @@ class MongoDB(CustomObject, MongoDBCommon):
 
     def trigger_architecture_migration(self):
         self.load()
-
+        if "annotations" not in self["metadata"]:
+            self["metadata"]["annotations"] = {}
         if is_static_containers_architecture():
             self["metadata"]["annotations"].update({"mongodb.com/v1.architecture": "non-static"})
             self.update()

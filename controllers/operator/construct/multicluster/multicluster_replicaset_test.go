@@ -49,7 +49,7 @@ func getMultiClusterMongoDB() mdbmulti.MongoDBMultiCluster {
 				Roles: []mdb.MongoDbRole{},
 			},
 		},
-		ClusterSpecList: []mdb.ClusterSpecItem{
+		ClusterSpecList: mdb.ClusterSpecList{
 			{
 				ClusterName: "foo",
 				Members:     3,

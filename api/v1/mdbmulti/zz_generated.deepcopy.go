@@ -132,14 +132,9 @@ func (in *MongoDBMultiClusterList) DeepCopyObject() runtime.Object {
 func (in *MongoDBMultiSpec) DeepCopyInto(out *MongoDBMultiSpec) {
 	*out = *in
 	in.DbCommonSpec.DeepCopyInto(&out.DbCommonSpec)
-	if in.DuplicateServiceObjects != nil {
-		in, out := &in.DuplicateServiceObjects, &out.DuplicateServiceObjects
-		*out = new(bool)
-		**out = **in
-	}
 	if in.ClusterSpecList != nil {
 		in, out := &in.ClusterSpecList, &out.ClusterSpecList
-		*out = make([]mdb.ClusterSpecItem, len(*in))
+		*out = make(mdb.ClusterSpecList, len(*in))
 		for i := range *in {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}

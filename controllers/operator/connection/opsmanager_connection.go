@@ -19,10 +19,10 @@ import (
 	"go.uber.org/zap"
 )
 
-func PrepareOpsManagerConnection(ctx context.Context, client secrets.SecretClient, projectConfig mdbv1.ProjectConfig, credentials mdbv1.Credentials, connectionFunc om.ConnectionFactory, namespace string, log *zap.SugaredLogger) (om.Connection, error) {
+func PrepareOpsManagerConnection(ctx context.Context, client secrets.SecretClient, projectConfig mdbv1.ProjectConfig, credentials mdbv1.Credentials, connectionFunc om.ConnectionFactory, namespace string, log *zap.SugaredLogger) (om.Connection, string, error) {
 	omProject, conn, err := project.ReadOrCreateProject(projectConfig, credentials, connectionFunc, log)
 	if err != nil {
-		return nil, xerrors.Errorf("error reading or creating project in Ops Manager: %w", err)
+		return nil, "", xerrors.Errorf("error reading or creating project in Ops Manager: %w", err)
 	}
 
 	omVersion := conn.OpsManagerVersion()
@@ -32,13 +32,13 @@ func PrepareOpsManagerConnection(ctx context.Context, client secrets.SecretClien
 
 	// adds the namespace as a tag to the Ops Manager project
 	if err = EnsureTagAdded(conn, omProject, namespace, log); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	// adds the externally_managed tag if feature controls is not available.
 	if !controlledfeature.ShouldUseFeatureControls(conn.OpsManagerVersion()) {
 		if err = EnsureTagAdded(conn, omProject, util.OmGroupExternallyManagedTag, log); err != nil {
-			return nil, err
+			return nil, "", err
 		}
 	}
 
@@ -46,12 +46,11 @@ func PrepareOpsManagerConnection(ctx context.Context, client secrets.SecretClien
 	if client.VaultClient != nil {
 		databaseSecretPath = client.VaultClient.DatabaseSecretPath()
 	}
-	// TODO: we may want to remove this from this function in the future, this is not strictly related
-	// to establishing an Ops Manager connection
-	if _, err = agents.EnsureAgentKeySecretExists(ctx, client, conn, namespace, omProject.AgentAPIKey, conn.GroupID(), databaseSecretPath, log); err != nil {
-		return nil, err
+	if agentAPIKey, err := agents.EnsureAgentKeySecretExists(ctx, client, conn, namespace, omProject.AgentAPIKey, conn.GroupID(), databaseSecretPath, log); err != nil {
+		return nil, "", err
+	} else {
+		return conn, agentAPIKey, err
 	}
-	return conn, nil
 }
 
 // EnsureTagAdded makes sure that the given project has the provided tag

@@ -121,12 +121,22 @@ func newOpsManagerReconciler(ctx context.Context, kubeClient client.Client, memb
 	}
 }
 
+type OMDeploymentState struct {
+	CommonDeploymentState `json:",inline"`
+}
+
+func NewOMDeploymentState() *OMDeploymentState {
+	return &OMDeploymentState{CommonDeploymentState{ClusterMapping: map[string]int{}}}
+}
+
 // OpsManagerReconcilerHelper is a type containing the state and logic for a SINGLE reconcile execution.
 // This object is NOT shared between multiple reconcile invocations in contrast to OpsManagerReconciler where
 // we cannot store state of the current reconcile.
 type OpsManagerReconcilerHelper struct {
-	opsManager     *omv1.MongoDBOpsManager
-	memberClusters []multicluster.MemberCluster
+	opsManager      *omv1.MongoDBOpsManager
+	memberClusters  []multicluster.MemberCluster
+	stateStore      *StateStore[OMDeploymentState]
+	deploymentState *OMDeploymentState
 }
 
 func newOpsManagerReconcilerHelper(ctx context.Context, opsManagerReconciler *OpsManagerReconciler, opsManager *omv1.MongoDBOpsManager, globalMemberClustersMap map[string]cluster.Cluster, log *zap.SugaredLogger) (*OpsManagerReconcilerHelper, error) {
@@ -151,9 +161,8 @@ func newOpsManagerReconcilerHelper(ctx context.Context, opsManagerReconciler *Op
 	clusterNamesFromClusterSpecList := util.Transform(opsManager.GetClusterSpecList(), func(clusterSpecItem omv1.ClusterSpecOMItem) string {
 		return clusterSpecItem.ClusterName
 	})
-	memberClusterMapping, err := updateMemberClusterMapping(ctx, opsManager.Namespace, opsManager.ClusterMappingConfigMapName(), opsManagerReconciler.client, clusterNamesFromClusterSpecList)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to initialize clustermapping: %e", err)
+	if err := reconcilerHelper.initializeStateStore(ctx, opsManagerReconciler, opsManager, globalMemberClustersMap, log, clusterNamesFromClusterSpecList); err != nil {
+		return nil, xerrors.Errorf("failed to initialize OM state store: %w", err)
 	}
 
 	for _, clusterSpecItem := range opsManager.GetClusterSpecList() {
@@ -177,7 +186,7 @@ func newOpsManagerReconcilerHelper(ctx context.Context, opsManagerReconciler *Op
 
 		reconcilerHelper.memberClusters = append(reconcilerHelper.memberClusters, multicluster.MemberCluster{
 			Name:         clusterSpecItem.ClusterName,
-			Index:        memberClusterMapping[clusterSpecItem.ClusterName],
+			Index:        reconcilerHelper.deploymentState.ClusterMapping[clusterSpecItem.ClusterName],
 			Client:       memberClusterKubeClient,
 			SecretClient: memberClusterSecretClient,
 			// TODO should we do lastAppliedMember map like in AppDB?
@@ -188,6 +197,71 @@ func newOpsManagerReconcilerHelper(ctx context.Context, opsManagerReconciler *Op
 	}
 
 	return &reconcilerHelper, nil
+}
+
+func (r *OpsManagerReconcilerHelper) initializeStateStore(ctx context.Context, reconciler *OpsManagerReconciler, opsManager *omv1.MongoDBOpsManager, globalMemberClustersMap map[string]cluster.Cluster, log *zap.SugaredLogger, clusterNamesFromClusterSpecList []string) error {
+	r.deploymentState = NewOMDeploymentState()
+
+	r.stateStore = NewStateStore[OMDeploymentState](opsManager.Namespace, opsManager.Name, reconciler.client)
+	if err := r.stateStore.read(ctx); err != nil {
+		if apiErrors.IsNotFound(err) {
+			// If the deployment state config map is missing, then it might be either:
+			//  - fresh deployment
+			//  - existing deployment, but it's a first reconcile on the operator version with the new deployment state
+			//  - existing deployment, but for some reason the deployment state config map has been deleted
+			// In all cases, the deployment config map will be recreated from the state we're keeping and maintaining in
+			// the old place (in annotations, spec.status, config maps) in order to allow for the downgrade of the operator.
+			if err := r.migrateToNewDeploymentState(ctx, opsManager, reconciler.client); err != nil {
+				return err
+			}
+			// Here we don't use saveOMState wrapper, as we don't need to write the legacy state
+			if err := r.stateStore.WriteState(ctx, r.deploymentState, log); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+	}
+
+	if state, err := r.stateStore.ReadState(ctx); err != nil {
+		return err
+	} else {
+		r.deploymentState = state
+	}
+
+	r.deploymentState.ClusterMapping = multicluster.AssignIndexesForMemberClusterNames(r.deploymentState.ClusterMapping, clusterNamesFromClusterSpecList)
+
+	if err := r.saveOMState(ctx, opsManager, reconciler.client, log); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *OpsManagerReconcilerHelper) saveOMState(ctx context.Context, spec *omv1.MongoDBOpsManager, client kubernetesClient.Client, log *zap.SugaredLogger) error {
+	if err := r.stateStore.WriteState(ctx, r.deploymentState, log); err != nil {
+		return err
+	}
+	if err := r.writeLegacyStateConfigMap(ctx, spec, client, log); err != nil {
+		return err
+	}
+	return nil
+}
+
+// writeLegacyStateConfigMap converts the DeploymentState to the legacy Config Map and write it to the cluster
+func (r *OpsManagerReconcilerHelper) writeLegacyStateConfigMap(ctx context.Context, spec *omv1.MongoDBOpsManager, client kubernetesClient.Client, log *zap.SugaredLogger) error {
+	// ClusterMapping ConfigMap
+	mappingConfigMapData := map[string]string{}
+	for k, v := range r.deploymentState.ClusterMapping {
+		mappingConfigMapData[k] = fmt.Sprintf("%d", v)
+	}
+	mappingConfigMap := configmap.Builder().SetName(spec.ClusterMappingConfigMapName()).SetNamespace(spec.Namespace).SetData(mappingConfigMapData).Build()
+	if err := configmap.CreateOrUpdate(ctx, client, mappingConfigMap); err != nil {
+		return xerrors.Errorf("failed to update cluster mapping configmap %s: %w", spec.ClusterMappingConfigMapName(), err)
+	}
+	log.Debugf("Saving cluster mapping configmap %s: %v", spec.ClusterMappingConfigMapName(), mappingConfigMapData)
+
+	return nil
 }
 
 func (r *OpsManagerReconcilerHelper) GetMemberClusters() []multicluster.MemberCluster {
@@ -276,6 +350,19 @@ func (r *OpsManagerReconcilerHelper) BackupDaemonPodServiceNameForMemberCluster(
 	}
 
 	return hostnames
+}
+
+func (r *OpsManagerReconcilerHelper) migrateToNewDeploymentState(ctx context.Context, om *omv1.MongoDBOpsManager, centralClient kubernetesClient.Client) error {
+	legacyMemberClusterMapping, err := getLegacyMemberClusterMapping(ctx, om.Namespace, om.ClusterMappingConfigMapName(), centralClient)
+	if apiErrors.IsNotFound(err) || !om.Spec.IsMultiCluster() {
+		legacyMemberClusterMapping = map[string]int{}
+	} else if err != nil {
+		return err
+	}
+
+	r.deploymentState.ClusterMapping = legacyMemberClusterMapping
+
+	return nil
 }
 
 // +kubebuilder:rbac:groups=mongodb.com,resources={opsmanagers,opsmanagers/status,opsmanagers/finalizers},verbs=*,namespace=placeholder
@@ -676,9 +763,9 @@ func (r *OpsManagerReconciler) stopBackupDaemonIfNeeded(ctx context.Context, rec
 
 		// delete all backup daemon pods, scaling down the statefulSet to 0 does not terminate the pods,
 		// if the number of pods is greater than 1 and all of them are in an unhealthy state
-		cleanupOptions := mongodbCleanUpOptions{
-			namespace: opsManager.Namespace,
-			labels: map[string]string{
+		cleanupOptions := mdbv1.MongodbCleanUpOptions{
+			Namespace: opsManager.Namespace,
+			Labels: map[string]string{
 				"app": reconcileHelper.BackupDaemonHeadlessServiceNameForMemberCluster(memberCluster),
 			},
 		}
@@ -2062,7 +2149,7 @@ func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj interface{}, lo
 }
 
 func (r *OpsManagerReconciler) createNewAppDBReconciler(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
-	return newAppDBReplicaSetReconciler(ctx, opsManager.Spec.AppDB, r.ReconcileCommonController, r.omConnectionFactory, r.memberClustersMap, log)
+	return newAppDBReplicaSetReconciler(ctx, opsManager.Spec.AppDB, r.ReconcileCommonController, r.omConnectionFactory, opsManager.Annotations, r.memberClustersMap, log)
 }
 
 // getAnnotationsForOpsManagerResource returns all the annotations that should be applied to the resource

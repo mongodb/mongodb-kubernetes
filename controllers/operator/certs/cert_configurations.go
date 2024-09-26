@@ -19,7 +19,7 @@ import (
 type X509CertConfigurator interface {
 	GetName() string
 	GetNamespace() string
-	GetDbCommonSpec() mdbv1.DbCommonSpec
+	GetDbCommonSpec() *mdbv1.DbCommonSpec
 	GetCertOptions() []Options
 	GetSecretReadClient() secrets.SecretClient
 	GetSecretWriteClient() secrets.SecretClient
@@ -30,7 +30,7 @@ type ReplicaSetX509CertConfigurator struct {
 	SecretClient secrets.SecretClient
 }
 
-var _ X509CertConfigurator = ReplicaSetX509CertConfigurator{}
+var _ X509CertConfigurator = &ReplicaSetX509CertConfigurator{}
 
 func (rs ReplicaSetX509CertConfigurator) GetCertOptions() []Options {
 	return []Options{ReplicaSetConfig(*rs.MongoDB)}
@@ -44,8 +44,8 @@ func (rs ReplicaSetX509CertConfigurator) GetSecretWriteClient() secrets.SecretCl
 	return rs.SecretClient
 }
 
-func (rs ReplicaSetX509CertConfigurator) GetDbCommonSpec() mdbv1.DbCommonSpec {
-	return rs.Spec.DbCommonSpec
+func (rs ReplicaSetX509CertConfigurator) GetDbCommonSpec() *mdbv1.DbCommonSpec {
+	return &rs.Spec.DbCommonSpec
 }
 
 type ShardedSetX509CertConfigurator struct {
@@ -76,8 +76,8 @@ func (sc ShardedSetX509CertConfigurator) GetSecretWriteClient() secrets.SecretCl
 	return sc.SecretClient
 }
 
-func (sc ShardedSetX509CertConfigurator) GetDbCommonSpec() mdbv1.DbCommonSpec {
-	return sc.Spec.DbCommonSpec
+func (sc ShardedSetX509CertConfigurator) GetDbCommonSpec() *mdbv1.DbCommonSpec {
+	return &sc.Spec.DbCommonSpec
 }
 
 type StandaloneX509CertConfigurator struct {
@@ -99,8 +99,8 @@ func (s StandaloneX509CertConfigurator) GetSecretWriteClient() secrets.SecretCli
 	return s.SecretClient
 }
 
-func (s StandaloneX509CertConfigurator) GetDbCommonSpec() mdbv1.DbCommonSpec {
-	return s.Spec.DbCommonSpec
+func (s StandaloneX509CertConfigurator) GetDbCommonSpec() *mdbv1.DbCommonSpec {
+	return &s.Spec.DbCommonSpec
 }
 
 type MongoDBMultiX509CertConfigurator struct {
@@ -126,8 +126,8 @@ func (mdbm MongoDBMultiX509CertConfigurator) GetSecretWriteClient() secrets.Secr
 	return mdbm.SecretWriteClient
 }
 
-func (mdbm MongoDBMultiX509CertConfigurator) GetDbCommonSpec() mdbv1.DbCommonSpec {
-	return mdbm.Spec.DbCommonSpec
+func (mdbm MongoDBMultiX509CertConfigurator) GetDbCommonSpec() *mdbv1.DbCommonSpec {
+	return &mdbm.Spec.DbCommonSpec
 }
 
 type Options struct {
@@ -221,7 +221,7 @@ func AppDBMultiClusterReplicaSetConfig(om *omv1.MongoDBOpsManager, scaler interf
 		Replicas:                  scale.ReplicasThisReconciliation(scaler),
 		ClusterDomain:             mdb.ClusterDomain,
 		OwnerReference:            om.GetOwnerReferences(),
-		Topology:                  omv1.ClusterTopologyMultiCluster,
+		Topology:                  mdbv1.ClusterTopologyMultiCluster,
 	}
 
 	if mdb.GetSecurity().TLSConfig != nil {
@@ -256,7 +256,7 @@ func MultiReplicaSetConfig(mdbm mdbmulti.MongoDBMultiCluster, clusterNum int, cl
 		Namespace:                 mdbm.Namespace,
 		Replicas:                  replicas,
 		ClusterDomain:             mdbm.Spec.GetClusterDomain(),
-		Topology:                  omv1.ClusterTopologyMultiCluster,
+		Topology:                  mdbv1.ClusterTopologyMultiCluster,
 		OwnerReference:            mdbm.GetOwnerReferences(),
 		ExternalDomain:            mdbm.Spec.GetExternalDomainForMemberCluster(clusterName),
 	}

@@ -15,7 +15,7 @@ import (
 
 func TestUniqueClusterNames(t *testing.T) {
 	mrs := DefaultMultiReplicaSetBuilder().Build()
-	mrs.Spec.ClusterSpecList = []mdbv1.ClusterSpecItem{
+	mrs.Spec.ClusterSpecList = mdbv1.ClusterSpecList{
 		{
 			ClusterName: "abc",
 			Members:     2,
@@ -37,7 +37,7 @@ func TestUniqueClusterNames(t *testing.T) {
 func TestUniqueExternalDomains(t *testing.T) {
 	mrs := DefaultMultiReplicaSetBuilder().Build()
 	mrs.Spec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{}
-	mrs.Spec.ClusterSpecList = []mdbv1.ClusterSpecItem{
+	mrs.Spec.ClusterSpecList = mdbv1.ClusterSpecList{
 		{
 			ClusterName:                 "1",
 			Members:                     1,
@@ -62,7 +62,7 @@ func TestUniqueExternalDomains(t *testing.T) {
 func TestAllExternalDomainsSet(t *testing.T) {
 	mrs := DefaultMultiReplicaSetBuilder().Build()
 	mrs.Spec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{}
-	mrs.Spec.ClusterSpecList = []mdbv1.ClusterSpecItem{
+	mrs.Spec.ClusterSpecList = mdbv1.ClusterSpecList{
 		{
 			ClusterName:                 "1",
 			Members:                     1,
@@ -95,7 +95,7 @@ func TestMongoDBMultiValidattionHorzonsWithoutTLS(t *testing.T) {
 	mrs.Spec.Connectivity = &mdbv1.MongoDBConnectivity{
 		ReplicaSetHorizons: replicaSetHorizons,
 	}
-	mrs.Spec.ClusterSpecList = []mdbv1.ClusterSpecItem{
+	mrs.Spec.ClusterSpecList = mdbv1.ClusterSpecList{
 		{
 			ClusterName: "foo",
 		},
@@ -113,7 +113,7 @@ func TestSpecProjectOnlyOneValue(t *testing.T) {
 	mrs.Spec.OpsManagerConfig = &mdbv1.PrivateCloudConfig{
 		ConfigMapRef: mdbv1.ConfigMapRef{Name: "cloud-manager"},
 	}
-	mrs.Spec.ClusterSpecList = []mdbv1.ClusterSpecItem{{
+	mrs.Spec.ClusterSpecList = mdbv1.ClusterSpecList{{
 		ClusterName: "foo",
 	}}
 

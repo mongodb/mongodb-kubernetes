@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	intp "github.com/10gen/ops-manager-kubernetes/pkg/util/int"
+
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 
@@ -193,7 +195,9 @@ type MemberCluster struct {
 }
 
 // LegacyCentralClusterName is a cluster name for simulating multi-cluster mode when running in legacy single-cluster mode
-const LegacyCentralClusterName = "central"
+// With the deployment state in config maps and multi-cluster-first we might store this dummy cluster name in the state config map.
+// We cannot change this name from now on.
+const LegacyCentralClusterName = "__default"
 
 // GetLegacyCentralMemberCluster returns a legacy central member cluster for unit tests.
 // Such member cluster is created in the reconcile loop in SingleCluster topology
@@ -209,4 +213,30 @@ func GetLegacyCentralMemberCluster(replicas int, index int, client kubernetesCli
 		Healthy:      true,
 		Legacy:       true,
 	}
+}
+
+// CreateMapWithUpdatedMemberClusterIndexes returns a new mapping for memberClusterNames.
+// It maintains previously existing mappings and assigns new indexes for new cluster names.
+func AssignIndexesForMemberClusterNames(existingMapping map[string]int, memberClusterNames []string) map[string]int {
+	newMapping := map[string]int{}
+	for k, v := range existingMapping {
+		newMapping[k] = v
+	}
+
+	for _, clusterName := range memberClusterNames {
+		if _, ok := newMapping[clusterName]; !ok {
+			newMapping[clusterName] = getNextIndex(newMapping)
+		}
+	}
+
+	return newMapping
+}
+
+func getNextIndex(m map[string]int) int {
+	maxi := -1
+
+	for _, val := range m {
+		maxi = intp.Max(maxi, val)
+	}
+	return maxi + 1
 }

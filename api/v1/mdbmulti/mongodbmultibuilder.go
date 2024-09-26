@@ -49,8 +49,8 @@ func DefaultMultiReplicaSetBuilder() *MultiReplicaSetBuilder {
 				},
 				Roles: []mdbv1.MongoDbRole{},
 			},
+			DuplicateServiceObjects: util.BooleanRef(false),
 		},
-		DuplicateServiceObjects: util.BooleanRef(false),
 	}
 
 	mrs := &MongoDBMultiCluster{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "temple", Namespace: TestNamespace}}
