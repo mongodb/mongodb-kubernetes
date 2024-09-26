@@ -76,7 +76,6 @@ func EnsureAgentKeySecretExists(ctx context.Context, secretClient secrets.Secret
 			return "", err
 		}
 
-		// todo pass a real owner in a next PR
 		if err = CreateOrUpdateAgentKeySecret(ctx, secretClient, namespace, projectId, agentKey, nil); err != nil {
 			return "", xerrors.Errorf("failed to create or update Secret: %w", err)
 		}
@@ -105,8 +104,8 @@ func WaitForRsAgentsToRegister(set appsv1.StatefulSet, members int, clusterName 
 	return nil
 }
 
-// WaitForRsAgentsToRegisterReplicasSpecifiedMultiCluster waits for the specified agents to registry with Ops Manager.
-func WaitForRsAgentsToRegisterReplicasSpecifiedMultiCluster(omConnection om.Connection, hostnames []string, log *zap.SugaredLogger) error {
+// WaitForRsAgentsToRegisterSpecifiedHostnames waits for the specified agents to registry with Ops Manager.
+func WaitForRsAgentsToRegisterSpecifiedHostnames(omConnection om.Connection, hostnames []string, log *zap.SugaredLogger) error {
 	if !waitUntilRegistered(omConnection, log, retryParams{retrials: 10, waitSeconds: 9}, hostnames...) {
 		return getAgentRegisterError()
 	}

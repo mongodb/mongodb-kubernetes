@@ -130,6 +130,11 @@ func (c *omMemberClusterChecks) checkGenKeySecret(omName string) {
 	require.Contains(c.t, sec.Data, "gen.key", "clusterName: %s", c.clusterName)
 }
 
+func (c *omMemberClusterChecks) checkClusterMapping(omName string, expectedClusterMapping map[string]int) {
+	checkClusterMapping(c.ctx, c.t, c.kubeClient, c.namespace, omName, expectedClusterMapping)
+	checkLegacyClusterMapping(c.ctx, c.t, c.kubeClient, c.namespace, omName, expectedClusterMapping)
+}
+
 func (c *omMemberClusterChecks) checkConnectionStringSecret(omName string) {
 	sec := corev1.Secret{}
 	secretName := connectionStringSecretName(omName)
@@ -204,7 +209,7 @@ func TestOpsManagerMultiCluster(t *testing.T) {
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
 	memberClusterMap := getFakeMultiClusterMapWithClusters(clusters, omConnectionFactory)
 
-	appDBClusterSpecItems := []mdbv1.ClusterSpecItem{
+	appDBClusterSpecItems := mdbv1.ClusterSpecList{
 		{
 			ClusterName: memberClusterName,
 			Members:     1,
@@ -229,12 +234,12 @@ func TestOpsManagerMultiCluster(t *testing.T) {
 	}
 
 	builder := DefaultOpsManagerBuilder().
-		SetOpsManagerTopology(omv1.ClusterTopologyMultiCluster).
+		SetOpsManagerTopology(mdbv1.ClusterTopologyMultiCluster).
 		SetOpsManagerClusterSpecList(clusterSpecItems).
 		SetTLSConfig(omv1.MongoDBOpsManagerTLS{
 			CA: "om-ca",
 		}).
-		SetAppDBTopology(omv1.ClusterTopologyMultiCluster).
+		SetAppDBTopology(mdbv1.ClusterTopologyMultiCluster).
 		SetAppDbMembers(0).
 		SetAppDBClusterSpecList(appDBClusterSpecItems).
 		SetAppDBTLSConfig(mdbv1.TLSConfig{
@@ -265,6 +270,10 @@ func TestOpsManagerMultiCluster(t *testing.T) {
 	centralClusterChecks := newOMMemberClusterChecks(ctx, t, opsManager, centralClusterName, omClient, -1)
 	centralClusterChecks.reconcileAndCheck(reconciler, true)
 	// secrets and config maps created in the central cluster
+	centralClusterChecks.checkClusterMapping(opsManager.Name, map[string]int{
+		memberClusterName:  0,
+		memberClusterName2: 1,
+	})
 	centralClusterChecks.checkGenKeySecret(opsManager.Name)
 	centralClusterChecks.checkAgentPasswordSecret(opsManager.Name)
 	centralClusterChecks.checkOmPasswordSecret(opsManager.Name)

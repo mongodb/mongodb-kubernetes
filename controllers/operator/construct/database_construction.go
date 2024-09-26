@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
@@ -105,7 +107,7 @@ type DatabaseStatefulSetOptions struct {
 	ServicePort             int32
 	Persistent              *bool
 	OwnerReference          []metav1.OwnerReference
-	AgentConfig             mdbv1.AgentConfig
+	AgentConfig             *mdbv1.AgentConfig
 	StatefulSetSpecOverride *appsv1.StatefulSetSpec
 	StsType                 StsType
 	AdditionalMongodConfig  *mdbv1.AdditionalMongodConfig
@@ -118,7 +120,7 @@ type DatabaseStatefulSetOptions struct {
 	Labels      map[string]string
 
 	// These fields are only relevant for multi-cluster
-	MultiClusterMode string // should always be "false" in single-cluster
+	MultiClusterMode bool // should always be "false" in single-cluster
 	// This needs to be provided for the multi-cluster statefulsets as they contain a member index in the name.
 	// The name override is used for naming the statefulset and the pod affinity label.
 	// The certificate secrets and other dependencies named using the resource name will use the `Name` field.
@@ -130,6 +132,13 @@ func (d DatabaseStatefulSetOptions) IsMongos() bool {
 	return d.StsType == Mongos
 }
 
+func (d DatabaseStatefulSetOptions) GetStatefulSetName() string {
+	if d.StatefulSetNameOverride != "" {
+		return d.StatefulSetNameOverride
+	}
+	return d.Name
+}
+
 // databaseStatefulSetSource is an interface which provides all the required fields to fully construct
 // a database StatefulSet.
 type databaseStatefulSetSource interface {
@@ -139,8 +148,6 @@ type databaseStatefulSetSource interface {
 	GetSecurity() *mdbv1.Security
 
 	GetPrometheus() *mdbcv1.Prometheus
-
-	IsInChangeVersion() bool
 
 	GetAnnotations() map[string]string
 }
@@ -162,9 +169,9 @@ func StandaloneOptions(additionalOpts ...func(options *DatabaseStatefulSetOption
 			ServicePort:             mdb.Spec.AdditionalMongodConfig.GetPortOrDefault(),
 			Persistent:              mdb.Spec.Persistent,
 			OwnerReference:          kube.BaseOwnerReference(&mdb),
-			AgentConfig:             mdb.Spec.Agent,
+			AgentConfig:             &mdb.Spec.Agent,
 			StatefulSetSpecOverride: stsSpec,
-			MultiClusterMode:        "false",
+			MultiClusterMode:        mdb.Spec.IsMultiCluster(),
 			StsType:                 Standalone,
 		}
 
@@ -194,10 +201,10 @@ func ReplicaSetOptions(additionalOpts ...func(options *DatabaseStatefulSetOption
 			ServicePort:             mdb.Spec.AdditionalMongodConfig.GetPortOrDefault(),
 			Persistent:              mdb.Spec.Persistent,
 			OwnerReference:          kube.BaseOwnerReference(&mdb),
-			AgentConfig:             mdb.Spec.Agent,
+			AgentConfig:             &mdb.Spec.Agent,
 			StatefulSetSpecOverride: stsSpec,
 			Labels:                  mdb.Labels,
-			MultiClusterMode:        "false",
+			MultiClusterMode:        mdb.Spec.IsMultiCluster(),
 			StsType:                 ReplicaSet,
 		}
 
@@ -214,34 +221,37 @@ func ReplicaSetOptions(additionalOpts ...func(options *DatabaseStatefulSetOption
 }
 
 // ShardOptions returns a set of options which will configure single Shard StatefulSet
-func ShardOptions(shardNum int, additionalOpts ...func(options *DatabaseStatefulSetOptions)) func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
+func ShardOptions(shardNum int, shardSpec *mdbv1.ShardedClusterComponentSpec, memberCluster multicluster.MemberCluster, additionalOpts ...func(options *DatabaseStatefulSetOptions)) func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 	return func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
-		var stsSpec *appsv1.StatefulSetSpec = nil
-		if mdb.Spec.ShardPodSpec.PodTemplateWrapper.PodTemplate != nil {
-			stsSpec = &appsv1.StatefulSetSpec{Template: *mdb.Spec.ShardPodSpec.PodTemplateWrapper.PodTemplate}
+		clusterSpecItem := shardSpec.GetClusterSpecItem(memberCluster.Name)
+		statefulSetConfiguration := clusterSpecItem.StatefulSetConfiguration
+		var statefulSetSpecOverride *appsv1.StatefulSetSpec
+		if statefulSetConfiguration != nil {
+			statefulSetSpecOverride = &statefulSetConfiguration.SpecWrapper.Spec
 		}
 
-		// provide shard override per shard if specified
-		if mdb.Spec.ShardSpecificPodSpec != nil && len(mdb.Spec.ShardSpecificPodSpec) > shardNum {
-			shardOverride := mdb.Spec.ShardSpecificPodSpec[shardNum]
-			if shardOverride.PodTemplateWrapper.PodTemplate != nil {
-				stsSpec = &appsv1.StatefulSetSpec{Template: *shardOverride.PodTemplateWrapper.PodTemplate}
-			}
+		podSpec := mdbv1.MongoDbPodSpec{}
+		if shardSpec.GetClusterSpecItem(memberCluster.Name).PodSpec != nil {
+			podSpec = *shardSpec.GetClusterSpecItem(memberCluster.Name).PodSpec
 		}
 
 		opts := DatabaseStatefulSetOptions{
 			MongoDBVersion:          mdb.Spec.Version,
 			Name:                    mdb.ShardRsName(shardNum),
 			ServiceName:             mdb.ShardServiceName(),
-			PodSpec:                 NewDefaultPodSpecWrapper(*mdb.Spec.ShardPodSpec),
-			ServicePort:             mdb.Spec.ShardSpec.GetAdditionalMongodConfig().GetPortOrDefault(),
+			PodSpec:                 NewDefaultPodSpecWrapper(podSpec),
+			ServicePort:             shardSpec.GetAdditionalMongodConfig().GetPortOrDefault(),
 			OwnerReference:          kube.BaseOwnerReference(&mdb),
-			AgentConfig:             mdb.Spec.ShardSpec.GetAgentConfig(),
+			AgentConfig:             shardSpec.GetAgentConfig(),
 			Persistent:              mdb.Spec.Persistent,
-			StatefulSetSpecOverride: stsSpec,
+			StatefulSetSpecOverride: statefulSetSpecOverride,
 			Labels:                  mdb.Labels,
-			MultiClusterMode:        "false",
+			MultiClusterMode:        mdb.Spec.IsMultiCluster(),
 			StsType:                 Shard,
+		}
+
+		if mdb.Spec.IsMultiCluster() {
+			opts.HostNameOverrideConfigmapName = mdb.GetHostNameOverrideConfigmapName()
 		}
 
 		for _, opt := range additionalOpts {
@@ -273,8 +283,12 @@ func ConfigServerOptions(additionalOpts ...func(options *DatabaseStatefulSetOpti
 			AgentConfig:             mdb.Spec.ConfigSrvSpec.GetAgentConfig(),
 			StatefulSetSpecOverride: stsSpec,
 			Labels:                  mdb.Labels,
-			MultiClusterMode:        "false",
+			MultiClusterMode:        mdb.Spec.IsMultiCluster(),
 			StsType:                 Config,
+		}
+
+		if mdb.Spec.IsMultiCluster() {
+			opts.HostNameOverrideConfigmapName = mdb.GetHostNameOverrideConfigmapName()
 		}
 
 		for _, opt := range additionalOpts {
@@ -304,8 +318,12 @@ func MongosOptions(additionalOpts ...func(options *DatabaseStatefulSetOptions)) 
 			AgentConfig:             mdb.Spec.MongosSpec.GetAgentConfig(),
 			StatefulSetSpecOverride: stsSpec,
 			Labels:                  mdb.Labels,
-			MultiClusterMode:        "false",
+			MultiClusterMode:        mdb.Spec.IsMultiCluster(),
 			StsType:                 Mongos,
+		}
+
+		if mdb.Spec.IsMultiCluster() {
+			opts.HostNameOverrideConfigmapName = mdb.GetHostNameOverrideConfigmapName()
 		}
 
 		for _, opt := range additionalOpts {
@@ -462,7 +480,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 		podTemplateAnnotationFunc = podtemplatespec.Apply(podTemplateAnnotationFunc, podtemplatespec.WithAnnotations(secretsToInject.DatabaseAnnotations(mdb.GetNamespace())))
 	}
 
-	stsName := opts.Name
+	stsName := opts.GetStatefulSetName()
 	podAffinity := mdb.GetName()
 	if opts.StatefulSetNameOverride != "" {
 		stsName = opts.StatefulSetNameOverride
@@ -981,7 +999,7 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 		},
 		{
 			Name:  util.EnvVarMultiClusterMode,
-			Value: opts.MultiClusterMode,
+			Value: fmt.Sprintf("%t", opts.MultiClusterMode),
 		},
 	}
 

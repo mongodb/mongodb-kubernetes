@@ -424,7 +424,8 @@ spec:
                           type: object
                       type: object
                     memberConfig:
-                      description: MemberConfig
+                      description: MemberConfig allows to specify votes, priorities
+                        and tags for each of the mongodb process.
                       items:
                         properties:
                           priority:
@@ -437,10 +438,63 @@ spec:
                             type: integer
                         type: object
                       type: array
-                      x-kubernetes-preserve-unknown-fields: true
                     members:
                       description: Amount of members for this MongoDB Replica Set
                       type: integer
+                    podSpec:
+                      properties:
+                        persistence:
+                          description: Note, that this field is used by MongoDB resources
+                            only, let's keep it here for simplicity
+                          properties:
+                            multiple:
+                              properties:
+                                data:
+                                  properties:
+                                    labelSelector:
+                                      type: object
+                                      x-kubernetes-preserve-unknown-fields: true
+                                    storage:
+                                      type: string
+                                    storageClass:
+                                      type: string
+                                  type: object
+                                journal:
+                                  properties:
+                                    labelSelector:
+                                      type: object
+                                      x-kubernetes-preserve-unknown-fields: true
+                                    storage:
+                                      type: string
+                                    storageClass:
+                                      type: string
+                                  type: object
+                                logs:
+                                  properties:
+                                    labelSelector:
+                                      type: object
+                                      x-kubernetes-preserve-unknown-fields: true
+                                    storage:
+                                      type: string
+                                    storageClass:
+                                      type: string
+                                  type: object
+                              type: object
+                            single:
+                              properties:
+                                labelSelector:
+                                  type: object
+                                  x-kubernetes-preserve-unknown-fields: true
+                                storage:
+                                  type: string
+                                storageClass:
+                                  type: string
+                              type: object
+                          type: object
+                        podTemplate:
+                          type: object
+                          x-kubernetes-preserve-unknown-fields: true
+                      type: object
                     service:
                       description: this is an optional service, it will get the name
                         "<rsName>-service" in case not provided
@@ -831,6 +885,15 @@ spec:
                 required:
                 - spec
                 type: object
+              topology:
+                description: |-
+                  Topology sets the desired cluster topology of MongoDB resources
+                  It defaults (if empty or not set) to SingleCluster. If MultiCluster specified,
+                  then clusterSpecList field is mandatory and at least one member cluster has to be specified.
+                enum:
+                - SingleCluster
+                - MultiCluster
+                type: string
               type:
                 enum:
                 - Standalone

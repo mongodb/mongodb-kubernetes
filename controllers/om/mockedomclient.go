@@ -94,6 +94,10 @@ type MockedOmConnection struct {
 	history []*runtime.Func
 }
 
+func (oc *MockedOmConnection) GetDeployment() Deployment {
+	return oc.deployment
+}
+
 func (oc *MockedOmConnection) ReadGroupBackupConfig() (backup.GroupBackupConfig, error) {
 	return backup.GroupBackupConfig{}, xerrors.Errorf("not implemented")
 }
@@ -636,12 +640,17 @@ func (oc *MockedOmConnection) CheckNumberOfUpdateRequests(t *testing.T, expected
 	assert.Equal(t, expected, oc.numRequestsSent)
 }
 
-func (oc *MockedOmConnection) CheckDeployment(t *testing.T, expected Deployment, ignoreFields ...string) {
+func (oc *MockedOmConnection) CheckDeployment(t *testing.T, expected Deployment, ignoreFields ...string) bool {
+	succeeded := true
 	for key := range expected {
 		if !stringutil.Contains(ignoreFields, key) {
-			assert.Equal(t, expected[key], oc.deployment[key])
+			if !assert.Equal(t, expected[key], oc.deployment[key]) {
+				succeeded = false
+			}
 		}
 	}
+
+	return succeeded
 }
 
 func (oc *MockedOmConnection) CheckResourcesDeleted(t *testing.T) {

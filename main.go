@@ -211,7 +211,7 @@ func main() {
 	}
 }
 
-// getMemberClusters retrieves the member cluster from the configmap util.MemberListConfigMapName
+// getMemberClusters retrieves the member clusters from the configmap util.MemberListConfigMapName
 func getMemberClusters(ctx context.Context, cfg *rest.Config) ([]string, error) {
 	c, err := client.New(cfg, client.Options{})
 	if err != nil {

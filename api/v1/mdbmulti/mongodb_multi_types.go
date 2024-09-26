@@ -223,13 +223,7 @@ type MongoDBMultiSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	mdbv1.DbCommonSpec `json:",inline"`
 
-	// In few service mesh options for ex: Istio, by default we would need to duplicate the
-	// service objects created per pod in all the clusters to enable DNS resolution. Users can
-	// however configure their ServiceMesh with DNS proxy(https://istio.io/latest/docs/ops/configuration/traffic-management/dns-proxy/)
-	// enabled in which case the operator doesn't need to create the service objects per cluster. This options tells the operator
-	// whether it should create the service objects in all the clusters or not. By default, if not specified the operator would create the duplicate svc objects.
-	DuplicateServiceObjects *bool                   `json:"duplicateServiceObjects,omitempty"`
-	ClusterSpecList         []mdbv1.ClusterSpecItem `json:"clusterSpecList,omitempty"`
+	ClusterSpecList mdbv1.ClusterSpecList `json:"clusterSpecList,omitempty"`
 
 	// Mapping stores the deterministic index for a given cluster-name.
 	Mapping map[string]int `json:"-"`
@@ -280,7 +274,7 @@ func (m *MongoDBMultiCluster) UpdateStatus(phase status.Phase, statusOptions ...
 // should be added to the automation config and which services need to be created and how many replicas
 // each StatefulSet should have.
 // This function should always be used instead of accessing the struct fields directly in the Reconcile function.
-func (m *MongoDBMultiCluster) GetClusterSpecItems() ([]mdbv1.ClusterSpecItem, error) {
+func (m *MongoDBMultiCluster) GetClusterSpecItems() (mdbv1.ClusterSpecList, error) {
 	desiredSpecList := m.GetDesiredSpecList()
 	prevSpec, err := m.ReadLastAchievedSpec()
 	if err != nil {
@@ -296,7 +290,7 @@ func (m *MongoDBMultiCluster) GetClusterSpecItems() ([]mdbv1.ClusterSpecItem, er
 	desiredSpecMap := clusterSpecItemListToMap(desiredSpecList)
 	prevSpecsMap := clusterSpecItemListToMap(prevSpecs)
 
-	var specsForThisReconciliation []mdbv1.ClusterSpecItem
+	var specsForThisReconciliation mdbv1.ClusterSpecList
 
 	// We only care about the members of the previous reconcile, the rest should be reflecting the CRD definition.
 	for _, spec := range prevSpecs {
@@ -404,7 +398,7 @@ func (m *MongoDBMultiCluster) GetFailedClusterNames() ([]string, error) {
 }
 
 // clusterSpecItemListToMap converts a slice of cluster spec items into a map using the name as the key.
-func clusterSpecItemListToMap(clusterSpecItems []mdbv1.ClusterSpecItem) map[string]mdbv1.ClusterSpecItem {
+func clusterSpecItemListToMap(clusterSpecItems mdbv1.ClusterSpecList) map[string]mdbv1.ClusterSpecItem {
 	m := map[string]mdbv1.ClusterSpecItem{}
 	for _, c := range clusterSpecItems {
 		m[c.ClusterName] = c
@@ -557,7 +551,7 @@ func (m *MongoDBMultiSpec) GetPersistence() bool {
 // GetClusterSpecList returns the cluster spec items.
 // This method should ideally be not used in the reconciler. Always, prefer to
 // use the GetHealthyMemberClusters() method from the reconciler.
-func (m *MongoDBMultiSpec) GetClusterSpecList() []mdbv1.ClusterSpecItem {
+func (m *MongoDBMultiSpec) GetClusterSpecList() mdbv1.ClusterSpecList {
 	return m.ClusterSpecList
 }
 
@@ -592,11 +586,11 @@ func (m *MongoDBMultiSpec) GetExternalDomainForMemberCluster(clusterName string)
 
 // GetDesiredSpecList returns the desired cluster spec list for a given reconcile operation.
 // Returns the failerOver annotation if present else reads the cluster spec list from the CR.
-func (m *MongoDBMultiCluster) GetDesiredSpecList() []mdbv1.ClusterSpecItem {
+func (m *MongoDBMultiCluster) GetDesiredSpecList() mdbv1.ClusterSpecList {
 	clusterSpecList := m.Spec.ClusterSpecList
 
 	if val, ok := HasClustersToFailOver(m.GetAnnotations()); ok {
-		var clusterSpecOverride []mdbv1.ClusterSpecItem
+		var clusterSpecOverride mdbv1.ClusterSpecList
 
 		err := json.Unmarshal([]byte(val), &clusterSpecOverride)
 		if err != nil {

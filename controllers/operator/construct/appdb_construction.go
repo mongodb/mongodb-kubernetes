@@ -370,7 +370,7 @@ func ShouldMountSSLMMSCAConfigMap(podVars *env.PodEnvVars) bool {
 }
 
 // AppDbStatefulSet fully constructs the AppDb StatefulSet that is ready to be sent to the Kubernetes API server.
-func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, opts AppDBStatefulSetOptions, scaler interfaces.AppDBScaler, log *zap.SugaredLogger) (appsv1.StatefulSet, error) {
+func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, opts AppDBStatefulSetOptions, scaler interfaces.AppDBScaler, updateStrategyType appsv1.StatefulSetUpdateStrategyType, log *zap.SugaredLogger) (appsv1.StatefulSet, error) {
 	appDb := &opsManager.Spec.AppDB
 
 	// If we can enable monitoring, let's fill in container modification function
@@ -426,7 +426,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		// we don't need to update here the automation agent image for digest pinning, because it is defined in AGENT_IMAGE env var as full url with version
 		// if we run in certified bundle with digest pinning it will be properly updated to digest
 		customPersistenceConfig(&opsManager),
-		statefulset.WithUpdateStrategyType(opsManager.GetAppDBUpdateStrategyType()),
+		statefulset.WithUpdateStrategyType(updateStrategyType),
 		statefulset.WithOwnerReference(kube.BaseOwnerReference(&opsManager)),
 		statefulset.WithReplicas(scale.ReplicasThisReconciliation(scaler)),
 		statefulset.WithPodSpecTemplate(

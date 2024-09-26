@@ -368,22 +368,10 @@ func prepareConnection(ctx context.Context, controller *ReconcileCommonControlle
 	credsConfig, err := project.ReadCredentials(ctx, controller.SecretClient, kube.ObjectKey(mock.TestNamespace, mock.TestCredentialsSecretName), &zap.SugaredLogger{})
 	assert.NoError(t, err)
 
-	spec := mdbv1.ConnectionSpec{
-		SharedConnectionSpec: mdbv1.SharedConnectionSpec{
-			OpsManagerConfig: &mdbv1.PrivateCloudConfig{
-				ConfigMapRef: mdbv1.ConfigMapRef{
-					Name: mock.TestProjectConfigMapName,
-				},
-			},
-			LogLevel: mdbv1.Warn,
-		},
-		Credentials: mock.TestCredentialsSecretName,
-	}
-
-	conn, e := connection.PrepareOpsManagerConnection(ctx, controller.SecretClient, projectConfig, credsConfig, omConnectionFunc, mock.TestNamespace, zap.S())
+	conn, _, e := connection.PrepareOpsManagerConnection(ctx, controller.SecretClient, projectConfig, credsConfig, omConnectionFunc, mock.TestNamespace, zap.S())
 	mockOm := conn.(*om.MockedOmConnection)
 	assert.NoError(t, e)
-	return mockOm, newPodVars(conn, projectConfig, spec)
+	return mockOm, newPodVars(conn, projectConfig, mdbv1.Warn)
 }
 
 func requestFromObject(object metav1.Object) reconcile.Request {
@@ -404,11 +392,11 @@ func testConnectionSpec() mdbv1.ConnectionSpec {
 }
 
 func checkReconcileSuccessful(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, client client.Client) {
-	e := client.Update(ctx, object)
-	require.NoError(t, e)
+	err := client.Update(ctx, object)
+	require.NoError(t, err)
 
-	result, e := reconciler.Reconcile(ctx, requestFromObject(object))
-	require.NoError(t, e)
+	result, err := reconciler.Reconcile(ctx, requestFromObject(object))
+	require.NoError(t, err)
 	require.Equal(t, reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}, result)
 
 	// also need to make sure the object status is updated to successful
@@ -429,10 +417,14 @@ func checkReconcileSuccessful(ctx context.Context, t *testing.T, reconciler reco
 	case mdbv1.ReplicaSet:
 		assert.Equal(t, object.Spec.Members, object.Status.Members)
 	case mdbv1.ShardedCluster:
-		assert.Equal(t, object.Spec.ConfigServerCount, object.Status.ConfigServerCount)
-		assert.Equal(t, object.Spec.MongosCount, object.Status.MongosCount)
-		assert.Equal(t, object.Spec.MongodsPerShardCount, object.Status.MongodsPerShardCount)
-		assert.Equal(t, object.Spec.ShardCount, object.Status.ShardCount)
+		if object.Spec.IsMultiCluster() {
+			assert.Equal(t, object.Spec.ShardCount, object.Status.ShardCount)
+		} else {
+			assert.Equal(t, object.Spec.ConfigServerCount, object.Status.ConfigServerCount)
+			assert.Equal(t, object.Spec.MongosCount, object.Status.MongosCount)
+			assert.Equal(t, object.Spec.MongodsPerShardCount, object.Status.MongodsPerShardCount)
+			assert.Equal(t, object.Spec.ShardCount, object.Status.ShardCount)
+		}
 	}
 	require.NoError(t, client.Get(ctx, kube.ObjectKeyFromApiObject(object), object))
 }

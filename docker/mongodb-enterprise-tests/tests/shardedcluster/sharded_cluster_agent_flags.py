@@ -13,6 +13,8 @@ NUMBER_OF_SHARDS = 3
 NUMBER_OF_CONFIGS = 3
 NUMBER_OF_MONGOS = 2
 
+SHARDED_CLUSTER_NAME = "sh001-base"
+
 
 @fixture(scope="module")
 def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
@@ -51,7 +53,7 @@ def test_sharded_cluster_has_agent_flags(sharded_cluster: MongoDB, namespace: st
             "ls /var/log/mongodb-mms-automation/customLogFileShard* | wc -l",
         ]
         result = KubernetesTester.run_command_in_pod_container(
-            f"sh001-base-0-{i}",
+            f"{SHARDED_CLUSTER_NAME}-0-{i}",
             namespace,
             cmd,
         )
@@ -63,7 +65,7 @@ def test_sharded_cluster_has_agent_flags(sharded_cluster: MongoDB, namespace: st
             "ls /var/log/mongodb-mms-automation/customLogFileSrv* | wc -l",
         ]
         result = KubernetesTester.run_command_in_pod_container(
-            f"sh001-base-config-{i}",
+            f"{SHARDED_CLUSTER_NAME}-config-{i}",
             namespace,
             cmd,
         )
@@ -75,7 +77,7 @@ def test_sharded_cluster_has_agent_flags(sharded_cluster: MongoDB, namespace: st
             "ls /var/log/mongodb-mms-automation/customLogFileMongos* | wc -l",
         ]
         result = KubernetesTester.run_command_in_pod_container(
-            f"sh001-base-mongos-{i}",
+            f"{SHARDED_CLUSTER_NAME}-mongos-{i}",
             namespace,
             cmd,
         )
@@ -106,11 +108,11 @@ def test_enable_audit_log(sharded_cluster: MongoDB):
 
 def assert_log_types_in_pods(namespace: str, expected_log_types: set[str]):
     for i in range(NUMBER_OF_SHARDS):
-        assert_log_types_in_structured_json_pod_log(namespace, f"sh001-base-0-{i}", expected_log_types)
+        assert_log_types_in_structured_json_pod_log(namespace, f"{SHARDED_CLUSTER_NAME}-0-{i}", expected_log_types)
     for i in range(NUMBER_OF_CONFIGS):
-        assert_log_types_in_structured_json_pod_log(namespace, f"sh001-base-config-{i}", expected_log_types)
+        assert_log_types_in_structured_json_pod_log(namespace, f"{SHARDED_CLUSTER_NAME}-config-{i}", expected_log_types)
     for i in range(NUMBER_OF_MONGOS):
-        assert_log_types_in_structured_json_pod_log(namespace, f"sh001-base-mongos-{i}", expected_log_types)
+        assert_log_types_in_structured_json_pod_log(namespace, f"{SHARDED_CLUSTER_NAME}-mongos-{i}", expected_log_types)
 
 
 @mark.e2e_sharded_cluster_agent_flags

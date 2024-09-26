@@ -19,8 +19,10 @@ require (
 	github.com/stretchr/objx v0.5.2
 	github.com/stretchr/testify v1.9.0
 	github.com/xdg/stringprep v1.0.3
+	github.com/yudai/gojsondiff v1.0.0
 	go.uber.org/zap v1.27.0
 	golang.org/x/crypto v0.25.0
+	golang.org/x/exp v0.0.0-20220722155223-a9213eeb770e
 	golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	k8s.io/api v0.28.11
@@ -69,16 +71,19 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
+	github.com/onsi/ginkgo v1.16.5 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/prometheus/client_model v0.6.0 // indirect
 	github.com/prometheus/common v0.53.0 // indirect
 	github.com/prometheus/procfs v0.12.0 // indirect
 	github.com/ryanuber/go-glob v1.0.0 // indirect
+	github.com/sergi/go-diff v1.3.1 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.3.5 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
+	github.com/yudai/golcs v0.0.0-20170316035057-ecda9a501e82 // indirect
+	github.com/yudai/pp v2.0.1+incompatible // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/exp v0.0.0-20220722155223-a9213eeb770e // indirect
 	golang.org/x/mod v0.19.0 // indirect
 	golang.org/x/net v0.27.0 // indirect
 	golang.org/x/oauth2 v0.18.0 // indirect

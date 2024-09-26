@@ -11,12 +11,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 )
 
-// BuildFromStatefulSet returns a replica set that can be set in the Automation Config
-// based on the given StatefulSet and MongoDB resource.
-func BuildFromStatefulSet(set appsv1.StatefulSet, dbSpec mdbv1.DbSpec) om.ReplicaSetWithProcesses {
-	return BuildFromStatefulSetWithReplicas(set, dbSpec, int(*set.Spec.Replicas))
-}
-
 // BuildFromStatefulSetWithReplicas returns a replica set that can be set in the Automation Config
 // based on the given StatefulSet and MongoDB spec. The amount of members is set by the replicas
 // parameter.
@@ -40,7 +34,7 @@ func PrepareScaleDownFromMap(omClient om.Connection, rsMembers map[string][]stri
 	}
 
 	// Stage 1. Set Votes and Priority to 0
-	if len(rsMembers) > 0 {
+	if len(rsMembers) > 0 && len(processes) > 0 {
 		err := omClient.ReadUpdateDeployment(
 			func(d om.Deployment) error {
 				for k, v := range rsMembers {

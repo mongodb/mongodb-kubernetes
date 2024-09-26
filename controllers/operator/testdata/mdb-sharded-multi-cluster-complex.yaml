@@ -1,0 +1,313 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: mdb-sh-complex
+  namespace: my-namespace
+spec:
+  shardCount: 4
+  # we don't specify mongodsPerShardCount, mongosCount and configServerCount as they don't make sense for multi-cluster
+  topology: MultiCluster
+  type: ShardedCluster
+  version: 5.0.15
+  cloudManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  persistent: true
+  mongos:
+    agent:
+      logLevel: DEBUG # applied to all mongos in all clusters
+    clusterSpecList:
+      - clusterName: cluster-0
+        members: 1
+        statefulSet:
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: mongodb-enterprise-database
+                    resources:
+                      requests:
+                        cpu: "3"
+                        memory: "500M"
+                      limits:
+                        cpu: "3"
+                        memory: "1G"
+      - clusterName: cluster-1
+        members: 1
+        statefulSet:
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: mongodb-enterprise-database
+                    resources:
+                      requests:
+                        cpu: "2"
+                        memory: "300M"
+                      limits:
+                        cpu: "2"
+                        memory: "1G"
+  configSrvPodSpec:
+    persistence: # settings applicable to all pods in all clusters
+      single:
+        storage: 10G
+  configSrv:
+    agent:
+      logLevel: DEBUG # applied to all agent processes in all clusters
+    additionalMongodConfig: # applied to all config server processes in all clusters
+      operationProfiling:
+        mode: slowOp
+        slowOpThresholdMs: 100
+    clusterSpecList:
+      - clusterName: cluster-0
+        members: 2
+        memberConfig:
+          - votes: 1
+            priority: "100" # Primary is preferred in cluster-0
+          - votes: 2
+            priority: "100"
+        statefulSet:
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: mongodb-enterprise-database
+                    resources:
+                      requests:
+                        cpu: 2.0
+                        memory: 2.0G
+                      limits:
+                        cpu: 2.0
+                        memory: 5.0G
+        podSpec: # we change defaults defined in spec.configSrvPodSpec
+          persistence:
+            single:
+              storage: 15G # only this cluster will have storage set to 15G
+      - clusterName: cluster-1
+        members: 2
+        # we don't specify podSpec, so it's taken from spec.configSrvPodSpec
+        statefulSet:
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: mongodb-enterprise-database
+                    resources:
+                      requests:
+                        cpu: 2.1
+                        memory: 2.1G
+                      limits:
+                        cpu: 2.1
+                        memory: 5.1G
+        memberConfig:
+          - votes: 2
+            priority: "10"
+          - votes: 1
+            priority: "10"
+      - clusterName: cluster-2
+        members: 1
+        statefulSet:
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: mongodb-enterprise-database
+                    resources:
+                      requests:
+                        cpu: 2.2
+                        memory: 2.2G
+                      limits:
+                        cpu: 2.2
+                        memory: 5.2G
+        memberConfig:
+          - votes: 1
+            priority: "5"
+
+  shardPodSpec:
+    # default configuration for all shards in all clusters
+    persistence: # applicable to all shards over all clusters
+      single:
+        storage: 12G
+  shard:
+    agent:
+      logLevel: DEBUG # applied to all shard processes in all clusters
+    additionalMongodConfig: # applied to all shard processes in all clusters
+      operationProfiling:
+        mode: slowOp
+        slowOpThresholdMs: 100
+    clusterSpecList:
+      - clusterName: cluster-0
+        members: 2 # each shard will have 2 members in this cluster
+        memberConfig: # we prefer to have primaries in this cluster
+          - votes: 1
+            priority: "100"
+          - votes: 1
+            priority: "100"
+        podSpec:
+          persistence: # applicable to all shards in this cluster
+            multiple:
+              journal:
+                storage: "10G"
+              data:
+                storage: "20G"
+              logs:
+                storage: "5G"
+        statefulSet: # statefulset override applicable only to this member cluster
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: mongodb-enterprise-database
+                    resources:
+                      requests:
+                        cpu: 2.0
+                        memory: 2.0G
+                      limits:
+                        cpu: 2.0
+                        memory: 5.0G
+      - clusterName: cluster-1
+        members: 2
+        memberConfig: # votes and priorities for two processes of each shard's replica set deployed in this cluster; notice two elements for 2 members
+          - votes: 1
+            priority: "10"
+          - votes: 1
+            priority: "10"
+        statefulSet:
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: mongodb-enterprise-database
+                    resources:
+                      requests:
+                        cpu: 2.1
+                        memory: 2.1G
+                      limits:
+                        cpu: 2.1
+                        memory: 5.1G
+      - clusterName: cluster-2
+        members: 1
+        memberConfig:
+          - votes: 1
+            priority: "5"
+        statefulSet:
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: mongodb-enterprise-database
+                    resources:
+                      requests:
+                        cpu: 2.2
+                        memory: 2.2G
+                      limits:
+                        cpu: 2.2
+                        memory: 5.2G
+                  - name: sidecar-cluster-2
+                    image: busybox
+                    command: [ "sleep" ]
+                    args: [ "infinity" ]
+  shardOverrides:
+    - shardNames: ["mdb-sh-complex-2"] # this override will apply to only shard #2
+      additionalMongodConfig: # config applied to this shard over all clusters
+        operationProfiling:
+          mode: slowOp
+          slowOpThresholdMs: 150 # we want to configure profiling for this shard differently
+      agent:
+        logLevel: INFO # we don't want agent debug logs for this shard
+      # for this shard we override multi-cluster distribution; this is authoritative
+      # it will override shard.clusterSpecList elements entirely, but the contents of matching member clusters will be merged
+      clusterSpecList:
+        - clusterName: cluster-0 # all other fields are optional, if not provided the fields from matching member cluster from shard.clusterSpecList will be taken by default
+        - clusterName: cluster-1
+          # we change only member count
+          members: 3
+          memberConfig: # we increase the number of members so we need to specify member config for additional process
+            - votes: 1
+              priority: "210"
+            - votes: 2
+              priority: "211"
+            - votes: 3
+              priority: "212"
+          statefulSet:
+            spec:
+              template:
+                spec:
+                  containers:
+                  - name: sidecar-shard-2-cluster-1
+                    image: busybox
+                    command: [ "sleep" ]
+                    args: [ "infinity" ]
+
+        # we don't provide entry for clusterName: cluster-2, so it won't be deployed there
+        - clusterName: cluster-analytics # we don't deploy this shard to cluster-2, instead we deploy it to a different cluster, to perform additional analytics
+          members: 1
+          statefulSet: # we provide extra CPU for member of shard #2 in cluster-analytics
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: mongodb-enterprise-database
+                      resources:
+                        requests:
+                          cpu: 4
+                          memory: 5G
+                        limits:
+                          cpu: 4
+                          memory: 20G
+              nodeAffinity: # only members of this shard in this analytical cluster will have different node affinity to deploy on nodes with HDD
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                    - matchExpressions:
+                        - key: disktype
+                          operator: In
+                          values:
+                            - hdd
+          podSpec:
+            persistence: # applicable to only shard #2 in cluster-analytics
+              multiple:
+                journal:
+                  storage: "30G" # we assign additional disk resources on this cluster only
+                data:
+                  storage: "40G"
+                logs:
+                  storage: "10G"
+          memberConfig:
+            - votes: 1
+              priority: "0" # we don't want this node to be elected primary at all
+    - shardNames: ["mdb-sh-complex-1"] # this override will apply to only shard of index 1
+      podSpec:
+        persistence: # applicable to only shard #1 in all clusters
+          multiple:
+            journal:
+              storage: "130G"
+            data:
+              storage: "140G"
+            logs:
+              storage: "110G"
+
+      # for this shard we override multi-cluster distribution (members, votes and priorities)
+      # it will override shard.clusterSpecList elements entirely, but the contents of matching member clusters will be merged
+      clusterSpecList:
+        - clusterName: cluster-0 # all other fields are optional, if not provided the fields from matching member cluster from shard.clusterSpecList will be taken by default
+          members: 1
+          memberConfig: # we increase the number of members so we need to specify member config for additional process
+            - votes: 1
+              priority: "100"
+        - clusterName: cluster-2 # we deliberately change the order here
+          members: 3
+          memberConfig:
+            - votes: 1
+              priority: "120"
+            - votes: 2
+              priority: "121"
+            - votes: 1
+              priority: "122"
+        - clusterName: cluster-1
+          members: 2
+          memberConfig:
+            - votes: 1
+              priority: "110"
+            - votes: 0 # one is just secondary
+              priority: "0"

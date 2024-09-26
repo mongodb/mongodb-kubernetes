@@ -71,7 +71,7 @@ variables:
     teardown_task:
       - func: upload_e2e_logs
       - func: teardown_kubernetes_environment
-      - func: teardown_cloud_qa        
+      - func: teardown_cloud_qa
 
   - &setup_and_teardown_task
     setup_task:
@@ -1054,6 +1054,11 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_operator_upgrade_sharded_cluster
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_operator_upgrade_ops_manager
   tags: ["patch-run"]
   commands:
@@ -2011,6 +2016,11 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: e2e_sharded_cluster_multi_simplest
+  tags: ["patch-run"]
+  commands:
+    - func: e2e_test
+
 - name: generate_perf_tasks_one_thread
   patch_only: true
   commands:
@@ -2247,6 +2257,7 @@ task_groups:
   <<: *setup_and_teardown_task_cloudqa
   tasks:
     - e2e_operator_upgrade_replica_set
+    - e2e_operator_upgrade_sharded_cluster
     - e2e_operator_upgrade_ops_manager
     - e2e_operator_partial_crd
     - e2e_operator_clusterwide
@@ -2270,6 +2281,7 @@ task_groups:
   <<: *setup_and_teardown_task_cloudqa
   tasks:
     - e2e_operator_upgrade_replica_set
+    - e2e_operator_upgrade_sharded_cluster
     - e2e_operator_upgrade_ops_manager
     - e2e_operator_partial_crd
     - e2e_operator_clusterwide
@@ -2278,7 +2290,7 @@ task_groups:
   <<: *teardown_group
 
 - name: e2e_multi_cluster_kind_task_group
-  max_hosts: 10
+  max_hosts: 40
   <<: *setup_group
   <<: *setup_and_teardown_task_cloudqa
   tasks:
@@ -2313,6 +2325,7 @@ task_groups:
     - e2e_multi_cluster_agent_flags
     - e2e_multi_cluster_replica_set_ignore_unknown_users
     - e2e_multi_cluster_pvc_resize
+    - e2e_sharded_cluster_multi_simplest
   <<: *teardown_group
 
 - name: e2e_multi_cluster_2_clusters_task_group

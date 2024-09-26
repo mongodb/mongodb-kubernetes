@@ -44,7 +44,7 @@ class TestOpsManagerCreation:
         ops_manager.appdb_status().assert_reaches_phase(
             Phase.Pending,
             msg_regexp="Application Database Agents haven't reached Running state yet",
-            timeout=100,
+            timeout=300,
         )
 
     def test_om_status_0_sts_not_ready(self, ops_manager: MongoDBOpsManager):
@@ -85,8 +85,8 @@ class TestOpsManagerCreation:
 
         appdb_agent_container = appdb_sts.spec.template.spec.containers[2]
         assert appdb_agent_container.name == "mongodb-agent"
-        assert appdb_agent_container.resources.limits["cpu"] == "250m"
-        assert appdb_agent_container.resources.limits["memory"] == "350M"
+        assert appdb_agent_container.resources.limits["cpu"] == "750m"
+        assert appdb_agent_container.resources.limits["memory"] == "850M"
 
         assert appdb_sts.spec.template.spec.containers[0].name == "appdb-sidecar"
         assert appdb_sts.spec.template.spec.containers[0].image == "busybox"

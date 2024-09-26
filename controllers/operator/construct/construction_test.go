@@ -179,7 +179,7 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultipleDefaults(t *testing.T) {
 func TestBuildAppDbStatefulSetDefault(t *testing.T) {
 	om := omv1.NewOpsManagerBuilderDefault().Build()
 	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
-	appDbSts, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"}, AppDBStatefulSetOptions{}, scaler, nil)
+	appDbSts, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"}, AppDBStatefulSetOptions{}, scaler, appsv1.OnDeleteStatefulSetStrategyType, nil)
 	assert.NoError(t, err)
 	podSpecTemplate := appDbSts.Spec.Template.Spec
 	assert.Len(t, podSpecTemplate.InitContainers, 1)

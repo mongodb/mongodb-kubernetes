@@ -26,7 +26,7 @@ SHARD0_TOPLOGY_KEY = "shardoverride"
 def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("sharded-cluster-custom-podspec.yaml"), namespace=namespace)
     resource.set_version(custom_mdb_version)
-
+    resource["spec"]["persistent"] = True
     try_load(resource)
 
     return resource

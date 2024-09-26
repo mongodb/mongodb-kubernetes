@@ -154,7 +154,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(ctx, s, workflow.Failed(err), log)
 	}
 
-	conn, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, s.Namespace, log)
+	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, s.Namespace, log)
 	if err != nil {
 		return r.updateStatus(ctx, s, workflow.Failed(xerrors.Errorf("Failed to prepare Ops Manager connection: %w", err)), log)
 	}
@@ -186,7 +186,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(ctx, s, workflow.Failed(err), log)
 	}
 
-	podVars := newPodVars(conn, projectConfig, s.Spec.ConnectionSpec)
+	podVars := newPodVars(conn, projectConfig, s.Spec.LogLevel)
 
 	if status := validateMongoDBResource(s, conn); !status.IsOK() {
 		return r.updateStatus(ctx, s, status, log)
@@ -246,9 +246,13 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 	if !workflowStatus.IsOK() {
 		return r.updateStatus(ctx, s, workflowStatus, log)
 	}
-	_, _ = r.updateStatus(ctx, s, workflow.Pending(""), log, workflowStatus.StatusOptions()...)
 
-	status := workflow.RunInGivenOrder(publishAutomationConfigFirst(ctx, r.client, *s, standaloneOpts, log),
+	lastSpec, err := s.GetLastSpec()
+	if err != nil {
+		lastSpec = &mdbv1.MongoDbSpec{}
+	}
+
+	status := workflow.RunInGivenOrder(publishAutomationConfigFirst(ctx, r.client, *s, lastSpec, standaloneOpts, log),
 		func() workflow.Status {
 			return r.updateOmDeployment(ctx, conn, s, sts, false, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
@@ -260,7 +264,6 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 			if status := getStatefulSetStatus(ctx, sts.Namespace, sts.Name, r.client); !status.IsOK() {
 				return status
 			}
-			_, _ = r.updateStatus(ctx, s, workflow.Pending("").WithResourcesNotReady([]mdbstatus.ResourceNotReady{}), log)
 
 			log.Info("Updated StatefulSet for standalone")
 			return workflow.OK()
@@ -354,7 +357,7 @@ func (r *ReconcileMongoDbStandalone) OnDelete(ctx context.Context, obj runtime.O
 		return err
 	}
 
-	conn, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, s.Namespace, log)
+	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, s.Namespace, log)
 	if err != nil {
 		return err
 	}

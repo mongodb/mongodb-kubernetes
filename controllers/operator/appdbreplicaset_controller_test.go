@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	v1 "k8s.io/api/apps/v1"
+
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
@@ -391,7 +393,7 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 	assert.Empty(t, podVars.User)
 
 	opsManager.Spec.AppDB.Members = 5
-	appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, zap.S())
+	appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, v1.OnDeleteStatefulSetStrategyType, zap.S())
 	assert.NoError(t, err)
 
 	assert.Nil(t, findVolumeByName(appDbSts.Spec.Template.Spec.Volumes, construct.AgentAPIKeyVolumeName))
@@ -424,7 +426,7 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 	hosts, _ := omConnectionFactory.GetConnection().GetHosts()
 	assert.Len(t, hosts.Results, 5, "the AppDB hosts should have been added")
 
-	appDbSts, err = construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, zap.S())
+	appDbSts, err = construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, v1.OnDeleteStatefulSetStrategyType, zap.S())
 	assert.NoError(t, err)
 
 	assert.NotNil(t, findVolumeByName(appDbSts.Spec.Template.Spec.Volumes, construct.AgentAPIKeyVolumeName))
@@ -459,7 +461,7 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 
 	t.Run("do not override images while activating monitoring", func(t *testing.T) {
 		podVars := env.PodEnvVars{ProjectID: "something"}
-		appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, zap.S())
+		appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, v1.OnDeleteStatefulSetStrategyType, zap.S())
 		assert.NoError(t, err)
 		assert.NotNil(t, appDbSts)
 
@@ -485,7 +487,7 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 
 	t.Run("do not override images, but remove monitoring if not activated", func(t *testing.T) {
 		podVars := env.PodEnvVars{}
-		appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, zap.S())
+		appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, v1.OnDeleteStatefulSetStrategyType, zap.S())
 		assert.NoError(t, err)
 		assert.NotNil(t, appDbSts)
 
@@ -834,14 +836,14 @@ func checkDeploymentEqualToPublished(t *testing.T, expected automationconfig.Aut
 
 func newAppDbReconciler(ctx context.Context, c client.Client, opsManager *omv1.MongoDBOpsManager, omConnectionFactoryFunc om.ConnectionFactory, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
 	commonController := newReconcileCommonController(ctx, c)
-	return newAppDBReplicaSetReconciler(ctx, opsManager.Spec.AppDB, commonController, omConnectionFactoryFunc, nil, zap.S())
+	return newAppDBReplicaSetReconciler(ctx, opsManager.Spec.AppDB, commonController, omConnectionFactoryFunc, opsManager.Annotations, nil, zap.S())
 }
 
 func newAppDbMultiReconciler(ctx context.Context, c client.Client, opsManager *omv1.MongoDBOpsManager, memberClusterMap map[string]cluster.Cluster, log *zap.SugaredLogger, omConnectionFactoryFunc om.ConnectionFactory) (*ReconcileAppDbReplicaSet, error) {
 	_ = c.Update(ctx, opsManager)
 	commonController := newReconcileCommonController(ctx, c)
 
-	return newAppDBReplicaSetReconciler(ctx, opsManager.Spec.AppDB, commonController, omConnectionFactoryFunc, memberClusterMap, log)
+	return newAppDBReplicaSetReconciler(ctx, opsManager.Spec.AppDB, commonController, omConnectionFactoryFunc, opsManager.Annotations, memberClusterMap, log)
 }
 
 // createOpsManagerUserPasswordSecret creates the secret which holds the password that will be used for the Ops Manager user.

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"path"
-	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -33,7 +32,6 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
-	intp "github.com/10gen/ops-manager-kubernetes/pkg/util/int"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/timeutil"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/agent"
@@ -99,6 +97,23 @@ const (
 	ForcedReconfigureAlreadyPerformedAnnotation = "mongodb.com/v1.forceReconfigurePerformed"
 )
 
+type CommonDeploymentState struct {
+	ClusterMapping map[string]int `json:"clusterMapping"`
+}
+
+type AppDBDeploymentState struct {
+	CommonDeploymentState     `json:",inline"`
+	LastAppliedMemberSpec     map[string]int `json:"lastAppliedMemberSpec"`
+	LastAppliedMongoDBVersion string         `json:"lastAppliedMongoDBVersion"`
+}
+
+func NewAppDBDeploymentState() *AppDBDeploymentState {
+	return &AppDBDeploymentState{
+		CommonDeploymentState: CommonDeploymentState{ClusterMapping: map[string]int{}},
+		LastAppliedMemberSpec: map[string]int{},
+	}
+}
+
 // ReconcileAppDbReplicaSet reconciles a MongoDB with a type of ReplicaSet
 type ReconcileAppDbReplicaSet struct {
 	*ReconcileCommonController
@@ -106,15 +121,20 @@ type ReconcileAppDbReplicaSet struct {
 
 	centralClient kubernetesClient.Client
 	// ordered list of member clusters; order in this list is preserved across runs using memberClusterIndex
-	memberClusters      []multicluster.MemberCluster
-	currentClusterSpecs map[string]int
+	memberClusters  []multicluster.MemberCluster
+	stateStore      *StateStore[AppDBDeploymentState]
+	deploymentState *AppDBDeploymentState
 }
 
-func newAppDBReplicaSetReconciler(ctx context.Context, appDBSpec omv1.AppDBSpec, commonController *ReconcileCommonController, omConnectionFactory om.ConnectionFactory, globalMemberClustersMap map[string]cluster.Cluster, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
+func newAppDBReplicaSetReconciler(ctx context.Context, appDBSpec omv1.AppDBSpec, commonController *ReconcileCommonController, omConnectionFactory om.ConnectionFactory, omAnnotations map[string]string, globalMemberClustersMap map[string]cluster.Cluster, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
 	reconciler := &ReconcileAppDbReplicaSet{
 		ReconcileCommonController: commonController,
 		omConnectionFactory:       omConnectionFactory,
-		currentClusterSpecs:       make(map[string]int),
+		centralClient:             commonController.client,
+	}
+
+	if err := reconciler.initializeStateStore(ctx, appDBSpec, omAnnotations, log); err != nil {
+		return nil, xerrors.Errorf("failed to initialize appdb state store: %w", err)
 	}
 
 	if err := reconciler.initializeMemberClusters(ctx, appDBSpec, globalMemberClustersMap, log); err != nil {
@@ -122,6 +142,38 @@ func newAppDBReplicaSetReconciler(ctx context.Context, appDBSpec omv1.AppDBSpec,
 	}
 
 	return reconciler, nil
+}
+
+// initializeStateStore initializes the deploymentState field by reading it from a state config map.
+// In case there is no state config map, the new state map is created and saved after performing migration of the existing state data (see migrateToNewDeploymentState).
+func (r *ReconcileAppDbReplicaSet) initializeStateStore(ctx context.Context, appDBSpec omv1.AppDBSpec, omAnnotations map[string]string, log *zap.SugaredLogger) error {
+	r.deploymentState = NewAppDBDeploymentState()
+
+	r.stateStore = NewStateStore[AppDBDeploymentState](appDBSpec.GetNamespace(), appDBSpec.Name(), r.centralClient)
+	if state, err := r.stateStore.ReadState(ctx); err != nil {
+		if apiErrors.IsNotFound(err) {
+			// If the deployment state config map is missing, then it might be either:
+			//  - fresh deployment
+			//  - existing deployment, but it's a first reconcile on the operator version with the new deployment state
+			//  - existing deployment, but for some reason the deployment state config map has been deleted
+			// In all cases, the deployment config map will be recreated from the state we're keeping and maintaining in
+			// the old place (in annotations, spec.status, config maps) in order to allow for the downgrade of the operator.
+			if err := r.migrateToNewDeploymentState(ctx, appDBSpec, omAnnotations); err != nil {
+				return err
+			}
+			// This will migrate the deployment state to the new structure and this branch of code won't be executed again.
+			// Here we don't use saveAppDBState wrapper, as we don't need to write the legacy state
+			if err := r.stateStore.WriteState(ctx, r.deploymentState, log); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+	} else {
+		r.deploymentState = state
+	}
+
+	return nil
 }
 
 // initializeMemberClusters main goal is to initialise memberClusterList field with the ordered list of member clusters to iterate over.
@@ -176,8 +228,6 @@ func newAppDBReplicaSetReconciler(ctx context.Context, appDBSpec omv1.AppDBSpec,
 //   - cluster-10, idx=3, members=10 (assigns a new index that is the next available index (0,1,2 are taken))
 //   - cluster-5, idx=4, members=5 (assigns a new index that is the next available index (0,1,2,3 are taken))
 func (r *ReconcileAppDbReplicaSet) initializeMemberClusters(ctx context.Context, appDBSpec omv1.AppDBSpec, globalMemberClustersMap map[string]cluster.Cluster, log *zap.SugaredLogger) error {
-	r.centralClient = r.client
-
 	if appDBSpec.IsMultiCluster() {
 		if len(globalMemberClustersMap) == 0 {
 			return xerrors.Errorf("member clusters have to be initialized for MultiCluster AppDB topology")
@@ -187,89 +237,18 @@ func (r *ReconcileAppDbReplicaSet) initializeMemberClusters(ctx context.Context,
 			return xerrors.Errorf("for appDBSpec.Topology = MultiCluster, clusterSpecList have to be non empty")
 		}
 
-		memberClusterMapping, err := r.updateMemberClusterMapping(ctx, appDBSpec)
-		if err != nil {
-			return xerrors.Errorf("failed to initialize clustermapping: %e", err)
-		}
-		specClusterMap := map[string]struct{}{}
+		r.updateMemberClusterMapping(appDBSpec)
 
-		// extract client from each cluster object.
-		for _, clusterSpecItem := range appDBSpec.GetClusterSpecList() {
-			specClusterMap[clusterSpecItem.ClusterName] = struct{}{}
-
-			var memberClusterKubeClient kubernetesClient.Client
-			var memberClusterSecretClient secrets.SecretClient
-			memberClusterClient, ok := globalMemberClustersMap[clusterSpecItem.ClusterName]
-			if !ok {
-				var clusterList []string
-				for m := range globalMemberClustersMap {
-					clusterList = append(clusterList, m)
-				}
-				log.Warnf("Member cluster %s specified in appDBSpec.clusterSpecList is not found in the list of operator's member clusters: %+v. "+
-					"Assuming the cluster is down. It will be ignored from reconciliation but its MongoDB processes will still be maintained in replicaset configuration.", clusterSpecItem.ClusterName, clusterList)
-			} else {
-				memberClusterKubeClient = kubernetesClient.NewClient(memberClusterClient.GetClient())
-				memberClusterSecretClient = secrets.SecretClient{
-					VaultClient: nil, // Vault is not supported yet on multicluster
-					KubeClient:  memberClusterKubeClient,
-				}
-			}
-
-			r.memberClusters = append(r.memberClusters, multicluster.MemberCluster{
-				Name:         clusterSpecItem.ClusterName,
-				Index:        memberClusterMapping[clusterSpecItem.ClusterName],
-				Client:       memberClusterKubeClient,
-				SecretClient: memberClusterSecretClient,
-				Replicas:     r.getLastAppliedMemberCount(ctx, appDBSpec, clusterSpecItem.ClusterName, log),
-				Active:       true,
-				Healthy:      memberClusterKubeClient != nil,
-			})
+		getLastAppliedMemberCountFunc := func(memberClusterName string) int {
+			return r.getLastAppliedMemberCount(appDBSpec, memberClusterName)
 		}
 
-		// add previous member clusters with last applied members. This is required for being able to scale down the appdb members one by one.
-		for previousMember := range memberClusterMapping {
-			// If the previous member is already present in the spec, skip it safely
-			if _, ok := specClusterMap[previousMember]; ok {
-				continue
-			}
+		clusterSpecList := appDBSpec.GetClusterSpecList()
+		r.memberClusters = createMemberClusterListFromClusterSpecList(clusterSpecList, globalMemberClustersMap, log, r.deploymentState.ClusterMapping, getLastAppliedMemberCountFunc)
 
-			previousMemberReplicas := r.getLastAppliedMemberCount(ctx, appDBSpec, previousMember, log)
-			// If the previous member was already scaled down to 0 members, skip it safely
-			if previousMemberReplicas == 0 {
-				continue
-			}
-
-			var memberClusterKubeClient kubernetesClient.Client
-			var memberClusterSecretClient secrets.SecretClient
-			memberClusterClient, ok := globalMemberClustersMap[previousMember]
-			if !ok {
-				var clusterList []string
-				for m := range globalMemberClustersMap {
-					clusterList = append(clusterList, m)
-				}
-				log.Warnf("Member cluster %s that has to be scaled to 0 replicas is not found in the list of operator's member clusters: %+v. "+
-					"Assuming the cluster is down. It will be ignored from reconciliation but and it's MongoDB processes will be scaled down to 0 in replicaset configuration.", previousMember, clusterList)
-			} else {
-				memberClusterKubeClient = kubernetesClient.NewClient(memberClusterClient.GetClient())
-				memberClusterSecretClient = secrets.SecretClient{
-					VaultClient: nil, // Vault is not supported yet on multicluster
-					KubeClient:  memberClusterKubeClient,
-				}
-			}
-
-			r.memberClusters = append(r.memberClusters, multicluster.MemberCluster{
-				Name:         previousMember,
-				Index:        memberClusterMapping[previousMember],
-				Client:       memberClusterKubeClient,
-				SecretClient: memberClusterSecretClient,
-				Replicas:     previousMemberReplicas,
-				Active:       false,
-				Healthy:      memberClusterKubeClient != nil,
-			})
+		if err := r.saveAppDBState(ctx, appDBSpec, log); err != nil {
+			return err
 		}
-		sort.Slice(r.memberClusters, func(i, j int) bool {
-			return r.memberClusters[i].Index < r.memberClusters[j].Index
-		})
 	} else {
 		// for SingleCluster member cluster list will contain one member  which will be the central (default) cluster
 		r.memberClusters = []multicluster.MemberCluster{multicluster.GetLegacyCentralMemberCluster(appDBSpec.Members, 0, r.centralClient, r.SecretClient)}
@@ -282,106 +261,174 @@ func (r *ReconcileAppDbReplicaSet) initializeMemberClusters(ctx context.Context,
 	return nil
 }
 
-func (r *ReconcileAppDbReplicaSet) getLastAppliedMemberCount(ctx context.Context, spec omv1.AppDBSpec, clusterName string, log *zap.SugaredLogger) int {
+// saveAppDBState is a wrapper method around WriteState, to ensure we keep updating the legacy Config Maps for downgrade
+// compatibility
+// This will write the legacy state to the cluster even for NEW deployments, created after upgrade of the operator.
+// It is not incorrect and doesn't interfere with the logic, but it *could* be confusing for a user
+// (this is also the case for OM controller)
+func (r *ReconcileAppDbReplicaSet) saveAppDBState(ctx context.Context, spec omv1.AppDBSpec, log *zap.SugaredLogger) error {
+	if err := r.stateStore.WriteState(ctx, r.deploymentState, log); err != nil {
+		return err
+	}
+	if err := r.writeLegacyStateConfigMaps(ctx, spec, log); err != nil {
+		return err
+	}
+	return nil
+}
+
+// writeLegacyStateConfigMaps converts the DeploymentState to legacy Config Maps and write them to the cluster
+// LastAppliedMongoDBVersion is also part of the state, it is handled separately in the controller as it was an annotation
+func (r *ReconcileAppDbReplicaSet) writeLegacyStateConfigMaps(ctx context.Context, spec omv1.AppDBSpec, log *zap.SugaredLogger) error {
+	// ClusterMapping ConfigMap
+	mappingConfigMapData := map[string]string{}
+	for k, v := range r.deploymentState.ClusterMapping {
+		mappingConfigMapData[k] = fmt.Sprintf("%d", v)
+	}
+	mappingConfigMap := configmap.Builder().SetName(spec.ClusterMappingConfigMapName()).SetNamespace(spec.Namespace).SetData(mappingConfigMapData).Build()
+	if err := configmap.CreateOrUpdate(ctx, r.centralClient, mappingConfigMap); err != nil {
+		return xerrors.Errorf("failed to update cluster mapping configmap %s: %w", spec.ClusterMappingConfigMapName(), err)
+	}
+	log.Debugf("Saving cluster mapping configmap %s: %v", spec.ClusterMappingConfigMapName(), mappingConfigMapData)
+
+	// LastAppliedMemberSpec ConfigMap
+	specConfigMapData := map[string]string{}
+	for k, v := range r.deploymentState.LastAppliedMemberSpec {
+		specConfigMapData[k] = fmt.Sprintf("%d", v)
+	}
+	specConfigMap := configmap.Builder().SetName(spec.LastAppliedMemberSpecConfigMapName()).SetNamespace(spec.Namespace).SetData(specConfigMapData).Build()
+	if err := configmap.CreateOrUpdate(ctx, r.centralClient, specConfigMap); err != nil {
+		return xerrors.Errorf("failed to update last applied member spec configmap %s: %w", spec.LastAppliedMemberSpecConfigMapName(), err)
+	}
+	log.Debugf("Saving last applied member spec configmap %s: %v", spec.LastAppliedMemberSpecConfigMapName(), specConfigMapData)
+
+	return nil
+}
+
+func createMemberClusterListFromClusterSpecList(clusterSpecList mdbv1.ClusterSpecList, globalMemberClustersMap map[string]cluster.Cluster, log *zap.SugaredLogger, memberClusterMapping map[string]int, getLastAppliedMemberCountFunc func(memberClusterName string) int) []multicluster.MemberCluster {
+	var memberClusters []multicluster.MemberCluster
+	specClusterMap := map[string]struct{}{}
+	for _, clusterSpecItem := range clusterSpecList {
+		specClusterMap[clusterSpecItem.ClusterName] = struct{}{}
+
+		var memberClusterKubeClient kubernetesClient.Client
+		var memberClusterSecretClient secrets.SecretClient
+		memberClusterClient, ok := globalMemberClustersMap[clusterSpecItem.ClusterName]
+		if !ok {
+			var clusterList []string
+			for m := range globalMemberClustersMap {
+				clusterList = append(clusterList, m)
+			}
+			log.Warnf("Member cluster %s specified in clusterSpecList is not found in the list of operator's member clusters: %+v. "+
+				"Assuming the cluster is down. It will be ignored from reconciliation but its MongoDB processes will still be maintained in replicaset configuration.", clusterSpecItem.ClusterName, clusterList)
+		} else {
+			memberClusterKubeClient = kubernetesClient.NewClient(memberClusterClient.GetClient())
+			memberClusterSecretClient = secrets.SecretClient{
+				VaultClient: nil, // Vault is not supported yet on multi cluster
+				KubeClient:  memberClusterKubeClient,
+			}
+		}
+
+		memberClusters = append(memberClusters, multicluster.MemberCluster{
+			Name:         clusterSpecItem.ClusterName,
+			Index:        memberClusterMapping[clusterSpecItem.ClusterName],
+			Client:       memberClusterKubeClient,
+			SecretClient: memberClusterSecretClient,
+			Replicas:     getLastAppliedMemberCountFunc(clusterSpecItem.ClusterName),
+			Active:       true,
+			Healthy:      memberClusterKubeClient != nil,
+		})
+	}
+
+	// add previous member clusters with last applied members. This is required for being able to scale down the appdb members one by one.
+	for previousMember := range memberClusterMapping {
+		// If the previous member is already present in the spec, skip it safely
+		if _, ok := specClusterMap[previousMember]; ok {
+			continue
+		}
+
+		previousMemberReplicas := getLastAppliedMemberCountFunc(previousMember)
+		// If the previous member was already scaled down to 0 members, skip it safely
+		if previousMemberReplicas == 0 {
+			continue
+		}
+
+		var memberClusterKubeClient kubernetesClient.Client
+		var memberClusterSecretClient secrets.SecretClient
+		memberClusterClient, ok := globalMemberClustersMap[previousMember]
+		if !ok {
+			var clusterList []string
+			for m := range globalMemberClustersMap {
+				clusterList = append(clusterList, m)
+			}
+			log.Warnf("Member cluster %s that has to be scaled to 0 replicas is not found in the list of operator's member clusters: %+v. "+
+				"Assuming the cluster is down. It will be ignored from reconciliation but it's MongoDB processes will be scaled down to 0 in replicaset configuration.", previousMember, clusterList)
+		} else {
+			memberClusterKubeClient = kubernetesClient.NewClient(memberClusterClient.GetClient())
+			memberClusterSecretClient = secrets.SecretClient{
+				VaultClient: nil, // Vault is not supported yet on multi cluster
+				KubeClient:  memberClusterKubeClient,
+			}
+		}
+
+		memberClusters = append(memberClusters, multicluster.MemberCluster{
+			Name:         previousMember,
+			Index:        memberClusterMapping[previousMember],
+			Client:       memberClusterKubeClient,
+			SecretClient: memberClusterSecretClient,
+			Replicas:     previousMemberReplicas,
+			Active:       false,
+			Healthy:      memberClusterKubeClient != nil,
+		})
+	}
+	sort.Slice(memberClusters, func(i, j int) bool {
+		return memberClusters[i].Index < memberClusters[j].Index
+	})
+
+	return memberClusters
+}
+
+func (r *ReconcileAppDbReplicaSet) getLastAppliedMemberCount(spec omv1.AppDBSpec, clusterName string) int {
 	if !spec.IsMultiCluster() {
-		return 0
+		panic(fmt.Errorf("the function cannot be used in SingleCluster topology)"))
 	}
-	specMapping, err := r.getLastAppliedMemberSpec(ctx, spec, log)
-	if err != nil {
-		return 0
-	}
+	specMapping := r.getLastAppliedMemberSpec(spec)
 	return specMapping[clusterName]
 }
 
-func (r *ReconcileAppDbReplicaSet) getLastAppliedMemberSpec(ctx context.Context, spec omv1.AppDBSpec, log *zap.SugaredLogger) (map[string]int, error) {
+func (r *ReconcileAppDbReplicaSet) getLastAppliedMemberSpec(spec omv1.AppDBSpec) map[string]int {
 	if !spec.IsMultiCluster() {
-		return nil, nil
+		return nil
 	}
-	specMapping := map[string]int{}
-	existingConfigMap, err := r.centralClient.GetConfigMap(ctx, types.NamespacedName{Name: spec.LastAppliedMemberSpecConfigMapName(), Namespace: spec.Namespace})
-	existingConfigMapNotFound := false
-	if err != nil {
-		if apiErrors.IsNotFound(err) {
-			existingConfigMapNotFound = true
-		} else {
-			return nil, xerrors.Errorf("failed to read last applied member spec config map %s: %w", spec.LastAppliedMemberSpecConfigMapName(), err)
-		}
-	} else {
-		for clusterName, replicasStr := range existingConfigMap.Data {
-			replicas, err := strconv.Atoi(replicasStr)
-			if err != nil {
-				return nil, xerrors.Errorf("failed to read last applied member spec from configmap %s (%+v): %w", spec.LastAppliedMemberSpecConfigMapName(), existingConfigMap.Data, err)
-			}
-			specMapping[clusterName] = replicas
-		}
-	}
-
-	configMapData := map[string]string{}
-	for k, v := range specMapping {
-		configMapData[k] = fmt.Sprintf("%d", v)
-	}
-	specConfigMap := configmap.Builder().SetName(spec.LastAppliedMemberSpecConfigMapName()).SetNamespace(spec.Namespace).SetData(configMapData).Build()
-	if existingConfigMapNotFound {
-		if err := r.centralClient.CreateConfigMap(ctx, specConfigMap); err != nil {
-			return nil, xerrors.Errorf("failed to create last applied member spec configmap %s: %w", spec.LastAppliedMemberSpecConfigMapName(), err)
-		}
-	}
-
-	log.Debugf("Read last applied member spec configmap %s: %v", spec.LastAppliedMemberSpecConfigMapName(), specConfigMap.Data)
-	return specMapping, nil
+	return r.deploymentState.LastAppliedMemberSpec
 }
 
-func (r *ReconcileAppDbReplicaSet) updateLastAppliedMemberSpec(ctx context.Context, spec omv1.AppDBSpec, memberSpec map[string]int, log *zap.SugaredLogger) error {
+func (r *ReconcileAppDbReplicaSet) getLegacyLastAppliedMemberSpec(ctx context.Context, spec omv1.AppDBSpec) (map[string]int, error) {
 	// read existing spec
 	existingSpec := map[string]int{}
-	existingConfigMap, err := r.centralClient.GetConfigMap(ctx, types.NamespacedName{Name: spec.LastAppliedMemberSpecConfigMapName(), Namespace: spec.Namespace})
-	existingConfigMapNotFound := false
+	existingConfigMap := corev1.ConfigMap{}
+	err := r.centralClient.Get(ctx, kube.ObjectKey(spec.Namespace, spec.LastAppliedMemberSpecConfigMapName()), &existingConfigMap)
 	if err != nil {
-		if apiErrors.IsNotFound(err) {
-			existingConfigMapNotFound = true
-		} else {
-			return xerrors.Errorf("failed to read last applied member spec config map %s: %w", spec.LastAppliedMemberSpecConfigMapName(), err)
-		}
+		return nil, xerrors.Errorf("failed to read last applied member spec config map %s: %w", spec.LastAppliedMemberSpecConfigMapName(), err)
 	} else {
 		for clusterName, replicasStr := range existingConfigMap.Data {
 			replicas, err := strconv.Atoi(replicasStr)
 			if err != nil {
-				return xerrors.Errorf("failed to read last applied member spec from config map %s (%+v): %w", spec.LastAppliedMemberSpecConfigMapName(), existingConfigMap.Data, err)
+				return nil, xerrors.Errorf("failed to read last applied member spec from config map %s (%+v): %w", spec.LastAppliedMemberSpecConfigMapName(), existingConfigMap.Data, err)
 			}
 			existingSpec[clusterName] = replicas
 		}
 	}
-	configMapData := map[string]string{}
-	for k, v := range memberSpec {
-		configMapData[k] = fmt.Sprintf("%d", v)
-	}
-	specConfigMap := configmap.Builder().SetName(spec.LastAppliedMemberSpecConfigMapName()).SetNamespace(spec.Namespace).SetData(configMapData).Build()
-	if existingConfigMapNotFound {
-		if err := r.centralClient.CreateConfigMap(ctx, specConfigMap); err != nil {
-			return xerrors.Errorf("failed to create last applied member spec configmap %s: %w", spec.LastAppliedMemberSpecConfigMapName(), err)
-		}
-	} else if !reflect.DeepEqual(memberSpec, existingSpec) {
-		if err := r.centralClient.UpdateConfigMap(ctx, specConfigMap); err != nil {
-			return xerrors.Errorf("failed to update last applied member spec configmap %s: %w", spec.LastAppliedMemberSpecConfigMapName(), err)
-		}
-	}
-	log.Debugf("Storing last applied member spec configmap %s: %v", spec.LastAppliedMemberSpecConfigMapName(), configMapData)
-	return nil
+
+	return existingSpec, nil
 }
 
-// updateMemberClusterMapping is maintains mapping of member cluster names to its indexes
-// TODO: it's a first step towards extracting this into a class to maintain a generic deployment state + replication (CLOUDP-199499)
-func updateMemberClusterMapping(ctx context.Context, namespace string, configMapName string, centralClient kubernetesClient.Client, memberClusterNames []string) (map[string]int, error) {
+// getLegacyMemberClusterMapping is reading the cluster mapping from the old config map where it has been stored before introducing the deployment state config map.
+func getLegacyMemberClusterMapping(ctx context.Context, namespace string, configMapName string, centralClient kubernetesClient.Client) (map[string]int, error) {
 	// read existing config map
 	existingMapping := map[string]int{}
 	existingConfigMap, err := centralClient.GetConfigMap(ctx, types.NamespacedName{Name: configMapName, Namespace: namespace})
-	existingConfigMapNotFound := false
 	if err != nil {
-		if apiErrors.IsNotFound(err) {
-			existingConfigMapNotFound = true
-		} else {
-			return nil, xerrors.Errorf("failed to read cluster mapping config map %s: %w", configMapName, err)
-		}
+		return nil, xerrors.Errorf("failed to read cluster mapping config map %s: %w", configMapName, err)
 	} else {
 		for clusterName, indexStr := range existingConfigMap.Data {
 			index, err := strconv.Atoi(indexStr)
@@ -392,57 +439,18 @@ func updateMemberClusterMapping(ctx context.Context, namespace string, configMap
 		}
 	}
 
-	newMapping := map[string]int{}
-	for k, v := range existingMapping {
-		newMapping[k] = v
-	}
-
-	// merge existing config map with cluster spec list
-	for _, clusterName := range memberClusterNames {
-		if _, ok := newMapping[clusterName]; !ok {
-			newMapping[clusterName] = getNextIndex(newMapping)
-		}
-	}
-
-	configMapData := map[string]string{}
-	for k, v := range newMapping {
-		configMapData[k] = fmt.Sprintf("%d", v)
-	}
-
-	// save config map if needed
-	mappingConfigMap := configmap.Builder().SetName(configMapName).SetNamespace(namespace).SetData(configMapData).Build()
-	if existingConfigMapNotFound {
-		if err := centralClient.CreateConfigMap(ctx, mappingConfigMap); err != nil {
-			return nil, xerrors.Errorf("failed to create cluster mapping config map %s: %w", configMapName, err)
-		}
-	} else if !reflect.DeepEqual(newMapping, existingMapping) {
-		// update only changed
-		if err := centralClient.UpdateConfigMap(ctx, mappingConfigMap); err != nil {
-			return nil, xerrors.Errorf("failed to update cluster mapping config map %s: %w", configMapName, err)
-		}
-	}
-
-	return newMapping, nil
-}
-
-func getNextIndex(m map[string]int) int {
-	maxi := -1
-
-	for _, val := range m {
-		maxi = intp.Max(maxi, val)
-	}
-	return maxi + 1
+	return existingMapping, nil
 }
 
 // updateMemberClusterMapping returns a map of member cluster name -> cluster index.
 // Mapping is preserved in spec.ClusterMappingConfigMapName() config map. Config map is created if not exists.
 // Subsequent executions will merge, update and store mappings from config map and from clusterSpecList and save back to config map.
-func (r *ReconcileAppDbReplicaSet) updateMemberClusterMapping(ctx context.Context, spec omv1.AppDBSpec) (map[string]int, error) {
+func (r *ReconcileAppDbReplicaSet) updateMemberClusterMapping(spec omv1.AppDBSpec) {
 	if !spec.IsMultiCluster() {
-		return nil, nil
+		return
 	}
 
-	return updateMemberClusterMapping(ctx, spec.Namespace, spec.ClusterMappingConfigMapName(), r.centralClient, util.Transform(spec.GetClusterSpecList(), func(clusterSpecItem mdbv1.ClusterSpecItem) string {
+	r.deploymentState.ClusterMapping = multicluster.AssignIndexesForMemberClusterNames(r.deploymentState.ClusterMapping, util.Transform(spec.GetClusterSpecList(), func(clusterSpecItem mdbv1.ClusterSpecItem) string {
 		return clusterSpecItem.ClusterName
 	}))
 }
@@ -522,7 +530,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 
 	podVars, err := r.tryConfigureMonitoringInOpsManager(ctx, opsManager, opsManagerUserPassword, log)
 	// it's possible that Ops Manager will not be available when we attempt to configure AppDB monitoring
-	// in Ops Manager. This is not a blocker to continue with the reset of the reconciliation.
+	// in Ops Manager. This is not a blocker to continue with the rest of the reconciliation.
 	if err != nil {
 		log.Errorf("Unable to configure monitoring of AppDB: %s, configuration will be attempted next reconciliation.", err)
 
@@ -623,8 +631,12 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 		return r.updateStatus(ctx, opsManager, workflowStatus, log, appDbStatusOption)
 	}
 
+	// We keep updating annotations for backward compatibility (e.g operator downgrade), so we write the
+	// lastAppliedMongoDBVersion both in the state and in annotations below
 	// here it doesn't matter for which cluster we'll generate the name - only AppDB's MongoDB version is used there, which is the same in all clusters
-	if err := annotations.UpdateLastAppliedMongoDBVersion(ctx, opsManager.GetVersionedImplForMemberCluster(r.getMemberClusterIndex(r.getNameOfFirstMemberCluster())), r.centralClient); err != nil {
+	verionedImplForMemberCluster := opsManager.GetVersionedImplForMemberCluster(r.getMemberClusterIndex(r.getNameOfFirstMemberCluster()))
+	r.deploymentState.LastAppliedMongoDBVersion = verionedImplForMemberCluster.GetMongoDBVersionForAnnotation()
+	if err := annotations.UpdateLastAppliedMongoDBVersion(ctx, verionedImplForMemberCluster, r.centralClient); err != nil {
 		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Could not save current state as an annotation: %w", err)), log, omStatusOption)
 	}
 
@@ -641,8 +653,8 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 		log.Debugf("Scaling status for memberCluster: %s, replicasThisReconcile=%d, specReplicas=%d, achievedDesiredScaling=%t", member.Name, replicasThisReconcile, specReplicas, achievedDesiredScaling)
 	}
 
-	if err := r.updateLastAppliedMemberSpec(ctx, opsManager.Spec.AppDB, r.currentClusterSpecs, log); err != nil {
-		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Could not save last applied member spec: %w", err)), log, omStatusOption)
+	if err := r.saveAppDBState(ctx, opsManager.Spec.AppDB, log); err != nil {
+		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Could not save deployment state: %w", err)), log, omStatusOption)
 	}
 
 	if podVars.ProjectID == "" {
@@ -768,16 +780,22 @@ func (r *ReconcileAppDbReplicaSet) publishAutomationConfigFirst(opsManager *omv1
 		automationConfigFirst = false
 	}
 
-	if opsManager.IsChangingVersion() {
+	if r.isChangingVersion(opsManager) {
 		log.Info("Version change in progress, the StatefulSet must be updated first")
 		automationConfigFirst = false
 	}
+
 	// if we are performing a force reconfigure we should change the automation config first
 	if shouldPerformForcedReconfigure(opsManager.Annotations) {
 		automationConfigFirst = true
 	}
 
 	return automationConfigFirst
+}
+
+func (r *ReconcileAppDbReplicaSet) isChangingVersion(opsManager *omv1.MongoDBOpsManager) bool {
+	prevVersion := r.deploymentState.LastAppliedMongoDBVersion
+	return prevVersion != "" && prevVersion != opsManager.Spec.AppDB.Version
 }
 
 func getDomain(service, namespace, clusterName string) string {
@@ -1712,6 +1730,15 @@ func (r *ReconcileAppDbReplicaSet) deployMonitoringAgentAutomationConfig(ctx con
 	return nil
 }
 
+// GetAppDBUpdateStrategyType returns the update strategy type the AppDB Statefulset needs to be configured with.
+// This depends on whether a version change is in progress.
+func (r *ReconcileAppDbReplicaSet) GetAppDBUpdateStrategyType(om *omv1.MongoDBOpsManager) appsv1.StatefulSetUpdateStrategyType {
+	if !r.isChangingVersion(om) {
+		return appsv1.RollingUpdateStatefulSetStrategyType
+	}
+	return appsv1.OnDeleteStatefulSetStrategyType
+}
+
 func (r *ReconcileAppDbReplicaSet) deployStatefulSet(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger, podVars env.PodEnvVars, appdbOpts construct.AppDBStatefulSetOptions) workflow.Status {
 	if err := r.createMultiClusterServices(ctx, opsManager); err != nil {
 		return workflow.Failed(err)
@@ -1736,7 +1763,9 @@ func (r *ReconcileAppDbReplicaSet) deployStatefulSet(ctx context.Context, opsMan
 			return workflow.Failed(err)
 		}
 
-		appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, appdbOpts, scaler, log)
+		updateStrategy := r.GetAppDBUpdateStrategyType(opsManager)
+
+		appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, appdbOpts, scaler, updateStrategy, log)
 		if err != nil {
 			return workflow.Failed(xerrors.Errorf("can't construct AppDB Statefulset: %w", err))
 		}
@@ -1745,7 +1774,7 @@ func (r *ReconcileAppDbReplicaSet) deployStatefulSet(ctx context.Context, opsMan
 			return workflowStatus.Merge(workflow.Failed(xerrors.Errorf("cannot deploy stateful set in cluster %s", memberCluster.Name)))
 		}
 
-		if appdbMultiScaler, ok := scaler.(*scalers.AppDBMultiClusterScaler); ok {
+		if appdbMultiScaler, ok := scaler.(*scalers.MultiClusterReplicaSetScaler); ok {
 			// we want to deploy all stateful sets the first time we're deploying stateful sets
 			if appdbMultiScaler.ScalingFirstTime() {
 				scalingFirstTime = true
@@ -1775,7 +1804,7 @@ func (r *ReconcileAppDbReplicaSet) deployStatefulSet(ctx context.Context, opsMan
 	}
 
 	for k, v := range currentClusterSpecs {
-		r.currentClusterSpecs[k] = v
+		r.deploymentState.LastAppliedMemberSpec[k] = v
 	}
 
 	return workflow.OK()
@@ -1924,6 +1953,33 @@ func (r *ReconcileAppDbReplicaSet) allStatefulSetsExist(ctx context.Context, ops
 	}
 
 	return allStsExist, nil
+}
+
+// migrateToNewDeploymentState reads old config maps with the deployment state and writes them to the new deploymentState structure.
+// This function is intended to be called only in the absence of the new deployment state config map.
+// In this case, if the legacy config maps are also missing, then it means is a completely fresh deployments and this function does nothing.
+func (r *ReconcileAppDbReplicaSet) migrateToNewDeploymentState(ctx context.Context, spec omv1.AppDBSpec, omAnnotations map[string]string) error {
+	if legacyMemberClusterMapping, err := getLegacyMemberClusterMapping(ctx, spec.Namespace, spec.ClusterMappingConfigMapName(), r.client); err != nil {
+		if !apiErrors.IsNotFound(err) && spec.IsMultiCluster() {
+			return err
+		}
+	} else {
+		r.deploymentState.ClusterMapping = legacyMemberClusterMapping
+	}
+
+	if legacyLastAppliedMemberSpec, err := r.getLegacyLastAppliedMemberSpec(ctx, spec); err != nil {
+		if !apiErrors.IsNotFound(err) {
+			return err
+		}
+	} else {
+		r.deploymentState.LastAppliedMemberSpec = legacyLastAppliedMemberSpec
+	}
+
+	if lastAppliedMongoDBVersion, found := omAnnotations[annotations.LastAppliedMongoDBVersion]; found {
+		r.deploymentState.LastAppliedMongoDBVersion = lastAppliedMongoDBVersion
+	}
+
+	return nil
 }
 
 // markAppDBAsBackingProject will configure the AppDB project to be read only. Errors are ignored
