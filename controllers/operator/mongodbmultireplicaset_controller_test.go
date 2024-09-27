@@ -81,6 +81,27 @@ func checkMultiReconcileSuccessful(ctx context.Context, t *testing.T, reconciler
 	assert.NoError(t, err)
 }
 
+func TestChangingFCVMultiCluster(t *testing.T) {
+	ctx := context.Background()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	reconciler, cl, _, _ := defaultMultiReplicaSetReconciler(ctx, mrs)
+	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, cl, false)
+
+	// Helper function to update and verify FCV
+	verifyFCV := func(version, expectedFCV string, fcvOverride *string, t *testing.T) {
+		if fcvOverride != nil {
+			mrs.Spec.FeatureCompatibilityVersion = fcvOverride
+		}
+
+		mrs.Spec.Version = version
+		_ = cl.Update(ctx, mrs)
+		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, cl, false)
+		assert.Equal(t, expectedFCV, mrs.Status.FeatureCompatibilityVersion)
+	}
+
+	testFCVsCases(t, verifyFCV)
+}
+
 func TestCreateMultiReplicaSet(t *testing.T) {
 	ctx := context.Background()
 	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()

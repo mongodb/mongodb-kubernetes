@@ -21,6 +21,7 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	userv1 "github.com/10gen/ops-manager-kubernetes/api/v1/user"
+	"github.com/10gen/ops-manager-kubernetes/pkg/fcv"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
@@ -710,6 +711,7 @@ func (om *MongoDBOpsManager) updateStatusAppDb(phase status.Phase, statusOptions
 
 	if phase == status.PhaseRunning {
 		spec := om.Spec.AppDB
+		om.Status.AppDbStatus.FeatureCompatibilityVersion = om.CalculateFeatureCompatibilityVersion()
 		om.Status.AppDbStatus.Version = spec.GetMongoDBVersion(nil)
 		om.Status.AppDbStatus.Message = ""
 	}
@@ -941,6 +943,10 @@ func (om *MongoDBOpsManager) IsChangingVersion() bool {
 
 func (om *MongoDBOpsManager) GetPreviousVersion() string {
 	return annotations.GetAnnotation(om, annotations.LastAppliedMongoDBVersion)
+}
+
+func (om *MongoDBOpsManager) CalculateFeatureCompatibilityVersion() string {
+	return fcv.CalculateFeatureCompatibilityVersion(om.Spec.AppDB.Version, om.Status.AppDbStatus.FeatureCompatibilityVersion, om.Spec.AppDB.FeatureCompatibilityVersion)
 }
 
 // GetSecretsMountedIntoPod returns the list of strings mounted into the pod that we need to watch.

@@ -39,6 +39,7 @@ def replica_set(openldap: OpenLDAP, namespace: str) -> MongoDB:
         },
         "automationUserName": "mms-automation-agent",
     }
+    resource.set_version("4.4.4-ent")
 
     # we need to fix this, but this test only works when upgrading from 4.4.4 to 5.0.14
     resource.set_version(ensure_ent_version("4.4.4-ent"))
@@ -170,7 +171,7 @@ def test_replica_set_connectivity_with_SCRAM_auth(replica_set: MongoDB):
 
 
 @mark.e2e_replica_set_ldap_agent_auth
-def test_change_version_to_latest(replica_set: MongoDB, custom_mdb_version: str):
+def test_change_version_to_latest(replica_set: MongoDB):
     replica_set.reload()
     replica_set.set_version(ensure_ent_version("5.0.14"))
     replica_set.update()

@@ -62,7 +62,7 @@ func TestMergeReplicaSet(t *testing.T) {
 
 	// Now the deployment "gets updated" from external - new node is added and one is removed - this should be fixed
 	// by merge
-	newProcess := NewMongodProcess("foo", "bar", &mdbv1.AdditionalMongodConfig{}, &mdbv1.NewStandaloneBuilder().Build().Spec, "", nil)
+	newProcess := NewMongodProcess("foo", "bar", &mdbv1.AdditionalMongodConfig{}, &mdbv1.NewStandaloneBuilder().Build().Spec, "", nil, "")
 
 	d.getProcesses()[0]["processType"] = ProcessTypeMongos                            // this will be overriden
 	d.getProcesses()[1].EnsureNetConfig()["MaxIncomingConnections"] = 20              // this will be left as-is
@@ -741,7 +741,7 @@ func buildRsByProcesses(rsName string, processes []Process) ReplicaSetWithProces
 }
 
 func createStandalone() Process {
-	return NewMongodProcess("merchantsStandalone", "mongo1.some.host", &mdbv1.AdditionalMongodConfig{}, defaultMongoDBVersioned("3.6.3"), "", nil)
+	return NewMongodProcess("merchantsStandalone", "mongo1.some.host", &mdbv1.AdditionalMongodConfig{}, defaultMongoDBVersioned("3.6.3"), "", nil, "")
 }
 
 func createMongosProcesses(num int, name, clusterName string) []Process {
@@ -749,7 +749,7 @@ func createMongosProcesses(num int, name, clusterName string) []Process {
 
 	for i := 0; i < num; i++ {
 		idx := strconv.Itoa(i)
-		mongosProcesses[i] = NewMongosProcess(name+idx, "mongoS"+idx+".some.host", &mdbv1.AdditionalMongodConfig{}, defaultMongoDBVersioned("3.6.3"), "", nil)
+		mongosProcesses[i] = NewMongosProcess(name+idx, "mongoS"+idx+".some.host", &mdbv1.AdditionalMongodConfig{}, defaultMongoDBVersioned("3.6.3"), "", nil, "")
 		if clusterName != "" {
 			mongosProcesses[i].setCluster(clusterName)
 		}
@@ -765,7 +765,7 @@ func createReplicaSetProcessesCount(count int, rsName string) []Process {
 	rsMembers := make([]Process, count)
 
 	for i := 0; i < count; i++ {
-		rsMembers[i] = NewMongodProcess(fmt.Sprintf("%s-%d", rsName, i), fmt.Sprintf("%s-%d.some.host", rsName, i), &mdbv1.AdditionalMongodConfig{}, defaultMongoDBVersioned("3.6.3"), "", nil)
+		rsMembers[i] = NewMongodProcess(fmt.Sprintf("%s-%d", rsName, i), fmt.Sprintf("%s-%d.some.host", rsName, i), &mdbv1.AdditionalMongodConfig{}, defaultMongoDBVersioned("3.6.3"), "", nil, "")
 		// Note that we don't specify the replicaset config for process
 	}
 	return rsMembers
@@ -775,7 +775,7 @@ func createReplicaSetProcessesCountEnt(count int, rsName string) []Process {
 	rsMembers := make([]Process, count)
 
 	for i := 0; i < count; i++ {
-		rsMembers[i] = NewMongodProcess(fmt.Sprintf("%s-%d", rsName, i), fmt.Sprintf("%s-%d.some.host", rsName, i), &mdbv1.AdditionalMongodConfig{}, defaultMongoDBVersioned("3.6.3-ent"), "", nil)
+		rsMembers[i] = NewMongodProcess(fmt.Sprintf("%s-%d", rsName, i), fmt.Sprintf("%s-%d.some.host", rsName, i), &mdbv1.AdditionalMongodConfig{}, defaultMongoDBVersioned("3.6.3-ent"), "", nil, "")
 		// Note that we don't specify the replicaset config for process
 	}
 	return rsMembers
