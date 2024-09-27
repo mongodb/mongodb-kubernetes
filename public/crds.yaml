@@ -2574,6 +2574,8 @@ spec:
                 type: object
               configServerCount:
                 type: integer
+              featureCompatibilityVersion:
+                type: string
               lastTransition:
                 type: string
               link:
@@ -3661,6 +3663,8 @@ spec:
                       type: object
                     type: array
                 type: object
+              featureCompatibilityVersion:
+                type: string
               lastTransition:
                 type: string
               link:
@@ -5569,6 +5573,8 @@ spec:
                     type: array
                   configServerCount:
                     type: integer
+                  featureCompatibilityVersion:
+                    type: string
                   lastTransition:
                     type: string
                   link:

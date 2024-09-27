@@ -31,7 +31,7 @@ func CreateFromReplicaSet(rs *mdb.MongoDB) om.Deployment {
 	}
 
 	d.MergeReplicaSet(
-		replicaset.BuildFromStatefulSetWithReplicas(sts, rs.GetSpec(), rs.GetSpec().Replicas()),
+		replicaset.BuildFromStatefulSet(sts, rs.GetSpec(), rs.Status.FeatureCompatibilityVersion),
 		rs.Spec.AdditionalMongodConfig.ToMap(),
 		lastConfig.ToMap(),
 		nil,

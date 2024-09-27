@@ -158,6 +158,11 @@ func validateTopologyIsSpecified(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
+func featureCompatibilityVersionValidation(os MongoDBOpsManagerSpec) v1.ValidationResult {
+	fcv := os.AppDB.FeatureCompatibilityVersion
+	return mdb.ValidateFCV(fcv)
+}
+
 func validateClusterSpecList(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	if os.IsMultiCluster() {
 		if len(os.ClusterSpecList) == 0 {
@@ -197,6 +202,7 @@ func (om *MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 		validateEmptyClusterSpecListSingleCluster,
 		validateTopologyIsSpecified,
 		validateClusterSpecList,
+		featureCompatibilityVersionValidation,
 	}
 
 	multiClusterAppDBSharedClusterValidators := []func(ms mdb.ClusterSpecList) v1.ValidationResult{

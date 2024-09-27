@@ -13,7 +13,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 )
 
-func CreateMongodProcessesWithLimit(set appsv1.StatefulSet, dbSpec mdbv1.DbSpec, limit int) []om.Process {
+func CreateMongodProcessesWithLimit(set appsv1.StatefulSet, dbSpec mdbv1.DbSpec, limit int, fcv string) []om.Process {
 	hostnames, names := dns.GetDnsForStatefulSetReplicasSpecified(set, dbSpec.GetClusterDomain(), limit, dbSpec.GetExternalDomain())
 	processes := make([]om.Process, len(hostnames))
 
@@ -23,7 +23,7 @@ func CreateMongodProcessesWithLimit(set appsv1.StatefulSet, dbSpec mdbv1.DbSpec,
 	}
 
 	for idx, hostname := range hostnames {
-		processes[idx] = om.NewMongodProcess(names[idx], hostname, dbSpec.GetAdditionalMongodConfig(), dbSpec, certificateFileName, set.Annotations)
+		processes[idx] = om.NewMongodProcess(names[idx], hostname, dbSpec.GetAdditionalMongodConfig(), dbSpec, certificateFileName, set.Annotations, fcv)
 	}
 
 	return processes
@@ -50,7 +50,7 @@ func CreateMongodProcessesWithLimitMulti(mrs mdbmultiv1.MongoDBMultiCluster, cer
 
 	processes := make([]om.Process, len(hostnames))
 	for idx := range hostnames {
-		processes[idx] = om.NewMongodProcess(fmt.Sprintf("%s-%d-%d", mrs.Name, clusterNums[idx], podNum[idx]), hostnames[idx], mrs.Spec.GetAdditionalMongodConfig(), &mrs.Spec, certFileName, mrs.Annotations)
+		processes[idx] = om.NewMongodProcess(fmt.Sprintf("%s-%d-%d", mrs.Name, clusterNums[idx], podNum[idx]), hostnames[idx], mrs.Spec.GetAdditionalMongodConfig(), &mrs.Spec, certFileName, mrs.Annotations, mrs.CalculateFeatureCompatibilityVersion())
 	}
 
 	return processes, nil

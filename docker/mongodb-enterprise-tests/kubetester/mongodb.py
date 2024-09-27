@@ -349,6 +349,12 @@ class MongoDB(CustomObject, MongoDBCommon):
         except KeyError:
             return None
 
+    def get_status_fcv(self) -> Optional[str]:
+        try:
+            return self["status"]["featureCompatibilityVersion"]
+        except KeyError:
+            return None
+
     def get_status_last_transition_time(self) -> Optional[str]:
         return self["status"]["lastTransition"]
 

@@ -67,12 +67,17 @@ class TestReplicaSetUpgradeDowngradeUpdate(KubernetesTester):
     def test_mongodb_upgrade(self, replica_set: MongoDB, custom_mdb_version: str, custom_mdb_prev_version: str):
         replica_set.load()
         replica_set["spec"]["version"] = custom_mdb_version
-        fcv = custom_mdb_prev_version.split(".")
-        replica_set["spec"]["featureCompatibilityVersion"] = f"{fcv[0]}.{fcv[1]}"
         create_or_update(replica_set)
 
         replica_set.assert_reaches_phase(Phase.Running, timeout=700)
         replica_set.tester().assert_version(custom_mdb_version)
+
+    def test_mongodb_version_fcv(self, replica_set: MongoDB, custom_mdb_prev_version: str):
+        # no fcv is set; that means we will use the smaller one between custom_mdb_version and custom_mdb_prev_version
+        # 5 -> 6, fcv: 5-> 5
+        major_minor_prev = custom_mdb_prev_version.split(".")
+
+        assert replica_set.get_status_fcv() == f"{major_minor_prev[0]}.{major_minor_prev[1]}"
 
     def test_db_connectable(self, mongod_tester, custom_mdb_version: str):
         mongod_tester.assert_version(custom_mdb_version)
@@ -80,13 +85,20 @@ class TestReplicaSetUpgradeDowngradeUpdate(KubernetesTester):
 
 @mark.e2e_replica_set_upgrade_downgrade
 class TestReplicaSetUpgradeDowngradeRevert(KubernetesTester):
-    def test_mongodb_downgrade(self, replica_set: MongoDB, custom_mdb_prev_version: str, custom_mdb_version: str):
+    def test_mongodb_downgrade(self, replica_set: MongoDB, custom_mdb_prev_version: str):
         replica_set.load()
         replica_set["spec"]["version"] = custom_mdb_prev_version
         create_or_update(replica_set)
 
         replica_set.assert_reaches_phase(Phase.Running, timeout=1000)
         replica_set.tester().assert_version(custom_mdb_prev_version)
+
+    def test_mongodb_version_fcv(self, replica_set: MongoDB, custom_mdb_prev_version: str):
+        # no fcv is set; that means we will use the smaller one between custom_mdb_version and custom_mdb_prev_version
+        # 6 -> 5, fcv: 5-> 5
+        major_minor = custom_mdb_prev_version.split(".")
+
+        assert replica_set.get_status_fcv() == f"{major_minor[0]}.{major_minor[1]}"
 
     def test_db_connectable(self, mongod_tester, custom_mdb_prev_version: str):
         mongod_tester.assert_version(custom_mdb_prev_version)

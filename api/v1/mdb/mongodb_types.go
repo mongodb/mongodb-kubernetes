@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/fcv"
+
 	"github.com/pkg/errors"
 
 	"k8s.io/apimachinery/pkg/labels"
@@ -357,6 +359,7 @@ type MongoDbStatus struct {
 	Members                                int                                        `json:"members,omitempty"`
 	Version                                string                                     `json:"version"`
 	Link                                   string                                     `json:"link,omitempty"`
+	FeatureCompatibilityVersion            string                                     `json:"featureCompatibilityVersion,omitempty"`
 	Warnings                               []status.Warning                           `json:"warnings,omitempty"`
 }
 
@@ -1191,6 +1194,7 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 
 	if phase == status.PhaseRunning {
 		m.Status.Version = m.Spec.Version
+		m.Status.FeatureCompatibilityVersion = m.CalculateFeatureCompatibilityVersion()
 		m.Status.Message = ""
 
 		switch m.Spec.ResourceType {
@@ -1578,6 +1582,10 @@ func (m *MongoDB) BuildConnectionString(username, password string, scheme connec
 
 func (m *MongoDB) GetAuthenticationModes() []string {
 	return m.Spec.Security.Authentication.GetModes()
+}
+
+func (m *MongoDB) CalculateFeatureCompatibilityVersion() string {
+	return fcv.CalculateFeatureCompatibilityVersion(m.Spec.Version, m.Status.FeatureCompatibilityVersion, m.Spec.FeatureCompatibilityVersion)
 }
 
 func (m *MongoDbSpec) IsInChangeVersion(lastSpec *MongoDbSpec) bool {

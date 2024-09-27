@@ -2,12 +2,15 @@ package operator
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -566,5 +569,29 @@ func testConcurrentReconciles(ctx context.Context, t *testing.T, client client.C
 			}()
 		}
 		wg.Wait()
+	}
+}
+
+func testFCVsCases(t *testing.T, verifyFCV func(version string, expectedFCV string, fcvOverride *string, t *testing.T)) {
+	// Define the test cases in order. They need to be in order!
+	testCases := []struct {
+		version     string
+		expectedFCV string
+		fcvOverride *string
+	}{
+		{"4.0.0", "4.0", nil},
+		{"5.0.0", "4.0", nil},
+		{"5.0.0", "4.0", nil},
+		{"6.0.0", "6.0", nil},
+		{"7.0.0", "7.0", ptr.To("AlwaysMatchVersion")},
+		{"8.0.0", "8.0", nil},
+		{"7.0.0", "7.0", nil},
+	}
+
+	// Iterate through the test cases in order
+	for _, tc := range testCases {
+		t.Run(fmt.Sprintf("Version=%s", tc.version), func(t *testing.T) {
+			verifyFCV(tc.version, tc.expectedFCV, tc.fcvOverride, t)
+		})
 	}
 }

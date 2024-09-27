@@ -379,6 +379,26 @@ func TestReplicaSetScramUpgradeDowngrade(t *testing.T) {
 	checkReconcileFailed(ctx, t, reconciler, rs, false, "Unable to downgrade to SCRAM-SHA-1 when SCRAM-SHA-256 has been enabled", client)
 }
 
+func TestChangingFCVReplicaSet(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetVersion("4.0.0").Build()
+	reconciler, cl, _ := defaultReplicaSetReconciler(ctx, rs)
+
+	// Helper function to update and verify FCV
+	verifyFCV := func(version, expectedFCV string, fcvOverride *string, t *testing.T) {
+		if fcvOverride != nil {
+			rs.Spec.FeatureCompatibilityVersion = fcvOverride
+		}
+
+		rs.Spec.Version = version
+		_ = cl.Update(ctx, rs)
+		checkReconcileSuccessful(ctx, t, reconciler, rs, cl)
+		assert.Equal(t, expectedFCV, rs.Status.FeatureCompatibilityVersion)
+	}
+
+	testFCVsCases(t, verifyFCV)
+}
+
 func TestReplicaSetCustomPodSpecTemplate(t *testing.T) {
 	ctx := context.Background()
 	podSpec := corev1.PodSpec{

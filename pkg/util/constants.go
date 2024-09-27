@@ -319,3 +319,5 @@ func ShouldLogAutomationConfigDiff() bool {
 const (
 	TWENTY_FOUR_HOURS = 24 * time.Hour
 )
+
+const AlwaysMatchVersionFCV = "AlwaysMatchVersion"

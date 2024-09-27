@@ -993,6 +993,8 @@ spec:
                       type: object
                     type: array
                 type: object
+              featureCompatibilityVersion:
+                type: string
               lastTransition:
                 type: string
               link:

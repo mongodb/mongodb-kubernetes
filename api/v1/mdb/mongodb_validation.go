@@ -203,7 +203,28 @@ func CommonValidators() []func(d DbCommonSpec) v1.ValidationResult {
 		agentModeIsSetIfMoreThanADeploymentAuthModeIsSet,
 		ldapGroupDnIsSetIfLdapAuthzIsEnabledAndAgentsAreExternal,
 		specWithExactlyOneSchema,
+		featureCompatibilityVersionValidation,
 	}
+}
+
+func featureCompatibilityVersionValidation(d DbCommonSpec) v1.ValidationResult {
+	fcv := d.FeatureCompatibilityVersion
+	return ValidateFCV(fcv)
+}
+
+func ValidateFCV(fcv *string) v1.ValidationResult {
+	if fcv != nil {
+		f := *fcv
+		if f == util.AlwaysMatchVersionFCV {
+			return v1.ValidationSuccess()
+		}
+		splitted := strings.Split(f, ".")
+		if len(splitted) != 2 {
+			return v1.ValidationError(fmt.Sprintf("invalid feature compatibility version: %s, possible values are:"+
+				" '%s' or 'major.minor'", f, util.AlwaysMatchVersionFCV))
+		}
+	}
+	return v1.ValidationResult{}
 }
 
 func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
