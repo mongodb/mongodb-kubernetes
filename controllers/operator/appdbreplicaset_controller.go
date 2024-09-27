@@ -681,6 +681,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	if opsManager.Annotations == nil {
 		opsManager.Annotations = map[string]string{}
 	}
+
 	if val, ok := opsManager.Annotations[ForceReconfigureAnnotation]; ok && val == "true" {
 		annotationsToAdd := map[string]string{ForcedReconfigureAlreadyPerformedAnnotation: timeutil.Now()}
 
@@ -987,10 +988,7 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 		return automationconfig.AutomationConfig{}, err
 	}
 
-	fcVersion := ""
-	if rs.FeatureCompatibilityVersion != nil {
-		fcVersion = *rs.FeatureCompatibilityVersion
-	}
+	fcVersion := opsManager.CalculateFeatureCompatibilityVersion()
 
 	tlsSecretName := opsManager.Spec.AppDB.GetSecurity().MemberCertificateSecretName(opsManager.Spec.AppDB.Name())
 	var appdbSecretPath string
@@ -1041,7 +1039,7 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 			p.Name = processList[i].Name
 			p.HostName = processList[i].HostName
 
-			p.AuthSchemaVersion = om.CalculateAuthSchemaVersion(rs.GetMongoDBVersion(nil))
+			p.AuthSchemaVersion = om.CalculateAuthSchemaVersion()
 			p.Args26 = objx.New(rs.AdditionalMongodConfig.ToMap())
 			p.SetPort(int(rs.AdditionalMongodConfig.GetPortOrDefault()))
 			p.SetReplicaSetName(rs.Name())

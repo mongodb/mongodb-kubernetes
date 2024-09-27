@@ -59,6 +59,7 @@ func TestCreateOmProcesStatic(t *testing.T) {
 func TestOnAddStandalone(t *testing.T) {
 	ctx := context.Background()
 	st := DefaultStandaloneBuilder().SetVersion("4.1.0").SetService("mysvc").Build()
+	st.Status.FeatureCompatibilityVersion = "4.1"
 
 	reconciler, kubeClient, omConnectionFactory := defaultStandaloneReconciler(ctx, om.NewEmptyMockedOmConnection, st)
 
@@ -345,7 +346,7 @@ func createDeploymentFromStandalone(st *mdbv1.MongoDB) om.Deployment {
 	d := om.NewDeployment()
 	sts := construct.DatabaseStatefulSet(*st, construct.StandaloneOptions(construct.GetPodEnvOptions()), nil)
 	hostnames, _ := dns.GetDnsForStatefulSet(sts, st.Spec.GetClusterDomain(), nil)
-	process := om.NewMongodProcess(st.Name, hostnames[0], st.Spec.AdditionalMongodConfig, st.GetSpec(), "", nil)
+	process := om.NewMongodProcess(st.Name, hostnames[0], st.Spec.AdditionalMongodConfig, st.GetSpec(), "", nil, st.Status.FeatureCompatibilityVersion)
 
 	lastConfig, err := st.GetLastAdditionalMongodConfigByType(mdbv1.StandaloneConfig)
 	if err != nil {

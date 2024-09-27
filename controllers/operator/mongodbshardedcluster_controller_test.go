@@ -57,6 +57,27 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+func TestChangingFCVShardedCluster(t *testing.T) {
+	ctx := context.Background()
+	sc := DefaultClusterBuilder().Build()
+	reconciler, _, cl, _, err := defaultClusterReconciler(ctx, sc, nil)
+	require.NoError(t, err)
+
+	// Helper function to update and verify FCV
+	verifyFCV := func(version, expectedFCV string, fcvOverride *string, t *testing.T) {
+		if fcvOverride != nil {
+			sc.Spec.FeatureCompatibilityVersion = fcvOverride
+		}
+
+		sc.Spec.Version = version
+		_ = cl.Update(ctx, sc)
+		checkReconcileSuccessful(ctx, t, reconciler, sc, cl)
+		assert.Equal(t, expectedFCV, sc.Status.FeatureCompatibilityVersion)
+	}
+
+	testFCVsCases(t, verifyFCV)
+}
+
 func TestReconcileCreateShardedCluster(t *testing.T) {
 	ctx := context.Background()
 	sc := DefaultClusterBuilder().Build()
@@ -1402,7 +1423,7 @@ func createMongosProcesses(set appsv1.StatefulSet, mdb *mdbv1.MongoDB, certifica
 	processes := make([]om.Process, len(hostnames))
 
 	for idx, hostname := range hostnames {
-		processes[idx] = om.NewMongosProcess(names[idx], hostname, mdb.Spec.MongosSpec.GetAdditionalMongodConfig(), mdb.GetSpec(), certificateFilePath, mdb.Annotations)
+		processes[idx] = om.NewMongosProcess(names[idx], hostname, mdb.Spec.MongosSpec.GetAdditionalMongodConfig(), mdb.GetSpec(), certificateFilePath, mdb.Annotations, mdb.CalculateFeatureCompatibilityVersion())
 	}
 
 	return processes

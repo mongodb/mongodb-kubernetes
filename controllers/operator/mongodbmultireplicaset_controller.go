@@ -198,6 +198,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return r.updateStatus(ctx, &mrs, status, log)
 	}
 
+	mrs.Status.FeatureCompatibilityVersion = mrs.CalculateFeatureCompatibilityVersion()
 	if err := r.saveLastAchievedSpec(ctx, mrs); err != nil {
 		return r.updateStatus(ctx, &mrs, workflow.Failed(xerrors.Errorf("Failed to set annotation: %w", err)), log)
 	}

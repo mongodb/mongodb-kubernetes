@@ -406,6 +406,6 @@ func (r *ReconcileMongoDbStandalone) OnDelete(ctx context.Context, obj runtime.O
 
 func createProcess(set appsv1.StatefulSet, containerName string, s *mdbv1.MongoDB) om.Process {
 	hostnames, _ := dns.GetDnsForStatefulSet(set, s.Spec.GetClusterDomain(), nil)
-	process := om.NewMongodProcess(s.Name, hostnames[0], s.Spec.GetAdditionalMongodConfig(), s.GetSpec(), "", s.Annotations)
+	process := om.NewMongodProcess(s.Name, hostnames[0], s.Spec.GetAdditionalMongodConfig(), s.GetSpec(), "", s.Annotations, s.CalculateFeatureCompatibilityVersion())
 	return process
 }

@@ -432,7 +432,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 		updatedMembers = int(*set.Spec.Replicas)
 	}
 
-	replicaSet := replicaset.BuildFromStatefulSetWithReplicas(set, rs.GetSpec(), updatedMembers)
+	replicaSet := replicaset.BuildFromStatefulSetWithReplicas(set, rs.GetSpec(), updatedMembers, rs.CalculateFeatureCompatibilityVersion())
 	processNames := replicaSet.GetProcessNames()
 
 	internalClusterPath := ""
@@ -515,7 +515,7 @@ func updateOmDeploymentDisableTLSConfiguration(conn om.Connection, membersNumber
 
 			// configure as many agents/Pods as we currently have, no more (in case
 			// there's a scale up change at the same time).
-			replicaSet := replicaset.BuildFromStatefulSetWithReplicas(set, rs.GetSpec(), membersNumberBefore)
+			replicaSet := replicaset.BuildFromStatefulSetWithReplicas(set, rs.GetSpec(), membersNumberBefore, rs.CalculateFeatureCompatibilityVersion())
 
 			lastConfig, err := rs.GetLastAdditionalMongodConfigByType(mdbv1.ReplicaSetConfig)
 			if err != nil {

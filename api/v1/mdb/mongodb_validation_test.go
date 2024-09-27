@@ -3,6 +3,8 @@ package mdb
 import (
 	"testing"
 
+	"k8s.io/utils/ptr"
+
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 
@@ -147,4 +149,55 @@ func TestReplicasetMemberIsSpecified(t *testing.T) {
 		ConfigMapRef: ConfigMapRef{Name: "cloud-manager"},
 	}
 	require.NoError(t, rs.ProcessValidationsOnReconcile(nil))
+}
+
+func TestReplicasetFCV(t *testing.T) {
+	tests := []struct {
+		name                 string
+		fcv                  *string
+		expectError          bool
+		expectedErrorMessage string
+	}{
+		{
+			name:                 "Invalid FCV value",
+			fcv:                  ptr.To("test"),
+			expectError:          true,
+			expectedErrorMessage: "invalid feature compatibility version: test, possible values are: 'AlwaysMatchVersion' or 'major.minor'",
+		},
+		{
+			name:        "Valid FCV with specific version",
+			fcv:         ptr.To("4.0"),
+			expectError: false,
+		},
+		{
+			name:                 "Invalid FCV - not major.minor only",
+			fcv:                  ptr.To("4.0.0"),
+			expectError:          true,
+			expectedErrorMessage: "invalid feature compatibility version: 4.0.0, possible values are: 'AlwaysMatchVersion' or 'major.minor'",
+		},
+		{
+			name:        "Valid FCV with AlwaysMatchVersion",
+			fcv:         ptr.To("AlwaysMatchVersion"),
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rs := NewReplicaSetBuilder().Build()
+			rs.Spec.CloudManagerConfig = &PrivateCloudConfig{
+				ConfigMapRef: ConfigMapRef{Name: "cloud-manager"},
+			}
+			rs.Spec.FeatureCompatibilityVersion = tt.fcv
+
+			err := rs.ProcessValidationsOnReconcile(nil)
+
+			if tt.expectError {
+				require.Error(t, err)
+				assert.EqualError(t, err, tt.expectedErrorMessage)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }

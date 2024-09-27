@@ -1729,7 +1729,7 @@ func (r *ShardedClusterReconcileHelper) createDesiredMongosProcesses(certificate
 	for _, memberCluster := range r.mongosMemberClusters {
 		hostnames, podNames := r.getMongosHostnames(memberCluster, scale.ReplicasThisReconciliation(r.getMongosScaler(memberCluster)))
 		for i := range hostnames {
-			process := om.NewMongosProcess(podNames[i], hostnames[i], r.sc.Spec.MongosSpec.GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations)
+			process := om.NewMongosProcess(podNames[i], hostnames[i], r.sc.Spec.MongosSpec.GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion())
 			processes = append(processes, process)
 		}
 	}
@@ -1743,7 +1743,7 @@ func (r *ShardedClusterReconcileHelper) createDesiredConfigSrvProcessesAndMember
 	for _, memberCluster := range r.configSrvMemberClusters {
 		hostnames, podNames := r.getConfigSrvHostnames(memberCluster, scale.ReplicasThisReconciliation(r.getConfigSrvScaler(memberCluster)))
 		for i := range hostnames {
-			process := om.NewMongodProcess(podNames[i], hostnames[i], r.sc.Spec.ConfigSrvSpec.GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations)
+			process := om.NewMongodProcess(podNames[i], hostnames[i], r.sc.Spec.ConfigSrvSpec.GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion())
 			processes = append(processes, process)
 		}
 
@@ -1763,7 +1763,7 @@ func (r *ShardedClusterReconcileHelper) createDesiredShardProcessesAndMemberOpti
 	for _, memberCluster := range r.shardsMemberClustersMap[shardIdx] {
 		hostnames, podNames := r.getShardHostnames(shardIdx, memberCluster, scale.ReplicasThisReconciliation(r.getShardScaler(shardIdx, memberCluster)))
 		for i := range hostnames {
-			process := om.NewMongodProcess(podNames[i], hostnames[i], r.desiredShardsConfiguration[shardIdx].GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations)
+			process := om.NewMongodProcess(podNames[i], hostnames[i], r.desiredShardsConfiguration[shardIdx].GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion())
 			processes = append(processes, process)
 		}
 		specMemberOptions := r.desiredShardsConfiguration[shardIdx].GetClusterSpecItem(memberCluster.Name).MemberConfig
@@ -1788,7 +1788,7 @@ func createMongodProcessForShardedCluster(set appsv1.StatefulSet, additionalMong
 	processes := make([]om.Process, len(hostnames))
 
 	for idx, hostname := range hostnames {
-		processes[idx] = om.NewMongodProcess(names[idx], hostname, additionalMongodConfig, &mdb.Spec, certificateFilePath, mdb.Annotations)
+		processes[idx] = om.NewMongodProcess(names[idx], hostname, additionalMongodConfig, &mdb.Spec, certificateFilePath, mdb.Annotations, mdb.CalculateFeatureCompatibilityVersion())
 	}
 
 	return processes

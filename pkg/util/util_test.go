@@ -34,15 +34,15 @@ func TestCompareVersions(t *testing.T) {
 }
 
 func TestMajorMinorVersion(t *testing.T) {
-	s, e := MajorMinorVersion("3.6.12")
+	s, _, e := MajorMinorVersion("3.6.12")
 	assert.NoError(t, e)
 	assert.Equal(t, "3.6", s)
 
-	s, e = MajorMinorVersion("4.0.0")
+	s, _, e = MajorMinorVersion("4.0.0")
 	assert.NoError(t, e)
 	assert.Equal(t, "4.0", s)
 
-	s, e = MajorMinorVersion("4.2.12-ent")
+	s, _, e = MajorMinorVersion("4.2.12-ent")
 	assert.NoError(t, e)
 	assert.Equal(t, "4.2", s)
 }

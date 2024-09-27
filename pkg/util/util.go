@@ -100,13 +100,6 @@ func ReadOrCreateMap(m map[string]interface{}, key string) map[string]interface{
 	return m[key].(map[string]interface{})
 }
 
-func ReadOrCreateStringArray(m map[string]interface{}, key string) []string {
-	if _, ok := m[key]; !ok {
-		m[key] = make([]string, 0)
-	}
-	return m[key].([]string)
-}
-
 func CompareVersions(version1, version2 string) (int, error) {
 	v1, err := semver.Make(version1)
 	if err != nil {
@@ -119,24 +112,12 @@ func CompareVersions(version1, version2 string) (int, error) {
 	return v1.Compare(v2), nil
 }
 
-func VersionMatchesRange(version, vRange string) (bool, error) {
-	v, err := semver.Parse(version)
-	if err != nil {
-		return false, err
-	}
-	expectedRange, err := semver.ParseRange(vRange)
-	if err != nil {
-		return false, err
-	}
-	return expectedRange(v), nil
-}
-
-func MajorMinorVersion(version string) (string, error) {
+func MajorMinorVersion(version string) (string, semver.Version, error) {
 	v1, err := semver.Make(version)
 	if err != nil {
-		return "", nil
+		return "", v1, nil
 	}
-	return fmt.Sprintf("%d.%d", v1.Major, v1.Minor), nil
+	return fmt.Sprintf("%d.%d", v1.Major, v1.Minor), v1, nil
 }
 
 // ************ Different functions to work with environment variables **************

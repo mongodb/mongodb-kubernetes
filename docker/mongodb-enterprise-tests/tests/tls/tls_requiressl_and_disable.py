@@ -1,5 +1,5 @@
 import pytest
-from kubetester import MongoDB, delete_secret
+from kubetester import MongoDB, create_or_update, delete_secret, try_load
 from kubetester.certs import (
     ISSUER_CA_NAME,
     create_agent_tls_certs,
@@ -29,14 +29,13 @@ def tls_replica_set(namespace: str, custom_mdb_version: str, issuer_ca_configmap
         "tls": {"ca": issuer_ca_configmap},
     }
     resource.set_version(custom_mdb_version)
-
-    yield resource.create()
-
-    resource.delete()
+    try_load(resource)
+    return resource
 
 
 @pytest.mark.e2e_replica_set_tls_require_and_disable
 def test_replica_set_creation(tls_replica_set: MongoDB):
+    create_or_update(tls_replica_set)
     tls_replica_set.assert_reaches_phase(Phase.Running, timeout=300)
 
 

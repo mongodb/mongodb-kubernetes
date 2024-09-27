@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/fcv"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
@@ -211,12 +213,13 @@ type ClusterStatusItem struct {
 }
 
 type MongoDBMultiStatus struct {
-	status.Common     `json:",inline"`
-	ClusterStatusList ClusterStatusList   `json:"clusterStatusList,omitempty"`
-	BackupStatus      *mdbv1.BackupStatus `json:"backup,omitempty"`
-	Version           string              `json:"version"`
-	Link              string              `json:"link,omitempty"`
-	Warnings          []status.Warning    `json:"warnings,omitempty"`
+	status.Common               `json:",inline"`
+	ClusterStatusList           ClusterStatusList   `json:"clusterStatusList,omitempty"`
+	BackupStatus                *mdbv1.BackupStatus `json:"backup,omitempty"`
+	Version                     string              `json:"version"`
+	Link                        string              `json:"link,omitempty"`
+	FeatureCompatibilityVersion string              `json:"featureCompatibilityVersion,omitempty"`
+	Warnings                    []status.Warning    `json:"warnings,omitempty"`
 }
 
 type MongoDBMultiSpec struct {
@@ -261,6 +264,10 @@ func (m *MongoDBMultiCluster) UpdateStatus(phase status.Phase, statusOptions ...
 			m.Status.BackupStatus = &mdbv1.BackupStatus{}
 		}
 		m.Status.BackupStatus.StatusName = option.(status.BackupStatusOption).Value().(string)
+	}
+
+	if phase == status.PhaseRunning {
+		m.Status.FeatureCompatibilityVersion = m.CalculateFeatureCompatibilityVersion()
 	}
 }
 
@@ -679,4 +686,8 @@ func (m *MongoDBMultiCluster) IsInChangeVersion() bool {
 		return true
 	}
 	return false
+}
+
+func (m *MongoDBMultiCluster) CalculateFeatureCompatibilityVersion() string {
+	return fcv.CalculateFeatureCompatibilityVersion(m.Spec.Version, m.Status.FeatureCompatibilityVersion, m.Spec.FeatureCompatibilityVersion)
 }

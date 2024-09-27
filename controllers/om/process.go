@@ -12,9 +12,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
-	"github.com/blang/semver"
 	"github.com/spf13/cast"
-	"go.uber.org/zap"
 )
 
 // MongoType refers to the type of the Mongo process, `mongos` or `mongod`.
@@ -94,7 +92,7 @@ func NewProcessFromInterface(i interface{}) Process {
 	return i.(map[string]interface{})
 }
 
-func NewMongosProcess(name, hostName string, additionalMongodConfig *mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec, certificateFilePath string, annotations map[string]string) Process {
+func NewMongosProcess(name, hostName string, additionalMongodConfig *mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec, certificateFilePath string, annotations map[string]string, fcv string) Process {
 	if additionalMongodConfig == nil {
 		additionalMongodConfig = mdbv1.NewEmptyAdditionalMongodConfig()
 	}
@@ -104,7 +102,7 @@ func NewMongosProcess(name, hostName string, additionalMongodConfig *mdbv1.Addit
 		WithHostname(hostName),
 		WithProcessType(ProcessTypeMongos),
 		WithAdditionalMongodConfig(*additionalMongodConfig),
-		WithResourceSpec(spec, annotations),
+		WithResourceSpec(spec, annotations, fcv),
 	)
 
 	// default values for configurable values
@@ -118,7 +116,7 @@ func NewMongosProcess(name, hostName string, additionalMongodConfig *mdbv1.Addit
 	return p
 }
 
-func NewMongodProcess(name, hostName string, additionalConfig *mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec, certificateFilePath string, annotations map[string]string) Process {
+func NewMongodProcess(name, hostName string, additionalConfig *mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec, certificateFilePath string, annotations map[string]string, fcv string) Process {
 	if additionalConfig == nil {
 		additionalConfig = mdbv1.NewEmptyAdditionalMongodConfig()
 	}
@@ -128,7 +126,7 @@ func NewMongodProcess(name, hostName string, additionalConfig *mdbv1.AdditionalM
 		WithHostname(hostName),
 		WithProcessType(ProcessTypeMongod),
 		WithAdditionalMongodConfig(*additionalConfig),
-		WithResourceSpec(spec, annotations),
+		WithResourceSpec(spec, annotations, fcv),
 	)
 
 	// default values for configurable values
@@ -395,17 +393,12 @@ func createProcess(opts ...ProcessOption) Process {
 
 type ProcessOption func(process Process)
 
-func WithResourceSpec(resourceSpec mdbv1.DbSpec, annotations map[string]string) ProcessOption {
+func WithResourceSpec(resourceSpec mdbv1.DbSpec, annotations map[string]string, fcv string) ProcessOption {
 	return func(process Process) {
 		processVersion := resourceSpec.GetMongoDBVersion(annotations)
 		process["version"] = processVersion
-		process["authSchemaVersion"] = CalculateAuthSchemaVersion(processVersion)
-		featureCompatibilityVersion := resourceSpec.GetFeatureCompatibilityVersion()
-		if featureCompatibilityVersion == nil {
-			computedFcv := calculateFeatureCompatibilityVersion(processVersion)
-			featureCompatibilityVersion = &computedFcv
-		}
-		process["featureCompatibilityVersion"] = *featureCompatibilityVersion
+		process["authSchemaVersion"] = CalculateAuthSchemaVersion()
+		process["featureCompatibilityVersion"] = fcv
 	}
 }
 
@@ -470,38 +463,8 @@ func (p Process) ConfigureTLS(mode tls.Mode, pemKeyFileLocation string) {
 	}
 }
 
-func calculateFeatureCompatibilityVersion(version string) string {
-	v1, err := semver.Make(version)
-	if err != nil {
-		zap.S().Warnf("Failed to parse version %s: %s", version, err)
-		return ""
-	}
-
-	baseVersion, _ := semver.Make("3.4.0")
-	if v1.GTE(baseVersion) {
-		ans, _ := util.MajorMinorVersion(version)
-		return ans
-	}
-
-	return ""
-}
-
-// see https://github.com/10gen/ops-manager-kubernetes/pull/68#issuecomment-397247337
-func CalculateAuthSchemaVersion(version string) int {
-	v, err := semver.Make(version)
-	if err != nil {
-		zap.S().Warnf("Failed to parse version %s: %s", version, err)
-		return 5
-	}
-
-	baseVersion, _ := semver.Make("3.0.0")
-	if v.GTE(baseVersion) {
-		// Version >= 3.0
-		return 5
-	}
-
-	// Version 2.6
-	return 3
+func CalculateAuthSchemaVersion() int {
+	return 5
 }
 
 // mergeFrom merges the Operator version of process ('operatorProcess') into OM one ('p').
