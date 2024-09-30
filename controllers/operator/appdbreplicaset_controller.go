@@ -635,6 +635,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	// lastAppliedMongoDBVersion both in the state and in annotations below
 	// here it doesn't matter for which cluster we'll generate the name - only AppDB's MongoDB version is used there, which is the same in all clusters
 	verionedImplForMemberCluster := opsManager.GetVersionedImplForMemberCluster(r.getMemberClusterIndex(r.getNameOfFirstMemberCluster()))
+	log.Debugf("Storing LastAppliedMongoDBVersion %s in annotations and deployment state", verionedImplForMemberCluster.GetMongoDBVersionForAnnotation())
 	r.deploymentState.LastAppliedMongoDBVersion = verionedImplForMemberCluster.GetMongoDBVersionForAnnotation()
 	if err := annotations.UpdateLastAppliedMongoDBVersion(ctx, verionedImplForMemberCluster, r.centralClient); err != nil {
 		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Could not save current state as an annotation: %w", err)), log, omStatusOption)

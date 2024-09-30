@@ -2,17 +2,14 @@ import json
 import os
 import subprocess
 import tempfile
-import threading
-import time
 from typing import Callable, Dict, List, Optional
 
 import kubernetes
-import semver
 from kubernetes import client
 from kubernetes.client import ApiextensionsV1Api
 from kubetester import (
-    MongoDB,
     create_or_update_configmap,
+    get_deployments,
     get_pod_when_ready,
     is_pod_ready,
     read_secret,
@@ -26,9 +23,7 @@ from kubetester.certs import (
     create_mongodb_tls_certs,
     create_multi_cluster_mongodb_tls_certs,
 )
-from kubetester.git import clone_and_checkout
 from kubetester.helm import helm_install_from_chart
-from kubetester.http import get_retriable_https_session
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
 from kubetester.kubetester import running_locally
@@ -36,6 +31,7 @@ from kubetester.mongodb_multi import MultiClusterClient
 from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
 from pytest import fixture
+from tests import test_logger
 from tests.multicluster import prepare_multi_cluster_namespaces
 
 try:
@@ -59,6 +55,9 @@ CLUSTER_HOST_MAPPING = {
 }
 
 LEGACY_CENTRAL_CLUSTER_NAME: str = "central"
+LEGACY_DEPLOYMENT_STATE_VERSION: str = "1.27.0"
+
+logger = test_logger.get_test_logger(__name__)
 
 
 @fixture(scope="module")
@@ -180,9 +179,9 @@ def operator_vault_secret_backend_tls(
 @fixture(scope="module")
 def operator_installation_config_quick_recovery(operator_installation_config: Dict[str, str]) -> Dict[str, str]:
     """
-    This functions appends automatic recovery settings for CLOUDP-189433. In order to make the test runnable in reasonable time,
-    we override the Recovery back off to 120 seconds. This gives enough time for the initial automation config to be published
-    and statefulsets to be created before forcing the recovery.
+    This functions appends automatic recovery settings for CLOUDP-189433. In order to make the test runnable in
+    reasonable time, we override the Recovery back off to 120 seconds. This gives enough time for the initial
+    automation config to be published and statefulsets to be created before forcing the recovery.
     """
     operator_installation_config["customEnvVars"] = (
         operator_installation_config["customEnvVars"] + "\&MDB_AUTOMATIC_RECOVERY_BACKOFF_TIME_S=120"
@@ -207,7 +206,7 @@ def image_type() -> str:
 
 @fixture(scope="module")
 def managed_security_context() -> str:
-    return os.environ["MANAGED_SECURITY_CONTEXT"]
+    return os.environ.get("MANAGED_SECURITY_CONTEXT", "False")
 
 
 @fixture(scope="module")
@@ -728,6 +727,8 @@ def _install_multi_cluster_operator(
     helm_opts: Dict[str, str],
     central_cluster_name: str,
     operator_name: Optional[str] = MULTI_CLUSTER_OPERATOR_NAME,
+    helm_chart_path: Optional[str] = "helm_chart",
+    custom_operator_version: Optional[str] = None,
 ) -> Operator:
     prepare_multi_cluster_namespaces(
         namespace,
@@ -743,7 +744,8 @@ def _install_multi_cluster_operator(
         namespace=namespace,
         helm_args=multi_cluster_operator_installation_config,
         api_client=central_cluster_client,
-    ).upgrade(multi_cluster=True)
+        helm_chart_path=helm_chart_path,
+    ).upgrade(multi_cluster=True, custom_operator_version=custom_operator_version)
 
     # If we're running locally, then immediately after installing the deployment, we scale it to zero.
     # This way operator in POD is not interfering with locally running one.
@@ -760,21 +762,46 @@ def _install_multi_cluster_operator(
 @fixture(scope="module")
 def official_operator(
     namespace: str,
-    image_type: str,
     managed_security_context: str,
     operator_installation_config: Dict[str, str],
+    central_cluster_name: str,
+    central_cluster_client: client.ApiClient,
+    member_cluster_clients: List[MultiClusterClient],
+    member_cluster_names: List[str],
+) -> Operator:
+    return install_official_operator(
+        namespace,
+        managed_security_context,
+        operator_installation_config,
+        central_cluster_name,
+        central_cluster_client,
+        member_cluster_clients,
+        member_cluster_names,
+        None,
+    )
+
+
+def install_official_operator(
+    namespace: str,
+    managed_security_context: str,
+    operator_installation_config: Dict[str, str],
+    central_cluster_name: str,
+    central_cluster_client: client.ApiClient,
+    member_cluster_clients: List[MultiClusterClient],
+    member_cluster_names: List[str],
+    custom_operator_version: Optional[str] = None,
 ) -> Operator:
     """
     Installs the Operator from the official Helm Chart.
 
     The version installed is always the latest version published as a Helm Chart.
     """
-
-    helm_options = []
+    logger.debug(
+        f"Installing latest released {'multi' if is_multi_cluster() else 'single'} cluster operator from helm charts"
+    )
 
     # When running in Openshift "managedSecurityContext" will be true.
     # When running in kind "managedSecurityContext" will be false, but still use the ubi images.
-
     helm_args = {
         "registry.imagePullSecrets": operator_installation_config["registry.imagePullSecrets"],
         "managedSecurityContext": managed_security_context,
@@ -782,29 +809,114 @@ def official_operator(
     name = "mongodb-enterprise-operator"
 
     # Note, that we don't intend to install the official Operator to standalone clusters (kops/openshift) as we want to
-    # avoid damaged CRDs. But we may need to install the "openshift like" environment to Kind instead if the "ubi" images
-    # are used for installing the dev Operator
+    # avoid damaged CRDs. But we may need to install the "openshift like" environment to Kind instead of the "ubi"
+    # images are used for installing the dev Operator
     helm_args["operator.operator_image_name"] = "{}-ubi".format(name)
 
+    # Note:
+    # We might want in the future to install CRDs when performing upgrade/downgrade tests, the helm install only takes
+    # care of the operator deployment.
+    # A solution is to clone and checkout our helm_charts repository, and apply the CRDs from the right branch
+    # Leaving below a code snippet to check out the right branch
+    """
+    # Version stored in env variable has format "1.27.0", tag name has format "enterprise-operator-1.27.0"
+    if custom_operator_version:
+        checkout_branch = f"enterprise-operator-{custom_operator_version}"
+    else:
+        checkout_branch = "main"
+    
     temp_dir = tempfile.mkdtemp()
     # Values files are now located in `helm-charts` repo.
     clone_and_checkout(
         "https://github.com/mongodb/helm-charts",
         temp_dir,
-        "main",  # main branch of helm-charts.
+        checkout_branch,  # branch or tag to check out from helm-charts.
     )
-    chart_dir = os.path.join(temp_dir, "charts", "enterprise-operator")
+    """
 
-    # When testing the UBI image type we need to assume a few things
+    if is_multi_cluster():
+        os.environ["HELM_KUBECONTEXT"] = central_cluster_name
+        # when running with the local operator, this is executed by scripts/dev/prepare_local_e2e_run.sh
+        if not local_operator():
+            run_kube_config_creation_tool(member_cluster_names, namespace, namespace, member_cluster_names)
+        helm_args.update(
+            {
+                "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
+                # override the serviceAccountName for the operator deployment
+                "operator.createOperatorServiceAccount": "false",
+                "multiCluster.clusters": operator_installation_config["multiCluster.clusters"],
+            }
+        )
+        # The "official" Operator will be installed, from the Helm Repo ("mongodb/enterprise-operator")
+        # We pass helm_args as operator installation config below instead of the full configmap data, otherwise
+        # it overwrites registries and image versions, and we wouldn't use the official images but the dev ones
+        return _install_multi_cluster_operator(
+            namespace,
+            helm_args,
+            central_cluster_client,
+            member_cluster_clients,
+            helm_opts=helm_args,
+            central_cluster_name=get_central_cluster_name(),
+            helm_chart_path="mongodb/enterprise-operator",
+            custom_operator_version=custom_operator_version,
+        )
+    else:
+        # When testing the UBI image type we need to assume a few things
+        # The "official" Operator will be installed, from the Helm Repo ("mongodb/enterprise-operator")
+        return Operator(
+            namespace=namespace,
+            helm_args=helm_args,
+            helm_chart_path="mongodb/enterprise-operator",
+            name=name,
+        ).install()
 
-    # The "official" Operator will be installed, from the Helm Repo ("mongodb/enterprise-operator")
-    return Operator(
-        namespace=namespace,
-        helm_args=helm_args,
-        helm_chart_path="mongodb/enterprise-operator",
-        helm_options=helm_options,
-        name=name,
-    ).install()
+
+# Function dumping the list of deployments and all their container images in logs.
+# This is useful for example to ensure we are installing the correct operator version.
+def log_deployments_info(namespace: str):
+    logger.debug(f"Dumping deployments list and container images in namespace {namespace}:")
+    logger.debug(log_deployment_and_images(get_deployments(namespace)))
+
+
+def log_deployment_and_images(deployments):
+    images, deployment_names = extract_container_images_and_deployments(deployments)
+    for deployment in deployment_names:
+        logger.debug(f"Deployment {deployment} contains images {images.get(deployment, 'error_getting_key')}")
+
+
+# Extract container images and deployments names from the nested dict returned by kubetester
+# Handles any missing key gracefully
+def extract_container_images_and_deployments(deployments) -> (Dict[str, str], List[str]):
+    deployment_images = {}
+    deployment_names = []
+    deployments = deployments.to_dict()
+
+    if "items" not in deployments:
+        logger.debug("Error: 'items' field not found in the response.")
+        return deployment_images
+
+    for deployment in deployments.get("items", []):
+        try:
+            deployment_name = deployment["metadata"].get("name", "Unknown")
+            deployment_names.append(deployment_name)
+            containers = deployment["spec"]["template"]["spec"].get("containers", [])
+
+            # Extract images used by each container in the deployment
+            images = [container.get("image", "No Image Specified") for container in containers]
+
+            # Store it in a dictionary, to be logged outside of this function
+            deployment_images[deployment_name] = images
+
+        except KeyError as e:
+            logger.debug(
+                f"KeyError: Missing expected key in deployment {deployment.get('metadata', {}).get('name', 'Unknown')} - {e}"
+            )
+        except Exception as e:
+            logger.debug(
+                f"Error: An unexpected error occurred for deployment {deployment.get('metadata', {}).get('name', 'Unknown')} - {e}"
+            )
+
+    return deployment_images, deployment_names
 
 
 def setup_agent_config(agent, with_process_support):
@@ -1120,8 +1232,8 @@ def create_issuer(
     clusterwide: bool = False,
 ):
     """
-    This fixture creates an "Issuer" in the testing namespace. This requires cert-manager to be installed in the cluster.
-    The ca-tls.key and ca-tls.crt are the private key and certificates used to generate
+    This fixture creates an "Issuer" in the testing namespace. This requires cert-manager to be installed
+    in the cluster. The ca-tls.key and ca-tls.crt are the private key and certificates used to generate
     certificates. This is based on a Cert-Manager CA Issuer.
     More info here: https://cert-manager.io/docs/configuration/ca/
 
@@ -1294,7 +1406,6 @@ def create_appdb_certs(
 
 
 def pytest_sessionfinish(session, exitstatus):
-
     project_id = os.environ.get("OM_PROJECT_ID", "")
     if project_id:
         base_url = os.environ.get("OM_HOST")

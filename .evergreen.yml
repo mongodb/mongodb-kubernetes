@@ -1687,6 +1687,11 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_multi_cluster_appdb_state_operator_upgrade_downgrade
+  tags: [ "patch-run" ]
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_om_ops_manager_prometheus
   tags: ["patch-run"]
   commands:
@@ -2382,6 +2387,7 @@ task_groups:
     - e2e_om_ops_manager_upgrade
     - e2e_om_update_before_reconciliation
     - e2e_om_feature_controls
+    - e2e_multi_cluster_appdb_state_operator_upgrade_downgrade
 # disabled tests:
 #    - e2e_om_multiple # multi-cluster failures in EVG
 #    - e2e_om_appdb_scale_up_down # test not "reused" for multi-cluster appdb
@@ -2431,6 +2437,7 @@ task_groups:
     - e2e_om_ops_manager_backup_kmip
     - e2e_om_ops_manager_scale
     - e2e_om_ops_manager_upgrade
+    - e2e_multi_cluster_appdb_state_operator_upgrade_downgrade
     - e2e_om_update_before_reconciliation
     - e2e_om_feature_controls
   <<: *teardown_group

@@ -91,7 +91,7 @@ class Operator(object):
 
         return self
 
-    def upgrade(self, multi_cluster: bool = False) -> Operator:
+    def upgrade(self, multi_cluster: bool = False, custom_operator_version: Optional[str] = None) -> Operator:
         """Upgrades the Operator in Kubernetes cluster using 'helm upgrade', waits until it's running"""
         helm_upgrade(
             self.name,
@@ -99,6 +99,7 @@ class Operator(object):
             self.helm_arguments,
             helm_chart_path=self.helm_chart_path,
             helm_options=self.helm_options,
+            custom_operator_version=custom_operator_version,
         )
         self._wait_for_operator_ready()
         self._wait_operator_webhook_is_ready(multi_cluster=multi_cluster)
