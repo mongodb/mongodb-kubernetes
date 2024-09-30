@@ -1366,6 +1366,8 @@ def coredns_config(tld: str, mappings: str):
     debug
     hosts /etc/coredns/customdomains.db   {tld} {{
 {mappings}
+       ttl 10
+       reload 1m
        fallthrough
     }}
 }}
