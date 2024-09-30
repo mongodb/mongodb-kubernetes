@@ -756,17 +756,11 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		return workflowStatus
 	}
 
-	certConfigurator := certs.ShardedSetX509CertConfigurator{
-		MongoDB:               sc,
-		MongodsPerShardScaler: r.getShardScaler(0, r.shardsMemberClustersMap[0][0]),
-		MongosScaler:          r.getMongosScaler(r.mongosMemberClusters[0]),
-		ConfigSrvScaler:       r.getConfigSrvScaler(r.configSrvMemberClusters[0]),
-		SecretClient:          r.commonController.SecretClient,
-	}
-
-	workflowStatus = r.commonController.ensureX509SecretAndCheckTLSType(ctx, certConfigurator, currentAgentAuthMode, log)
-	if !workflowStatus.IsOK() {
-		return workflowStatus
+	for _, memberCluster := range getHealthyMemberClusters(r.allMemberClusters) {
+		certConfigurator := r.prepareX509CertConfigurator(memberCluster)
+		if workflowStatus := r.commonController.ensureX509SecretAndCheckTLSType(ctx, certConfigurator, currentAgentAuthMode, log); !workflowStatus.IsOK() {
+			return workflowStatus
+		}
 	}
 
 	if workflowStatus := ensureRoles(sc.Spec.GetSecurity().Roles, conn, log); !workflowStatus.IsOK() {
@@ -811,6 +805,41 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		return workflowStatus
 	}
 	return reconcileResult
+}
+
+// prepareX509CertConfigurator returns x509 configurator for the specified memberCluster.
+func (r *ShardedClusterReconcileHelper) prepareX509CertConfigurator(memberCluster multicluster.MemberCluster) certs.ShardedSetX509CertConfigurator {
+	var opts []certs.Options
+
+	// we don't have inverted mapping of memberCluster -> shard/configSrv/mongos configuration, so we need to find the specified member cluster first
+	for shardIdx := range r.desiredShardsConfiguration {
+		for _, shardMemberCluster := range r.shardsMemberClustersMap[shardIdx] {
+			if shardMemberCluster.Name == memberCluster.Name {
+				opts = append(opts, certs.ShardConfig(*r.sc, shardIdx, r.sc.Spec.GetExternalDomain(), r.getShardScaler(shardIdx, shardMemberCluster)))
+			}
+		}
+	}
+
+	for _, configSrvMemberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
+		if memberCluster.Name == configSrvMemberCluster.Name {
+			opts = append(opts, certs.ConfigSrvConfig(*r.sc, r.sc.Spec.GetExternalDomain(), r.getConfigSrvScaler(configSrvMemberCluster)))
+		}
+	}
+
+	for _, mongosMemberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
+		if memberCluster.Name == mongosMemberCluster.Name {
+			opts = append(opts, certs.MongosConfig(*r.sc, r.sc.Spec.GetExternalDomain(), r.getMongosScaler(mongosMemberCluster)))
+		}
+	}
+
+	certConfigurator := certs.ShardedSetX509CertConfigurator{
+		MongoDB:          r.sc,
+		SecretReadClient: r.commonController.SecretClient,
+		MemberCluster:    memberCluster,
+		CertOptions:      opts,
+	}
+
+	return certConfigurator
 }
 
 func getTLSSecretNames(sc *mdbv1.MongoDB) func() []string {
@@ -929,22 +958,32 @@ func (r *ShardedClusterReconcileHelper) ensureSSLCertificates(ctx context.Contex
 		return workflow.OK(), certSecretTypes
 	}
 
-	var workflowStatus workflow.Status = workflow.OK()
-	mongosCert := certs.MongosConfig(*s, r.getMongosScaler(r.mongosMemberClusters[0]))
-	tStatus := certs.EnsureSSLCertsForStatefulSet(ctx, r.commonController.SecretClient, r.commonController.SecretClient, *s.Spec.Security, mongosCert, log)
-	certSecretTypes[mongosCert.CertSecretName] = true
-	workflowStatus = workflowStatus.Merge(tStatus)
+	if err := r.replicateCAConfigMap(ctx); err != nil {
+		return workflow.Failed(err), nil
+	}
 
-	configSrvCert := certs.ConfigSrvConfig(*s, r.getConfigSrvScaler(r.configSrvMemberClusters[0]))
-	tStatus = certs.EnsureSSLCertsForStatefulSet(ctx, r.commonController.SecretClient, r.commonController.SecretClient, *s.Spec.Security, configSrvCert, log)
-	certSecretTypes[configSrvCert.CertSecretName] = true
-	workflowStatus = workflowStatus.Merge(tStatus)
+	var workflowStatus workflow.Status = workflow.OK()
+	for _, memberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
+		mongosCert := certs.MongosConfig(*s, r.sc.Spec.GetExternalDomain(), r.getMongosScaler(memberCluster))
+		tStatus := certs.EnsureSSLCertsForStatefulSet(ctx, r.commonController.SecretClient, memberCluster.SecretClient, *s.Spec.Security, mongosCert, log)
+		certSecretTypes[mongosCert.CertSecretName] = true
+		workflowStatus = workflowStatus.Merge(tStatus)
+	}
+
+	for _, memberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
+		configSrvCert := certs.ConfigSrvConfig(*s, r.sc.Spec.DbCommonSpec.GetExternalDomain(), r.getConfigSrvScaler(memberCluster))
+		tStatus := certs.EnsureSSLCertsForStatefulSet(ctx, r.commonController.SecretClient, memberCluster.SecretClient, *s.Spec.Security, configSrvCert, log)
+		certSecretTypes[configSrvCert.CertSecretName] = true
+		workflowStatus = workflowStatus.Merge(tStatus)
+	}
 
 	for i := 0; i < s.Spec.ShardCount; i++ {
-		shardCert := certs.ShardConfig(*s, i, r.getShardScaler(i, r.shardsMemberClustersMap[0][0]))
-		tStatus := certs.EnsureSSLCertsForStatefulSet(ctx, r.commonController.SecretClient, r.commonController.SecretClient, *s.Spec.Security, shardCert, log)
-		certSecretTypes[shardCert.CertSecretName] = true
-		workflowStatus = workflowStatus.Merge(tStatus)
+		for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[i]) {
+			shardCert := certs.ShardConfig(*s, i, r.sc.Spec.DbCommonSpec.GetExternalDomain(), r.getShardScaler(i, memberCluster))
+			tStatus := certs.EnsureSSLCertsForStatefulSet(ctx, r.commonController.SecretClient, memberCluster.SecretClient, *s.Spec.Security, shardCert, log)
+			certSecretTypes[shardCert.CertSecretName] = true
+			workflowStatus = workflowStatus.Merge(tStatus)
+		}
 	}
 
 	return workflowStatus, certSecretTypes
@@ -1817,7 +1856,6 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 
 	return construct.ConfigServerOptions(
 		Replicas(scale.ReplicasThisReconciliation(r.getConfigSrvScaler(memberCluster))),
-		Name(r.GetConfigSrvStsName(memberCluster)),
 		StatefulSetNameOverride(r.GetConfigSrvStsName(memberCluster)),
 		ServiceName(r.GetConfigSrvServiceName(memberCluster)),
 		PodEnvVars(opts.podEnvVars),
@@ -1843,7 +1881,6 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 
 	return construct.MongosOptions(
 		Replicas(scale.ReplicasThisReconciliation(r.getMongosScaler(memberCluster))),
-		Name(r.GetMongosStsName(memberCluster)),
 		StatefulSetNameOverride(r.GetMongosStsName(memberCluster)),
 		PodEnvVars(opts.podEnvVars),
 		CurrentAgentAuthMechanism(opts.currentAgentAuthMode),
@@ -2033,7 +2070,7 @@ func (r *ShardedClusterReconcileHelper) GetShardServiceName(memberCluster multic
 	if memberCluster.Legacy {
 		return r.sc.ServiceName()
 	} else {
-		return r.sc.ShardServiceName() /*GetMultiHeadlessServiceName(r.sc.Name, memberCluster.Index)*/
+		return r.sc.ShardServiceName()
 	}
 }
 
@@ -2192,6 +2229,28 @@ func (r *ShardedClusterReconcileHelper) reconcilePodServices(ctx context.Context
 					return xerrors.Errorf("failed to create (duplicate) pod service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
 				}
 			}
+		}
+	}
+
+	return nil
+}
+
+func (r *ShardedClusterReconcileHelper) replicateCAConfigMap(ctx context.Context) error {
+	caConfigMapName := r.sc.GetSecurity().TLSConfig.CA
+	if caConfigMapName == "" || !r.sc.Spec.IsMultiCluster() {
+		return nil
+	}
+
+	for _, memberCluster := range r.allMemberClusters {
+		operatorCAConfigMap, err := r.commonController.client.GetConfigMap(ctx, kube.ObjectKey(r.sc.Namespace, caConfigMapName))
+		if err != nil {
+			return xerrors.Errorf("expected CA ConfigMap not found on the operator cluster: %s", caConfigMapName)
+		}
+
+		memberCAConfigMap := configmap.Builder().SetName(caConfigMapName).SetNamespace(r.sc.Namespace).SetData(operatorCAConfigMap.Data).Build()
+		err = configmap.CreateOrUpdate(ctx, memberCluster.Client, memberCAConfigMap)
+		if err != nil && !errors.IsAlreadyExists(err) {
+			return xerrors.Errorf("failed to replicate CA ConfigMap from the operator cluster to cluster %s, err: %w", memberCluster.Name, err)
 		}
 	}
 

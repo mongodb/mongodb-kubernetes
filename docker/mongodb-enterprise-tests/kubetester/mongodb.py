@@ -147,6 +147,7 @@ class MongoDB(CustomObject, MongoDBCommon):
         ca_path: Optional[str] = None,
         srv: bool = False,
         use_ssl: Optional[bool] = None,
+        service_names: list[str] = None,
     ) -> MongoTester:
         """Returns a Tester instance for this type of deployment."""
         if self.type == "ReplicaSet" and "clusterSpecList" in self["spec"]:
@@ -166,12 +167,14 @@ class MongoDB(CustomObject, MongoDBCommon):
         elif self.type == "ShardedCluster":
             return ShardedClusterTester(
                 mdb_resource_name=self.name,
-                mongos_count=self["spec"]["mongosCount"],
+                mongos_count=self["spec"].get("mongosCount", 0),
                 ssl=self.is_tls_enabled() if use_ssl is None else use_ssl,
                 srv=srv,
                 ca_path=ca_path,
                 namespace=self.namespace,
                 cluster_domain=self.get_cluster_domain(),
+                multi_cluster=self["spec"].get("topology", None) == "MultiCluster",
+                service_names=service_names,
             )
         elif self.type == "Standalone":
             return StandaloneTester(

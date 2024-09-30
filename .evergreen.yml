@@ -2021,7 +2021,12 @@ tasks:
   commands:
     - func: e2e_test
 
-- name: e2e_sharded_cluster_multi_simplest
+- name: e2e_multi_cluster_sharded_simplest
+  tags: ["patch-run"]
+  commands:
+    - func: e2e_test
+
+- name: e2e_multi_cluster_sharded_tls
   tags: ["patch-run"]
   commands:
     - func: e2e_test
@@ -2330,7 +2335,8 @@ task_groups:
     - e2e_multi_cluster_agent_flags
     - e2e_multi_cluster_replica_set_ignore_unknown_users
     - e2e_multi_cluster_pvc_resize
-    - e2e_sharded_cluster_multi_simplest
+    - e2e_multi_cluster_sharded_simplest
+    - e2e_multi_cluster_sharded_tls
   <<: *teardown_group
 
 - name: e2e_multi_cluster_2_clusters_task_group
