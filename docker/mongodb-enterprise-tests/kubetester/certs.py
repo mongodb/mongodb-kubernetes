@@ -38,6 +38,9 @@ SUBJECT = {
 # Defines properties of a set of servers, like a Shard, or Replica Set holding config servers.
 # This is almost equivalent to the StatefulSet created.
 SetProperties = collections.namedtuple("SetProperties", ["name", "service", "replicas"])
+SetPropertiesMultiCluster = collections.namedtuple(
+    "SetProperties", ["name", "service", "replicas", "number_of_clusters"]
+)
 
 
 CertificateType = CustomObject.define(
