@@ -174,8 +174,8 @@ func newOpsManagerReconcilerHelper(ctx context.Context, opsManagerReconciler *Op
 			for m := range globalMemberClustersMap {
 				clusterList = append(clusterList, m)
 			}
-			log.Warnf("Member cluster %s specified in appDBSpec.clusterSpecList is not found in the list of operator's member clusters: %+v. "+
-				"Assuming the cluster is down. It will be ignored from reconciliation but its MongoDB processes will still be maintained in replicaset configuration.", clusterSpecItem.ClusterName, clusterList)
+			log.Warnf("Member cluster %s specified in clusterSpecList is not found in the list of operator's member clusters: %+v. "+
+				"Assuming the cluster is down. It will be ignored from reconciliation.", clusterSpecItem.ClusterName, clusterList)
 		} else {
 			memberClusterKubeClient = kubernetesClient.NewClient(memberClusterClient.GetClient())
 			memberClusterSecretClient = secrets.SecretClient{
@@ -266,6 +266,17 @@ func (r *OpsManagerReconcilerHelper) writeLegacyStateConfigMap(ctx context.Conte
 
 func (r *OpsManagerReconcilerHelper) GetMemberClusters() []multicluster.MemberCluster {
 	return r.memberClusters
+}
+
+func (r *OpsManagerReconcilerHelper) getHealthyMemberClusters() []multicluster.MemberCluster {
+	var healthyMemberClusters []multicluster.MemberCluster
+	for i := 0; i < len(r.memberClusters); i++ {
+		if r.memberClusters[i].Healthy {
+			healthyMemberClusters = append(healthyMemberClusters, r.memberClusters[i])
+		}
+	}
+
+	return healthyMemberClusters
 }
 
 type backupDaemonFQDN struct {
@@ -450,7 +461,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	}
 
 	appDBConnectionString := buildMongoConnectionUrl(opsManager, appDBPassword, appDbReconciler.getCurrentStatefulsetHostnames(opsManager))
-	for _, memberCluster := range opsManagerReconcilerHelper.GetMemberClusters() {
+	for _, memberCluster := range opsManagerReconcilerHelper.getHealthyMemberClusters() {
 		if err := r.ensureAppDBConnectionStringInMemberCluster(ctx, opsManager, appDBConnectionString, memberCluster, log); err != nil {
 			return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("error ensuring AppDB connection string in cluster %s: %w", memberCluster.Name, err)), log, opsManagerExtraStatusParams)
 		}
@@ -658,7 +669,7 @@ func (r *OpsManagerReconciler) reconcileOpsManager(ctx context.Context, reconcil
 	}
 
 	// Prepare Ops Manager StatefulSets in parallel in all member clusters
-	for _, memberCluster := range reconcilerHelper.GetMemberClusters() {
+	for _, memberCluster := range reconcilerHelper.getHealthyMemberClusters() {
 		status := r.createOpsManagerStatefulsetInMemberCluster(ctx, reconcilerHelper, appDBConnectionString, memberCluster, log)
 		if !status.IsOK() {
 			return status, nil
@@ -667,7 +678,7 @@ func (r *OpsManagerReconciler) reconcileOpsManager(ctx context.Context, reconcil
 
 	// wait for all statefulsets to become ready
 	var statefulSetStatus workflow.Status = workflow.OK()
-	for _, memberCluster := range reconcilerHelper.GetMemberClusters() {
+	for _, memberCluster := range reconcilerHelper.getHealthyMemberClusters() {
 		status := getStatefulSetStatus(ctx, opsManager.Namespace, reconcilerHelper.OpsManagerStatefulSetNameForMemberCluster(memberCluster), memberCluster.Client)
 		statefulSetStatus = statefulSetStatus.Merge(status)
 	}
@@ -756,7 +767,7 @@ func (r *OpsManagerReconciler) stopBackupDaemonIfNeeded(ctx context.Context, rec
 		return nil
 	}
 
-	for _, memberCluster := range reconcileHelper.GetMemberClusters() {
+	for _, memberCluster := range reconcileHelper.getHealthyMemberClusters() {
 		if _, err := r.scaleStatefulSet(ctx, opsManager.Namespace, reconcileHelper.BackupDaemonStatefulSetNameForMemberCluster(memberCluster), 0, memberCluster.Client); client.IgnoreNotFound(err) != nil {
 			return err
 		}
@@ -804,7 +815,7 @@ func (r *OpsManagerReconciler) reconcileBackupDaemon(ctx context.Context, reconc
 		return backupStatus
 	}
 
-	for _, memberCluster := range reconcilerHelper.GetMemberClusters() {
+	for _, memberCluster := range reconcilerHelper.getHealthyMemberClusters() {
 		// Prepare Backup Daemon StatefulSet (create and wait)
 		if status := r.createBackupDaemonStatefulset(ctx, reconcilerHelper, appDBConnectionString, memberCluster, log); !status.IsOK() {
 			return status
@@ -819,7 +830,7 @@ func (r *OpsManagerReconciler) reconcileBackupDaemon(ctx context.Context, reconc
 	// StatefulSet will reach ready state eventually once backup has been configured in Ops Manager.
 
 	// wait for all statefulsets to become ready
-	for _, memberCluster := range reconcilerHelper.GetMemberClusters() {
+	for _, memberCluster := range reconcilerHelper.getHealthyMemberClusters() {
 		if status := getStatefulSetStatus(ctx, opsManager.Namespace, reconcilerHelper.BackupDaemonStatefulSetNameForMemberCluster(memberCluster), memberCluster.Client); !status.IsOK() {
 			return status
 		}
@@ -1193,7 +1204,7 @@ func (r *OpsManagerReconciler) replicateGenKeyInMemberClusters(ctx context.Conte
 		SetByteData(secretMap).
 		Build()
 
-	for _, memberCluster := range reconcileHelper.GetMemberClusters() {
+	for _, memberCluster := range reconcileHelper.getHealthyMemberClusters() {
 		if err := memberCluster.SecretClient.PutBinarySecret(ctx, genKeySecret, opsManagerSecretPath); err != nil {
 			return xerrors.Errorf("error replicating %v secret to cluster %s: %w", objectKey, memberCluster.Name, err)
 		}
@@ -1231,7 +1242,7 @@ func (r *OpsManagerReconciler) replicateSecretInMemberClusters(ctx context.Conte
 		SetStringMapToData(secretMap).
 		Build()
 
-	for _, memberCluster := range reconcileHelper.GetMemberClusters() {
+	for _, memberCluster := range reconcileHelper.getHealthyMemberClusters() {
 		if err := memberCluster.SecretClient.PutSecretIfChanged(ctx, newSecret, opsManagerSecretPath); err != nil {
 			return xerrors.Errorf("error replicating secret %v to cluster %s: %w", objectKey, memberCluster.Name, err)
 		}
@@ -1314,7 +1325,7 @@ func (r *OpsManagerReconciler) replicateConfigMapInMemberClusters(ctx context.Co
 		SetData(caConfigMapData).
 		Build()
 
-	for _, memberCluster := range reconcileHelper.GetMemberClusters() {
+	for _, memberCluster := range reconcileHelper.getHealthyMemberClusters() {
 		if err := configmap.CreateOrUpdate(ctx, memberCluster.Client, caConfigMap); err != nil && !apiErrors.IsAlreadyExists(err) {
 			return xerrors.Errorf("failed to create or update config map %+v in cluster %s: %w", configMapNSName, memberCluster.Name, err)
 		}
@@ -2094,12 +2105,12 @@ func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj interface{}, lo
 	}
 
 	// r.resourceWatcher.RemoveAllDependentWatchedResources(opsManager.Namespace, kube.ObjectKeyFromApiObject(opsManager))
-	for _, memberCluster := range helper.GetMemberClusters() {
+	for _, memberCluster := range helper.getHealthyMemberClusters() {
 		stsName := helper.OpsManagerStatefulSetNameForMemberCluster(memberCluster)
 		r.resourceWatcher.RemoveAllDependentWatchedResources(opsManager.Namespace, kube.ObjectKey(opsManager.Namespace, stsName))
 	}
 
-	for _, memberCluster := range helper.GetMemberClusters() {
+	for _, memberCluster := range helper.getHealthyMemberClusters() {
 		memberClient := memberCluster.Client
 		stsName := helper.OpsManagerStatefulSetNameForMemberCluster(memberCluster)
 		err := memberClient.DeleteStatefulSet(ctx, kube.ObjectKey(opsManager.Namespace, stsName))
@@ -2108,12 +2119,12 @@ func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj interface{}, lo
 		}
 	}
 
-	for _, memberCluster := range helper.GetMemberClusters() {
+	for _, memberCluster := range helper.getHealthyMemberClusters() {
 		stsName := helper.BackupDaemonStatefulSetNameForMemberCluster(memberCluster)
 		r.resourceWatcher.RemoveAllDependentWatchedResources(opsManager.Namespace, kube.ObjectKey(opsManager.Namespace, stsName))
 	}
 
-	for _, memberCluster := range helper.GetMemberClusters() {
+	for _, memberCluster := range helper.getHealthyMemberClusters() {
 		memberClient := memberCluster.Client
 		stsName := helper.BackupDaemonStatefulSetNameForMemberCluster(memberCluster)
 		err := memberClient.DeleteStatefulSet(ctx, kube.ObjectKey(opsManager.Namespace, stsName))

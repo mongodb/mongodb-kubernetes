@@ -81,22 +81,24 @@ wait_for_operator_start() {
 
 # recreates docker credentials secret in the cluster
 create_image_registries_secret() {
+  echo "Started creating image-registries-secret in cluster(s)"
+
   if ! kubectl cluster-info > /dev/null 2>&1; then
-    echo "Cluster does not exist yet - skipping image creation"
+    echo -e "\033[31mCannot get cluster info - does the cluster exist and is reachable?"
     exit 0
   fi
 
   secret_name="image-registries-secret"
 
   if [[ "${NAMESPACE:-""}" == "" ]]; then
-    echo "NAMESPACE env var is not set, skipping creating image-registries-secret"
+    echo -e "\033[31mNAMESPACE env var is not set, skipping creating image-registries-secret"
     exit 0
   fi
 
   if which kubectl > /dev/null; then
       echo "Kubectl command is there, proceeding..."
   else
-      echo "Kubectl doesn't exist, skipping setting the context"
+      echo -e "\033[31mKubectl doesn't exist, skipping setting the context"
       exit 0
   fi
 

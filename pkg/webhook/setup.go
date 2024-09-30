@@ -212,12 +212,12 @@ func Setup(ctx context.Context, client client.Client, serviceLocation types.Name
 		return nil
 	}
 
-	if err := createWebhookService(ctx, client, serviceLocation, webhookPort, multiClusterMode); err != nil {
+	webhookServerHost := []string{serviceLocation.Name + "." + serviceLocation.Namespace + ".svc"}
+	if err := CreateCertFiles(webhookServerHost, certDirectory); err != nil {
 		return err
 	}
 
-	certHosts := []string{serviceLocation.Name + "." + serviceLocation.Namespace + ".svc"}
-	if err := CreateCertFiles(certHosts, certDirectory); err != nil {
+	if err := createWebhookService(ctx, client, serviceLocation, webhookPort, multiClusterMode); err != nil {
 		return err
 	}
 
