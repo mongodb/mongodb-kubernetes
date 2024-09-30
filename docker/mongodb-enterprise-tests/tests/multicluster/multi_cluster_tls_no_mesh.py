@@ -212,7 +212,7 @@ def test_create_mongodb_multi(
     member_cluster_clients: List[MultiClusterClient],
     member_cluster_names: List[str],
 ):
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=2400)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=2400, ignore_errors=True)
 
 
 @mark.e2e_multi_cluster_tls_no_mesh

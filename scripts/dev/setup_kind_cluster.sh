@@ -57,10 +57,12 @@ shift "$((OPTIND - 1))"
 
 kubeconfig_path="$HOME/.kube/${cluster_name}"
 
-# create the kind network early unless it already exists.
-# it would normally be created automatically by kind but we
-# need it earlier to get the IP address of our registry.
-docker network create kind || true
+# We create docker network primarily so that all kind clusters use the same network.
+# We hardcode 172.18/16 subnet in few places, so we must ensure the network uses that subnet:
+#   - we set IP ranges for MetalLB
+#   - we write into coredns config map with IP used for exposing pods externally and for no-mesh test
+# In case of any errors, verify if any other subnet is not already using that subnet.
+docker network create --subnet=172.18.0.0/16 kind || true
 
 # adapted from https://kind.sigs.k8s.io/docs/user/local-registry/
 # create registry container unless it already exists

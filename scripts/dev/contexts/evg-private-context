@@ -98,3 +98,5 @@ export BUILD_VARIANT="${build_variant:-"unknown"}"
 # var used in pipeline.py to determine if we're running on EVG host
 # used to discern between local pipeline image build and the build in pipeline
 export RUNNING_IN_EVG="true"
+
+export DELETE_KIND_NETWORK="true"
