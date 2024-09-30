@@ -330,12 +330,9 @@ def generate_sbom(image_pull_spec: str, platform: str = "linux/amd64"):
         validate_environment()
         registry, organization, image_name, tag, sha = parse_image_pull_spec(image_pull_spec)
         platform_sanitized = platform.replace("/", "-")
-        (
-            asset_group_daily_id,
-            asset_group_release_id,
-            asset_group_description,
-            asset_group_project,
-        ) = get_asset_group_data(image_name, tag, platform_sanitized)
+        asset_group_daily_id, asset_group_release_id, asset_group_description, asset_group_project = (
+            get_asset_group_data(image_name, tag, platform_sanitized)
+        )
 
         with tempfile.TemporaryDirectory() as directory:
             sbom_lite_file_name = f"{image_name}_{tag}_{platform_sanitized}.json"

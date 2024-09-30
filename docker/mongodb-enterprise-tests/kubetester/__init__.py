@@ -279,6 +279,10 @@ def delete_namespace(name: str):
     c.delete_namespace(name, body=c.V1DeleteOptions())
 
 
+def get_deployments(namespace: str):
+    return client.AppsV1Api().list_namespaced_deployment(namespace)
+
+
 def delete_deployment(namespace: str, name: str):
     client.AppsV1Api().delete_namespaced_deployment(name, namespace)
 
