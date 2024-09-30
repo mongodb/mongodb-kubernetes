@@ -294,3 +294,106 @@ func TestOpsManagerMultiCluster(t *testing.T) {
 		memberClusterChecks.checkOMCAConfigMap(opsManager.Spec.GetOpsManagerCA())
 	}
 }
+
+func TestOpsManagerMultiClusterUnreachableNoPanic(t *testing.T) {
+	ctx := context.Background()
+	centralClusterName := multicluster.LegacyCentralClusterName
+	memberClusterName := "kind-e2e-cluster-1"
+	memberClusterName2 := "kind-e2e-cluster-2"
+	memberClusterNameUnreachable := "kind-e2e-cluster-unreachable"
+	clusters := []string{memberClusterName, memberClusterName2}
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	memberClusterMap := getFakeMultiClusterMapWithClusters(clusters, omConnectionFactory)
+
+	appDBClusterSpecItems := []mdbv1.ClusterSpecItem{
+		{
+			ClusterName: memberClusterName,
+			Members:     1,
+		},
+		{
+			ClusterName: memberClusterName2,
+			Members:     2,
+		},
+	}
+	clusterSpecItems := []omv1.ClusterSpecOMItem{
+		{
+			ClusterName: memberClusterName,
+			Members:     1,
+			Backup: &omv1.MongoDBOpsManagerBackupClusterSpecItem{
+				Members: 1,
+			},
+		},
+		{
+			ClusterName: memberClusterName2,
+			Members:     1,
+		},
+		{
+			ClusterName: memberClusterNameUnreachable,
+			Members:     1,
+		},
+	}
+
+	builder := DefaultOpsManagerBuilder().
+		SetOpsManagerTopology(omv1.ClusterTopologyMultiCluster).
+		SetOpsManagerClusterSpecList(clusterSpecItems).
+		SetTLSConfig(omv1.MongoDBOpsManagerTLS{
+			CA: "om-ca",
+		}).
+		SetAppDBTopology(omv1.ClusterTopologyMultiCluster).
+		SetAppDbMembers(0).
+		SetAppDBClusterSpecList(appDBClusterSpecItems).
+		SetAppDBTLSConfig(mdbv1.TLSConfig{
+			Enabled:                      true,
+			AdditionalCertificateDomains: nil,
+			CA:                           "appdb-ca",
+		})
+
+	opsManager := builder.Build()
+	opsManager.Spec.Security.CertificatesSecretsPrefix = "om-prefix"
+	appDB := opsManager.Spec.AppDB
+
+	reconciler, omClient, _ := defaultTestOmReconciler(ctx, t, opsManager, memberClusterMap, omConnectionFactory)
+
+	// prepare TLS certificates and CA in central cluster
+
+	appDbCAConfigMapName := createAppDbCAConfigMap(ctx, t, omClient, appDB)
+	appDbTLSCertSecret, appDbTLSSecretPemHash := createAppDBTLSCert(ctx, t, omClient, appDB)
+	appDbPemSecretName := appDbTLSCertSecret + "-pem"
+
+	/* omCAConfigMapName */
+	_ = createOMCAConfigMap(ctx, t, omClient, opsManager)
+	omTLSCertSecret, omTLSSecretPemHash := createOMTLSCert(ctx, t, omClient, opsManager)
+	omPemSecretName := omTLSCertSecret + "-pem"
+
+	/* 	checkOMReconciliationSuccessful(t, reconciler, opsManager) */
+
+	centralClusterChecks := newOMMemberClusterChecks(ctx, t, opsManager, centralClusterName, omClient, -1)
+	require.NotPanics(t, func() {
+		centralClusterChecks.reconcileAndCheck(reconciler, true)
+	})
+
+	// secrets and config maps created in the central cluster
+	centralClusterChecks.checkGenKeySecret(opsManager.Name)
+	centralClusterChecks.checkAgentPasswordSecret(opsManager.Name)
+	centralClusterChecks.checkOmPasswordSecret(opsManager.Name)
+	centralClusterChecks.checkOmUserScramCredentialsSecretName(opsManager.Name)
+	centralClusterChecks.checkSecretNotFound(appDbPemSecretName)
+	centralClusterChecks.checkSecretNotFound(omPemSecretName)
+	centralClusterChecks.checkOMCAConfigMap(opsManager.Spec.GetOpsManagerCA())
+
+	for clusterIdx, clusterSpecItem := range clusterSpecItems {
+		if clusterSpecItem.ClusterName == memberClusterNameUnreachable {
+			continue
+		}
+
+		memberClusterClient := memberClusterMap[clusterSpecItem.ClusterName]
+		memberClusterChecks := newOMMemberClusterChecks(ctx, t, opsManager, clusterSpecItem.ClusterName, memberClusterClient.GetClient(), clusterIdx)
+		memberClusterChecks.checkStatefulSetExists()
+		memberClusterChecks.checkGenKeySecret(opsManager.Name)
+		memberClusterChecks.checkConnectionStringSecret(opsManager.Name)
+		memberClusterChecks.checkPEMSecret(appDbPemSecretName, appDbTLSSecretPemHash)
+		memberClusterChecks.checkPEMSecret(omPemSecretName, omTLSSecretPemHash)
+		memberClusterChecks.checkAppDBCAConfigMap(appDbCAConfigMapName)
+		memberClusterChecks.checkOMCAConfigMap(opsManager.Spec.GetOpsManagerCA())
+	}
+}
