@@ -265,7 +265,7 @@ func setupWebhook(ctx context.Context, cfg *rest.Config, log *zap.SugaredLogger,
 	}
 
 	if err := webhook.Setup(ctx, webhookClient, webhookServiceLocation, certDir, webhookPort, multiClusterMode, log); err != nil {
-		log.Warnf("could not set up webhook: %v", err)
+		log.Errorf("could not set up webhook: %v", err)
 	}
 
 	return crWebhook.Options{
