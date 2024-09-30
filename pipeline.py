@@ -463,7 +463,7 @@ def build_operator_image_patch(build_configuration: BuildConfiguration):
     image_tag = "latest"
     repo_tag = image_repo + ":" + image_tag
 
-    logger.debug("Pulling image:", repo_tag)
+    logger.debug(f"Pulling image: {repo_tag}")
     try:
         image = client.images.get(repo_tag)
     except docker.errors.ImageNotFound:

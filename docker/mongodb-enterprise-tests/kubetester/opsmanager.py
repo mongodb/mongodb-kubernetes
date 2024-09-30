@@ -27,16 +27,18 @@ from kubetester.mongotester import MongoTester, MultiReplicaSetTester, ReplicaSe
 from kubetester.omtester import OMContext, OMTester
 from opentelemetry import trace
 from requests.auth import HTTPDigestAuth
+from tests import test_logger
 from tests.conftest import (
     LEGACY_CENTRAL_CLUSTER_NAME,
     get_central_cluster_client,
-    get_central_cluster_name,
     get_member_cluster_api_client,
     get_member_cluster_client_map,
     is_member_cluster,
     multi_cluster_pod_names,
     multi_cluster_service_names,
 )
+
+logger = test_logger.get_test_logger(__name__)
 
 
 class MongoDBOpsManager(CustomObject, MongoDBCommon):
@@ -929,6 +931,9 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             span.set_attribute("meko_action", "assert_phase")
             span.set_attribute("meko_desired_phase", phase.name)
             span.set_attribute("meko_time_needed", end_time - start_time)
+            logger.debug(
+                f"Reaching phase {phase.name} for resource {self.__class__.__name__} took {end_time - start_time}s"
+            )
 
         def assert_abandons_phase(self, phase: Phase, timeout=None):
             return self.ops_manager.wait_for(lambda s: self.get_phase() != phase, timeout, should_raise=True)

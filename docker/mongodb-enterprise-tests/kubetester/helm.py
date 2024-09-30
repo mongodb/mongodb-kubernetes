@@ -5,6 +5,10 @@ import subprocess
 import uuid
 from typing import Dict, List, Optional, Tuple
 
+from tests import test_logger
+
+logger = test_logger.get_test_logger(__name__)
+
 
 def helm_template(
     helm_args: Dict,
@@ -21,7 +25,7 @@ def helm_template(
         command_args.append(templates)
 
     args = ("helm", "template", *(command_args), _helm_chart_dir(helm_chart_path))
-    logging.info(args)
+    logger.info(args)
 
     yaml_file_name = "{}.yaml".format(str(uuid.uuid4()))
     with open(yaml_file_name, "w") as output:
@@ -47,7 +51,7 @@ def helm_install(
         name,
         _helm_chart_dir(helm_chart_path),
     )
-    logging.info(args)
+    logger.info(args)
 
     process_run_and_check(" ".join(args), check=True, capture_output=True, shell=True)
 
@@ -97,7 +101,7 @@ def helm_install_from_chart(
     except subprocess.CalledProcessError as exc:
         stderr = exc.stderr.decode("utf-8")
         if "release: already exists" in stderr or "Error: UPGRADE FAILED: another operation" in stderr:
-            logging.info(f"Helm chart '{chart}' already installed in cluster.")
+            logger.info(f"Helm chart '{chart}' already installed in cluster.")
         else:
             raise
 
@@ -106,9 +110,9 @@ def helm_repo_add(repo_name: str, url: str):
     """
     Adds a new repo to Helm.
     """
-    helm_repo_add = f"helm repo add {repo_name} {url}".split()
-    logging.info(helm_repo_add)
-    process_run_and_check(helm_repo_add, capture_output=True)
+    helm_repo = f"helm repo add {repo_name} {url}".split()
+    logger.info(helm_repo)
+    process_run_and_check(helm_repo, capture_output=True)
 
 
 def process_run_and_check(args, **kwargs):
@@ -118,9 +122,9 @@ def process_run_and_check(args, **kwargs):
     except subprocess.CalledProcessError as exc:
         stdout = exc.stdout.decode("utf-8")
         stderr = exc.stderr.decode("utf-8")
-        logging.info(exc.output)
-        logging.info(stdout)
-        logging.info(stderr)
+        logger.info(exc.output)
+        logger.info(stdout)
+        logger.info(stderr)
         raise
 
 
@@ -131,7 +135,11 @@ def helm_upgrade(
     helm_chart_path: Optional[str] = "helm_chart",
     helm_options: Optional[List[str]] = None,
     helm_override_path: Optional[bool] = False,
+    custom_operator_version: Optional[str] = None,
 ):
+    if not helm_chart_path:
+        logger.warning("Helm chart path is empty, defaulting to 'helm_chart'")
+        helm_chart_path = "helm_chart"
     command_args = _create_helm_args(helm_args, helm_options)
     args = [
         "helm",
@@ -141,19 +149,22 @@ def helm_upgrade(
         *command_args,
         name,
     ]
+    if custom_operator_version:
+        args.append(f"--version={custom_operator_version}")
     if helm_override_path:
         args.append(helm_chart_path)
     else:
         args.append(_helm_chart_dir(helm_chart_path))
 
-    logging.info(" ".join(args))
-
-    process_run_and_check(" ".join(args), check=True, capture_output=True, shell=True)
+    command = " ".join(args)
+    logger.debug("Running helm upgrade command:")
+    logger.debug(command)
+    process_run_and_check(command, check=True, capture_output=True, shell=True)
 
 
 def helm_uninstall(name):
     args = ("helm", "uninstall", name)
-    logging.info(args)
+    logger.info(args)
     process_run_and_check(" ".join(args), check=True, capture_output=True, shell=True)
 
 
@@ -175,7 +186,7 @@ def _create_helm_args(helm_args: Dict[str, str], helm_options: Optional[List[str
         command_args.append("{}={}".format(key, value))
 
     if "useRunningOperator" in helm_args:
-        logging.info("Operator will not be installed this time, passing --dry-run")
+        logger.info("Operator will not be installed this time, passing --dry-run")
         command_args.append("--dry-run")
 
     command_args.append("--create-namespace")
