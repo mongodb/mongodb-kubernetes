@@ -21,12 +21,12 @@ def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
     return resource
 
 
-@mark.e2e_sharded_cluster_multi_simplest
+@mark.e2e_multi_cluster_sharded_simplest
 def test_deploy_operator(multi_cluster_operator: Operator):
     multi_cluster_operator.assert_is_running()
 
 
-@mark.e2e_sharded_cluster_multi_simplest
+@mark.e2e_multi_cluster_sharded_simplest
 def test_create(sharded_cluster: MongoDB, custom_mdb_version: str, issuer_ca_configmap: str):
     sharded_cluster.set_version(ensure_ent_version(custom_mdb_version))
 
@@ -37,6 +37,6 @@ def test_create(sharded_cluster: MongoDB, custom_mdb_version: str, issuer_ca_con
     create_or_update(sharded_cluster)
 
 
-@mark.e2e_sharded_cluster_multi_simplest
+@mark.e2e_multi_cluster_sharded_simplest
 def test_sharded_cluster(sharded_cluster: MongoDB):
     sharded_cluster.assert_reaches_phase(Phase.Running, timeout=900)

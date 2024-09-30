@@ -3,6 +3,8 @@ package certs
 import (
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
@@ -50,30 +52,23 @@ func (rs ReplicaSetX509CertConfigurator) GetDbCommonSpec() *mdbv1.DbCommonSpec {
 
 type ShardedSetX509CertConfigurator struct {
 	*mdbv1.MongoDB
-	MongodsPerShardScaler scale.ReplicaSetScaler
-	MongosScaler          scale.ReplicaSetScaler
-	ConfigSrvScaler       scale.ReplicaSetScaler
-	SecretClient          secrets.SecretClient
+	MemberCluster    multicluster.MemberCluster
+	SecretReadClient secrets.SecretClient
+	CertOptions      []Options
 }
 
 var _ X509CertConfigurator = ShardedSetX509CertConfigurator{}
 
 func (sc ShardedSetX509CertConfigurator) GetCertOptions() []Options {
-	certOptions := make([]Options, 0)
-	for i := 0; i < sc.Spec.ShardCount; i++ {
-		certOptions = append(certOptions, ShardConfig(*sc.MongoDB, i, sc.MongodsPerShardScaler))
-	}
-	certOptions = append(certOptions, MongosConfig(*sc.MongoDB, sc.MongosScaler))
-	certOptions = append(certOptions, ConfigSrvConfig(*sc.MongoDB, sc.ConfigSrvScaler))
-	return certOptions
+	return sc.CertOptions
 }
 
 func (sc ShardedSetX509CertConfigurator) GetSecretReadClient() secrets.SecretClient {
-	return sc.SecretClient
+	return sc.SecretReadClient
 }
 
 func (sc ShardedSetX509CertConfigurator) GetSecretWriteClient() secrets.SecretClient {
-	return sc.SecretClient
+	return sc.MemberCluster.SecretClient
 }
 
 func (sc ShardedSetX509CertConfigurator) GetDbCommonSpec() *mdbv1.DbCommonSpec {
@@ -232,7 +227,7 @@ func AppDBMultiClusterReplicaSetConfig(om *omv1.MongoDBOpsManager, scaler interf
 }
 
 // ShardConfig returns a struct which provides all the configuration options required for the given shard.
-func ShardConfig(mdb mdbv1.MongoDB, shardNum int, scaler scale.ReplicaSetScaler) Options {
+func ShardConfig(mdb mdbv1.MongoDB, shardNum int, externalDomain *string, scaler scale.ReplicaSetScaler) Options {
 	return Options{
 		ResourceName:                 mdb.ShardRsName(shardNum),
 		CertSecretName:               mdb.GetSecurity().MemberCertificateSecretName(mdb.ShardRsName(shardNum)),
@@ -243,7 +238,8 @@ func ShardConfig(mdb mdbv1.MongoDB, shardNum int, scaler scale.ReplicaSetScaler)
 		ClusterDomain:                mdb.Spec.GetClusterDomain(),
 		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
 		OwnerReference:               mdb.GetOwnerReferences(),
-		ExternalDomain:               mdb.Spec.DbCommonSpec.GetExternalDomain(),
+		ExternalDomain:               externalDomain,
+		Topology:                     mdb.Spec.GetTopology(),
 	}
 }
 
@@ -263,7 +259,7 @@ func MultiReplicaSetConfig(mdbm mdbmulti.MongoDBMultiCluster, clusterNum int, cl
 }
 
 // MongosConfig returns a struct which provides all of the configuration options required for the given Mongos.
-func MongosConfig(mdb mdbv1.MongoDB, scaler scale.ReplicaSetScaler) Options {
+func MongosConfig(mdb mdbv1.MongoDB, externalDomain *string, scaler scale.ReplicaSetScaler) Options {
 	return Options{
 		ResourceName:                 mdb.MongosRsName(),
 		CertSecretName:               mdb.GetSecurity().MemberCertificateSecretName(mdb.MongosRsName()),
@@ -274,12 +270,13 @@ func MongosConfig(mdb mdbv1.MongoDB, scaler scale.ReplicaSetScaler) Options {
 		ClusterDomain:                mdb.Spec.GetClusterDomain(),
 		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
 		OwnerReference:               mdb.GetOwnerReferences(),
-		ExternalDomain:               mdb.Spec.DbCommonSpec.GetExternalDomain(),
+		ExternalDomain:               externalDomain,
+		Topology:                     mdb.Spec.GetTopology(),
 	}
 }
 
 // ConfigSrvConfig returns a struct which provides all of the configuration options required for the given ConfigServer.
-func ConfigSrvConfig(mdb mdbv1.MongoDB, scaler scale.ReplicaSetScaler) Options {
+func ConfigSrvConfig(mdb mdbv1.MongoDB, externalDomain *string, scaler scale.ReplicaSetScaler) Options {
 	return Options{
 		ResourceName:                 mdb.ConfigRsName(),
 		CertSecretName:               mdb.GetSecurity().MemberCertificateSecretName(mdb.ConfigRsName()),
@@ -289,9 +286,9 @@ func ConfigSrvConfig(mdb mdbv1.MongoDB, scaler scale.ReplicaSetScaler) Options {
 		ServiceName:                  mdb.ConfigSrvServiceName(),
 		ClusterDomain:                mdb.Spec.GetClusterDomain(),
 		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
-		horizons:                     mdb.Spec.Connectivity.ReplicaSetHorizons,
 		OwnerReference:               mdb.GetOwnerReferences(),
-		ExternalDomain:               mdb.Spec.DbCommonSpec.GetExternalDomain(),
+		ExternalDomain:               externalDomain,
+		Topology:                     mdb.Spec.GetTopology(),
 	}
 }
 

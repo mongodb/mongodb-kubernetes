@@ -416,6 +416,8 @@ class ShardedClusterTester(MongoTester):
         namespace: Optional[str] = None,
         port="27017",
         cluster_domain: str = "cluster.local",
+        multi_cluster: Optional[bool] = False,
+        service_names: Optional[list[str]] = None,
     ):
         mdb_name = mdb_resource_name + "-mongos"
         servicename = mdb_resource_name + "-svc"
@@ -424,15 +426,23 @@ class ShardedClusterTester(MongoTester):
             # backward compatibility with docstring tests
             namespace = KubernetesTester.get_namespace()
 
-        self.cnx_string = build_mongodb_connection_uri(
-            mdb_name,
-            namespace,
-            mongos_count,
-            port=port,
-            servicename=servicename,
-            srv=srv,
-            cluster_domain=cluster_domain,
-        )
+        if multi_cluster:
+            self.cnx_string = build_mongodb_multi_connection_uri(
+                namespace,
+                service_names,
+                port=port,
+                cluster_domain=cluster_domain,
+            )
+        else:
+            self.cnx_string = build_mongodb_connection_uri(
+                mdb_name,
+                namespace,
+                mongos_count,
+                port=port,
+                servicename=servicename,
+                srv=srv,
+                cluster_domain=cluster_domain,
+            )
         super().__init__(self.cnx_string, ssl, ca_path)
 
     def shard_collection(self, shards_pattern, shards_count, key, test_collection=TEST_COLLECTION):
@@ -580,9 +590,15 @@ def build_mongodb_connection_uri(
 
 
 def build_mongodb_multi_connection_uri(
-    namespace: str, service_names: List[str], port: str, external: bool = False
+    namespace: str,
+    service_names: List[str],
+    port: str,
+    external: bool = False,
+    cluster_domain: str = "cluster.local",
 ) -> str:
-    return build_mongodb_uri(build_list_of_multi_hosts(namespace, service_names, port, external=external))
+    return build_mongodb_uri(
+        build_list_of_multi_hosts(namespace, service_names, port, external=external, cluster_domain=cluster_domain)
+    )
 
 
 def build_list_of_hosts(
@@ -600,14 +616,19 @@ def build_list_of_hosts_with_external_domain(
     return [f"{mdb_resource}-{idx}.{external_domain}:{port}" for idx in range(members)]
 
 
-def build_list_of_multi_hosts(namespace: str, service_names: List[str], port, external: bool = False) -> List[str]:
+def build_list_of_multi_hosts(
+    namespace: str, service_names: List[str], port, external: bool = False, cluster_domain: str = "cluster.local"
+) -> List[str]:
     if external:
         return [f"{service_name}:{port}" for service_name in service_names]
-    return [build_host_service_fqdn(namespace, service_name, port) for service_name in service_names]
+    return [
+        build_host_service_fqdn(namespace, service_name, port, cluster_domain=cluster_domain)
+        for service_name in service_names
+    ]
 
 
-def build_host_service_fqdn(namespace: str, servicename: str, port) -> str:
-    return f"{servicename}.{namespace}.svc.cluster.local:{port}"
+def build_host_service_fqdn(namespace: str, servicename: str, port: int, cluster_domain: str = "cluster.local") -> str:
+    return f"{servicename}.{namespace}.svc.{cluster_domain}:{port}"
 
 
 def build_host_fqdn(hostname: str, namespace: str, servicename: str, port, cluster_domain: str) -> str:
