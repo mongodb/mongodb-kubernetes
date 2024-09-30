@@ -2,8 +2,13 @@
 set -Eeou pipefail
 
 source scripts/dev/set_env_context.sh
+source scripts/funcs/kubernetes
 
 kind delete clusters --all
+
+if [[ "${DELETE_KIND_NETWORK:-"false"}" == "true" ]]; then
+  delete_kind_network
+fi
 
 # first script prepares registry, so to avoid race it have to finish running before we execute subsequent ones in parallel
 # To future maintainers: whenever modifying this bit, make sure you also update coredns.yaml

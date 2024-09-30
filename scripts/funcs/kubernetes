@@ -173,3 +173,22 @@ reset_namespace() {
   echo "Removing CSRs"
   kubectl --context "${context}" delete "$(kubectl get csr -o name | grep "${NAMESPACE}")" &> /dev/null || true
 }
+
+delete_kind_network() {
+  if ! docker network ls | grep -q "kind"; then
+     echo "Docker network 'kind' does not exist."
+     return 0
+  fi
+  echo "Docker network 'kind' exists."
+
+  # Stop all containers in the "kind" network
+  containers=$(docker network inspect -f '{{range .Containers}}{{.Name}} {{end}}' kind)
+  if [[ -n "${containers}" ]]; then
+      echo "Stopping containers ${containers} using kind network..."
+      # shellcheck disable=SC2086
+      docker stop ${containers}
+      docker container prune -f
+  fi
+
+  docker network rm kind
+}
