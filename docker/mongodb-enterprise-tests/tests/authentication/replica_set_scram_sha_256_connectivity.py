@@ -7,6 +7,7 @@ from kubetester import (
     find_fixture,
     read_secret,
     update_secret,
+    wait_until,
 )
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb import MongoDB, Phase
@@ -22,12 +23,13 @@ USER_DATABASE = "admin"
 
 
 @fixture(scope="module")
-def replica_set(namespace: str) -> MongoDB:
+def replica_set(namespace: str, custom_mdb_version) -> MongoDB:
     resource = MongoDB.from_yaml(
         find_fixture("replica-set-scram-sha-256.yaml"),
         namespace=namespace,
         name=MDB_RESOURCE,
     )
+    resource.set_version(custom_mdb_version)
 
     resource["spec"]["security"]["authentication"] = {
         "ignoreUnknownUsers": True,
@@ -188,14 +190,21 @@ def test_authentication_is_still_configured_after_remove_authentication(namespac
     replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
-    tester = replica_set.get_automation_config_tester()
-    # authentication remains enabled as the operator is not configuring it when
-    # spec.security.authentication is not configured
-    tester.assert_has_user(USER_NAME)
-    tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
-    tester.assert_authentication_enabled()
-    tester.assert_expected_users(1)
-    tester.assert_authoritative_set(False)
+    def ac_updated() -> bool:
+        tester = replica_set.get_automation_config_tester()
+        # authentication remains enabled as the operator is not configuring it when
+        # spec.security.authentication is not configured
+        try:
+            tester.assert_has_user(USER_NAME)
+            tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
+            tester.assert_authentication_enabled()
+            tester.assert_expected_users(1)
+            tester.assert_authoritative_set(False)
+            return True
+        except AssertionError:
+            return False
+
+    wait_until(ac_updated, timeout=600)
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
@@ -206,7 +215,14 @@ def test_authentication_can_be_disabled_without_modes(namespace: str, replica_se
     replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
-    tester = replica_set.get_automation_config_tester()
-    # we have explicitly set authentication to be disabled
-    tester.assert_has_user(USER_NAME)
-    tester.assert_authentication_disabled(remaining_users=1)
+    def auth_disabled() -> bool:
+        tester = replica_set.get_automation_config_tester()
+        # we have explicitly set authentication to be disabled
+        try:
+            tester.assert_has_user(USER_NAME)
+            tester.assert_authentication_disabled(remaining_users=1)
+            return True
+        except AssertionError:
+            return False
+
+    wait_until(auth_disabled, timeout=600)

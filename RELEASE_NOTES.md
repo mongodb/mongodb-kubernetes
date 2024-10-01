@@ -4,7 +4,8 @@
 # MongoDB Enterprise Kubernetes Operator 1.28.0
 
 ## New Features
-* **MongoDB**, **MongoDBMulti**: support for automated expansion of the PVC.
+* **MongoDB**: public preview release of multi kubernetes cluster support for sharded clusters. This can be enabled by setting `spec.topology=MultiCluster` when creating `MongoDB` resource of `spec.type=ShardedCluster`. More details can be found [here](to-be-added). 
+* **MongoDB**, **MongoDBMultiCluster**: support for automated expansion of the PVC.
   More details can be found [here](to-be-added).
   **Note**: Expansion of the pvc is only supported if the storageClass supports expansion.
   Please ensure that the storageClass supports in-place expansion without data-loss.
@@ -24,10 +25,13 @@
                 storage: 2Gi # this is my increased storage
                 storageClass: <my-class-that-supports-expansion>
 ```
-  **OpsManager**: Introduced support for Ops Manager 8.0.0
+* Docker images are now built with `ubi9` as the base image with the exception of [mongodb-enterprise-database-ubi](quay.io/mongodb/mongodb-enterprise-database-ubi) which is still based on `ubi8` to support `MongoDB` workloads < 6.0.4. The `ubi8` image is only in use for the default non-static architecture.
+For a full `ubi9` setup, the [Static Containers](https://www.mongodb.com/docs/kubernetes-operator/upcoming/tutorial/plan-k8s-op-container-images/#static-containers--public-preview-) architecture should be used instead.
+* **OpsManager**: Introduced support for Ops Manager 8.0.0
 ## Bug Fixes
 
-* **MongoDB**, **AppDB**, **MongoDBMulti**: Fixed a bug where the init container was not getting the default security context, which was flagged by security policies.
+* **MongoDB**, **AppDB**, **MongoDBMultiCluster**: Fixed a bug where the init container was not getting the default security context, which was flagged by security policies.
+* **MongoDBMultiCluster**: Fixed a bug where resource validations were not performed as part of the reconcile loop.
 
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.27.0

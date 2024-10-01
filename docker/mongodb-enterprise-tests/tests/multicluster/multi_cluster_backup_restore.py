@@ -15,7 +15,7 @@ from kubetester import (
     try_load,
 )
 from kubetester.certs import create_ops_manager_tls_certs
-from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import MongoDB, Phase
@@ -30,7 +30,7 @@ from tests.conftest import update_coredns_hosts
 
 TEST_DATA = {"_id": "unique_id", "name": "John", "address": "Highway 37", "age": 30}
 
-MONGODB_PORT = 30003
+MONGODB_PORT = 30000
 
 
 HEAD_PATH = "/head/"
@@ -389,7 +389,7 @@ class TestBackupForMongodb:
             # the project configmap should be created in the central cluster.
         ).configure(ops_manager, f"{namespace}-project-one", api_client=central_cluster_client)
 
-        resource.set_version(custom_mdb_version)
+        resource.set_version(ensure_ent_version(custom_mdb_version))
         resource["spec"]["clusterSpecList"] = [
             {"clusterName": member_cluster_names[0], "members": 2},
             {"clusterName": member_cluster_names[1], "members": 1},
