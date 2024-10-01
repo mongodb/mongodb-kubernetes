@@ -113,7 +113,7 @@ func GetFakeClientInterceptorGetFunc(omConnectionFactory *om.CachedOMConnectionF
 		switch v := obj.(type) {
 		case *appsv1.StatefulSet:
 			if markStsAsReady && omConnectionFactory != nil {
-				markStatefulSetsReady(v, addOMHosts, omConnectionFactory.GetConnection())
+				markStatefulSetsReady(v, addOMHosts, omConnectionFactory.GetConnectionForResource(v))
 			}
 		}
 

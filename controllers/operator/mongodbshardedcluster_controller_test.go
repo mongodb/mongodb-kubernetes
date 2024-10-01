@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 
@@ -117,20 +119,44 @@ func getStsReplicas(ctx context.Context, client kubernetesClient.Client, key cli
 
 func TestShardedClusterRace(t *testing.T) {
 	ctx := context.Background()
-	sc := DefaultClusterBuilder().SetName("my-sh1").SetShardCountSpec(4).SetShardCountStatus(4).Build()
-	sc2 := DefaultClusterBuilder().SetName("my-sh2").SetShardCountSpec(4).SetShardCountStatus(4).Build()
-	sc3 := DefaultClusterBuilder().SetName("my-sh3").SetShardCountSpec(4).SetShardCountStatus(4).Build()
+	sc1, cfgMap1, projectName1 := buildShardedClusterWithCustomProject("my-sh1")
+	sc2, cfgMap2, projectName2 := buildShardedClusterWithCustomProject("my-sh2")
+	sc3, cfgMap3, projectName3 := buildShardedClusterWithCustomProject("my-sh3")
 
+	resourceToProjectMapping := map[string]string{
+		"my-sh1": projectName1,
+		"my-sh2": projectName2,
+		"my-sh3": projectName3,
+	}
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory().WithResourceToProjectMapping(resourceToProjectMapping)
 	fakeClient := mock.NewEmptyFakeClientBuilder().
-		WithObjects(sc, sc2, sc3).
+		WithObjects(sc1, sc2, sc3).
+		WithObjects(cfgMap1, cfgMap2, cfgMap3).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, true),
+		}).
 		WithObjects(mock.GetDefaultResources()...).
 		Build()
 
 	reconciler := &ReconcileMongoDbShardedCluster{
 		ReconcileCommonController: newReconcileCommonController(ctx, fakeClient),
-		omConnectionFactory:       om.NewEmptyMockedOmConnection,
+		omConnectionFactory:       omConnectionFactory.GetConnectionFunc,
 	}
-	testConcurrentReconciles(ctx, t, fakeClient, reconciler, sc, sc2, sc3)
+
+	testConcurrentReconciles(ctx, t, fakeClient, reconciler, sc1, sc2, sc3)
+}
+
+func buildShardedClusterWithCustomProject(scName string) (*mdbv1.MongoDB, *corev1.ConfigMap, string) {
+	configMapName := mock.TestProjectConfigMapName + "-" + scName
+	projectName := om.TestGroupName + "-" + scName
+
+	return DefaultClusterBuilder().
+		SetName(scName).
+		SetOpsManagerConfigMapName(configMapName).
+		SetShardCountSpec(4).
+		SetShardCountStatus(4).
+		Build(), mock.GetProjectConfigMap(configMapName, projectName, ""), projectName
 }
 
 // TODO this is to be removed as it's testing whether we scale down entire shards one by one, but it's actually testing only scale by one; and we actually don't scale one by one but prune all the shards to be removed immediately"
@@ -1730,6 +1756,11 @@ func (b *ClusterBuilder) SetShardClusterSpec(clusterSpecList mdbv1.ClusterSpecLi
 
 func (b *ClusterBuilder) SetShardOverrides(override []mdbv1.ShardOverride) *ClusterBuilder {
 	b.Spec.ShardOverrides = override
+	return b
+}
+
+func (b *ClusterBuilder) SetOpsManagerConfigMapName(configMapName string) *ClusterBuilder {
+	b.Spec.SharedConnectionSpec.OpsManagerConfig.ConfigMapRef.Name = configMapName
 	return b
 }
 

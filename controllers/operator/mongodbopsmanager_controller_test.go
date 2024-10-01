@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"sync"
 	"testing"
+
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
@@ -728,13 +731,55 @@ func TestBackupConfig_ChangingName_ResultsIn_DeleteAndAdd(t *testing.T) {
 
 func TestOpsManagerRace(t *testing.T) {
 	ctx := context.Background()
-	opsManager := DefaultOpsManagerBuilder().Build()
-	opsManager2 := DefaultOpsManagerBuilder().SetName("my-rs2").Build()
-	opsManager3 := DefaultOpsManagerBuilder().SetName("my-rs3").Build()
-	reconciler, mockedClient, _ := defaultTestOmReconcilerNoSingleton(ctx, t, opsManager, nil)
-	require.NoError(t, mockedClient.Get(ctx, kube.ObjectKeyFromApiObject(opsManager), opsManager))
+	opsManager1 := DefaultOpsManagerBuilder().SetName("om1").
+		AddOplogStoreConfig("oplog-store-1", "my-user", types.NamespacedName{Name: "config-1-mdb", Namespace: mock.TestNamespace}).
+		AddBlockStoreConfig("block-store-config-1", "my-user", types.NamespacedName{Name: "config-1-mdb", Namespace: mock.TestNamespace}).Build()
+	opsManager2 := DefaultOpsManagerBuilder().SetName("om2").
+		AddOplogStoreConfig("oplog-store-2", "my-user", types.NamespacedName{Name: "config-2-mdb", Namespace: mock.TestNamespace}).
+		AddBlockStoreConfig("block-store-config-2", "my-user", types.NamespacedName{Name: "config-2-mdb", Namespace: mock.TestNamespace}).Build()
+	opsManager3 := DefaultOpsManagerBuilder().SetName("om3").
+		AddOplogStoreConfig("oplog-store-3", "my-user", types.NamespacedName{Name: "config-3-mdb", Namespace: mock.TestNamespace}).
+		AddBlockStoreConfig("block-store-config-3", "my-user", types.NamespacedName{Name: "config-3-mdb", Namespace: mock.TestNamespace}).Build()
 
-	testConcurrentReconciles(ctx, t, mockedClient, reconciler, opsManager2, opsManager3, opsManager)
+	resourceToProjectMapping := map[string]string{
+		"om1": opsManager1.Spec.AppDB.GetName(),
+		"om2": opsManager2.Spec.AppDB.GetName(),
+		"om3": opsManager3.Spec.AppDB.GetName(),
+	}
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory().WithResourceToProjectMapping(resourceToProjectMapping)
+	fakeClient := mock.NewEmptyFakeClientBuilder().
+		WithObjects(opsManager1, opsManager2, opsManager3).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, true),
+		}).Build()
+
+	kubeClient := kubernetesClient.NewClient(fakeClient)
+	// create an admin user secret
+	data := map[string]string{"Username": "jane.doe@g.com", "Password": "pwd", "FirstName": "Jane", "LastName": "Doe"}
+
+	// All instances can use the same secret
+	s := secret.Builder().
+		SetName(opsManager1.Spec.AdminSecret).
+		SetNamespace(opsManager1.Namespace).
+		SetStringMapToData(data).
+		SetLabels(map[string]string{}).
+		SetOwnerReferences(kube.BaseOwnerReference(opsManager1)).
+		Build()
+
+	configureBackupResources(ctx, kubeClient, opsManager1)
+	configureBackupResources(ctx, kubeClient, opsManager2)
+	configureBackupResources(ctx, kubeClient, opsManager3)
+
+	initializer := &MockedInitializer{expectedOmURL: opsManager1.CentralURL(), t: t, skipChecks: true}
+
+	reconciler := newOpsManagerReconciler(ctx, kubeClient, nil, omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
+		return api.NewMockedAdminProvider(baseUrl, user, publicApiKey, false).(*api.MockedOmAdmin)
+	})
+
+	assert.NoError(t, reconciler.client.CreateSecret(ctx, s))
+
+	testConcurrentReconciles(ctx, t, kubeClient, reconciler, opsManager1, opsManager2, opsManager3)
 }
 
 func TestBackupConfigs_AreRemoved_WhenRemovedFromCR(t *testing.T) {
@@ -1101,29 +1146,6 @@ func defaultTestOmReconciler(ctx context.Context, t *testing.T, opsManager *omv1
 	return reconciler, kubeClient, initializer
 }
 
-func defaultTestOmReconcilerNoSingleton(ctx context.Context, t *testing.T, opsManager *omv1.MongoDBOpsManager, globalMemberClustersMap map[string]cluster.Cluster) (*OpsManagerReconciler, kubernetesClient.Client, *MockedInitializer) {
-	kubeClient := mock.NewEmptyFakeClientWithInterceptor(nil, opsManager.DeepCopy())
-	// create an admin user secret
-	data := map[string]string{"Username": "jane.doe@g.com", "Password": "pwd", "FirstName": "Jane", "LastName": "Doe"}
-
-	s := secret.Builder().
-		SetName(opsManager.Spec.AdminSecret).
-		SetNamespace(opsManager.Namespace).
-		SetStringMapToData(data).
-		SetLabels(map[string]string{}).
-		SetOwnerReferences(kube.BaseOwnerReference(opsManager)).
-		Build()
-
-	initializer := &MockedInitializer{expectedOmURL: opsManager.CentralURL(), t: t, skipChecks: true}
-
-	reconciler := newOpsManagerReconciler(ctx, kubeClient, globalMemberClustersMap, om.NewEmptyMockedOmConnection, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
-		return api.NewMockedAdminProvider(baseUrl, user, publicApiKey, false).(*api.MockedOmAdmin)
-	})
-
-	assert.NoError(t, reconciler.client.CreateSecret(ctx, s))
-	return reconciler, kubeClient, initializer
-}
-
 func DefaultOpsManagerBuilder() *omv1.OpsManagerBuilder {
 	spec := omv1.MongoDBOpsManagerSpec{
 		Version:     "7.0.0",
@@ -1135,6 +1157,7 @@ func DefaultOpsManagerBuilder() *omv1.OpsManagerBuilder {
 }
 
 type MockedInitializer struct {
+	mu                sync.RWMutex
 	currentUsers      []api.User
 	expectedAPIError  *apierror.Error
 	expectedOmURL     string
@@ -1144,7 +1167,10 @@ type MockedInitializer struct {
 	skipChecks        bool
 }
 
-func (o *MockedInitializer) TryCreateUser(omUrl string, omVersion string, user api.User, ca *string) (api.OpsManagerKeyPair, error) {
+func (o *MockedInitializer) TryCreateUser(omUrl string, _ string, user api.User, ca *string) (api.OpsManagerKeyPair, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
 	o.numberOfCalls++
 	if !o.skipChecks {
 		assert.Equal(o.t, o.expectedOmURL, omUrl)

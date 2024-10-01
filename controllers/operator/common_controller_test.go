@@ -554,22 +554,28 @@ func testConcurrentReconciles(ctx context.Context, t *testing.T, client client.C
 	require.NoError(t, client.Get(ctx, kube.ObjectKeyFromApiObject(objects[0]), objects[0]))
 
 	var wg sync.WaitGroup
+	for _, object := range objects {
+		wg.Add(1)
+		go func() {
+			result, err := reconciler.Reconcile(ctx, requestFromObject(object))
+			assert.NoError(t, err)
 
-	// we need to increase the chance of races to happen.
-	// therefore, we reconcile a lot of times a lot of resources concurrently
-	// Note: we don't concurrently reconcile the same resource
-	for i := 0; i < 5; i++ {
-		wg.Add(len(objects))
-		for _, object := range objects {
-			object := object
-			go func() {
-				_, err := reconciler.Reconcile(ctx, requestFromObject(object))
+			// Reconcile again if it's OpsManager, it has to configure AppDB in second run
+			if _, ok := object.(*omv1.MongoDBOpsManager); ok {
+				result, err = reconciler.Reconcile(ctx, requestFromObject(object))
 				assert.NoError(t, err)
-				wg.Done()
-			}()
-		}
-		wg.Wait()
+			}
+			assert.Equal(t, reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}, result)
+
+			// Idempotent reconcile that does not mutate anything, but makes sure we have better code coverage
+			result, err = reconciler.Reconcile(ctx, requestFromObject(object))
+			assert.NoError(t, err)
+			assert.Equal(t, reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}, result)
+
+			wg.Done()
+		}()
 	}
+	wg.Wait()
 }
 
 func testFCVsCases(t *testing.T, verifyFCV func(version string, expectedFCV string, fcvOverride *string, t *testing.T)) {
