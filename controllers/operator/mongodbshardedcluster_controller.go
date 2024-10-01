@@ -609,8 +609,10 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	if err := r.replicateAgentKeySecret(ctx, conn, agentAPIKey, log); err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
-
 	if err := r.reconcileHostnameOverrideConfigMap(ctx, log); err != nil {
+		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
+	}
+	if err := r.replicateSSLMMSCAConfigMap(ctx, projectConfig, log); err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
 
@@ -958,7 +960,7 @@ func (r *ShardedClusterReconcileHelper) ensureSSLCertificates(ctx context.Contex
 		return workflow.OK(), certSecretTypes
 	}
 
-	if err := r.replicateCAConfigMap(ctx); err != nil {
+	if err := r.replicateTLSCAConfigMap(ctx, log); err != nil {
 		return workflow.Failed(err), nil
 	}
 
@@ -2143,7 +2145,7 @@ func (r *ShardedClusterReconcileHelper) reconcileHostnameOverrideConfigMap(ctx c
 		if err != nil && !errors.IsAlreadyExists(err) {
 			return xerrors.Errorf("failed to create configmap: %s/%s in cluster: %s, err: %w", r.sc.Namespace, cm.Name, memberCluster.Name, err)
 		}
-		log.Infof("Successfully ensured configmap: %s/%s in cluster: %s", r.sc.Namespace, cm.Name, memberCluster.Name)
+		log.Debugf("Successfully ensured configmap: %s/%s in cluster: %s", r.sc.Namespace, cm.Name, memberCluster.Name)
 	}
 
 	return nil
@@ -2235,23 +2237,49 @@ func (r *ShardedClusterReconcileHelper) reconcilePodServices(ctx context.Context
 	return nil
 }
 
-func (r *ShardedClusterReconcileHelper) replicateCAConfigMap(ctx context.Context) error {
+func (r *ShardedClusterReconcileHelper) replicateTLSCAConfigMap(ctx context.Context, log *zap.SugaredLogger) error {
+	if !r.sc.Spec.IsMultiCluster() {
+		return nil
+	}
 	caConfigMapName := r.sc.GetSecurity().TLSConfig.CA
 	if caConfigMapName == "" || !r.sc.Spec.IsMultiCluster() {
 		return nil
 	}
 
-	for _, memberCluster := range r.allMemberClusters {
-		operatorCAConfigMap, err := r.commonController.client.GetConfigMap(ctx, kube.ObjectKey(r.sc.Namespace, caConfigMapName))
-		if err != nil {
-			return xerrors.Errorf("expected CA ConfigMap not found on the operator cluster: %s", caConfigMapName)
-		}
-
+	operatorCAConfigMap, err := r.commonController.client.GetConfigMap(ctx, kube.ObjectKey(r.sc.Namespace, caConfigMapName))
+	if err != nil {
+		return xerrors.Errorf("expected CA ConfigMap not found on the operator cluster: %s", caConfigMapName)
+	}
+	for _, memberCluster := range getHealthyMemberClusters(r.allMemberClusters) {
 		memberCAConfigMap := configmap.Builder().SetName(caConfigMapName).SetNamespace(r.sc.Namespace).SetData(operatorCAConfigMap.Data).Build()
 		err = configmap.CreateOrUpdate(ctx, memberCluster.Client, memberCAConfigMap)
 		if err != nil && !errors.IsAlreadyExists(err) {
 			return xerrors.Errorf("failed to replicate CA ConfigMap from the operator cluster to cluster %s, err: %w", memberCluster.Name, err)
 		}
+		log.Debugf("Successfully ensured configmap: %s/%s in cluster: %s", r.sc.Namespace, caConfigMapName, memberCluster.Name)
+	}
+
+	return nil
+}
+
+func (r *ShardedClusterReconcileHelper) replicateSSLMMSCAConfigMap(ctx context.Context, projectConfig mdbv1.ProjectConfig, log *zap.SugaredLogger) error {
+	if !r.sc.Spec.IsMultiCluster() || projectConfig.SSLMMSCAConfigMap == "" {
+		return nil
+	}
+
+	cm, err := r.commonController.client.GetConfigMap(ctx, kube.ObjectKey(r.sc.Namespace, projectConfig.SSLMMSCAConfigMap))
+	if err != nil {
+		return xerrors.Errorf("expected SSLMMSCAConfigMap not found on operator cluster: %s", projectConfig.SSLMMSCAConfigMap)
+	}
+
+	for _, memberCluster := range getHealthyMemberClusters(r.allMemberClusters) {
+		memberCm := configmap.Builder().SetName(projectConfig.SSLMMSCAConfigMap).SetNamespace(r.sc.Namespace).SetData(cm.Data).Build()
+		err = configmap.CreateOrUpdate(ctx, memberCluster.Client, memberCm)
+
+		if err != nil && !errors.IsAlreadyExists(err) {
+			return xerrors.Errorf("failed to sync SSLMMSCAConfigMap to cluster: %s, err: %w", memberCluster.Name, err)
+		}
+		log.Debugf("Successfully ensured configmap: %s/%s in cluster: %s", r.sc.Namespace, projectConfig.SSLMMSCAConfigMap, memberCluster.Name)
 	}
 
 	return nil
