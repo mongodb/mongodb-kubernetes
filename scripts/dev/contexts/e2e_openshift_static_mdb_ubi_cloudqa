@@ -14,8 +14,7 @@ export MANAGED_SECURITY_CONTEXT="true"
 export ALWAYS_REMOVE_TESTING_NAMESPACE="true"
 export ops_manager_version="cloud_qa"
 
-export CUSTOM_MDB_VERSION=4.4.20
-
+export CUSTOM_MDB_VERSION=6.0.16
 
 # shellcheck disable=SC2154
 export OPENSHIFT_URL="$openshift_url"
