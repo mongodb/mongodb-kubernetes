@@ -19,6 +19,7 @@ from kubetester.kubetester import (
 )
 from kubetester.omtester import OMContext, OMTester
 from opentelemetry import trace
+from tests import test_logger
 
 from .mongotester import (
     MongoTester,
@@ -26,6 +27,8 @@ from .mongotester import (
     ShardedClusterTester,
     StandaloneTester,
 )
+
+logger = test_logger.get_test_logger(__name__)
 
 
 class Phase(Enum):
@@ -129,6 +132,9 @@ class MongoDB(CustomObject, MongoDBCommon):
         span.set_attribute("meko_action", "assert_phase")
         span.set_attribute("meko_desired_phase", phase.name)
         span.set_attribute("meko_time_needed", end_time - start_time)
+        logger.debug(
+            f"Reaching phase {phase.name} for resource {self.__class__.__name__} took {end_time - start_time}s"
+        )
 
     def assert_abandons_phase(self, phase: Phase, timeout=None):
         """This method can be racy by nature, it assumes that the operator is slow enough that its phase transition
