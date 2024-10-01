@@ -2811,7 +2811,7 @@ buildvariants:
 - name: e2e_multi_cluster_kind
   display_name: e2e_multi_cluster_kind
   run_on:
-    - ubuntu1804-xlarge
+    - ubuntu2204-large
   <<: *base_om6_dependency
   tasks:
     - name: e2e_multi_cluster_kind_task_group
@@ -2819,7 +2819,7 @@ buildvariants:
 - name: e2e_static_multi_cluster_kind
   display_name: e2e_static_multi_cluster_kind
   run_on:
-    - ubuntu1804-xlarge
+    - ubuntu2204-large
   <<: *base_om6_dependency
   tasks:
     - name: e2e_multi_cluster_kind_task_group
@@ -2827,7 +2827,7 @@ buildvariants:
 - name: e2e_multi_cluster_2_clusters
   display_name: e2e_multi_cluster_2_clusters
   run_on:
-    - ubuntu1804-xlarge
+    - ubuntu2204-large
   <<: *base_om6_dependency
   tasks:
     - name: e2e_multi_cluster_2_clusters_task_group
@@ -2835,7 +2835,7 @@ buildvariants:
 - name: e2e_static_multi_cluster_2_clusters
   display_name: e2e_static_multi_cluster_2_clusters
   run_on:
-    - ubuntu1804-xlarge
+    - ubuntu2204-large
   <<: *base_om6_dependency
   tasks:
     - name: e2e_multi_cluster_2_clusters_task_group
@@ -2843,7 +2843,7 @@ buildvariants:
 - name: e2e_multi_cluster_om_appdb
   display_name: e2e_multi_cluster_om_appdb
   run_on:
-    - ubuntu1804-xlarge
+    - ubuntu2204-large
   <<: *base_om6_dependency
   tasks:
     - name: e2e_multi_cluster_om_appdb_task_group
@@ -2851,7 +2851,7 @@ buildvariants:
 - name: e2e_static_multi_cluster_om_appdb
   display_name: e2e_static_multi_cluster_om_appdb
   run_on:
-    - ubuntu1804-xlarge
+    - ubuntu2204-large
   <<: *base_om6_dependency
   tasks:
     - name: e2e_static_multi_cluster_om_appdb_task_group
@@ -2859,7 +2859,7 @@ buildvariants:
 - name: e2e_multi_cluster_om_operator_not_in_mesh
   display_name: e2e_multi_cluster_om_operator_not_in_mesh
   run_on:
-    -  ubuntu1804-xlarge
+    -  ubuntu2204-large
   <<: *base_om7_dependency
   tasks:
     - name: e2e_multi_cluster_om_operator_not_in_mesh_task_group

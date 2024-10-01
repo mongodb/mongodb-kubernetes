@@ -2,21 +2,20 @@ import time
 
 import pytest
 from kubernetes import client
-from kubetester.kubetester import KubernetesTester, is_static_containers_architecture
+from kubetester import create_or_update
+from kubetester.kubetester import KubernetesTester, fcv_from_version
+from kubetester.kubetester import fixture as load_fixture
+from kubetester.mongodb import MongoDB, Phase
 
 
 @pytest.mark.e2e_replica_set_pv
 class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
-    """
-    name: Replica Set Creation with PersistentVolumes
-    tags: replica-set, persistent-volumes, creation
-    description: |
-      Creates a Replica Set and allocates a PersistentVolume to it.
-    create:
-      file: replica-set-pv.yaml
-      wait_until: in_running_state
-      timeout: 300
-    """
+    def test_create_replicaset(self, custom_mdb_version: str):
+        resource = MongoDB.from_yaml(load_fixture("replica-set-pv.yaml"), namespace=self.namespace)
+        resource.set_version(custom_mdb_version)
+        create_or_update(resource)
+
+        resource.assert_reaches_phase(Phase.Running)
 
     def test_replica_set_sts_exists(self):
         sts = self.appsv1.read_namespaced_stateful_set("rs001-pv", self.namespace)
@@ -69,15 +68,15 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
             pvc_status = self.corev1.read_namespaced_persistent_volume_claim_status(pvc_name, self.namespace)
             assert pvc_status.status.phase == "Bound"
 
-    def test_om_processes(self):
+    def test_om_processes(self, custom_mdb_version: str):
         config = self.get_automation_config()
         processes = config["processes"]
         for idx, p in enumerate(processes):
-            assert "4.4.0" in p["version"]
+            assert custom_mdb_version in p["version"]
             assert p["name"] == f"rs001-pv-{idx}"
             assert p["processType"] == "mongod"
             assert p["authSchemaVersion"] == 5
-            assert p["featureCompatibilityVersion"] == "4.4"
+            assert p["featureCompatibilityVersion"] == fcv_from_version(custom_mdb_version)
             assert p["hostname"] == "rs001-pv-" + f"{idx}" + ".rs001-pv-svc.{}.svc.cluster.local".format(self.namespace)
             assert p["args2_6"]["net"]["port"] == 27017
             assert p["args2_6"]["replication"]["replSetName"] == "rs001-pv"

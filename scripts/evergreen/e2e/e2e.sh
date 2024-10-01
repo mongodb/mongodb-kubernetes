@@ -11,8 +11,8 @@ source scripts/evergreen/e2e/lib
 source scripts/dev/set_env_context.sh
 
 if [[ -n "${KUBECONFIG:-}" && ! -f "${KUBECONFIG}" ]]; then
-    echo "Kube configuration: ${KUBECONFIG} file does not exist!"
-    exit 1
+  echo "Kube configuration: ${KUBECONFIG} file does not exist!"
+  exit 1
 fi
 
 #
@@ -44,16 +44,16 @@ ensure_namespace "${NAMESPACE}"
 # 3. Configure Operator resources
 . scripts/evergreen/e2e/configure_operator.sh
 
-if [[ "${RUNNING_IN_EVG-"false"}" == "true" ]]; then
+if [[ "${RUNNING_IN_EVG:-false}" == "true" ]]; then
   # 4. install honeycomb observability
   . scripts/evergreen/e2e/performance/honeycomb/install-hc.sh
 fi
 
 if [ -n "${TEST_NAME_OVERRIDE:-}" ]; then
-    echo "Running test with override: ${TEST_NAME_OVERRIDE}"
-    TEST_NAME="${TEST_NAME_OVERRIDE}"
+  echo "Running test with override: ${TEST_NAME_OVERRIDE}"
+  TEST_NAME="${TEST_NAME_OVERRIDE}"
 else
-    TEST_NAME="${TASK_NAME:?}"
+  TEST_NAME="${TASK_NAME:?}"
 fi
 
 export TEST_NAME
@@ -83,42 +83,42 @@ timeout --foreground "${timeout_sec}" scripts/evergreen/e2e/single_e2e.sh || TES
 # TODO: ensure cluster name is included in log files so there is no overwriting of cross cluster files.
 # shellcheck disable=SC2154
 if [[ "${KUBE_ENVIRONMENT_NAME:-}" = "multi" ]]; then
-    echo "Dumping diagnostics for context ${CENTRAL_CLUSTER}"
-    dump_all "${CENTRAL_CLUSTER}" || true
+  echo "Dumping diagnostics for context ${CENTRAL_CLUSTER}"
+  dump_all "${CENTRAL_CLUSTER}" || true
 
-    for member_cluster in ${MEMBER_CLUSTERS}; do
-      echo "Dumping diagnostics for context ${member_cluster}"
-      dump_all "${member_cluster}" || true
-    done
+  for member_cluster in ${MEMBER_CLUSTERS}; do
+    echo "Dumping diagnostics for context ${member_cluster}"
+    dump_all "${member_cluster}" || true
+  done
 else
-    # Dump all the information we can from this namespace
-    dump_all || true
+  # Dump all the information we can from this namespace
+  dump_all || true
 fi
 
 # we only have static cluster in openshift, otherwise there is no need to mark and clean them up here
 if [[ ${CLUSTER_TYPE} == "openshift" ]]; then
   if [[ "${TEST_RESULTS}" -ne 0 ]]; then
-      # Mark namespace as failed to be cleaned later
-      kubectl label "namespace/${NAMESPACE}" "evg/state=failed" --overwrite=true
+    # Mark namespace as failed to be cleaned later
+    kubectl label "namespace/${NAMESPACE}" "evg/state=failed" --overwrite=true
 
-      if [ "${ALWAYS_REMOVE_TESTING_NAMESPACE-}" = "true" ]; then
-          # Failed namespaces might cascade into more failures if the namespaces
-          # are not being removed soon enough.
-          reset_namespace "$(kubectl config current-context)" "${NAMESPACE}" || true
-      fi
+    if [ "${ALWAYS_REMOVE_TESTING_NAMESPACE-}" = "true" ]; then
+      # Failed namespaces might cascade into more failures if the namespaces
+      # are not being removed soon enough.
+      reset_namespace "$(kubectl config current-context)" "${NAMESPACE}" || true
+    fi
   else
-      if [[ "${KUBE_ENVIRONMENT_NAME}" = "multi" ]]; then
-          echo "Tearing down cluster ${CENTRAL_CLUSTER}"
-          reset_namespace "${CENTRAL_CLUSTER}" "${NAMESPACE}" || true
+    if [[ "${KUBE_ENVIRONMENT_NAME}" = "multi" ]]; then
+      echo "Tearing down cluster ${CENTRAL_CLUSTER}"
+      reset_namespace "${CENTRAL_CLUSTER}" "${NAMESPACE}" || true
 
-          for member_cluster in ${MEMBER_CLUSTERS}; do
-              echo "Tearing down cluster ${member_cluster}"
-              reset_namespace "${member_cluster}" "${NAMESPACE}" || true
-          done
-      else
-          # If the test pass, then the namespace is removed
-          reset_namespace "$(kubectl config current-context)" "${NAMESPACE}" || true
-      fi
+      for member_cluster in ${MEMBER_CLUSTERS}; do
+        echo "Tearing down cluster ${member_cluster}"
+        reset_namespace "${member_cluster}" "${NAMESPACE}" || true
+      done
+    else
+      # If the test pass, then the namespace is removed
+      reset_namespace "$(kubectl config current-context)" "${NAMESPACE}" || true
+    fi
   fi
 fi
 

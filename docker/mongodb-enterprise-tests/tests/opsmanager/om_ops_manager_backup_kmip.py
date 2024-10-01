@@ -5,6 +5,7 @@ from kubetester import MongoDB, create_or_update, create_or_update_secret, read_
 from kubetester.awss3client import AwsS3Client
 from kubetester.certs import create_tls_certs
 from kubetester.kmip import KMIPDeployment
+from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import is_static_containers_architecture
 from kubetester.mongodb import Phase
@@ -13,7 +14,6 @@ from kubetester.opsmanager import MongoDBOpsManager
 from pymongo import ReadPreference
 from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
-from tests.opsmanager.conftest import ensure_ent_version
 from tests.opsmanager.om_ops_manager_backup import (
     S3_SECRET_NAME,
     create_aws_secret,
@@ -100,7 +100,8 @@ def mdb_latest(
 
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.configure_backup(mode="enabled")
-    return resource.create()
+
+    return create_or_update(resource)
 
 
 @fixture(scope="module")
@@ -140,15 +141,18 @@ class TestOpsManagerCreation:
         kmip.status().assert_is_running()
 
     def test_create_om(self, ops_manager: MongoDBOpsManager):
-        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900, ignore_errors=True)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
+        ops_manager.backup_status().assert_reaches_phase(Phase.Pending)
 
-    def test_mdbs_created(self, mdb_latest: MongoDB):
+    def test_s3_oplog_created(self, ops_manager: MongoDBOpsManager):
+        ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=900)
+
+    def test_mdbs_created(self, mdb_latest: MongoDB, ops_manager: MongoDBOpsManager):
         # Once MDB is created, the OpsManager will be redeployed which may cause HTTP errors.
         # This is required to mount new secrets for KMIP. Having said that, we also need longer timeout.
         mdb_latest.assert_reaches_phase(Phase.Running, timeout=1800, ignore_errors=True)
-
-    def test_s3_oplog_created(self, ops_manager: MongoDBOpsManager):
-        ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=900, ignore_errors=True)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running)
 
 
 @mark.e2e_om_ops_manager_backup_kmip

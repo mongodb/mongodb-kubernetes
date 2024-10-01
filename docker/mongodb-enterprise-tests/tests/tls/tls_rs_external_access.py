@@ -52,9 +52,10 @@ def server_certs_multiple_horizons(issuer: str, namespace: str):
 
 
 @pytest.fixture(scope="module")
-def mdb(namespace: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
+def mdb(namespace: str, server_certs: str, issuer_ca_configmap: str, custom_mdb_version: str) -> MongoDB:
     res = MongoDB.from_yaml(load_fixture("test-tls-base-rs-external-access.yaml"), namespace=namespace)
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
+    res.set_version(custom_mdb_version)
     return create_or_update(res)
 
 
@@ -129,17 +130,11 @@ def tests_invalid_cert(mdb: MongoDB):
 
 
 @pytest.mark.e2e_tls_rs_external_access
-class TestReplicaSetCanRemoveExternalAccess(KubernetesTester):
-    """
-    update:
-      file: test-tls-base-rs-external-access.yaml
-      wait_until: in_running_state
-      patch: '[{"op":"replace","path":"/spec/connectivity/replicaSetHorizons", "value": []}]'
-      timeout: 240
-    """
-
-    def test_can_remove_horizons(self):
-        return True
+def test_can_remove_horizons(mdb: MongoDB):
+    mdb.load()
+    mdb["spec"]["connectivity"]["replicaSetHorizons"] = []
+    mdb.update()
+    mdb.assert_reaches_phase(Phase.Running, timeout=240)
 
 
 @pytest.mark.e2e_tls_rs_external_access

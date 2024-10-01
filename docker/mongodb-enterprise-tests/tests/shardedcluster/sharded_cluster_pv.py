@@ -10,11 +10,12 @@ from kubetester.mongotester import ShardedClusterTester
 
 
 @pytest.fixture(scope="module")
-def sharded_cluster(namespace: str) -> MongoDB:
+def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("sharded-cluster-pv.yaml"),
         namespace=namespace,
     )
+    resource.set_version(custom_mdb_version)
     try_load(resource)
     return resource
 
@@ -25,7 +26,7 @@ class TestShardedClusterCreation(KubernetesTester):
 
     def test_sharded_cluster_created(self, sharded_cluster: MongoDB):
         create_or_update(sharded_cluster)
-        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=360)
+        sharded_cluster.assert_reaches_phase(Phase.Running)
 
     def check_sts_labels(self, sts):
         sts_labels = sts.metadata.labels

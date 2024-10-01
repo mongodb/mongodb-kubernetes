@@ -9,6 +9,7 @@ from kubetester import (
 )
 from kubetester.certs import create_mongodb_tls_certs
 from kubetester.http import https_endpoint_is_reachable
+from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase, generic_replicaset
 from kubetester.opsmanager import MongoDBOpsManager
@@ -66,7 +67,7 @@ def ops_manager(
 
 
 @fixture(scope="module")
-def sharded_cluster(ops_manager: MongoDBOpsManager, namespace: str, issuer: str) -> MongoDB:
+def sharded_cluster(ops_manager: MongoDBOpsManager, namespace: str, issuer: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("sharded-cluster.yaml"),
         namespace=namespace,
@@ -87,6 +88,7 @@ def sharded_cluster(ops_manager: MongoDBOpsManager, namespace: str, issuer: str)
     }
     del resource["spec"]["cloudManager"]
     resource.configure(ops_manager, namespace)
+    resource.set_version(ensure_ent_version(custom_mdb_version))
 
     yield resource.create()
 
@@ -101,7 +103,7 @@ def replica_set(
 
     create_or_update_secret(namespace, "rs-secret", {"password": "prom-password"})
 
-    resource = generic_replicaset(namespace, "5.0.6", "replica-set-with-prom", ops_manager)
+    resource = generic_replicaset(namespace, custom_mdb_version, "replica-set-with-prom", ops_manager)
 
     prom_cert_secret = certs_for_prometheus(issuer, namespace, resource.name)
     resource["spec"]["prometheus"] = {

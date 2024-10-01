@@ -17,8 +17,7 @@ aws:
   accessKey: "none"
   secretAccessKey: "none"
 
-
-skipExecution: 'false'
+skipExecution: "false"
 
 # Set this when the ECR registry is not accessible from the testing cluster.
 # A Secret with type kubernetes.io/dockerconfigjson needs to exist.
@@ -38,6 +37,7 @@ otel_parent_id:
 otel_endpoint:
 otel_resource_attributes:
 mdbDefaultArchitecture: "non-static"
+mdbImageType: "ubi8"
 
 # set to "true" to set OM_DEBUG_HTTP=true for the operator
 omDebugHttp:

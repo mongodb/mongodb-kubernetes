@@ -27,8 +27,10 @@ def mongodb_multi(
     central_cluster_client: client.ApiClient,
     namespace: str,
     member_cluster_names: list[str],
+    custom_mdb_version: str,
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), RESOURCE_NAME, namespace)
+    resource.set_version(custom_mdb_version)
     resource["spec"]["persistent"] = False
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
     resource.api = client.CustomObjectsApi(central_cluster_client)

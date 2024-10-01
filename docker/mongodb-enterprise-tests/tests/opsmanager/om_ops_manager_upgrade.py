@@ -7,6 +7,7 @@ from kubernetes import client
 from kubernetes.client.rest import ApiException
 from kubetester import MongoDB, create_or_update, try_load
 from kubetester.awss3client import AwsS3Client
+from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import (
     is_static_containers_architecture,
@@ -18,7 +19,6 @@ from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture
 from tests import test_logger
 from tests.conftest import is_multi_cluster
-from tests.opsmanager.conftest import ensure_ent_version
 from tests.opsmanager.om_appdb_scram import OM_USER_NAME
 from tests.opsmanager.om_ops_manager_backup import (
     OPLOG_RS_NAME,

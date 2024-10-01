@@ -1,5 +1,8 @@
 import pytest
+from kubetester import create_or_update
 from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as load_fixture
+from kubetester.mongodb import MongoDB, Phase
 
 MDB_RESOURCE = "test-no-tls-no-status"
 
@@ -8,11 +11,13 @@ MDB_RESOURCE = "test-no-tls-no-status"
 class TestStandaloneWithNoTLS(KubernetesTester):
     """
     name: Standalone with no TLS should not have empty "additionalMongodConfig" attribute set.
-    create:
-      file: test-no-tls-no-status.yaml
-      wait_until: in_running_state
-      timeout: 240
     """
+
+    def test_create_standalone(self, custom_mdb_version: str):
+        resource = MongoDB.from_yaml(load_fixture("test-no-tls-no-status.yaml"), namespace=self.namespace)
+        resource.set_version(custom_mdb_version)
+        create_or_update(resource)
+        resource.assert_reaches_phase(Phase.Running)
 
     def test_mdb_resource_status_is_correct(self):
         mdb = self.customv1.get_namespaced_custom_object("mongodb.com", "v1", self.namespace, "mongodb", MDB_RESOURCE)

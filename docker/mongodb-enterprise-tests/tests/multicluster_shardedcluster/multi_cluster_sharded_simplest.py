@@ -1,10 +1,10 @@
 from kubetester import create_or_update, find_fixture, try_load
+from kubetester.kubetester import ensure_ent_version
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.operator import Operator
 from pytest import fixture, mark
 from tests.conftest import get_member_cluster_names
 from tests.multicluster.conftest import cluster_spec_list
-from tests.opsmanager.conftest import ensure_ent_version
 
 MDB_RESOURCE_NAME = "sh"
 

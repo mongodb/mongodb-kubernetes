@@ -19,6 +19,7 @@ from tests.conftest import (
     LEGACY_DEPLOYMENT_STATE_VERSION,
     create_appdb_certs,
     get_central_cluster_name,
+    get_custom_appdb_version,
     install_official_operator,
     local_operator,
     log_deployments_info,
@@ -28,6 +29,7 @@ from tests.multicluster.conftest import cluster_spec_list
 CERT_PREFIX = "prefix"
 logger = test_logger.get_test_logger(__name__)
 
+appdb_version = get_custom_appdb_version()
 
 """
 multicluster_appdb_state_operator_upgrade_downgrade ensures the correctness of the state configmaps of AppDB, when
@@ -109,7 +111,7 @@ scale_on_upgrade = TestCase(
     },
     # The "state" should contain the same fields as above, but marshalled in a single map
     expected_db_state={
-        "state": '{"clusterMapping":{"kind-e2e-cluster-1":2,"kind-e2e-cluster-2":0,"kind-e2e-cluster-3":1},"lastAppliedMemberSpec":{"kind-e2e-cluster-1":1,"kind-e2e-cluster-2":3,"kind-e2e-cluster-3":1},"lastAppliedMongoDBVersion":"6.0.5-ent"}'
+        "state": f'{{"clusterMapping":{{"kind-e2e-cluster-1":2,"kind-e2e-cluster-2":0,"kind-e2e-cluster-3":1}},"lastAppliedMemberSpec":{{"kind-e2e-cluster-1":1,"kind-e2e-cluster-2":3,"kind-e2e-cluster-3":1}},"lastAppliedMongoDBVersion":"{appdb_version}"}}'
     },
 )
 

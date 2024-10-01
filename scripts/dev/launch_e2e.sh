@@ -16,13 +16,12 @@ export OM_BASE_URL=${OM_HOST}
 # shellcheck disable=SC2154
 title "Running the e2e test ${test}..."
 
-if [[ "${IMAGE_TYPE}" = "ubi" ]]; then
-    if [[ "${OPS_MANAGER_REGISTRY}" == quay.io* ]]; then
-      export OPS_MANAGER_NAME=mongodb-enterprise-ops-manager-ubi
-    fi
-    if [[ "${DATABASE_REGISTRY}" == quay.io* ]]; then
-      export DATABASE_NAME=mongodb-enterprise-database-ubi
-    fi
+
+if [[ "${OPS_MANAGER_REGISTRY}" == quay.io* ]]; then
+    export OPS_MANAGER_NAME=mongodb-enterprise-ops-manager-ubi
+fi
+if [[ "${DATABASE_REGISTRY}" == quay.io* ]]; then
+    export DATABASE_NAME=mongodb-enterprise-database-ubi
 fi
 
 # For any cluster except for kops (Kind, Openshift) access to ECR registry needs authorization - it will be handled

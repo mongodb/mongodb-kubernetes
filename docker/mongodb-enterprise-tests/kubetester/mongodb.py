@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+import os
 import re
 import time
 import urllib.parse
 from enum import Enum
 from typing import Dict, List, Optional, Tuple
 
+import semver
 from kubeobject import CustomObject
 from kubernetes import client
 from kubetester.kubetester import (
     KubernetesTester,
     build_host_fqdn,
+    ensure_ent_version,
     ensure_nested_objects,
     is_static_containers_architecture,
 )
@@ -37,7 +40,7 @@ class Phase(Enum):
 class MongoDBCommon:
     def wait_for(self, fn, timeout=None, should_raise=True):
         if timeout is None:
-            timeout = 360
+            timeout = 600
         initial_timeout = timeout
 
         wait = 3
@@ -65,6 +68,17 @@ class MongoDB(CustomObject, MongoDBCommon):
         }
         with_defaults.update(kwargs)
         super(MongoDB, self).__init__(*args, **with_defaults)
+
+    @classmethod
+    def from_yaml(cls, yaml_file, name=None, namespace=None):
+        resource = super().from_yaml(yaml_file=yaml_file, name=name, namespace=namespace)
+        custom_mdb_prev_version = os.getenv("CUSTOM_MDB_VERSION")
+        custom_mdb_version = os.getenv("CUSTOM_MDB_VERSION")
+        if custom_mdb_prev_version is not None and semver.compare(resource.get_version(), custom_mdb_prev_version) < 0:
+            resource.set_version(ensure_ent_version(custom_mdb_prev_version))
+        elif custom_mdb_version is not None and semver.compare(resource.get_version(), custom_mdb_version) < 0:
+            resource.set_version(ensure_ent_version(custom_mdb_version))
+        return resource
 
     def assert_state_transition_happens(self, last_transition, timeout=None):
         def transition_changed(mdb: MongoDB):
@@ -306,7 +320,11 @@ class MongoDB(CustomObject, MongoDBCommon):
         return self["spec"]["members"]
 
     def get_version(self) -> str:
-        return self["spec"]["version"]
+        try:
+            return self["spec"]["version"]
+        except KeyError:
+            custom_mdb_version = os.getenv("CUSTOM_MDB_VERSION", "6.0.10")
+            return custom_mdb_version
 
     def get_service(self) -> str:
         try:

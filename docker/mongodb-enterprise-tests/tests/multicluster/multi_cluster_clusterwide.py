@@ -46,8 +46,10 @@ def mongodb_multi_a(
     central_cluster_client: kubernetes.client.ApiClient,
     mdba_ns: str,
     member_cluster_names: List[str],
+    custom_mdb_version: str,
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", mdba_ns)
+    resource.set_version(custom_mdb_version)
 
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
 
@@ -61,8 +63,10 @@ def mongodb_multi_b(
     central_cluster_client: kubernetes.client.ApiClient,
     mdbb_ns: str,
     member_cluster_names: List[str],
+    custom_mdb_version: str,
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", mdbb_ns)
+    resource.set_version(custom_mdb_version)
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     create_or_update(resource)

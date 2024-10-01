@@ -1,6 +1,9 @@
 import pytest
+from kubetester import create_or_update
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as load_fixture
+from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongotester import ShardedClusterTester
 
 MDB_RESOURCE = "sharded-cluster-scram-sha-256"
@@ -14,10 +17,14 @@ class TestShardedClusterCreation(KubernetesTester):
     """
     description: |
       Creates a Sharded Cluster and checks everything is created as expected.
-    create:
-      file: sharded-cluster-scram-sha-256.yaml
-      wait_until: in_running_state
     """
+
+    def test_create_sharded_cluster(self, custom_mdb_version: str):
+        resource = MongoDB.from_yaml(load_fixture("sharded-cluster-scram-sha-256.yaml"), namespace=self.namespace)
+        resource.set_version(custom_mdb_version)
+        create_or_update(resource)
+
+        resource.assert_reaches_phase(Phase.Running)
 
     def test_sharded_cluster_connectivity(self):
         ShardedClusterTester(MDB_RESOURCE, 2).assert_connectivity()

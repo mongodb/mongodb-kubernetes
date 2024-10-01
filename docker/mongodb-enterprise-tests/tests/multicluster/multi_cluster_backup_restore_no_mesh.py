@@ -18,7 +18,7 @@ from kubetester import (
     try_load,
 )
 from kubetester.certs import create_ops_manager_tls_certs
-from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import MongoDB, Phase
@@ -111,6 +111,7 @@ def ops_manager(
     # remove s3 config
     del resource["spec"]["backup"]["s3Stores"]
     resource.set_version(custom_version)
+    resource.set_appdb_version(ensure_ent_version(custom_appdb_version))
 
     resource.allow_mdb_rc_versions()
     resource.create_admin_secret(api_client=central_cluster_client)
@@ -465,6 +466,7 @@ class TestBackupForMongodb:
         namespace: str,
         member_cluster_names: List[str],
         base_url,
+        custom_mdb_version: str,
     ) -> MongoDBMulti:
         resource = MongoDBMulti.from_yaml(
             yaml_fixture("mongodb-multi.yaml"),
@@ -472,6 +474,7 @@ class TestBackupForMongodb:
             namespace,
             # the project configmap should be created in the central cluster.
         ).configure(ops_manager, f"{namespace}-project-one", api_client=central_cluster_client)
+        resource.set_version(ensure_ent_version(custom_mdb_version))
 
         resource["spec"]["clusterSpecList"] = [
             {"clusterName": member_cluster_names[0], "members": 2},
@@ -617,7 +620,7 @@ class TestBackupForMongodb:
     @mark.e2e_multi_cluster_backup_restore_no_mesh
     def test_mongodb_multi_one_running_state(self, mongodb_multi_one: MongoDBMulti):
         # we might fail connection in the beginning since we set a custom dns in coredns
-        mongodb_multi_one.assert_reaches_phase(Phase.Running, ignore_errors=True, timeout=600)
+        mongodb_multi_one.assert_reaches_phase(Phase.Running, ignore_errors=True, timeout=1500)
 
     @skip_if_local
     @mark.e2e_multi_cluster_backup_restore_no_mesh

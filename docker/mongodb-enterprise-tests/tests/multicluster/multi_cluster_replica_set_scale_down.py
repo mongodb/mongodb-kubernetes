@@ -23,8 +23,10 @@ def mongodb_multi_unmarshalled(
     multi_cluster_issuer_ca_configmap: str,
     central_cluster_client: kubernetes.client.ApiClient,
     member_cluster_names: list[str],
+    custom_mdb_version: str,
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), RESOURCE_NAME, namespace)
+    resource.set_version(custom_mdb_version)
     # start at one member in each cluster
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
 
