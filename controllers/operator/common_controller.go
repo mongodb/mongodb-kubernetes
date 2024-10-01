@@ -313,12 +313,12 @@ func (r *ReconcileCommonController) prepareResourceForReconciliation(ctx context
 // Also, it removes the tag ExternallyManaged from the project in this case as
 // the user may need to clean the resources from OM UI if they move the
 // resource to another project (as recommended by the migration instructions).
-func checkIfHasExcessProcesses(conn om.Connection, resource *mdbv1.MongoDB, log *zap.SugaredLogger) workflow.Status {
+func checkIfHasExcessProcesses(conn om.Connection, resourceName string, log *zap.SugaredLogger) workflow.Status {
 	deployment, err := conn.ReadDeployment()
 	if err != nil {
 		return workflow.Failed(err)
 	}
-	excessProcesses := deployment.GetNumberOfExcessProcesses(resource.Name)
+	excessProcesses := deployment.GetNumberOfExcessProcesses(resourceName)
 	if excessProcesses == 0 {
 		// cluster is empty or this resource is the only one living on it
 		return workflow.OK()

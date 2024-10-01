@@ -679,15 +679,38 @@ func TestSpecIsSavedAsAnnotation_WhenReconciliationIsSuccessful(t *testing.T) {
 
 func TestMultiReplicaSetRace(t *testing.T) {
 	ctx := context.Background()
-	rs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
-	rs2 := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).SetName("my-rs2").Build()
-	rs3 := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).SetName("my-rs3").Build()
+	rs1, cfgMap1, projectName1 := buildMultiReplicaSetWithCustomProject("my-rs1")
+	rs2, cfgMap2, projectName2 := buildMultiReplicaSetWithCustomProject("my-rs2")
+	rs3, cfgMap3, projectName3 := buildMultiReplicaSetWithCustomProject("my-rs3")
 
-	fakeClient := mock.NewEmptyFakeClientBuilder().WithObjects(mock.GetDefaultResources()...).Build()
-	memberClusterMap := getFakeMultiClusterMap(nil)
-	reconciler := newMultiClusterReplicaSetReconciler(ctx, fakeClient, om.NewEmptyMockedOmConnection, memberClusterMap)
+	resourceToProjectMapping := map[string]string{
+		"my-rs1": projectName1,
+		"my-rs2": projectName2,
+		"my-rs3": projectName3,
+	}
 
-	testConcurrentReconciles(ctx, t, fakeClient, reconciler, rs, rs2, rs3)
+	fakeClient := mock.NewEmptyFakeClientBuilder().
+		WithObjects(rs1, rs2, rs3).
+		WithObjects(cfgMap1, cfgMap2, cfgMap3).
+		WithObjects(mock.GetCredentialsSecret(om.TestUser, om.TestApiKey)).
+		Build()
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory().WithResourceToProjectMapping(resourceToProjectMapping)
+	memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(clusters, omConnectionFactory, true, true)
+	reconciler := newMultiClusterReplicaSetReconciler(ctx, fakeClient, omConnectionFactory.GetConnectionFunc, memberClusterMap)
+
+	testConcurrentReconciles(ctx, t, fakeClient, reconciler, rs1, rs2, rs3)
+}
+
+func buildMultiReplicaSetWithCustomProject(mcReplicaSetName string) (*mdbmulti.MongoDBMultiCluster, *corev1.ConfigMap, string) {
+	configMapName := mock.TestProjectConfigMapName + "-" + mcReplicaSetName
+	projectName := om.TestGroupName + "-" + mcReplicaSetName
+
+	return mdbmulti.DefaultMultiReplicaSetBuilder().
+		SetName(mcReplicaSetName).
+		SetOpsManagerConfigMapName(configMapName).
+		SetClusterSpecList(clusters).
+		Build(), mock.GetProjectConfigMap(configMapName, projectName, ""), projectName
 }
 
 func TestScaling(t *testing.T) {
