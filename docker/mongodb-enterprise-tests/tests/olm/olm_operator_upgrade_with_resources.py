@@ -11,7 +11,7 @@ from kubetester import (
 )
 from kubetester.awss3client import AwsS3Client
 from kubetester.certs import create_sharded_cluster_certs
-from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import run_periodically
 from kubetester.mongodb import Phase
@@ -28,7 +28,6 @@ from tests.olm.olm_test_commons import (
     increment_patch_version,
     wait_for_operator_ready,
 )
-from tests.opsmanager.conftest import ensure_ent_version
 from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_bucket
 
 # See docs how to run this locally: https://wiki.corp.mongodb.com/display/MMS/E2E+Tests+Notes#E2ETestsNotes-OLMtests

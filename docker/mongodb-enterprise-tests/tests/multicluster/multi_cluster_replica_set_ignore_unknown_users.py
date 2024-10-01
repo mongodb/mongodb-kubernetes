@@ -15,6 +15,7 @@ def mongodb_multi(
     central_cluster_client: kubernetes.client.ApiClient,
     namespace: str,
     member_cluster_names: list[str],
+    custom_mdb_version: str,
 ) -> MongoDBMulti:
 
     resource = MongoDBMulti.from_yaml(
@@ -22,8 +23,8 @@ def mongodb_multi(
         "multi-replica-set",
         namespace,
     )
+    resource.set_version(custom_mdb_version)
 
-    print(resource)
     resource["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
 
     resource["spec"]["security"]["authentication"]["ignoreUnknownUsers"] = True

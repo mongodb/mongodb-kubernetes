@@ -1,6 +1,10 @@
 import pytest
 from kubernetes import client
-from kubetester.kubetester import KubernetesTester, skip_if_local
+from kubetester import create_or_update
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as load_fixture
+from kubetester.kubetester import skip_if_local
+from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongotester import ShardedClusterTester
 from tests import test_logger
 
@@ -8,18 +12,17 @@ SHARDED_CLUSTER_NAME = "sh001-base"
 logger = test_logger.get_test_logger(__name__)
 
 
+@pytest.fixture(scope="module")
+def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
+    resource = MongoDB.from_yaml(load_fixture("sharded-cluster.yaml"), namespace=namespace)
+    resource.set_version(custom_mdb_version)
+    return create_or_update(resource)
+
+
 @pytest.mark.e2e_sharded_cluster
 class TestShardedClusterCreation(KubernetesTester):
-    """
-    name: Sharded Cluster Base Creation
-    description: |
-      Creates a simple Sharded Cluster with 1 shard, 2 mongos,
-      1 replica set as config server and NO persistent volumes.
-    create:
-      file: sharded-cluster.yaml
-      wait_until: in_running_state
-      timeout: 360
-    """
+    def test_create_sharded_cluster(self, sc: MongoDB):
+        sc.assert_reaches_phase(Phase.Running)
 
     def test_sharded_cluster_sts(self):
         sts0 = self.appsv1.read_namespaced_stateful_set(f"{SHARDED_CLUSTER_NAME}-0", self.namespace)
@@ -65,16 +68,12 @@ class TestShardedClusterCreation(KubernetesTester):
 
 @pytest.mark.e2e_sharded_cluster
 class TestShardedClusterUpdate(KubernetesTester):
-    """
-    name: Sharded Cluster Base Creation
-    description: |
-      Scales a Sharded Cluster from 1 to 2 Shards
-    update:
-      file: sharded-cluster.yaml
-      patch: '[{"op":"replace","path":"/spec/shardCount","value":2}]'
-      wait_until: in_running_state
-      timeout: 360
-    """
+    def test_scale_up_sharded_cluster(self, sc: MongoDB):
+        sc.load()
+        sc["spec"]["shardCount"] = 2
+        create_or_update(sc)
+
+        sc.assert_reaches_phase(Phase.Running)
 
     @skip_if_local()
     def test_shard1_was_configured(self):

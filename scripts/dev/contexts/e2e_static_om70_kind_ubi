@@ -10,3 +10,5 @@ source "$script_dir/variables/om70"
 
 export KUBE_ENVIRONMENT_NAME=kind
 export MDB_DEFAULT_ARCHITECTURE=static
+export CUSTOM_MDB_VERSION=7.0.5
+export CUSTOM_MDB_PREV_VERSION=6.0.16

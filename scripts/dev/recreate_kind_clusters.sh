@@ -4,7 +4,9 @@ set -Eeou pipefail
 source scripts/dev/set_env_context.sh
 source scripts/funcs/kubernetes
 
-kind delete clusters --all
+if [[ "${DELETE_KIND_NETWORK:-"false"}" == "true" ]]; then
+  delete_kind_network
+fi
 
 if [[ "${DELETE_KIND_NETWORK:-"false"}" == "true" ]]; then
   delete_kind_network

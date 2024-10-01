@@ -422,7 +422,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		// mongod image as it is constructed from 2 env variables and version from spec, and it will not be replaced to sha256 digest properly.
 		// The official image provides both CMD and ENTRYPOINT. We're reusing the former and need to replace
 		// the latter with an empty string.
-		containerImageModification(construct.MongodbName, getOfficialImage(opsManager.Spec.AppDB.Version), []string{""}),
+		containerImageModification(construct.MongodbName, getOfficialImage(opsManager.Spec.AppDB.Version, opsManager.GetAnnotations()), []string{""}),
 		// we don't need to update here the automation agent image for digest pinning, because it is defined in AGENT_IMAGE env var as full url with version
 		// if we run in certified bundle with digest pinning it will be properly updated to digest
 		customPersistenceConfig(&opsManager),
@@ -467,9 +467,21 @@ func IsEnterprise() bool {
 	return true
 }
 
-func getOfficialImage(version string) string {
+func getOfficialImage(version string, annotations map[string]string) string {
 	repoUrl := os.Getenv(construct.MongodbRepoUrl)
-	imageType := envvar.GetEnvOrDefault(construct.MongoDBImageType, construct.DefaultImageType)
+	// TODO: rethink the logic of handling custom image types. We are currently only handling ubi9 and ubi8 and we never
+	// were really handling erroneus types, we just leave them be if specified (e.g. -ubuntu).
+	// envvar.GetEnvOrDefault(construct.MongoDBImageType, string(architectures.DefaultImageType))
+	var imageType string
+
+	if architectures.IsRunningStaticArchitecture(annotations) {
+		imageType = string(architectures.ImageTypeUBI9)
+	} else {
+		// For non-static architecture, we need to default to UBI8 to support customers running MongoDB versions < 6.0.4,
+		// which don't have UBI9 binaries.
+		imageType = string(architectures.ImageTypeUBI8)
+	}
+
 	imageURL := os.Getenv(construct.MongodbImageEnv)
 
 	if strings.HasSuffix(repoUrl, "/") {
@@ -480,12 +492,15 @@ func getOfficialImage(version string) string {
 	if strings.HasSuffix(imageURL, util.OfficialServerImageAppdbUrl) && !assumeOldFormat {
 		// 5.0.6-ent -> 5.0.6-ubi8
 		if strings.HasSuffix(version, "-ent") {
-			version = strings.Replace(version, "-ent", "-"+imageType, 1)
+			version = fmt.Sprintf("%s%s", strings.TrimSuffix(version, "ent"), imageType)
 		}
 		// 5.0.6 ->  5.0.6-ubi8
 		r := regexp.MustCompile("-.+$")
 		if !r.MatchString(version) {
 			version = version + "-" + imageType
+		}
+		if found, suffix := architectures.HasSupportedImageTypeSuffix(version); found {
+			version = fmt.Sprintf("%s%s", strings.TrimSuffix(version, suffix), imageType)
 		}
 		// if neither, let's not change it: 5.0.6-ubi8 -> 5.0.6-ubi8
 	}

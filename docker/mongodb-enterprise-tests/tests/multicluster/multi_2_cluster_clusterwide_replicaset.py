@@ -10,6 +10,7 @@ from kubetester import (
     read_secret,
 )
 from kubetester.certs import create_multi_cluster_mongodb_tls_certs
+from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
@@ -38,10 +39,12 @@ def mongodb_multi_a_unmarshalled(
     central_cluster_client: kubernetes.client.ApiClient,
     mdba_ns: str,
     member_cluster_names: List[str],
+    custom_mdb_version: str,
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", mdba_ns)
 
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1])
+    resource.set_version(ensure_ent_version(custom_mdb_version))
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     create_or_update(resource)
@@ -53,10 +56,14 @@ def mongodb_multi_b_unmarshalled(
     central_cluster_client: kubernetes.client.ApiClient,
     mdbb_ns: str,
     member_cluster_names: List[str],
+    custom_mdb_version: str,
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", mdbb_ns)
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1])
+    resource.set_version(ensure_ent_version(custom_mdb_version))
 
+    resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
+    create_or_update(resource)
     return resource
 
 

@@ -4,7 +4,7 @@ from typing import Optional
 
 from kubetester import MongoDB, create_or_update
 from kubetester.certs import create_mongodb_tls_certs, create_ops_manager_tls_certs
-from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
@@ -16,7 +16,6 @@ from tests.conftest import (
     is_multi_cluster,
     update_coredns_hosts,
 )
-from tests.opsmanager.conftest import ensure_ent_version
 from tests.opsmanager.om_ops_manager_backup import (
     BLOCKSTORE_RS_NAME,
     OPLOG_RS_NAME,
@@ -131,26 +130,31 @@ def ops_manager(
 
 
 @fixture(scope="module")
-def oplog_replica_set(ops_manager, issuer_ca_configmap: str, oplog_certs_secret: str) -> MongoDB:
+def oplog_replica_set(
+    ops_manager, issuer_ca_configmap: str, oplog_certs_secret: str, custom_mdb_version: str
+) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=ops_manager.namespace,
         name=OPLOG_RS_NAME,
     ).configure(ops_manager, "oplog")
     resource.configure_custom_tls(issuer_ca_configmap, oplog_certs_secret)
-
+    resource.set_version(ensure_ent_version(custom_mdb_version))
     create_or_update(resource)
     return resource
 
 
 @fixture(scope="module")
-def blockstore_replica_set(ops_manager, issuer_ca_configmap: str, blockstore_certs_secret: str) -> MongoDB:
+def blockstore_replica_set(
+    ops_manager, issuer_ca_configmap: str, blockstore_certs_secret: str, custom_mdb_version: str
+) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=ops_manager.namespace,
         name=BLOCKSTORE_RS_NAME,
     ).configure(ops_manager, "blockstore")
     resource.configure_custom_tls(issuer_ca_configmap, blockstore_certs_secret)
+    resource.set_version(ensure_ent_version(custom_mdb_version))
 
     create_or_update(resource)
     return resource

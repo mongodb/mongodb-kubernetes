@@ -1,6 +1,6 @@
 import pymongo
 from kubetester import MongoDB, create_or_update, try_load
-from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.mongotester import (
@@ -40,6 +40,7 @@ def mdb_health_checker(mongod_tester: MongoTester) -> MongoDBBackgroundTester:
 
 @mark.e2e_sharded_cluster_upgrade_downgrade
 class TestShardedClusterUpgradeDowngradeCreate(KubernetesTester):
+
     def test_mdb_created(self, sharded_cluster: MongoDB):
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1000)
 
@@ -53,13 +54,13 @@ class TestShardedClusterUpgradeDowngradeCreate(KubernetesTester):
 
 @mark.e2e_sharded_cluster_upgrade_downgrade
 class TestShardedClusterUpgradeDowngradeUpdate(KubernetesTester):
+
     def test_mongodb_upgrade(self, sharded_cluster: MongoDB, custom_mdb_version: str, custom_mdb_prev_version: str):
         sharded_cluster.load()
-        sharded_cluster["spec"]["version"] = custom_mdb_version
-        fcv = custom_mdb_prev_version.split(".")
-        sharded_cluster["spec"]["featureCompatibilityVersion"] = f"{fcv[0]}.{fcv[1]}"
+        sharded_cluster.set_version(custom_mdb_version)
+        fcv = fcv_from_version(custom_mdb_prev_version)
+        sharded_cluster["spec"]["featureCompatibilityVersion"] = fcv
         create_or_update(sharded_cluster)
-
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1200)
         sharded_cluster.tester().assert_version(custom_mdb_version)
 
@@ -69,11 +70,11 @@ class TestShardedClusterUpgradeDowngradeUpdate(KubernetesTester):
 
 @mark.e2e_sharded_cluster_upgrade_downgrade
 class TestShardedClusterUpgradeDowngradeRevert(KubernetesTester):
+
     def test_mongodb_downgrade(self, sharded_cluster: MongoDB, custom_mdb_prev_version: str):
         sharded_cluster.load()
-        sharded_cluster["spec"]["version"] = custom_mdb_prev_version
+        sharded_cluster.set_version(custom_mdb_prev_version)
         create_or_update(sharded_cluster)
-
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1200)
         sharded_cluster.tester().assert_version(custom_mdb_prev_version)
 

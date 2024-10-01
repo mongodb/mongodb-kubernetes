@@ -2,13 +2,13 @@ from typing import Optional
 
 import pytest
 from kubetester import create_or_update
+from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture
 from tests.conftest import is_multi_cluster
-from tests.opsmanager.conftest import ensure_ent_version
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 gen_key_resource_version = None

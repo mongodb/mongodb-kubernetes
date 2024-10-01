@@ -23,8 +23,10 @@ def mongodb_multi_unmarshalled(
     multi_cluster_issuer_ca_configmap: str,
     central_cluster_client: kubernetes.client.ApiClient,
     member_cluster_names: list[str],
+    custom_mdb_version: str,
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), RESOURCE_NAME, namespace)
+    resource.set_version(custom_mdb_version)
     # ensure certs are created for the members during scale up
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
     resource["spec"]["security"] = {
@@ -58,7 +60,7 @@ def server_certs(
 def mongodb_multi(mongodb_multi_unmarshalled: MongoDBMulti, server_certs: str) -> MongoDBMulti:
     # remove the last element, we are only starting with 2 clusters we will scale up the 3rd one later.
     mongodb_multi_unmarshalled["spec"]["clusterSpecList"].pop()
-    return mongodb_multi_unmarshalled.create()
+    return create_or_update(mongodb_multi_unmarshalled)
 
 
 @pytest.mark.e2e_multi_cluster_scale_up_cluster
@@ -100,6 +102,7 @@ def test_scale_mongodb_multi(mongodb_multi: MongoDBMulti, member_cluster_clients
         {"members": 2, "clusterName": member_cluster_clients[2].cluster_name}
     )
     create_or_update(mongodb_multi)
+    mongodb_multi.assert_abandons_phase(Phase.Running, timeout=120)
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1800)
 
 

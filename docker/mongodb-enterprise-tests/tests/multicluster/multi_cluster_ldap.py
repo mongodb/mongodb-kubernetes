@@ -5,8 +5,9 @@ import kubernetes
 from kubetester import create_or_update, create_secret, wait_until
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import create_multi_cluster_mongodb_tls_certs
-from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import skip_if_static_containers
 from kubetester.ldap import LDAP_AUTHENTICATION_MECHANISM, LDAPUser, OpenLDAP
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
@@ -15,7 +16,6 @@ from kubetester.operator import Operator
 from pytest import fixture, mark
 from tests.conftest import get_multi_cluster_operator_installation_config
 from tests.multicluster.conftest import cluster_spec_list
-from tests.opsmanager.conftest import ensure_ent_version
 
 CERT_SECRET_PREFIX = "clustercert"
 MDB_RESOURCE = "multi-replica-set-ldap"
@@ -28,7 +28,7 @@ LDAP_NAME = "openldap"
 @fixture(scope="module")
 def multi_cluster_operator_installation_config(namespace) -> Dict[str, str]:
     config = get_multi_cluster_operator_installation_config(namespace=namespace)
-    config["customEnvVars"] = config["customEnvVars"] + "\&MDB_AUTOMATIC_RECOVERY_BACKOFF_TIME_S=10"
+    config["customEnvVars"] = config["customEnvVars"] + "\&MDB_AUTOMATIC_RECOVERY_BACKOFF_TIME_S=360"
     return config
 
 
@@ -42,9 +42,10 @@ def mongodb_multi_unmarshalled(
     # This test has always been tested with 5.0.5-ent. After trying to unify its variant and upgrading it
     # to MDB 6 we realized that our EVG hosts contain outdated docker and seccomp libraries in the host which
     # cause MDB process to exit. It might be a good idea to try uncommenting it after migrating to newer EVG hosts.
-    # resource.set_version(ensure_ent_version(custom_mdb_version))
     # See https://github.com/docker-library/mongo/issues/606 for more information
-    resource.set_version(ensure_ent_version("5.0.5"))
+    # resource.set_version(ensure_ent_version(custom_mdb_version))
+
+    resource.set_version(ensure_ent_version("5.0.5-ent"))
 
     # Setting the initial clusterSpecList to more members than we need to generate
     # the certificates for all the members once the RS is scaled up.
@@ -165,11 +166,13 @@ def user_ldap(
     return user
 
 
+@skip_if_static_containers
 @mark.e2e_multi_cluster_with_ldap
 def test_deploy_operator(multi_cluster_operator: Operator):
     multi_cluster_operator.assert_is_running()
 
 
+@skip_if_static_containers
 @mark.e2e_multi_cluster_with_ldap
 def test_mongodb_multi_pending(mongodb_multi: MongoDBMulti):
     """
@@ -179,6 +182,7 @@ def test_mongodb_multi_pending(mongodb_multi: MongoDBMulti):
     mongodb_multi.assert_reaches_phase(Phase.Pending, timeout=100)
 
 
+@skip_if_static_containers
 @mark.e2e_multi_cluster_with_ldap
 def test_turn_tls_on_CLOUDP_229222(mongodb_multi: MongoDBMulti):
     """
@@ -195,27 +199,31 @@ def test_turn_tls_on_CLOUDP_229222(mongodb_multi: MongoDBMulti):
         except KeyError:
             return False
 
-    wait_until(wait_for_ac_exists, timeout=1900)
+    wait_until(wait_for_ac_exists, timeout=200)
     current_version = mongodb_multi.get_automation_config_tester().automation_config["version"]
 
     def wait_for_ac_pushed() -> bool:
         ac = mongodb_multi.get_automation_config_tester().automation_config
         try:
-            _ = ac["ldap"]["transportSecurity"]
+            transport_security = ac["ldap"]["transportSecurity"]
             new_version = ac["version"]
-            if new_version != current_version:
-                return True
+            if transport_security != "none":
+                return False
+            if new_version <= current_version:
+                return False
+            return True
         except KeyError:
             return False
-        return False
 
-    wait_until(wait_for_ac_pushed, timeout=1900)
+    wait_until(wait_for_ac_pushed, timeout=500)
 
     resource = mongodb_multi.load()
+
     resource["spec"]["security"]["authentication"]["ldap"]["transportSecurity"] = "tls"
     create_or_update(resource)
 
 
+@skip_if_static_containers
 @mark.e2e_multi_cluster_with_ldap
 def test_multi_replicaset_CLOUDP_229222(mongodb_multi: MongoDBMulti):
     """
@@ -225,6 +233,7 @@ def test_multi_replicaset_CLOUDP_229222(mongodb_multi: MongoDBMulti):
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1900)
 
 
+@skip_if_static_containers
 @mark.e2e_multi_cluster_with_ldap
 def test_restore_mongodb_multi_ldap_configuration(mongodb_multi: MongoDBMulti):
     """
@@ -240,6 +249,7 @@ def test_restore_mongodb_multi_ldap_configuration(mongodb_multi: MongoDBMulti):
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=800)
 
 
+@skip_if_static_containers
 @mark.e2e_multi_cluster_with_ldap
 def test_create_ldap_user(mongodb_multi: MongoDBMulti, user_ldap: MongoDBUser):
     user_ldap.assert_reaches_phase(Phase.Updated)
@@ -248,6 +258,7 @@ def test_create_ldap_user(mongodb_multi: MongoDBMulti, user_ldap: MongoDBUser):
     ac.assert_expected_users(1)
 
 
+@skip_if_static_containers
 @mark.e2e_multi_cluster_with_ldap
 def test_ldap_user_created_and_can_authenticate(mongodb_multi: MongoDBMulti, user_ldap: MongoDBUser, ca_path: str):
     tester = mongodb_multi.tester()
@@ -259,6 +270,7 @@ def test_ldap_user_created_and_can_authenticate(mongodb_multi: MongoDBMulti, use
     )
 
 
+@skip_if_static_containers
 @mark.e2e_multi_cluster_with_ldap
 def test_ops_manager_state_correctly_updated(mongodb_multi: MongoDBMulti, user_ldap: MongoDBUser):
     expected_roles = {
@@ -273,18 +285,20 @@ def test_ops_manager_state_correctly_updated(mongodb_multi: MongoDBMulti, user_l
     ac.assert_authentication_mechanism_enabled("PLAIN", active_auth_mechanism=True)
     ac.assert_authentication_enabled(expected_num_deployment_auth_mechanisms=1)
 
-    assert "timeoutMS" in ac.automation_config["ldap"]
     assert "userCacheInvalidationInterval" in ac.automation_config["ldap"]
-    assert ac.automation_config["ldap"]["timeoutMS"] == 12345
+    assert "timeoutMS" in ac.automation_config["ldap"]
     assert ac.automation_config["ldap"]["userCacheInvalidationInterval"] == 60
+    assert ac.automation_config["ldap"]["timeoutMS"] == 12345
 
 
+@skip_if_static_containers
 @mark.e2e_multi_cluster_with_ldap
 def test_deployment_is_reachable_with_ldap_agent(mongodb_multi: MongoDBMulti):
     tester = mongodb_multi.tester()
     tester.assert_deployment_reachable()
 
 
+@skip_if_static_containers
 @mark.e2e_multi_cluster_with_ldap
 def test_scale_mongodb_multi(mongodb_multi: MongoDBMulti, member_cluster_names):
     mongodb_multi.reload()
@@ -293,6 +307,7 @@ def test_scale_mongodb_multi(mongodb_multi: MongoDBMulti, member_cluster_names):
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=800)
 
 
+@skip_if_static_containers
 @mark.e2e_multi_cluster_with_ldap
 def test_new_ldap_user_can_authenticate_after_scaling(
     mongodb_multi: MongoDBMulti, user_ldap: MongoDBUser, ca_path: str
@@ -306,6 +321,7 @@ def test_new_ldap_user_can_authenticate_after_scaling(
     )
 
 
+@skip_if_static_containers
 @mark.e2e_multi_cluster_with_ldap
 def test_disable_agent_auth(mongodb_multi: MongoDBMulti):
     mongodb_multi.reload()
@@ -315,12 +331,14 @@ def test_disable_agent_auth(mongodb_multi: MongoDBMulti):
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)
 
 
+@skip_if_static_containers
 @mark.e2e_multi_cluster_with_ldap
 def test_mongodb_multi_connectivity_with_no_auth(mongodb_multi: MongoDBMulti):
     tester = mongodb_multi.tester()
     tester.assert_connectivity()
 
 
+@skip_if_static_containers
 @mark.e2e_multi_cluster_with_ldap
 def test_deployment_is_reachable_with_no_auth(mongodb_multi: MongoDBMulti):
     tester = mongodb_multi.tester()

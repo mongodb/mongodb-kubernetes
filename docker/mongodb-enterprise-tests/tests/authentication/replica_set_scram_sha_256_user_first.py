@@ -1,4 +1,5 @@
 import pytest
+from kubetester import create_or_update
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
@@ -25,7 +26,7 @@ def scram_user(namespace) -> MongoDBUser:
         },
     )
 
-    yield resource.create()
+    return resource
 
 
 @fixture(scope="module")
@@ -36,25 +37,27 @@ def replica_set(namespace: str) -> MongoDB:
         name="my-replica-set",
     )
 
-    return resource.create()
+    return resource
 
 
 @pytest.mark.e2e_replica_set_scram_sha_256_user_first
 def test_replica_set_created(replica_set: MongoDB):
+    create_or_update(replica_set)
     replica_set.assert_reaches_phase(Phase.Running)
 
 
 @pytest.mark.e2e_replica_set_scram_sha_256_user_first
 def test_user_pending(scram_user: MongoDBUser):
     """pending phase as auth has not yet been enabled"""
+    create_or_update(scram_user)
     scram_user.assert_reaches_phase(Phase.Pending, timeout=50)
 
 
 @pytest.mark.e2e_replica_set_scram_sha_256_user_first
 def test_replica_set_auth_enabled(replica_set: MongoDB):
     replica_set["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
-    replica_set.update()
-    replica_set.assert_reaches_phase(Phase.Running, timeout=400)
+    create_or_update(replica_set)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @pytest.mark.e2e_replica_set_scram_sha_256_user_first

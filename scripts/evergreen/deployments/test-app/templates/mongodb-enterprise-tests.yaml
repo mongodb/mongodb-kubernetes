@@ -155,16 +155,14 @@ spec:
     - name: CUSTOM_APPDB_VERSION
       value: {{ .Values.customAppDbVersion }}
     {{ end }}
-    {{ if .Values.imageType }}
-    - name: IMAGE_TYPE
-      value: {{ .Values.imageType }}
-    {{ end }}
     {{ if .Values.localOperator }}
     - name: LOCAL_OPERATOR
       value: "{{ .Values.localOperator }}"
     {{ end }}
     - name: MDB_DEFAULT_ARCHITECTURE
       value: {{ .Values.mdbDefaultArchitecture }}
+    - name: MDB_IMAGE_TYPE
+      value: {{ .Values.mdbImageType }}
     - name: CLUSTER_DOMAIN
       value: {{ .Values.clusterDomain }}
     {{ if .Values.omDebugHttp }}

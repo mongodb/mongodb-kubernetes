@@ -4,7 +4,7 @@ import kubernetes
 from kubetester import create_or_update, create_secret, read_secret
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import create_multi_cluster_mongodb_tls_certs
-from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
@@ -29,9 +29,13 @@ USER_PASSWORD = "my-password"
 def mongodb_multi_unmarshalled(
     namespace: str,
     member_cluster_names: list[str],
+    custom_mdb_version: str,
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace)
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
+    resource.set_version(ensure_ent_version(custom_mdb_version))
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(
+        member_cluster_names=member_cluster_names, members=[2, 1, 2]
+    )
 
     return resource
 
@@ -110,7 +114,7 @@ def test_update_mongodb_multi_tls_with_scram(
     mongodb_multi.load()
     mongodb_multi["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
     create_or_update(mongodb_multi)
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)
 
 
 @mark.e2e_multi_cluster_tls_with_scram

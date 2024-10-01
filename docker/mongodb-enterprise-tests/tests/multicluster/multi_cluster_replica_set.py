@@ -26,12 +26,14 @@ def mongodb_multi(
     central_cluster_client: kubernetes.client.ApiClient,
     namespace: str,
     member_cluster_names,
+    custom_mdb_version: str,
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(
         yaml_fixture("mongodb-multi-central-sts-override.yaml"),
         "multi-replica-set",
         namespace,
     )
+    resource.set_version(custom_mdb_version)
     resource["spec"]["persistent"] = False
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
 

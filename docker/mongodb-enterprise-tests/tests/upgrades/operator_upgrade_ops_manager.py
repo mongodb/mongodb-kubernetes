@@ -31,11 +31,14 @@ def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
 
 
 @fixture(scope="module")
-def ops_manager(namespace: str, s3_bucket: str, custom_version: Optional[str]) -> MongoDBOpsManager:
+def ops_manager(
+    namespace: str, s3_bucket: str, custom_version: Optional[str], custom_appdb_version: str
+) -> MongoDBOpsManager:
     """The fixture for Ops Manager to be created. Also results in a new s3 bucket
     created and used in OM spec"""
     om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(yaml_fixture("om_ops_manager_full.yaml"), namespace=namespace)
     om.set_version(custom_version)
+    om.set_appdb_version(custom_appdb_version)
     om["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
     return om.create()
 

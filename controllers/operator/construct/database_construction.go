@@ -704,7 +704,7 @@ func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseSt
 		mongodModification := []func(*corev1.Container){container.Apply(
 			container.WithName(util.DatabaseContainerName),
 			container.WithArgs([]string{""}),
-			container.WithImage(getOfficialImage(opts.MongoDBVersion)),
+			container.WithImage(getOfficialImage(opts.MongoDBVersion, mdb.GetAnnotations())),
 			container.WithEnvs(databaseEnvVars(opts)...),
 			container.WithCommand([]string{"bash", "-c", "tail -F -n0 ${MDB_LOG_FILE_MONGODB} mongodb_marker"}),
 			containerSecurityContext,

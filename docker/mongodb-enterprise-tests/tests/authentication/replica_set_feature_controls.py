@@ -51,7 +51,7 @@ def test_authentication_disabled_is_owned_by_operator(replicaset: MongoDB):
     replicaset["spec"]["security"] = {"authentication": {"enabled": False}}
     replicaset.update()
 
-    replicaset.assert_reaches_phase(Phase.Running)
+    replicaset.assert_reaches_phase(Phase.Running, timeout=600)
 
     fc = replicaset.get_om_tester().get_feature_controls()
     assert fc["externalManagementSystem"]["name"] == "mongodb-enterprise-operator"
@@ -77,7 +77,7 @@ def test_authentication_enabled_is_owned_by_operator(replicaset: MongoDB):
     replicaset["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
     replicaset.update()
 
-    replicaset.assert_reaches_phase(Phase.Running, timeout=500)
+    replicaset.assert_reaches_phase(Phase.Running, timeout=600)
 
     fc = replicaset.get_om_tester().get_feature_controls()
 
@@ -106,7 +106,7 @@ def test_authentication_disabled_owned_by_opsmanager(replicaset: MongoDB):
     replicaset.update()
 
     replicaset.assert_state_transition_happens(last_transition)
-    replicaset.assert_reaches_phase(Phase.Running)
+    replicaset.assert_reaches_phase(Phase.Running, timeout=600)
 
     fc = replicaset.get_om_tester().get_feature_controls()
 

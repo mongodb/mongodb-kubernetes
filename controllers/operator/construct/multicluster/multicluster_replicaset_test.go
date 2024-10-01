@@ -196,7 +196,7 @@ func Test_MultiClusterStatefulSetWithRelatedImages(t *testing.T) {
 }
 
 func Test_MultiClusterStatefulSetWithRelatedImagesWithStaticArchitecture(t *testing.T) {
-	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_5_0_0_ubi8", mcoConstruct.MongodbImageEnv)
+	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_5_0_0_ubi9", mcoConstruct.MongodbImageEnv)
 	agentRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_12_0_30_7791_1", architectures.MdbAgentImageRepo)
 
 	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))

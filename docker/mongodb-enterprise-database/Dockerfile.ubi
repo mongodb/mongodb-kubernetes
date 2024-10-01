@@ -28,6 +28,7 @@ RUN microdnf install -y --disableplugin=subscription-manager \
         openssl \
         jq \ 
         tar \
+        xz-libs \
         findutils
 
 

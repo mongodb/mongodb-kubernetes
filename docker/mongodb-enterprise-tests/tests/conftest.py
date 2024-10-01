@@ -200,11 +200,6 @@ def get_evergreen_task_id():
 
 
 @fixture(scope="module")
-def image_type() -> str:
-    return os.environ["IMAGE_TYPE"]
-
-
-@fixture(scope="module")
 def managed_security_context() -> str:
     return os.environ.get("MANAGED_SECURITY_CONTEXT", "False")
 
@@ -419,7 +414,7 @@ def cluster_domain() -> str:
 
 
 def get_custom_mdb_version():
-    return os.getenv("CUSTOM_MDB_VERSION", "5.0.14")
+    return os.getenv("CUSTOM_MDB_VERSION", "6.0.7")
 
 
 def get_cluster_domain():
@@ -824,7 +819,7 @@ def install_official_operator(
         checkout_branch = f"enterprise-operator-{custom_operator_version}"
     else:
         checkout_branch = "main"
-    
+
     temp_dir = tempfile.mkdtemp()
     # Values files are now located in `helm-charts` repo.
     clone_and_checkout(

@@ -1,6 +1,6 @@
 import pymongo
 from kubetester import create_or_update, try_load
-from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongotester import (
@@ -49,6 +49,7 @@ def replica_set(namespace: str, custom_mdb_prev_version: str, cluster_domain: st
 
 @mark.e2e_replica_set_upgrade_downgrade
 class TestReplicaSetUpgradeDowngradeCreate(KubernetesTester):
+
     def test_mdb_created(self, replica_set: MongoDB):
         replica_set.assert_reaches_phase(Phase.Running, timeout=1000)
 
@@ -64,11 +65,13 @@ class TestReplicaSetUpgradeDowngradeCreate(KubernetesTester):
 
 @mark.e2e_replica_set_upgrade_downgrade
 class TestReplicaSetUpgradeDowngradeUpdate(KubernetesTester):
+
     def test_mongodb_upgrade(self, replica_set: MongoDB, custom_mdb_version: str, custom_mdb_prev_version: str):
         replica_set.load()
-        replica_set["spec"]["version"] = custom_mdb_version
+        replica_set.set_version(custom_mdb_version)
+        fcv = fcv_from_version(custom_mdb_prev_version)
+        replica_set["spec"]["featureCompatibilityVersion"] = fcv
         create_or_update(replica_set)
-
         replica_set.assert_reaches_phase(Phase.Running, timeout=700)
         replica_set.tester().assert_version(custom_mdb_version)
 
@@ -85,9 +88,10 @@ class TestReplicaSetUpgradeDowngradeUpdate(KubernetesTester):
 
 @mark.e2e_replica_set_upgrade_downgrade
 class TestReplicaSetUpgradeDowngradeRevert(KubernetesTester):
-    def test_mongodb_downgrade(self, replica_set: MongoDB, custom_mdb_prev_version: str):
+
+    def test_mongodb_downgrade(self, replica_set: MongoDB, custom_mdb_prev_version: str, custom_mdb_version: str):
         replica_set.load()
-        replica_set["spec"]["version"] = custom_mdb_prev_version
+        replica_set.set_version(custom_mdb_prev_version)
         create_or_update(replica_set)
 
         replica_set.assert_reaches_phase(Phase.Running, timeout=1000)

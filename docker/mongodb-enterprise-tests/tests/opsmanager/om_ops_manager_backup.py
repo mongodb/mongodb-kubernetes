@@ -14,7 +14,7 @@ from kubetester import (
     try_load,
 )
 from kubetester.awss3client import AwsS3Client, s3_endpoint
-from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import running_locally, skip_if_local
 from kubetester.mongodb import MongoDB, Phase
@@ -25,7 +25,6 @@ from kubetester.test_identifiers import set_test_identifier
 from pytest import fixture, mark
 from tests.conftest import AWS_REGION, is_multi_cluster
 from tests.opsmanager.backup_snapshot_schedule_tests import BackupSnapshotScheduleTests
-from tests.opsmanager.conftest import ensure_ent_version
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 HEAD_PATH = "/head/"

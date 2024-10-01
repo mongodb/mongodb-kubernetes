@@ -16,3 +16,7 @@ export TEST_POD_CLUSTER=kind-e2e-cluster-1
 export test_pod_cluster=kind-e2e-cluster-1
 export ops_manager_version="cloud_qa"
 export MDB_DEFAULT_ARCHITECTURE=static
+
+# For upgrade/downgrade tests we need to override this for static containers since we don't have 5.0.x versions
+# of MDB binaries for ubi9
+export CUSTOM_MDB_PREV_VERSION=6.0.5

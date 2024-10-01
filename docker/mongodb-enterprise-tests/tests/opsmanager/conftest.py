@@ -8,7 +8,7 @@ from kubernetes import client
 from kubetester import get_pod_when_ready
 from kubetester.helm import helm_install_from_chart
 from kubetester.opsmanager import MongoDBOpsManager
-from pytest import fixture, skip
+from pytest import fixture
 from tests.conftest import is_multi_cluster
 
 MINIO_OPERATOR = "minio-operator"
@@ -45,12 +45,6 @@ def custom_mdb_prev_version() -> str:
     Used for backup mainly (to test backup for different mdb versions).
     Defaults to 4.4.24 (simplifies testing locally)"""
     return os.getenv("CUSTOM_MDB_PREV_VERSION", "5.0.15")
-
-
-def ensure_ent_version(mdb_version: str) -> str:
-    if "-ent" not in mdb_version:
-        return mdb_version + "-ent"
-    return mdb_version
 
 
 @fixture(scope="module")

@@ -5,6 +5,7 @@ from typing import Optional
 import pymongo
 from kubetester import MongoDB, create_or_update, try_load
 from kubetester.awss3client import AwsS3Client
+from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.omtester import OMTester
@@ -13,7 +14,6 @@ from pymongo import ReadPreference
 from pymongo.errors import ServerSelectionTimeoutError
 from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
-from tests.opsmanager.conftest import ensure_ent_version
 from tests.opsmanager.om_ops_manager_backup import (
     S3_SECRET_NAME,
     create_aws_secret,
