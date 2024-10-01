@@ -36,6 +36,7 @@ def ops_manager(
     appdb_certs: str,
     ops_manager_certs: str,
     custom_version: Optional[str],
+    custom_appdb_version: str,
     issuer_ca_filepath: str,
 ) -> MongoDBOpsManager:
     create_or_update_secret(namespace, "appdb-secret", {"password": "Hello-World!"})
@@ -43,6 +44,7 @@ def ops_manager(
     print("Creating OM object")
     om = MongoDBOpsManager.from_yaml(yaml_fixture("om_ops_manager_appdb_monitoring_tls.yaml"), namespace=namespace)
     om.set_version(custom_version)
+    om.set_appdb_version(custom_appdb_version)
 
     # ensure the requests library will use this CA when communicating with Ops Manager
     os.environ["REQUESTS_CA_BUNDLE"] = issuer_ca_filepath

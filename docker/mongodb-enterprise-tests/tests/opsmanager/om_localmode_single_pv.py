@@ -14,10 +14,8 @@ from tests.opsmanager.withMonitoredAppDB.conftest import (
     get_om_member_cluster_names,
 )
 
-# we can use the custom_mdb_version fixture when we release mongodb-enterprise-init-mongod-rhel and
-# mongodb-enterprise-init-mongod-ubuntu1604 for 4.4+ versions, so far let's use the constant
-VERSION_IN_OPS_MANAGER = "4.2.8-ent"
-VERSION_NOT_IN_OPS_MANAGER = "4.2.1"
+# This version is not supported by the Ops Manager and is not present in the local mode.
+VERSION_NOT_IN_OPS_MANAGER = "6.0.4"
 
 
 @fixture(scope="module")
@@ -49,12 +47,12 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
 
 
 @fixture(scope="module")
-def replica_set(ops_manager: MongoDBOpsManager, namespace: str) -> MongoDB:
+def replica_set(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
     ).configure(ops_manager, "my-replica-set")
-    resource["spec"]["version"] = VERSION_IN_OPS_MANAGER
+    resource["spec"]["version"] = custom_mdb_version
     try_load(resource)
     return resource
 
@@ -83,8 +81,8 @@ def test_replica_set_version_upgraded_reaches_failed_phase(replica_set: MongoDB)
 
 
 @mark.e2e_om_localmode
-def test_replica_set_recovers(replica_set: MongoDB):
-    replica_set["spec"]["version"] = VERSION_IN_OPS_MANAGER
+def test_replica_set_recovers(replica_set: MongoDB, custom_mdb_version: str):
+    replica_set["spec"]["version"] = custom_mdb_version
     create_or_update(replica_set)
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
