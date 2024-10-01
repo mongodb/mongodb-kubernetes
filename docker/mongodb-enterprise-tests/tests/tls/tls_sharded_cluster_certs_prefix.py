@@ -88,7 +88,7 @@ def test_rotate_tls_certificate(sharded_cluster: MongoDB, namespace: str):
     cert["spec"]["dnsNames"].append("foo")
     cert.update()
 
-    sharded_cluster.assert_abandons_phase(Phase.Running, timeout=200)
+    sharded_cluster.assert_abandons_phase(Phase.Running)
     sharded_cluster.assert_reaches_phase(Phase.Running, timeout=800)
 
 

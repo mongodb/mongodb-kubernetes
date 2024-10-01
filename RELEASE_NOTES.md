@@ -24,7 +24,7 @@
                 storage: 2Gi # this is my increased storage
                 storageClass: <my-class-that-supports-expansion>
 ```
-
+  **OpsManager**: Introduced support for Ops Manager 8.0.0
 ## Bug Fixes
 
 * **MongoDB**, **AppDB**, **MongoDBMulti**: Fixed a bug where the init container was not getting the default security context, which was flagged by security policies.
