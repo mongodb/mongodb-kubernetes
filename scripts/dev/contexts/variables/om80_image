@@ -9,5 +9,5 @@ om_version=$(grep -E "^\s*-\s*&ops_manager_80_latest\s+(\S+)\s+#" < "$script_dir
 export om_version
 
 # This URL override needs to be removed once we approach OM 8.0.0 GA
-om_download_url="https://mongodb-mms-build-onprem.s3.amazonaws.com/4efad2cd2b3466350e237eb3a31212d8f75ef58e/mongodb-mms-8.0.0-rc1.500.20240827T1654Z.tar.gz"
+om_download_url="https://s3.amazonaws.com/mongodb-mms-build-onprem/441df54b742c8fd372d91a6dd79b4a42f4d33837/mongodb-mms-8.0.0.500.20240924T1611Z.tar.gz"
 export om_download_url

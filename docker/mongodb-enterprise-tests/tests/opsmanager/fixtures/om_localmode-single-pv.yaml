@@ -33,40 +33,39 @@ spec:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases
           initContainers:
-            - name: mongod-binaries-ubuntu1604-init-container
-              image: quay.io/mongodb/mongodb-enterprise-init-mongod-ubuntu1604:4.2.8
-              imagePullPolicy: Always
+            - name: setting-up-rhel-mongodb-4-2-8
+              image: curlimages/curl:latest
               command:
-                - cp
-                - -a
-                - /binaries/.
-                - /mongodb-ops-manager/mongodb-releases/
+                - curl
+                - -L
+                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel80-4.2.8.tgz
+                - -o
+                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel80-4.2.8.tgz
               volumeMounts:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases
-            - name: mongod-binaries-ubuntu1804-init-container
-              image: quay.io/mongodb/mongodb-enterprise-init-mongod-ubuntu1804:4.2.8
-              imagePullPolicy: Always
+            - name: setting-up-rhel-mongodb-6-0-5
+              image: curlimages/curl:latest
               command:
-                - cp
-                - -a
-                - /binaries/.
-                - /mongodb-ops-manager/mongodb-releases/
+                - curl
+                - -L
+                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel80-6.0.5.tgz
+                - -o
+                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel80-6.0.5.tgz
               volumeMounts:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases
-            - name: mongod-binaries-ubi7-init-container
-              image: quay.io/mongodb/mongodb-enterprise-init-mongod-rhel80:4.2.8
-              imagePullPolicy: Always
+            - name: setting-up-rhel-mongodb-7-0-2
+              image: curlimages/curl:latest
               command:
-                - cp
-                - -a
-                - /binaries/.
-                - /mongodb-ops-manager/mongodb-releases/
+                - curl
+                - -L
+                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel80-7.0.2.tgz
+                - -o
+                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel80-7.0.2.tgz
               volumeMounts:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases
-
   backup:
     enabled: false
 
