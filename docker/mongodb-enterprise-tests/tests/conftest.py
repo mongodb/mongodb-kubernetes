@@ -780,10 +780,10 @@ def install_official_operator(
     namespace: str,
     managed_security_context: str,
     operator_installation_config: Dict[str, str],
-    central_cluster_name: str,
-    central_cluster_client: client.ApiClient,
-    member_cluster_clients: List[MultiClusterClient],
-    member_cluster_names: List[str],
+    central_cluster_name: Optional[str],
+    central_cluster_client: Optional[client.ApiClient],
+    member_cluster_clients: Optional[List[MultiClusterClient]],
+    member_cluster_names: Optional[List[str]],
     custom_operator_version: Optional[str] = None,
 ) -> Operator:
     """
@@ -863,7 +863,7 @@ def install_official_operator(
             helm_args=helm_args,
             helm_chart_path="mongodb/enterprise-operator",
             name=name,
-        ).install()
+        ).install(custom_operator_version=custom_operator_version)
 
 
 # Function dumping the list of deployments and all their container images in logs.

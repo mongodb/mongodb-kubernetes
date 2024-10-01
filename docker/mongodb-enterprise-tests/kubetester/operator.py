@@ -77,7 +77,7 @@ class Operator(object):
 
         return self
 
-    def install(self) -> Operator:
+    def install(self, custom_operator_version: Optional[str] = None) -> Operator:
         """Installs the Operator to Kubernetes cluster using 'helm install', waits until it's running"""
         helm_install(
             "mongodb-enterprise-operator",
@@ -85,6 +85,7 @@ class Operator(object):
             self.helm_arguments,
             helm_chart_path=self.helm_chart_path,
             helm_options=self.helm_options,
+            custom_operator_version=custom_operator_version,
         )
         self._wait_for_operator_ready()
         self._wait_operator_webhook_is_ready()
