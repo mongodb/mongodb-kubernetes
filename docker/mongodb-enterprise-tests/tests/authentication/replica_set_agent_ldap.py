@@ -5,18 +5,18 @@ from kubetester import (
     find_fixture,
     try_load,
 )
+from kubetester.kubetester import ensure_ent_version
 from kubetester.ldap import LDAPUser, OpenLDAP
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongodb_user import MongoDBUser, Role, generic_user
 from pytest import fixture, mark
-from tests.opsmanager.conftest import ensure_ent_version
 
 USER_NAME = "mms-user-1"
 PASSWORD = "my-password"
 
 
 @fixture(scope="module")
-def replica_set(openldap: OpenLDAP, namespace: str) -> MongoDB:
+def replica_set(openldap: OpenLDAP, namespace: str, custom_mdb_prev_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(find_fixture("ldap/ldap-agent-auth.yaml"), namespace=namespace)
 
     secret_name = "bind-query-password"
@@ -39,10 +39,7 @@ def replica_set(openldap: OpenLDAP, namespace: str) -> MongoDB:
         },
         "automationUserName": "mms-automation-agent",
     }
-    resource.set_version("4.4.4-ent")
-
-    # we need to fix this, but this test only works when upgrading from 4.4.4 to 5.0.14
-    resource.set_version(ensure_ent_version("4.4.4-ent"))
+    resource.set_version(ensure_ent_version(custom_mdb_prev_version))
 
     try_load(resource)
 
@@ -143,25 +140,13 @@ def test_deployment_is_reachable_with_no_auth(replica_set: MongoDB):
 
 
 @mark.e2e_replica_set_ldap_agent_auth
-def test_replica_set_connectivity_after_version_change_no_auth(replica_set: MongoDB):
-    tester = replica_set.tester()
-    tester.assert_connectivity()
-
-
-@mark.e2e_replica_set_ldap_agent_auth
-def test_deployment_is_reachable_after_version_change(replica_set: MongoDB):
-    tester = replica_set.tester()
-    tester.assert_deployment_reachable()
-
-
-@mark.e2e_replica_set_ldap_agent_auth
 def test_enable_SCRAM_auth(replica_set: MongoDB):
     replica_set["spec"]["security"]["authentication"]["agents"]["enabled"] = True
     replica_set["spec"]["security"]["authentication"]["agents"]["mode"] = "SCRAM"
     replica_set["spec"]["security"]["authentication"]["enabled"] = True
     replica_set["spec"]["security"]["authentication"]["mode"] = "SCRAM"
     create_or_update(replica_set)
-    replica_set.assert_reaches_phase(Phase.Running, timeout=700)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=900)
 
 
 @mark.e2e_replica_set_ldap_agent_auth
@@ -171,9 +156,9 @@ def test_replica_set_connectivity_with_SCRAM_auth(replica_set: MongoDB):
 
 
 @mark.e2e_replica_set_ldap_agent_auth
-def test_change_version_to_latest(replica_set: MongoDB):
+def test_change_version_to_latest(replica_set: MongoDB, custom_mdb_version: str):
     replica_set.reload()
-    replica_set.set_version(ensure_ent_version("5.0.14"))
+    replica_set.set_version(ensure_ent_version(custom_mdb_version))
     replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=900)
 

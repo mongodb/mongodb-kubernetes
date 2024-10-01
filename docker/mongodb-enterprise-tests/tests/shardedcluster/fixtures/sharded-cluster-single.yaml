@@ -11,7 +11,7 @@ spec:
   mongodsPerShardCount: 1
   mongosCount: 1
   configServerCount: 1
-  version: 5.0.15
+  version: 6.0.5
   opsManager:
     configMapRef:
       name: my-project

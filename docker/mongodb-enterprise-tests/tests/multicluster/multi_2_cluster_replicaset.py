@@ -3,6 +3,7 @@ from typing import Dict, List
 import kubernetes
 import pytest
 from kubetester.certs import create_multi_cluster_mongodb_tls_certs
+from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
@@ -18,9 +19,12 @@ BUNDLE_SECRET_NAME = f"{CERT_SECRET_PREFIX}-{MDB_RESOURCE}-cert"
 
 
 @pytest.fixture(scope="module")
-def mongodb_multi_unmarshalled(namespace: str, member_cluster_names: List[str]) -> MongoDBMulti:
+def mongodb_multi_unmarshalled(
+    namespace: str, member_cluster_names: List[str], custom_mdb_version: str
+) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace)
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1])
+    resource.set_version(ensure_ent_version(custom_mdb_version))
     return resource
 
 

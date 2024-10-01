@@ -2,6 +2,7 @@ from typing import Optional
 
 import semver
 from kubetester import MongoDB, create_or_update, wait_until
+from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
@@ -20,19 +21,6 @@ DEFAULT_APPDB_USER_NAME = "mongodb-ops-manager"
 supports_process_log_rotation = semver.VersionInfo.parse(get_custom_om_version()).match(
     ">=7.0.4"
 ) or semver.VersionInfo.parse(get_custom_om_version()).match(">=6.0.24")
-
-
-@fixture(scope="module")
-def oplog_replica_set(ops_manager, namespace, custom_version: Optional[str]) -> MongoDB:
-    resource = MongoDB.from_yaml(
-        yaml_fixture("replica-set-for-om.yaml"),
-        namespace=namespace,
-        name=OPLOG_RS_NAME,
-    ).configure(ops_manager, "development")
-
-    setup_log_rotate_for_agents(resource, supports_process_log_rotation)
-
-    return create_or_update(resource)
 
 
 @fixture(scope="module")
@@ -55,14 +43,30 @@ def ops_manager(
 
 
 @fixture(scope="module")
+def oplog_replica_set(ops_manager, namespace, custom_mdb_version) -> MongoDB:
+    resource = MongoDB.from_yaml(
+        yaml_fixture("replica-set-for-om.yaml"),
+        namespace=namespace,
+        name=OPLOG_RS_NAME,
+    ).configure(ops_manager, "development")
+    resource.set_version(ensure_ent_version(custom_mdb_version))
+
+    setup_log_rotate_for_agents(resource, supports_process_log_rotation)
+
+    return create_or_update(resource)
+
+
+@fixture(scope="module")
 def blockstore_replica_set(
     ops_manager,
+    custom_mdb_version,
 ) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=ops_manager.namespace,
         name=BLOCKSTORE_RS_NAME,
     ).configure(ops_manager, "blockstore")
+    resource.set_version(ensure_ent_version(custom_mdb_version))
 
     return create_or_update(resource)
 

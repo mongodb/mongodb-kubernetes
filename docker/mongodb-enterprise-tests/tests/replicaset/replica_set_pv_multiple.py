@@ -1,8 +1,10 @@
 from operator import attrgetter
 
 import pytest
-from kubetester import get_default_storage_class
+from kubetester import create_or_update, get_default_storage_class
 from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as load_fixture
+from kubetester.mongodb import MongoDB, Phase
 
 
 @pytest.mark.e2e_replica_set_pv_multiple
@@ -22,19 +24,16 @@ class TestCreateStorageClass(KubernetesTester):
 
 @pytest.mark.e2e_replica_set_pv_multiple
 class TestReplicaSetMultiplePersistentVolumeCreation(KubernetesTester):
-    """
-    name: Replica Set Creation with Multiple PersistentVolumes
-    tags: replica-set, persistent-volumes, creation
-    description: |
-      Creates a Replica Set with multiple persistent volumes (one per each mount point)
-    create:
-      file: replica-set-pv-multiple.yaml
-      wait_until: in_running_state
-      timeout: 300
-    """
 
     RESOURCE_NAME = "rs001-pv-multiple"
     custom_labels = {"label1": "val1", "label2": "val2"}
+
+    def test_create_replicaset(self, custom_mdb_version: str):
+        resource = MongoDB.from_yaml(load_fixture("replica-set-pv-multiple.yaml"), namespace=self.namespace)
+        resource.set_version(custom_mdb_version)
+        create_or_update(resource)
+
+        resource.assert_reaches_phase(Phase.Running)
 
     def test_sts_creation(self):
         sts = self.appsv1.read_namespaced_stateful_set(self.RESOURCE_NAME, self.namespace)

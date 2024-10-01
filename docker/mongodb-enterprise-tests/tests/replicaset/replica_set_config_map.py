@@ -1,26 +1,26 @@
 import pytest
 from kubernetes.client import V1ConfigMap
+from kubetester import create_or_update
 from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as load_fixture
+from kubetester.mongodb import MongoDB, Phase
+
+
+@pytest.fixture(scope="module")
+def mdb(namespace: str, custom_mdb_version: str) -> MongoDB:
+    resource = MongoDB.from_yaml(load_fixture("replica-set-single.yaml"), namespace=namespace)
+    resource.set_version(custom_mdb_version)
+    return create_or_update(resource)
 
 
 @pytest.mark.e2e_replica_set_config_map
-class TestReplicaSetListensConfigMap(KubernetesTester):
-    """
-    name: ReplicaSet tracks configmap changes
-    description: |
-      Creates a replicaSet, then changes configmap adds rubbish orgId and checks that the reconciliation for the |
-      standalone happened and it got into Failed state. Note, that this test cannot be run with 'make e2e .. light=true' |
-      flag locally as config map must be recreated
-    create:
-      file: replica-set-single.yaml
-      wait_until: in_running_state
-      timeout: 120
-    """
+def test_create_replica_set(mdb: MongoDB):
+    mdb.assert_reaches_phase(Phase.Running)
 
-    def test_patch_config_map(self):
-        config_map = V1ConfigMap(data={"orgId": "wrongId"})
-        self.clients("corev1").patch_namespaced_config_map("my-project", self.get_namespace(), config_map)
 
-        print('Patched the ConfigMap - changed orgId to "wrongId"')
-
-        KubernetesTester.wait_until("in_error_state", 20)
+@pytest.mark.e2e_replica_set_config_map
+def test_patch_config_map(namespace: str, mdb: MongoDB):
+    config_map = V1ConfigMap(data={"orgId": "wrongId"})
+    KubernetesTester.clients("corev1").patch_namespaced_config_map("my-project", namespace, config_map)
+    print('Patched the ConfigMap - changed orgId to "wrongId"')
+    mdb.assert_reaches_phase(Phase.Failed, timeout=20)

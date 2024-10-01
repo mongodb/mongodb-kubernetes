@@ -20,8 +20,11 @@ BUNDLE_PEM_SECRET_NAME = f"{CERT_SECRET_PREFIX}-{MDB_RESOURCE}-cert-pem"
 
 
 @fixture(scope="module")
-def mongodb_multi_unmarshalled(namespace: str, member_cluster_names: List[str]) -> MongoDBMulti:
+def mongodb_multi_unmarshalled(
+    namespace: str, member_cluster_names: List[str], custom_mdb_version: str
+) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace)
+    resource.set_version(custom_mdb_version)
     resource["spec"]["persistent"] = False
     # These domains map 1:1 to the CoreDNS file. Please be mindful when updating them.
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 2, 2])

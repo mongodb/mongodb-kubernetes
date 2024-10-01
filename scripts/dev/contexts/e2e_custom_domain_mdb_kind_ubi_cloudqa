@@ -11,3 +11,5 @@ source "$script_dir/root-context"
 export ops_manager_version="cloud_qa"
 
 export CLUSTER_DOMAIN="testdomain.local"
+
+export CUSTOM_MDB_VERSION=6.0.5

@@ -68,6 +68,9 @@ def test_no_pods_get_restarted(replica_set: MongoDB, namespace: str):
 
 @skip_if_static_containers
 @pytest.mark.e2e_replica_set_liveness_probe
+@pytest.mark.skip(
+    reason="Liveness probe checks for mongod process to be up so killing the agent alone won't trigger a pod restart"
+)
 def test_pods_are_restarted_if_agent_process_is_terminated(replica_set: MongoDB, namespace: str):
     corev1_client = client.CoreV1Api()
 

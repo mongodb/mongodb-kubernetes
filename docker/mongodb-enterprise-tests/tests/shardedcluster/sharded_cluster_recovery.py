@@ -1,7 +1,16 @@
 import pytest
-import yaml
 from kubernetes.client import V1Secret
-from kubetester.kubetester import KubernetesTester, fixture
+from kubetester import create_or_update
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as load_fixture
+from kubetester.mongodb import MongoDB, Phase
+
+
+@pytest.fixture(scope="module")
+def mdb(namespace: str, custom_mdb_version: str) -> MongoDB:
+    resource = MongoDB.from_yaml(load_fixture("sharded-cluster-single.yaml"), namespace=namespace)
+    resource.set_version(custom_mdb_version)
+    return create_or_update(resource)
 
 
 @pytest.mark.e2e_sharded_cluster_recovery
@@ -13,22 +22,18 @@ class TestShardedClusterRecoversBadOmConfiguration(KubernetesTester):
       Then the secret is fixed and the standalone is expected to reach good state eventually
     """
 
-    @classmethod
-    def setup_env(cls):
+    def test_sharded_cluster_reaches_failed_state(self, mdb: MongoDB):
         secret = V1Secret(string_data={"publicApiKey": "wrongKey"})
-        cls.clients("corev1").patch_namespaced_secret("my-credentials", cls.get_namespace(), secret)
+        self.clients("corev1").patch_namespaced_secret("my-credentials", self.get_namespace(), secret)
 
-        resource = yaml.safe_load(open(fixture("sharded-cluster-single.yaml")))
+        mdb.assert_reaches_phase(Phase.Failed, timeout=20)
 
-        cls.create_custom_resource_from_object(cls.get_namespace(), resource)
+        mdb.load()
+        assert "You are not authorized for this resource" in mdb["status"]["message"]
 
-        KubernetesTester.wait_until("in_error_state", 20)
-
-        mrs = KubernetesTester.get_resource()
-        assert "You are not authorized for this resource" in mrs["status"]["message"]
-
-    def test_recovery(self):
+    def test_recovery(self, mdb: MongoDB):
         secret = V1Secret(string_data={"publicApiKey": self.get_om_api_key()})
         self.clients("corev1").patch_namespaced_secret("my-credentials", self.get_namespace(), secret)
 
-        KubernetesTester.wait_until("in_running_state")
+        # We need to ignore errors here because the CM change can be faster than the check
+        mdb.assert_reaches_phase(Phase.Running, ignore_errors=True)

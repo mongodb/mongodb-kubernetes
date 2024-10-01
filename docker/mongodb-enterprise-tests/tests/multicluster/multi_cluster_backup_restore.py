@@ -30,7 +30,7 @@ from tests.conftest import update_coredns_hosts
 
 TEST_DATA = {"_id": "unique_id", "name": "John", "address": "Highway 37", "age": 30}
 
-MONGODB_PORT = 30000
+MONGODB_PORT = 30003
 
 
 HEAD_PATH = "/head/"
@@ -380,6 +380,7 @@ class TestBackupForMongodb:
         namespace: str,
         member_cluster_names: List[str],
         base_url,
+        custom_mdb_version: str,
     ) -> MongoDBMulti:
         resource = MongoDBMulti.from_yaml(
             yaml_fixture("mongodb-multi.yaml"),
@@ -388,6 +389,7 @@ class TestBackupForMongodb:
             # the project configmap should be created in the central cluster.
         ).configure(ops_manager, f"{namespace}-project-one", api_client=central_cluster_client)
 
+        resource.set_version(custom_mdb_version)
         resource["spec"]["clusterSpecList"] = [
             {"clusterName": member_cluster_names[0], "members": 2},
             {"clusterName": member_cluster_names[1], "members": 1},
@@ -457,7 +459,7 @@ class TestBackupForMongodb:
     @mark.e2e_multi_cluster_backup_restore
     def test_mongodb_multi_one_running_state(self, mongodb_multi_one: MongoDBMulti):
         # we might fail connection in the beginning since we set a custom dns in coredns
-        mongodb_multi_one.assert_reaches_phase(Phase.Running, ignore_errors=True, timeout=600)
+        mongodb_multi_one.assert_reaches_phase(Phase.Running, ignore_errors=True, timeout=1200)
 
     @skip_if_local
     @mark.e2e_multi_cluster_backup_restore

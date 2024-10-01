@@ -161,27 +161,27 @@ def ops_manager(
 
 
 @fixture(scope="module")
-def oplog_replica_set(ops_manager, namespace) -> MongoDB:
+def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name=OPLOG_RS_NAME,
     ).configure(ops_manager, "development")
 
-    resource["spec"]["version"] = "4.4.0"
+    resource.set_version(custom_mdb_version)
 
     yield resource.create()
 
 
 @fixture(scope="module")
-def s3_replica_set(ops_manager, namespace) -> MongoDB:
+def s3_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name=S3_RS_NAME,
     ).configure(ops_manager, "s3metadata")
 
-    resource["spec"]["version"] = "4.4.0"
+    resource.set_version(custom_mdb_version)
     yield resource.create()
 
 

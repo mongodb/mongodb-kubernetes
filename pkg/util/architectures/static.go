@@ -10,6 +10,24 @@ import (
 
 type DefaultArchitecture string
 
+type ImageType string
+
+const (
+	ImageTypeUBI8    ImageType = "ubi8"
+	ImageTypeUBI9    ImageType = "ubi9"
+	DefaultImageType ImageType = ImageTypeUBI8
+)
+
+func HasSupportedImageTypeSuffix(imageVersion string) (suffixFound bool, suffix string) {
+	if strings.HasSuffix(imageVersion, string(ImageTypeUBI8)) {
+		return true, string(ImageTypeUBI8)
+	}
+	if strings.HasSuffix(imageVersion, string(ImageTypeUBI9)) {
+		return true, string(ImageTypeUBI9)
+	}
+	return false, ""
+}
+
 const (
 	ArchitectureAnnotation                     = "mongodb.com/v1.architecture"
 	DefaultEnvArchitecture                     = "MDB_DEFAULT_ARCHITECTURE"

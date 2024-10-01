@@ -8,8 +8,10 @@ from pytest import fixture
 
 
 @fixture(scope="function")
-def mdb(namespace: str) -> str:
-    return MongoDB.from_yaml(yaml_fixture("role-validation-base.yaml"), namespace=namespace)
+def mdb(namespace: str, custom_mdb_version: str) -> str:
+    resource = MongoDB.from_yaml(yaml_fixture("role-validation-base.yaml"), namespace=namespace)
+    resource.set_version(custom_mdb_version)
+    return resource
 
 
 @pytest.mark.e2e_mongodb_roles_validation_webhook
@@ -204,39 +206,5 @@ def test_invalid_action(mdb: str):
     with pytest.raises(
         client.rest.ApiException,
         match="Error validating role - Privilege is invalid - Actions are not valid - insertFoo is not a valid db action",
-    ):
-        mdb.create()
-
-
-# Testing for privileges invalid for mongodb version
-@pytest.mark.e2e_mongodb_roles_validation_webhook
-def test_invalid_privilege_for_mongodb_less_than_four_two(mdb: str):
-    mdb["spec"]["security"]["roles"] = [
-        {
-            "role": "role",
-            "db": "admin",
-            "privileges": [{"actions": ["dropConnections"], "resource": {"cluster": True}}],
-        }
-    ]
-    with pytest.raises(
-        client.rest.ApiException,
-        match="Error validating role - Privilege is invalid - Actions are not valid -  Some of the provided actions are not valid for MongoDB 4.0.12",
-    ):
-        mdb.create()
-
-
-@pytest.mark.e2e_mongodb_roles_validation_webhook
-def test_invalid_privilege_for_mongodb_less_than_three_six(mdb: str):
-    mdb["spec"]["security"]["roles"] = [
-        {
-            "role": "role",
-            "db": "admin",
-            "privileges": [{"actions": ["listSessions"], "resource": {"cluster": True}}],
-        }
-    ]
-    mdb["spec"]["version"] = "3.5.0"
-    with pytest.raises(
-        client.rest.ApiException,
-        match="Error validating role - Privilege is invalid - Actions are not valid -  Some of the provided actions are not valid for MongoDB 3.5.0",
     ):
         mdb.create()

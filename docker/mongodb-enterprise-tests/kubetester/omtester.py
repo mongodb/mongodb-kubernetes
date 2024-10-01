@@ -360,27 +360,40 @@ class OMTester(object):
         session.mount("http://", adapter)
         session.mount("https://", adapter)
 
-        try:
-            response = session.request(
-                url=endpoint,
-                method=method,
-                auth=auth,
-                headers=headers,
-                json=json_object,
-                verify=False,
-            )
-        except Exception as e:
-            print("failed connecting to om")
-            raise e
-
-        if response.status_code >= 300:
-            raise Exception(
-                "Error sending request to Ops Manager API. {} ({}).\n Request details: {} {} (data: {})".format(
-                    response.status_code, response.text, method, endpoint, json_object
+        def om_request():
+            try:
+                response = session.request(
+                    url=endpoint,
+                    method=method,
+                    auth=auth,
+                    headers=headers,
+                    json=json_object,
+                    verify=False,
                 )
-            )
+            except Exception as e:
+                print("failed connecting to om")
+                raise e
 
-        return response
+            if response.status_code >= 300:
+                raise Exception(
+                    "Error sending request to Ops Manager API. {} ({}).\n Request details: {} {} (data: {})".format(
+                        response.status_code, response.text, method, endpoint, json_object
+                    )
+                )
+            return response
+
+        retry_count = retries
+        last_exception = Exception("Failed unexpectedly while retrying OM request")
+        while retry_count >= 0:
+            try:
+                return om_request()
+            except Exception as e:
+                print(f"Encountered exception: {e} on retry number {retries-retry_count}")
+                last_exception = e
+                time.sleep(1)
+                retry_count -= 1
+
+        raise last_exception
 
     def get_feature_controls(self):
         return self.om_request("get", f"/groups/{self.context.project_id}/controlledFeature").json()

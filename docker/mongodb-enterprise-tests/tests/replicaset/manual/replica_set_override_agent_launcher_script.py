@@ -1,11 +1,11 @@
 import base64
 
 from kubetester import create_or_update, find_fixture, try_load
+from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture
-from tests.opsmanager.conftest import ensure_ent_version
 
 # This test is intended for manual run only.
 #

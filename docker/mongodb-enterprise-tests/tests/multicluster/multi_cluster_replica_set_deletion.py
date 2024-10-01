@@ -17,8 +17,10 @@ def mongodb_multi(
     central_cluster_client: kubernetes.client.ApiClient,
     namespace: str,
     member_cluster_names: list[str],
+    custom_mdb_version: str,
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", namespace)
+    resource.set_version(custom_mdb_version)
 
     # TODO: incorporate this into the base class.
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)

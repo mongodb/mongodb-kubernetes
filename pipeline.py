@@ -99,6 +99,14 @@ def make_list_of_str(value: Union[None, str, List[str]]) -> List[str]:
     return value
 
 
+def get_tools_distro(tools_version: str) -> Dict[str, str]:
+    new_rhel_tool_version = "100.10.0"
+    default_distro = {"arm": "rhel90-aarch64", "amd": "rhel90-x86_64"}
+    if Version(tools_version) >= Version(new_rhel_tool_version):
+        return {"arm": "rhel93-aarch64", "amd": "rhel93-x86_64"}
+    return default_distro
+
+
 def operator_build_configuration(
     builder: str,
     parallel: bool,
@@ -610,7 +618,7 @@ def get_versions_to_rebuild(supported_versions, min_version, max_version):
 
 
 """
-Starts the daily build process for an image. This function works for all images we support, for community and 
+Starts the daily build process for an image. This function works for all images we support, for community and
 enterprise operator. The list of supported image_name is defined in get_builder_function_for_image_name.
 Builds an image for each version listed in ./release.json
 The registry used to pull base image and output the daily build is configured in the image_config function, it is passed
@@ -904,14 +912,21 @@ def build_multi_arch_agent_in_sonar(
         "tools_version": tools_version,
     }
 
-    ## if tools version < 100.10.0 , use rhel82 for tools_distro, otherwise rhel88
-    arch_arm = {"agent_distro": "amzn2_aarch64", "tools_distro": "rhel82-aarch64", "architecture": "arm64"}
-    arch_amd = {"agent_distro": "rhel8_x86_64", "tools_distro": "rhel80-x86_64", "architecture": "amd64"}
+    arch_arm = {
+        "agent_distro": "amzn2_aarch64",
+        "tools_distro": get_tools_distro(tools_version=tools_version)["arm"],
+        "architecture": "arm64",
+    }
+    arch_amd = {
+        "agent_distro": "rhel9_x86_64",
+        "tools_distro": get_tools_distro(tools_version=tools_version)["amd"],
+        "architecture": "amd64",
+    }
 
-    new_rhel_tools_version = "100.10.0"
-    if Version(tools_version) >= Version(new_rhel_tools_version):
-        arch_arm["tools_distro"] = "rhel88-aarch64"
-        arch_amd["tools_distro"] = "rhel88-x86_64"
+    new_rhel_tool_version = "100.10.0"
+    if Version(tools_version) >= Version(new_rhel_tool_version):
+        arch_arm["tools_distro"] = "rhel93-aarch64"
+        arch_amd["tools_distro"] = "rhel93-x86_64"
 
     ecr_registry = os.environ.get("REGISTRY", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
     ecr_agent_registry = ecr_registry + f"/mongodb-agent-ubi"
@@ -1070,9 +1085,9 @@ def _build_agent_operator(
     tasks_queue: Queue,
     use_quay: bool = False,
 ):
-    agent_distro = "rhel7_x86_64"
+    agent_distro = "rhel9_x86_64"
     tools_version = agent_version[1]
-    tools_distro = "rhel70-x86_64"
+    tools_distro = get_tools_distro(tools_version)["amd"]
     image_version = f"{agent_version[0]}_{operator_version}"
     mongodb_tools_url_ubi = (
         f"https://downloads.mongodb.org/tools/db/mongodb-database-tools-{tools_distro}-{tools_version}.tgz"

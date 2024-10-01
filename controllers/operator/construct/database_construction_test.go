@@ -274,10 +274,11 @@ func Test_DatabaseStatefulSetWithRelatedImages(t *testing.T) {
 func TestGetAppDBImage(t *testing.T) {
 	// Note: if no construct.DefaultImageType is given, we will default to ubi8
 	tests := []struct {
-		name      string
-		input     string
-		want      string
-		setupEnvs func(t *testing.T)
+		name        string
+		input       string
+		annotations map[string]string
+		want        string
+		setupEnvs   func(t *testing.T)
 	}{
 		{
 			name:  "Getting official image",
@@ -367,11 +368,35 @@ func TestGetAppDBImage(t *testing.T) {
 				t.Setenv(util.MdbAppdbAssumeOldFormat, "true")
 			},
 		},
+		{
+			name:  "Getting official image with legacy suffix on static architecture",
+			input: "4.2.11-ent",
+			annotations: map[string]string{
+				"mongodb.com/v1.architecture": string(architectures.Static),
+			},
+			want: "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi9",
+			setupEnvs: func(t *testing.T) {
+				t.Setenv(construct.MongodbRepoUrl, "quay.io/mongodb")
+				t.Setenv(construct.MongodbImageEnv, util.OfficialServerImageAppdbUrl)
+			},
+		},
+		{
+			name:  "Getting official ubi9 image with ubi8 suffix on static architecture",
+			input: "4.2.11-ubi8",
+			annotations: map[string]string{
+				"mongodb.com/v1.architecture": string(architectures.Static),
+			},
+			want: "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi9",
+			setupEnvs: func(t *testing.T) {
+				t.Setenv(construct.MongodbRepoUrl, "quay.io/mongodb")
+				t.Setenv(construct.MongodbImageEnv, util.OfficialServerImageAppdbUrl)
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.setupEnvs(t)
-			assert.Equalf(t, tt.want, getOfficialImage(tt.input), "getOfficialImage(%v)", tt.input)
+			assert.Equalf(t, tt.want, getOfficialImage(tt.input, tt.annotations), "getOfficialImage(%v)", tt.input)
 		})
 	}
 }

@@ -3,14 +3,13 @@ from typing import Any, Dict, Optional
 
 import yaml
 from kubetester import create_or_update
-from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
-from tests.opsmanager.conftest import ensure_ent_version
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 VERSION_NOT_IN_WEB_SERVER = "4.2.1"

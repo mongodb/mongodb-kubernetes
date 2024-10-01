@@ -4,6 +4,7 @@ import time
 import kubernetes.client
 import pymongo
 from kubetester import create_or_update, create_or_update_configmap, try_load
+from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti
@@ -47,12 +48,14 @@ def multi_cluster_s3_replica_set(
     namespace,
     central_cluster_client: kubernetes.client.ApiClient,
     appdb_member_cluster_names: list[str],
+    custom_mdb_version: str,
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(
         yaml_fixture("mongodb-multi-cluster.yaml"), "multi-replica-set", namespace
     ).configure(ops_manager, "s3metadata", api_client=central_cluster_client)
 
     resource["spec"]["clusterSpecList"] = cluster_spec_list(appdb_member_cluster_names, [1, 2])
+    resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     yield create_or_update(resource)
 
@@ -63,7 +66,6 @@ def ops_manager(
     s3_bucket_oplog: str,
     s3_bucket_blockstore: str,
     central_cluster_client: kubernetes.client.ApiClient,
-    appdb_member_cluster_names: list[str],
     custom_appdb_version: str,
     custom_version: str,
 ) -> MongoDBOpsManager:
@@ -177,6 +179,7 @@ class TestBackupForMongodb:
         central_cluster_client: kubernetes.client.ApiClient,
         namespace: str,
         appdb_member_cluster_names: list[str],
+        custom_mdb_version: str,
     ) -> MongoDBMulti:
         resource = MongoDBMulti.from_yaml(
             yaml_fixture("mongodb-multi.yaml"),
@@ -189,6 +192,7 @@ class TestBackupForMongodb:
 
         # creating a cluster with backup should work with custom ports
         resource["spec"].update({"additionalMongodConfig": {"net": {"port": MONGODB_PORT}}})
+        resource.set_version(ensure_ent_version(custom_mdb_version))
 
         resource.configure_backup(mode="enabled")
         resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)

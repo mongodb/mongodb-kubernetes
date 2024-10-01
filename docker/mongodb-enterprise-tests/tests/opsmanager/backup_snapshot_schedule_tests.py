@@ -3,12 +3,12 @@ from typing import Dict
 import pytest
 from kubernetes.client import ApiException
 from kubetester import create_or_update, try_load
+from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.omtester import OMTester
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture
-from tests.opsmanager.conftest import ensure_ent_version
 
 
 class BackupSnapshotScheduleTests:

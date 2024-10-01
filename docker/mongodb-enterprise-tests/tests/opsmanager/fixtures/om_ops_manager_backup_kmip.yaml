@@ -30,6 +30,17 @@ spec:
   applicationDatabase:
     members: 3
     version: 4.4.20-ent
+  statefulSet:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: mongodb-ops-manager
+              resources:
+                requests:
+                  memory: 15G
+                limits:
+                  memory: 15G
 
   # Dev: adding this just to avoid wizard when opening OM UI
   # (note, that to debug issues in OM you need to add 'spec.externalConnectivity.type=NodePort'
@@ -46,4 +57,3 @@ spec:
     mms.minimumTLSVersion: TLSv1.2
     mms.replyToEmailAddr: cloud-manager-support@mongodb.com
     mms.preflight.run: "false"
-

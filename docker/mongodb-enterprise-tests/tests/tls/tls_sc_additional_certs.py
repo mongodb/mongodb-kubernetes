@@ -3,6 +3,7 @@ import time
 
 import jsonpatch
 import pytest
+from kubetester import create_or_update
 from kubetester.certs import (
     ISSUER_CA_NAME,
     create_agent_tls_certs,
@@ -33,10 +34,11 @@ def server_certs(issuer: str, namespace: str):
 
 
 @pytest.fixture(scope="module")
-def sc(namespace: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
+def sc(namespace: str, server_certs: str, issuer_ca_configmap: str, custom_mdb_version: str) -> MongoDB:
     res = MongoDB.from_yaml(load_fixture("test-tls-sc-additional-domains.yaml"), namespace=namespace)
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
-    return res.create()
+    res.set_version(custom_mdb_version)
+    return create_or_update(res)
 
 
 @pytest.mark.e2e_tls_sc_additional_certs
@@ -61,19 +63,15 @@ class TestShardedClustertWithAdditionalCertDomains(KubernetesTester):
 
 
 @pytest.mark.e2e_tls_sc_additional_certs
-class TestShardedClustertRemoveAdditionalCertDomains(KubernetesTester):
-    """
-    update:
-      file: test-tls-sc-additional-domains.yaml
-      wait_until: in_running_state
-      patch: '[{"op":"remove","path":"/spec/security/tls/additionalCertificateDomains"}]'
-      timeout: 240
-    """
+def test_remove_additional_certificate_domains(sc: MongoDB):
+    sc.load()
+    sc["spec"]["security"]["tls"].pop("additionalCertificateDomains")
+    sc.update()
+    sc.assert_reaches_phase(Phase.Running, timeout=240)
 
-    def test_continues_to_work(self):
-        pass
 
-    @skip_if_local
-    def test_can_still_connect(self, sc: MongoDB, ca_path: str):
-        tester = sc.tester(use_ssl=True, ca_path=ca_path)
-        tester.assert_connectivity()
+@pytest.mark.e2e_tls_sc_additional_certs
+@skip_if_local
+def test_can_still_connect(sc: MongoDB, ca_path: str):
+    tester = sc.tester(use_ssl=True, ca_path=ca_path)
+    tester.assert_connectivity()

@@ -1638,3 +1638,9 @@ def create_testing_namespace(
 def fcv_from_version(version: str) -> str:
     parsed_version = semver.VersionInfo.parse(version)
     return f"{parsed_version.major}.{parsed_version.minor}"
+
+
+def ensure_ent_version(mdb_version: str) -> str:
+    if "-ent" not in mdb_version:
+        return mdb_version + "-ent"
+    return mdb_version
