@@ -697,7 +697,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 
 	r.commonController.SetupCommonWatchers(sc, getTLSSecretNames(sc), getInternalAuthSecretNames(sc), sc.Name)
 
-	reconcileResult := checkIfHasExcessProcesses(conn, sc, log)
+	reconcileResult := checkIfHasExcessProcesses(conn, sc.Name, log)
 	if !reconcileResult.IsOK() {
 		return reconcileResult
 	}

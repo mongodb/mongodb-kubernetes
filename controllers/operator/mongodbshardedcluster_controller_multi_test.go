@@ -380,6 +380,103 @@ func TestShardMapForComplexMultiClusterYaml(t *testing.T) {
 	}
 }
 
+func TestMultiClusterShardedSetRace(t *testing.T) {
+	cluster1 := "cluster-member-1"
+	cluster2 := "cluster-member-2"
+
+	memberClusterNames := []string{
+		cluster1,
+		cluster2,
+	}
+
+	shardCount := 2
+	// Two Kubernetes clusters, 2 replicaset members of each shard on the first one, 3 on the second one
+	// This means a MongodPerShardCount of 5
+	shardDistribution := []map[string]int{
+		{cluster1: 2, cluster2: 3},
+		{cluster1: 2, cluster2: 3},
+	}
+	shardClusterSpecList := createClusterSpecList(memberClusterNames, shardDistribution[0])
+
+	// For Mongos and Config servers, 2 replicaset members on the first one, 1 on the second one
+	mongosDistribution := map[string]int{cluster1: 2, cluster2: 1}
+	mongosAndConfigSrvClusterSpecList := createClusterSpecList(memberClusterNames, mongosDistribution)
+
+	configSrvDistribution := map[string]int{cluster1: 2, cluster2: 1}
+	configSrvDistributionClusterSpecList := createClusterSpecList(memberClusterNames, configSrvDistribution)
+
+	sc, cfgMap, projectName := buildShardedClusterWithCustomProjectName("mc-sharded", shardCount, shardClusterSpecList, mongosAndConfigSrvClusterSpecList, configSrvDistributionClusterSpecList)
+	sc1, cfgMap1, projectName1 := buildShardedClusterWithCustomProjectName("mc-sharded-1", shardCount, shardClusterSpecList, mongosAndConfigSrvClusterSpecList, configSrvDistributionClusterSpecList)
+	sc2, cfgMap2, projectName2 := buildShardedClusterWithCustomProjectName("mc-sharded-2", shardCount, shardClusterSpecList, mongosAndConfigSrvClusterSpecList, configSrvDistributionClusterSpecList)
+
+	resourceToProjectMapping := map[string]string{
+		"mc-sharded":   projectName,
+		"mc-sharded-1": projectName1,
+		"mc-sharded-2": projectName2,
+	}
+
+	fakeClient := mock.NewEmptyFakeClientBuilder().
+		WithObjects(sc, sc1, sc2).
+		WithObjects(cfgMap, cfgMap1, cfgMap2).
+		WithObjects(mock.GetCredentialsSecret(om.TestUser, om.TestApiKey)).
+		Build()
+
+	kubeClient := kubernetesClient.NewClient(fakeClient)
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory().WithResourceToProjectMapping(resourceToProjectMapping)
+	globalMemberClustersMap := getFakeMultiClusterMapWithConfiguredInterceptor(memberClusterNames, omConnectionFactory, true, false)
+
+	ctx := context.Background()
+	reconciler := &ReconcileMongoDbShardedCluster{
+		ReconcileCommonController: newReconcileCommonController(ctx, kubeClient),
+		omConnectionFactory:       omConnectionFactory.GetConnectionFunc,
+		memberClustersMap:         globalMemberClustersMap,
+	}
+
+	allHostnames := generateHostsForCluster(ctx, reconciler, sc, mongosDistribution, configSrvDistribution, shardDistribution)
+	allHostnames1 := generateHostsForCluster(ctx, reconciler, sc1, mongosDistribution, configSrvDistribution, shardDistribution)
+	allHostnames2 := generateHostsForCluster(ctx, reconciler, sc2, mongosDistribution, configSrvDistribution, shardDistribution)
+
+	projectHostMapping := map[string][]string{
+		projectName:  allHostnames,
+		projectName1: allHostnames1,
+		projectName2: allHostnames2,
+	}
+
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		hostnames := projectHostMapping[connection.GroupName()]
+		connection.(*om.MockedOmConnection).AddHosts(hostnames)
+	})
+
+	testConcurrentReconciles(ctx, t, fakeClient, reconciler, sc, sc1, sc2)
+}
+
+func generateHostsForCluster(ctx context.Context, reconciler *ReconcileMongoDbShardedCluster, sc *mdbv1.MongoDB, mongosDistribution map[string]int, configSrvDistribution map[string]int, shardDistribution []map[string]int) []string {
+	reconcileHelper, _ := NewShardedClusterReconcilerHelper(ctx, reconciler.ReconcileCommonController, sc, reconciler.memberClustersMap, reconciler.omConnectionFactory, zap.S())
+	allHostnames, _ := generateAllHosts(sc, mongosDistribution, reconcileHelper.deploymentState.ClusterMapping, configSrvDistribution, shardDistribution)
+
+	return allHostnames
+}
+
+func buildShardedClusterWithCustomProjectName(mcShardedClusterName string, shardCount int, shardClusterSpecList mdbv1.ClusterSpecList, mongosAndConfigSrvClusterSpecList mdbv1.ClusterSpecList, configSrvDistributionClusterSpecList mdbv1.ClusterSpecList) (*mdbv1.MongoDB, *corev1.ConfigMap, string) {
+	configMapName := mock.TestProjectConfigMapName + "-" + mcShardedClusterName
+	projectName := om.TestGroupName + "-" + mcShardedClusterName
+
+	return DefaultClusterBuilder().
+		SetName(mcShardedClusterName).
+		SetOpsManagerConfigMapName(configMapName).
+		SetTopology(mdbv1.ClusterTopologyMultiCluster).
+		SetShardCountSpec(shardCount).
+		// The below parameters should be ignored when a clusterSpecList is configured/for multiClusterTopology
+		SetMongodsPerShardCountSpec(0).
+		SetConfigServerCountSpec(0).
+		SetMongosCountSpec(0).
+		// Same pods repartition for
+		SetShardClusterSpec(shardClusterSpecList).
+		SetConfigSrvClusterSpec(configSrvDistributionClusterSpecList).
+		SetMongosClusterSpec(mongosAndConfigSrvClusterSpecList).
+		Build(), mock.GetProjectConfigMap(configMapName, projectName, ""), projectName
+}
+
 type shardedClusterMCChecks struct {
 	t            *testing.T
 	namespace    string

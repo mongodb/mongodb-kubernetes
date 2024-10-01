@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
 
 	"k8s.io/utils/ptr"
@@ -80,18 +82,35 @@ func TestCreateReplicaSet(t *testing.T) {
 
 func TestReplicaSetRace(t *testing.T) {
 	ctx := context.Background()
-	rs := DefaultReplicaSetBuilder().Build()
-	rs2 := DefaultReplicaSetBuilder().SetName("my-rs2").Build()
-	rs3 := DefaultReplicaSetBuilder().SetName("my-rs3").Build()
+	rs, cfgMap, projectName := buildReplicaSetWithCustomProjectName("my-rs")
+	rs2, cfgMap2, projectName2 := buildReplicaSetWithCustomProjectName("my-rs2")
+	rs3, cfgMap3, projectName3 := buildReplicaSetWithCustomProjectName("my-rs3")
 
+	resourceToProjectMapping := map[string]string{
+		"my-rs":  projectName,
+		"my-rs2": projectName2,
+		"my-rs3": projectName3,
+	}
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory().WithResourceToProjectMapping(resourceToProjectMapping)
 	fakeClient := mock.NewEmptyFakeClientBuilder().
 		WithObjects(rs, rs2, rs3).
-		WithObjects(mock.GetDefaultResources()...).
-		Build()
+		WithObjects(cfgMap, cfgMap2, cfgMap3).
+		WithObjects(mock.GetCredentialsSecret(om.TestUser, om.TestApiKey)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, true),
+		}).Build()
 
-	reconciler := newReplicaSetReconciler(ctx, fakeClient, om.NewEmptyMockedOmConnection)
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, omConnectionFactory.GetConnectionFunc)
 
 	testConcurrentReconciles(ctx, t, fakeClient, reconciler, rs, rs2, rs3)
+}
+
+func buildReplicaSetWithCustomProjectName(rsName string) (*mdbv1.MongoDB, *corev1.ConfigMap, string) {
+	configMapName := mock.TestProjectConfigMapName + "-" + rsName
+	projectName := om.TestGroupName + "-" + rsName
+	return DefaultReplicaSetBuilder().SetName(rsName).SetOpsManagerConfigMapName(configMapName).Build(),
+		mock.GetProjectConfigMap(configMapName, projectName, ""), projectName
 }
 
 func TestReplicaSetServiceName(t *testing.T) {
@@ -1095,9 +1114,9 @@ func (b *ReplicaSetBuilder) SetPodSpecTemplate(spec corev1.PodTemplateSpec) *Rep
 	return b
 }
 
-func (b *ReplicaSetBuilder) Build() *mdbv1.MongoDB {
-	b.InitDefaults()
-	return b.MongoDB.DeepCopy()
+func (b *ReplicaSetBuilder) SetOpsManagerConfigMapName(opsManagerConfigMapName string) *ReplicaSetBuilder {
+	b.Spec.OpsManagerConfig.ConfigMapRef.Name = opsManagerConfigMapName
+	return b
 }
 
 func (b *ReplicaSetBuilder) ExposedExternally(specOverride *corev1.ServiceSpec, annotationsOverride map[string]string, externalDomain *string) *ReplicaSetBuilder {
@@ -1110,4 +1129,9 @@ func (b *ReplicaSetBuilder) ExposedExternally(specOverride *corev1.ServiceSpec, 
 		b.Spec.ExternalAccessConfiguration.ExternalService.Annotations = annotationsOverride
 	}
 	return b
+}
+
+func (b *ReplicaSetBuilder) Build() *mdbv1.MongoDB {
+	b.InitDefaults()
+	return b.MongoDB.DeepCopy()
 }

@@ -135,7 +135,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 
 	r.SetupCommonWatchers(rs, nil, nil, rs.Name)
 
-	reconcileResult := checkIfHasExcessProcesses(conn, rs, log)
+	reconcileResult := checkIfHasExcessProcesses(conn, rs.Name, log)
 	if !reconcileResult.IsOK() {
 		return r.updateStatus(ctx, rs, reconcileResult, log)
 	}

@@ -123,3 +123,8 @@ func (m *MultiReplicaSetBuilder) SetName(name string) *MultiReplicaSetBuilder {
 	m.Name = name
 	return m
 }
+
+func (m *MultiReplicaSetBuilder) SetOpsManagerConfigMapName(configMapName string) *MultiReplicaSetBuilder {
+	m.Spec.SharedConnectionSpec.OpsManagerConfig.ConfigMapRef.Name = configMapName
+	return m
+}

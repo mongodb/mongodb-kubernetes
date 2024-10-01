@@ -10,6 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/handler"
+	appsv1 "k8s.io/api/apps/v1"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
@@ -191,10 +194,11 @@ func NewEmptyMockedOmConnectionWithAgentVersion(agentVersion string, agentMinimu
 // In order to handle concurrent tests it is required to introduce map of connections and refactor all GetConnection usages by adding parameter with e.g. resource/OM project name.
 // WARNING #2: This class won't create different connections when different OMContexts are passed into connectionFactoryFunc. It's caching a single instance of OMConnection.
 type CachedOMConnectionFactory struct {
-	connectionFactoryFunc ConnectionFactory
-	conn                  Connection
-	lock                  sync.Mutex
-	postCreateHook        func(Connection)
+	connectionFactoryFunc    ConnectionFactory
+	connMap                  map[string]Connection
+	resourceToProjectMapping map[string]string
+	lock                     sync.Mutex
+	postCreateHook           func(Connection)
 }
 
 func NewCachedOMConnectionFactory(connectionFactoryFunc ConnectionFactory) *CachedOMConnectionFactory {
@@ -202,33 +206,92 @@ func NewCachedOMConnectionFactory(connectionFactoryFunc ConnectionFactory) *Cach
 }
 
 func NewCachedOMConnectionFactoryWithInitializedConnection(conn Connection) *CachedOMConnectionFactory {
-	return &CachedOMConnectionFactory{conn: conn}
+	return &CachedOMConnectionFactory{connMap: map[string]Connection{conn.GroupID(): conn}}
 }
 
 func NewDefaultCachedOMConnectionFactory() *CachedOMConnectionFactory {
 	return NewCachedOMConnectionFactory(NewEmptyMockedOmConnection)
 }
 
-// GetConnectionFunc can be used as om.ConnectionFactory function to always return a single, cached instance of OMConnection
+// WithResourceToProjectMapping used to provide a mapping between MongoDB/MongoDBMultiCluster resource name and OM project
+// Used for tests with multiple OM projects to retrieve appropriate OM connection
+func (c *CachedOMConnectionFactory) WithResourceToProjectMapping(resourceToProjectMapping map[string]string) *CachedOMConnectionFactory {
+	c.resourceToProjectMapping = resourceToProjectMapping
+	return c
+}
+
+// GetConnectionFunc can be used as om.ConnectionFactory function to return cached instance of OMConnection based on ctx.GroupName
 func (c *CachedOMConnectionFactory) GetConnectionFunc(ctx *OMContext) Connection {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	if c.conn == nil {
-		c.conn = c.connectionFactoryFunc(ctx)
-		if c.postCreateHook != nil {
-			c.postCreateHook(c.conn)
-		}
+	if c.connMap == nil {
+		c.connMap = make(map[string]Connection)
 	}
 
-	return c.conn
+	connection, ok := c.connMap[ctx.GroupName]
+	if !ok {
+		connection = c.connectionFactoryFunc(ctx)
+		c.connMap[ctx.GroupName] = connection
+
+		if c.postCreateHook != nil {
+			c.postCreateHook(connection)
+		}
+
+	}
+
+	return connection
+}
+
+func (c *CachedOMConnectionFactory) GetConnectionForResource(v *appsv1.StatefulSet) Connection {
+	// No resourceToProjectMapping provided, assuming it's a single project test
+	if len(c.resourceToProjectMapping) == 0 {
+		return c.GetConnection()
+	}
+
+	ownerResourceName := getOwnerResourceName(v)
+
+	projectName, ok := c.resourceToProjectMapping[ownerResourceName]
+	if !ok {
+		panic(fmt.Sprintf("resourceToProjectMapping does not contain project for resource name %s", ownerResourceName))
+	}
+
+	return c.GetConnectionFunc(&OMContext{GroupName: projectName})
+}
+
+// getOwnerResourceName tries to retrieve owner resource that can be used for OM project mapping
+func getOwnerResourceName(v *appsv1.StatefulSet) string {
+	ownerReferences := v.GetOwnerReferences()
+	if len(ownerReferences) == 1 {
+		return ownerReferences[0].Name
+	}
+
+	if mdbMultiResourceName, ok := v.GetAnnotations()[handler.MongoDBMultiResourceAnnotation]; ok {
+		return mdbMultiResourceName
+	}
+
+	panic("could not retrieve owner resource name")
 }
 
 func (c *CachedOMConnectionFactory) GetConnection() Connection {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	return c.conn
+	if len(c.connMap) > 1 {
+		panic("multiple connections available but the resourceToProjectMapping was not provided")
+	}
+
+	// Get first connection or nil if connMap empty
+	var conns []Connection
+	for _, conn := range c.connMap {
+		conns = append(conns, conn)
+	}
+
+	if len(conns) == 0 {
+		return nil
+	}
+
+	return conns[0]
 }
 
 // SetPostCreateHook is a workaround to alter mocked connection state after it was created by the reconciler.
