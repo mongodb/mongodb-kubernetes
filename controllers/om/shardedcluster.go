@@ -134,9 +134,9 @@ func (s ShardedCluster) mergeFrom(operatorCluster ShardedCluster) []string {
 }
 
 // mergeFrom merges the operator shard into OM one. Only some fields are overriden, the others stay untouched
-func (omShard Shard) mergeFrom(operatorShard Shard) {
-	omShard.setId(operatorShard.id())
-	omShard.setRs(operatorShard.rs())
+func (s Shard) mergeFrom(operatorShard Shard) {
+	s.setId(operatorShard.id())
+	s.setRs(operatorShard.rs())
 }
 
 func (s ShardedCluster) shards() []Shard {

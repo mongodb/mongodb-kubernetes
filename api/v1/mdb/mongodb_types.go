@@ -540,18 +540,18 @@ type Backup struct {
 	AssignmentLabels []string `json:"assignmentLabels,omitempty"`
 }
 
-func (s *Backup) IsKmipEnabled() bool {
-	if s.Encryption == nil || s.Encryption.Kmip == nil {
+func (b *Backup) IsKmipEnabled() bool {
+	if b.Encryption == nil || b.Encryption.Kmip == nil {
 		return false
 	}
 	return true
 }
 
-func (m *Backup) GetKmip() *KmipConfig {
-	if !m.IsKmipEnabled() {
+func (b *Backup) GetKmip() *KmipConfig {
+	if !b.IsKmipEnabled() {
 		return nil
 	}
-	return m.Encryption.Kmip
+	return b.Encryption.Kmip
 }
 
 // Encryption contains encryption settings

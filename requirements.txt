@@ -1,5 +1,4 @@
 requests==2.32.3
-boto3==1.18.8
 click==8.0.4
 docker==7.1.0
 Jinja2==3.1.4
@@ -32,3 +31,6 @@ autopep8
 isort==5.12.0
 shrub.py==3.1.2
 pytest-mock==3.14.0
+wrapt==1.16.0
+botocore==1.35.29
+boto3==1.35.29

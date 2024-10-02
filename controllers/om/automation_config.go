@@ -194,11 +194,11 @@ func (ac *AutomationConfig) Serialize() ([]byte, error) {
 }
 
 // GetAgentAuthMode returns the agentAuthMode of the given automationConfig. If empty or nil we return the empty string.
-func (a *AutomationConfig) GetAgentAuthMode() string {
-	if a == nil || a.Auth == nil {
+func (ac *AutomationConfig) GetAgentAuthMode() string {
+	if ac == nil || ac.Auth == nil {
 		return ""
 	}
-	return a.Auth.AutoAuthMechanism
+	return ac.Auth.AutoAuthMechanism
 }
 
 type Auth struct {
