@@ -6,13 +6,15 @@ import (
 	"strconv"
 	"time"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
-	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	"go.uber.org/zap"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 )
 
 func WatchSecretChangeForMDB(ctx context.Context, log *zap.SugaredLogger, watchChannel chan event.GenericEvent, k8sClient kubernetesClient.Client, vaultClient *vault.VaultClient, resourceType mdbv1.ResourceType) {

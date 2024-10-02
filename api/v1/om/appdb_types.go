@@ -4,25 +4,25 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/authtypes"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/constants"
+
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	appsv1 "k8s.io/api/apps/v1"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	userv1 "github.com/10gen/ops-manager-kubernetes/api/v1/user"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/authtypes"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/constants"
-
-	appsv1 "k8s.io/api/apps/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (

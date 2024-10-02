@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
+	"go.uber.org/zap"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
-	"go.uber.org/zap"
 )
 
 type ClusterHealthChecker interface {

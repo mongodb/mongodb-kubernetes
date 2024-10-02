@@ -4,14 +4,16 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 	"golang.org/x/xerrors"
+	"k8s.io/apimachinery/pkg/api/resource"
+
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
+
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 const (

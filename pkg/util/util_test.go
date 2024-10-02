@@ -5,10 +5,10 @@ import (
 	"os"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/identifiable"
-
-	"github.com/stretchr/testify/assert"
 )
 
 func TestCompareVersions(t *testing.T) {

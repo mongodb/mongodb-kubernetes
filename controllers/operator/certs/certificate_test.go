@@ -3,9 +3,9 @@ package certs
 import (
 	"testing"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-
 	"github.com/stretchr/testify/assert"
+
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 )
 
 func TestVerifyTLSSecretForStatefulSet(t *testing.T) {

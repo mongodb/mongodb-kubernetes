@@ -3,11 +3,11 @@ package authentication
 import (
 	"regexp"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+	"go.uber.org/zap"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"go.uber.org/zap"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 )
 
 const ExternalDB = "$external"

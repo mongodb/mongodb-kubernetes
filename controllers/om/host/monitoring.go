@@ -3,10 +3,10 @@ package host
 import (
 	"errors"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 
-	"go.uber.org/zap"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
 // StopMonitoring will stop OM monitoring of hosts, which will then

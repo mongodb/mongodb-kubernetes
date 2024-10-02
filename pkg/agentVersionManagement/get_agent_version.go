@@ -8,14 +8,13 @@ import (
 	"sync"
 
 	"github.com/blang/semver"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/om"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
 	"go.uber.org/zap"
+	"golang.org/x/xerrors"
 
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
+	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
-	"golang.org/x/xerrors"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
 )
 
 const (

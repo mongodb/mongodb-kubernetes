@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"strings"
 
-	corev1 "k8s.io/api/core/v1"
-
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
+
+	corev1 "k8s.io/api/core/v1"
 )
 
 func Read(env string) (string, bool) {

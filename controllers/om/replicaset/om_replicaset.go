@@ -1,14 +1,17 @@
 package replicaset
 
 import (
+	"go.uber.org/zap"
+	"golang.org/x/xerrors"
+
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
+
+	appsv1 "k8s.io/api/apps/v1"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/process"
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
-	"go.uber.org/zap"
-	"golang.org/x/xerrors"
-	appsv1 "k8s.io/api/apps/v1"
 )
 
 // BuildFromStatefulSet returns a replica set that can be set in the Automation Config

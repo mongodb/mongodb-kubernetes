@@ -3,14 +3,14 @@ package process
 import (
 	"fmt"
 
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
+	appsv1 "k8s.io/api/apps/v1"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	appsv1 "k8s.io/api/apps/v1"
 )
 
 func CreateMongodProcessesWithLimit(set appsv1.StatefulSet, dbSpec mdbv1.DbSpec, limit int, fcv string) []om.Process {

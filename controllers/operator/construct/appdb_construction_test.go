@@ -5,20 +5,20 @@ import (
 	"os"
 	"testing"
 
-	v1 "k8s.io/api/apps/v1"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
+	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
+
+	v1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/scalers"
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
-	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
-	corev1 "k8s.io/api/core/v1"
 )
 
 func init() {

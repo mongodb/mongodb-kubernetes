@@ -4,8 +4,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"k8s.io/utils/ptr"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
 func TestCalculateFeatureCompatibilityVersion(t *testing.T) {

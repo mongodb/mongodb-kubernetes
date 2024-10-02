@@ -4,9 +4,10 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster/failedcluster"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestClusterWithMinimumNumber(t *testing.T) {

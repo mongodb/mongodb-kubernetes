@@ -3,12 +3,13 @@ package watch
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/user"
-	"github.com/stretchr/testify/assert"
-	"sigs.k8s.io/controller-runtime/pkg/event"
 )
 
 func TestPredicatesForUser(t *testing.T) {

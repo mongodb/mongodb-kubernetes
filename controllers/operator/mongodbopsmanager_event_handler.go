@@ -3,11 +3,12 @@ package operator
 import (
 	"context"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"go.uber.org/zap"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 )
 
 // MongoDBOpsManagerEventHandler extends handler.EnqueueRequestForObject (from controller-runtime)

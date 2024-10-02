@@ -4,16 +4,18 @@ import (
 	"context"
 	"reflect"
 
+	"go.uber.org/zap"
+	"golang.org/x/xerrors"
+	"k8s.io/apimachinery/pkg/types"
+
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"go.uber.org/zap"
-	"golang.org/x/xerrors"
-	apiErrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
 )
 
 type ConfigReaderUpdater interface {

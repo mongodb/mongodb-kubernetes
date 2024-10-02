@@ -3,13 +3,15 @@ package multicluster
 import (
 	"fmt"
 
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
+
+	appsv1 "k8s.io/api/apps/v1"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/pkg/handler"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
-	appsv1 "k8s.io/api/apps/v1"
 )
 
 func MultiClusterReplicaSetOptions(additionalOpts ...func(options *construct.DatabaseStatefulSetOptions)) func(mdbm mdbmultiv1.MongoDBMultiCluster) construct.DatabaseStatefulSetOptions {

@@ -1,9 +1,10 @@
 package mdb
 
 import (
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
 // TODO remove the wrapper in favor of podSpecBuilder

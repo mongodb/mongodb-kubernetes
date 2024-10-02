@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestEnsureSecurity_WithAllNilValues(t *testing.T) {

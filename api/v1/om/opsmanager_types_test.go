@@ -3,8 +3,9 @@ package om
 import (
 	"testing"
 
-	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 )
 
 func TestMongoDBOpsManager_AddWarningIfNotExists(t *testing.T) {

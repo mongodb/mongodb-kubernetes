@@ -4,12 +4,12 @@ import (
 	"errors"
 	"fmt"
 
+	"go.uber.org/zap"
+	"golang.org/x/xerrors"
+
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
-
-	"go.uber.org/zap"
-	"golang.org/x/xerrors"
 )
 
 type MongoDbResourceType string

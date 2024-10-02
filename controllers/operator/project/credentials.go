@@ -5,12 +5,12 @@ import (
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // ReadCredentials reads the Secret containing the credentials to authenticate in Ops Manager and creates a matching 'Credentials' object

@@ -5,8 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 )
 
 var jsonContents = `

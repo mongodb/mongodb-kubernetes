@@ -5,12 +5,11 @@ import (
 	"os"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"k8s.io/utils/ptr"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
-
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/stretchr/testify/assert"
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 )
 
 func TestUniqueClusterNames(t *testing.T) {
