@@ -38,21 +38,21 @@ type MongoDBUser struct {
 	Spec   MongoDBUserSpec   `json:"spec"`
 }
 
-func (user *MongoDBUser) GetCommonStatus(options ...status.Option) *status.Common {
-	return &user.Status.Common
+func (u *MongoDBUser) GetCommonStatus(options ...status.Option) *status.Common {
+	return &u.Status.Common
 }
 
 // GetPassword returns the password of the user as stored in the referenced
 // secret. If the password secret reference is unset then a blank password and
 // a nil error will be returned.
-func (user MongoDBUser) GetPassword(ctx context.Context, secretClient secrets.SecretClient) (string, error) {
-	if user.Spec.PasswordSecretKeyRef.Name == "" {
+func (u MongoDBUser) GetPassword(ctx context.Context, secretClient secrets.SecretClient) (string, error) {
+	if u.Spec.PasswordSecretKeyRef.Name == "" {
 		return "", nil
 	}
 
 	nsName := client.ObjectKey{
-		Namespace: user.Namespace,
-		Name:      user.Spec.PasswordSecretKeyRef.Name,
+		Namespace: u.Namespace,
+		Name:      u.Spec.PasswordSecretKeyRef.Name,
 	}
 	var databaseSecretPath string
 	if vault.IsVaultSecretBackend() {
@@ -63,7 +63,7 @@ func (user MongoDBUser) GetPassword(ctx context.Context, secretClient secrets.Se
 		return "", xerrors.Errorf("could not retrieve user password secret: %w", err)
 	}
 
-	passwordBytes, passwordIsSet := secretData[user.Spec.PasswordSecretKeyRef.Key]
+	passwordBytes, passwordIsSet := secretData[u.Spec.PasswordSecretKeyRef.Key]
 	if !passwordIsSet {
 		return "", xerrors.Errorf("password is not set in password secret")
 	}
@@ -117,7 +117,7 @@ type MongoDBUserList struct {
 	Items           []MongoDBUser `json:"items"`
 }
 
-// Changed identifier determines if the user has changed a value that is used in
+// ChangedIdentifier determines if the user has changed a value that is used in
 // uniquely identifying them. Either username or db. This function relies on the status
 // of the resource and is required in order to remove the old user before
 // adding a new one to avoid leaving stale state in Ops Manger.
@@ -186,11 +186,11 @@ func normalizeName(name string) string {
 	return name
 }
 
-func (m *MongoDBUser) SetWarnings(warnings []status.Warning, _ ...status.Option) {
-	m.Status.Warnings = warnings
+func (u *MongoDBUser) SetWarnings(warnings []status.Warning, _ ...status.Option) {
+	u.Status.Warnings = warnings
 }
 
-func (m MongoDBUser) GetPlural() string {
+func (u MongoDBUser) GetPlural() string {
 	return "mongodbusers"
 }
 

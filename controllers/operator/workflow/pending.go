@@ -75,8 +75,8 @@ func (p pendingStatus) Phase() status.Phase {
 	return status.PhasePending
 }
 
-func (f pendingStatus) Log(log *zap.SugaredLogger) {
-	log.Info(stringutil.UpperCaseFirstChar(f.msg))
+func (p pendingStatus) Log(log *zap.SugaredLogger) {
+	log.Info(stringutil.UpperCaseFirstChar(p.msg))
 }
 
 func mergedPending(p1, p2 pendingStatus) pendingStatus {

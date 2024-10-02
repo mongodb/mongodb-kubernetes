@@ -181,19 +181,19 @@ func CreateOrUpdate(ctx context.Context, m client.Client, obj client.Object) err
 	err := m.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, existingObj)
 	if err != nil {
 		if client.IgnoreNotFound(err) != nil {
-			return fmt.Errorf("failed to get object: %v", err)
+			return fmt.Errorf("failed to get object: %w", err)
 		}
 
 		err = m.Create(ctx, obj)
 		if err != nil {
-			return fmt.Errorf("failed to create object: %v", err)
+			return fmt.Errorf("failed to create object: %w", err)
 		}
 		return nil
 	}
 
 	err = m.Update(ctx, obj)
 	if err != nil {
-		return fmt.Errorf("failed to update object: %v", err)
+		return fmt.Errorf("failed to update object: %w", err)
 	}
 
 	return nil

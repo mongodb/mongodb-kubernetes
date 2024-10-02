@@ -460,12 +460,9 @@ const (
 	MongoDBX509 MechanismName = "MONGODB-X509"
 	LDAPPlain   MechanismName = "PLAIN"
 
-	// MONGODB-CR is an umbrella term for SCRAM-SHA-1 and MONGODB-CR for legacy reasons, once MONGODB-CR
+	// MongoDBCR is an umbrella term for SCRAM-SHA-1 and MONGODB-CR for legacy reasons, once MONGODB-CR
 	// is enabled, users can auth with SCRAM-SHA-1 credentials
 	MongoDBCR MechanismName = "MONGODB-CR"
-
-	// Sentinel value indicating auth is being disabled, this is exclusive to the Operator
-	DisableAuth MechanismName = "DISABLE-AUTH"
 )
 
 // supportedMechanisms returns a list of all the authentication mechanisms
