@@ -1,14 +1,6 @@
 #!/usr/bin/env bash
 set -Eeou pipefail
 
-# shellcheck disable=SC2317
-if [ -n "$(git diff --name-only --cached --diff-filter=AM)" ]; then
-  echo "We have a dirty state, probably a patch, skipping check_precommit"
-  echo "full diff is"
-  git diff --cached --diff-filter=AM
-  exit 0
-fi
-
 # Store the current state of the index and working directory
 initial_index_state=$(git diff --name-only --cached --diff-filter=AM)
 

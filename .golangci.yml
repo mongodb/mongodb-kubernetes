@@ -14,13 +14,12 @@ issues:
       - dupl
       - gosec
       - goconst
-      - golint
-      text: "underscore"
 linters:
   enable:
     - govet
     - errcheck
     - staticcheck
+    - stylecheck
     - unused
     - gosimple
     - ineffassign
@@ -28,6 +27,11 @@ linters:
     - rowserrcheck
     - gosec
     - unconvert
+    - goimports
+    - gofmt
+    - dupl
+    - goconst
+    - gofumpt
 
 run:
   modules-download-mode: mod
@@ -35,3 +39,14 @@ run:
   timeout: 5m
   # default concurrency is an available CPU number
   concurrency: 4
+
+linters-settings:
+  stylecheck:
+    # STxxxx checks in https://staticcheck.io/docs/configuration/options/#checks
+    # Default: ["*"]
+    checks: ["all", "-ST1000", "-ST1003", "-ST1020", "-ST1021", "-ST1022", "-ST1023"]
+
+  gofumpt:
+    # Module path which contains the source code being formatted.
+    # Default: ""
+    module-path: github.com/10gen/ops-manager-kubernetes

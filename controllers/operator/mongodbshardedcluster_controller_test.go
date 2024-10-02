@@ -50,7 +50,6 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
-	mdbstatus "github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status/pvc"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"go.uber.org/zap"
@@ -1528,7 +1527,7 @@ type ClusterBuilder struct {
 }
 
 func DefaultClusterBuilder() *ClusterBuilder {
-	sizeConfig := mdbstatus.MongodbShardedClusterSizeConfig{
+	sizeConfig := status.MongodbShardedClusterSizeConfig{
 		ShardCount:           2,
 		MongodsPerShardCount: 3,
 		ConfigServerCount:    3,

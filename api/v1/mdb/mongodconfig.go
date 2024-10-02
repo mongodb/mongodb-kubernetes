@@ -24,16 +24,16 @@ type AdditionalMongodConfig struct {
 
 // Note: The MarshalJSON and UnmarshalJSON need to be explicitly implemented in this case as our wrapper type itself cannot be marshalled/unmarshalled by default. Without this custom logic the values provided in the resource definition will not be set in the struct created.
 // MarshalJSON defers JSON encoding to the wrapped map
-func (m *AdditionalMongodConfig) MarshalJSON() ([]byte, error) {
-	return json.Marshal(m.object)
+func (amc *AdditionalMongodConfig) MarshalJSON() ([]byte, error) {
+	return json.Marshal(amc.object)
 }
 
 // UnmarshalJSON will decode the data into the wrapped map
-func (m *AdditionalMongodConfig) UnmarshalJSON(data []byte) error {
-	if m.object == nil {
-		m.object = map[string]interface{}{}
+func (amc *AdditionalMongodConfig) UnmarshalJSON(data []byte) error {
+	if amc.object == nil {
+		amc.object = map[string]interface{}{}
 	}
-	return json.Unmarshal(data, &m.object)
+	return json.Unmarshal(data, &amc.object)
 }
 
 func NewEmptyAdditionalMongodConfig() *AdditionalMongodConfig {
@@ -46,23 +46,23 @@ func NewAdditionalMongodConfig(key string, value interface{}) *AdditionalMongodC
 	return config
 }
 
-func (c *AdditionalMongodConfig) AddOption(key string, value interface{}) *AdditionalMongodConfig {
+func (amc *AdditionalMongodConfig) AddOption(key string, value interface{}) *AdditionalMongodConfig {
 	keys := strings.Split(key, ".")
-	maputil.SetMapValue(c.object, value, keys...)
-	return c
+	maputil.SetMapValue(amc.object, value, keys...)
+	return amc
 }
 
 // ToFlatList returns all mongodb options as a sorted list of string values.
 // It performs a recursive traversal of maps and dumps the current config to the final list of configs
-func (c *AdditionalMongodConfig) ToFlatList() []string {
-	return maputil.ToFlatList(c.ToMap())
+func (amc *AdditionalMongodConfig) ToFlatList() []string {
+	return maputil.ToFlatList(amc.ToMap())
 }
 
 // GetPortOrDefault returns the port that should be used for the mongo process.
 // if no port is specified in the additional mongo args, the default
 // port of 27017 will be used
-func (c *AdditionalMongodConfig) GetPortOrDefault() int32 {
-	if c == nil || c.object == nil {
+func (amc *AdditionalMongodConfig) GetPortOrDefault() int32 {
+	if amc == nil || amc.object == nil {
 		return util.MongoDbDefaultPort
 	}
 
@@ -72,7 +72,7 @@ func (c *AdditionalMongodConfig) GetPortOrDefault() int32 {
 	// works, this value is returned as an int. That's why we read the
 	// port as Int which uses the `cast` library to cast both float32 and int
 	// types into Int.
-	port := maputil.ReadMapValueAsInt(c.object, "net", "port")
+	port := maputil.ReadMapValueAsInt(amc.object, "net", "port")
 	if port == 0 {
 		return util.MongoDbDefaultPort
 	}
@@ -81,17 +81,17 @@ func (c *AdditionalMongodConfig) GetPortOrDefault() int32 {
 }
 
 // DeepCopy is defined manually as codegen utility cannot generate copy methods for 'interface{}'
-func (in *AdditionalMongodConfig) DeepCopy() *AdditionalMongodConfig {
-	if in == nil {
+func (amc *AdditionalMongodConfig) DeepCopy() *AdditionalMongodConfig {
+	if amc == nil {
 		return nil
 	}
 	out := new(AdditionalMongodConfig)
-	in.DeepCopyInto(out)
+	amc.DeepCopyInto(out)
 	return out
 }
 
-func (in *AdditionalMongodConfig) DeepCopyInto(out *AdditionalMongodConfig) {
-	cp, err := util.MapDeepCopy(in.object)
+func (amc *AdditionalMongodConfig) DeepCopyInto(out *AdditionalMongodConfig) {
+	cp, err := util.MapDeepCopy(amc.object)
 	if err != nil {
 		zap.S().Errorf("Failed to copy the map: %s", err)
 		return
@@ -102,11 +102,11 @@ func (in *AdditionalMongodConfig) DeepCopyInto(out *AdditionalMongodConfig) {
 
 // ToMap creates a copy of the config as a map (Go is quite restrictive to types, and sometimes we need to
 // explicitly declare the type as map :( )
-func (c *AdditionalMongodConfig) ToMap() map[string]interface{} {
-	if c == nil || c.object == nil {
+func (amc *AdditionalMongodConfig) ToMap() map[string]interface{} {
+	if amc == nil || amc.object == nil {
 		return map[string]interface{}{}
 	}
-	cp, err := util.MapDeepCopy(c.object)
+	cp, err := util.MapDeepCopy(amc.object)
 	if err != nil {
 		zap.S().Errorf("Failed to copy the map: %s", err)
 		return nil

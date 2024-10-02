@@ -51,7 +51,7 @@ func (o okStatus) StatusOptions() []status.Option {
 	return o.statusOptions()
 }
 
-func (f okStatus) Log(_ *zap.SugaredLogger) {
+func (o okStatus) Log(_ *zap.SugaredLogger) {
 	// Doing no logging - the reconciler will do instead
 }
 

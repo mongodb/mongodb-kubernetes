@@ -29,7 +29,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 
-	mdbc "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -114,7 +113,7 @@ func TestReconcilePVCResizeMultiCluster(t *testing.T) {
 	ctx := context.Background()
 
 	configuration := v1.StatefulSetConfiguration{
-		SpecWrapper: mdbc.StatefulSetSpecWrapper{
+		SpecWrapper: v1.StatefulSetSpecWrapper{
 			Spec: appsv1.StatefulSetSpec{
 				VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
 					{
@@ -735,8 +734,8 @@ func TestScaling(t *testing.T) {
 	})
 
 	t.Run("Scale one at a time when scaling up", func(t *testing.T) {
-		stsWrapper := &mdbc.StatefulSetConfiguration{
-			SpecWrapper: mdbc.StatefulSetSpecWrapper{
+		stsWrapper := &v1.StatefulSetConfiguration{
+			SpecWrapper: v1.StatefulSetSpecWrapper{
 				Spec: appsv1.StatefulSetSpec{
 					Selector: &metav1.LabelSelector{
 						MatchLabels: map[string]string{"a": "b"},

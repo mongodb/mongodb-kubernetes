@@ -690,6 +690,8 @@ func (om *MongoDBOpsManager) UpdateStatus(phase status.Phase, statusOptions ...s
 		om.updateStatusOpsManager(phase, statusOptions...)
 	case status.Backup:
 		om.updateStatusBackup(phase, statusOptions...)
+	case status.None:
+
 	}
 }
 
@@ -758,6 +760,7 @@ func (om *MongoDBOpsManager) SetWarnings(warnings []status.Warning, options ...s
 			om.Status.BackupStatus.Warnings = warnings
 		case status.AppDb:
 			om.Status.AppDbStatus.Warnings = warnings
+		default:
 		}
 	}
 }
@@ -787,6 +790,7 @@ func (om *MongoDBOpsManager) GetStatus(options ...status.Option) interface{} {
 			return om.Status.AppDbStatus
 		case status.Backup:
 			return om.Status.BackupStatus
+		default:
 		}
 	}
 	return om.Status
@@ -801,6 +805,7 @@ func (om *MongoDBOpsManager) GetCommonStatus(options ...status.Option) *status.C
 			return &om.Status.AppDbStatus.Common
 		case status.Backup:
 			return &om.Status.BackupStatus.Common
+		default:
 		}
 	}
 	return nil
@@ -819,6 +824,7 @@ func (om *MongoDBOpsManager) GetStatusPath(options ...status.Option) string {
 			return "/status/applicationDatabase"
 		case status.Backup:
 			return "/status/backup"
+		default:
 		}
 	}
 	// we should never actually reach this
