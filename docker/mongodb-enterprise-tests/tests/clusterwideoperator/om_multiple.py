@@ -1,7 +1,7 @@
 from typing import Dict
 
 import kubernetes
-from kubetester import create_or_update, create_or_update_secret, read_secret
+from kubetester import create_or_update_secret, read_secret
 from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
 from kubetester.helm import helm_template
 from kubetester.kubetester import create_testing_namespace
@@ -121,7 +121,7 @@ def om1(
 ) -> MongoDBOpsManager:
     prepare_namespace(namespace, "om-1", operator_installation_config)
     om = ops_manager("om-1", custom_version, custom_appdb_version)
-    create_or_update(om)
+    om.update()
     return om
 
 
@@ -134,7 +134,7 @@ def om2(
 ) -> MongoDBOpsManager:
     prepare_namespace(namespace, "om-2", operator_installation_config)
     om = ops_manager("om-2", custom_version, custom_appdb_version)
-    create_or_update(om)
+    om.update()
     return om
 
 

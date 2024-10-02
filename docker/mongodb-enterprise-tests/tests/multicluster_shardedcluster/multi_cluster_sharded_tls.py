@@ -1,5 +1,5 @@
 import kubernetes
-from kubetester import create_or_update, try_load
+from kubetester import try_load
 from kubetester.certs import (
     SetPropertiesMultiCluster,
     create_multi_cluster_tls_certs,
@@ -136,5 +136,5 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 
 @mark.e2e_multi_cluster_sharded_tls
 def test_sharded_cluster_with_prefix_gets_to_running_state(sharded_cluster: MongoDB):
-    create_or_update(sharded_cluster)
+    sharded_cluster.update()
     sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1200)

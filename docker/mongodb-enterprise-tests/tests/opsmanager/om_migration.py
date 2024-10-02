@@ -2,7 +2,7 @@ import re
 from typing import Optional
 
 from dateutil.parser import parse
-from kubetester import create_or_update, try_load
+from kubetester import try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
@@ -29,7 +29,7 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
 @mark.e2e_om_migration
 class TestOpsManagerOmMigration:
     def test_om_created(self, ops_manager: MongoDBOpsManager):
-        create_or_update(ops_manager)
+        ops_manager.update()
         # Backup is not fully configured so we wait until Pending phase
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
         ops_manager.om_status().assert_reaches_phase(Phase.Running)

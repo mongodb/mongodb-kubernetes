@@ -7,7 +7,7 @@ Also it creates a MongoDB referencing the OM.
 from typing import Optional
 
 from kubernetes import client
-from kubetester import create_or_update, try_load
+from kubetester import try_load
 from kubetester.custom_podspec import assert_volume_mounts_are_equal
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import is_static_containers_architecture
@@ -40,7 +40,7 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
 @mark.e2e_om_ops_manager_pod_spec
 class TestOpsManagerCreation:
     def test_appdb_0_sts_agents_havent_reached_running_state(self, ops_manager: MongoDBOpsManager):
-        create_or_update(ops_manager)
+        ops_manager.update()
         ops_manager.appdb_status().assert_reaches_phase(
             Phase.Pending,
             msg_regexp="Application Database Agents haven't reached Running state yet",

@@ -1,4 +1,3 @@
-from kubetester import create_or_update
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
 from pytest import fixture, mark
@@ -11,7 +10,7 @@ def replica_set(namespace: str) -> MongoDB:
         namespace=namespace,
     )
     resource["spec"]["persistent"] = True
-    return create_or_update(resource)
+    return resource.update()
 
 
 @mark.e2e_replica_set_mongod_options

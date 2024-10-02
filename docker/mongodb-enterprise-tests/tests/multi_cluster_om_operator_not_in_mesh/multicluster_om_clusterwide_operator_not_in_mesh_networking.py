@@ -2,7 +2,7 @@ from typing import Optional
 
 import kubernetes
 from kubernetes.client.rest import ApiException
-from kubetester import create_or_update, read_secret, read_service, try_load
+from kubetester import read_secret, read_service, try_load
 from kubetester.certs import create_ops_manager_tls_certs
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
@@ -210,7 +210,7 @@ def test_deploy_operator(om_test_helper: MultiClusterOMClusterWideTestHelper):
 @mark.e2e_multi_cluster_om_clusterwide_operator_not_in_mesh_networking
 def test_deploy_ops_manager(om_test_helper: MultiClusterOMClusterWideTestHelper):
     ops_manager = om_test_helper.ops_manager()
-    create_or_update(ops_manager)
+    ops_manager.update()
     ops_manager.appdb_status().assert_reaches_phase(Phase.Pending, msg_regexp="Enabling monitoring", timeout=900)
     # the operator cannot connect to OM instance so it cannot finish configuring the deployment
     ops_manager.om_status().assert_reaches_phase(
@@ -248,7 +248,7 @@ def test_enable_external_connectivity(om_test_helper: MultiClusterOMClusterWideT
         "type": "LoadBalancer",
         "port": 9000,
     }
-    create_or_update(ops_manager)
+    ops_manager.update()
 
     def external_ip_available(om: MongoDBOpsManager):
         return get_external_service_ip(om)
@@ -288,7 +288,7 @@ def test_set_ops_manager_url(om_test_helper: MultiClusterOMClusterWideTestHelper
     ops_manager = om_test_helper.ops_manager()
     host = get_om_external_host(ops_manager.namespace, ops_manager.name)
     ops_manager["spec"]["opsManagerURL"] = f"https://{host}:9000"
-    create_or_update(ops_manager)
+    ops_manager.update()
 
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)

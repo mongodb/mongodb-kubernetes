@@ -2,7 +2,7 @@ import time
 from typing import Dict, List
 
 import kubernetes
-from kubetester import create_or_update, create_secret, wait_until
+from kubetester import create_secret, wait_until
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
@@ -135,7 +135,7 @@ def mongodb_multi(
     resource["spec"]["additionalMongodConfig"] = {"net": {"ssl": {"mode": "preferSSL"}}}
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -162,7 +162,7 @@ def user_ldap(
         ]
     )
     user.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    create_or_update(user)
+    user.update()
     return user
 
 
@@ -220,7 +220,7 @@ def test_turn_tls_on_CLOUDP_229222(mongodb_multi: MongoDBMulti):
     resource = mongodb_multi.load()
 
     resource["spec"]["security"]["authentication"]["ldap"]["transportSecurity"] = "tls"
-    create_or_update(resource)
+    resource.update()
 
 
 @skip_if_static_containers
@@ -245,7 +245,7 @@ def test_restore_mongodb_multi_ldap_configuration(mongodb_multi: MongoDBMulti):
     resource["spec"]["security"]["authentication"]["ldap"]["transportSecurity"] = "tls"
     resource["spec"]["security"]["authentication"]["agents"]["mode"] = "LDAP"
 
-    create_or_update(resource)
+    resource.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=800)
 
 
@@ -303,7 +303,7 @@ def test_deployment_is_reachable_with_ldap_agent(mongodb_multi: MongoDBMulti):
 def test_scale_mongodb_multi(mongodb_multi: MongoDBMulti, member_cluster_names):
     mongodb_multi.reload()
     mongodb_multi["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
-    create_or_update(mongodb_multi)
+    mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=800)
 
 
@@ -327,7 +327,7 @@ def test_disable_agent_auth(mongodb_multi: MongoDBMulti):
     mongodb_multi.reload()
     mongodb_multi["spec"]["security"]["authentication"]["enabled"] = False
     mongodb_multi["spec"]["security"]["authentication"]["agents"]["enabled"] = False
-    create_or_update(mongodb_multi)
+    mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)
 
 

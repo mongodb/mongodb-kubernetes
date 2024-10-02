@@ -1,7 +1,7 @@
 import time
 
 import pymongo
-from kubetester import MongoDB, create_or_update, try_load
+from kubetester import MongoDB, try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.mongotester import MongoDBBackgroundTester, MongoTester
@@ -46,7 +46,7 @@ class MigrationConnectivityTests:
         return db
 
     def test_create_cluster(self, mdb: MongoDB):
-        create_or_update(mdb)
+        mdb.update()
         mdb.assert_reaches_phase(Phase.Running)
 
     def test_start_health_checker(self, mdb_health_checker):

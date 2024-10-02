@@ -2,7 +2,7 @@ import time
 
 import pytest
 from kubernetes import client
-from kubetester import MongoDB, create_or_update, try_load
+from kubetester import MongoDB, try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
@@ -25,7 +25,7 @@ class TestShardedClusterCreation(KubernetesTester):
     custom_labels = {"label1": "val1", "label2": "val2"}
 
     def test_sharded_cluster_created(self, sharded_cluster: MongoDB):
-        create_or_update(sharded_cluster)
+        sharded_cluster.update()
         sharded_cluster.assert_reaches_phase(Phase.Running)
 
     def check_sts_labels(self, sts):

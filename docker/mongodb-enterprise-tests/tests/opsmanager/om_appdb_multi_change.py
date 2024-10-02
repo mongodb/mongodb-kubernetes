@@ -1,4 +1,4 @@
-from kubetester import create_or_update, find_fixture
+from kubetester import find_fixture
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
@@ -16,7 +16,7 @@ def ops_manager(namespace: str, custom_version: str, custom_appdb_version: str) 
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 

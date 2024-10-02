@@ -1,4 +1,4 @@
-from kubetester import create_or_update, find_fixture, try_load
+from kubetester import find_fixture, try_load
 from kubetester.kubetester import ensure_ent_version
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.operator import Operator
@@ -34,7 +34,7 @@ def test_create(sharded_cluster: MongoDB, custom_mdb_version: str, issuer_ca_con
     sharded_cluster["spec"]["configSrv"]["clusterSpecList"] = cluster_spec_list(get_member_cluster_names(), [2, 2, 1])
     sharded_cluster["spec"]["mongos"]["clusterSpecList"] = cluster_spec_list(get_member_cluster_names(), [1, 2, 1])
     sharded_cluster.set_architecture_annotation()
-    create_or_update(sharded_cluster)
+    sharded_cluster.update()
 
 
 @mark.e2e_multi_cluster_sharded_simplest

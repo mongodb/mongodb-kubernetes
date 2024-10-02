@@ -3,7 +3,6 @@ from typing import Optional
 
 from kubernetes.client.rest import ApiException
 from kubetester import (
-    create_or_update,
     create_or_update_secret,
     get_default_storage_class,
     try_load,
@@ -66,7 +65,7 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoD
     # mongoURI not being updated unless pod is killed. This is documented in CLOUDP-60443, once resolved this skip & comment can be deleted
     resource["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -79,7 +78,7 @@ def s3_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoDB:
     ).configure(ops_manager, "s3metadata")
     resource.set_version(custom_mdb_version)
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -91,7 +90,7 @@ def blockstore_replica_set(ops_manager, namespace, custom_mdb_version: str) -> M
         name=BLOCKSTORE_RS_NAME,
     ).configure(ops_manager, "blockstore")
     resource.set_version(custom_mdb_version)
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -110,7 +109,7 @@ def blockstore_user(namespace, blockstore_replica_set: MongoDB) -> MongoDBUser:
         },
     )
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -135,7 +134,7 @@ def oplog_user(namespace, oplog_replica_set: MongoDB) -> MongoDBUser:
         },
     )
 
-    yield create_or_update(resource)
+    yield resource.update()
 
 
 @mark.e2e_om_ops_manager_backup_sharded_cluster
@@ -167,7 +166,7 @@ class TestOpsManagerCreation:
         if is_multi_cluster():
             enable_multi_cluster_deployment(ops_manager)
 
-        create_or_update(ops_manager)
+        ops_manager.update()
 
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Pending,
@@ -280,8 +279,8 @@ class TestBackupForMongodb:
         return resource
 
     def test_mdbs_created(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
-        create_or_update(mdb_latest)
-        create_or_update(mdb_prev)
+        mdb_latest.update()
+        mdb_prev.update()
         mdb_latest.assert_reaches_phase(Phase.Running, timeout=1000)
         mdb_prev.assert_reaches_phase(Phase.Running, timeout=1000)
 
@@ -301,11 +300,11 @@ class TestBackupForMongodb:
         # otherwise, if you start a backup during a topology change will lead the backup to be aborted.
         time.sleep(30)
         mdb_latest.configure_backup(mode="enabled")
-        create_or_update(mdb_latest)
+        mdb_latest.update()
 
         mdb_prev.load()
         mdb_prev.configure_backup(mode="enabled")
-        create_or_update(mdb_prev)
+        mdb_prev.update()
 
         mdb_prev.assert_reaches_phase(Phase.Running, timeout=600)
         mdb_latest.assert_reaches_phase(Phase.Running, timeout=600)
@@ -327,7 +326,7 @@ class TestBackupForMongodb:
         # step for the operator
         mdb_prev.assert_backup_reaches_status("STARTED", timeout=100)
         mdb_prev.configure_backup(mode="disabled")
-        create_or_update(mdb_prev)
+        mdb_prev.update()
         mdb_prev.assert_backup_reaches_status("STOPPED", timeout=600)
 
     def test_can_transition_from_started_to_terminated_0(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
@@ -335,14 +334,14 @@ class TestBackupForMongodb:
         # the operator should handle the transition from STARTED -> STOPPED -> TERMINATING
         mdb_latest.assert_backup_reaches_status("STARTED", timeout=100)
         mdb_latest.configure_backup(mode="terminated")
-        create_or_update(mdb_latest)
+        mdb_latest.update()
         mdb_latest.assert_backup_reaches_status("TERMINATING", timeout=600)
 
     def test_backup_terminated_for_deleted_resource(self, ops_manager: MongoDBOpsManager, mdb_prev: MongoDB):
         # re-enable backup
         mdb_prev.configure_backup(mode="enabled")
         mdb_prev["spec"]["backup"]["autoTerminateOnDeletion"] = True
-        create_or_update(mdb_prev)
+        mdb_prev.update()
         mdb_prev.assert_backup_reaches_status("STARTED", timeout=600)
         mdb_prev.delete()
 

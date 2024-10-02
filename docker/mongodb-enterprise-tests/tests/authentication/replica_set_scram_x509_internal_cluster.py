@@ -1,4 +1,4 @@
-from kubetester import create_or_update, create_or_update_secret, read_secret
+from kubetester import create_or_update_secret, read_secret
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import (
     ISSUER_CA_NAME,
@@ -34,7 +34,7 @@ def mdb(namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap
         namespace=namespace,
     )
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
-    return create_or_update(res)
+    return res.update()
 
 
 @mark.e2e_replica_set_scram_x509_internal_cluster

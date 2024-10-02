@@ -1,7 +1,7 @@
 from typing import Optional
 
 import kubernetes
-from kubetester import create_or_update, try_load, wait_until
+from kubetester import try_load, wait_until
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.opsmanager import MongoDBOpsManager
@@ -40,13 +40,13 @@ def replica_set(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_versi
 
 @mark.e2e_om_feature_controls
 def test_create_om(ops_manager: MongoDBOpsManager):
-    create_or_update(ops_manager)
+    ops_manager.update()
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
 
 @mark.e2e_om_feature_controls
 def test_replica_set_reaches_running_phase(replica_set: MongoDB):
-    create_or_update(replica_set)
+    replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
 
 

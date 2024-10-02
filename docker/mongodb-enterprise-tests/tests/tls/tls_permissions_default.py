@@ -1,4 +1,4 @@
-from kubetester import create_or_update, find_fixture, try_load
+from kubetester import find_fixture, try_load
 from kubetester.certs import create_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb import MongoDB, Phase
@@ -29,7 +29,7 @@ def replica_set(
 @mark.e2e_replica_set_tls_default
 def test_replica_set(replica_set: MongoDB):
 
-    create_or_update(replica_set)
+    replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 

@@ -1,7 +1,7 @@
 import time
 
 import pytest
-from kubetester import create_or_update, try_load
+from kubetester import try_load
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import (
     ISSUER_CA_NAME,
@@ -42,7 +42,7 @@ def agent_certs(issuer: str, namespace: str) -> str:
 @pytest.mark.e2e_replica_set_x509_to_scram_transition
 class TestEnableX509ForReplicaSet(KubernetesTester):
     def test_replica_set_running(self, replica_set: MongoDB):
-        create_or_update(replica_set)
+        replica_set.update()
         replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
     def test_ops_manager_state_updated_correctly(self):

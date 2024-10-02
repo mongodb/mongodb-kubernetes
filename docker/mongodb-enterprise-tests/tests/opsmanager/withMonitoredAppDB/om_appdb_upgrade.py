@@ -1,7 +1,6 @@
 from typing import Optional
 
 import pytest
-from kubetester import create_or_update
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
@@ -26,7 +25,7 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_mdb_prev_v
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 

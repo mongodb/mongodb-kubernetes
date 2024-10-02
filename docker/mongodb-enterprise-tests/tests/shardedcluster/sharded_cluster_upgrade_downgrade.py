@@ -1,5 +1,5 @@
 import pymongo
-from kubetester import MongoDB, create_or_update, try_load
+from kubetester import MongoDB, try_load
 from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
@@ -22,7 +22,7 @@ def sharded_cluster(namespace: str, custom_mdb_prev_version: str, cluster_domain
     resource.set_version(custom_mdb_prev_version)
     if try_load(resource):
         return resource
-    return create_or_update(resource)
+    return resource.update()
 
 
 @fixture(scope="module")
@@ -60,7 +60,7 @@ class TestShardedClusterUpgradeDowngradeUpdate(KubernetesTester):
         sharded_cluster.set_version(custom_mdb_version)
         fcv = fcv_from_version(custom_mdb_prev_version)
         sharded_cluster["spec"]["featureCompatibilityVersion"] = fcv
-        create_or_update(sharded_cluster)
+        sharded_cluster.update()
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1200)
         sharded_cluster.tester().assert_version(custom_mdb_version)
 
@@ -74,7 +74,7 @@ class TestShardedClusterUpgradeDowngradeRevert(KubernetesTester):
     def test_mongodb_downgrade(self, sharded_cluster: MongoDB, custom_mdb_prev_version: str):
         sharded_cluster.load()
         sharded_cluster.set_version(custom_mdb_prev_version)
-        create_or_update(sharded_cluster)
+        sharded_cluster.update()
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1200)
         sharded_cluster.tester().assert_version(custom_mdb_prev_version)
 

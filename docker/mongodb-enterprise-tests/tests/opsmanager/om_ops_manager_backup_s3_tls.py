@@ -1,6 +1,6 @@
 from typing import Optional
 
-from kubetester import create_or_update, create_or_update_secret, try_load
+from kubetester import create_or_update_secret, try_load
 from kubetester.awss3client import AwsS3Client, s3_endpoint
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
@@ -97,7 +97,7 @@ def ops_manager(
 @mark.e2e_om_ops_manager_backup_s3_tls
 class TestOpsManagerCreation:
     def test_create_om(self, ops_manager: MongoDBOpsManager):
-        create_or_update(ops_manager)
+        ops_manager.update()
 
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=600)
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
@@ -122,7 +122,7 @@ class TestOpsManagerCreation:
         ops_manager["spec"]["backup"]["s3OpLogStores"][0]["customCertificateSecretRefs"] = custom_certificate
         ops_manager["spec"]["backup"]["s3Stores"][0]["customCertificateSecretRefs"] = custom_certificate
 
-        create_or_update(ops_manager)
+        ops_manager.update()
 
     def test_om_is_running(
         self,

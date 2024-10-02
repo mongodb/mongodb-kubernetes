@@ -11,7 +11,7 @@
 from typing import List
 
 import pytest
-from kubetester import create_or_update, try_load
+from kubetester import try_load
 from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
@@ -83,7 +83,7 @@ def test_update_coredns():
 
 @pytest.mark.e2e_replica_set_tls_process_hostnames
 def test_create_replica_set(replica_set: MongoDB):
-    create_or_update(replica_set)
+    replica_set.update()
 
 
 @pytest.mark.e2e_replica_set_tls_process_hostnames

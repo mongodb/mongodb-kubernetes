@@ -1,5 +1,4 @@
 import pytest
-from kubetester import create_or_update
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
@@ -15,7 +14,7 @@ class TestCreateScramSha1ReplicaSet(KubernetesTester):
     def test_create_replicaset(self, custom_mdb_version: str):
         resource = MongoDB.from_yaml(load_fixture("replica-set-scram.yaml"), namespace=self.namespace)
         resource.set_version(custom_mdb_version)
-        create_or_update(resource)
+        resource.update()
 
         resource.assert_reaches_phase(Phase.Running)
 

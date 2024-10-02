@@ -1,7 +1,7 @@
 import kubernetes
 import pymongo
 import pytest
-from kubetester import create_or_update, try_load
+from kubetester import try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti
@@ -48,7 +48,7 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 
 @pytest.mark.e2e_multi_cluster_replica_set_migration
 def test_create_mongodb_multi_running(mongodb_multi: MongoDBMulti):
-    create_or_update(mongodb_multi)
+    mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
 
 

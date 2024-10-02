@@ -2,7 +2,7 @@ from typing import List
 
 import kubernetes
 from kubernetes import client
-from kubetester import create_or_update, get_service
+from kubetester import get_service
 from kubetester.certs import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
@@ -134,7 +134,7 @@ def mongodb_multi(
     }
     mongodb_multi_unmarshalled.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 
-    return create_or_update(mongodb_multi_unmarshalled)
+    return mongodb_multi_unmarshalled.update()
 
 
 @fixture(scope="module")

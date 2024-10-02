@@ -3,12 +3,7 @@ from typing import Dict, List, Optional
 
 import kubernetes.client
 from kubernetes import client
-from kubetester import (
-    create_or_update,
-    create_or_update_configmap,
-    get_deployments,
-    read_configmap,
-)
+from kubetester import create_or_update_configmap, get_deployments, read_configmap
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.operator import Operator
@@ -224,7 +219,7 @@ class TestOpsManagerCreation:
         self,
         ops_manager: MongoDBOpsManager,
     ):
-        create_or_update(ops_manager)
+        ops_manager.update()
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=700)
         ops_manager.om_status().assert_reaches_phase(Phase.Running)
 
@@ -258,7 +253,7 @@ class TestOperatorUpgrade:
         ops_manager.load()
         # Reordering the clusters triggers a change in the state
         ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = scale_on_upgrade.cluster_spec
-        create_or_update(ops_manager)
+        ops_manager.update()
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=500)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=250)
 
@@ -322,7 +317,7 @@ class TestOperatorDowngrade:
     def test_scale_appdb(self, ops_manager: MongoDBOpsManager):
         ops_manager.load()
         ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = scale_on_downgrade.cluster_spec
-        create_or_update(ops_manager)
+        ops_manager.update()
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=200)
 

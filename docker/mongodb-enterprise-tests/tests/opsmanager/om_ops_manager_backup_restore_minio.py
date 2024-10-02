@@ -6,7 +6,6 @@ from typing import List, Optional
 import pymongo
 from kubetester import (
     MongoDB,
-    create_or_update,
     create_or_update_namespace,
     create_or_update_secret,
     read_secret,
@@ -281,7 +280,7 @@ class TestMinioCreation:
 class TestOpsManagerCreation:
     def test_create_om(self, ops_manager: MongoDBOpsManager):
         """creates a s3 bucket and an OM resource, the S3 configs get created using AppDB. Oplog store is still required."""
-        create_or_update(ops_manager)
+        ops_manager.update()
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Pending,
@@ -345,8 +344,8 @@ class TestBackupForMongodb:
     Both Mdb 4.0 and 4.2 are tested (as the backup process for them differs significantly)"""
 
     def test_mdbs_created(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
-        create_or_update(mdb_latest)
-        create_or_update(mdb_prev)
+        mdb_latest.update()
+        mdb_prev.update()
         mdb_latest.assert_reaches_phase(Phase.Running)
         mdb_prev.assert_reaches_phase(Phase.Running)
 

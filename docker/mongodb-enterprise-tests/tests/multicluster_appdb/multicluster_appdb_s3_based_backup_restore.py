@@ -3,7 +3,7 @@ import time
 
 import kubernetes.client
 import pymongo
-from kubetester import create_or_update, create_or_update_configmap, try_load
+from kubetester import create_or_update_configmap, try_load
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
@@ -57,7 +57,7 @@ def multi_cluster_s3_replica_set(
     resource["spec"]["clusterSpecList"] = cluster_spec_list(appdb_member_cluster_names, [1, 2])
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    yield create_or_update(resource)
+    yield resource.update()
 
 
 @fixture(scope="module")
@@ -105,7 +105,7 @@ class TestOpsManagerCreation:
         ops_manager: MongoDBOpsManager,
     ):
         ops_manager["spec"]["backup"]["members"] = 1
-        create_or_update(ops_manager)
+        ops_manager.update()
 
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
         ops_manager.om_status().assert_reaches_phase(Phase.Running)
@@ -197,7 +197,7 @@ class TestBackupForMongodb:
         resource.configure_backup(mode="enabled")
         resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 
-        return create_or_update(resource)
+        return resource.update()
 
     def test_mongodb_multi_one_running_state(self, mongodb_multi_one: MongoDBMulti):
         # we might fail connection in the beginning since we set a custom dns in coredns

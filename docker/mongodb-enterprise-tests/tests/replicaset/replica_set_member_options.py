@@ -1,5 +1,4 @@
 import pytest
-from kubetester import create_or_update
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import MongoDB, Phase
@@ -38,7 +37,7 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
             },
         },
     ]
-    create_or_update(resource)
+    resource.update()
 
     return resource
 

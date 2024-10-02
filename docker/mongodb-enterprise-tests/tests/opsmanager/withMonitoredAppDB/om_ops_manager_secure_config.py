@@ -3,7 +3,7 @@ from typing import Optional
 
 import pytest
 from kubernetes import client
-from kubetester import create_or_update, create_or_update_secret, try_load
+from kubetester import create_or_update_secret, try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
@@ -40,7 +40,7 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
 
-    create_or_update(resource)
+    resource.update()
 
     return resource
 
@@ -86,8 +86,8 @@ def test_appdb_monitoring_configured(ops_manager: MongoDBOpsManager):
 
 @pytest.mark.e2e_om_ops_manager_secure_config
 def test_backing_dbs_created(oplog_replica_set: MongoDB, blockstore_replica_set: MongoDB):
-    create_or_update(oplog_replica_set)
-    create_or_update(blockstore_replica_set)
+    oplog_replica_set.update()
+    blockstore_replica_set.update()
 
     oplog_replica_set.assert_reaches_phase(Phase.Running)
     blockstore_replica_set.assert_reaches_phase(Phase.Running)

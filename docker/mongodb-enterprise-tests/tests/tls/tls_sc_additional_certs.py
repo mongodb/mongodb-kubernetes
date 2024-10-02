@@ -3,7 +3,6 @@ import time
 
 import jsonpatch
 import pytest
-from kubetester import create_or_update
 from kubetester.certs import (
     ISSUER_CA_NAME,
     create_agent_tls_certs,
@@ -38,7 +37,7 @@ def sc(namespace: str, server_certs: str, issuer_ca_configmap: str, custom_mdb_v
     res = MongoDB.from_yaml(load_fixture("test-tls-sc-additional-domains.yaml"), namespace=namespace)
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
     res.set_version(custom_mdb_version)
-    return create_or_update(res)
+    return res.update()
 
 
 @pytest.mark.e2e_tls_sc_additional_certs

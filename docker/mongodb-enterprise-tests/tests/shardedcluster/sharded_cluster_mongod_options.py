@@ -1,5 +1,4 @@
 from kubernetes import client
-from kubetester import create_or_update
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
@@ -19,7 +18,7 @@ def sharded_cluster(namespace: str) -> MongoDB:
     )
 
     setup_log_rotate_for_agents(resource)
-    create_or_update(resource)
+    resource.update()
     return resource
 
 

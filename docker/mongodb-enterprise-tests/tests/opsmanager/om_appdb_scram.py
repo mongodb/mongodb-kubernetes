@@ -1,7 +1,7 @@
 from typing import Optional
 
 import pytest
-from kubetester import create_or_update, create_or_update_secret
+from kubetester import create_or_update_secret
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
@@ -33,7 +33,7 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 

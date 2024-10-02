@@ -5,7 +5,7 @@ import pytest
 import semver
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-from kubetester import MongoDB, create_or_update, try_load
+from kubetester import MongoDB, try_load
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
@@ -102,7 +102,7 @@ class TestOpsManagerCreation:
 
     def test_create_om(self, ops_manager: MongoDBOpsManager):
         logger.info(f"Creating OM with version {ops_manager.get_version()}")
-        create_or_update(ops_manager)
+        ops_manager.update()
         ops_manager.om_status().assert_reaches_phase(Phase.Running)
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
@@ -162,7 +162,7 @@ class TestBackupCreation:
         self,
         oplog_replica_set: MongoDB,
     ):
-        create_or_update(oplog_replica_set)
+        oplog_replica_set.update()
         oplog_replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
     def test_add_oplog_config(self, ops_manager: MongoDBOpsManager):
@@ -195,7 +195,7 @@ class TestBackupCreation:
 @pytest.mark.e2e_om_ops_manager_upgrade
 class TestOpsManagerWithMongoDB:
     def test_mongodb_create(self, mdb: MongoDB, custom_mdb_prev_version: str):
-        create_or_update(mdb)
+        mdb.update()
 
         mdb.assert_reaches_phase(Phase.Running, timeout=600)
         mdb.assert_connectivity()

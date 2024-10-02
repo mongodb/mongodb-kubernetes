@@ -1,6 +1,6 @@
 from typing import Optional
 
-from kubetester import create_or_update, get_default_storage_class
+from kubetester import get_default_storage_class
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
@@ -22,7 +22,7 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -35,7 +35,7 @@ def replica_set(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_versi
     resource.set_version(custom_mdb_version)
     resource["spec"]["members"] = 2
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 

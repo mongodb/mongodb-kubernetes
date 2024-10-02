@@ -4,7 +4,7 @@ from typing import Optional
 
 import kubernetes.client
 import pytest
-from kubetester import create_or_update, create_or_update_secret, find_fixture, try_load
+from kubetester import create_or_update_secret, find_fixture, try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
@@ -139,8 +139,8 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 
 @pytest.mark.e2e_om_reconcile_race
 def test_create_om(ops_manager: MongoDBOpsManager, ops_manager2: MongoDBOpsManager):
-    create_or_update(ops_manager)
-    create_or_update(ops_manager2)
+    ops_manager.update()
+    ops_manager2.update()
 
 
 @pytest.mark.e2e_om_reconcile_race
@@ -162,7 +162,7 @@ def test_create_mdb(ops_manager: MongoDBOpsManager, namespace: str):
             "authentication": {"agents": {"mode": "SCRAM"}, "enabled": True, "modes": ["SCRAM"]}
         }
         resource.set_version(get_custom_mdb_version())
-        create_or_update(resource)
+        resource.update()
 
     for r in get_all_rs(ops_manager, namespace):
         r.assert_reaches_phase(Phase.Running)
@@ -173,7 +173,7 @@ def test_create_mdbmc(ops_manager: MongoDBOpsManager, namespace: str):
     for resource in get_all_mdbmc(ops_manager, namespace):
         resource.set_version(get_custom_mdb_version())
         resource["spec"]["clusterSpecList"] = cluster_spec_list(get_member_cluster_names(), [1, 1, 1])
-        create_or_update(resource)
+        resource.update()
 
     for r in get_all_rs(ops_manager, namespace):
         r.assert_reaches_phase(Phase.Running)
@@ -183,7 +183,7 @@ def test_create_mdbmc(ops_manager: MongoDBOpsManager, namespace: str):
 def test_create_sharded(ops_manager: MongoDBOpsManager, namespace: str):
     for resource in get_all_sharded(ops_manager, namespace):
         resource.set_version(get_custom_mdb_version())
-        create_or_update(resource)
+        resource.update()
 
     for r in get_all_rs(ops_manager, namespace):
         r.assert_reaches_phase(Phase.Running)
@@ -193,7 +193,7 @@ def test_create_sharded(ops_manager: MongoDBOpsManager, namespace: str):
 def test_create_standalone(ops_manager: MongoDBOpsManager, namespace: str):
     for resource in get_all_standalone(ops_manager, namespace):
         resource.set_version(get_custom_mdb_version())
-        create_or_update(resource)
+        resource.update()
 
     for r in get_all_rs(ops_manager, namespace):
         r.assert_reaches_phase(Phase.Running)
@@ -210,7 +210,7 @@ def test_create_users(ops_manager: MongoDBOpsManager, namespace: str):
         for resource in get_all_users(ops_manager, namespace, mdb):
             resource["spec"]["mongodbResourceRef"] = {"name": mdb.name}
             resource["spec"]["passwordSecretKeyRef"] = {"name": "mdb-user-password", "key": "password"}
-            create_or_update(resource)
+            resource.update()
 
     for r in get_all_rs(ops_manager, namespace):
         r.assert_reaches_phase(Phase.Running)

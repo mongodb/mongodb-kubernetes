@@ -3,7 +3,7 @@ from typing import Dict
 
 import pytest
 from kubernetes import client
-from kubetester import create_or_update, create_secret, read_secret, try_load
+from kubetester import create_secret, read_secret, try_load
 from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
 from kubetester.helm import helm_template
 from kubetester.kubetester import create_testing_namespace
@@ -156,7 +156,7 @@ def test_create_image_pull_secret_mdb_namespace(
 @pytest.mark.e2e_operator_clusterwide
 @pytest.mark.e2e_operator_multi_namespaces
 def test_create_om_in_separate_namespace(ops_manager: MongoDBOpsManager):
-    create_or_update(ops_manager)
+    ops_manager.update()
     ops_manager.create_admin_secret()
     ops_manager.backup_status().assert_reaches_phase(
         Phase.Pending, msg_regexp=".*configuration is required for backup", timeout=900
@@ -179,7 +179,7 @@ def test_check_k8s_resources(ops_manager: MongoDBOpsManager, ops_manager_namespa
 @pytest.mark.e2e_operator_clusterwide
 @pytest.mark.e2e_operator_multi_namespaces
 def test_create_mdb_in_separate_namespace(mdb: MongoDB, mdb_namespace: str):
-    create_or_update(mdb)
+    mdb.update()
     mdb.assert_reaches_phase(Phase.Running, timeout=600)
     mdb.assert_connectivity()
     assert mdb.read_statefulset().metadata.namespace == mdb_namespace

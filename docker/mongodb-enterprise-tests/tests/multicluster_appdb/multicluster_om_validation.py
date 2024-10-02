@@ -1,7 +1,7 @@
 import kubernetes
 import pytest
 from kubernetes.client.rest import ApiException
-from kubetester import create_or_update, try_load
+from kubetester import try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
@@ -58,7 +58,7 @@ def test_topology_is_specified(ops_manager: MongoDBOpsManager):
         ApiException,
         match=r"Topology 'MultiCluster' must be specified.*",
     ):
-        create_or_update(ops_manager)
+        ops_manager.update()
 
 
 @mark.usefixtures("multi_cluster_operator")
@@ -71,4 +71,4 @@ def test_validate_cluster_spec_list(ops_manager: MongoDBOpsManager):
         ApiException,
         match=r"At least one ClusterSpecList entry must be specified for MultiCluster mode OM",
     ):
-        create_or_update(ops_manager)
+        ops_manager.update()

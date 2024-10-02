@@ -1,12 +1,7 @@
 import time
 
 from kubernetes import client
-from kubetester import (
-    MongoDB,
-    create_or_update,
-    create_or_update_secret,
-    random_k8s_name,
-)
+from kubetester import MongoDB, create_or_update_secret, random_k8s_name
 from kubetester.certs import create_mongodb_tls_certs
 from kubetester.http import https_endpoint_is_reachable
 from kubetester.kubetester import ensure_ent_version
@@ -62,7 +57,7 @@ def ops_manager(
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 

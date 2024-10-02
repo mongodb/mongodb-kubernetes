@@ -1,19 +1,9 @@
-import re
-
 import pytest
-from kubetester import create_or_update, create_secret, find_fixture
-from kubetester.certs import (
-    ISSUER_CA_NAME,
-    Certificate,
-    create_agent_tls_certs,
-    create_mongodb_tls_certs,
-)
+from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import MongoDB, Phase
-from kubetester.mongotester import ReplicaSetTester
-from kubetester.omtester import get_rs_cert_names
 
 
 @pytest.fixture(scope="module")
@@ -56,7 +46,7 @@ def mdb(namespace: str, server_certs: str, issuer_ca_configmap: str, custom_mdb_
     res = MongoDB.from_yaml(load_fixture("test-tls-base-rs-external-access.yaml"), namespace=namespace)
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
     res.set_version(custom_mdb_version)
-    return create_or_update(res)
+    return res.update()
 
 
 @pytest.fixture(scope="module")

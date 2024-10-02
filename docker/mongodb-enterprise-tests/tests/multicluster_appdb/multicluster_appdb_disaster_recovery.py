@@ -3,7 +3,6 @@ from typing import Optional
 import kubernetes
 import kubernetes.client
 from kubetester import (
-    create_or_update,
     delete_statefulset,
     get_statefulset,
     read_configmap,
@@ -93,7 +92,7 @@ def config_version():
 @mark.usefixtures("multi_cluster_operator")
 @mark.e2e_multi_cluster_appdb_disaster_recovery
 def test_create_om(ops_manager: MongoDBOpsManager, appdb_certs_secret: str, config_version):
-    create_or_update(ops_manager)
+    ops_manager.update()
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
     ops_manager.om_status().assert_reaches_phase(Phase.Running)
 
@@ -108,7 +107,7 @@ def test_create_om_majority_down(ops_manager: MongoDBOpsManager, appdb_certs_sec
         ["kind-e2e-cluster-2", FAILED_MEMBER_CLUSTER_NAME], [2, 3]
     )
 
-    create_or_update(ops_manager)
+    ops_manager.update()
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
     ops_manager.om_status().assert_reaches_phase(Phase.Running)
 
@@ -202,7 +201,7 @@ def test_delete_om_and_appdb_statefulset_in_failed_cluster(
 @mark.e2e_multi_cluster_appdb_disaster_recovery
 @mark.e2e_multi_cluster_appdb_disaster_recovery_force_reconfigure
 def test_appdb_is_stable_and_om_is_recreated(ops_manager: MongoDBOpsManager, config_version):
-    create_or_update(ops_manager)
+    ops_manager.update()
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
     ops_manager.om_status().assert_reaches_phase(Phase.Running)
 
@@ -217,7 +216,7 @@ def test_add_appdb_member_to_om_cluster(ops_manager: MongoDBOpsManager, config_v
         ["kind-e2e-cluster-2", FAILED_MEMBER_CLUSTER_NAME, OM_MEMBER_CLUSTER_NAME],
         [3, 2, 1],
     )
-    create_or_update(ops_manager)
+    ops_manager.update()
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
     ops_manager.om_status().assert_reaches_phase(Phase.Running)
 
@@ -237,12 +236,12 @@ def test_add_appdb_member_to_om_cluster_force_reconfig(ops_manager: MongoDBOpsMa
         ["kind-e2e-cluster-2", FAILED_MEMBER_CLUSTER_NAME, OM_MEMBER_CLUSTER_NAME],
         [3, 2, 1],
     )
-    create_or_update(ops_manager)
+    ops_manager.update()
     ops_manager.appdb_status().assert_reaches_phase(Phase.Pending)
 
     ops_manager.reload()
     ops_manager["metadata"]["annotations"].update({"mongodb.com/v1.forceReconfigure": "true"})
-    create_or_update(ops_manager)
+    ops_manager.update()
 
     # This can potentially take quite a bit of time. AppDB needs to go up and sync with OM (which will be crashlooping)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
@@ -262,7 +261,7 @@ def test_remove_failed_member_cluster_has_been_scaled_down(ops_manager: MongoDBO
     ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(
         ["kind-e2e-cluster-2", OM_MEMBER_CLUSTER_NAME], [3, 1]
     )
-    create_or_update(ops_manager)
+    ops_manager.update()
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
     ops_manager.om_status().assert_reaches_phase(Phase.Running)
 

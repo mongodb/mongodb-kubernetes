@@ -7,7 +7,6 @@ import kubernetes.client
 import pymongo
 from kubernetes import client
 from kubetester import (
-    create_or_update,
     create_or_update_configmap,
     create_or_update_secret,
     get_default_storage_class,
@@ -150,7 +149,7 @@ def oplog_replica_set(
     resource["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    yield create_or_update(resource)
+    yield resource.update()
 
 
 @fixture(scope="module")
@@ -179,7 +178,7 @@ def blockstore_replica_set(
 
     resource.set_version(custom_mdb_version)
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    yield create_or_update(resource)
+    yield resource.update()
 
 
 @fixture(scope="module")
@@ -203,7 +202,7 @@ def blockstore_user(
     )
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    yield create_or_update(resource)
+    yield resource.update()
 
 
 @fixture(scope="module")
@@ -233,7 +232,7 @@ def oplog_user(
     )
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    yield create_or_update(resource)
+    yield resource.update()
 
 
 @mark.e2e_multi_cluster_backup_restore
@@ -257,7 +256,7 @@ class TestOpsManagerCreation:
         ops_manager["spec"]["backup"]["headDB"]["storageClass"] = get_default_storage_class()
         ops_manager["spec"]["backup"]["members"] = 1
 
-        create_or_update(ops_manager)
+        ops_manager.update()
 
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Pending,
@@ -415,7 +414,7 @@ class TestBackupForMongodb:
             api_client=central_cluster_client,
         )
 
-        return create_or_update(resource)
+        return resource.update()
 
     @mark.e2e_multi_cluster_backup_restore
     def test_setup_om_connection(
