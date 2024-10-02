@@ -9,57 +9,47 @@ import (
 	"strings"
 	"time"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/agentVersionManagement"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
-
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-	"golang.org/x/xerrors"
-
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/passwordhash"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
-
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
-
-	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
-	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/authentication"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/inspect"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
 	"github.com/blang/semver"
-
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/om"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
-	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
-	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
+
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+
+	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
+	"github.com/10gen/ops-manager-kubernetes/controllers/om"
+	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/authentication"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/inspect"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
+	"github.com/10gen/ops-manager-kubernetes/pkg/agentVersionManagement"
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
+	"github.com/10gen/ops-manager-kubernetes/pkg/passwordhash"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
+	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 )
 
 func automationConfigFirstMsg(resourceType string, valueToSet string) string {

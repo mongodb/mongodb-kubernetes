@@ -7,12 +7,12 @@ import (
 	"encoding/base64"
 	"hash"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/generate"
+	"github.com/xdg/stringprep"
 	"golang.org/x/xerrors"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/xdg/stringprep"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/generate"
 )
 
 const (

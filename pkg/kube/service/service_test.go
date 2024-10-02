@@ -4,13 +4,15 @@ import (
 	"context"
 	"testing"
 
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
 )
 
 func TestService_merge0(t *testing.T) {

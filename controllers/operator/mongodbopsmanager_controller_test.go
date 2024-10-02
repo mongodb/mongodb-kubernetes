@@ -8,59 +8,44 @@ import (
 	"sync"
 	"testing"
 
-	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
-
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"k8s.io/utils/ptr"
-
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
-
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/constants"
-
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/scramcredentials"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
-
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
-
+	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
-	userv1 "github.com/10gen/ops-manager-kubernetes/api/v1/user"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/scramcredentials"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/constants"
 
-	"k8s.io/apimachinery/pkg/types"
-
-	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-
-	"go.uber.org/zap"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
+	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
+	userv1 "github.com/10gen/ops-manager-kubernetes/api/v1/user"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/api"
+	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
 	operatorConstruct "github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
-	"github.com/stretchr/testify/assert"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
 func TestOpsManagerReconciler_watchedResources(t *testing.T) {

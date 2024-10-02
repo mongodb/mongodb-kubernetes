@@ -6,28 +6,27 @@ import (
 	"net/url"
 	"strings"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/hashicorp/go-multierror"
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	"go.uber.org/zap"
 	"golang.org/x/xerrors"
+	"k8s.io/apimachinery/pkg/types"
 
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
+
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	enterprisepem "github.com/10gen/ops-manager-kubernetes/controllers/operator/pem"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
-	"go.uber.org/zap"
-
-	enterprisepem "github.com/10gen/ops-manager-kubernetes/controllers/operator/pem"
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
-
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
-	corev1 "k8s.io/api/core/v1"
-
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
+	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 )
 
 type certDestination string

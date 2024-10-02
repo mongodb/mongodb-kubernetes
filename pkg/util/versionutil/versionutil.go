@@ -4,10 +4,10 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-
 	"github.com/blang/semver"
 	"golang.org/x/xerrors"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
 var semverRegex *regexp.Regexp

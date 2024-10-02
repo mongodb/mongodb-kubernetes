@@ -4,13 +4,12 @@ import (
 	"encoding/json"
 	"testing"
 
-	"k8s.io/apimachinery/pkg/api/equality"
-
 	"github.com/spf13/cast"
+	"github.com/stretchr/testify/assert"
+	"k8s.io/apimachinery/pkg/api/equality"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/ldap"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/stretchr/testify/assert"
 )
 
 var originalAutomationConfig = *getTestAutomationConfig()

@@ -3,13 +3,12 @@ package om
 import (
 	"testing"
 
-	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
-
-	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
-
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
 	"github.com/stretchr/testify/assert"
+
+	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
 )
 
 func TestOpsManagerValidation(t *testing.T) {

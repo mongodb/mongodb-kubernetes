@@ -3,12 +3,13 @@ package operator
 import (
 	"context"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 )
 
 // Deleter cleans up any state required upon deletion of a resource.

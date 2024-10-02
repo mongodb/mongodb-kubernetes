@@ -3,15 +3,15 @@ package project
 import (
 	"context"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"golang.org/x/xerrors"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 )
 
 func validateProjectConfig(ctx context.Context, cmGetter configmap.Getter, projectConfigMap client.ObjectKey) (map[string]string, error) {

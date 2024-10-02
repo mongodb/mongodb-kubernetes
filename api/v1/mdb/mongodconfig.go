@@ -4,9 +4,10 @@ import (
 	"encoding/json"
 	"strings"
 
+	"go.uber.org/zap"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
-	"go.uber.org/zap"
 )
 
 // The CRD generator does not support map[string]interface{}

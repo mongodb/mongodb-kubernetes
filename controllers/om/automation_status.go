@@ -4,13 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
+	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
-
+	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"go.uber.org/zap"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 )
 
 const automationAgentKubeUpgradePlan = "ChangeVersionKube"

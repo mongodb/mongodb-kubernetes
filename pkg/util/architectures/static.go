@@ -4,8 +4,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
 	"k8s.io/utils/env"
+
+	"github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
 )
 
 type DefaultArchitecture string

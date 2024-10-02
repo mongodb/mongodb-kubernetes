@@ -5,22 +5,21 @@ import (
 	"os"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"k8s.io/utils/ptr"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
-	mcoConstruct "github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
-
 	mdbc "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	mcoConstruct "github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/stretchr/testify/assert"
-	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
 )
 
 func init() {

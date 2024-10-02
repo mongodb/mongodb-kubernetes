@@ -1,10 +1,11 @@
 package workflow
 
 import (
-	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 	"go.uber.org/zap"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 )
 
 // invalidStatus indicates that the reconciliation process must be suspended and CR should get "Pending" status

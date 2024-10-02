@@ -6,14 +6,14 @@ import (
 	"reflect"
 
 	"github.com/google/go-cmp/cmp"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
 	"go.uber.org/zap"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	corev1 "k8s.io/api/core/v1"
 )
 
 // Type is an enum for all kubernetes types watched by controller for changes for configuration

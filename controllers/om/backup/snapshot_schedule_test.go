@@ -3,10 +3,10 @@ package backup
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"k8s.io/utils/ptr"
 
 	"github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestMergeExistingScheduleWithSpec(t *testing.T) {

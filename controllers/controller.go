@@ -5,13 +5,13 @@ import (
 	"strings"
 
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/user"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
 var crdFuncMap map[string][]func(context.Context, manager.Manager, map[string]cluster.Cluster) error

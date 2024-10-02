@@ -6,16 +6,16 @@ import (
 	"fmt"
 
 	"go.uber.org/zap"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
-	corev1 "k8s.io/api/core/v1"
-
+	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
-	"golang.org/x/xerrors"
+
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+	corev1 "k8s.io/api/core/v1"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 )
 
 const stateKey = "state"

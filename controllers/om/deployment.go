@@ -8,20 +8,20 @@ import (
 	"math"
 	"regexp"
 
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
-	"golang.org/x/xerrors"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
-
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 	"github.com/blang/semver"
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
+	"golang.org/x/xerrors"
 
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
+
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 )
 
 type DeploymentType int

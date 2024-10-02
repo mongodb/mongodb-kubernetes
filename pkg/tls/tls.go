@@ -3,11 +3,13 @@ package tls
 import (
 	"fmt"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
 )
 
 type Mode string

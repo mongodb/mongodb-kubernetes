@@ -4,8 +4,9 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/generate"
 	"golang.org/x/crypto/pbkdf2"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/generate"
 )
 
 const (

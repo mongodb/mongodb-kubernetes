@@ -1,10 +1,12 @@
 package construct
 
 import (
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"go.uber.org/zap"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+
+	corev1 "k8s.io/api/core/v1"
+
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 )
 
 // buildStorageRequirements returns a corev1.ResourceList definition for storage requirements.
