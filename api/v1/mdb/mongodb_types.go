@@ -7,38 +7,32 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/fcv"
-
-	"github.com/pkg/errors"
-
-	"k8s.io/apimachinery/pkg/labels"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
-
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/ldap"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
-
-	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
-	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
-
 	"github.com/blang/semver"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	ctrl "sigs.k8s.io/controller-runtime"
+	"github.com/pkg/errors"
+	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
+
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	ctrl "sigs.k8s.io/controller-runtime"
+
+	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
+	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/ldap"
+	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
+	"github.com/10gen/ops-manager-kubernetes/pkg/fcv"
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 )
 
 func init() {

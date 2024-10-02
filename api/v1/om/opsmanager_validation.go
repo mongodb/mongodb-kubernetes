@@ -5,17 +5,15 @@ import (
 	"fmt"
 	"net"
 
-	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
-
 	"github.com/blang/semver"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
-
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
-	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 )
 
 // IMPORTANT: this package is intended to contain only "simple" validation—in

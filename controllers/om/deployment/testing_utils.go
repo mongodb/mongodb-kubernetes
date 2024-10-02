@@ -1,13 +1,14 @@
 package deployment
 
 import (
+	"go.uber.org/zap"
+
 	"github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/replicaset"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
-	"go.uber.org/zap"
 )
 
 // CreateFromReplicaSet builds the replica set for the automation config

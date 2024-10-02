@@ -1,11 +1,12 @@
 package authentication
 
 import (
+	"go.uber.org/zap"
+
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/ldap"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
-	"go.uber.org/zap"
 )
 
 type ldapAuthMechanism struct {

@@ -5,71 +5,13 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
-
-	mekoService "github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/service"
-	"k8s.io/apimachinery/pkg/util/intstr"
-
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/scalers"
-
-	"k8s.io/utils/ptr"
-
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/recovery"
-	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
+	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/errors"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
 	"k8s.io/apimachinery/pkg/runtime"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
-	"github.com/10gen/ops-manager-kubernetes/pkg/vault/vaultwatcher"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/replicaset"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/deployment"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
-	enterprisepem "github.com/10gen/ops-manager-kubernetes/controllers/operator/pem"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connection"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/controlledfeature"
-
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/host"
-	appsv1 "k8s.io/api/apps/v1"
-
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	mdbstatus "github.com/10gen/ops-manager-kubernetes/api/v1/status"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"go.uber.org/zap"
-	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -77,6 +19,48 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/service"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
+
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	mdbstatus "github.com/10gen/ops-manager-kubernetes/api/v1/status"
+	"github.com/10gen/ops-manager-kubernetes/controllers/om"
+	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
+	"github.com/10gen/ops-manager-kubernetes/controllers/om/deployment"
+	"github.com/10gen/ops-manager-kubernetes/controllers/om/host"
+	"github.com/10gen/ops-manager-kubernetes/controllers/om/replicaset"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connection"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/scalers"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/controlledfeature"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
+	enterprisepem "github.com/10gen/ops-manager-kubernetes/controllers/operator/pem"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/recovery"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
+	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
+	mekoService "github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
+	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
+	"github.com/10gen/ops-manager-kubernetes/pkg/vault/vaultwatcher"
 )
 
 // ReconcileMongoDbShardedCluster is the reconciler for the sharded cluster

@@ -8,10 +8,11 @@ package mdb
 import (
 	"net"
 
-	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 	"github.com/blang/semver"
 	"golang.org/x/xerrors"
+
+	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 )
 
 // Go doesn't allow us to define constant array, so we wrap it in a function

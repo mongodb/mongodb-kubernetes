@@ -5,18 +5,17 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
+	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/probes"
-	"go.uber.org/zap"
 
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
-
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestBuildBackupDaemonStatefulSet(t *testing.T) {

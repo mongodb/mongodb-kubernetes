@@ -6,9 +6,8 @@ import (
 	"sort"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
-
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
 )
 
 // ********************************************************************************************************************

@@ -12,16 +12,14 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/hashicorp/go-retryablehttp"
 	"github.com/prometheus/client_golang/prometheus"
+	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
-	"go.uber.org/zap"
-
-	"github.com/hashicorp/go-retryablehttp"
-
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
 const (

@@ -3,11 +3,11 @@ package authentication
 import (
 	"testing"
 
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/ldap"
+	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
-	"github.com/stretchr/testify/assert"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/ldap"
 )
 
 func TestLdapDeploymentMechanism(t *testing.T) {

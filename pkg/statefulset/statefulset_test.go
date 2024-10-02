@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
+	"github.com/stretchr/testify/assert"
 
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 
-	"github.com/stretchr/testify/assert"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

@@ -6,13 +6,14 @@ import (
 	"path"
 	"strings"
 
+	"github.com/spf13/cast"
+
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
-	"github.com/spf13/cast"
 )
 
 // MongoType refers to the type of the Mongo process, `mongos` or `mongod`.

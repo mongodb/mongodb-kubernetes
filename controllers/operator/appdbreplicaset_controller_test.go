@@ -10,56 +10,39 @@ import (
 	"testing"
 	"time"
 
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
-
-	v1 "k8s.io/api/apps/v1"
-
-	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/agentVersionManagement"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
-
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/scalers"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
-
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 
-	"github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-
-	"k8s.io/apimachinery/pkg/types"
-
-	"k8s.io/apimachinery/pkg/api/resource"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
-
-	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/om"
-	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
+	"github.com/10gen/ops-manager-kubernetes/controllers/om"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/scalers"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
+	"github.com/10gen/ops-manager-kubernetes/pkg/agentVersionManagement"
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 )
 
 func init() {

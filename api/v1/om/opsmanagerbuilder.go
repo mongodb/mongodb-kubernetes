@@ -1,12 +1,15 @@
 package om
 
 import (
+	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
+
+	mdbc "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	appsv1 "k8s.io/api/apps/v1"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	userv1 "github.com/10gen/ops-manager-kubernetes/api/v1/user"
-	mdbc "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
-	appsv1 "k8s.io/api/apps/v1"
-	"k8s.io/apimachinery/pkg/types"
 )
 
 type OpsManagerBuilder struct {

@@ -10,29 +10,23 @@ import (
 	"testing"
 	"time"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/handler"
-	appsv1 "k8s.io/api/apps/v1"
-
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
-	"golang.org/x/xerrors"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/host"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/controlledfeature"
-
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
+	"golang.org/x/xerrors"
 
+	appsv1 "k8s.io/api/apps/v1"
+
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
+	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
+	"github.com/10gen/ops-manager-kubernetes/controllers/om/host"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/controlledfeature"
+	"github.com/10gen/ops-manager-kubernetes/pkg/handler"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
 )
 
 // ********************************************************************************************************************

@@ -8,16 +8,16 @@ import (
 	"strings"
 	"time"
 
-	intp "github.com/10gen/ops-manager-kubernetes/pkg/util/int"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/ghodss/yaml"
 	"golang.org/x/xerrors"
-	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+	restclient "k8s.io/client-go/rest"
+
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+	intp "github.com/10gen/ops-manager-kubernetes/pkg/util/int"
 )
 
 const (

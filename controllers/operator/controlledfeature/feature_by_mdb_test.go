@@ -3,9 +3,10 @@ package controlledfeature
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestBuildFeatureControlsByMdb_MongodbParams(t *testing.T) {

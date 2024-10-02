@@ -9,33 +9,25 @@ import (
 	"strings"
 	"sync"
 
-	"golang.org/x/xerrors"
-
 	"github.com/blang/semver"
-
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
+	"github.com/r3labs/diff/v3"
+	"go.uber.org/zap"
+	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/utils/ptr"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
 
-	"k8s.io/utils/ptr"
-
-	"github.com/r3labs/diff/v3"
-
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	"github.com/10gen/ops-manager-kubernetes/controllers/om/api"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
-
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/host"
-
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/controlledfeature"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/api"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"go.uber.org/zap"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
 )
 
 // TODO move it to 'api' package

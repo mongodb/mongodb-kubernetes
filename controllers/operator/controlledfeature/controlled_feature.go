@@ -1,11 +1,12 @@
 package controlledfeature
 
 import (
+	"go.uber.org/zap"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
-	"go.uber.org/zap"
 )
 
 type ControlledFeature struct {

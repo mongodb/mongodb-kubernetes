@@ -4,9 +4,8 @@ import (
 	"encoding/json"
 	"reflect"
 
-	"github.com/spf13/cast"
-
 	"github.com/imdario/mergo"
+	"github.com/spf13/cast"
 )
 
 // MergoDelete is a sentinel value that indicates a field is to be removed during the merging process

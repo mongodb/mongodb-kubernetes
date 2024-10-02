@@ -5,17 +5,19 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
+	"go.uber.org/zap"
 	"golang.org/x/xerrors"
+
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
-	"go.uber.org/zap"
+	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
 // Reader returns the name of a ConfigMap which contains Ops Manager project details.

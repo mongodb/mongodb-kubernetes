@@ -5,13 +5,13 @@ import (
 	"crypto/sha256"
 	"fmt"
 
+	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/ldap"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"go.uber.org/zap"
 )
 
 // AuthResource is an interface that a resources that can have authentication enabled should implement.

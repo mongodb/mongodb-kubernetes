@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 
+	"go.uber.org/zap"
+
+	corev1 "k8s.io/api/core/v1"
+
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
-	"go.uber.org/zap"
-	corev1 "k8s.io/api/core/v1"
 )
 
 // ReadHashFromSecret reads the existing Pem from

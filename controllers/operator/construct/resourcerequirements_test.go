@@ -3,10 +3,12 @@ package construct
 import (
 	"testing"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
+
 	corev1 "k8s.io/api/core/v1"
+
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 )
 
 func init() {

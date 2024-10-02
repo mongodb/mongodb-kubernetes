@@ -1,11 +1,13 @@
 package kube
 
 import (
-	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 )
 
 func ObjectKey(namespace, name string) client.ObjectKey {

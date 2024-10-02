@@ -5,38 +5,32 @@ import (
 	"fmt"
 	"reflect"
 
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/testing"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
+
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+	appsv1 "k8s.io/api/apps/v1"
+	certsv1 "k8s.io/api/certificates/v1beta1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apiruntime "k8s.io/apimachinery/pkg/runtime"
+
+	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/user"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
-	certsv1 "k8s.io/api/certificates/v1beta1"
-
-	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
-
+	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/handler"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
-
-	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/testing"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-
-	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
-
-	"k8s.io/apimachinery/pkg/types"
-
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/om"
-
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-
-	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	apiruntime "k8s.io/apimachinery/pkg/runtime"
 )
 
 const (

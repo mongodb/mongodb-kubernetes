@@ -3,17 +3,14 @@ package om
 import (
 	"encoding/json"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
-
 	"github.com/google/go-cmp/cmp"
-
+	"github.com/spf13/cast"
 	"k8s.io/apimachinery/pkg/api/equality"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/ldap"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/generate"
-
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/spf13/cast"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/generate"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
 )
 
 // AutomationConfig maintains the raw map in the Deployment field

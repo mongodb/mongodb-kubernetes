@@ -3,11 +3,12 @@ package workflow
 import (
 	"fmt"
 
+	"go.uber.org/zap"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/apierrors"
 
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
-	"go.uber.org/zap"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 // Status serves as a container holding the status of the custom resource
