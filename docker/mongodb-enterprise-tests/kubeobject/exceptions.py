@@ -1,0 +1,2 @@
+class ObjectNotBoundException(Exception):
+    pass

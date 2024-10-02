@@ -1,7 +1,7 @@
 import time
 from typing import Dict, List
 
-from kubetester import create_or_update, wait_until
+from kubetester import wait_until
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.ldap import LDAPUser, OpenLDAP
@@ -105,7 +105,7 @@ def test_sharded_cluster_turn_tls_on_CLOUDP_229222(sharded_cluster: MongoDB):
 
     resource = sharded_cluster.load()
     resource["spec"]["security"]["authentication"]["ldap"]["transportSecurity"] = "tls"
-    create_or_update(resource)
+    resource.update()
 
 
 @mark.e2e_sharded_cluster_ldap

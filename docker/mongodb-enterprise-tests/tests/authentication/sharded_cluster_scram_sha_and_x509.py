@@ -1,7 +1,7 @@
 import tempfile
 
 import pytest
-from kubetester import create_or_update, create_secret, try_load
+from kubetester import create_secret, try_load
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import (
     create_sharded_cluster_certs,
@@ -75,7 +75,7 @@ def x509_user(sharded_cluster: MongoDB, namespace: str) -> MongoDBUser:
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_and_x509
 def test_sharded_cluster_running(sharded_cluster: MongoDB):
-    create_or_update(sharded_cluster)
+    sharded_cluster.update()
     sharded_cluster.assert_reaches_phase(Phase.Running, timeout=400)
 
 

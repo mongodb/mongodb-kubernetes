@@ -2,7 +2,7 @@ import kubernetes
 import kubernetes.client
 import pytest
 from kubernetes.client.rest import ApiException
-from kubetester import create_or_update, try_load
+from kubetester import try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
@@ -60,7 +60,7 @@ def test_validate_unique_cluster_name(
         ApiException,
         match=r"Multiple clusters with the same name \(kind-e2e-cluster-2\) are not allowed",
     ):
-        create_or_update(ops_manager)
+        ops_manager.update()
 
 
 @mark.e2e_multi_cluster_appdb_validation
@@ -74,7 +74,7 @@ def test_non_empty_clusterspec_list(
         ApiException,
         match=r"ClusterSpecList empty is not allowed\, please define at least one cluster",
     ):
-        create_or_update(ops_manager)
+        ops_manager.update()
 
 
 @mark.e2e_multi_cluster_appdb_validation
@@ -90,7 +90,7 @@ def test_member_clusters_is_a_subset_of_kubeconfig(
         ApiException,
         match=r"The following clusters specified in ClusterSpecList is not present in Kubeconfig: \[kind-e2e-cluster-4\]",
     ):
-        create_or_update(ops_manager)
+        ops_manager.update()
 
 
 @mark.e2e_multi_cluster_appdb_validation
@@ -104,4 +104,4 @@ def test_empty_cluster_spec_list_single_cluster(
         ApiException,
         match=r"Single cluster AppDB deployment should have empty clusterSpecList",
     ):
-        create_or_update(ops_manager)
+        ops_manager.update()

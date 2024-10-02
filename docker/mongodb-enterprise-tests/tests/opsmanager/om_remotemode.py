@@ -2,7 +2,6 @@ import time
 from typing import Any, Dict, Optional
 
 import yaml
-from kubetester import create_or_update
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
@@ -98,7 +97,7 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
     if is_multi_cluster():
         enable_multi_cluster_deployment(om)
 
-    create_or_update(om)
+    om.update()
     return om
 
 

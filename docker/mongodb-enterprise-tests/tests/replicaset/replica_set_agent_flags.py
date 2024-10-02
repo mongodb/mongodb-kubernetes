@@ -1,7 +1,6 @@
 from typing import Optional
 
 from kubetester import (
-    create_or_update,
     create_or_update_configmap,
     find_fixture,
     random_k8s_name,
@@ -61,7 +60,7 @@ def replica_set(namespace: str, first_project: str, custom_mdb_version: str) -> 
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource["spec"]["opsManager"]["configMapRef"]["name"] = first_project
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -71,7 +70,7 @@ def second_replica_set(namespace: str, second_project: str, custom_mdb_version: 
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource["spec"]["opsManager"]["configMapRef"]["name"] = second_project
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -107,7 +106,7 @@ def test_set_custom_log_file(replica_set: MongoDB):
     replica_set["spec"]["agent"]["readinessProbe"] = {
         "environmentVariables": {"LOG_FILE_PATH": custom_readiness_log_path}
     }
-    create_or_update(replica_set)
+    replica_set.update()
 
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
@@ -159,7 +158,7 @@ def test_enable_audit_log(replica_set: MongoDB):
         }
     }
     replica_set["spec"]["additionalMongodConfig"] = additional_mongod_config
-    create_or_update(replica_set)
+    replica_set.update()
 
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 

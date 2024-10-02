@@ -1,4 +1,4 @@
-from kubetester import create_or_update, find_fixture, try_load
+from kubetester import find_fixture, try_load
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.mongodb import MongoDB, Phase
 from pytest import fixture, mark
@@ -34,7 +34,7 @@ def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
         "agent": {"startupOptions": {"logFile": "/var/log/mongodb-mms-automation/customLogFileShard"}}
     }
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -100,7 +100,7 @@ def test_enable_audit_log(sharded_cluster: MongoDB):
     sharded_cluster["spec"]["configSrv"]["additionalMongodConfig"] = additional_mongod_config
     sharded_cluster["spec"]["mongos"]["additionalMongodConfig"] = additional_mongod_config
     sharded_cluster["spec"]["shard"]["additionalMongodConfig"] = additional_mongod_config
-    create_or_update(sharded_cluster)
+    sharded_cluster.update()
 
     sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1000)
 

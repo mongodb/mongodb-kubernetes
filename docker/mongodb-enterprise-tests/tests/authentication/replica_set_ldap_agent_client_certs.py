@@ -1,12 +1,6 @@
 import tempfile
 
-from kubetester import (
-    create_or_update,
-    create_secret,
-    delete_secret,
-    find_fixture,
-    read_secret,
-)
+from kubetester import create_secret, delete_secret, find_fixture, read_secret
 from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs, generate_cert
 from kubetester.ldap import LDAPUser, OpenLDAP
 from kubetester.mongodb import MongoDB, Phase
@@ -117,7 +111,7 @@ def replica_set(
         "automationUserName": "mms-automation-agent",
     }
 
-    return create_or_update(resource)
+    return resource.update()
 
 
 @fixture(scope="module")
@@ -137,7 +131,7 @@ def ldap_user_mongodb(replica_set: MongoDB, namespace: str, ldap_mongodb_user: L
         ]
     )
 
-    return create_or_update(user)
+    return user.update()
 
 
 @mark.e2e_replica_set_ldap_agent_client_certs

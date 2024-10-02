@@ -3,7 +3,6 @@ from unittest.mock import MagicMock
 
 import kubernetes.client
 from kubeobject import CustomObject
-from kubetester import create_or_update
 
 
 class TestCreateOrUpdate(ctx, unittest.TestCase):
@@ -21,7 +20,7 @@ class TestCreateOrUpdate(ctx, unittest.TestCase):
         custom_object.bound = False
         custom_object.create = MagicMock()
 
-        create_or_update(custom_object)
+        custom_object.update()
 
         custom_object.create.assert_called_once()
 
@@ -41,7 +40,7 @@ class TestCreateOrUpdate(ctx, unittest.TestCase):
         custom_object.update = MagicMock()
 
         custom_object.create.side_effect = kubernetes.client.ApiException(status=409)
-        create_or_update(custom_object)
+        custom_object.update()
 
         custom_object.update.assert_called_once()
         custom_object.create.assert_called_once()
@@ -61,7 +60,7 @@ class TestCreateOrUpdate(ctx, unittest.TestCase):
         custom_object.update = MagicMock()
         custom_object.load = MagicMock()
 
-        create_or_update(custom_object)
+        custom_object.update()
         custom_object.update.assert_called_once()
         custom_object.load.assert_not_called()
 
@@ -101,7 +100,7 @@ class TestCreateOrUpdate(ctx, unittest.TestCase):
         custom_object.update.side_effect = raise_exception
 
         with self.assertRaises(Exception) as context:
-            create_or_update(custom_object)
+            custom_object.update()
         self.assertTrue("Tried client side merge" in str(context.exception))
 
         custom_object.update.assert_called()
@@ -149,7 +148,7 @@ class TestCreateOrUpdate(ctx, unittest.TestCase):
 
         object_to_api_server.update.side_effect = raise_exception
 
-        create_or_update(object_to_api_server)
+        object_to_api_server.update()
         object_to_api_server.update.assert_called()
         object_to_api_server.api.get_namespaced_custom_object.assert_called()
 

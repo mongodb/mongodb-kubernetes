@@ -1,5 +1,4 @@
 import pytest
-from kubetester import create_or_update
 from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.kubetester import skip_if_local
@@ -11,7 +10,7 @@ from kubetester.mongotester import StandaloneTester
 def standalone(namespace: str, custom_mdb_prev_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(load_fixture("standalone-downgrade.yaml"), namespace=namespace)
     resource.set_version(custom_mdb_prev_version)
-    return create_or_update(resource)
+    return resource.update()
 
 
 @pytest.mark.e2e_standalone_upgrade_downgrade
@@ -48,7 +47,7 @@ class TestStandaloneUpgradeDowngradeUpdate(KubernetesTester):
         standalone.load()
         standalone.set_version(custom_mdb_version)
         standalone["spec"]["featureCompatibilityVersion"] = fcv
-        create_or_update(standalone)
+        standalone.update()
 
         standalone.assert_reaches_phase(Phase.Running)
 
@@ -69,7 +68,7 @@ class TestStandaloneUpgradeDowngradeRevert(KubernetesTester):
     def test_downgrade_standalone(self, standalone: MongoDB, custom_mdb_prev_version: str):
         standalone.load()
         standalone.set_version(custom_mdb_prev_version)
-        create_or_update(standalone)
+        standalone.update()
 
         standalone.assert_reaches_phase(Phase.Running)
 

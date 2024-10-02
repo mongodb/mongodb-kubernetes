@@ -1,4 +1,4 @@
-from kubetester import create_or_update, try_load
+from kubetester import try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
 from pytest import fixture, mark
@@ -13,7 +13,7 @@ def replicaset(namespace: str) -> MongoDB:
     if try_load(resource):
         return resource
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 

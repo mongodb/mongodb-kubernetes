@@ -1,4 +1,4 @@
-from kubetester import create_or_update, find_fixture
+from kubetester import find_fixture
 from kubetester.certs import create_sharded_cluster_certs, create_x509_agent_tls_certs
 from kubetester.mongodb import MongoDB, Phase
 from pytest import fixture, mark
@@ -38,7 +38,7 @@ def sc(namespace: str, server_certs, agent_certs: str, issuer_ca_configmap: str)
         },
         "authentication": {"enabled": True, "modes": ["X509"]},
     }
-    yield create_or_update(resource)
+    yield resource.update()
 
 
 @mark.e2e_sharded_cluster_internal_cluster_transition

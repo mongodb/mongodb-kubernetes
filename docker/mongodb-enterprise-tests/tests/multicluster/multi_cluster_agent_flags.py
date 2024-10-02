@@ -1,7 +1,7 @@
 from typing import List
 
 import kubernetes
-from kubetester import client, create_or_update
+from kubetester import client
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
@@ -28,7 +28,7 @@ def mongodb_multi(
     resource["spec"]["agent"]["logLevel"] = "DEBUG"
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    return create_or_update(resource)
+    return resource.update()
 
 
 @mark.e2e_multi_cluster_agent_flags

@@ -9,7 +9,7 @@
 
 import pytest
 from kubernetes import client
-from kubetester import create_or_update, try_load
+from kubetester import try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
 from pytest import fixture
@@ -63,7 +63,7 @@ def test_update_coredns():
 
 @pytest.mark.e2e_replica_set_process_hostnames
 def test_create_replica_set(replica_set: MongoDB):
-    create_or_update(replica_set)
+    replica_set.update()
 
 
 @pytest.mark.e2e_replica_set_process_hostnames

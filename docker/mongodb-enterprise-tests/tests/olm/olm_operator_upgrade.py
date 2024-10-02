@@ -2,7 +2,7 @@ import time
 
 import pytest
 from kubernetes.client.rest import ApiException
-from kubetester import MongoDB, create_or_update, read_service, wait_for_webhook
+from kubetester import MongoDB, read_service, wait_for_webhook
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.opsmanager import MongoDBOpsManager
 from tests.olm.olm_test_commons import (
@@ -27,11 +27,11 @@ def test_upgrade_operator_only(namespace: str, version_id: str):
     current_operator_version = get_current_operator_version()
     incremented_operator_version = increment_patch_version(current_operator_version)
 
-    create_or_update(get_operator_group_resource(namespace, namespace))
+    get_operator_group_resource(namespace, namespace).update()
     catalog_source_resource = get_catalog_source_resource(
         namespace, get_catalog_image(f"{incremented_operator_version}-{version_id}")
     )
-    create_or_update(catalog_source_resource)
+    catalog_source_resource.update()
 
     subscription = get_subscription_custom_object(
         "mongodb-enterprise-operator",
@@ -48,7 +48,7 @@ def test_upgrade_operator_only(namespace: str, version_id: str):
         },
     )
 
-    create_or_update(subscription)
+    subscription.update()
 
     wait_for_operator_ready(namespace, f"mongodb-enterprise.v{latest_released_operator_version}")
 

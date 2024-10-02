@@ -6,7 +6,6 @@ from kubernetes import client
 from kubetester import (
     assert_pod_container_security_context,
     assert_pod_security_context,
-    create_or_update,
 )
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester, fcv_from_version
@@ -81,7 +80,7 @@ def replica_set(namespace: str, custom_mdb_version: str, cluster_domain: str) ->
         }
 
     setup_log_rotate_for_agents(resource)
-    create_or_update(resource)
+    resource.update()
 
     return resource
 
@@ -334,7 +333,7 @@ def test_replica_set_can_be_scaled_to_single_member(replica_set: MongoDB):
     scales down to 3 (from 5) and makes sure the Replica is connectable with "Primary" and
     "Secondaries" set."""
     replica_set["spec"]["members"] = 1
-    create_or_update(replica_set)
+    replica_set.update()
 
     replica_set.assert_reaches_phase(Phase.Running, timeout=1200)
 
@@ -352,7 +351,7 @@ def test_replica_set_can_be_scaled_to_single_member(replica_set: MongoDB):
 class TestReplicaSetScaleUp(KubernetesTester):
     def test_mdb_updated(self, replica_set: MongoDB):
         replica_set["spec"]["members"] = 5
-        create_or_update(replica_set)
+        replica_set.update()
         replica_set.assert_reaches_phase(Phase.Running, timeout=500)
 
     def test_replica_set_sts_should_exist(self):
@@ -496,7 +495,7 @@ class TestReplicaSetScaleUp(KubernetesTester):
 def test_replica_set_can_be_scaled_down_and_connectable(replica_set: MongoDB):
     """Makes sure that scaling down 5->3 members still reaches a Running & connectable state."""
     replica_set["spec"]["members"] = 3
-    create_or_update(replica_set)
+    replica_set.update()
 
     replica_set.assert_reaches_phase(Phase.Running, timeout=1000)
 

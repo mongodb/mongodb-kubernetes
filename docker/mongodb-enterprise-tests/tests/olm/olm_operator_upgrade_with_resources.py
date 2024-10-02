@@ -4,7 +4,6 @@ import pytest
 from kubeobject import CustomObject
 from kubetester import (
     MongoDB,
-    create_or_update,
     create_or_update_secret,
     get_default_storage_class,
     try_load,
@@ -49,11 +48,11 @@ def catalog_source(namespace: str, version_id: str):
     current_operator_version = get_current_operator_version()
     incremented_operator_version = increment_patch_version(current_operator_version)
 
-    create_or_update(get_operator_group_resource(namespace, namespace))
+    get_operator_group_resource(namespace, namespace).update()
     catalog_source_resource = get_catalog_source_resource(
         namespace, get_catalog_image(f"{incremented_operator_version}-{version_id}")
     )
-    create_or_update(catalog_source_resource)
+    catalog_source_resource.update()
 
     return catalog_source_resource
 
@@ -89,7 +88,7 @@ def test_install_stable_operator_version(
     catalog_source: CustomObject,
     subscription: CustomObject,
 ):
-    create_or_update(subscription)
+    subscription.update()
     wait_for_operator_ready(namespace, f"mongodb-enterprise.v{current_operator_version}")
 
 
@@ -128,7 +127,7 @@ def test_create_om(
     ops_manager.set_appdb_version(custom_appdb_version)
     ops_manager.allow_mdb_rc_versions()
 
-    create_or_update(ops_manager)
+    ops_manager.update()
 
 
 def wait_for_om_healthy_response(ops_manager: MongoDBOpsManager):
@@ -191,7 +190,7 @@ def mdb_sharded(
         },
     }
     resource.configure_backup(mode="disabled")
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -206,7 +205,7 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoD
         name="my-mongodb-oplog",
     ).configure(ops_manager, "oplog")
     resource.set_version(custom_mdb_version)
-    return create_or_update(resource)
+    return resource.update()
 
 
 @fixture(scope="module")
@@ -217,7 +216,7 @@ def s3_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoDB:
         name="my-mongodb-s3",
     ).configure(ops_manager, "s3metadata")
     resource.set_version(custom_mdb_version)
-    return create_or_update(resource)
+    return resource.update()
 
 
 @fixture(scope="module")
@@ -228,7 +227,7 @@ def blockstore_replica_set(ops_manager, namespace, custom_mdb_version: str) -> M
         name="my-mongodb-blockstore",
     ).configure(ops_manager, "blockstore")
     resource.set_version(custom_mdb_version)
-    return create_or_update(resource)
+    return resource.update()
 
 
 @fixture(scope="module")
@@ -264,7 +263,7 @@ def create_secret_and_user(
     resource["spec"]["mongodbResourceRef"]["name"] = replica_set_name
     resource["spec"]["passwordSecretKeyRef"]["name"] = secret_name
     create_or_update_secret(namespace, secret_name, {"password": password})
-    return create_or_update(resource)
+    return resource.update()
 
 
 @pytest.mark.e2e_olm_operator_upgrade_with_resources

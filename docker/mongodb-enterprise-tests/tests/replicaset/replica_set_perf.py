@@ -6,7 +6,7 @@ import os
 from typing import Optional
 
 import pytest
-from kubetester import create_or_update, find_fixture, try_load
+from kubetester import find_fixture, try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
@@ -54,7 +54,7 @@ def get_all_rs(ops_manager, namespace) -> list[MongoDB]:
 
 @pytest.mark.e2e_om_reconcile_perf
 def test_create_om(ops_manager: MongoDBOpsManager):
-    create_or_update(ops_manager)
+    ops_manager.update()
     ops_manager.om_status().assert_reaches_phase(Phase.Running)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
@@ -66,7 +66,7 @@ def test_create_mdb(ops_manager, namespace: str):
             "authentication": {"agents": {"mode": "SCRAM"}, "enabled": True, "modes": ["SCRAM"]}
         }
         resource.set_version(get_custom_mdb_version())
-        create_or_update(resource)
+        resource.update()
 
     for r in get_all_rs(ops_manager, namespace):
         r.assert_reaches_phase(Phase.Running, timeout=2000)
@@ -83,7 +83,7 @@ def test_update_mdb(ops_manager, namespace: str):
             }
         }
         resource["spec"]["additionalMongodConfig"] = additional_mongod_config
-        create_or_update(resource)
+        resource.update()
 
     for r in get_all_rs(ops_manager, namespace):
         r.assert_reaches_phase(Phase.Running, timeout=2000)

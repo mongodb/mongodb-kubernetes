@@ -5,6 +5,7 @@ import time
 from base64 import b64decode
 from typing import Any, Callable, Dict, List, Optional
 
+import kubeobject
 import kubernetes.client
 from kubeobject import CustomObject
 from kubernetes import client, utils
@@ -460,57 +461,6 @@ def wait_until(fn: Callable[..., Any], timeout=0, **kwargs):
     Runs the Callable `fn` until timeout is reached or until it returns True.
     """
     return run_periodically(fn, timeout=timeout, **kwargs)
-
-
-def create_or_update(resource: CustomObject) -> CustomObject:
-    """
-    Tries to create the resource. If resource already exists (resulting in 409 Conflict),
-    then it updates it instead. If the resource has been modified externally (operator)
-    we try to do a client-side merge/override
-    """
-    tries = 0
-    if not resource.bound:
-        try:
-            resource.create()
-        except kubernetes.client.ApiException as e:
-            if e.status != 409:
-                raise e
-            resource.update()
-    else:
-        while tries < 10:
-            if tries > 0:  # The first try we don't need to do client-side merge apply
-                # do a client-side-apply
-                new_back_obj_to_apply = copy.deepcopy(resource.backing_obj)  # resource and changes we want to apply
-
-                resource.load()  # resource from the server overwrites resource.backing_obj
-
-                # Merge annotations, and labels.
-                # Client resource takes precedence
-                # Spec from the given resource is taken,
-                # since the operator is not supposed to do changes to the spec.
-                # There can be cases where the obj from the server does not contain annotations/labels, but the object
-                # we want to apply has them. But that is highly unlikely, and we can add that code in case that happens.
-                resource["spec"] = new_back_obj_to_apply["spec"]
-                if "metadata" in resource and "annotations" in resource["metadata"]:
-                    resource["metadata"]["annotations"].update(new_back_obj_to_apply["metadata"]["annotations"])
-                if "metadata" in resource and "labels" in resource["metadata"]:
-                    resource["metadata"]["labels"].update(new_back_obj_to_apply["metadata"]["labels"])
-            try:
-                resource.update()
-                break
-            except kubernetes.client.ApiException as e:
-                if e.status != 409:
-                    raise e
-                print(
-                    "detected a resource conflict. That means the operator applied a change "
-                    "to the same resource we are trying to change"
-                    "Applying a client-side merge!"
-                )
-                tries += 1
-                if tries == 10:
-                    raise Exception("Tried client side merge 10 times and did not succeed")
-
-    return resource
 
 
 def try_load(resource: CustomObject) -> bool:

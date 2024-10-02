@@ -1,12 +1,6 @@
 from typing import Optional
 
-from kubetester import (
-    MongoDB,
-    create_or_update,
-    delete_pod,
-    delete_statefulset,
-    get_pod_when_ready,
-)
+from kubetester import MongoDB, delete_pod, delete_statefulset, get_pod_when_ready
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_static_containers
@@ -35,7 +29,7 @@ def ops_manager(
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
-    return create_or_update(resource)
+    return resource.update()
 
 
 @fixture(scope="module")
@@ -46,7 +40,7 @@ def replica_set(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_versi
     ).configure(ops_manager, "my-replica-set")
     resource.set_version(custom_mdb_version)
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 

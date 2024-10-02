@@ -3,7 +3,6 @@ from typing import Dict, List
 import kubernetes
 import pytest
 from kubetester import (
-    create_or_update,
     create_or_update_configmap,
     create_or_update_secret,
     read_configmap,
@@ -47,7 +46,7 @@ def mongodb_multi_a_unmarshalled(
     resource.set_version(ensure_ent_version(custom_mdb_version))
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -63,7 +62,7 @@ def mongodb_multi_b_unmarshalled(
     resource.set_version(ensure_ent_version(custom_mdb_version))
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -128,7 +127,7 @@ def mongodb_multi_a(
         },
     }
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -157,7 +156,7 @@ def mongodb_multi_b(
         },
     }
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    create_or_update(resource)
+    resource.update()
     return resource
 
 

@@ -1,6 +1,6 @@
 from typing import Optional
 
-from kubetester import create_or_update, find_fixture
+from kubetester import find_fixture
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
@@ -56,7 +56,7 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
     else:
         resource["spec"]["applicationDatabase"]["memberConfig"] = [member1_config, member2_config, member3_config]
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -224,7 +224,7 @@ def test_update_appdb_member_options(ops_manager: MongoDBOpsManager):
         )
     else:
         ops_manager["spec"]["applicationDatabase"]["memberConfig"] = [member1_config, member2_config, member3_config]
-    create_or_update(ops_manager)
+    ops_manager.update()
 
     ops_manager.appdb_status().assert_abandons_phase(Phase.Running)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
@@ -306,7 +306,7 @@ def test_scale_up_appdb_with_member_options(ops_manager: MongoDBOpsManager):
             member5_config,
         ]
         ops_manager["spec"]["applicationDatabase"]["members"] = 5
-    create_or_update(ops_manager)
+    ops_manager.update()
 
     ops_manager.appdb_status().assert_abandons_phase(Phase.Running)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
@@ -379,7 +379,7 @@ def test_scale_down_appdb__with_member_options(ops_manager: MongoDBOpsManager):
             member4_config,
         ]
         ops_manager["spec"]["applicationDatabase"]["members"] = 3
-    create_or_update(ops_manager)
+    ops_manager.update()
 
     ops_manager.appdb_status().assert_abandons_phase(Phase.Running)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)

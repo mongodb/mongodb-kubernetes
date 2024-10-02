@@ -1,10 +1,4 @@
-from kubetester import (
-    create_or_update,
-    create_or_update_secret,
-    create_secret,
-    find_fixture,
-    try_load,
-)
+from kubetester import create_secret, find_fixture, try_load
 from kubetester.kubetester import ensure_ent_version
 from kubetester.ldap import LDAPUser, OpenLDAP
 from kubetester.mongodb import MongoDB, Phase
@@ -69,7 +63,7 @@ def ldap_user_mongodb(replica_set: MongoDB, namespace: str, ldap_mongodb_user: L
 @mark.e2e_replica_set_ldap_agent_auth
 @mark.usefixtures("ldap_mongodb_agent_user", "ldap_user_mongodb")
 def test_replica_set(replica_set: MongoDB):
-    create_or_update(replica_set)
+    replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 
@@ -145,7 +139,7 @@ def test_enable_SCRAM_auth(replica_set: MongoDB):
     replica_set["spec"]["security"]["authentication"]["agents"]["mode"] = "SCRAM"
     replica_set["spec"]["security"]["authentication"]["enabled"] = True
     replica_set["spec"]["security"]["authentication"]["mode"] = "SCRAM"
-    create_or_update(replica_set)
+    replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=900)
 
 

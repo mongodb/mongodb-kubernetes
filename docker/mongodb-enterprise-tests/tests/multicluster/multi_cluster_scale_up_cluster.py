@@ -2,7 +2,6 @@ from typing import List
 
 import kubernetes
 import pytest
-from kubetester import create_or_update
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
@@ -60,7 +59,7 @@ def server_certs(
 def mongodb_multi(mongodb_multi_unmarshalled: MongoDBMulti, server_certs: str) -> MongoDBMulti:
     # remove the last element, we are only starting with 2 clusters we will scale up the 3rd one later.
     mongodb_multi_unmarshalled["spec"]["clusterSpecList"].pop()
-    return create_or_update(mongodb_multi_unmarshalled)
+    return mongodb_multi_unmarshalled.update()
 
 
 @pytest.mark.e2e_multi_cluster_scale_up_cluster
@@ -101,7 +100,7 @@ def test_scale_mongodb_multi(mongodb_multi: MongoDBMulti, member_cluster_clients
     mongodb_multi["spec"]["clusterSpecList"].append(
         {"members": 2, "clusterName": member_cluster_clients[2].cluster_name}
     )
-    create_or_update(mongodb_multi)
+    mongodb_multi.update()
     mongodb_multi.assert_abandons_phase(Phase.Running, timeout=120)
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1800)
 

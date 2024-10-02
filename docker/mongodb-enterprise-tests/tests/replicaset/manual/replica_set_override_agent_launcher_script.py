@@ -1,6 +1,6 @@
 import base64
 
-from kubetester import create_or_update, find_fixture, try_load
+from kubetester import find_fixture, try_load
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
@@ -31,7 +31,7 @@ def ops_manager(namespace: str, custom_version: str, custom_appdb_version) -> Mo
     if try_load(resource):
         return resource
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -71,7 +71,7 @@ echo -n "{agent_launcher_lib}" | base64 -d > /opt/scripts/agent-launcher-lib.sh
 
     replica_set["spec"]["podSpec"]["podTemplate"]["spec"]["initContainers"][0]["args"] = ["-c", command]
 
-    create_or_update(replica_set)
+    replica_set.update()
 
 
 def test_om_running(ops_manager: MongoDBOpsManager):

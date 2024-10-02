@@ -1,6 +1,6 @@
 import pytest
 from kubernetes import client
-from kubetester import create_or_update, try_load
+from kubetester import try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
 from pytest import fixture
@@ -22,7 +22,7 @@ def replica_set(namespace: str) -> MongoDB:
 def test_replica_set_created(replica_set: MongoDB, custom_mdb_version: str):
     replica_set["spec"]["members"] = 2
     replica_set.set_version(custom_mdb_version)
-    create_or_update(replica_set)
+    replica_set.update()
 
     replica_set.assert_reaches_phase(Phase.Running, timeout=300)
 

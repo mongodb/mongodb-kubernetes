@@ -1,7 +1,7 @@
 import kubernetes
 import pymongo
 import pytest
-from kubetester import create_or_update, try_load
+from kubetester import try_load
 from kubetester.kubetester import ensure_ent_version, fcv_from_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
@@ -49,7 +49,7 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 
 @pytest.mark.e2e_multi_cluster_upgrade_downgrade
 def test_create_mongodb_multi_running(mongodb_multi: MongoDBMulti, custom_mdb_prev_version: str):
-    create_or_update(mongodb_multi)
+    mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
     mongodb_multi.tester().assert_version(ensure_ent_version(custom_mdb_prev_version))
 
@@ -64,7 +64,7 @@ def test_mongodb_multi_upgrade(mongodb_multi: MongoDBMulti, custom_mdb_prev_vers
     mongodb_multi.load()
     mongodb_multi["spec"]["version"] = ensure_ent_version(custom_mdb_version)
     mongodb_multi["spec"]["featureCompatibilityVersion"] = fcv_from_version(custom_mdb_prev_version)
-    create_or_update(mongodb_multi)
+    mongodb_multi.update()
 
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
 
@@ -82,7 +82,7 @@ def test_mongodb_multi_downgrade(mongodb_multi: MongoDBMulti, custom_mdb_prev_ve
     mongodb_multi.load()
     mongodb_multi["spec"]["version"] = ensure_ent_version(custom_mdb_prev_version)
     mongodb_multi["spec"]["featureCompatibilityVersion"] = fcv_from_version(custom_mdb_prev_version)
-    create_or_update(mongodb_multi)
+    mongodb_multi.update()
 
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
     mongodb_multi.tester().assert_version(ensure_ent_version(custom_mdb_prev_version))

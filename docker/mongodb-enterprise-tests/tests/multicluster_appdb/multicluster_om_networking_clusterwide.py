@@ -1,5 +1,5 @@
 import kubernetes
-from kubetester import create_or_update, read_secret, try_load
+from kubetester import read_secret, try_load
 from kubetester.awss3client import AwsS3Client
 from kubetester.certs import create_ops_manager_tls_certs
 from kubetester.mongodb import Phase
@@ -172,7 +172,7 @@ def test_deploy_operator(namespace: str):
 
 @mark.e2e_multi_cluster_om_networking_clusterwide
 def test_deploy_ops_manager(ops_manager: MongoDBOpsManager):
-    create_or_update(ops_manager)
+    ops_manager.update()
     ops_manager.om_status().assert_reaches_phase(Phase.Running)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
     ops_manager.backup_status().assert_reaches_phase(Phase.Running)
@@ -194,7 +194,7 @@ def test_scale_om_on_different_cluster(ops_manager: MongoDBOpsManager):
         },
     ]
 
-    create_or_update(ops_manager)
+    ops_manager.update()
 
     ops_manager.om_status().assert_reaches_phase(Phase.Running)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
@@ -220,7 +220,7 @@ def test_scale_backup_daemon_on_different_cluster(ops_manager: MongoDBOpsManager
         },
     ]
 
-    create_or_update(ops_manager)
+    ops_manager.update()
 
     ops_manager.om_status().assert_reaches_phase(Phase.Running)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
@@ -233,7 +233,7 @@ def test_enable_external_connectivity(ops_manager: MongoDBOpsManager):
         "type": "LoadBalancer",
         "port": 9000,
     }
-    create_or_update(ops_manager)
+    ops_manager.update()
 
     ops_manager.om_status().assert_reaches_phase(Phase.Running)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)

@@ -2,7 +2,7 @@ import os
 from typing import Optional
 
 import pymongo
-from kubetester import create_or_update, create_or_update_secret
+from kubetester import create_or_update_secret
 from kubetester.certs import create_ops_manager_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
@@ -52,7 +52,7 @@ def ops_manager(
     if is_multi_cluster():
         enable_multi_cluster_deployment(om)
 
-    create_or_update(om)
+    om.update()
     return om
 
 

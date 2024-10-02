@@ -1,5 +1,5 @@
 from kubernetes import client
-from kubetester import MongoDB, create_or_update, get_statefulset, try_load
+from kubetester import MongoDB, get_statefulset, try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from pytest import fixture, mark
@@ -26,7 +26,7 @@ def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
 
 @mark.e2e_sharded_cluster_pv_resize
 def test_create_sharded_cluster(sharded_cluster: MongoDB):
-    create_or_update(sharded_cluster)
+    sharded_cluster.update()
     sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1800)
 
 
@@ -38,7 +38,7 @@ def test_sharded_cluster_resize_pvc_state_changes(sharded_cluster: MongoDB):
     sharded_cluster["spec"]["shardPodSpec"]["persistence"]["multiple"]["data"]["storage"] = RESIZED_STORAGE_SIZE
     sharded_cluster["spec"]["configSrvPodSpec"]["persistence"]["multiple"]["data"]["storage"] = RESIZED_STORAGE_SIZE
     sharded_cluster["spec"]["configSrvPodSpec"]["persistence"]["multiple"]["journal"]["storage"] = RESIZED_STORAGE_SIZE
-    create_or_update(sharded_cluster)
+    sharded_cluster.update()
     sharded_cluster.assert_reaches_phase(Phase.Pending, timeout=400)
     sharded_cluster.assert_reaches_phase(Phase.Running, timeout=2000)
 

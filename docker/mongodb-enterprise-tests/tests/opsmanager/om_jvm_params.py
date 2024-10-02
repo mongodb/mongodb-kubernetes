@@ -2,7 +2,7 @@ import re
 from typing import Optional
 
 from dateutil.parser import parse
-from kubetester import create_or_update, try_load
+from kubetester import try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
@@ -56,7 +56,7 @@ def is_date(file_name) -> bool:
 @mark.e2e_om_jvm_params
 class TestOpsManagerCreationWithJvmParams:
     def test_om_created(self, ops_manager: MongoDBOpsManager):
-        create_or_update(ops_manager)
+        ops_manager.update()
         # Backup is not fully configured so we wait until Pending phase
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Pending,
@@ -137,7 +137,7 @@ class TestOpsManagerCreationWithJvmParams:
             }
         }
 
-        create_or_update(ops_manager)
+        ops_manager.update()
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Pending,
             timeout=900,

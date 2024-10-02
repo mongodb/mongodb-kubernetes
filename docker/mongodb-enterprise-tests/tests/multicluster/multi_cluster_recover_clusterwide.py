@@ -5,7 +5,6 @@ import kubernetes
 from kubeobject import CustomObject
 from kubernetes import client
 from kubetester import (
-    create_or_update,
     create_or_update_configmap,
     create_or_update_secret,
     delete_cluster_role,
@@ -58,7 +57,7 @@ def mongodb_multi_a(
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -74,7 +73,7 @@ def mongodb_multi_b(
 
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -163,7 +162,7 @@ def test_create_namespaces(
 @mark.e2e_multi_cluster_recover_clusterwide
 def test_create_service_entry(service_entries: List[CustomObject]):
     for service_entry in service_entries:
-        create_or_update(service_entry)
+        service_entry.update()
 
 
 @mark.e2e_multi_cluster_recover_clusterwide

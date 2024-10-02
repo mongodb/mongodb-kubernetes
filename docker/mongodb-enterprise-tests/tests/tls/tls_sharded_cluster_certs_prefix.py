@@ -1,4 +1,4 @@
-from kubetester import create_or_update, try_load
+from kubetester import try_load
 from kubetester.certs import Certificate, SetProperties, create_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
@@ -63,7 +63,7 @@ def sharded_cluster(
 
 @mark.e2e_tls_sharded_cluster_certs_prefix
 def test_sharded_cluster_with_prefix_gets_to_running_state(sharded_cluster: MongoDB):
-    create_or_update(sharded_cluster)
+    sharded_cluster.update()
     sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1200)
 
 

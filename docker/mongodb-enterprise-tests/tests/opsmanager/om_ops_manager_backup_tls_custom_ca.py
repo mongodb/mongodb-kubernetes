@@ -2,7 +2,7 @@ import os
 import time
 from typing import Optional
 
-from kubetester import MongoDB, create_or_update
+from kubetester import MongoDB
 from kubetester.certs import create_mongodb_tls_certs, create_ops_manager_tls_certs
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
@@ -125,7 +125,7 @@ def ops_manager(
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -140,7 +140,7 @@ def oplog_replica_set(
     ).configure(ops_manager, "oplog")
     resource.configure_custom_tls(issuer_ca_configmap, oplog_certs_secret)
     resource.set_version(ensure_ent_version(custom_mdb_version))
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -156,7 +156,7 @@ def blockstore_replica_set(
     resource.configure_custom_tls(issuer_ca_configmap, blockstore_certs_secret)
     resource.set_version(ensure_ent_version(custom_mdb_version))
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -253,7 +253,7 @@ class TestBackupForMongodb:
         resource.set_version(ensure_ent_version(custom_mdb_version))
         resource.configure_backup(mode="enabled")
         resource.configure_custom_tls(issuer_ca_configmap, first_project_certs)
-        create_or_update(resource)
+        resource.update()
         return resource
 
     @fixture(scope="class")
@@ -273,7 +273,7 @@ class TestBackupForMongodb:
         resource.set_version(ensure_ent_version(custom_mdb_prev_version))
         resource.configure_backup(mode="enabled")
         resource.configure_custom_tls(issuer_ca_configmap, second_project_certs)
-        create_or_update(resource)
+        resource.update()
         return resource
 
     @fixture(scope="class")
@@ -297,7 +297,7 @@ class TestBackupForMongodb:
         resource["spec"]["members"] = 3
         resource["spec"]["externalAccess"] = {}
         resource["spec"]["externalAccess"]["externalDomain"] = default_external_domain()
-        create_or_update(resource)
+        resource.update()
         return resource
 
     def test_mdbs_created(self, mdb_latest: MongoDB, mdb_prev: MongoDB, mdb_external_domain: MongoDB):

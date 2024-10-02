@@ -3,7 +3,7 @@ from typing import Dict, Optional
 import jsonpatch
 import kubernetes.client
 from kubernetes import client
-from kubetester import MongoDB, create_or_update, try_load, wait_until
+from kubetester import MongoDB, try_load, wait_until
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
@@ -60,7 +60,7 @@ def ops_manager(
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -102,7 +102,7 @@ class TestOpsManagerCreation:
         self,
         oplog_replica_set: MongoDB,
     ):
-        create_or_update(oplog_replica_set)
+        oplog_replica_set.update()
         oplog_replica_set.assert_reaches_phase(Phase.Running)
 
     def test_add_oplog_config(self, ops_manager: MongoDBOpsManager):

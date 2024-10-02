@@ -1,7 +1,7 @@
 import random
 from typing import Optional
 
-from kubetester import create_or_update, try_load
+from kubetester import try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
@@ -29,7 +29,7 @@ def opsmanager(namespace: str, custom_version: Optional[str], custom_appdb_versi
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 

@@ -1,7 +1,7 @@
 from typing import List
 
 import kubernetes
-from kubetester import create_or_update, create_secret
+from kubetester import create_secret
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
@@ -125,7 +125,7 @@ def mongodb_multi(
     }
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -145,7 +145,7 @@ def user_ldap(
         mongodb_resource=mongodb_multi,
     )
     user.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    create_or_update(user)
+    user.update()
     return user
 
 

@@ -3,7 +3,7 @@ from typing import List
 import kubernetes
 from kubeobject import CustomObject
 from kubernetes import client
-from kubetester import create_or_update, delete_statefulset, statefulset_is_deleted
+from kubetester import delete_statefulset, statefulset_is_deleted
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import run_periodically
 from kubetester.mongodb import Phase
@@ -53,7 +53,7 @@ def test_label_namespace(namespace: str, central_cluster_client: client.ApiClien
 @mark.e2e_multi_cluster_recover_network_partition
 def test_create_service_entry(service_entries: List[CustomObject]):
     for service_entry in service_entries:
-        create_or_update(service_entry)
+        service_entry.update()
 
 
 @mark.e2e_multi_cluster_recover_network_partition
@@ -63,7 +63,7 @@ def test_deploy_operator(multi_cluster_operator_manual_remediation: Operator):
 
 @mark.e2e_multi_cluster_recover_network_partition
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
-    create_or_update(mongodb_multi)
+    mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
 
 
@@ -83,7 +83,7 @@ def test_update_service_entry_block_failed_cluster_traffic(
     )
     for service_entry in service_entries:
         print(f"service_entry={service_entries}")
-        create_or_update(service_entry)
+        service_entry.update()
 
 
 @mark.e2e_multi_cluster_recover_network_partition
@@ -147,6 +147,6 @@ def test_mongodb_multi_recovers_removing_cluster(mongodb_multi: MongoDBMulti, me
 
     mongodb_multi["metadata"]["annotations"]["failedClusters"] = None
     mongodb_multi["spec"]["clusterSpecList"].pop()
-    create_or_update(mongodb_multi)
+    mongodb_multi.update()
 
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1500)

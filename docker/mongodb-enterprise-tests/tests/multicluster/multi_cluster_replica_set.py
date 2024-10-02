@@ -4,7 +4,7 @@ import kubernetes
 import pytest
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-from kubetester import create_or_update, delete_statefulset
+from kubetester import delete_statefulset
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
@@ -51,7 +51,7 @@ def mongodb_multi(
 
     resource.set_architecture_annotation()
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -164,7 +164,7 @@ def test_update_additional_options(mongodb_multi: MongoDBMulti, central_cluster_
     # update uses json merge+patch which means that deleting keys is done by setting them to None
     mongodb_multi["spec"]["additionalMongodConfig"]["operationProfiling"] = None
 
-    create_or_update(mongodb_multi)
+    mongodb_multi.update()
 
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
 

@@ -13,13 +13,7 @@ import kubernetes
 from kubeobject import CustomObject
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-from kubetester import (
-    create_or_update,
-    create_secret,
-    delete_secret,
-    random_k8s_name,
-    read_secret,
-)
+from kubetester import create_secret, delete_secret, random_k8s_name, read_secret
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from tests.vaultintegration import (
@@ -149,7 +143,7 @@ def generate_cert(
 
     cert["spec"].update(spec)
     cert.api = kubernetes.client.CustomObjectsApi(api_client=api_client)
-    create_or_update(cert)
+    cert.update()
     print(f"Waiting for certificate to become ready: {cert}")
     cert.block_until_ready()
 
