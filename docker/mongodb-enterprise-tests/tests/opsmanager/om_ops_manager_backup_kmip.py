@@ -1,7 +1,7 @@
 from typing import Optional
 
 import pymongo
-from kubetester import MongoDB, create_or_update, create_or_update_secret, read_secret
+from kubetester import MongoDB, create_or_update_secret, read_secret
 from kubetester.awss3client import AwsS3Client
 from kubetester.certs import create_tls_certs
 from kubetester.kmip import KMIPDeployment
@@ -78,7 +78,7 @@ def ops_manager(
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -101,7 +101,7 @@ def mdb_latest(
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.configure_backup(mode="enabled")
 
-    return create_or_update(resource)
+    return resource.update()
 
 
 @fixture(scope="module")

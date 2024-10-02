@@ -1,5 +1,5 @@
 import pytest
-from kubetester import create_or_update, create_secret, read_secret
+from kubetester import create_secret, read_secret
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import (
     ISSUER_CA_NAME,
@@ -39,7 +39,7 @@ def agent_certs(issuer: str, namespace: str) -> str:
 def mdb(namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str) -> MongoDB:
     res = MongoDB.from_yaml(load_fixture("test-x509-all-options-rs.yaml"), namespace=namespace)
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
-    return create_or_update(res)
+    return res.update()
 
 
 @pytest.mark.e2e_tls_x509_configure_all_options_rs

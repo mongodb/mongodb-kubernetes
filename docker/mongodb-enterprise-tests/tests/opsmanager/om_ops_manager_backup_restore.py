@@ -3,7 +3,7 @@ import time
 from typing import Optional
 
 import pymongo
-from kubetester import MongoDB, create_or_update, try_load
+from kubetester import MongoDB, try_load
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
@@ -61,7 +61,7 @@ def ops_manager(
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -159,8 +159,8 @@ class TestBackupForMongodb:
     Both Mdb 4.0 and 4.2 are tested (as the backup process for them differs significantly)"""
 
     def test_mdbs_created(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
-        create_or_update(mdb_latest)
-        create_or_update(mdb_prev)
+        mdb_latest.update()
+        mdb_prev.update()
 
         mdb_latest.assert_reaches_phase(Phase.Running)
         mdb_prev.assert_reaches_phase(Phase.Running)

@@ -2,7 +2,7 @@ from typing import List
 
 import kubernetes
 import pytest
-from kubetester import create_or_update, wait_until
+from kubetester import wait_until
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
@@ -26,7 +26,7 @@ def mongodb_multi(
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
 
-    return create_or_update(resource)
+    return resource.update()
 
 
 @pytest.mark.e2e_multi_cluster_replica_set_deletion

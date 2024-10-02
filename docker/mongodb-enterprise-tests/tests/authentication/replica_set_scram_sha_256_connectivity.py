@@ -1,7 +1,6 @@
 from typing import Dict
 
 from kubetester import (
-    create_or_update,
     create_or_update_secret,
     create_secret,
     find_fixture,
@@ -37,7 +36,7 @@ def replica_set(namespace: str, custom_mdb_version) -> MongoDB:
         "modes": ["SCRAM"],
     }
 
-    return create_or_update(resource)
+    return resource.update()
 
 
 @fixture(scope="module")
@@ -50,7 +49,7 @@ def scram_user(namespace: str) -> MongoDBUser:
         {"password": USER_PASSWORD},
     )
 
-    return create_or_update(resource)
+    return resource.update()
 
 
 @fixture(scope="module")

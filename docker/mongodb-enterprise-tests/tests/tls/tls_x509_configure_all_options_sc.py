@@ -1,5 +1,5 @@
 import pytest
-from kubetester import create_or_update, find_fixture
+from kubetester import find_fixture
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import (
     Certificate,
@@ -39,7 +39,7 @@ def sharded_cluster(namespace: str, server_certs: str, agent_certs: str, issuer_
         namespace=namespace,
     )
     resource["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
-    yield create_or_update(resource)
+    yield resource.update()
 
 
 @pytest.mark.e2e_tls_x509_configure_all_options_sc

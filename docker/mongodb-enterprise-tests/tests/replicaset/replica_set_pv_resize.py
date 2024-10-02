@@ -1,5 +1,5 @@
 from kubernetes import client
-from kubetester import create_or_update, get_statefulset, try_load
+from kubetester import get_statefulset, try_load
 from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
@@ -45,7 +45,7 @@ def replica_set(namespace: str, custom_mdb_version: str, server_certs: str, issu
 
 @mark.e2e_replica_set_pv_resize
 def test_replica_set_reaches_running_phase(replica_set: MongoDB):
-    create_or_update(replica_set)
+    replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=1200)
 
 
@@ -55,7 +55,7 @@ def test_replica_set_resize_pvc_state_changes(replica_set: MongoDB):
     replica_set.load()
     replica_set["spec"]["podSpec"]["persistence"]["multiple"]["data"]["storage"] = RESIZED_STORAGE_SIZE
     replica_set["spec"]["podSpec"]["persistence"]["multiple"]["journal"]["storage"] = RESIZED_STORAGE_SIZE
-    create_or_update(replica_set)
+    replica_set.update()
     replica_set.assert_reaches_phase(Phase.Pending, timeout=400)
     replica_set.assert_reaches_phase(Phase.Running, timeout=1200)
 

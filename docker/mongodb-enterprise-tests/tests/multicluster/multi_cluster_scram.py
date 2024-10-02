@@ -2,7 +2,7 @@ from typing import List
 
 import kubernetes
 import pytest
-from kubetester import create_or_update, create_or_update_secret, read_secret
+from kubetester import create_or_update_secret, read_secret
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
@@ -80,13 +80,13 @@ def test_create_mongodb_user(
         data={"password": USER_PASSWORD},
         api_client=central_cluster_client,
     )
-    create_or_update(mongodb_user)
+    mongodb_user.update()
     mongodb_user.assert_reaches_phase(Phase.Pending, timeout=100)
 
 
 @pytest.mark.e2e_multi_cluster_scram
 def test_create_mongodb_multi_with_scram(mongodb_multi: MongoDBMulti):
-    create_or_update(mongodb_multi)
+    mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=800)
 
 

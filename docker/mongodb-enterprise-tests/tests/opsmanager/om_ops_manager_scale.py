@@ -1,6 +1,6 @@
 import pytest
 from kubernetes import client
-from kubetester import create_or_update, try_load
+from kubetester import try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
@@ -57,7 +57,7 @@ class TestOpsManagerCreation:
     def test_create_om(self, ops_manager: MongoDBOpsManager):
         # Backup is not fully configured so we wait until Pending phase
 
-        create_or_update(ops_manager)
+        ops_manager.update()
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Pending,
             timeout=900,
@@ -140,7 +140,7 @@ class TestOpsManagerVersionUpgrade:
         # If running OM6 tests, this will update from 5.0.9 to latest OM6
         ops_manager.set_version(custom_version)
 
-        create_or_update(ops_manager)
+        ops_manager.update()
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
     def test_image_url(self, ops_manager: MongoDBOpsManager):

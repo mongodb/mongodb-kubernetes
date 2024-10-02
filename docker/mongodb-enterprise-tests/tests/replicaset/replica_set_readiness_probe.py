@@ -1,7 +1,6 @@
 import time
 
 import pytest
-from kubetester import create_or_update
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import get_pods, skip_if_local
@@ -14,7 +13,7 @@ RESOURCE_NAME = "my-replica-set-double"
 def replica_set(namespace: str) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("replica-set-double.yaml"), RESOURCE_NAME, namespace)
     resource.set_architecture_annotation()
-    return create_or_update(resource)
+    return resource.update()
 
 
 @pytest.fixture(scope="class")

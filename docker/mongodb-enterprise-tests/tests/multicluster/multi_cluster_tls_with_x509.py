@@ -2,7 +2,6 @@ import tempfile
 from typing import List
 
 import kubernetes
-from kubetester import create_or_update
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import (
     Certificate,
@@ -105,7 +104,7 @@ def mongodb_multi(
     }
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    create_or_update(resource)
+    resource.update()
 
     return resource
 
@@ -116,7 +115,7 @@ def mongodb_x509_user(central_cluster_client: kubernetes.client.ApiClient, names
     resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 
-    create_or_update(resource)
+    resource.update()
 
     return resource
 
@@ -155,7 +154,7 @@ def test_mongodb_multi_tls_enable_x509(
             "agents": {"mode": "X509"},
         }
     }
-    create_or_update(mongodb_multi)
+    mongodb_multi.update()
 
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1500)
 
@@ -170,7 +169,7 @@ def test_mongodb_multi_tls_enable_internal_cluster_x509(
     mongodb_multi.load()
 
     mongodb_multi["spec"]["security"]["authentication"]["internalCluster"] = "X509"
-    create_or_update(mongodb_multi)
+    mongodb_multi.update()
 
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=2100)
 

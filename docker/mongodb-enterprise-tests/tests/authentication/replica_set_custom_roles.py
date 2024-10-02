@@ -1,4 +1,4 @@
-from kubetester import create_or_update, create_secret, find_fixture
+from kubetester import create_secret, find_fixture
 from kubetester.ldap import LDAP_AUTHENTICATION_MECHANISM, LDAPUser, OpenLDAP
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongodb_user import MongoDBUser, generic_user
@@ -27,7 +27,7 @@ def replica_set(
         "authzQueryTemplate": "{USER}?memberOf?base",
     }
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -47,7 +47,7 @@ def ldap_user_mongodb(
         password=ldap_mongodb_user.password,
     )
 
-    create_or_update(user)
+    user.update()
     return user
 
 

@@ -3,7 +3,7 @@ from typing import List, Optional
 import kubernetes
 from kubeobject import CustomObject
 from kubernetes import client
-from kubetester import create_or_update, delete_statefulset, statefulset_is_deleted
+from kubetester import delete_statefulset, statefulset_is_deleted
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
@@ -50,7 +50,7 @@ def test_label_namespace(namespace: str, central_cluster_client: kubernetes.clie
 @mark.e2e_multi_cluster_disaster_recovery
 def test_create_service_entry(service_entries: List[CustomObject]):
     for service_entry in service_entries:
-        create_or_update(service_entry)
+        service_entry.update()
 
 
 @mark.e2e_multi_cluster_disaster_recovery
@@ -62,7 +62,7 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 @mark.e2e_multi_cluster_disaster_recovery
 @mark.e2e_multi_cluster_multi_disaster_recovery
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
-    create_or_update(mongodb_multi)
+    mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)
 
 

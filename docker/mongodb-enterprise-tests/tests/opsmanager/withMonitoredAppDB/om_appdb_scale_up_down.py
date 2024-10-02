@@ -1,7 +1,6 @@
 from typing import Optional
 
 import pytest
-from kubetester import create_or_update
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
@@ -21,7 +20,7 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 

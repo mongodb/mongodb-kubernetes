@@ -1,4 +1,4 @@
-from kubetester import create_or_update, try_load
+from kubetester import try_load
 from kubetester.custom_podspec import assert_stateful_set_podspec
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
@@ -18,7 +18,7 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
 @skip_if_static_containers
 @mark.e2e_replica_set_custom_podspec
 def test_replica_set_reaches_running_phase(replica_set):
-    create_or_update(replica_set)
+    replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
 

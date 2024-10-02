@@ -2,7 +2,6 @@ from typing import Callable, List
 
 import kubernetes
 import pytest
-from kubetester import create_or_update
 from kubetester.certs import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
@@ -60,7 +59,7 @@ def server_certs(
 @pytest.fixture(scope="module")
 def mongodb_multi(mongodb_multi_unmarshalled: MongoDBMulti, server_certs: str) -> MongoDBMulti:
     mongodb_multi_unmarshalled["spec"]["clusterSpecList"].pop()
-    create_or_update(mongodb_multi_unmarshalled)
+    mongodb_multi_unmarshalled.update()
     return mongodb_multi_unmarshalled
 
 
@@ -103,7 +102,7 @@ def test_mongodb_multi_recovers_adding_cluster(mongodb_multi: MongoDBMulti, memb
     mongodb_multi.load()
 
     mongodb_multi["spec"]["clusterSpecList"].append({"clusterName": member_cluster_names[-1], "members": 2})
-    create_or_update(mongodb_multi)
+    mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=600)
 
 
@@ -132,5 +131,5 @@ def test_mongodb_multi_recovers_removing_cluster(mongodb_multi: MongoDBMulti, me
     mongodb_multi.assert_state_transition_happens(last_transition_time)
 
     mongodb_multi["spec"]["clusterSpecList"].pop(0)
-    create_or_update(mongodb_multi)
+    mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=800)

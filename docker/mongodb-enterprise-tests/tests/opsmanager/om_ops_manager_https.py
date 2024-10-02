@@ -1,7 +1,7 @@
 import time
 from typing import Optional
 
-from kubetester import create_or_update, try_load
+from kubetester import try_load
 from kubetester.certs import Certificate, create_ops_manager_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
@@ -76,7 +76,7 @@ def replicaset1(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_versi
 
 @mark.e2e_om_ops_manager_https_enabled
 def test_create_om(ops_manager: MongoDBOpsManager):
-    create_or_update(ops_manager)
+    ops_manager.update()
 
 
 @mark.e2e_om_ops_manager_https_enabled
@@ -122,7 +122,7 @@ def test_appdb_not_connectibel_without_tls(ops_manager: MongoDBOpsManager):
 @mark.e2e_om_ops_manager_https_enabled
 def test_replica_set_over_non_https_ops_manager(replicaset0: MongoDB):
     """First replicaset is started over non-HTTPS Ops Manager."""
-    create_or_update(replicaset0)
+    replicaset0.update()
     replicaset0.assert_reaches_phase(Phase.Running)
     replicaset0.assert_connectivity()
 
@@ -148,7 +148,7 @@ def test_enable_https_on_opsmanager(
         print("verifying download signature for OM!")
         ops_manager["spec"]["configuration"]["mms.featureFlag.automation.verifyDownloads"] = "enabled"
 
-    create_or_update(ops_manager)
+    ops_manager.update()
 
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
@@ -182,7 +182,7 @@ def test_mongodb_replicaset_over_https_ops_manager(replicaset0: MongoDB, replica
     """Both replicasets get to running state and are reachable.
     Note that 'replicaset1' is created just now."""
 
-    create_or_update(replicaset1)
+    replicaset1.update()
 
     # This would fail if there are no, sig files provided for the respective mongodb which the agent downloads.
     replicaset1.assert_reaches_phase(Phase.Running, timeout=360)

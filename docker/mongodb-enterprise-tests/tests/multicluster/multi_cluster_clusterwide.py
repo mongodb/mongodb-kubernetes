@@ -4,12 +4,7 @@ from typing import Dict, List
 
 import kubernetes
 from kubernetes import client
-from kubetester import (
-    create_or_update,
-    create_or_update_configmap,
-    create_or_update_secret,
-    read_secret,
-)
+from kubetester import create_or_update_configmap, create_or_update_secret, read_secret
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
@@ -54,7 +49,7 @@ def mongodb_multi_a(
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -69,7 +64,7 @@ def mongodb_multi_b(
     resource.set_version(custom_mdb_version)
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -83,7 +78,7 @@ def unmanaged_mongodb_multi(
 
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    create_or_update(resource)
+    resource.update()
     return resource
 
 

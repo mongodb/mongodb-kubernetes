@@ -27,10 +27,23 @@ jedi
 rope
 black==24.3.0
 flake8
-autopep8
 isort==5.12.0
 shrub.py==3.1.2
 pytest-mock==3.14.0
 wrapt==1.16.0
 botocore==1.35.29
 boto3==1.35.29
+
+# from kubeobject
+freezegun==1.5.1
+python-box==5.3.0
+autopep8==1.5.7
+flake8-isort==4.0.0
+mypy==0.910
+types-freezegun==0.1.4
+types-PyYAML==5.4.3
+types-pytz==2021.1.0
+types-python-dateutil==0.1.4
+pipupgrade==1.9.0
+pytest-cov==2.12.1
+pytest-socket==0.4.0

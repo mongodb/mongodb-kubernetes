@@ -1,7 +1,7 @@
 from typing import Optional
 
 import semver
-from kubetester import MongoDB, create_or_update, wait_until
+from kubetester import MongoDB, wait_until
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
@@ -38,7 +38,7 @@ def ops_manager(
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -53,7 +53,7 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version) -> MongoDB:
 
     setup_log_rotate_for_agents(resource, supports_process_log_rotation)
 
-    return create_or_update(resource)
+    return resource.update()
 
 
 @fixture(scope="module")
@@ -68,7 +68,7 @@ def blockstore_replica_set(
     ).configure(ops_manager, "blockstore")
     resource.set_version(ensure_ent_version(custom_mdb_version))
 
-    return create_or_update(resource)
+    return resource.update()
 
 
 @mark.e2e_om_ops_manager_backup_delete_sts_and_log_rotation

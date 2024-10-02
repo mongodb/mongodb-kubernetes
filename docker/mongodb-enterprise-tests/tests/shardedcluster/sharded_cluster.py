@@ -1,6 +1,5 @@
 import pytest
 from kubernetes import client
-from kubetester import create_or_update
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.kubetester import skip_if_local
@@ -16,7 +15,7 @@ logger = test_logger.get_test_logger(__name__)
 def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(load_fixture("sharded-cluster.yaml"), namespace=namespace)
     resource.set_version(custom_mdb_version)
-    return create_or_update(resource)
+    return resource.update()
 
 
 @pytest.mark.e2e_sharded_cluster
@@ -71,7 +70,7 @@ class TestShardedClusterUpdate(KubernetesTester):
     def test_scale_up_sharded_cluster(self, sc: MongoDB):
         sc.load()
         sc["spec"]["shardCount"] = 2
-        create_or_update(sc)
+        sc.update()
 
         sc.assert_reaches_phase(Phase.Running)
 

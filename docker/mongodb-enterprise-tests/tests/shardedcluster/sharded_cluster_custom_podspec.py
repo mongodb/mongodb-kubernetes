@@ -1,4 +1,4 @@
-from kubetester import create_or_update, try_load
+from kubetester import try_load
 from kubetester.custom_podspec import assert_stateful_set_podspec
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
@@ -34,7 +34,7 @@ def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
 
 @mark.e2e_sharded_cluster_custom_podspec
 def test_replica_set_reaches_running_phase(sharded_cluster):
-    create_or_update(sharded_cluster)
+    sharded_cluster.update()
     sharded_cluster.assert_reaches_phase(Phase.Running, timeout=600)
 
 

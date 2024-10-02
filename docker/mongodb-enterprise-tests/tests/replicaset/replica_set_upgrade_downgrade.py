@@ -1,5 +1,5 @@
 import pymongo
-from kubetester import create_or_update, try_load
+from kubetester import try_load
 from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
@@ -44,7 +44,7 @@ def replica_set(namespace: str, custom_mdb_prev_version: str, cluster_domain: st
     resource.set_version(custom_mdb_prev_version)
     if try_load(resource):
         return resource
-    return create_or_update(resource)
+    return resource.update()
 
 
 @mark.e2e_replica_set_upgrade_downgrade
@@ -71,7 +71,7 @@ class TestReplicaSetUpgradeDowngradeUpdate(KubernetesTester):
         replica_set.set_version(custom_mdb_version)
         fcv = fcv_from_version(custom_mdb_prev_version)
         replica_set["spec"]["featureCompatibilityVersion"] = fcv
-        create_or_update(replica_set)
+        replica_set.update()
         replica_set.assert_reaches_phase(Phase.Running, timeout=700)
         replica_set.tester().assert_version(custom_mdb_version)
 
@@ -92,7 +92,7 @@ class TestReplicaSetUpgradeDowngradeRevert(KubernetesTester):
     def test_mongodb_downgrade(self, replica_set: MongoDB, custom_mdb_prev_version: str, custom_mdb_version: str):
         replica_set.load()
         replica_set.set_version(custom_mdb_prev_version)
-        create_or_update(replica_set)
+        replica_set.update()
 
         replica_set.assert_reaches_phase(Phase.Running, timeout=1000)
         replica_set.tester().assert_version(custom_mdb_prev_version)

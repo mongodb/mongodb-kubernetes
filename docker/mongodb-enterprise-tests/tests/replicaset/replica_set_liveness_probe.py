@@ -3,7 +3,6 @@ from typing import Set
 
 import pytest
 from kubernetes import client
-from kubetester import create_or_update
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_static_containers
@@ -15,7 +14,7 @@ from pytest import fixture
 def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("replica-set-liveness.yaml"), "my-replica-set", namespace)
 
-    create_or_update(resource)
+    resource.update()
 
     return resource
 

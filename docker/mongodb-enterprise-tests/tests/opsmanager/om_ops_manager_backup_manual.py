@@ -8,11 +8,7 @@ This is a companion test for docs/investigation/pod-is-killed-while-agent-restor
 
 from typing import Dict, Optional
 
-from kubetester import (
-    create_or_update,
-    create_or_update_secret,
-    get_default_storage_class,
-)
+from kubetester import create_or_update_secret, get_default_storage_class
 from kubetester.awss3client import AwsS3Client, s3_endpoint
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
@@ -116,7 +112,7 @@ def ops_manager(
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 

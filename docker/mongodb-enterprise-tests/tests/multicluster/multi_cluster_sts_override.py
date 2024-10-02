@@ -3,7 +3,6 @@ from typing import List
 import kubernetes
 import pytest
 from kubernetes import client
-from kubetester import create_or_update
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
@@ -25,7 +24,7 @@ def mongodb_multi(
     resource.set_version(custom_mdb_version)
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    return create_or_update(resource)
+    return resource.update()
 
 
 @pytest.mark.e2e_multi_sts_override

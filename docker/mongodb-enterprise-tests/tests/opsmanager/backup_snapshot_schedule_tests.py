@@ -2,7 +2,7 @@ from typing import Dict
 
 import pytest
 from kubernetes.client import ApiException
-from kubetester import create_or_update, try_load
+from kubetester import try_load
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
@@ -53,7 +53,7 @@ class BackupSnapshotScheduleTests:
         mdb["spec"]["backup"]["snapshotSchedule"] = {
             "fullIncrementalDayOfWeek": "MONDAY",
         }
-        create_or_update(mdb)
+        mdb.update()
         mdb.assert_reaches_phase(Phase.Running, timeout=1000)
         mdb.assert_backup_reaches_status("STARTED")
 

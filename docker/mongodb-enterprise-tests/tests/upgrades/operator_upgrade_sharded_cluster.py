@@ -1,7 +1,7 @@
 from typing import Dict
 
 import pytest
-from kubetester import create_or_update, read_configmap
+from kubetester import read_configmap
 from kubetester.certs import create_sharded_cluster_certs
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
@@ -78,7 +78,7 @@ def sharded_cluster(
     resource["spec"]["persistent"] = True
     resource.configure_custom_tls(issuer_ca_configmap, CERT_PREFIX)
 
-    return create_or_update(resource)
+    return resource.update()
 
 
 @pytest.mark.e2e_operator_upgrade_sharded_cluster
@@ -113,7 +113,7 @@ class TestShardedClusterDeployment:
         sharded_cluster.load()
         sharded_cluster["spec"]["mongodsPerShardCount"] = 3
         sharded_cluster["spec"]["configServerCount"] = 3
-        create_or_update(sharded_cluster)
+        sharded_cluster.update()
         sharded_cluster.assert_reaches_phase(phase=Phase.Running, timeout=150)
 
 
@@ -138,7 +138,7 @@ class TestOperatorUpgrade:
         sharded_cluster.load()
         sharded_cluster["spec"]["mongodsPerShardCount"] = 2
         sharded_cluster["spec"]["configServerCount"] = 2
-        create_or_update(sharded_cluster)
+        sharded_cluster.update()
         sharded_cluster.assert_reaches_phase(phase=Phase.Running, timeout=300)
         logger.debug("State configmap after upgrade and scaling")
         log_state_configmap(namespace)
@@ -178,5 +178,5 @@ class TestOperatorDowngrade:
         sharded_cluster.load()
         sharded_cluster["spec"]["mongodsPerShardCount"] = 3
         sharded_cluster["spec"]["configServerCount"] = 3
-        create_or_update(sharded_cluster)
+        sharded_cluster.update()
         sharded_cluster.assert_reaches_phase(phase=Phase.Running, timeout=150)

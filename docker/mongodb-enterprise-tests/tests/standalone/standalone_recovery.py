@@ -1,6 +1,5 @@
 import pytest
 from kubernetes.client import V1ConfigMap
-from kubetester import create_or_update
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB, Phase
@@ -10,7 +9,7 @@ from kubetester.mongodb import MongoDB, Phase
 def mdb(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(load_fixture("standalone.yaml"), namespace=namespace)
     resource.set_version(custom_mdb_version)
-    return create_or_update(resource)
+    return resource.update()
 
 
 @pytest.mark.e2e_standalone_recovery

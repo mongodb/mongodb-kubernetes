@@ -6,7 +6,6 @@ from kubernetes.client import ApiException
 from kubetester import (
     assert_pod_container_security_context,
     assert_pod_security_context,
-    create_or_update,
     create_or_update_configmap,
     create_or_update_secret,
     get_default_storage_class,
@@ -159,7 +158,7 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoD
     # mongoURI not being updated unless pod is killed. This is documented in CLOUDP-60443, once resolved this skip & comment can be deleted
     resource["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
 
-    yield create_or_update(resource)
+    yield resource.update()
 
 
 @fixture(scope="module")
@@ -171,7 +170,7 @@ def s3_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoDB:
     ).configure(ops_manager, "s3metadata")
 
     resource.set_version(custom_mdb_version)
-    yield create_or_update(resource)
+    yield resource.update()
 
 
 @fixture(scope="module")
@@ -182,7 +181,7 @@ def blockstore_replica_set(ops_manager, namespace, custom_mdb_version: str) -> M
         name=BLOCKSTORE_RS_NAME,
     ).configure(ops_manager, "blockstore")
     resource.set_version(custom_mdb_version)
-    yield create_or_update(resource)
+    yield resource.update()
 
 
 @fixture(scope="module")
@@ -200,7 +199,7 @@ def blockstore_user(namespace, blockstore_replica_set: MongoDB) -> MongoDBUser:
         },
     )
 
-    yield create_or_update(resource)
+    yield resource.update()
 
 
 @fixture(scope="module")
@@ -224,7 +223,7 @@ def oplog_user(namespace, oplog_replica_set: MongoDB) -> MongoDBUser:
         },
     )
 
-    yield create_or_update(resource)
+    yield resource.update()
 
 
 @mark.e2e_om_ops_manager_backup
@@ -261,7 +260,7 @@ class TestOpsManagerCreation:
         if is_multi_cluster():
             enable_multi_cluster_deployment(ops_manager)
 
-        create_or_update(ops_manager)
+        ops_manager.update()
 
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Pending,
@@ -385,7 +384,7 @@ class TestBackupDatabasesAdded:
     def test_oplog_updated_scram_sha_enabled(self, oplog_replica_set: MongoDB):
         oplog_replica_set.load()
         oplog_replica_set["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
-        create_or_update(oplog_replica_set)
+        oplog_replica_set.update()
         oplog_replica_set.assert_reaches_phase(Phase.Running)
 
     def test_om_failed_oplog_no_user_ref(self, ops_manager: MongoDBOpsManager):
@@ -399,7 +398,7 @@ class TestBackupDatabasesAdded:
     def test_fix_om(self, ops_manager: MongoDBOpsManager, oplog_user: MongoDBUser):
         ops_manager.load()
         ops_manager["spec"]["backup"]["opLogStores"][0]["mongodbUserRef"] = {"name": oplog_user.name}
-        create_or_update(ops_manager)
+        ops_manager.update()
 
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Running,
@@ -468,7 +467,7 @@ class TestOpsManagerWatchesBlockStoreUpdates:
         """Enables SCRAM for the blockstore replica set. Note that until CLOUDP-67736 is fixed
         the order of operations (scram first, MongoDBUser - next) is important"""
         blockstore_replica_set["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
-        create_or_update(blockstore_replica_set)
+        blockstore_replica_set.update()
 
         # timeout of 600 is required when enabling SCRAM in mdb5.0.0
         blockstore_replica_set.assert_reaches_phase(Phase.Running, timeout=900)
@@ -487,7 +486,7 @@ class TestOpsManagerWatchesBlockStoreUpdates:
     def test_fix_om(self, ops_manager: MongoDBOpsManager, blockstore_user: MongoDBUser):
         ops_manager.load()
         ops_manager["spec"]["backup"]["blockStores"][0]["mongodbUserRef"] = {"name": blockstore_user.name}
-        create_or_update(ops_manager)
+        ops_manager.update()
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Running,
             timeout=200,
@@ -571,8 +570,8 @@ class TestBackupForMongodb:
         return resource
 
     def test_mdbs_created(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
-        create_or_update(mdb_latest)
-        create_or_update(mdb_prev)
+        mdb_latest.update()
+        mdb_prev.update()
 
         mdb_latest.assert_reaches_phase(Phase.Running)
         mdb_prev.assert_reaches_phase(Phase.Running)
@@ -580,11 +579,11 @@ class TestBackupForMongodb:
     def test_mdbs_enable_backup(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
         mdb_latest.load()
         mdb_latest.configure_backup(mode="enabled")
-        create_or_update(mdb_latest)
+        mdb_latest.update()
 
         mdb_prev.load()
         mdb_prev.configure_backup(mode="enabled")
-        create_or_update(mdb_prev)
+        mdb_prev.update()
 
         mdb_prev.assert_reaches_phase(Phase.Running)
         mdb_latest.assert_reaches_phase(Phase.Running)
@@ -602,7 +601,7 @@ class TestBackupForMongodb:
         # step for the operator
         mdb_prev.assert_backup_reaches_status("STARTED", timeout=100)
         mdb_prev.configure_backup(mode="disabled")
-        create_or_update(mdb_prev)
+        mdb_prev.update()
         mdb_prev.assert_backup_reaches_status("STOPPED", timeout=600)
 
     def test_can_transition_from_started_to_terminated_0(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
@@ -610,14 +609,14 @@ class TestBackupForMongodb:
         # the operator should handle the transition from STARTED -> STOPPED -> TERMINATING
         mdb_latest.assert_backup_reaches_status("STARTED", timeout=100)
         mdb_latest.configure_backup(mode="terminated")
-        create_or_update(mdb_latest)
+        mdb_latest.update()
         mdb_latest.assert_backup_reaches_status("TERMINATING", timeout=600)
 
     def test_backup_terminated_for_deleted_resource(self, ops_manager: MongoDBOpsManager, mdb_prev: MongoDB):
         # re-enable backup
         mdb_prev.configure_backup(mode="enabled")
         mdb_prev["spec"]["backup"]["autoTerminateOnDeletion"] = True
-        create_or_update(mdb_prev)
+        mdb_prev.update()
         mdb_prev.assert_backup_reaches_status("STARTED", timeout=600)
         mdb_prev.delete()
 
@@ -700,7 +699,7 @@ class TestAssignmentLabels:
         resource["spec"]["backup"] = {}
         resource["spec"]["backup"]["assignmentLabels"] = ["test"]
         resource.configure_backup(mode="enabled")
-        return create_or_update(resource)
+        return resource.update()
 
     @fixture(scope="class")
     def mdb_assignment_labels_om_tester(self, ops_manager: MongoDBOpsManager, project_name: str) -> OMTester:
@@ -714,7 +713,7 @@ class TestAssignmentLabels:
         ops_manager["spec"]["backup"]["opLogStores"][0]["assignmentLabels"] = ["test"]
         ops_manager["spec"]["backup"]["s3Stores"][0]["assignmentLabels"] = ["test"]
 
-        create_or_update(ops_manager)
+        ops_manager.update()
         ops_manager.om_status().assert_reaches_phase(Phase.Running, ignore_errors=True)
 
     def test_mdb_assignment_labels_created(self, mdb_assignment_labels: MongoDB):
@@ -748,7 +747,7 @@ class TestBackupConfigurationAdditionDeletion:
             {"name": "oplog2", "mongodbResourceRef": {"name": S3_RS_NAME}}
         )
 
-        create_or_update(ops_manager)
+        ops_manager.update()
         ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=600)
 
         om_tester = ops_manager.get_om_tester()
@@ -778,7 +777,7 @@ class TestBackupConfigurationAdditionDeletion:
     ):
         ops_manager.reload()
         ops_manager["spec"]["backup"]["opLogStores"].pop()
-        create_or_update(ops_manager)
+        ops_manager.update()
 
         ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=600)
 
@@ -813,7 +812,7 @@ class TestBackupConfigurationAdditionDeletion:
         """Removing the s3 store when there are backups running is an error"""
         ops_manager.reload()
         ops_manager["spec"]["backup"]["s3Stores"] = []
-        create_or_update(ops_manager)
+        ops_manager.update()
 
         try:
             ops_manager.backup_status().assert_reaches_phase(

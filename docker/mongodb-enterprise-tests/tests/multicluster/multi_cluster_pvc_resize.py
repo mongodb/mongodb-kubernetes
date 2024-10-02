@@ -3,7 +3,7 @@ from typing import List
 import kubernetes
 import pytest
 from kubernetes import client
-from kubetester import create_or_update, get_statefulset, try_load
+from kubetester import get_statefulset, try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
@@ -38,7 +38,7 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 
 @pytest.mark.e2e_multi_cluster_pvc_resize
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
-    create_or_update(mongodb_multi)
+    mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=2000)
 
 
@@ -49,7 +49,7 @@ def test_mongodb_multi_resize_pvc_state_changes(mongodb_multi: MongoDBMulti):
     mongodb_multi["spec"]["statefulSet"]["spec"]["volumeClaimTemplates"][0]["spec"]["resources"]["requests"][
         "storage"
     ] = RESIZED_STORAGE_SIZE
-    create_or_update(mongodb_multi)
+    mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Pending, timeout=400)
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)
 

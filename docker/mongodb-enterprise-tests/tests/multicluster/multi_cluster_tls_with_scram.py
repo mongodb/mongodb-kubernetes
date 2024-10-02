@@ -1,7 +1,7 @@
 from typing import List
 
 import kubernetes
-from kubetester import create_or_update, create_secret, read_secret
+from kubetester import create_secret, read_secret
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
@@ -113,7 +113,7 @@ def test_update_mongodb_multi_tls_with_scram(
 ):
     mongodb_multi.load()
     mongodb_multi["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
-    create_or_update(mongodb_multi)
+    mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)
 
 
@@ -210,7 +210,7 @@ def test_mongodb_multi_tls_enable_x509(
 
     mongodb_multi["spec"]["security"]["authentication"]["modes"].append("X509")
     mongodb_multi["spec"]["security"]["authentication"]["agents"] = {"mode": "SCRAM"}
-    create_or_update(mongodb_multi)
+    mongodb_multi.update()
 
     # sometimes the agents need more time to register than the time we wait ->
     # "Failed to enable Authentication for MongoDB Multi Replicaset"

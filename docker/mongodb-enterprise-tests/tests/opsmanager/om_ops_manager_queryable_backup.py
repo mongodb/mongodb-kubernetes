@@ -7,7 +7,6 @@ from kubernetes import client
 from kubetester import (
     assert_pod_container_security_context,
     assert_pod_security_context,
-    create_or_update,
     create_or_update_secret,
     get_default_storage_class,
 )
@@ -125,7 +124,7 @@ def ops_manager(
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -144,7 +143,7 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoD
     # mongoURI not being updated unless pod is killed. This is documented in CLOUDP-60443, once resolved this skip & comment can be deleted
     resource["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -156,7 +155,7 @@ def s3_replica_set(ops_manager, namespace) -> MongoDB:
         name=S3_RS_NAME,
     ).configure(ops_manager, "s3metadata")
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -170,7 +169,7 @@ def blockstore_replica_set(ops_manager, namespace, custom_mdb_version: str) -> M
 
     resource.set_version(custom_mdb_version)
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -189,7 +188,7 @@ def blockstore_user(namespace, blockstore_replica_set: MongoDB) -> MongoDBUser:
         },
     )
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -214,7 +213,7 @@ def oplog_user(namespace, oplog_replica_set: MongoDB) -> MongoDBUser:
         },
     )
 
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -227,7 +226,7 @@ def mdb42(ops_manager: MongoDBOpsManager, namespace, custom_mdb_version: str):
     ).configure(ops_manager, PROJECT_NAME)
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.configure_backup(mode="enabled")
-    create_or_update(resource)
+    resource.update()
     return resource
 
 
@@ -351,7 +350,7 @@ class TestBackupDatabasesAdded:
         """Creates mongodb databases all at once"""
         oplog_replica_set.load()
         oplog_replica_set["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
-        create_or_update(oplog_replica_set)
+        oplog_replica_set.update()
         oplog_replica_set.assert_reaches_phase(Phase.Running)
         s3_replica_set.assert_reaches_phase(Phase.Running)
         blockstore_replica_set.assert_reaches_phase(Phase.Running)
@@ -360,7 +359,7 @@ class TestBackupDatabasesAdded:
     def test_fix_om(self, ops_manager: MongoDBOpsManager, oplog_user: MongoDBUser):
         ops_manager.load()
         ops_manager["spec"]["backup"]["opLogStores"][0]["mongodbUserRef"] = {"name": oplog_user.name}
-        create_or_update(ops_manager)
+        ops_manager.update()
 
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Running,
@@ -429,7 +428,7 @@ class TestOpsManagerWatchesBlockStoreUpdates:
         """Enables SCRAM for the blockstore replica set. Note that until CLOUDP-67736 is fixed
         the order of operations (scram first, MongoDBUser - next) is important"""
         blockstore_replica_set["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
-        create_or_update(blockstore_replica_set)
+        blockstore_replica_set.update()
 
         # timeout of 600 is required when enabling SCRAM in mdb5.0.0
         blockstore_replica_set.assert_reaches_phase(Phase.Running, timeout=900)
@@ -438,7 +437,7 @@ class TestOpsManagerWatchesBlockStoreUpdates:
     def test_fix_om(self, ops_manager: MongoDBOpsManager, blockstore_user: MongoDBUser):
         ops_manager.load()
         ops_manager["spec"]["backup"]["blockStores"][0]["mongodbUserRef"] = {"name": blockstore_user.name}
-        create_or_update(ops_manager)
+        ops_manager.update()
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Running,
             timeout=200,

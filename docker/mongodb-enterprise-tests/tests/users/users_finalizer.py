@@ -3,7 +3,7 @@ import time
 import pytest
 from kubernetes import client
 from kubernetes.client.exceptions import ApiException
-from kubetester import create_or_update, create_or_update_secret, find_fixture
+from kubetester import create_or_update_secret, find_fixture
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB, Phase
@@ -17,7 +17,7 @@ RESOURCE_NAME = "my-replica-set"
 def mdb(namespace: str, custom_mdb_version: str) -> MongoDB:
     res = MongoDB.from_yaml(load_fixture("replica-set-scram-sha-256.yaml"), namespace=namespace)
     res.set_version(custom_mdb_version)
-    return create_or_update(res)
+    return res.update()
 
 
 @pytest.fixture(scope="module")
@@ -30,7 +30,7 @@ def scram_user(namespace: str) -> MongoDBUser:
         {"password": USER_PASSWORD},
     )
 
-    return create_or_update(resource)
+    return resource.update()
 
 
 @pytest.mark.e2e_users_finalizer

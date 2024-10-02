@@ -1,7 +1,6 @@
 import time
 from typing import Optional
 
-from kubetester import create_or_update
 from kubetester.certs import create_mongodb_tls_certs, create_ops_manager_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
@@ -59,7 +58,7 @@ def ops_manager(
     if is_multi_cluster():
         enable_multi_cluster_deployment(om)
 
-    create_or_update(om)
+    om.update()
     return om
 
 

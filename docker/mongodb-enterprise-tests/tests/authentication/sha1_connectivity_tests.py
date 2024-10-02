@@ -1,5 +1,5 @@
 import kubernetes
-from kubetester import MongoDB, create_or_update, create_or_update_secret, try_load
+from kubetester import MongoDB, create_or_update_secret, try_load
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
@@ -40,7 +40,7 @@ class SHA1ConnectivityTests:
         return mdb
 
     def test_create_cluster(self, mdb: MongoDB):
-        create_or_update(mdb)
+        mdb.update()
         mdb.assert_reaches_phase(Phase.Running)
 
     def test_cluster_connectivity(self, mongo_tester: MongoTester):
@@ -73,7 +73,7 @@ class SHA1ConnectivityTests:
         )
         mdb["spec"]["mongodbResourceRef"]["name"] = mdb_resource_name
 
-        create_or_update(mdb)
+        mdb.update()
         mdb.assert_reaches_phase(Phase.Updated, timeout=150)
 
     # ClusterIsUpdatedWithNewUser

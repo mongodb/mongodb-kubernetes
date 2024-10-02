@@ -2,7 +2,6 @@ import time
 
 import pytest
 from kubernetes import client
-from kubetester import create_or_update
 from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB, Phase
@@ -13,7 +12,7 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
     def test_create_replicaset(self, custom_mdb_version: str):
         resource = MongoDB.from_yaml(load_fixture("replica-set-pv.yaml"), namespace=self.namespace)
         resource.set_version(custom_mdb_version)
-        create_or_update(resource)
+        resource.update()
 
         resource.assert_reaches_phase(Phase.Running)
 

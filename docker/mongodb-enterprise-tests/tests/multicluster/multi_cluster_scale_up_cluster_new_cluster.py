@@ -3,7 +3,6 @@ from typing import Callable, List
 import kubernetes
 import pytest
 from kubernetes import client
-from kubetester import create_or_update
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
@@ -133,7 +132,7 @@ def test_add_new_cluster_to_mongodb_multi_resource(
     mongodb_multi["spec"]["clusterSpecList"].append(
         {"members": 2, "clusterName": member_cluster_clients[-1].cluster_name}
     )
-    create_or_update(mongodb_multi)
+    mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=800)
 
 
