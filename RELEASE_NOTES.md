@@ -4,6 +4,7 @@
 # MongoDB Enterprise Kubernetes Operator 1.28.0
 
 ## New Features
+
 * **MongoDB**: public preview release of multi kubernetes cluster support for sharded clusters. This can be enabled by setting `spec.topology=MultiCluster` when creating `MongoDB` resource of `spec.type=ShardedCluster`. More details can be found [here](to-be-added). 
 * **MongoDB**, **MongoDBMultiCluster**: support for automated expansion of the PVC.
   More details can be found [here](to-be-added).
@@ -25,9 +26,14 @@
                 storage: 2Gi # this is my increased storage
                 storageClass: <my-class-that-supports-expansion>
 ```
+* **MongoDB**, **MongoDBMultiCluster** **AppDB**: change default behaviour of setting featurecompatibilityversion (fcv) for the database. 
+  * When upgrading mongoDB version the operator sets the FCV to the prior version we are upgrading from. This allows to
+  have sanity checks before setting the fcv to the upgraded version. More information can be found [here](https://www.mongodb.com/docs/kubernetes-operator/current/reference/k8s-operator-specification/#mongodb-setting-spec.featureCompatibilityVersion).
+  * To keep the prior behaviour to always use the mongoDB version as FCV; set `spec.featureCompatibilityVersion: "AlwaysMatchVersion"`
 * Docker images are now built with `ubi9` as the base image with the exception of [mongodb-enterprise-database-ubi](quay.io/mongodb/mongodb-enterprise-database-ubi) which is still based on `ubi8` to support `MongoDB` workloads < 6.0.4. The `ubi8` image is only in use for the default non-static architecture.
 For a full `ubi9` setup, the [Static Containers](https://www.mongodb.com/docs/kubernetes-operator/upcoming/tutorial/plan-k8s-op-container-images/#static-containers--public-preview-) architecture should be used instead.
 * **OpsManager**: Introduced support for Ops Manager 8.0.0
+
 ## Bug Fixes
 
 * **MongoDB**, **AppDB**, **MongoDBMultiCluster**: Fixed a bug where the init container was not getting the default security context, which was flagged by security policies.
