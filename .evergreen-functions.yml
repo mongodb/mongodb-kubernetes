@@ -19,6 +19,7 @@ variables:
       - otel_parent_id
       - otel_collector_endpoint
       - branch_name
+      - requester
       - is_patch
       - github_commit
       - build_variant
