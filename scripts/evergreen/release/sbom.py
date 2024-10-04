@@ -149,7 +149,7 @@ def upload_sbom_lite_to_silk(directory: str, file_name: str, asset_group: str, p
     ]
 
     logger.debug(f"Calling Silk upload: {' '.join(command)}")
-    if retry(subprocess.run(command, check=True)):
+    if retry(lambda: subprocess.run(command, check=True)):
         logger.debug(f"Uploading SBOM Lite done")
     else:
         logger.error(f"Failed to upload SBOM Lite")
@@ -180,7 +180,7 @@ def download_augmented_sbom_from_silk(directory: str, file_name: str, asset_grou
     ]
 
     logger.debug(f"Calling Silk download: {' '.join(command)}")
-    if retry(subprocess.run(command, check=True)):
+    if retry(lambda: subprocess.run(command, check=True)):
         logger.debug(f"Downloading Augmented SBOM done")
     else:
         logger.error(f"Failed to download Augmented SBOM")
