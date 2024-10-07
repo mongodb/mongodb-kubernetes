@@ -11,13 +11,20 @@ script_dir=$(dirname "${script_name}")
 destination_envs_dir="$script_dir/../../.generated"
 destination_envs_file="$destination_envs_dir/context"
 
-context="$1"
+contexts_dir="scripts/dev/contexts"
+
+context="${1:-}"
 additional_override="${2:-}"
 
-context_file="scripts/dev/contexts/${context}"
-local_development_default_file="scripts/dev/contexts/local-defaults-context"
-override_context_file="scripts/dev/contexts/private-context-override"
-additional_override_file="scripts/dev/contexts/private-context-${additional_override}"
+if [[ "${context}" == "" ]]; then
+  # shellcheck disable=SC2012
+  context="$(ls -1 "${contexts_dir}" | fzf --sort)"
+fi
+
+context_file="${contexts_dir}/${context}"
+local_development_default_file="${contexts_dir}/local-defaults-context"
+override_context_file="${contexts_dir}/private-context-override"
+additional_override_file="${contexts_dir}/private-context-${additional_override}"
 
 mkdir -p "$destination_envs_dir"
 
