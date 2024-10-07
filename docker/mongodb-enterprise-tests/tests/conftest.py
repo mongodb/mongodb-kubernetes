@@ -1166,7 +1166,7 @@ def get_api_servers_from_kubeconfig_secret(
 
 
 def get_api_servers_from_test_pod_kubeconfig(namespace: str, member_cluster_names: List[str]) -> Dict[str, str]:
-    test_pod_cluster = os.environ["TEST_POD_CLUSTER"]
+    test_pod_cluster = get_test_pod_cluster_name()
     cluster_clients = get_clients_for_clusters(member_cluster_names)
 
     return get_api_servers_from_kubeconfig_secret(
@@ -1175,6 +1175,10 @@ def get_api_servers_from_test_pod_kubeconfig(namespace: str, member_cluster_name
         cluster_clients[test_pod_cluster],
         cluster_clients,
     )
+
+
+def get_test_pod_cluster_name():
+    return os.environ["TEST_POD_CLUSTER"]
 
 
 def run_multi_cluster_recovery_tool(
