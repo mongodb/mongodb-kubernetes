@@ -1,5 +1,3 @@
-import time
-
 import pytest
 from kubernetes.client.rest import ApiException
 from kubetester import MongoDB, read_service, wait_for_webhook
@@ -44,7 +42,12 @@ def test_upgrade_operator_only(namespace: str, version_id: str):
             "installPlanApproval": "Automatic",
             # In certified OpenShift bundles we have this enabled, so the operator is not defining security context (it's managed globally by OpenShift).
             # In Kind this will result in empty security contexts and problems deployments with filesystem permissions.
-            "config": {"env": [{"name": "MANAGED_SECURITY_CONTEXT", "value": "false"}]},
+            "config": {
+                "env": [
+                    {"name": "MANAGED_SECURITY_CONTEXT", "value": "false"},
+                    {"name": "OPERATOR_ENV", "value": "dev"},
+                ]
+            },
         },
     )
 

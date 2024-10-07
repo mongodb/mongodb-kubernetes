@@ -45,8 +45,8 @@ def ops_manager(
 
 
 @mark.e2e_multi_cluster_om_validation
-def test_wait_for_webhook(namespace: str, multi_cluster_operator: Operator):
-    multi_cluster_operator.wait_for_webhook()
+def test_install_multi_cluster_operator(namespace: str, multi_cluster_operator: Operator):
+    multi_cluster_operator.assert_is_running()
 
 
 @mark.usefixtures("multi_cluster_operator")

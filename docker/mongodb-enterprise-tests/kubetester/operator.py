@@ -168,7 +168,15 @@ class Operator(object):
 
         # in multi-cluster mode the operator and the test pod are in different clusters(test pod won't be able to talk to webhook),
         # so we skip this extra check for multi-cluster
-        if multi_cluster:
+        from tests.conftest import get_central_cluster_name, get_test_pod_cluster_name
+
+        if multi_cluster and get_central_cluster_name() != get_test_pod_cluster_name():
+            print(
+                f"Skipping waiting for the webhook as we cannot call the webhook endpoint from a test_pod_cluster ({get_test_pod_cluster_name()}) "
+                f"to central cluster ({get_central_cluster_name()}); sleeping for 10s instead"
+            )
+            # We need to sleep here otherwise the function returns too early and we create a race condition in tests
+            time.sleep(10)
             return
 
         logging.debug("_wait_operator_webhook_is_ready")
