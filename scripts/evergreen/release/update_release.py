@@ -60,17 +60,13 @@ def update_agent_and_tools_version(data, missing_version):
     repo_owner = "10gen"
     repo_name = "mms"
     file_path = "server/conf/conf-hosted.properties"
-    # starting om 7 our tag starts with ops-manager-<version> instead
-    if missing_version.startswith("7."):
-        tag_to_search = f"ops-manager-{missing_version}"
-    elif missing_version.startswith("8."):
-        logger.warning("Update for Ops Manager 8.0 temporarily disabled due to RC builds")
-        # tag_to_search = f"ops-manager-8.0"
-        return
-    else:
+    if missing_version.startswith("6."):
         tag_to_search = f"on-prem-{missing_version}"
-    url = f"https://raw.githubusercontent.com/{repo_owner}/{repo_name}/{tag_to_search}/{file_path}"
+    else:
+        # starting om 7 our tag starts with ops-manager-<version> instead
+        tag_to_search = f"ops-manager-{missing_version}"
 
+    url = f"https://raw.githubusercontent.com/{repo_owner}/{repo_name}/{tag_to_search}/{file_path}"
     response = requests.get(url=url, headers=get_headers())
     # Check if the request was successful
     if response.status_code == 200:
