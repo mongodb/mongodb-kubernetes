@@ -64,6 +64,7 @@ reset_context_namespace() {
   kubectl_cmd delete --context "${context}" sts --all -n "${namespace}"
   kubectl_cmd delete --context "${context}" deployments --all -n "${namespace}"
   kubectl_cmd delete --context "${context}" services --all -n "${namespace}"
+  kubectl_cmd delete --context "${context}" pods --all -n "${namespace}" --grace-period=0 --force
   kubectl_cmd delete --context "${context}" opsmanager --all -n "${namespace}"
 
   # shellcheck disable=SC2046

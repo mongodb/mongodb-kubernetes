@@ -26,8 +26,8 @@ on_exit() {
 
 trap on_exit EXIT
 if [[ "${RESET:-"true"}" == "true" ]]; then
-  echo "Resetting"
-  scripts/dev/reset.sh
+  echo "Running reset script..."
+  go run ${PROJECT_DIR}/scripts/dev/reset.go
 fi
 
 current_context=$(kubectl config current-context)
