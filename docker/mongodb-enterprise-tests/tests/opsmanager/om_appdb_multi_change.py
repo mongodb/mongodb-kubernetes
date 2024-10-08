@@ -33,7 +33,9 @@ def test_change_appdb(ops_manager: MongoDBOpsManager):
      See CLOUDP-73296 for more details."""
     ops_manager.load()
     ops_manager["spec"]["applicationDatabase"]["agent"] = {"startupOptions": {"maxLogFiles": "30"}}
-    ops_manager["spec"]["applicationDatabase"]["additionalMongodConfig"] = {"operationProfiling": {"mode": "slowOp"}}
+    ops_manager["spec"]["applicationDatabase"]["additionalMongodConfig"] = {
+        "replication": {"enableMajorityReadConcern": "true"}
+    }
     ops_manager.update()
 
     ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=100)

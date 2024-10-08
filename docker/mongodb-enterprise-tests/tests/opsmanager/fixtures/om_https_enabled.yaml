@@ -135,5 +135,27 @@ spec:
               volumeMounts:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases
+            - name: setting-up-rhel-mongodb-8-0
+              image: curlimages/curl:latest
+              command:
+                - curl
+                - -L
+                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel8-8.0.0.tgz
+                - -o
+                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel8-8.0.0.tgz
+              volumeMounts:
+                - name: mongodb-versions
+                  mountPath: /mongodb-ops-manager/mongodb-releases
+            - name: setting-up-rhel-mongodb-8-0-sig
+              image: curlimages/curl:latest
+              command:
+                - curl
+                - -L
+                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel8-8.0.0.tgz.sig
+                - -o
+                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel8-8.0.0.tgz.sig
+              volumeMounts:
+                - name: mongodb-versions
+                  mountPath: /mongodb-ops-manager/mongodb-releases
   backup:
     enabled: false
