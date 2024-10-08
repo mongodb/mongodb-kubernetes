@@ -33,7 +33,7 @@
 * Docker images are now built with `ubi9` as the base image with the exception of [mongodb-enterprise-database-ubi](quay.io/mongodb/mongodb-enterprise-database-ubi) which is still based on `ubi8` to support `MongoDB` workloads < 6.0.4. The `ubi8` image is only in use for the default non-static architecture.
 For a full `ubi9` setup, the [Static Containers](https://www.mongodb.com/docs/kubernetes-operator/upcoming/tutorial/plan-k8s-op-container-images/#static-containers--public-preview-) architecture should be used instead.
 * **OpsManager**: Introduced support for Ops Manager 8.0.0
-
+* **MongoDB**, **MongoDBMulti**: support for MongoDB 8.0.0
 ## Bug Fixes
 
 * **MongoDB**, **AppDB**, **MongoDBMultiCluster**: Fixed a bug where the init container was not getting the default security context, which was flagged by security policies.

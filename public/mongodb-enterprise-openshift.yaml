@@ -652,6 +652,10 @@ spec:
               value: "quay.io/mongodb/mongodb-enterprise-server:6.0.4-ubi8"
             - name: RELATED_IMAGE_MONGODB_IMAGE_6_0_5_ubi8
               value: "quay.io/mongodb/mongodb-enterprise-server:6.0.5-ubi8"
+            - name: RELATED_IMAGE_MONGODB_IMAGE_8_0_0_ubi8
+              value: "quay.io/mongodb/mongodb-enterprise-server:8.0.0-ubi8"
+            - name: RELATED_IMAGE_MONGODB_IMAGE_8_0_0_ubi9
+              value: "quay.io/mongodb/mongodb-enterprise-server:8.0.0-ubi9"
       # mongodbLegacyAppDb will be deleted in 1.23 release
             - name: RELATED_IMAGE_MONGODB_IMAGE_4_2_11_ent
               value: "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:4.2.11-ent"
