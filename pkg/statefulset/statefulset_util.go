@@ -17,6 +17,7 @@ import (
 	gocmp "github.com/google/go-cmp/cmp"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiEquality "k8s.io/apimachinery/pkg/api/equality"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
@@ -39,7 +40,8 @@ func isVolumeClaimEqualOnForbiddenFields(existing, desired corev1.PersistentVolu
 		return false
 	}
 
-	if !reflect.DeepEqual(oldSpec.Resources, newSpec.Resources) {
+	// using api-machinery here for semantic equality
+	if !apiEquality.Semantic.DeepEqual(oldSpec.Resources, newSpec.Resources) {
 		return false
 	}
 
