@@ -177,6 +177,25 @@ func TestIsVolumeClaimUpdatableTo(t *testing.T) {
 			},
 			want: true,
 		},
+		{
+			// CLOUDP-275888
+			name: "Storage: fractional value that needs canonicalizing",
+			existing: corev1.PersistentVolumeClaim{
+				Spec: corev1.PersistentVolumeClaimSpec{
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("966367641600m")},
+					},
+				},
+			},
+			desired: corev1.PersistentVolumeClaim{
+				Spec: corev1.PersistentVolumeClaimSpec{
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("0.9Gi")},
+					},
+				},
+			},
+			want: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
