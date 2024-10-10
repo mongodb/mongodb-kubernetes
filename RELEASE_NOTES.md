@@ -1,6 +1,12 @@
 [//]: # (Consider renaming or removing the header for next release, otherwise it appears as duplicate in the published release, e.g: https://github.com/mongodb/mongodb-enterprise-kubernetes/releases/tag/1.22.0 )
 <!-- Next Release -->
+# MongoDB Enterprise Kubernetes Operator 1.29.0
 
+## Bug Fixes
+
+* **MongoDB**, **AppDB**, **MongoDBMultiCluster**: Fixed a bug where specifying a fractional number for a storage volume's size such as `1.7Gi` can break the reconciliation loop for that resource with an error like `Can't execute update on forbidden fields` even if the underlying Persistence Volume Claim is deployed successfully.
+
+<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.28.0
 
 ## New Features
@@ -39,7 +45,6 @@ For a full `ubi9` setup, the [Static Containers](https://www.mongodb.com/docs/ku
 * **MongoDB**, **AppDB**, **MongoDBMultiCluster**: Fixed a bug where the init container was not getting the default security context, which was flagged by security policies.
 * **MongoDBMultiCluster**: Fixed a bug where resource validations were not performed as part of the reconcile loop.
 
-<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.27.0
 
 ## New Features
