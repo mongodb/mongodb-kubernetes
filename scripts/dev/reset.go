@@ -15,6 +15,8 @@ import (
 
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 )
 
 type DynamicResource struct {
@@ -337,13 +339,15 @@ func getTestNamespaces(ctx context.Context, kubeClient *kubernetes.Clientset, co
 
 func main() {
 	ctx := context.Background()
-	deleteCRD := os.Getenv("DELETE_CRD") == "true"
+
 	kubeEnvNameVar := "KUBE_ENVIRONMENT_NAME"
 	kubeEnvironmentName, found := os.LookupEnv(kubeEnvNameVar)
 	if !found {
 		fmt.Println(kubeEnvNameVar, "must be set. Make sure you sourced your env file")
 		os.Exit(1)
 	}
+
+	deleteCRD := env.ReadOrDefault("DELETE_CRD", "true") == "true"
 
 	// Cluster is a set because central cluster can be part of member clusters
 	clusters := make(map[string]bool)
