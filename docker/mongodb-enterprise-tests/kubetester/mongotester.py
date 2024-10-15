@@ -1,7 +1,7 @@
 import copy
+import inspect
 import logging
 import random
-import ssl
 import string
 import threading
 import time
@@ -10,6 +10,7 @@ from typing import Callable, Dict, List, Optional
 import pymongo
 from kubetester import kubetester
 from kubetester.kubetester import KubernetesTester
+from opentelemetry import trace
 from pymongo.errors import OperationFailure, PyMongoError, ServerSelectionTimeoutError
 from pytest import fail
 
@@ -61,7 +62,7 @@ def with_ldap(ssl_certfile: Optional[str] = None, tls_ca_file: Optional[str] = N
 
 
 class MongoTester:
-    """MongoTester is a general abstraction to work with mongo database. It incapsulates the client created in
+    """MongoTester is a general abstraction to work with mongo database. It encapsulates the client created in
     the constructor. All general methods non-specific to types of mongodb topologies should reside here."""
 
     def __init__(
@@ -71,7 +72,7 @@ class MongoTester:
         ca_path: Optional[str] = None,
     ):
         self.default_opts = with_tls(use_ssl, ca_path)
-        self.default_opts["serverSelectionTimeoutMs"] = "120000"
+        self.default_opts["serverSelectionTimeoutMs"] = "120000"  # 2 minutes
         self.cnx_string = connection_string
         self.client = None
 
@@ -544,8 +545,24 @@ class BackgroundHealthChecker(threading.Thread):
         if allowed_rate_of_failure is not None:
             allowed_failures = self.number_of_runs * allowed_rate_of_failure
 
-        assert self.max_consecutive_failure <= allowed_failures
-        assert self.number_of_runs > 0
+        # Automatically get the caller file information
+        caller_info = inspect.stack()[1]  # Stack frame of the caller
+        caller_file = caller_info.filename  # Get the filename of the caller
+        caller_function = caller_info.function  # Optional: Get the function name
+
+        span = trace.get_current_span()
+        span.set_attribute("meko_version_change_connection_failures", allowed_failures)
+        span.set_attribute("meko_caller_file", caller_file)
+        span.set_attribute("meko_caller_function", caller_function)
+        span.set_attribute("meko_health_check_failed", True)
+
+        try:
+            assert self.max_consecutive_failure <= allowed_failures
+            assert self.number_of_runs > 0
+        except AssertionError as e:
+            span.set_attribute("meko_health_check_failed", True)
+            span.set_attribute("meko_failure_reason", str(e))
+            raise
 
 
 class MongoDBBackgroundTester(BackgroundHealthChecker):
