@@ -48,7 +48,11 @@ class MongoDBCommon:
 
         wait = 3
         while timeout > 0:
-            self.reload()
+            try:
+                self.reload()
+            except Exception as e:
+                print(f"Caught error: {e} while waiting for {fn.__name__}")
+                pass
             if fn(self):
                 return True
             timeout -= wait
