@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"os"
 	"path"
 	"sort"
 	"strconv"
@@ -32,6 +33,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
 
 	mdbcv1_controllers "github.com/mongodb/mongodb-kubernetes-operator/controllers"
+	mdbconstruct "github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -562,7 +564,14 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 			}
 		}
 	} else {
+		// instead of using a hard-coded monitoring version, we use the "newest" one based on the release.json.
+		// This ensures we need to care less about CVEs compared to the prior older hardcoded versions.
 		appdbOpts.LegacyMonitoringAgent, err = r.getAgentVersion(nil, opsManager.Spec.Version, true, log)
+
+		// AgentImageEnv contains the full container image uri e.g. quay.io/mongodb/mongodb-agent-ubi:107.0.0.8502-1
+		// In non-static containers we don't ask OM for the correct version, therefore we just rely on the provided
+		// environment variable.
+		appdbOpts.AgentVersion = os.Getenv(mdbconstruct.AgentImageEnv)
 		if err != nil {
 			return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error reading monitoring agent version: %w", err)), log, appDbStatusOption)
 		}
