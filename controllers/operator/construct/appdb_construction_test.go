@@ -89,13 +89,13 @@ func TestAppDbStatefulSetWithRelatedImages(t *testing.T) {
 
 	t.Setenv(construct.MongodbImageEnv, "mongodb-enterprise-appdb-database-ubi")
 	t.Setenv(construct.MongodbRepoUrl, "quay.io/mongodb")
-	t.Setenv(construct.AgentImageEnv, "quay.io/mongodb/mongodb-agent:10.26.0.6851-1")
 	t.Setenv(util.InitAppdbImageUrlEnv, "quay.io/mongodb/mongodb-enterprise-init-appdb")
 	t.Setenv(initAppdbVersionEnv, "3.4.5")
+	agentImageEnv := "quay.io/mongodb/mongodb-agent:10.26.0.6851-1"
 
 	// without related imaged sts is configured using env vars
 	om.Spec.AppDB.Version = "1.2.3-ent"
-	sts, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"}, AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil), v1.OnDeleteStatefulSetStrategyType, nil)
+	sts, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"}, AppDBStatefulSetOptions{AgentVersion: agentImageEnv}, scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil), v1.OnDeleteStatefulSetStrategyType, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, "quay.io/mongodb/mongodb-agent:10.26.0.6851-1", sts.Spec.Template.Spec.Containers[0].Image)
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:1.2.3-ent", sts.Spec.Template.Spec.Containers[1].Image)
@@ -107,7 +107,7 @@ func TestAppDbStatefulSetWithRelatedImages(t *testing.T) {
 	t.Setenv(initAppdbRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-init-appdb@sha256:INIT_APPDB_SHA")
 
 	om.Spec.AppDB.Version = "1.2.3-ent"
-	sts, err = AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"}, AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil), v1.OnDeleteStatefulSetStrategyType, nil)
+	sts, err = AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"}, AppDBStatefulSetOptions{AgentVersion: agentImageEnv}, scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil), v1.OnDeleteStatefulSetStrategyType, nil)
 	assert.NoError(t, err)
 	// agent's image is not used from RELATED_IMAGE because its value is from AGENT_IMAGE which is full image version
 	assert.Equal(t, "quay.io/mongodb/mongodb-agent:10.26.0.6851-1", sts.Spec.Template.Spec.Containers[0].Image)
