@@ -7,9 +7,11 @@ from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.mongotester import ShardedClusterTester
+from kubetester.operator import Operator
+from pytest import fixture, mark
 
 
-@pytest.fixture(scope="module")
+@fixture(scope="module")
 def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("sharded-cluster-pv.yaml"),
@@ -20,7 +22,12 @@ def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
     return resource
 
 
-@pytest.mark.e2e_sharded_cluster_pv
+@mark.e2e_sharded_cluster_pv
+def test_install_operator(default_operator: Operator):
+    default_operator.assert_is_running()
+
+
+@mark.e2e_sharded_cluster_pv
 class TestShardedClusterCreation(KubernetesTester):
     custom_labels = {"label1": "val1", "label2": "val2"}
 
@@ -84,7 +91,7 @@ class TestShardedClusterCreation(KubernetesTester):
         ShardedClusterTester("sh001-pv", 2)
 
 
-@pytest.mark.e2e_sharded_cluster_pv
+@mark.e2e_sharded_cluster_pv
 class TestShardedClusterDeletion(KubernetesTester):
     def test_sharded_cluster_delete(self, sharded_cluster: MongoDB):
         sharded_cluster.delete()

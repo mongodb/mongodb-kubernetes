@@ -8,6 +8,7 @@ from kubetester.mongotester import (
     MongoTester,
     ShardedClusterTester,
 )
+from kubetester.operator import Operator
 from pytest import fixture, mark
 
 
@@ -36,6 +37,11 @@ def mdb_health_checker(mongod_tester: MongoTester) -> MongoDBBackgroundTester:
             "write_concern": pymongo.WriteConcern(w="majority"),
         },
     )
+
+
+@mark.e2e_sharded_cluster_upgrade_downgrade
+def test_install_operator(default_operator: Operator):
+    default_operator.assert_is_running()
 
 
 @mark.e2e_sharded_cluster_upgrade_downgrade

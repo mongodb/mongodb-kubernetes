@@ -4,16 +4,23 @@ from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongotester import ShardedClusterTester
+from kubetester.operator import Operator
+from pytest import fixture, mark
 
 
-@pytest.fixture(scope="module")
+@fixture(scope="module")
 def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(load_fixture("sharded-cluster-scale-shards.yaml"), namespace=namespace)
     resource.set_version(custom_mdb_version)
     return resource.update()
 
 
-@pytest.mark.e2e_sharded_cluster_scale_shards
+@mark.e2e_sharded_cluster_scale_shards
+def test_install_operator(default_operator: Operator):
+    default_operator.assert_is_running()
+
+
+@mark.e2e_sharded_cluster_scale_shards
 class TestShardedClusterScaleShardsCreate(KubernetesTester):
     """
     name: ShardedCluster scale of shards (create)
@@ -35,7 +42,7 @@ class TestShardedClusterScaleShardsCreate(KubernetesTester):
         # self.client.config.command('printShardingStatus') --> doesn't work
 
 
-@pytest.mark.e2e_sharded_cluster_scale_shards
+@mark.e2e_sharded_cluster_scale_shards
 class TestShardedClusterScaleDownShards(KubernetesTester):
     """
     name: ShardedCluster scale down of shards (update)
@@ -64,7 +71,7 @@ class TestShardedClusterScaleDownShards(KubernetesTester):
             self.appsv1.read_namespaced_stateful_set("sh001-scale-down-shards-1", self.namespace)
 
 
-@pytest.mark.e2e_sharded_cluster_scale_shards
+@mark.e2e_sharded_cluster_scale_shards
 class TestShardedClusterScaleUpShards(KubernetesTester):
     """
     name: ShardedCluster scale up  of shards (sc)

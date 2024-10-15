@@ -1,6 +1,7 @@
 from kubetester import find_fixture, try_load
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.mongodb import MongoDB, Phase
+from kubetester.operator import Operator
 from pytest import fixture, mark
 from tests.pod_logs import (
     assert_log_types_in_structured_json_pod_log,
@@ -36,6 +37,11 @@ def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
 
     resource.update()
     return resource
+
+
+@mark.e2e_sharded_cluster_agent_flags
+def test_install_operator(default_operator: Operator):
+    default_operator.assert_is_running()
 
 
 @mark.e2e_sharded_cluster_agent_flags
