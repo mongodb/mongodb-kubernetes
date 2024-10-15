@@ -6,7 +6,6 @@ ruamel.yaml==0.17.4
 dnspython>=2.6.1
 MarkupSafe==2.0.1
 semver==2.13.0
-kubeobject==0.2.1
 chardet==3.0.4
 jsonpatch==1.33
 kubernetes==17.17.0
