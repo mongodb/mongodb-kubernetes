@@ -1,8 +1,14 @@
-import pytest
 from kubetester.kubetester import KubernetesTester
+from kubetester.operator import Operator
+from pytest import mark
 
 
-@pytest.mark.e2e_sharded_cluster_schema_validation
+@mark.e2e_sharded_cluster_schema_validation
+def test_install_operator(default_operator: Operator):
+    default_operator.assert_is_running()
+
+
+@mark.e2e_sharded_cluster_schema_validation
 class TestShardedClusterValidationMongosMissing(KubernetesTester):
     """
     name: Sharded Cluster Validation (mongos missing)
@@ -12,12 +18,12 @@ class TestShardedClusterValidationMongosMissing(KubernetesTester):
       exception: 'Unprocessable Entity'
     """
 
-    @pytest.mark.skip
+    @mark.skip
     def test_validation_ok(self):
         assert True
 
 
-@pytest.mark.e2e_sharded_cluster_schema_validation
+@mark.e2e_sharded_cluster_schema_validation
 class TestShardedClusterValidationShardCountMissing(KubernetesTester):
     """
     name: Sharded Cluster Validation (shardCount missing)
@@ -27,12 +33,12 @@ class TestShardedClusterValidationShardCountMissing(KubernetesTester):
       exception: 'Unprocessable Entity'
     """
 
-    @pytest.mark.skip
+    @mark.skip
     def test_validation_ok(self):
         assert True
 
 
-@pytest.mark.e2e_sharded_cluster_schema_validation
+@mark.e2e_sharded_cluster_schema_validation
 class TestShardedClusterValidationConfigServerCount(KubernetesTester):
     """
     name: Sharded Cluster Validation (configServerCount missing)
@@ -42,12 +48,12 @@ class TestShardedClusterValidationConfigServerCount(KubernetesTester):
       exception: 'Unprocessable Entity'
     """
 
-    @pytest.mark.skip
+    @mark.skip
     def test_validation_ok(self):
         assert True
 
 
-@pytest.mark.e2e_sharded_cluster_schema_validation
+@mark.e2e_sharded_cluster_schema_validation
 class TestShardedClusterValidationMongoDsPerShard(KubernetesTester):
     """
     name: Sharded Cluster Validation (mongodsPerShardCount missing)
@@ -57,12 +63,12 @@ class TestShardedClusterValidationMongoDsPerShard(KubernetesTester):
       exception: 'Unprocessable Entity'
     """
 
-    @pytest.mark.skip
+    @mark.skip
     def test_validation_ok(self):
         assert True
 
 
-@pytest.mark.e2e_sharded_cluster_schema_validation
+@mark.e2e_sharded_cluster_schema_validation
 class TestShardedClusterValidationInvalidType(KubernetesTester):
     """
     name: Sharded Cluster Validation (invalid type)
@@ -76,7 +82,7 @@ class TestShardedClusterValidationInvalidType(KubernetesTester):
         assert True
 
 
-@pytest.mark.e2e_sharded_cluster_schema_validation
+@mark.e2e_sharded_cluster_schema_validation
 class TestShardedClusterValidationInvalidLogLevel(KubernetesTester):
     """
     name: Sharded Cluster Validation (invalid logLevel)
@@ -90,7 +96,7 @@ class TestShardedClusterValidationInvalidLogLevel(KubernetesTester):
         assert True
 
 
-@pytest.mark.e2e_sharded_cluster_schema_validation
+@mark.e2e_sharded_cluster_schema_validation
 class TestShardedClusterSchemaAdditionalMongodConfigNotAllowed(KubernetesTester):
     """
     name: Sharded Cluster Validation (additional Mongod Config not allowed)
@@ -104,7 +110,7 @@ class TestShardedClusterSchemaAdditionalMongodConfigNotAllowed(KubernetesTester)
         assert True
 
 
-@pytest.mark.e2e_sharded_cluster_schema_validation
+@mark.e2e_sharded_cluster_schema_validation
 class TestShardedClusterInvalidWithProjectAndOpsManager(KubernetesTester):
     init = {
         "create": {
@@ -124,7 +130,7 @@ class TestShardedClusterInvalidWithProjectAndOpsManager(KubernetesTester):
         assert True
 
 
-@pytest.mark.e2e_sharded_cluster_schema_validation
+@mark.e2e_sharded_cluster_schema_validation
 class TestShardedClusterInvalidWithCloudAndOpsManagerAndProject(KubernetesTester):
     init = {
         "create": {

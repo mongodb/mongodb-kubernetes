@@ -2,7 +2,8 @@ import pytest
 from kubernetes import client
 from kubetester.kubetester import fixture as _fixture
 from kubetester.mongodb import MongoDB, Phase
-from pytest import fixture
+from kubetester.operator import Operator
+from pytest import fixture, mark
 
 
 @fixture(scope="module")
@@ -11,7 +12,12 @@ def sharded_cluster(namespace: str) -> MongoDB:
     return resource.create()
 
 
-@pytest.mark.e2e_sharded_cluster_scale_down_shards
+@mark.e2e_sharded_cluster_scale_down_shards
+def test_install_operator(default_operator: Operator):
+    default_operator.assert_is_running()
+
+
+@mark.e2e_sharded_cluster_scale_down_shards
 def test_db_connectable(sharded_cluster: MongoDB):
     sharded_cluster.assert_reaches_phase(Phase.Running, timeout=300)
 
@@ -25,7 +31,7 @@ def test_db_connectable(sharded_cluster: MongoDB):
     # self.client.config.command('printShardingStatus') --> doesn't work
 
 
-@pytest.mark.e2e_sharded_cluster_scale_down_shards
+@mark.e2e_sharded_cluster_scale_down_shards
 def test_db_data_the_same_count(sharded_cluster: MongoDB):
     """
     Updates the sharded cluster, scaling down its shards count to 1. Makes sure no data is lost.
@@ -44,7 +50,7 @@ def test_db_data_the_same_count(sharded_cluster: MongoDB):
     mongod_tester.assert_data_size(50_000)
 
 
-@pytest.mark.e2e_sharded_cluster_scale_down_shards
+@mark.e2e_sharded_cluster_scale_down_shards
 def test_statefulset_for_shard_removed(namespace: str):
     with pytest.raises(client.rest.ApiException):
         client.AppsV1Api().read_namespaced_stateful_set("sh001-scale-down-shards-1", namespace)
