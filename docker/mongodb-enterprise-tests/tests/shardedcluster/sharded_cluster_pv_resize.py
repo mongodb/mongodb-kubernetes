@@ -2,6 +2,7 @@ from kubernetes import client
 from kubetester import MongoDB, get_statefulset, try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
+from kubetester.operator import Operator
 from pytest import fixture, mark
 
 SHARDED_CLUSTER_NAME = "sharded-resize"
@@ -22,6 +23,11 @@ def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource.set_version(custom_mdb_version)
     try_load(resource)
     return resource
+
+
+@mark.e2e_sharded_cluster_pv_resize
+def test_install_operator(default_operator: Operator):
+    default_operator.assert_is_running()
 
 
 @mark.e2e_sharded_cluster_pv_resize

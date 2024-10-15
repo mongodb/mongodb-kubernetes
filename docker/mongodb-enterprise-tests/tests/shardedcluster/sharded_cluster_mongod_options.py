@@ -2,6 +2,7 @@ from kubernetes import client
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
+from kubetester.operator import Operator
 from pytest import fixture, mark
 from tests.conftest import (
     assert_log_rotation_backup_monitoring,
@@ -20,6 +21,11 @@ def sharded_cluster(namespace: str) -> MongoDB:
     setup_log_rotate_for_agents(resource)
     resource.update()
     return resource
+
+
+@mark.e2e_sharded_cluster_mongod_options_and_log_rotation
+def test_install_operator(default_operator: Operator):
+    default_operator.assert_is_running()
 
 
 @mark.e2e_sharded_cluster_mongod_options_and_log_rotation

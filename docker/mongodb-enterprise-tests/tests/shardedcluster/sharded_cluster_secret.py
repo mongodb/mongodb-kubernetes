@@ -1,18 +1,24 @@
-import pytest
 from kubernetes.client import V1Secret
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB, Phase
+from kubetester.operator import Operator
+from pytest import fixture, mark
 
 
-@pytest.fixture(scope="module")
+@fixture(scope="module")
 def mdb(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(load_fixture("sharded-cluster-single.yaml"), namespace=namespace)
     resource.set_version(custom_mdb_version)
     return resource.update()
 
 
-@pytest.mark.e2e_sharded_cluster_secret
+@mark.e2e_sharded_cluster_secret
+def test_install_operator(default_operator: Operator):
+    default_operator.assert_is_running()
+
+
+@mark.e2e_sharded_cluster_secret
 class TestShardedClusterListensSecret(KubernetesTester):
     """
     name: ShardedCluster tracks configmap changes

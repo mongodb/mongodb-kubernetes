@@ -4,6 +4,7 @@ from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import is_static_containers_architecture
 from kubetester.mongodb import MongoDB, Phase
+from kubetester.operator import Operator
 from pytest import fixture, mark
 
 SHARD_WEIGHT = 50
@@ -30,6 +31,11 @@ def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
     try_load(resource)
 
     return resource
+
+
+@mark.e2e_sharded_cluster_custom_podspec
+def test_install_operator(default_operator: Operator):
+    default_operator.assert_is_running()
 
 
 @mark.e2e_sharded_cluster_custom_podspec

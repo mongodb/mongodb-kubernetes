@@ -1,5 +1,6 @@
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
+from kubetester.operator import Operator
 from pytest import fixture, mark
 
 
@@ -20,6 +21,11 @@ This test checks the 'status.resourcesNotReady' element during sharded cluster r
 be populated with the information about current StatefulSet pending in the following order: config server, shard 0, 
 shard 1, mongos.
 """
+
+
+@mark.e2e_sharded_cluster_statefulset_status
+def test_install_operator(default_operator: Operator):
+    default_operator.assert_is_running()
 
 
 @mark.e2e_sharded_cluster_statefulset_status
