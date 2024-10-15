@@ -133,7 +133,7 @@ class OMTester(object):
                 return
             except Exception as e:
                 # this exception is usually raised for some time (some oplog slices not received or whatever)
-                # but eventually is gone and restore job is started..
+                # but eventually is gone and restore job is started.
                 if "Invalid restore point:" not in str(e):
                     raise e
             retry -= 1
@@ -143,7 +143,7 @@ class OMTester(object):
     def wait_until_backup_snapshots_are_ready(
         self,
         expected_count: int,
-        timeout: int = 3000,
+        timeout: int = 800,
         expected_config_count: int = 1,
         is_sharded_cluster: bool = False,
     ):

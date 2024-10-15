@@ -13,7 +13,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 from pymongo import ReadPreference
 from pymongo.errors import ServerSelectionTimeoutError
 from pytest import fixture, mark
-from tests.conftest import is_multi_cluster
+from tests.conftest import assert_data_got_restored, is_multi_cluster
 from tests.opsmanager.om_ops_manager_backup import (
     S3_SECRET_NAME,
     create_aws_secret,
@@ -210,47 +210,7 @@ class TestBackupRestorePIT:
         mdb_prev.assert_reaches_phase(Phase.Running)
 
     def test_data_got_restored(self, mdb_prev_test_collection, mdb_latest_test_collection):
-        """The data in the db has been restored to the initial state. Note, that this happens eventually - so
-        we need to loop for some time (usually takes 20 seconds max). This is different from restoring from a
-        specific snapshot (see the previous class) where the FINISHED restore job means the data has been restored.
-        For PIT restores FINISHED just means the job has been created and the agents will perform restore eventually"""
-        print("\nWaiting until the db data is restored")
-        retries = 120
-        last_error = None
-
-        while retries > 0:
-            try:
-                records = list(mdb_prev_test_collection.find())
-                assert records == [TEST_DATA]
-
-                records = list(mdb_prev_test_collection.find())
-                assert records == [TEST_DATA]
-                return
-            except AssertionError as e:
-                last_error = e
-                pass
-            except ServerSelectionTimeoutError:
-                # The mongodb driver complains with `No replica set members
-                # match selector "Primary()",` This could be related with DNS
-                # not being functional, or the database going through a
-                # re-election process. Let's give it another chance to succeed.
-                pass
-            except Exception as e:
-                # We ignore Exception as there is usually a blip in connection (backup restore
-                # results in reelection or whatever)
-                # "Connection reset by peer" or "not master and slaveOk=false"
-                print("Exception happened while waiting for db data restore: ", e)
-                # this is definitely the sign of a problem - no need continuing as each connection times out
-                # after many minutes
-                if "Connection refused" in str(e):
-                    raise e
-            retries -= 1
-            time.sleep(1)
-
-        print("\nExisting data in previous MDB: {}".format(list(mdb_prev_test_collection.find())))
-        print("Existing data in latest MDB: {}".format(list(mdb_latest_test_collection.find())))
-
-        raise AssertionError(f"The data hasn't been restored in 2 minutes! Last assertion error was: {last_error}")
+        assert_data_got_restored(TEST_DATA, mdb_prev_test_collection, mdb_latest_test_collection)
 
 
 @mark.e2e_om_ops_manager_backup_restore

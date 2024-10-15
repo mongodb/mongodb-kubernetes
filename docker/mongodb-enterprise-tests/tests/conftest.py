@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 import tempfile
+import time
 from typing import Callable, Dict, List, Optional
 
 import kubernetes
@@ -30,6 +31,7 @@ from kubetester.kubetester import running_locally
 from kubetester.mongodb_multi import MultiClusterClient
 from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
+from pymongo.errors import ServerSelectionTimeoutError
 from pytest import fixture
 from tests import test_logger
 from tests.multicluster import prepare_multi_cluster_namespaces
@@ -1468,3 +1470,56 @@ def install_multi_cluster_operator_cluster_scoped(
         },
         central_cluster_name,
     )
+
+
+def assert_data_got_restored(test_data, collection1, collection2=None, timeout=300):
+    """The data in the db has been restored to the initial state. Note, that this happens eventually - so
+    we need to loop for some time (usually takes 60 seconds max). This is different from restoring from a
+    specific snapshot (see the previous class) where the FINISHED restore job means the data has been restored.
+    For PIT restores FINISHED just means the job has been created and the agents will perform restore eventually
+    """
+    print("\nWaiting until the db data is restored")
+    start_time = time.time()
+    last_error = None
+
+    while True:
+        elapsed_time = time.time() - start_time
+        if elapsed_time > timeout:
+            logger.debug("\nExisting data in MDB: {}".format(list(collection1.find())))
+            if collection2 is not None:
+                logger.debug("\nExisting data in MDB: {}".format(list(collection2.find())))
+            raise AssertionError(
+                f"The data hasn't been restored in {timeout // 60} minutes! Last assertion error was: {last_error}"
+            )
+
+        try:
+            records = list(collection1.find())
+            assert records == [test_data]
+
+            if collection2 is not None:
+                records = list(collection2.find())
+                assert records == [test_data]
+
+            return
+        except AssertionError as e:
+            logger.debug(f"assertionError while asserting data got restored: {e}")
+            last_error = e
+            pass
+        except ServerSelectionTimeoutError:
+            # The mongodb driver complains with `No replica set members
+            # match selector "Primary()",` This could be related with DNS
+            # not being functional, or the database going through a
+            # re-election process. Let's give it another chance to succeed.
+            logger.debug(f"ServerSelectionTimeoutError, are we going through a re-election?")
+            pass
+        except Exception as e:
+            # We ignore Exception as there is usually a blip in connection (backup restore
+            # results in reelection or whatever)
+            # "Connection reset by peer" or "not master and slaveOk=false"
+            logger.error("Exception happened while waiting for db data restore: ", e)
+            # this is definitely the sign of a problem - no need continuing as each connection times out
+            # after many minutes
+            if "Connection refused" in str(e):
+                raise e
+
+        time.sleep(1)  # Sleep for a short duration before the next check

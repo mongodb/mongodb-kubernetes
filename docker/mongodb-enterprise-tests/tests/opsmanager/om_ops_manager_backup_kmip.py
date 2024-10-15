@@ -165,7 +165,7 @@ class TestBackupForMongodb:
 
     def test_mdbs_backed_up(self, mdb_latest_project: OMTester):
         # If OM is misconfigured, this will never become ready
-        mdb_latest_project.wait_until_backup_snapshots_are_ready(expected_count=1)
+        mdb_latest_project.wait_until_backup_snapshots_are_ready(expected_count=1, timeout=3500)
 
     def test_mdbs_backup_encrypted(self, mdb_latest_project: OMTester):
         # This type of testing has been agreed with Ops Manager / Backup Team
