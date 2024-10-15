@@ -401,7 +401,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		MountPath: "/var/lib/automation/config/acVersion",
 	}
 
-	mod := construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, scaler, os.Getenv(construct.AgentImageEnv), true)
+	mod := construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, scaler, opts.AgentVersion, true)
 	if architectures.IsRunningStaticArchitecture(opsManager.Annotations) {
 		mod = construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, scaler, ContainerImage(architectures.MdbAgentImageRepo, opts.AgentVersion, func() string {
 			return env.ReadOrDefault(architectures.MdbAgentImageRepo, "quay.io/mongodb/mongodb-agent-ubi")
