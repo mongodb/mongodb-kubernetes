@@ -131,7 +131,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 	}
 
 	if err := s.ProcessValidationsOnReconcile(nil); err != nil {
-		return r.updateStatus(ctx, s, workflow.Invalid(err.Error()), log)
+		return r.updateStatus(ctx, s, workflow.Invalid("%s", err.Error()), log)
 	}
 
 	log.Info("-> Standalone.Reconcile")
@@ -229,7 +229,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		WithAgentVersion(automationAgentVersion),
 	)
 
-	sts := construct.DatabaseStatefulSet(*s, standaloneOpts, nil)
+	sts := construct.DatabaseStatefulSet(*s, standaloneOpts, log)
 
 	workflowStatus := create.HandlePVCResize(ctx, r.client, &sts, log)
 	if !workflowStatus.IsOK() {

@@ -263,9 +263,9 @@ func ValidateCertificates(ctx context.Context, secretGetter secret.Getter, name,
 	return nil
 }
 
-// VerifyAndEnsureClientCertificatesForAgentsAndTLSType ensures that agent certs are present and correct, and returns whether or not they are of the kubernetes.io/tls type.
+// VerifyAndEnsureClientCertificatesForAgentsAndTLSType ensures that agent certs are present and correct, and returns whether they are of the kubernetes.io/tls type.
 // If the secret is of type kubernetes.io/tls, it creates a new secret containing the concatenation fo the tls.crt and tls.key fields
-func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx context.Context, secretReadClient, secretWriteClient secrets.SecretClient, secret types.NamespacedName, log *zap.SugaredLogger) error {
+func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx context.Context, secretReadClient, secretWriteClient secrets.SecretClient, secret types.NamespacedName) error {
 	needToCreatePEM := false
 	var secretData map[string][]byte
 	var s corev1.Secret

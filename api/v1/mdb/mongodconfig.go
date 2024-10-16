@@ -78,6 +78,7 @@ func (amc *AdditionalMongodConfig) GetPortOrDefault() int32 {
 		return util.MongoDbDefaultPort
 	}
 
+	//nolint:gosec // suppressing integer overflow warning for int32(port)
 	return int32(port)
 }
 

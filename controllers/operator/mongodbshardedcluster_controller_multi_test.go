@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -19,10 +20,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
+
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
@@ -33,13 +37,13 @@ import (
 
 // Creates a list of ClusterSpecItems based on names and distribution
 // The two input list must have the same size
-func createClusterSpecList(clusterNames []string, shardCounts map[string]int) mdbv1.ClusterSpecList {
-	specList := make(mdbv1.ClusterSpecList, len(clusterNames))
-	for i := range clusterNames {
-		specList[i] = mdbv1.ClusterSpecItem{
-			ClusterName: clusterNames[i],
-			Members:     shardCounts[clusterNames[i]],
-		}
+func createClusterSpecList(memberCounts map[string]int) mdbv1.ClusterSpecList {
+	specList := make(mdbv1.ClusterSpecList, 0)
+	for clusterName, memberCount := range memberCounts {
+		specList = append(specList, mdbv1.ClusterSpecItem{
+			ClusterName: clusterName,
+			Members:     memberCount,
+		})
 	}
 	return specList
 }
@@ -72,14 +76,14 @@ func TestReconcileCreateMultiClusterShardedCluster(t *testing.T) {
 		{cluster1: 2, cluster2: 3},
 		{cluster1: 2, cluster2: 3},
 	}
-	shardClusterSpecList := createClusterSpecList(memberClusterNames, shardDistribution[0])
+	shardClusterSpecList := createClusterSpecList(shardDistribution[0])
 
 	// For Mongos and Config servers, 2 replicaset members on the first one, 1 on the second one
 	mongosDistribution := map[string]int{cluster1: 2, cluster2: 1}
-	mongosAndConfigSrvClusterSpecList := createClusterSpecList(memberClusterNames, mongosDistribution)
+	mongosAndConfigSrvClusterSpecList := createClusterSpecList(mongosDistribution)
 
 	configSrvDistribution := map[string]int{cluster1: 2, cluster2: 1}
-	configSrvDistributionClusterSpecList := createClusterSpecList(memberClusterNames, configSrvDistribution)
+	configSrvDistributionClusterSpecList := createClusterSpecList(configSrvDistribution)
 
 	ctx := context.Background()
 	sc := DefaultClusterBuilder().
@@ -141,6 +145,265 @@ func createExpectedHostnameOverrideMap(sc *mdbv1.MongoDB, clusterMapping map[str
 		expectedHostnameOverrideMap[allPodNames[i]] = allHostnames[i]
 	}
 	return expectedHostnameOverrideMap
+}
+
+type MultiClusterShardedClusterConfigList []MultiClusterShardedClusterConfigItem
+
+type MultiClusterShardedClusterConfigItem struct {
+	Name               string
+	ShardsMembersArray []int
+	MongosMembers      int
+	ConfigSrvMembers   int
+}
+
+func (r *MultiClusterShardedClusterConfigList) AddCluster(clusterName string, shards []int, mongosCount int, configSrvCount int) {
+	clusterSpec := MultiClusterShardedClusterConfigItem{
+		Name:               clusterName,
+		ShardsMembersArray: shards,
+		MongosMembers:      mongosCount,
+		ConfigSrvMembers:   configSrvCount,
+	}
+
+	*r = append(*r, clusterSpec)
+}
+
+func (r *MultiClusterShardedClusterConfigList) GetNames() []string {
+	clusterNames := make([]string, len(*r))
+	for i, clusterSpec := range *r {
+		clusterNames[i] = clusterSpec.Name
+	}
+
+	return clusterNames
+}
+
+func (r *MultiClusterShardedClusterConfigList) GenerateAllHosts(sc *mdbv1.MongoDB, clusterMapping map[string]int) ([]string, []string) {
+	var allHosts []string
+	var allPodNames []string
+	for _, clusterSpec := range *r {
+		memberClusterName := clusterSpec.Name
+		clusterIdx := clusterMapping[memberClusterName]
+
+		for podIdx := range clusterSpec.MongosMembers {
+			allHosts = append(allHosts, getMultiClusterFQDN(sc.MongosRsName(), sc.Namespace, clusterIdx, podIdx, "cluster.local"))
+			allPodNames = append(allPodNames, getPodName(sc.MongosRsName(), clusterIdx, podIdx))
+		}
+
+		for podIdx := range clusterSpec.ConfigSrvMembers {
+			allHosts = append(allHosts, getMultiClusterFQDN(sc.ConfigRsName(), sc.Namespace, clusterIdx, podIdx, "cluster.local"))
+			allPodNames = append(allPodNames, getPodName(sc.ConfigRsName(), clusterIdx, podIdx))
+		}
+
+		for shardCount := range clusterSpec.ShardsMembersArray {
+			for shardIdx := range shardCount {
+				allHosts = append(allHosts, getMultiClusterFQDN(sc.ShardRsName(shardIdx), sc.Namespace, clusterIdx, shardIdx, "cluster.local"))
+				allPodNames = append(allPodNames, getPodName(sc.ShardRsName(shardIdx), clusterIdx, shardIdx))
+			}
+		}
+	}
+
+	return allHosts, allPodNames
+}
+
+func TestReconcileMultiClusterShardedClusterCertsAndSecretsReplication(t *testing.T) {
+	expectedClusterConfigList := make(MultiClusterShardedClusterConfigList, 0)
+	expectedClusterConfigList.AddCluster("member-cluster-1", []int{2, 2}, 0, 2)
+	expectedClusterConfigList.AddCluster("member-cluster-2", []int{3, 3}, 1, 1)
+	expectedClusterConfigList.AddCluster("member-cluster-3", []int{3, 3}, 3, 0)
+	expectedClusterConfigList.AddCluster("member-cluster-4", []int{0, 0}, 2, 3)
+
+	shardCount := 2
+	shardDistribution := []map[string]int{
+		{expectedClusterConfigList[0].Name: 2, expectedClusterConfigList[1].Name: 3, expectedClusterConfigList[2].Name: 3},
+		{expectedClusterConfigList[0].Name: 2, expectedClusterConfigList[1].Name: 3, expectedClusterConfigList[2].Name: 3},
+	}
+	shardClusterSpecList := createClusterSpecList(shardDistribution[0])
+
+	mongosDistribution := map[string]int{expectedClusterConfigList[1].Name: 1, expectedClusterConfigList[2].Name: 3, expectedClusterConfigList[3].Name: 2}
+	mongosAndConfigSrvClusterSpecList := createClusterSpecList(mongosDistribution)
+
+	configSrvDistribution := map[string]int{expectedClusterConfigList[0].Name: 2, expectedClusterConfigList[1].Name: 1, expectedClusterConfigList[3].Name: 3}
+	configSrvDistributionClusterSpecList := createClusterSpecList(configSrvDistribution)
+
+	certificatesSecretsPrefix := "some-prefix"
+	sc := DefaultClusterBuilder().
+		SetTopology(mdbv1.ClusterTopologyMultiCluster).
+		SetShardCountSpec(shardCount).
+		SetMongodsPerShardCountSpec(0).
+		SetConfigServerCountSpec(0).
+		SetMongosCountSpec(0).
+		SetShardClusterSpec(shardClusterSpecList).
+		SetConfigSrvClusterSpec(configSrvDistributionClusterSpecList).
+		SetMongosClusterSpec(mongosAndConfigSrvClusterSpecList).
+		SetSecurity(mdbv1.Security{
+			TLSConfig:                 &mdbv1.TLSConfig{Enabled: true, CA: "tls-ca-config"},
+			CertificatesSecretsPrefix: certificatesSecretsPrefix,
+			Authentication: &mdbv1.Authentication{
+				Enabled:         true,
+				Modes:           []mdbv1.AuthMode{"X509"},
+				InternalCluster: util.X509,
+			},
+		}).
+		Build()
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+
+	projectConfigMap := configmap.Builder().
+		SetName(mock.TestProjectConfigMapName).
+		SetNamespace(mock.TestNamespace).
+		SetDataField(util.OmBaseUrl, "http://mycompany.example.com:8080").
+		SetDataField(util.OmProjectName, om.TestGroupName).
+		SetDataField(util.SSLMMSCAConfigMap, "mms-ca-config").
+		SetDataField(util.OmOrgId, "").
+		Build()
+
+	mmsCAConfigMap := configmap.Builder().
+		SetName("mms-ca-config").
+		SetNamespace(mock.TestNamespace).
+		SetDataField(util.CaCertMMS, "cert text").
+		Build()
+
+	cert, _ := createMockCertAndKeyBytes()
+	tlsCAConfigMap := configmap.Builder().
+		SetName("tls-ca-config").
+		SetNamespace(mock.TestNamespace).
+		SetDataField("ca-pem", string(cert)).
+		Build()
+
+	// create the secrets for all the shards
+	shardSecrets := createSecretsForShards(sc.Name, sc.Spec.ShardCount, certificatesSecretsPrefix)
+
+	// create secrets for mongos
+	mongosSecrets := createMongosSecrets(sc.Name, certificatesSecretsPrefix)
+
+	// create secrets for config server
+	configSrvSecrets := createConfigSrvSecrets(sc.Name, certificatesSecretsPrefix)
+
+	// create `agent-certs` secret
+	agentCertsSecret := createAgentCertsSecret(sc.Name, certificatesSecretsPrefix)
+
+	fakeClient := mock.NewEmptyFakeClientBuilder().
+		WithObjects(sc).
+		WithObjects(&projectConfigMap, &mmsCAConfigMap, &tlsCAConfigMap).
+		WithObjects(shardSecrets...).
+		WithObjects(mongosSecrets...).
+		WithObjects(configSrvSecrets...).
+		WithObjects(agentCertsSecret).
+		WithObjects(mock.GetCredentialsSecret(om.TestUser, om.TestApiKey)).
+		Build()
+
+	kubeClient := kubernetesClient.NewClient(fakeClient)
+	memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(expectedClusterConfigList.GetNames(), omConnectionFactory, true, false)
+
+	ctx := context.Background()
+	reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, sc, memberClusterMap, kubeClient, omConnectionFactory)
+	clusterMapping := reconcilerHelper.deploymentState.ClusterMapping
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		allHostnames, _ := expectedClusterConfigList.GenerateAllHosts(sc, clusterMapping)
+		connection.(*om.MockedOmConnection).AddHosts(allHostnames)
+	})
+
+	require.NoError(t, err)
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+
+	for clusterIdx, clusterDef := range expectedClusterConfigList {
+		memberClusterClient := memberClusterMap[clusterDef.Name]
+		memberClusterChecks := newShardedClusterMCChecks(t, sc, clusterDef.Name, memberClusterClient.GetClient(), clusterIdx)
+		memberClusterChecks.checkMMSCAConfigMap(ctx, "mms-ca-config")
+		memberClusterChecks.checkTLSCAConfigMap(ctx, "tls-ca-config")
+		memberClusterChecks.checkAgentAPIKeySecret(ctx, om.TestGroupID)
+		memberClusterChecks.checkAgentCertsSecret(ctx, certificatesSecretsPrefix, sc.Name)
+
+		memberClusterChecks.checkMongosCertsSecret(ctx, certificatesSecretsPrefix, sc.Name, clusterDef.MongosMembers > 0)
+		memberClusterChecks.checkConfigSrvCertsSecret(ctx, certificatesSecretsPrefix, sc.Name, clusterDef.ConfigSrvMembers > 0)
+
+		for shardIdx, shardMembers := range clusterDef.ShardsMembersArray {
+			memberClusterChecks.checkInternalClusterCertSecret(ctx, certificatesSecretsPrefix, sc.Name, shardIdx, shardMembers > 0)
+			memberClusterChecks.checkMemberCertSecret(ctx, certificatesSecretsPrefix, sc.Name, shardIdx, shardMembers > 0)
+		}
+	}
+}
+
+func createSecretsForShards(resourceName string, shardCount int, certificatesSecretsPrefix string) []client.Object {
+	var shardSecrets []client.Object
+	for i := 0; i < shardCount; i++ {
+		shardData := make(map[string][]byte)
+		shardData["tls.crt"], shardData["tls.key"] = createMockCertAndKeyBytes()
+
+		shardSecrets = append(shardSecrets, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("%s-%s-%d-cert", certificatesSecretsPrefix, resourceName, i), Namespace: mock.TestNamespace},
+			Data:       shardData,
+			Type:       corev1.SecretTypeTLS,
+		})
+
+		shardSecrets = append(shardSecrets, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("%s-%s-%d-%s", certificatesSecretsPrefix, resourceName, i, util.ClusterFileName), Namespace: mock.TestNamespace},
+			Data:       shardData,
+			Type:       corev1.SecretTypeTLS,
+		})
+	}
+	return shardSecrets
+}
+
+func createMongosSecrets(resourceName string, certificatesSecretsPrefix string) []client.Object {
+	mongosData := make(map[string][]byte)
+	mongosData["tls.crt"], mongosData["tls.key"] = createMockCertAndKeyBytes()
+
+	// create the mongos secret
+	mongosSecretName := fmt.Sprintf("%s-%s-mongos-cert", certificatesSecretsPrefix, resourceName)
+	mongosSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: mongosSecretName, Namespace: mock.TestNamespace},
+		Data:       mongosData,
+		Type:       corev1.SecretTypeTLS,
+	}
+
+	mongosClusterFileSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("%s-%s-mongos-%s", certificatesSecretsPrefix, resourceName, util.ClusterFileName), Namespace: mock.TestNamespace},
+		Data:       mongosData,
+		Type:       corev1.SecretTypeTLS,
+	}
+
+	return []client.Object{mongosSecret, mongosClusterFileSecret}
+}
+
+func createConfigSrvSecrets(resourceName string, certificatesSecretsPrefix string) []client.Object {
+	configData := make(map[string][]byte)
+	configData["tls.crt"], configData["tls.key"] = createMockCertAndKeyBytes()
+
+	configSrvSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("%s-%s-config-cert", certificatesSecretsPrefix, resourceName), Namespace: mock.TestNamespace},
+		Data:       configData,
+		Type:       corev1.SecretTypeTLS,
+	}
+
+	configSrvClusterSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("%s-%s-config-%s", certificatesSecretsPrefix, resourceName, util.ClusterFileName), Namespace: mock.TestNamespace},
+		Data:       configData,
+		Type:       corev1.SecretTypeTLS,
+	}
+
+	return []client.Object{configSrvSecret, configSrvClusterSecret}
+}
+
+func createAgentCertsSecret(resourceName string, certificatesSecretsPrefix string) *corev1.Secret {
+	subjectModifier := func(cert *x509.Certificate) {
+		cert.Subject.OrganizationalUnit = []string{"cloud"}
+		cert.Subject.Locality = []string{"New York"}
+		cert.Subject.Province = []string{"New York"}
+		cert.Subject.Country = []string{"US"}
+	}
+	cert, key := createMockCertAndKeyBytes(subjectModifier, func(cert *x509.Certificate) { cert.Subject.CommonName = util.AutomationAgentName })
+
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-%s-%s", certificatesSecretsPrefix, resourceName, util.AgentSecretName),
+			Namespace: mock.TestNamespace,
+		},
+		Type: corev1.SecretTypeTLS,
+		Data: map[string][]byte{
+			"tls.crt": cert,
+			"tls.key": key,
+		},
+	}
 }
 
 func TestReconcileForComplexMultiClusterYaml(t *testing.T) {
@@ -392,14 +655,14 @@ func TestMultiClusterShardedSetRace(t *testing.T) {
 		{cluster1: 2, cluster2: 3},
 		{cluster1: 2, cluster2: 3},
 	}
-	shardClusterSpecList := createClusterSpecList(memberClusterNames, shardDistribution[0])
+	shardClusterSpecList := createClusterSpecList(shardDistribution[0])
 
 	// For Mongos and Config servers, 2 replicaset members on the first one, 1 on the second one
 	mongosDistribution := map[string]int{cluster1: 2, cluster2: 1}
-	mongosAndConfigSrvClusterSpecList := createClusterSpecList(memberClusterNames, mongosDistribution)
+	mongosAndConfigSrvClusterSpecList := createClusterSpecList(mongosDistribution)
 
 	configSrvDistribution := map[string]int{cluster1: 2, cluster2: 1}
-	configSrvDistributionClusterSpecList := createClusterSpecList(memberClusterNames, configSrvDistribution)
+	configSrvDistributionClusterSpecList := createClusterSpecList(configSrvDistribution)
 
 	sc, cfgMap, projectName := buildShardedClusterWithCustomProjectName("mc-sharded", shardCount, shardClusterSpecList, mongosAndConfigSrvClusterSpecList, configSrvDistributionClusterSpecList)
 	sc1, cfgMap1, projectName1 := buildShardedClusterWithCustomProjectName("mc-sharded-1", shardCount, shardClusterSpecList, mongosAndConfigSrvClusterSpecList, configSrvDistributionClusterSpecList)
@@ -501,12 +764,65 @@ func (c *shardedClusterMCChecks) checkStatefulSet(ctx context.Context, statefulS
 	require.Equal(c.t, statefulSetName, sts.ObjectMeta.Name)
 }
 
-func (c *shardedClusterMCChecks) checkAgentAPIKeySecret(ctx context.Context, projectID string) string {
+func (c *shardedClusterMCChecks) checkAgentAPIKeySecret(ctx context.Context, projectID string) {
 	sec := corev1.Secret{}
 	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, agentAPIKeySecretName(projectID)), &sec)
 	require.NoError(c.t, err, "clusterName: %s", c.clusterName)
 	require.Contains(c.t, sec.Data, util.OmAgentApiKey, "clusterName: %s", c.clusterName)
-	return string(sec.Data[util.OmAgentApiKey])
+}
+
+func (c *shardedClusterMCChecks) checkAgentCertsSecret(ctx context.Context, certificatesSecretsPrefix string, resourceName string) {
+	sec := corev1.Secret{}
+	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, fmt.Sprintf("%s-%s-%s-pem", certificatesSecretsPrefix, resourceName, util.AgentSecretName)), &sec)
+	require.NoError(c.t, err, "clusterName: %s", c.clusterName)
+	require.Contains(c.t, sec.Data, util.AutomationAgentPemSecretKey, "clusterName: %s", c.clusterName)
+}
+
+func (c *shardedClusterMCChecks) checkMongosCertsSecret(ctx context.Context, certificatesSecretsPrefix string, resourceName string, shouldExist bool) {
+	sec := corev1.Secret{}
+	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, fmt.Sprintf("%s-%s-%s-pem", certificatesSecretsPrefix, resourceName, "mongos-cert")), &sec)
+	c.assertErrNotFound(err, shouldExist)
+}
+
+func (c *shardedClusterMCChecks) checkConfigSrvCertsSecret(ctx context.Context, certificatesSecretsPrefix string, resourceName string, shouldExist bool) {
+	sec := corev1.Secret{}
+	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, fmt.Sprintf("%s-%s-%s-pem", certificatesSecretsPrefix, resourceName, "config-cert")), &sec)
+	c.assertErrNotFound(err, shouldExist)
+}
+
+func (c *shardedClusterMCChecks) checkInternalClusterCertSecret(ctx context.Context, certificatesSecretsPrefix string, resourceName string, shardIdx int, shouldExist bool) {
+	sec := corev1.Secret{}
+	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, fmt.Sprintf("%s-%s-%d-%s-pem", certificatesSecretsPrefix, resourceName, shardIdx, util.ClusterFileName)), &sec)
+	c.assertErrNotFound(err, shouldExist)
+}
+
+func (c *shardedClusterMCChecks) checkMemberCertSecret(ctx context.Context, certificatesSecretsPrefix string, resourceName string, shardIdx int, shouldExist bool) {
+	sec := corev1.Secret{}
+	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, fmt.Sprintf("%s-%s-%d-cert-pem", certificatesSecretsPrefix, resourceName, shardIdx)), &sec)
+	c.assertErrNotFound(err, shouldExist)
+}
+
+func (c *shardedClusterMCChecks) assertErrNotFound(err error, shouldExist bool) {
+	if shouldExist {
+		require.NoError(c.t, err, "clusterName: %s", c.clusterName)
+	} else {
+		require.Error(c.t, err, "clusterName: %s", c.clusterName)
+		require.True(c.t, apiErrors.IsNotFound(err))
+	}
+}
+
+func (c *shardedClusterMCChecks) checkMMSCAConfigMap(ctx context.Context, configMapName string) {
+	cm := corev1.ConfigMap{}
+	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, configMapName), &cm)
+	assert.NoError(c.t, err, "clusterName: %s", c.clusterName)
+	assert.Contains(c.t, cm.Data, util.CaCertMMS, "clusterName: %s", c.clusterName)
+}
+
+func (c *shardedClusterMCChecks) checkTLSCAConfigMap(ctx context.Context, configMapName string) {
+	cm := corev1.ConfigMap{}
+	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, configMapName), &cm)
+	assert.NoError(c.t, err, "clusterName: %s", c.clusterName)
+	assert.Contains(c.t, cm.Data, "ca-pem", "clusterName: %s", c.clusterName)
 }
 
 func (c *shardedClusterMCChecks) checkHostnameOverrideConfigMap(ctx context.Context, configMapName string, expectedPodNameToHostnameMap map[string]string) {
@@ -569,7 +885,7 @@ func generateHostsWithDistribution(stsName string, namespace string, distributio
 	var hosts []string
 	var podNames []string
 	for memberClusterName, memberCount := range distribution {
-		for podIdx := 0; podIdx < memberCount; podIdx++ {
+		for podIdx := range memberCount {
 			hosts = append(hosts, getMultiClusterFQDN(stsName, namespace, clusterIndexMapping[memberClusterName], podIdx, "cluster.local"))
 			podNames = append(podNames, getPodName(stsName, clusterIndexMapping[memberClusterName], podIdx))
 		}

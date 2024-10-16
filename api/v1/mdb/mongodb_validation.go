@@ -2,7 +2,6 @@ package mdb
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -37,8 +36,7 @@ func (m *MongoDB) ValidateDelete() (admission.Warnings, error) {
 
 func replicaSetHorizonsRequireTLS(d DbCommonSpec) v1.ValidationResult {
 	if len(d.Connectivity.ReplicaSetHorizons) > 0 && !d.IsSecurityTLSConfigEnabled() {
-		msg := "TLS must be enabled in order to use replica set horizons"
-		return v1.ValidationError(msg)
+		return v1.ValidationError("TLS must be enabled in order to use replica set horizons")
 	}
 	return v1.ValidationSuccess()
 }
@@ -62,7 +60,7 @@ func deploymentsMustHaveTLSInX509Env(d DbCommonSpec) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
-func deploymentsMustHaveAgentModesIfAuthIsEnabled(d DbCommonSpec) v1.ValidationResult {
+func deploymentsMustHaveAtLeastOneAuthModeIfAuthIsEnabled(d DbCommonSpec) v1.ValidationResult {
 	authSpec := d.Security.Authentication
 	if authSpec == nil {
 		return v1.ValidationSuccess()
@@ -193,7 +191,7 @@ func CommonValidators() []func(d DbCommonSpec) v1.ValidationResult {
 	return []func(d DbCommonSpec) v1.ValidationResult{
 		replicaSetHorizonsRequireTLS,
 		deploymentsMustHaveTLSInX509Env,
-		deploymentsMustHaveAgentModesIfAuthIsEnabled,
+		deploymentsMustHaveAtLeastOneAuthModeIfAuthIsEnabled,
 		deploymentsMustHaveAgentModeInAuthModes,
 		scramSha1AuthValidation,
 		ldapAuthRequiresEnterprise,
@@ -218,8 +216,7 @@ func ValidateFCV(fcv *string) v1.ValidationResult {
 		}
 		splitted := strings.Split(f, ".")
 		if len(splitted) != 2 {
-			return v1.ValidationError(fmt.Sprintf("invalid feature compatibility version: %s, possible values are:"+
-				" '%s' or 'major.minor'", f, util.AlwaysMatchVersionFCV))
+			return v1.ValidationError("invalid feature compatibility version: %s, possible values are: '%s' or 'major.minor'", f, util.AlwaysMatchVersionFCV)
 		}
 	}
 	return v1.ValidationResult{}
@@ -314,8 +311,7 @@ func ValidateUniqueClusterNames(ms ClusterSpecList) v1.ValidationResult {
 
 	for _, e := range ms {
 		if _, ok := present[e.ClusterName]; ok {
-			msg := fmt.Sprintf("Multiple clusters with the same name (%s) are not allowed", e.ClusterName)
-			return v1.ValidationError(msg)
+			return v1.ValidationError("Multiple clusters with the same name (%s) are not allowed", e.ClusterName)
 		}
 		present[e.ClusterName] = struct{}{}
 	}
@@ -352,8 +348,7 @@ func ValidateMemberClusterIsSubsetOfKubeConfig(ms ClusterSpecList) v1.Validation
 		}
 	}
 	if len(notPresentClusters) > 0 {
-		msg := fmt.Sprintf("The following clusters specified in ClusterSpecList is not present in Kubeconfig: %s, instead - the following are: %+v", notPresentClusters, clusterNames)
-		return v1.ValidationError(msg)
+		return v1.ValidationError("The following clusters specified in ClusterSpecList is not present in Kubeconfig: %s, instead - the following are: %+v", notPresentClusters, clusterNames)
 	}
 	return v1.ValidationSuccess()
 }

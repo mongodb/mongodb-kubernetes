@@ -349,7 +349,7 @@ func DatabaseStatefulSet(mdb mdbv1.MongoDB, stsOptFunc func(mdb mdbv1.MongoDB) D
 }
 
 func DatabaseStatefulSetHelper(mdb databaseStatefulSetSource, stsOpts *DatabaseStatefulSetOptions, log *zap.SugaredLogger) appsv1.StatefulSet {
-	allSources := getAllMongoDBVolumeSources(mdb, *stsOpts, nil)
+	allSources := getAllMongoDBVolumeSources(mdb, *stsOpts, log)
 
 	var extraEnvs []corev1.EnvVar
 	for _, source := range allSources {
@@ -368,9 +368,6 @@ func DatabaseStatefulSetHelper(mdb databaseStatefulSetSource, stsOpts *DatabaseS
 // convert to annotations to configure vault.
 func buildVaultDatabaseSecretsToInject(mdb databaseStatefulSetSource, opts DatabaseStatefulSetOptions) vault.DatabaseSecretsToInject {
 	secretsToInject := vault.DatabaseSecretsToInject{Config: opts.VaultConfig}
-	if mdb.GetSecurity().ShouldUseClientCertificates() {
-		secretsToInject = vault.DatabaseSecretsToInject{Config: opts.VaultConfig}
-	}
 
 	if mdb.GetSecurity().ShouldUseX509(opts.CurrentAgentAuthMode) || mdb.GetSecurity().ShouldUseClientCertificates() {
 		secretName := mdb.GetSecurity().AgentClientCertificateSecretName(mdb.GetName()).Name
@@ -606,9 +603,6 @@ func getTLSPrometheusVolumeAndVolumeMount(prom *mdbcv1.Prometheus) ([]corev1.Vol
 // getAllMongoDBVolumeSources returns a slice of  MongoDBVolumeSource. These are used to determine which volumes
 // and volume mounts should be added to the StatefulSet.
 func getAllMongoDBVolumeSources(mdb databaseStatefulSetSource, databaseOpts DatabaseStatefulSetOptions, log *zap.SugaredLogger) []MongoDBVolumeSource {
-	if log == nil {
-		log = zap.S()
-	}
 	caVolume := &caVolumeSource{
 		opts:   databaseOpts,
 		logger: log,

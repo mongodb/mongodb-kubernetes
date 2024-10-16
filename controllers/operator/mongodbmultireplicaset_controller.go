@@ -128,7 +128,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	}
 
 	if err := mrs.ProcessValidationsOnReconcile(nil); err != nil {
-		return r.updateStatus(ctx, &mrs, workflow.Invalid(err.Error()), log)
+		return r.updateStatus(ctx, &mrs, workflow.Invalid("%s", err.Error()), log)
 	}
 
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.client, r.SecretClient, &mrs, log)
