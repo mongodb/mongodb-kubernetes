@@ -20,9 +20,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
@@ -87,24 +85,23 @@ func TestAppDB_MultiCluster(t *testing.T) {
 	// requeue is true to add monitoring
 	assert.True(t, reconcileResult.Requeue)
 
-	centralClusterChecks := newAppDBClusterChecks(t, opsManager, centralClusterName, kubeClient, -1)
+	centralClusterChecks := newClusterChecks(t, centralClusterName, -1, opsManager.Namespace, kubeClient)
 	// secrets and config maps created by the operator shouldn't be created in central cluster
 	centralClusterChecks.checkSecretNotFound(ctx, appdb.AutomationConfigSecretName())
 	centralClusterChecks.checkConfigMapNotFound(ctx, appdb.AutomationConfigConfigMapName())
 	centralClusterChecks.checkSecretNotFound(ctx, appdb.MonitoringAutomationConfigSecretName())
 	centralClusterChecks.checkConfigMapNotFound(ctx, appdb.MonitoringAutomationConfigConfigMapName())
 	centralClusterChecks.checkSecretNotFound(ctx, pemSecretName)
-	centralClusterChecks.checkCAConfigMap(ctx, caConfigMapName)
+	centralClusterChecks.checkTLSCAConfigMap(ctx, caConfigMapName)
 	centralClusterChecks.checkConfigMapNotFound(ctx, appdb.ProjectIDConfigMapName())
 
 	for clusterIdx, clusterSpecItem := range clusterSpecItems {
-		memberClusterClient := memberClusterMap[clusterSpecItem.ClusterName]
-		memberClusterChecks := newAppDBClusterChecks(t, opsManager, clusterSpecItem.ClusterName, memberClusterClient.GetClient(), clusterIdx)
+		memberClusterChecks := newClusterChecks(t, clusterSpecItem.ClusterName, clusterIdx, opsManager.Namespace, memberClusterMap[clusterSpecItem.ClusterName].GetClient())
 		memberClusterChecks.checkAutomationConfigSecret(ctx, appdb.AutomationConfigSecretName())
 		memberClusterChecks.checkAutomationConfigConfigMap(ctx, appdb.AutomationConfigConfigMapName())
 		memberClusterChecks.checkAutomationConfigSecret(ctx, appdb.MonitoringAutomationConfigSecretName())
 		memberClusterChecks.checkAutomationConfigConfigMap(ctx, appdb.MonitoringAutomationConfigConfigMapName())
-		memberClusterChecks.checkCAConfigMap(ctx, caConfigMapName)
+		memberClusterChecks.checkTLSCAConfigMap(ctx, caConfigMapName)
 		// TLS secret should not be replicated, only PEM secret
 		memberClusterChecks.checkSecretNotFound(ctx, tlsCertSecretName)
 		memberClusterChecks.checkPEMSecret(ctx, pemSecretName, tlsSecretPemHash)
@@ -127,8 +124,7 @@ func TestAppDB_MultiCluster(t *testing.T) {
 	centralClusterChecks.checkConfigMapNotFound(ctx, appdb.ProjectIDConfigMapName())
 	agentAPIKey := ""
 	for clusterIdx, clusterSpecItem := range clusterSpecItems {
-		memberClusterClient := memberClusterMap[clusterSpecItem.ClusterName]
-		memberClusterChecks := newAppDBClusterChecks(t, opsManager, clusterSpecItem.ClusterName, memberClusterClient.GetClient(), clusterIdx)
+		memberClusterChecks := newClusterChecks(t, clusterSpecItem.ClusterName, clusterIdx, opsManager.Namespace, memberClusterMap[clusterSpecItem.ClusterName].GetClient())
 		projectID := memberClusterChecks.checkProjectIDConfigMap(ctx, appdb.ProjectIDConfigMapName())
 		agentAPIKeyFromSecret := memberClusterChecks.checkAgentAPIKeySecret(ctx, projectID)
 		assert.NotEmpty(t, agentAPIKeyFromSecret)
@@ -743,107 +739,6 @@ func checkLegacyLastAppliedMongoDBVersion(ctx context.Context, t *testing.T, cli
 	assert.Equal(t, expectedVersion, opsManager.Annotations[annotations.LastAppliedMongoDBVersion])
 }
 
-type appDBClusterChecks struct {
-	t            *testing.T
-	namespace    string
-	clusterName  string
-	kubeClient   client.Client
-	clusterIndex int
-}
-
-func newAppDBClusterChecks(t *testing.T, opsManager *omv1.MongoDBOpsManager, clusterName string, kubeClient client.Client, clusterIndex int) *appDBClusterChecks {
-	result := appDBClusterChecks{
-		t:            t,
-		namespace:    opsManager.Namespace,
-		clusterName:  clusterName,
-		kubeClient:   kubeClient,
-		clusterIndex: clusterIndex,
-	}
-
-	return &result
-}
-
-func (c *appDBClusterChecks) checkAutomationConfigSecret(ctx context.Context, secretName string) {
-	sec := corev1.Secret{}
-	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, secretName), &sec)
-	assert.NoError(c.t, err, "clusterName: %s", c.clusterName)
-	assert.Contains(c.t, sec.Data, automationconfig.ConfigKey, "clusterName: %s", c.clusterName)
-}
-
-func (c *appDBClusterChecks) checkAgentAPIKeySecret(ctx context.Context, projectID string) string {
-	sec := corev1.Secret{}
-	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, agentAPIKeySecretName(projectID)), &sec)
-	require.NoError(c.t, err, "clusterName: %s", c.clusterName)
-	require.Contains(c.t, sec.Data, util.OmAgentApiKey, "clusterName: %s", c.clusterName)
-	return string(sec.Data[util.OmAgentApiKey])
-}
-
-func (c *appDBClusterChecks) checkSecretNotFound(ctx context.Context, secretName string) {
-	sec := corev1.Secret{}
-	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, secretName), &sec)
-	assert.Error(c.t, err, "clusterName: %s", c.clusterName)
-	assert.True(c.t, apiErrors.IsNotFound(err))
-}
-
-func (c *appDBClusterChecks) checkConfigMapNotFound(ctx context.Context, configMapName string) {
-	cm := corev1.ConfigMap{}
-	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, configMapName), &cm)
-	assert.Error(c.t, err, "clusterName: %s", c.clusterName)
-	assert.True(c.t, apiErrors.IsNotFound(err))
-}
-
-func (c *appDBClusterChecks) checkPEMSecret(ctx context.Context, secretName string, pemHash string) {
-	sec := corev1.Secret{}
-	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, secretName), &sec)
-	assert.NoError(c.t, err, "clusterName: %s", c.clusterName)
-	assert.Contains(c.t, sec.Data, pemHash, "clusterName: %s", c.clusterName)
-}
-
-func (c *appDBClusterChecks) checkAutomationConfigConfigMap(ctx context.Context, configMapName string) {
-	cm := corev1.ConfigMap{}
-	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, configMapName), &cm)
-	assert.NoError(c.t, err, "clusterName: %s", c.clusterName)
-	assert.Contains(c.t, cm.Data, appDBACConfigMapVersionField, "clusterName: %s", c.clusterName)
-}
-
-func (c *appDBClusterChecks) checkCAConfigMap(ctx context.Context, configMapName string) {
-	cm := corev1.ConfigMap{}
-	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, configMapName), &cm)
-	assert.NoError(c.t, err, "clusterName: %s", c.clusterName)
-	assert.Contains(c.t, cm.Data, "ca-pem", "clusterName: %s", c.clusterName)
-}
-
-func (c *appDBClusterChecks) checkProjectIDConfigMap(ctx context.Context, configMapName string) string {
-	cm := corev1.ConfigMap{}
-	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, configMapName), &cm)
-	require.NoError(c.t, err, "clusterName: %s", c.clusterName)
-	require.Contains(c.t, cm.Data, util.AppDbProjectIdKey, "clusterName: %s", c.clusterName)
-	return cm.Data[util.AppDbProjectIdKey]
-}
-
-func (c *appDBClusterChecks) checkServices(ctx context.Context, statefulSetName string, expectedMembers int) {
-	for podIdx := 0; podIdx < expectedMembers; podIdx++ {
-		svc := corev1.Service{}
-		serviceName := fmt.Sprintf("%s-%d-svc", statefulSetName, podIdx)
-		err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, serviceName), &svc)
-		require.NoError(c.t, err, "clusterName: %s", c.clusterName)
-
-		assert.Equal(c.t, map[string]string{
-			"controller":                         "mongodb-enterprise-operator",
-			"statefulset.kubernetes.io/pod-name": fmt.Sprintf("%s-%d", statefulSetName, podIdx),
-		},
-			svc.Spec.Selector)
-	}
-}
-
-func (c *appDBClusterChecks) checkStatefulSet(ctx context.Context, statefulSetName string, expectedMembers int) {
-	sts := appsv1.StatefulSet{}
-	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, statefulSetName), &sts)
-	require.NoError(c.t, err, "clusterName: %s stsName: %s", c.clusterName, statefulSetName)
-	require.Equal(c.t, expectedMembers, int(*sts.Spec.Replicas))
-	require.Equal(c.t, statefulSetName, sts.ObjectMeta.Name)
-}
-
 func createOMAPIKeySecret(ctx context.Context, t *testing.T, secretClient secrets.SecretClient, opsManager *omv1.MongoDBOpsManager) {
 	APIKeySecretName, err := opsManager.APIKeySecretName(ctx, secretClient, "")
 	assert.NoError(t, err)
@@ -878,7 +773,7 @@ func createAppDbCAConfigMap(ctx context.Context, t *testing.T, k8sClient client.
 }
 
 func createAppDBTLSCert(ctx context.Context, t *testing.T, k8sClient client.Client, appDBSpec omv1.AppDBSpec) (string, string) {
-	secret := &corev1.Secret{
+	tlsSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      appDBSpec.GetTlsCertificatesSecretName(),
 			Namespace: appDBSpec.Namespace,
@@ -889,14 +784,14 @@ func createAppDBTLSCert(ctx context.Context, t *testing.T, k8sClient client.Clie
 	certs := map[string][]byte{}
 	certs["tls.crt"], certs["tls.key"] = createMockCertAndKeyBytes()
 
-	secret.Data = certs
-	err := k8sClient.Create(ctx, secret)
+	tlsSecret.Data = certs
+	err := k8sClient.Create(ctx, tlsSecret)
 	require.NoError(t, err)
 
-	pemHash := enterprisepem.ReadHashFromData(secrets.DataToStringData(secret.Data), zap.S())
+	pemHash := enterprisepem.ReadHashFromData(secrets.DataToStringData(tlsSecret.Data), zap.S())
 	require.NotEmpty(t, pemHash)
 
-	return secret.Name, pemHash
+	return tlsSecret.Name, pemHash
 }
 
 func TestAppDB_MultiCluster_ReconcilerFailsWhenThereIsNoClusterListConfigured(t *testing.T) {
@@ -913,12 +808,6 @@ func TestAppDB_MultiCluster_ReconcilerFailsWhenThereIsNoClusterListConfigured(t 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
 	_, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
 	assert.Error(t, err)
-}
-
-func (c *appDBClusterChecks) checkStatefulSetDoesNotExist(ctx context.Context, statefulSetName string) {
-	sts := appsv1.StatefulSet{}
-	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, statefulSetName), &sts)
-	require.True(c.t, apiErrors.IsNotFound(err))
 }
 
 func TestAppDBMultiClusterRemoveResources(t *testing.T) {
@@ -955,8 +844,7 @@ func TestAppDBMultiClusterRemoveResources(t *testing.T) {
 
 	// check AppDB statefulset exists in cluster "a" and cluster "b"
 	for clusterIdx, clusterSpecItem := range opsManager.Spec.AppDB.ClusterSpecList {
-		memberClusterClient := memberClusterMap[clusterSpecItem.ClusterName]
-		memberClusterChecks := newAppDBClusterChecks(t, opsManager, clusterSpecItem.ClusterName, memberClusterClient.GetClient(), clusterIdx)
+		memberClusterChecks := newClusterChecks(t, clusterSpecItem.ClusterName, clusterIdx, opsManager.Namespace, memberClusterMap[clusterSpecItem.ClusterName].GetClient())
 
 		memberClusterChecks.checkStatefulSet(ctx, opsManager.Spec.AppDB.NameForCluster(appDBReconciler.getMemberClusterIndex(clusterSpecItem.ClusterName)), clusterSpecItem.Members)
 	}
@@ -967,8 +855,7 @@ func TestAppDBMultiClusterRemoveResources(t *testing.T) {
 
 	// assert STS objects in member cluster
 	for clusterIdx, clusterSpecItem := range opsManager.Spec.AppDB.ClusterSpecList {
-		memberClusterClient := memberClusterMap[clusterSpecItem.ClusterName]
-		memberClusterChecks := newAppDBClusterChecks(t, opsManager, clusterSpecItem.ClusterName, memberClusterClient.GetClient(), clusterIdx)
+		memberClusterChecks := newClusterChecks(t, clusterSpecItem.ClusterName, clusterIdx, opsManager.Namespace, memberClusterMap[clusterSpecItem.ClusterName].GetClient())
 
 		memberClusterChecks.checkStatefulSetDoesNotExist(ctx, opsManager.Spec.AppDB.NameForCluster(appDBReconciler.getMemberClusterIndex(clusterSpecItem.ClusterName)))
 	}
