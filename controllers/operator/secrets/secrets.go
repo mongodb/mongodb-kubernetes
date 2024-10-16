@@ -152,7 +152,8 @@ func SecretNotExist(err error) bool {
 // These methods implement the secretGetterUpdateCreateDeleter interface from community.
 // We hardcode here the AppDB sub-path for Vault since community is used only to deploy
 // AppDB pods. This allows us to minimize the changes to Community.
-
+// TODO this method is very fishy as it has hardcoded AppDBSecretPath, but is used not only for AppDB
+// We should probably use ReadSecret instead -> https://jira.mongodb.org/browse/CLOUDP-277863
 func (r SecretClient) GetSecret(ctx context.Context, secretName types.NamespacedName) (corev1.Secret, error) {
 	if vault.IsVaultSecretBackend() {
 		s := corev1.Secret{}

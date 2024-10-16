@@ -151,7 +151,7 @@ func (r *MongoDBUserReconciler) Reconcile(ctx context.Context, request reconcile
 				return r.updateStatus(ctx, user, workflow.Pending("Finalizer will be removed. MongoDB resource not found"), log)
 			}
 
-			return r.updateStatus(ctx, user, workflow.Pending(err.Error()), log)
+			return r.updateStatus(ctx, user, workflow.Pending("%s", err.Error()), log)
 		}
 	} else {
 		log.Warn("MongoDB reference not specified. Using deprecated project field.")
@@ -364,7 +364,7 @@ func (r *MongoDBUserReconciler) handleScramShaUser(ctx context.Context, user *us
 	}, log)
 	if err != nil {
 		if shouldRetry {
-			return r.updateStatus(ctx, user, workflow.Pending(err.Error()).WithRetry(10), log)
+			return r.updateStatus(ctx, user, workflow.Pending("%s", err.Error()).WithRetry(10), log)
 		}
 		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("error updating user %w", err)), log)
 	}
@@ -407,7 +407,7 @@ func (r *MongoDBUserReconciler) handleExternalAuthUser(ctx context.Context, user
 	err = conn.ReadUpdateAutomationConfig(updateFunction, log)
 	if err != nil {
 		if shouldRetry {
-			return r.updateStatus(ctx, user, workflow.Pending(err.Error()).WithRetry(10), log)
+			return r.updateStatus(ctx, user, workflow.Pending("%s", err.Error()).WithRetry(10), log)
 		}
 		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("error updating user %w", err)), log)
 	}

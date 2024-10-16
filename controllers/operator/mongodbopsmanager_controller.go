@@ -403,7 +403,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	}
 
 	if part, err := opsManager.ProcessValidationsOnReconcile(); err != nil {
-		return r.updateStatus(ctx, opsManager, workflow.Invalid(err.Error()), log, mdbstatus.NewOMPartOption(part))
+		return r.updateStatus(ctx, opsManager, workflow.Invalid("%s", err.Error()), log, mdbstatus.NewOMPartOption(part))
 	}
 
 	acClient := appDbReconciler.getMemberCluster(appDbReconciler.getNameOfFirstMemberCluster()).Client

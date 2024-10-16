@@ -62,6 +62,7 @@ func DatabaseInKubernetes(ctx context.Context, client kubernetesClient.Client, m
 	// Adds Prometheus Port if Prometheus has been enabled.
 	prom := mdb.GetPrometheus()
 	if prom != nil {
+		//nolint:gosec // suppressing integer overflow warning for int32(prom.GetPort())
 		internalService.Spec.Ports = append(internalService.Spec.Ports, corev1.ServicePort{Port: int32(prom.GetPort()), Name: "prometheus"})
 	}
 	err = mekoService.CreateOrUpdateService(ctx, client, internalService)
@@ -335,6 +336,7 @@ func AppDBInKubernetes(ctx context.Context, client kubernetesClient.Client, opsM
 	// Adds Prometheus Port if Prometheus has been enabled.
 	prom := opsManager.Spec.AppDB.Prometheus
 	if prom != nil {
+		//nolint:gosec // suppressing integer overflow warning for int32(prom.GetPort())
 		internalService.Spec.Ports = append(internalService.Spec.Ports, corev1.ServicePort{Port: int32(prom.GetPort()), Name: "prometheus"})
 	}
 
@@ -377,7 +379,7 @@ func OpsManagerInKubernetes(ctx context.Context, client kubernetesClient.Client,
 	_, port := opsManager.GetSchemePort()
 
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
-	internalService := BuildService(namespacedName, opsManager, &set.Spec.ServiceName, nil, int32(port), getInternalServiceDefinition(opsManager))
+	internalService := BuildService(namespacedName, opsManager, &set.Spec.ServiceName, nil, port, getInternalServiceDefinition(opsManager))
 
 	// add queryable backup port to service
 	if opsManager.Spec.Backup.Enabled {
@@ -394,7 +396,7 @@ func OpsManagerInKubernetes(ctx context.Context, client kubernetesClient.Client,
 	namespacedName = kube.ObjectKey(opsManager.Namespace, opsManager.ExternalSvcName())
 	var externalService *corev1.Service = nil
 	if opsManager.Spec.MongoDBOpsManagerExternalConnectivity != nil {
-		svc := BuildService(namespacedName, opsManager, &set.Spec.ServiceName, nil, int32(port), *opsManager.Spec.MongoDBOpsManagerExternalConnectivity)
+		svc := BuildService(namespacedName, opsManager, &set.Spec.ServiceName, nil, port, *opsManager.Spec.MongoDBOpsManagerExternalConnectivity)
 		externalService = &svc
 	} else {
 		if err := mekoService.DeleteServiceIfItExists(ctx, client, namespacedName); err != nil {

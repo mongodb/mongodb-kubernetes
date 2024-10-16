@@ -70,7 +70,7 @@ func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
 		t.Setenv(util.NonStaticDatabaseEnterpriseImage, "")
 		rs := mdbv1.NewReplicaSetBuilder().Build()
 		assert.Panics(t, func() {
-			DatabaseStatefulSet(*rs, ReplicaSetOptions(GetPodEnvOptions()), nil)
+			DatabaseStatefulSet(*rs, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
 		})
 	})
 
@@ -82,13 +82,13 @@ func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
 		shardSpec, memberCluster := createShardSpecAndDefaultCluster(kubeClient, sc)
 
 		assert.Panics(t, func() {
-			DatabaseStatefulSet(*sc, ShardOptions(0, shardSpec, memberCluster), nil)
+			DatabaseStatefulSet(*sc, ShardOptions(0, shardSpec, memberCluster), zap.S())
 		})
 		assert.Panics(t, func() {
-			DatabaseStatefulSet(*sc, ConfigServerOptions(), nil)
+			DatabaseStatefulSet(*sc, ConfigServerOptions(), zap.S())
 		})
 		assert.Panics(t, func() {
-			DatabaseStatefulSet(*sc, MongosOptions(), nil)
+			DatabaseStatefulSet(*sc, MongosOptions(), zap.S())
 		})
 	})
 }
@@ -101,13 +101,13 @@ func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSetStatic(t *testing.T) {
 		kubeClient, _ := mock.NewDefaultFakeClient(sc)
 		shardSpec, memberCluster := createShardSpecAndDefaultCluster(kubeClient, sc)
 		assert.Panics(t, func() {
-			DatabaseStatefulSet(*sc, ShardOptions(0, shardSpec, memberCluster), nil)
+			DatabaseStatefulSet(*sc, ShardOptions(0, shardSpec, memberCluster), zap.S())
 		})
 		assert.Panics(t, func() {
-			DatabaseStatefulSet(*sc, ConfigServerOptions(), nil)
+			DatabaseStatefulSet(*sc, ConfigServerOptions(), zap.S())
 		})
 		assert.Panics(t, func() {
-			DatabaseStatefulSet(*sc, MongosOptions(), nil)
+			DatabaseStatefulSet(*sc, MongosOptions(), zap.S())
 		})
 	})
 }
@@ -116,7 +116,7 @@ func TestStatefulsetCreationSuccessful(t *testing.T) {
 	start := time.Now()
 	rs := mdbv1.NewReplicaSetBuilder().Build()
 
-	_ = DatabaseStatefulSet(*rs, ReplicaSetOptions(GetPodEnvOptions()), nil)
+	_ = DatabaseStatefulSet(*rs, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
 	assert.True(t, time.Since(start) < time.Second*4) // we waited only a little (considering 2 seconds of wait as well)
 }
 
@@ -178,7 +178,7 @@ func TestAgentFlags(t *testing.T) {
 	}
 
 	mdb := mdbv1.NewReplicaSetBuilder().SetAgentConfig(mdbv1.AgentConfig{StartupParameters: agentStartupParameters}).Build()
-	sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), nil)
+	sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
 	variablesMap := env.ToMap(sts.Spec.Template.Spec.Containers[0].Env...)
 	val, ok := variablesMap["AGENT_FLAGS"]
 	assert.True(t, ok)
@@ -191,7 +191,7 @@ func TestLabelsAndAnotations(t *testing.T) {
 	annotations := map[string]string{"a1": "val1", "a2": "val2"}
 
 	mdb := mdbv1.NewReplicaSetBuilder().SetAnnotations(annotations).SetLabels(labels).Build()
-	sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), nil)
+	sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
 
 	// add the default label to the map
 	labels["app"] = "test-mdb-svc"
@@ -261,7 +261,7 @@ func Test_DatabaseStatefulSetWithRelatedImages(t *testing.T) {
 	t.Setenv(initDatabaseRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-init-database:@sha256:MONGODB_INIT_DATABASE")
 
 	rs := mdbv1.NewReplicaSetBuilder().Build()
-	sts := DatabaseStatefulSet(*rs, ReplicaSetOptions(GetPodEnvOptions()), nil)
+	sts := DatabaseStatefulSet(*rs, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
 
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-database:@sha256:MONGODB_INIT_DATABASE", sts.Spec.Template.Spec.InitContainers[0].Image)
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-database:@sha256:MONGODB_DATABASE", sts.Spec.Template.Spec.Containers[0].Image)

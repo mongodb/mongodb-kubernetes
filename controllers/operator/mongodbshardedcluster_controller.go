@@ -566,7 +566,7 @@ func (r *ReconcileMongoDbShardedCluster) OnDelete(ctx context.Context, obj runti
 func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.SugaredLogger) (res reconcile.Result, e error) {
 	sc := r.sc
 	if err := sc.ProcessValidationsOnReconcile(nil); err != nil {
-		return r.commonController.updateStatus(ctx, sc, workflow.Invalid(err.Error()), log)
+		return r.commonController.updateStatus(ctx, sc, workflow.Invalid("%s", err.Error()), log)
 	}
 
 	if !architectures.IsRunningStaticArchitecture(sc.Annotations) {

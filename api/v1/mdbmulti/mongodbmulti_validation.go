@@ -2,7 +2,6 @@ package mdbmulti
 
 import (
 	"errors"
-	"fmt"
 
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -104,9 +103,8 @@ func validateUniqueExternalDomains(ms MongoDBMultiSpec) v1.ValidationResult {
 		}
 
 		if _, ok := present[externalDomain]; ok {
-			msg := fmt.Sprintf("Multiple member clusters with the same externalDomain (%s) are not allowed. "+
+			return v1.ValidationError("Multiple member clusters with the same externalDomain (%s) are not allowed. "+
 				"Check if all spec.clusterSpecList[*].externalAccess.externalDomain fields are defined and are unique.", externalDomain)
-			return v1.ValidationError(msg)
 		}
 		present[externalDomain] = struct{}{}
 	}

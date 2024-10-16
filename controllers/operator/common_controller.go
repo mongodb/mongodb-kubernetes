@@ -418,7 +418,7 @@ func getStatefulSetStatus(ctx context.Context, namespace, name string, client ku
 
 	if statefulSetState := inspect.StatefulSet(set); !statefulSetState.IsReady() {
 		return workflow.
-			Pending(statefulSetState.GetMessage()).
+			Pending("%s", statefulSetState.GetMessage()).
 			WithResourcesNotReady(statefulSetState.GetResourcesNotReadyStatus()).
 			WithRetry(3)
 	} else {
@@ -685,23 +685,24 @@ func (r *ReconcileCommonController) clearProjectAuthenticationSettings(ctx conte
 
 // ensureX509SecretAndCheckTLSType checks if the secrets containing the certificates are present and whether the certificate are of kubernetes.io/tls type.
 func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(ctx context.Context, configurator certs.X509CertConfigurator, currentAuthMechanism string, log *zap.SugaredLogger) workflow.Status {
-	authSpec := configurator.GetDbCommonSpec().GetSecurity().Authentication
-	if authSpec == nil || !configurator.GetDbCommonSpec().GetSecurity().Authentication.Enabled {
+	security := configurator.GetDbCommonSpec().GetSecurity()
+	authSpec := security.Authentication
+	if authSpec == nil || !security.Authentication.Enabled {
 		return workflow.OK()
 	}
 
-	if configurator.GetDbCommonSpec().GetSecurity().ShouldUseX509(currentAuthMechanism) {
-		if !configurator.GetDbCommonSpec().GetSecurity().IsTLSEnabled() {
+	if security.ShouldUseX509(currentAuthMechanism) || security.ShouldUseClientCertificates() {
+		if !security.IsTLSEnabled() {
 			return workflow.Failed(xerrors.Errorf("Authentication mode for project is x509 but this MDB resource is not TLS enabled"))
 		}
-		agentSecretName := configurator.GetDbCommonSpec().GetSecurity().AgentClientCertificateSecretName(configurator.GetName()).Name
-		err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, configurator.GetSecretReadClient(), configurator.GetSecretWriteClient(), kube.ObjectKey(configurator.GetNamespace(), agentSecretName), log)
+		agentSecretName := security.AgentClientCertificateSecretName(configurator.GetName()).Name
+		err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, configurator.GetSecretReadClient(), configurator.GetSecretWriteClient(), kube.ObjectKey(configurator.GetNamespace(), agentSecretName))
 		if err != nil {
 			return workflow.Failed(err)
 		}
 	}
 
-	if configurator.GetDbCommonSpec().GetSecurity().GetInternalClusterAuthenticationMode() == util.X509 {
+	if security.GetInternalClusterAuthenticationMode() == util.X509 {
 		errors := make([]error, 0)
 		for _, certOption := range configurator.GetCertOptions() {
 			err := r.validateInternalClusterCertsAndCheckTLSType(ctx, configurator, certOption, log)
@@ -711,15 +712,6 @@ func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(ctx context.
 		}
 		if len(errors) > 0 {
 			return workflow.Failed(xerrors.Errorf("failed ensuring internal cluster authentication certs %w", errors[0]))
-		}
-	}
-
-	// if client certificate is configured for the agent, create corresponding concatenated pem certs
-	if configurator.GetDbCommonSpec().GetSecurity().ShouldUseClientCertificates() {
-		agentSecretName := configurator.GetDbCommonSpec().GetSecurity().AgentClientCertificateSecretName(configurator.GetName())
-		err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, configurator.GetSecretReadClient(), configurator.GetSecretWriteClient(), kube.ObjectKey(configurator.GetNamespace(), agentSecretName.Name), log)
-		if err != nil {
-			return workflow.Failed(err)
 		}
 	}
 
@@ -860,8 +852,8 @@ func getVolumeFromStatefulSet(sts appsv1.StatefulSet, name string) (corev1.Volum
 	return corev1.Volume{}, xerrors.Errorf("can't find volume %s in list of volumes: %v", name, sts.Spec.Template.Spec.Volumes)
 }
 
-// wasTLSSecretMounted checks whether or not TLS was previously enabled by looking at the state of the volumeMounts of the pod.
-func wasTLSSecretMounted(ctx context.Context, secretGetter secret.Getter, currentSts appsv1.StatefulSet, volumeMounts []corev1.VolumeMount, mdb mdbv1.MongoDB, log *zap.SugaredLogger) bool {
+// wasTLSSecretMounted checks whether TLS was previously enabled by looking at the state of the volumeMounts of the pod.
+func wasTLSSecretMounted(ctx context.Context, secretGetter secret.Getter, currentSts appsv1.StatefulSet, mdb mdbv1.MongoDB, log *zap.SugaredLogger) bool {
 	tlsVolume, err := getVolumeFromStatefulSet(currentSts, util.SecretVolumeName)
 	if err != nil {
 		return false
@@ -887,8 +879,8 @@ func wasTLSSecretMounted(ctx context.Context, secretGetter secret.Getter, curren
 	return exists
 }
 
-// wasCAConfigMapMounted checks whether or not the CA ConfigMap  by looking at the state of the volumeMounts of the pod.
-func wasCAConfigMapMounted(ctx context.Context, configMapGetter configmap.Getter, currentSts appsv1.StatefulSet, volumeMounts []corev1.VolumeMount, mdb mdbv1.MongoDB, log *zap.SugaredLogger) bool {
+// wasCAConfigMapMounted checks whether the CA ConfigMap  by looking at the state of the volumeMounts of the pod.
+func wasCAConfigMapMounted(ctx context.Context, configMapGetter configmap.Getter, currentSts appsv1.StatefulSet, mdb mdbv1.MongoDB, log *zap.SugaredLogger) bool {
 	caVolume, err := getVolumeFromStatefulSet(currentSts, util.ConfigMapVolumeCAMountPath)
 	if err != nil {
 		return false
@@ -920,7 +912,7 @@ type ConfigMapStatefulSetSecretGetter interface {
 	configmap.Getter
 }
 
-// publishAutomationConfigFirst will check if the Published State of the StatfulSet backed MongoDB Deployments
+// publishAutomationConfigFirst will check if the Published State of the StatefulSet backed MongoDB Deployments
 // needs to be updated first. In the case of unmounting certs, for instance, the certs should be not
 // required anymore before we unmount them, or the automation-agent and readiness probe will never
 // reach goal state.
@@ -943,12 +935,12 @@ func publishAutomationConfigFirst(ctx context.Context, getter ConfigMapStatefulS
 	databaseContainer := container.GetByName(util.DatabaseContainerName, currentSts.Spec.Template.Spec.Containers)
 	volumeMounts := databaseContainer.VolumeMounts
 
-	if !mdb.Spec.Security.IsTLSEnabled() && wasTLSSecretMounted(ctx, getter, currentSts, volumeMounts, mdb, log) {
+	if !mdb.Spec.Security.IsTLSEnabled() && wasTLSSecretMounted(ctx, getter, currentSts, mdb, log) {
 		log.Debug(automationConfigFirstMsg("security.tls.enabled", "false"))
 		return true
 	}
 
-	if mdb.Spec.Security.TLSConfig.CA == "" && wasCAConfigMapMounted(ctx, getter, currentSts, volumeMounts, mdb, log) {
+	if mdb.Spec.Security.TLSConfig.CA == "" && wasCAConfigMapMounted(ctx, getter, currentSts, mdb, log) {
 		log.Debug(automationConfigFirstMsg("security.tls.CA", "empty"))
 		return true
 
@@ -964,7 +956,7 @@ func publishAutomationConfigFirst(ctx context.Context, getter ConfigMapStatefulS
 		return true
 	}
 
-	if int32(opts.Replicas) < *currentSts.Spec.Replicas {
+	if opts.Replicas < int(*currentSts.Spec.Replicas) {
 		log.Debug("Scaling down operation. automationConfig needs to be updated first")
 		return true
 	}

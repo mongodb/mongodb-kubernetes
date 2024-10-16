@@ -4,7 +4,7 @@ set -Eeou pipefail
 export GOPATH=${GOPATH:-$workdir}
 
 # Set required version
-required_version="v1.59.0"
+required_version="v1.61.0"
 
 # Install or update golangci-lint if not installed or version is incorrect
 if ! [[ -x "$(command -v golangci-lint)" ]]; then
