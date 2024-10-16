@@ -23,15 +23,12 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
 
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
@@ -119,8 +116,7 @@ func TestReconcileCreateMultiClusterShardedCluster(t *testing.T) {
 	expectedHostnameOverrideMap := createExpectedHostnameOverrideMap(sc, clusterMapping, mongosDistribution, configSrvDistribution, shardDistribution)
 
 	for clusterIdx, clusterSpecItem := range shardClusterSpecList {
-		memberClusterClient := memberClusterMap[clusterSpecItem.ClusterName]
-		memberClusterChecks := newShardedClusterMCChecks(t, sc, clusterSpecItem.ClusterName, memberClusterClient.GetClient(), clusterIdx)
+		memberClusterChecks := newClusterChecks(t, clusterSpecItem.ClusterName, clusterIdx, sc.Namespace, memberClusterMap[clusterSpecItem.ClusterName].GetClient())
 		// Shards statefulsets should have the names shardname-0-0, shardname-0-1, shardname-1-0...
 		for shardIdx := 0; shardIdx < shardCount; shardIdx++ {
 			memberClusterChecks.checkStatefulSet(ctx, fmt.Sprintf("%s-%d-%d", sc.Name, shardIdx, clusterIdx), shardDistribution[shardIdx][clusterSpecItem.ClusterName])
@@ -306,8 +302,8 @@ func TestReconcileMultiClusterShardedClusterCertsAndSecretsReplication(t *testin
 	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
 
 	for clusterIdx, clusterDef := range expectedClusterConfigList {
-		memberClusterClient := memberClusterMap[clusterDef.Name]
-		memberClusterChecks := newShardedClusterMCChecks(t, sc, clusterDef.Name, memberClusterClient.GetClient(), clusterIdx)
+		memberClusterChecks := newClusterChecks(t, clusterDef.Name, clusterIdx, sc.Namespace, memberClusterMap[clusterDef.Name].GetClient())
+
 		memberClusterChecks.checkMMSCAConfigMap(ctx, "mms-ca-config")
 		memberClusterChecks.checkTLSCAConfigMap(ctx, "tls-ca-config")
 		memberClusterChecks.checkAgentAPIKeySecret(ctx, om.TestGroupID)
@@ -490,7 +486,7 @@ func TestReconcileForComplexMultiClusterYaml(t *testing.T) {
 
 	for shardIdx := 0; shardIdx < sc.Spec.ShardCount; shardIdx++ {
 		for clusterName, expectedMembersCount := range shardDistribution[shardIdx] {
-			memberClusterChecks := newShardedClusterMCChecks(t, sc, clusterName, memberClusterMap[clusterName].GetClient(), clusterMapping[clusterName])
+			memberClusterChecks := newClusterChecks(t, clusterName, clusterMapping[clusterName], sc.Namespace, memberClusterMap[clusterName].GetClient())
 			if expectedMembersCount > 0 {
 				memberClusterChecks.checkStatefulSet(ctx, sc.MultiShardRsName(clusterMapping[clusterName], shardIdx), expectedMembersCount)
 			} else {
@@ -500,7 +496,7 @@ func TestReconcileForComplexMultiClusterYaml(t *testing.T) {
 	}
 
 	for clusterName, expectedMembersCount := range mongosDistribution {
-		memberClusterChecks := newShardedClusterMCChecks(t, sc, clusterName, memberClusterMap[clusterName].GetClient(), clusterMapping[clusterName])
+		memberClusterChecks := newClusterChecks(t, clusterName, clusterMapping[clusterName], sc.Namespace, memberClusterMap[clusterName].GetClient())
 		if expectedMembersCount > 0 {
 			memberClusterChecks.checkStatefulSet(ctx, sc.MultiMongosRsName(clusterMapping[clusterName]), expectedMembersCount)
 		} else {
@@ -509,13 +505,13 @@ func TestReconcileForComplexMultiClusterYaml(t *testing.T) {
 	}
 
 	for clusterName, expectedMembersCount := range configSrvDistribution {
-		memberClusterChecks := newShardedClusterMCChecks(t, sc, clusterName, memberClusterMap[clusterName].GetClient(), clusterMapping[clusterName])
+		memberClusterChecks := newClusterChecks(t, clusterName, clusterMapping[clusterName], sc.Namespace, memberClusterMap[clusterName].GetClient())
 		memberClusterChecks.checkStatefulSet(ctx, sc.MultiConfigRsName(clusterMapping[clusterName]), expectedMembersCount)
 	}
 
 	expectedHostnameOverrideMap := createExpectedHostnameOverrideMap(sc, clusterMapping, mongosDistribution, configSrvDistribution, shardDistribution)
 	for _, clusterName := range memberClusterNames {
-		memberClusterChecks := newShardedClusterMCChecks(t, sc, clusterName, memberClusterMap[clusterName].GetClient(), clusterMapping[clusterName])
+		memberClusterChecks := newClusterChecks(t, clusterName, clusterMapping[clusterName], sc.Namespace, memberClusterMap[clusterName].GetClient())
 		memberClusterChecks.checkHostnameOverrideConfigMap(ctx, fmt.Sprintf("%s-hostname-override", sc.Name), expectedHostnameOverrideMap)
 	}
 }
@@ -734,123 +730,6 @@ func buildShardedClusterWithCustomProjectName(mcShardedClusterName string, shard
 		SetConfigSrvClusterSpec(configSrvDistributionClusterSpecList).
 		SetMongosClusterSpec(mongosAndConfigSrvClusterSpecList).
 		Build(), mock.GetProjectConfigMap(configMapName, projectName, ""), projectName
-}
-
-type shardedClusterMCChecks struct {
-	t            *testing.T
-	namespace    string
-	clusterName  string
-	kubeClient   client.Client
-	clusterIndex int
-}
-
-func newShardedClusterMCChecks(t *testing.T, shardedCluster *mdbv1.MongoDB, clusterName string, kubeClient client.Client, clusterIndex int) *shardedClusterMCChecks {
-	result := shardedClusterMCChecks{
-		t:            t,
-		namespace:    shardedCluster.Namespace,
-		clusterName:  clusterName,
-		kubeClient:   kubeClient,
-		clusterIndex: clusterIndex,
-	}
-
-	return &result
-}
-
-func (c *shardedClusterMCChecks) checkStatefulSet(ctx context.Context, statefulSetName string, expectedMembers int) {
-	sts := appsv1.StatefulSet{}
-	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, statefulSetName), &sts)
-	require.NoError(c.t, err, "clusterName: %s stsName: %s", c.clusterName, statefulSetName)
-	require.Equal(c.t, expectedMembers, int(*sts.Spec.Replicas))
-	require.Equal(c.t, statefulSetName, sts.ObjectMeta.Name)
-}
-
-func (c *shardedClusterMCChecks) checkAgentAPIKeySecret(ctx context.Context, projectID string) {
-	sec := corev1.Secret{}
-	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, agentAPIKeySecretName(projectID)), &sec)
-	require.NoError(c.t, err, "clusterName: %s", c.clusterName)
-	require.Contains(c.t, sec.Data, util.OmAgentApiKey, "clusterName: %s", c.clusterName)
-}
-
-func (c *shardedClusterMCChecks) checkAgentCertsSecret(ctx context.Context, certificatesSecretsPrefix string, resourceName string) {
-	sec := corev1.Secret{}
-	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, fmt.Sprintf("%s-%s-%s-pem", certificatesSecretsPrefix, resourceName, util.AgentSecretName)), &sec)
-	require.NoError(c.t, err, "clusterName: %s", c.clusterName)
-	require.Contains(c.t, sec.Data, util.AutomationAgentPemSecretKey, "clusterName: %s", c.clusterName)
-}
-
-func (c *shardedClusterMCChecks) checkMongosCertsSecret(ctx context.Context, certificatesSecretsPrefix string, resourceName string, shouldExist bool) {
-	sec := corev1.Secret{}
-	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, fmt.Sprintf("%s-%s-%s-pem", certificatesSecretsPrefix, resourceName, "mongos-cert")), &sec)
-	c.assertErrNotFound(err, shouldExist)
-}
-
-func (c *shardedClusterMCChecks) checkConfigSrvCertsSecret(ctx context.Context, certificatesSecretsPrefix string, resourceName string, shouldExist bool) {
-	sec := corev1.Secret{}
-	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, fmt.Sprintf("%s-%s-%s-pem", certificatesSecretsPrefix, resourceName, "config-cert")), &sec)
-	c.assertErrNotFound(err, shouldExist)
-}
-
-func (c *shardedClusterMCChecks) checkInternalClusterCertSecret(ctx context.Context, certificatesSecretsPrefix string, resourceName string, shardIdx int, shouldExist bool) {
-	sec := corev1.Secret{}
-	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, fmt.Sprintf("%s-%s-%d-%s-pem", certificatesSecretsPrefix, resourceName, shardIdx, util.ClusterFileName)), &sec)
-	c.assertErrNotFound(err, shouldExist)
-}
-
-func (c *shardedClusterMCChecks) checkMemberCertSecret(ctx context.Context, certificatesSecretsPrefix string, resourceName string, shardIdx int, shouldExist bool) {
-	sec := corev1.Secret{}
-	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, fmt.Sprintf("%s-%s-%d-cert-pem", certificatesSecretsPrefix, resourceName, shardIdx)), &sec)
-	c.assertErrNotFound(err, shouldExist)
-}
-
-func (c *shardedClusterMCChecks) assertErrNotFound(err error, shouldExist bool) {
-	if shouldExist {
-		require.NoError(c.t, err, "clusterName: %s", c.clusterName)
-	} else {
-		require.Error(c.t, err, "clusterName: %s", c.clusterName)
-		require.True(c.t, apiErrors.IsNotFound(err))
-	}
-}
-
-func (c *shardedClusterMCChecks) checkMMSCAConfigMap(ctx context.Context, configMapName string) {
-	cm := corev1.ConfigMap{}
-	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, configMapName), &cm)
-	assert.NoError(c.t, err, "clusterName: %s", c.clusterName)
-	assert.Contains(c.t, cm.Data, util.CaCertMMS, "clusterName: %s", c.clusterName)
-}
-
-func (c *shardedClusterMCChecks) checkTLSCAConfigMap(ctx context.Context, configMapName string) {
-	cm := corev1.ConfigMap{}
-	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, configMapName), &cm)
-	assert.NoError(c.t, err, "clusterName: %s", c.clusterName)
-	assert.Contains(c.t, cm.Data, "ca-pem", "clusterName: %s", c.clusterName)
-}
-
-func (c *shardedClusterMCChecks) checkHostnameOverrideConfigMap(ctx context.Context, configMapName string, expectedPodNameToHostnameMap map[string]string) {
-	cm := corev1.ConfigMap{}
-	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, configMapName), &cm)
-	require.NoError(c.t, err, "clusterName: %s", c.clusterName)
-	require.Equal(c.t, expectedPodNameToHostnameMap, cm.Data)
-}
-
-func (c *shardedClusterMCChecks) checkStatefulSetDoesNotExist(ctx context.Context, statefulSetName string) {
-	sts := appsv1.StatefulSet{}
-	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, statefulSetName), &sts)
-	require.True(c.t, apiErrors.IsNotFound(err))
-}
-
-func (c *shardedClusterMCChecks) checkServices(ctx context.Context, statefulSetName string, expectedMembers int) {
-	for podIdx := 0; podIdx < expectedMembers; podIdx++ {
-		svc := corev1.Service{}
-		serviceName := fmt.Sprintf("%s-%d-svc", statefulSetName, podIdx)
-		err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, serviceName), &svc)
-		require.NoError(c.t, err, "clusterName: %s", c.clusterName)
-
-		assert.Equal(c.t, map[string]string{
-			"controller":                         "mongodb-enterprise-operator",
-			"statefulset.kubernetes.io/pod-name": fmt.Sprintf("%s-%d", statefulSetName, podIdx),
-		},
-			svc.Spec.Selector)
-	}
 }
 
 func checkCorrectShardDistributionInStatus(t *testing.T, sc *mdbv1.MongoDB) {
