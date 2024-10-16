@@ -106,7 +106,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	log.Infow("ReplicaSet.Status", "status", rs.Status)
 
 	if err := rs.ProcessValidationsOnReconcile(nil); err != nil {
-		return r.updateStatus(ctx, rs, workflow.Invalid(err.Error()), log)
+		return r.updateStatus(ctx, rs, workflow.Invalid("%s", err.Error()), log)
 	}
 
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.client, r.SecretClient, rs, log)
@@ -142,7 +142,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	prometheusCertHash, err := certs.EnsureTLSCertsForPrometheus(ctx, r.SecretClient, rs.GetNamespace(), rs.GetPrometheus(), certs.Database, log)
 	if err != nil {
 		log.Infof("Could not generate certificates for Prometheus: %s", err)
-		return r.updateStatus(ctx, rs, workflow.Pending(err.Error()), log)
+		return r.updateStatus(ctx, rs, workflow.Pending("%s", err.Error()), log)
 	}
 
 	if status := controlledfeature.EnsureFeatureControls(*rs, conn, conn.OpsManagerVersion(), log); !status.IsOK() {
@@ -512,7 +512,7 @@ func updateOmDeploymentDisableTLSConfiguration(conn om.Connection, membersNumber
 				return err
 			}
 
-			d.MergeReplicaSet(replicaSet, rs.Spec.AdditionalMongodConfig.ToMap(), lastConfig.ToMap(), nil)
+			d.MergeReplicaSet(replicaSet, rs.Spec.AdditionalMongodConfig.ToMap(), lastConfig.ToMap(), log)
 
 			return nil
 		},

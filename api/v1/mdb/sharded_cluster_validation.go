@@ -44,13 +44,13 @@ func ShardedClusterMultiValidators() []func(m MongoDB) []v1.ValidationResult {
 func hasClusterSpecListsDefined(m MongoDB) v1.ValidationResult {
 	msg := "cluster spec list in %s must be defined in Multi Cluster topology"
 	if !hasClusterSpecList(m.Spec.ShardSpec.ClusterSpecList) {
-		return v1.ValidationError(fmt.Sprintf(msg, "spec.shardSpec"))
+		return v1.ValidationError(msg, "spec.shardSpec")
 	}
 	if !hasClusterSpecList(m.Spec.ConfigSrvSpec.ClusterSpecList) {
-		return v1.ValidationError(fmt.Sprintf(msg, "spec.configSrvSpec"))
+		return v1.ValidationError(msg, "spec.configSrvSpec")
 	}
 	if !hasClusterSpecList(m.Spec.MongosSpec.ClusterSpecList) {
-		return v1.ValidationError(fmt.Sprintf(msg, "spec.mongosSpec"))
+		return v1.ValidationError(msg, "spec.mongosSpec")
 	}
 	return v1.ValidationSuccess()
 }
@@ -58,17 +58,17 @@ func hasClusterSpecListsDefined(m MongoDB) v1.ValidationResult {
 func emptyClusterSpecLists(m MongoDB) v1.ValidationResult {
 	msg := "cluster spec list in %s must be empty in Single Cluster topology"
 	if hasClusterSpecList(m.Spec.ShardSpec.ClusterSpecList) {
-		return v1.ValidationError(fmt.Sprintf(msg, "spec.shardSpec"))
+		return v1.ValidationError(msg, "spec.shardSpec")
 	}
 	if hasClusterSpecList(m.Spec.ConfigSrvSpec.ClusterSpecList) {
-		return v1.ValidationError(fmt.Sprintf(msg, "spec.configSrvSpec"))
+		return v1.ValidationError(msg, "spec.configSrvSpec")
 	}
 	if hasClusterSpecList(m.Spec.MongosSpec.ClusterSpecList) {
-		return v1.ValidationError(fmt.Sprintf(msg, "spec.mongosSpec"))
+		return v1.ValidationError(msg, "spec.mongosSpec")
 	}
 	for _, shardOverride := range m.Spec.ShardOverrides {
-		if shardOverride.ClusterSpecList != nil && len(shardOverride.ClusterSpecList) > 0 {
-			return v1.ValidationError(fmt.Sprintf(msg, "spec.shardOverrides"))
+		if len(shardOverride.ClusterSpecList) > 0 {
+			return v1.ValidationError(msg, "spec.shardOverrides")
 		}
 	}
 	return v1.ValidationSuccess()
@@ -82,17 +82,16 @@ func hasClusterSpecList(clusterSpecList ClusterSpecList) bool {
 func validClusterSpecLists(m MongoDB) v1.ValidationResult {
 	msg := "All clusters specified in %s.clusterSpecList require clusterName and members fields"
 	if !isValidClusterSpecList(m.Spec.ShardSpec.ClusterSpecList) {
-		return v1.ValidationError(fmt.Sprintf(msg, "spec.shardSpec"))
+		return v1.ValidationError(msg, "spec.shardSpec")
 	}
 	if !isValidClusterSpecList(m.Spec.ConfigSrvSpec.ClusterSpecList) {
-		return v1.ValidationError(fmt.Sprintf(msg, "spec.configSrvSpec"))
+		return v1.ValidationError(msg, "spec.configSrvSpec")
 	}
 	if !isValidClusterSpecList(m.Spec.MongosSpec.ClusterSpecList) {
-		return v1.ValidationError(fmt.Sprintf(msg, "spec.congosSpec"))
+		return v1.ValidationError(msg, "spec.congosSpec")
 	}
 	if len(m.Spec.MemberConfig) > 0 && len(m.Spec.MemberConfig) < m.Spec.Members {
-		configErrorMessage := "Invalid clusterSpecList: " + MemberConfigErrorMessage
-		return v1.ValidationError(configErrorMessage)
+		return v1.ValidationError("Invalid clusterSpecList: %s", MemberConfigErrorMessage)
 	}
 	return v1.ValidationSuccess()
 }
@@ -108,20 +107,17 @@ func isValidClusterSpecList(clusterSpecList ClusterSpecList) bool {
 
 func validateShardOverrideClusterSpecList(clusterSpecList []ClusterSpecItemOverride, shardNames []string) (bool, v1.ValidationResult) {
 	if len(clusterSpecList) == 0 {
-		msg := fmt.Sprintf("shard override for shards %+v has an empty clusterSpecList", shardNames)
-		return true, v1.ValidationError(msg)
+		return true, v1.ValidationError("shard override for shards %+v has an empty clusterSpecList", shardNames)
 	}
 	for _, clusterSpec := range clusterSpecList {
 		// Note that it is okay for a shard override clusterSpecList to have Members = 0
 		if clusterSpec.ClusterName == "" {
-			msg := fmt.Sprintf("shard override for shards %+v has an empty clusterName in clusterSpecList, this field must be specified", shardNames)
-			return true, v1.ValidationError(msg)
+			return true, v1.ValidationError("shard override for shards %+v has an empty clusterName in clusterSpecList, this field must be specified", shardNames)
 		}
 		// This check is performed for overrides cluster spec lists as well
 		if len(clusterSpec.MemberConfig) > 0 && clusterSpec.Members != nil &&
 			len(clusterSpec.MemberConfig) < *clusterSpec.Members {
-			memberConfigErrorMessage := fmt.Sprintf("shard override for shards %+v is incorrect: %s", shardNames, MemberConfigErrorMessage)
-			return true, v1.ValidationError(memberConfigErrorMessage)
+			return true, v1.ValidationError("shard override for shards %+v is incorrect: %s", shardNames, MemberConfigErrorMessage)
 		}
 	}
 	return false, v1.ValidationSuccess()
@@ -129,9 +125,8 @@ func validateShardOverrideClusterSpecList(clusterSpecList []ClusterSpecItemOverr
 
 func shardOverridesShardNamesNotEmpty(m MongoDB) v1.ValidationResult {
 	for idx, shardOverride := range m.Spec.ShardOverrides {
-		if shardOverride.ShardNames == nil || len(shardOverride.ShardNames) == 0 {
-			msg := fmt.Sprintf("spec.shardOverride[*].shardNames cannot be empty, shardOverride with index %d is invalid", idx)
-			return v1.ValidationError(msg)
+		if len(shardOverride.ShardNames) == 0 {
+			return v1.ValidationError("spec.shardOverride[*].shardNames cannot be empty, shardOverride with index %d is invalid", idx)
 		}
 	}
 	return v1.ValidationSuccess()
@@ -142,8 +137,7 @@ func shardOverridesShardNamesUnique(m MongoDB) v1.ValidationResult {
 	for _, shardOverride := range m.Spec.ShardOverrides {
 		for _, shardName := range shardOverride.ShardNames {
 			if idSet[shardName] && shardName != "" {
-				msg := fmt.Sprintf("spec.shardOverride[*].shardNames elements must be unique in shardOverrides, shardName %s is a duplicate", shardName)
-				return v1.ValidationError(msg)
+				return v1.ValidationError("spec.shardOverride[*].shardNames elements must be unique in shardOverrides, shardName %s is a duplicate", shardName)
 			}
 			idSet[shardName] = true
 		}
@@ -155,8 +149,7 @@ func shardOverridesShardNamesCorrectValues(m MongoDB) v1.ValidationResult {
 	for _, shardOverride := range m.Spec.ShardOverrides {
 		for _, shardName := range shardOverride.ShardNames {
 			if !validateShardName(shardName, m.Spec.ShardCount, m.Name) {
-				msg := fmt.Sprintf("name %s is incorrect, it must follow the following format: %s-{shard index} with shardIndex < %d (shardCount)", shardName, m.Name, m.Spec.ShardCount)
-				return v1.ValidationError(msg)
+				return v1.ValidationError("name %s is incorrect, it must follow the following format: %s-{shard index} with shardIndex < %d (shardCount)", shardName, m.Name, m.Spec.ShardCount)
 			}
 		}
 	}
@@ -315,7 +308,7 @@ func validateMemberClusterIsSubsetOfKubeConfig(m MongoDB) v1.ValidationResult {
 	for _, specList := range clusterSpecLists {
 		validationResult := ValidateMemberClusterIsSubsetOfKubeConfig(specList.list)
 		if validationResult.Level > 0 {
-			return v1.ValidationError(fmt.Sprintf("Error when validating %s ClusterSpecList: %s", specList.name, validationResult.Msg))
+			return v1.ValidationError("Error when validating %s ClusterSpecList: %s", specList.name, validationResult.Msg)
 		}
 	}
 

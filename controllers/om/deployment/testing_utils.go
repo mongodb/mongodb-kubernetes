@@ -23,7 +23,7 @@ func CreateFromReplicaSet(rs *mdb.MongoDB) om.Deployment {
 		func(options *construct.DatabaseStatefulSetOptions) {
 			options.PodVars = &env.PodEnvVars{ProjectID: "abcd"}
 		},
-	), nil)
+	), zap.S())
 	d := om.NewDeployment()
 
 	lastConfig, err := rs.GetLastAdditionalMongodConfigByType(mdb.ReplicaSetConfig)
@@ -35,7 +35,7 @@ func CreateFromReplicaSet(rs *mdb.MongoDB) om.Deployment {
 		replicaset.BuildFromStatefulSet(sts, rs.GetSpec(), rs.Status.FeatureCompatibilityVersion),
 		rs.Spec.AdditionalMongodConfig.ToMap(),
 		lastConfig.ToMap(),
-		nil,
+		zap.S(),
 	)
 	d.AddMonitoringAndBackup(zap.S(), rs.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
 	d.ConfigureTLS(rs.Spec.GetSecurity(), util.CAFilePathInContainer)

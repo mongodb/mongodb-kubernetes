@@ -869,7 +869,7 @@ func (om *MongoDBOpsManager) BackupDaemonStatefulSetNameForClusterIndex(clusterI
 	return fmt.Sprintf("%s-%d-backup-daemon", om.GetName(), clusterIndex)
 }
 
-func (om *MongoDBOpsManager) GetSchemePort() (corev1.URIScheme, int) {
+func (om *MongoDBOpsManager) GetSchemePort() (corev1.URIScheme, int32) {
 	if om.IsTLSEnabled() {
 		return SchemePortFromAnnotation("https")
 	}
@@ -1041,12 +1041,12 @@ func ConvertNameToEnvVarFormat(propertyFormat string) string {
 	return strings.Replace(withPrefix, ".", "_", -1)
 }
 
-func SchemePortFromAnnotation(annotation string) (corev1.URIScheme, int) {
+func SchemePortFromAnnotation(annotation string) (corev1.URIScheme, int32) {
 	scheme := corev1.URISchemeHTTP
-	port := util.OpsManagerDefaultPortHTTP
+	port := int32(util.OpsManagerDefaultPortHTTP)
 	if strings.ToUpper(annotation) == "HTTPS" {
 		scheme = corev1.URISchemeHTTPS
-		port = util.OpsManagerDefaultPortHTTPS
+		port = int32(util.OpsManagerDefaultPortHTTPS)
 	}
 
 	return scheme, port

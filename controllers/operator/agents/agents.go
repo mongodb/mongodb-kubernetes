@@ -11,7 +11,6 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 
-	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
@@ -19,7 +18,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
-	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 )
 
 type SecretGetCreator interface {
@@ -42,7 +40,7 @@ type retryParams struct {
 func EnsureAgentKeySecretExists(ctx context.Context, secretClient secrets.SecretClient, agentKeyGenerator om.AgentKeyGenerator, namespace, agentKey, projectId, basePath string, log *zap.SugaredLogger) (string, error) {
 	secretName := ApiKeySecretName(projectId)
 	log = log.With("secret", secretName)
-	agentKeySecret, err := secretClient.GetSecret(ctx, kube.ObjectKey(namespace, secretName))
+	agentKeySecret, err := secretClient.ReadSecret(ctx, kube.ObjectKey(namespace, secretName), basePath)
 	if err != nil {
 		if !secrets.SecretNotExist(err) {
 			return "", xerrors.Errorf("error reading agent key secret: %w", err)
@@ -58,35 +56,21 @@ func EnsureAgentKeySecretExists(ctx context.Context, secretClient secrets.Secret
 			log.Info("Agent key was successfully generated")
 		}
 
-		data := map[string]interface{}{
-			"data": map[string]interface{}{
-				util.OmAgentApiKey: agentKey,
-			},
+		agentSecret := secret.Builder().
+			SetField(util.OmAgentApiKey, agentKey).
+			SetNamespace(namespace).
+			SetName(secretName).
+			Build()
+
+		if err := secretClient.PutSecret(ctx, agentSecret, basePath); err != nil {
+			return "", xerrors.Errorf("failed to create AgentKey secret: %w", err)
 		}
 
-		if vault.IsVaultSecretBackend() {
-			// we only want to create secret if it doesn't exist in vault
-			APIKeyPath := fmt.Sprintf("%s/%s/%s", basePath, namespace, secretName)
-			_, err := secretClient.VaultClient.ReadSecretBytes(APIKeyPath)
-			if err != nil && secrets.SecretNotExist(err) {
-				err = secretClient.VaultClient.PutSecret(APIKeyPath, data)
-				if err != nil {
-					return "", xerrors.Errorf("failed to create AgentKey secret in vault: %w", err)
-				}
-				log.Infof("Project agent key is saved in Vault")
-				return agentKey, nil
-			}
-			return "", err
-		}
-
-		if err = CreateOrUpdateAgentKeySecret(ctx, secretClient, namespace, projectId, agentKey, nil); err != nil {
-			return "", xerrors.Errorf("failed to create or update Secret: %w", err)
-		}
-		log.Infof("Project agent key is saved in Kubernetes Secret for later usage")
+		log.Infof("Project agent key is saved for later usage")
 		return agentKey, nil
 	}
 
-	return string(agentKeySecret.Data[util.OmAgentApiKey]), nil
+	return agentKeySecret[util.OmAgentApiKey], nil
 }
 
 // ApiKeySecretName for a given ProjectID (`project`) returns the name of
@@ -161,15 +145,4 @@ func waitUntilRegistered(omConnection om.Connection, log *zap.SugaredLogger, r r
 	}
 
 	return util.DoAndRetry(agentsCheckFunc, log, retrials, waitSeconds)
-}
-
-func CreateOrUpdateAgentKeySecret(ctx context.Context, secretCreator secrets.SecretClient, namespace string, projectID string, agentKey string, owner v1.CustomResourceReadWriter) error {
-	agentKeySecret := secret.Builder().
-		SetField(util.OmAgentApiKey, agentKey).
-		SetOwnerReferences(kube.BaseOwnerReference(owner)).
-		SetNamespace(namespace).
-		SetName(ApiKeySecretName(projectID)).
-		Build()
-
-	return secret.CreateOrUpdate(ctx, secretCreator, agentKeySecret)
 }

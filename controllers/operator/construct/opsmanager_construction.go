@@ -270,7 +270,7 @@ func opsManagerOptions(memberCluster multicluster.MemberCluster, additionalOpts 
 		_, port := opsManager.GetSchemePort()
 
 		opts := getSharedOpsManagerOptions(opsManager)
-		opts.ServicePort = port
+		opts.ServicePort = int(port)
 		opts.ServiceName = opsManager.SvcName()
 		if memberCluster.Legacy {
 			opts.Name = opsManager.Name
@@ -615,10 +615,10 @@ func defaultOpsManagerResourceRequirements() corev1.ResourceRequirements {
 }
 
 func buildOpsManagerContainerPorts(httpsCertSecretName string) []corev1.ContainerPort {
-	return []corev1.ContainerPort{{ContainerPort: int32(getOpsManagerContainerPort(httpsCertSecretName))}}
+	return []corev1.ContainerPort{{ContainerPort: getOpsManagerContainerPort(httpsCertSecretName)}}
 }
 
-func getOpsManagerContainerPort(httpsSecretName string) int {
+func getOpsManagerContainerPort(httpsSecretName string) int32 {
 	_, port := omv1.SchemePortFromAnnotation("http")
 	if httpsSecretName != "" {
 		_, port = omv1.SchemePortFromAnnotation("https")

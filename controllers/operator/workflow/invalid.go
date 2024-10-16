@@ -69,7 +69,7 @@ func (f invalidStatus) Log(log *zap.SugaredLogger) {
 }
 
 func mergedInvalid(p1, p2 invalidStatus) invalidStatus {
-	p := Invalid(p1.msg + ", " + p2.msg)
+	p := Invalid("%s, %s", p1.msg, p2.msg)
 	p.warnings = append(p1.warnings, p2.warnings...)
 	// Choosing one of the non-empty target phases
 	p.targetPhase = p2.targetPhase
