@@ -3,7 +3,7 @@ exec_timeout_secs: 7200
 
 include:
   - filename: .evergreen-functions.yml
-  - filename: .evergreen-e2e-tasks.yml
+  - filename: .evergreen-tasks.yml
 
 variables:
   - &ops_manager_60_latest 6.0.25 # The order/index is important, since these are anchors. Please do not change
@@ -142,36 +142,6 @@ parameters:
   description: "Patch id to reuse images from other Evergreen build"
 
 tasks:
-- name: preflight_release_images
-  commands:
-  - func: clone
-  - func: setup_preflight
-  - func: preflight_image
-    vars:
-      image_name: operator
-  - func: preflight_image
-    vars:
-      image_name: init-appdb
-  - func: preflight_image
-    vars:
-      image_name: init-database
-  - func: preflight_image
-    vars:
-      image_name: init-ops-manager
-  - func: preflight_image
-    vars:
-      image_name: database
-  - func: preflight_image
-    vars:
-      image_name: mongodb-agent
-
-- name: preflight_om_image
-  commands:
-  - func: clone
-  - func: setup_preflight
-  - func: preflight_image
-    vars:
-      image_name: ops-manager
 
 - name: unit_tests
   tags: ["unit_tests"]
@@ -1341,16 +1311,12 @@ buildvariants:
 - name: preflight_release_images
   display_name: preflight_release_images
   run_on:
-  - rhel90-small
+  - rhel90-large
   tasks:
-    - name: preflight_release_images
-
-- name: preflight_release_images_check
-  display_name: preflight_release_images_check
-  run_on:
-    - rhel90-small
-  tasks:
-    - name: preflight_release_images
+    - name: preflight_images
+    - name: preflight_mongodb_agent_image
+    - name: preflight_official_database_image
+    - name: preflight_ops_manager
 
 - name: upload_dockerfiles
   display_name: upload_dockerfiles
@@ -1464,7 +1430,7 @@ buildvariants:
 - name: preflight_om60_images
   display_name: preflight_om60_images
   run_on:
-  - rhel90-small
+  - rhel90-large
   tasks:
   - name: preflight_om_image
 
@@ -1478,7 +1444,7 @@ buildvariants:
 - name: preflight_om70_images
   display_name: preflight_om70_images
   run_on:
-  - rhel90-small
+  - rhel90-large
   tasks:
   - name: preflight_om_image
 
@@ -1505,7 +1471,7 @@ buildvariants:
 - name: preflight_om80_images
   display_name: preflight_om80_images
   run_on:
-    - rhel90-small
+    - rhel90-large
   tasks:
     - name: preflight_om_image
 
