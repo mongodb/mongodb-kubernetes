@@ -1,4 +1,57 @@
 tasks:
+  - name: preflight_images
+    commands:
+      - func: clone
+      - func: setup_preflight
+      - func: preflight_image
+        vars:
+          image_name: operator
+      - func: preflight_image
+        vars:
+          image_name: init-appdb
+      - func: preflight_image
+        vars:
+          image_name: init-database
+      - func: preflight_image
+        vars:
+          image_name: init-ops-manager
+      - func: preflight_image
+        vars:
+          image_name: database
+
+  - name: preflight_ops_manager
+    commands:
+      - func: clone
+      - func: setup_preflight
+      - func: preflight_image
+        vars:
+          image_name: ops-manager
+
+  - name: preflight_official_database_image
+    commands:
+      - func: clone
+      - func: setup_preflight
+      - func: preflight_image
+        vars:
+          image_name: mongodb-enterprise-server
+
+  - name: preflight_mongodb_agent_image
+    commands:
+      - func: clone
+      - func: setup_preflight
+      - func: preflight_image
+        vars:
+          image_name: mongodb-agent
+
+  - name: preflight_om_image
+    commands:
+      - func: clone
+      - func: setup_preflight
+      - func: preflight_image
+        vars:
+          image_name: ops-manager
+
+## Below are only e2e runs for .evergreen.yml ##
 
   - name: e2e_multiple_cluster_failures
     tags: [ "patch-run" ]

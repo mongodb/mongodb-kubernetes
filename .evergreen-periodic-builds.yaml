@@ -1,5 +1,6 @@
 include:
   - filename: .evergreen-functions.yml
+  - filename: .evergreen-tasks.yml
 
 parameters:
   - key: pin_tag_at
@@ -7,43 +8,6 @@ parameters:
     description: Pin tags at this time of the day. Midnight by default.
 
 tasks:
-  - name: preflight_images
-    commands:
-      - func: clone
-      - func: setup_preflight
-      - func: preflight_image
-        vars:
-          image_name: operator
-          project_id: ${rhc_operator_pid}
-      - func: preflight_image
-        vars:
-          image_name: ops-manager
-          project_id: ${rhc_om_pid}
-      - func: preflight_image
-        vars:
-          image_name: init-appdb
-          project_id: ${rhc_init_appdb_pid}
-      - func: preflight_image
-        vars:
-          image_name: init-database
-          project_id: ${rhc_init_database_pid}
-      - func: preflight_image
-        vars:
-          image_name: init-ops-manager
-          project_id: ${rhc_init_om_pid}
-      - func: preflight_image
-        vars:
-          image_name: database
-          project_id: ${rhc_database_pid}
-      - func: preflight_image
-        vars:
-          image_name: mongodb-enterprise-server # official server images
-          project_id: ${rhc_official_database_pid}
-      - func: preflight_image
-        vars:
-          image_name: mongodb-agent
-          project_id: ${rhc_agent_pid}
-
   - name: periodic_build_operator
     commands:
       - func: clone
@@ -51,8 +15,6 @@ tasks:
       - func: setup_aws
       - func: configure_docker_auth
       - func: quay_login
-        vars:
-          project_id: ${rhc_operator_pid}
       - func: pipeline
         vars:
           image_name: operator-daily
@@ -64,8 +26,6 @@ tasks:
       - func: setup_aws
       - func: configure_docker_auth
       - func: quay_login
-        vars:
-          project_id: ${rhc_init_appdb_pid}
       - func: pipeline
         vars:
           image_name: init-appdb-daily
@@ -77,8 +37,6 @@ tasks:
       - func: setup_aws
       - func: configure_docker_auth
       - func: quay_login
-        vars:
-          project_id: ${rhc_init_database_pid}
       - func: pipeline
         vars:
           image_name: init-database-daily
@@ -90,8 +48,6 @@ tasks:
       - func: setup_aws
       - func: configure_docker_auth
       - func: quay_login
-        vars:
-          project_id: ${rhc_init_om_pid}
       - func: pipeline
         vars:
           image_name: init-ops-manager-daily
@@ -103,8 +59,6 @@ tasks:
       - func: setup_aws
       - func: configure_docker_auth
       - func: quay_login
-        vars:
-          project_id: ${rhc_database_pid}
       - func: pipeline
         vars:
           image_name: database-daily
@@ -116,8 +70,6 @@ tasks:
       - func: setup_aws
       - func: configure_docker_auth
       - func: quay_login
-        vars:
-          project_id: ${rhc_database_pid}
       - func: pipeline
         vars:
           image_name: cli
@@ -129,8 +81,6 @@ tasks:
       - func: setup_aws
       - func: configure_docker_auth
       - func: quay_login
-        vars:
-          project_id: ${rhc_om_pid}
       - func: pipeline
         vars:
           image_name: ops-manager-6-daily
@@ -142,8 +92,6 @@ tasks:
       - func: setup_aws
       - func: configure_docker_auth
       - func: quay_login
-        vars:
-          project_id: ${rhc_om_pid}
       - func: pipeline
         vars:
           image_name: ops-manager-7-daily
@@ -155,8 +103,6 @@ tasks:
       - func: setup_aws
       - func: configure_docker_auth
       - func: quay_login
-        vars:
-          project_id: ${rhc_om_pid}
       - func: pipeline
         vars:
           image_name: ops-manager-8-daily
@@ -169,8 +115,6 @@ tasks:
       - func: setup_aws
       - func: configure_docker_auth
       - func: quay_login
-        vars:
-          project_id: ${rhc_agent_pid}
       - func: pipeline
         vars:
           image_name: mongodb-agent-daily
@@ -183,8 +127,6 @@ tasks:
       - func: setup_aws
       - func: configure_docker_auth
       - func: quay_login
-        vars:
-          project_id: ${rhc_mongodb_community_operator_pid}
       - func: pipeline
         vars:
           image_name: mongodb-kubernetes-operator-daily
@@ -196,8 +138,6 @@ tasks:
       - func: setup_aws
       - func: configure_docker_auth
       - func: quay_login
-        vars:
-          project_id: ${rhc_mongodb_readiness_probe_pid}
       - func: pipeline
         vars:
           image_name: mongodb-kubernetes-readinessprobe-daily
@@ -209,8 +149,6 @@ tasks:
       - func: setup_aws
       - func: configure_docker_auth
       - func: quay_login
-        vars:
-          project_id: ${rhc_mongodb_build_version_upgrade_post_start_hook_pid}
       - func: pipeline
         vars:
           image_name: mongodb-kubernetes-operator-version-upgrade-post-start-hook-daily
@@ -222,8 +160,6 @@ tasks:
       - func: setup_aws
       - func: configure_docker_auth
       - func: quay_login
-        vars:
-          project_id: ${rhc_appdb_database_pid}
       - func: build_and_push_appdb_database
 
   - name: prepare_and_upload_openshift_bundles
@@ -278,8 +214,12 @@ task_groups:
       - periodic_build_sbom_cli
 
   - name: preflight_images_task_group
+    max_hosts: -1
     tasks:
       - preflight_images
+      - preflight_official_database_image
+      - preflight_mongodb_agent_image
+      - preflight_ops_manager
 
   - name: periodic_teardown_task_group
     tasks:
