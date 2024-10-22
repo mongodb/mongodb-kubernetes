@@ -10,8 +10,6 @@ spec:
   applicationDatabase:
     version: "4.4.20-ent"
     members: 3
-    podSpec:
-      cpu: '0.25'
     agent:
       logLevel: DEBUG
 

@@ -4,6 +4,7 @@ from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
 from pytest import fixture, mark
+from tests.conftest import verify_pvc_expanded
 
 RESIZED_STORAGE_SIZE = "2Gi"
 
@@ -68,15 +69,16 @@ def test_replica_set_resize_finished(replica_set: MongoDB, namespace: str):
     first_data_pvc_name = "data-replica-set-resize-0"
     first_journal_pvc_name = "journal-replica-set-resize-0"
     first_logs_pvc_name = "logs-replica-set-resize-0"
-    data_pvc = client.CoreV1Api().read_namespaced_persistent_volume_claim(first_data_pvc_name, namespace)
-    assert data_pvc.status.capacity["storage"] == RESIZED_STORAGE_SIZE
-
-    journal_pvc = client.CoreV1Api().read_namespaced_persistent_volume_claim(first_journal_pvc_name, namespace)
-    assert journal_pvc.status.capacity["storage"] == RESIZED_STORAGE_SIZE
 
     initial_storage_size = "1Gi"
-    logs_pvc = client.CoreV1Api().read_namespaced_persistent_volume_claim(first_logs_pvc_name, namespace)
-    assert logs_pvc.status.capacity["storage"] == initial_storage_size
+    verify_pvc_expanded(
+        first_data_pvc_name,
+        first_journal_pvc_name,
+        first_logs_pvc_name,
+        namespace,
+        RESIZED_STORAGE_SIZE,
+        initial_storage_size,
+    )
 
 
 @mark.e2e_replica_set_pv_resize
