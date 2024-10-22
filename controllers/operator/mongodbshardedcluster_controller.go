@@ -286,154 +286,201 @@ func (r *ShardedClusterReconcileHelper) prepareDesiredShardsConfiguration(spec *
 	shardComponentSpecs := map[int]*mdbv1.ShardedClusterComponentSpec{}
 
 	for shardIdx := 0; shardIdx < max(spec.ShardCount, r.deploymentState.Status.MongodbShardedClusterSizeConfig.ShardCount); shardIdx++ {
-		shardComponentSpec, ok := shardComponentSpecs[shardIdx]
-		if !ok {
-			shardComponentSpec = &mdbv1.ShardedClusterComponentSpec{}
-		}
-		// each shard gets by default top-level spec.ShardSpec configuration
-		*shardComponentSpec = *spec.ShardSpec.DeepCopy()
-
-		// all shards level sts overrides
-		var topLevelPodTemplateSpecOverride *corev1.PodTemplateSpec
-		var topLevelShardPodSpecPersistenceOverride *mdbv1.Persistence
-		if spec.ShardPodSpec != nil {
-			if spec.ShardPodSpec.PodTemplateWrapper.PodTemplate != nil {
-				topLevelPodTemplateSpecOverride = spec.ShardPodSpec.PodTemplateWrapper.PodTemplate.DeepCopy()
-			}
-			if spec.ShardPodSpec.Persistence != nil {
-				topLevelShardPodSpecPersistenceOverride = spec.ShardPodSpec.Persistence.DeepCopy()
-			}
-		}
-		// specific shard level sts override
-		if shardIdx < len(spec.ShardSpecificPodSpec) {
-			shardSpecificPodSpec := spec.ShardSpecificPodSpec[shardIdx]
-			if shardSpecificPodSpec.PodTemplateWrapper.PodTemplate != nil {
-				// mergedSpec := merge.PodTemplateSpecs(*topLevelPodTemplateSpecOverride, *podSpec.PodTemplateWrapper.PodTemplate)
-				// in single-cluster the override wasn't merging those specs; we keep the same behavior for backwards compatibility
-				topLevelPodTemplateSpecOverride = shardSpecificPodSpec.PodTemplateWrapper.PodTemplate.DeepCopy()
-			}
-		}
-
-		shardSpecClusterSpecList := spec.ShardSpec.ClusterSpecList.DeepCopy()
-		for i := 0; i < len(shardSpecClusterSpecList); i++ {
-			// we will store final sts overrides for each cluster in clusterSpecItem.StatefulSetOverride
-			// therefore we initialize it here and merge into it in case there is anything to override in the first place
-			// in case higher level overrides are empty, we just use whatever is specified in clusterSpecItem (maybe nothing as well)
-			if topLevelPodTemplateSpecOverride != nil {
-				if shardSpecClusterSpecList[i].StatefulSetConfiguration == nil {
-					shardSpecClusterSpecList[i].StatefulSetConfiguration = &mdbcv1.StatefulSetConfiguration{}
-				}
-				shardSpecClusterSpecList[i].StatefulSetConfiguration.SpecWrapper.Spec.Template = merge.PodTemplateSpecs(shardSpecClusterSpecList[i].StatefulSetConfiguration.SpecWrapper.Spec.Template, *topLevelPodTemplateSpecOverride.DeepCopy())
-			}
-
-			if shardSpecClusterSpecList[i].PodSpec == nil {
-				shardSpecClusterSpecList[i].PodSpec = &mdbv1.MongoDbPodSpec{}
-			}
-			if topLevelShardPodSpecPersistenceOverride != nil {
-				if shardSpecClusterSpecList[i].PodSpec.Persistence == nil {
-					shardSpecClusterSpecList[i].PodSpec.Persistence = topLevelShardPodSpecPersistenceOverride.DeepCopy()
-				}
-			}
-		}
-
-		shardComponentSpec.ClusterSpecList = shardSpecClusterSpecList
-		shardComponentSpecs[shardIdx] = shardComponentSpec.DeepCopy()
+		topLevelPersistenceOverride, topLevelPodSpecOverride := getShardTopLevelOverrides(spec, shardIdx)
+		shardComponentSpec := processShardClusterSpecLists(spec, topLevelPersistenceOverride, topLevelPodSpecOverride)
+		shardComponentSpecs[shardIdx] = &shardComponentSpec
 	}
 
-	// expand shardOverrides containing referring to more than one shard to a list of shard overrides with only one shard
+	for _, shardOverride := range expandShardOverrides(spec.ShardOverrides) {
+		// guaranteed to have one shard name in expandedShardOverrides
+		shardName := shardOverride.ShardNames[0]
+		shardIndex := r.getShardNameToShardIdxMap()[shardName]
+		// here we copy the whole element and overwrite at the end of every iteration
+		defaultShardConfiguration := shardComponentSpecs[shardIndex].DeepCopy()
+		topLevelPersistenceOverride, topLevelPodSpecOverride := getShardTopLevelOverrides(spec, shardIndex)
+		shardComponentSpecs[shardIndex] = processShardOverride(spec, shardOverride, defaultShardConfiguration, topLevelPodSpecOverride, topLevelPersistenceOverride)
+	}
+	return shardComponentSpecs
+}
+
+func getShardTopLevelOverrides(spec *mdbv1.MongoDbSpec, shardIdx int) (*mdbv1.Persistence, *corev1.PodTemplateSpec) {
+	// all shards level sts overrides
+	var topLevelPodSpecOverride *corev1.PodTemplateSpec
+	var topLevelPersistenceOverride *mdbv1.Persistence
+	if spec.ShardPodSpec != nil {
+		if spec.ShardPodSpec.PodTemplateWrapper.PodTemplate != nil {
+			topLevelPodSpecOverride = spec.ShardPodSpec.PodTemplateWrapper.PodTemplate.DeepCopy()
+		}
+		if spec.ShardPodSpec.Persistence != nil {
+			topLevelPersistenceOverride = spec.ShardPodSpec.Persistence.DeepCopy()
+		}
+	}
+	// specific shard level sts and persistence override
+	if shardIdx < len(spec.ShardSpecificPodSpec) {
+		shardSpecificPodSpec := spec.ShardSpecificPodSpec[shardIdx]
+		if shardSpecificPodSpec.PodTemplateWrapper.PodTemplate != nil {
+			// in single-cluster the override wasn't merging those specs; we keep the same behavior for backwards compatibility
+			topLevelPodSpecOverride = shardSpecificPodSpec.PodTemplateWrapper.PodTemplate.DeepCopy()
+		}
+		// ShardSpecificPodSpec applies to both template and persistence
+		if shardSpecificPodSpec.Persistence != nil {
+			topLevelPersistenceOverride = shardSpecificPodSpec.Persistence.DeepCopy()
+		}
+	}
+	return topLevelPersistenceOverride, topLevelPodSpecOverride
+}
+
+func processShardClusterSpecLists(spec *mdbv1.MongoDbSpec, topLevelPersistenceOverride *mdbv1.Persistence, topLevelPodSpecOverride *corev1.PodTemplateSpec) mdbv1.ShardedClusterComponentSpec {
+	shardComponentSpec := *spec.ShardSpec.DeepCopy()
+
+	shardSpecClusterSpecList := spec.ShardSpec.ClusterSpecList.DeepCopy()
+	for i := 0; i < len(shardSpecClusterSpecList); i++ {
+		// we will store final sts overrides for each cluster in clusterSpecItem.StatefulSetOverride
+		// therefore we initialize it here and merge into it in case there is anything to override in the first place
+		// in case higher level overrides are empty, we just use whatever is specified in clusterSpecItem (maybe nothing as well)
+		if topLevelPodSpecOverride != nil {
+			if shardSpecClusterSpecList[i].StatefulSetConfiguration == nil {
+				shardSpecClusterSpecList[i].StatefulSetConfiguration = &mdbcv1.StatefulSetConfiguration{}
+			}
+			shardSpecClusterSpecList[i].StatefulSetConfiguration.SpecWrapper.Spec.Template = merge.PodTemplateSpecs(*topLevelPodSpecOverride.DeepCopy(), shardSpecClusterSpecList[i].StatefulSetConfiguration.SpecWrapper.Spec.Template)
+		}
+
+		if shardSpecClusterSpecList[i].PodSpec == nil {
+			shardSpecClusterSpecList[i].PodSpec = &mdbv1.MongoDbPodSpec{}
+		}
+		if topLevelPersistenceOverride != nil {
+			if shardSpecClusterSpecList[i].PodSpec.Persistence == nil {
+				shardSpecClusterSpecList[i].PodSpec.Persistence = topLevelPersistenceOverride.DeepCopy()
+			}
+		}
+	}
+
+	shardComponentSpec.ClusterSpecList = shardSpecClusterSpecList
+
+	return shardComponentSpec
+}
+
+func mergeOverrideClusterSpecList(shardOverride mdbv1.ShardOverride, defaultShardConfiguration *mdbv1.ShardedClusterComponentSpec, topLevelPodSpecOverride *corev1.PodTemplateSpec, topLevelPersistenceOverride *mdbv1.Persistence) *mdbv1.ShardedClusterComponentSpec {
+	// We override here all elements of ClusterSpecList, but statefulset overrides if provided here
+	// will be merged on top of previous sts overrides.
+	for shardOverrideClusterSpecIdx := range shardOverride.ClusterSpecList {
+		shardOverrideClusterSpecItem := &shardOverride.ClusterSpecList[shardOverrideClusterSpecIdx]
+		foundIdx := slices.IndexFunc(defaultShardConfiguration.ClusterSpecList, func(item mdbv1.ClusterSpecItem) bool {
+			return item.ClusterName == shardOverrideClusterSpecItem.ClusterName
+		})
+		// If the cluster is not found, it means this ShardOverride adds a new cluster that was not in ClusterSpecList
+		// We need to propagate top level specs, from e.g ShardPodSpec or ShardSpecificPodSpec, and apply a merge
+		if foundIdx == -1 {
+			if shardOverrideClusterSpecItem.StatefulSetConfiguration == nil {
+				shardOverrideClusterSpecItem.StatefulSetConfiguration = &mdbcv1.StatefulSetConfiguration{}
+			}
+			shardOverrideClusterSpecItem.StatefulSetConfiguration.SpecWrapper.Spec.Template = merge.PodTemplateSpecs(*topLevelPodSpecOverride, shardOverrideClusterSpecItem.StatefulSetConfiguration.SpecWrapper.Spec.Template)
+			if (shardOverrideClusterSpecItem.PodSpec == nil || shardOverrideClusterSpecItem.PodSpec.Persistence == nil) &&
+				topLevelPersistenceOverride != nil {
+				shardOverrideClusterSpecItem.PodSpec = &mdbv1.MongoDbPodSpec{
+					Persistence: topLevelPersistenceOverride.DeepCopy(),
+				}
+			}
+			continue
+		}
+		defaultShardConfigurationClusterSpecItem := defaultShardConfiguration.ClusterSpecList[foundIdx]
+		if defaultShardConfigurationClusterSpecItem.StatefulSetConfiguration != nil {
+			if shardOverrideClusterSpecItem.StatefulSetConfiguration == nil {
+				shardOverrideClusterSpecItem.StatefulSetConfiguration = defaultShardConfigurationClusterSpecItem.StatefulSetConfiguration
+			} else {
+				shardOverrideClusterSpecItem.StatefulSetConfiguration.SpecWrapper.Spec = merge.StatefulSetSpecs(defaultShardConfigurationClusterSpecItem.StatefulSetConfiguration.SpecWrapper.Spec, shardOverrideClusterSpecItem.StatefulSetConfiguration.SpecWrapper.Spec)
+			}
+		}
+
+		if shardOverrideClusterSpecItem.Members == nil {
+			shardOverrideClusterSpecItem.Members = ptr.To(defaultShardConfigurationClusterSpecItem.Members)
+		}
+
+		if shardOverrideClusterSpecItem.MemberConfig == nil {
+			shardOverrideClusterSpecItem.MemberConfig = defaultShardConfigurationClusterSpecItem.MemberConfig
+		}
+
+		if shardOverride.PodSpec != nil {
+			defaultShardConfigurationClusterSpecItem.PodSpec = shardOverride.PodSpec
+		}
+
+		if shardOverrideClusterSpecItem.PodSpec == nil {
+			shardOverrideClusterSpecItem.PodSpec = defaultShardConfigurationClusterSpecItem.PodSpec
+		}
+	}
+
+	// we reconstruct clusterSpecList from shardOverride list
+	defaultShardConfiguration.ClusterSpecList = nil
+	for i := range shardOverride.ClusterSpecList {
+		so := shardOverride.ClusterSpecList[i].DeepCopy()
+		// guaranteed to be non-nil here
+		members := *shardOverride.ClusterSpecList[i].Members
+
+		defaultShardConfiguration.ClusterSpecList = append(defaultShardConfiguration.ClusterSpecList, mdbv1.ClusterSpecItem{
+			ClusterName:                 so.ClusterName,
+			ExternalAccessConfiguration: so.ExternalAccessConfiguration,
+			Members:                     members,
+			MemberConfig:                so.MemberConfig,
+			StatefulSetConfiguration:    so.StatefulSetConfiguration,
+			PodSpec:                     so.PodSpec,
+		})
+	}
+
+	return defaultShardConfiguration
+}
+
+// ShardOverrides can apply to multiple shard (e.g shardNames: ["sh-0", "sh-2"])
+// we expand overrides to get a list with each entry applying to a single shard
+func expandShardOverrides(initialOverrides []mdbv1.ShardOverride) []mdbv1.ShardOverride {
 	var expandedShardOverrides []mdbv1.ShardOverride
-	for _, shardOverride := range spec.ShardOverrides {
+	for _, shardOverride := range initialOverrides {
 		for _, shardName := range shardOverride.ShardNames {
 			shardOverrideCopy := shardOverride.DeepCopy()
 			shardOverrideCopy.ShardNames = []string{shardName}
 			expandedShardOverrides = append(expandedShardOverrides, *shardOverrideCopy)
 		}
 	}
+	return expandedShardOverrides
+}
 
-	for _, shardOverride := range expandedShardOverrides {
-		// guaranteed to have one shard name in expandedShardOverrides
-		shardName := shardOverride.ShardNames[0]
-		shardIndex := r.getShardNameToShardIdxMap()[shardName]
-		// here we copy the whole element here and overwrite at the end of every iteration
-		defaultShardConfiguration := shardComponentSpecs[shardIndex].DeepCopy()
-		if shardOverride.Agent != nil {
-			defaultShardConfiguration.Agent = *shardOverride.Agent
-		}
-		if shardOverride.AdditionalMongodConfig != nil {
-			defaultShardConfiguration.AdditionalMongodConfig = shardOverride.AdditionalMongodConfig.DeepCopy()
-		}
-		// in single cluster, we put members override in a legacy cluster
-		if shardOverride.Members != nil && !spec.IsMultiCluster() {
-			// it's guaranteed it will have 1 element
-			defaultShardConfiguration.ClusterSpecList[0].Members = *shardOverride.Members
-		}
+func processShardOverride(spec *mdbv1.MongoDbSpec, shardOverride mdbv1.ShardOverride, defaultShardConfiguration *mdbv1.ShardedClusterComponentSpec, topLevelPodSpecOverride *corev1.PodTemplateSpec, topLevelPersistenceOverride *mdbv1.Persistence) *mdbv1.ShardedClusterComponentSpec {
+	if shardOverride.Agent != nil {
+		defaultShardConfiguration.Agent = *shardOverride.Agent
+	}
+	if shardOverride.AdditionalMongodConfig != nil {
+		defaultShardConfiguration.AdditionalMongodConfig = shardOverride.AdditionalMongodConfig.DeepCopy()
+	}
+	// in single cluster, we put members override in a legacy cluster
+	if shardOverride.Members != nil && !spec.IsMultiCluster() {
+		// it's guaranteed it will have 1 element
+		defaultShardConfiguration.ClusterSpecList[0].Members = *shardOverride.Members
+	}
 
-		// in single-cluster we need to override podspec of the first dummy member cluster, as we won't go into shardOverride.ClusterSpecList iteration below
-		if shardOverride.PodSpec != nil && !spec.IsMultiCluster() {
-			defaultShardConfiguration.ClusterSpecList[0].PodSpec = shardOverride.PodSpec
-		}
+	if shardOverride.MemberConfig != nil && !spec.IsMultiCluster() {
+		defaultShardConfiguration.ClusterSpecList[0].MemberConfig = shardOverride.MemberConfig
+	}
 
-		// Merge existing clusterSpecList with clusterSpecList from a specific shard override.
-		// In single-cluster shardOverride cannot have any ClusterSpecList elements.
-		if shardOverride.ClusterSpecList != nil {
-			// We override here all elements of ClusterSpecList, but statefulset overrides if provided here
-			// will be merged on top of previous sts overrides.
-			for shardOverrideClusterSpecIdx := range shardOverride.ClusterSpecList {
-				shardOverrideClusterSpecItem := &shardOverride.ClusterSpecList[shardOverrideClusterSpecIdx]
-				foundIdx := slices.IndexFunc(defaultShardConfiguration.ClusterSpecList, func(item mdbv1.ClusterSpecItem) bool {
-					return item.ClusterName == shardOverrideClusterSpecItem.ClusterName
-				})
-				if foundIdx == -1 {
-					continue
-				}
-				defaultShardConfigurationClusterSpecItem := defaultShardConfiguration.ClusterSpecList[foundIdx]
-				if defaultShardConfigurationClusterSpecItem.StatefulSetConfiguration != nil {
-					if shardOverrideClusterSpecItem.StatefulSetConfiguration == nil {
-						shardOverrideClusterSpecItem.StatefulSetConfiguration = defaultShardConfigurationClusterSpecItem.StatefulSetConfiguration
-					} else {
-						shardOverrideClusterSpecItem.StatefulSetConfiguration.SpecWrapper.Spec = merge.StatefulSetSpecs(defaultShardConfigurationClusterSpecItem.StatefulSetConfiguration.SpecWrapper.Spec, shardOverrideClusterSpecItem.StatefulSetConfiguration.SpecWrapper.Spec)
-					}
-				}
+	// in single-cluster we need to override podspec of the first dummy member cluster, as we won't go into shardOverride.ClusterSpecList iteration below
+	if shardOverride.PodSpec != nil && !spec.IsMultiCluster() {
+		defaultShardConfiguration.ClusterSpecList[0].PodSpec = shardOverride.PodSpec
+	}
 
-				if shardOverrideClusterSpecItem.Members == nil {
-					shardOverrideClusterSpecItem.Members = ptr.To(defaultShardConfigurationClusterSpecItem.Members)
-				}
-
-				if shardOverrideClusterSpecItem.MemberConfig == nil {
-					shardOverrideClusterSpecItem.MemberConfig = defaultShardConfigurationClusterSpecItem.MemberConfig
-				}
-
-				if shardOverride.PodSpec != nil {
-					defaultShardConfigurationClusterSpecItem.PodSpec = shardOverride.PodSpec
-				}
-
-				if shardOverrideClusterSpecItem.PodSpec == nil {
-					shardOverrideClusterSpecItem.PodSpec = defaultShardConfigurationClusterSpecItem.PodSpec
-				}
-			}
-
-			// we reconstruct clusterSpecList from shardOverride list
-			defaultShardConfiguration.ClusterSpecList = nil
-			for i := range shardOverride.ClusterSpecList {
-				so := shardOverride.ClusterSpecList[i].DeepCopy()
-				// guaranteed to be non-nil here
-				members := *shardOverride.ClusterSpecList[i].Members
-
-				defaultShardConfiguration.ClusterSpecList = append(defaultShardConfiguration.ClusterSpecList, mdbv1.ClusterSpecItem{
-					ClusterName:                 so.ClusterName,
-					ExternalAccessConfiguration: so.ExternalAccessConfiguration,
-					Members:                     members,
-					MemberConfig:                so.MemberConfig,
-					StatefulSetConfiguration:    so.StatefulSetConfiguration,
-					PodSpec:                     so.PodSpec,
-				})
-			}
-
-			shardComponentSpecs[shardIndex] = defaultShardConfiguration
+	// The below loop makes the field ShardOverrides.StatefulSetConfiguration the default configuration for
+	// stateful sets in all clusters for that shard. The merge priority order is the following (lowest to highest):
+	// ShardSpec.ClusterSpecList.StatefulSetConfiguration -> ShardOverrides.StatefulSetConfiguration -> ShardOverrides.ClusterSpecList.StatefulSetConfiguration
+	if shardOverride.StatefulSetConfiguration != nil {
+		for idx := range defaultShardConfiguration.ClusterSpecList {
+			defaultShardConfiguration.ClusterSpecList[idx].StatefulSetConfiguration.SpecWrapper.Spec = merge.StatefulSetSpecs(defaultShardConfiguration.ClusterSpecList[idx].StatefulSetConfiguration.SpecWrapper.Spec, shardOverride.StatefulSetConfiguration.SpecWrapper.Spec)
 		}
 	}
 
-	return shardComponentSpecs
+	// Merge existing clusterSpecList with clusterSpecList from a specific shard override.
+	// In single-cluster shardOverride cannot have any ClusterSpecList elements.
+	if shardOverride.ClusterSpecList != nil {
+		return mergeOverrideClusterSpecList(shardOverride, defaultShardConfiguration, topLevelPodSpecOverride, topLevelPersistenceOverride)
+	} else {
+		return defaultShardConfiguration
+	}
 }
 
 type ShardedClusterReconcileHelper struct {

@@ -129,6 +129,29 @@ spec:
     persistence: # applicable to all shards over all clusters
       single:
         storage: 12G
+    podTemplate:
+      spec:
+        containers:
+          - name: sidecar-global
+            image: busybox
+            command: [ "sleep" ]
+            args: [ "infinity" ]
+  shardSpecificPodSpec:
+    - persistence: # shard of index 0
+        single:
+          storage: 14G
+      podTemplate:
+        spec:
+          containers:
+            - name: mongodb-enterprise-database
+              resources:
+                requests:
+                  cpu: 2.3
+                  memory: 2.3G
+                limits:
+                  cpu: 2.3
+                  memory: 5.3G
+
   shard:
     agent:
       logLevel: DEBUG # applied to all shard processes in all clusters
@@ -183,9 +206,6 @@ spec:
                       requests:
                         cpu: 2.1
                         memory: 2.1G
-                      limits:
-                        cpu: 2.1
-                        memory: 5.1G
       - clusterName: cluster-2
         members: 1
         memberConfig:
@@ -241,7 +261,7 @@ spec:
                     args: [ "infinity" ]
 
         # we don't provide entry for clusterName: cluster-2, so it won't be deployed there
-        - clusterName: cluster-analytics # we don't deploy this shard to cluster-2, instead we deploy it to a different cluster, to perform additional analytics
+        - clusterName: cluster-analytics # we deploy a member of this shard on a new cluster, not present in other ClusterSpecLists
           members: 1
           statefulSet: # we provide extra CPU for member of shard #2 in cluster-analytics
             spec:
@@ -276,6 +296,14 @@ spec:
           memberConfig:
             - votes: 1
               priority: "0" # we don't want this node to be elected primary at all
+        # we use this cluster to verify that top level specs are correctly propagated (Podtemplate and persistence), despite it not being present in other clusterSpecLists
+        - clusterName: cluster-analytics-2
+          members: 2
+          memberConfig:
+            - votes: 3
+              priority: "12"
+            - votes: 3
+              priority: "12"
     - shardNames: ["mdb-sh-complex-1"] # this override will apply to only shard of index 1
       podSpec:
         persistence: # applicable to only shard #1 in all clusters
@@ -286,13 +314,26 @@ spec:
               storage: "140G"
             logs:
               storage: "110G"
+      statefulSet:
+        spec:
+          template:
+            spec:
+              containers:
+                - name: mongodb-enterprise-database
+                  resources:
+                    requests:
+                      cpu: 2.8
+                      memory: 2.8G
+                    limits:
+                      cpu: 2.8
+                      memory: 5.8G
 
       # for this shard we override multi-cluster distribution (members, votes and priorities)
       # it will override shard.clusterSpecList elements entirely, but the contents of matching member clusters will be merged
       clusterSpecList:
         - clusterName: cluster-0 # all other fields are optional, if not provided the fields from matching member cluster from shard.clusterSpecList will be taken by default
           members: 1
-          memberConfig: # we increase the number of members so we need to specify member config for additional process
+          memberConfig: # we increase the number of members, so we need to specify member config for additional process
             - votes: 1
               priority: "100"
         - clusterName: cluster-2 # we deliberately change the order here
@@ -311,3 +352,16 @@ spec:
               priority: "110"
             - votes: 0 # one is just secondary
               priority: "0"
+          statefulSet:
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: mongodb-enterprise-database
+                      resources:
+                        requests:
+                          cpu: 2.9
+                          memory: 2.9G
+                        limits:
+                          cpu: 2.9
+                          memory: 5.9G
