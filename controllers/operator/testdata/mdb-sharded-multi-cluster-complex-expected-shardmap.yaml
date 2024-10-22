@@ -22,7 +22,10 @@
               storage: "20G"
             logs:
               storage: "5G"
-      statefulSet: # statefulset override applied for cluster-0 from spec.shard.clusterSpecList[cluster-0].statefulSet
+      # statefulset override applied for cluster-0 from spec.shard.clusterSpecList[cluster-0].statefulSet
+      # We don't have the global sidecar container here because shardSpecificPodSpec has a replace policy (and not merge)
+      # it is applied to the whole shard (0)
+      statefulSet:
         spec:
           template:
             spec:
@@ -46,19 +49,21 @@
         spec:
           template:
             spec:
+              # We don't have the global sidecar container here because shardSpecificPodSpec has a replace policy (and not merge)
+              # it is applied to the whole shard (0)
               containers:
                 - name: mongodb-enterprise-database
                   resources:
-                    requests:
+                    requests: # applied in spec.shard.clusterSpecList[cluster-1].statefulSet (requests only)
                       cpu: 2.1
                       memory: 2.1G
-                    limits:
-                      cpu: 2.1
-                      memory: 5.1G
+                    limits: # from deprecated shardSpecificPodSpec.podTemplate
+                      cpu: 2.3
+                      memory: 5.3G
       podSpec:
         persistence:
           single:
-            storage: 12G # overridden from shardPodSpec.persistence
+            storage: 14G # overridden from shardSpecificPodSpec.persistence
     - clusterName: cluster-2
       members: 1
       memberConfig: # overridden from spec.shard.clusterSpecList[cluster-1].memberConfig
@@ -67,13 +72,15 @@
       podSpec:
         persistence:
           single:
-            storage: 12G # overridden from shardPodSpec.persistence
+            storage: 14G # overridden from shardSpecificPodSpec.persistence
       statefulSet:
         spec:
           template:
             spec:
+              # We don't have the global sidecar container here because shardSpecificPodSpec has a replace policy (and not merge)
+              # it is applied to the whole shard (0)
               containers:
-                - name: mongodb-enterprise-database
+                - name: mongodb-enterprise-database # From shard.clusterSpecList[cluster-2].statefulSet
                   resources:
                     requests:
                       cpu: 2.2
@@ -112,14 +119,18 @@
           template:
             spec:
               containers:
-                - name: mongodb-enterprise-database
+                - name: mongodb-enterprise-database # overriden from shardOverrides["mdb-sh-complex-1"].statefulSet
                   resources:
                     requests:
-                      cpu: 2.0
-                      memory: 2.0G
+                      cpu: 2.8
+                      memory: 2.8G
                     limits:
-                      cpu: 2.0
-                      memory: 5.0G
+                      cpu: 2.8
+                      memory: 5.8G
+                - name: sidecar-global
+                  image: busybox
+                  command: [ "sleep" ]
+                  args: [ "infinity" ]
     - clusterName: cluster-2
       members: 3
       memberConfig:
@@ -143,15 +154,19 @@
           template:
             spec:
               containers:
-                - name: mongodb-enterprise-database
+                - name: mongodb-enterprise-database # overriden from shardOverrides["mdb-sh-complex-1"].statefulSet
                   resources:
                     requests:
-                      cpu: 2.2
-                      memory: 2.2G
+                      cpu: 2.8
+                      memory: 2.8G
                     limits:
-                      cpu: 2.2
-                      memory: 5.2G
+                      cpu: 2.8
+                      memory: 5.8G
                 - name: sidecar-cluster-2
+                  image: busybox
+                  command: [ "sleep" ]
+                  args: [ "infinity" ]
+                - name: sidecar-global
                   image: busybox
                   command: [ "sleep" ]
                   args: [ "infinity" ]
@@ -167,14 +182,18 @@
           template:
             spec:
               containers:
-                - name: mongodb-enterprise-database
+                - name: mongodb-enterprise-database # overriden from shardOverrides["mdb-sh-complex-1"].statefulSet.clusterSpecList["cluster-1"].statefulSet
                   resources:
                     requests:
-                      cpu: 2.1
-                      memory: 2.1G
+                      cpu: 2.9
+                      memory: 2.9G
                     limits:
-                      cpu: 2.1
-                      memory: 5.1G
+                      cpu: 2.9
+                      memory: 5.9G
+                - name: sidecar-global
+                  image: busybox
+                  command: [ "sleep" ]
+                  args: [ "infinity" ]
       podSpec:
         persistence: # overridden from spec.shard.clusterSpecList[cluster-0].podSpec.persistence
           multiple:
@@ -185,8 +204,9 @@
             logs:
               storage: "110G"
 2: # for shard 2 there is dedicated shardOverride
-  agent:
+  agent: # Overridden by shardOverrides[2].agent
     logLevel: INFO # applied to all shard processes in all clusters
+  # Overridden by shardOverrides[2].additionalMongodConfig
   additionalMongodConfig: # applied to all shard processes in all clusters
     operationProfiling:
       mode: slowOp
@@ -221,9 +241,14 @@
                     limits:
                       cpu: 2.0
                       memory: 5.0G
+                - name: sidecar-global
+                  image: busybox
+                  command: [ "sleep" ]
+                  args: [ "infinity" ]
     - clusterName: cluster-1
+      # Overridden by shardOverrides[2].clusterSpecList[”cluster-1"].members/memberConfig
       members: 3
-      memberConfig: # votes and priorities for two processes of each shard's replica set deployed in this cluster; notice two elements for 2 members
+      memberConfig: # votes and priorities for two processes of each shard's replica set deployed in this cluster; notice three elements for 3 members
         - votes: 1
           priority: "210"
         - votes: 2
@@ -236,13 +261,17 @@
             spec:
               containers:
                 - name: mongodb-enterprise-database
-                  resources:
+                  resources: # spec.shard.clusterSpecList[cluster-1].statefulSet provides values only for requests, not limits
                     requests:
                       cpu: 2.1
                       memory: 2.1G
-                    limits:
-                      cpu: 2.1
-                      memory: "5.1G"
+                # Note: when adding this container to the expected shardmap, the JSONDiff tool used for visual diffs in
+                # the unit test was not working if they were not in this exact order
+                # (db, sidecar global, sidecar shard 2)  although the displayed diff was empty
+                - name: sidecar-global
+                  image: busybox
+                  command: [ "sleep" ]
+                  args: [ "infinity" ]
                 - name: sidecar-shard-2-cluster-1 # added from shardOverride[shardIdx==2].clusterSpecList[clusterName==cluster-1].statefulSet...
                   image: busybox
                   command: [ "sleep" ]
@@ -278,6 +307,10 @@
                     limits:
                       cpu: 4
                       memory: 20G
+                - name: sidecar-global
+                  image: busybox
+                  command: [ "sleep" ]
+                  args: [ "infinity" ]
           nodeAffinity: # only members of this shard in this analytical cluster will have different node affinity to deploy on nodes with HDD
             requiredDuringSchedulingIgnoredDuringExecution:
               nodeSelectorTerms:
@@ -286,6 +319,27 @@
                       operator: In
                       values:
                         - hdd
+    - clusterName: cluster-analytics-2
+      members: 2
+      memberConfig:
+        - votes: 3
+          priority: "12"
+        - votes: 3
+          priority: "12"
+      podSpec:
+        persistence: # defined at top level in shardPodSpec
+          single:
+            storage: 12G
+            # Ensure ShardOverrides.PodSpec is correctly propagated too
+      statefulSet:
+        spec:
+          template:
+            spec:
+              containers:
+                - name: sidecar-global
+                  image: busybox
+                  command: [ "sleep" ]
+                  args: [ "infinity" ]
 3:
   agent:
     logLevel: DEBUG # applied to all shard processes in all clusters
@@ -323,6 +377,10 @@
                     limits:
                       cpu: 2.0
                       memory: 5.0G
+                - name: sidecar-global
+                  image: busybox
+                  command: [ "sleep" ]
+                  args: [ "infinity" ]
     - clusterName: cluster-1
       members: 2
       memberConfig: # votes and priorities for two processes of each shard's replica set deployed in this cluster; notice two elements for 2 members
@@ -337,12 +395,13 @@
               containers:
                 - name: mongodb-enterprise-database
                   resources:
-                    requests:
+                    requests: # spec.shard.clusterSpecList[cluster-1].statefulSet provides values only for requests, not limits
                       cpu: 2.1
                       memory: 2.1G
-                    limits:
-                      cpu: 2.1
-                      memory: 5.1G
+                - name: sidecar-global
+                  image: busybox
+                  command: [ "sleep" ]
+                  args: [ "infinity" ]
       podSpec:
         persistence:
           single:
@@ -370,6 +429,10 @@
                       cpu: 2.2
                       memory: 5.2G
                 - name: sidecar-cluster-2
+                  image: busybox
+                  command: [ "sleep" ]
+                  args: [ "infinity" ]
+                - name: sidecar-global
                   image: busybox
                   command: [ "sleep" ]
                   args: [ "infinity" ]

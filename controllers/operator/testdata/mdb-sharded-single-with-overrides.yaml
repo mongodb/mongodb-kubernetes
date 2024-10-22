@@ -1,0 +1,111 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: mdb-sh-complex
+  namespace: my-namespace
+spec:
+  shardCount: 3
+  mongodsPerShardCount: 2
+  topology: SingleCluster
+  type: ShardedCluster
+  version: 5.0.15
+  cloudManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  persistent: true
+  mongos:
+    agent:
+      logLevel: DEBUG # applied to all mongos in all clusters
+  configSrvPodSpec:
+    persistence: # settings applicable to all pods in all clusters
+      single:
+        storage: 10G
+  configSrv:
+    agent:
+      logLevel: DEBUG # applied to all agent processes in all clusters
+    additionalMongodConfig: # applied to all config server processes in all clusters
+      operationProfiling:
+        mode: slowOp
+        slowOpThresholdMs: 100
+
+  shardPodSpec:
+    # default configuration for all shards in all clusters
+    persistence:
+      single:
+        storage: 12G
+    podTemplate:
+      spec:
+        containers:
+          - name: sidecar-global
+            image: busybox
+            command: [ "sleep" ]
+            args: [ "infinity" ]
+  shardSpecificPodSpec: # deprecated way of overriding shards
+    - persistence: # shard of index 0
+        single:
+          storage: 14G
+      podTemplate:
+        spec:
+          containers:
+            - name: mongodb-enterprise-database
+              resources:
+                requests:
+                  cpu: 2.3
+                  memory: 2.3G
+                limits:
+                  cpu: 2.3
+                  memory: 5.3G
+
+  shard:  # applied to all shard processes in all clusters
+    agent:
+      logLevel: DEBUG
+    additionalMongodConfig:
+      operationProfiling:
+        mode: slowOp
+        slowOpThresholdMs: 100
+
+  shardOverrides:
+    - shardNames: [ "mdb-sh-complex-0" ] # this override will apply to only shard #0
+      memberConfig: # we prefer to have primaries in this cluster
+        - votes: 1
+          priority: "100"
+        - votes: 1
+          priority: "100"
+
+    - shardNames: ["mdb-sh-complex-1"] # this override will apply to only shard #1
+      podSpec:
+        persistence:
+          multiple:
+            journal:
+              storage: "130G"
+            data:
+              storage: "140G"
+            logs:
+              storage: "110G"
+      members: 1
+      memberConfig:
+        - votes: 1
+          priority: "100"
+
+      statefulSet:
+        spec:
+          template:
+            spec:
+              containers:
+                - name: mongodb-enterprise-database
+                  resources:
+                    requests:
+                      cpu: 2.8
+                      memory: 2.8G
+                    limits:
+                      cpu: 2.8
+                      memory: 5.8G
+
+    - shardNames: ["mdb-sh-complex-2"] # this override will apply to only shard #2
+      additionalMongodConfig:
+        operationProfiling:
+          mode: slowOp
+          slowOpThresholdMs: 150 # we want to configure profiling for this shard differently
+      agent:
+        logLevel: INFO # we don't want agent debug logs for this shard

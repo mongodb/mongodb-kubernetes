@@ -411,11 +411,13 @@ func TestReconcileForComplexMultiClusterYaml(t *testing.T) {
 	cluster1 := "cluster-1"
 	cluster2 := "cluster-2"
 	clusterAnalytics := "cluster-analytics"
+	clusterAnalytics2 := "cluster-analytics-2"
 	memberClusterNames := []string{
 		cluster0,
 		cluster1,
 		cluster2,
 		clusterAnalytics,
+		clusterAnalytics2,
 	}
 
 	// expected distributions of shards are copied from testdata/mdb-sharded-multi-cluster-complex-expected-shardmap.yaml
@@ -431,10 +433,11 @@ func TestReconcileForComplexMultiClusterYaml(t *testing.T) {
 			cluster2: 3,
 		}, // shard 1
 		{
-			cluster0:         2,
-			cluster1:         3,
-			cluster2:         0,
-			clusterAnalytics: 1,
+			cluster0:          2,
+			cluster1:          3,
+			cluster2:          0,
+			clusterAnalytics:  1,
+			clusterAnalytics2: 2,
 		}, // shard 2
 		{
 			cluster0: 2,
@@ -593,12 +596,12 @@ func TestMigrateToNewDeploymentState(t *testing.T) {
 	require.Equal(t, expectedLastAchievedSpec, actualLastAchievedSpecData)
 }
 
-func TestShardMapForComplexMultiClusterYaml(t *testing.T) {
+func applyResourceAndCompareShardMap(t *testing.T, mongoDBResourceFile string, expectedShardMapFile string) {
 	ctx := context.Background()
-	sc, err := loadMongoDBResource("testdata/mdb-sharded-multi-cluster-complex.yaml")
+	sc, err := loadMongoDBResource(mongoDBResourceFile)
 	require.NoError(t, err)
 
-	memberClusterNames := []string{"cluster-0", "cluster-1", "cluster-2", "cluster-analytics"}
+	memberClusterNames := []string{"cluster-0", "cluster-1", "cluster-2", "cluster-analytics", "cluster-analytics-2"}
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(sc)
 	memberClusterMap := getFakeMultiClusterMapWithClusters(memberClusterNames, omConnectionFactory)
 
@@ -607,7 +610,7 @@ func TestShardMapForComplexMultiClusterYaml(t *testing.T) {
 
 	// no reconcile here, we just test prepareDesiredShardsConfiguration
 	shardsMap := reconcilerHelper.prepareDesiredShardsConfiguration(&sc.Spec)
-	expectedShardsMap, err := loadExpectedShardsMap("testdata/mdb-sharded-multi-cluster-complex-expected-shardmap.yaml")
+	expectedShardsMap, err := loadExpectedShardsMap(expectedShardMapFile)
 	require.NoError(t, err)
 	normalizedShardsMap, err := normalizeObjectToInterfaceMap(shardsMap)
 	require.NoError(t, err)
@@ -633,6 +636,14 @@ func TestShardMapForComplexMultiClusterYaml(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestShardMapForComplexMultiClusterYaml(t *testing.T) {
+	applyResourceAndCompareShardMap(t, "testdata/mdb-sharded-multi-cluster-complex.yaml", "testdata/mdb-sharded-multi-cluster-complex-expected-shardmap.yaml")
+}
+
+func TestShardMapForSingleClusterWithOverridesYaml(t *testing.T) {
+	applyResourceAndCompareShardMap(t, "testdata/mdb-sharded-single-with-overrides.yaml", "testdata/mdb-sharded-single-with-overrides-expected-shardmap.yaml")
 }
 
 func TestMultiClusterShardedSetRace(t *testing.T) {
