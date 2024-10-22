@@ -1523,3 +1523,19 @@ def assert_data_got_restored(test_data, collection1, collection2=None, timeout=3
                 raise e
 
         time.sleep(1)  # Sleep for a short duration before the next check
+
+
+def verify_pvc_expanded(
+    first_data_pvc_name,
+    first_journal_pvc_name,
+    first_logs_pvc_name,
+    namespace,
+    resized_storage_size,
+    initial_storage_size,
+):
+    data_pvc = client.CoreV1Api().read_namespaced_persistent_volume_claim(first_data_pvc_name, namespace)
+    assert data_pvc.status.capacity["storage"] == resized_storage_size
+    journal_pvc = client.CoreV1Api().read_namespaced_persistent_volume_claim(first_journal_pvc_name, namespace)
+    assert journal_pvc.status.capacity["storage"] == resized_storage_size
+    logs_pvc = client.CoreV1Api().read_namespaced_persistent_volume_claim(first_logs_pvc_name, namespace)
+    assert logs_pvc.status.capacity["storage"] == initial_storage_size

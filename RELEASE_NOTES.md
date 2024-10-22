@@ -2,6 +2,9 @@
 <!-- Next Release -->
 # MongoDB Enterprise Kubernetes Operator 1.29.0
 
+## New Features
+**AppDB**: Added support for easy resize. More can be read in changelog 1.28.0 - "automated expansion of the pvc"
+
 ## Bug Fixes
 
 * **MongoDB**, **AppDB**, **MongoDBMultiCluster**: Fixed a bug where specifying a fractional number for a storage volume's size such as `1.7Gi` can break the reconciliation loop for that resource with an error like `Can't execute update on forbidden fields` even if the underlying Persistence Volume Claim is deployed successfully.
