@@ -7,7 +7,11 @@ from kubetester.mongodb import Phase
 from kubetester.omtester import OMBackgroundTester
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture
-from tests.conftest import get_member_cluster_api_client, is_multi_cluster
+from tests.conftest import (
+    get_member_cluster_api_client,
+    is_multi_cluster,
+    verify_pvc_expanded,
+)
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 gen_key_resource_version = None
@@ -18,6 +22,7 @@ admin_key_resource_version = None
 # updates in one test
 
 # Current test should contain all kinds of scale operations to Ops Manager as a sequence of tests
+RESIZED_STORAGE_SIZE = "2Gi"
 
 
 @fixture(scope="module")
@@ -117,6 +122,28 @@ class TestOpsManagerCreation:
         # every OM pod can be addressable by FQDN from a different cluster (the test pod cluster for example).
         if not is_multi_cluster():
             om_tester.assert_om_instances_healthiness(ops_manager.pod_urls())
+
+
+@pytest.mark.e2e_om_ops_manager_scale
+class TestOpsManagerPVCExpansion:
+
+    def test_expand_pvc(self, ops_manager: MongoDBOpsManager):
+        ops_manager.load()
+        ops_manager["spec"]["applicationDatabase"]["podSpec"]["persistence"]["multiple"]["data"][
+            "storage"
+        ] = RESIZED_STORAGE_SIZE
+        ops_manager["spec"]["applicationDatabase"]["podSpec"]["persistence"]["multiple"]["journal"][
+            "storage"
+        ] = RESIZED_STORAGE_SIZE
+        ops_manager.update()
+
+    def test_appdb_ready_after_expansion(self, ops_manager: MongoDBOpsManager):
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
+
+    def test_appdb_expansion_finished(self, ops_manager: MongoDBOpsManager, namespace: str):
+        for member_cluster_name in ops_manager.get_appdb_member_cluster_names():
+            sts = ops_manager.read_appdb_statefulset(member_cluster_name=member_cluster_name)
+            assert sts.spec.volume_claim_templates[0].spec.resources.requests["storage"] == RESIZED_STORAGE_SIZE
 
 
 @pytest.mark.e2e_om_ops_manager_scale

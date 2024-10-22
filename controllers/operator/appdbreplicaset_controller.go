@@ -1831,6 +1831,17 @@ func (r *ReconcileAppDbReplicaSet) createMultiClusterServices(ctx context.Contex
 
 // deployStatefulSetInMemberCluster updates the StatefulSet spec and returns its status (if it's ready or not)
 func (r *ReconcileAppDbReplicaSet) deployStatefulSetInMemberCluster(ctx context.Context, opsManager *omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, memberClusterName string, log *zap.SugaredLogger) workflow.Status {
+	workflowStatus := create.HandlePVCResize(ctx, r.getMemberCluster(memberClusterName).Client, &appDbSts, log)
+	if !workflowStatus.IsOK() {
+		return workflowStatus
+	}
+
+	if workflow.ContainsPVCOption(workflowStatus.StatusOptions()) {
+		if _, err := r.updateStatus(ctx, opsManager, workflow.Pending(""), log, workflowStatus.StatusOptions()...); err != nil {
+			return workflow.Failed(xerrors.Errorf("error updating status: %w", err))
+		}
+	}
+
 	serviceSelectorLabel := opsManager.Spec.AppDB.HeadlessServiceSelectorAppLabel(r.getMemberCluster(memberClusterName).Index)
 	if err := create.AppDBInKubernetes(ctx, r.getMemberCluster(memberClusterName).Client, opsManager, appDbSts, serviceSelectorLabel, log); err != nil {
 		return workflow.Failed(err)
