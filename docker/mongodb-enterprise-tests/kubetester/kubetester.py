@@ -51,6 +51,10 @@ def running_locally():
     return os.getenv("POD_NAME", "local") == "local"
 
 
+def is_multi_cluster():
+    return len(os.getenv("MEMBER_CLUSTERS", "")) > 0
+
+
 def is_static_containers_architecture():
     return os.getenv("MDB_DEFAULT_ARCHITECTURE", "non-static") == "static"
 
@@ -61,6 +65,7 @@ skip_if_static_containers = pytest.mark.skipif(
 )
 
 skip_if_local = pytest.mark.skipif(running_locally(), reason="Only run in Kubernetes cluster")
+skip_if_multi_cluster = pytest.mark.skipif(is_multi_cluster(), reason="Only run in Kubernetes single cluster")
 # time to sleep between retries
 SLEEP_TIME = 2
 # no timeout (loop forever)
@@ -1036,7 +1041,8 @@ class KubernetesTester(object):
         """
         return KubernetesTester.mongo_resource_deleted(False)
 
-    def build_mongodb_uri_for_rs(self, hosts):
+    @staticmethod
+    def build_mongodb_uri_for_rs(hosts):
         return "mongodb://{}".format(",".join(hosts))
 
     @staticmethod
@@ -1251,9 +1257,10 @@ class KubernetesTester(object):
         return yield_existing_csrs(csr_names, timeout)
 
     # TODO eventually replace all usages of this function with "ReplicaSetTester(mdb_resource, 3).assert_connectivity()"
-    def wait_for_rs_is_ready(self, hosts, wait_for=60, check_every=5, ssl=False):
+    @staticmethod
+    def wait_for_rs_is_ready(hosts, wait_for=60, check_every=5, ssl=False):
         "Connects to a given replicaset and wait a while for a primary and secondaries."
-        client = self.check_hosts_are_ready(hosts, ssl)
+        client = KubernetesTester.check_hosts_are_ready(hosts, ssl)
 
         check_times = wait_for / check_every
 
@@ -1263,8 +1270,9 @@ class KubernetesTester(object):
 
         return client.primary, client.secondaries
 
-    def check_hosts_are_ready(self, hosts, ssl=False):
-        mongodburi = self.build_mongodb_uri_for_rs(hosts)
+    @staticmethod
+    def check_hosts_are_ready(hosts, ssl=False):
+        mongodburi = KubernetesTester.build_mongodb_uri_for_rs(hosts)
         options = {}
         if ssl:
             options = {"ssl": True, "tlsCAFile": SSL_CA_CERT}
