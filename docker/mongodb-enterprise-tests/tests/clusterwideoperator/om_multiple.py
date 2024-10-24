@@ -143,7 +143,7 @@ def om_operator_clusterwide(namespace: str):
     if is_multi_cluster():
         return get_multi_cluster_operator_clustermode(namespace)
     else:
-        return get_operator_clusterwide(namespace, get_operator_installation_config(namespace, get_version_id()))
+        return get_operator_clusterwide(namespace, get_operator_installation_config(namespace))
 
 
 @mark.e2e_om_multiple

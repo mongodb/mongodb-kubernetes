@@ -639,12 +639,12 @@ def build_list_of_multi_hosts(
     if external:
         return [f"{service_name}:{port}" for service_name in service_names]
     return [
-        build_host_service_fqdn(namespace, service_name, port, cluster_domain=cluster_domain)
+        build_host_service_fqdn(service_name, namespace, port, cluster_domain=cluster_domain)
         for service_name in service_names
     ]
 
 
-def build_host_service_fqdn(namespace: str, servicename: str, port: int, cluster_domain: str = "cluster.local") -> str:
+def build_host_service_fqdn(servicename: str, namespace: str, port: int, cluster_domain: str = "cluster.local") -> str:
     return f"{servicename}.{namespace}.svc.{cluster_domain}:{port}"
 
 

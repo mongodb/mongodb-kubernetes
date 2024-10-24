@@ -197,7 +197,7 @@ class MongoDB(CustomObject, MongoDBCommon):
                 ca_path=ca_path,
                 namespace=self.namespace,
                 cluster_domain=self.get_cluster_domain(),
-                multi_cluster=self["spec"].get("topology", None) == "MultiCluster",
+                multi_cluster=self.is_multicluster(),
                 service_names=service_names,
             )
         elif self.type == "Standalone":
@@ -432,11 +432,69 @@ class MongoDB(CustomObject, MongoDBCommon):
             return self["spec"]["opsManager"]["configMapRef"]["name"]
         return self["spec"]["project"]
 
-    def config_srv_statefulset_name(self) -> str:
-        return self.name + "-config"
-
     def shards_statefulsets_names(self) -> List[str]:
         return ["{}-{}".format(self.name, i) for i in range(1, self["spec"]["shardCount"])]
+
+    def shard_statefulset_name(self, shard_idx: int, cluster_idx: Optional[int] = None) -> str:
+        if self.is_multicluster():
+            return f"{self.name}-{shard_idx}-{cluster_idx}"
+        return f"{self.name}-{shard_idx}"
+
+    def shard_service_name(self) -> str:
+        return f"{self.name}-sh"
+
+    def shard_hostname(
+        self, shard_idx: int, member_idx: int, cluster_idx: Optional[int] = None, port: int = 27017
+    ) -> str:
+        if self.is_multicluster():
+            return f"{self.name}-{shard_idx}-{cluster_idx}-{member_idx}.{self.name}-sh.{self.namespace}.svc.cluster.local:{port}"
+        return f"{self.name}-{shard_idx}-{member_idx}.{self.name}-sh.{self.namespace}.svc.cluster.local:{port}"
+
+    def shard_members_in_cluster(self, cluster_name: str) -> int:
+        if "shardOverrides" in self["spec"]:
+            raise Exception("Shard overrides logic is not supported")
+
+        if self.is_multicluster():
+            for cluster_spec_item in self["spec"]["shard"]["clusterSpecList"]:
+                if cluster_spec_item["clusterName"] == cluster_name:
+                    return cluster_spec_item["members"]
+
+        return self["spec"].get("mongodsPerShardCount", 0)
+
+    def config_srv_statefulset_name(self, cluster_idx: Optional[int] = None) -> str:
+        if self.is_multicluster():
+            return f"{self.name}-config-{cluster_idx}"
+        return f"{self.name}-config"
+
+    def config_srv_members_in_cluster(self, cluster_name: str) -> int:
+        if self.is_multicluster():
+            for cluster_spec_item in self["spec"]["configSrv"]["clusterSpecList"]:
+                if cluster_spec_item["clusterName"] == cluster_name:
+                    return cluster_spec_item["members"]
+
+        return self["spec"].get("configServerCount", 0)
+
+    def mongos_statefulset_name(self, cluster_idx: Optional[int] = None) -> str:
+        if self.is_multicluster():
+            return f"{self.name}-mongos-{cluster_idx}"
+        return f"{self.name}-mongos"
+
+    def mongos_service_name(self, member_idx: int, cluster_idx: Optional[int] = None) -> str:
+        if self.is_multicluster():
+            return f"{self.name}-mongos-{cluster_idx}-{member_idx}-svc"
+        else:
+            return f"{self.name}-mongos-{member_idx}-svc"
+
+    def mongos_members_in_cluster(self, cluster_name: str) -> int:
+        if self.is_multicluster():
+            for cluster_spec_item in self["spec"]["mongos"]["clusterSpecList"]:
+                if cluster_spec_item["clusterName"] == cluster_name:
+                    return cluster_spec_item["members"]
+
+        return self["spec"].get("mongosCount", 0)
+
+    def is_multicluster(self) -> bool:
+        return self["spec"].get("topology", None) == "MultiCluster"
 
     class Types:
         REPLICA_SET = "ReplicaSet"

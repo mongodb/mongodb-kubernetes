@@ -3,7 +3,7 @@ import os
 import subprocess
 import tempfile
 import time
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import kubernetes
 from kubernetes import client
@@ -87,10 +87,10 @@ def get_version_id():
 
 @fixture(scope="module")
 def operator_installation_config(namespace: str, version_id: str) -> Dict[str, str]:
-    return get_operator_installation_config(namespace, version_id)
+    return get_operator_installation_config(namespace)
 
 
-def get_operator_installation_config(namespace, version_id):
+def get_operator_installation_config(namespace):
     """Returns the ConfigMap containing configuration data for the Operator to be created.
     Created in the single_e2e.sh"""
     config = KubernetesTester.read_configmap(namespace, "operator-installation-config")
@@ -461,6 +461,13 @@ def default_operator(
     namespace: str,
     operator_installation_config: Dict[str, str],
 ) -> Operator:
+    return get_default_operator(namespace, operator_installation_config)
+
+
+def get_default_operator(
+    namespace: str,
+    operator_installation_config: Dict[str, str],
+) -> Operator:
     """Installs/upgrades a default Operator used by any test not interested in some custom Operator setting.
     TODO we use the helm template | kubectl apply -f process so far as Helm install/upgrade needs more refactoring in
     the shared environment"""
@@ -529,28 +536,29 @@ def member_cluster_names() -> List[str]:
     return get_member_cluster_names()
 
 
-def get_member_cluster_clients() -> List[MultiClusterClient]:
+def get_member_cluster_clients(cluster_mapping: dict[str, int] = None) -> List[MultiClusterClient]:
     if not is_multi_cluster():
-        return [MultiClusterClient(kubernetes.client.ApiClient(), LEGACY_CENTRAL_CLUSTER_NAME, 0)]
+        return [MultiClusterClient(kubernetes.client.ApiClient(), LEGACY_CENTRAL_CLUSTER_NAME)]
 
     member_cluster_clients = []
-    for i, member_cluster in enumerate(sorted(get_member_cluster_names())):
-        member_cluster_clients.append(MultiClusterClient(get_cluster_clients()[member_cluster], member_cluster, i))
+    for i, cluster_name in enumerate(sorted(get_member_cluster_names())):
+        cluster_idx = i
+
+        if cluster_mapping:
+            cluster_idx = cluster_mapping[cluster_name]
+
+        member_cluster_clients.append(
+            MultiClusterClient(get_cluster_clients()[cluster_name], cluster_name, cluster_idx)
+        )
+
     return member_cluster_clients
 
 
-def get_member_cluster_client_map() -> dict[str, MultiClusterClient]:
-    if is_multi_cluster():
-        return {
-            multi_cluster_client.cluster_name: multi_cluster_client
-            for multi_cluster_client in get_member_cluster_clients()
-        }
-    else:
-        return {
-            LEGACY_CENTRAL_CLUSTER_NAME: MultiClusterClient(
-                kubernetes.client.ApiClient(), LEGACY_CENTRAL_CLUSTER_NAME, 0
-            )
-        }
+def get_member_cluster_client_map(deployment_state: dict[str, Any] = None) -> dict[str, MultiClusterClient]:
+    return {
+        multi_cluster_client.cluster_name: multi_cluster_client
+        for multi_cluster_client in get_member_cluster_clients(deployment_state)
+    }
 
 
 def get_member_cluster_api_client(
@@ -569,6 +577,24 @@ def member_cluster_clients() -> List[MultiClusterClient]:
 
 @fixture(scope="module")
 def multi_cluster_operator(
+    namespace: str,
+    central_cluster_name: str,
+    multi_cluster_operator_installation_config: Dict[str, str],
+    central_cluster_client: client.ApiClient,
+    member_cluster_clients: List[MultiClusterClient],
+    member_cluster_names: List[str],
+) -> Operator:
+    return get_multi_cluster_operator(
+        namespace,
+        central_cluster_name,
+        multi_cluster_operator_installation_config,
+        central_cluster_client,
+        member_cluster_clients,
+        member_cluster_names,
+    )
+
+
+def get_multi_cluster_operator(
     namespace: str,
     central_cluster_name: str,
     multi_cluster_operator_installation_config: Dict[str, str],

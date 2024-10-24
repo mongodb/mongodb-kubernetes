@@ -1,61 +1,130 @@
 import kubernetes
 import pytest
-from kubetester.kubetester import KubernetesTester
+from kubetester import try_load
+from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as load_fixture
-from kubetester.kubetester import run_periodically, skip_if_local
+from kubetester.kubetester import run_periodically, skip_if_local, skip_if_multi_cluster
 from kubetester.mongodb import MongoDB, Phase
-from kubetester.mongotester import ShardedClusterTester
 from kubetester.operator import Operator
 from pytest import fixture, mark
 from tests import test_logger
+from tests.conftest import (
+    get_central_cluster_client,
+    get_central_cluster_name,
+    get_default_operator,
+    get_member_cluster_clients,
+    get_member_cluster_names,
+    get_multi_cluster_operator,
+    get_multi_cluster_operator_installation_config,
+    get_operator_installation_config,
+    is_multi_cluster,
+)
+from tests.shardedcluster.conftest import (
+    enable_multi_cluster_deployment,
+    get_member_cluster_clients_using_cluster_mapping,
+)
 
-SHARDED_CLUSTER_NAME = "sh001-base"
+SCALED_SHARD_COUNT = 2
 logger = test_logger.get_test_logger(__name__)
 
 
-@fixture(scope="module")
+@fixture(scope="function")
 def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(load_fixture("sharded-cluster.yaml"), namespace=namespace)
-    resource.set_version(custom_mdb_version)
+
+    if try_load(resource):
+        return resource
+
+    resource.set_version(ensure_ent_version(custom_mdb_version))
+    resource.set_architecture_annotation()
+
+    if is_multi_cluster():
+        enable_multi_cluster_deployment(
+            resource=resource,
+            shard_members_array=[1, 1, 1],
+            mongos_members_array=[1, 1],
+            configsrv_members_array=[1, 1, 1],
+        )
+
     return resource.update()
 
 
-@mark.e2e_sharded_cluster
-def test_install_operator(default_operator: Operator):
-    default_operator.assert_is_running()
+@fixture(scope="module")
+def operator(namespace: str) -> Operator:
+    if is_multi_cluster():
+        return get_multi_cluster_operator(
+            namespace,
+            get_central_cluster_name(),
+            get_multi_cluster_operator_installation_config(namespace),
+            get_central_cluster_client(),
+            get_member_cluster_clients(),
+            get_member_cluster_names(),
+        )
+    else:
+        return get_default_operator(namespace, get_operator_installation_config(namespace))
 
 
 @mark.e2e_sharded_cluster
-class TestShardedClusterCreation(KubernetesTester):
+def test_install_operator(operator: Operator):
+    operator.assert_is_running()
+
+
+@mark.e2e_sharded_cluster
+class TestShardedClusterCreation:
     def test_create_sharded_cluster(self, sc: MongoDB):
         sc.assert_reaches_phase(Phase.Running)
 
     def test_sharded_cluster_sts(self, sc: MongoDB):
-        sts0 = self.appsv1.read_namespaced_stateful_set(f"{SHARDED_CLUSTER_NAME}-0", sc.namespace)
-        assert sts0
+        for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
+            if sc.shard_members_in_cluster(cluster_member_client.cluster_name) > 0:
+                # Single shard exists in this test case
+                sts_name = sc.shard_statefulset_name(0, cluster_member_client.cluster_index)
+                sts = cluster_member_client.read_namespaced_stateful_set(sts_name, sc.namespace)
+                assert sts
 
-    def test_config_sts(self, sc: MongoDB):
-        config = self.appsv1.read_namespaced_stateful_set(f"{SHARDED_CLUSTER_NAME}-config", sc.namespace)
-        assert config
+    def test_config_srv_sts(self, sc: MongoDB):
+        for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
+            if sc.config_srv_members_in_cluster(cluster_member_client.cluster_name) > 0:
+                sts_name = sc.config_srv_statefulset_name(cluster_member_client.cluster_index)
+                sts = cluster_member_client.read_namespaced_stateful_set(sts_name, sc.namespace)
+                assert sts
 
     def test_mongos_sts(self, sc: MongoDB):
-        mongos = self.appsv1.read_namespaced_stateful_set(f"{SHARDED_CLUSTER_NAME}-mongos", sc.namespace)
-        assert mongos
+        for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
+            if sc.mongos_members_in_cluster(cluster_member_client.cluster_name) > 0:
+                sts_name = sc.mongos_statefulset_name(cluster_member_client.cluster_index)
+                sts = cluster_member_client.read_namespaced_stateful_set(sts_name, sc.namespace)
+                assert sts
 
     def test_mongod_sharded_cluster_service(self, sc: MongoDB):
-        svc0 = self.corev1.read_namespaced_service(f"{SHARDED_CLUSTER_NAME}-sh", sc.namespace)
-        assert svc0
+        for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
+            if sc.shard_members_in_cluster(cluster_member_client.cluster_name) > 0:
+                svc_name = sc.shard_service_name()
+                svc = cluster_member_client.read_namespaced_service(svc_name, sc.namespace)
+                assert svc
 
-    def test_shard0_was_configured(self):
-        ShardedClusterTester(SHARDED_CLUSTER_NAME, 1).assert_connectivity()
+    # When testing locally make sure you have kubefwd forwarding all cluster hostnames
+    # kubefwd does not contain fix for multiple cluster, use https://github.com/lsierant/kubefwd fork instead
+    def test_shards_were_configured_and_accessible(self, sc: MongoDB):
+        for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
+            for member_idx in range(sc.mongos_members_in_cluster(cluster_member_client.cluster_name)):
+                service_name = sc.mongos_service_name(member_idx, cluster_member_client.cluster_index)
+                tester = sc.tester(service_names=[service_name])
+                tester.assert_connectivity()
 
-    @skip_if_local()
-    def test_shard0_was_configured_with_srv(self):
-        ShardedClusterTester(SHARDED_CLUSTER_NAME, 1, ssl=False, srv=True).assert_connectivity()
+    @skip_if_local()  # Local machine DNS don't contain K8s CoreDNS SRV records which are required
+    @skip_if_multi_cluster()  # srv option does not work for multi-cluster tests as each cluster DNS contains entries
+    # related only to that cluster. Additionally, we don't pass srv option when building multi-cluster conn string
+    def test_shards_were_configured_with_srv_and_accessible(self, sc: MongoDB):
+        for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
+            for member_idx in range(sc.mongos_members_in_cluster(cluster_member_client.cluster_name)):
+                service_name = sc.mongos_service_name(member_idx, cluster_member_client.cluster_index)
+                tester = sc.tester(service_names=[service_name], srv=True)
+                tester.assert_connectivity()
 
     def test_monitoring_versions(self, sc: MongoDB):
         """Verifies that monitoring agent is configured for each process in the deployment"""
-        config = self.get_automation_config()
+        config = KubernetesTester.get_automation_config()
         mv = config["monitoringVersions"]
         assert len(mv) == 8
 
@@ -64,7 +133,7 @@ class TestShardedClusterCreation(KubernetesTester):
 
     def test_backup_versions(self, sc: MongoDB):
         """Verifies that backup agent is configured for each process in the deployment"""
-        config = self.get_automation_config()
+        config = KubernetesTester.get_automation_config()
         mv = config["backupVersions"]
         assert len(mv) == 8
 
@@ -73,28 +142,30 @@ class TestShardedClusterCreation(KubernetesTester):
 
 
 @mark.e2e_sharded_cluster
-class TestShardedClusterUpdate(KubernetesTester):
+class TestShardedClusterUpdate:
     def test_scale_up_sharded_cluster(self, sc: MongoDB):
         sc.load()
-        sc["spec"]["shardCount"] = 2
+        sc["spec"]["shardCount"] = SCALED_SHARD_COUNT
         sc.update()
 
         sc.assert_reaches_phase(Phase.Running)
 
-    @skip_if_local()
-    def test_shard1_was_configured(self, sc: MongoDB):
-        hosts = [
-            f"{SHARDED_CLUSTER_NAME}-1-{i}.{SHARDED_CLUSTER_NAME}-sh.{sc.namespace}.svc.cluster.local:27017"
-            for i in range(3)
-        ]
-        logger.debug(f"Checking for connectivity of hosts: {hosts}")
-        primary, secondaries = self.wait_for_rs_is_ready(hosts)
-        assert primary is not None
-        assert len(secondaries) == 2
+    def test_both_shards_are_configured(self, sc: MongoDB):
+        for shard_idx in range(SCALED_SHARD_COUNT):
+            hosts = []
+            for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
+                for member_idx in range(sc.shard_members_in_cluster(cluster_member_client.cluster_name)):
+                    hostname = sc.shard_hostname(shard_idx, member_idx, cluster_member_client.cluster_index)
+                    hosts.append(hostname)
+
+            logger.debug(f"Checking for connectivity of hosts: {hosts}")
+            primary, secondaries = KubernetesTester.wait_for_rs_is_ready(hosts)
+            assert primary is not None
+            assert len(secondaries) == 2
 
     def test_monitoring_versions(self, sc: MongoDB):
         """Verifies that monitoring agent is configured for each process in the deployment"""
-        config = self.get_automation_config()
+        config = KubernetesTester.get_automation_config()
         mv = config["monitoringVersions"]
         assert len(mv) == 11
 
@@ -103,7 +174,7 @@ class TestShardedClusterUpdate(KubernetesTester):
 
     def test_backup_versions(self, sc: MongoDB):
         """Verifies that backup agent is configured for each process in the deployment"""
-        config = self.get_automation_config()
+        config = KubernetesTester.get_automation_config()
         mv = config["backupVersions"]
         assert len(mv) == 11
 
@@ -112,6 +183,7 @@ class TestShardedClusterUpdate(KubernetesTester):
 
 
 @mark.e2e_sharded_cluster
+@skip_if_multi_cluster()  # Currently removing Kubernetes resources in multi-cluster sharded is not implemented
 class TestShardedClusterDeletion(KubernetesTester):
     def test_delete_sharded_cluster_resource(self, sc: MongoDB):
         sc.delete()
@@ -126,10 +198,12 @@ class TestShardedClusterDeletion(KubernetesTester):
         run_periodically(resource_is_deleted, timeout=240)
 
     def test_sharded_cluster_doesnt_exist(self, sc: MongoDB):
-        # There should be no statefulsets in this namespace
-        sts = self.appsv1.list_namespaced_stateful_set(sc.namespace)
-        assert len(sts.items) == 0
+        for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
+            sts = cluster_member_client.list_namespaced_stateful_set(sc.namespace)
+            assert len(sts.items) == 0
 
     def test_service_does_not_exist(self, sc: MongoDB):
-        with pytest.raises(kubernetes.client.ApiException):
-            self.corev1.read_namespaced_service(f"{SHARDED_CLUSTER_NAME}-sh", sc.namespace)
+        for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
+            with pytest.raises(kubernetes.client.ApiException) as api_exception:
+                cluster_member_client.read_namespaced_service(sc.shard_service_name(), sc.namespace)
+            assert api_exception.value.status == 404

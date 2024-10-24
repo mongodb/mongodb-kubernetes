@@ -676,6 +676,7 @@ task_groups:
     - e2e_multi_cluster_pvc_resize
     - e2e_multi_cluster_sharded_simplest
     - e2e_multi_cluster_sharded_tls
+    - e2e_sharded_cluster
   <<: *teardown_group
 
 - name: e2e_multi_cluster_2_clusters_task_group
