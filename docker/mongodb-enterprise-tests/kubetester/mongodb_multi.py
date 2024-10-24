@@ -13,11 +13,29 @@ class MultiClusterClient:
         self,
         api_client: kubernetes.client.ApiClient,
         cluster_name: str,
-        cluster_index: int,
+        cluster_index: Optional[int] = None,
     ):
         self.api_client = api_client
         self.cluster_name = cluster_name
         self.cluster_index = cluster_index
+
+    def apps_v1_api(self) -> kubernetes.client.AppsV1Api:
+        return kubernetes.client.AppsV1Api(self.api_client)
+
+    def core_v1_api(self) -> kubernetes.client.CoreV1Api:
+        return kubernetes.client.CoreV1Api(self.api_client)
+
+    def read_namespaced_stateful_set(self, name: str, namespace: str):
+        return self.apps_v1_api().read_namespaced_stateful_set(name, namespace)
+
+    def list_namespaced_stateful_set(self, namespace: str):
+        return self.apps_v1_api().list_namespaced_stateful_set(namespace)
+
+    def read_namespaced_service(self, name: str, namespace: str):
+        return self.core_v1_api().read_namespaced_service(name, namespace)
+
+    def read_namespaced_config_map(self, name: str, namespace: str):
+        return self.core_v1_api().read_namespaced_config_map(name, namespace)
 
 
 class MongoDBMulti(MongoDB):
@@ -34,7 +52,7 @@ class MongoDBMulti(MongoDB):
     def read_statefulsets(self, clients: List[MultiClusterClient]) -> Dict[str, client.V1StatefulSet]:
         statefulsets = {}
         for mcc in clients:
-            statefulsets[mcc.cluster_name] = client.AppsV1Api(api_client=mcc.api_client).read_namespaced_stateful_set(
+            statefulsets[mcc.cluster_name] = mcc.read_namespaced_stateful_set(
                 f"{self.name}-{mcc.cluster_index}", self.namespace
             )
         return statefulsets
@@ -54,7 +72,7 @@ class MongoDBMulti(MongoDB):
         for mcc in clients:
             spec = self.get_item_spec(mcc.cluster_name)
             for i, item in enumerate(spec):
-                services[mcc.cluster_name] = client.CoreV1Api(api_client=mcc.api_client).read_namespaced_service(
+                services[mcc.cluster_name] = mcc.read_namespaced_service(
                     f"{self.name}-{mcc.cluster_index}-{i}-svc", self.namespace
                 )
         return services
@@ -62,7 +80,7 @@ class MongoDBMulti(MongoDB):
     def read_headless_services(self, clients: List[MultiClusterClient]) -> Dict[str, client.V1Service]:
         services = {}
         for mcc in clients:
-            services[mcc.cluster_name] = client.CoreV1Api(api_client=mcc.api_client).read_namespaced_service(
+            services[mcc.cluster_name] = mcc.read_namespaced_service(
                 f"{self.name}-{mcc.cluster_index}-svc", self.namespace
             )
         return services
@@ -70,7 +88,7 @@ class MongoDBMulti(MongoDB):
     def read_configmaps(self, clients: List[MultiClusterClient]) -> Dict[str, client.V1ConfigMap]:
         configmaps = {}
         for mcc in clients:
-            configmaps[mcc.cluster_name] = client.CoreV1Api(api_client=mcc.api_client).read_namespaced_config_map(
+            configmaps[mcc.cluster_name] = mcc.read_namespaced_config_map(
                 f"{self.name}-hostname-override", self.namespace
             )
         return configmaps

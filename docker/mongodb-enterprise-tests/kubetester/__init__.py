@@ -1,11 +1,9 @@
-import copy
 import random
 import string
 import time
 from base64 import b64decode
 from typing import Any, Callable, Dict, List, Optional
 
-import kubeobject
 import kubernetes.client
 from kubeobject import CustomObject
 from kubernetes import client, utils

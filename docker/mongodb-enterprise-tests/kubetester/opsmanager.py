@@ -37,6 +37,7 @@ from tests.conftest import (
     multi_cluster_pod_names,
     multi_cluster_service_names,
 )
+from tests.shardedcluster.conftest import read_deployment_state
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -402,7 +403,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         if not self.is_appdb_multi_cluster():
             return self.get_legacy_central_cluster(self.get_appdb_members_count())
 
-        cluster_index_mapping = self.read_deployment_state(self.app_db_name())["clusterMapping"]
+        cluster_index_mapping = read_deployment_state(self.app_db_name(), self.namespace)["clusterMapping"]
         result = []
         for cluster_spec_item in self["spec"]["applicationDatabase"].get("clusterSpecList", []):
             result.append(
@@ -421,7 +422,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         if not self.is_om_multi_cluster():
             return self.get_legacy_central_cluster(self.get_total_number_of_om_replicas())
 
-        cluster_mapping = self.read_deployment_state(self.name)["clusterMapping"]
+        cluster_mapping = read_deployment_state(self.name, self.namespace)["clusterMapping"]
         result = [
             (
                 int(cluster_mapping[cluster_spec_item["clusterName"]]),
