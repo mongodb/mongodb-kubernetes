@@ -275,17 +275,6 @@ func TestNoIgnoredFieldUsed(t *testing.T) {
 			},
 		},
 		{
-			name:           "Warning when StatefulSetConfiguration is set in ShardOverrides in MultiCluster topology",
-			isMultiCluster: true,
-			shardOverrides: []ShardOverride{
-				{ShardNames: []string{"foo-0"}, StatefulSetConfiguration: &v1.StatefulSetConfiguration{}},
-			},
-			expectWarning: true,
-			expectedWarnings: []status.Warning{
-				"spec.shardOverrides.statefulSetConfiguration is ignored in Multi Cluster topology. Use instead: spec.shardOverrides.clusterSpecList.statefulSetConfiguration",
-			},
-		},
-		{
 			name:           "Multiple warnings when several ignored fields are set in MultiCluster topology",
 			isMultiCluster: true,
 			shardOverrides: []ShardOverride{
@@ -297,7 +286,6 @@ func TestNoIgnoredFieldUsed(t *testing.T) {
 			expectedWarnings: []status.Warning{
 				"spec.shardOverrides.memberConfig is ignored in Multi Cluster topology. Use instead: spec.shardOverrides.clusterSpecList.memberConfig",
 				"spec.shardOverrides.members is ignored in Multi Cluster topology. Use instead: spec.shardOverrides.clusterSpecList.members",
-				"spec.shardOverrides.statefulSetConfiguration is ignored in Multi Cluster topology. Use instead: spec.shardOverrides.clusterSpecList.statefulSetConfiguration",
 			},
 		},
 	}

@@ -216,10 +216,6 @@ func noIgnoredFieldUsed(m MongoDB) []v1.ValidationResult {
 		if shardOverride.Members != nil {
 			appendValidationWarning(&warnings, "spec.shardOverrides.members", "spec.shardOverrides.clusterSpecList.members")
 		}
-
-		if shardOverride.StatefulSetConfiguration != nil {
-			appendValidationWarning(&warnings, "spec.shardOverrides.statefulSetConfiguration", "spec.shardOverrides.clusterSpecList.statefulSetConfiguration")
-		}
 	}
 
 	if len(errors) > 0 {
