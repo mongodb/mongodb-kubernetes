@@ -114,55 +114,6 @@ class CustomResource:
         self.name = name
 
 
-@pytest.mark.skip
-def test_kubeobject1():
-    # currently it is
-    Some = create_custom_object("dummies.kubeobject.com")  # -> returns a concrete instance to work with
-
-    with pytest.raises(client.ApiException, match=r".* 404 page not found"):
-        some = Some.read("some-name", "namespace")
-
-
-@pytest.mark.skip
-@patch("kubeobject.kubeobject.CustomObjectsApi")
-def test_can_create_objects(patched_custom_objects_api: Mock):
-    api = Mock()
-    api.get_namespaced_custom_object.return_value = {
-        "metadata": {"name": "this-name", "namespace": "this-namespace"},
-        "spec": {"attribute": "this is my value"},
-    }
-    patched_custom_objects_api.return_value = api
-
-    C = create_custom_object("dummies.kubeobject.com")
-
-    c = C.read("this-name", "this-namespace")
-
-    api.get_namespaced_custom_object.assert_called_once()
-
-    assert c.spec.attribute == "this is my value"
-
-    assert isinstance(c.spec, Box)
-    assert isinstance(c["spec"], dict)
-
-
-@pytest.mark.skip
-def test_can_read_my_dummy_object():
-    """In order to run this test, examples/dummy.yaml needs to be applied"""
-    D = create_custom_object("dummies.kubeobject.com")
-    d = D.read("my-dummy-object", "default")
-
-    assert d.spec.thisAttribute == "fourty two"
-
-    d.spec.thisAttribute = "fourty three"
-    d.update()
-
-    d2 = D.read("my-dummy-object", "default")
-
-    assert d.spec.thisAttribute == "fourty three"
-    d.spec.thisAttribute = "fourty two"
-    d.update()
-
-
 class MockedCustomObjectsApi:
     store = {
         "metadata": {"name": "my-dummy-object", "namespace": "default"},
@@ -292,37 +243,3 @@ spec:
     as_dict = yaml.safe_load(y)
 
     assert c.to_dict() == as_dict
-
-
-@pytest.mark.skip
-def test_set_and_get_attrs():
-    """Studying __setattr__ and __getattr__
-
-    * __getattr__ is only called for attributes that are not found in the instance
-    * __setattr__ is always called!
-    """
-
-    class A:
-        def __init__(self):
-            self.a = "this is value a"
-            self.b = "this is value b"
-
-        def __setattr__(self, item, value):
-            print("setattr")
-
-            self.__dict__[item] = value
-
-        def __getattr__(self, item):
-            print("getattr")
-            return self.__dict__[item]
-
-    a = A()
-
-    assert a.a == "this is value a"
-    assert a.b == "this is value b"
-
-    a.b = "this is new value of b"
-    a.c = "this is completely new attribute c"
-
-    with pytest.raises(KeyError):
-        assert a.d
