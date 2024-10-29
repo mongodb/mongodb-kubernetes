@@ -86,7 +86,7 @@ def get_version_id():
 
 
 @fixture(scope="module")
-def operator_installation_config(namespace: str, version_id: str) -> Dict[str, str]:
+def operator_installation_config(namespace: str) -> Dict[str, str]:
     return get_operator_installation_config(namespace)
 
 

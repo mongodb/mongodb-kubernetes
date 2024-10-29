@@ -78,7 +78,8 @@ def assert_log_types_in_structured_json_pod_log(
     """
 
     if not is_static_containers_architecture():
-        container_name = None
+        container_name = "mongodb-enterprise-database"
+
     pod_logs = get_structured_json_pod_logs(namespace, pod_name, container_name, api_client=api_client)
 
     unwanted_log_types = pod_logs.keys() - expected_log_types
