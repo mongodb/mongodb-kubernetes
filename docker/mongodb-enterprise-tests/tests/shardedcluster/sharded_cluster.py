@@ -158,8 +158,8 @@ class TestShardedClusterUpdate:
 
 
 @mark.e2e_sharded_cluster
-@skip_if_multi_cluster()  # Currently removing Kubernetes resources in multi-cluster sharded is not implemented
-class TestShardedClusterDeletion(KubernetesTester):
+@skip_if_multi_cluster  # Currently removing Kubernetes resources in multi-cluster sharded is not implemented
+class TestShardedClusterDeletion:
     def test_delete_sharded_cluster_resource(self, sc: MongoDB):
         sc.delete()
 
