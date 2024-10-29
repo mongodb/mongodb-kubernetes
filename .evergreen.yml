@@ -680,6 +680,7 @@ task_groups:
     - e2e_sharded_cluster_agent_flags
     - e2e_sharded_cluster_custom_podspec
     - e2e_sharded_cluster_mongod_options_and_log_rotation
+    - e2e_sharded_cluster_pv
   <<: *teardown_group
 
 - name: e2e_multi_cluster_2_clusters_task_group
