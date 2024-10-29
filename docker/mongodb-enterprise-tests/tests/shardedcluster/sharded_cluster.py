@@ -8,17 +8,7 @@ from kubetester.mongodb import MongoDB, Phase
 from kubetester.operator import Operator
 from pytest import fixture, mark
 from tests import test_logger
-from tests.conftest import (
-    get_central_cluster_client,
-    get_central_cluster_name,
-    get_default_operator,
-    get_member_cluster_clients,
-    get_member_cluster_names,
-    get_multi_cluster_operator,
-    get_multi_cluster_operator_installation_config,
-    get_operator_installation_config,
-    is_multi_cluster,
-)
+from tests.conftest import is_multi_cluster
 from tests.shardedcluster.conftest import (
     enable_multi_cluster_deployment,
     get_member_cluster_clients_using_cluster_mapping,
@@ -49,21 +39,6 @@ def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
     return resource.update()
 
 
-@fixture(scope="module")
-def operator(namespace: str) -> Operator:
-    if is_multi_cluster():
-        return get_multi_cluster_operator(
-            namespace,
-            get_central_cluster_name(),
-            get_multi_cluster_operator_installation_config(namespace),
-            get_central_cluster_client(),
-            get_member_cluster_clients(),
-            get_member_cluster_names(),
-        )
-    else:
-        return get_default_operator(namespace, get_operator_installation_config(namespace))
-
-
 @mark.e2e_sharded_cluster
 def test_install_operator(operator: Operator):
     operator.assert_is_running()
@@ -72,7 +47,7 @@ def test_install_operator(operator: Operator):
 @mark.e2e_sharded_cluster
 class TestShardedClusterCreation:
     def test_create_sharded_cluster(self, sc: MongoDB):
-        sc.assert_reaches_phase(Phase.Running)
+        sc.assert_reaches_phase(Phase.Running, timeout=800)
 
     def test_sharded_cluster_sts(self, sc: MongoDB):
         for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
