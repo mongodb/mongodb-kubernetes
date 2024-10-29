@@ -455,6 +455,11 @@ class MongoDB(CustomObject, MongoDBCommon):
             return f"{self.name}-{shard_idx}-{cluster_idx}-{member_idx}.{self.name}-sh.{self.namespace}.svc.cluster.local:{port}"
         return f"{self.name}-{shard_idx}-{member_idx}.{self.name}-sh.{self.namespace}.svc.cluster.local:{port}"
 
+    def shard_pvc_name(self, shard_idx: int, member_idx: int, cluster_idx: Optional[int] = None) -> str:
+        if self.is_multicluster():
+            return f"data-{self.name}-{shard_idx}-{cluster_idx}-{member_idx}"
+        return f"data-{self.name}-{shard_idx}-{member_idx}"
+
     def shard_members_in_cluster(self, cluster_name: str) -> int:
         if "shardOverrides" in self["spec"]:
             raise Exception("Shard overrides logic is not supported")
@@ -486,6 +491,11 @@ class MongoDB(CustomObject, MongoDBCommon):
                     return cluster_spec_item["members"]
 
         return self["spec"].get("configServerCount", 0)
+
+    def config_srv_pvc_name(self, member_idx: int, cluster_idx: Optional[int] = None) -> str:
+        if self.is_multicluster():
+            return f"data-{self.name}-config-{cluster_idx}-{member_idx}"
+        return f"data-{self.name}-config-{member_idx}"
 
     def mongos_statefulset_name(self, cluster_idx: Optional[int] = None) -> str:
         if self.is_multicluster():

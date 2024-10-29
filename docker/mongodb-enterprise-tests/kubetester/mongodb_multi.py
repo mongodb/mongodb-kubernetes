@@ -37,6 +37,9 @@ class MultiClusterClient:
     def read_namespaced_config_map(self, name: str, namespace: str):
         return self.core_v1_api().read_namespaced_config_map(name, namespace)
 
+    def read_namespaced_persistent_volume_claim(self, name: str, namespace: str):
+        return self.core_v1_api().read_namespaced_persistent_volume_claim(name, namespace)
+
 
 class MongoDBMulti(MongoDB):
     def __init__(self, *args, **kwargs):
