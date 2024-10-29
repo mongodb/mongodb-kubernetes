@@ -4,7 +4,7 @@ set -Eeou pipefail
 source scripts/dev/set_env_context.sh
 source scripts/funcs/kubernetes
 
-operator-sdk olm install || true
+operator-sdk olm install --version="${OLM_VERSION}" || true
 make aws_login
 
 if [[ "${EVG_HOST_NAME}" != "" ]]; then
