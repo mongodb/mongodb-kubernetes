@@ -58,6 +58,7 @@ def second_project(namespace: str, project_name_prefix: str) -> str:
 def replica_set(namespace: str, first_project: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(find_fixture("replica-set-basic.yaml"), namespace=namespace, name="replica-set")
     resource.set_version(ensure_ent_version(custom_mdb_version))
+    resource.set_architecture_annotation()
     resource["spec"]["opsManager"]["configMapRef"]["name"] = first_project
 
     resource.update()

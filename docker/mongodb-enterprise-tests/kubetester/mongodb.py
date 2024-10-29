@@ -440,6 +440,11 @@ class MongoDB(CustomObject, MongoDBCommon):
             return f"{self.name}-{shard_idx}-{cluster_idx}"
         return f"{self.name}-{shard_idx}"
 
+    def shard_pod_name(self, shard_idx: int, member_idx: int, cluster_idx: Optional[int] = None) -> str:
+        if self.is_multicluster():
+            return f"{self.name}-{shard_idx}-{cluster_idx}-{member_idx}"
+        return f"{self.name}-{shard_idx}-{member_idx}"
+
     def shard_service_name(self) -> str:
         return f"{self.name}-sh"
 
@@ -466,6 +471,11 @@ class MongoDB(CustomObject, MongoDBCommon):
             return f"{self.name}-config-{cluster_idx}"
         return f"{self.name}-config"
 
+    def config_srv_pod_name(self, member_idx: int, cluster_idx: Optional[int] = None) -> str:
+        if self.is_multicluster():
+            return f"{self.name}-config-{cluster_idx}-{member_idx}"
+        return f"{self.name}-config-{member_idx}"
+
     def config_srv_members_in_cluster(self, cluster_name: str) -> int:
         if self.is_multicluster():
             for cluster_spec_item in self["spec"]["configSrv"]["clusterSpecList"]:
@@ -478,6 +488,11 @@ class MongoDB(CustomObject, MongoDBCommon):
         if self.is_multicluster():
             return f"{self.name}-mongos-{cluster_idx}"
         return f"{self.name}-mongos"
+
+    def mongos_pod_name(self, member_idx: int, cluster_idx: Optional[int] = None) -> str:
+        if self.is_multicluster():
+            return f"{self.name}-mongos-{cluster_idx}-{member_idx}"
+        return f"{self.name}-mongos-{member_idx}"
 
     def mongos_service_name(self, member_idx: int, cluster_idx: Optional[int] = None) -> str:
         if self.is_multicluster():
