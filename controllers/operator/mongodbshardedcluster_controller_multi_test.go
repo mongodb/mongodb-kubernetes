@@ -596,7 +596,9 @@ func TestMigrateToNewDeploymentState(t *testing.T) {
 	require.Equal(t, expectedLastAchievedSpec, actualLastAchievedSpecData)
 }
 
-func applyResourceAndCompareShardMap(t *testing.T, mongoDBResourceFile string, expectedShardMapFile string) {
+// Without genericity and type hinting, when unmarshalling the file in a struct, fields that should be omitted when empty
+// are not, and the actual/expected configurations are not compared correctly
+func testDesiredConfigurationFromYAML[T *mdbv1.ShardedClusterComponentSpec | map[int]*mdbv1.ShardedClusterComponentSpec](t *testing.T, mongoDBResourceFile string, expectedConfigurationFile string, shardedComponentType string) {
 	ctx := context.Background()
 	sc, err := loadMongoDBResource(mongoDBResourceFile)
 	require.NoError(t, err)
@@ -608,17 +610,29 @@ func applyResourceAndCompareShardMap(t *testing.T, mongoDBResourceFile string, e
 	_, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, sc, memberClusterMap, kubeClient, omConnectionFactory)
 	require.NoError(t, err)
 
-	// no reconcile here, we just test prepareDesiredShardsConfiguration
-	shardsMap := reconcilerHelper.prepareDesiredShardsConfiguration(&sc.Spec)
-	expectedShardsMap, err := loadExpectedShardsMap(expectedShardMapFile)
+	var actual interface{}
+	// no reconcile here, we just test prepareDesiredConfiguration
+	switch shardedComponentType {
+	case "shard":
+		actual = reconcilerHelper.prepareDesiredShardsConfiguration()
+	case "config":
+		actual = reconcilerHelper.prepareDesiredConfigServerConfiguration()
+	case "mongos":
+		actual = reconcilerHelper.prepareDesiredMongosConfiguration()
+	}
+
+	expected, err := unmarshalYamlFileInStruct[T](expectedConfigurationFile)
 	require.NoError(t, err)
-	normalizedShardsMap, err := normalizeObjectToInterfaceMap(shardsMap)
+
+	normalizedActual, err := normalizeObjectToInterfaceMap(actual)
 	require.NoError(t, err)
-	normalizedExpectedShardsMap, err := normalizeObjectToInterfaceMap(expectedShardsMap)
+	normalizedExpected, err := normalizeObjectToInterfaceMap(expected)
 	require.NoError(t, err)
-	assert.Equal(t, normalizedExpectedShardsMap, normalizedShardsMap)
-	visualDiff, err := getVisualJsonDiff(normalizedExpectedShardsMap, normalizedShardsMap)
+
+	assert.Equal(t, normalizedExpected, normalizedActual)
+	visualDiff, err := getVisualJsonDiff(normalizedExpected, normalizedActual)
 	require.NoError(t, err)
+
 	if !assert.Empty(t, visualDiff) {
 		// it is extremely difficult to diagnose problems in IDE's console as the diff dump is very large >400 lines,
 		// therefore we're saving visual diffs in ops-manager-kubernetes/tmp dir to a temp file
@@ -638,12 +652,32 @@ func applyResourceAndCompareShardMap(t *testing.T, mongoDBResourceFile string, e
 	}
 }
 
+// Multi-Cluster
 func TestShardMapForComplexMultiClusterYaml(t *testing.T) {
-	applyResourceAndCompareShardMap(t, "testdata/mdb-sharded-multi-cluster-complex.yaml", "testdata/mdb-sharded-multi-cluster-complex-expected-shardmap.yaml")
+	testDesiredConfigurationFromYAML[map[int]*mdbv1.ShardedClusterComponentSpec](t, "testdata/mdb-sharded-multi-cluster-complex.yaml", "testdata/mdb-sharded-multi-cluster-complex-expected-shardmap.yaml", "shard")
 }
 
+// Config servers and Mongos share a lot of logic, and have the same settings in CRDs, the two below tests use the same files, and are almost identical
+func TestConfigServerdExpectedConfigFromMultiClusterYaml(t *testing.T) {
+	testDesiredConfigurationFromYAML[*mdbv1.ShardedClusterComponentSpec](t, "testdata/mdb-sharded-multi-cluster-configsrv-mongos.yaml", "testdata/mdb-sharded-multi-cluster-configsrv-mongos-expected-config.yaml", "config")
+}
+
+func TestMongosExpectedConfigFromMultiClusterYaml(t *testing.T) {
+	testDesiredConfigurationFromYAML[*mdbv1.ShardedClusterComponentSpec](t, "testdata/mdb-sharded-multi-cluster-configsrv-mongos.yaml", "testdata/mdb-sharded-multi-cluster-configsrv-mongos-expected-config.yaml", "mongos")
+}
+
+// Single-Cluster
 func TestShardMapForSingleClusterWithOverridesYaml(t *testing.T) {
-	applyResourceAndCompareShardMap(t, "testdata/mdb-sharded-single-with-overrides.yaml", "testdata/mdb-sharded-single-with-overrides-expected-shardmap.yaml")
+	testDesiredConfigurationFromYAML[map[int]*mdbv1.ShardedClusterComponentSpec](t, "testdata/mdb-sharded-single-with-overrides.yaml", "testdata/mdb-sharded-single-with-overrides-expected-shardmap.yaml", "shard")
+}
+
+// Config servers and Mongos share a lot of logic, and have the same settings in CRDs, the two below tests use the same files, and are almost identical
+func TestConfigServerdExpectedConfigFromSingleClusterYaml(t *testing.T) {
+	testDesiredConfigurationFromYAML[*mdbv1.ShardedClusterComponentSpec](t, "testdata/mdb-sharded-single-cluster-configsrv-mongos.yaml", "testdata/mdb-sharded-single-cluster-configsrv-mongos-expected-config.yaml", "config")
+}
+
+func TestMongosExpectedConfigFromSingleClusterYaml(t *testing.T) {
+	testDesiredConfigurationFromYAML[*mdbv1.ShardedClusterComponentSpec](t, "testdata/mdb-sharded-single-cluster-configsrv-mongos.yaml", "testdata/mdb-sharded-single-cluster-configsrv-mongos-expected-config.yaml", "mongos")
 }
 
 func TestMultiClusterShardedSetRace(t *testing.T) {
@@ -819,17 +853,17 @@ func loadMongoDBResource(resourceYamlPath string) (*mdbv1.MongoDB, error) {
 	return &mdb, nil
 }
 
-func loadExpectedShardsMap(path string) (map[int]*mdbv1.ShardedClusterComponentSpec, error) {
+func unmarshalYamlFileInStruct[T *mdbv1.ShardedClusterComponentSpec | map[int]*mdbv1.ShardedClusterComponentSpec](path string) (*T, error) {
 	bytes, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	shardMap := map[int]*mdbv1.ShardedClusterComponentSpec{}
-	if err := yaml.Unmarshal(bytes, &shardMap); err != nil {
+	componentSpecStruct := new(T)
+	if err := yaml.Unmarshal(bytes, &componentSpecStruct); err != nil {
 		return nil, err
 	}
-	return shardMap, nil
+	return componentSpecStruct, nil
 }
 
 func loadExpectedReplicaSets(path string) (map[string]any, error) {

@@ -1,0 +1,211 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: mdb-sh-complex
+  namespace: my-namespace
+spec:
+  shardCount: 2
+  # we don't specify mongodsPerShardCount, mongosCount and configServerCount as they don't make sense for multi-cluster
+  topology: MultiCluster
+  type: ShardedCluster
+  version: 5.0.15
+  cloudManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  persistent: true
+  mongosPodSpec: # Even though some settings are not relevant for mongos, we use the same ones as for cfg srv to simplify testing
+    persistence: # settings applicable to all pods in all clusters
+      single:
+        storage: 10G
+    podTemplate:
+      spec:
+        containers:
+          - name: mongodb-enterprise-database
+            resources:
+              requests:
+                cpu: 2.12
+                memory: 2.12G
+          - name: sidecar-global
+            image: busybox
+            command: [ "sleep" ]
+            args: [ "infinity" ]
+  mongos:
+    agent:
+      logLevel: DEBUG # applied to all agent processes in all clusters
+    additionalMongodConfig: # applied to all config server processes in all clusters
+      operationProfiling:
+        mode: slowOp
+        slowOpThresholdMs: 100
+    clusterSpecList:
+      - clusterName: cluster-0
+        members: 2
+        memberConfig:
+          - votes: 1
+            priority: "100" # Primary is preferred in cluster-0
+          - votes: 2
+            priority: "100"
+        statefulSet:
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: mongodb-enterprise-database
+                    resources:
+                      limits: # We only specify limits here, requests will be merged from top level podTemplate
+                        cpu: 2.0
+                        memory: 5.0G
+        podSpec: # we change defaults defined in spec.configSrvPodSpec
+          persistence:
+            single:
+              storage: 15G # only this cluster will have storage set to 15G
+          podTemplate: # PodSpec.PodTemplate is ignored for sharded clusters
+            spec:
+              containers:
+                - name: should-be-ignored
+                  resources:
+                    requests:
+                      cpu: 2.12
+                      memory: 2.12G
+      - clusterName: cluster-1
+        # we don't specify podSpec, so it's taken from spec.configSrvPodSpec
+        members: 2
+        memberConfig:
+          - votes: 2
+            priority: "10"
+          - votes: 1
+            priority: "10"
+        statefulSet:
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: mongodb-enterprise-database
+                    resources:
+                      requests:
+                        cpu: 2.1
+                        memory: 2.1G
+                      limits:
+                        cpu: 2.1
+                        memory: 5.1G
+      - clusterName: cluster-2
+        members: 1
+        memberConfig:
+          - votes: 1
+            priority: "5"
+        statefulSet:
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: mongodb-enterprise-database
+                    resources:
+                      requests:
+                        cpu: 2.2
+                        memory: 2.2G
+                      limits:
+                        cpu: 2.2
+                        memory: 5.2G
+
+  configSrvPodSpec:
+    persistence: # settings applicable to all pods in all clusters
+      single:
+        storage: 10G
+    podTemplate:
+        spec:
+          containers:
+            - name: mongodb-enterprise-database
+              resources:
+                requests:
+                  cpu: 2.12
+                  memory: 2.12G
+            - name: sidecar-global
+              image: busybox
+              command: [ "sleep" ]
+              args: [ "infinity" ]
+  configSrv:
+    agent:
+      logLevel: DEBUG # applied to all agent processes in all clusters
+    additionalMongodConfig: # applied to all config server processes in all clusters
+      operationProfiling:
+        mode: slowOp
+        slowOpThresholdMs: 100
+    clusterSpecList:
+      - clusterName: cluster-0
+        members: 2
+        memberConfig:
+          - votes: 1
+            priority: "100" # Primary is preferred in cluster-0
+          - votes: 2
+            priority: "100"
+        statefulSet:
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: mongodb-enterprise-database
+                    resources:
+                      limits: # We only specify limits here, requests will be merged from top level podTemplate
+                        cpu: 2.0
+                        memory: 5.0G
+        podSpec: # we change defaults defined in spec.configSrvPodSpec
+          persistence:
+            single:
+              storage: 15G # only this cluster will have storage set to 15G
+          podTemplate: # PodSpec.PodTemplate is ignored for sharded clusters
+            spec:
+              containers:
+                - name: should-be-ignored
+                  resources:
+                    requests:
+                      cpu: 2.12
+                      memory: 2.12G
+      - clusterName: cluster-1
+        # we don't specify podSpec, so it's taken from spec.configSrvPodSpec
+        members: 2
+        memberConfig:
+          - votes: 2
+            priority: "10"
+          - votes: 1
+            priority: "10"
+        statefulSet:
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: mongodb-enterprise-database
+                    resources:
+                      requests:
+                        cpu: 2.1
+                        memory: 2.1G
+                      limits:
+                        cpu: 2.1
+                        memory: 5.1G
+      - clusterName: cluster-2
+        members: 1
+        memberConfig:
+          - votes: 1
+            priority: "5"
+        statefulSet:
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: mongodb-enterprise-database
+                    resources:
+                      requests:
+                        cpu: 2.2
+                        memory: 2.2G
+                      limits:
+                        cpu: 2.2
+                        memory: 5.2G
+
+
+  shard:
+    clusterSpecList:
+      - clusterName: cluster-0
+        members: 2 # each shard will have 2 members in this cluster
+      - clusterName: cluster-1
+        members: 2
+      - clusterName: cluster-2
+        members: 1
