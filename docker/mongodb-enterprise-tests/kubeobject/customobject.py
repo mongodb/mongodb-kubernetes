@@ -109,10 +109,11 @@ class CustomObject:
         return self
 
     def update(self) -> CustomObject:
-        """Updates the object in Kubernetes."""
+        """Updates the object in Kubernetes. Deleting keys is done by setting them to None"""
         return create_or_update(self)
 
     def patch(self) -> CustomObject:
+        """Patch the object in Kubernetes. Deleting keys is done by setting them to None"""
         obj = self.api.patch_namespaced_custom_object(
             self.group,
             self.version,
