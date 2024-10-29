@@ -12,6 +12,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
 
 	v1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	corev1 "k8s.io/api/core/v1"
 
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
@@ -201,6 +202,11 @@ func TestValidClusterSpecLists(t *testing.T) {
 }
 
 func TestNoIgnoredFieldUsed(t *testing.T) {
+	podSpecWithTemplate := &MongoDbPodSpec{
+		PodTemplateWrapper: PodTemplateSpecWrapper{PodTemplate: &corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{},
+		}},
+	}
 	tests := []struct {
 		name              string
 		isMultiCluster    bool
@@ -281,11 +287,23 @@ func TestNoIgnoredFieldUsed(t *testing.T) {
 				{ShardNames: []string{"foo-0"}, MemberConfig: defaultMemberConfig},
 				{ShardNames: []string{"foo-1"}, Members: ptr.To(2)},
 				{ShardNames: []string{"foo-2"}, StatefulSetConfiguration: &v1.StatefulSetConfiguration{}},
+				{
+					ShardNames: []string{"foo-3"},
+					PodSpec:    podSpecWithTemplate,
+					ShardedClusterComponentOverrideSpec: ShardedClusterComponentOverrideSpec{
+						ClusterSpecList: []ClusterSpecItemOverride{{
+							ClusterName: "cluster-0",
+							PodSpec:     podSpecWithTemplate,
+						}},
+					},
+				},
 			},
 			expectWarning: true,
 			expectedWarnings: []status.Warning{
 				"spec.shardOverrides.memberConfig is ignored in Multi Cluster topology. Use instead: spec.shardOverrides.clusterSpecList.memberConfig",
 				"spec.shardOverrides.members is ignored in Multi Cluster topology. Use instead: spec.shardOverrides.clusterSpecList.members",
+				"spec.shardOverrides.podSpec.podTemplate is ignored in Multi Cluster topology. Use instead: spec.shardOverrides.statefulSetConfiguration",
+				"spec.shardOverrides.clusterSpecList.podSpec.podTemplate is ignored in Multi Cluster topology. Use instead: spec.shardOverrides.clusterSpecList.statefulSetConfiguration",
 			},
 		},
 	}
@@ -324,6 +342,24 @@ func TestNoIgnoredFieldUsed(t *testing.T) {
 				assert.Empty(t, sc.Status.Warnings)
 			}
 		})
+	}
+}
+
+func TestPodSpecTemplatesWarnings(t *testing.T) {
+	sc := NewDefaultMultiShardedClusterBuilder().Build()
+	mongoPodSpec := &MongoDbPodSpec{PodTemplateWrapper: PodTemplateSpecWrapper{PodTemplate: &corev1.PodTemplateSpec{}}}
+	sc.Spec.ShardSpec.ClusterSpecList[0].PodSpec = mongoPodSpec
+	sc.Spec.ConfigSrvSpec.ClusterSpecList[0].PodSpec = mongoPodSpec
+	sc.Spec.MongosSpec.ClusterSpecList[0].PodSpec = mongoPodSpec
+	_, err := sc.ValidateCreate()
+	assert.NoError(t, err)
+	expectedWarnings := []status.Warning{
+		"spec.shard.clusterSpecList.podSpec.podTemplate is ignored in Multi Cluster topology. Use instead: spec.shard.clusterSpecList.statefulSetConfiguration",
+		"spec.configSrv.clusterSpecList.podSpec.podTemplate is ignored in Multi Cluster topology. Use instead: spec.configSrv.clusterSpecList.statefulSetConfiguration",
+		"spec.mongos.clusterSpecList.podSpec.podTemplate is ignored in Multi Cluster topology. Use instead: spec.mongos.clusterSpecList.statefulSetConfiguration",
+	}
+	for _, expectedWarning := range expectedWarnings {
+		assertWarningExists(t, sc.Status.Warnings, expectedWarning)
 	}
 }
 

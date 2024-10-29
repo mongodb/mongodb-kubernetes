@@ -208,6 +208,24 @@ func noIgnoredFieldUsed(m MongoDB) []v1.ValidationResult {
 		appendValidationError(&errors, "spec.configServerCount", "spec.configSrv.clusterSpecList.members")
 	}
 
+	for _, clusterSpec := range m.Spec.ShardSpec.ClusterSpecList {
+		if clusterSpec.PodSpec != nil && clusterSpec.PodSpec.PodTemplateWrapper.PodTemplate != nil {
+			appendValidationWarning(&warnings, "spec.shard.clusterSpecList.podSpec.podTemplate", "spec.shard.clusterSpecList.statefulSetConfiguration")
+		}
+	}
+
+	for _, clusterSpec := range m.Spec.ConfigSrvSpec.ClusterSpecList {
+		if clusterSpec.PodSpec != nil && clusterSpec.PodSpec.PodTemplateWrapper.PodTemplate != nil {
+			appendValidationWarning(&warnings, "spec.configSrv.clusterSpecList.podSpec.podTemplate", "spec.configSrv.clusterSpecList.statefulSetConfiguration")
+		}
+	}
+
+	for _, clusterSpec := range m.Spec.MongosSpec.ClusterSpecList {
+		if clusterSpec.PodSpec != nil && clusterSpec.PodSpec.PodTemplateWrapper.PodTemplate != nil {
+			appendValidationWarning(&warnings, "spec.mongos.clusterSpecList.podSpec.podTemplate", "spec.mongos.clusterSpecList.statefulSetConfiguration")
+		}
+	}
+
 	for _, shardOverride := range m.Spec.ShardOverrides {
 		if shardOverride.MemberConfig != nil {
 			appendValidationWarning(&warnings, "spec.shardOverrides.memberConfig", "spec.shardOverrides.clusterSpecList.memberConfig")
@@ -215,6 +233,16 @@ func noIgnoredFieldUsed(m MongoDB) []v1.ValidationResult {
 
 		if shardOverride.Members != nil {
 			appendValidationWarning(&warnings, "spec.shardOverrides.members", "spec.shardOverrides.clusterSpecList.members")
+		}
+
+		if shardOverride.PodSpec != nil && shardOverride.PodSpec.PodTemplateWrapper.PodTemplate != nil {
+			appendValidationWarning(&warnings, "spec.shardOverrides.podSpec.podTemplate", "spec.shardOverrides.statefulSetConfiguration")
+		}
+
+		for _, clusterSpec := range shardOverride.ClusterSpecList {
+			if clusterSpec.PodSpec != nil && clusterSpec.PodSpec.PodTemplateWrapper.PodTemplate != nil {
+				appendValidationWarning(&warnings, "spec.shardOverrides.clusterSpecList.podSpec.podTemplate", "spec.shardOverrides.clusterSpecList.statefulSetConfiguration")
+			}
 		}
 	}
 
