@@ -1,11 +1,16 @@
 from kubetester import try_load
 from kubetester.custom_podspec import assert_stateful_set_podspec
-from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import is_static_containers_architecture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.operator import Operator
 from pytest import fixture, mark
+from tests.conftest import is_multi_cluster
+from tests.shardedcluster.conftest import (
+    enable_multi_cluster_deployment,
+    get_member_cluster_clients_using_cluster_mapping,
+)
 
 SHARD_WEIGHT = 50
 MONGOS_WEIGHT = 40
@@ -23,84 +28,101 @@ CONFIG_TOPOLOGY_KEY = "config"
 SHARD0_TOPLOGY_KEY = "shardoverride"
 
 
-@fixture(scope="module")
-def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
+@fixture(scope="function")
+def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("sharded-cluster-custom-podspec.yaml"), namespace=namespace)
-    resource.set_version(custom_mdb_version)
+
+    if try_load(resource):
+        return resource
+
+    resource.set_version(ensure_ent_version(custom_mdb_version))
+    resource.set_architecture_annotation()
+
     resource["spec"]["persistent"] = True
-    try_load(resource)
 
-    return resource
+    if is_multi_cluster():
+        enable_multi_cluster_deployment(resource)
 
-
-@mark.e2e_sharded_cluster_custom_podspec
-def test_install_operator(default_operator: Operator):
-    default_operator.assert_is_running()
+    return resource.update()
 
 
 @mark.e2e_sharded_cluster_custom_podspec
-def test_replica_set_reaches_running_phase(sharded_cluster):
-    sharded_cluster.update()
-    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=600)
+def test_install_operator(operator: Operator):
+    operator.assert_is_running()
 
 
 @mark.e2e_sharded_cluster_custom_podspec
-def test_stateful_sets_spec_updated(sharded_cluster, namespace):
-    appsv1 = KubernetesTester.clients("appsv1")
-    config_sts = appsv1.read_namespaced_stateful_set(f"{sharded_cluster.name}-config", namespace)
-    mongos_sts = appsv1.read_namespaced_stateful_set(f"{sharded_cluster.name}-mongos", namespace)
-    shard0_sts = appsv1.read_namespaced_stateful_set(f"{sharded_cluster.name}-0", namespace)
-    shard_sts = appsv1.read_namespaced_stateful_set(f"{sharded_cluster.name}-1", namespace)
+def test_create_sharded_cluster(sc: MongoDB):
+    sc.assert_reaches_phase(Phase.Running, timeout=1000)
 
-    assert_stateful_set_podspec(
-        config_sts.spec.template.spec,
-        weight=CONFIG_WEIGHT,
-        grace_period_seconds=CONFIG_GRACE_PERIOD,
-        topology_key=CONFIG_TOPOLOGY_KEY,
-    )
-    assert_stateful_set_podspec(
-        mongos_sts.spec.template.spec,
-        weight=MONGOS_WEIGHT,
-        grace_period_seconds=MONGOS_GRACE_PERIOD,
-        topology_key=MONGOS_TOPOLOGY_KEY,
-    )
-    assert_stateful_set_podspec(
-        shard_sts.spec.template.spec,
-        weight=SHARD_WEIGHT,
-        grace_period_seconds=SHARD_GRACE_PERIOD,
-        topology_key=SHARD_TOPOLOGY_KEY,
-    )
 
-    assert_stateful_set_podspec(
-        shard0_sts.spec.template.spec,
-        weight=SHARD0_WEIGHT,
-        grace_period_seconds=SHARD0_GRACE_PERIOD,
-        topology_key=SHARD0_TOPLOGY_KEY,
-    )
-    containers = shard_sts.spec.template.spec.containers
+@mark.e2e_sharded_cluster_custom_podspec
+def test_stateful_sets_spec_updated(sc: MongoDB):
+    for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
+        cluster_idx = cluster_member_client.cluster_index
 
-    if is_static_containers_architecture():
-        assert len(containers) == 3
-        assert containers[0].name == "mongodb-agent"
-        assert containers[1].name == "mongodb-enterprise-database"
-        assert containers[2].name == "sharded-cluster-sidecar"
+        shard0_sts_name = sc.shard_statefulset_name(0, cluster_idx)
+        shard0_sts = cluster_member_client.read_namespaced_stateful_set(shard0_sts_name, sc.namespace)
 
-        containers = shard0_sts.spec.template.spec.containers
-        assert len(containers) == 3
-        assert containers[0].name == "mongodb-agent"
-        assert containers[1].name == "mongodb-enterprise-database"
-        assert containers[2].name == "sharded-cluster-sidecar-override"
-        resources = containers[2].resources
-    else:
-        assert len(containers) == 2
-        assert containers[0].name == "mongodb-enterprise-database"
-        assert containers[1].name == "sharded-cluster-sidecar"
+        shard1_sts_name = sc.shard_statefulset_name(1, cluster_idx)
+        shard1_sts = cluster_member_client.read_namespaced_stateful_set(shard1_sts_name, sc.namespace)
 
-        containers = shard0_sts.spec.template.spec.containers
-        assert len(containers) == 2
-        assert containers[0].name == "mongodb-enterprise-database"
-        assert containers[1].name == "sharded-cluster-sidecar-override"
-        resources = containers[1].resources
+        mongos_sts_name = sc.mongos_statefulset_name(cluster_idx)
+        mongos_sts = cluster_member_client.read_namespaced_stateful_set(mongos_sts_name, sc.namespace)
 
-    assert resources.limits["cpu"] == "1"
-    assert resources.requests["cpu"] == "500m"
+        config_sts_name = sc.config_srv_statefulset_name(cluster_idx)
+        config_sts = cluster_member_client.read_namespaced_stateful_set(config_sts_name, sc.namespace)
+
+        assert_stateful_set_podspec(
+            shard0_sts.spec.template.spec,
+            weight=SHARD0_WEIGHT,
+            grace_period_seconds=SHARD0_GRACE_PERIOD,
+            topology_key=SHARD0_TOPLOGY_KEY,
+        )
+        assert_stateful_set_podspec(
+            shard1_sts.spec.template.spec,
+            weight=SHARD_WEIGHT,
+            grace_period_seconds=SHARD_GRACE_PERIOD,
+            topology_key=SHARD_TOPOLOGY_KEY,
+        )
+        assert_stateful_set_podspec(
+            config_sts.spec.template.spec,
+            weight=CONFIG_WEIGHT,
+            grace_period_seconds=CONFIG_GRACE_PERIOD,
+            topology_key=CONFIG_TOPOLOGY_KEY,
+        )
+        assert_stateful_set_podspec(
+            mongos_sts.spec.template.spec,
+            weight=MONGOS_WEIGHT,
+            grace_period_seconds=MONGOS_GRACE_PERIOD,
+            topology_key=MONGOS_TOPOLOGY_KEY,
+        )
+
+        if is_static_containers_architecture():
+            containers = shard0_sts.spec.template.spec.containers
+            assert len(containers) == 3
+            assert containers[0].name == "mongodb-agent"
+            assert containers[1].name == "mongodb-enterprise-database"
+            assert containers[2].name == "sharded-cluster-sidecar-override"
+
+            containers = shard1_sts.spec.template.spec.containers
+            assert len(containers) == 3
+            assert containers[0].name == "mongodb-agent"
+            assert containers[1].name == "mongodb-enterprise-database"
+            assert containers[2].name == "sharded-cluster-sidecar"
+
+            resources = containers[2].resources
+        else:
+            containers = shard1_sts.spec.template.spec.containers
+            assert len(containers) == 2
+            assert containers[0].name == "mongodb-enterprise-database"
+            assert containers[1].name == "sharded-cluster-sidecar"
+
+            containers = shard0_sts.spec.template.spec.containers
+            assert len(containers) == 2
+            assert containers[0].name == "mongodb-enterprise-database"
+            assert containers[1].name == "sharded-cluster-sidecar-override"
+            resources = containers[1].resources
+
+        assert resources.limits["cpu"] == "1"
+        assert resources.requests["cpu"] == "500m"
