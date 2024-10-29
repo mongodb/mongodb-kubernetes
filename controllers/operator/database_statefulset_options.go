@@ -3,6 +3,7 @@ package operator
 import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 )
@@ -89,5 +90,11 @@ func WithAdditionalMongodConfig(additionalMongodConfig *mdbv1.AdditionalMongodCo
 func WithAgentVersion(agentVersion string) func(options *construct.DatabaseStatefulSetOptions) {
 	return func(options *construct.DatabaseStatefulSetOptions) {
 		options.AutomationAgentVersion = agentVersion
+	}
+}
+
+func WithDefaultConfigSrvStorageSize() func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.PodSpec.Default.Persistence.SingleConfig.Storage = util.DefaultConfigSrvStorageSize
 	}
 }

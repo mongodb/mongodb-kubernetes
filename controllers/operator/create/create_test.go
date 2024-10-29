@@ -568,16 +568,29 @@ func createShardSpecAndDefaultCluster(client kubernetesClient.Client, sc *mdbv1.
 	return shardSpec, multicluster.GetLegacyCentralMemberCluster(sc.Spec.MongodsPerShardCount, 0, client, secrets.SecretClient{KubeClient: client})
 }
 
+func createMongosSpec(sc *mdbv1.MongoDB) *mdbv1.ShardedClusterComponentSpec {
+	shardSpec := sc.Spec.ConfigSrvSpec.DeepCopy()
+	shardSpec.ClusterSpecList = mdbv1.ClusterSpecList{
+		{
+			ClusterName: multicluster.LegacyCentralClusterName,
+			Members:     sc.Spec.MongodsPerShardCount,
+		},
+	}
+
+	return shardSpec
+}
+
 func createShardSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDB, log *zap.SugaredLogger, kubeClient kubernetesClient.Client) {
 	shardSpec, memberCluster := createShardSpecAndDefaultCluster(kubeClient, mdb)
-	sts := construct.DatabaseStatefulSet(*mdb, construct.ShardOptions(1, shardSpec, memberCluster, construct.GetPodEnvOptions()), log)
-	err := DatabaseInKubernetes(ctx, kubeClient, *mdb, sts, construct.ShardOptions(1, shardSpec, memberCluster), log)
+	sts := construct.DatabaseStatefulSet(*mdb, construct.ShardOptions(1, shardSpec, memberCluster.Name, construct.GetPodEnvOptions()), log)
+	err := DatabaseInKubernetes(ctx, kubeClient, *mdb, sts, construct.ShardOptions(1, shardSpec, memberCluster.Name), log)
 	assert.NoError(t, err)
 }
 
 func createMongosSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDB, log *zap.SugaredLogger, kubeClient kubernetesClient.Client) {
-	sts := construct.DatabaseStatefulSet(*mdb, construct.MongosOptions(construct.GetPodEnvOptions()), log)
-	err := DatabaseInKubernetes(ctx, kubeClient, *mdb, sts, construct.MongosOptions(), log)
+	mongosSpec := createMongosSpec(mdb)
+	sts := construct.DatabaseStatefulSet(*mdb, construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName, construct.GetPodEnvOptions()), log)
+	err := DatabaseInKubernetes(ctx, kubeClient, *mdb, sts, construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName), log)
 	assert.NoError(t, err)
 }
 

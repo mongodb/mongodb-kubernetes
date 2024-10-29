@@ -269,9 +269,9 @@ func (r *ShardedClusterReconcileHelper) getConfigSrvClusterSpecList() mdbv1.Clus
 // prepareDesiredShardsConfiguration calculates full expected configuration of sharded cluster spec resource.
 // It returns map of each shard (by index) with its configuration over all clusters and applying all pods spec overrides.
 // In other words, this function is rendering final configuration of each shard over all member clusters applying all override logic.
-// The reconciler implementation should refer to this structure only without taking into consideration complexities of MongoDbSpec wrt to sharded clusters.
-func (r *ShardedClusterReconcileHelper) prepareDesiredShardsConfiguration(spec *mdbv1.MongoDbSpec) map[int]*mdbv1.ShardedClusterComponentSpec {
-	spec = spec.DeepCopy()
+// The reconciler implementation should refer to this structure only without taking into consideration complexities of MongoDbSpec wrt sharded clusters.
+func (r *ShardedClusterReconcileHelper) prepareDesiredShardsConfiguration() map[int]*mdbv1.ShardedClusterComponentSpec {
+	spec := r.sc.Spec.DeepCopy()
 	// We initialize ClusterSpecList to contain a single legacy cluster in case of SingleCluster mode.
 	if spec.ShardSpec == nil {
 		spec.ShardSpec = &mdbv1.ShardedClusterComponentSpec{}
@@ -287,7 +287,8 @@ func (r *ShardedClusterReconcileHelper) prepareDesiredShardsConfiguration(spec *
 
 	for shardIdx := 0; shardIdx < max(spec.ShardCount, r.deploymentState.Status.MongodbShardedClusterSizeConfig.ShardCount); shardIdx++ {
 		topLevelPersistenceOverride, topLevelPodSpecOverride := getShardTopLevelOverrides(spec, shardIdx)
-		shardComponentSpec := processShardClusterSpecLists(spec, topLevelPersistenceOverride, topLevelPodSpecOverride)
+		shardComponentSpec := *spec.ShardSpec.DeepCopy()
+		shardComponentSpec.ClusterSpecList = processClusterSpecList(shardComponentSpec.ClusterSpecList, topLevelPodSpecOverride, topLevelPersistenceOverride)
 		shardComponentSpecs[shardIdx] = &shardComponentSpec
 	}
 
@@ -304,22 +305,14 @@ func (r *ShardedClusterReconcileHelper) prepareDesiredShardsConfiguration(spec *
 }
 
 func getShardTopLevelOverrides(spec *mdbv1.MongoDbSpec, shardIdx int) (*mdbv1.Persistence, *corev1.PodTemplateSpec) {
-	// all shards level sts overrides
-	var topLevelPodSpecOverride *corev1.PodTemplateSpec
-	var topLevelPersistenceOverride *mdbv1.Persistence
-	if spec.ShardPodSpec != nil {
-		if spec.ShardPodSpec.PodTemplateWrapper.PodTemplate != nil {
-			topLevelPodSpecOverride = spec.ShardPodSpec.PodTemplateWrapper.PodTemplate.DeepCopy()
-		}
-		if spec.ShardPodSpec.Persistence != nil {
-			topLevelPersistenceOverride = spec.ShardPodSpec.Persistence.DeepCopy()
-		}
-	}
+	topLevelPodSpecOverride, topLevelPersistenceOverride := extractOverridesFromPodSpec(spec.ShardPodSpec)
+
 	// specific shard level sts and persistence override
 	if shardIdx < len(spec.ShardSpecificPodSpec) {
 		shardSpecificPodSpec := spec.ShardSpecificPodSpec[shardIdx]
 		if shardSpecificPodSpec.PodTemplateWrapper.PodTemplate != nil {
-			// in single-cluster the override wasn't merging those specs; we keep the same behavior for backwards compatibility
+			// We replace the override instead of merging it, because in single-cluster the override wasn't merging
+			// those specs; we keep the same behavior for backwards compatibility
 			topLevelPodSpecOverride = shardSpecificPodSpec.PodTemplateWrapper.PodTemplate.DeepCopy()
 		}
 		// ShardSpecificPodSpec applies to both template and persistence
@@ -328,36 +321,6 @@ func getShardTopLevelOverrides(spec *mdbv1.MongoDbSpec, shardIdx int) (*mdbv1.Pe
 		}
 	}
 	return topLevelPersistenceOverride, topLevelPodSpecOverride
-}
-
-func processShardClusterSpecLists(spec *mdbv1.MongoDbSpec, topLevelPersistenceOverride *mdbv1.Persistence, topLevelPodSpecOverride *corev1.PodTemplateSpec) mdbv1.ShardedClusterComponentSpec {
-	shardComponentSpec := *spec.ShardSpec.DeepCopy()
-
-	shardSpecClusterSpecList := spec.ShardSpec.ClusterSpecList.DeepCopy()
-	for i := 0; i < len(shardSpecClusterSpecList); i++ {
-		// we will store final sts overrides for each cluster in clusterSpecItem.StatefulSetOverride
-		// therefore we initialize it here and merge into it in case there is anything to override in the first place
-		// in case higher level overrides are empty, we just use whatever is specified in clusterSpecItem (maybe nothing as well)
-		if topLevelPodSpecOverride != nil {
-			if shardSpecClusterSpecList[i].StatefulSetConfiguration == nil {
-				shardSpecClusterSpecList[i].StatefulSetConfiguration = &mdbcv1.StatefulSetConfiguration{}
-			}
-			shardSpecClusterSpecList[i].StatefulSetConfiguration.SpecWrapper.Spec.Template = merge.PodTemplateSpecs(*topLevelPodSpecOverride.DeepCopy(), shardSpecClusterSpecList[i].StatefulSetConfiguration.SpecWrapper.Spec.Template)
-		}
-
-		if shardSpecClusterSpecList[i].PodSpec == nil {
-			shardSpecClusterSpecList[i].PodSpec = &mdbv1.MongoDbPodSpec{}
-		}
-		if topLevelPersistenceOverride != nil {
-			if shardSpecClusterSpecList[i].PodSpec.Persistence == nil {
-				shardSpecClusterSpecList[i].PodSpec.Persistence = topLevelPersistenceOverride.DeepCopy()
-			}
-		}
-	}
-
-	shardComponentSpec.ClusterSpecList = shardSpecClusterSpecList
-
-	return shardComponentSpec
 }
 
 func mergeOverrideClusterSpecList(shardOverride mdbv1.ShardOverride, defaultShardConfiguration *mdbv1.ShardedClusterComponentSpec, topLevelPodSpecOverride *corev1.PodTemplateSpec, topLevelPersistenceOverride *mdbv1.Persistence) *mdbv1.ShardedClusterComponentSpec {
@@ -483,6 +446,87 @@ func processShardOverride(spec *mdbv1.MongoDbSpec, shardOverride mdbv1.ShardOver
 	}
 }
 
+func extractOverridesFromPodSpec(podSpec *mdbv1.MongoDbPodSpec) (*corev1.PodTemplateSpec, *mdbv1.Persistence) {
+	var podTemplateOverride *corev1.PodTemplateSpec
+	var persistenceOverride *mdbv1.Persistence
+	if podSpec != nil {
+		if podSpec.PodTemplateWrapper.PodTemplate != nil {
+			podTemplateOverride = podSpec.PodTemplateWrapper.PodTemplate
+		}
+		if podSpec.Persistence != nil {
+			persistenceOverride = podSpec.Persistence
+		}
+	}
+	return podTemplateOverride, persistenceOverride
+}
+
+// prepareDesiredMongosConfiguration calculates full expected configuration of mongos resource.
+// It returns a configuration for all clusters and applying all pods spec overrides.
+// In other words, this function is rendering final configuration for the mongos over all member clusters applying all override logic.
+// The reconciler implementation should refer to this structure only without taking into consideration complexities of MongoDbSpec wrt mongos.
+// We share the same logic and data structures used for Config Server, although some fields are not relevant for mongos
+// e.g MemberConfig. They will simply be ignored when the database is constructed
+func (r *ShardedClusterReconcileHelper) prepareDesiredMongosConfiguration() *mdbv1.ShardedClusterComponentSpec {
+	// We initialize ClusterSpecList to contain a single legacy cluster in case of SingleCluster mode.
+	spec := r.sc.Spec.DeepCopy()
+	if spec.MongosSpec == nil {
+		spec.MongosSpec = &mdbv1.ShardedClusterComponentSpec{}
+	}
+	spec.MongosSpec.ClusterSpecList = r.getMongosClusterSpecList()
+	topLevelPodSpecOverride, topLevelPersistenceOverride := extractOverridesFromPodSpec(spec.MongosPodSpec)
+	mongosComponentSpec := spec.MongosSpec.DeepCopy()
+	mongosComponentSpec.ClusterSpecList = processClusterSpecList(mongosComponentSpec.ClusterSpecList, topLevelPodSpecOverride, topLevelPersistenceOverride)
+	return mongosComponentSpec
+}
+
+// prepareDesiredConfigServerConfiguration works the same way as prepareDesiredMongosConfiguration, but for config server
+func (r *ShardedClusterReconcileHelper) prepareDesiredConfigServerConfiguration() *mdbv1.ShardedClusterComponentSpec {
+	// We initialize ClusterSpecList to contain a single legacy cluster in case of SingleCluster mode.
+	spec := r.sc.Spec.DeepCopy()
+	if spec.ConfigSrvSpec == nil {
+		spec.ConfigSrvSpec = &mdbv1.ShardedClusterComponentSpec{}
+	}
+	spec.ConfigSrvSpec.ClusterSpecList = r.getConfigSrvClusterSpecList()
+	topLevelPodSpecOverride, topLevelPersistenceOverride := extractOverridesFromPodSpec(spec.ConfigSrvPodSpec)
+	configSrvComponentSpec := spec.ConfigSrvSpec.DeepCopy()
+	configSrvComponentSpec.ClusterSpecList = processClusterSpecList(configSrvComponentSpec.ClusterSpecList, topLevelPodSpecOverride, topLevelPersistenceOverride)
+	return configSrvComponentSpec
+}
+
+// processClusterSpecList is a function shared by prepare desired configuration functions for shards, mongos and config servers
+// it iterates through currently defined clusterSpecLists and set the correct STS configurations and persistence values,
+// depending on top level overrides
+func processClusterSpecList(
+	clusterSpecList []mdbv1.ClusterSpecItem,
+	topLevelPodSpecOverride *corev1.PodTemplateSpec,
+	topLevelPersistenceOverride *mdbv1.Persistence,
+) []mdbv1.ClusterSpecItem {
+	for i := range clusterSpecList {
+		// we will store final sts overrides for each cluster in clusterSpecItem.StatefulSetOverride
+		// therefore we initialize it here and merge into it in case there is anything to override in the first place
+		// in case higher level overrides are empty, we just use whatever is specified in clusterSpecItem (maybe nothing as well)
+		if topLevelPodSpecOverride != nil {
+			if clusterSpecList[i].StatefulSetConfiguration == nil {
+				clusterSpecList[i].StatefulSetConfiguration = &mdbcv1.StatefulSetConfiguration{}
+			}
+			clusterSpecList[i].StatefulSetConfiguration.SpecWrapper.Spec.Template = merge.PodTemplateSpecs(*topLevelPodSpecOverride.DeepCopy(), clusterSpecList[i].StatefulSetConfiguration.SpecWrapper.Spec.Template)
+		}
+		if clusterSpecList[i].PodSpec == nil {
+			clusterSpecList[i].PodSpec = &mdbv1.MongoDbPodSpec{}
+		}
+		if topLevelPersistenceOverride != nil {
+			if clusterSpecList[i].PodSpec.Persistence == nil {
+				clusterSpecList[i].PodSpec.Persistence = topLevelPersistenceOverride.DeepCopy()
+			}
+		}
+		// Explicitly set PodTemplate field to nil, as the pod template configuration is stored in StatefulSetConfiguration
+		// in the processed ShardedClusterComponentSpec structures.
+		// PodSpec should only be used for Persistence
+		clusterSpecList[i].PodSpec.PodTemplateWrapper.PodTemplate = nil
+	}
+	return clusterSpecList
+}
+
 type ShardedClusterReconcileHelper struct {
 	commonController       *ReconcileCommonController
 	omConnectionFactory    om.ConnectionFactory
@@ -491,8 +535,10 @@ type ShardedClusterReconcileHelper struct {
 	// sc is the resource being reconciled
 	sc *mdbv1.MongoDB
 
-	// desiredShardsConfiguration contains the target state - it reflects applying all the override rules to render the final, desired shards configuration
-	desiredShardsConfiguration map[int]*mdbv1.ShardedClusterComponentSpec
+	// desired Configurations structs contain the target state - they reflect applying all the override rules to render the final, desired configuration
+	desiredShardsConfiguration       map[int]*mdbv1.ShardedClusterComponentSpec
+	desiredConfigServerConfiguration *mdbv1.ShardedClusterComponentSpec
+	desiredMongosConfiguration       *mdbv1.ShardedClusterComponentSpec
 
 	// all member clusters here contain the number of members set to the current state read from deployment state
 	shardsMemberClustersMap map[int][]multicluster.MemberCluster
@@ -521,7 +567,9 @@ func NewShardedClusterReconcilerHelper(ctx context.Context, reconciler *Reconcil
 		return nil, xerrors.Errorf("failed to initialize sharded cluster state store: %w", err)
 	}
 
-	helper.desiredShardsConfiguration = helper.prepareDesiredShardsConfiguration(&sc.Spec)
+	helper.desiredShardsConfiguration = helper.prepareDesiredShardsConfiguration()
+	helper.desiredConfigServerConfiguration = helper.prepareDesiredConfigServerConfiguration()
+	helper.desiredMongosConfiguration = helper.prepareDesiredMongosConfiguration()
 
 	if err := helper.initializeMemberClusters(globalMemberClustersMap, log); err != nil {
 		return nil, xerrors.Errorf("failed to initialize sharded cluster controller: %w", err)
@@ -945,10 +993,10 @@ func (r *ShardedClusterReconcileHelper) getAllConfigs(ctx context.Context, sc md
 		}
 	}
 	for _, memberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
-		allConfigs = append(allConfigs, r.getConfigServerOptions(ctx, sc, opts, log, memberCluster))
+		allConfigs = append(allConfigs, r.getConfigServerOptions(ctx, sc, opts, log, r.desiredConfigServerConfiguration, memberCluster))
 	}
 	for _, memberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
-		allConfigs = append(allConfigs, r.getMongosOptions(ctx, sc, opts, log, memberCluster))
+		allConfigs = append(allConfigs, r.getMongosOptions(ctx, sc, opts, log, r.desiredMongosConfiguration, memberCluster))
 	}
 	return allConfigs
 }
@@ -1073,7 +1121,7 @@ func (r *ShardedClusterReconcileHelper) createKubernetesResources(ctx context.Co
 func (r *ShardedClusterReconcileHelper) createOrUpdateMongos(ctx context.Context, s *mdbv1.MongoDB, opts deploymentOptions, log *zap.SugaredLogger) workflow.Status {
 	// we deploy changes to sts to all mongos in all clusters
 	for _, memberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
-		mongosOpts := r.getMongosOptions(ctx, *s, opts, log, memberCluster)
+		mongosOpts := r.getMongosOptions(ctx, *s, opts, log, r.desiredMongosConfiguration, memberCluster)
 		mongosSts := construct.DatabaseStatefulSet(*s, mongosOpts, log)
 		if err := create.DatabaseInKubernetes(ctx, memberCluster.Client, *s, mongosSts, mongosOpts, log); err != nil {
 			return workflow.Failed(xerrors.Errorf("Failed to create Mongos Stateful Set: %w", err))
@@ -1143,7 +1191,7 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateConfigServers(ctx context.
 	// for ScalingFirstTime, which is iterating over all member clusters internally anyway
 	configSrvScalingFirstTime := r.getConfigSrvScaler(r.configSrvMemberClusters[0]).(*scalers.MultiClusterReplicaSetScaler).ScalingFirstTime()
 	for _, memberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
-		configSrvOpts := r.getConfigServerOptions(ctx, *s, opts, log, memberCluster)
+		configSrvOpts := r.getConfigServerOptions(ctx, *s, opts, log, r.desiredConfigServerConfiguration, memberCluster)
 		configSrvSts := construct.DatabaseStatefulSet(*s, configSrvOpts, log)
 
 		if workflowStatus := r.handlePVCResize(ctx, memberCluster, &configSrvSts, log); !workflowStatus.IsOK() {
@@ -1538,7 +1586,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 	// Mongos
 	var mongosProcesses []om.Process
 	mongosMemberCluster := r.mongosMemberClusters[0]
-	mongosOptionsFunc := r.getMongosOptions(ctx, *sc, *opts, log, mongosMemberCluster)
+	mongosOptionsFunc := r.getMongosOptions(ctx, *sc, *opts, log, r.desiredMongosConfiguration, mongosMemberCluster)
 	mongosOptions := mongosOptionsFunc(*r.sc)
 	mongosInternalClusterPath := fmt.Sprintf("%s/%s", util.InternalClusterAuthMountPath, mongosOptions.InternalClusterHash)
 	mongosMemberCertPath := fmt.Sprintf("%s/%s", util.TLSCertMountPath, mongosOptions.CertificateHash)
@@ -1549,7 +1597,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 
 	// Config server
 	configSrvMemberCluster := r.configSrvMemberClusters[0]
-	configSrvOptionsFunc := r.getConfigServerOptions(ctx, *sc, *opts, log, configSrvMemberCluster)
+	configSrvOptionsFunc := r.getConfigServerOptions(ctx, *sc, *opts, log, r.desiredConfigServerConfiguration, configSrvMemberCluster)
 	configSrvOptions := configSrvOptionsFunc(*r.sc)
 
 	configSrvInternalClusterPath := fmt.Sprintf("%s/%s", util.InternalClusterAuthMountPath, configSrvOptions.InternalClusterHash)
@@ -1876,7 +1924,7 @@ func buildReplicaSetFromProcesses(name string, members []om.Process, mdb *mdbv1.
 }
 
 // getConfigServerOptions returns the Options needed to build the StatefulSet for the config server.
-func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Context, sc mdbv1.MongoDB, opts deploymentOptions, log *zap.SugaredLogger, memberCluster multicluster.MemberCluster) func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
+func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Context, sc mdbv1.MongoDB, opts deploymentOptions, log *zap.SugaredLogger, configSrvSpec *mdbv1.ShardedClusterComponentSpec, memberCluster multicluster.MemberCluster) func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
 	certSecretName := sc.GetSecurity().MemberCertificateSecretName(sc.ConfigRsName())
 	internalClusterSecretName := sc.GetSecurity().InternalClusterAuthSecretName(sc.ConfigRsName())
 
@@ -1888,6 +1936,8 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 	}
 
 	return construct.ConfigServerOptions(
+		configSrvSpec,
+		memberCluster.Name,
 		Replicas(scale.ReplicasThisReconciliation(r.getConfigSrvScaler(memberCluster))),
 		StatefulSetNameOverride(r.GetConfigSrvStsName(memberCluster)),
 		ServiceName(r.GetConfigSrvServiceName(memberCluster)),
@@ -1897,13 +1947,14 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 		InternalClusterHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, internalClusterSecretName, databaseSecretPath, log)),
 		PrometheusTLSCertHash(opts.prometheusCertHash),
 		WithVaultConfig(vaultConfig),
-		WithAdditionalMongodConfig(sc.Spec.ConfigSrvSpec.GetAdditionalMongodConfig()),
+		WithAdditionalMongodConfig(configSrvSpec.GetAdditionalMongodConfig()),
 		WithAgentVersion(r.automationAgentVersion),
+		WithDefaultConfigSrvStorageSize(),
 	)
 }
 
 // getMongosOptions returns the Options needed to build the StatefulSet for the mongos.
-func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc mdbv1.MongoDB, opts deploymentOptions, log *zap.SugaredLogger, memberCluster multicluster.MemberCluster) func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
+func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc mdbv1.MongoDB, opts deploymentOptions, log *zap.SugaredLogger, mongosSpec *mdbv1.ShardedClusterComponentSpec, memberCluster multicluster.MemberCluster) func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
 	certSecretName := sc.GetSecurity().MemberCertificateSecretName(sc.MongosRsName())
 	internalClusterSecretName := sc.GetSecurity().InternalClusterAuthSecretName(sc.MongosRsName())
 
@@ -1913,6 +1964,8 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 	}
 
 	return construct.MongosOptions(
+		mongosSpec,
+		memberCluster.Name,
 		Replicas(scale.ReplicasThisReconciliation(r.getMongosScaler(memberCluster))),
 		StatefulSetNameOverride(r.GetMongosStsName(memberCluster)),
 		PodEnvVars(opts.podEnvVars),
@@ -1938,7 +1991,7 @@ func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc 
 		databaseSecretPath = r.commonController.VaultClient.DatabaseSecretPath()
 	}
 
-	return construct.ShardOptions(shardNum, r.desiredShardsConfiguration[shardNum], memberCluster,
+	return construct.ShardOptions(shardNum, r.desiredShardsConfiguration[shardNum], memberCluster.Name,
 		Replicas(scale.ReplicasThisReconciliation(r.getShardScaler(shardNum, memberCluster))),
 		StatefulSetNameOverride(r.GetShardStsName(shardNum, memberCluster)),
 		PodEnvVars(opts.podEnvVars),

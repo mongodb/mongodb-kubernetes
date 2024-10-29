@@ -482,9 +482,9 @@ func TestPrepareScaleDownShardedCluster_ShardsUpMongodsDown(t *testing.T) {
 
 func TestConstructConfigSrv(t *testing.T) {
 	sc := DefaultClusterBuilder().Build()
-
+	configSrvSpec := createConfigSrvSpec(sc)
 	assert.NotPanics(t, func() {
-		construct.DatabaseStatefulSet(*sc, construct.ConfigServerOptions(construct.GetPodEnvOptions()), zap.S())
+		construct.DatabaseStatefulSet(*sc, construct.ConfigServerOptions(configSrvSpec, multicluster.LegacyCentralClusterName, construct.GetPodEnvOptions()), zap.S())
 	})
 }
 
@@ -588,8 +588,8 @@ func TestPodAntiaffinity_MongodsInsideShardAreSpread(t *testing.T) {
 
 	kubeClient, _ := mock.NewDefaultFakeClient(sc)
 	shardSpec, memberCluster := createShardSpecAndDefaultCluster(kubeClient, sc)
-	firstShardSet := construct.DatabaseStatefulSet(*sc, construct.ShardOptions(0, shardSpec, memberCluster, construct.GetPodEnvOptions()), zap.S())
-	secondShardSet := construct.DatabaseStatefulSet(*sc, construct.ShardOptions(1, shardSpec, memberCluster, construct.GetPodEnvOptions()), zap.S())
+	firstShardSet := construct.DatabaseStatefulSet(*sc, construct.ShardOptions(0, shardSpec, memberCluster.Name, construct.GetPodEnvOptions()), zap.S())
+	secondShardSet := construct.DatabaseStatefulSet(*sc, construct.ShardOptions(1, shardSpec, memberCluster.Name, construct.GetPodEnvOptions()), zap.S())
 
 	assert.Equal(t, sc.ShardRsName(0), firstShardSet.Spec.Selector.MatchLabels[construct.PodAntiAffinityLabelKey])
 	assert.Equal(t, sc.ShardRsName(1), secondShardSet.Spec.Selector.MatchLabels[construct.PodAntiAffinityLabelKey])
@@ -611,6 +611,30 @@ func createShardSpecAndDefaultCluster(client kubernetesClient.Client, sc *mdbv1.
 	}
 
 	return shardSpec, multicluster.GetLegacyCentralMemberCluster(sc.Spec.MongodsPerShardCount, 0, client, secrets.SecretClient{KubeClient: client})
+}
+
+func createConfigSrvSpec(sc *mdbv1.MongoDB) *mdbv1.ShardedClusterComponentSpec {
+	shardSpec := sc.Spec.ConfigSrvSpec.DeepCopy()
+	shardSpec.ClusterSpecList = mdbv1.ClusterSpecList{
+		{
+			ClusterName: multicluster.LegacyCentralClusterName,
+			Members:     sc.Spec.MongodsPerShardCount,
+		},
+	}
+
+	return shardSpec
+}
+
+func createMongosSpec(sc *mdbv1.MongoDB) *mdbv1.ShardedClusterComponentSpec {
+	shardSpec := sc.Spec.ConfigSrvSpec.DeepCopy()
+	shardSpec.ClusterSpecList = mdbv1.ClusterSpecList{
+		{
+			ClusterName: multicluster.LegacyCentralClusterName,
+			Members:     sc.Spec.MongodsPerShardCount,
+		},
+	}
+
+	return shardSpec
 }
 
 func TestShardedCluster_WithTLSEnabled_AndX509Enabled_Succeeds(t *testing.T) {
@@ -1447,32 +1471,38 @@ func createMongosProcesses(set appsv1.StatefulSet, mdb *mdbv1.MongoDB, certifica
 func createDeploymentFromShardedCluster(t *testing.T, updatable v1.CustomResourceReadWriter) om.Deployment {
 	sh := updatable.(*mdbv1.MongoDB)
 
-	mongosOptions := construct.MongosOptions(
-		Replicas(sh.Spec.MongosCount),
-		construct.GetPodEnvOptions(),
-	)
-	mongosSts := construct.DatabaseStatefulSet(*sh, mongosOptions, zap.S())
-	mongosProcesses := createMongosProcesses(mongosSts, sh, util.PEMKeyFilePathInContainer)
-	configServerOptions := construct.ConfigServerOptions(
-		Replicas(sh.Spec.ConfigServerCount),
-		construct.GetPodEnvOptions(),
-	)
-	configSvrSts := construct.DatabaseStatefulSet(*sh, configServerOptions, zap.S())
-
-	configRs := buildReplicaSetFromProcesses(configSvrSts.Name, createConfigSrvProcesses(configSvrSts, sh, ""), sh, sh.Spec.GetMemberOptions())
 	shards := make([]om.ReplicaSetWithProcesses, sh.Spec.ShardCount)
-
 	kubeClient, _ := mock.NewDefaultFakeClient(sh)
 	shardSpec, memberCluster := createShardSpecAndDefaultCluster(kubeClient, sh)
 
 	for i := 0; i < sh.Spec.ShardCount; i++ {
-		shardOptions := construct.ShardOptions(i, shardSpec, memberCluster,
+		shardOptions := construct.ShardOptions(i, shardSpec, memberCluster.Name,
 			Replicas(sh.Spec.MongodsPerShardCount),
 			construct.GetPodEnvOptions(),
 		)
 		shardSts := construct.DatabaseStatefulSet(*sh, shardOptions, zap.S())
 		shards[i] = buildReplicaSetFromProcesses(shardSts.Name, createShardProcesses(shardSts, sh, ""), sh, sh.Spec.GetMemberOptions())
 	}
+
+	desiredMongosConfig := createMongosSpec(sh)
+	mongosOptions := construct.MongosOptions(
+		desiredMongosConfig,
+		memberCluster.Name,
+		Replicas(sh.Spec.MongosCount),
+		construct.GetPodEnvOptions(),
+	)
+	mongosSts := construct.DatabaseStatefulSet(*sh, mongosOptions, zap.S())
+	mongosProcesses := createMongosProcesses(mongosSts, sh, util.PEMKeyFilePathInContainer)
+
+	desiredConfigSrvConfig := createConfigSrvSpec(sh)
+	configServerOptions := construct.ConfigServerOptions(
+		desiredConfigSrvConfig,
+		memberCluster.Name,
+		Replicas(sh.Spec.ConfigServerCount),
+		construct.GetPodEnvOptions(),
+	)
+	configSvrSts := construct.DatabaseStatefulSet(*sh, configServerOptions, zap.S())
+	configRs := buildReplicaSetFromProcesses(configSvrSts.Name, createConfigSrvProcesses(configSvrSts, sh, ""), sh, sh.Spec.GetMemberOptions())
 
 	d := om.NewDeployment()
 	_, err := d.MergeShardedCluster(om.DeploymentShardedClusterMergeOptions{

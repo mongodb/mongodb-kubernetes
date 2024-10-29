@@ -64,6 +64,30 @@ func createShardSpecAndDefaultCluster(client kubernetesClient.Client, sc *mdbv1.
 	return shardSpec, multicluster.GetLegacyCentralMemberCluster(sc.Spec.MongodsPerShardCount, 0, client, secrets.SecretClient{KubeClient: client})
 }
 
+func createConfigSrvSpec(sc *mdbv1.MongoDB) *mdbv1.ShardedClusterComponentSpec {
+	shardSpec := sc.Spec.ConfigSrvSpec.DeepCopy()
+	shardSpec.ClusterSpecList = mdbv1.ClusterSpecList{
+		{
+			ClusterName: multicluster.LegacyCentralClusterName,
+			Members:     sc.Spec.MongodsPerShardCount,
+		},
+	}
+
+	return shardSpec
+}
+
+func createMongosSpec(sc *mdbv1.MongoDB) *mdbv1.ShardedClusterComponentSpec {
+	shardSpec := sc.Spec.ConfigSrvSpec.DeepCopy()
+	shardSpec.ClusterSpecList = mdbv1.ClusterSpecList{
+		{
+			ClusterName: multicluster.LegacyCentralClusterName,
+			Members:     sc.Spec.MongodsPerShardCount,
+		},
+	}
+
+	return shardSpec
+}
+
 func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
 	// NonStaticDatabaseEnterpriseImage is filled in static container
 	t.Run("Empty Agent Image", func(t *testing.T) {
@@ -80,15 +104,17 @@ func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
 
 		kubeClient, _ := mock.NewDefaultFakeClient(sc)
 		shardSpec, memberCluster := createShardSpecAndDefaultCluster(kubeClient, sc)
+		configServerSpec := createConfigSrvSpec(sc)
+		mongosSpec := createMongosSpec(sc)
 
 		assert.Panics(t, func() {
-			DatabaseStatefulSet(*sc, ShardOptions(0, shardSpec, memberCluster), zap.S())
+			DatabaseStatefulSet(*sc, ShardOptions(0, shardSpec, memberCluster.Name), zap.S())
 		})
 		assert.Panics(t, func() {
-			DatabaseStatefulSet(*sc, ConfigServerOptions(), zap.S())
+			DatabaseStatefulSet(*sc, ConfigServerOptions(configServerSpec, memberCluster.Name), zap.S())
 		})
 		assert.Panics(t, func() {
-			DatabaseStatefulSet(*sc, MongosOptions(), zap.S())
+			DatabaseStatefulSet(*sc, MongosOptions(mongosSpec, memberCluster.Name), zap.S())
 		})
 	})
 }
@@ -100,14 +126,16 @@ func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSetStatic(t *testing.T) {
 		sc := mdbv1.NewClusterBuilder().Build()
 		kubeClient, _ := mock.NewDefaultFakeClient(sc)
 		shardSpec, memberCluster := createShardSpecAndDefaultCluster(kubeClient, sc)
+		configServerSpec := createConfigSrvSpec(sc)
+		mongosSpec := createMongosSpec(sc)
 		assert.Panics(t, func() {
-			DatabaseStatefulSet(*sc, ShardOptions(0, shardSpec, memberCluster), zap.S())
+			DatabaseStatefulSet(*sc, ShardOptions(0, shardSpec, memberCluster.Name), zap.S())
 		})
 		assert.Panics(t, func() {
-			DatabaseStatefulSet(*sc, ConfigServerOptions(), zap.S())
+			DatabaseStatefulSet(*sc, ConfigServerOptions(configServerSpec, memberCluster.Name), zap.S())
 		})
 		assert.Panics(t, func() {
-			DatabaseStatefulSet(*sc, MongosOptions(), zap.S())
+			DatabaseStatefulSet(*sc, MongosOptions(mongosSpec, memberCluster.Name), zap.S())
 		})
 	})
 }

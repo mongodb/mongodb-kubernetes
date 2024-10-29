@@ -1,0 +1,25 @@
+agent:
+  startupOptions:
+    dialTimeoutSeconds: "40"
+additionalMongodConfig:
+  operationProfiling:
+    mode: slowOp
+    slowOpThresholdMs: 100
+clusterSpecList:
+  - clusterName: __default
+    members: 2
+    podSpec:
+      persistence:
+        single:
+          storage: 10G
+
+    statefulSet:
+      spec:
+        template:
+          spec:
+            containers:
+              - name: mongodb-enterprise-database
+                resources:
+                  requests:
+                    cpu: 2.3
+                    memory: 2.3G
