@@ -678,6 +678,7 @@ task_groups:
     - e2e_multi_cluster_sharded_tls
     - e2e_sharded_cluster
     - e2e_sharded_cluster_agent_flags
+    - e2e_sharded_cluster_custom_podspec
   <<: *teardown_group
 
 - name: e2e_multi_cluster_2_clusters_task_group

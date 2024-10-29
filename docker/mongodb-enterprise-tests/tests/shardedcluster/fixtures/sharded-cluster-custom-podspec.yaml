@@ -2,7 +2,7 @@
 apiVersion: mongodb.com/v1
 kind: MongoDB
 metadata:
-  name: my-sharded-cluster-custom-podspec
+  name: sh001-custom-podspec
 spec:
   shardCount: 3
   mongodsPerShardCount: 1
