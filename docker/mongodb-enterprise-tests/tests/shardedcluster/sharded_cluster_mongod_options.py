@@ -1,5 +1,5 @@
-from kubernetes import client
-from kubetester.kubetester import KubernetesTester
+from kubetester import try_load
+from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.operator import Operator
@@ -7,35 +7,51 @@ from pytest import fixture, mark
 from tests.conftest import (
     assert_log_rotation_backup_monitoring,
     assert_log_rotation_process,
+    is_multi_cluster,
     setup_log_rotate_for_agents,
 )
+from tests.shardedcluster.conftest import enable_multi_cluster_deployment
 
 
-@fixture(scope="module")
-def sharded_cluster(namespace: str) -> MongoDB:
+@fixture(scope="function")
+def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("sharded-cluster-mongod-options.yaml"),
         namespace=namespace,
     )
 
+    if try_load(resource):
+        return resource
+
+    resource.set_version(ensure_ent_version(custom_mdb_version))
+    resource.set_architecture_annotation()
+
     setup_log_rotate_for_agents(resource)
-    resource.update()
-    return resource
+
+    if is_multi_cluster():
+        enable_multi_cluster_deployment(
+            resource=resource,
+            shard_members_array=[1, 1, 1],
+            mongos_members_array=[1, 1],
+            configsrv_members_array=[1],
+        )
+
+    return resource.update()
 
 
 @mark.e2e_sharded_cluster_mongod_options_and_log_rotation
-def test_install_operator(default_operator: Operator):
-    default_operator.assert_is_running()
+def test_install_operator(operator: Operator):
+    operator.assert_is_running()
 
 
 @mark.e2e_sharded_cluster_mongod_options_and_log_rotation
-def test_sharded_cluster_created(sharded_cluster: MongoDB):
-    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=600)
+def test_sharded_cluster_created(sc: MongoDB):
+    sc.assert_reaches_phase(Phase.Running, timeout=1000)
 
 
 @mark.e2e_sharded_cluster_mongod_options_and_log_rotation
-def test_sharded_cluster_mongodb_options_mongos(sharded_cluster: MongoDB):
-    automation_config_tester = sharded_cluster.get_automation_config_tester()
+def test_sharded_cluster_mongodb_options_mongos(sc: MongoDB):
+    automation_config_tester = sc.get_automation_config_tester()
     for process in automation_config_tester.get_mongos_processes():
         assert process["args2_6"]["systemLog"]["verbosity"] == 4
         assert process["args2_6"]["systemLog"]["logAppend"]
@@ -45,9 +61,10 @@ def test_sharded_cluster_mongodb_options_mongos(sharded_cluster: MongoDB):
 
 
 @mark.e2e_sharded_cluster_mongod_options_and_log_rotation
-def test_sharded_cluster_mongodb_options_config_srv(sharded_cluster: MongoDB):
-    automation_config_tester = sharded_cluster.get_automation_config_tester()
-    for process in automation_config_tester.get_replica_set_processes(sharded_cluster.config_srv_statefulset_name()):
+def test_sharded_cluster_mongodb_options_config_srv(sc: MongoDB):
+    automation_config_tester = sc.get_automation_config_tester()
+    config_srv_replicaset_name = sc.config_srv_replicaset_name()
+    for process in automation_config_tester.get_replica_set_processes(config_srv_replicaset_name):
         assert process["args2_6"]["operationProfiling"]["mode"] == "slowOp"
         assert "verbosity" not in process["args2_6"]["systemLog"]
         assert "logAppend" not in process["args2_6"]["systemLog"]
@@ -56,10 +73,10 @@ def test_sharded_cluster_mongodb_options_config_srv(sharded_cluster: MongoDB):
 
 
 @mark.e2e_sharded_cluster_mongod_options_and_log_rotation
-def test_sharded_cluster_mongodb_options_shards(sharded_cluster: MongoDB):
-    automation_config_tester = sharded_cluster.get_automation_config_tester()
-    for shard_name in sharded_cluster.shards_statefulsets_names():
-        for process in automation_config_tester.get_replica_set_processes(shard_name):
+def test_sharded_cluster_mongodb_options_shards(sc: MongoDB):
+    automation_config_tester = sc.get_automation_config_tester()
+    for shard_replicaset_name in sc.shard_replicaset_names():
+        for process in automation_config_tester.get_replica_set_processes(shard_replicaset_name):
             assert process["args2_6"]["storage"]["journal"]["commitIntervalMs"] == 50
             assert "verbosity" not in process["args2_6"]["systemLog"]
             assert "logAppend" not in process["args2_6"]["systemLog"]
@@ -68,8 +85,8 @@ def test_sharded_cluster_mongodb_options_shards(sharded_cluster: MongoDB):
 
 
 @mark.e2e_sharded_cluster_mongod_options_and_log_rotation
-def test_sharded_cluster_feature_controls(sharded_cluster: MongoDB):
-    fc = sharded_cluster.get_om_tester().get_feature_controls()
+def test_sharded_cluster_feature_controls(sc: MongoDB):
+    fc = sc.get_om_tester().get_feature_controls()
     assert fc["externalManagementSystem"]["name"] == "mongodb-enterprise-operator"
 
     assert len(fc["policies"]) == 3
@@ -90,29 +107,20 @@ def test_sharded_cluster_feature_controls(sharded_cluster: MongoDB):
 
 
 @mark.e2e_sharded_cluster_mongod_options_and_log_rotation
-def test_remove_fields(sharded_cluster: MongoDB):
-    sharded_cluster.load()
-
+def test_remove_fields(sc: MongoDB):
     # delete a field from each component
-    del sharded_cluster["spec"]["mongos"]["additionalMongodConfig"]["systemLog"]["verbosity"]
-    del sharded_cluster["spec"]["shard"]["additionalMongodConfig"]["storage"]["journal"]["commitIntervalMs"]
-    del sharded_cluster["spec"]["configSrv"]["additionalMongodConfig"]["operationProfiling"]["mode"]
+    sc["spec"]["mongos"]["additionalMongodConfig"]["systemLog"]["verbosity"] = None
+    sc["spec"]["shard"]["additionalMongodConfig"]["storage"]["journal"]["commitIntervalMs"] = None
+    sc["spec"]["configSrv"]["additionalMongodConfig"]["operationProfiling"]["mode"] = None
 
-    client.CustomObjectsApi().replace_namespaced_custom_object(
-        sharded_cluster.group,
-        sharded_cluster.version,
-        sharded_cluster.namespace,
-        sharded_cluster.plural,
-        sharded_cluster.name,
-        sharded_cluster.backing_obj,
-    )
+    sc.update()
 
-    sharded_cluster.assert_reaches_phase(Phase.Running)
+    sc.assert_reaches_phase(Phase.Running, timeout=1000)
 
 
 @mark.e2e_sharded_cluster_mongod_options_and_log_rotation
-def test_fields_are_successfully_removed_from_mongos(sharded_cluster: MongoDB):
-    automation_config_tester = sharded_cluster.get_automation_config_tester()
+def test_fields_are_successfully_removed_from_mongos(sc: MongoDB):
+    automation_config_tester = sc.get_automation_config_tester()
     for process in automation_config_tester.get_mongos_processes():
         assert "verbosity" not in process["args2_6"]["systemLog"]
 
@@ -124,9 +132,10 @@ def test_fields_are_successfully_removed_from_mongos(sharded_cluster: MongoDB):
 
 
 @mark.e2e_sharded_cluster_mongod_options_and_log_rotation
-def test_fields_are_successfully_removed_from_config_srv(sharded_cluster: MongoDB):
-    automation_config_tester = sharded_cluster.get_automation_config_tester()
-    for process in automation_config_tester.get_replica_set_processes(sharded_cluster.config_srv_statefulset_name()):
+def test_fields_are_successfully_removed_from_config_srv(sc: MongoDB):
+    automation_config_tester = sc.get_automation_config_tester()
+    config_srv_replicaset_name = sc.config_srv_replicaset_name()
+    for process in automation_config_tester.get_replica_set_processes(config_srv_replicaset_name):
         assert "mode" not in process["args2_6"]["operationProfiling"]
 
         # other fields are still there
@@ -137,10 +146,10 @@ def test_fields_are_successfully_removed_from_config_srv(sharded_cluster: MongoD
 
 
 @mark.e2e_sharded_cluster_mongod_options_and_log_rotation
-def test_fields_are_successfully_removed_from_shards(sharded_cluster: MongoDB):
-    automation_config_tester = sharded_cluster.get_automation_config_tester()
-    for shard_name in sharded_cluster.shards_statefulsets_names():
-        for process in automation_config_tester.get_replica_set_processes(shard_name):
+def test_fields_are_successfully_removed_from_shards(sc: MongoDB):
+    automation_config_tester = sc.get_automation_config_tester()
+    for shard_replicaset_name in sc.shard_replicaset_names():
+        for process in automation_config_tester.get_replica_set_processes(shard_replicaset_name):
             assert "commitIntervalMs" not in process["args2_6"]["storage"]["journal"]
 
             # other fields are still there

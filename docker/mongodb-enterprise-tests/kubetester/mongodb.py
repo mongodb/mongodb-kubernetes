@@ -432,7 +432,7 @@ class MongoDB(CustomObject, MongoDBCommon):
             return self["spec"]["opsManager"]["configMapRef"]["name"]
         return self["spec"]["project"]
 
-    def shards_statefulsets_names(self) -> List[str]:
+    def shard_replicaset_names(self) -> List[str]:
         return ["{}-{}".format(self.name, i) for i in range(1, self["spec"]["shardCount"])]
 
     def shard_statefulset_name(self, shard_idx: int, cluster_idx: Optional[int] = None) -> str:
@@ -475,6 +475,9 @@ class MongoDB(CustomObject, MongoDBCommon):
         if self.is_multicluster():
             return f"{self.name}-config-{cluster_idx}-{member_idx}"
         return f"{self.name}-config-{member_idx}"
+
+    def config_srv_replicaset_name(self) -> str:
+        return f"{self.name}-config"
 
     def config_srv_members_in_cluster(self, cluster_name: str) -> int:
         if self.is_multicluster():
