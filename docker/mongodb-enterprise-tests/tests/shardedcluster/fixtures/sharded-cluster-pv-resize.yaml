@@ -2,7 +2,7 @@
 apiVersion: mongodb.com/v1
 kind: MongoDB
 metadata:
-  name: sh001-pv
+  name: sh001-pv-resize
   labels:
     label1: val1
     label2: val2
