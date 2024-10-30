@@ -157,12 +157,10 @@ run_tests() {
     local operator_context
     local test_pod_context
     operator_context="$(kubectl config current-context)"
-    operator_container_name="mongodb-enterprise-operator"
 
     test_pod_context="${operator_context}"
     if [[ "${KUBE_ENVIRONMENT_NAME}" = "multi" ]]; then
         operator_context="${CENTRAL_CLUSTER}"
-         operator_container_name="mongodb-enterprise-operator-multi-cluster"
         # shellcheck disable=SC2154,SC2269
         test_pod_context="${test_pod_cluster:-$operator_context}"
     fi
@@ -189,14 +187,11 @@ run_tests() {
         kubectl --context "${test_pod_context}" -n "${NAMESPACE}" logs "${TEST_APP_PODNAME}" -c mongodb-enterprise-operator-tests -f
     else
         output_filename="logs/test_app.log"
-        operator_filename="logs/0_operator.log"
 
         # At this time ${TEST_APP_PODNAME} has finished running, so we don't follow (-f) it
         # Similarly, the operator deployment has finished with our tests, so we print whatever we have
         # until this moment and go continue with our lives
         kubectl --context "${test_pod_context}" -n "${NAMESPACE}" logs "${TEST_APP_PODNAME}" -c mongodb-enterprise-operator-tests -f | tee "${output_filename}" || true
-        kubectl --context "${operator_context}" -n "${NAMESPACE}" logs -l app.kubernetes.io/component=controller -c "${operator_container_name}" --tail -1 > "${operator_filename}"
-
     fi
 
 
