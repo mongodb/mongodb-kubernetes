@@ -259,18 +259,25 @@ def cluster_spec_list(
     member_configs: Optional[List[List[Dict]]] = None,
     backup_configs: Optional[List[Dict]] = None,
 ):
+
     if member_configs is None and backup_configs is None:
-        return [{"clusterName": name, "members": members} for (name, members) in zip(member_cluster_names, members)]
+        result = []
+        for name, members in zip(member_cluster_names, members):
+            if members is not None:
+                result.append({"clusterName": name, "members": members})
+        return result
     elif member_configs is not None:
-        return [
-            {"clusterName": name, "members": members, "memberConfig": memberConfig}
-            for (name, members, memberConfig) in zip(member_cluster_names, members, member_configs)
-        ]
+        result = []
+        for name, members, memberConfig in zip(member_cluster_names, members, member_configs):
+            if members is not None:
+                result.append({"clusterName": name, "members": members, "memberConfig": memberConfig})
+        return result
     elif backup_configs is not None:
-        return [
-            {"clusterName": name, "members": members, "backup": backupConfig}
-            for (name, members, backupConfig) in zip(member_cluster_names, members, backup_configs)
-        ]
+        result = []
+        for name, members, backupConfig in zip(member_cluster_names, members, backup_configs):
+            if members is not None:
+                result.append({"clusterName": name, "members": members, "backup": backupConfig})
+        return result
 
 
 def create_namespace(

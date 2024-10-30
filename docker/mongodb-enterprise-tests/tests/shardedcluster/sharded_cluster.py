@@ -32,7 +32,7 @@ def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
         enable_multi_cluster_deployment(
             resource=resource,
             shard_members_array=[1, 1, 1],
-            mongos_members_array=[1, 1],
+            mongos_members_array=[1, 1, None],
             configsrv_members_array=[1, 1, 1],
         )
 
