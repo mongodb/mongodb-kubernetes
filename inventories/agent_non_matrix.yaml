@@ -45,6 +45,7 @@ images:
         tags: [ "ubi" ]
         buildargs:
           imagebase: $(inputs.params.registry)/mongodb-agent-ubi:$(inputs.params.version)-context-$(inputs.params.architecture)
+          version:  $(inputs.params.version)
         dockerfile: docker/mongodb-agent-non-matrix/Dockerfile
 
         labels:
