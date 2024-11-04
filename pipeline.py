@@ -628,13 +628,7 @@ If the context image supports both ARM and AMD architectures, both will be built
 """
 
 
-def build_image_daily(
-    image_name: str,  # corresponds to the image_name in the release.json
-    min_version: str = None,
-    max_version: str = None,
-):
-    """Builds a daily image."""
-
+def build_image_daily_parallel_worker(build_configuration: BuildConfiguration, args: Dict[str, str]):
     def get_architectures_set(build_configuration, args):
         """Determine the set of architectures to build for"""
         arch_set = set(build_configuration.architecture) if build_configuration.architecture else set()
@@ -662,6 +656,50 @@ def build_image_daily(
             for tag in tags:
                 create_and_push_manifest(registry + args["ubi_suffix"], tag)
 
+    arch_set = get_architectures_set(build_configuration, args)
+    if arch_set == {"amd64", "arm64"}:
+        # We need to release the non context amd64 and arm64 images first before we can create the sbom
+        for arch in arch_set:
+            # Suffix to append to images name for multi-arch (see usage in daily.yaml inventory)
+            args["architecture_suffix"] = f"-{arch}"
+            args["platform"] = arch
+            sonar_build_image(
+                "image-daily-build",
+                build_configuration,
+                args,
+                inventory="inventories/daily.yaml",
+                with_sbom=False,
+            )
+            if build_configuration.sign:
+                sign_image_in_repositories(args, arch)
+        create_and_push_manifests(args)
+        for arch in arch_set:
+            args["architecture_suffix"] = f"-{arch}"
+            args["platform"] = arch
+            produce_sbom(build_configuration, args)
+        if build_configuration.sign:
+            sign_image_in_repositories(args)
+    else:
+        # No suffix for single arch images
+        args["architecture_suffix"] = ""
+        args["platform"] = "amd64"
+        sonar_build_image(
+            "image-daily-build",
+            build_configuration,
+            args,
+            inventory="inventories/daily.yaml",
+        )
+        if build_configuration.sign:
+            sign_image_in_repositories(args)
+
+
+def build_image_daily(
+    image_name: str,  # corresponds to the image_name in the release.json
+    min_version: str = None,
+    max_version: str = None,
+):
+    """Builds a daily image."""
+
     def inner(build_configuration: BuildConfiguration):
         supported_versions = get_supported_version_for_image_matrix_handling(image_name)
         variants = get_supported_variants_for_image(image_name)
@@ -670,56 +708,27 @@ def build_image_daily(
         args["build_id"] = build_id()
         logger.info("Supported Versions for {}: {}".format(image_name, supported_versions))
 
-        completed_versions = set()
         filtered_versions = get_versions_to_rebuild(supported_versions, min_version, max_version)
 
-        for version in filtered_versions:
-            build_configuration = copy.deepcopy(build_configuration)
-            if build_configuration.include_tags is None:
-                build_configuration.include_tags = []
-            build_configuration.include_tags.extend(variants)
+        tasks_queue = Queue()
+        max_workers = 1
+        if build_configuration.parallel:
+            max_workers = None
+            if build_configuration.parallel_factor > 0:
+                max_workers = build_configuration.parallel_factor
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            logger.info(f"running with factor of {max_workers}")
+            for version in filtered_versions:
+                build_configuration = copy.deepcopy(build_configuration)
+                if build_configuration.include_tags is None:
+                    build_configuration.include_tags = []
+                build_configuration.include_tags.extend(variants)
 
-            logger.info("Rebuilding {} with variants {}".format(version, variants))
-            args["release_version"] = version
+                logger.info("Rebuilding {} with variants {}".format(version, variants))
+                args["release_version"] = version
 
-            arch_set = get_architectures_set(build_configuration, args)
-
-            if version not in completed_versions:
-                if arch_set == {"amd64", "arm64"}:
-                    # We need to release the non context amd64 and arm64 images first before we can create the sbom
-                    for arch in arch_set:
-                        # Suffix to append to images name for multi-arch (see usage in daily.yaml inventory)
-                        args["architecture_suffix"] = f"-{arch}"
-                        args["platform"] = arch
-                        sonar_build_image(
-                            "image-daily-build",
-                            build_configuration,
-                            args,
-                            inventory="inventories/daily.yaml",
-                            with_sbom=False,
-                        )
-                        if build_configuration.sign:
-                            sign_image_in_repositories(args, arch)
-                    create_and_push_manifests(args)
-                    for arch in arch_set:
-                        args["architecture_suffix"] = f"-{arch}"
-                        args["platform"] = arch
-                        produce_sbom(build_configuration, args)
-                    if build_configuration.sign:
-                        sign_image_in_repositories(args)
-                else:
-                    # No suffix for single arch images
-                    args["architecture_suffix"] = ""
-                    args["platform"] = "amd64"
-                    sonar_build_image(
-                        "image-daily-build",
-                        build_configuration,
-                        args,
-                        inventory="inventories/daily.yaml",
-                    )
-                    if build_configuration.sign:
-                        sign_image_in_repositories(args)
-                completed_versions.add(version)
+                tasks_queue.put(executor.submit(build_image_daily_parallel_worker, build_configuration, args))
+        queue_exception_handling(tasks_queue)
 
     return inner
 
