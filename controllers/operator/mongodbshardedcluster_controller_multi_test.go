@@ -34,12 +34,16 @@ import (
 
 // Creates a list of ClusterSpecItems based on names and distribution
 // The two input list must have the same size
-func createClusterSpecList(memberCounts map[string]int) mdbv1.ClusterSpecList {
+func createClusterSpecList(clusterNames []string, memberCounts map[string]int) mdbv1.ClusterSpecList {
 	specList := make(mdbv1.ClusterSpecList, 0)
-	for clusterName, memberCount := range memberCounts {
+	for _, clusterName := range clusterNames {
+		if _, ok := memberCounts[clusterName]; !ok {
+			continue
+		}
+
 		specList = append(specList, mdbv1.ClusterSpecItem{
 			ClusterName: clusterName,
-			Members:     memberCount,
+			Members:     memberCounts[clusterName],
 		})
 	}
 	return specList
@@ -73,14 +77,14 @@ func TestReconcileCreateMultiClusterShardedCluster(t *testing.T) {
 		{cluster1: 2, cluster2: 3},
 		{cluster1: 2, cluster2: 3},
 	}
-	shardClusterSpecList := createClusterSpecList(shardDistribution[0])
+	shardClusterSpecList := createClusterSpecList(memberClusterNames, shardDistribution[0])
 
 	// For Mongos and Config servers, 2 replicaset members on the first one, 1 on the second one
 	mongosDistribution := map[string]int{cluster1: 2, cluster2: 1}
-	mongosAndConfigSrvClusterSpecList := createClusterSpecList(mongosDistribution)
+	mongosAndConfigSrvClusterSpecList := createClusterSpecList(memberClusterNames, mongosDistribution)
 
 	configSrvDistribution := map[string]int{cluster1: 2, cluster2: 1}
-	configSrvDistributionClusterSpecList := createClusterSpecList(configSrvDistribution)
+	configSrvDistributionClusterSpecList := createClusterSpecList(memberClusterNames, configSrvDistribution)
 
 	ctx := context.Background()
 	sc := DefaultClusterBuilder().
@@ -207,18 +211,20 @@ func TestReconcileMultiClusterShardedClusterCertsAndSecretsReplication(t *testin
 	expectedClusterConfigList.AddCluster("member-cluster-3", []int{3, 3}, 3, 0)
 	expectedClusterConfigList.AddCluster("member-cluster-4", []int{0, 0}, 2, 3)
 
+	memberClusterNames := expectedClusterConfigList.GetNames()
+
 	shardCount := 2
 	shardDistribution := []map[string]int{
 		{expectedClusterConfigList[0].Name: 2, expectedClusterConfigList[1].Name: 3, expectedClusterConfigList[2].Name: 3},
 		{expectedClusterConfigList[0].Name: 2, expectedClusterConfigList[1].Name: 3, expectedClusterConfigList[2].Name: 3},
 	}
-	shardClusterSpecList := createClusterSpecList(shardDistribution[0])
+	shardClusterSpecList := createClusterSpecList(memberClusterNames, shardDistribution[0])
 
 	mongosDistribution := map[string]int{expectedClusterConfigList[1].Name: 1, expectedClusterConfigList[2].Name: 3, expectedClusterConfigList[3].Name: 2}
-	mongosAndConfigSrvClusterSpecList := createClusterSpecList(mongosDistribution)
+	mongosAndConfigSrvClusterSpecList := createClusterSpecList(memberClusterNames, mongosDistribution)
 
 	configSrvDistribution := map[string]int{expectedClusterConfigList[0].Name: 2, expectedClusterConfigList[1].Name: 1, expectedClusterConfigList[3].Name: 3}
-	configSrvDistributionClusterSpecList := createClusterSpecList(configSrvDistribution)
+	configSrvDistributionClusterSpecList := createClusterSpecList(memberClusterNames, configSrvDistribution)
 
 	certificatesSecretsPrefix := "some-prefix"
 	sc := DefaultClusterBuilder().
@@ -288,7 +294,7 @@ func TestReconcileMultiClusterShardedClusterCertsAndSecretsReplication(t *testin
 		Build()
 
 	kubeClient := kubernetesClient.NewClient(fakeClient)
-	memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(expectedClusterConfigList.GetNames(), omConnectionFactory, true, false)
+	memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(memberClusterNames, omConnectionFactory, true, false)
 
 	ctx := context.Background()
 	reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, sc, memberClusterMap, kubeClient, omConnectionFactory)
@@ -696,14 +702,14 @@ func TestMultiClusterShardedSetRace(t *testing.T) {
 		{cluster1: 2, cluster2: 3},
 		{cluster1: 2, cluster2: 3},
 	}
-	shardClusterSpecList := createClusterSpecList(shardDistribution[0])
+	shardClusterSpecList := createClusterSpecList(memberClusterNames, shardDistribution[0])
 
 	// For Mongos and Config servers, 2 replicaset members on the first one, 1 on the second one
 	mongosDistribution := map[string]int{cluster1: 2, cluster2: 1}
-	mongosAndConfigSrvClusterSpecList := createClusterSpecList(mongosDistribution)
+	mongosAndConfigSrvClusterSpecList := createClusterSpecList(memberClusterNames, mongosDistribution)
 
 	configSrvDistribution := map[string]int{cluster1: 2, cluster2: 1}
-	configSrvDistributionClusterSpecList := createClusterSpecList(configSrvDistribution)
+	configSrvDistributionClusterSpecList := createClusterSpecList(memberClusterNames, configSrvDistribution)
 
 	sc, cfgMap, projectName := buildShardedClusterWithCustomProjectName("mc-sharded", shardCount, shardClusterSpecList, mongosAndConfigSrvClusterSpecList, configSrvDistributionClusterSpecList)
 	sc1, cfgMap1, projectName1 := buildShardedClusterWithCustomProjectName("mc-sharded-1", shardCount, shardClusterSpecList, mongosAndConfigSrvClusterSpecList, configSrvDistributionClusterSpecList)
