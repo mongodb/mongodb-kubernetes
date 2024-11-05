@@ -135,7 +135,7 @@ type Options struct {
 	ResourceName string
 	// Replicas is the number of replicas.
 	Replicas int
-	// Namespace is the namepsace the resource is in.
+	// Namespace is the namespace the resource is in.
 	Namespace string
 	// ServiceName is the name of the service which is created for the resource.
 	ServiceName string

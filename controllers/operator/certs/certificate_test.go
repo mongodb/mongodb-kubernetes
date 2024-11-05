@@ -1,11 +1,22 @@
 package certs
 
 import (
+	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
+
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
 func TestVerifyTLSSecretForStatefulSet(t *testing.T) {
@@ -86,4 +97,145 @@ func TestVerifyTLSSecretForStatefulSetHorizonMemberDifference(t *testing.T) {
 	})
 
 	assert.ErrorContains(t, err, "horizon configs")
+}
+
+// This test uses mock hashes and certificate because CreatePemSecretClient does not verify the certificates.
+// However, they are verified before and after calling this method.
+func TestRotateCertificate(t *testing.T) {
+	ctx := context.Background()
+	rs := mdbv1.NewReplicaSetBuilder().SetSecurityTLSEnabled().Build()
+
+	fakeClient, _ := mock.NewDefaultFakeClient(rs)
+	fakeSecretClient := secrets.SecretClient{
+		VaultClient: nil,
+		KubeClient:  fakeClient,
+	}
+
+	secretNamespacedName := types.NamespacedName{
+		Namespace: "test",
+		Name:      "test-replica-set-cert",
+	}
+
+	certificateKey1 := "mock_hash_1"
+	certificateValue1 := "mock_certificate_1"
+	certificate1 := map[string]string{certificateKey1: certificateValue1}
+
+	certificateKey2 := "mock_hash_2"
+	certificateValue2 := "mock_certificate_2"
+	certificate2 := map[string]string{certificateKey2: certificateValue2}
+
+	certificateKey3 := "mock_hash_3"
+	certificateValue3 := "mock_certificate_3"
+
+	pemSecretNamespacedName := secretNamespacedName
+	pemSecretNamespacedName.Name = fmt.Sprintf("%s%s", secretNamespacedName.Name, OperatorGeneratedCertSuffix)
+
+	t.Run("Case 1: Enabling TLS", func(t *testing.T) {
+		err := CreateOrUpdatePEMSecretWithPreviousCert(ctx, fakeSecretClient, secretNamespacedName, certificateKey1, certificateValue1, []v1.OwnerReference{}, Unused)
+		assert.NoError(t, err)
+
+		pemSecret, _ := fakeSecretClient.ReadSecret(ctx, pemSecretNamespacedName, Unused)
+		expectedPem := map[string]string{
+			util.LatestHashSecretKey: "mock_hash_1",
+			"mock_hash_1":            "mock_certificate_1",
+		}
+
+		assert.Equal(t, expectedPem, pemSecret)
+	})
+
+	t.Run("Case 2: Upgrading the operator, with no rotation", func(t *testing.T) {
+		existingPem := secret.Builder().
+			SetStringMapToData(certificate1).
+			SetNamespace(pemSecretNamespacedName.Namespace).
+			SetName(pemSecretNamespacedName.Name).
+			Build()
+
+		_ = fakeSecretClient.PutSecret(ctx, existingPem, Unused)
+
+		err := CreateOrUpdatePEMSecretWithPreviousCert(ctx, fakeSecretClient, secretNamespacedName, certificateKey1, certificateValue1, []v1.OwnerReference{}, Unused)
+		assert.NoError(t, err)
+
+		pemSecret, _ := fakeSecretClient.ReadSecret(ctx, pemSecretNamespacedName, Unused)
+		expectedPem := map[string]string{
+			util.LatestHashSecretKey: "mock_hash_1",
+			"mock_hash_1":            "mock_certificate_1",
+		}
+
+		assert.Equal(t, expectedPem, pemSecret)
+	})
+
+	t.Run("Case 3: Upgrading the operator, with a rotation", func(t *testing.T) {
+		existingPem := secret.Builder().
+			SetStringMapToData(certificate1).
+			SetNamespace(pemSecretNamespacedName.Namespace).
+			SetName(pemSecretNamespacedName.Name).
+			Build()
+
+		_ = fakeSecretClient.PutSecret(ctx, existingPem, Unused)
+
+		// The rotation happens here because CreateOrUpdatePEMSecretWithPreviousCert is called with certificate 2, but the existing pem secret references certificate 1.
+		err := CreateOrUpdatePEMSecretWithPreviousCert(ctx, fakeSecretClient, secretNamespacedName, certificateKey2, certificateValue2, []v1.OwnerReference{}, Unused)
+		assert.NoError(t, err)
+
+		pemSecret, _ := fakeSecretClient.ReadSecret(ctx, pemSecretNamespacedName, Unused)
+		expectedPem := map[string]string{
+			util.LatestHashSecretKey:   "mock_hash_2",
+			util.PreviousHashSecretKey: "mock_hash_1",
+			"mock_hash_1":              "mock_certificate_1",
+			"mock_hash_2":              "mock_certificate_2",
+		}
+
+		assert.Equal(t, expectedPem, pemSecret)
+	})
+
+	t.Run("Case 4: First TLS rotation", func(t *testing.T) {
+		existingPemData := certificate1
+		existingPemData[util.LatestHashSecretKey] = "mock_hash_1"
+		existingPem := secret.Builder().
+			SetStringMapToData(existingPemData).
+			SetNamespace(pemSecretNamespacedName.Namespace).
+			SetName(pemSecretNamespacedName.Name).
+			Build()
+
+		_ = fakeSecretClient.PutSecret(ctx, existingPem, Unused)
+
+		err := CreateOrUpdatePEMSecretWithPreviousCert(ctx, fakeSecretClient, secretNamespacedName, certificateKey2, certificateValue2, []v1.OwnerReference{}, Unused)
+		assert.NoError(t, err)
+
+		pemSecret, _ := fakeSecretClient.ReadSecret(ctx, pemSecretNamespacedName, Unused)
+		expectedPem := map[string]string{
+			util.LatestHashSecretKey:   "mock_hash_2",
+			util.PreviousHashSecretKey: "mock_hash_1",
+			"mock_hash_1":              "mock_certificate_1",
+			"mock_hash_2":              "mock_certificate_2",
+		}
+
+		assert.Equal(t, expectedPem, pemSecret)
+	})
+
+	t.Run("Case 5: Subsequent TLS rotations", func(t *testing.T) {
+		existingPemData := merge.StringToStringMap(certificate1, certificate2)
+		existingPemData[util.LatestHashSecretKey] = "mock_hash_2"
+		existingPemData[util.PreviousHashSecretKey] = "mock_hash_1"
+		existingPem := secret.Builder().
+			SetStringMapToData(existingPemData).
+			SetNamespace(pemSecretNamespacedName.Namespace).
+			SetName(pemSecretNamespacedName.Name).
+			Build()
+
+		_ = fakeSecretClient.PutSecret(ctx, existingPem, Unused)
+
+		err := CreateOrUpdatePEMSecretWithPreviousCert(ctx, fakeSecretClient, secretNamespacedName, certificateKey3, certificateValue3, []v1.OwnerReference{}, Unused)
+		assert.NoError(t, err)
+
+		pemSecret, _ := fakeSecretClient.ReadSecret(ctx, pemSecretNamespacedName, Unused)
+		expectedPem := map[string]string{
+			util.LatestHashSecretKey:   "mock_hash_3",
+			util.PreviousHashSecretKey: "mock_hash_2",
+			"mock_hash_3":              "mock_certificate_3",
+			"mock_hash_2":              "mock_certificate_2",
+		}
+
+		assert.Equal(t, expectedPem, pemSecret)
+	})
 }

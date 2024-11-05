@@ -363,6 +363,47 @@ def test_mdb_created(replica_set: MongoDB, namespace: str):
 
 
 @mark.e2e_vault_setup
+def test_rotate_server_certs(replica_set: MongoDB, vault_namespace: str, vault_name: str, namespace: str, issuer: str):
+    replica_set.load()
+    old_version = replica_set["metadata"]["annotations"]["agent-certs"]
+
+    create_x509_mongodb_tls_certs(
+        issuer,
+        namespace,
+        MDB_RESOURCE,
+        f"{MDB_RESOURCE}-cert",
+        secret_backend="Vault",
+        vault_subpath="database",
+    )
+
+    replica_set.assert_abandons_phase(Phase.Running, timeout=600)
+
+    def wait_for_server_certs() -> bool:
+        replica_set.load()
+        return old_version != replica_set["metadata"]["annotations"]["my-replica-set-cert"]
+
+    kubetester.wait_until(wait_for_server_certs, timeout=600, sleep_time=10)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
+
+
+@mark.e2e_vault_setup
+def test_rotate_server_certs_with_sts_restarting(
+    replica_set: MongoDB, vault_namespace: str, vault_name: str, namespace: str, issuer: str
+):
+    replica_set.trigger_sts_restart()
+    create_x509_mongodb_tls_certs(
+        issuer,
+        namespace,
+        MDB_RESOURCE,
+        f"{MDB_RESOURCE}-cert",
+        secret_backend="Vault",
+        vault_subpath="database",
+    )
+
+    replica_set.assert_reaches_phase(Phase.Running, timeout=900, ignore_errors=True)
+
+
+@mark.e2e_vault_setup
 def test_rotate_agent_certs(replica_set: MongoDB, vault_namespace: str, vault_name: str, namespace: str):
     replica_set.load()
     old_version = replica_set["metadata"]["annotations"]["agent-certs"]
