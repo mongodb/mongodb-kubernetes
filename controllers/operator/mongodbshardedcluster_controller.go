@@ -324,6 +324,7 @@ func getShardTopLevelOverrides(spec *mdbv1.MongoDbSpec, shardIdx int) (*mdbv1.Pe
 }
 
 func mergeOverrideClusterSpecList(shardOverride mdbv1.ShardOverride, defaultShardConfiguration *mdbv1.ShardedClusterComponentSpec, topLevelPodSpecOverride *corev1.PodTemplateSpec, topLevelPersistenceOverride *mdbv1.Persistence) *mdbv1.ShardedClusterComponentSpec {
+	finalShardConfiguration := defaultShardConfiguration.DeepCopy()
 	// We override here all elements of ClusterSpecList, but statefulset overrides if provided here
 	// will be merged on top of previous sts overrides.
 	for shardOverrideClusterSpecIdx := range shardOverride.ClusterSpecList {
@@ -346,42 +347,53 @@ func mergeOverrideClusterSpecList(shardOverride mdbv1.ShardOverride, defaultShar
 			}
 			continue
 		}
-		defaultShardConfigurationClusterSpecItem := defaultShardConfiguration.ClusterSpecList[foundIdx]
-		if defaultShardConfigurationClusterSpecItem.StatefulSetConfiguration != nil {
+		finalShardConfigurationClusterSpecItem := finalShardConfiguration.ClusterSpecList[foundIdx]
+		if finalShardConfigurationClusterSpecItem.StatefulSetConfiguration != nil {
 			if shardOverrideClusterSpecItem.StatefulSetConfiguration == nil {
-				shardOverrideClusterSpecItem.StatefulSetConfiguration = defaultShardConfigurationClusterSpecItem.StatefulSetConfiguration
+				shardOverrideClusterSpecItem.StatefulSetConfiguration = finalShardConfigurationClusterSpecItem.StatefulSetConfiguration
 			} else {
-				shardOverrideClusterSpecItem.StatefulSetConfiguration.SpecWrapper.Spec = merge.StatefulSetSpecs(defaultShardConfigurationClusterSpecItem.StatefulSetConfiguration.SpecWrapper.Spec, shardOverrideClusterSpecItem.StatefulSetConfiguration.SpecWrapper.Spec)
+				shardOverrideClusterSpecItem.StatefulSetConfiguration.SpecWrapper.Spec = merge.StatefulSetSpecs(finalShardConfigurationClusterSpecItem.StatefulSetConfiguration.SpecWrapper.Spec, shardOverrideClusterSpecItem.StatefulSetConfiguration.SpecWrapper.Spec)
 			}
 		}
 
 		if shardOverrideClusterSpecItem.Members == nil {
-			shardOverrideClusterSpecItem.Members = ptr.To(defaultShardConfigurationClusterSpecItem.Members)
+			shardOverrideClusterSpecItem.Members = ptr.To(finalShardConfigurationClusterSpecItem.Members)
 		}
 
 		if shardOverrideClusterSpecItem.MemberConfig == nil {
-			shardOverrideClusterSpecItem.MemberConfig = defaultShardConfigurationClusterSpecItem.MemberConfig
+			shardOverrideClusterSpecItem.MemberConfig = finalShardConfigurationClusterSpecItem.MemberConfig
 		}
 
+		// The two if blocks below make sure that PodSpec (for persistence) defined at the override level applies to all
+		// clusters by default, except if it is set at shardOverride.ClusterSpecList.PodSpec level
 		if shardOverride.PodSpec != nil {
-			defaultShardConfigurationClusterSpecItem.PodSpec = shardOverride.PodSpec
+			finalShardConfigurationClusterSpecItem.PodSpec = shardOverride.PodSpec
 		}
-
 		if shardOverrideClusterSpecItem.PodSpec == nil {
-			shardOverrideClusterSpecItem.PodSpec = defaultShardConfigurationClusterSpecItem.PodSpec
+			shardOverrideClusterSpecItem.PodSpec = finalShardConfigurationClusterSpecItem.PodSpec
 		}
 	}
 
 	// we reconstruct clusterSpecList from shardOverride list
-	defaultShardConfiguration.ClusterSpecList = nil
+	finalShardConfiguration.ClusterSpecList = nil
 	for i := range shardOverride.ClusterSpecList {
 		so := shardOverride.ClusterSpecList[i].DeepCopy()
 		// guaranteed to be non-nil here
 		members := *shardOverride.ClusterSpecList[i].Members
 
-		defaultShardConfiguration.ClusterSpecList = append(defaultShardConfiguration.ClusterSpecList, mdbv1.ClusterSpecItem{
+		// We need to retrieve the original ExternalAccessConfiguration because shardOverride struct doesn't contain
+		// the field
+		var externalAccessConfiguration *mdbv1.ExternalAccessConfiguration
+		foundIdx := slices.IndexFunc(defaultShardConfiguration.ClusterSpecList, func(item mdbv1.ClusterSpecItem) bool {
+			return item.ClusterName == so.ClusterName
+		})
+		if foundIdx != -1 {
+			externalAccessConfiguration = defaultShardConfiguration.ClusterSpecList[foundIdx].ExternalAccessConfiguration
+		}
+
+		finalShardConfiguration.ClusterSpecList = append(finalShardConfiguration.ClusterSpecList, mdbv1.ClusterSpecItem{
 			ClusterName:                 so.ClusterName,
-			ExternalAccessConfiguration: so.ExternalAccessConfiguration,
+			ExternalAccessConfiguration: externalAccessConfiguration,
 			Members:                     members,
 			MemberConfig:                so.MemberConfig,
 			StatefulSetConfiguration:    so.StatefulSetConfiguration,
@@ -389,7 +401,7 @@ func mergeOverrideClusterSpecList(shardOverride mdbv1.ShardOverride, defaultShar
 		})
 	}
 
-	return defaultShardConfiguration
+	return finalShardConfiguration
 }
 
 // ShardOverrides can apply to multiple shard (e.g shardNames: ["sh-0", "sh-2"])

@@ -13,8 +13,12 @@
           priority: "100"
         - votes: 1
           priority: "100"
+      externalAccess:
+        # We've set an external domain in spec.shard.clusterSpecList[cluster-0], which applies to all shards, in
+        # cluster-0
+        externalDomain: "test.example.com"
       podSpec:
-        persistence: # overridden from spec.shard.clusterSpecList[cluster-0].podSpec.persistence
+        persistence: # set in spec.shard.clusterSpecList[cluster-0].podSpec.persistence
           multiple:
             journal:
               storage: "10G"
@@ -105,15 +109,17 @@
       memberConfig:
         - votes: 1
           priority: "100"
+      externalAccess:
+        # We've set an external domain in spec.shard.clusterSpecList[cluster-0], which applies to all shards, in
+        # cluster-0
+        externalDomain: "test.example.com"
+      # In this shard, we set the field spec.ShardOverrides["mdb-sh-complex-1"].PodSpec.Persistence
+      # But we also set spec.ShardOverrides["mdb-sh-complex-1"].ClusterSpecList[clutser-0].PodSpec.Persistence, it
+      # has the highest priority
       podSpec:
-        persistence: # overridden from spec.shard.clusterSpecList[cluster-0].podSpec.persistence
-          multiple:
-            journal:
-              storage: "130G"
-            data:
-              storage: "140G"
-            logs:
-              storage: "110G"
+        persistence:
+          single:
+            storage: 15G
       statefulSet: # statefulset override applied for cluster-0 from spec.shard.clusterSpecList[cluster-0].statefulSet
         spec:
           template:
@@ -141,7 +147,7 @@
         - votes: 1
           priority: "122"
       podSpec:
-        persistence: # overridden from spec.shard.clusterSpecList[cluster-0].podSpec.persistence
+        persistence: # overridden in spec.ShardOverrides["mdb-sh-complex-1"].PodSpec.Persistence
           multiple:
             journal:
               storage: "130G"
@@ -195,7 +201,7 @@
                   command: [ "sleep" ]
                   args: [ "infinity" ]
       podSpec:
-        persistence: # overridden from spec.shard.clusterSpecList[cluster-0].podSpec.persistence
+        persistence: # overridden in spec.ShardOverrides["mdb-sh-complex-1"].PodSpec.Persistence
           multiple:
             journal:
               storage: "130G"
@@ -219,6 +225,10 @@
           priority: "100"
         - votes: 1
           priority: "100"
+      externalAccess:
+        # We've set an external domain in spec.shard.clusterSpecList[cluster-0], which applies to all shards, in
+        # cluster-0
+        externalDomain: "test.example.com"
       podSpec:
         persistence: # overridden from spec.shard.clusterSpecList[cluster-0].podSpec.persistence
           multiple:
@@ -355,6 +365,10 @@
           priority: "100"
         - votes: 1
           priority: "100"
+      externalAccess:
+        # We've set an external domain in spec.shard.clusterSpecList[cluster-0], which applies to all shards, in
+        # cluster-0
+        externalDomain: "test.example.com"
       podSpec:
         persistence: # overridden from spec.shard.clusterSpecList[cluster-0].podSpec.persistence
           multiple:

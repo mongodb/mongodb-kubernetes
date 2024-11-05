@@ -284,8 +284,8 @@ func convertOverrideToClusterSpec(override ClusterSpecItemOverride) ClusterSpecI
 	}
 	return ClusterSpecItem{
 		ClusterName:                 override.ClusterName,
-		Service:                     "", // Field doesn't exist in override
-		ExternalAccessConfiguration: override.ExternalAccessConfiguration,
+		Service:                     "",  // Field doesn't exist in override
+		ExternalAccessConfiguration: nil, // Field doesn't exist in override
 		Members:                     overrideMembers,
 		MemberConfig:                override.MemberConfig,
 		StatefulSetConfiguration:    override.StatefulSetConfiguration,
