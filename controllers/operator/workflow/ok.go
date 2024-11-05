@@ -31,32 +31,32 @@ func (o *okStatus) WithAdditionalOptions(options ...status.Option) *okStatus {
 	return o
 }
 
-func (o okStatus) ReconcileResult() (reconcile.Result, error) {
+func (o *okStatus) ReconcileResult() (reconcile.Result, error) {
 	return reconcile.Result{Requeue: o.requeue, RequeueAfter: o.requeueAfter}, nil
 }
 
-func (o okStatus) IsOK() bool {
+func (o *okStatus) IsOK() bool {
 	return !o.requeue
 }
 
-func (o okStatus) Merge(other Status) Status {
+func (o *okStatus) Merge(other Status) Status {
 	// any other status takes precedence over OK
 	return other
 }
 
-func (o okStatus) OnErrorPrepend(_ string) Status {
+func (o *okStatus) OnErrorPrepend(_ string) Status {
 	return o
 }
 
-func (o okStatus) StatusOptions() []status.Option {
+func (o *okStatus) StatusOptions() []status.Option {
 	return o.statusOptions()
 }
 
-func (o okStatus) Log(_ *zap.SugaredLogger) {
+func (o *okStatus) Log(_ *zap.SugaredLogger) {
 	// Doing no logging - the reconciler will do instead
 }
 
-func (o okStatus) Phase() status.Phase {
+func (o *okStatus) Phase() status.Phase {
 	return status.PhaseRunning
 }
 
