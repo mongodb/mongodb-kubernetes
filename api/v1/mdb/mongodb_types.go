@@ -283,9 +283,6 @@ type ClusterSpecItemOverride struct {
 	// name should have a one on one mapping with the service-account created in the central cluster
 	// to talk to the workload clusters.
 	ClusterName string `json:"clusterName,omitempty"`
-	// ExternalAccessConfiguration provides external access configuration for Multi-Cluster.
-	// +optional
-	ExternalAccessConfiguration *ExternalAccessConfiguration `json:"externalAccess,omitempty"`
 	// Amount of members for this MongoDB Replica Set
 	// +optional
 	Members *int `json:"members"`
