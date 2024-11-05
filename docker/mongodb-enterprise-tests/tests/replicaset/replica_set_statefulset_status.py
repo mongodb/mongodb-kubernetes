@@ -22,8 +22,9 @@ def test_replica_set_reaches_pending_phase(replica_set: MongoDB):
     )
     # the StatefulSet name is equal to replica set name
     replica_set.assert_status_resource_not_ready(
-        replica_set.name,
+        name=replica_set.name,
         msg_regexp="Not all the Pods are ready \(wanted: 2.*\)",
+        idx=0,
     )
     replica_set.assert_reaches_phase(Phase.Pending, timeout=120)
     assert replica_set.get_status_message() == "StatefulSet not ready"

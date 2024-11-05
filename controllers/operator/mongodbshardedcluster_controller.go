@@ -1141,10 +1141,8 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateMongos(ctx context.Context
 	}
 
 	// we wait for mongos statefulsets here
-	for _, memberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
-		if workflowStatus := getStatefulSetStatus(ctx, s.Namespace, r.GetMongosStsName(memberCluster), memberCluster.Client); !workflowStatus.IsOK() {
-			return workflowStatus
-		}
+	if workflowStatus := r.getMergedStatefulsetStatus(ctx, s, r.mongosMemberClusters, r.GetMongosStsName); !workflowStatus.IsOK() {
+		return workflowStatus
 	}
 
 	log.Infow("Created/updated StatefulSet for mongos servers", "name", s.MongosRsName())
@@ -1187,13 +1185,15 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateShards(ctx context.Context
 		// if we scale for the first time we didn't wait for statefulsets to become ready in the loop over member clusters
 		// we need to wait for all sts here instead after all were deployed/scaled up to desired members
 		if scalingFirstTime {
-			for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[shardIdx]) {
-				if workflowStatus := getStatefulSetStatus(ctx, s.Namespace, r.GetShardStsName(shardIdx, memberCluster), memberCluster.Client); !workflowStatus.IsOK() {
-					return workflowStatus
-				}
+			getShardStsName := func(memberCluster multicluster.MemberCluster) string {
+				return r.GetShardStsName(shardIdx, memberCluster)
+			}
+			if workflowStatus := r.getMergedStatefulsetStatus(ctx, s, r.shardsMemberClustersMap[shardIdx], getShardStsName); !workflowStatus.IsOK() {
+				return workflowStatus
 			}
 		}
 	}
+
 	log.Infow("Created/updated Stateful Sets for shards in Kubernetes", "shards", shardsNames)
 	return workflow.OK()
 }
@@ -1222,14 +1222,25 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateConfigServers(ctx context.
 	}
 
 	if configSrvScalingFirstTime {
-		for _, memberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
-			if workflowStatus := getStatefulSetStatus(ctx, s.Namespace, r.GetConfigSrvStsName(memberCluster), memberCluster.Client); !workflowStatus.IsOK() {
-				return workflowStatus
-			}
+		if workflowStatus := r.getMergedStatefulsetStatus(ctx, s, r.configSrvMemberClusters, r.GetConfigSrvStsName); !workflowStatus.IsOK() {
+			return workflowStatus
 		}
 	}
+
 	log.Infow("Created/updated StatefulSet for config servers", "name", s.ConfigRsName(), "servers count", 0)
 	return workflow.OK()
+}
+
+func (r *ShardedClusterReconcileHelper) getMergedStatefulsetStatus(ctx context.Context, s *mdbv1.MongoDB,
+	memberClusters []multicluster.MemberCluster, stsNameProvider func(multicluster.MemberCluster) string,
+) workflow.Status {
+	var mergedStatefulSetStatus workflow.Status = workflow.OK()
+	for _, memberCluster := range getHealthyMemberClusters(memberClusters) {
+		statefulSetStatus := getStatefulSetStatus(ctx, s.Namespace, stsNameProvider(memberCluster), memberCluster.Client)
+		mergedStatefulSetStatus = mergedStatefulSetStatus.Merge(statefulSetStatus)
+	}
+
+	return mergedStatefulSetStatus
 }
 
 func (r *ShardedClusterReconcileHelper) handlePVCResize(ctx context.Context, memberCluster multicluster.MemberCluster, sts *appsv1.StatefulSet, log *zap.SugaredLogger) workflow.Status {
