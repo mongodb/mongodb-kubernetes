@@ -8,7 +8,7 @@
 ## Bug Fixes
 
 * **MongoDB**, **AppDB**, **MongoDBMultiCluster**: Fixed a bug where specifying a fractional number for a storage volume's size such as `1.7Gi` can break the reconciliation loop for that resource with an error like `Can't execute update on forbidden fields` even if the underlying Persistence Volume Claim is deployed successfully.
-
+* **MongoDB**, **MongoDBMultiCluster**, **OpsManager**, **AppDB**: Increased stability of deployments during TLS rotations. In scenarios where the StatefulSet of the deployment was reconciling and a TLS rotation happened, the deployment would reach a broken state. Deployments will now store the previous TLS certificate alongside the new one.
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.28.0
 

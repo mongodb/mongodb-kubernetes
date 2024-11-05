@@ -2,9 +2,9 @@ import pytest
 from kubetester import find_fixture
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import (
-    Certificate,
     create_sharded_cluster_certs,
     create_x509_agent_tls_certs,
+    rotate_cert,
 )
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb import MongoDB, Phase
@@ -26,7 +26,7 @@ def server_certs(issuer: str, namespace: str):
         shards=1,
         mongos_per_shard=3,
         config_servers=3,
-        mongos=2,
+        mongos=3,
         internal_auth=True,
         x509_certs=True,
     )
@@ -53,17 +53,51 @@ class TestShardedClusterEnableAllOptions(KubernetesTester):
         ac_tester.assert_authentication_enabled()
         ac_tester.assert_expected_users(0)
 
-    def test_rotate_shard_certfile(self, sharded_cluster: MongoDB, namespace: str):
-        assert_certificate_rotation(sharded_cluster, namespace, "{}-0-clusterfile".format(MDB_RESOURCE_NAME))
+    def test_rotate_shard_cert(self, sharded_cluster: MongoDB, namespace: str):
+        rotate_cert(namespace, "{}-0-cert".format(MDB_RESOURCE_NAME))
+        sharded_cluster.assert_abandons_phase(Phase.Running, timeout=900)
+        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=900)
 
-    def test_rotate_config_certfile(self, sharded_cluster: MongoDB, namespace: str):
+    def test_rotate_config_cert(self, sharded_cluster: MongoDB, namespace: str):
+        rotate_cert(namespace, "{}-config-cert".format(MDB_RESOURCE_NAME))
+        sharded_cluster.assert_abandons_phase(Phase.Running, timeout=900)
+        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=900)
+
+    def test_rotate_mongos_cert(self, sharded_cluster: MongoDB, namespace: str):
+        rotate_cert(namespace, "{}-mongos-cert".format(MDB_RESOURCE_NAME))
+        sharded_cluster.assert_abandons_phase(Phase.Running, timeout=900)
+        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=900)
+
+    def test_rotate_shard_cert_with_sts_restarting(self, sharded_cluster: MongoDB, namespace: str):
+        sharded_cluster.trigger_sts_restart("shard")
+        assert_certificate_rotation(sharded_cluster, namespace, "{}-0-cert".format(MDB_RESOURCE_NAME))
+
+    def test_rotate_config_cert_with_sts_restarting(self, sharded_cluster: MongoDB, namespace: str):
+        sharded_cluster.trigger_sts_restart("config")
+        assert_certificate_rotation(sharded_cluster, namespace, "{}-config-cert".format(MDB_RESOURCE_NAME))
+
+    def test_rotate_mongos_cert_with_sts_restarting(self, sharded_cluster: MongoDB, namespace: str):
+        sharded_cluster.trigger_sts_restart("mongos")
+        assert_certificate_rotation(sharded_cluster, namespace, "{}-mongos-cert".format(MDB_RESOURCE_NAME))
+
+    def test_rotate_shard_certfile_with_sts_restarting(self, sharded_cluster: MongoDB, namespace: str):
+        sharded_cluster.trigger_sts_restart("shard")
+        assert_certificate_rotation(
+            sharded_cluster,
+            namespace,
+            "{}-0-clusterfile".format(MDB_RESOURCE_NAME),
+        )
+
+    def test_rotate_config_certfile_with_sts_restarting(self, sharded_cluster: MongoDB, namespace: str):
+        sharded_cluster.trigger_sts_restart("config")
         assert_certificate_rotation(
             sharded_cluster,
             namespace,
             "{}-config-clusterfile".format(MDB_RESOURCE_NAME),
         )
 
-    def test_rotate_mongos_certfile(self, sharded_cluster: MongoDB, namespace: str):
+    def test_rotate_mongos_certfile_with_sts_restarting(self, sharded_cluster: MongoDB, namespace: str):
+        sharded_cluster.trigger_sts_restart("mongos")
         assert_certificate_rotation(
             sharded_cluster,
             namespace,
@@ -72,8 +106,5 @@ class TestShardedClusterEnableAllOptions(KubernetesTester):
 
 
 def assert_certificate_rotation(sharded_cluster, namespace, certificate_name):
-    cert = Certificate(name=certificate_name, namespace=namespace)
-    cert.load()
-    cert["spec"]["dnsNames"].append("foo")  # Append DNS to cert to rotate the certificate
-    cert.update()
+    rotate_cert(namespace, certificate_name)
     sharded_cluster.assert_reaches_phase(Phase.Running, timeout=900)
