@@ -34,7 +34,7 @@ func (f *failedStatus) WithRetry(retryInSeconds int) *failedStatus {
 	return f
 }
 
-func (f failedStatus) ReconcileResult() (reconcile.Result, error) {
+func (f *failedStatus) ReconcileResult() (reconcile.Result, error) {
 	return reconcile.Result{RequeueAfter: time.Second * time.Duration(f.retryInSeconds)}, nil
 }
 
@@ -43,33 +43,33 @@ func (f *failedStatus) WithAdditionalOptions(options []status.Option) *failedSta
 	return f
 }
 
-func (f failedStatus) IsOK() bool {
+func (f *failedStatus) IsOK() bool {
 	return false
 }
 
-func (f failedStatus) Merge(other Status) Status {
+func (f *failedStatus) Merge(other Status) Status {
 	switch v := other.(type) {
 	// errors are concatenated
-	case failedStatus:
+	case *failedStatus:
 		return mergedFailed(f, v)
-	case invalidStatus:
+	case *invalidStatus:
 		return other
 	}
 	return f
 }
 
-func (f failedStatus) OnErrorPrepend(msg string) Status {
+func (f *failedStatus) OnErrorPrepend(msg string) Status {
 	f.commonStatus.prependMsg(msg)
 	return f
 }
 
-func (f failedStatus) StatusOptions() []status.Option {
+func (f *failedStatus) StatusOptions() []status.Option {
 	// don't display any message on the MongoDB resource if the error is transient.
 	options := f.statusOptions()
 	return options
 }
 
-func (f failedStatus) Phase() status.Phase {
+func (f *failedStatus) Phase() status.Phase {
 	if apierrors.IsTransientMessage(f.msg) {
 		return status.PhasePending
 	}
@@ -77,13 +77,13 @@ func (f failedStatus) Phase() status.Phase {
 }
 
 // Log does not take the f.msg but instead takes f.err to make sure we print the actual stack trace of the error.
-func (f failedStatus) Log(log *zap.SugaredLogger) {
+func (f *failedStatus) Log(log *zap.SugaredLogger) {
 	log.Errorf("%+v", f.err)
 }
 
-func mergedFailed(p1, p2 failedStatus) failedStatus {
+func mergedFailed(p1, p2 *failedStatus) *failedStatus {
 	msg := p1.msg + ", " + p2.msg
 	p := Failed(xerrors.Errorf(msg))
 	p.warnings = append(p1.warnings, p2.warnings...)
-	return *p
+	return p
 }
