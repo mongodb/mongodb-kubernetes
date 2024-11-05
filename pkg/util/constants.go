@@ -116,8 +116,13 @@ const (
 	AutomationAgentName         = "mms-automation-agent"
 	AutomationAgentPemSecretKey = AutomationAgentName + "-pem"
 	AutomationAgentPemFilePath  = PvcMmsHomeMountPath + "/" + AgentSecretName + "/" + AutomationAgentPemSecretKey
-	RunAsUser                   = 2000
-	FsGroup                     = 2000
+
+	// Key used in concatenated pem secrets to denote the hash of the latest certificate
+	LatestHashSecretKey   = "latestHash"
+	PreviousHashSecretKey = "previousHash"
+
+	RunAsUser = 2000
+	FsGroup   = 2000
 
 	// Service accounts
 	OpsManagerServiceAccount = "mongodb-enterprise-ops-manager"

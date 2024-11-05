@@ -6,7 +6,7 @@ metadata:
 spec:
   shardCount: 1
   mongodsPerShardCount: 3
-  mongosCount: 2
+  mongosCount: 3
   configServerCount: 3
   version: 4.4.0
   type: ShardedCluster

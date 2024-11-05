@@ -161,6 +161,13 @@ def generate_cert(
     return secret_name
 
 
+def rotate_cert(namespace, certificate_name):
+    cert = Certificate(name=certificate_name, namespace=namespace)
+    cert.load()
+    cert["spec"]["dnsNames"].append("foo")  # Append DNS to cert to rotate the certificate
+    cert.update()
+
+
 def create_tls_certs(
     issuer: str,
     namespace: str,

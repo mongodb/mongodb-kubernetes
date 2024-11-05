@@ -63,6 +63,28 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             self["metadata"]["annotations"].update({"mongodb.com/v1.architecture": "static"})
             self.update()
 
+    def trigger_om_sts_restart(self):
+        """
+        Adds or changes a label from the pod template to trigger a rolling restart of the OpsManager StatefulSet.
+        """
+        self.load()
+        self["spec"]["statefulSet"] = {
+            "spec": {"template": {"metadata": {"annotations": {"kubectl.kubernetes.io/restartedAt": str(time.time())}}}}
+        }
+        self.update()
+
+    def trigger_appdb_sts_restart(self):
+        """
+        Adds or changes a label from the pod template to trigger a rolling restart of the AppDB StatefulSet.
+        """
+        self.load()
+        self["spec"]["applicationDatabase"] = {
+            "podSpec": {
+                "podTemplate": {"metadata": {"annotations": {"kubectl.kubernetes.io/restartedAt": str(time.time())}}}
+            }
+        }
+        self.update()
+
     def appdb_status(self) -> MongoDBOpsManager.AppDbStatus:
         return self.AppDbStatus(self)
 

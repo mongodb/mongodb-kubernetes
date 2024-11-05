@@ -37,7 +37,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/authentication"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
-	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
@@ -519,60 +518,6 @@ func addKubernetesTlsResources(ctx context.Context, client kubernetesClient.Clie
 	}
 }
 
-// createMockCertAndKeyBytesMulti generates a random key and certificate and returns
-// them as bytes with the MongoDBMultiCluster service FQDN in the dns names of the certificate.
-func createMockCertAndKeyBytesMulti(mdbm mdbmulti.MongoDBMultiCluster, clusterNum, podNum int) []byte {
-	return createMockCertAndKeyBytesWithDNSName(dns.GetMultiServiceFQDN(mdbm.Name, mock.TestNamespace, clusterNum, podNum, mdbm.Spec.GetClusterDomain()))
-}
-
-func createMockCertAndKeyBytesWithDNSName(dnsName string) []byte {
-	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		panic(err)
-	}
-
-	privBytes, err := x509.MarshalPKCS8PrivateKey(priv)
-	if err != nil {
-		panic(err)
-	}
-
-	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
-	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
-	if err != nil {
-		panic(err)
-	}
-
-	template := x509.Certificate{
-		SerialNumber: serialNumber,
-		Subject: pkix.Name{
-			Organization: []string{"MongoDB"},
-		},
-		NotBefore:             time.Now(),
-		NotAfter:              time.Now().AddDate(10, 0, 0), // cert expires in 10 years
-		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		BasicConstraintsValid: true,
-		IsCA:                  true,
-		DNSNames:              []string{dnsName},
-	}
-	certBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
-	if err != nil {
-		panic(err)
-	}
-
-	certPemBytes := &bytes.Buffer{}
-	if err := pem.Encode(certPemBytes, &pem.Block{Type: "CERTIFICATE", Bytes: certBytes}); err != nil {
-		panic(err)
-	}
-
-	privPemBytes := &bytes.Buffer{}
-	if err := pem.Encode(privPemBytes, &pem.Block{Type: "PRIVATE KEY", Bytes: privBytes}); err != nil {
-		panic(err)
-	}
-
-	return append(certPemBytes.Bytes(), privPemBytes.Bytes()...)
-}
-
 // createMockCertAndKeyBytes generates a random key and certificate and returns
 // them as bytes
 func createMockCertAndKeyBytes(certOpts ...func(cert *x509.Certificate)) (cert, key []byte) {
@@ -769,6 +714,7 @@ func createMultiClusterReplicaSetTLSData(t *testing.T, ctx context.Context, clie
 	}
 
 	secret := &corev1.Secret{
+		Type: corev1.SecretTypeTLS,
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      secretName,
 			Namespace: mock.TestNamespace,
@@ -776,20 +722,7 @@ func createMultiClusterReplicaSetTLSData(t *testing.T, ctx context.Context, clie
 	}
 
 	certs := map[string][]byte{}
-	clientCerts := map[string][]byte{}
-
-	clusterSpecs, err := mdbm.GetClusterSpecItems()
-	if err != nil {
-		panic(err)
-	}
-
-	for _, item := range clusterSpecs {
-		for podNum := 0; podNum < item.Members; podNum++ {
-			pemFile := createMockCertAndKeyBytesMulti(*mdbm, mdbm.ClusterNum(item.ClusterName), podNum)
-			certs[fmt.Sprintf("%s-%d-%d-pem", mdbm.Name, mdbm.ClusterNum(item.ClusterName), podNum)] = pemFile
-			clientCerts[fmt.Sprintf("%s-%d-%d-pem", mdbm.Name, mdbm.ClusterNum(item.ClusterName), podNum)] = pemFile
-		}
-	}
+	certs["tls.crt"], certs["tls.key"] = createMockCertAndKeyBytes()
 
 	secret.Data = certs
 	// create cert in the central cluster, the operator would create the concatenated

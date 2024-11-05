@@ -44,6 +44,17 @@ const (
 	OPS_MANAGER_SECRET_BASE_PATH = "OPS_MANAGER_SECRET_BASE_PATH" //nolint
 	DATABASE_SECRET_BASE_PATH    = "DATABASE_SECRET_BASE_PATH"    //nolint
 	APPDB_SECRET_BASE_PATH       = "APPDB_SECRET_BASE_PATH"       //nolint
+
+	DEFAULT_AGENT_INJECT_TEMPLATE = `{{- with secret "%s" -}}
+          {{ index .Data.data "%s" }}
+          {{- end }}`
+	PREVIOUS_HASH_INJECT_COMMAND  = `sh -c 'test -s %[1]s/%[2]s && tail -n+2 %[1]s/%[2]s > %[1]s/\$(head -n1 %[1]s/%[2]s) || true'`
+	PREVIOUS_HASH_INJECT_TEMPLATE = `{{- with secret "%s" -}}
+{{- if .Data.data.%[2]s -}}
+{{ .Data.data.%[2]s }}
+{{ index .Data.data (.Data.data.%[2]s) }} 
+{{- end }}
+{{- end }}`
 )
 
 type DatabaseSecretsToInject struct {
@@ -351,11 +362,16 @@ func (s OpsManagerSecretsToInject) OpsManagerAnnotations(namespace string) map[s
 		annotations["vault.hashicorp.com/agent-inject-secret-om-tls-cert-pem"] = omTLSPath
 		annotations["vault.hashicorp.com/agent-inject-file-om-tls-cert-pem"] = s.TLSHash
 		annotations["vault.hashicorp.com/secret-volume-path-om-tls-cert-pem"] = util.MmsPemKeyFileDirInContainer
-		annotations["vault.hashicorp.com/agent-inject-template-om-tls-cert-pem"] = fmt.Sprintf(`{{- with secret "%s" -}}
-          {{ range $k, $v := .Data.data }}
-          {{- $v }}
-          {{- end }}
-          {{- end }}`, omTLSPath)
+		annotations["vault.hashicorp.com/agent-inject-template-om-tls-cert-pem"] = fmt.Sprintf(
+			DEFAULT_AGENT_INJECT_TEMPLATE, omTLSPath, s.TLSHash)
+
+		annotations["vault.hashicorp.com/agent-inject-secret-previous-om-tls-cert-pem"] = omTLSPath
+		annotations["vault.hashicorp.com/secret-volume-path-previous-om-tls-cert-pem"] = util.MmsPemKeyFileDirInContainer
+		annotations["vault.hashicorp.com/agent-inject-file-previous-om-tls-cert-pem"] = util.PreviousHashSecretKey
+		annotations["vault.hashicorp.com/agent-inject-template-previous-om-tls-cert-pem"] = fmt.Sprintf(
+			PREVIOUS_HASH_INJECT_TEMPLATE, omTLSPath, util.PreviousHashSecretKey)
+		annotations["vault.hashicorp.com/agent-inject-command-previous-om-tls-cert-pem"] = fmt.Sprintf(
+			PREVIOUS_HASH_INJECT_COMMAND, util.MmsPemKeyFileDirInContainer, util.PreviousHashSecretKey)
 	}
 
 	if s.GenKeyPath != "" {
@@ -373,11 +389,10 @@ func (s OpsManagerSecretsToInject) OpsManagerAnnotations(namespace string) map[s
 	// add appDB connection string
 	appDBConnPath := fmt.Sprintf("%s/%s/%s", opsManagerSecretPath, namespace, s.AppDBConnection)
 	annotations["vault.hashicorp.com/agent-inject-secret-appdb-connection-string"] = appDBConnPath
-	annotations["vault.hashicorp.com/agent-inject-file-appdb-connection-string"] = "connectionString"
+	annotations["vault.hashicorp.com/agent-inject-file-appdb-connection-string"] = util.AppDbConnectionStringKey
 	annotations["vault.hashicorp.com/secret-volume-path-appdb-connection-string"] = s.AppDBConnectionVolume
-	annotations["vault.hashicorp.com/agent-inject-template-appdb-connection-string"] = fmt.Sprintf(`{{- with secret "%s" -}}
-          {{ .Data.data.connectionString }}
-          {{- end }}`, appDBConnPath)
+	annotations["vault.hashicorp.com/agent-inject-template-appdb-connection-string"] = fmt.Sprintf(
+		DEFAULT_AGENT_INJECT_TEMPLATE, appDBConnPath, util.AppDbConnectionStringKey)
 	return annotations
 }
 
@@ -410,11 +425,8 @@ func (s DatabaseSecretsToInject) DatabaseAnnotations(namespace string) map[strin
 		agentCertsPath := fmt.Sprintf("%s/%s/%s", databaseSecretPath, namespace, s.AgentCerts)
 		annotations["vault.hashicorp.com/agent-inject-secret-mms-automation-agent-pem"] = agentCertsPath
 		annotations["vault.hashicorp.com/secret-volume-path-mms-automation-agent-pem"] = "/mongodb-automation/agent-certs"
-		annotations["vault.hashicorp.com/agent-inject-template-mms-automation-agent-pem"] = fmt.Sprintf(`{{- with secret "%s" -}}
-          {{ range $k, $v := .Data.data }}
-          {{- $v }}
-          {{- end }}
-          {{- end }}`, agentCertsPath)
+		annotations["vault.hashicorp.com/agent-inject-template-mms-automation-agent-pem"] = fmt.Sprintf(
+			DEFAULT_AGENT_INJECT_TEMPLATE, agentCertsPath, util.AutomationAgentPemSecretKey)
 	}
 	if s.InternalClusterAuth != "" {
 		internalClusterPath := fmt.Sprintf("%s/%s/%s", databaseSecretPath, namespace, s.InternalClusterAuth)
@@ -422,23 +434,33 @@ func (s DatabaseSecretsToInject) DatabaseAnnotations(namespace string) map[strin
 		annotations["vault.hashicorp.com/agent-inject-secret-internal-cluster"] = internalClusterPath
 		annotations["vault.hashicorp.com/agent-inject-file-internal-cluster"] = s.InternalClusterHash
 		annotations["vault.hashicorp.com/secret-volume-path-internal-cluster"] = util.InternalClusterAuthMountPath
-		annotations["vault.hashicorp.com/agent-inject-template-internal-cluster"] = fmt.Sprintf(`{{- with secret "%s" -}}
-          {{ range $k, $v := .Data.data }}
-          {{- $v }}
-          {{- end }}
-          {{- end }}`, internalClusterPath)
+		annotations["vault.hashicorp.com/agent-inject-template-internal-cluster"] = fmt.Sprintf(
+			DEFAULT_AGENT_INJECT_TEMPLATE, internalClusterPath, s.InternalClusterHash)
+
+		annotations["vault.hashicorp.com/agent-inject-secret-previous-internal-cluster"] = internalClusterPath
+		annotations["vault.hashicorp.com/secret-volume-path-previous-internal-cluster"] = util.InternalClusterAuthMountPath
+		annotations["vault.hashicorp.com/agent-inject-file-previous-internal-cluster"] = util.PreviousHashSecretKey
+		annotations["vault.hashicorp.com/agent-inject-template-previous-internal-cluster"] = fmt.Sprintf(
+			PREVIOUS_HASH_INJECT_TEMPLATE, internalClusterPath, util.PreviousHashSecretKey)
+		annotations["vault.hashicorp.com/agent-inject-command-previous-internal-cluster"] = fmt.Sprintf(
+			PREVIOUS_HASH_INJECT_COMMAND, util.InternalClusterAuthMountPath, util.PreviousHashSecretKey)
 	}
 	if s.MemberClusterAuth != "" {
-		memberClusterPath := fmt.Sprintf("%s/%s/%s", databaseSecretPath, namespace, s.InternalClusterAuth)
+		memberClusterPath := fmt.Sprintf("%s/%s/%s", databaseSecretPath, namespace, s.MemberClusterAuth)
 
 		annotations["vault.hashicorp.com/agent-inject-secret-tls-certificate"] = memberClusterPath
 		annotations["vault.hashicorp.com/agent-inject-file-tls-certificate"] = s.MemberClusterHash
 		annotations["vault.hashicorp.com/secret-volume-path-tls-certificate"] = util.TLSCertMountPath
-		annotations["vault.hashicorp.com/agent-inject-template-tls-certificate"] = fmt.Sprintf(`{{- with secret "%s" -}}
-          {{ range $k, $v := .Data.data }}
-          {{- $v }}
-          {{- end }}
-          {{- end }}`, memberClusterPath)
+		annotations["vault.hashicorp.com/agent-inject-template-tls-certificate"] = fmt.Sprintf(
+			DEFAULT_AGENT_INJECT_TEMPLATE, memberClusterPath, s.MemberClusterHash)
+
+		annotations["vault.hashicorp.com/agent-inject-secret-previous-tls-certificate"] = memberClusterPath
+		annotations["vault.hashicorp.com/secret-volume-path-previous-tls-certificate"] = util.TLSCertMountPath
+		annotations["vault.hashicorp.com/agent-inject-file-previous-tls-certificate"] = util.PreviousHashSecretKey
+		annotations["vault.hashicorp.com/agent-inject-template-previous-tls-certificate"] = fmt.Sprintf(
+			PREVIOUS_HASH_INJECT_TEMPLATE, memberClusterPath, util.PreviousHashSecretKey)
+		annotations["vault.hashicorp.com/agent-inject-command-previous-tls-certificate"] = fmt.Sprintf(
+			PREVIOUS_HASH_INJECT_COMMAND, util.TLSCertMountPath, util.PreviousHashSecretKey)
 	}
 
 	if s.Prometheus != "" {
@@ -447,11 +469,16 @@ func (s DatabaseSecretsToInject) DatabaseAnnotations(namespace string) map[strin
 		annotations["vault.hashicorp.com/agent-inject-secret-prom-https-cert"] = promPath
 		annotations["vault.hashicorp.com/agent-inject-file-prom-https-cert"] = s.PrometheusTLSCertHash
 		annotations["vault.hashicorp.com/secret-volume-path-prom-https-cert"] = util.SecretVolumeMountPathPrometheus
-		annotations["vault.hashicorp.com/agent-inject-template-prom-https-cert"] = fmt.Sprintf(`{{- with secret "%s" -}}
-		  {{ range $k, $v := .Data.data }}
-		  {{- $v }}
-		  {{- end }}
-		  {{- end }}`, promPath)
+		annotations["vault.hashicorp.com/agent-inject-template-prom-https-cert"] = fmt.Sprintf(
+			DEFAULT_AGENT_INJECT_TEMPLATE, promPath, s.PrometheusTLSCertHash)
+
+		annotations["vault.hashicorp.com/agent-inject-secret-previous-prom-https-cert"] = promPath
+		annotations["vault.hashicorp.com/secret-volume-path-previous-prom-https-cert"] = util.SecretVolumeMountPathPrometheus
+		annotations["vault.hashicorp.com/agent-inject-file-previous-prom-https-cert"] = util.PreviousHashSecretKey
+		annotations["vault.hashicorp.com/agent-inject-template-previous-prom-https-cert"] = fmt.Sprintf(
+			PREVIOUS_HASH_INJECT_TEMPLATE, promPath, util.PreviousHashSecretKey)
+		annotations["vault.hashicorp.com/agent-inject-command-previous-prom-https-cert"] = fmt.Sprintf(
+			PREVIOUS_HASH_INJECT_COMMAND, util.SecretVolumeMountPathPrometheus, util.PreviousHashSecretKey)
 	}
 
 	return annotations
@@ -488,9 +515,7 @@ func (a AppDBSecretsToInject) AppDBAnnotations(namespace string) map[string]stri
 	if a.AgentApiKey != "" {
 
 		apiKeySecretPath := fmt.Sprintf("%s/%s/%s", appdbSecretPath, namespace, a.AgentApiKey)
-		agentAPIKeyTemplate := fmt.Sprintf(`{{- with secret "%s" -}}
-          {{ .Data.data.agentApiKey }}
-          {{- end }}`, apiKeySecretPath)
+		agentAPIKeyTemplate := fmt.Sprintf(DEFAULT_AGENT_INJECT_TEMPLATE, apiKeySecretPath, util.OmAgentApiKey)
 
 		annotations["vault.hashicorp.com/agent-inject-secret-agentApiKey"] = apiKeySecretPath
 		annotations["vault.hashicorp.com/secret-volume-path-agentApiKey"] = "/mongodb-automation/agent-api-key"
@@ -502,11 +527,16 @@ func (a AppDBSecretsToInject) AppDBAnnotations(namespace string) map[string]stri
 		annotations["vault.hashicorp.com/agent-inject-secret-tls-certificate"] = memberClusterPath
 		annotations["vault.hashicorp.com/agent-inject-file-tls-certificate"] = a.TLSClusterHash
 		annotations["vault.hashicorp.com/secret-volume-path-tls-certificate"] = util.SecretVolumeMountPath + "/certs"
-		annotations["vault.hashicorp.com/agent-inject-template-tls-certificate"] = fmt.Sprintf(`{{- with secret "%s" -}}
-          {{ range $k, $v := .Data.data }}
-          {{- $v }}
-          {{- end }}
-          {{- end }}`, memberClusterPath)
+		annotations["vault.hashicorp.com/agent-inject-template-tls-certificate"] = fmt.Sprintf(
+			DEFAULT_AGENT_INJECT_TEMPLATE, memberClusterPath, a.TLSClusterHash)
+
+		annotations["vault.hashicorp.com/agent-inject-secret-previous-tls-certificate"] = memberClusterPath
+		annotations["vault.hashicorp.com/secret-volume-path-previous-tls-certificate"] = util.SecretVolumeMountPath + "/certs"
+		annotations["vault.hashicorp.com/agent-inject-file-previous-tls-certificate"] = util.PreviousHashSecretKey
+		annotations["vault.hashicorp.com/agent-inject-template-previous-tls-certificate"] = fmt.Sprintf(
+			PREVIOUS_HASH_INJECT_TEMPLATE, memberClusterPath, util.PreviousHashSecretKey)
+		annotations["vault.hashicorp.com/agent-inject-command-previous-tls-certificate"] = fmt.Sprintf(
+			PREVIOUS_HASH_INJECT_COMMAND, util.SecretVolumeMountPath+"/certs", util.PreviousHashSecretKey)
 
 	}
 
@@ -529,11 +559,16 @@ func (a AppDBSecretsToInject) AppDBAnnotations(namespace string) map[string]stri
 		annotations["vault.hashicorp.com/agent-inject-secret-prom-https-cert"] = promPath
 		annotations["vault.hashicorp.com/agent-inject-file-prom-https-cert"] = a.PrometheusTLSCertHash
 		annotations["vault.hashicorp.com/secret-volume-path-prom-https-cert"] = util.SecretVolumeMountPathPrometheus
-		annotations["vault.hashicorp.com/agent-inject-template-prom-https-cert"] = fmt.Sprintf(`{{- with secret "%s" -}}
-		  {{ range $k, $v := .Data.data }}
-		  {{- $v }}
-		  {{- end }}
-		  {{- end }}`, promPath)
+		annotations["vault.hashicorp.com/agent-inject-template-prom-https-cert"] = fmt.Sprintf(
+			DEFAULT_AGENT_INJECT_TEMPLATE, promPath, a.PrometheusTLSCertHash)
+
+		annotations["vault.hashicorp.com/agent-inject-secret-previous-prom-https-cert"] = promPath
+		annotations["vault.hashicorp.com/secret-volume-path-previous-prom-https-cert"] = util.SecretVolumeMountPathPrometheus
+		annotations["vault.hashicorp.com/agent-inject-file-previous-prom-https-cert"] = util.PreviousHashSecretKey
+		annotations["vault.hashicorp.com/agent-inject-template-previous-prom-https-cert"] = fmt.Sprintf(
+			PREVIOUS_HASH_INJECT_TEMPLATE, promPath, util.PreviousHashSecretKey)
+		annotations["vault.hashicorp.com/agent-inject-command-previous-prom-https-cert"] = fmt.Sprintf(
+			PREVIOUS_HASH_INJECT_COMMAND, util.SecretVolumeMountPathPrometheus, util.PreviousHashSecretKey)
 	}
 
 	return annotations
