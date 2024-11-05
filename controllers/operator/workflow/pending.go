@@ -41,51 +41,51 @@ func (p *pendingStatus) WithAdditionalOptions(options ...status.Option) *pending
 	return p
 }
 
-func (p pendingStatus) ReconcileResult() (reconcile.Result, error) {
+func (p *pendingStatus) ReconcileResult() (reconcile.Result, error) {
 	return reconcile.Result{RequeueAfter: time.Second * time.Duration(p.retryInSeconds), Requeue: p.requeue}, nil
 }
 
-func (p pendingStatus) IsOK() bool {
+func (p *pendingStatus) IsOK() bool {
 	return false
 }
 
-func (p pendingStatus) Merge(other Status) Status {
+func (p *pendingStatus) Merge(other Status) Status {
 	switch v := other.(type) {
 	// Pending messages are just merged together
-	case pendingStatus:
+	case *pendingStatus:
 		return mergedPending(p, v)
-	case failedStatus:
+	case *failedStatus:
 		return v
 	}
 	return p
 }
 
-func (p pendingStatus) OnErrorPrepend(msg string) Status {
+func (p *pendingStatus) OnErrorPrepend(msg string) Status {
 	p.commonStatus.prependMsg(msg)
 	return p
 }
 
-func (p pendingStatus) StatusOptions() []status.Option {
+func (p *pendingStatus) StatusOptions() []status.Option {
 	options := p.statusOptions()
 	// Add any custom options here
 	return options
 }
 
-func (p pendingStatus) Phase() status.Phase {
+func (p *pendingStatus) Phase() status.Phase {
 	return status.PhasePending
 }
 
-func (p pendingStatus) Log(log *zap.SugaredLogger) {
+func (p *pendingStatus) Log(log *zap.SugaredLogger) {
 	log.Info(stringutil.UpperCaseFirstChar(p.msg))
 }
 
-func mergedPending(p1, p2 pendingStatus) pendingStatus {
+func mergedPending(p1, p2 *pendingStatus) *pendingStatus {
 	p := Pending("%s, %s", p1.msg, p2.msg)
 	p.warnings = append(p1.warnings, p2.warnings...)
 	p.resourcesNotReady = make([]status.ResourceNotReady, 0)
 	p.resourcesNotReady = append(p.resourcesNotReady, p1.resourcesNotReady...)
 	p.resourcesNotReady = append(p.resourcesNotReady, p2.resourcesNotReady...)
-	return *p
+	return p
 }
 
 func (p *pendingStatus) Requeue() Status {

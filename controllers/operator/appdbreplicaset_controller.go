@@ -1771,7 +1771,7 @@ func (r *ReconcileAppDbReplicaSet) deployStatefulSet(ctx context.Context, opsMan
 		}
 
 		if workflowStatus := r.deployStatefulSetInMemberCluster(ctx, opsManager, appDbSts, memberCluster.Name, log); !workflowStatus.IsOK() {
-			return workflowStatus.Merge(workflow.Failed(xerrors.Errorf("cannot deploy stateful set in cluster %s", memberCluster.Name)))
+			return workflowStatus
 		}
 
 		if appdbMultiScaler, ok := scaler.(*scalers.MultiClusterReplicaSetScaler); ok {
