@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import subprocess
 import tempfile
@@ -6,6 +7,7 @@ import time
 from typing import Any, Callable, Dict, List, Optional
 
 import kubernetes
+import requests
 from kubernetes import client
 from kubernetes.client import ApiextensionsV1Api
 from kubetester import (
@@ -1451,9 +1453,16 @@ def pytest_sessionfinish(session, exitstatus):
                         user=user,
                     )
                 )
-                ev = tester.get_project_events().json()["results"]
-                with open(f"/tmp/diagnostics/{project_id}-events.json", "w", encoding="utf-8") as f:
-                    json.dump(ev, f, ensure_ascii=False, indent=4)
+
+                # let's only access om if its healthy and around.
+                status_code, _ = tester.request_health(base_url)
+                if status_code == requests.status_codes.codes.OK:
+                    ev = tester.get_project_events().json()["results"]
+                    with open(f"/tmp/diagnostics/{project_id}-events.json", "w", encoding="utf-8") as f:
+                        json.dump(ev, f, ensure_ascii=False, indent=4)
+                else:
+                    logging.info("om is not healthy - not collecting events information")
+
             except Exception as e:
                 continue
 
