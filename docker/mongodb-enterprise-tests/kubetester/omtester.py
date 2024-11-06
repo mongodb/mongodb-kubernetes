@@ -346,11 +346,12 @@ class OMTester(object):
             status_code == requests.status_codes.codes.OK
         ), "Expected HTTP 200 from Ops Manager but got {} ({})".format(status_code, datetime.now())
 
-    def om_request(self, method, path, json_object: Optional[Dict] = None, retries=5):
+    def om_request(self, method, path, json_object: Optional[Dict] = None, retries=3):
         """performs the digest API request to Ops Manager. Note that the paths don't need to be prefixed with
         '/api../v1.0' as the method does it internally."""
         headers = {"Content-Type": "application/json"}
         auth = build_auth(self.context.user, self.context.public_key)
+        start_time = time.time()
 
         endpoint = f"{self.context.base_url}/api/public/v1.0{path}"
 
@@ -359,6 +360,9 @@ class OMTester(object):
         adapter = HTTPAdapter(max_retries=retry)
         session.mount("http://", adapter)
         session.mount("https://", adapter)
+        last_path_part = path.split("/")[-1]
+
+        span = trace.get_current_span()
 
         def om_request():
             try:
@@ -368,11 +372,14 @@ class OMTester(object):
                     auth=auth,
                     headers=headers,
                     json=json_object,
+                    timeout=30,
                     verify=False,
                 )
             except Exception as e:
                 print("failed connecting to om")
                 raise e
+
+            span.set_attribute(key=f"meko_om_request_path_{last_path_part}_time", value=time.time() - start_time)
 
             if response.status_code >= 300:
                 raise Exception(
