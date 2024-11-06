@@ -105,8 +105,9 @@ def test_appdb_enable_tls(ops_manager: MongoDBOpsManager, issuer_ca_configmap: s
         "tls": {"ca": issuer_ca_configmap},
     }
     ops_manager.update()
-    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+    ops_manager.appdb_status().assert_abandons_phase(Phase.Running)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
+    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
 
 @mark.e2e_om_ops_manager_https_enabled
