@@ -684,6 +684,7 @@ task_groups:
     - e2e_sharded_cluster_pv_resize
     - e2e_sharded_cluster_secret
     - e2e_sharded_cluster_statefulset_status
+    - e2e_sharded_cluster_upgrade_downgrade
   <<: *teardown_group
 
 - name: e2e_multi_cluster_2_clusters_task_group
