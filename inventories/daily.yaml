@@ -25,7 +25,7 @@ images:
           imagebase: $(inputs.params.quay_registry)$(inputs.params.base_suffix):$(inputs.params.release_version)-context$(inputs.params.architecture_suffix)
           # This is required for correctly labeling the agent image and is not used
           # in the other images.
-          agent_version: $(inputs.params.release_version)
+          version: $(inputs.params.release_version)
         output:
           - registry: $(inputs.params.quay_registry)$(inputs.params.ubi_suffix)
             tag: $(inputs.params.release_version)$(inputs.params.architecture_suffix)
