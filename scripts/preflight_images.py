@@ -214,6 +214,13 @@ def main() -> int:
         # these are the images we own, we preflight all of them as long as we officially support them in release.json
         available_versions = get_supported_version_for_image_matrix_handling(args.image)
 
+    # only preflight the current agent version and the subset of agent images suffixed with the current operator version
+    if args.image == "mongodb-agent":
+        release = get_release()
+        operator_version = release["mongodbOperator"]
+        available_versions = list(filter(lambda version: version.endswith(f"_{operator_version}"), available_versions))
+        available_versions.append(release["agentVersion"])
+
     # Attempt to run a pre-flight check on a single version of the image
     if image_version is not None:
         return preflight_single_image(args, image_version, submit, available_versions)
@@ -235,9 +242,7 @@ def main() -> int:
         else:
             logging.info(f"succeeded image: {args.image}:{version}")
 
-    # Temporarily make the CI pass, until we decide how to solve for already existing agent images
-    # To be removed during https://jira.mongodb.org/browse/CLOUDP-279927
-    if found_error and args.image != "mongodb-agent":
+    if found_error:
         return 1
     return 0
 
