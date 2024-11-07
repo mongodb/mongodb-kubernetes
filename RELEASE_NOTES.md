@@ -3,7 +3,7 @@
 # MongoDB Enterprise Kubernetes Operator 1.29.0
 
 ## New Features
-**AppDB**: Added support for easy resize. More can be read in changelog 1.28.0 - "automated expansion of the pvc"
+* **AppDB**: Added support for easy resize. More can be read in changelog 1.28.0 - "automated expansion of the pvc"
 
 ## Bug Fixes
 
