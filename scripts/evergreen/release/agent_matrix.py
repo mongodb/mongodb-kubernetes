@@ -22,7 +22,7 @@ def get_supported_version_for_image_matrix_handling(image: str) -> List[str]:
     # static container images which are a matrix of <agent_version>_<operator_version>
     if image == "mongodb-agent":
         # officially, we start the support with 1.25.0, but we only support the last three versions
-        min_supported_version_operator_for_static = "1.26.0"
+        min_supported_version_operator_for_static = "1.27.0"
         last_supported_operator_versions = [
             v
             for v in get_release()["supportedImages"]["operator"]["versions"]
