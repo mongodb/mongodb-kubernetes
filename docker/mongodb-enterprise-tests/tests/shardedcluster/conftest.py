@@ -68,6 +68,15 @@ def get_member_cluster_clients_using_cluster_mapping(resource_name: str, namespa
     return get_member_cluster_clients(cluster_mapping)
 
 
+def get_mongos_service_names(sc) -> [str]:
+    service_names = []
+    for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
+        for member_idx in range(sc.mongos_members_in_cluster(cluster_member_client.cluster_name)):
+            service_names.append(sc.mongos_service_name(member_idx, cluster_member_client.cluster_index))
+
+    return service_names
+
+
 def read_deployment_state(resource_name: str, namespace: str) -> dict[str, Any]:
     deployment_state_cm = read_configmap(
         namespace,

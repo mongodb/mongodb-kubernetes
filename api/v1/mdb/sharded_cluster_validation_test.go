@@ -178,6 +178,15 @@ func TestValidClusterSpecLists(t *testing.T) {
 			memberConfig:  3,
 			expectError:   false,
 		},
+		{
+			name:          "No error when ClusterSpecLists members is 0",
+			shardSpec:     ClusterSpecItem{ClusterName: "shard-cluster", Members: 0},
+			configSrvSpec: ClusterSpecItem{ClusterName: "config-cluster", Members: 0},
+			mongosSpec:    ClusterSpecItem{ClusterName: "mongos-cluster", Members: 0},
+			members:       3,
+			memberConfig:  3,
+			expectError:   false,
+		},
 	}
 
 	for _, tt := range tests {
