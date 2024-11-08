@@ -88,7 +88,7 @@ func validClusterSpecLists(m MongoDB) v1.ValidationResult {
 		return v1.ValidationError(msg, "spec.configSrvSpec")
 	}
 	if !isValidClusterSpecList(m.Spec.MongosSpec.ClusterSpecList) {
-		return v1.ValidationError(msg, "spec.congosSpec")
+		return v1.ValidationError(msg, "spec.mongosSpec")
 	}
 	if len(m.Spec.MemberConfig) > 0 && len(m.Spec.MemberConfig) < m.Spec.Members {
 		return v1.ValidationError("Invalid clusterSpecList: %s", MemberConfigErrorMessage)
@@ -98,7 +98,7 @@ func validClusterSpecLists(m MongoDB) v1.ValidationResult {
 
 func isValidClusterSpecList(clusterSpecList ClusterSpecList) bool {
 	for _, clusterSpecItem := range clusterSpecList {
-		if clusterSpecItem.ClusterName == "" || clusterSpecItem.Members == 0 {
+		if clusterSpecItem.ClusterName == "" {
 			return false
 		}
 	}
