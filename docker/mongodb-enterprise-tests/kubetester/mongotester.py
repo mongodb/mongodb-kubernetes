@@ -430,7 +430,7 @@ class ShardedClusterTester(MongoTester):
         if multi_cluster:
             self.cnx_string = build_mongodb_multi_connection_uri(
                 namespace,
-                service_names,
+                service_names=service_names,
                 port=port,
                 cluster_domain=cluster_domain,
             )

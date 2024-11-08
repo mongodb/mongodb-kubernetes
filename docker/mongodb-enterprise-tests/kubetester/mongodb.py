@@ -172,7 +172,7 @@ class MongoDB(CustomObject, MongoDBCommon):
         srv: bool = False,
         use_ssl: Optional[bool] = None,
         service_names: list[str] = None,
-    ) -> MongoTester:
+    ):
         """Returns a Tester instance for this type of deployment."""
         if self.type == "ReplicaSet" and "clusterSpecList" in self["spec"]:
             raise ValueError("A MongoDB class is being used to represent a MongoDBMulti instance!")
