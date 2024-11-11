@@ -682,6 +682,7 @@ task_groups:
     - e2e_sharded_cluster_mongod_options_and_log_rotation
     - e2e_sharded_cluster_pv
     - e2e_sharded_cluster_pv_resize
+    - e2e_sharded_cluster_recovery
     - e2e_sharded_cluster_scale_shards
     - e2e_sharded_cluster_secret
     - e2e_sharded_cluster_statefulset_status
