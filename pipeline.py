@@ -725,6 +725,7 @@ def build_image_daily(
                 build_configuration.include_tags.extend(variants)
 
                 logger.info("Rebuilding {} with variants {}".format(version, variants))
+                args = copy.deepcopy(args)
                 args["release_version"] = version
 
                 tasks_queue.put(executor.submit(build_image_daily_parallel_worker, build_configuration, args))
