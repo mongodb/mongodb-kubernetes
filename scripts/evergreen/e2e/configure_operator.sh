@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -Eeou pipefail
 
+test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
+
 source scripts/funcs/printing
 source scripts/funcs/kubernetes
 
