@@ -11,6 +11,7 @@ from tests.conftest import is_multi_cluster
 from tests.shardedcluster.conftest import (
     enable_multi_cluster_deployment,
     get_member_cluster_clients_using_cluster_mapping,
+    get_mongos_service_names,
 )
 
 
@@ -119,11 +120,9 @@ class TestShardedClusterCreation:
                 self.check_pvc_labels(pvc)
 
     def test_mongos_are_reachable(self, sc: MongoDB):
-        for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
-            for member_idx in range(sc.mongos_members_in_cluster(cluster_member_client.cluster_name)):
-                service_name = sc.mongos_service_name(member_idx, cluster_member_client.cluster_index)
-                tester = sc.tester(service_names=[service_name])
-                tester.assert_connectivity()
+        for service_name in get_mongos_service_names(sc):
+            tester = sc.tester(service_names=[service_name])
+            tester.assert_connectivity()
 
 
 @mark.e2e_sharded_cluster_pv

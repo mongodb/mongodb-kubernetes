@@ -14,12 +14,16 @@ from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import run_periodically
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongodb_user import MongoDBUser
+from kubetester.mongotester import MongoTester
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
-from tests.opsmanager.backup_snapshot_schedule_tests import BackupSnapshotScheduleTests
 from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_bucket
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
+from tests.shardedcluster.conftest import (
+    enable_multi_cluster_deployment as enable_multi_cluster_deployment_mdb,
+)
+from tests.shardedcluster.conftest import get_mongos_service_names
 
 HEAD_PATH = "/head/"
 S3_SECRET_NAME = "my-s3-secret"
@@ -65,8 +69,7 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoD
     # mongoURI not being updated unless pod is killed. This is documented in CLOUDP-60443, once resolved this skip & comment can be deleted
     resource["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
 
-    resource.update()
-    return resource
+    return resource.update()
 
 
 @fixture(scope="module")
@@ -78,8 +81,7 @@ def s3_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoDB:
     ).configure(ops_manager, "s3metadata")
     resource.set_version(custom_mdb_version)
 
-    resource.update()
-    return resource
+    return resource.update()
 
 
 @fixture(scope="module")
@@ -90,8 +92,8 @@ def blockstore_replica_set(ops_manager, namespace, custom_mdb_version: str) -> M
         name=BLOCKSTORE_RS_NAME,
     ).configure(ops_manager, "blockstore")
     resource.set_version(custom_mdb_version)
-    resource.update()
-    return resource
+
+    return resource.update()
 
 
 @fixture(scope="module")
@@ -259,11 +261,23 @@ class TestBackupForMongodb:
             namespace=namespace,
             name="mdb-four-two",
         ).configure(ops_manager, "firstProject")
-        resource.set_version(ensure_ent_version(custom_mdb_version))
-        resource.configure_backup(mode="disabled")
 
-        try_load(resource)
-        return resource
+        if try_load(resource):
+            return resource
+
+        if is_multi_cluster():
+            enable_multi_cluster_deployment_mdb(
+                resource,
+                shard_members_array=[1, 1, 1],
+                mongos_members_array=[1, None, None],
+                configsrv_members_array=[None, 1, None],
+            )
+
+        resource.configure_backup(mode="disabled")
+        resource.set_version(ensure_ent_version(custom_mdb_version))
+        resource.set_architecture_annotation()
+
+        return resource.update()
 
     @fixture(scope="class")
     def mdb_prev(self, ops_manager: MongoDBOpsManager, namespace, custom_mdb_prev_version: str):
@@ -272,23 +286,37 @@ class TestBackupForMongodb:
             namespace=namespace,
             name="mdb-four-zero",
         ).configure(ops_manager, "secondProject")
-        resource.set_version(ensure_ent_version(custom_mdb_prev_version))
-        resource.configure_backup(mode="disabled")
 
-        try_load(resource)
-        return resource
+        if try_load(resource):
+            return resource
+
+        if is_multi_cluster():
+            enable_multi_cluster_deployment_mdb(
+                resource,
+                shard_members_array=[1, 1, 1],
+                mongos_members_array=[1, None, None],
+                configsrv_members_array=[None, 1, None],
+            )
+
+        resource.configure_backup(mode="disabled")
+        resource.set_version(ensure_ent_version(custom_mdb_prev_version))
+        resource.set_architecture_annotation()
+
+        return resource.update()
+
+    @fixture(scope="class")
+    def mdb_latest_tester(self, mdb_latest: MongoDB) -> MongoTester:
+        service_names = get_mongos_service_names(mdb_latest)
+
+        return mdb_latest.tester(service_names=service_names)
 
     def test_mdbs_created(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
-        mdb_latest.update()
-        mdb_prev.update()
-        mdb_latest.assert_reaches_phase(Phase.Running, timeout=1000)
-        mdb_prev.assert_reaches_phase(Phase.Running, timeout=1000)
+        mdb_latest.assert_reaches_phase(Phase.Running, timeout=1200)
+        mdb_prev.assert_reaches_phase(Phase.Running, timeout=1200)
 
-    def test_mdbs_enable_backup(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
-        mdb_latest.load()
-
+    def test_mdbs_enable_backup(self, mdb_latest: MongoDB, mdb_prev: MongoDB, mdb_latest_tester: MongoTester):
         def until_shards_are_here():
-            shards = mdb_latest.tester().client.admin.command("listShards")
+            shards = mdb_latest_tester.client.admin.command("listShards")
             if len(shards["shards"]) == 2:
                 return True
             else:
@@ -299,6 +327,7 @@ class TestBackupForMongodb:
         # we need to sleep here to give OM some time to recognize the shards.
         # otherwise, if you start a backup during a topology change will lead the backup to be aborted.
         time.sleep(30)
+        mdb_latest.load()
         mdb_latest.configure_backup(mode="enabled")
         mdb_latest.update()
 
@@ -306,8 +335,8 @@ class TestBackupForMongodb:
         mdb_prev.configure_backup(mode="enabled")
         mdb_prev.update()
 
-        mdb_prev.assert_reaches_phase(Phase.Running, timeout=600)
-        mdb_latest.assert_reaches_phase(Phase.Running, timeout=600)
+        mdb_prev.assert_reaches_phase(Phase.Running, timeout=1200)
+        mdb_latest.assert_reaches_phase(Phase.Running, timeout=1200)
 
     def test_mdbs_backuped(self, ops_manager: MongoDBOpsManager):
         om_tester_first = ops_manager.get_om_tester(project_name="firstProject")
@@ -315,10 +344,10 @@ class TestBackupForMongodb:
 
         # wait until a first snapshot is ready for both
         om_tester_first.wait_until_backup_snapshots_are_ready(
-            expected_count=1, expected_config_count=4, is_sharded_cluster=True
+            expected_count=1, expected_config_count=4, is_sharded_cluster=True, timeout=1600
         )
         om_tester_second.wait_until_backup_snapshots_are_ready(
-            expected_count=1, expected_config_count=4, is_sharded_cluster=True
+            expected_count=1, expected_config_count=4, is_sharded_cluster=True, timeout=1600
         )
 
     def test_can_transition_from_started_to_stopped(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
@@ -327,7 +356,7 @@ class TestBackupForMongodb:
         mdb_prev.assert_backup_reaches_status("STARTED", timeout=100)
         mdb_prev.configure_backup(mode="disabled")
         mdb_prev.update()
-        mdb_prev.assert_backup_reaches_status("STOPPED", timeout=600)
+        mdb_prev.assert_backup_reaches_status("STOPPED", timeout=1600)
 
     def test_can_transition_from_started_to_terminated_0(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
         # a direct transition from enabled to terminated is not possible
@@ -335,14 +364,14 @@ class TestBackupForMongodb:
         mdb_latest.assert_backup_reaches_status("STARTED", timeout=100)
         mdb_latest.configure_backup(mode="terminated")
         mdb_latest.update()
-        mdb_latest.assert_backup_reaches_status("TERMINATING", timeout=600)
+        mdb_latest.assert_backup_reaches_status("TERMINATING", timeout=1600)
 
     def test_backup_terminated_for_deleted_resource(self, ops_manager: MongoDBOpsManager, mdb_prev: MongoDB):
         # re-enable backup
         mdb_prev.configure_backup(mode="enabled")
         mdb_prev["spec"]["backup"]["autoTerminateOnDeletion"] = True
         mdb_prev.update()
-        mdb_prev.assert_backup_reaches_status("STARTED", timeout=600)
+        mdb_prev.assert_backup_reaches_status("STARTED", timeout=1600)
         mdb_prev.delete()
 
         def resource_is_deleted() -> bool:

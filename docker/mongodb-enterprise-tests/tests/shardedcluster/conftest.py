@@ -68,11 +68,12 @@ def get_member_cluster_clients_using_cluster_mapping(resource_name: str, namespa
     return get_member_cluster_clients(cluster_mapping)
 
 
-def get_mongos_service_names(sc) -> [str]:
+def get_mongos_service_names(resource: MongoDB):
     service_names = []
-    for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
-        for member_idx in range(sc.mongos_members_in_cluster(cluster_member_client.cluster_name)):
-            service_names.append(sc.mongos_service_name(member_idx, cluster_member_client.cluster_index))
+    for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(resource.name, resource.namespace):
+        for member_idx in range(resource.mongos_members_in_cluster(cluster_member_client.cluster_name)):
+            service_name = resource.mongos_service_name(member_idx, cluster_member_client.cluster_index)
+            service_names.append(service_name)
 
     return service_names
 

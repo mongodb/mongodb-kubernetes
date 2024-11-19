@@ -10,6 +10,7 @@ from tests.conftest import is_multi_cluster
 from tests.shardedcluster.conftest import (
     enable_multi_cluster_deployment,
     get_member_cluster_clients_using_cluster_mapping,
+    get_mongos_service_names,
 )
 
 
@@ -36,11 +37,7 @@ def sc(namespace: str, custom_mdb_prev_version: str) -> MongoDB:
 
 @fixture(scope="module")
 def mongod_tester(sc: MongoDB) -> MongoTester:
-    service_names = []
-    for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
-        for member_idx in range(sc.mongos_members_in_cluster(cluster_member_client.cluster_name)):
-            service_name = sc.mongos_service_name(member_idx, cluster_member_client.cluster_index)
-            service_names.append(service_name)
+    service_names = get_mongos_service_names(sc)
 
     return sc.tester(service_names=service_names)
 
