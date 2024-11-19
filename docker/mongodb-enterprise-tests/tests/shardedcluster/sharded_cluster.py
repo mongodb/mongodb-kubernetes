@@ -12,6 +12,7 @@ from tests.conftest import is_multi_cluster
 from tests.shardedcluster.conftest import (
     enable_multi_cluster_deployment,
     get_member_cluster_clients_using_cluster_mapping,
+    get_mongos_service_names,
 )
 
 SCALED_SHARD_COUNT = 2
@@ -81,21 +82,17 @@ class TestShardedClusterCreation:
     # When testing locally make sure you have kubefwd forwarding all cluster hostnames
     # kubefwd does not contain fix for multiple cluster, use https://github.com/lsierant/kubefwd fork instead
     def test_shards_were_configured_and_accessible(self, sc: MongoDB):
-        for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
-            for member_idx in range(sc.mongos_members_in_cluster(cluster_member_client.cluster_name)):
-                service_name = sc.mongos_service_name(member_idx, cluster_member_client.cluster_index)
-                tester = sc.tester(service_names=[service_name])
-                tester.assert_connectivity()
+        for service_name in get_mongos_service_names(sc):
+            tester = sc.tester(service_names=[service_name])
+            tester.assert_connectivity()
 
     @skip_if_local()  # Local machine DNS don't contain K8s CoreDNS SRV records which are required
     @skip_if_multi_cluster()  # srv option does not work for multi-cluster tests as each cluster DNS contains entries
     # related only to that cluster. Additionally, we don't pass srv option when building multi-cluster conn string
     def test_shards_were_configured_with_srv_and_accessible(self, sc: MongoDB):
-        for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
-            for member_idx in range(sc.mongos_members_in_cluster(cluster_member_client.cluster_name)):
-                service_name = sc.mongos_service_name(member_idx, cluster_member_client.cluster_index)
-                tester = sc.tester(service_names=[service_name], srv=True)
-                tester.assert_connectivity()
+        for service_name in get_mongos_service_names(sc):
+            tester = sc.tester(service_names=[service_name], srv=True)
+            tester.assert_connectivity()
 
     def test_monitoring_versions(self, sc: MongoDB):
         """Verifies that monitoring agent is configured for each process in the deployment"""
