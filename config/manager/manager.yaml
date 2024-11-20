@@ -129,6 +129,14 @@ spec:
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.11.8645-1_1.28.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_11_8645_1_1_29_0
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.11.8645-1_1.29.0"
+            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_12_8669_1
+              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.12.8669-1"
+            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_12_8669_1_1_27_0
+              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.12.8669-1_1.27.0"
+            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_12_8669_1_1_28_0
+              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.12.8669-1_1.28.0"
+            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_12_8669_1_1_29_0
+              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.12.8669-1_1.29.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_2_8531_1
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.2.8531-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_2_8531_1_1_27_0
@@ -325,6 +333,8 @@ spec:
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:7.0.10"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_7_0_11
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:7.0.11"
+            - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_7_0_12
+              value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:7.0.12"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_8_0_0
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:8.0.0"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_8_0_1

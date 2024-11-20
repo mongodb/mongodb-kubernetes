@@ -8,7 +8,7 @@ include:
 variables:
   - &ops_manager_60_latest 6.0.25 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_70_latest 7.0.11 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_70_latest 7.0.12 # The order/index is important, since these are anchors. Please do not change
 
   - &ops_manager_80_latest 8.0.1 # The order/index is important, since these are anchors. Please do not change
 
