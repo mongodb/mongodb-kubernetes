@@ -379,7 +379,8 @@ class OMTester(object):
                 print("failed connecting to om")
                 raise e
 
-            span.set_attribute(key=f"meko_om_request_path_{last_path_part}_time", value=time.time() - start_time)
+            # Removing OM Request time from span attributes as Honeycomb indexes unique keys and we're limited to 1000
+            # span.set_attribute(key=f"meko_om_request_path_{last_path_part}_time", value=time.time() - start_time)
 
             if response.status_code >= 300:
                 raise Exception(
