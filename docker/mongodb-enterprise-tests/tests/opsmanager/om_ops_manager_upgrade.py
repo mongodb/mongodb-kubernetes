@@ -351,7 +351,10 @@ class TestMongoDbsVersionUpgrade:
         mdb["spec"]["version"] = custom_mdb_version
         mdb.update()
 
-        mdb.assert_reaches_phase(Phase.Running, timeout=1200)
+        # After the Ops Manager Upgrade, there's no time guarantees when a new manifest will be downloaded.
+        # Therefore, we may occasionally get "Invalid config: MongoDB version 8.0.0 is not available."
+        # This shouldn't happen very often at our customers as upgrading OM and MDB is usually separate processes.
+        mdb.assert_reaches_phase(Phase.Running, timeout=1200, ignore_errors=True)
         mdb.assert_connectivity()
         mdb.tester().assert_version(custom_mdb_version)
 
