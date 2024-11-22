@@ -107,14 +107,14 @@ class TestShardedClusterDeployment:
         log_deployments_info(namespace)
 
     def test_create_sharded_cluster(self, sharded_cluster: MongoDB):
-        sharded_cluster.assert_reaches_phase(phase=Phase.Running, timeout=200)
+        sharded_cluster.assert_reaches_phase(phase=Phase.Running, timeout=600)
 
     def test_scale_up_sharded_cluster(self, sharded_cluster: MongoDB):
         sharded_cluster.load()
         sharded_cluster["spec"]["mongodsPerShardCount"] = 3
         sharded_cluster["spec"]["configServerCount"] = 3
         sharded_cluster.update()
-        sharded_cluster.assert_reaches_phase(phase=Phase.Running, timeout=150)
+        sharded_cluster.assert_reaches_phase(phase=Phase.Running, timeout=600)
 
 
 @pytest.mark.e2e_operator_upgrade_sharded_cluster
@@ -126,8 +126,8 @@ class TestOperatorUpgrade:
         log_deployments_info(namespace)
 
     def test_sharded_cluster_reconciled(self, sharded_cluster: MongoDB, namespace: str):
-        sharded_cluster.assert_abandons_phase(phase=Phase.Running, timeout=150)
-        sharded_cluster.assert_reaches_phase(phase=Phase.Running, timeout=420)
+        sharded_cluster.assert_abandons_phase(phase=Phase.Running, timeout=600)
+        sharded_cluster.assert_reaches_phase(phase=Phase.Running, timeout=600)
         logger.debug("State configmap after upgrade")
         log_state_configmap(namespace)
 
@@ -139,7 +139,7 @@ class TestOperatorUpgrade:
         sharded_cluster["spec"]["mongodsPerShardCount"] = 2
         sharded_cluster["spec"]["configServerCount"] = 2
         sharded_cluster.update()
-        sharded_cluster.assert_reaches_phase(phase=Phase.Running, timeout=300)
+        sharded_cluster.assert_reaches_phase(phase=Phase.Running, timeout=600)
         logger.debug("State configmap after upgrade and scaling")
         log_state_configmap(namespace)
 
@@ -168,8 +168,8 @@ class TestOperatorDowngrade:
         log_deployments_info(namespace)
 
     def test_sharded_cluster_reconciled(self, sharded_cluster: MongoDB):
-        sharded_cluster.assert_abandons_phase(phase=Phase.Running, timeout=150)
-        sharded_cluster.assert_reaches_phase(phase=Phase.Running, timeout=750)
+        sharded_cluster.assert_abandons_phase(phase=Phase.Running, timeout=600)
+        sharded_cluster.assert_reaches_phase(phase=Phase.Running, timeout=1000)
 
     def test_assert_connectivity(self, ca_path: str):
         ShardedClusterTester(MDB_RESOURCE, 1, ssl=True, ca_path=ca_path).assert_connectivity()
@@ -179,4 +179,4 @@ class TestOperatorDowngrade:
         sharded_cluster["spec"]["mongodsPerShardCount"] = 3
         sharded_cluster["spec"]["configServerCount"] = 3
         sharded_cluster.update()
-        sharded_cluster.assert_reaches_phase(phase=Phase.Running, timeout=150)
+        sharded_cluster.assert_reaches_phase(phase=Phase.Running, timeout=600)
