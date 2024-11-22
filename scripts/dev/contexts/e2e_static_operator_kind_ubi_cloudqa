@@ -14,3 +14,4 @@ export MDB_DEFAULT_ARCHITECTURE=static
 export CUSTOM_MDB_VERSION=6.0.16
 # We can't use a 5.0.x version for this static variant because there's no UBI9 image for the 5.0.x series
 export CUSTOM_MDB_PREV_VERSION=6.0.5
+export CUSTOM_APPDB_VERSION="6.0.5-ubi9-20241112T090442Z"
