@@ -142,7 +142,7 @@ class MongoTester:
 
     def assert_version(self, expected_version: str):
         # version field does not contain -ent suffix in MongoDB
-        assert self.client.admin.command("buildInfo")["version"] == expected_version.rstrip("-ent")
+        assert self.client.admin.command("buildInfo")["version"] == expected_version.split("-")[0]
         if expected_version.endswith("-ent"):
             self.assert_is_enterprise()
 
