@@ -55,12 +55,14 @@ variables:
         variant: init_test_run
 
   - &setup_group
+    setup_group_can_fail_task: true
     setup_group:
       - func: clone
       - func: download_kube_tools
       - func: setup_building_host
 
   - &setup_group_multi_cluster
+    setup_group_can_fail_task: true
     setup_group:
       - func: clone
       - func: download_kube_tools
@@ -68,19 +70,23 @@ variables:
       - func: build_multi_cluster_binary
 
   - &setup_and_teardown_task_cloudqa
+    setup_task_can_fail_task: true
     setup_task:
       - func: cleanup_exec_environment
       - func: setup_kubernetes_environment
       - func: setup_cloud_qa
+    teardown_task_can_fail_task: true
     teardown_task:
       - func: upload_e2e_logs
       - func: teardown_kubernetes_environment
       - func: teardown_cloud_qa
 
   - &setup_and_teardown_task
+    setup_task_can_fail_task: true
     setup_task:
       - func: cleanup_exec_environment
       - func: setup_kubernetes_environment
+    teardown_task_can_fail_task: true
     teardown_task:
       - func: upload_e2e_logs
       - func: teardown_kubernetes_environment
@@ -441,6 +447,7 @@ tasks:
 
 task_groups:
 - name: unit_task_group
+  setup_group_can_fail_task: true
   setup_group:
     - func: clone
     - func: download_kube_tools
@@ -618,7 +625,7 @@ task_groups:
 - name: e2e_operator_race_task_group
   max_hosts: 30
   <<: *setup_group_multi_cluster
-  <<: *setup_and_teardown_task_cloudqa
+  <<: *setup_and_teardown_task
   tasks:
     - e2e_om_reconcile_race
   <<: *teardown_group
@@ -701,7 +708,7 @@ task_groups:
 - name: e2e_multi_cluster_om_appdb_task_group
   max_hosts: 30
   <<: *setup_group_multi_cluster
-  <<: *setup_and_teardown_task_cloudqa
+  <<: *setup_and_teardown_task
   tasks:
     # Dedicated AppDB Multi-Cluster tests
     - e2e_multi_cluster_appdb_validation
@@ -752,7 +759,7 @@ task_groups:
 - name: e2e_static_multi_cluster_om_appdb_task_group
   max_hosts: 30
   <<: *setup_group_multi_cluster
-  <<: *setup_and_teardown_task_cloudqa
+  <<: *setup_and_teardown_task
   tasks:
     # Dedicated AppDB Multi-Cluster tests
     - e2e_multi_cluster_appdb_validation
@@ -810,11 +817,11 @@ task_groups:
 
 
 # This task group runs on Kind clusters. In theory ALL Ops Manager tests should be added here
-# including the cluster-wide resources changing. Uses Cloud-qa.
+# including the cluster-wide resources changing. Uses Cloud-qa. TODO why Cloud-qa? those are OM tests
 - name: e2e_ops_manager_kind_only_task_group
   max_hosts: 15
   <<: *setup_group
-  <<: *setup_and_teardown_task_cloudqa
+  <<: *setup_and_teardown_task
   tasks:
     - e2e_om_appdb_flags_and_config
     - e2e_om_appdb_monitoring_tls
@@ -858,7 +865,7 @@ task_groups:
 - name: e2e_static_ops_manager_kind_only_task_group
   max_hosts: 15
   <<: *setup_group
-  <<: *setup_and_teardown_task_cloudqa
+  <<: *setup_and_teardown_task
   tasks:
     - e2e_om_appdb_flags_and_config
     - e2e_om_appdb_monitoring_tls
@@ -901,7 +908,7 @@ task_groups:
 - name: e2e_smoke_task_group
   max_hosts: 1
   <<: *setup_group
-  <<: *setup_and_teardown_task_cloudqa
+  <<: *setup_and_teardown_task
   tasks:
     - e2e_om_ops_manager_backup
   <<: *teardown_group
@@ -940,6 +947,7 @@ task_groups:
   max_hosts: 30
   <<: *setup_group
   <<: *setup_and_teardown_task
+  setup_task_can_fail_task: true
   setup_task:
     # Even if the two first tasks are already part of setup_and_teardown_task,
     # we need to repeat them because we are overriding the setup_task variable of the YAML anchor
