@@ -1176,13 +1176,11 @@ def run_kube_config_creation_tool(
 
     try:
         print(f"Running multi-cluster cli setup tool: {' '.join(args)}")
-        subprocess.check_output(args, stderr=subprocess.PIPE)
+        subprocess.check_output(args, stderr=subprocess.STDOUT)
         print("Finished running multi-cluster cli setup tool")
     except subprocess.CalledProcessError as exc:
-        print("Status: FAIL", exc.returncode, exc.output)
-        return exc.returncode
-
-    return 0
+        print(f"Status: FAIL Reason: {exc.output}")
+        raise exc
 
 
 def get_api_servers_from_kubeconfig_secret(
