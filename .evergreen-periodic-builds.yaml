@@ -108,6 +108,7 @@ tasks:
           image_name: ops-manager-8-daily
 
   - name: periodic_build_agent
+    exec_timeout_secs: 43200
     commands:
       - func: clone
       - func: enable_QEMU
