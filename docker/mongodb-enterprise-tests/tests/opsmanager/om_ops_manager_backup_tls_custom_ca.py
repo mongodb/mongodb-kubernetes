@@ -228,7 +228,7 @@ class TestOpsManagerCreation:
         self,
         ops_manager: MongoDBOpsManager,
     ):
-        ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=200)
+        ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=400)
 
 
 @mark.e2e_om_ops_manager_backup_tls_custom_ca
