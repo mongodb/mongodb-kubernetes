@@ -4,35 +4,35 @@
       "_id": "mdb-sh-complex-config",
       "members": [
         {
-          "_id": 0,
+          "_id": "0",
           "host": "mdb-sh-complex-config-0-0",
           "priority": 100,
           "tags": { },
           "votes": 1
         },
         {
-          "_id": 1,
+          "_id": "1",
           "host": "mdb-sh-complex-config-0-1",
           "priority": 100,
           "tags": { },
           "votes": 2
         },
         {
-          "_id": 2,
+          "_id": "2",
           "host": "mdb-sh-complex-config-1-0",
           "priority": 10,
           "tags": { },
           "votes": 2
         },
         {
-          "_id": 3,
+          "_id": "3",
           "host": "mdb-sh-complex-config-1-1",
           "priority": 10,
           "tags": { },
           "votes": 1
         },
         {
-          "_id": 4,
+          "_id": "4",
           "host": "mdb-sh-complex-config-2-0",
           "priority": 5,
           "tags": { },
@@ -45,35 +45,35 @@
       "_id": "mdb-sh-complex-0",
       "members": [
         {
-          "_id": 0,
+          "_id": "0",
           "host": "mdb-sh-complex-0-0-0",
           "priority": 100,
           "tags": { },
           "votes": 1
         },
         {
-          "_id": 1,
+          "_id": "1",
           "host": "mdb-sh-complex-0-0-1",
           "priority": 100,
           "tags": { },
           "votes": 1
         },
         {
-          "_id": 2,
+          "_id": "2",
           "host": "mdb-sh-complex-0-1-0",
           "priority": 10,
           "tags": { },
           "votes": 1
         },
         {
-          "_id": 3,
+          "_id": "3",
           "host": "mdb-sh-complex-0-1-1",
           "priority": 10,
           "tags": { },
           "votes": 1
         },
         {
-          "_id": 4,
+          "_id": "4",
           "host": "mdb-sh-complex-0-2-0",
           "priority": 5,
           "tags": { },
@@ -86,42 +86,42 @@
       "_id": "mdb-sh-complex-1",
       "members": [
         {
-          "_id": 0,
+          "_id": "0",
           "host": "mdb-sh-complex-1-0-0",
           "priority": 100,
           "tags": { },
           "votes": 1
         },
         {
-          "_id": 1,
+          "_id": "1",
           "host": "mdb-sh-complex-1-1-0",
           "priority": 110,
           "tags": { },
           "votes": 1
         },
         {
-          "_id": 2,
+          "_id": "2",
           "host": "mdb-sh-complex-1-1-1",
           "priority": 0,
           "tags": { },
           "votes": 0
         },
         {
-          "_id": 3,
+          "_id": "3",
           "host": "mdb-sh-complex-1-2-0",
           "priority": 120,
           "tags": { },
           "votes": 1
         },
         {
-          "_id": 4,
+          "_id": "4",
           "host": "mdb-sh-complex-1-2-1",
           "priority": 121,
           "tags": { },
           "votes": 2
         },
         {
-          "_id": 5,
+          "_id": "5",
           "host": "mdb-sh-complex-1-2-2",
           "priority": 122,
           "tags": { },
@@ -134,56 +134,56 @@
       "_id": "mdb-sh-complex-2",
       "members": [
         {
-          "_id": 0,
+          "_id": "0",
           "host": "mdb-sh-complex-2-0-0",
           "priority": 100,
           "tags": { },
           "votes": 1
         },
         {
-          "_id": 1,
+          "_id": "1",
           "host": "mdb-sh-complex-2-0-1",
           "priority": 100,
           "tags": { },
           "votes": 1
         },
         {
-          "_id": 2,
+          "_id": "2",
           "host": "mdb-sh-complex-2-1-0",
           "priority": 210,
           "tags": { },
           "votes": 1
         },
         {
-          "_id": 3,
+          "_id": "3",
           "host": "mdb-sh-complex-2-1-1",
           "priority": 211,
           "tags": { },
           "votes": 2
         },
         {
-          "_id": 4,
+          "_id": "4",
           "host": "mdb-sh-complex-2-1-2",
           "priority": 212,
           "tags": { },
           "votes": 3
         },
         {
-          "_id": 5,
+          "_id": "5",
           "host": "mdb-sh-complex-2-3-0",
           "priority": 0,
           "tags": { },
           "votes": 1
         },
         {
-            "_id": 6,
+            "_id": "6",
             "host": "mdb-sh-complex-2-4-0",
             "priority": 12,
             "tags": { },
             "votes": 3
         },
         {
-            "_id": 7,
+            "_id": "7",
             "host": "mdb-sh-complex-2-4-1",
             "priority": 0,
             "tags": { },
@@ -196,35 +196,35 @@
       "_id": "mdb-sh-complex-3",
       "members": [
         {
-          "_id": 0,
+          "_id": "0",
           "host": "mdb-sh-complex-3-0-0",
           "priority": 100,
           "tags": { },
           "votes": 1
         },
         {
-          "_id": 1,
+          "_id": "1",
           "host": "mdb-sh-complex-3-0-1",
           "priority": 100,
           "tags": { },
           "votes": 1
         },
         {
-          "_id": 2,
+          "_id": "2",
           "host": "mdb-sh-complex-3-1-0",
           "priority": 10,
           "tags": { },
           "votes": 1
         },
         {
-          "_id": 3,
+          "_id": "3",
           "host": "mdb-sh-complex-3-1-1",
           "priority": 10,
           "tags": { },
           "votes": 1
         },
         {
-          "_id": 4,
+          "_id": "4",
           "host": "mdb-sh-complex-3-2-0",
           "priority": 5,
           "tags": { },

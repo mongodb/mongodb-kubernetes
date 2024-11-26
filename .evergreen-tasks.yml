@@ -1066,6 +1066,11 @@ tasks:
     commands:
       - func: e2e_test
 
+  - name: e2e_multi_cluster_sharded_disaster_recovery
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
   - name: e2e_multi_cluster_appdb_disaster_recovery_force_reconfigure
     tags: [ "patch-run" ]
     commands:

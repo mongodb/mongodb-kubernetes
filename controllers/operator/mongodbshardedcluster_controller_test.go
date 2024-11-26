@@ -1481,7 +1481,7 @@ func createDeploymentFromShardedCluster(t *testing.T, updatable v1.CustomResourc
 			construct.GetPodEnvOptions(),
 		)
 		shardSts := construct.DatabaseStatefulSet(*sh, shardOptions, zap.S())
-		shards[i] = buildReplicaSetFromProcesses(shardSts.Name, createShardProcesses(shardSts, sh, ""), sh, sh.Spec.GetMemberOptions())
+		shards[i], _ = buildReplicaSetFromProcesses(shardSts.Name, createShardProcesses(shardSts, sh, ""), sh, sh.Spec.GetMemberOptions(), om.NewDeployment())
 	}
 
 	desiredMongosConfig := createMongosSpec(sh)
@@ -1502,7 +1502,7 @@ func createDeploymentFromShardedCluster(t *testing.T, updatable v1.CustomResourc
 		construct.GetPodEnvOptions(),
 	)
 	configSvrSts := construct.DatabaseStatefulSet(*sh, configServerOptions, zap.S())
-	configRs := buildReplicaSetFromProcesses(configSvrSts.Name, createConfigSrvProcesses(configSvrSts, sh, ""), sh, sh.Spec.GetMemberOptions())
+	configRs, _ := buildReplicaSetFromProcesses(configSvrSts.Name, createConfigSrvProcesses(configSvrSts, sh, ""), sh, sh.Spec.GetMemberOptions(), om.NewDeployment())
 
 	d := om.NewDeployment()
 	_, err := d.MergeShardedCluster(om.DeploymentShardedClusterMergeOptions{
