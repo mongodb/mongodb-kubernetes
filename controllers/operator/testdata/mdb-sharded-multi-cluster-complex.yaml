@@ -62,11 +62,6 @@ spec:
     clusterSpecList:
       - clusterName: cluster-0
         members: 2
-        memberConfig:
-          - votes: 1
-            priority: "100" # Primary is preferred in cluster-0
-          - votes: 2
-            priority: "100"
         statefulSet:
           spec:
             template:
@@ -86,6 +81,11 @@ spec:
               storage: 15G # only this cluster will have storage set to 15G
       - clusterName: cluster-1
         members: 2
+        memberConfig:
+          - votes: 2
+            priority: "10" # Primary is preferred in cluster-1
+          - votes: 1
+            priority: "10"
         # we don't specify podSpec, so it's taken from spec.configSrvPodSpec
         statefulSet:
           spec:
@@ -100,13 +100,11 @@ spec:
                       limits:
                         cpu: 2.1
                         memory: 5.1G
-        memberConfig:
-          - votes: 2
-            priority: "10"
-          - votes: 1
-            priority: "10"
       - clusterName: cluster-2
         members: 1
+        memberConfig:
+          - votes: 1
+            priority: "5"
         statefulSet:
           spec:
             template:
@@ -120,9 +118,6 @@ spec:
                       limits:
                         cpu: 2.2
                         memory: 5.2G
-        memberConfig:
-          - votes: 1
-            priority: "5"
 
   shardPodSpec:
     # default configuration for all shards in all clusters
@@ -162,11 +157,6 @@ spec:
     clusterSpecList:
       - clusterName: cluster-0
         members: 2 # each shard will have 2 members in this cluster
-        memberConfig: # we prefer to have primaries in this cluster
-          - votes: 1
-            priority: "100"
-          - votes: 1
-            priority: "100"
         externalAccess:
           externalDomain: "test.example.com"
         podSpec:
@@ -195,7 +185,7 @@ spec:
         members: 2
         memberConfig: # votes and priorities for two processes of each shard's replica set deployed in this cluster; notice two elements for 2 members
           - votes: 1
-            priority: "10"
+            priority: "10" # Higher priority: we prefer to have primaries in this cluster
           - votes: 1
             priority: "10"
         statefulSet:

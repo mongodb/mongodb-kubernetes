@@ -23,11 +23,18 @@ func NewDefaultReplicaSetBuilder() *MongoDBBuilder {
 }
 
 func NewDefaultShardedClusterBuilder() *MongoDBBuilder {
-	return defaultMongoDB(ShardedCluster).AddDummyOpsManagerConfig()
+	return defaultMongoDB(ShardedCluster).
+		SetShardCountSpec(3).
+		SetMongosCountSpec(1).
+		SetConfigServerCountSpec(3).
+		SetMongodsPerShardCountSpec(3).
+		AddDummyOpsManagerConfig()
 }
 
 func NewDefaultMultiShardedClusterBuilder() *MongoDBBuilder {
-	return NewDefaultShardedClusterBuilder().
+	return defaultMongoDB(ShardedCluster).
+		AddDummyOpsManagerConfig().
+		SetShardCountSpec(3).
 		SetMultiClusterTopology().
 		SetAllClusterSpecLists(
 			ClusterSpecList{
