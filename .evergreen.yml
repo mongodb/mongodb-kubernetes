@@ -686,6 +686,7 @@ task_groups:
     - e2e_multi_cluster_pvc_resize
     - e2e_multi_cluster_sharded_simplest
     - e2e_multi_cluster_sharded_tls
+    - e2e_multi_cluster_sharded_disaster_recovery
     - e2e_sharded_cluster
     - e2e_sharded_cluster_agent_flags
     - e2e_sharded_cluster_custom_podspec

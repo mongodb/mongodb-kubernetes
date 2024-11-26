@@ -12,8 +12,6 @@ from pytest import fixture, mark
 from tests.conftest import create_appdb_certs, is_multi_cluster
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
-MDB_VERSION = "4.2.1"
-CA_FILE_PATH_IN_TEST_POD = "/tests/ca.crt"
 OM_NAME = "om-tls-monitored-appdb"
 APPDB_NAME = f"{OM_NAME}-db"
 
