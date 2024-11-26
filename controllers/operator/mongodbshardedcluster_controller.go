@@ -308,6 +308,7 @@ func getShardTopLevelOverrides(spec *mdbv1.MongoDbSpec, shardIdx int) (*mdbv1.Pe
 	topLevelPodSpecOverride, topLevelPersistenceOverride := extractOverridesFromPodSpec(spec.ShardPodSpec)
 
 	// specific shard level sts and persistence override
+	// TODO: as of 1.30 we deprecated ShardSpecificPodSpec, we should completely get rid of it in a few releases
 	if shardIdx < len(spec.ShardSpecificPodSpec) {
 		shardSpecificPodSpec := spec.ShardSpecificPodSpec[shardIdx]
 		if shardSpecificPodSpec.PodTemplateWrapper.PodTemplate != nil {
@@ -531,6 +532,9 @@ func processClusterSpecList(
 				clusterSpecList[i].PodSpec.Persistence = topLevelPersistenceOverride.DeepCopy()
 			}
 		}
+		// TODO: create a test case for 7 voting members or more
+		// https://github.com/10gen/ops-manager-kubernetes/pull/3923#discussion_r1843570244
+
 		// Explicitly set PodTemplate field to nil, as the pod template configuration is stored in StatefulSetConfiguration
 		// in the processed ShardedClusterComponentSpec structures.
 		// PodSpec should only be used for Persistence
@@ -1443,12 +1447,15 @@ func (r *ShardedClusterReconcileHelper) getMongosHostnames(memberCluster multicl
 	}
 }
 
+// prepareScaleDownShardedCluster collects all replicasets members to scale down, from configservers and shards, accross
+// all clusters, and pass them to PrepareScaleDownFromMap, which sets their votes and priorities to 0
 func (r *ShardedClusterReconcileHelper) prepareScaleDownShardedCluster(omClient om.Connection, log *zap.SugaredLogger) error {
 	membersToScaleDown := make(map[string][]string)
 	// Scaledown amount of replicas in ConfigServer
 	if r.isConfigServerScaleDown(log) {
 		membersToScaleDown[r.sc.ConfigRsName()] = []string{}
-		for _, memberCluster := range r.configSrvMemberClusters {
+		// Because we will change memberConfig and then wait on the agents, we can only process healthy clusters here
+		for _, memberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
 			currentReplicas := memberCluster.Replicas
 			desiredReplicas := scale.ReplicasThisReconciliation(r.getConfigSrvScaler(memberCluster))
 			_, currentPodNames := r.getConfigSrvHostnames(memberCluster, currentReplicas)
@@ -1462,7 +1469,8 @@ func (r *ShardedClusterReconcileHelper) prepareScaleDownShardedCluster(omClient 
 		for shardIdx, memberClusterMap := range r.shardsMemberClustersMap {
 			shardRsName := r.sc.ShardRsName(shardIdx)
 			membersToScaleDown[shardRsName] = []string{}
-			for _, memberCluster := range memberClusterMap {
+			// Same as above, we should only process healthy clusters
+			for _, memberCluster := range getHealthyMemberClusters(memberClusterMap) {
 				currentReplicas := memberCluster.Replicas
 				desiredReplicas := scale.ReplicasThisReconciliation(r.getShardScaler(shardIdx, memberCluster))
 				_, currentPodNames := r.getShardHostnames(shardIdx, memberCluster, currentReplicas)
@@ -1608,6 +1616,8 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, conn om.Connection, sc *mdbv1.MongoDB, opts *deploymentOptions, isRecovering bool, log *zap.SugaredLogger) ([]string, bool, workflow.Status) {
 	// Mongos
 	var mongosProcesses []om.Process
+	// We take here the first cluster arbitrarily because the options are used for irrelevant stuff below, same for
+	// config servers and shards below
 	mongosMemberCluster := r.mongosMemberClusters[0]
 	mongosOptionsFunc := r.getMongosOptions(ctx, *sc, *opts, log, r.desiredMongosConfiguration, mongosMemberCluster)
 	mongosOptions := mongosOptionsFunc(*r.sc)
@@ -1628,8 +1638,14 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 	if configSrvOptions.CertificateHash == "" {
 		configSrvMemberCertPath = util.PEMKeyFilePathInContainer
 	}
+
+	existingDeployment, err := conn.ReadDeployment()
+	if err != nil {
+		return nil, false, workflow.Failed(err)
+	}
+
 	configSrvProcesses, configSrvMemberOptions := r.createDesiredConfigSrvProcessesAndMemberOptions(configSrvMemberCertPath)
-	configRs := buildReplicaSetFromProcesses(sc.ConfigRsName(), configSrvProcesses, sc, configSrvMemberOptions)
+	configRs, _ := buildReplicaSetFromProcesses(sc.ConfigRsName(), configSrvProcesses, sc, configSrvMemberOptions, existingDeployment)
 
 	// Shards
 	shards := make([]om.ReplicaSetWithProcesses, sc.Spec.ShardCount)
@@ -1640,7 +1656,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 		shardInternalClusterPaths = append(shardInternalClusterPaths, fmt.Sprintf("%s/%s", util.InternalClusterAuthMountPath, shardOptions.InternalClusterHash))
 		shardMemberCertPath := fmt.Sprintf("%s/%s", util.TLSCertMountPath, shardOptions.CertificateHash)
 		desiredShardProcesses, desiredShardMemberOptions := r.createDesiredShardProcessesAndMemberOptions(shardIdx, shardMemberCertPath)
-		shards[shardIdx] = buildReplicaSetFromProcesses(r.sc.ShardRsName(shardIdx), desiredShardProcesses, sc, desiredShardMemberOptions)
+		shards[shardIdx], _ = buildReplicaSetFromProcesses(r.sc.ShardRsName(shardIdx), desiredShardProcesses, sc, desiredShardMemberOptions, existingDeployment)
 	}
 
 	// updateOmAuthentication normally takes care of the certfile rotation code, but since sharded-cluster is special pertaining multiple clusterfiles, we code this part here for now.
@@ -1662,7 +1678,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 
 	var finalProcesses []string
 	shardsRemoving := false
-	err := conn.ReadUpdateDeployment(
+	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			allProcesses := getAllProcesses(shards, configRs, mongosProcesses)
 			// it is not possible to disable internal cluster authentication once enabled
@@ -1939,11 +1955,22 @@ func createMongodProcessForShardedCluster(set appsv1.StatefulSet, additionalMong
 
 // buildReplicaSetFromProcesses creates the 'ReplicaSetWithProcesses' with specified processes. This is of use only
 // for sharded cluster (config server, shards)
-func buildReplicaSetFromProcesses(name string, members []om.Process, mdb *mdbv1.MongoDB, memberOptions []automationconfig.MemberOptions) om.ReplicaSetWithProcesses {
+func buildReplicaSetFromProcesses(name string, members []om.Process, mdb *mdbv1.MongoDB, memberOptions []automationconfig.MemberOptions, deployment om.Deployment) (om.ReplicaSetWithProcesses, error) {
 	replicaSet := om.NewReplicaSet(name, mdb.Spec.GetMongoDBVersion(nil))
-	rsWithProcesses := om.NewReplicaSetWithProcesses(replicaSet, members, memberOptions)
-	rsWithProcesses.SetHorizons(mdb.Spec.Connectivity.ReplicaSetHorizons)
-	return rsWithProcesses
+
+	existingProcessIds := getReplicaSetProcessIdsFromReplicaSets(replicaSet.Name(), deployment)
+	var rsWithProcesses om.ReplicaSetWithProcesses
+	if mdb.Spec.IsMultiCluster() {
+		// we're passing nil as connectivity argument as in sharded clusters horizons don't make much sense as we don't expose externally individual shards
+		// we don't support exposing externally individual shards in single cluster as well
+		// in case of multi-cluster without a service mesh we'll use externalDomains for all shards, so the hostnames will be valid from inside and outside, therefore
+		// horizons are not needed
+		rsWithProcesses = om.NewMultiClusterReplicaSetWithProcesses(replicaSet, members, memberOptions, existingProcessIds, nil)
+	} else {
+		rsWithProcesses = om.NewReplicaSetWithProcesses(replicaSet, members, memberOptions)
+		rsWithProcesses.SetHorizons(mdb.Spec.Connectivity.ReplicaSetHorizons)
+	}
+	return rsWithProcesses, nil
 }
 
 // getConfigServerOptions returns the Options needed to build the StatefulSet for the config server.

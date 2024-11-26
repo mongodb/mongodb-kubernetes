@@ -678,10 +678,12 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 		return err
 	}
 
-	processIds, err := getExistingProcessIds(conn, mrs)
+	existingDeployment, err := conn.ReadDeployment()
 	if err != nil {
 		return err
 	}
+
+	processIds := getReplicaSetProcessIdsFromReplicaSets(mrs.Name, existingDeployment)
 	log.Debugf("Existing process Ids: %+v", processIds)
 
 	certificateFileName := ""
@@ -762,22 +764,19 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 	return nil
 }
 
-func getExistingProcessIds(conn om.Connection, mrs mdbmultiv1.MongoDBMultiCluster) (map[string]int, error) {
-	existingDeployment, err := conn.ReadDeployment()
-	if err != nil {
-		return nil, err
+func getReplicaSetProcessIdsFromReplicaSets(replicaSetName string, deployment om.Deployment) map[string]int {
+	processIds := map[string]int{}
+
+	replicaSet := deployment.GetReplicaSetByName(replicaSetName)
+	if replicaSet == nil {
+		return map[string]int{}
 	}
 
-	processIds := map[string]int{}
-	for _, rs := range existingDeployment.ReplicaSetsCopy() {
-		if rs.Name() != mrs.Name {
-			continue
-		}
-		for _, m := range rs.Members() {
-			processIds[m.Name()] = m.Id()
-		}
+	for _, m := range replicaSet.Members() {
+		processIds[m.Name()] = m.Id()
 	}
-	return processIds, nil
+
+	return processIds
 }
 
 func mongoDBMultiLabels(name, namespace string) map[string]string {

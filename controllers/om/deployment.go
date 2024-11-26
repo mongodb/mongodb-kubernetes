@@ -283,8 +283,18 @@ func (d Deployment) AddMonitoringAndBackup(log *zap.SugaredLogger, tls bool, caF
 	d.addBackup(log)
 }
 
+// DEPRECATED: this shouldn't be used as it may panic because of different underlying type; use getReplicaSets instead
 func (d Deployment) ReplicaSets() []ReplicaSet {
 	return d["replicaSets"].([]ReplicaSet)
+}
+
+func (d Deployment) GetReplicaSetByName(name string) ReplicaSet {
+	for _, rs := range d.getReplicaSets() {
+		if rs.Name() == name {
+			return rs
+		}
+	}
+	return nil
 }
 
 // AddMonitoring adds monitoring agents for all processes in the deployment
