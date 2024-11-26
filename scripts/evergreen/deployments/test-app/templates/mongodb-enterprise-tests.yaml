@@ -155,6 +155,10 @@ spec:
     - name: CUSTOM_APPDB_VERSION
       value: {{ .Values.customAppDbVersion }}
     {{ end }}
+    {{ if .Values.projectDir }}
+    - name: PROJECT_DIR
+      value: {{ .Values.projectDir }}
+    {{ end }}
     {{ if .Values.localOperator }}
     - name: LOCAL_OPERATOR
       value: "{{ .Values.localOperator }}"

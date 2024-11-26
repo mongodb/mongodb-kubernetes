@@ -396,12 +396,17 @@ def build_tests_image(build_configuration: BuildConfiguration):
     helm_src = "helm_chart"
     helm_dest = "docker/mongodb-enterprise-tests/helm_chart"
     requirements_dest = "docker/mongodb-enterprise-tests/requirements.txt"
+    public_src = "public"
+    public_dest = "docker/mongodb-enterprise-tests/public"
 
+    # Remove existing directories/files if they exist
     shutil.rmtree(helm_dest, ignore_errors=True)
+    shutil.rmtree(public_dest, ignore_errors=True)
+
+    # Copy directories and files (recursive copy)
     copy_tree(helm_src, helm_dest)
-
+    copy_tree(public_src, public_dest)
     shutil.copyfile("release.json", "docker/mongodb-enterprise-tests/release.json")
-
     shutil.copyfile("requirements.txt", requirements_dest)
 
     sonar_build_image(image_name, build_configuration, {}, "inventories/test.yaml")

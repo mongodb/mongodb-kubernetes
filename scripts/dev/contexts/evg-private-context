@@ -21,6 +21,8 @@ if [ -f "$ENV_FILE" ]; then
     source "$ENV_FILE"
 fi
 
+export PROJECT_DIR="$script_dir/../../../"
+
 export NAMESPACE_FILE="$workdir/.namespace"
 if [ -f "$NAMESPACE_FILE" ]; then
   echo "found existing namespace file"

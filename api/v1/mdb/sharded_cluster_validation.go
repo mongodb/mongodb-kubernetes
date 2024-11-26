@@ -16,6 +16,7 @@ func ShardedClusterCommonValidators() []func(m MongoDB) v1.ValidationResult {
 		shardOverridesShardNamesUnique,
 		shardOverridesShardNamesCorrectValues,
 		shardOverridesClusterSpecListsCorrect,
+		shardCountSpecified,
 	}
 }
 
@@ -23,6 +24,7 @@ func ShardedClusterSingleValidators() []func(m MongoDB) v1.ValidationResult {
 	return []func(m MongoDB) v1.ValidationResult{
 		emptyClusterSpecLists,
 		duplicateServiceObjectsIsIgnoredInSingleCluster,
+		mandatorySingleClusterFieldsAreSpecified,
 	}
 }
 
@@ -39,6 +41,23 @@ func ShardedClusterMultiValidators() []func(m MongoDB) []v1.ValidationResult {
 			return []v1.ValidationResult{validateMemberClusterIsSubsetOfKubeConfig(m)}
 		},
 	}
+}
+
+// This applies to any topology
+func shardCountSpecified(m MongoDB) v1.ValidationResult {
+	if m.Spec.ShardCount == 0 {
+		return v1.ValidationError("shardCount must be specified")
+	}
+	return v1.ValidationSuccess()
+}
+
+func mandatorySingleClusterFieldsAreSpecified(m MongoDB) v1.ValidationResult {
+	if m.Spec.MongodsPerShardCount == 0 ||
+		m.Spec.MongosCount == 0 ||
+		m.Spec.ConfigServerCount == 0 {
+		return v1.ValidationError("The following fields must be specified in single cluster topology: mongodsPerShardCount, mongosCount, configServerCount")
+	}
+	return v1.ValidationSuccess()
 }
 
 func hasClusterSpecListsDefined(m MongoDB) v1.ValidationResult {

@@ -166,6 +166,11 @@ def test_resource_type_immutable(namespace: str):
         match=r"'resourceType' cannot be changed once created",
     ):
         mdb["spec"]["type"] = "ShardedCluster"
+        # Setting mandatory fields to avoid getting another validation error
+        mdb["spec"]["shardCount"] = 1
+        mdb["spec"]["mongodsPerShardCount"] = 3
+        mdb["spec"]["mongosCount"] = 1
+        mdb["spec"]["configServerCount"] = 1
         mdb.update()
 
 

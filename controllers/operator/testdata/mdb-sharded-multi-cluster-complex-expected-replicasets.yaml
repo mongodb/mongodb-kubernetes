@@ -6,16 +6,16 @@
         {
           "_id": "0",
           "host": "mdb-sh-complex-config-0-0",
-          "priority": 100,
+          "priority": 1,
           "tags": { },
           "votes": 1
         },
         {
           "_id": "1",
           "host": "mdb-sh-complex-config-0-1",
-          "priority": 100,
+          "priority": 1,
           "tags": { },
-          "votes": 2
+          "votes": 1
         },
         {
           "_id": "2",
@@ -47,14 +47,14 @@
         {
           "_id": "0",
           "host": "mdb-sh-complex-0-0-0",
-          "priority": 100,
+          "priority": 1,
           "tags": { },
           "votes": 1
         },
         {
           "_id": "1",
           "host": "mdb-sh-complex-0-0-1",
-          "priority": 100,
+          "priority": 1,
           "tags": { },
           "votes": 1
         },
@@ -136,14 +136,14 @@
         {
           "_id": "0",
           "host": "mdb-sh-complex-2-0-0",
-          "priority": 100,
+          "priority": 1,
           "tags": { },
           "votes": 1
         },
         {
           "_id": "1",
           "host": "mdb-sh-complex-2-0-1",
-          "priority": 100,
+          "priority": 1,
           "tags": { },
           "votes": 1
         },
@@ -198,14 +198,14 @@
         {
           "_id": "0",
           "host": "mdb-sh-complex-3-0-0",
-          "priority": 100,
+          "priority": 1,
           "tags": { },
           "votes": 1
         },
         {
           "_id": "1",
           "host": "mdb-sh-complex-3-0-1",
-          "priority": 100,
+          "priority": 1,
           "tags": { },
           "votes": 1
         },

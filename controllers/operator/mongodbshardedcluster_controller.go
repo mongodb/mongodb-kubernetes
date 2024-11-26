@@ -446,6 +446,10 @@ func processShardOverride(spec *mdbv1.MongoDbSpec, shardOverride mdbv1.ShardOver
 	// ShardSpec.ClusterSpecList.StatefulSetConfiguration -> ShardOverrides.StatefulSetConfiguration -> ShardOverrides.ClusterSpecList.StatefulSetConfiguration
 	if shardOverride.StatefulSetConfiguration != nil {
 		for idx := range defaultShardConfiguration.ClusterSpecList {
+			// Handle case where defaultShardConfiguration.ClusterSpecList[idx].StatefulSetConfiguration is nil
+			if defaultShardConfiguration.ClusterSpecList[idx].StatefulSetConfiguration == nil {
+				defaultShardConfiguration.ClusterSpecList[idx].StatefulSetConfiguration = &mdbcv1.StatefulSetConfiguration{}
+			}
 			defaultShardConfiguration.ClusterSpecList[idx].StatefulSetConfiguration.SpecWrapper.Spec = merge.StatefulSetSpecs(defaultShardConfiguration.ClusterSpecList[idx].StatefulSetConfiguration.SpecWrapper.Spec, shardOverride.StatefulSetConfiguration.SpecWrapper.Spec)
 		}
 	}
@@ -532,9 +536,16 @@ func processClusterSpecList(
 				clusterSpecList[i].PodSpec.Persistence = topLevelPersistenceOverride.DeepCopy()
 			}
 		}
-		// TODO: create a test case for 7 voting members or more
-		// https://github.com/10gen/ops-manager-kubernetes/pull/3923#discussion_r1843570244
-
+		// If the MemberConfigs count is smaller than the number of numbers, append default values
+		for j := range clusterSpecList[i].Members {
+			if j >= len(clusterSpecList[i].MemberConfig) {
+				clusterSpecList[i].MemberConfig = append(clusterSpecList[i].MemberConfig, automationconfig.MemberOptions{
+					Votes:    ptr.To(1),
+					Priority: ptr.To("1"),
+					Tags:     nil,
+				})
+			}
+		}
 		// Explicitly set PodTemplate field to nil, as the pod template configuration is stored in StatefulSetConfiguration
 		// in the processed ShardedClusterComponentSpec structures.
 		// PodSpec should only be used for Persistence
@@ -1795,8 +1806,9 @@ func (r *ShardedClusterReconcileHelper) waitForAgentsToRegister(sc *mdbv1.MongoD
 		hostnames, _ := r.getMongosHostnames(memberCluster, scale.ReplicasThisReconciliation(r.getMongosScaler(memberCluster)))
 		mongosHostnames = append(mongosHostnames, hostnames...)
 	}
+
 	if err := agents.WaitForRsAgentsToRegisterSpecifiedHostnames(conn, mongosHostnames, log); err != nil {
-		return err
+		return xerrors.Errorf("Mongos agents didn't register with Ops Manager: %w", err)
 	}
 
 	var configSrvHostnames []string
@@ -1805,7 +1817,7 @@ func (r *ShardedClusterReconcileHelper) waitForAgentsToRegister(sc *mdbv1.MongoD
 		configSrvHostnames = append(configSrvHostnames, hostnames...)
 	}
 	if err := agents.WaitForRsAgentsToRegisterSpecifiedHostnames(conn, configSrvHostnames, log); err != nil {
-		return err
+		return xerrors.Errorf("Config server agents didn't register with Ops Manager: %w", err)
 	}
 
 	for shardIdx := 0; shardIdx < sc.Spec.ShardCount; shardIdx++ {
@@ -1815,7 +1827,7 @@ func (r *ShardedClusterReconcileHelper) waitForAgentsToRegister(sc *mdbv1.MongoD
 			shardHostnames = append(shardHostnames, hostnames...)
 		}
 		if err := agents.WaitForRsAgentsToRegisterSpecifiedHostnames(conn, shardHostnames, log); err != nil {
-			return err
+			return xerrors.Errorf("Shards agents didn't register with Ops Manager: %w", err)
 		}
 	}
 
@@ -1908,7 +1920,7 @@ func (r *ShardedClusterReconcileHelper) createDesiredConfigSrvProcessesAndMember
 
 		specMemberConfig := r.sc.Spec.MemberConfig
 		if r.sc.Spec.IsMultiCluster() {
-			specMemberConfig = r.sc.Spec.ConfigSrvSpec.GetClusterSpecItem(memberCluster.Name).MemberConfig
+			specMemberConfig = r.desiredConfigServerConfiguration.GetClusterSpecItem(memberCluster.Name).MemberConfig
 		}
 		memberOptions = append(memberOptions, specMemberConfig...)
 	}
