@@ -24,6 +24,29 @@ func makeMemberConfig(members int) []automationconfig.MemberOptions {
 
 var defaultMemberConfig = makeMemberConfig(1)
 
+func TestShardCountIsSpecified(t *testing.T) {
+	errString := "shardCount must be specified"
+	scSingle := NewDefaultShardedClusterBuilder().Build()
+	scSingle.Spec.ShardCount = 0
+	_, err := scSingle.ValidateCreate()
+	require.Error(t, err)
+	assert.Equal(t, errString, err.Error())
+
+	scMulti := NewDefaultMultiShardedClusterBuilder().Build()
+	scMulti.Spec.ShardCount = 0
+	_, err = scMulti.ValidateCreate()
+	require.Error(t, err)
+	assert.Equal(t, errString, err.Error())
+}
+
+func TestMandatorySingleClusterFieldsAreSpecified(t *testing.T) {
+	scSingle := NewDefaultShardedClusterBuilder().Build()
+	scSingle.Spec.MongosCount = 0
+	_, err := scSingle.ValidateCreate()
+	require.Error(t, err)
+	assert.Equal(t, "The following fields must be specified in single cluster topology: mongodsPerShardCount, mongosCount, configServerCount", err.Error())
+}
+
 func TestShardOverridesAreCorrect(t *testing.T) {
 	intPointer := ptr.To(3)
 	resourceName := "foo"
@@ -330,8 +353,12 @@ func TestNoIgnoredFieldUsed(t *testing.T) {
 			sc.Spec.ConfigServerCount = tt.configServerCount
 			sc.Spec.MongosCount = tt.mongosCount
 			sc.Spec.ShardOverrides = tt.shardOverrides
-			// To avoid validation error
-			sc.Spec.ShardCount = len(tt.shardOverrides)
+			// To avoid validation errors
+			if len(tt.shardOverrides) > 0 {
+				sc.Spec.ShardCount = len(tt.shardOverrides)
+			} else {
+				sc.Spec.ShardCount = 3
+			}
 
 			_, err := sc.ValidateCreate()
 			// In case there is a validation error, we cannot expect warnings as well, the validation will stop with

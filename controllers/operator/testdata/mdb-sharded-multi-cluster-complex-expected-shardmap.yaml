@@ -8,11 +8,11 @@
   clusterSpecList:
     - clusterName: cluster-0
       members: 2 # each shard will have 2 members in this cluster
-      memberConfig: # we prefer to have primaries in this cluster
+      memberConfig: # Everywhere we don't specify a memberConfig, we explicitly set the default values in this file
         - votes: 1
-          priority: "100"
+          priority: "1"
         - votes: 1
-          priority: "100"
+          priority: "1"
       externalAccess:
         # We've set an external domain in spec.shard.clusterSpecList[cluster-0], which applies to all shards, in
         # cluster-0
@@ -108,7 +108,7 @@
       members: 1
       memberConfig:
         - votes: 1
-          priority: "100"
+          priority: "100" # Defined in shardOverride for mdb-sh-complex-1, cluster 0
       externalAccess:
         # We've set an external domain in spec.shard.clusterSpecList[cluster-0], which applies to all shards, in
         # cluster-0
@@ -222,9 +222,9 @@
       members: 2
       memberConfig:
         - votes: 1
-          priority: "100"
+          priority: "1"
         - votes: 1
-          priority: "100"
+          priority: "1"
       externalAccess:
         # We've set an external domain in spec.shard.clusterSpecList[cluster-0], which applies to all shards, in
         # cluster-0
@@ -360,11 +360,11 @@
   clusterSpecList:
     - clusterName: cluster-0
       members: 2 # each shard will have 2 members in this cluster
-      memberConfig: # we prefer to have primaries in this cluster
+      memberConfig:
         - votes: 1
-          priority: "100"
+          priority: "1"
         - votes: 1
-          priority: "100"
+          priority: "1"
       externalAccess:
         # We've set an external domain in spec.shard.clusterSpecList[cluster-0], which applies to all shards, in
         # cluster-0

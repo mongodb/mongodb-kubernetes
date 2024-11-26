@@ -8,6 +8,11 @@ additionalMongodConfig:
 clusterSpecList:
   - clusterName: __default
     members: 2
+    memberConfig: # When we don't specify a memberConfig, we explicitly set default values
+      - priority: "1"
+        votes: 1
+      - priority: "1"
+        votes: 1
     podSpec:
       persistence:
         single:

@@ -107,6 +107,10 @@ deploy_test_app() {
         helm_params+=("--set" "customAppDbVersion=${CUSTOM_APPDB_VERSION}")
     fi
 
+    if [[ -n "${PROJECT_DIR:-}" ]]; then
+        helm_params+=("--set" "projectDir=/ops-manager-kubernetes")
+    fi
+
     if [[ "$LOCAL_OPERATOR" == true ]]; then
         helm_params+=("--set" "localOperator=true")
     fi

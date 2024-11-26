@@ -1,5 +1,14 @@
 [//]: # (Consider renaming or removing the header for next release, otherwise it appears as duplicate in the published release, e.g: https://github.com/mongodb/mongodb-enterprise-kubernetes/releases/tag/1.22.0 )
 <!-- Next Release -->
+# MongoDB Enterprise Kubernetes Operator 1.30.0
+* **General Availability - Multi Cluster Sharded Clusters:** Support configuring highly available MongoDB Sharded Clusters across multiple Kubernetes clusters.
+  - `MongoDB` resources of type Sharded Cluster now support both single and multi cluster topologies.
+  - The implementation is backwards compatible with single cluster deployments of MongoDB Sharded Clusters, by defaulting `spec.topology` to `SingleCluster`. Existing `MongoDB` resources do not need to be modified to upgrade to this version of the operator.
+  - `spec.shardSpecificPodSpec` was deprecated, the recommended way of adding per-shard settings is to use `spec.shardOverrides`, for both Single and Multi Cluster topology. A specific example of how to migrate the settings to ShardOverrides is available in the public documentation.
+  - More details can be found in the [public documentation](https://deploy-preview-1840--docs-k8s-operator.netlify.app/reference/k8s-operator-specification/#sharded-cluster-settings).
+
+[//]: # (TODO: update above link with Multi Cluster Sharded main page when added in public doc ; also update the link in 1.28 release notes below)
+
 # MongoDB Enterprise Kubernetes Operator 1.29.0
 
 ## New Features
