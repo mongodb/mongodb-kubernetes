@@ -72,7 +72,7 @@ export KUBECONFIG
 export CONTEXT="${context:-"unknown"}"
 
 if [[ "$(uname)" == "Linux" ]]; then
-  export GOROOT=/opt/golang/go1.22
+  export GOROOT=/opt/golang/go1.23
 fi
 
 export MONGODB_REPO_URL="quay.io/mongodb"

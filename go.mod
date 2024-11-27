@@ -112,4 +112,4 @@ require (
 // to replace it to a specific commit run:
 //   go mod edit -replace github.com/mongodb/mongodb-kubernetes-operator=github.com/mongodb/mongodb-kubernetes-operator@master
 
-go 1.22.0
+go 1.23.0
