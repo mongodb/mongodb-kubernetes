@@ -58,7 +58,7 @@ export INIT_OPS_MANAGER_IMAGE_REPOSITORY=${INIT_IMAGES_REGISTRY}/mongodb-enterpr
 export CLUSTER_TYPE="kind"
 # Empty sting means that we're not using it.
 export EVG_HOST_NAME=""
-export GOROOT="/opt/golang/go1.22"
+export GOROOT="/opt/golang/go1.23"
 # shell.exec EVG Task doesn't have add_to_path, so we need to explicitly add those things here.
 if [[ ! $PATH =~ .*${workdir:-.}/bin.* ]]; then
   export PATH=$PATH:${workdir:-.}/bin
