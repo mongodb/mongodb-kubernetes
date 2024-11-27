@@ -4,7 +4,7 @@ ARG init_database_image
 FROM ${init_database_image} as init_database
 
 # Build compilable stuff
-FROM golang:1.22 as readiness_builder
+FROM golang:1.23 as readiness_builder
 COPY . /go/src/github.com/10gen/ops-manager-kubernetes
 WORKDIR /go/src/github.com/10gen/ops-manager-kubernetes
 RUN CGO_ENABLED=0 go build -o /readinessprobe github.com/mongodb/mongodb-kubernetes-operator/cmd/readiness
