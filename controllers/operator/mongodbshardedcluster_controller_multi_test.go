@@ -19,6 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
 
@@ -27,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -193,10 +195,10 @@ func (r *MultiClusterShardedClusterConfigList) GenerateAllHosts(sc *mdbv1.MongoD
 			allPodNames = append(allPodNames, getPodName(sc.ConfigRsName(), clusterIdx, podIdx))
 		}
 
-		for shardCount := range clusterSpec.ShardsMembersArray {
-			for shardIdx := range shardCount {
-				allHosts = append(allHosts, getMultiClusterFQDN(sc.ShardRsName(shardIdx), sc.Namespace, clusterIdx, shardIdx, "cluster.local"))
-				allPodNames = append(allPodNames, getPodName(sc.ShardRsName(shardIdx), clusterIdx, shardIdx))
+		for shardIdx := 0; shardIdx < len(clusterSpec.ShardsMembersArray); shardIdx++ {
+			for podIdx := 0; podIdx < clusterSpec.ShardsMembersArray[shardIdx]; podIdx++ {
+				allHosts = append(allHosts, getMultiClusterFQDN(sc.ShardRsName(shardIdx), sc.Namespace, clusterIdx, podIdx, "cluster.local"))
+				allPodNames = append(allPodNames, getPodName(sc.ShardRsName(shardIdx), clusterIdx, podIdx))
 			}
 		}
 	}
@@ -754,6 +756,165 @@ func TestMultiClusterShardedSetRace(t *testing.T) {
 	})
 
 	testConcurrentReconciles(ctx, t, fakeClient, reconciler, sc, sc1, sc2)
+}
+
+func TestMultiClusterShardedScaling(t *testing.T) {
+	cluster1 := "member-cluster-1"
+	cluster2 := "member-cluster-2"
+	cluster3 := "member-cluster-3"
+	memberClusterNames := []string{
+		cluster1,
+		cluster2,
+		cluster3,
+	}
+
+	shardCount := 2
+	shardDistribution := []map[string]int{
+		{cluster1: 1, cluster2: 2},
+		{cluster1: 1, cluster2: 2},
+	}
+	mongosDistribution := map[string]int{cluster2: 1}
+	configSrvDistribution := map[string]int{cluster3: 1}
+
+	ctx := context.Background()
+	sc := DefaultClusterBuilder().
+		SetTopology(mdbv1.ClusterTopologyMultiCluster).
+		SetShardCountSpec(shardCount).
+		SetMongodsPerShardCountSpec(0).
+		SetConfigServerCountSpec(0).
+		SetMongosCountSpec(0).
+		SetShardClusterSpec(createClusterSpecList(memberClusterNames, shardDistribution[0])).
+		SetConfigSrvClusterSpec(createClusterSpecList(memberClusterNames, configSrvDistribution)).
+		SetMongosClusterSpec(createClusterSpecList(memberClusterNames, mongosDistribution)).
+		Build()
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+
+	fakeClient := mock.NewEmptyFakeClientBuilder().WithObjects(sc).WithObjects(mock.GetDefaultResources()...).Build()
+	kubeClient := kubernetesClient.NewClient(fakeClient)
+
+	memberClusterMap := getFakeMultiClusterMapWithoutInterceptor(memberClusterNames)
+	var memberClusterClients []client.Client
+	for _, c := range memberClusterMap {
+		memberClusterClients = append(memberClusterClients, c.GetClient())
+	}
+
+	reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, sc, memberClusterMap, kubeClient, omConnectionFactory)
+	require.NoError(t, err)
+	clusterMapping := reconcilerHelper.deploymentState.ClusterMapping
+	addAllHostsWithDistribution := func(connection om.Connection, mongosDistribution map[string]int, clusterMapping map[string]int, configSrvDistribution map[string]int, shardDistribution []map[string]int) {
+		allHostnames, _ := generateAllHosts(sc, mongosDistribution, clusterMapping, configSrvDistribution, shardDistribution)
+		connection.(*om.MockedOmConnection).AddHosts(allHostnames)
+	}
+
+	// first reconciler run is with failure, we didn't yet add hosts to OM
+	// we do this just to initialize omConnectionFactory to contain a mock connection
+	_, err = reconciler.Reconcile(ctx, requestFromObject(sc))
+	require.NoError(t, err)
+	require.NoError(t, mock.MarkAllStatefulSetsAsReady(ctx, sc.Namespace, memberClusterClients...))
+	addAllHostsWithDistribution(omConnectionFactory.GetConnection(), mongosDistribution, clusterMapping, configSrvDistribution, shardDistribution)
+	reconcileUntilSuccessful(ctx, t, reconciler, sc, kubeClient, memberClusterClients, nil, false)
+	checkCorrectShardDistributionInStatus(t, sc)
+
+	// 1 successful reconcile finished, we have initial scaling done and Phase=Running
+
+	// 	shardDistribution := []map[string]int{
+	//		{cluster1: 1, cluster2: 2},
+	//		{cluster1: 1, cluster2: 2},
+	//	}
+	// add two members to each shard
+	shardDistribution = []map[string]int{
+		{cluster3: 2, cluster1: 1, cluster2: 2},
+		{cluster3: 2, cluster1: 1, cluster2: 2},
+	}
+	// add two mongos
+	// mongosDistribution := map[string]int{cluster2: 1}
+	mongosDistribution = map[string]int{cluster3: 2, cluster2: 1}
+	// add two config servers
+	// configSrvDistribution := map[string]int{cluster3: 1}
+	configSrvDistribution = map[string]int{cluster1: 2, cluster3: 1}
+	addAllHostsWithDistribution(omConnectionFactory.GetConnection(), mongosDistribution, clusterMapping, configSrvDistribution, shardDistribution)
+
+	err = kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc)
+	require.NoError(t, err)
+	sc.Spec.ConfigSrvSpec.ClusterSpecList = createClusterSpecList(memberClusterNames, configSrvDistribution)
+	sc.Spec.ShardSpec.ClusterSpecList = createClusterSpecList(memberClusterNames, shardDistribution[0])
+	sc.Spec.MongosSpec.ClusterSpecList = createClusterSpecList(memberClusterNames, mongosDistribution)
+	err = kubeClient.Update(ctx, sc)
+	require.NoError(t, err)
+
+	reconciler, reconcilerHelper, err = newShardedClusterReconcilerForMultiCluster(ctx, sc, memberClusterMap, kubeClient, omConnectionFactory)
+	require.NoError(t, err)
+	clusterMapping = reconcilerHelper.deploymentState.ClusterMapping
+	addAllHostsWithDistribution(omConnectionFactory.GetConnection(), mongosDistribution, clusterMapping, configSrvDistribution, shardDistribution)
+
+	require.NoError(t, err)
+	reconcileUntilSuccessful(ctx, t, reconciler, sc, kubeClient, memberClusterClients, nil, false)
+	checkCorrectShardDistributionInStatus(t, sc)
+
+	// remove members from one cluster and move them to another
+	// shardDistribution = []map[string]int{
+	// 	{cluster3: 2, cluster1: 1, cluster2: 2},
+	// 	{cluster3: 2, cluster1: 1, cluster2: 2},
+	// }
+	shardDistribution = []map[string]int{
+		{cluster3: 2, cluster1: 0, cluster2: 3},
+		{cluster3: 2, cluster1: 0, cluster2: 3},
+	}
+
+	// mongosDistribution = map[string]int{cluster3: 2, cluster2: 1}
+	mongosDistribution = map[string]int{cluster1: 2, cluster2: 1, cluster3: 0}
+	// add two config servers
+	// configSrvDistribution = map[string]int{cluster1: 2, cluster3: 1}
+	configSrvDistribution = map[string]int{cluster2: 2, cluster3: 1, cluster1: 0}
+	addAllHostsWithDistribution(omConnectionFactory.GetConnection(), mongosDistribution, clusterMapping, configSrvDistribution, shardDistribution)
+
+	err = kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc)
+	require.NoError(t, err)
+	sc.Spec.ConfigSrvSpec.ClusterSpecList = createClusterSpecList(memberClusterNames, configSrvDistribution)
+	sc.Spec.ShardSpec.ClusterSpecList = createClusterSpecList(memberClusterNames, shardDistribution[0])
+	sc.Spec.MongosSpec.ClusterSpecList = createClusterSpecList(memberClusterNames, mongosDistribution)
+	err = kubeClient.Update(ctx, sc)
+	require.NoError(t, err)
+
+	reconciler, reconcilerHelper, err = newShardedClusterReconcilerForMultiCluster(ctx, sc, memberClusterMap, kubeClient, omConnectionFactory)
+	require.NoError(t, err)
+	clusterMapping = reconcilerHelper.deploymentState.ClusterMapping
+	addAllHostsWithDistribution(omConnectionFactory.GetConnection(), mongosDistribution, clusterMapping, configSrvDistribution, shardDistribution)
+
+	require.NoError(t, err)
+	reconcileUntilSuccessful(ctx, t, reconciler, sc, kubeClient, memberClusterClients, nil, false)
+	checkCorrectShardDistributionInStatus(t, sc)
+}
+
+func reconcileUntilSuccessful(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, operatorClient client.Client, memberClusterClients []client.Client, expectedReconciles *int, ignoreFailures bool) {
+	maxReconcileCount := 20
+	actualReconciles := 0
+
+	for {
+		result, err := reconciler.Reconcile(ctx, requestFromObject(object))
+		require.NoError(t, err)
+		require.NoError(t, mock.MarkAllStatefulSetsAsReady(ctx, object.Namespace, memberClusterClients...))
+
+		actualReconciles++
+		if actualReconciles >= maxReconcileCount {
+			require.FailNow(t, "Reconcile not successful after maximum (%d) attempts", maxReconcileCount)
+			return
+		}
+		require.NoError(t, operatorClient.Get(ctx, mock.ObjectKeyFromApiObject(object), object))
+		if object.Status.Phase == status.PhaseRunning {
+			assert.Equal(t, reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}, result)
+			if expectedReconciles != nil {
+				assert.Equal(t, *expectedReconciles, actualReconciles)
+			}
+			zap.S().Debugf("Reconcile successful on %d try", actualReconciles)
+			return
+		} else if object.Status.Phase == status.PhaseFailed {
+			if !ignoreFailures {
+				require.FailNow(t, "", "Reconcile failed on %d try", actualReconciles)
+			}
+		}
+	}
 }
 
 func generateHostsForCluster(ctx context.Context, reconciler *ReconcileMongoDbShardedCluster, sc *mdbv1.MongoDB, mongosDistribution map[string]int, configSrvDistribution map[string]int, shardDistribution []map[string]int) []string {

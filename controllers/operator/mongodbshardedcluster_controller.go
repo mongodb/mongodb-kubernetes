@@ -699,8 +699,8 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	log.Infow("ShardedCluster.Spec", "spec", sc.Spec)
 	log.Infow("ShardedCluster.Status", "status", r.deploymentState.Status)
 	log.Infow("ShardedCluster.deploymentState", "sizeStatus", r.deploymentState.Status.MongodbShardedClusterSizeConfig, "sizeStatusInClusters", r.deploymentState.Status.SizeStatusInClusters)
-	// TODO printing of current/desired MultiClusterReplicaSetScaler
-	// log.Infow("ShardedClusterScaling", "mongosScaler", r.mongosScaler, "configSrvScaler", r.configSrvScaler, "mongodsPerShardScaler", r.mongodsPerShardScaler, "desiredShards", sc.Spec.ShardCount, "currentShards", r.deploymentState.Status.ShardCount)
+
+	r.logAllScalers(log)
 
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.commonController.client, r.commonController.SecretClient, sc, log)
 	if err != nil {
@@ -744,12 +744,11 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 
 	sizeStatusInClusters, sizeStatus := r.calculateSizeStatus(r.sc)
 
-	allScalers := r.getAllScalers()
 	// this will be true when we finish adding a single node at that time, it's sts is ready,
 	// but more than one was added in the CR, so we still need another reconcile to scale the rest
 	// Important: scalers, expecially ReplicasThisReconciliation(scaler) will always return the same
 	// value throughout a single Reconcile execution.
-	if scale.AnyAreStillScaling(allScalers...) {
+	if r.isStillScaling() {
 		return r.updateStatus(ctx, sc, workflow.Pending("Continuing scaling operation for ShardedCluster %s mongodsPerShardCount ... %+v, mongosCount %+v, configServerCount %+v",
 			sc.ObjectKey(),
 			sizeStatus.MongodsPerShardCount,
@@ -792,6 +791,12 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	r.deploymentState.LastAchievedSpec = &sc.Spec
 	log.Infof("Finished reconciliation for Sharded Cluster! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	return r.updateStatus(ctx, sc, workflowStatus, log, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), mdbstatus.ShardedClusterSizeConfigOption{SizeConfig: sizeStatus}, mdbstatus.ShardedClusterSizeStatusInClustersOption{SizeConfigInClusters: sizeStatusInClusters}, mdbstatus.ShardedClusterMongodsPerShardCountOption{Members: r.sc.Spec.ShardCount}, mdbstatus.NewPVCsStatusOptionEmptyStatus())
+}
+
+func (r *ShardedClusterReconcileHelper) logAllScalers(log *zap.SugaredLogger) {
+	for _, s := range r.getAllScalers() {
+		log.Debugf("%+v", s)
+	}
 }
 
 // implements all the logic to do the sharded cluster thing
@@ -1807,7 +1812,7 @@ func (r *ShardedClusterReconcileHelper) waitForAgentsToRegister(sc *mdbv1.MongoD
 		mongosHostnames = append(mongosHostnames, hostnames...)
 	}
 
-	if err := agents.WaitForRsAgentsToRegisterSpecifiedHostnames(conn, mongosHostnames, log); err != nil {
+	if err := agents.WaitForRsAgentsToRegisterSpecifiedHostnames(conn, mongosHostnames, log.With("hostnamesOf", "mongos")); err != nil {
 		return xerrors.Errorf("Mongos agents didn't register with Ops Manager: %w", err)
 	}
 
@@ -1816,17 +1821,17 @@ func (r *ShardedClusterReconcileHelper) waitForAgentsToRegister(sc *mdbv1.MongoD
 		hostnames, _ := r.getConfigSrvHostnames(memberCluster, scale.ReplicasThisReconciliation(r.getConfigSrvScaler(memberCluster)))
 		configSrvHostnames = append(configSrvHostnames, hostnames...)
 	}
-	if err := agents.WaitForRsAgentsToRegisterSpecifiedHostnames(conn, configSrvHostnames, log); err != nil {
+	if err := agents.WaitForRsAgentsToRegisterSpecifiedHostnames(conn, configSrvHostnames, log.With("hostnamesOf", "configServer")); err != nil {
 		return xerrors.Errorf("Config server agents didn't register with Ops Manager: %w", err)
 	}
 
 	for shardIdx := 0; shardIdx < sc.Spec.ShardCount; shardIdx++ {
 		var shardHostnames []string
 		for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[shardIdx]) {
-			hostnames, _ := r.getConfigSrvHostnames(memberCluster, scale.ReplicasThisReconciliation(r.getConfigSrvScaler(memberCluster)))
+			hostnames, _ := r.getShardHostnames(shardIdx, memberCluster, scale.ReplicasThisReconciliation(r.getShardScaler(shardIdx, memberCluster)))
 			shardHostnames = append(shardHostnames, hostnames...)
 		}
-		if err := agents.WaitForRsAgentsToRegisterSpecifiedHostnames(conn, shardHostnames, log); err != nil {
+		if err := agents.WaitForRsAgentsToRegisterSpecifiedHostnames(conn, shardHostnames, log.With("hostnamesOf", "shard", "shardIdx", shardIdx)); err != nil {
 			return xerrors.Errorf("Shards agents didn't register with Ops Manager: %w", err)
 		}
 	}
@@ -2137,51 +2142,21 @@ func (r *ShardedClusterReconcileHelper) GetMongosStsName(memberCluster multiclus
 }
 
 func (r *ShardedClusterReconcileHelper) getConfigSrvScaler(memberCluster multicluster.MemberCluster) scale.ReplicaSetScaler {
-	return scalers.NewMultiClusterReplicaSetScaler(r.getConfigSrvClusterSpecList(), memberCluster.Name, memberCluster.Index, r.configSrvMemberClusters)
+	return scalers.NewMultiClusterReplicaSetScaler("configSrv", r.desiredConfigServerConfiguration.ClusterSpecList, memberCluster.Name, memberCluster.Index, r.configSrvMemberClusters)
 }
 
 func (r *ShardedClusterReconcileHelper) getMongosScaler(memberCluster multicluster.MemberCluster) scale.ReplicaSetScaler {
-	return scalers.NewMultiClusterReplicaSetScaler(r.getMongosClusterSpecList(), memberCluster.Name, memberCluster.Index, r.mongosMemberClusters)
+	return scalers.NewMultiClusterReplicaSetScaler("mongos", r.desiredMongosConfiguration.ClusterSpecList, memberCluster.Name, memberCluster.Index, r.mongosMemberClusters)
 }
 
 func (r *ShardedClusterReconcileHelper) getShardScaler(shardIdx int, memberCluster multicluster.MemberCluster) scale.ReplicaSetScaler {
-	return scalers.NewMultiClusterReplicaSetScaler(r.desiredShardsConfiguration[shardIdx].ClusterSpecList, memberCluster.Name, memberCluster.Index, r.shardsMemberClustersMap[shardIdx])
-}
-
-func (r *ShardedClusterReconcileHelper) GetConfigSrvClusterSpecItem(memberCluster multicluster.MemberCluster) mdbv1.ClusterSpecItem {
-	for _, clusterSpecItem := range r.getConfigSrvClusterSpecList() {
-		if clusterSpecItem.ClusterName == memberCluster.Name {
-			return clusterSpecItem
-		}
-	}
-
-	panic(fmt.Errorf("cannot find config srv cluster spec item for member cluster: %+v", memberCluster))
-}
-
-func (r *ShardedClusterReconcileHelper) GetMongosClusterSpecItem(memberCluster multicluster.MemberCluster) mdbv1.ClusterSpecItem {
-	for _, clusterSpecItem := range r.getMongosClusterSpecList() {
-		if clusterSpecItem.ClusterName == memberCluster.Name {
-			return clusterSpecItem
-		}
-	}
-
-	panic(fmt.Errorf("cannot find mongos cluster spec item for member cluster: %+v", memberCluster))
-}
-
-func (r *ShardedClusterReconcileHelper) GetShardClusterSpecItem(shardIdx int, memberCluster multicluster.MemberCluster) mdbv1.ClusterSpecItem {
-	r.getShardClusterSpecList()
-	for _, clusterSpecItem := range r.desiredShardsConfiguration[shardIdx].ClusterSpecList {
-		if clusterSpecItem.ClusterName == memberCluster.Name {
-			return clusterSpecItem
-		}
-	}
-
-	panic(fmt.Errorf("cannot find shard %d cluster spec item for member cluster: %+v", shardIdx, memberCluster))
+	return scalers.NewMultiClusterReplicaSetScaler(fmt.Sprintf("shard idx %d", shardIdx), r.desiredShardsConfiguration[shardIdx].ClusterSpecList, memberCluster.Name, memberCluster.Index, r.shardsMemberClustersMap[shardIdx])
 }
 
 func (r *ShardedClusterReconcileHelper) getAllScalers() []scale.ReplicaSetScaler {
 	var result []scale.ReplicaSetScaler
 	for shardIdx := 0; shardIdx < r.sc.Spec.ShardCount; shardIdx++ {
+		// TODO we should probably iterate over not healthy as well to allow for scaling down unhealthy members
 		for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[shardIdx]) {
 			result = append(result, r.getShardScaler(shardIdx, memberCluster))
 		}
@@ -2429,6 +2404,16 @@ func (r *ShardedClusterReconcileHelper) replicateSSLMMSCAConfigMap(ctx context.C
 	}
 
 	return nil
+}
+
+func (r *ShardedClusterReconcileHelper) isStillScaling() bool {
+	for _, s := range r.getAllScalers() {
+		if scale.ReplicasThisReconciliation(s) != s.(*scalers.MultiClusterReplicaSetScaler).TargetReplicas() {
+			return true
+		}
+	}
+
+	return false
 }
 
 func getPodService(namespace string, stsName string, memberCluster multicluster.MemberCluster, podNum int, port int32) corev1.Service {

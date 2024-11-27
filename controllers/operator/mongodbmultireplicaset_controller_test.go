@@ -1384,3 +1384,13 @@ func getFakeMultiClusterMapWithConfiguredInterceptor(clusters []string, omConnec
 	}
 	return clusterMap
 }
+
+func getFakeMultiClusterMapWithoutInterceptor(clusters []string) map[string]cluster.Cluster {
+	clusterMap := make(map[string]cluster.Cluster)
+
+	for _, e := range clusters {
+		memberCluster := multicluster.New(kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build()))
+		clusterMap[e] = memberCluster
+	}
+	return clusterMap
+}
