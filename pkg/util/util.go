@@ -56,11 +56,13 @@ func StripEnt(version string) string {
 
 // DoAndRetry performs the task 'f' until it returns true or 'count' retrials are executed. Sleeps for 'interval' seconds
 // between retries. String return parameter contains the fail message that is printed in case of failure.
-func DoAndRetry(f func() (string, bool), log *zap.SugaredLogger, count, interval int) bool {
+func DoAndRetry(f func() (string, bool), log *zap.SugaredLogger, count, interval int) (bool, string) {
+	var ok bool
+	var msg string
 	for i := 0; i < count; i++ {
-		msg, ok := f()
+		msg, ok = f()
 		if ok {
-			return true
+			return true, msg
 		}
 		if msg != "" {
 			msg += "."
@@ -68,7 +70,7 @@ func DoAndRetry(f func() (string, bool), log *zap.SugaredLogger, count, interval
 		log.Debugf("%s Retrying %d/%d (waiting for %d more seconds)", msg, i+1, count, interval)
 		time.Sleep(time.Duration(interval) * time.Second)
 	}
-	return false
+	return false, msg
 }
 
 // MapDeepCopy is a quick implementation of deep copy mechanism for any Go structures, it uses Go serialization and

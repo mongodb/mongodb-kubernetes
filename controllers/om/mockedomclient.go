@@ -65,7 +65,8 @@ type MockedOmConnection struct {
 	controlledFeature     *controlledfeature.ControlledFeature
 	// hosts are used for both automation agents and monitoring endpoints.
 	// They are necessary for emulating "agents" are ready behavior as operator checks for hosts for agents to exist
-	hostResults *host.Result
+	hostResults      *host.Result
+	agentHostnameMap map[string]struct{}
 
 	numRequestsSent         int
 	AgentAPIKey             string
@@ -777,8 +778,15 @@ func (oc *MockedOmConnection) CheckOperationsDidntHappen(t *testing.T, value ...
 
 // this is internal method only for testing, used by kubernetes mocked client
 func (oc *MockedOmConnection) AddHosts(hostnames []string) {
-	for i, p := range hostnames {
-		oc.hostResults.Results = append(oc.hostResults.Results, host.Host{Id: strconv.Itoa(i), Hostname: p})
+	if oc.agentHostnameMap == nil {
+		oc.agentHostnameMap = map[string]struct{}{}
+	}
+
+	for _, p := range hostnames {
+		if _, ok := oc.agentHostnameMap[p]; !ok {
+			oc.hostResults.Results = append(oc.hostResults.Results, host.Host{Id: strconv.Itoa(len(oc.agentHostnameMap)), Hostname: p})
+			oc.agentHostnameMap[p] = struct{}{}
+		}
 	}
 }
 
