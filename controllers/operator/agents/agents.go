@@ -85,36 +85,38 @@ func WaitForRsAgentsToRegister(set appsv1.StatefulSet, members int, clusterName 
 
 	log = log.With("statefulset", set.Name)
 
-	if !waitUntilRegistered(omConnection, log, retryParams{retrials: 5, waitSeconds: 3}, hostnames...) {
-		return getAgentRegisterError()
+	ok, msg := waitUntilRegistered(omConnection, log, retryParams{retrials: 5, waitSeconds: 3}, hostnames...)
+	if !ok {
+		return getAgentRegisterError(msg)
 	}
 	return nil
 }
 
 // WaitForRsAgentsToRegisterSpecifiedHostnames waits for the specified agents to registry with Ops Manager.
 func WaitForRsAgentsToRegisterSpecifiedHostnames(omConnection om.Connection, hostnames []string, log *zap.SugaredLogger) error {
-	if !waitUntilRegistered(omConnection, log, retryParams{retrials: 10, waitSeconds: 9}, hostnames...) {
-		return getAgentRegisterError()
+	ok, msg := waitUntilRegistered(omConnection, log, retryParams{retrials: 10, waitSeconds: 9}, hostnames...)
+	if !ok {
+		return getAgentRegisterError(msg)
 	}
 	return nil
 }
 
-func getAgentRegisterError() error {
-	return xerrors.New("some agents failed to register or the Operator is using the wrong host names for the pods. " +
-		"Make sure the 'spec.clusterDomain' is set if it's different from the default Kubernetes cluster " +
-		"name ('cluster.local') ")
+func getAgentRegisterError(errorMsg string) error {
+	return xerrors.New(fmt.Sprintf("some agents failed to register or the Operator is using the wrong host names for the pods. "+
+		"Make sure the 'spec.clusterDomain' is set if it's different from the default Kubernetes cluster "+
+		"name ('cluster.local'): %s", errorMsg))
 }
 
 // waitUntilRegistered waits until all agents with 'agentHostnames' are registered in OM. Note, that wait
 // happens after retrial - this allows to skip waiting in case agents are already registered
-func waitUntilRegistered(omConnection om.Connection, log *zap.SugaredLogger, r retryParams, agentHostnames ...string) bool {
+func waitUntilRegistered(omConnection om.Connection, log *zap.SugaredLogger, r retryParams, agentHostnames ...string) (bool, string) {
 	log.Infow("Waiting for agents to register with OM", "agent hosts", agentHostnames)
 	// environment variables are used only for tests
 	waitSeconds := env.ReadIntOrDefault(util.PodWaitSecondsEnv, r.waitSeconds)
 	retrials := env.ReadIntOrDefault(util.PodWaitRetriesEnv, r.retrials)
 
 	agentsCheckFunc := func() (string, bool) {
-		registeredCount := 0
+		registeredHostnamesMap := map[string]struct{}{}
 		found, err := om.TraversePages(
 			omConnection.ReadAutomationAgents,
 			func(aa interface{}) bool {
@@ -122,8 +124,8 @@ func waitUntilRegistered(omConnection om.Connection, log *zap.SugaredLogger, r r
 
 				for _, hostname := range agentHostnames {
 					if automationAgent.IsRegistered(hostname, log) {
-						registeredCount++
-						if registeredCount == len(agentHostnames) {
+						registeredHostnamesMap[hostname] = struct{}{}
+						if len(registeredHostnamesMap) == len(agentHostnames) {
 							return true
 						}
 					}
@@ -135,11 +137,25 @@ func waitUntilRegistered(omConnection om.Connection, log *zap.SugaredLogger, r r
 			log.Errorw("Received error when reading automation agent pages", "err", err)
 		}
 
+		// convert to list of keys only for pretty printing in the error message
+		var registeredHostnamesList []string
+		for hostname := range registeredHostnamesMap {
+			registeredHostnamesList = append(registeredHostnamesList, hostname)
+		}
+
 		var msg string
-		if registeredCount == 0 {
-			msg = fmt.Sprintf("None of %d agents has registered with OM", len(agentHostnames))
+		if len(registeredHostnamesList) == 0 {
+			msg = fmt.Sprintf("None of %d expected agents has registered with OM, expected hostnames: %+v", len(agentHostnames), agentHostnames)
+		} else if len(registeredHostnamesList) == len(agentHostnames) {
+			msg = fmt.Sprintf("All of %d expected agents have registered with OM, hostnames: %+v", len(registeredHostnamesList), registeredHostnamesList)
 		} else {
-			msg = fmt.Sprintf("Only %d of %d agents have registered with OM", registeredCount, len(agentHostnames))
+			var missingHostnames []string
+			for _, expectedHostname := range agentHostnames {
+				if _, ok := registeredHostnamesMap[expectedHostname]; !ok {
+					missingHostnames = append(missingHostnames, expectedHostname)
+				}
+			}
+			msg = fmt.Sprintf("Only %d of %d expected agents have registered with OM, missing hostnames: %+v, registered hostnames in OM: %+v, expected hostnames: %+v", len(registeredHostnamesList), len(agentHostnames), missingHostnames, registeredHostnamesList, agentHostnames)
 		}
 		return msg, found
 	}

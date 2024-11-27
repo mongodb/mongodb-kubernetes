@@ -182,7 +182,8 @@ func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Confi
 
 		log.Debugw("Project Backup Configuration", "desiredConfig", desiredConfig, "updatedConfig", updatedConfig)
 
-		if !waitUntilBackupReachesStatus(configReadUpdater, updatedConfig, desiredConfig.Status, log) {
+		if ok, msg := waitUntilBackupReachesStatus(configReadUpdater, updatedConfig, desiredConfig.Status, log); !ok {
+			log.Debugf("wait error message: %s", msg)
 			statusOpts, err := getCurrentBackupStatusOption(configReadUpdater, config.ClusterId)
 			if err != nil {
 				return workflow.Failed(err), nil

@@ -1,6 +1,10 @@
 package scalers
 
 import (
+	"fmt"
+
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 )
@@ -11,10 +15,12 @@ type MultiClusterReplicaSetScaler struct {
 	memberClusterName string
 	memberClusterNum  int
 	prevMembers       []multicluster.MemberCluster
+	scalerDescription string
 }
 
-func NewMultiClusterReplicaSetScaler(clusterSpecList mdbv1.ClusterSpecList, memberClusterName string, memberClusterNum int, prevMembers []multicluster.MemberCluster) *MultiClusterReplicaSetScaler {
+func NewMultiClusterReplicaSetScaler(scalerDescription string, clusterSpecList mdbv1.ClusterSpecList, memberClusterName string, memberClusterNum int, prevMembers []multicluster.MemberCluster) *MultiClusterReplicaSetScaler {
 	return &MultiClusterReplicaSetScaler{
+		scalerDescription: scalerDescription,
 		clusterSpecList:   clusterSpecList,
 		memberClusterName: memberClusterName,
 		memberClusterNum:  memberClusterNum,
@@ -48,6 +54,10 @@ func (s *MultiClusterReplicaSetScaler) ForcedIndividualScaling() bool {
 	}
 }
 
+// DesiredReplicas returns desired replicas for the statefulset in one member cluster.
+// Important: if other scalers (for other statefulsets) are still scaling, then this scaler will return
+// the previous member count instead of the true desired member count to guarantee that we change only
+// one member of the replica set across all scalers (for statefulsets in different member clusters).
 func (s *MultiClusterReplicaSetScaler) DesiredReplicas() int {
 	if s.ScalingFirstTime() {
 		return getMemberClusterItemByClusterName(s.clusterSpecList, s.memberClusterName).Members
@@ -100,6 +110,12 @@ func (s *MultiClusterReplicaSetScaler) DesiredReplicas() int {
 	return previousMembers
 }
 
+// TargetReplicas always returns the true replicas that the statefulset should have in this cluster regardless
+// whether other scalers are still scaling or not.
+func (s *MultiClusterReplicaSetScaler) TargetReplicas() int {
+	return getMemberClusterItemByClusterName(s.clusterSpecList, s.memberClusterName).Members
+}
+
 func (s *MultiClusterReplicaSetScaler) CurrentReplicas() int {
 	for _, memberCluster := range s.prevMembers {
 		if memberCluster.Name == s.memberClusterName {
@@ -124,4 +140,10 @@ func (s *MultiClusterReplicaSetScaler) MemberClusterName() string {
 
 func (s *MultiClusterReplicaSetScaler) MemberClusterNum() int {
 	return s.memberClusterNum
+}
+
+func (s *MultiClusterReplicaSetScaler) String() string {
+	return fmt.Sprintf("{MultiClusterReplicaSetScaler (%s): still scaling: %t, clusterName=%s, clusterIdx=%d, current/target replicas:%d/%d, "+
+		"replicas this reconciliation: %d, scaling first time: %t}", s.scalerDescription, scale.ReplicasThisReconciliation(s) != s.TargetReplicas(), s.memberClusterName, s.memberClusterNum,
+		s.CurrentReplicas(), s.TargetReplicas(), scale.ReplicasThisReconciliation(s), s.ScalingFirstTime())
 }

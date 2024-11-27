@@ -125,10 +125,10 @@ func disableBackup(readUpdater ConfigHostReadUpdater, backupConfig *Config, log 
 		if err != nil {
 			log.Errorf("Failed to stop backup for host cluster: %s", err)
 		} else {
-			if waitUntilBackupReachesStatus(readUpdater, backupConfig, Stopped, log) {
+			if ok, msg := waitUntilBackupReachesStatus(readUpdater, backupConfig, Stopped, log); ok {
 				log.Debugw("Stopped backup for host cluster")
 			} else {
-				log.Warn("Failed to stop backup for host cluster in Ops Manager (timeout exhausted)")
+				log.Warnf("Failed to stop backup for host cluster in Ops Manager (timeout exhausted): %s", msg)
 			}
 		}
 	}
@@ -137,13 +137,13 @@ func disableBackup(readUpdater ConfigHostReadUpdater, backupConfig *Config, log 
 	if err != nil {
 		return err
 	}
-	if !waitUntilBackupReachesStatus(readUpdater, backupConfig, Inactive, log) {
-		return xerrors.Errorf("Failed to disable backup for host cluster in Ops Manager (timeout exhausted)")
+	if ok, msg := waitUntilBackupReachesStatus(readUpdater, backupConfig, Inactive, log); !ok {
+		return xerrors.Errorf("Failed to disable backup for host cluster in Ops Manager (timeout exhausted): %s", msg)
 	}
 	return nil
 }
 
-func waitUntilBackupReachesStatus(configReader ConfigReader, backupConfig *Config, status Status, log *zap.SugaredLogger) bool {
+func waitUntilBackupReachesStatus(configReader ConfigReader, backupConfig *Config, status Status, log *zap.SugaredLogger) (bool, string) {
 	waitSeconds := env.ReadIntOrPanic(util.BackupDisableWaitSecondsEnv)
 	retries := env.ReadIntOrPanic(util.BackupDisableWaitRetriesEnv)
 

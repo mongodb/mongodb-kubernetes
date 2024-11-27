@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 
+	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/testing"
@@ -113,6 +114,31 @@ func GetFakeClientInterceptorGetFunc(omConnectionFactory *om.CachedOMConnectionF
 
 		return nil
 	}
+}
+
+func MarkAllStatefulSetsAsReady(ctx context.Context, namespace string, clients ...client.Client) error {
+	var updatedStsList []string
+	for _, c := range clients {
+		stsList := appsv1.StatefulSetList{}
+		if err := c.List(ctx, &stsList, client.InNamespace(namespace)); err != nil {
+			return fmt.Errorf("error listing statefulsets in namespace %s in client %+v", namespace, c)
+		}
+
+		for _, sts := range stsList.Items {
+			updatedSts := sts
+			updatedSts.Status.UpdatedReplicas = *sts.Spec.Replicas
+			updatedSts.Status.ReadyReplicas = *sts.Spec.Replicas
+			updatedSts.Status.Replicas = *sts.Spec.Replicas
+			if err := c.Status().Patch(ctx, &updatedSts, client.MergeFrom(&sts)); err != nil {
+				return fmt.Errorf("error updating sts %s/%s in client %+v", sts.Namespace, sts.Name, c)
+			}
+			updatedStsList = append(updatedStsList, sts.Name)
+		}
+	}
+
+	zap.S().Debugf("marked fake statefulsets as ready: %+v", updatedStsList)
+
+	return nil
 }
 
 func GetDefaultResources() []client.Object {

@@ -8,7 +8,7 @@ import (
 
 func GetAppDBScaler(opsManager *om.MongoDBOpsManager, memberClusterName string, memberClusterNum int, prevMembers []multicluster.MemberCluster) interfaces.AppDBScaler {
 	if opsManager.Spec.AppDB.IsMultiCluster() {
-		return NewMultiClusterReplicaSetScaler(opsManager.Spec.AppDB.ClusterSpecList, memberClusterName, memberClusterNum, prevMembers)
+		return NewMultiClusterReplicaSetScaler("AppDB", opsManager.Spec.AppDB.ClusterSpecList, memberClusterName, memberClusterNum, prevMembers)
 	} else {
 		return NewAppDBSingleClusterScaler(opsManager)
 	}
