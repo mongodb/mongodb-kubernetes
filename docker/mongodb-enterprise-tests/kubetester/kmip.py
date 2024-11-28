@@ -132,9 +132,9 @@ class KMIPDeployment(object):
             issuer,
             namespace,
             resource_name,
-            replicas,
-            service_name,
-            spec,
+            replicas=replicas,
+            service_name=service_name,
+            spec=spec,
             additional_domains=[service_name],
         )
         secret = read_secret(namespace, cert_secret_name)

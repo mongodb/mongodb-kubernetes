@@ -3,6 +3,7 @@ from kubetester.certs import create_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
+from kubetester.operator import Operator
 from pytest import fixture, mark
 
 MDB_RESOURCE = "test-tls-base-rs-require-ssl"
@@ -34,6 +35,11 @@ def tls_replica_set(
     yield resource.create()
 
     resource.delete()
+
+
+@mark.e2e_replica_set_tls_require_to_allow
+def test_install_operator(operator: Operator):
+    operator.assert_is_running()
 
 
 @mark.e2e_replica_set_tls_require_to_allow

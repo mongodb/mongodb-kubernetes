@@ -1,8 +1,8 @@
 import pytest
-from kubetester import create_secret, read_secret
-from kubetester.certs import ISSUER_CA_NAME, Certificate, create_mongodb_tls_certs
+from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB, Phase
+from kubetester.operator import Operator
 
 
 @pytest.fixture(scope="module")
@@ -21,6 +21,11 @@ def replica_set(namespace: str, server_certs: str, issuer_ca_configmap: str) -> 
     res["spec"]["additionalMongodConfig"] = {"net": {"ssl": {"mode": "allowSSL"}}}
 
     return res.create()
+
+
+@pytest.mark.e2e_disable_tls_scale_up
+def test_install_operator(operator: Operator):
+    operator.assert_is_running()
 
 
 @pytest.mark.e2e_disable_tls_scale_up

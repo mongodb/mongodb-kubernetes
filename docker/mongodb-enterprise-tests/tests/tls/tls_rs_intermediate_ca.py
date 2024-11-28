@@ -1,11 +1,10 @@
-import re
-
 import pytest
 from kubetester.certs import create_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import MongoDB, Phase
+from kubetester.operator import Operator
 
 MDB_RESOURCE_NAME = "test-tls-rs-intermediate-ca"
 
@@ -34,6 +33,11 @@ def mdb(namespace: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
     )
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
     return res.create()
+
+
+@pytest.mark.e2e_tls_rs_intermediate_ca
+def test_install_operator(operator: Operator):
+    operator.assert_is_running()
 
 
 @pytest.mark.e2e_tls_rs_intermediate_ca

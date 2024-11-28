@@ -26,7 +26,7 @@ def server_certs(issuer: str, namespace: str):
         namespace,
         MDB_RESOURCE,
         shards=1,
-        mongos_per_shard=3,
+        mongod_per_shard=3,
         config_servers=3,
         mongos=2,
     )

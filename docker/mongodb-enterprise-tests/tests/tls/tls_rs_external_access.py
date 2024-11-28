@@ -4,6 +4,7 @@ from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import MongoDB, Phase
+from kubetester.operator import Operator
 
 
 @pytest.fixture(scope="module")
@@ -57,6 +58,11 @@ def mdb_multiple_horizons(namespace: str, server_certs_multiple_horizons: str, i
     )
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
     return res.create()
+
+
+@pytest.mark.e2e_tls_rs_external_access
+def test_install_operator(operator: Operator):
+    operator.assert_is_running()
 
 
 @pytest.mark.e2e_tls_rs_external_access

@@ -2,6 +2,7 @@ from kubetester import find_fixture, try_load
 from kubetester.certs import create_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb import MongoDB, Phase
+from kubetester.operator import Operator
 from pytest import fixture, mark
 
 
@@ -24,6 +25,11 @@ def replica_set(
 
     try_load(resource)
     return resource
+
+
+@mark.e2e_replica_set_tls_default
+def test_install_operator(operator: Operator):
+    operator.assert_is_running()
 
 
 @mark.e2e_replica_set_tls_default

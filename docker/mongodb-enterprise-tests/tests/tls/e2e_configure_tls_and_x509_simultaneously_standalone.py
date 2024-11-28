@@ -7,6 +7,7 @@ from kubetester.certs import (
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongotester import StandaloneTester
+from kubetester.operator import Operator
 
 MDB_RESOURCE = "my-standalone"
 
@@ -26,6 +27,11 @@ def mdb(namespace: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
 @pytest.fixture(scope="module")
 def agent_certs(issuer: str, namespace: str) -> str:
     return create_agent_tls_certs(issuer, namespace, MDB_RESOURCE)
+
+
+@pytest.mark.e2e_configure_tls_and_x509_simultaneously_st
+def test_install_operator(operator: Operator):
+    operator.assert_is_running()
 
 
 @pytest.mark.e2e_configure_tls_and_x509_simultaneously_st
