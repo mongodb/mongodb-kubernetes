@@ -30,7 +30,7 @@ def server_certs(issuer: str, namespace: str):
         namespace,
         MDB_RESOURCE,
         shards=2,
-        mongos_per_shard=3,
+        mongod_per_shard=3,
         config_servers=2,
         mongos=1,
     )

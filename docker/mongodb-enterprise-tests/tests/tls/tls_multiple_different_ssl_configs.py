@@ -1,6 +1,7 @@
 import pytest
 from kubetester.kubetester import KubernetesTester, skip_if_local
 from kubetester.mongotester import ReplicaSetTester
+from kubetester.operator import Operator
 
 mdb_resources = {
     "ssl_enabled": "test-tls-base-rs-require-ssl",
@@ -10,6 +11,11 @@ mdb_resources = {
 
 def cert_names(namespace, members=3):
     return ["{}-{}.{}".format(mdb_resources["ssl_enabled"], i, namespace) for i in range(members)]
+
+
+@pytest.mark.e2e_tls_multiple_different_ssl_configs
+def test_install_operator(operator: Operator):
+    operator.assert_is_running()
 
 
 @pytest.mark.e2e_tls_multiple_different_ssl_configs

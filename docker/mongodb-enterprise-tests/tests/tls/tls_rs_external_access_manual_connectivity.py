@@ -6,6 +6,7 @@ from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB, Phase
+from kubetester.operator import Operator
 
 # This test will set up an environment which will configure a resource with split horizon enabled.
 
@@ -85,6 +86,11 @@ def mdb(
     ]
 
     return res.create()
+
+
+@pytest.mark.e2e_tls_rs_external_access_manual_connectivity
+def test_install_operator(operator: Operator):
+    operator.assert_is_running()
 
 
 @pytest.mark.e2e_tls_rs_external_access_manual_connectivity

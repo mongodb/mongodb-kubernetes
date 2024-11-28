@@ -472,8 +472,8 @@ class MongoDB(CustomObject, MongoDBCommon):
         self, shard_idx: int, member_idx: int, cluster_idx: Optional[int] = None, port: int = 27017
     ) -> str:
         if self.is_multicluster():
-            return f"{self.name}-{shard_idx}-{cluster_idx}-{member_idx}.{self.name}-sh.{self.namespace}.svc.cluster.local:{port}"
-        return f"{self.name}-{shard_idx}-{member_idx}.{self.name}-sh.{self.namespace}.svc.cluster.local:{port}"
+            return f"{self.name}-{shard_idx}-{cluster_idx}-{member_idx}-svc.{self.namespace}.svc.cluster.local:{port}"
+        return f"{self.name}-{shard_idx}-{member_idx}.{self.shard_service_name()}.{self.namespace}.svc.cluster.local:{port}"
 
     def shard_pvc_name(self, shard_idx: int, member_idx: int, cluster_idx: Optional[int] = None) -> str:
         if self.is_multicluster():

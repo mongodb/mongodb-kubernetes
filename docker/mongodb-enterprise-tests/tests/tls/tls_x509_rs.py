@@ -9,7 +9,7 @@ from kubetester.kubetester import fixture as load_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongotester import ReplicaSetTester
-from kubetester.omtester import get_rs_cert_names
+from kubetester.operator import Operator
 
 MDB_RESOURCE = "test-x509-rs"
 
@@ -29,6 +29,11 @@ def mdb(namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap
     res = MongoDB.from_yaml(load_fixture("test-x509-rs.yaml"), namespace=namespace)
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
     return res.create()
+
+
+@pytest.mark.e2e_tls_x509_rs
+def test_install_operator(operator: Operator):
+    operator.assert_is_running()
 
 
 @pytest.mark.e2e_tls_x509_rs

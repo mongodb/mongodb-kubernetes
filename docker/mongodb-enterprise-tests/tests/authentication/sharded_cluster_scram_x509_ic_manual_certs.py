@@ -33,8 +33,8 @@ def all_certs(issuer, namespace) -> None:
             server_set.name,
             server_set.name + "-cert",
             server_set.replicas,
-            server_set.service,
-            spec_server,
+            service_name=server_set.service,
+            spec=spec_server,
         )
         create_mongodb_tls_certs(
             issuer,
@@ -42,8 +42,8 @@ def all_certs(issuer, namespace) -> None:
             server_set.name,
             server_set.name + "-clusterfile",
             server_set.replicas,
-            server_set.service,
-            spec_client,
+            service_name=server_set.service,
+            spec=spec_client,
         )
 
 
