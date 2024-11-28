@@ -5,6 +5,7 @@ from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import MongoDB, Phase
+from kubetester.operator import Operator
 
 MDB_RESOURCE = "test-tls-base-rs-require-ssl"
 
@@ -28,6 +29,11 @@ def mdb(namespace: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
     # Setting security.certsSecretPrefix implicitly enables TLS
     res["spec"]["security"]["certsSecretPrefix"] = "prefix"
     return res.create()
+
+
+@pytest.mark.e2e_replica_set_tls_certs_secret_prefix
+def test_install_operator(operator: Operator):
+    operator.assert_is_running()
 
 
 @pytest.mark.e2e_replica_set_tls_certs_secret_prefix

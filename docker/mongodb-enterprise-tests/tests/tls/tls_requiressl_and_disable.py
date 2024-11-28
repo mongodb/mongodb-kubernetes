@@ -1,15 +1,10 @@
 import pytest
 from kubetester import MongoDB, delete_secret, try_load
-from kubetester.certs import (
-    ISSUER_CA_NAME,
-    create_agent_tls_certs,
-    create_mongodb_tls_certs,
-)
-from kubetester.kubetester import KubernetesTester
+from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
-from pytest import fixture
+from kubetester.operator import Operator
 
 MDB_RESOURCE_NAME = "tls-replica-set"
 
@@ -31,6 +26,11 @@ def tls_replica_set(namespace: str, custom_mdb_version: str, issuer_ca_configmap
     resource.set_version(custom_mdb_version)
     try_load(resource)
     return resource
+
+
+@pytest.mark.e2e_replica_set_tls_require_and_disable
+def test_install_operator(operator: Operator):
+    operator.assert_is_running()
 
 
 @pytest.mark.e2e_replica_set_tls_require_and_disable

@@ -9,6 +9,7 @@ from kubetester.certs import (
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB, Phase
+from kubetester.operator import Operator
 
 MDB_RESOURCE = "test-x509-all-options-rs"
 
@@ -29,6 +30,11 @@ def mdb(namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap
     res = MongoDB.from_yaml(load_fixture("test-x509-all-options-rs.yaml"), namespace=namespace)
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
     return res.update()
+
+
+@pytest.mark.e2e_tls_x509_configure_all_options_rs
+def test_install_operator(operator: Operator):
+    operator.assert_is_running()
 
 
 @pytest.mark.e2e_tls_x509_configure_all_options_rs

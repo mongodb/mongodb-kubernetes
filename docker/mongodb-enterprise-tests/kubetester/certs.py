@@ -173,6 +173,7 @@ def create_tls_certs(
     namespace: str,
     resource_name: str,
     replicas: int = 3,
+    replicas_cluster_distribution: Optional[List[int]] = None,
     service_name: str = None,
     spec: Optional[Dict] = None,
     secret_name: Optional[str] = None,
@@ -192,21 +193,22 @@ def create_tls_certs(
     if spec is None:
         spec = dict()
 
-    pod_fqdn_fstring = "{resource_name}-{index}.{service_name}.{namespace}.svc.cluster.local".format(
-        resource_name=resource_name,
-        service_name=service_name,
-        namespace=namespace,
-        index="{}",
-    )
-
     pod_dns = []
     pods = []
-    for idx in range(replicas):
-        if process_hostnames is not None:
-            pod_dns.append(process_hostnames[idx])
-        else:
-            pod_dns.append(pod_fqdn_fstring.format(idx))
-            pods.append(f"{resource_name}-{idx}")
+    if replicas_cluster_distribution is None:
+        for pod_idx in range(replicas):
+            if process_hostnames is not None:
+                pod_dns.append(process_hostnames[pod_idx])
+            else:
+                pod_dns.append(f"{resource_name}-{pod_idx}.{service_name}.{namespace}.svc.cluster.local")
+                pods.append(f"{resource_name}-{pod_idx}")
+    else:
+        for cluster_idx, pod_count in enumerate(replicas_cluster_distribution):
+            if process_hostnames is not None:
+                raise Exception("process_hostnames are not yet implemented for cluster_distribution argument")
+            for pod_idx in range(pod_count or 0):
+                pod_dns.append(f"{resource_name}-{cluster_idx}-{pod_idx}-svc.{namespace}.svc.cluster.local")
+                pods.append(f"{resource_name}-{cluster_idx}-{pod_idx}")
 
     spec["dnsNames"] = pods + pod_dns
     if additional_domains is not None:
@@ -303,6 +305,7 @@ def create_mongodb_tls_certs(
     resource_name: str,
     bundle_secret_name: str,
     replicas: int = 3,
+    replicas_cluster_distribution: Optional[List[int]] = None,
     service_name: str = None,
     spec: Optional[Dict] = None,
     additional_domains: Optional[List[str]] = None,
@@ -319,6 +322,7 @@ def create_mongodb_tls_certs(
         namespace=namespace,
         resource_name=resource_name,
         replicas=replicas,
+        replicas_cluster_distribution=replicas_cluster_distribution,
         service_name=service_name,
         spec=spec,
         additional_domains=additional_domains,
@@ -530,6 +534,7 @@ def create_x509_mongodb_tls_certs(
     resource_name: str,
     bundle_secret_name: str,
     replicas: int = 3,
+    replicas_cluster_distribution: Optional[List[int]] = None,
     service_name: str = None,
     additional_domains: Optional[List[str]] = None,
     secret_backend: Optional[str] = None,
@@ -543,6 +548,7 @@ def create_x509_mongodb_tls_certs(
         resource_name=resource_name,
         bundle_secret_name=bundle_secret_name,
         replicas=replicas,
+        replicas_cluster_distribution=replicas_cluster_distribution,
         service_name=service_name,
         spec=spec,
         additional_domains=additional_domains,
@@ -630,7 +636,7 @@ def create_sharded_cluster_certs(
     namespace: str,
     resource_name: str,
     shards: int,
-    mongos_per_shard: int,
+    mongod_per_shard: int,
     config_servers: int,
     mongos: int,
     internal_auth: bool = False,
@@ -638,29 +644,39 @@ def create_sharded_cluster_certs(
     additional_domains: Optional[List[str]] = None,
     secret_prefix: Optional[str] = None,
     secret_backend: Optional[str] = None,
+    shard_distribution: Optional[List[int]] = None,
+    mongos_distribution: Optional[List[int]] = None,
+    config_srv_distribution: Optional[List[int]] = None,
 ):
     cert_generation_func = create_mongodb_tls_certs
     if x509_certs:
         cert_generation_func = create_x509_mongodb_tls_certs
 
-    secret_type = "kubernetes.io/tls"
-    for i in range(shards):
+    for shard_idx in range(shards):
         additional_domains_for_shard = None
         if additional_domains is not None:
             additional_domains_for_shard = []
             for domain in additional_domains:
-                for j in range(mongos_per_shard):
-                    additional_domains_for_shard.append(f"{resource_name}-{i}-{j}.{domain}")
+                if shard_distribution is None:
+                    for pod_idx in range(mongod_per_shard):
+                        additional_domains_for_shard.append(f"{resource_name}-{shard_idx}-{pod_idx}.{domain}")
+                else:
+                    for cluster_idx, pod_count in enumerate(shard_distribution):
+                        for pod_idx in range(pod_count or 0):
+                            additional_domains_for_shard.append(
+                                f"{resource_name}-{shard_idx}-{cluster_idx}-{pod_idx}.{domain}"
+                            )
 
-        secret_name = f"{resource_name}-{i}-cert"
+        secret_name = f"{resource_name}-{shard_idx}-cert"
         if secret_prefix is not None:
             secret_name = secret_prefix + secret_name
         cert_generation_func(
             issuer=ISSUER_CA_NAME,
             namespace=namespace,
-            resource_name=f"{resource_name}-{i}",
+            resource_name=f"{resource_name}-{shard_idx}",
             bundle_secret_name=secret_name,
-            replicas=mongos_per_shard,
+            replicas=mongod_per_shard,
+            replicas_cluster_distribution=shard_distribution,
             service_name=resource_name + "-sh",
             additional_domains=additional_domains_for_shard,
             secret_backend=secret_backend,
@@ -669,9 +685,10 @@ def create_sharded_cluster_certs(
             cert_generation_func(
                 issuer=ISSUER_CA_NAME,
                 namespace=namespace,
-                resource_name=f"{resource_name}-{i}-clusterfile",
-                bundle_secret_name=f"{resource_name}-{i}-clusterfile",
-                replicas=mongos_per_shard,
+                resource_name=f"{resource_name}-{shard_idx}-clusterfile",
+                bundle_secret_name=f"{resource_name}-{shard_idx}-clusterfile",
+                replicas=mongod_per_shard,
+                replicas_cluster_distribution=shard_distribution,
                 service_name=resource_name + "-sh",
                 additional_domains=additional_domains_for_shard,
                 secret_backend=secret_backend,
@@ -681,8 +698,13 @@ def create_sharded_cluster_certs(
     if additional_domains is not None:
         additional_domains_for_config = []
         for domain in additional_domains:
-            for j in range(config_servers):
-                additional_domains_for_config.append(f"{resource_name}-config-{j}.{domain}")
+            if config_srv_distribution is None:
+                for pod_idx in range(config_servers):
+                    additional_domains_for_config.append(f"{resource_name}-config-{pod_idx}.{domain}")
+            else:
+                for cluster_idx, pod_count in enumerate(config_srv_distribution):
+                    for pod_idx in range(pod_count or 0):
+                        additional_domains_for_config.append(f"{resource_name}-config-{cluster_idx}-{pod_idx}.{domain}")
 
     secret_name = f"{resource_name}-config-cert"
     if secret_prefix is not None:
@@ -693,6 +715,7 @@ def create_sharded_cluster_certs(
         resource_name=resource_name + "-config",
         bundle_secret_name=secret_name,
         replicas=config_servers,
+        replicas_cluster_distribution=config_srv_distribution,
         service_name=resource_name + "-cs",
         additional_domains=additional_domains_for_config,
         secret_backend=secret_backend,
@@ -703,9 +726,10 @@ def create_sharded_cluster_certs(
             namespace=namespace,
             resource_name=f"{resource_name}-config-clusterfile",
             bundle_secret_name=f"{resource_name}-config-clusterfile",
-            replicas=mongos_per_shard,
-            service_name=resource_name + "-sh",
-            additional_domains=additional_domains_for_shard,
+            replicas=config_servers,
+            replicas_cluster_distribution=config_srv_distribution,
+            service_name=resource_name + "-cs",
+            additional_domains=additional_domains_for_config,
             secret_backend=secret_backend,
         )
 
@@ -713,8 +737,13 @@ def create_sharded_cluster_certs(
     if additional_domains is not None:
         additional_domains_for_mongos = []
         for domain in additional_domains:
-            for j in range(mongos):
-                additional_domains_for_mongos.append(f"{resource_name}-mongos-{j}.{domain}")
+            if mongos_distribution is None:
+                for pod_idx in range(mongos):
+                    additional_domains_for_mongos.append(f"{resource_name}-mongos-{pod_idx}.{domain}")
+            else:
+                for cluster_idx, pod_count in enumerate(mongos_distribution):
+                    for pod_idx in range(pod_count or 0):
+                        additional_domains_for_mongos.append(f"{resource_name}-mongos-{cluster_idx}-{pod_idx}.{domain}")
 
     secret_name = f"{resource_name}-mongos-cert"
     if secret_prefix is not None:
@@ -726,6 +755,7 @@ def create_sharded_cluster_certs(
         bundle_secret_name=secret_name,
         service_name=resource_name + "-svc",
         replicas=mongos,
+        replicas_cluster_distribution=mongos_distribution,
         additional_domains=additional_domains_for_mongos,
         secret_backend=secret_backend,
     )
@@ -736,9 +766,10 @@ def create_sharded_cluster_certs(
             namespace=namespace,
             resource_name=f"{resource_name}-mongos-clusterfile",
             bundle_secret_name=f"{resource_name}-mongos-clusterfile",
-            replicas=mongos_per_shard,
+            replicas=mongos,
+            replicas_cluster_distribution=mongos_distribution,
             service_name=resource_name + "-sh",
-            additional_domains=additional_domains_for_shard,
+            additional_domains=additional_domains_for_mongos,
             secret_backend=secret_backend,
         )
 

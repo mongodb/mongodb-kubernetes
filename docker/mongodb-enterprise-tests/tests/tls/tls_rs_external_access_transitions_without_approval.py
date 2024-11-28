@@ -2,6 +2,12 @@ import pytest
 from kubetester.kubetester import KubernetesTester, skip_if_local
 from kubetester.mongotester import ReplicaSetTester
 from kubetester.omtester import get_rs_cert_names
+from kubetester.operator import Operator
+
+
+@pytest.mark.e2e_tls_rs_external_access_tls_transition_without_approval
+def test_install_operator(operator: Operator):
+    operator.assert_is_running()
 
 
 @pytest.mark.e2e_tls_rs_external_access_tls_transition_without_approval

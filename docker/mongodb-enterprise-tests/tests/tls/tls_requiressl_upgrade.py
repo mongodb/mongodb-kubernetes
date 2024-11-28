@@ -1,15 +1,11 @@
 import pytest
-from kubernetes import client
-from kubetester.certs import (
-    ISSUER_CA_NAME,
-    create_agent_tls_certs,
-    create_mongodb_tls_certs,
-)
-from kubetester.kubetester import KubernetesTester, ensure_ent_version
+from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs
+from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongotester import ReplicaSetTester
+from kubetester.operator import Operator
 
 MDB_RESOURCE = "test-tls-upgrade"
 
@@ -25,6 +21,11 @@ def mdb(namespace: str, server_certs: str, issuer_ca_configmap: str, custom_mdb_
     res.set_version(ensure_ent_version(custom_mdb_version))
     res["spec"]["security"] = {"tls": {"ca": issuer_ca_configmap}}
     return res.create()
+
+
+@pytest.mark.e2e_replica_set_tls_require_upgrade
+def test_install_operator(operator: Operator):
+    operator.assert_is_running()
 
 
 @pytest.mark.e2e_replica_set_tls_require_upgrade

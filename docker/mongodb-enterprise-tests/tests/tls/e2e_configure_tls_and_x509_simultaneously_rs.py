@@ -1,15 +1,13 @@
 import pytest
 from kubetester.certs import (
     ISSUER_CA_NAME,
-    Certificate,
     create_agent_tls_certs,
     create_mongodb_tls_certs,
 )
-from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongotester import ReplicaSetTester
-from kubetester.omtester import get_rs_cert_names
+from kubetester.operator import Operator
 
 MDB_RESOURCE = "my-replica-set"
 
@@ -29,6 +27,11 @@ def mdb(namespace: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
 @pytest.fixture(scope="module")
 def agent_certs(issuer: str, namespace: str) -> str:
     return create_agent_tls_certs(issuer, namespace, MDB_RESOURCE)
+
+
+@pytest.mark.e2e_configure_tls_and_x509_simultaneously_rs
+def test_install_operator(operator: Operator):
+    operator.assert_is_running()
 
 
 @pytest.mark.e2e_configure_tls_and_x509_simultaneously_rs

@@ -3,7 +3,6 @@ import tempfile
 import pytest
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import (
-    ISSUER_CA_NAME,
     create_agent_tls_certs,
     create_mongodb_tls_certs,
     create_x509_user_cert,
@@ -12,6 +11,7 @@ from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongotester import ReplicaSetTester
+from kubetester.operator import Operator
 
 MDB_RESOURCE = "test-x509-rs"
 X509_AGENT_SUBJECT = "CN=automation,OU={namespace},O=cert-manager"
@@ -34,6 +34,11 @@ def replica_set(namespace, agent_certs, server_certs, issuer_ca_configmap):
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
 
     return res.create()
+
+
+@pytest.mark.e2e_tls_x509_user_connectivity
+def test_install_operator(operator: Operator):
+    operator.assert_is_running()
 
 
 @pytest.mark.e2e_tls_x509_user_connectivity

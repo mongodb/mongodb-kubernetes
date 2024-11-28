@@ -8,14 +8,12 @@
 #   om_ops_manager_backup_tls_custom_ca.py
 
 
-from typing import List
-
-import pytest
 from kubetester import try_load
 from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
-from pytest import fixture
+from kubetester.operator import Operator
+from pytest import fixture, mark
 from tests.conftest import (
     default_external_domain,
     external_domain_fqdns,
@@ -33,7 +31,7 @@ def replica_set_members() -> int:
     return 3
 
 
-@pytest.fixture(scope="module")
+@fixture(scope="module")
 def server_certs(issuer: str, namespace: str, replica_set_members: int, replica_set_name: str):
     """
     Issues certificate containing only custom_service_fqdns in SANs
@@ -69,7 +67,12 @@ def replica_set(
     return resource
 
 
-@pytest.mark.e2e_replica_set_tls_process_hostnames
+@mark.e2e_replica_set_tls_process_hostnames
+def test_install_operator(operator: Operator):
+    operator.assert_is_running()
+
+
+@mark.e2e_replica_set_tls_process_hostnames
 def test_update_coredns():
     hosts = [
         ("172.18.255.200", "my-replica-set-0.mongodb.interconnected"),
@@ -81,37 +84,37 @@ def test_update_coredns():
     update_coredns_hosts(hosts)
 
 
-@pytest.mark.e2e_replica_set_tls_process_hostnames
+@mark.e2e_replica_set_tls_process_hostnames
 def test_create_replica_set(replica_set: MongoDB):
     replica_set.update()
 
 
-@pytest.mark.e2e_replica_set_tls_process_hostnames
+@mark.e2e_replica_set_tls_process_hostnames
 def test_replica_set_in_running_state(replica_set: MongoDB):
     replica_set.assert_reaches_phase(Phase.Running, timeout=1000)
 
 
-@pytest.mark.e2e_replica_set_tls_process_hostnames
+@mark.e2e_replica_set_tls_process_hostnames
 def test_automation_config_contains_external_domains_in_hostnames(replica_set: MongoDB):
     processes = replica_set.get_automation_config_tester().get_replica_set_processes(replica_set.name)
     hostnames = [process["hostname"] for process in processes]
     assert hostnames == external_domain_fqdns(replica_set.name, replica_set.get_members())
 
 
-@pytest.mark.e2e_replica_set_tls_process_hostnames
+@mark.e2e_replica_set_tls_process_hostnames
 def test_connectivity(replica_set: MongoDB, ca_path: str):
     tester = replica_set.tester(ca_path=ca_path)
     tester.assert_connectivity()
 
 
-@pytest.mark.e2e_replica_set_tls_process_hostnames
+@mark.e2e_replica_set_tls_process_hostnames
 def test_migrate_architecture(replica_set: MongoDB):
     replica_set.trigger_architecture_migration()
     replica_set.assert_abandons_phase(Phase.Running, timeout=1000)
     replica_set.assert_reaches_phase(Phase.Running, timeout=1000)
 
 
-@pytest.mark.e2e_replica_set_tls_process_hostnames
+@mark.e2e_replica_set_tls_process_hostnames
 def test_db_connectable_after_architecture_change(replica_set: MongoDB, ca_path: str):
     tester = replica_set.tester(ca_path=ca_path)
     tester.assert_connectivity()

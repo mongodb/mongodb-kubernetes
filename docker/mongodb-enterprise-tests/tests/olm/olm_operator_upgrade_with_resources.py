@@ -167,7 +167,7 @@ def mdb_sharded_certs(issuer: str, namespace: str):
         namespace,
         "mdb-sharded",
         shards=1,
-        mongos_per_shard=2,
+        mongod_per_shard=2,
         config_servers=1,
         mongos=1,
         secret_prefix="prefix-",

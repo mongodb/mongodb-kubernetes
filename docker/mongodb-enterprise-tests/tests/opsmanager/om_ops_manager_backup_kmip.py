@@ -107,7 +107,11 @@ def mdb_latest(
 @fixture(scope="module")
 def mdb_latest_kmip_secrets(aws_s3_client: AwsS3Client, namespace, issuer, issuer_ca_configmap: str) -> str:
     mdb_latest_generated_kmip_certs_secret_name = create_tls_certs(
-        issuer, namespace, MONGODB_CR_NAME, 3, common_name=MONGODB_CR_NAME
+        issuer,
+        namespace,
+        MONGODB_CR_NAME,
+        replicas=3,
+        common_name=MONGODB_CR_NAME,
     )
     mdb_latest_generated_kmip_certs_secret = read_secret(namespace, mdb_latest_generated_kmip_certs_secret_name)
     mdb_secret_name = MONGODB_CR_KMIP_TEST_PREFIX + "-" + MONGODB_CR_NAME + "-kmip-client"
