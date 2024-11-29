@@ -15,7 +15,10 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	corev1 "k8s.io/api/core/v1"
 
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
 const stateKey = "state"
@@ -56,6 +59,10 @@ func (s *StateStore[S]) read(ctx context.Context) error {
 func (s *StateStore[S]) write(ctx context.Context, log *zap.SugaredLogger) error {
 	dataCM := configmap.Builder().
 		SetName(s.getStateConfigMapName()).
+		SetLabels(map[string]string{
+			construct.ControllerLabelName:   util.OperatorName,
+			mdbv1.LabelMongoDBResourceOwner: s.resourceName,
+		}).
 		SetNamespace(s.namespace).
 		SetData(s.data).
 		Build()

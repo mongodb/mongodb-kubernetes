@@ -67,10 +67,17 @@ func PrometheusTLSCertHash(hash string) func(options *construct.DatabaseStateful
 	}
 }
 
-// WithLabels will assing the provided labels during the statefulset construction
+// WithLabels will assign the provided labels during the statefulset construction
 func WithLabels(labels map[string]string) func(options *construct.DatabaseStatefulSetOptions) {
 	return func(options *construct.DatabaseStatefulSetOptions) {
 		options.Labels = labels
+	}
+}
+
+// WithStsLabels will assign the provided labels during the statefulset construction
+func WithStsLabels(labels map[string]string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.StsLabels = labels
 	}
 }
 

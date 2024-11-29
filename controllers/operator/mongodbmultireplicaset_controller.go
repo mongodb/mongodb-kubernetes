@@ -1227,6 +1227,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) deleteManagedResources(ctx context.Con
 			errs = multierror.Append(errs, xerrors.Errorf("failed deleting dependant resources in cluster %s: %w", item.ClusterName, err))
 		}
 	}
+
 	return errs
 }
 

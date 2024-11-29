@@ -467,12 +467,22 @@ func BuildService(namespacedName types.NamespacedName, owner v1.CustomResourceRe
 		construct.ControllerLabelName: util.OperatorName,
 	}
 
+	selectorLabels := map[string]string{
+		construct.ControllerLabelName: util.OperatorName,
+	}
+
 	if appLabel != nil {
 		labels[appLabelKey] = *appLabel
+		selectorLabels[appLabelKey] = *appLabel
 	}
 
 	if podLabel != nil {
 		labels[podNameLabelKey] = *podLabel
+		selectorLabels[podNameLabelKey] = *podLabel
+	}
+
+	if _, ok := owner.(*mdbv1.MongoDB); ok {
+		labels[mdbv1.LabelMongoDBResourceOwner] = owner.GetName()
 	}
 
 	svcBuilder := service.Builder().
@@ -480,7 +490,7 @@ func BuildService(namespacedName types.NamespacedName, owner v1.CustomResourceRe
 		SetName(namespacedName.Name).
 		SetOwnerReferences(kube.BaseOwnerReference(owner)).
 		SetLabels(labels).
-		SetSelector(labels).
+		SetSelector(selectorLabels).
 		SetServiceType(mongoServiceDefinition.Type).
 		SetPublishNotReadyAddresses(true)
 

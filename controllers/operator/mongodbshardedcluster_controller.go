@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -28,6 +29,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
 
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1325,6 +1327,22 @@ func (r *ShardedClusterReconcileHelper) calculateSizeStatus(s *mdbv1.MongoDB) (*
 func (r *ShardedClusterReconcileHelper) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
 	sc := obj.(*mdbv1.MongoDB)
 
+	var errs error
+	if err := r.cleanOpsManagerState(ctx, sc, log); err != nil {
+		errs = multierror.Append(errs, err)
+	}
+
+	for _, item := range getHealthyMemberClusters(r.allMemberClusters) {
+		c := item.Client
+		if err := r.deleteClusterResources(ctx, c, sc, log); err != nil {
+			errs = multierror.Append(errs, xerrors.Errorf("failed deleting dependant resources in cluster %s: %w", item.Name, err))
+		}
+	}
+
+	return errs
+}
+
+func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context, sc *mdbv1.MongoDB, log *zap.SugaredLogger) error {
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.commonController.client, r.commonController.SecretClient, sc, log)
 	if err != nil {
 		return err
@@ -1371,17 +1389,46 @@ func (r *ShardedClusterReconcileHelper) OnDelete(ctx context.Context, obj runtim
 		return err
 	}
 
-	r.commonController.resourceWatcher.RemoveDependentWatchedResources(sc.ObjectKey())
-
 	log.Infow("Clear feature control for group: %s", "groupID", conn.GroupID())
 	if result := controlledfeature.ClearFeatureControls(conn, conn.OpsManagerVersion(), log); !result.IsOK() {
 		result.Log(log)
 		log.Warnf("Failed to clear feature control from group: %s", conn.GroupID())
 	}
 
-	log.Info("Removed sharded cluster from Ops Manager!")
-
+	log.Infof("Removed deployment %s from Ops Manager at %s", sc.Name, conn.BaseURL())
 	return nil
+}
+
+func (r *ShardedClusterReconcileHelper) deleteClusterResources(ctx context.Context, c kubernetesClient.Client, sc *mdbv1.MongoDB, log *zap.SugaredLogger) error {
+	var errs error
+
+	// cleanup resources in the namespace as the MongoDB with the corresponding label.
+	cleanupOptions := mdbv1.MongodbCleanUpOptions{
+		Namespace: sc.Namespace,
+		Labels:    mongoDBLabels(sc.Name),
+	}
+
+	if err := c.DeleteAllOf(ctx, &corev1.Service{}, &cleanupOptions); err != nil {
+		errs = multierror.Append(errs, err)
+	} else {
+		log.Infof("Removed Serivces associated with %s/%s", sc.Namespace, sc.Name)
+	}
+
+	if err := c.DeleteAllOf(ctx, &appsv1.StatefulSet{}, &cleanupOptions); err != nil {
+		errs = multierror.Append(errs, err)
+	} else {
+		log.Infof("Removed StatefulSets associated with %s/%s", sc.Namespace, sc.Name)
+	}
+
+	if err := c.DeleteAllOf(ctx, &corev1.ConfigMap{}, &cleanupOptions); err != nil {
+		errs = multierror.Append(errs, err)
+	} else {
+		log.Infof("Removed ConfigMaps associated with %s/%s", sc.Namespace, sc.Name)
+	}
+
+	r.commonController.resourceWatcher.RemoveDependentWatchedResources(sc.ObjectKey())
+
+	return errs
 }
 
 func AddShardedClusterController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
@@ -2017,6 +2064,7 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 		WithAdditionalMongodConfig(configSrvSpec.GetAdditionalMongodConfig()),
 		WithAgentVersion(r.automationAgentVersion),
 		WithDefaultConfigSrvStorageSize(),
+		WithStsLabels(r.statefulsetLabels()),
 	)
 }
 
@@ -2043,6 +2091,7 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 		WithVaultConfig(vaultConfig),
 		WithAdditionalMongodConfig(sc.Spec.MongosSpec.GetAdditionalMongodConfig()),
 		WithAgentVersion(r.automationAgentVersion),
+		WithStsLabels(r.statefulsetLabels()),
 	)
 }
 
@@ -2069,6 +2118,7 @@ func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc 
 		WithVaultConfig(vaultConfig),
 		WithAdditionalMongodConfig(shardSpec.GetAdditionalMongodConfig()),
 		WithAgentVersion(r.automationAgentVersion),
+		WithStsLabels(r.statefulsetLabels()),
 	)
 }
 
@@ -2217,6 +2267,7 @@ func (r *ShardedClusterReconcileHelper) createHostnameOverrideConfigMap() corev1
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-hostname-override", r.sc.Name),
 			Namespace: r.sc.Namespace,
+			Labels:    mongoDBLabels(r.sc.Name),
 		},
 		Data: data,
 	}
@@ -2294,7 +2345,7 @@ func (r *ShardedClusterReconcileHelper) reconcilePodServices(ctx context.Context
 		scaler := r.getMongosScaler(memberCluster)
 		for podNum := 0; podNum < scaler.DesiredReplicas(); podNum++ {
 			// TODO port from spec for member cluster
-			svc := getPodService(r.sc.Namespace, r.sc.MongosRsName(), memberCluster, podNum, r.sc.Spec.MongosSpec.AdditionalMongodConfig.GetPortOrDefault())
+			svc := r.getPodService(r.sc.MongosRsName(), memberCluster, podNum, r.sc.Spec.MongosSpec.AdditionalMongodConfig.GetPortOrDefault())
 			err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc)
 			if err != nil && !errors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
@@ -2313,7 +2364,7 @@ func (r *ShardedClusterReconcileHelper) reconcilePodServices(ctx context.Context
 		scaler := r.getConfigSrvScaler(memberCluster)
 		for podNum := 0; podNum < scaler.DesiredReplicas(); podNum++ {
 			// TODO port from spec for member cluster
-			svc := getPodService(r.sc.Namespace, r.sc.ConfigRsName(), memberCluster, podNum, r.sc.Spec.ConfigSrvSpec.AdditionalMongodConfig.GetPortOrDefault())
+			svc := r.getPodService(r.sc.ConfigRsName(), memberCluster, podNum, r.sc.Spec.ConfigSrvSpec.AdditionalMongodConfig.GetPortOrDefault())
 			err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc)
 			if err != nil && !errors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
@@ -2332,7 +2383,7 @@ func (r *ShardedClusterReconcileHelper) reconcilePodServices(ctx context.Context
 
 			scaler := r.getShardScaler(shardIdx, memberCluster)
 			for podNum := 0; podNum < scaler.DesiredReplicas(); podNum++ {
-				svc := getPodService(r.sc.Namespace, r.sc.ShardRsName(shardIdx), memberCluster, podNum, r.desiredShardsConfiguration[shardIdx].AdditionalMongodConfig.GetPortOrDefault())
+				svc := r.getPodService(r.sc.ShardRsName(shardIdx), memberCluster, podNum, r.desiredShardsConfiguration[shardIdx].AdditionalMongodConfig.GetPortOrDefault())
 				err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc)
 				if err != nil {
 					return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
@@ -2372,7 +2423,11 @@ func (r *ShardedClusterReconcileHelper) replicateTLSCAConfigMap(ctx context.Cont
 		return xerrors.Errorf("expected CA ConfigMap not found on the operator cluster: %s", caConfigMapName)
 	}
 	for _, memberCluster := range getHealthyMemberClusters(r.allMemberClusters) {
-		memberCAConfigMap := configmap.Builder().SetName(caConfigMapName).SetNamespace(r.sc.Namespace).SetData(operatorCAConfigMap.Data).Build()
+		memberCAConfigMap := configmap.Builder().
+			SetName(caConfigMapName).
+			SetNamespace(r.sc.Namespace).
+			SetData(operatorCAConfigMap.Data).
+			Build()
 		err = configmap.CreateOrUpdate(ctx, memberCluster.Client, memberCAConfigMap)
 		if err != nil && !errors.IsAlreadyExists(err) {
 			return xerrors.Errorf("failed to replicate CA ConfigMap from the operator cluster to cluster %s, err: %w", memberCluster.Name, err)
@@ -2394,7 +2449,11 @@ func (r *ShardedClusterReconcileHelper) replicateSSLMMSCAConfigMap(ctx context.C
 	}
 
 	for _, memberCluster := range getHealthyMemberClusters(r.allMemberClusters) {
-		memberCm := configmap.Builder().SetName(projectConfig.SSLMMSCAConfigMap).SetNamespace(r.sc.Namespace).SetData(cm.Data).Build()
+		memberCm := configmap.Builder().
+			SetName(projectConfig.SSLMMSCAConfigMap).
+			SetNamespace(r.sc.Namespace).
+			SetData(cm.Data).
+			Build()
 		err = configmap.CreateOrUpdate(ctx, memberCluster.Client, memberCm)
 
 		if err != nil && !errors.IsAlreadyExists(err) {
@@ -2416,11 +2475,11 @@ func (r *ShardedClusterReconcileHelper) isStillScaling() bool {
 	return false
 }
 
-func getPodService(namespace string, stsName string, memberCluster multicluster.MemberCluster, podNum int, port int32) corev1.Service {
+func (r *ShardedClusterReconcileHelper) getPodService(stsName string, memberCluster multicluster.MemberCluster, podNum int, port int32) corev1.Service {
 	svcLabels := map[string]string{
 		"statefulset.kubernetes.io/pod-name": dns.GetMultiPodName(stsName, memberCluster.Index, podNum),
 		"controller":                         "mongodb-enterprise-operator",
-		"mongodbmulticluster":                fmt.Sprintf("%s-%s", namespace, stsName),
+		mdbv1.LabelMongoDBResourceOwner:      r.sc.Name,
 	}
 
 	labelSelectors := map[string]string{
@@ -2430,7 +2489,7 @@ func getPodService(namespace string, stsName string, memberCluster multicluster.
 
 	svc := service.Builder().
 		SetName(dns.GetMultiServiceName(stsName, memberCluster.Index, podNum)).
-		SetNamespace(namespace).
+		SetNamespace(r.sc.Namespace).
 		SetSelector(labelSelectors).
 		SetLabels(svcLabels).
 		SetPublishNotReadyAddresses(true).
@@ -2441,4 +2500,15 @@ func getPodService(namespace string, stsName string, memberCluster multicluster.
 		Build()
 
 	return svc
+}
+
+func (r *ShardedClusterReconcileHelper) statefulsetLabels() map[string]string {
+	return merge.StringToStringMap(r.sc.Labels, mongoDBLabels(r.sc.Name))
+}
+
+func mongoDBLabels(name string) map[string]string {
+	return map[string]string{
+		construct.ControllerLabelName:   util.OperatorName,
+		mdbv1.LabelMongoDBResourceOwner: name,
+	}
 }
