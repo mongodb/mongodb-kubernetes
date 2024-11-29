@@ -41,6 +41,7 @@ group = TaskGroup(
     ],
     setup_task=[
         FunctionCall("cleanup_exec_environment"),
+        FunctionCall("configure_docker_auth"),
         FunctionCall("setup_kubernetes_environment"),
         FunctionCall("setup_cloud_qa"),
     ],
