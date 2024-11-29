@@ -7,6 +7,29 @@ source scripts/funcs/checks
 source scripts/funcs/printing
 source scripts/funcs/kubernetes
 
+check_docker_daemon_is_running() {
+  if [[ "$(uname -s)" != "Linux" ]]; then
+    echo "Skipping docker daemon check when not running in Linux"
+    exit 0
+  fi
+
+  if systemctl is-active --quiet docker; then
+      echo "Docker is already running."
+  else
+      echo "Docker is not running. Starting Docker..."
+      # Start the Docker daemon
+      sudo systemctl start docker
+      for _ in {1..15}; do
+        if systemctl is-active --quiet docker; then
+            echo "Docker started successfully."
+            exit 0
+        fi
+        echo "Waiting for Docker to start..."
+        sleep 3
+      done
+  fi
+}
+
 remove_element() {
   config_option="${1}"
   tmpfile=$(mktemp)
@@ -17,6 +40,8 @@ remove_element() {
 
 # This is the script which performs docker authentication to different registries that we use (so far ECR and RedHat)
 # As the result of this login the ~/.docker/config.json will have all the 'auth' information necessary to work with docker registries
+
+check_docker_daemon_is_running
 
 if [[ -f ~/.docker/config.json ]]; then
   if [[ "${RUNNING_IN_EVG:-""}" == "true" ]]; then
