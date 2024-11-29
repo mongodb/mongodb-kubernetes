@@ -505,11 +505,11 @@ func TestNoTopologyMigration(t *testing.T) {
 
 func TestValidateMemberClusterIsSubsetOfKubeConfig(t *testing.T) {
 	testCases := []struct {
-		name           string
-		clusterSpec    ClusterSpecList
-		shardOverrides []ShardOverride
-		expectedError  bool
-		expectedErrMsg string
+		name            string
+		clusterSpec     ClusterSpecList
+		shardOverrides  []ShardOverride
+		expectedWarning bool
+		expectedMsg     string
 	}{
 		{
 			name: "Failure due to mismatched clusters",
@@ -517,15 +517,15 @@ func TestValidateMemberClusterIsSubsetOfKubeConfig(t *testing.T) {
 				{ClusterName: "hello", Members: 1},
 				{ClusterName: "hi", Members: 2},
 			},
-			expectedError:  true,
-			expectedErrMsg: "Error when validating spec.shardSpec ClusterSpecList: The following clusters specified in ClusterSpecList is not present in Kubeconfig: [hello hi], instead - the following are: [foo bar]",
+			expectedWarning: true,
+			expectedMsg:     "Warning when validating spec.shardSpec ClusterSpecList: The following clusters specified in ClusterSpecList is not present in Kubeconfig: [hello hi], instead - the following are: [foo bar]",
 		},
 		{
 			name: "Success when clusters match",
 			clusterSpec: ClusterSpecList{
 				{ClusterName: "foo", Members: 1},
 			},
-			expectedError: false,
+			expectedWarning: false,
 		},
 		{
 			name: "Failure with partial mismatch of clusters",
@@ -533,8 +533,8 @@ func TestValidateMemberClusterIsSubsetOfKubeConfig(t *testing.T) {
 				{ClusterName: "foo", Members: 1},
 				{ClusterName: "unknown", Members: 2},
 			},
-			expectedError:  true,
-			expectedErrMsg: "Error when validating spec.shardSpec ClusterSpecList: The following clusters specified in ClusterSpecList is not present in Kubeconfig: [unknown], instead - the following are: [foo bar]",
+			expectedWarning: true,
+			expectedMsg:     "Warning when validating spec.shardSpec ClusterSpecList: The following clusters specified in ClusterSpecList is not present in Kubeconfig: [unknown], instead - the following are: [foo bar]",
 		},
 		{
 			name: "Success with multiple clusters in KubeConfig",
@@ -542,7 +542,7 @@ func TestValidateMemberClusterIsSubsetOfKubeConfig(t *testing.T) {
 				{ClusterName: "foo", Members: 1},
 				{ClusterName: "bar", Members: 2},
 			},
-			expectedError: false,
+			expectedWarning: false,
 		},
 		{
 			name: "Success with multiple clusters in shard overrides",
@@ -564,7 +564,7 @@ func TestValidateMemberClusterIsSubsetOfKubeConfig(t *testing.T) {
 					},
 				},
 			},
-			expectedError: false,
+			expectedWarning: false,
 		},
 		{
 			name: "Error with incorrect clusters in shard overrides",
@@ -586,8 +586,8 @@ func TestValidateMemberClusterIsSubsetOfKubeConfig(t *testing.T) {
 					},
 				},
 			},
-			expectedError:  true,
-			expectedErrMsg: "Error when validating shard [foo-0] override ClusterSpecList: The following clusters specified in ClusterSpecList is not present in Kubeconfig: [unknown], instead - the following are: [foo bar]",
+			expectedWarning: true,
+			expectedMsg:     "Warning when validating shard [foo-0] override ClusterSpecList: The following clusters specified in ClusterSpecList is not present in Kubeconfig: [unknown], instead - the following are: [foo bar]",
 		},
 	}
 
@@ -607,9 +607,9 @@ func TestValidateMemberClusterIsSubsetOfKubeConfig(t *testing.T) {
 				Build()
 			_, err := sc.ValidateCreate()
 
-			if tt.expectedError {
-				require.Error(t, err)
-				assert.Equal(t, tt.expectedErrMsg, err.Error())
+			if tt.expectedWarning {
+				require.NoError(t, err)
+				assert.Contains(t, sc.Status.Warnings, status.Warning(tt.expectedMsg))
 			} else {
 				require.NoError(t, err)
 			}

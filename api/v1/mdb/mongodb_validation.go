@@ -348,7 +348,7 @@ func ValidateMemberClusterIsSubsetOfKubeConfig(ms ClusterSpecList) v1.Validation
 		}
 	}
 	if len(notPresentClusters) > 0 {
-		return v1.ValidationError("The following clusters specified in ClusterSpecList is not present in Kubeconfig: %s, instead - the following are: %+v", notPresentClusters, clusterNames)
+		return v1.ValidationWarning("The following clusters specified in ClusterSpecList is not present in Kubeconfig: %s, instead - the following are: %+v", notPresentClusters, clusterNames)
 	}
 	return v1.ValidationSuccess()
 }
