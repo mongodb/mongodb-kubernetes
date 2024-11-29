@@ -350,7 +350,9 @@ func validateMemberClusterIsSubsetOfKubeConfig(m MongoDB) v1.ValidationResult {
 	// Validate each ClusterSpecList
 	for _, specList := range clusterSpecLists {
 		validationResult := ValidateMemberClusterIsSubsetOfKubeConfig(specList.list)
-		if validationResult.Level > 0 {
+		if validationResult.Level == v1.WarningLevel {
+			return v1.ValidationWarning("Warning when validating %s ClusterSpecList: %s", specList.name, validationResult.Msg)
+		} else if validationResult.Level == v1.ErrorLevel {
 			return v1.ValidationError("Error when validating %s ClusterSpecList: %s", specList.name, validationResult.Msg)
 		}
 	}
