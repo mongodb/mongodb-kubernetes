@@ -111,11 +111,11 @@ tasks:
     exec_timeout_secs: 43200
     commands:
       - func: clone
-      - func: enable_QEMU
       - func: setup_docker_sbom
       - func: setup_aws
       - func: configure_docker_auth
       - func: quay_login
+      - func: enable_QEMU
       - func: pipeline
         vars:
           image_name: mongodb-agent-daily
@@ -123,11 +123,11 @@ tasks:
   - name: periodic_build_community_operator
     commands:
       - func: clone
-      - func: enable_QEMU
       - func: setup_docker_sbom
       - func: setup_aws
       - func: configure_docker_auth
       - func: quay_login
+      - func: enable_QEMU
       - func: pipeline
         vars:
           image_name: mongodb-kubernetes-operator-daily
