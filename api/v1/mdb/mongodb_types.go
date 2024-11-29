@@ -61,6 +61,8 @@ const (
 
 	ClusterTopologySingleCluster = "SingleCluster"
 	ClusterTopologyMultiCluster  = "MultiCluster"
+
+	LabelMongoDBResourceOwner = "mongodb.com/v1.mongodbResourceOwner"
 )
 
 // MongoDB resources allow you to deploy Standalones, ReplicaSets or SharedClusters
