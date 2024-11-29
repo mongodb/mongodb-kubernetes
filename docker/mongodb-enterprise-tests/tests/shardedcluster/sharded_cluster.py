@@ -1,5 +1,4 @@
 import kubernetes
-import pytest
 from kubetester import try_load
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as load_fixture
@@ -19,7 +18,7 @@ SCALED_SHARD_COUNT = 2
 logger = test_logger.get_test_logger(__name__)
 
 
-@fixture(scope="function")
+@fixture(scope="module")
 def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(load_fixture("sharded-cluster.yaml"), namespace=namespace)
 
@@ -37,7 +36,7 @@ def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
             configsrv_members_array=[1, 1, 1],
         )
 
-    return resource.update()
+    return resource
 
 
 @mark.e2e_sharded_cluster
@@ -48,6 +47,7 @@ def test_install_operator(operator: Operator):
 @mark.e2e_sharded_cluster
 class TestShardedClusterCreation:
     def test_create_sharded_cluster(self, sc: MongoDB):
+        sc.update()
         sc.assert_reaches_phase(Phase.Running, timeout=800)
 
     def test_sharded_cluster_sts(self, sc: MongoDB):
@@ -155,9 +155,15 @@ class TestShardedClusterUpdate:
 
 
 @mark.e2e_sharded_cluster
-@skip_if_multi_cluster  # Currently removing Kubernetes resources in multi-cluster sharded is not implemented
 class TestShardedClusterDeletion:
-    def test_delete_sharded_cluster_resource(self, sc: MongoDB):
+
+    # We need to store cluster_member_clients somehow after deleting the MongoDB resource.
+    # Cluster mapping from deployment state is needed to compute cluster_member_clients.
+    @fixture(scope="class")
+    def cluster_member_clients(self, sc: MongoDB):
+        return get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace)
+
+    def test_delete_sharded_cluster_resource(self, sc: MongoDB, cluster_member_clients):
         sc.delete()
 
         def resource_is_deleted() -> bool:
@@ -169,13 +175,27 @@ class TestShardedClusterDeletion:
 
         run_periodically(resource_is_deleted, timeout=240)
 
-    def test_sharded_cluster_doesnt_exist(self, sc: MongoDB):
-        for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
-            sts = cluster_member_client.list_namespaced_stateful_set(sc.namespace)
-            assert len(sts.items) == 0
+    def test_sharded_cluster_doesnt_exist(self, sc: MongoDB, cluster_member_clients):
+        def sts_are_deleted() -> bool:
+            for cluster_member_client in cluster_member_clients:
+                sts = cluster_member_client.list_namespaced_stateful_set(sc.namespace)
+                if len(sts.items) != 0:
+                    return False
 
-    def test_service_does_not_exist(self, sc: MongoDB):
-        for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
-            with pytest.raises(kubernetes.client.ApiException) as api_exception:
-                cluster_member_client.read_namespaced_service(sc.shard_service_name(), sc.namespace)
-            assert api_exception.value.status == 404
+            return True
+
+        run_periodically(sts_are_deleted, timeout=60)
+
+    def test_service_does_not_exist(self, sc: MongoDB, cluster_member_clients):
+        def svc_are_deleted() -> bool:
+            for cluster_member_client in cluster_member_clients:
+                try:
+                    cluster_member_client.read_namespaced_service(sc.shard_service_name(), sc.namespace)
+                    return False
+                except kubernetes.client.ApiException as e:
+                    if e.status != 404:
+                        return False
+
+            return True
+
+        run_periodically(svc_are_deleted, timeout=60)

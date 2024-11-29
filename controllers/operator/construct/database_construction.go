@@ -113,6 +113,7 @@ type DatabaseStatefulSetOptions struct {
 	VaultConfig vault.VaultConfiguration
 	ExtraEnvs   []corev1.EnvVar
 	Labels      map[string]string
+	StsLabels   map[string]string
 
 	// These fields are only relevant for multi-cluster
 	MultiClusterMode bool // should always be "false" in single-cluster
@@ -331,6 +332,10 @@ func DatabaseStatefulSet(mdb mdbv1.MongoDB, stsOptFunc func(mdb mdbv1.MongoDB) D
 
 	if len(stsOptions.Labels) > 0 {
 		dbSts.Labels = merge.StringToStringMap(dbSts.Labels, stsOptions.Labels)
+	}
+
+	if len(stsOptions.StsLabels) > 0 {
+		dbSts.Labels = merge.StringToStringMap(dbSts.Labels, stsOptions.StsLabels)
 	}
 
 	if stsOptions.StatefulSetSpecOverride != nil {
