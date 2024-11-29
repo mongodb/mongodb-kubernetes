@@ -73,6 +73,7 @@ variables:
     setup_task_can_fail_task: true
     setup_task:
       - func: cleanup_exec_environment
+      - func: configure_docker_auth
       - func: setup_kubernetes_environment
       - func: setup_cloud_qa
     teardown_task_can_fail_task: true
@@ -85,6 +86,7 @@ variables:
     setup_task_can_fail_task: true
     setup_task:
       - func: cleanup_exec_environment
+      - func: configure_docker_auth
       - func: setup_kubernetes_environment
     teardown_task_can_fail_task: true
     teardown_task:
@@ -963,6 +965,7 @@ task_groups:
     # Even if the two first tasks are already part of setup_and_teardown_task,
     # we need to repeat them because we are overriding the setup_task variable of the YAML anchor
     - func: cleanup_exec_environment
+    - func: configure_docker_auth
     - func: setup_kubernetes_environment
     - func: setup_prepare_openshift_bundles
     - func: install_olm

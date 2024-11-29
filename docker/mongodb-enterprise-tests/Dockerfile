@@ -6,7 +6,7 @@
 #
 # Ref: https://cryptography.io/en/latest/installation/#building-cryptography-on-linux
 #
-FROM --platform=linux/amd64 python:3.9-slim as builder
+FROM --platform=linux/amd64 public.ecr.aws/docker/library/python:3.9-slim as builder
 
 
 RUN apt-get -qq update \
@@ -18,7 +18,7 @@ COPY requirements.txt requirements.txt
 RUN python3 -m venv /venv && . /venv/bin/activate && python3 -m pip install -r requirements.txt
 
 
-FROM --platform=linux/amd64 python:3.9-slim
+FROM --platform=linux/amd64 public.ecr.aws/docker/library/python:3.9-slim
 
 RUN apt-get -qq update \
     && apt-get -y -qq install \

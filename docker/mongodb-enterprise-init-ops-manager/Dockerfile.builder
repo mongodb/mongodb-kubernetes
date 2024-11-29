@@ -2,7 +2,7 @@
 # Dockerfile for Init Ops Manager Context.
 #
 
-FROM golang:1.23 as builder
+FROM public.ecr.aws/docker/library/golang:1.23 as builder
 WORKDIR /go/src
 ADD . .
 RUN CGO_ENABLED=0 go build -a -buildvcs=false -o /data/scripts/mmsconfiguration ./mmsconfiguration

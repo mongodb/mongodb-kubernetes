@@ -97,6 +97,11 @@ if [ "${recreate}" != 0 ]; then
 fi
 
 # create a cluster with the local registry enabled in containerd
+registry="docker.io"
+if [[ "${RUNNING_IN_EVG:-false}" == "true" ]]; then
+  registry="268558157000.dkr.ecr.eu-west-1.amazonaws.com/docker-hub-mirrors"
+fi
+
 if [ "$KUBE_ENVIRONMENT_NAME" = "performance" ]; then
   echo "installing kind with more nodes with performance"
   cat <<EOF | kind create cluster --name "${cluster_name}" --kubeconfig "${kubeconfig_path}" --wait 700s --config=-
@@ -104,32 +109,32 @@ kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
 - role: control-plane
-  image: kindest/node:v1.30.4@sha256:976ea815844d5fa93be213437e3ff5754cd599b040946b5cca43ca45c2047114
+  image: ${registry}/kindest/node:v1.30.4@sha256:976ea815844d5fa93be213437e3ff5754cd599b040946b5cca43ca45c2047114
   extraMounts:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
 - role: control-plane
-  image: kindest/node:v1.30.4@sha256:976ea815844d5fa93be213437e3ff5754cd599b040946b5cca43ca45c2047114
+  image: ${registry}/kindest/node:v1.30.4@sha256:976ea815844d5fa93be213437e3ff5754cd599b040946b5cca43ca45c2047114
   extraMounts:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
 - role: control-plane
-  image: kindest/node:v1.30.4@sha256:976ea815844d5fa93be213437e3ff5754cd599b040946b5cca43ca45c2047114
+  image: ${registry}/kindest/node:v1.30.4@sha256:976ea815844d5fa93be213437e3ff5754cd599b040946b5cca43ca45c2047114
   extraMounts:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
 - role: worker
-  image: kindest/node:v1.30.4@sha256:976ea815844d5fa93be213437e3ff5754cd599b040946b5cca43ca45c2047114
+  image: ${registry}/kindest/node:v1.30.4@sha256:976ea815844d5fa93be213437e3ff5754cd599b040946b5cca43ca45c2047114
   extraMounts:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
 - role: worker
-  image: kindest/node:v1.30.4@sha256:976ea815844d5fa93be213437e3ff5754cd599b040946b5cca43ca45c2047114
+  image: ${registry}/kindest/node:v1.30.4@sha256:976ea815844d5fa93be213437e3ff5754cd599b040946b5cca43ca45c2047114
   extraMounts:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
 - role: worker
-  image: kindest/node:v1.30.4@sha256:976ea815844d5fa93be213437e3ff5754cd599b040946b5cca43ca45c2047114
+  image: ${registry}/kindest/node:v1.30.4@sha256:976ea815844d5fa93be213437e3ff5754cd599b040946b5cca43ca45c2047114
   extraMounts:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
@@ -153,7 +158,7 @@ kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
 - role: control-plane
-  image: kindest/node:v1.30.4@sha256:976ea815844d5fa93be213437e3ff5754cd599b040946b5cca43ca45c2047114
+  image: ${registry}/kindest/node:v1.30.4@sha256:976ea815844d5fa93be213437e3ff5754cd599b040946b5cca43ca45c2047114
   extraMounts:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
