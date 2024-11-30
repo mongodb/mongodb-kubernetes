@@ -573,6 +573,20 @@ def get_member_cluster_api_client(
 
 
 @fixture(scope="module")
+def disable_istio(
+    namespace: str,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    for mcc in member_cluster_clients:
+        api = client.CoreV1Api(api_client=mcc.api_client)
+        labels = {"istio-injection": "disabled"}
+        ns = api.read_namespace(name=namespace)
+        ns.metadata.labels.update(labels)
+        api.replace_namespace(name=namespace, body=ns)
+    return None
+
+
+@fixture(scope="module")
 def member_cluster_clients() -> List[MultiClusterClient]:
     return get_member_cluster_clients()
 
@@ -1364,7 +1378,7 @@ def update_coredns_hosts(
     if cluster_name is None:
         cluster_name = LEGACY_CENTRAL_CLUSTER_NAME
 
-    print(f"Updating coredns for cluster: {cluster_name}")
+    print(f"Updating coredns for cluster: {cluster_name} with the following hosts list: {host_mappings}")
     update_configmap("kube-system", "coredns", config_data, api_client=api_client)
 
 

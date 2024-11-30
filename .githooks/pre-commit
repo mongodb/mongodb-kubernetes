@@ -132,14 +132,18 @@ function pre_commit() {
   fi
 
   # run shellcheck on all modified shell scripts
-  for file in $(echo "$git_last_changed" | grep -v '\.go$' | grep -v '\.py' | grep -v '\.yaml' | grep -v '\.json'); do
-    # check if bash script
-    if head -1 "${file}" | grep "#!/usr/bin/env bash" >/dev/null; then
-      if ! shellcheck -x "${file}" -e SC2154 -e SC1091 -P "$(dirname "${file}")"; then
-        echo "shellcheck failed on ${file}"
-        exit 1
+  for file in $git_last_changed; do
+    if [[ $file =~ \.go$ || $file =~ \.py$ || $file =~ \.yaml$ || $file =~ \.json$ ]]; then
+      # check if bash script
+      if head -1 "${file}" | grep "#!/usr/bin/env bash" >/dev/null; then
+        echo "Running spellcheck on $file"
+        if ! shellcheck -x "${file}" -e SC2154 -e SC1091 -P "$(dirname "${file}")"; then
+          echo "shellcheck failed on ${file}"
+          exit 1
+        fi
       fi
     fi
+
   done
 }
 

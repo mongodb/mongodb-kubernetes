@@ -199,6 +199,7 @@ class MongoDB(CustomObject, MongoDBCommon):
                 cluster_domain=self.get_cluster_domain(),
                 multi_cluster=self.is_multicluster(),
                 service_names=service_names,
+                external_domain=self.get_external_domain(),
             )
         elif self.type == "Standalone":
             return StandaloneTester(
@@ -444,7 +445,14 @@ class MongoDB(CustomObject, MongoDBCommon):
         return self.get_om_tester().get_automation_config_tester(**kwargs)
 
     def get_external_domain(self):
-        return self["spec"].get("externalAccess", {}).get("externalDomain", None)
+        multi_cluster_external_domain = (
+            self["spec"]
+            .get("mongos", {})
+            .get("clusterSpecList", [{}])[0]
+            .get("externalAccess", {})
+            .get("externalDomain", None)
+        )
+        return self["spec"].get("externalAccess", {}).get("externalDomain", None) or multi_cluster_external_domain
 
     @property
     def config_map_name(self) -> str:
@@ -496,13 +504,13 @@ class MongoDB(CustomObject, MongoDBCommon):
             return f"{self.name}-config-{cluster_idx}"
         return f"{self.name}-config"
 
+    def config_srv_replicaset_name(self) -> str:
+        return f"{self.name}-config"
+
     def config_srv_pod_name(self, member_idx: int, cluster_idx: Optional[int] = None) -> str:
         if self.is_multicluster():
             return f"{self.name}-config-{cluster_idx}-{member_idx}"
         return f"{self.name}-config-{member_idx}"
-
-    def config_srv_replicaset_name(self) -> str:
-        return f"{self.name}-config"
 
     def config_srv_members_in_cluster(self, cluster_name: str) -> int:
         if self.is_multicluster():

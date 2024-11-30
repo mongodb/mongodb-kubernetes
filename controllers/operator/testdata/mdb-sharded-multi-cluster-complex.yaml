@@ -118,7 +118,6 @@ spec:
                       limits:
                         cpu: 2.2
                         memory: 5.2G
-
   shardPodSpec:
     # default configuration for all shards in all clusters
     persistence: # applicable to all shards over all clusters
@@ -157,8 +156,6 @@ spec:
     clusterSpecList:
       - clusterName: cluster-0
         members: 2 # each shard will have 2 members in this cluster
-        externalAccess:
-          externalDomain: "test.example.com"
         podSpec:
           persistence: # applicable to all shards in this cluster
             multiple:
@@ -242,9 +239,6 @@ spec:
               priority: "211"
             - votes: 3
               priority: "212"
-          externalAccess:
-            # We don't support overrides for ExternalAccessConfiguration, so this should have no effect
-            externalDomain: "test.override.com"
           statefulSet:
             spec:
               template:

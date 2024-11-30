@@ -253,7 +253,6 @@ func shardedOptions(cfg shardedOptionCfg, additionalOpts ...func(options *Databa
 	if cfg.mdb.Spec.IsMultiCluster() {
 		opts.HostNameOverrideConfigmapName = cfg.mdb.GetHostNameOverrideConfigmapName()
 	}
-
 	for _, opt := range additionalOpts {
 		opt(&opts)
 	}
@@ -269,6 +268,10 @@ type shardedOptionCfg struct {
 	memberClusterName string
 	stsType           StsType
 	persistent        *bool
+}
+
+func (c shardedOptionCfg) hasExternalDomain() bool {
+	return c.mdb.Spec.DbCommonSpec.GetExternalDomain() != nil
 }
 
 // ShardOptions returns a set of options which will configure single Shard StatefulSet
@@ -317,6 +320,12 @@ func MongosOptions(mongosSpec *mdbv1.ShardedClusterComponentSpec, memberClusterN
 			stsType:           Mongos,
 			persistent:        ptr.To(false),
 		}
+
+		additionalOpts = append(additionalOpts, func(options *DatabaseStatefulSetOptions) {
+			if !cfg.mdb.Spec.IsMultiCluster() && cfg.hasExternalDomain() {
+				options.HostNameOverrideConfigmapName = cfg.mdb.GetHostNameOverrideConfigmapName()
+			}
+		})
 
 		return shardedOptions(cfg, additionalOpts...)
 	}

@@ -1,4 +1,5 @@
 import json
+from ipaddress import IPv4Address
 from typing import Any, List
 
 import kubernetes
@@ -7,6 +8,7 @@ from kubetester import MongoDB, read_configmap
 from kubetester.mongodb_multi import MultiClusterClient
 from kubetester.operator import Operator
 from tests.conftest import (
+    LEGACY_CENTRAL_CLUSTER_NAME,
     get_central_cluster_client,
     get_central_cluster_name,
     get_default_operator,
@@ -51,6 +53,133 @@ def enable_multi_cluster_deployment(
     setup_cluster_spec_list(resource, "mongos", mongos_members_array or [1, 1, 1])
 
     resource.api = kubernetes.client.CustomObjectsApi(api_client=get_central_cluster_client())
+
+
+class ClusterInfo:
+    def __init__(self, cluster_name: str, cidr: IPv4Address, external_domain: str):
+        self.cluster_name = cluster_name
+        self.cidr = cidr
+        self.external_domain = external_domain
+
+
+KIND_SINGLE_CLUSTER = ClusterInfo("kind-kind", IPv4Address("172.18.255.200"), "kind-kind.interconnected")
+KIND_E2E_CLUSTER_1 = ClusterInfo(
+    "kind-e2e-cluster-1", IPv4Address("172.18.255.210"), "kind-e2e-cluster-1.interconnected"
+)
+KIND_E2E_CLUSTER_2 = ClusterInfo(
+    "kind-e2e-cluster-2", IPv4Address("172.18.255.220"), "kind-e2e-cluster-2.interconnected"
+)
+KIND_E2E_CLUSTER_3 = ClusterInfo(
+    "kind-e2e-cluster-3", IPv4Address("172.18.255.230"), "kind-e2e-cluster-3.interconnected"
+)
+KIND_E2E_OPERATOR = ClusterInfo("kind-e2e-operator", IPv4Address("172.18.255.200"), "kind-e2e-operator.interconnected")
+
+cluster_map = {
+    KIND_E2E_CLUSTER_1.cluster_name: KIND_E2E_CLUSTER_1,
+    KIND_E2E_CLUSTER_2.cluster_name: KIND_E2E_CLUSTER_2,
+    KIND_E2E_CLUSTER_3.cluster_name: KIND_E2E_CLUSTER_3,
+    KIND_E2E_OPERATOR.cluster_name: KIND_E2E_OPERATOR,
+    LEGACY_CENTRAL_CLUSTER_NAME: KIND_SINGLE_CLUSTER,
+}
+
+
+def get_cluster_info(cluster_name: str) -> ClusterInfo:
+    val = cluster_map[cluster_name]
+    if val is None:
+        raise Exception(f"The {cluster_name} is not defined")
+    return val
+
+
+def _setup_external_access(resource: MongoDB, cluster_spec_type: str, cluster_member_list: List[str]):
+    ports = [
+        {
+            "name": "mongodb",
+            "port": 27017,
+        },
+    ]
+    if cluster_spec_type is "shard" or "":
+        ports = [
+            {
+                "name": "mongodb",
+                "port": 27017,
+            },
+            {
+                "name": "backup",
+                "port": 27018,
+            },
+            {
+                "name": "testing0",
+                "port": 27019,
+            },
+        ]
+
+    if "topology" in resource["spec"] and resource["spec"]["topology"] == "MultiCluster":
+        resource["spec"]["externalAccess"] = {}
+        for index, cluster_member_name in enumerate(cluster_member_list):
+            resource["spec"][cluster_spec_type]["clusterSpecList"][index]["externalAccess"] = {
+                "externalDomain": get_cluster_info(cluster_member_name).external_domain,
+                "externalService": {
+                    "spec": {
+                        "type": "LoadBalancer",
+                        "ports": ports,
+                    }
+                },
+            }
+    else:
+        resource["spec"]["externalAccess"] = {}
+        resource["spec"]["externalAccess"]["externalDomain"] = get_cluster_info(cluster_member_list[0]).external_domain
+
+
+def setup_external_access(resource: MongoDB):
+    if "topology" in resource["spec"] and resource["spec"]["topology"] == "MultiCluster":
+        _setup_external_access(
+            resource=resource, cluster_spec_type="mongos", cluster_member_list=get_member_cluster_names()
+        )
+        _setup_external_access(
+            resource=resource, cluster_spec_type="configSrv", cluster_member_list=get_member_cluster_names()
+        )
+        _setup_external_access(
+            resource=resource, cluster_spec_type="shard", cluster_member_list=get_member_cluster_names()
+        )
+    else:
+        _setup_external_access(
+            resource=resource, cluster_spec_type="", cluster_member_list=[get_central_cluster_name()]
+        )
+
+
+def get_dns_hosts_for_external_access(resource: MongoDB, cluster_member_list: List[str]) -> List[str]:
+    hosts = []
+    if "topology" in resource["spec"] and resource["spec"]["topology"] == "MultiCluster":
+        for cluster_index, cluster_member_name in enumerate(cluster_member_list):
+            cluster_info = get_cluster_info(cluster_member_name)
+            ip = cluster_info.cidr
+            # We skip the first IP as Istio Gateway takes it.
+            ip_iterator = 1
+            for i in range(resource["spec"]["mongos"]["clusterSpecList"][cluster_index]["members"]):
+                fqdn = f"{resource.name}-mongos-{cluster_index}-{i}.{cluster_info.external_domain}"
+                ip_for_fqdn = str(ip + ip_iterator)
+                ip_iterator = ip_iterator + 1
+                hosts.append((ip_for_fqdn, fqdn))
+            for i in range(resource["spec"]["configSrv"]["clusterSpecList"][cluster_index]["members"]):
+                fqdn = f"{resource.name}-config-{cluster_index}-{i}.{cluster_info.external_domain}"
+                ip_for_fqdn = str(ip + ip_iterator)
+                ip_iterator = ip_iterator + 1
+                hosts.append((ip_for_fqdn, fqdn))
+            for i in range(resource["spec"]["shard"]["clusterSpecList"][cluster_index]["members"]):
+                fqdn = f"{resource.name}-0-{cluster_index}-{i}.{cluster_info.external_domain}"
+                ip_for_fqdn = str(ip + ip_iterator)
+                ip_iterator = ip_iterator + 1
+                hosts.append((ip_for_fqdn, fqdn))
+    else:
+        cluster_info = get_cluster_info(cluster_member_list[0])
+        ip = cluster_info.cidr
+        ip_iterator = 0
+        for i in range(resource["spec"]["mongosCount"]):
+            fqdn = f"{resource.name}-mongos-{i}.{cluster_info.external_domain}"
+            ip_for_fqdn = str(ip + ip_iterator)
+            ip_iterator = ip_iterator + 1
+            hosts.append((ip_for_fqdn, fqdn))
+    return hosts
 
 
 def setup_cluster_spec_list(resource: MongoDB, cluster_spec_type: str, members_array: list[int]):
