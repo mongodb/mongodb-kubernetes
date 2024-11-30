@@ -78,6 +78,11 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_sharded_cluster_external_access
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_users_schema_validation
     tags: [ "patch-run" ]
     commands:
@@ -1104,6 +1109,16 @@ tasks:
       - func: e2e_test
 
   - name: e2e_multi_cluster_sharded_simplest
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_sharded_simplest_no_mesh
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_sharded_tls_no_mesh
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test

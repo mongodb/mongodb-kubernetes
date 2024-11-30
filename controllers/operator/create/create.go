@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -25,7 +26,6 @@ import (
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status/pvc"
@@ -80,7 +80,6 @@ func DatabaseInKubernetes(ctx context.Context, client kubernetesClient.Client, m
 		}
 
 		if mdb.Spec.ExternalAccessConfiguration != nil {
-			// we only need an external service for mongos
 			if err = createExternalServices(ctx, client, mdb, opts, namespacedName, set, podNum, log); err != nil {
 				return err
 			}
@@ -232,7 +231,8 @@ func getMatchingPVCTemplateFromSTS(statefulSet *appsv1.StatefulSet, pvc *corev1.
 	return nil, -1
 }
 
-// createExternalServices creates the external services. The function does not create external services for sharded clusters which given stateful-sets are not mongos.
+// createExternalServices creates the external services.
+// For sharded clusters: services are only created for mongos.
 func createExternalServices(ctx context.Context, client kubernetesClient.Client, mdb mdbv1.MongoDB, opts construct.DatabaseStatefulSetOptions, namespacedName client.ObjectKey, set *appsv1.StatefulSet, podNum int, log *zap.SugaredLogger) error {
 	if mdb.IsShardedCluster() && !opts.IsMongos() {
 		return nil
@@ -255,7 +255,7 @@ func createExternalServices(ctx context.Context, client kubernetesClient.Client,
 	}
 	externalService.Annotations = merge.StringToStringMap(externalService.Annotations, mdb.Spec.ExternalAccessConfiguration.ExternalService.Annotations)
 
-	placeholderReplacer := GetSingleClusterMongoDBPlaceholderReplacer(mdb.Name, mdb.Namespace, mdb.ServiceName(), &mdb.Spec, podNum)
+	placeholderReplacer := GetSingleClusterMongoDBPlaceholderReplacer(mdb.Name, set.Name, mdb.Namespace, mdb.ServiceName(), &mdb.Spec, podNum)
 	if processedAnnotations, replacedFlag, err := placeholderReplacer.ProcessMap(externalService.Annotations); err != nil {
 		return xerrors.Errorf("failed to process annotations in service %s: %w", externalService.Name, err)
 	} else if replacedFlag {
@@ -277,47 +277,70 @@ const (
 	PlaceholderPodName             = "podName"
 	PlaceholderStatefulSetName     = "statefulSetName"
 	PlaceholderExternalServiceName = "externalServiceName"
+	PlaceholderMongosProcessDomain = "mongosProcessDomain"
 	PlaceholderMongodProcessDomain = "mongodProcessDomain"
+	PlaceholderMongosProcessFQDN   = "mongosProcessFQDN"
 	PlaceholderMongodProcessFQDN   = "mongodProcessFQDN"
 	PlaceholderClusterName         = "clusterName"
 	PlaceholderClusterIndex        = "clusterIndex"
 )
 
-func GetSingleClusterMongoDBPlaceholderReplacer(name string, namespace string, serviceName string, dbSpec mdbv1.DbSpec, podIdx int) *placeholders.Replacer {
-	podName := dns.GetPodName(name, podIdx)
+func GetSingleClusterMongoDBPlaceholderReplacer(resourceName string, statefulSetName string, namespace string, serviceName string, dbSpec mdbv1.DbSpec, podIdx int) *placeholders.Replacer {
+	podName := dns.GetPodName(statefulSetName, podIdx)
 	placeholderValues := map[string]string{
 		PlaceholderPodIndex:            fmt.Sprintf("%d", podIdx),
 		PlaceholderNamespace:           namespace,
-		PlaceholderResourceName:        name,
+		PlaceholderResourceName:        resourceName,
 		PlaceholderPodName:             podName,
-		PlaceholderStatefulSetName:     name,
-		PlaceholderExternalServiceName: dns.GetExternalServiceName(name, podIdx),
-		PlaceholderMongodProcessDomain: dns.GetServiceFQDN(serviceName, namespace, dbSpec.GetClusterDomain()),
-		PlaceholderMongodProcessFQDN:   dns.GetPodFQDN(podName, serviceName, namespace, dbSpec.GetClusterDomain(), dbSpec.GetExternalDomain()),
+		PlaceholderStatefulSetName:     statefulSetName,
+		PlaceholderExternalServiceName: dns.GetExternalServiceName(statefulSetName, podIdx),
 	}
 
-	if dbSpec.GetExternalDomain() != nil {
-		placeholderValues[PlaceholderMongodProcessDomain] = *dbSpec.GetExternalDomain()
+	if dbSpec.GetResourceType() == mdbv1.ShardedCluster {
+		placeholderValues[PlaceholderMongosProcessDomain] = dns.GetServiceFQDN(serviceName, namespace, dbSpec.GetClusterDomain())
+		placeholderValues[PlaceholderMongosProcessFQDN] = dns.GetPodFQDN(podName, serviceName, namespace, dbSpec.GetClusterDomain(), dbSpec.GetExternalDomain())
+		if dbSpec.GetExternalDomain() != nil {
+			placeholderValues[PlaceholderMongosProcessDomain] = *dbSpec.GetExternalDomain()
+		}
+	} else {
+		placeholderValues[PlaceholderMongodProcessDomain] = dns.GetServiceFQDN(serviceName, namespace, dbSpec.GetClusterDomain())
+		placeholderValues[PlaceholderMongodProcessFQDN] = dns.GetPodFQDN(podName, serviceName, namespace, dbSpec.GetClusterDomain(), dbSpec.GetExternalDomain())
+		if dbSpec.GetExternalDomain() != nil {
+			placeholderValues[PlaceholderMongodProcessDomain] = *dbSpec.GetExternalDomain()
+		}
 	}
 
 	return placeholders.New(placeholderValues)
 }
 
-func GetMultiClusterMongoDBPlaceholderReplacer(name string, namespace string, clusterName string, clusterNum int, mdbmc *mdbmultiv1.MongoDBMultiCluster, podIdx int) *placeholders.Replacer {
-	podName := dns.GetMultiPodName(name, clusterNum, podIdx)
-	externalDomain := mdbmc.Spec.GetExternalDomainForMemberCluster(clusterName)
-	serviceDomain := dns.GetServiceDomain(namespace, mdbmc.Spec.GetClusterDomain(), externalDomain)
+func GetMultiClusterMongoDBPlaceholderReplacer(name string, stsName string, namespace string, clusterName string, clusterNum int, externalDomain *string, clusterDomain string, podIdx int) *placeholders.Replacer {
+	podName := dns.GetMultiPodName(stsName, clusterNum, podIdx)
+	serviceDomain := dns.GetServiceDomain(namespace, clusterDomain, externalDomain)
 	placeholderValues := map[string]string{
 		PlaceholderPodIndex:            fmt.Sprintf("%d", podIdx),
 		PlaceholderNamespace:           namespace,
 		PlaceholderResourceName:        name,
 		PlaceholderPodName:             podName,
-		PlaceholderStatefulSetName:     dns.GetMultiStatefulSetName(name, clusterNum),
-		PlaceholderExternalServiceName: dns.GetMultiExternalServiceName(name, clusterNum, podIdx),
+		PlaceholderStatefulSetName:     dns.GetMultiStatefulSetName(stsName, clusterNum),
+		PlaceholderExternalServiceName: dns.GetMultiExternalServiceName(stsName, clusterNum, podIdx),
 		PlaceholderMongodProcessDomain: serviceDomain,
-		PlaceholderMongodProcessFQDN:   dns.GetMultiClusterPodServiceFQDN(name, namespace, clusterNum, externalDomain, podIdx, mdbmc.Spec.GetClusterDomain()),
+		PlaceholderMongodProcessFQDN:   dns.GetMultiClusterPodServiceFQDN(stsName, namespace, clusterNum, externalDomain, podIdx, clusterDomain),
 		PlaceholderClusterName:         clusterName,
 		PlaceholderClusterIndex:        fmt.Sprintf("%d", clusterNum),
+	}
+
+	if strings.HasSuffix(stsName, "mongos") {
+		placeholderValues[PlaceholderMongosProcessDomain] = serviceDomain
+		placeholderValues[PlaceholderMongosProcessFQDN] = dns.GetMultiClusterPodServiceFQDN(stsName, namespace, clusterNum, externalDomain, podIdx, clusterDomain)
+		if externalDomain != nil {
+			placeholderValues[PlaceholderMongosProcessDomain] = *externalDomain
+		}
+	} else {
+		placeholderValues[PlaceholderMongodProcessDomain] = serviceDomain
+		placeholderValues[PlaceholderMongodProcessFQDN] = dns.GetMultiClusterPodServiceFQDN(stsName, namespace, clusterNum, externalDomain, podIdx, clusterDomain)
+		if externalDomain != nil {
+			placeholderValues[PlaceholderMongodProcessDomain] = *externalDomain
+		}
 	}
 
 	return placeholders.New(placeholderValues)

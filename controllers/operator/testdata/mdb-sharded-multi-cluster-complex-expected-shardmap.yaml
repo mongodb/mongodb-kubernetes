@@ -13,10 +13,6 @@
           priority: "1"
         - votes: 1
           priority: "1"
-      externalAccess:
-        # We've set an external domain in spec.shard.clusterSpecList[cluster-0], which applies to all shards, in
-        # cluster-0
-        externalDomain: "test.example.com"
       podSpec:
         persistence: # set in spec.shard.clusterSpecList[cluster-0].podSpec.persistence
           multiple:
@@ -109,10 +105,6 @@
       memberConfig:
         - votes: 1
           priority: "100" # Defined in shardOverride for mdb-sh-complex-1, cluster 0
-      externalAccess:
-        # We've set an external domain in spec.shard.clusterSpecList[cluster-0], which applies to all shards, in
-        # cluster-0
-        externalDomain: "test.example.com"
       # In this shard, we set the field spec.ShardOverrides["mdb-sh-complex-1"].PodSpec.Persistence
       # But we also set spec.ShardOverrides["mdb-sh-complex-1"].ClusterSpecList[clutser-0].PodSpec.Persistence, it
       # has the highest priority
@@ -225,10 +217,6 @@
           priority: "1"
         - votes: 1
           priority: "1"
-      externalAccess:
-        # We've set an external domain in spec.shard.clusterSpecList[cluster-0], which applies to all shards, in
-        # cluster-0
-        externalDomain: "test.example.com"
       podSpec:
         persistence: # overridden from spec.shard.clusterSpecList[cluster-0].podSpec.persistence
           multiple:
@@ -365,10 +353,6 @@
           priority: "1"
         - votes: 1
           priority: "1"
-      externalAccess:
-        # We've set an external domain in spec.shard.clusterSpecList[cluster-0], which applies to all shards, in
-        # cluster-0
-        externalDomain: "test.example.com"
       podSpec:
         persistence: # overridden from spec.shard.clusterSpecList[cluster-0].podSpec.persistence
           multiple:

@@ -31,25 +31,9 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
+	"github.com/10gen/ops-manager-kubernetes/pkg/test"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
-
-// Creates a list of ClusterSpecItems based on names and distribution
-// The two input list must have the same size
-func createClusterSpecList(clusterNames []string, memberCounts map[string]int) mdbv1.ClusterSpecList {
-	specList := make(mdbv1.ClusterSpecList, 0)
-	for _, clusterName := range clusterNames {
-		if _, ok := memberCounts[clusterName]; !ok {
-			continue
-		}
-
-		specList = append(specList, mdbv1.ClusterSpecItem{
-			ClusterName: clusterName,
-			Members:     memberCounts[clusterName],
-		})
-	}
-	return specList
-}
 
 func newShardedClusterReconcilerForMultiCluster(ctx context.Context, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]cluster.Cluster, kubeClient kubernetesClient.Client, omConnectionFactory *om.CachedOMConnectionFactory) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, error) {
 	r := &ReconcileMongoDbShardedCluster{
@@ -64,54 +48,244 @@ func newShardedClusterReconcilerForMultiCluster(ctx context.Context, sc *mdbv1.M
 	return r, reconcileHelper, nil
 }
 
-func TestReconcileCreateMultiClusterShardedCluster(t *testing.T) {
-	cluster1 := "member-cluster-1"
-	cluster2 := "member-cluster-2"
-	memberClusterNames := []string{
-		cluster1,
-		cluster2,
-	}
-
-	shardCount := 2
-	// Two Kubernetes clusters, 2 replicaset members of each shard on the first one, 3 on the second one
-	// This means a MongodPerShardCount of 5
-	shardDistribution := []map[string]int{
-		{cluster1: 2, cluster2: 3},
-		{cluster1: 2, cluster2: 3},
-	}
-	shardClusterSpecList := createClusterSpecList(memberClusterNames, shardDistribution[0])
-
-	// For Mongos and Config servers, 2 replicaset members on the first one, 1 on the second one
-	mongosDistribution := map[string]int{cluster1: 2, cluster2: 1}
-	mongosAndConfigSrvClusterSpecList := createClusterSpecList(memberClusterNames, mongosDistribution)
-
-	configSrvDistribution := map[string]int{cluster1: 2, cluster2: 1}
-	configSrvDistributionClusterSpecList := createClusterSpecList(memberClusterNames, configSrvDistribution)
+// TestReconcileCreateMultiClusterShardedClusterWithExternalDomain checks if all components have been exposed using
+// their own domains
+func TestReconcileCreateMultiClusterShardedClusterWithExternalDomain(t *testing.T) {
+	memberClusters := test.NewMemberClusters(
+		test.MemberClusterDetails{
+			ClusterName:           "member-cluster-1",
+			ShardMap:              []int{2, 3},
+			NumberOfConfigServers: 2,
+			NumberOfMongoses:      2,
+		},
+		test.MemberClusterDetails{
+			ClusterName:           "member-cluster-2",
+			ShardMap:              []int{2, 3},
+			NumberOfConfigServers: 1,
+			NumberOfMongoses:      1,
+		},
+	)
 
 	ctx := context.Background()
-	sc := DefaultClusterBuilder().
-		SetTopology(mdbv1.ClusterTopologyMultiCluster).
-		SetShardCountSpec(shardCount).
-		// The below parameters should be ignored when a clusterSpecList is configured/for multiClusterTopology
-		SetMongodsPerShardCountSpec(0).
-		SetConfigServerCountSpec(0).
-		SetMongosCountSpec(0).
-		// Same pods repartition for
-		SetShardClusterSpec(shardClusterSpecList).
-		SetConfigSrvClusterSpec(configSrvDistributionClusterSpecList).
-		SetMongosClusterSpec(mongosAndConfigSrvClusterSpecList).
+	sc := test.DefaultClusterBuilder().
+		WithMultiClusterSetup(memberClusters).
+		SetExternalAccessDomain(test.ExampleExternalClusterDomains).
+		SetExternalAccessDomainAnnotations(test.MultiClusterAnnotationsWithPlaceholders).
 		Build()
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
 
 	fakeClient := mock.NewEmptyFakeClientBuilder().WithObjects(sc).WithObjects(mock.GetDefaultResources()...).Build()
 	kubeClient := kubernetesClient.NewClient(fakeClient)
-	memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(memberClusterNames, omConnectionFactory, true, true)
+	memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(memberClusters.ClusterNames, omConnectionFactory, true, true)
 
 	reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, sc, memberClusterMap, kubeClient, omConnectionFactory)
 	clusterMapping := reconcilerHelper.deploymentState.ClusterMapping
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
-		allHostnames, _ := generateAllHosts(sc, mongosDistribution, clusterMapping, configSrvDistribution, shardDistribution)
+		allHostnames, _ := generateAllHosts(sc, memberClusters.MongosDistribution, clusterMapping, memberClusters.ConfigServerDistribution, memberClusters.ShardDistribution, test.ClusterLocalDomains, test.ExampleExternalClusterDomains)
+		connection.(*om.MockedOmConnection).AddHosts(allHostnames)
+	})
+
+	require.NoError(t, err)
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+	expectedHostnameOverrideMap := createExpectedHostnameOverrideMap(sc, clusterMapping, memberClusters.MongosDistribution, memberClusters.ConfigServerDistribution, memberClusters.ShardDistribution, test.ClusterLocalDomains, test.ExampleExternalClusterDomains)
+
+	for clusterIdx, clusterSpecItem := range sc.Spec.ShardSpec.ClusterSpecList {
+		memberClusterChecks := newClusterChecks(t, clusterSpecItem.ClusterName, clusterIdx, sc.Namespace, memberClusterMap[clusterSpecItem.ClusterName].GetClient())
+		configSrvStsName := fmt.Sprintf("%s-config-%d", sc.Name, clusterIdx)
+		configMembers := memberClusters.ConfigServerDistribution[clusterSpecItem.ClusterName]
+		memberClusterChecks.checkExternalServices(ctx, configSrvStsName, configMembers)
+		memberClusterChecks.checkInternalServices(ctx, configSrvStsName)
+		memberClusterChecks.checkPerPodServicesDontExist(ctx, configSrvStsName, configMembers)
+		memberClusterChecks.checkServiceAnnotations(ctx, configSrvStsName, configMembers, sc, clusterSpecItem.ClusterName, clusterIdx, test.ExampleExternalClusterDomains.ConfigServerExternalDomain)
+
+		mongosStsName := fmt.Sprintf("%s-mongos-%d", sc.Name, clusterIdx)
+		mongosMembers := memberClusters.MongosDistribution[clusterSpecItem.ClusterName]
+		memberClusterChecks.checkExternalServices(ctx, mongosStsName, mongosMembers)
+		memberClusterChecks.checkInternalServices(ctx, mongosStsName)
+		memberClusterChecks.checkPerPodServicesDontExist(ctx, mongosStsName, mongosMembers)
+		memberClusterChecks.checkServiceAnnotations(ctx, mongosStsName, mongosMembers, sc, clusterSpecItem.ClusterName, clusterIdx, test.ExampleExternalClusterDomains.MongosExternalDomain)
+
+		for shardIdx := 0; shardIdx < memberClusters.ShardCount(); shardIdx++ {
+			shardStsName := fmt.Sprintf("%s-%d-%d", sc.Name, shardIdx, clusterIdx)
+			shardMembers := memberClusters.ShardDistribution[shardIdx][clusterSpecItem.ClusterName]
+			memberClusterChecks.checkExternalServices(ctx, shardStsName, shardMembers)
+			memberClusterChecks.checkInternalServices(ctx, shardStsName)
+			memberClusterChecks.checkPerPodServicesDontExist(ctx, shardStsName, shardMembers)
+			memberClusterChecks.checkServiceAnnotations(ctx, shardStsName, shardMembers, sc, clusterSpecItem.ClusterName, clusterIdx, test.ExampleExternalClusterDomains.ShardsExternalDomain)
+			memberClusterChecks.checkHostnameOverrideConfigMap(ctx, fmt.Sprintf("%s-hostname-override", sc.Name), expectedHostnameOverrideMap)
+		}
+	}
+}
+
+// TestReconcileCreateMultiClusterShardedClusterWithExternalAccessAndOnlyTopLevelExternalDomain checks if all components
+// have been exposed.
+func TestReconcileCreateMultiClusterShardedClusterWithExternalAccessAndOnlyTopLevelExternalDomain(t *testing.T) {
+	memberClusters := test.NewMemberClusters(
+		test.MemberClusterDetails{
+			ClusterName:           "member-cluster-1",
+			ShardMap:              []int{2, 3},
+			NumberOfConfigServers: 2,
+			NumberOfMongoses:      2,
+		},
+		test.MemberClusterDetails{
+			ClusterName:           "member-cluster-2",
+			ShardMap:              []int{2, 3},
+			NumberOfConfigServers: 1,
+			NumberOfMongoses:      1,
+		},
+	)
+
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().
+		// Specifying it in this order will set only the top-level External Domain (which we're testing here)
+		SetExternalAccessDomain(test.SingleExternalClusterDomains).
+		WithMultiClusterSetup(memberClusters).
+		Build()
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+
+	fakeClient := mock.NewEmptyFakeClientBuilder().WithObjects(sc).WithObjects(mock.GetDefaultResources()...).Build()
+	kubeClient := kubernetesClient.NewClient(fakeClient)
+	memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(memberClusters.ClusterNames, omConnectionFactory, true, true)
+
+	reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, sc, memberClusterMap, kubeClient, omConnectionFactory)
+	clusterMapping := reconcilerHelper.deploymentState.ClusterMapping
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		allHostnames, _ := generateAllHosts(sc, memberClusters.MongosDistribution, clusterMapping, memberClusters.ConfigServerDistribution, memberClusters.ShardDistribution, test.ClusterLocalDomains, test.SingleExternalClusterDomains)
+		connection.(*om.MockedOmConnection).AddHosts(allHostnames)
+	})
+
+	require.NoError(t, err)
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+	expectedHostnameOverrideMap := createExpectedHostnameOverrideMap(sc, clusterMapping, memberClusters.MongosDistribution, memberClusters.ConfigServerDistribution, memberClusters.ShardDistribution, test.ClusterLocalDomains, test.SingleExternalClusterDomains)
+
+	for clusterIdx, clusterSpecItem := range sc.Spec.ShardSpec.ClusterSpecList {
+		memberClusterChecks := newClusterChecks(t, clusterSpecItem.ClusterName, clusterIdx, sc.Namespace, memberClusterMap[clusterSpecItem.ClusterName].GetClient())
+		configSrvStsName := fmt.Sprintf("%s-config-%d", sc.Name, clusterIdx)
+		configMembers := memberClusters.ConfigServerDistribution[clusterSpecItem.ClusterName]
+		memberClusterChecks.checkExternalServices(ctx, configSrvStsName, configMembers)
+		memberClusterChecks.checkInternalServices(ctx, configSrvStsName)
+		memberClusterChecks.checkPerPodServicesDontExist(ctx, configSrvStsName, configMembers)
+
+		mongosStsName := fmt.Sprintf("%s-mongos-%d", sc.Name, clusterIdx)
+		mongosMembers := memberClusters.MongosDistribution[clusterSpecItem.ClusterName]
+		memberClusterChecks.checkExternalServices(ctx, mongosStsName, mongosMembers)
+		memberClusterChecks.checkInternalServices(ctx, mongosStsName)
+		memberClusterChecks.checkPerPodServicesDontExist(ctx, mongosStsName, mongosMembers)
+
+		for shardIdx := 0; shardIdx < memberClusters.ShardCount(); shardIdx++ {
+			shardStsName := fmt.Sprintf("%s-%d-%d", sc.Name, shardIdx, clusterIdx)
+			shardMembers := memberClusters.ShardDistribution[shardIdx][clusterSpecItem.ClusterName]
+			memberClusterChecks.checkExternalServices(ctx, shardStsName, shardMembers)
+			memberClusterChecks.checkInternalServices(ctx, shardStsName)
+			memberClusterChecks.checkPerPodServicesDontExist(ctx, shardStsName, shardMembers)
+		}
+		memberClusterChecks.checkHostnameOverrideConfigMap(ctx, fmt.Sprintf("%s-hostname-override", sc.Name), expectedHostnameOverrideMap)
+	}
+}
+
+// TestReconcileCreateMultiClusterShardedClusterWithExternalAccessAndNoExternalDomain checks if only Mongoses are
+// exposed. Other components should be hidden.
+func TestReconcileCreateMultiClusterShardedClusterWithExternalAccessAndNoExternalDomain(t *testing.T) {
+	memberClusters := test.NewMemberClusters(
+		test.MemberClusterDetails{
+			ClusterName:           "member-cluster-1",
+			ShardMap:              []int{2, 3},
+			NumberOfConfigServers: 2,
+			NumberOfMongoses:      2,
+		},
+		test.MemberClusterDetails{
+			ClusterName:           "member-cluster-2",
+			ShardMap:              []int{2, 3},
+			NumberOfConfigServers: 1,
+			NumberOfMongoses:      1,
+		},
+	)
+
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().
+		WithMultiClusterSetup(memberClusters).
+		SetExternalAccessDomain(test.NoneExternalClusterDomains).
+		SetExternalAccessDomainAnnotations(test.MultiClusterAnnotationsWithPlaceholders).
+		Build()
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+
+	fakeClient := mock.NewEmptyFakeClientBuilder().WithObjects(sc).WithObjects(mock.GetDefaultResources()...).Build()
+	kubeClient := kubernetesClient.NewClient(fakeClient)
+	memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(memberClusters.ClusterNames, omConnectionFactory, true, true)
+
+	reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, sc, memberClusterMap, kubeClient, omConnectionFactory)
+	clusterMapping := reconcilerHelper.deploymentState.ClusterMapping
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		allHostnames, _ := generateAllHosts(sc, memberClusters.MongosDistribution, clusterMapping, memberClusters.ConfigServerDistribution, memberClusters.ShardDistribution, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
+		connection.(*om.MockedOmConnection).AddHosts(allHostnames)
+	})
+
+	require.NoError(t, err)
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+	expectedHostnameOverrideMap := createExpectedHostnameOverrideMap(sc, clusterMapping, memberClusters.MongosDistribution, memberClusters.ConfigServerDistribution, memberClusters.ShardDistribution, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
+
+	for clusterIdx, clusterSpecItem := range sc.Spec.ShardSpec.ClusterSpecList {
+		memberClusterChecks := newClusterChecks(t, clusterSpecItem.ClusterName, clusterIdx, sc.Namespace, memberClusterMap[clusterSpecItem.ClusterName].GetClient())
+		configSrvStsName := fmt.Sprintf("%s-config-%d", sc.Name, clusterIdx)
+		configMembers := memberClusters.ConfigServerDistribution[clusterSpecItem.ClusterName]
+		memberClusterChecks.checkInternalServices(ctx, configSrvStsName)
+		memberClusterChecks.checkExternalServicesDontNotExist(ctx, configSrvStsName, configMembers)
+		memberClusterChecks.checkPerPodServices(ctx, configSrvStsName, configMembers)
+
+		mongosStsName := fmt.Sprintf("%s-mongos-%d", sc.Name, clusterIdx)
+		mongosMembers := memberClusters.MongosDistribution[clusterSpecItem.ClusterName]
+		memberClusterChecks.checkExternalServices(ctx, mongosStsName, mongosMembers)
+		memberClusterChecks.checkInternalServices(ctx, mongosStsName)
+		memberClusterChecks.checkPerPodServicesDontExist(ctx, mongosStsName, mongosMembers)
+		memberClusterChecks.checkServiceAnnotations(ctx, mongosStsName, mongosMembers, sc, clusterSpecItem.ClusterName, clusterIdx, test.ExampleAccessWithNoExternalDomain.MongosExternalDomain)
+
+		for shardIdx := 0; shardIdx < memberClusters.ShardCount(); shardIdx++ {
+			shardStsName := fmt.Sprintf("%s-%d-%d", sc.Name, shardIdx, clusterIdx)
+			shardMembers := memberClusters.ShardDistribution[shardIdx][clusterSpecItem.ClusterName]
+			memberClusterChecks.checkInternalServices(ctx, shardStsName)
+			memberClusterChecks.checkExternalServicesDontNotExist(ctx, shardStsName, shardMembers)
+			memberClusterChecks.checkPerPodServices(ctx, shardStsName, shardMembers)
+		}
+		memberClusterChecks.checkHostnameOverrideConfigMap(ctx, fmt.Sprintf("%s-hostname-override", sc.Name), expectedHostnameOverrideMap)
+	}
+}
+
+func TestReconcileCreateMultiClusterShardedCluster(t *testing.T) {
+	// Two Kubernetes clusters, 2 replicaset members of each shard on the first one, 3 on the second one
+	// This means a MongodPerShardCount of 5
+	memberClusters := test.NewMemberClusters(
+		test.MemberClusterDetails{
+			ClusterName:           "member-cluster-1",
+			ShardMap:              []int{2, 3},
+			NumberOfConfigServers: 2,
+			NumberOfMongoses:      2,
+		},
+		test.MemberClusterDetails{
+			ClusterName:           "member-cluster-2",
+			ShardMap:              []int{2, 3},
+			NumberOfConfigServers: 1,
+			NumberOfMongoses:      1,
+		},
+	)
+
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().
+		WithMultiClusterSetup(memberClusters).
+		Build()
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+
+	fakeClient := mock.NewEmptyFakeClientBuilder().WithObjects(sc).WithObjects(mock.GetDefaultResources()...).Build()
+	kubeClient := kubernetesClient.NewClient(fakeClient)
+	memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(memberClusters.ClusterNames, omConnectionFactory, true, true)
+
+	reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, sc, memberClusterMap, kubeClient, omConnectionFactory)
+	clusterMapping := reconcilerHelper.deploymentState.ClusterMapping
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		allHostnames, _ := generateAllHosts(sc, memberClusters.MongosDistribution, clusterMapping, memberClusters.ConfigServerDistribution, memberClusters.ShardDistribution, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
 		connection.(*om.MockedOmConnection).AddHosts(allHostnames)
 	})
 
@@ -119,30 +293,37 @@ func TestReconcileCreateMultiClusterShardedCluster(t *testing.T) {
 	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
 	checkCorrectShardDistributionInStatus(t, sc)
 
-	expectedHostnameOverrideMap := createExpectedHostnameOverrideMap(sc, clusterMapping, mongosDistribution, configSrvDistribution, shardDistribution)
+	expectedHostnameOverrideMap := createExpectedHostnameOverrideMap(sc, clusterMapping, memberClusters.MongosDistribution, memberClusters.ConfigServerDistribution, memberClusters.ShardDistribution, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
 
-	for clusterIdx, clusterSpecItem := range shardClusterSpecList {
+	for clusterIdx, clusterSpecItem := range sc.Spec.ShardSpec.ClusterSpecList {
 		memberClusterChecks := newClusterChecks(t, clusterSpecItem.ClusterName, clusterIdx, sc.Namespace, memberClusterMap[clusterSpecItem.ClusterName].GetClient())
-		// Shards statefulsets should have the names shardname-0-0, shardname-0-1, shardname-1-0...
-		for shardIdx := 0; shardIdx < shardCount; shardIdx++ {
-			memberClusterChecks.checkStatefulSet(ctx, fmt.Sprintf("%s-%d-%d", sc.Name, shardIdx, clusterIdx), shardDistribution[shardIdx][clusterSpecItem.ClusterName])
+		for shardIdx := 0; shardIdx < memberClusters.ShardCount(); shardIdx++ {
+			shardStsName := fmt.Sprintf("%s-%d-%d", sc.Name, shardIdx, clusterIdx)
+			memberClusterChecks.checkStatefulSet(ctx, shardStsName, memberClusters.ShardDistribution[shardIdx][clusterSpecItem.ClusterName])
+			memberClusterChecks.checkInternalServices(ctx, shardStsName)
+			memberClusterChecks.checkPerPodServices(ctx, shardStsName, memberClusters.ShardDistribution[shardIdx][clusterSpecItem.ClusterName])
 		}
+
 		// Config servers statefulsets should have the names mongoName-config-0, mongoName-config-1
 		configSrvStsName := fmt.Sprintf("%s-config-%d", sc.Name, clusterIdx)
-		memberClusterChecks.checkStatefulSet(ctx, configSrvStsName, configSrvDistribution[clusterSpecItem.ClusterName])
-		memberClusterChecks.checkServices(ctx, configSrvStsName, configSrvDistribution[clusterSpecItem.ClusterName])
+		memberClusterChecks.checkStatefulSet(ctx, configSrvStsName, memberClusters.ConfigServerDistribution[clusterSpecItem.ClusterName])
+		memberClusterChecks.checkInternalServices(ctx, configSrvStsName)
+		memberClusterChecks.checkPerPodServices(ctx, configSrvStsName, memberClusters.ConfigServerDistribution[clusterSpecItem.ClusterName])
+
 		// Mongos statefulsets should have the names mongoName-mongos-0, mongoName-mongos-1
 		mongosStsName := fmt.Sprintf("%s-mongos-%d", sc.Name, clusterIdx)
-		memberClusterChecks.checkStatefulSet(ctx, mongosStsName, mongosDistribution[clusterSpecItem.ClusterName])
-		memberClusterChecks.checkServices(ctx, mongosStsName, mongosDistribution[clusterSpecItem.ClusterName])
+		memberClusterChecks.checkStatefulSet(ctx, mongosStsName, memberClusters.MongosDistribution[clusterSpecItem.ClusterName])
+		memberClusterChecks.checkInternalServices(ctx, mongosStsName)
+		memberClusterChecks.checkPerPodServices(ctx, mongosStsName, memberClusters.MongosDistribution[clusterSpecItem.ClusterName])
+
 		memberClusterChecks.checkAgentAPIKeySecret(ctx, om.TestGroupID)
 		memberClusterChecks.checkHostnameOverrideConfigMap(ctx, fmt.Sprintf("%s-hostname-override", sc.Name), expectedHostnameOverrideMap)
 	}
 }
 
-func createExpectedHostnameOverrideMap(sc *mdbv1.MongoDB, clusterMapping map[string]int, mongosDistribution map[string]int, configSrvDistribution map[string]int, shardDistribution []map[string]int) map[string]string {
+func createExpectedHostnameOverrideMap(sc *mdbv1.MongoDB, clusterMapping map[string]int, mongosDistribution map[string]int, configSrvDistribution map[string]int, shardDistribution []map[string]int, clusterDomains test.ClusterDomains, externalClusterDomains test.ClusterDomains) map[string]string {
 	expectedHostnameOverrideMap := map[string]string{}
-	allHostnames, allPodNames := generateAllHosts(sc, mongosDistribution, clusterMapping, configSrvDistribution, shardDistribution)
+	allHostnames, allPodNames := generateAllHosts(sc, mongosDistribution, clusterMapping, configSrvDistribution, shardDistribution, clusterDomains, externalClusterDomains)
 	for i := range allPodNames {
 		expectedHostnameOverrideMap[allPodNames[i]] = allHostnames[i]
 	}
@@ -186,18 +367,18 @@ func (r *MultiClusterShardedClusterConfigList) GenerateAllHosts(sc *mdbv1.MongoD
 		clusterIdx := clusterMapping[memberClusterName]
 
 		for podIdx := range clusterSpec.MongosMembers {
-			allHosts = append(allHosts, getMultiClusterFQDN(sc.MongosRsName(), sc.Namespace, clusterIdx, podIdx, "cluster.local"))
+			allHosts = append(allHosts, getMultiClusterFQDN(sc.MongosRsName(), sc.Namespace, clusterIdx, podIdx, "cluster.local", ""))
 			allPodNames = append(allPodNames, getPodName(sc.MongosRsName(), clusterIdx, podIdx))
 		}
 
 		for podIdx := range clusterSpec.ConfigSrvMembers {
-			allHosts = append(allHosts, getMultiClusterFQDN(sc.ConfigRsName(), sc.Namespace, clusterIdx, podIdx, "cluster.local"))
+			allHosts = append(allHosts, getMultiClusterFQDN(sc.ConfigRsName(), sc.Namespace, clusterIdx, podIdx, "cluster.local", ""))
 			allPodNames = append(allPodNames, getPodName(sc.ConfigRsName(), clusterIdx, podIdx))
 		}
 
 		for shardIdx := 0; shardIdx < len(clusterSpec.ShardsMembersArray); shardIdx++ {
 			for podIdx := 0; podIdx < clusterSpec.ShardsMembersArray[shardIdx]; podIdx++ {
-				allHosts = append(allHosts, getMultiClusterFQDN(sc.ShardRsName(shardIdx), sc.Namespace, clusterIdx, podIdx, "cluster.local"))
+				allHosts = append(allHosts, getMultiClusterFQDN(sc.ShardRsName(shardIdx), sc.Namespace, clusterIdx, podIdx, "cluster.local", ""))
 				allPodNames = append(allPodNames, getPodName(sc.ShardRsName(shardIdx), clusterIdx, podIdx))
 			}
 		}
@@ -220,16 +401,16 @@ func TestReconcileMultiClusterShardedClusterCertsAndSecretsReplication(t *testin
 		{expectedClusterConfigList[0].Name: 2, expectedClusterConfigList[1].Name: 3, expectedClusterConfigList[2].Name: 3},
 		{expectedClusterConfigList[0].Name: 2, expectedClusterConfigList[1].Name: 3, expectedClusterConfigList[2].Name: 3},
 	}
-	shardClusterSpecList := createClusterSpecList(memberClusterNames, shardDistribution[0])
+	shardClusterSpecList := test.CreateClusterSpecList(memberClusterNames, shardDistribution[0])
 
 	mongosDistribution := map[string]int{expectedClusterConfigList[1].Name: 1, expectedClusterConfigList[2].Name: 3, expectedClusterConfigList[3].Name: 2}
-	mongosAndConfigSrvClusterSpecList := createClusterSpecList(memberClusterNames, mongosDistribution)
+	mongosAndConfigSrvClusterSpecList := test.CreateClusterSpecList(memberClusterNames, mongosDistribution)
 
 	configSrvDistribution := map[string]int{expectedClusterConfigList[0].Name: 2, expectedClusterConfigList[1].Name: 1, expectedClusterConfigList[3].Name: 3}
-	configSrvDistributionClusterSpecList := createClusterSpecList(memberClusterNames, configSrvDistribution)
+	configSrvDistributionClusterSpecList := test.CreateClusterSpecList(memberClusterNames, configSrvDistribution)
 
 	certificatesSecretsPrefix := "some-prefix"
-	sc := DefaultClusterBuilder().
+	sc := test.DefaultClusterBuilder().
 		SetTopology(mdbv1.ClusterTopologyMultiCluster).
 		SetShardCountSpec(shardCount).
 		SetMongodsPerShardCountSpec(0).
@@ -302,7 +483,7 @@ func TestReconcileMultiClusterShardedClusterCertsAndSecretsReplication(t *testin
 	reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, sc, memberClusterMap, kubeClient, omConnectionFactory)
 	clusterMapping := reconcilerHelper.deploymentState.ClusterMapping
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
-		allHostnames, _ := expectedClusterConfigList.GenerateAllHosts(sc, clusterMapping)
+		allHostnames, _ := generateAllHosts(sc, mongosDistribution, clusterMapping, configSrvDistribution, shardDistribution, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
 		connection.(*om.MockedOmConnection).AddHosts(allHostnames)
 	})
 
@@ -475,7 +656,7 @@ func TestReconcileForComplexMultiClusterYaml(t *testing.T) {
 	require.NoError(t, err)
 
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
-		hosts, _ := generateAllHosts(sc, mongosDistribution, clusterMapping, configSrvDistribution, shardDistribution)
+		hosts, _ := generateAllHosts(sc, mongosDistribution, clusterMapping, configSrvDistribution, shardDistribution, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
 		connection.(*om.MockedOmConnection).AddHosts(hosts)
 	})
 
@@ -520,26 +701,26 @@ func TestReconcileForComplexMultiClusterYaml(t *testing.T) {
 		memberClusterChecks.checkStatefulSet(ctx, sc.MultiConfigRsName(clusterMapping[clusterName]), expectedMembersCount)
 	}
 
-	expectedHostnameOverrideMap := createExpectedHostnameOverrideMap(sc, clusterMapping, mongosDistribution, configSrvDistribution, shardDistribution)
+	expectedHostnameOverrideMap := createExpectedHostnameOverrideMap(sc, clusterMapping, mongosDistribution, configSrvDistribution, shardDistribution, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
 	for _, clusterName := range memberClusterNames {
 		memberClusterChecks := newClusterChecks(t, clusterName, clusterMapping[clusterName], sc.Namespace, memberClusterMap[clusterName].GetClient())
 		memberClusterChecks.checkHostnameOverrideConfigMap(ctx, fmt.Sprintf("%s-hostname-override", sc.Name), expectedHostnameOverrideMap)
 	}
 }
 
-func generateAllHosts(sc *mdbv1.MongoDB, mongosDistribution map[string]int, clusterMapping map[string]int, configSrvDistribution map[string]int, shardDistribution []map[string]int) ([]string, []string) {
+func generateAllHosts(sc *mdbv1.MongoDB, mongosDistribution map[string]int, clusterMapping map[string]int, configSrvDistribution map[string]int, shardDistribution []map[string]int, clusterDomain test.ClusterDomains, externalClusterDomain test.ClusterDomains) ([]string, []string) {
 	var allHosts []string
 	var allPodNames []string
-	podNames, hosts := generateHostsWithDistribution(sc.MongosRsName(), sc.Namespace, mongosDistribution, clusterMapping)
+	podNames, hosts := generateHostsWithDistribution(sc.MongosRsName(), sc.Namespace, mongosDistribution, clusterMapping, clusterDomain.MongosExternalDomain, externalClusterDomain.MongosExternalDomain)
 	allHosts = append(allHosts, hosts...)
 	allPodNames = append(allPodNames, podNames...)
 
-	podNames, hosts = generateHostsWithDistribution(sc.ConfigRsName(), sc.Namespace, configSrvDistribution, clusterMapping)
+	podNames, hosts = generateHostsWithDistribution(sc.ConfigRsName(), sc.Namespace, configSrvDistribution, clusterMapping, clusterDomain.ConfigServerExternalDomain, externalClusterDomain.ConfigServerExternalDomain)
 	allHosts = append(allHosts, hosts...)
 	allPodNames = append(allPodNames, podNames...)
 
 	for shardIdx := 0; shardIdx < sc.Spec.ShardCount; shardIdx++ {
-		podNames, hosts = generateHostsWithDistribution(sc.ShardRsName(shardIdx), sc.Namespace, shardDistribution[shardIdx], clusterMapping)
+		podNames, hosts = generateHostsWithDistribution(sc.ShardRsName(shardIdx), sc.Namespace, shardDistribution[shardIdx], clusterMapping, clusterDomain.ShardsExternalDomain, externalClusterDomain.ShardsExternalDomain)
 		allHosts = append(allHosts, hosts...)
 		allPodNames = append(allPodNames, podNames...)
 	}
@@ -554,7 +735,7 @@ func TestMigrateToNewDeploymentState(t *testing.T) {
 		"key1": "value1",
 		"key2": "value2",
 	}
-	sc := DefaultClusterBuilder().
+	sc := test.DefaultClusterBuilder().
 		SetAnnotations(initialAnnotations).
 		Build()
 
@@ -704,14 +885,14 @@ func TestMultiClusterShardedSetRace(t *testing.T) {
 		{cluster1: 2, cluster2: 3},
 		{cluster1: 2, cluster2: 3},
 	}
-	shardClusterSpecList := createClusterSpecList(memberClusterNames, shardDistribution[0])
+	shardClusterSpecList := test.CreateClusterSpecList(memberClusterNames, shardDistribution[0])
 
 	// For Mongos and Config servers, 2 replicaset members on the first one, 1 on the second one
 	mongosDistribution := map[string]int{cluster1: 2, cluster2: 1}
-	mongosAndConfigSrvClusterSpecList := createClusterSpecList(memberClusterNames, mongosDistribution)
+	mongosAndConfigSrvClusterSpecList := test.CreateClusterSpecList(memberClusterNames, mongosDistribution)
 
 	configSrvDistribution := map[string]int{cluster1: 2, cluster2: 1}
-	configSrvDistributionClusterSpecList := createClusterSpecList(memberClusterNames, configSrvDistribution)
+	configSrvDistributionClusterSpecList := test.CreateClusterSpecList(memberClusterNames, configSrvDistribution)
 
 	sc, cfgMap, projectName := buildShardedClusterWithCustomProjectName("mc-sharded", shardCount, shardClusterSpecList, mongosAndConfigSrvClusterSpecList, configSrvDistributionClusterSpecList)
 	sc1, cfgMap1, projectName1 := buildShardedClusterWithCustomProjectName("mc-sharded-1", shardCount, shardClusterSpecList, mongosAndConfigSrvClusterSpecList, configSrvDistributionClusterSpecList)
@@ -777,15 +958,15 @@ func TestMultiClusterShardedScaling(t *testing.T) {
 	configSrvDistribution := map[string]int{cluster3: 1}
 
 	ctx := context.Background()
-	sc := DefaultClusterBuilder().
+	sc := test.DefaultClusterBuilder().
 		SetTopology(mdbv1.ClusterTopologyMultiCluster).
 		SetShardCountSpec(shardCount).
 		SetMongodsPerShardCountSpec(0).
 		SetConfigServerCountSpec(0).
 		SetMongosCountSpec(0).
-		SetShardClusterSpec(createClusterSpecList(memberClusterNames, shardDistribution[0])).
-		SetConfigSrvClusterSpec(createClusterSpecList(memberClusterNames, configSrvDistribution)).
-		SetMongosClusterSpec(createClusterSpecList(memberClusterNames, mongosDistribution)).
+		SetShardClusterSpec(test.CreateClusterSpecList(memberClusterNames, shardDistribution[0])).
+		SetConfigSrvClusterSpec(test.CreateClusterSpecList(memberClusterNames, configSrvDistribution)).
+		SetMongosClusterSpec(test.CreateClusterSpecList(memberClusterNames, mongosDistribution)).
 		Build()
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
@@ -803,7 +984,7 @@ func TestMultiClusterShardedScaling(t *testing.T) {
 	require.NoError(t, err)
 	clusterMapping := reconcilerHelper.deploymentState.ClusterMapping
 	addAllHostsWithDistribution := func(connection om.Connection, mongosDistribution map[string]int, clusterMapping map[string]int, configSrvDistribution map[string]int, shardDistribution []map[string]int) {
-		allHostnames, _ := generateAllHosts(sc, mongosDistribution, clusterMapping, configSrvDistribution, shardDistribution)
+		allHostnames, _ := generateAllHosts(sc, mongosDistribution, clusterMapping, configSrvDistribution, shardDistribution, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
 		connection.(*om.MockedOmConnection).AddHosts(allHostnames)
 	}
 
@@ -837,9 +1018,9 @@ func TestMultiClusterShardedScaling(t *testing.T) {
 
 	err = kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc)
 	require.NoError(t, err)
-	sc.Spec.ConfigSrvSpec.ClusterSpecList = createClusterSpecList(memberClusterNames, configSrvDistribution)
-	sc.Spec.ShardSpec.ClusterSpecList = createClusterSpecList(memberClusterNames, shardDistribution[0])
-	sc.Spec.MongosSpec.ClusterSpecList = createClusterSpecList(memberClusterNames, mongosDistribution)
+	sc.Spec.ConfigSrvSpec.ClusterSpecList = test.CreateClusterSpecList(memberClusterNames, configSrvDistribution)
+	sc.Spec.ShardSpec.ClusterSpecList = test.CreateClusterSpecList(memberClusterNames, shardDistribution[0])
+	sc.Spec.MongosSpec.ClusterSpecList = test.CreateClusterSpecList(memberClusterNames, mongosDistribution)
 	err = kubeClient.Update(ctx, sc)
 	require.NoError(t, err)
 
@@ -871,9 +1052,9 @@ func TestMultiClusterShardedScaling(t *testing.T) {
 
 	err = kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc)
 	require.NoError(t, err)
-	sc.Spec.ConfigSrvSpec.ClusterSpecList = createClusterSpecList(memberClusterNames, configSrvDistribution)
-	sc.Spec.ShardSpec.ClusterSpecList = createClusterSpecList(memberClusterNames, shardDistribution[0])
-	sc.Spec.MongosSpec.ClusterSpecList = createClusterSpecList(memberClusterNames, mongosDistribution)
+	sc.Spec.ConfigSrvSpec.ClusterSpecList = test.CreateClusterSpecList(memberClusterNames, configSrvDistribution)
+	sc.Spec.ShardSpec.ClusterSpecList = test.CreateClusterSpecList(memberClusterNames, shardDistribution[0])
+	sc.Spec.MongosSpec.ClusterSpecList = test.CreateClusterSpecList(memberClusterNames, mongosDistribution)
 	err = kubeClient.Update(ctx, sc)
 	require.NoError(t, err)
 
@@ -919,8 +1100,7 @@ func reconcileUntilSuccessful(ctx context.Context, t *testing.T, reconciler reco
 
 func generateHostsForCluster(ctx context.Context, reconciler *ReconcileMongoDbShardedCluster, sc *mdbv1.MongoDB, mongosDistribution map[string]int, configSrvDistribution map[string]int, shardDistribution []map[string]int) []string {
 	reconcileHelper, _ := NewShardedClusterReconcilerHelper(ctx, reconciler.ReconcileCommonController, sc, reconciler.memberClustersMap, reconciler.omConnectionFactory, zap.S())
-	allHostnames, _ := generateAllHosts(sc, mongosDistribution, reconcileHelper.deploymentState.ClusterMapping, configSrvDistribution, shardDistribution)
-
+	allHostnames, _ := generateAllHosts(sc, mongosDistribution, reconcileHelper.deploymentState.ClusterMapping, configSrvDistribution, shardDistribution, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
 	return allHostnames
 }
 
@@ -928,7 +1108,7 @@ func buildShardedClusterWithCustomProjectName(mcShardedClusterName string, shard
 	configMapName := mock.TestProjectConfigMapName + "-" + mcShardedClusterName
 	projectName := om.TestGroupName + "-" + mcShardedClusterName
 
-	return DefaultClusterBuilder().
+	return test.DefaultClusterBuilder().
 		SetName(mcShardedClusterName).
 		SetOpsManagerConfigMapName(configMapName).
 		SetTopology(mdbv1.ClusterTopologyMultiCluster).
@@ -972,12 +1152,12 @@ func sumSlice[T constraints.Integer](s []T) int {
 	return result
 }
 
-func generateHostsWithDistribution(stsName string, namespace string, distribution map[string]int, clusterIndexMapping map[string]int) ([]string, []string) {
+func generateHostsWithDistribution(stsName string, namespace string, distribution map[string]int, clusterIndexMapping map[string]int, clusterDomain string, externalClusterDomain string) ([]string, []string) {
 	var hosts []string
 	var podNames []string
 	for memberClusterName, memberCount := range distribution {
 		for podIdx := range memberCount {
-			hosts = append(hosts, getMultiClusterFQDN(stsName, namespace, clusterIndexMapping[memberClusterName], podIdx, "cluster.local"))
+			hosts = append(hosts, getMultiClusterFQDN(stsName, namespace, clusterIndexMapping[memberClusterName], podIdx, clusterDomain, externalClusterDomain))
 			podNames = append(podNames, getPodName(stsName, clusterIndexMapping[memberClusterName], podIdx))
 		}
 	}
@@ -989,7 +1169,10 @@ func getPodName(stsName string, clusterIdx int, podIdx int) string {
 	return fmt.Sprintf("%s-%d-%d", stsName, clusterIdx, podIdx)
 }
 
-func getMultiClusterFQDN(stsName string, namespace string, clusterIdx int, podIdx int, clusterDomain string) string {
+func getMultiClusterFQDN(stsName string, namespace string, clusterIdx int, podIdx int, clusterDomain string, externalClusterDomain string) string {
+	if len(externalClusterDomain) != 0 {
+		return fmt.Sprintf("%s.%s", getPodName(stsName, clusterIdx, podIdx), externalClusterDomain)
+	}
 	return fmt.Sprintf("%s-svc.%s.svc.%s", getPodName(stsName, clusterIdx, podIdx), namespace, clusterDomain)
 }
 

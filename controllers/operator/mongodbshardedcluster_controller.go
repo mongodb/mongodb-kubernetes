@@ -35,6 +35,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	mdbstatus "github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
@@ -1105,7 +1106,7 @@ func (r *ShardedClusterReconcileHelper) ensureSSLCertificates(ctx context.Contex
 }
 
 // createKubernetesResources creates all Kubernetes objects that are specified in 'state' parameter.
-// This function returns errorStatus if any errors occured or pendingStatus if the statefulsets are not
+// This function returns errorStatus if any errors occurred or pendingStatus if the statefulsets are not
 // ready yet
 // Note, that it doesn't remove any existing shards - this will be done later
 func (r *ShardedClusterReconcileHelper) createKubernetesResources(ctx context.Context, s *mdbv1.MongoDB, opts deploymentOptions, log *zap.SugaredLogger) workflow.Status {
@@ -1114,7 +1115,7 @@ func (r *ShardedClusterReconcileHelper) createKubernetesResources(ctx context.Co
 		// statefulset creation loops and waits for sts to become ready, and it's easier for the replica set to be ready if
 		// it can connect to other members in the clusters
 		// TODO the same should be considered for external services, we should always create them before sts; now external services are created inside DatabaseInKubernetes function;
-		if err := r.reconcilePodServices(ctx, log); err != nil {
+		if err := r.reconcileServices(ctx, log); err != nil {
 			return workflow.Failed(xerrors.Errorf("Failed to create Config Server Stateful Set: %w", err))
 		}
 	}
@@ -1486,27 +1487,41 @@ func AddShardedClusterController(ctx context.Context, mgr manager.Manager, membe
 }
 
 func (r *ShardedClusterReconcileHelper) getConfigSrvHostnames(memberCluster multicluster.MemberCluster, replicas int) ([]string, []string) {
+	externalDomain := r.sc.Spec.ConfigSrvSpec.ClusterSpecList.GetExternalDomainForMemberCluster(memberCluster.Name)
+	if externalDomain == nil && r.sc.Spec.IsMultiCluster() {
+		externalDomain = r.sc.Spec.DbCommonSpec.GetExternalDomain()
+	}
 	if !memberCluster.Legacy {
-		return dns.GetMultiClusterProcessHostnamesAndPodNames(r.sc.ConfigRsName(), r.sc.Namespace, memberCluster.Index, replicas, r.sc.Spec.GetClusterDomain(), nil) // TODO external domains
+		return dns.GetMultiClusterProcessHostnamesAndPodNames(r.sc.ConfigRsName(), r.sc.Namespace, memberCluster.Index, replicas, r.sc.Spec.GetClusterDomain(), externalDomain)
 	} else {
-		return dns.GetDNSNames(r.GetConfigSrvStsName(memberCluster), r.sc.ConfigSrvServiceName(), r.sc.Namespace, r.sc.Spec.GetClusterDomain(), replicas, nil) // TODO external domains
+		return dns.GetDNSNames(r.GetConfigSrvStsName(memberCluster), r.sc.ConfigSrvServiceName(), r.sc.Namespace, r.sc.Spec.GetClusterDomain(), replicas, externalDomain)
 	}
 }
 
 func (r *ShardedClusterReconcileHelper) getShardHostnames(shardIdx int, memberCluster multicluster.MemberCluster, replicas int) ([]string, []string) {
+	externalDomain := r.sc.Spec.ShardSpec.ClusterSpecList.GetExternalDomainForMemberCluster(memberCluster.Name)
+	if externalDomain == nil && r.sc.Spec.IsMultiCluster() {
+		externalDomain = r.sc.Spec.DbCommonSpec.GetExternalDomain()
+	}
 	if !memberCluster.Legacy {
-		return dns.GetMultiClusterProcessHostnamesAndPodNames(r.sc.ShardRsName(shardIdx), r.sc.Namespace, memberCluster.Index, replicas, r.sc.Spec.GetClusterDomain(), nil) // TODO external domains
+		return dns.GetMultiClusterProcessHostnamesAndPodNames(r.sc.ShardRsName(shardIdx), r.sc.Namespace, memberCluster.Index, replicas, r.sc.Spec.GetClusterDomain(), externalDomain)
 	} else {
-		return dns.GetDNSNames(r.GetShardStsName(shardIdx, memberCluster), r.sc.ShardServiceName(), r.sc.Namespace, r.sc.Spec.GetClusterDomain(), replicas, nil) // TODO external domains
+		return dns.GetDNSNames(r.GetShardStsName(shardIdx, memberCluster), r.sc.ShardServiceName(), r.sc.Namespace, r.sc.Spec.GetClusterDomain(), replicas, externalDomain)
 	}
 }
 
 func (r *ShardedClusterReconcileHelper) getMongosHostnames(memberCluster multicluster.MemberCluster, replicas int) ([]string, []string) {
+	externalDomain := r.sc.Spec.MongosSpec.ClusterSpecList.GetExternalDomainForMemberCluster(memberCluster.Name)
+	if externalDomain == nil && r.sc.Spec.IsMultiCluster() {
+		externalDomain = r.sc.Spec.DbCommonSpec.GetExternalDomain()
+	}
 	if !memberCluster.Legacy {
-		return dns.GetMultiClusterProcessHostnamesAndPodNames(r.sc.MongosRsName(), r.sc.Namespace, memberCluster.Index, replicas, r.sc.Spec.GetClusterDomain(), nil) // TODO external domains
+		return dns.GetMultiClusterProcessHostnamesAndPodNames(r.sc.MongosRsName(), r.sc.Namespace, memberCluster.Index, replicas, r.sc.Spec.GetClusterDomain(), externalDomain)
 	} else {
-		// TODO is r.sc.ServiceName() valid for mongos headless service name?
-		return dns.GetDNSNames(r.GetMongosStsName(memberCluster), r.sc.ServiceName(), r.sc.Namespace, r.sc.Spec.GetClusterDomain(), replicas, nil) // TODO external domains
+		// In Single Cluster Mode, only Mongos are exposed to the outside consumption. As such, they need to use proper
+		// External Domain.
+		externalDomain = r.sc.Spec.GetExternalDomain()
+		return dns.GetDNSNames(r.GetMongosStsName(memberCluster), r.sc.ServiceName(), r.sc.Namespace, r.sc.Spec.GetClusterDomain(), replicas, externalDomain)
 	}
 }
 
@@ -2307,8 +2322,10 @@ func (r *ShardedClusterReconcileHelper) createHostnameOverrideConfigMapData() ma
 
 func (r *ShardedClusterReconcileHelper) reconcileHostnameOverrideConfigMap(ctx context.Context, log *zap.SugaredLogger) error {
 	if !r.sc.Spec.IsMultiCluster() {
-		log.Debugf("Skipping creating hostname override config map in SingleCluster topology")
-		return nil
+		if r.sc.Spec.DbCommonSpec.GetExternalDomain() == nil {
+			log.Debugf("Skipping creating hostname override config map in SingleCluster topology (with external domain unspecified)")
+			return nil
+		}
 	}
 
 	cm := r.createHostnameOverrideConfigMap()
@@ -2323,73 +2340,28 @@ func (r *ShardedClusterReconcileHelper) reconcileHostnameOverrideConfigMap(ctx c
 	return nil
 }
 
-// reconcileServices makes sure that we have a service object corresponding to each statefulset pod
-// in the member clusters
-func (r *ShardedClusterReconcileHelper) reconcilePodServices(ctx context.Context, log *zap.SugaredLogger) error {
-	// TODO how could we approach SRV services in multi-cluster? Does it make any sense to use them?
-
-	// pod services and external domains are mutually exclusive;
-	// TODO external services for member clusters
-	shouldCreateMongosPodServices := r.sc.Spec.ExternalAccessConfiguration == nil || r.sc.Spec.ExternalAccessConfiguration.ExternalDomain == nil
-	shouldCreateConfigSrvPodServices := r.sc.Spec.ExternalAccessConfiguration == nil || r.sc.Spec.ExternalAccessConfiguration.ExternalDomain == nil
-	shouldCreateShardPodServices := func(shardIdx int, memberCluster multicluster.MemberCluster) bool {
-		return r.desiredShardsConfiguration[shardIdx].ClusterSpecList.GetExternalDomainForMemberCluster(memberCluster.Name) == nil
-	}
-
+// reconcileServices creates both internal and external Services.
+//
+// This method assumes that all overrides have been expanded and are present in the ClusterSpecList. Other fields
+// are not taken into consideration. Please ensure you expended and processed them earlier.
+func (r *ShardedClusterReconcileHelper) reconcileServices(ctx context.Context, log *zap.SugaredLogger) error {
 	var allServices []*corev1.Service
 	for _, memberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
-		if !shouldCreateMongosPodServices {
-			log.Debugf("Skipping creation of pod services for mongos in cluster %s", memberCluster.Name)
-			continue
-		}
-		scaler := r.getMongosScaler(memberCluster)
-		for podNum := 0; podNum < scaler.DesiredReplicas(); podNum++ {
-			// TODO port from spec for member cluster
-			svc := r.getPodService(r.sc.MongosRsName(), memberCluster, podNum, r.sc.Spec.MongosSpec.AdditionalMongodConfig.GetPortOrDefault())
-			err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc)
-			if err != nil && !errors.IsAlreadyExists(err) {
-				return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
-			}
-
-			allServices = append(allServices, &svc)
+		if err := r.reconcileMongosServices(ctx, log, memberCluster, allServices); err != nil {
+			return err
 		}
 	}
 
 	for _, memberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
-		if !shouldCreateConfigSrvPodServices {
-			log.Debugf("Skipping creation of pod services for config srv in cluster %s", memberCluster.Name)
-			continue
-		}
-
-		scaler := r.getConfigSrvScaler(memberCluster)
-		for podNum := 0; podNum < scaler.DesiredReplicas(); podNum++ {
-			// TODO port from spec for member cluster
-			svc := r.getPodService(r.sc.ConfigRsName(), memberCluster, podNum, r.sc.Spec.ConfigSrvSpec.AdditionalMongodConfig.GetPortOrDefault())
-			err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc)
-			if err != nil && !errors.IsAlreadyExists(err) {
-				return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
-			}
-
-			allServices = append(allServices, &svc)
+		if err := r.reconcileConfigServerServices(ctx, log, memberCluster, allServices); err != nil {
+			return err
 		}
 	}
 
 	for shardIdx := 0; shardIdx < r.sc.Spec.ShardCount; shardIdx++ {
 		for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[shardIdx]) {
-			if !shouldCreateShardPodServices(shardIdx, memberCluster) {
-				log.Debugf("Skipping creation of pod services for shard #%d in cluster %s", shardIdx, memberCluster.Name)
-				continue
-			}
-
-			scaler := r.getShardScaler(shardIdx, memberCluster)
-			for podNum := 0; podNum < scaler.DesiredReplicas(); podNum++ {
-				svc := r.getPodService(r.sc.ShardRsName(shardIdx), memberCluster, podNum, r.desiredShardsConfiguration[shardIdx].AdditionalMongodConfig.GetPortOrDefault())
-				err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc)
-				if err != nil {
-					return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
-				}
-
-				allServices = append(allServices, &svc)
+			if err := r.reconcileShardServices(ctx, log, shardIdx, memberCluster, allServices); err != nil {
+				return err
 			}
 		}
 	}
@@ -2398,6 +2370,7 @@ func (r *ShardedClusterReconcileHelper) reconcilePodServices(ctx context.Context
 		for _, memberCluster := range getHealthyMemberClusters(r.allMemberClusters) {
 			// the pod services created in their respective clusters will be updated twice here, but this way the code is cleaner
 			for _, svc := range allServices {
+				log.Debugf("creating duplicated services for %s in cluster: %s", svc.Name, memberCluster.Name)
 				err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, *svc)
 				if err != nil {
 					return xerrors.Errorf("failed to create (duplicate) pod service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
@@ -2407,6 +2380,149 @@ func (r *ShardedClusterReconcileHelper) reconcilePodServices(ctx context.Context
 	}
 
 	return nil
+}
+
+func (r *ShardedClusterReconcileHelper) reconcileConfigServerServices(ctx context.Context, log *zap.SugaredLogger, memberCluster multicluster.MemberCluster, allServices []*corev1.Service) error {
+	portOrDefault := r.desiredConfigServerConfiguration.AdditionalMongodConfig.GetPortOrDefault()
+	scaler := r.getConfigSrvScaler(memberCluster)
+
+	for podNum := 0; podNum < scaler.DesiredReplicas(); podNum++ {
+		configServerExternalAccess := r.desiredConfigServerConfiguration.ClusterSpecList.GetExternalAccessConfigurationForMemberCluster(memberCluster.Name)
+		if configServerExternalAccess == nil {
+			configServerExternalAccess = r.sc.Spec.DbCommonSpec.ExternalAccessConfiguration
+		}
+		if configServerExternalAccess != nil && configServerExternalAccess.ExternalDomain != nil {
+			log.Debugf("creating external services for %s in cluster: %s", r.sc.ConfigRsName(), memberCluster.Name)
+			svc, err := r.getPodExternalService(memberCluster,
+				r.sc.ConfigRsName(),
+				configServerExternalAccess,
+				podNum,
+				portOrDefault)
+			if err != nil {
+				return xerrors.Errorf("failed to create an external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
+			}
+			if err = mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
+				return xerrors.Errorf("failed to create external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
+			}
+		} else {
+			log.Debugf("creating internal services for %s in cluster: %s", r.sc.ConfigRsName(), memberCluster.Name)
+			svc := r.getPodService(r.sc.ConfigRsName(), memberCluster, podNum, portOrDefault)
+			if err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
+				return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
+			}
+			_ = append(allServices, &svc)
+		}
+	}
+	if err := createHeadlessServiceForStatefulSet(ctx, r.sc.ConfigRsName(), portOrDefault, r.sc.Namespace, memberCluster); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *ShardedClusterReconcileHelper) reconcileShardServices(ctx context.Context, log *zap.SugaredLogger, shardIdx int, memberCluster multicluster.MemberCluster, allServices []*corev1.Service) error {
+	shardsExternalAccess := r.desiredShardsConfiguration[shardIdx].ClusterSpecList.GetExternalAccessConfigurationForMemberCluster(memberCluster.Name)
+	if shardsExternalAccess == nil {
+		shardsExternalAccess = r.sc.Spec.DbCommonSpec.ExternalAccessConfiguration
+	}
+	portOrDefault := r.desiredShardsConfiguration[shardIdx].AdditionalMongodConfig.GetPortOrDefault()
+	scaler := r.getShardScaler(shardIdx, memberCluster)
+
+	for podNum := 0; podNum < scaler.DesiredReplicas(); podNum++ {
+		if shardsExternalAccess != nil && shardsExternalAccess.ExternalDomain != nil {
+			log.Debugf("creating external services for %s in cluster: %s", r.sc.ShardRsName(shardIdx), memberCluster.Name)
+			svc, err := r.getPodExternalService(
+				memberCluster,
+				r.sc.ShardRsName(shardIdx),
+				shardsExternalAccess,
+				podNum,
+				portOrDefault)
+			if err != nil {
+				return xerrors.Errorf("failed to create an external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
+			}
+			if err = mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
+				return xerrors.Errorf("failed to create external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
+			}
+		} else {
+			log.Debugf("creating internal services for %s in cluster: %s", r.sc.ShardRsName(shardIdx), memberCluster.Name)
+			svc := r.getPodService(r.sc.ShardRsName(shardIdx), memberCluster, podNum, portOrDefault)
+			if err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil {
+				return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
+			}
+
+			_ = append(allServices, &svc)
+		}
+	}
+
+	if err := createHeadlessServiceForStatefulSet(ctx, r.sc.ShardRsName(shardIdx), portOrDefault, r.sc.Namespace, memberCluster); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *ShardedClusterReconcileHelper) reconcileMongosServices(ctx context.Context, log *zap.SugaredLogger, memberCluster multicluster.MemberCluster, allServices []*corev1.Service) error {
+	scaler := r.getMongosScaler(memberCluster)
+	portOrDefault := r.desiredMongosConfiguration.AdditionalMongodConfig.GetPortOrDefault()
+	for podNum := 0; podNum < scaler.DesiredReplicas(); podNum++ {
+		mongosExternalAccess := r.desiredMongosConfiguration.ClusterSpecList.GetExternalAccessConfigurationForMemberCluster(memberCluster.Name)
+		if mongosExternalAccess == nil {
+			mongosExternalAccess = r.sc.Spec.DbCommonSpec.ExternalAccessConfiguration
+		}
+		if mongosExternalAccess != nil {
+			log.Debugf("creating external services for %s in cluster: %s", r.sc.MongosRsName(), memberCluster.Name)
+			svc, err := r.getPodExternalService(memberCluster,
+				r.sc.MongosRsName(),
+				mongosExternalAccess,
+				podNum,
+				portOrDefault)
+			if err != nil {
+				return xerrors.Errorf("failed to create an external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
+			}
+			if err = mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
+				return xerrors.Errorf("failed to create external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
+			}
+		} else {
+			log.Debugf("creating internal services for %s in cluster: %s", r.sc.MongosRsName(), memberCluster.Name)
+			svc := r.getPodService(r.sc.MongosRsName(), memberCluster, podNum, portOrDefault)
+			if err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
+				return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
+			}
+
+			_ = append(allServices, &svc)
+		}
+		if err := createHeadlessServiceForStatefulSet(ctx, r.sc.MongosRsName(), portOrDefault, r.sc.Namespace, memberCluster); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func createHeadlessServiceForStatefulSet(ctx context.Context, stsName string, port int32, namespace string, memberCluster multicluster.MemberCluster) error {
+	headlessServiceName := dns.GetMultiHeadlessServiceName(stsName, memberCluster.Index)
+	nameSpacedName := kube.ObjectKey(namespace, headlessServiceName)
+	headlessService := create.BuildService(nameSpacedName, nil, ptr.To(headlessServiceName), nil, port, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, headlessService)
+	if err != nil && !errors.IsAlreadyExists(err) {
+		return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", headlessService.Name, memberCluster.Name, err)
+	}
+	return nil
+}
+
+func (r *ShardedClusterReconcileHelper) getPodExternalService(memberCluster multicluster.MemberCluster, statefulSetName string, externalAccessConfiguration *mdbv1.ExternalAccessConfiguration, podNum int, port int32) (corev1.Service, error) {
+	svc := r.getPodService(statefulSetName, memberCluster, podNum, port)
+	svc.Name = dns.GetMultiExternalServiceName(statefulSetName, memberCluster.Index, podNum)
+	svc.Spec.Type = corev1.ServiceTypeLoadBalancer
+
+	if externalAccessConfiguration != nil {
+		svc.Annotations = merge.StringToStringMap(svc.Annotations, externalAccessConfiguration.ExternalService.Annotations)
+	}
+
+	placeholderReplacer := create.GetMultiClusterMongoDBPlaceholderReplacer(r.sc.Name, statefulSetName, r.sc.Namespace, memberCluster.Name, memberCluster.Index, externalAccessConfiguration.ExternalDomain, r.sc.Spec.ClusterDomain, podNum)
+	if processedAnnotations, replacedFlag, err := placeholderReplacer.ProcessMap(svc.Annotations); err != nil {
+		return corev1.Service{}, xerrors.Errorf("failed to process annotations in external service %s in cluster %s: %w", svc.Name, memberCluster.Name, err)
+	} else if replacedFlag {
+		svc.Annotations = processedAnnotations
+	}
+	return svc, nil
 }
 
 func (r *ShardedClusterReconcileHelper) replicateTLSCAConfigMap(ctx context.Context, log *zap.SugaredLogger) error {

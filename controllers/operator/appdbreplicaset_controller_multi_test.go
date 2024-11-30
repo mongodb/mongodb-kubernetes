@@ -107,7 +107,7 @@ func TestAppDB_MultiCluster(t *testing.T) {
 		memberClusterChecks.checkPEMSecret(ctx, pemSecretName, tlsSecretPemHash)
 
 		memberClusterChecks.checkStatefulSet(ctx, opsManager.Spec.AppDB.NameForCluster(reconciler.getMemberClusterIndex(clusterSpecItem.ClusterName)), clusterSpecItem.Members)
-		memberClusterChecks.checkServices(ctx, opsManager.Spec.AppDB.NameForCluster(reconciler.getMemberClusterIndex(clusterSpecItem.ClusterName)), clusterSpecItem.Members)
+		memberClusterChecks.checkPerPodServices(ctx, opsManager.Spec.AppDB.NameForCluster(reconciler.getMemberClusterIndex(clusterSpecItem.ClusterName)), clusterSpecItem.Members)
 	}
 
 	// OM API Key secret is required for enabling monitoring to OM

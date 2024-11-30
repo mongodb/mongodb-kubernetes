@@ -75,6 +75,9 @@ class MongoTester:
         self.default_opts["serverSelectionTimeoutMs"] = "120000"  # 2 minutes
         self.cnx_string = connection_string
         self.client = None
+        logging.info(
+            f"Initialized MongoTester with connection string: {connection_string}, TLS: {use_ssl} and CA Path: {ca_path}"
+        )
 
     @property
     def client(self):
@@ -419,6 +422,7 @@ class ShardedClusterTester(MongoTester):
         cluster_domain: str = "cluster.local",
         multi_cluster: Optional[bool] = False,
         service_names: Optional[list[str]] = None,
+        external_domain: str = None,
     ):
         mdb_name = mdb_resource_name + "-mongos"
         servicename = mdb_resource_name + "-svc"
@@ -433,6 +437,7 @@ class ShardedClusterTester(MongoTester):
                 service_names=service_names,
                 port=port,
                 cluster_domain=cluster_domain,
+                external=external_domain is not None,
             )
         else:
             self.cnx_string = build_mongodb_connection_uri(
@@ -443,6 +448,7 @@ class ShardedClusterTester(MongoTester):
                 servicename=servicename,
                 srv=srv,
                 cluster_domain=cluster_domain,
+                external_domain=external_domain,
             )
         super().__init__(self.cnx_string, ssl, ca_path)
 

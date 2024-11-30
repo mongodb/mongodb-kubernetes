@@ -43,6 +43,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
+	"github.com/10gen/ops-manager-kubernetes/pkg/test"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
@@ -50,7 +51,7 @@ import (
 
 func TestChangingFCVShardedCluster(t *testing.T) {
 	ctx := context.Background()
-	sc := DefaultClusterBuilder().Build()
+	sc := test.DefaultClusterBuilder().Build()
 	reconciler, _, cl, _, err := defaultClusterReconciler(ctx, sc, nil)
 	require.NoError(t, err)
 
@@ -71,7 +72,7 @@ func TestChangingFCVShardedCluster(t *testing.T) {
 
 func TestReconcileCreateShardedCluster(t *testing.T) {
 	ctx := context.Background()
-	sc := DefaultClusterBuilder().Build()
+	sc := test.DefaultClusterBuilder().Build()
 
 	reconciler, _, kubeClient, omConnectionFactory, err := defaultClusterReconciler(ctx, sc, nil)
 	c := kubeClient
@@ -97,6 +98,72 @@ func TestReconcileCreateShardedCluster(t *testing.T) {
 	mockedConn.CheckNumberOfUpdateRequests(t, 2)
 	// we don't remove hosts from monitoring if there is no scale down
 	mockedConn.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedConn.GetHosts), reflect.ValueOf(mockedConn.RemoveHost))
+}
+
+// TestReconcileCreateSingleClusterShardedClusterWithNoServiceMeshSimplest assumes only Services for Mongos
+// will be created.
+func TestReconcileCreateSingleClusterShardedClusterWithExternalDomainSimplest(t *testing.T) {
+	// given
+	ctx := context.Background()
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+
+	sc := test.DefaultClusterBuilder().
+		SetExternalAccessDomain(test.ExampleExternalClusterDomains).
+		SetExternalAccessDomainAnnotations(test.SingleClusterAnnotationsWithPlaceholders).
+		Build()
+	fakeClient := mock.NewEmptyFakeClientBuilder().
+		WithObjects(sc).
+		WithObjects(mock.GetDefaultResources()...).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, true),
+		}).
+		Build()
+
+	kubeClient := kubernetesClient.NewClient(fakeClient)
+	reconciler, _, _ := newShardedClusterReconcilerFromResource(ctx, sc, nil, kubeClient, omConnectionFactory)
+
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		var allHostnames []string
+		// Note that only Mongos uses external domains. The other components use domains internal to the cluster.
+		mongosHostNames, _ := dns.GetDNSNames(sc.MongosRsName(), sc.ServiceName(), sc.Namespace, "", sc.Spec.MongosCount, &test.ExampleExternalClusterDomains.SingleClusterDomain)
+		allHostnames = append(allHostnames, mongosHostNames...)
+		configServersHostNames, _ := dns.GetDNSNames(sc.ConfigRsName(), sc.ConfigSrvServiceName(), sc.Namespace, "", sc.Spec.ConfigServerCount, &test.NoneExternalClusterDomains.ConfigServerExternalDomain)
+		allHostnames = append(allHostnames, configServersHostNames...)
+		for shardIdx := range sc.Spec.ShardCount {
+			shardHostNames, _ := dns.GetDNSNames(sc.ShardRsName(shardIdx), sc.ShardServiceName(), sc.Namespace, "", sc.Spec.MongodsPerShardCount, &test.NoneExternalClusterDomains.ShardsExternalDomain)
+			allHostnames = append(allHostnames, shardHostNames...)
+		}
+
+		connection.(*om.MockedOmConnection).AddHosts(allHostnames)
+	})
+
+	// when
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+
+	// then
+	memberClusterChecks := newClusterChecks(t, multicluster.LegacyCentralClusterName, 0, sc.Namespace, kubeClient)
+
+	mongosStatefulSetName := fmt.Sprintf("%s-mongos", sc.Name)
+	memberClusterChecks.checkExternalServices(ctx, mongosStatefulSetName, sc.Spec.MongosCount)
+	memberClusterChecks.checkPerPodServicesDontExist(ctx, mongosStatefulSetName, sc.Spec.MongosCount)
+	memberClusterChecks.checkServiceAnnotations(ctx, mongosStatefulSetName, sc.Spec.MongosCount, sc, multicluster.LegacyCentralClusterName, 0, test.ExampleExternalClusterDomains.SingleClusterDomain)
+
+	configServerStatefulSetName := fmt.Sprintf("%s-config", sc.Name)
+	memberClusterChecks.checkExternalServicesDontNotExist(ctx, configServerStatefulSetName, sc.Spec.ConfigServerCount)
+	memberClusterChecks.checkPerPodServicesDontExist(ctx, configServerStatefulSetName, sc.Spec.ConfigServerCount)
+	// This is something to be unified - why MC and SC Services are called differently?
+	configServerInternalServiceName := fmt.Sprintf("%s-cs", sc.Name)
+	memberClusterChecks.checkServiceExists(ctx, configServerInternalServiceName)
+
+	memberClusterChecks.checkExternalServicesDontNotExist(ctx, fmt.Sprintf("%s-config", sc.Name), sc.Spec.ConfigServerCount)
+	for shardIdx := 0; shardIdx < sc.Spec.ShardCount; shardIdx++ {
+		shardStatefulSetName := fmt.Sprintf("%s-%d", sc.Name, shardIdx)
+		memberClusterChecks.checkExternalServicesDontNotExist(ctx, shardStatefulSetName, sc.Spec.ShardCount)
+		memberClusterChecks.checkPerPodServicesDontExist(ctx, shardStatefulSetName, sc.Spec.ShardCount)
+		// This is something to be unified - why MC and SC Services are called differently?
+		shardInternalServiceName := fmt.Sprintf("%s-sh", sc.Name)
+		memberClusterChecks.checkServiceExists(ctx, shardInternalServiceName)
+	}
 }
 
 func getStsReplicas(ctx context.Context, client kubernetesClient.Client, key client.ObjectKey, t *testing.T) int32 {
@@ -140,7 +207,7 @@ func buildShardedClusterWithCustomProject(scName string) (*mdbv1.MongoDB, *corev
 	configMapName := mock.TestProjectConfigMapName + "-" + scName
 	projectName := om.TestGroupName + "-" + scName
 
-	return DefaultClusterBuilder().
+	return test.DefaultClusterBuilder().
 		SetName(scName).
 		SetOpsManagerConfigMapName(configMapName).
 		SetShardCountSpec(4).
@@ -153,7 +220,7 @@ func TestReconcileCreateShardedCluster_ScaleDown(t *testing.T) {
 	t.Skip("this test should probably be deleted")
 	ctx := context.Background()
 	// First creation
-	sc := DefaultClusterBuilder().SetShardCountSpec(4).SetShardCountStatus(4).Build()
+	sc := test.DefaultClusterBuilder().SetShardCountSpec(4).SetShardCountStatus(4).Build()
 	reconciler, _, clusterClient, omConnectionFactory, err := defaultClusterReconciler(ctx, sc, nil)
 	require.NoError(t, err)
 
@@ -176,7 +243,7 @@ func TestReconcileCreateShardedCluster_ScaleDown(t *testing.T) {
 	// final version at least
 
 	// the updated deployment should reflect that of a ShardedCluster with one fewer member
-	scWith3Members := DefaultClusterBuilder().SetShardCountStatus(3).SetShardCountSpec(3).Build()
+	scWith3Members := test.DefaultClusterBuilder().SetShardCountStatus(3).SetShardCountSpec(3).Build()
 	mockedConn.CheckDeployment(t, createDeploymentFromShardedCluster(t, scWith3Members), "auth", "tls")
 
 	// No matter how many members we scale down by, we will only have one fewer each reconciliation
@@ -186,7 +253,7 @@ func TestReconcileCreateShardedCluster_ScaleDown(t *testing.T) {
 func TestReconcilePVCResizeShardedCluster(t *testing.T) {
 	ctx := context.Background()
 	// First creation
-	sc := DefaultClusterBuilder().SetShardCountSpec(2).SetShardCountStatus(2).Build()
+	sc := test.DefaultClusterBuilder().SetShardCountSpec(2).SetShardCountStatus(2).Build()
 	persistence := mdbv1.Persistence{
 		SingleConfig: &mdbv1.PersistenceConfig{
 			Storage: "1Gi",
@@ -354,7 +421,7 @@ func createPVCs(t *testing.T, sts appsv1.StatefulSet, c client.Writer) []corev1.
 func TestAddDeleteShardedCluster(t *testing.T) {
 	ctx := context.Background()
 	// First we need to create a sharded cluster
-	sc := DefaultClusterBuilder().Build()
+	sc := test.DefaultClusterBuilder().Build()
 
 	reconciler, _, clusterClient, omConnectionFactory, err := defaultClusterReconciler(ctx, sc, nil)
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
@@ -388,7 +455,7 @@ func getEmptyDeploymentOptions() deploymentOptions {
 func TestPrepareScaleDownShardedCluster_ConfigMongodsUp(t *testing.T) {
 	t.Skip("This test is too fragile to be executed; it's based on status and not deployment state and test internal interactions that are no longer true. Either we rewrite it to full Reconcile or remove it.")
 	ctx := context.Background()
-	scBeforeScale := DefaultClusterBuilder().
+	scBeforeScale := test.DefaultClusterBuilder().
 		SetConfigServerCountStatus(3).
 		SetConfigServerCountSpec(3).
 		SetMongodsPerShardCountStatus(4).
@@ -399,7 +466,7 @@ func TestPrepareScaleDownShardedCluster_ConfigMongodsUp(t *testing.T) {
 	_, reconcileHelper, _, _, _ := defaultClusterReconciler(ctx, scBeforeScale, nil)
 
 	// TODO prepareScaleDownShardedCluster is getting data from deployment state so modify it instead of passing state in MongoDB object
-	scAfterScale := DefaultClusterBuilder().
+	scAfterScale := test.DefaultClusterBuilder().
 		SetConfigServerCountStatus(3).
 		SetConfigServerCountSpec(2).
 		SetMongodsPerShardCountStatus(4).
@@ -431,7 +498,7 @@ func TestPrepareScaleDownShardedCluster_ConfigMongodsUp(t *testing.T) {
 func TestPrepareScaleDownShardedCluster_ShardsUpMongodsDown(t *testing.T) {
 	t.Skip("This test is too fragile to be executed; it's based on status and not deployment state and test internal interactions that are no longer true. Either we rewrite it to full Reconcile or remove it.")
 	ctx := context.Background()
-	scBeforeScale := DefaultClusterBuilder().
+	scBeforeScale := test.DefaultClusterBuilder().
 		SetShardCountStatus(4).
 		SetShardCountSpec(4).
 		SetMongodsPerShardCountStatus(4).
@@ -449,7 +516,7 @@ func TestPrepareScaleDownShardedCluster_ShardsUpMongodsDown(t *testing.T) {
 	})
 
 	// TODO prepareScaleDownShardedCluster is getting data from deployment state so modify it instead of passing state in MongoDB object
-	scAfterScale := DefaultClusterBuilder().
+	scAfterScale := test.DefaultClusterBuilder().
 		SetShardCountStatus(4).
 		SetShardCountSpec(2).
 		SetMongodsPerShardCountStatus(4).
@@ -481,7 +548,7 @@ func TestPrepareScaleDownShardedCluster_ShardsUpMongodsDown(t *testing.T) {
 }
 
 func TestConstructConfigSrv(t *testing.T) {
-	sc := DefaultClusterBuilder().Build()
+	sc := test.DefaultClusterBuilder().Build()
 	configSrvSpec := createConfigSrvSpec(sc)
 	assert.NotPanics(t, func() {
 		construct.DatabaseStatefulSet(*sc, construct.ConfigServerOptions(configSrvSpec, multicluster.LegacyCentralClusterName, construct.GetPodEnvOptions()), zap.S())
@@ -492,7 +559,7 @@ func TestConstructConfigSrv(t *testing.T) {
 // actions are done
 func TestPrepareScaleDownShardedCluster_OnlyMongos(t *testing.T) {
 	ctx := context.Background()
-	sc := DefaultClusterBuilder().SetMongosCountStatus(4).SetMongosCountSpec(2).Build()
+	sc := test.DefaultClusterBuilder().SetMongosCountStatus(4).SetMongosCountSpec(2).Build()
 	_, reconcileHelper, _, omConnectionFactory, _ := defaultClusterReconciler(ctx, sc, nil)
 	oldDeployment := createDeploymentFromShardedCluster(t, sc)
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
@@ -528,7 +595,7 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 	t.Skip("This test is too fragile to be executed; it's based on status and not deployment state and test internal interactions that are no longer true. Either we rewrite it to full Reconcile or remove it.")
 	ctx := context.Background()
 	// TODO use deployment state instead of status
-	sc := DefaultClusterBuilder().
+	sc := test.DefaultClusterBuilder().
 		SetMongosCountStatus(2).
 		SetMongosCountSpec(2).
 		SetConfigServerCountStatus(4).
@@ -550,7 +617,7 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 
 	// we need to create a different sharded cluster that is currently in the process of scaling down
 	// TODO use deployment state instead of status
-	scScaledDown := DefaultClusterBuilder().
+	scScaledDown := test.DefaultClusterBuilder().
 		SetMongosCountStatus(2).
 		SetMongosCountSpec(1).
 		SetConfigServerCountStatus(4).
@@ -584,7 +651,7 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 
 // CLOUDP-32765: checks that pod anti affinity rule spreads mongods inside one shard, not inside all shards
 func TestPodAntiaffinity_MongodsInsideShardAreSpread(t *testing.T) {
-	sc := DefaultClusterBuilder().Build()
+	sc := test.DefaultClusterBuilder().Build()
 
 	kubeClient, _ := mock.NewDefaultFakeClient(sc)
 	shardSpec, memberCluster := createShardSpecAndDefaultCluster(kubeClient, sc)
@@ -639,7 +706,7 @@ func createMongosSpec(sc *mdbv1.MongoDB) *mdbv1.ShardedClusterComponentSpec {
 
 func TestShardedCluster_WithTLSEnabled_AndX509Enabled_Succeeds(t *testing.T) {
 	ctx := context.Background()
-	sc := DefaultClusterBuilder().
+	sc := test.DefaultClusterBuilder().
 		EnableTLS().
 		EnableX509().
 		SetTLSCA("custom-ca").
@@ -658,7 +725,7 @@ func TestShardedCluster_WithTLSEnabled_AndX509Enabled_Succeeds(t *testing.T) {
 
 func TestShardedCluster_NeedToPublishState(t *testing.T) {
 	ctx := context.Background()
-	sc := DefaultClusterBuilder().
+	sc := test.DefaultClusterBuilder().
 		EnableTLS().
 		SetTLSCA("custom-ca").
 		Build()
@@ -731,7 +798,7 @@ func TestShardedCustomPodSpecTemplate(t *testing.T) {
 		RestartPolicy: corev1.RestartPolicyOnFailure,
 	}
 
-	sc := DefaultClusterBuilder().SetName("pod-spec-sc").EnableTLS().SetTLSCA("custom-ca").
+	sc := test.DefaultClusterBuilder().SetName("pod-spec-sc").EnableTLS().SetTLSCA("custom-ca").
 		SetShardPodSpec(corev1.PodTemplateSpec{
 			Spec: shardPodSpec,
 		}).SetMongosPodSpecTemplate(corev1.PodTemplateSpec{
@@ -830,7 +897,7 @@ func TestShardedCustomPodStaticSpecTemplate(t *testing.T) {
 		RestartPolicy: corev1.RestartPolicyOnFailure,
 	}
 
-	sc := DefaultClusterBuilder().SetName("pod-spec-sc").EnableTLS().SetTLSCA("custom-ca").
+	sc := test.DefaultClusterBuilder().SetName("pod-spec-sc").EnableTLS().SetTLSCA("custom-ca").
 		SetShardPodSpec(corev1.PodTemplateSpec{
 			Spec: shardPodSpec,
 		}).SetMongosPodSpecTemplate(corev1.PodTemplateSpec{
@@ -889,7 +956,7 @@ func TestShardedCustomPodStaticSpecTemplate(t *testing.T) {
 
 func TestFeatureControlsNoAuth(t *testing.T) {
 	ctx := context.Background()
-	sc := DefaultClusterBuilder().RemoveAuth().Build()
+	sc := test.DefaultClusterBuilder().RemoveAuth().Build()
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, sc)
 	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, omConnectionFactory.GetConnectionFunc)
@@ -909,7 +976,7 @@ func TestFeatureControlsNoAuth(t *testing.T) {
 
 func TestScalingShardedCluster_ScalesOneMemberAtATime_WhenScalingUp(t *testing.T) {
 	ctx := context.Background()
-	sc := DefaultClusterBuilder().
+	sc := test.DefaultClusterBuilder().
 		SetMongodsPerShardCountSpec(3).
 		SetMongodsPerShardCountStatus(0).
 		SetConfigServerCountSpec(1).
@@ -996,7 +1063,7 @@ func TestScalingShardedCluster_ScalesOneMemberAtATime_WhenScalingUp(t *testing.T
 
 func TestScalingShardedCluster_ScalesOneMemberAtATime_WhenScalingDown(t *testing.T) {
 	ctx := context.Background()
-	sc := DefaultClusterBuilder().
+	sc := test.DefaultClusterBuilder().
 		SetMongodsPerShardCountSpec(6).
 		SetMongodsPerShardCountStatus(6).
 		SetConfigServerCountSpec(3).
@@ -1087,7 +1154,7 @@ func TestScalingShardedCluster_ScalesOneMemberAtATime_WhenScalingDown(t *testing
 
 func TestFeatureControlsAuthEnabled(t *testing.T) {
 	ctx := context.Background()
-	sc := DefaultClusterBuilder().Build()
+	sc := test.DefaultClusterBuilder().Build()
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, sc)
 	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, omConnectionFactory.GetConnectionFunc)
@@ -1153,7 +1220,7 @@ func TestShardedClusterPortsAreConfigurable_WithAdditionalMongoConfig(t *testing
 // map that allows to watch them for changes
 func TestShardedCluster_ConfigMapAndSecretWatched(t *testing.T) {
 	ctx := context.Background()
-	sc := DefaultClusterBuilder().Build()
+	sc := test.DefaultClusterBuilder().Build()
 
 	reconciler, _, clusterClient, _, err := defaultClusterReconciler(ctx, sc, nil)
 	require.NoError(t, err)
@@ -1172,7 +1239,7 @@ func TestShardedCluster_ConfigMapAndSecretWatched(t *testing.T) {
 // map that allows to watch them for changes
 func TestShardedClusterTLSAndInternalAuthResourcesWatched(t *testing.T) {
 	ctx := context.Background()
-	sc := DefaultClusterBuilder().SetShardCountSpec(1).EnableTLS().SetTLSCA("custom-ca").Build()
+	sc := test.DefaultClusterBuilder().SetShardCountSpec(1).EnableTLS().SetTLSCA("custom-ca").Build()
 	sc.Spec.Security.Authentication.InternalCluster = "x509"
 	reconciler, _, clusterClient, _, err := defaultClusterReconciler(ctx, sc, nil)
 	require.NoError(t, err)
@@ -1341,7 +1408,7 @@ func createShardedClusterTLSSecretsFromCustomCerts(ctx context.Context, sc *mdbv
 
 func TestTlsConfigPrefix_ForShardedCluster(t *testing.T) {
 	ctx := context.Background()
-	sc := DefaultClusterBuilder().
+	sc := test.DefaultClusterBuilder().
 		SetTLSConfig(mdbv1.TLSConfig{
 			Enabled: false,
 		}).
@@ -1382,7 +1449,7 @@ func TestShardSpecificPodSpec(t *testing.T) {
 		RestartPolicy: corev1.RestartPolicyAlways,
 	}
 
-	sc := DefaultClusterBuilder().SetName("shard-specific-pod-spec").EnableTLS().SetTLSCA("custom-ca").
+	sc := test.DefaultClusterBuilder().SetName("shard-specific-pod-spec").EnableTLS().SetTLSCA("custom-ca").
 		SetShardPodSpec(corev1.PodTemplateSpec{
 			Spec: shardPodSpec,
 		}).SetShardSpecificPodSpecTemplate([]corev1.PodTemplateSpec{
@@ -1411,7 +1478,7 @@ func TestShardSpecificPodSpec(t *testing.T) {
 
 func TestShardedClusterAgentVersionMapping(t *testing.T) {
 	ctx := context.Background()
-	defaultResource := DefaultClusterBuilder().Build()
+	defaultResource := test.DefaultClusterBuilder().Build()
 	reconcilerFactory := func(sc *mdbv1.MongoDB) (reconcile.Reconciler, kubernetesClient.Client) {
 		// Go couldn't infer correctly that *ReconcileMongoDbShardedCluster implemented *reconciler.Reconciler interface
 		// without this anonymous function
@@ -1433,7 +1500,7 @@ func TestShardedClusterAgentVersionMapping(t *testing.T) {
 	}
 
 	// Override each sts of the sharded cluster
-	overridenResource := DefaultClusterBuilder().SetMongosPodSpecTemplate(podTemplate).SetPodConfigSvrSpecTemplate(podTemplate).SetShardPodSpec(podTemplate).Build()
+	overridenResource := test.DefaultClusterBuilder().SetMongosPodSpecTemplate(podTemplate).SetPodConfigSvrSpecTemplate(podTemplate).SetShardPodSpec(podTemplate).Build()
 	overridenResources := testReconciliationResources{
 		Resource:          overridenResource,
 		ReconcilerFactory: reconcilerFactory,
@@ -1540,251 +1607,4 @@ func newShardedClusterReconcilerFromResource(ctx context.Context, sc *mdbv1.Mong
 		return nil, nil, err
 	}
 	return r, reconcileHelper, nil
-}
-
-type ClusterBuilder struct {
-	*mdbv1.MongoDB
-}
-
-func DefaultClusterBuilder() *ClusterBuilder {
-	sizeConfig := status.MongodbShardedClusterSizeConfig{
-		ShardCount:           2,
-		MongodsPerShardCount: 3,
-		ConfigServerCount:    3,
-		MongosCount:          4,
-	}
-
-	status := mdbv1.MongoDbStatus{
-		MongodbShardedClusterSizeConfig: sizeConfig,
-	}
-
-	spec := mdbv1.MongoDbSpec{
-		DbCommonSpec: mdbv1.DbCommonSpec{
-			Persistent: util.BooleanRef(false),
-			ConnectionSpec: mdbv1.ConnectionSpec{
-				SharedConnectionSpec: mdbv1.SharedConnectionSpec{
-					OpsManagerConfig: &mdbv1.PrivateCloudConfig{
-						ConfigMapRef: mdbv1.ConfigMapRef{
-							Name: mock.TestProjectConfigMapName,
-						},
-					},
-				},
-				Credentials: mock.TestCredentialsSecretName,
-			},
-			Version:      "3.6.4",
-			ResourceType: mdbv1.ShardedCluster,
-
-			Security: &mdbv1.Security{
-				TLSConfig: &mdbv1.TLSConfig{},
-				Authentication: &mdbv1.Authentication{
-					Modes: []mdbv1.AuthMode{},
-				},
-			},
-		},
-		MongodbShardedClusterSizeConfig: sizeConfig,
-		ShardedClusterSpec: mdbv1.ShardedClusterSpec{
-			ConfigSrvSpec:    &mdbv1.ShardedClusterComponentSpec{},
-			MongosSpec:       &mdbv1.ShardedClusterComponentSpec{},
-			ShardSpec:        &mdbv1.ShardedClusterComponentSpec{},
-			ConfigSrvPodSpec: mdbv1.NewMongoDbPodSpec(),
-			ShardPodSpec:     mdbv1.NewMongoDbPodSpec(),
-		},
-	}
-
-	resource := &mdbv1.MongoDB{
-		ObjectMeta: metav1.ObjectMeta{Name: "slaney", Namespace: mock.TestNamespace},
-		Status:     status,
-		Spec:       spec,
-	}
-
-	return &ClusterBuilder{resource}
-}
-
-func (b *ClusterBuilder) SetName(name string) *ClusterBuilder {
-	b.Name = name
-	return b
-}
-
-func (b *ClusterBuilder) SetShardCountSpec(count int) *ClusterBuilder {
-	b.Spec.ShardCount = count
-	return b
-}
-
-func (b *ClusterBuilder) SetMongodsPerShardCountSpec(count int) *ClusterBuilder {
-	b.Spec.MongodsPerShardCount = count
-	return b
-}
-
-func (b *ClusterBuilder) SetConfigServerCountSpec(count int) *ClusterBuilder {
-	b.Spec.ConfigServerCount = count
-	return b
-}
-
-func (b *ClusterBuilder) SetMongosCountSpec(count int) *ClusterBuilder {
-	b.Spec.MongosCount = count
-	return b
-}
-
-func (b *ClusterBuilder) SetShardCountStatus(count int) *ClusterBuilder {
-	b.Status.ShardCount = count
-	return b
-}
-
-func (b *ClusterBuilder) SetMongodsPerShardCountStatus(count int) *ClusterBuilder {
-	b.Status.MongodsPerShardCount = count
-	return b
-}
-
-func (b *ClusterBuilder) SetConfigServerCountStatus(count int) *ClusterBuilder {
-	b.Status.ConfigServerCount = count
-	return b
-}
-
-func (b *ClusterBuilder) SetMongosCountStatus(count int) *ClusterBuilder {
-	b.Status.MongosCount = count
-	return b
-}
-
-func (b *ClusterBuilder) SetSecurity(security mdbv1.Security) *ClusterBuilder {
-	b.Spec.Security = &security
-	return b
-}
-
-func (b *ClusterBuilder) EnableTLS() *ClusterBuilder {
-	if b.Spec.Security == nil || b.Spec.Security.TLSConfig == nil {
-		return b.SetSecurity(mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}})
-	}
-	b.Spec.Security.TLSConfig.Enabled = true
-	return b
-}
-
-func (b *ClusterBuilder) SetTLSCA(ca string) *ClusterBuilder {
-	if b.Spec.Security == nil || b.Spec.Security.TLSConfig == nil {
-		b.SetSecurity(mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{}})
-	}
-	b.Spec.Security.TLSConfig.CA = ca
-	return b
-}
-
-func (b *ClusterBuilder) SetTLSConfig(tlsConfig mdbv1.TLSConfig) *ClusterBuilder {
-	if b.Spec.Security == nil {
-		b.Spec.Security = &mdbv1.Security{}
-	}
-	b.Spec.Security.TLSConfig = &tlsConfig
-	return b
-}
-
-func (b *ClusterBuilder) EnableX509() *ClusterBuilder {
-	b.Spec.Security.Authentication.Enabled = true
-	b.Spec.Security.Authentication.Modes = append(b.Spec.Security.Authentication.Modes, util.X509)
-	return b
-}
-
-func (b *ClusterBuilder) EnableSCRAM() *ClusterBuilder {
-	b.Spec.Security.Authentication.Enabled = true
-	b.Spec.Security.Authentication.Modes = append(b.Spec.Security.Authentication.Modes, util.SCRAM)
-	return b
-}
-
-func (b *ClusterBuilder) RemoveAuth() *ClusterBuilder {
-	b.Spec.Security.Authentication = nil
-
-	return b
-}
-
-func (b *ClusterBuilder) EnableAuth() *ClusterBuilder {
-	b.Spec.Security.Authentication.Enabled = true
-	return b
-}
-
-func (b *ClusterBuilder) SetAuthModes(modes []mdbv1.AuthMode) *ClusterBuilder {
-	b.Spec.Security.Authentication.Modes = modes
-	return b
-}
-
-func (b *ClusterBuilder) EnableX509InternalClusterAuth() *ClusterBuilder {
-	b.Spec.Security.Authentication.InternalCluster = util.X509
-	return b
-}
-
-func (b *ClusterBuilder) SetShardPodSpec(spec corev1.PodTemplateSpec) *ClusterBuilder {
-	if b.Spec.ShardPodSpec == nil {
-		b.Spec.ShardPodSpec = &mdbv1.MongoDbPodSpec{}
-	}
-	b.Spec.ShardPodSpec.PodTemplateWrapper.PodTemplate = &spec
-	return b
-}
-
-func (b *ClusterBuilder) SetPodConfigSvrSpecTemplate(spec corev1.PodTemplateSpec) *ClusterBuilder {
-	if b.Spec.ConfigSrvPodSpec == nil {
-		b.Spec.ConfigSrvPodSpec = &mdbv1.MongoDbPodSpec{}
-	}
-	b.Spec.ConfigSrvPodSpec.PodTemplateWrapper.PodTemplate = &spec
-	return b
-}
-
-func (b *ClusterBuilder) SetMongosPodSpecTemplate(spec corev1.PodTemplateSpec) *ClusterBuilder {
-	if b.Spec.MongosPodSpec == nil {
-		b.Spec.MongosPodSpec = &mdbv1.MongoDbPodSpec{}
-	}
-	b.Spec.MongosPodSpec.PodTemplateWrapper.PodTemplate = &spec
-	return b
-}
-
-func (b *ClusterBuilder) SetShardSpecificPodSpecTemplate(specs []corev1.PodTemplateSpec) *ClusterBuilder {
-	if b.Spec.ShardSpecificPodSpec == nil {
-		b.Spec.ShardSpecificPodSpec = make([]mdbv1.MongoDbPodSpec, 0)
-	}
-
-	mongoDBPodSpec := make([]mdbv1.MongoDbPodSpec, len(specs))
-
-	for n, e := range specs {
-		mongoDBPodSpec[n] = mdbv1.MongoDbPodSpec{PodTemplateWrapper: mdbv1.PodTemplateSpecWrapper{
-			PodTemplate: &e,
-		}}
-	}
-
-	b.Spec.ShardSpecificPodSpec = mongoDBPodSpec
-	return b
-}
-
-func (b *ClusterBuilder) SetAnnotations(annotations map[string]string) *ClusterBuilder {
-	b.Annotations = annotations
-	return b
-}
-
-func (b *ClusterBuilder) SetTopology(topology string) *ClusterBuilder {
-	b.MongoDB.Spec.Topology = topology
-	return b
-}
-
-func (b *ClusterBuilder) SetConfigSrvClusterSpec(clusterSpecList mdbv1.ClusterSpecList) *ClusterBuilder {
-	b.Spec.ConfigSrvSpec.ClusterSpecList = clusterSpecList
-	return b
-}
-
-func (b *ClusterBuilder) SetMongosClusterSpec(clusterSpecList mdbv1.ClusterSpecList) *ClusterBuilder {
-	b.Spec.MongosSpec.ClusterSpecList = clusterSpecList
-	return b
-}
-
-func (b *ClusterBuilder) SetShardClusterSpec(clusterSpecList mdbv1.ClusterSpecList) *ClusterBuilder {
-	b.Spec.ShardSpec.ClusterSpecList = clusterSpecList
-	return b
-}
-
-func (b *ClusterBuilder) SetShardOverrides(override []mdbv1.ShardOverride) *ClusterBuilder {
-	b.Spec.ShardOverrides = override
-	return b
-}
-
-func (b *ClusterBuilder) SetOpsManagerConfigMapName(configMapName string) *ClusterBuilder {
-	b.Spec.SharedConnectionSpec.OpsManagerConfig.ConfigMapRef.Name = configMapName
-	return b
-}
-
-func (b *ClusterBuilder) Build() *mdbv1.MongoDB {
-	b.Spec.ResourceType = mdbv1.ShardedCluster
-	b.InitDefaults()
-	return b.MongoDB
 }
