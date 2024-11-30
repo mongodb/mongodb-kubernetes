@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -15,6 +16,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
@@ -97,7 +100,7 @@ func (c *clusterChecks) checkProjectIDConfigMap(ctx context.Context, configMapNa
 	return cm.Data[util.AppDbProjectIdKey]
 }
 
-func (c *clusterChecks) checkServices(ctx context.Context, statefulSetName string, expectedMembers int) {
+func (c *clusterChecks) checkPerPodServices(ctx context.Context, statefulSetName string, expectedMembers int) {
 	for podIdx := 0; podIdx < expectedMembers; podIdx++ {
 		svc := corev1.Service{}
 		serviceName := fmt.Sprintf("%s-%d-svc", statefulSetName, podIdx)
@@ -109,6 +112,108 @@ func (c *clusterChecks) checkServices(ctx context.Context, statefulSetName strin
 			"statefulset.kubernetes.io/pod-name": fmt.Sprintf("%s-%d", statefulSetName, podIdx),
 		},
 			svc.Spec.Selector)
+	}
+}
+
+func (c *clusterChecks) checkPerPodServicesDontExist(ctx context.Context, statefulSetName string, expectedMembers int) {
+	for podIdx := 0; podIdx < expectedMembers; podIdx++ {
+		svc := corev1.Service{}
+		serviceName := fmt.Sprintf("%s-%d-svc", statefulSetName, podIdx)
+		err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, serviceName), &svc)
+		require.True(c.t, apiErrors.IsNotFound(err))
+	}
+}
+
+func (c *clusterChecks) checkExternalServices(ctx context.Context, statefulSetName string, expectedMembers int) {
+	for podIdx := 0; podIdx < expectedMembers; podIdx++ {
+		svc := corev1.Service{}
+		serviceName := fmt.Sprintf("%s-%d-svc-external", statefulSetName, podIdx)
+		err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, serviceName), &svc)
+		require.NoError(c.t, err, "clusterName: %s", c.clusterName)
+		assert.Subset(c.t, svc.Spec.Selector, map[string]string{
+			"controller":                         "mongodb-enterprise-operator",
+			"statefulset.kubernetes.io/pod-name": fmt.Sprintf("%s-%d", statefulSetName, podIdx),
+		})
+	}
+}
+
+func (c *clusterChecks) checkExternalServicesDontNotExist(ctx context.Context, statefulSetName string, expectedMembers int) {
+	for podIdx := 0; podIdx < expectedMembers; podIdx++ {
+		svc := corev1.Service{}
+		serviceName := fmt.Sprintf("%s-%d-svc-external", statefulSetName, podIdx)
+		err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, serviceName), &svc)
+		require.True(c.t, apiErrors.IsNotFound(err))
+	}
+}
+
+func (c *clusterChecks) checkInternalServices(ctx context.Context, statefulSetName string) {
+	svc := corev1.Service{}
+	// the statefulSetName already contains the clusterNumber
+	serviceName := fmt.Sprintf("%s-svc", statefulSetName)
+	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, serviceName), &svc)
+	require.NoError(c.t, err, "clusterName: %s", c.clusterName)
+
+	assert.Equal(c.t, map[string]string{
+		"controller": "mongodb-enterprise-operator",
+		"app":        serviceName,
+	},
+		svc.Spec.Selector)
+}
+
+func (c *clusterChecks) checkServiceExists(ctx context.Context, serviceName string) {
+	svc := corev1.Service{}
+	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, serviceName), &svc)
+	require.NoError(c.t, err, "clusterName: %s", c.clusterName)
+}
+
+func (c *clusterChecks) checkServiceAnnotations(ctx context.Context, statefulSetName string, expectedMembers int, sc *mdbv1.MongoDB, clusterName string, clusterIdx int, externalDomain string) {
+	for podIdx := 0; podIdx < expectedMembers; podIdx++ {
+		svc := corev1.Service{}
+		serviceName := fmt.Sprintf("%s-%d-svc-external", statefulSetName, podIdx)
+		err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, serviceName), &svc)
+		require.NoError(c.t, err, "clusterName: %s", c.clusterName)
+		podName := fmt.Sprintf("%s-%d", statefulSetName, podIdx)
+
+		useExternalDomain := sc.Spec.GetExternalDomain() != nil
+		if !useExternalDomain {
+			if strings.HasSuffix(statefulSetName, "-mongos") {
+				useExternalDomain = sc.Spec.ShardedClusterSpec.MongosSpec.ClusterSpecList.GetExternalDomainForMemberCluster(clusterName) != nil
+			} else if strings.HasSuffix(statefulSetName, "-config") {
+				useExternalDomain = sc.Spec.ShardedClusterSpec.ConfigSrvSpec.ClusterSpecList.GetExternalDomainForMemberCluster(clusterName) != nil
+			} else {
+				useExternalDomain = sc.Spec.ShardedClusterSpec.ShardSpec.ClusterSpecList.GetExternalDomainForMemberCluster(clusterName) != nil
+			}
+		}
+
+		expectedAnnotations := map[string]string{
+			create.PlaceholderPodIndex:            fmt.Sprintf("%d", podIdx),
+			create.PlaceholderNamespace:           sc.Namespace,
+			create.PlaceholderResourceName:        sc.Name,
+			create.PlaceholderStatefulSetName:     statefulSetName,
+			create.PlaceholderPodName:             podName,
+			create.PlaceholderExternalServiceName: fmt.Sprintf("%s-svc-external", podName),
+		}
+		if sc.Spec.IsMultiCluster() {
+			expectedAnnotations[create.PlaceholderClusterName] = clusterName
+			expectedAnnotations[create.PlaceholderClusterIndex] = fmt.Sprintf("%d", clusterIdx)
+		}
+		if strings.HasSuffix(statefulSetName, "-mongos") {
+			expectedAnnotations[create.PlaceholderMongosProcessDomain] = externalDomain
+			if useExternalDomain {
+				expectedAnnotations[create.PlaceholderMongosProcessFQDN] = fmt.Sprintf("%s.%s", podName, externalDomain)
+			} else {
+				expectedAnnotations[create.PlaceholderMongosProcessFQDN] = fmt.Sprintf("%s-svc.%s", podName, externalDomain)
+			}
+		} else {
+			expectedAnnotations[create.PlaceholderMongodProcessDomain] = externalDomain
+			if useExternalDomain {
+				expectedAnnotations[create.PlaceholderMongodProcessFQDN] = fmt.Sprintf("%s.%s", podName, externalDomain)
+			} else {
+				expectedAnnotations[create.PlaceholderMongodProcessFQDN] = fmt.Sprintf("%s-svc.%s", podName, externalDomain)
+			}
+
+		}
+		assert.Equal(c.t, expectedAnnotations, svc.Annotations)
 	}
 }
 

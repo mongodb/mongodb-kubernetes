@@ -6,6 +6,10 @@
   - The implementation is backwards compatible with single cluster deployments of MongoDB Sharded Clusters, by defaulting `spec.topology` to `SingleCluster`. Existing `MongoDB` resources do not need to be modified to upgrade to this version of the operator.
   - `spec.shardSpecificPodSpec` was deprecated, the recommended way of adding per-shard settings is to use `spec.shardOverrides`, for both Single and Multi Cluster topology. A specific example of how to migrate the settings to ShardOverrides is available in the public documentation.
   - More details can be found in the [public documentation](https://deploy-preview-1840--docs-k8s-operator.netlify.app/reference/k8s-operator-specification/#sharded-cluster-settings).
+  - Introduced support for Sharded deployments across multiple Kubernetes clusters without requiring a Service Mesh - the is made possible by enabling all components of such a deployment (including mongos, config servers, and mongod) to be exposed externally to the Kubernetes clusters, which enables routing via external interfaces.
+
+## Bug Fixes
+* **MongoDB**: Fixed placeholder name for `mongos` in Single Cluster Sharded with External Domain set. Previously it was called `mongodProcessDomain` and `mongodProcessFQDN` now they're called `mongosProcessDomain` and `mongosProcessFQDN`.
 
 [//]: # (TODO: update above link with Multi Cluster Sharded main page when added in public doc ; also update the link in 1.28 release notes below)
 
@@ -18,7 +22,7 @@
 
 * **MongoDB**, **AppDB**, **MongoDBMultiCluster**: Fixed a bug where specifying a fractional number for a storage volume's size such as `1.7Gi` can break the reconciliation loop for that resource with an error like `Can't execute update on forbidden fields` even if the underlying Persistence Volume Claim is deployed successfully.
 * **MongoDB**, **MongoDBMultiCluster**, **OpsManager**, **AppDB**: Increased stability of deployments during TLS rotations. In scenarios where the StatefulSet of the deployment was reconciling and a TLS rotation happened, the deployment would reach a broken state. Deployments will now store the previous TLS certificate alongside the new one.
-<!-- Past Releases -->
+
 # MongoDB Enterprise Kubernetes Operator 1.28.0
 
 ## New Features

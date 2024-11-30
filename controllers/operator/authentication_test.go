@@ -37,6 +37,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/authentication"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
+	"github.com/10gen/ops-manager-kubernetes/pkg/test"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
@@ -63,7 +64,7 @@ func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_Re
 
 func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_ShardedCluster(t *testing.T) {
 	ctx := context.Background()
-	scWithTls := DefaultClusterBuilder().EnableTLS().EnableX509().SetName("sc-with-tls").SetTLSCA("custom-ca").Build()
+	scWithTls := test.DefaultClusterBuilder().EnableTLS().EnableX509().SetName("sc-with-tls").SetTLSCA("custom-ca").Build()
 
 	reconciler, _, client, _, err := defaultClusterReconciler(ctx, scWithTls, nil)
 	require.NoError(t, err)
@@ -74,7 +75,7 @@ func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_Sh
 
 func TestX509CanBeEnabled_WhenThereAreOnlyTlsDeployments_ShardedCluster(t *testing.T) {
 	ctx := context.Background()
-	scWithTls := DefaultClusterBuilder().EnableTLS().EnableX509().SetName("sc-with-tls").SetTLSCA("custom-ca").Build()
+	scWithTls := test.DefaultClusterBuilder().EnableTLS().EnableX509().SetName("sc-with-tls").SetTLSCA("custom-ca").Build()
 
 	reconciler, _, client, _, err := defaultClusterReconciler(ctx, scWithTls, nil)
 	require.NoError(t, err)
@@ -326,7 +327,7 @@ func TestX509InternalClusterAuthentication_CanBeEnabledWithScram_ReplicaSet(t *t
 
 func TestX509InternalClusterAuthentication_CanBeEnabledWithScram_ShardedCluster(t *testing.T) {
 	ctx := context.Background()
-	sc := DefaultClusterBuilder().SetName("my-sc").
+	sc := test.DefaultClusterBuilder().SetName("my-sc").
 		EnableAuth().
 		EnableSCRAM().
 		EnableX509InternalClusterAuth().

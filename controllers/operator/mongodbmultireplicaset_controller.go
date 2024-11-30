@@ -950,8 +950,8 @@ func ensureServices(ctx context.Context, client service.GetUpdateCreator, client
 		var svc corev1.Service
 		if m.Spec.GetExternalAccessConfigurationForMemberCluster(clusterSpecItem.ClusterName) != nil {
 			svc = getExternalService(m, clusterSpecItem.ClusterName, podNum)
-
-			placeholderReplacer := create.GetMultiClusterMongoDBPlaceholderReplacer(m.Name, m.Namespace, clusterSpecItem.ClusterName, m.ClusterNum(clusterSpecItem.ClusterName), m, podNum)
+			externalDomain := m.Spec.GetExternalDomainForMemberCluster(clusterSpecItem.ClusterName)
+			placeholderReplacer := create.GetMultiClusterMongoDBPlaceholderReplacer(m.Name, m.Name, m.Namespace, clusterSpecItem.ClusterName, m.ClusterNum(clusterSpecItem.ClusterName), externalDomain, m.Spec.ClusterDomain, podNum)
 			if processedAnnotations, replacedFlag, err := placeholderReplacer.ProcessMap(svc.Annotations); err != nil {
 				return xerrors.Errorf("failed to process annotations in external service %s in cluster %s: %w", svc.Name, clientClusterName, err)
 			} else if replacedFlag {
