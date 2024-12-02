@@ -645,7 +645,7 @@ func createStatefulSet(size1, size2, size3 string) *appsv1.StatefulSet {
 						Name: "data",
 					},
 					Spec: corev1.PersistentVolumeClaimSpec{
-						Resources: corev1.ResourceRequirements{
+						Resources: corev1.VolumeResourceRequirements{
 							Requests: corev1.ResourceList{
 								corev1.ResourceStorage: resource.MustParse(size1),
 							},
@@ -657,7 +657,7 @@ func createStatefulSet(size1, size2, size3 string) *appsv1.StatefulSet {
 						Name: "journal",
 					},
 					Spec: corev1.PersistentVolumeClaimSpec{
-						Resources: corev1.ResourceRequirements{
+						Resources: corev1.VolumeResourceRequirements{
 							Requests: corev1.ResourceList{
 								corev1.ResourceStorage: resource.MustParse(size2),
 							},
@@ -669,7 +669,7 @@ func createStatefulSet(size1, size2, size3 string) *appsv1.StatefulSet {
 						Name: "logs",
 					},
 					Spec: corev1.PersistentVolumeClaimSpec{
-						Resources: corev1.ResourceRequirements{
+						Resources: corev1.VolumeResourceRequirements{
 							Requests: corev1.ResourceList{
 								corev1.ResourceStorage: resource.MustParse(size3),
 							},
@@ -712,7 +712,7 @@ func TestResourceStorageHasChanged(t *testing.T) {
 				existingPVC: []corev1.PersistentVolumeClaim{
 					{
 						Spec: corev1.PersistentVolumeClaimSpec{
-							Resources: corev1.ResourceRequirements{
+							Resources: corev1.VolumeResourceRequirements{
 								Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("2Gi")},
 							},
 						},
@@ -721,7 +721,7 @@ func TestResourceStorageHasChanged(t *testing.T) {
 				toCreatePVC: []corev1.PersistentVolumeClaim{
 					{
 						Spec: corev1.PersistentVolumeClaimSpec{
-							Resources: corev1.ResourceRequirements{
+							Resources: corev1.VolumeResourceRequirements{
 								Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")},
 							},
 						},
@@ -736,7 +736,7 @@ func TestResourceStorageHasChanged(t *testing.T) {
 				existingPVC: []corev1.PersistentVolumeClaim{
 					{
 						Spec: corev1.PersistentVolumeClaimSpec{
-							Resources: corev1.ResourceRequirements{
+							Resources: corev1.VolumeResourceRequirements{
 								Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")},
 							},
 						},
@@ -745,7 +745,7 @@ func TestResourceStorageHasChanged(t *testing.T) {
 				toCreatePVC: []corev1.PersistentVolumeClaim{
 					{
 						Spec: corev1.PersistentVolumeClaimSpec{
-							Resources: corev1.ResourceRequirements{
+							Resources: corev1.VolumeResourceRequirements{
 								Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("2Gi")},
 							},
 						},
@@ -760,7 +760,7 @@ func TestResourceStorageHasChanged(t *testing.T) {
 				existingPVC: []corev1.PersistentVolumeClaim{
 					{
 						Spec: corev1.PersistentVolumeClaimSpec{
-							Resources: corev1.ResourceRequirements{
+							Resources: corev1.VolumeResourceRequirements{
 								Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")},
 							},
 						},
@@ -769,7 +769,7 @@ func TestResourceStorageHasChanged(t *testing.T) {
 				toCreatePVC: []corev1.PersistentVolumeClaim{
 					{
 						Spec: corev1.PersistentVolumeClaimSpec{
-							Resources: corev1.ResourceRequirements{
+							Resources: corev1.VolumeResourceRequirements{
 								Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")},
 							},
 						},
@@ -805,7 +805,7 @@ func TestHasFinishedResizing(t *testing.T) {
 						Name: "data",
 					},
 					Spec: corev1.PersistentVolumeClaimSpec{
-						Resources: corev1.ResourceRequirements{
+						Resources: corev1.VolumeResourceRequirements{
 							Requests: corev1.ResourceList{
 								corev1.ResourceStorage: resource.MustParse("20Gi"),
 							},
@@ -817,7 +817,7 @@ func TestHasFinishedResizing(t *testing.T) {
 						Name: "logs",
 					},
 					Spec: corev1.PersistentVolumeClaimSpec{
-						Resources: corev1.ResourceRequirements{
+						Resources: corev1.VolumeResourceRequirements{
 							Requests: corev1.ResourceList{
 								corev1.ResourceStorage: resource.MustParse("30Gi"),
 							},
@@ -868,7 +868,7 @@ func createPVCWithCapacity(name string, capacity string) *corev1.PersistentVolum
 			Namespace: "default",
 		},
 		Spec: corev1.PersistentVolumeClaimSpec{
-			Resources: corev1.ResourceRequirements{
+			Resources: corev1.VolumeResourceRequirements{
 				Requests: corev1.ResourceList{
 					corev1.ResourceStorage: resource.MustParse(capacity),
 				},

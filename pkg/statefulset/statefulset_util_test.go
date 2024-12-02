@@ -143,14 +143,14 @@ func TestIsVolumeClaimUpdatableTo(t *testing.T) {
 			name: "Storage: unequal",
 			existing: corev1.PersistentVolumeClaim{
 				Spec: corev1.PersistentVolumeClaimSpec{
-					Resources: corev1.ResourceRequirements{
+					Resources: corev1.VolumeResourceRequirements{
 						Requests: map[corev1.ResourceName]resource.Quantity{corev1.ResourceStorage: resource.MustParse("1Gi")},
 					},
 				},
 			},
 			desired: corev1.PersistentVolumeClaim{
 				Spec: corev1.PersistentVolumeClaimSpec{
-					Resources: corev1.ResourceRequirements{
+					Resources: corev1.VolumeResourceRequirements{
 						Requests: map[corev1.ResourceName]resource.Quantity{corev1.ResourceStorage: resource.MustParse("2Gi")},
 					},
 				},
@@ -182,14 +182,14 @@ func TestIsVolumeClaimUpdatableTo(t *testing.T) {
 			name: "Storage: fractional value that needs canonicalizing",
 			existing: corev1.PersistentVolumeClaim{
 				Spec: corev1.PersistentVolumeClaimSpec{
-					Resources: corev1.ResourceRequirements{
+					Resources: corev1.VolumeResourceRequirements{
 						Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("966367641600m")},
 					},
 				},
 			},
 			desired: corev1.PersistentVolumeClaim{
 				Spec: corev1.PersistentVolumeClaimSpec{
-					Resources: corev1.ResourceRequirements{
+					Resources: corev1.VolumeResourceRequirements{
 						Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("0.9Gi")},
 					},
 				},
