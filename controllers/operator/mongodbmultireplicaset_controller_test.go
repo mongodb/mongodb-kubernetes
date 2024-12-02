@@ -112,7 +112,7 @@ func TestReconcilePVCResizeMultiCluster(t *testing.T) {
 						},
 						Spec: corev1.PersistentVolumeClaimSpec{
 							StorageClassName: ptr.To("test"),
-							Resources: corev1.ResourceRequirements{
+							Resources: corev1.VolumeResourceRequirements{
 								Requests: map[corev1.ResourceName]resource.Quantity{corev1.ResourceStorage: resource.MustParse("1Gi")},
 							},
 						},

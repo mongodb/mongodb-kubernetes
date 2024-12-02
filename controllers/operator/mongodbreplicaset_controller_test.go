@@ -772,7 +772,7 @@ func TestHandlePVCResize(t *testing.T) {
 						Name: "data-pvc",
 					},
 					Spec: corev1.PersistentVolumeClaimSpec{
-						Resources: corev1.ResourceRequirements{
+						Resources: corev1.VolumeResourceRequirements{
 							Requests: corev1.ResourceList{
 								corev1.ResourceStorage: resource.MustParse("1Gi"),
 							},
@@ -788,7 +788,7 @@ func TestHandlePVCResize(t *testing.T) {
 			Name:      "data-pvc-example-sts-0",
 			Namespace: "default",
 		},
-		Spec: corev1.PersistentVolumeClaimSpec{Resources: corev1.ResourceRequirements{Requests: map[corev1.ResourceName]resource.Quantity{corev1.ResourceStorage: resource.MustParse("1Gi")}}},
+		Spec: corev1.PersistentVolumeClaimSpec{Resources: corev1.VolumeResourceRequirements{Requests: map[corev1.ResourceName]resource.Quantity{corev1.ResourceStorage: resource.MustParse("1Gi")}}},
 		Status: corev1.PersistentVolumeClaimStatus{
 			Capacity: corev1.ResourceList{
 				corev1.ResourceStorage: resource.MustParse("1Gi"),
