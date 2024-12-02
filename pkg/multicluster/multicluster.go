@@ -11,6 +11,8 @@ import (
 	"github.com/ghodss/yaml"
 	"golang.org/x/xerrors"
 	"k8s.io/client-go/tools/clientcmd"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/cluster"
 
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	restclient "k8s.io/client-go/rest"
@@ -31,8 +33,8 @@ type KubeConfig struct {
 	Reader io.Reader
 }
 
-func NewKubeConfigFile() (KubeConfig, error) {
-	file, err := os.Open(GetKubeConfigPath())
+func NewKubeConfigFile(kubeConfigPath string) (KubeConfig, error) {
+	file, err := os.Open(kubeConfigPath)
 	if err != nil {
 		return KubeConfig{}, err
 	}
@@ -58,11 +60,11 @@ func (k KubeConfig) LoadKubeConfigFile() (KubeConfigFile, error) {
 }
 
 // CreateMemberClusterClients creates a client(map of cluster-name to client) to talk to the API-Server corresponding to each member clusters.
-func CreateMemberClusterClients(clusterNames []string) (map[string]*restclient.Config, error) {
+func CreateMemberClusterClients(clusterNames []string, kubeConfigPath string) (map[string]*restclient.Config, error) {
 	clusterClientsMap := map[string]*restclient.Config{}
 
 	for _, c := range clusterNames {
-		clientset, err := getClient(c, GetKubeConfigPath())
+		clientset, err := getClient(c, kubeConfigPath)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to create clientset map: %w", err)
 		}
@@ -175,6 +177,14 @@ func GetRsNamefromMultiStsName(name string) string {
 		panic(fmt.Sprintf("invalid statefulset name: %s", name))
 	}
 	return strings.Join(ss[:len(ss)-1], "-")
+}
+
+func ClustersMapToClientMap(clusterMap map[string]cluster.Cluster) map[string]client.Client {
+	clientMap := map[string]client.Client{}
+	for memberClusterName, memberCluster := range clusterMap {
+		clientMap[memberClusterName] = memberCluster.GetClient()
+	}
+	return clientMap
 }
 
 // MemberCluster is a wrapper type containing basic information about member cluster in one place.

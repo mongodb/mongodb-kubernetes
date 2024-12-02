@@ -16,7 +16,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/agent"
@@ -120,7 +119,7 @@ type ReconcileAppDbReplicaSet struct {
 	deploymentState *AppDBDeploymentState
 }
 
-func newAppDBReplicaSetReconciler(ctx context.Context, appDBSpec omv1.AppDBSpec, commonController *ReconcileCommonController, omConnectionFactory om.ConnectionFactory, omAnnotations map[string]string, globalMemberClustersMap map[string]cluster.Cluster, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
+func NewAppDBReplicaSetReconciler(ctx context.Context, appDBSpec omv1.AppDBSpec, commonController *ReconcileCommonController, omConnectionFactory om.ConnectionFactory, omAnnotations map[string]string, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
 	reconciler := &ReconcileAppDbReplicaSet{
 		ReconcileCommonController: commonController,
 		omConnectionFactory:       omConnectionFactory,
@@ -221,7 +220,7 @@ func (r *ReconcileAppDbReplicaSet) initializeStateStore(ctx context.Context, app
 //   - cluster-3, idx=2, members=3 (removed cluster, idx and previous members from map)
 //   - cluster-10, idx=3, members=10 (assigns a new index that is the next available index (0,1,2 are taken))
 //   - cluster-5, idx=4, members=5 (assigns a new index that is the next available index (0,1,2,3 are taken))
-func (r *ReconcileAppDbReplicaSet) initializeMemberClusters(ctx context.Context, appDBSpec omv1.AppDBSpec, globalMemberClustersMap map[string]cluster.Cluster, log *zap.SugaredLogger) error {
+func (r *ReconcileAppDbReplicaSet) initializeMemberClusters(ctx context.Context, appDBSpec omv1.AppDBSpec, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger) error {
 	if appDBSpec.IsMultiCluster() {
 		if len(globalMemberClustersMap) == 0 {
 			return xerrors.Errorf("member clusters have to be initialized for MultiCluster AppDB topology")
@@ -298,7 +297,7 @@ func (r *ReconcileAppDbReplicaSet) writeLegacyStateConfigMaps(ctx context.Contex
 	return nil
 }
 
-func createMemberClusterListFromClusterSpecList(clusterSpecList mdbv1.ClusterSpecList, globalMemberClustersMap map[string]cluster.Cluster, log *zap.SugaredLogger, memberClusterMapping map[string]int, getLastAppliedMemberCountFunc func(memberClusterName string) int) []multicluster.MemberCluster {
+func createMemberClusterListFromClusterSpecList(clusterSpecList mdbv1.ClusterSpecList, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger, memberClusterMapping map[string]int, getLastAppliedMemberCountFunc func(memberClusterName string) int) []multicluster.MemberCluster {
 	var memberClusters []multicluster.MemberCluster
 	specClusterMap := map[string]struct{}{}
 	for _, clusterSpecItem := range clusterSpecList {
@@ -315,7 +314,7 @@ func createMemberClusterListFromClusterSpecList(clusterSpecList mdbv1.ClusterSpe
 			log.Warnf("Member cluster %s specified in clusterSpecList is not found in the list of operator's member clusters: %+v. "+
 				"Assuming the cluster is down. It will be ignored from reconciliation but its MongoDB processes will still be maintained in replicaset configuration.", clusterSpecItem.ClusterName, clusterList)
 		} else {
-			memberClusterKubeClient = kubernetesClient.NewClient(memberClusterClient.GetClient())
+			memberClusterKubeClient = kubernetesClient.NewClient(memberClusterClient)
 			memberClusterSecretClient = secrets.SecretClient{
 				VaultClient: nil, // Vault is not supported yet on multi cluster
 				KubeClient:  memberClusterKubeClient,
@@ -357,7 +356,7 @@ func createMemberClusterListFromClusterSpecList(clusterSpecList mdbv1.ClusterSpe
 			log.Warnf("Member cluster %s that has to be scaled to 0 replicas is not found in the list of operator's member clusters: %+v. "+
 				"Assuming the cluster is down. It will be ignored from reconciliation but it's MongoDB processes will be scaled down to 0 in replicaset configuration.", previousMember, clusterList)
 		} else {
-			memberClusterKubeClient = kubernetesClient.NewClient(memberClusterClient.GetClient())
+			memberClusterKubeClient = kubernetesClient.NewClient(memberClusterClient)
 			memberClusterSecretClient = secrets.SecretClient{
 				VaultClient: nil, // Vault is not supported yet on multi cluster
 				KubeClient:  memberClusterKubeClient,
@@ -700,7 +699,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 
 func (r *ReconcileAppDbReplicaSet) getNameOfFirstMemberCluster() string {
 	firstMemberClusterName := ""
-	for _, memberCluster := range r.getHealthyMemberClusters() {
+	for _, memberCluster := range r.GetHealthyMemberClusters() {
 		if memberCluster.Active {
 			firstMemberClusterName = memberCluster.Name
 			break
@@ -725,7 +724,7 @@ func (r *ReconcileAppDbReplicaSet) deployAutomationConfigAndWaitForAgentsReachGo
 
 func (r *ReconcileAppDbReplicaSet) deployAutomationConfigOnHealthyClusters(ctx context.Context, log *zap.SugaredLogger, opsManager *omv1.MongoDBOpsManager, appdbOpts construct.AppDBStatefulSetOptions) (int, workflow.Status) {
 	configVersions := map[int]struct{}{}
-	for _, memberCluster := range r.getHealthyMemberClusters() {
+	for _, memberCluster := range r.GetHealthyMemberClusters() {
 		if configVersion, workflowStatus := r.deployAutomationConfig(ctx, opsManager, appdbOpts.PrometheusTLSCertHash, memberCluster.Name, log); !workflowStatus.IsOK() {
 			return 0, workflowStatus
 		} else {
@@ -849,7 +848,7 @@ func (r *ReconcileAppDbReplicaSet) ensureTLSSecretAndCreatePEMIfNeeded(ctx conte
 
 	if needToCreatePEM {
 		var data string
-		for _, memberCluster := range r.getHealthyMemberClusters() {
+		for _, memberCluster := range r.GetHealthyMemberClusters() {
 			if om.Spec.AppDB.IsMultiCluster() {
 				data, err = certs.VerifyTLSSecretForStatefulSet(secretData, certs.AppDBMultiClusterReplicaSetConfig(om, scalers.GetAppDBScaler(om, memberCluster.Name, r.getMemberClusterIndex(memberCluster.Name), r.memberClusters)))
 			} else {
@@ -868,7 +867,7 @@ func (r *ReconcileAppDbReplicaSet) ensureTLSSecretAndCreatePEMIfNeeded(ctx conte
 		secretHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, om.Namespace, secretName, appdbSecretPath, log)
 
 		var errs error
-		for _, memberCluster := range r.getHealthyMemberClusters() {
+		for _, memberCluster := range r.GetHealthyMemberClusters() {
 			err = certs.CreateOrUpdatePEMSecretWithPreviousCert(ctx, memberCluster.SecretClient, kube.ObjectKey(om.Namespace, secretName), secretHash, data, nil, certs.AppDB)
 			if err != nil {
 				errs = multierror.Append(errs, xerrors.Errorf("can't create concatenated PEM certificate in cluster %s: %w", memberCluster.Name, err))
@@ -896,7 +895,7 @@ func (r *ReconcileAppDbReplicaSet) replicateTLSCAConfigMap(ctx context.Context, 
 		return workflow.Failed(xerrors.Errorf("Expected CA ConfigMap not found on central cluster: %s", caConfigMapName))
 	}
 
-	for _, memberCluster := range r.getHealthyMemberClusters() {
+	for _, memberCluster := range r.GetHealthyMemberClusters() {
 		memberCm := configmap.Builder().SetName(caConfigMapName).SetNamespace(appDBSpec.Namespace).SetData(cm.Data).Build()
 		err = configmap.CreateOrUpdate(ctx, memberCluster.Client, memberCm)
 
@@ -922,7 +921,7 @@ func (r *ReconcileAppDbReplicaSet) replicateSSLMMSCAConfigMap(ctx context.Contex
 		return workflow.Failed(xerrors.Errorf("Expected SSLMMSCAConfigMap not found on central cluster: %s", caConfigMapName))
 	}
 
-	for _, memberCluster := range r.getHealthyMemberClusters() {
+	for _, memberCluster := range r.GetHealthyMemberClusters() {
 		memberCm := configmap.Builder().SetName(caConfigMapName).SetNamespace(appDBSpec.Namespace).SetData(cm.Data).Build()
 		err = configmap.CreateOrUpdate(ctx, memberCluster.Client, memberCm)
 
@@ -954,7 +953,7 @@ func (r *ReconcileAppDbReplicaSet) publishAutomationConfig(ctx context.Context, 
 func (r *ReconcileAppDbReplicaSet) getExistingAutomationConfig(ctx context.Context, opsManager *omv1.MongoDBOpsManager, secretName string) (automationconfig.AutomationConfig, error) {
 	latestVersion := -1
 	latestAc := automationconfig.AutomationConfig{}
-	for _, memberCluster := range r.getHealthyMemberClusters() {
+	for _, memberCluster := range r.GetHealthyMemberClusters() {
 		ac, err := automationconfig.ReadFromSecret(ctx, memberCluster.Client, types.NamespacedName{Name: secretName, Namespace: opsManager.Namespace})
 		if err != nil {
 			return automationconfig.AutomationConfig{}, err
@@ -1504,7 +1503,7 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDbAgentApiKey(ctx context.Context, o
 	}
 
 	agentKey := ""
-	for _, memberCluster := range r.getHealthyMemberClusters() {
+	for _, memberCluster := range r.GetHealthyMemberClusters() {
 		if agentKeyFromSecret, err := agents.EnsureAgentKeySecretExists(ctx, memberCluster.SecretClient, conn, opsManager.Namespace, agentKey, projectID, appdbSecretPath, log); err != nil {
 			return xerrors.Errorf("error ensuring agent key secret exists in cluster %s: %w", memberCluster.Name, err)
 		} else if agentKey == "" {
@@ -1603,7 +1602,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 
 func (r *ReconcileAppDbReplicaSet) ensureProjectIDConfigMap(ctx context.Context, opsManager *omv1.MongoDBOpsManager, projectID string) error {
 	var errs error
-	for _, memberCluster := range r.getHealthyMemberClusters() {
+	for _, memberCluster := range r.GetHealthyMemberClusters() {
 		if err := r.ensureProjectIDConfigMapForCluster(ctx, opsManager, projectID, memberCluster.Client); err != nil {
 			errs = multierror.Append(errs, xerrors.Errorf("error creating ConfigMap in cluster %s: %w", memberCluster.Name, err))
 			continue
@@ -1792,7 +1791,7 @@ func (r *ReconcileAppDbReplicaSet) deployStatefulSet(ctx context.Context, opsMan
 
 	// if this is the first time deployment, then we need to wait for all stateful sets to become ready after deploying all of them
 	if scalingFirstTime {
-		for _, memberCluster := range r.getHealthyMemberClusters() {
+		for _, memberCluster := range r.GetHealthyMemberClusters() {
 			if workflowStatus := getStatefulSetStatus(ctx, opsManager.Namespace, opsManager.Spec.AppDB.NameForCluster(memberCluster.Index), memberCluster.Client); !workflowStatus.IsOK() {
 				return workflowStatus
 			}
@@ -1815,7 +1814,7 @@ func (r *ReconcileAppDbReplicaSet) createMultiClusterServices(ctx context.Contex
 		return nil
 	}
 
-	for _, memberCluster := range r.getHealthyMemberClusters() {
+	for _, memberCluster := range r.GetHealthyMemberClusters() {
 		clusterSpecItem := opsManager.Spec.AppDB.GetMemberClusterSpecByName(memberCluster.Name)
 		for podNum := 0; podNum < clusterSpecItem.Members; podNum++ {
 			svc := getMultiClusterAppDBService(opsManager.Spec.AppDB, r.getMemberClusterIndex(memberCluster.Name), podNum)
@@ -1851,7 +1850,7 @@ func (r *ReconcileAppDbReplicaSet) deployStatefulSetInMemberCluster(ctx context.
 }
 
 func (r *ReconcileAppDbReplicaSet) allAgentsReachedGoalState(ctx context.Context, manager *omv1.MongoDBOpsManager, targetConfigVersion int, log *zap.SugaredLogger) workflow.Status {
-	for _, memberCluster := range r.getHealthyMemberClusters() {
+	for _, memberCluster := range r.GetHealthyMemberClusters() {
 		var workflowStatus workflow.Status
 		if manager.Spec.AppDB.IsMultiCluster() {
 			workflowStatus = r.allAgentsReachedGoalStateMultiCluster(ctx, manager, targetConfigVersion, memberCluster.Name, log)
@@ -1916,7 +1915,7 @@ func (r *ReconcileAppDbReplicaSet) getAllMemberClusters() []multicluster.MemberC
 	return r.memberClusters
 }
 
-func (r *ReconcileAppDbReplicaSet) getHealthyMemberClusters() []multicluster.MemberCluster {
+func (r *ReconcileAppDbReplicaSet) GetHealthyMemberClusters() []multicluster.MemberCluster {
 	var healthyMemberClusters []multicluster.MemberCluster
 	for i := 0; i < len(r.memberClusters); i++ {
 		if r.memberClusters[i].Healthy {
@@ -1949,7 +1948,7 @@ func (r *ReconcileAppDbReplicaSet) getCurrentStatefulsetHostnames(opsManager *om
 
 func (r *ReconcileAppDbReplicaSet) allStatefulSetsExist(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (bool, error) {
 	allStsExist := true
-	for _, memberCluster := range r.getHealthyMemberClusters() {
+	for _, memberCluster := range r.GetHealthyMemberClusters() {
 		stsName := opsManager.Spec.AppDB.NameForCluster(r.getMemberClusterIndex(memberCluster.Name))
 		_, err := memberCluster.Client.GetStatefulSet(ctx, kube.ObjectKey(opsManager.Namespace, stsName))
 		if err != nil {

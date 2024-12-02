@@ -35,6 +35,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
@@ -47,19 +48,19 @@ type MongoDBUserReconciler struct {
 	memberClusterSecretClientsMap map[string]secrets.SecretClient
 }
 
-func newMongoDBUserReconciler(ctx context.Context, kubeClient client.Client, omFunc om.ConnectionFactory, memberClustersMap map[string]cluster.Cluster) *MongoDBUserReconciler {
+func newMongoDBUserReconciler(ctx context.Context, kubeClient client.Client, omFunc om.ConnectionFactory, memberClustersMap map[string]client.Client) *MongoDBUserReconciler {
 	clientsMap := make(map[string]kubernetesClient.Client)
 	secretClientsMap := make(map[string]secrets.SecretClient)
 
 	for k, v := range memberClustersMap {
-		clientsMap[k] = kubernetesClient.NewClient(v.GetClient())
+		clientsMap[k] = kubernetesClient.NewClient(v)
 		secretClientsMap[k] = secrets.SecretClient{
 			VaultClient: nil,
 			KubeClient:  clientsMap[k],
 		}
 	}
 	return &MongoDBUserReconciler{
-		ReconcileCommonController:     newReconcileCommonController(ctx, kubeClient),
+		ReconcileCommonController:     NewReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:           omFunc,
 		memberClusterClientsMap:       clientsMap,
 		memberClusterSecretClientsMap: secretClientsMap,
@@ -270,7 +271,7 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 }
 
 func AddMongoDBUserController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
-	reconciler := newMongoDBUserReconciler(ctx, mgr.GetClient(), om.NewOpsManagerConnection, memberClustersMap)
+	reconciler := newMongoDBUserReconciler(ctx, mgr.GetClient(), om.NewOpsManagerConnection, multicluster.ClustersMapToClientMap(memberClustersMap))
 	c, err := controller.New(util.MongoDbUserController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)})
 	if err != nil {
 		return err

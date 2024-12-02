@@ -50,7 +50,7 @@ func init() {
 func TestEnsureTagAdded(t *testing.T) {
 	ctx := context.Background()
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
-	controller := newReconcileCommonController(ctx, kubeClient)
+	controller := NewReconcileCommonController(ctx, kubeClient)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 
 	// normal tag
@@ -68,7 +68,7 @@ func TestEnsureTagAdded(t *testing.T) {
 func TestEnsureTagAddedDuplicates(t *testing.T) {
 	ctx := context.Background()
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
-	opsManagerController := newReconcileCommonController(ctx, kubeClient)
+	opsManagerController := NewReconcileCommonController(ctx, kubeClient)
 
 	mockOm, _ := prepareConnection(ctx, opsManagerController, omConnectionFactory.GetConnectionFunc, t)
 	err := connection.EnsureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "MYTAG", zap.S())
@@ -96,7 +96,7 @@ func TestPrepareOmConnection_FindExistingGroup(t *testing.T) {
 		c.(*om.MockedOmConnection).OrganizationsWithGroups = map[*om.Organization][]*om.Project{{ID: om.TestOrgID, Name: "foo"}: {{Name: om.TestGroupName, ID: "existing-group-id", OrgID: om.TestOrgID}}}
 	})
 
-	controller := newReconcileCommonController(ctx, kubeClient)
+	controller := NewReconcileCommonController(ctx, kubeClient)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 	assert.Equal(t, "existing-group-id", mockOm.GroupID())
 	// No new group was created
@@ -124,7 +124,7 @@ func TestPrepareOmConnection_DuplicatedGroups(t *testing.T) {
 
 	// The only difference from TestPrepareOmConnection_FindExistingGroup above is that the config map contains only project name
 	// but no org ID (see newMockedKubeApi())
-	controller := newReconcileCommonController(ctx, kubeClient)
+	controller := NewReconcileCommonController(ctx, kubeClient)
 
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 	assert.Equal(t, om.TestGroupID, mockOm.GroupID())
@@ -145,7 +145,7 @@ func TestPrepareOmConnection_CreateGroup(t *testing.T) {
 		c.(*om.MockedOmConnection).OrganizationsWithGroups = map[*om.Organization][]*om.Project{}
 	})
 
-	controller := newReconcileCommonController(ctx, kubeClient)
+	controller := NewReconcileCommonController(ctx, kubeClient)
 
 	mockOm, vars := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 
@@ -179,7 +179,7 @@ func TestPrepareOmConnection_CreateGroupFixTags(t *testing.T) {
 		}
 	})
 
-	controller := newReconcileCommonController(ctx, kubeClient)
+	controller := NewReconcileCommonController(ctx, kubeClient)
 
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 	assert.Contains(t, mockOm.FindGroup(om.TestGroupName).Tags, strings.ToUpper(mock.TestNamespace))
@@ -205,7 +205,7 @@ func readAgentApiKeyForProject(ctx context.Context, client kubernetesClient.Clie
 func TestPrepareOmConnection_PrepareAgentKeys(t *testing.T) {
 	ctx := context.Background()
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
-	controller := newReconcileCommonController(ctx, kubeClient)
+	controller := NewReconcileCommonController(ctx, kubeClient)
 
 	prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 	key, e := readAgentApiKeyForProject(ctx, controller.client, mock.TestNamespace, agents.ApiKeySecretName(om.TestGroupID))
@@ -224,7 +224,7 @@ func TestUpdateStatus_Patched(t *testing.T) {
 	ctx := context.Background()
 	rs := DefaultReplicaSetBuilder().Build()
 	kubeClient, _ := mock.NewDefaultFakeClient(rs)
-	controller := newReconcileCommonController(ctx, kubeClient)
+	controller := NewReconcileCommonController(ctx, kubeClient)
 	reconciledObject := rs.DeepCopy()
 	// The current reconciled object "has diverged" from the one in API server
 	reconciledObject.Spec.Version = "10.0.0"
@@ -279,7 +279,7 @@ func TestDontSendNilPrivileges(t *testing.T) {
 	assert.Nil(t, customRole.Privileges)
 	rs := DefaultReplicaSetBuilder().SetRoles([]mdbv1.MongoDbRole{customRole}).Build()
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
-	controller := newReconcileCommonController(ctx, kubeClient)
+	controller := NewReconcileCommonController(ctx, kubeClient)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 	ensureRoles(rs.Spec.Security.Roles, mockOm, &zap.SugaredLogger{})
 	ac, err := mockOm.ReadAutomationConfig()
@@ -295,7 +295,7 @@ func TestSecretWatcherWithAllResources(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().EnableTLS().EnableX509().SetTLSCA(caName).Build()
 	rs.Spec.Security.Authentication.InternalCluster = "X509"
 	kubeClient, _ := mock.NewDefaultFakeClient(rs)
-	controller := newReconcileCommonController(ctx, kubeClient)
+	controller := NewReconcileCommonController(ctx, kubeClient)
 
 	controller.SetupCommonWatchers(rs, nil, nil, rs.Name)
 
@@ -322,7 +322,7 @@ func TestSecretWatcherWithSelfProvidedTLSSecretNames(t *testing.T) {
 
 	rs := DefaultReplicaSetBuilder().EnableTLS().EnableX509().SetTLSCA(caName).Build()
 	kubeClient, _ := mock.NewDefaultFakeClient(rs)
-	controller := newReconcileCommonController(ctx, kubeClient)
+	controller := NewReconcileCommonController(ctx, kubeClient)
 
 	controller.SetupCommonWatchers(rs, func() []string {
 		return []string{"a-secret"}

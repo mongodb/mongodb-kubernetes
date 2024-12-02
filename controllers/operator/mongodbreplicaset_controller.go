@@ -63,7 +63,7 @@ var _ reconcile.Reconciler = &ReconcileMongoDbReplicaSet{}
 
 func newReplicaSetReconciler(ctx context.Context, kubeClient client.Client, omFunc om.ConnectionFactory) *ReconcileMongoDbReplicaSet {
 	return &ReconcileMongoDbReplicaSet{
-		ReconcileCommonController: newReconcileCommonController(ctx, kubeClient),
+		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:       omFunc,
 	}
 }

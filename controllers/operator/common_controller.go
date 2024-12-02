@@ -65,16 +65,14 @@ type patchValue struct {
 // ReconcileCommonController is the "parent" controller that is included into each specific controller and allows
 // to reuse the common functionality
 type ReconcileCommonController struct {
-	// This client, initialized using mgr.Client() above, is a split client
-	// that reads objects from the cache and writes to the apiserver
 	client kubernetesClient.Client
 	secrets.SecretClient
 
 	resourceWatcher *watch.ResourceWatcher
 }
 
-func newReconcileCommonController(ctx context.Context, c client.Client) *ReconcileCommonController {
-	newClient := kubernetesClient.NewClient(c)
+func NewReconcileCommonController(ctx context.Context, client client.Client) *ReconcileCommonController {
+	newClient := kubernetesClient.NewClient(client)
 	var vaultClient *vault.VaultClient
 
 	if vault.IsVaultSecretBackend() {
