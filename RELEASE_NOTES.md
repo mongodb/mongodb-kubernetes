@@ -11,6 +11,9 @@
 ## Bug Fixes
 * **MongoDB**: Fixed placeholder name for `mongos` in Single Cluster Sharded with External Domain set. Previously it was called `mongodProcessDomain` and `mongodProcessFQDN` now they're called `mongosProcessDomain` and `mongosProcessFQDN`.
 
+* **Kubernetes versions**
+  * The minimum supported Kubernetes version for this operator is 1.29 and OpenShift 1.16.
+  
 [//]: # (TODO: update above link with Multi Cluster Sharded main page when added in public doc ; also update the link in 1.28 release notes below)
 
 # MongoDB Enterprise Kubernetes Operator 1.29.0
