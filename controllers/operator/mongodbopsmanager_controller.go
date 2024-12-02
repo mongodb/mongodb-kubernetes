@@ -91,14 +91,14 @@ type OpsManagerReconciler struct {
 	oldestSupportedVersion semver.Version
 	programmaticKeyVersion semver.Version
 
-	memberClustersMap map[string]cluster.Cluster
+	memberClustersMap map[string]client.Client
 }
 
 var _ reconcile.Reconciler = &OpsManagerReconciler{}
 
-func newOpsManagerReconciler(ctx context.Context, kubeClient client.Client, memberClustersMap map[string]cluster.Cluster, omFunc om.ConnectionFactory, initializer api.Initializer, adminProvider api.AdminProvider) *OpsManagerReconciler {
+func NewOpsManagerReconciler(ctx context.Context, kubeClient client.Client, memberClustersMap map[string]client.Client, omFunc om.ConnectionFactory, initializer api.Initializer, adminProvider api.AdminProvider) *OpsManagerReconciler {
 	return &OpsManagerReconciler{
-		ReconcileCommonController: newReconcileCommonController(ctx, kubeClient),
+		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:       omFunc,
 		omInitializer:             initializer,
 		omAdminProvider:           adminProvider,
@@ -126,7 +126,7 @@ type OpsManagerReconcilerHelper struct {
 	deploymentState *OMDeploymentState
 }
 
-func newOpsManagerReconcilerHelper(ctx context.Context, opsManagerReconciler *OpsManagerReconciler, opsManager *omv1.MongoDBOpsManager, globalMemberClustersMap map[string]cluster.Cluster, log *zap.SugaredLogger) (*OpsManagerReconcilerHelper, error) {
+func NewOpsManagerReconcilerHelper(ctx context.Context, opsManagerReconciler *OpsManagerReconciler, opsManager *omv1.MongoDBOpsManager, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger) (*OpsManagerReconcilerHelper, error) {
 	reconcilerHelper := OpsManagerReconcilerHelper{
 		opsManager: opsManager,
 	}
@@ -164,7 +164,7 @@ func newOpsManagerReconcilerHelper(ctx context.Context, opsManagerReconciler *Op
 			log.Warnf("Member cluster %s specified in clusterSpecList is not found in the list of operator's member clusters: %+v. "+
 				"Assuming the cluster is down. It will be ignored from reconciliation.", clusterSpecItem.ClusterName, clusterList)
 		} else {
-			memberClusterKubeClient = kubernetesClient.NewClient(memberClusterClient.GetClient())
+			memberClusterKubeClient = kubernetesClient.NewClient(memberClusterClient)
 			memberClusterSecretClient = secrets.SecretClient{
 				VaultClient: nil, // Vault is not supported yet on multicluster
 				KubeClient:  memberClusterKubeClient,
@@ -186,7 +186,7 @@ func newOpsManagerReconcilerHelper(ctx context.Context, opsManagerReconciler *Op
 	return &reconcilerHelper, nil
 }
 
-func (r *OpsManagerReconcilerHelper) initializeStateStore(ctx context.Context, reconciler *OpsManagerReconciler, opsManager *omv1.MongoDBOpsManager, globalMemberClustersMap map[string]cluster.Cluster, log *zap.SugaredLogger, clusterNamesFromClusterSpecList []string) error {
+func (r *OpsManagerReconcilerHelper) initializeStateStore(ctx context.Context, reconciler *OpsManagerReconciler, opsManager *omv1.MongoDBOpsManager, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger, clusterNamesFromClusterSpecList []string) error {
 	r.deploymentState = NewOMDeploymentState()
 
 	r.stateStore = NewStateStore[OMDeploymentState](opsManager.Namespace, opsManager.Name, reconciler.client)
@@ -442,7 +442,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error getting AppDB password: %w", err)), log, opsManagerExtraStatusParams)
 	}
 
-	opsManagerReconcilerHelper, err := newOpsManagerReconcilerHelper(ctx, r, opsManager, r.memberClustersMap, log)
+	opsManagerReconcilerHelper, err := NewOpsManagerReconcilerHelper(ctx, r, opsManager, r.memberClustersMap, log)
 	if err != nil {
 		return r.updateStatus(ctx, opsManager, workflow.Failed(err), log, opsManagerExtraStatusParams)
 	}
@@ -906,7 +906,7 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulsetInMemberCluster(ctx co
 }
 
 func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
-	reconciler := newOpsManagerReconciler(ctx, mgr.GetClient(), memberClustersMap, om.NewOpsManagerConnection, &api.DefaultInitializer{}, api.NewOmAdmin)
+	reconciler := NewOpsManagerReconciler(ctx, mgr.GetClient(), multicluster.ClustersMapToClientMap(memberClustersMap), om.NewOpsManagerConnection, &api.DefaultInitializer{}, api.NewOmAdmin)
 	c, err := controller.New(util.MongoDbOpsManagerController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)})
 	if err != nil {
 		return err
@@ -2085,7 +2085,7 @@ func newUserFromSecret(data map[string]string) (api.User, error) {
 // it's used in MongoDBOpsManagerEventHandler
 func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj interface{}, log *zap.SugaredLogger) {
 	opsManager := obj.(*omv1.MongoDBOpsManager)
-	helper, err := newOpsManagerReconcilerHelper(ctx, r, opsManager, r.memberClustersMap, log)
+	helper, err := NewOpsManagerReconcilerHelper(ctx, r, opsManager, r.memberClustersMap, log)
 	if err != nil {
 		log.Errorf("Error initializing OM reconciler helper: %s", err)
 		return
@@ -2127,14 +2127,14 @@ func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj interface{}, lo
 	}
 
 	// remove AppDB from each of the member clusters(or the same cluster as OM in case of single cluster )
-	for _, memberCluster := range appDbReconciler.getHealthyMemberClusters() {
+	for _, memberCluster := range appDbReconciler.GetHealthyMemberClusters() {
 		// fetch the clusterNum for a given clusterName
 		r.resourceWatcher.RemoveAllDependentWatchedResources(opsManager.Namespace, opsManager.AppDBStatefulSetObjectKey(appDbReconciler.getMemberClusterIndex(memberCluster.Name)))
 	}
 
 	// delete the AppDB statefulset form each of the member cluster. We need to delete the
 	// resource explicitly in case of multi-cluster because we can't set owner reference cross cluster
-	for _, memberCluster := range appDbReconciler.getHealthyMemberClusters() {
+	for _, memberCluster := range appDbReconciler.GetHealthyMemberClusters() {
 		memberClient := memberCluster.Client
 		stsNamespacedName := opsManager.AppDBStatefulSetObjectKey(appDbReconciler.getMemberClusterIndex(memberCluster.Name))
 
@@ -2147,7 +2147,7 @@ func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj interface{}, lo
 }
 
 func (r *OpsManagerReconciler) createNewAppDBReconciler(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
-	return newAppDBReplicaSetReconciler(ctx, opsManager.Spec.AppDB, r.ReconcileCommonController, r.omConnectionFactory, opsManager.Annotations, r.memberClustersMap, log)
+	return NewAppDBReplicaSetReconciler(ctx, opsManager.Spec.AppDB, r.ReconcileCommonController, r.omConnectionFactory, opsManager.Annotations, r.memberClustersMap, log)
 }
 
 // getAnnotationsForOpsManagerResource returns all the annotations that should be applied to the resource

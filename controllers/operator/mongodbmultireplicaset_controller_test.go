@@ -18,7 +18,6 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
-	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	v1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
@@ -213,7 +212,7 @@ func TestReconcilePVCResizeMultiCluster(t *testing.T) {
 	for _, item := range mrs.Spec.ClusterSpecList {
 		c := clusterMap[item.ClusterName]
 		stsName := mrs.MultiStatefulsetName(mrs.ClusterNum(item.ClusterName))
-		testStatefulsetHasAnnotationAndCorrectSize(t, c.GetClient(), ctx, mrs.Namespace, stsName)
+		testStatefulsetHasAnnotationAndCorrectSize(t, c, ctx, mrs.Namespace, stsName)
 	}
 
 	_, e = reconciler.Reconcile(ctx, requestFromObject(mrs))
@@ -229,15 +228,15 @@ type pvcClient struct {
 	client                 client.Client
 }
 
-func getPVCsMulti(t *testing.T, ctx context.Context, mrs *mdbmulti.MongoDBMultiCluster, memberClusterMap map[string]cluster.Cluster) []pvcClient {
+func getPVCsMulti(t *testing.T, ctx context.Context, mrs *mdbmulti.MongoDBMultiCluster, memberClusterMap map[string]client.Client) []pvcClient {
 	var createdConfigPVCs []pvcClient
 	for _, item := range mrs.Spec.ClusterSpecList {
 		c := memberClusterMap[item.ClusterName]
 		statefulSetName := mrs.MultiStatefulsetName(mrs.ClusterNum(item.ClusterName))
 		sts := appsv1.StatefulSet{}
-		err := c.GetClient().Get(ctx, kube.ObjectKey(mrs.Namespace, statefulSetName), &sts)
+		err := c.Get(ctx, kube.ObjectKey(mrs.Namespace, statefulSetName), &sts)
 		require.NoError(t, err)
-		createdConfigPVCs = append(createdConfigPVCs, pvcClient{persistentVolumeClaims: createPVCs(t, sts, c.GetClient()), client: c.GetClient()})
+		createdConfigPVCs = append(createdConfigPVCs, pvcClient{persistentVolumeClaims: createPVCs(t, sts, c), client: c})
 	}
 	return createdConfigPVCs
 }
@@ -305,7 +304,7 @@ func TestServiceCreation_WithExternalName(t *testing.T) {
 		for podNum := 0; podNum < item.Members; podNum++ {
 			externalService := getExternalService(mrs, item.ClusterName, podNum)
 
-			err = c.GetClient().Get(ctx, kube.ObjectKey(externalService.Namespace, externalService.Name), &corev1.Service{})
+			err = c.Get(ctx, kube.ObjectKey(externalService.Namespace, externalService.Name), &corev1.Service{})
 			assert.NoError(t, err)
 
 			// ensure that all other clusters do not have this service
@@ -314,7 +313,7 @@ func TestServiceCreation_WithExternalName(t *testing.T) {
 					continue
 				}
 				otherCluster := memberClusterMap[otherItem.ClusterName]
-				err = otherCluster.GetClient().Get(ctx, kube.ObjectKey(externalService.Namespace, externalService.Name), &corev1.Service{})
+				err = otherCluster.Get(ctx, kube.ObjectKey(externalService.Namespace, externalService.Name), &corev1.Service{})
 				assert.Error(t, err)
 			}
 		}
@@ -359,7 +358,7 @@ func TestServiceCreation_WithPlaceholders(t *testing.T) {
 			externalServiceName := fmt.Sprintf("%s-%d-%d-svc-external", mrs.Name, mrs.ClusterNum(item.ClusterName), podNum)
 
 			svc := corev1.Service{}
-			err = c.GetClient().Get(ctx, kube.ObjectKey(mrs.Namespace, externalServiceName), &svc)
+			err = c.Get(ctx, kube.ObjectKey(mrs.Namespace, externalServiceName), &svc)
 			assert.NoError(t, err)
 
 			statefulSetName := fmt.Sprintf("%s-%d", mrs.Name, mrs.ClusterNum(item.ClusterName))
@@ -401,7 +400,7 @@ func TestServiceCreation_WithoutDuplicates(t *testing.T) {
 			svc := getService(mrs, item.ClusterName, podNum)
 
 			testSvc := corev1.Service{}
-			err := c.GetClient().Get(ctx, kube.ObjectKey(svc.Namespace, svc.Name), &testSvc)
+			err := c.Get(ctx, kube.ObjectKey(svc.Namespace, svc.Name), &testSvc)
 			assert.NoError(t, err)
 
 			// ensure that all other clusters do not have this service
@@ -410,7 +409,7 @@ func TestServiceCreation_WithoutDuplicates(t *testing.T) {
 					continue
 				}
 				otherCluster := memberClusterMap[otherItem.ClusterName]
-				err = otherCluster.GetClient().Get(ctx, kube.ObjectKey(svc.Namespace, svc.Name), &corev1.Service{})
+				err = otherCluster.Get(ctx, kube.ObjectKey(svc.Namespace, svc.Name), &corev1.Service{})
 				assert.Error(t, err)
 			}
 		}
@@ -438,7 +437,7 @@ func TestServiceCreation_WithDuplicates(t *testing.T) {
 			// ensure that all clusters have all services
 			for _, otherItem := range clusterSpecs {
 				otherCluster := memberClusterMap[otherItem.ClusterName]
-				err := otherCluster.GetClient().Get(ctx, kube.ObjectKey(svc.Namespace, svc.Name), &corev1.Service{})
+				err := otherCluster.Get(ctx, kube.ObjectKey(svc.Namespace, svc.Name), &corev1.Service{})
 				assert.NoError(t, err)
 			}
 		}
@@ -464,7 +463,7 @@ func TestHeadlessServiceCreation(t *testing.T) {
 		svcName := mrs.MultiHeadlessServiceName(mrs.ClusterNum(item.ClusterName))
 
 		svc := &corev1.Service{}
-		err := c.GetClient().Get(ctx, kube.ObjectKey(mrs.Namespace, svcName), svc)
+		err := c.Get(ctx, kube.ObjectKey(mrs.Namespace, svcName), svc)
 		assert.NoError(t, err)
 
 		expectedMap := map[string]string{
@@ -491,14 +490,14 @@ func TestResourceDeletion(t *testing.T) {
 			t.Run("Stateful Set in each member cluster has been created", func(t *testing.T) {
 				ctx := context.Background()
 				sts := appsv1.StatefulSet{}
-				err := c.GetClient().Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterNum(item.ClusterName))), &sts)
+				err := c.Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterNum(item.ClusterName))), &sts)
 				assert.NoError(t, err)
 			})
 
 			t.Run("Services in each member cluster have been created", func(t *testing.T) {
 				ctx := context.Background()
 				svcList := corev1.ServiceList{}
-				err := c.GetClient().List(ctx, &svcList)
+				err := c.List(ctx, &svcList)
 				assert.NoError(t, err)
 				assert.Len(t, svcList.Items, item.Members+2)
 			})
@@ -506,14 +505,14 @@ func TestResourceDeletion(t *testing.T) {
 			t.Run("Configmaps in each member cluster have been created", func(t *testing.T) {
 				ctx := context.Background()
 				configMapList := corev1.ConfigMapList{}
-				err := c.GetClient().List(ctx, &configMapList)
+				err := c.List(ctx, &configMapList)
 				assert.NoError(t, err)
 				assert.Len(t, configMapList.Items, 1)
 			})
 			t.Run("Secrets in each member cluster have been created", func(t *testing.T) {
 				ctx := context.Background()
 				secretList := corev1.SecretList{}
-				err := c.GetClient().List(ctx, &secretList)
+				err := c.List(ctx, &secretList)
 				assert.NoError(t, err)
 				assert.Len(t, secretList.Items, 1)
 			})
@@ -532,14 +531,14 @@ func TestResourceDeletion(t *testing.T) {
 		t.Run("Stateful Set in each member cluster has been removed", func(t *testing.T) {
 			ctx := context.Background()
 			sts := appsv1.StatefulSet{}
-			err := c.GetClient().Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterNum(item.ClusterName))), &sts)
+			err := c.Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterNum(item.ClusterName))), &sts)
 			assert.Error(t, err)
 		})
 
 		t.Run("Services in each member cluster have been removed", func(t *testing.T) {
 			ctx := context.Background()
 			svcList := corev1.ServiceList{}
-			err := c.GetClient().List(ctx, &svcList)
+			err := c.List(ctx, &svcList)
 			assert.NoError(t, err)
 			// temple-0-svc is leftover and not deleted since it does not contain the label: mongodbmulticluster -> my-namespace-temple
 			assert.Len(t, svcList.Items, 1)
@@ -548,7 +547,7 @@ func TestResourceDeletion(t *testing.T) {
 		t.Run("Configmaps in each member cluster have been removed", func(t *testing.T) {
 			ctx := context.Background()
 			configMapList := corev1.ConfigMapList{}
-			err := c.GetClient().List(ctx, &configMapList)
+			err := c.List(ctx, &configMapList)
 			assert.NoError(t, err)
 			assert.Len(t, configMapList.Items, 0)
 		})
@@ -556,7 +555,7 @@ func TestResourceDeletion(t *testing.T) {
 		t.Run("Secrets in each member cluster have been removed", func(t *testing.T) {
 			ctx := context.Background()
 			secretList := corev1.SecretList{}
-			err := c.GetClient().List(ctx, &secretList)
+			err := c.List(ctx, &secretList)
 			assert.NoError(t, err)
 			assert.Len(t, secretList.Items, 0)
 		})
@@ -588,7 +587,7 @@ func TestGroupSecret_IsCopied_ToEveryMemberCluster(t *testing.T) {
 			assert.True(t, ok)
 
 			s := corev1.Secret{}
-			err := c.GetClient().Get(ctx, kube.ObjectKey(mrs.Namespace, fmt.Sprintf("%s-group-secret", om.TestGroupID)), &s)
+			err := c.Get(ctx, kube.ObjectKey(mrs.Namespace, fmt.Sprintf("%s-group-secret", om.TestGroupID)), &s)
 			assert.NoError(t, err)
 			assert.Equal(t, mongoDBMultiLabels(mrs.Name, mrs.Namespace), s.Labels)
 		})
@@ -1281,7 +1280,7 @@ func assertClusterpresent(t *testing.T, m map[string]int, specs mdb.ClusterSpecL
 	assert.Equal(t, arr, tmp)
 }
 
-func assertStatefulSetReplicas(ctx context.Context, t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, memberClusters map[string]cluster.Cluster, expectedReplicas ...int) {
+func assertStatefulSetReplicas(ctx context.Context, t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, memberClusters map[string]client.Client, expectedReplicas ...int) {
 	statefulSets := readStatefulSets(ctx, mrs, memberClusters)
 
 	for i := range expectedReplicas {
@@ -1291,7 +1290,7 @@ func assertStatefulSetReplicas(ctx context.Context, t *testing.T, mrs *mdbmulti.
 	}
 }
 
-func readStatefulSets(ctx context.Context, mrs *mdbmulti.MongoDBMultiCluster, memberClusters map[string]cluster.Cluster) map[string]appsv1.StatefulSet {
+func readStatefulSets(ctx context.Context, mrs *mdbmulti.MongoDBMultiCluster, memberClusters map[string]client.Client) map[string]appsv1.StatefulSet {
 	allStatefulSets := map[string]appsv1.StatefulSet{}
 	clusterSpecList, err := mrs.GetClusterSpecItems()
 	if err != nil {
@@ -1301,7 +1300,7 @@ func readStatefulSets(ctx context.Context, mrs *mdbmulti.MongoDBMultiCluster, me
 	for _, item := range clusterSpecList {
 		memberClient := memberClusters[item.ClusterName]
 		sts := appsv1.StatefulSet{}
-		err := memberClient.GetClient().Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterNum(item.ClusterName))), &sts)
+		err := memberClient.Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterNum(item.ClusterName))), &sts)
 		if err == nil {
 			allStatefulSets[item.ClusterName] = sts
 		}
@@ -1327,7 +1326,7 @@ func specsAreEqual(spec1, spec2 mdbmulti.MongoDBMultiSpec) (bool, error) {
 	return bytes.Equal(spec1Bytes, spec2Bytes), nil
 }
 
-func defaultMultiReplicaSetReconciler(ctx context.Context, m *mdbmulti.MongoDBMultiCluster) (*ReconcileMongoDbMultiReplicaSet, kubernetesClient.Client, map[string]cluster.Cluster, *om.CachedOMConnectionFactory) {
+func defaultMultiReplicaSetReconciler(ctx context.Context, m *mdbmulti.MongoDBMultiCluster) (*ReconcileMongoDbMultiReplicaSet, kubernetesClient.Client, map[string]client.Client, *om.CachedOMConnectionFactory) {
 	multiReplicaSetController, client, clusterMap, omConnectionFactory := multiReplicaSetReconciler(ctx, m)
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		connection.(*om.MockedOmConnection).Hostnames = calculateHostNamesForExternalDomains(m)
@@ -1356,22 +1355,22 @@ func calculateHostNamesForExternalDomains(m *mdbmulti.MongoDBMultiCluster) []str
 	return expectedHostnames
 }
 
-func multiReplicaSetReconciler(ctx context.Context, m *mdbmulti.MongoDBMultiCluster) (*ReconcileMongoDbMultiReplicaSet, kubernetesClient.Client, map[string]cluster.Cluster, *om.CachedOMConnectionFactory) {
+func multiReplicaSetReconciler(ctx context.Context, m *mdbmulti.MongoDBMultiCluster) (*ReconcileMongoDbMultiReplicaSet, kubernetesClient.Client, map[string]client.Client, *om.CachedOMConnectionFactory) {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(m)
 	memberClusterMap := getFakeMultiClusterMap(omConnectionFactory)
 	return newMultiClusterReplicaSetReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, memberClusterMap), kubeClient, memberClusterMap, omConnectionFactory
 }
 
-func getFakeMultiClusterMap(omConnectionFactory *om.CachedOMConnectionFactory) map[string]cluster.Cluster {
+func getFakeMultiClusterMap(omConnectionFactory *om.CachedOMConnectionFactory) map[string]client.Client {
 	return getFakeMultiClusterMapWithClusters(clusters, omConnectionFactory)
 }
 
-func getFakeMultiClusterMapWithClusters(clusters []string, omConnectionFactory *om.CachedOMConnectionFactory) map[string]cluster.Cluster {
+func getFakeMultiClusterMapWithClusters(clusters []string, omConnectionFactory *om.CachedOMConnectionFactory) map[string]client.Client {
 	return getFakeMultiClusterMapWithConfiguredInterceptor(clusters, omConnectionFactory, true, true)
 }
 
-func getFakeMultiClusterMapWithConfiguredInterceptor(clusters []string, omConnectionFactory *om.CachedOMConnectionFactory, markStsAsReady bool, addOMHosts bool) map[string]cluster.Cluster {
-	clusterMap := make(map[string]cluster.Cluster)
+func getFakeMultiClusterMapWithConfiguredInterceptor(clusters []string, omConnectionFactory *om.CachedOMConnectionFactory, markStsAsReady bool, addOMHosts bool) map[string]client.Client {
+	clientMap := make(map[string]client.Client)
 
 	for _, e := range clusters {
 		fakeClientBuilder := mock.NewEmptyFakeClientBuilder()
@@ -1379,18 +1378,17 @@ func getFakeMultiClusterMapWithConfiguredInterceptor(clusters []string, omConnec
 			Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, markStsAsReady, addOMHosts),
 		})
 
-		memberCluster := multicluster.New(kubernetesClient.NewClient(fakeClientBuilder.Build()))
-		clusterMap[e] = memberCluster
+		clientMap[e] = kubernetesClient.NewClient(fakeClientBuilder.Build())
 	}
-	return clusterMap
+	return clientMap
 }
 
-func getFakeMultiClusterMapWithoutInterceptor(clusters []string) map[string]cluster.Cluster {
-	clusterMap := make(map[string]cluster.Cluster)
+func getFakeMultiClusterMapWithoutInterceptor(clusters []string) map[string]client.Client {
+	clientMap := make(map[string]client.Client)
 
 	for _, e := range clusters {
 		memberCluster := multicluster.New(kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build()))
-		clusterMap[e] = memberCluster
+		clientMap[e] = memberCluster.GetClient()
 	}
-	return clusterMap
+	return clientMap
 }

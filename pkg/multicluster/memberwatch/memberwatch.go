@@ -32,7 +32,7 @@ func (m *MemberClusterHealthChecker) WatchMemberClusterHealth(ctx context.Contex
 	// check if the local cache is populated if not let's do that
 	if len(m.Cache) == 0 {
 		// load the kubeconfig file contents from disk
-		kubeConfigFile, err := multicluster.NewKubeConfigFile()
+		kubeConfigFile, err := multicluster.NewKubeConfigFile(multicluster.GetKubeConfigPath())
 		if err != nil {
 			log.Errorf("Failed to read KubeConfig file err: %s", err)
 			// we can't populate the client so just bail out here
