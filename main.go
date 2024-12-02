@@ -157,7 +157,7 @@ func main() {
 			log.Warnf("The operator did not detect any member clusters")
 		}
 
-		memberClusterClients, err := multicluster.CreateMemberClusterClients(memberClustersNames)
+		memberClusterClients, err := multicluster.CreateMemberClusterClients(memberClustersNames, multicluster.GetKubeConfigPath())
 		if err != nil {
 			log.Fatal(err)
 		}

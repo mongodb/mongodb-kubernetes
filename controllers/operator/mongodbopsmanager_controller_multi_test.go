@@ -285,7 +285,7 @@ func TestOpsManagerMultiCluster(t *testing.T) {
 
 	for clusterIdx, clusterSpecItem := range clusterSpecItems {
 		memberClusterClient := memberClusterMap[clusterSpecItem.ClusterName]
-		memberClusterChecks := newOMMemberClusterChecks(ctx, t, opsManager, clusterSpecItem.ClusterName, memberClusterClient.GetClient(), clusterIdx)
+		memberClusterChecks := newOMMemberClusterChecks(ctx, t, opsManager, clusterSpecItem.ClusterName, memberClusterClient, clusterIdx)
 		memberClusterChecks.checkStatefulSetExists()
 		memberClusterChecks.checkGenKeySecret(opsManager.Name)
 		memberClusterChecks.checkConnectionStringSecret(opsManager.Name)
@@ -388,7 +388,7 @@ func TestOpsManagerMultiClusterUnreachableNoPanic(t *testing.T) {
 		}
 
 		memberClusterClient := memberClusterMap[clusterSpecItem.ClusterName]
-		memberClusterChecks := newOMMemberClusterChecks(ctx, t, opsManager, clusterSpecItem.ClusterName, memberClusterClient.GetClient(), clusterIdx)
+		memberClusterChecks := newOMMemberClusterChecks(ctx, t, opsManager, clusterSpecItem.ClusterName, memberClusterClient, clusterIdx)
 		memberClusterChecks.checkStatefulSetExists()
 		memberClusterChecks.checkGenKeySecret(opsManager.Name)
 		memberClusterChecks.checkConnectionStringSecret(opsManager.Name)

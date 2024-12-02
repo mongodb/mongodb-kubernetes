@@ -15,7 +15,6 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
-	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/scramcredentials"
@@ -599,7 +598,7 @@ func TestOpsManagerBackupAssignmentLabels(t *testing.T) {
 	mockedAdmin := api.NewMockedAdminProvider("testUrl", "publicApiKey", "privateApiKey", true)
 	defer mockedAdmin.(*api.MockedOmAdmin).Reset()
 
-	reconcilerHelper, err := newOpsManagerReconcilerHelper(ctx, reconciler, testOm, nil, zap.S())
+	reconcilerHelper, err := NewOpsManagerReconcilerHelper(ctx, reconciler, testOm, nil, zap.S())
 	require.NoError(t, err)
 
 	// when
@@ -758,7 +757,7 @@ func TestOpsManagerRace(t *testing.T) {
 
 	initializer := &MockedInitializer{expectedOmURL: opsManager1.CentralURL(), t: t, skipChecks: true}
 
-	reconciler := newOpsManagerReconciler(ctx, kubeClient, nil, omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
+	reconciler := NewOpsManagerReconciler(ctx, kubeClient, nil, omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
 		return api.NewMockedAdminProvider(baseUrl, user, publicApiKey, false).(*api.MockedOmAdmin)
 	})
 
@@ -1104,7 +1103,7 @@ func configureBackupResources(ctx context.Context, m kubernetesClient.Client, te
 	}
 }
 
-func defaultTestOmReconciler(ctx context.Context, t *testing.T, opsManager *omv1.MongoDBOpsManager, globalMemberClustersMap map[string]cluster.Cluster, omConnectionFactory *om.CachedOMConnectionFactory) (*OpsManagerReconciler, kubernetesClient.Client, *MockedInitializer) {
+func defaultTestOmReconciler(ctx context.Context, t *testing.T, opsManager *omv1.MongoDBOpsManager, globalMemberClustersMap map[string]client.Client, omConnectionFactory *om.CachedOMConnectionFactory) (*OpsManagerReconciler, kubernetesClient.Client, *MockedInitializer) {
 	kubeClient := mock.NewEmptyFakeClientWithInterceptor(omConnectionFactory, opsManager.DeepCopy())
 
 	// create an admin user secret
@@ -1120,7 +1119,7 @@ func defaultTestOmReconciler(ctx context.Context, t *testing.T, opsManager *omv1
 
 	initializer := &MockedInitializer{expectedOmURL: opsManager.CentralURL(), t: t}
 
-	reconciler := newOpsManagerReconciler(ctx, kubeClient, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
+	reconciler := NewOpsManagerReconciler(ctx, kubeClient, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
 		if api.CurrMockedAdmin == nil {
 			api.CurrMockedAdmin = api.NewMockedAdminProvider(baseUrl, user, publicApiKey, true).(*api.MockedOmAdmin)
 		}

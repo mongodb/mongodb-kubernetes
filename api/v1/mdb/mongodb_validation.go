@@ -327,7 +327,7 @@ func ValidateNonEmptyClusterSpecList(ms ClusterSpecList) v1.ValidationResult {
 
 func ValidateMemberClusterIsSubsetOfKubeConfig(ms ClusterSpecList) v1.ValidationResult {
 	// read the mounted kubeconfig file and
-	kubeConfigFile, err := multicluster.NewKubeConfigFile()
+	kubeConfigFile, err := multicluster.NewKubeConfigFile(multicluster.GetKubeConfigPath())
 	if err != nil {
 		// log the error here?
 		return v1.ValidationSuccess()

@@ -15,7 +15,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
-	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
@@ -196,7 +195,7 @@ func TestShardedClusterRace(t *testing.T) {
 		Build()
 
 	reconciler := &ReconcileMongoDbShardedCluster{
-		ReconcileCommonController: newReconcileCommonController(ctx, fakeClient),
+		ReconcileCommonController: NewReconcileCommonController(ctx, fakeClient),
 		omConnectionFactory:       omConnectionFactory.GetConnectionFunc,
 	}
 
@@ -1584,7 +1583,7 @@ func createDeploymentFromShardedCluster(t *testing.T, updatable v1.CustomResourc
 	return d
 }
 
-func defaultClusterReconciler(ctx context.Context, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]cluster.Cluster) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, kubernetesClient.Client, *om.CachedOMConnectionFactory, error) {
+func defaultClusterReconciler(ctx context.Context, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, kubernetesClient.Client, *om.CachedOMConnectionFactory, error) {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(sc)
 	r, reconcileHelper, err := newShardedClusterReconcilerFromResource(ctx, sc, globalMemberClustersMap, kubeClient, omConnectionFactory)
 	if err != nil {
@@ -1593,9 +1592,9 @@ func defaultClusterReconciler(ctx context.Context, sc *mdbv1.MongoDB, globalMemb
 	return r, reconcileHelper, kubeClient, omConnectionFactory, nil
 }
 
-func newShardedClusterReconcilerFromResource(ctx context.Context, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]cluster.Cluster, kubeClient kubernetesClient.Client, omConnectionFactory *om.CachedOMConnectionFactory) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, error) {
+func newShardedClusterReconcilerFromResource(ctx context.Context, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, kubeClient kubernetesClient.Client, omConnectionFactory *om.CachedOMConnectionFactory) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, error) {
 	r := &ReconcileMongoDbShardedCluster{
-		ReconcileCommonController: newReconcileCommonController(ctx, kubeClient),
+		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:       omConnectionFactory.GetConnectionFunc,
 		memberClustersMap:         globalMemberClustersMap,
 	}
