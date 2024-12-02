@@ -10,7 +10,7 @@ source scripts/funcs/kubernetes
 check_docker_daemon_is_running() {
   if [[ "$(uname -s)" != "Linux" ]]; then
     echo "Skipping docker daemon check when not running in Linux"
-    exit 0
+    return 0
   fi
 
   if systemctl is-active --quiet docker; then
@@ -22,7 +22,7 @@ check_docker_daemon_is_running() {
       for _ in {1..15}; do
         if systemctl is-active --quiet docker; then
             echo "Docker started successfully."
-            exit 0
+            return 0
         fi
         echo "Waiting for Docker to start..."
         sleep 3
