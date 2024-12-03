@@ -11,7 +11,7 @@ require (
 	github.com/hashicorp/go-retryablehttp v0.7.7
 	github.com/hashicorp/vault/api v1.14.0
 	github.com/imdario/mergo v0.3.15
-	github.com/mongodb/mongodb-kubernetes-operator v0.11.1-0.20241015091800-95f954d9b9f4
+	github.com/mongodb/mongodb-kubernetes-operator v0.11.1-0.20241202114850-bca2a6eb3517
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.19.1
 	github.com/r3labs/diff/v3 v3.0.1
@@ -98,8 +98,8 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/apiextensions-apiserver v0.29.9 // indirect
-	k8s.io/component-base v0.29.9 // indirect
+	k8s.io/apiextensions-apiserver v0.29.11 // indirect
+	k8s.io/component-base v0.29.11 // indirect
 	k8s.io/gengo v0.0.0-20230829151522-9cce18d56c01 // indirect
 	k8s.io/kube-openapi v0.0.0-20231010175941-2dd684a91f00 // indirect
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
