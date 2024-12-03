@@ -47,6 +47,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connection"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/scalers"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/scalers/interfaces"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/controlledfeature"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
 	enterprisepem "github.com/10gen/ops-manager-kubernetes/controllers/operator/pem"
@@ -1176,7 +1177,7 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateShards(ctx context.Context
 	shardsNames := make([]string, s.Spec.ShardCount)
 	for shardIdx := 0; shardIdx < s.Spec.ShardCount; shardIdx++ {
 		// it doesn't matter for which cluster we get scaler as we need it only for ScalingFirstTime which is iterating over all member clusters internally anyway
-		scalingFirstTime := r.GetShardScaler(shardIdx, r.shardsMemberClustersMap[shardIdx][0]).(*scalers.MultiClusterReplicaSetScaler).ScalingFirstTime()
+		scalingFirstTime := r.GetShardScaler(shardIdx, r.shardsMemberClustersMap[shardIdx][0]).ScalingFirstTime()
 		for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[shardIdx]) {
 			// shardsNames contains shard name, not statefulset name
 			// in single cluster sts name == shard name
@@ -1224,7 +1225,7 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateShards(ctx context.Context
 func (r *ShardedClusterReconcileHelper) createOrUpdateConfigServers(ctx context.Context, s *mdbv1.MongoDB, opts deploymentOptions, log *zap.SugaredLogger) workflow.Status {
 	// it doesn't matter for which cluster we get scaler here as we need it only
 	// for ScalingFirstTime, which is iterating over all member clusters internally anyway
-	configSrvScalingFirstTime := r.GetConfigSrvScaler(r.configSrvMemberClusters[0]).(*scalers.MultiClusterReplicaSetScaler).ScalingFirstTime()
+	configSrvScalingFirstTime := r.GetConfigSrvScaler(r.configSrvMemberClusters[0]).ScalingFirstTime()
 	for _, memberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
 		configSrvOpts := r.getConfigServerOptions(ctx, *s, opts, log, r.desiredConfigServerConfiguration, memberCluster)
 		configSrvSts := construct.DatabaseStatefulSet(*s, configSrvOpts, log)
@@ -2206,15 +2207,15 @@ func (r *ShardedClusterReconcileHelper) GetMongosStsName(memberCluster multiclus
 	}
 }
 
-func (r *ShardedClusterReconcileHelper) GetConfigSrvScaler(memberCluster multicluster.MemberCluster) scale.ReplicaSetScaler {
+func (r *ShardedClusterReconcileHelper) GetConfigSrvScaler(memberCluster multicluster.MemberCluster) interfaces.MultiClusterReplicaSetScaler {
 	return scalers.NewMultiClusterReplicaSetScaler("configSrv", r.desiredConfigServerConfiguration.ClusterSpecList, memberCluster.Name, memberCluster.Index, r.configSrvMemberClusters)
 }
 
-func (r *ShardedClusterReconcileHelper) GetMongosScaler(memberCluster multicluster.MemberCluster) scale.ReplicaSetScaler {
+func (r *ShardedClusterReconcileHelper) GetMongosScaler(memberCluster multicluster.MemberCluster) interfaces.MultiClusterReplicaSetScaler {
 	return scalers.NewMultiClusterReplicaSetScaler("mongos", r.desiredMongosConfiguration.ClusterSpecList, memberCluster.Name, memberCluster.Index, r.mongosMemberClusters)
 }
 
-func (r *ShardedClusterReconcileHelper) GetShardScaler(shardIdx int, memberCluster multicluster.MemberCluster) scale.ReplicaSetScaler {
+func (r *ShardedClusterReconcileHelper) GetShardScaler(shardIdx int, memberCluster multicluster.MemberCluster) interfaces.MultiClusterReplicaSetScaler {
 	return scalers.NewMultiClusterReplicaSetScaler(fmt.Sprintf("shard idx %d", shardIdx), r.desiredShardsConfiguration[shardIdx].ClusterSpecList, memberCluster.Name, memberCluster.Index, r.shardsMemberClustersMap[shardIdx])
 }
 

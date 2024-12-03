@@ -7,10 +7,10 @@ from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.kubetester import is_multi_cluster, skip_if_local
 from kubetester.mongodb import MongoDB, Phase
-from kubetester.mongotester import ShardedClusterTester
 from kubetester.operator import Operator
 from tests.shardedcluster.conftest import (
     enable_multi_cluster_deployment,
+    get_member_cluster_clients_using_cluster_mapping,
     get_mongos_service_names,
 )
 
@@ -69,20 +69,22 @@ def test_install_operator(operator: Operator):
 
 
 @pytest.mark.e2e_tls_sc_additional_certs
-class TestShardedClustertWithAdditionalCertDomains:
+class TestShardedClusterWithAdditionalCertDomains:
     def test_sharded_cluster_running(self, sc: MongoDB):
         sc.assert_reaches_phase(Phase.Running, timeout=1200)
 
     @skip_if_local
-    ##TODO fix the host and san pattern
     def test_has_right_certs(self, sc: MongoDB):
         """Check that mongos processes serving the right certificates."""
-        for i in range(2):
-            host = f"{MDB_RESOURCE_NAME}-mongos-{i}.{MDB_RESOURCE_NAME}-svc.{sc.namespace}.svc"
-            assert any(
-                re.match(rf"{MDB_RESOURCE_NAME}-mongos-{i}\.additional-cert-test\.com", san)
-                for san in KubernetesTester.get_mongo_server_sans(host)
-            )
+        for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
+            cluster_idx = cluster_member_client.cluster_index
+            for member_idx in range(sc.mongos_members_in_cluster(cluster_member_client.cluster_name)):
+                mongos_pod_name = sc.mongos_pod_name(member_idx, cluster_idx)
+                host = sc.mongos_hostname(member_idx, cluster_idx)
+                assert any(
+                    re.match(rf"{mongos_pod_name}\.additional-cert-test\.com", san)
+                    for san in KubernetesTester.get_mongo_server_sans(host)
+                )
 
     @skip_if_local
     def test_can_still_connect(self, sc: MongoDB, ca_path: str):
