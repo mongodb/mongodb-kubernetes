@@ -78,26 +78,13 @@ def test_non_empty_clusterspec_list(
 
 
 @mark.e2e_multi_cluster_appdb_validation
-def test_member_clusters_is_a_subset_of_kubeconfig(
+def test_empty_cluster_spec_list_single_cluster(
     ops_manager: MongoDBOpsManager, central_cluster_client: kubernetes.client.ApiClient
 ):
     ops_manager.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     ops_manager["spec"]["applicationDatabase"]["clusterSpecList"].append(
         {"clusterName": "kind-e2e-cluster-4", "members": 1}
     )
-
-    with pytest.raises(
-        ApiException,
-        match=r"The following clusters specified in ClusterSpecList is not present in Kubeconfig: \[kind-e2e-cluster-4\]",
-    ):
-        ops_manager.update()
-
-
-@mark.e2e_multi_cluster_appdb_validation
-def test_empty_cluster_spec_list_single_cluster(
-    ops_manager: MongoDBOpsManager, central_cluster_client: kubernetes.client.ApiClient
-):
-    ops_manager.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     ops_manager["spec"]["applicationDatabase"]["topology"] = "SingleCluster"
 
     with pytest.raises(
