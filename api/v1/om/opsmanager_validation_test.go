@@ -200,6 +200,25 @@ func TestOpsManagerValidation(t *testing.T) {
 			expectedError: false,
 			expectedPart:  status.None,
 		},
+		"Single cluster AppDB deployment should have empty clusterSpecList": {
+			testedOm: NewOpsManagerBuilderDefault().SetVersion("4.5.0-ent").
+				SetOpsManagerTopology(mdbv1.ClusterTopologySingleCluster).
+				SetOpsManagerClusterSpecList([]ClusterSpecOMItem{{ClusterName: "test"}}).
+				SetAppDBClusterSpecList(mdbv1.ClusterSpecList{{ClusterName: "test"}}).
+				Build(),
+			expectedError:        true,
+			expectedPart:         status.OpsManager,
+			expectedErrorMessage: "Single cluster AppDB deployment should have empty clusterSpecList",
+		},
+		"Topology 'MultiCluster' must be specified while setting a not empty spec.clusterSpecList": {
+			testedOm: NewOpsManagerBuilderDefault().SetVersion("4.5.0-ent").
+				SetOpsManagerTopology(mdbv1.ClusterTopologySingleCluster).
+				SetOpsManagerClusterSpecList([]ClusterSpecOMItem{{ClusterName: "test"}}).
+				Build(),
+			expectedError:        true,
+			expectedPart:         status.OpsManager,
+			expectedErrorMessage: "Topology 'MultiCluster' must be specified while setting a not empty spec.clusterSpecList",
+		},
 	}
 	for testName := range tests {
 		t.Run(testName, func(t *testing.T) {
