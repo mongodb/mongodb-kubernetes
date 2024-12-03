@@ -6,7 +6,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 )
 
-func GetAppDBScaler(opsManager *om.MongoDBOpsManager, memberClusterName string, memberClusterNum int, prevMembers []multicluster.MemberCluster) interfaces.AppDBScaler {
+func GetAppDBScaler(opsManager *om.MongoDBOpsManager, memberClusterName string, memberClusterNum int, prevMembers []multicluster.MemberCluster) interfaces.MultiClusterReplicaSetScaler {
 	if opsManager.Spec.AppDB.IsMultiCluster() {
 		return NewMultiClusterReplicaSetScaler("AppDB", opsManager.Spec.AppDB.ClusterSpecList, memberClusterName, memberClusterNum, prevMembers)
 	} else {
@@ -15,32 +15,36 @@ func GetAppDBScaler(opsManager *om.MongoDBOpsManager, memberClusterName string, 
 }
 
 // this is the implementation that originally was in om.MongoDBOpsManager
-type AppDBSingleClusterScaler struct {
+type appDBSingleClusterScaler struct {
 	opsManager *om.MongoDBOpsManager
 }
 
-func NewAppDBSingleClusterScaler(opsManager *om.MongoDBOpsManager) *AppDBSingleClusterScaler {
-	return &AppDBSingleClusterScaler{
+func NewAppDBSingleClusterScaler(opsManager *om.MongoDBOpsManager) interfaces.MultiClusterReplicaSetScaler {
+	return &appDBSingleClusterScaler{
 		opsManager: opsManager,
 	}
 }
 
-func (s *AppDBSingleClusterScaler) ForcedIndividualScaling() bool {
+func (s *appDBSingleClusterScaler) ForcedIndividualScaling() bool {
 	return false
 }
 
-func (s *AppDBSingleClusterScaler) DesiredReplicas() int {
+func (s *appDBSingleClusterScaler) DesiredReplicas() int {
 	return s.opsManager.Spec.AppDB.Members
 }
 
-func (s *AppDBSingleClusterScaler) CurrentReplicas() int {
+func (s *appDBSingleClusterScaler) CurrentReplicas() int {
 	return s.opsManager.Status.AppDbStatus.Members
 }
 
-func (s *AppDBSingleClusterScaler) MemberClusterName() string {
+func (s *appDBSingleClusterScaler) ScalingFirstTime() bool {
+	return true
+}
+
+func (s *appDBSingleClusterScaler) MemberClusterName() string {
 	return multicluster.LegacyCentralClusterName
 }
 
-func (s *AppDBSingleClusterScaler) MemberClusterNum() int {
+func (s *appDBSingleClusterScaler) MemberClusterNum() int {
 	return 0
 }

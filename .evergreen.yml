@@ -707,7 +707,7 @@ task_groups:
     - e2e_configure_tls_and_x509_simultaneously_sc
     - e2e_sharded_cluster_tls_require_custom_ca
     - e2e_tls_sharded_cluster_certs_prefix
-#    - e2e_tls_sc_additional_certs
+    - e2e_tls_sc_additional_certs
     - e2e_tls_x509_configure_all_options_sc
     - e2e_tls_x509_sc
 

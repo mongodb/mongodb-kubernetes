@@ -12,7 +12,7 @@ func MembersOption(replicaSetscaler scale.ReplicaSetScaler) Option {
 	return ReplicaSetMembersOption{Members: scale.ReplicasThisReconciliation(replicaSetscaler)}
 }
 
-func AppDBMemberOptions(appDBScalers ...interfaces.AppDBScaler) Option {
+func AppDBMemberOptions(appDBScalers ...interfaces.MultiClusterReplicaSetScaler) Option {
 	members := 0
 	clusterStatusList := []ClusterStatusItem{}
 	for _, scaler := range appDBScalers {

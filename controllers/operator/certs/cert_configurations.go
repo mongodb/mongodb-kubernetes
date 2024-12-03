@@ -206,7 +206,7 @@ func AppDBReplicaSetConfig(om *omv1.MongoDBOpsManager) Options {
 	return opts
 }
 
-func AppDBMultiClusterReplicaSetConfig(om *omv1.MongoDBOpsManager, scaler interfaces.AppDBScaler) Options {
+func AppDBMultiClusterReplicaSetConfig(om *omv1.MongoDBOpsManager, scaler interfaces.MultiClusterReplicaSetScaler) Options {
 	mdb := om.Spec.AppDB
 	opts := Options{
 		ResourceName:              mdb.NameForCluster(scaler.MemberClusterNum()),
@@ -227,9 +227,14 @@ func AppDBMultiClusterReplicaSetConfig(om *omv1.MongoDBOpsManager, scaler interf
 }
 
 // ShardConfig returns a struct which provides all the configuration options required for the given shard.
-func ShardConfig(mdb mdbv1.MongoDB, shardNum int, externalDomain *string, scaler scale.ReplicaSetScaler) Options {
+func ShardConfig(mdb mdbv1.MongoDB, shardNum int, externalDomain *string, scaler interfaces.MultiClusterReplicaSetScaler) Options {
+	resourceName := mdb.ShardRsName(shardNum)
+	if mdb.Spec.IsMultiCluster() {
+		resourceName = mdb.MultiShardRsName(scaler.MemberClusterNum(), shardNum)
+	}
+
 	return Options{
-		ResourceName:                 mdb.ShardRsName(shardNum),
+		ResourceName:                 resourceName,
 		CertSecretName:               mdb.GetSecurity().MemberCertificateSecretName(mdb.ShardRsName(shardNum)),
 		InternalClusterSecretName:    mdb.GetSecurity().InternalClusterAuthSecretName(mdb.ShardRsName(shardNum)),
 		Namespace:                    mdb.Namespace,
@@ -259,9 +264,14 @@ func MultiReplicaSetConfig(mdbm mdbmulti.MongoDBMultiCluster, clusterNum int, cl
 }
 
 // MongosConfig returns a struct which provides all of the configuration options required for the given Mongos.
-func MongosConfig(mdb mdbv1.MongoDB, externalDomain *string, scaler scale.ReplicaSetScaler) Options {
+func MongosConfig(mdb mdbv1.MongoDB, externalDomain *string, scaler interfaces.MultiClusterReplicaSetScaler) Options {
+	resourceName := mdb.MongosRsName()
+	if mdb.Spec.IsMultiCluster() {
+		resourceName = mdb.MultiMongosRsName(scaler.MemberClusterNum())
+	}
+
 	return Options{
-		ResourceName:                 mdb.MongosRsName(),
+		ResourceName:                 resourceName,
 		CertSecretName:               mdb.GetSecurity().MemberCertificateSecretName(mdb.MongosRsName()),
 		InternalClusterSecretName:    mdb.GetSecurity().InternalClusterAuthSecretName(mdb.MongosRsName()),
 		Namespace:                    mdb.Namespace,
@@ -276,9 +286,14 @@ func MongosConfig(mdb mdbv1.MongoDB, externalDomain *string, scaler scale.Replic
 }
 
 // ConfigSrvConfig returns a struct which provides all of the configuration options required for the given ConfigServer.
-func ConfigSrvConfig(mdb mdbv1.MongoDB, externalDomain *string, scaler scale.ReplicaSetScaler) Options {
+func ConfigSrvConfig(mdb mdbv1.MongoDB, externalDomain *string, scaler interfaces.MultiClusterReplicaSetScaler) Options {
+	resourceName := mdb.ConfigRsName()
+	if mdb.Spec.IsMultiCluster() {
+		resourceName = mdb.MultiConfigRsName(scaler.MemberClusterNum())
+	}
+
 	return Options{
-		ResourceName:                 mdb.ConfigRsName(),
+		ResourceName:                 resourceName,
 		CertSecretName:               mdb.GetSecurity().MemberCertificateSecretName(mdb.ConfigRsName()),
 		InternalClusterSecretName:    mdb.GetSecurity().InternalClusterAuthSecretName(mdb.ConfigRsName()),
 		Namespace:                    mdb.Namespace,
