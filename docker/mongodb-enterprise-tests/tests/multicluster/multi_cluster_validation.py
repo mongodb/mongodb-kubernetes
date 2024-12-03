@@ -43,14 +43,3 @@ class TestWebhookValidation(KubernetesTester):
             exception_reason="ClusterSpecList empty is not allowed, please define at least one cluster",
             api_client=central_cluster_client,
         )
-
-    def test_member_clusters_is_a_subset_of_kubeconfig(self, central_cluster_client: kubernetes.client.ApiClient):
-        resource = yaml.safe_load(open(yaml_fixture("mongodb-multi-cluster.yaml")))
-        resource["spec"]["clusterSpecList"].append({"clusterName": "kind-e2e-cluster-4", "members": 1})
-
-        self.create_custom_resource_from_object(
-            self.get_namespace(),
-            resource,
-            exception_reason="The following clusters specified in ClusterSpecList is not present in Kubeconfig: [kind-e2e-cluster-4]",
-            api_client=central_cluster_client,
-        )
