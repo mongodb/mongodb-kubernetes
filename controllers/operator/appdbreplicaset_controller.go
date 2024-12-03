@@ -641,7 +641,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Could not save current state as an annotation: %w", err)), log, omStatusOption)
 	}
 
-	appDBScalers := []interfaces.AppDBScaler{}
+	appDBScalers := []interfaces.MultiClusterReplicaSetScaler{}
 	achievedDesiredScaling := true
 	for _, member := range r.getAllMemberClusters() {
 		scaler := scalers.GetAppDBScaler(opsManager, member.Name, r.getMemberClusterIndex(member.Name), r.memberClusters)
@@ -1773,13 +1773,12 @@ func (r *ReconcileAppDbReplicaSet) deployStatefulSet(ctx context.Context, opsMan
 			return workflowStatus
 		}
 
-		if appdbMultiScaler, ok := scaler.(*scalers.MultiClusterReplicaSetScaler); ok {
-			// we want to deploy all stateful sets the first time we're deploying stateful sets
-			if appdbMultiScaler.ScalingFirstTime() {
-				scalingFirstTime = true
-				continue
-			}
+		// we want to deploy all stateful sets the first time we're deploying stateful sets
+		if scaler.ScalingFirstTime() {
+			scalingFirstTime = true
+			continue
 		}
+
 		if workflowStatus := getStatefulSetStatus(ctx, opsManager.Namespace, opsManager.Spec.AppDB.NameForCluster(memberCluster.Index), memberCluster.Client); !workflowStatus.IsOK() {
 			return workflowStatus
 		}
