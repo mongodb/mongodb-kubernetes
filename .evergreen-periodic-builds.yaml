@@ -107,6 +107,12 @@ tasks:
         vars:
           image_name: ops-manager-8-daily
 
+# the periodic agent builds are more commented in the pipeline.py file.
+# The gist is - we want to split up the periodic build on as many machines as possible
+# To speed up the builds as we have too many agents due to the matrix build.
+# For now its one without operator suffix and the last 3. This only works as long as we
+# only have operator versions we support (minor version), as soon as we have multiple patch versions -
+# this won't work anymore and we will need a dynamic solution.
   - name: periodic_build_agent
     exec_timeout_secs: 43200
     commands:
@@ -119,6 +125,45 @@ tasks:
       - func: pipeline
         vars:
           image_name: mongodb-agent-daily
+
+  - name: periodic_build_agent_1
+    exec_timeout_secs: 43200
+    commands:
+      - func: clone
+      - func: setup_docker_sbom
+      - func: setup_aws
+      - func: configure_docker_auth
+      - func: quay_login
+      - func: enable_QEMU
+      - func: pipeline
+        vars:
+          image_name: mongodb-agent-1-daily
+
+  - name: periodic_build_agent_2
+    exec_timeout_secs: 43200
+    commands:
+      - func: clone
+      - func: setup_docker_sbom
+      - func: setup_aws
+      - func: configure_docker_auth
+      - func: quay_login
+      - func: enable_QEMU
+      - func: pipeline
+        vars:
+          image_name: mongodb-agent-2-daily
+
+  - name: periodic_build_agent_3
+    exec_timeout_secs: 43200
+    commands:
+      - func: clone
+      - func: setup_docker_sbom
+      - func: setup_aws
+      - func: configure_docker_auth
+      - func: quay_login
+      - func: enable_QEMU
+      - func: pipeline
+        vars:
+          image_name: mongodb-agent-3-daily
 
   - name: periodic_build_community_operator
     commands:
@@ -209,10 +254,13 @@ task_groups:
       - periodic_build_ops_manager_7
       - periodic_build_ops_manager_8
       - periodic_build_database
-      - periodic_build_agent
       - periodic_build_community_operator
       - periodic_build_appdb_database
       - periodic_build_sbom_cli
+      - periodic_build_agent
+      - periodic_build_agent_1
+      - periodic_build_agent_2
+      - periodic_build_agent_3
 
   - name: preflight_images_task_group
     max_hosts: -1
@@ -265,6 +313,12 @@ buildvariants:
         variant: periodic_build
       - name: periodic_build_agent
         variant: periodic_build
+      - name: periodic_build_agent_1
+        variant: periodic_build
+      - name: periodic_build_agent_2
+        variant: periodic_build
+      - name: periodic_build_agent_3
+        variant: periodic_build
       - name: periodic_build_appdb_database
         variant: periodic_build
     run_on:
@@ -301,6 +355,12 @@ buildvariants:
       - name: periodic_build_database
         variant: periodic_build
       - name: periodic_build_agent
+        variant: periodic_build
+      - name: periodic_build_agent_1
+        variant: periodic_build
+      - name: periodic_build_agent_2
+        variant: periodic_build
+      - name: periodic_build_agent_3
         variant: periodic_build
       - name: periodic_build_appdb_database
         variant: periodic_build

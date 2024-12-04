@@ -29,6 +29,7 @@ import docker
 from lib.base_logger import logger
 from lib.sonar.sonar import process_image
 from scripts.evergreen.release.agent_matrix import (
+    get_supported_operator_versions,
     get_supported_version_for_image_matrix_handling,
 )
 from scripts.evergreen.release.images_signing import (
@@ -613,13 +614,29 @@ def is_version_in_range(version: str, min_version: str, max_version: str) -> boo
 
 
 def get_versions_to_rebuild(supported_versions, min_version, max_version):
-    # this means we only want
-    # to release one version,
-    # we cannot rely on the below range function
+    # this means we only want to release one version, we cannot rely on the below range function
     # since the agent does not follow semver for comparison
     if (min_version and max_version) and (min_version == max_version):
         return [min_version]
     return filter(lambda x: is_version_in_range(x, min_version, max_version), supported_versions)
+
+
+def get_versions_to_rebuild_per_operator_version(supported_versions, operator_version):
+    """
+    This function returns all versions sliced by a specific operator version.
+    If the input is `onlyAgents` then it only returns agents without the operator suffix.
+    """
+    versions_to_rebuild = []
+
+    for version in supported_versions:
+        if operator_version == "onlyAgents":
+            # 1_ works because we append the operator version via "_", all agents end with "1".
+            if "1_" not in version:
+                versions_to_rebuild.append(version)
+        else:
+            if operator_version in version:
+                versions_to_rebuild.append(version)
+    return versions_to_rebuild
 
 
 """
@@ -637,6 +654,7 @@ def build_image_daily(
     image_name: str,  # corresponds to the image_name in the release.json
     min_version: str = None,
     max_version: str = None,
+    operator_version: str = None,
 ):
     """Builds a daily image."""
 
@@ -673,10 +691,14 @@ def build_image_daily(
 
         args = args_for_daily_image(image_name)
         args["build_id"] = build_id()
-        logger.info("Supported Versions for {}: {}".format(image_name, supported_versions))
 
         completed_versions = set()
+
         filtered_versions = get_versions_to_rebuild(supported_versions, min_version, max_version)
+        if operator_version:
+            filtered_versions = get_versions_to_rebuild_per_operator_version(filtered_versions, operator_version)
+
+        logger.info("Building Versions for {}: {}".format(image_name, filtered_versions))
 
         for version in filtered_versions:
             build_configuration = copy.deepcopy(build_configuration)
@@ -1034,12 +1056,6 @@ def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
     agent_versions_to_build = gather_latest_agent_versions(release)
 
     legacy_agent_versions_to_build = release["supportedImages"]["mongodb-agent"]["versions"]
-    min_supported_version_operator_for_static = "1.25.0"
-    supported_operator_versions = [
-        v
-        for v in get_release()["supportedImages"]["operator"]["versions"]
-        if v >= min_supported_version_operator_for_static
-    ]
 
     tasks_queue = Queue()
     max_workers = 1
@@ -1076,7 +1092,7 @@ def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
                         agent_version[1],
                     )
                 )
-            for operator_version in supported_operator_versions:
+            for operator_version in get_supported_operator_versions():
                 logger.info(
                     f"Building Agent versions: {agent_versions_to_build} for Operator versions: {operator_version}"
                 )
@@ -1194,7 +1210,7 @@ def gather_latest_agent_versions(release: Dict) -> List[Tuple[str, str]]:
 def get_builder_function_for_image_name() -> Dict[str, Callable]:
     """Returns a dictionary of image names that can be built."""
 
-    return {
+    image_builders = {
         "cli": build_CLI_SBOM,
         "test": build_tests_image,
         "operator": build_operator_image,
@@ -1221,9 +1237,9 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         #
         # Ops Manager image
         "ops-manager": build_om_image,
-        #
+        # This only builds the agents without the operator suffix
+        "mongodb-agent-daily": build_image_daily("mongodb-agent", operator_version="onlyAgents"),
         # Community images
-        "mongodb-agent-daily": build_image_daily("mongodb-agent"),
         "mongodb-kubernetes-readinessprobe-daily": build_image_daily(
             "mongodb-kubernetes-readinessprobe",
         ),
@@ -1232,6 +1248,21 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         ),
         "mongodb-kubernetes-operator-daily": build_image_daily("mongodb-kubernetes-operator"),
     }
+
+    # since we only support the last 3 operator versions, we can build the following names which each matches to an
+    # operator version we support and rebuild:
+    # - mongodb-agent-daily-1
+    # - mongodb-agent-daily-2
+    # - mongodb-agent-daily-3
+    # get_supported_operator_versions returns the last three supported operator versions in a sorted manner
+    i = 1
+    for operator_version in get_supported_operator_versions():
+        image_builders[f"mongodb-agent-{i}-daily"] = build_image_daily(
+            "mongodb-agent", operator_version=operator_version
+        )
+        i += 1
+
+    return image_builders
 
 
 # TODO: nam static: remove this once static containers becomes the default
