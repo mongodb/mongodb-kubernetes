@@ -1030,12 +1030,8 @@ def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
     release = get_release()
     is_release = build_configuration.is_release_step_executed()
 
-    # we only need to release the latest images to quay during a release, on non-releases we should re-push all images
-    # otherwise ecr lifecycle will clean them up.
-    if is_release:
-        agent_versions_to_build = gather_latest_agent_versions(release)
-    else:
-        agent_versions_to_build = gather_all_supported_agent_versions(release)
+    # we only need to release the latest images, we don't need to re-push old images, as we don't clean them up anymore.
+    agent_versions_to_build = gather_latest_agent_versions(release)
 
     legacy_agent_versions_to_build = release["supportedImages"]["mongodb-agent"]["versions"]
     min_supported_version_operator_for_static = "1.25.0"

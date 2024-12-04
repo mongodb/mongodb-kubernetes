@@ -1,4 +1,5 @@
 import argparse
+import re
 from datetime import datetime, timedelta, timezone
 from typing import List
 
@@ -45,9 +46,17 @@ def filter_images_matching_tag(images: List[dict]) -> List[dict]:
                 # 70000000 -> decimal -> 1879048192 => Wednesday, July 18, 2029
                 # Note that if the operator ever gets to major version 6, some tags can unintentionally match '_6'
                 # It is an easy and relatively reliable way of identifying our test images tags
-                if "_6" in tag:
+                if "_6" in tag or ".sig" in tag or contains_timestamped_tag(tag):
                     images_matching_tag.append({"imageTag": tag, "imagePushedAt": image_detail["imagePushedAt"]})
     return images_matching_tag
+
+
+# match 107.0.0.8502-1-b20241125T000000Z-arm64
+def contains_timestamped_tag(s: str) -> bool:
+    if "b" in s and "T" in s and "Z" in s:
+        pattern = r"b\d{8}T\d{6}Z"
+        return bool(re.search(pattern, s))
+    return False
 
 
 def get_images_with_dates(repository: str) -> List[dict]:
