@@ -22,12 +22,7 @@ def get_supported_version_for_image_matrix_handling(image: str) -> List[str]:
     # static container images which are a matrix of <agent_version>_<operator_version>
     if image == "mongodb-agent":
         # officially, we start the support with 1.25.0, but we only support the last three versions
-        min_supported_version_operator_for_static = "1.27.0"
-        last_supported_operator_versions = [
-            v
-            for v in get_release()["supportedImages"]["operator"]["versions"]
-            if v >= min_supported_version_operator_for_static
-        ]
+        last_supported_operator_versions = get_supported_operator_versions()
         agent_version_with_static_support_without_operator_suffix = build_agent_gather_versions(get_release())
         agent_version_with_static_support_with_operator_suffix = list()
         for agent in agent_version_with_static_support_without_operator_suffix:
@@ -46,3 +41,14 @@ def get_supported_version_for_image_matrix_handling(image: str) -> List[str]:
         return agents
 
     return sorted(get_release()["supportedImages"][image]["versions"])
+
+
+def get_supported_operator_versions():
+    min_supported_version_operator_for_static = "1.27.0"
+    last_supported_operator_versions = [
+        v
+        for v in get_release()["supportedImages"]["operator"]["versions"]
+        if v >= min_supported_version_operator_for_static
+    ]
+
+    return sorted(last_supported_operator_versions)
