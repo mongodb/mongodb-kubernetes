@@ -6,9 +6,9 @@ from unittest.mock import patch
 import pytest
 
 from pipeline import (
-    build_agent_gather_versions,
-    build_latest_agent_versions,
     calculate_images_to_build,
+    gather_all_supported_agent_versions,
+    gather_latest_agent_versions,
     get_versions_to_rebuild,
     is_version_in_range,
     operator_build_configuration,
@@ -129,13 +129,13 @@ def test_is_release_step_executed(description, case):
 
 
 def test_build_latest_agent_versions():
-    latest_agents = build_latest_agent_versions(release_json)
+    latest_agents = gather_latest_agent_versions(release_json)
     expected_agents = [("107.0.11.8645-1", "100.10.0"), ("12.0.31.7825-1", "100.9.4"), ("13.19.0.8937-1", "100.9.4")]
     assert latest_agents == expected_agents
 
 
 def test_get_versions_to_rebuild_same_version():
-    supported_versions = build_agent_gather_versions(release_json)
+    supported_versions = gather_all_supported_agent_versions(release_json)
     agents = get_versions_to_rebuild(supported_versions, "6.0.0_1.26.0", "6.0.0_1.26.0")
     assert len(agents) == 1
     assert agents[0] == "6.0.0_1.26.0"

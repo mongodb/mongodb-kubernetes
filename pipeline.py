@@ -958,9 +958,30 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
     """
     release = get_release()
 
-    agent_versions_to_build = build_agent_gather_versions(release)
-
     operator_version, is_release = get_git_release_tag()
+
+    # We need to release [all agents x latest operator] on operator releases
+    if is_release:
+        agent_versions_to_build = gather_all_supported_agent_versions(release)
+    # We only need [latest agents (for each OM major version and for CM) x patch ID] for patches
+    else:
+        agent_versions_to_build = gather_latest_agent_versions(release)
+        # On top of the latest agent versions, we need these two custom ones we use in some tests for EVG patches
+        # The earliest version supporting Static Containers for OM, used in some upgrade tests
+        OM_STATIC_SUPPORT_VERSION = "6.0.23"
+        # Custom OM6 version from which we upgrade
+        OM6_UPGRADE_VERSION = "6.0.0"
+        for custom_version in [OM_STATIC_SUPPORT_VERSION, OM6_UPGRADE_VERSION]:
+            agent_versions_to_build.append(
+                (
+                    release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"][custom_version][
+                        "agent_version"
+                    ],
+                    release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"][custom_version][
+                        "tools_version"
+                    ],
+                )
+            )
 
     logger.info(f"Building Agent versions: {agent_versions_to_build} for Operator versions: {operator_version}")
 
@@ -1012,9 +1033,9 @@ def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
     # we only need to release the latest images to quay during a release, on non-releases we should re-push all images
     # otherwise ecr lifecycle will clean them up.
     if is_release:
-        agent_versions_to_build = build_latest_agent_versions(release)
+        agent_versions_to_build = gather_latest_agent_versions(release)
     else:
-        agent_versions_to_build = build_agent_gather_versions(release)
+        agent_versions_to_build = gather_all_supported_agent_versions(release)
 
     legacy_agent_versions_to_build = release["supportedImages"]["mongodb-agent"]["versions"]
     min_supported_version_operator_for_static = "1.25.0"
@@ -1117,7 +1138,7 @@ def _build_agent_operator(
     )
 
 
-def build_agent_gather_versions(release: Dict) -> List[Tuple[str, str]]:
+def gather_all_supported_agent_versions(release: Dict) -> List[Tuple[str, str]]:
     # This is a list of a tuples - agent version and corresponding tools version
     agent_versions_to_build = list()
     agent_versions_to_build.append(
@@ -1133,7 +1154,7 @@ def build_agent_gather_versions(release: Dict) -> List[Tuple[str, str]]:
     return sorted(list(set(agent_versions_to_build)))
 
 
-def build_latest_agent_versions(release: Dict) -> List[Tuple[str, str]]:
+def gather_latest_agent_versions(release: Dict) -> List[Tuple[str, str]]:
     """
     This function is used when we release a new agent via OM bump.
     That means we will need to release that agent with all supported operators.
