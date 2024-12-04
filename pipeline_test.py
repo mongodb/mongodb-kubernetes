@@ -10,6 +10,7 @@ from pipeline import (
     gather_all_supported_agent_versions,
     gather_latest_agent_versions,
     get_versions_to_rebuild,
+    get_versions_to_rebuild_per_operator_version,
     is_version_in_range,
     operator_build_configuration,
 )
@@ -149,6 +150,20 @@ def test_get_versions_to_rebuild_multiple_versions():
     for a in agents:
         actual_agents.append(a)
     assert actual_agents == expected_agents
+
+
+def test_get_versions_to_rebuild_multiple_versions_per_operator():
+    supported_versions = ["107.0.1.8507-1_1.27.0", "107.0.1.8507-1_1.28.0", "100.0.1.8507-1_1.28.0"]
+    expected_agents = ["107.0.1.8507-1_1.28.0", "100.0.1.8507-1_1.28.0"]
+    agents = get_versions_to_rebuild_per_operator_version(supported_versions, "1.28.0")
+    assert agents == expected_agents
+
+
+def test_get_versions_to_rebuild_multiple_versions_per_operator_only_non_suffixed():
+    supported_versions = ["107.0.1.8507-1_1.27.0", "107.0.10.8627-1-arm64", "100.0.10.8627-1"]
+    expected_agents = ["107.0.10.8627-1-arm64", "100.0.10.8627-1"]
+    agents = get_versions_to_rebuild_per_operator_version(supported_versions, "onlyAgents")
+    assert agents == expected_agents
 
 
 command = ["echo", "Hello World"]
