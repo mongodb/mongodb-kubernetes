@@ -14,7 +14,7 @@ import subprocess
 import sys
 import tarfile
 import time
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from distutils.dir_util import copy_tree
@@ -685,6 +685,12 @@ def build_image_daily(
             for tag in tags:
                 create_and_push_manifest(registry + args["ubi_suffix"], tag)
 
+    def sign_image_concurrently(executor, args, futures, arch=None):
+        v = args["release_version"]
+        logger.info(f"Enqueuing signing task for version: {v}")
+        future = executor.submit(sign_image_in_repositories, args, arch)
+        futures.append(future)
+
     def inner(build_configuration: BuildConfiguration):
         supported_versions = get_supported_version_for_image_matrix_handling(image_name)
         variants = get_supported_variants_for_image(image_name)
@@ -700,53 +706,68 @@ def build_image_daily(
 
         logger.info("Building Versions for {}: {}".format(image_name, filtered_versions))
 
-        for version in filtered_versions:
-            build_configuration = copy.deepcopy(build_configuration)
-            if build_configuration.include_tags is None:
-                build_configuration.include_tags = []
-            build_configuration.include_tags.extend(variants)
+        logger.info("Building Versions for {}: {}".format(image_name, filtered_versions))
 
-            logger.info("Rebuilding {} with variants {}".format(version, variants))
-            args["release_version"] = version
+        with ThreadPoolExecutor() as executor:
+            futures = []
+            for version in filtered_versions:
+                build_configuration = copy.deepcopy(build_configuration)
+                if build_configuration.include_tags is None:
+                    build_configuration.include_tags = []
+                build_configuration.include_tags.extend(variants)
 
-            arch_set = get_architectures_set(build_configuration, args)
+                logger.info("Rebuilding {} with variants {}".format(version, variants))
+                args["release_version"] = version
 
-            if version not in completed_versions:
-                if arch_set == {"amd64", "arm64"}:
-                    # We need to release the non context amd64 and arm64 images first before we can create the sbom
-                    for arch in arch_set:
-                        # Suffix to append to images name for multi-arch (see usage in daily.yaml inventory)
-                        args["architecture_suffix"] = f"-{arch}"
-                        args["platform"] = arch
+                arch_set = get_architectures_set(build_configuration, args)
+
+                if version not in completed_versions:
+                    if arch_set == {"amd64", "arm64"}:
+                        # We need to release the non context amd64 and arm64 images first before we can create the sbom
+                        for arch in arch_set:
+                            # Suffix to append to images name for multi-arch (see usage in daily.yaml inventory)
+                            args["architecture_suffix"] = f"-{arch}"
+                            args["platform"] = arch
+                            sonar_build_image(
+                                "image-daily-build",
+                                build_configuration,
+                                args,
+                                inventory="inventories/daily.yaml",
+                                with_sbom=False,
+                            )
+                            if build_configuration.sign:
+                                sign_image_concurrently(executor, args, futures, arch)
+                        create_and_push_manifests(args)
+                        for arch in arch_set:
+                            args["architecture_suffix"] = f"-{arch}"
+                            args["platform"] = arch
+                            logger.info(f"Enqueuing SBOM production task for image: {version}")
+                            future = executor.submit(produce_sbom, build_configuration, args)
+                            futures.append(future)
+                        if build_configuration.sign:
+                            sign_image_concurrently(executor, args, futures)
+                    else:
+                        # No suffix for single arch images
+                        args["architecture_suffix"] = ""
+                        args["platform"] = "amd64"
                         sonar_build_image(
                             "image-daily-build",
                             build_configuration,
                             args,
                             inventory="inventories/daily.yaml",
-                            with_sbom=False,
                         )
                         if build_configuration.sign:
-                            sign_image_in_repositories(args, arch)
-                    create_and_push_manifests(args)
-                    for arch in arch_set:
-                        args["architecture_suffix"] = f"-{arch}"
-                        args["platform"] = arch
-                        produce_sbom(build_configuration, args)
-                    if build_configuration.sign:
-                        sign_image_in_repositories(args)
-                else:
-                    # No suffix for single arch images
-                    args["architecture_suffix"] = ""
-                    args["platform"] = "amd64"
-                    sonar_build_image(
-                        "image-daily-build",
-                        build_configuration,
-                        args,
-                        inventory="inventories/daily.yaml",
-                    )
-                    if build_configuration.sign:
-                        sign_image_in_repositories(args)
-                completed_versions.add(version)
+                            sign_image_concurrently(executor, args, futures)
+                    completed_versions.add(version)
+
+            # wait for all signings to be done
+            logger.info("Waiting for all tasks to complete...")
+            for future in futures:
+                try:
+                    future.result()
+                except Exception as e:
+                    logger.error(f"Error in future: {e}")
+            logger.info("All tasks completed.")
 
     return inner
 
