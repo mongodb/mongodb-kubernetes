@@ -13,7 +13,7 @@ SIGNING_IMAGE_URI = os.environ.get(
     "SIGNING_IMAGE_URI", "artifactory.corp.mongodb.com/release-tools-container-registry-local/garasign-cosign"
 )
 
-RETRYABLE_ERRORS = [500, 502, 503, 504, 429, "timeout"]
+RETRYABLE_ERRORS = [500, 502, 503, 504, 429, "timeout", "WARNING"]
 
 
 def is_retryable_error(stderr: str) -> bool:
