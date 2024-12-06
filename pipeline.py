@@ -762,12 +762,20 @@ def build_image_daily(
 
             # wait for all signings to be done
             logger.info("Waiting for all tasks to complete...")
+            encountered_error = False
+            # all the futures contain concurrent sbom and signing tasks
             for future in futures:
                 try:
                     future.result()
                 except Exception as e:
                     logger.error(f"Error in future: {e}")
+                    encountered_error = True
             logger.info("All tasks completed.")
+
+            # we execute them concurrently with retries, if one of them eventually fails, we fail the whole task
+            if encountered_error:
+                logger.info("Some tasks failed.")
+                exit(1)
 
     return inner
 
