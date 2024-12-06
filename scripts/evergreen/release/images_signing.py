@@ -26,10 +26,11 @@ def is_retryable_error(stderr: str) -> bool:
     return any(str(error) in stderr for error in RETRYABLE_ERRORS)
 
 
-def run_command_with_retries(command, retries=3, base_delay=2):
+def run_command_with_retries(command, retries=6, base_delay=10):
     """
     Runs a subprocess command with retries and exponential backoff.
-
+    6 retries and 10 seconds delays sums up to be around 10 minutes.
+    Delays: 10,20,40,80,160,320
     :param command: The command to run.
     :param retries: Number of retries before failing.
     :param base_delay: Base delay in seconds for exponential backoff.
@@ -38,7 +39,7 @@ def run_command_with_retries(command, retries=3, base_delay=2):
     for attempt in range(retries):
         try:
             result = subprocess.run(command, capture_output=True, text=True, check=True)
-            logger.debug("Command executed successfully")
+            logger.debug(f"Command executed successfully with {attempt+1} attempts")
             return result
         except subprocess.CalledProcessError as e:
             logger.error(f"Attempt {attempt + 1} failed: {e.stderr}")
@@ -214,7 +215,7 @@ def verify_signature(repository: str, tag: str) -> bool:
         "--env",
         f"{public_key_var_name}={kubernetes_operator_public_key}",
     ]
-    cosign_command = ["verify", "--insecure-ignore-tlog", f"--key=env://{public_key_var_name}", image]
+    cosign_command = ["verify", "--insecure-ignore-tlog=true", f"--key=env://{public_key_var_name}", image]
     command = build_cosign_docker_command(additional_args, cosign_command)
 
     try:
