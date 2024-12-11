@@ -349,9 +349,13 @@ def generate_sbom(image_pull_spec: str, platform: str = "linux/amd64"):
 
             # Then checking for path, we don't want to include SHA Digest.
             # We just want to keep there the initial one. Nothing more.
-            s3_release_path_for_specific_tag = (
+            s3_release_sbom_lite_path_for_specific_tag = (
                 f"sboms/release/lite/{registry}/{organization}/{image_name}/{tag}/{platform_sanitized}/"
             )
+            s3_release_sbom_augmented_path_for_specific_tag = (
+                f"sboms/release/augmented/{registry}/{organization}/{image_name}/{tag}/{platform_sanitized}/"
+            )
+
             s3_release_sbom_lite_path = (
                 f"sboms/release/lite/{registry}/{organization}/{image_name}/{tag}/{platform_sanitized}/{sha}"
             )
@@ -381,13 +385,13 @@ def generate_sbom(image_pull_spec: str, platform: str = "linux/amd64"):
 
             # This path is only executed when there's a first rebuild of the release artifacts.
             # Then, we upload the SBOM Lite this single time only.
-            if not s3_path_exists(s3_release_path_for_specific_tag):
+            if not s3_path_exists(s3_release_sbom_lite_path_for_specific_tag):
                 logger.info("Uploading SBOM Lite for the first release")
                 upload_sbom_lite_to_silk(directory, sbom_lite_file_name, asset_group_release_id, platform)
                 upload_to_s3(directory, sbom_lite_file_name, S3_BUCKET, s3_release_sbom_lite_path)
             # This condition is evaluated at Release Date +1 day and here we check if we got the latest
             # Augmented SBOM for the release
-            elif not s3_path_exists(s3_release_sbom_augmented_path):
+            elif not s3_path_exists(s3_release_sbom_augmented_path_for_specific_tag):
                 logger.info("Uploading Augmented SBOM for the first release")
                 download_augmented_sbom_from_silk(directory, sbom_augmented_file_name, asset_group_release_id, platform)
                 upload_to_s3(directory, sbom_augmented_file_name, S3_BUCKET, s3_release_sbom_augmented_path)
