@@ -40,6 +40,7 @@ def run_command_with_retries(command, retries=6, base_delay=10):
         try:
             result = subprocess.run(command, capture_output=True, text=True, check=True)
             logger.debug(f"Command executed successfully with {attempt+1} attempts")
+            logger.debug(f"Command output: {result.stdout}")
             return result
         except subprocess.CalledProcessError as e:
             logger.error(f"Attempt {attempt + 1} failed: {e.stderr}")
@@ -219,7 +220,7 @@ def verify_signature(repository: str, tag: str) -> bool:
     command = build_cosign_docker_command(additional_args, cosign_command)
 
     try:
-        run_command_with_retries(command)
+        run_command_with_retries(command, retries=10)
     except subprocess.CalledProcessError as e:
         # Fail the pipeline if verification fails
         logger.error(f"Failed to verify signature for image {image}: {e.stderr}")
