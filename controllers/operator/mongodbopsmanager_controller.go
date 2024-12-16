@@ -1479,7 +1479,7 @@ func (r *OpsManagerReconciler) prepareBackupInOpsManager(ctx context.Context, re
 				// mechanism to ensure this using readiness probe, so we just retry
 				return workflow.Pending("BackupDaemon hasn't started yet")
 			} else if err != nil {
-				return workflow.Failed(err)
+				return workflow.Failed(xerrors.New(err.Error()))
 			}
 		} else if err != nil {
 			return workflow.Failed(xerrors.New(err.Error()))
@@ -1530,7 +1530,7 @@ func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(ctx context.Context
 
 	opsManagerOplogConfigs, err := omAdmin.ReadOplogStoreConfigs()
 	if err != nil {
-		return workflow.Failed(err)
+		return workflow.Failed(xerrors.New(err.Error()))
 	}
 
 	// Creating new configs
@@ -1543,7 +1543,7 @@ func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(ctx context.Context
 		}
 		log.Debugw("Creating Oplog Store in Ops Manager", "config", omConfig)
 		if err = omAdmin.CreateOplogStoreConfig(omConfig); err != nil {
-			return workflow.Failed(err)
+			return workflow.Failed(xerrors.New(err.Error()))
 		}
 	}
 
@@ -1563,7 +1563,7 @@ func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(ctx context.Context
 		configToUpdate := operatorView.MergeIntoOpsManagerConfig(omConfig)
 		log.Debugw("Updating Oplog Store in Ops Manager", "config", configToUpdate)
 		if err = omAdmin.UpdateOplogStoreConfig(configToUpdate); err != nil {
-			return workflow.Failed(err)
+			return workflow.Failed(xerrors.New(err.Error()))
 		}
 	}
 
@@ -1572,7 +1572,7 @@ func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(ctx context.Context
 	for _, v := range configsToRemove {
 		log.Debugf("Removing Oplog Store %s from Ops Manager", v.Identifier())
 		if err = omAdmin.DeleteOplogStoreConfig(v.Identifier().(string)); err != nil {
-			return workflow.Failed(err)
+			return workflow.Failed(xerrors.New(err.Error()))
 		}
 	}
 
@@ -1590,7 +1590,7 @@ func (r *OpsManagerReconciler) ensureS3OplogStoresInOpsManager(ctx context.Conte
 
 	opsManagerS3OpLogConfigs, err := s3OplogAdmin.ReadS3OplogStoreConfigs()
 	if err != nil {
-		return workflow.Failed(err)
+		return workflow.Failed(xerrors.New(err.Error()))
 	}
 
 	// Creating new configs
@@ -1623,7 +1623,7 @@ func (r *OpsManagerReconciler) ensureS3OplogStoresInOpsManager(ctx context.Conte
 		configToUpdate := operatorView.MergeIntoOpsManagerConfig(omConfig)
 		log.Infow("Updating S3 Oplog Store in Ops Manager", "config", configToUpdate)
 		if err = s3OplogAdmin.UpdateS3OplogConfig(configToUpdate); err != nil {
-			return workflow.Failed(err)
+			return workflow.Failed(xerrors.New(err.Error()))
 		}
 	}
 
@@ -1632,7 +1632,7 @@ func (r *OpsManagerReconciler) ensureS3OplogStoresInOpsManager(ctx context.Conte
 	for _, v := range configsToRemove {
 		log.Infof("Removing Oplog Store %s from Ops Manager", v.Identifier())
 		if err = s3OplogAdmin.DeleteS3OplogStoreConfig(v.Identifier().(string)); err != nil {
-			return workflow.Failed(err)
+			return workflow.Failed(xerrors.New(err.Error()))
 		}
 	}
 
@@ -1654,7 +1654,7 @@ func (r *OpsManagerReconciler) ensureBlockStoresInOpsManager(ctx context.Context
 
 	opsManagerBlockStoreConfigs, err := omAdmin.ReadBlockStoreConfigs()
 	if err != nil {
-		return workflow.Failed(err)
+		return workflow.Failed(xerrors.New(err.Error()))
 	}
 
 	// Creating new configs
@@ -1667,7 +1667,7 @@ func (r *OpsManagerReconciler) ensureBlockStoresInOpsManager(ctx context.Context
 		}
 		log.Debugw("Creating Block Store in Ops Manager", "config", omConfig)
 		if err = omAdmin.CreateBlockStoreConfig(omConfig); err != nil {
-			return workflow.Failed(err)
+			return workflow.Failed(xerrors.New(err.Error()))
 		}
 	}
 
@@ -1687,7 +1687,7 @@ func (r *OpsManagerReconciler) ensureBlockStoresInOpsManager(ctx context.Context
 		configToUpdate := operatorView.MergeIntoOpsManagerConfig(omConfig)
 		log.Debugw("Updating Block Store in Ops Manager", "config", configToUpdate)
 		if err = omAdmin.UpdateBlockStoreConfig(configToUpdate); err != nil {
-			return workflow.Failed(err)
+			return workflow.Failed(xerrors.New(err.Error()))
 		}
 	}
 
@@ -1696,7 +1696,7 @@ func (r *OpsManagerReconciler) ensureBlockStoresInOpsManager(ctx context.Context
 	for _, v := range configsToRemove {
 		log.Debugf("Removing Block Store %s from Ops Manager", v.Identifier())
 		if err = omAdmin.DeleteBlockStoreConfig(v.Identifier().(string)); err != nil {
-			return workflow.Failed(err)
+			return workflow.Failed(xerrors.New(err.Error()))
 		}
 	}
 	return workflow.OK()
@@ -1709,7 +1709,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(ctx context.Con
 
 	opsManagerS3Configs, err := omAdmin.ReadS3Configs()
 	if err != nil {
-		return workflow.Failed(err)
+		return workflow.Failed(xerrors.New(err.Error()))
 	}
 
 	operatorS3Configs := opsManager.Spec.Backup.S3Configs
@@ -1742,7 +1742,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(ctx context.Con
 		configToUpdate := operatorView.MergeIntoOpsManagerConfig(omConfig)
 		log.Infow("Updating S3Config in Ops Manager", "config", configToUpdate)
 		if err = omAdmin.UpdateS3Config(configToUpdate); err != nil {
-			return workflow.Failed(err)
+			return workflow.Failed(xerrors.New(err.Error()))
 		}
 	}
 
@@ -1750,7 +1750,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(ctx context.Con
 	for _, config := range configsToRemove {
 		log.Infof("Removing S3Config %s from Ops Manager", config.Identifier())
 		if err := omAdmin.DeleteS3Config(config.Identifier().(string)); err != nil {
-			return workflow.Failed(err)
+			return workflow.Failed(xerrors.New(err.Error()))
 		}
 	}
 
@@ -1767,7 +1767,7 @@ func (r *OpsManagerReconciler) readS3Credentials(ctx context.Context, s3SecretNa
 
 	s3SecretData, err := r.ReadSecret(ctx, kube.ObjectKey(namespace, s3SecretName), operatorSecretPath)
 	if err != nil {
-		return nil, err
+		return nil, xerrors.New(err.Error())
 	}
 
 	s3Creds := &backup.S3Credentials{}
@@ -1791,7 +1791,7 @@ func (r *OpsManagerReconciler) readS3Credentials(ctx context.Context, s3SecretNa
 func (r *OpsManagerReconciler) ensureFileSystemStoreConfigurationInOpsManager(opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin) workflow.Status {
 	opsManagerFSStoreConfigs, err := omAdmin.ReadFileSystemStoreConfigs()
 	if err != nil {
-		return workflow.Failed(err)
+		return workflow.Failed(xerrors.New(err.Error()))
 	}
 
 	fsStoreNames := make(map[string]struct{})
@@ -1827,7 +1827,7 @@ func (r *OpsManagerReconciler) buildAppDbOMS3Config(ctx context.Context, om *omv
 		var err error
 		s3Creds, err = r.readS3Credentials(ctx, config.S3SecretRef.Name, om.Namespace)
 		if err != nil {
-			return backup.S3Config{}, workflow.Failed(err)
+			return backup.S3Config{}, workflow.Failed(xerrors.New(err.Error()))
 		}
 	}
 
@@ -1838,7 +1838,7 @@ func (r *OpsManagerReconciler) buildAppDbOMS3Config(ctx context.Context, om *omv
 
 	customCAOpts, err := r.readCustomCAFilePathsAndContents(ctx, om, isOpLog)
 	if err != nil {
-		return backup.S3Config{}, workflow.Failed(err)
+		return backup.S3Config{}, workflow.Failed(xerrors.New(err.Error()))
 	}
 
 	return backup.NewS3Config(om, config, appDBConnectionString, customCAOpts, bucket, s3Creds), workflow.OK()
@@ -1905,7 +1905,7 @@ func (r *OpsManagerReconciler) readCustomCAFilePathsAndContents(ctx context.Cont
 	if opsManager.Spec.GetAppDbCA() != "" {
 		cmContents, err := configmap.ReadKey(ctx, r.client, "ca-pem", kube.ObjectKey(opsManager.Namespace, opsManager.Spec.GetAppDbCA()))
 		if err != nil {
-			return []backup.S3CustomCertificate{}, err
+			return []backup.S3CustomCertificate{}, xerrors.New(err.Error())
 		}
 		customCertificates = append(customCertificates, backup.S3CustomCertificate{
 			Filename:   omv1.GetAppDBCaPemPath(),
@@ -1923,7 +1923,7 @@ func getCAs(ctx context.Context, s3Config []omv1.S3Config, ns string, client sec
 			if backupCert.Name != "" {
 				aliasName := backupCert.Name + "/" + backupCert.Key
 				if cmContents, err := secret.ReadKey(ctx, client, backupCert.Key, kube.ObjectKey(ns, backupCert.Name)); err != nil {
-					return []backup.S3CustomCertificate{}, err
+					return []backup.S3CustomCertificate{}, xerrors.New(err.Error())
 				} else {
 					certificates = append(certificates, backup.S3CustomCertificate{
 						Filename:   aliasName,
@@ -1961,7 +1961,7 @@ func (r *OpsManagerReconciler) getMongoDbForS3Config(ctx context.Context, opsMan
 					// Returning pending as the user may create the mongodb resource soon
 					return nil, workflow.Pending("The MongoDB object %s doesn't exist", mongodbObjectKey)
 				}
-				return nil, workflow.Failed(err)
+				return nil, workflow.Failed(xerrors.New(err.Error()))
 			}
 			return mongodbMulti, workflow.OK()
 		}
@@ -2008,7 +2008,7 @@ func (r *OpsManagerReconciler) buildOMDatastoreConfig(ctx context.Context, opsMa
 			// Returning pending as the user may create the mongodb resource soon
 			return backup.DataStoreConfig{}, workflow.Pending("The MongoDB object %s doesn't exist", mongodbObjectKey)
 		}
-		return backup.DataStoreConfig{}, workflow.Failed(err)
+		return backup.DataStoreConfig{}, workflow.Failed(xerrors.New(err.Error()))
 	}
 
 	status := validateDataStoreConfig(mongodb.Spec.Security.Authentication.GetModes(), mongodb.Name, operatorConfig)
