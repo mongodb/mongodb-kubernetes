@@ -122,7 +122,7 @@ initAppDb:
 
 agent:
   name: mongodb-agent-ubi
-  version: 107.0.0.8502-1
+  version: 108.0.2.8729-1
 
 mongodbLegacyAppDb:
   name: mongodb-enterprise-appdb-database-ubi
