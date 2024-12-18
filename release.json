@@ -7,7 +7,7 @@
   "initOpsManagerVersion": "1.29.0",
   "initAppDbVersion": "1.29.0",
   "databaseImageVersion": "1.29.0",
-  "agentVersion": "107.0.0.8502-1",
+  "agentVersion": "108.0.2.8729-1",
   "openshift": {
     "minimumSupportedVersion": "4.6"
   },
@@ -133,11 +133,11 @@
         "12.0.28.7763-1": "OM 6 basic version"
       },
       "versions": [
-        "107.0.0.8502-1"
+        "108.0.2.8729-1"
       ],
       "opsManagerMapping": {
         "Description": "These are the agents from which we start supporting static containers.",
-        "cloud_manager": "13.26.0.9233-1",
+        "cloud_manager": "13.27.0.9284-1",
         "cloud_manager_tools": "100.10.0",
         "ops_manager": {
           "8.0.0": {
