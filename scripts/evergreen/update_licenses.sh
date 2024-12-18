@@ -29,7 +29,9 @@ process_licenses() {
     cd "$REPO_DIR" || exit
 }
 
-process_licenses "$REPO_DIR"
-process_licenses "$REPO_DIR/public/tools/multicluster"
+process_licenses "$REPO_DIR" &
+process_licenses "$REPO_DIR/public/tools/multicluster" &
+
+wait
 
 echo "License processing complete for all modules."
