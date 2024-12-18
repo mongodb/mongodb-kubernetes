@@ -105,11 +105,9 @@ function pre_commit() {
 
   source scripts/evergreen/lint_code.sh
 
-  if echo "$git_last_changed" | grep -q 'go.mod'; then
-    echo 'regenerating licenses.csv'
-    scripts/evergreen/update_licenses.sh
-    git add licenses.csv
-  fi
+  echo 'regenerating licenses.csv'
+  scripts/evergreen/update_licenses.sh
+  git add licenses.csv
 
   if echo "$git_last_changed" | grep -q 'public/tools/multicluster'; then
     echo 'regenerating multicluster RBAC public example'
