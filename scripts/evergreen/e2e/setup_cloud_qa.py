@@ -140,7 +140,14 @@ def project_was_created_before(group_name: str, minutes_interval: int) -> bool:
     except ValueError:
         print(
             f"group_name is: {group_name}, and the second part is not convertible to a timestamp this is unexpected "
-            f"and shouldn't happen. Deleting it, might cause"
+            f"and shouldn't happen. Will delete it now! This might cause"
+            f"failures in test until the test is fixed to not use wrong name patterns."
+        )
+        return True
+    except IndexError:
+        print(
+            f"group_name is: {group_name}, and there is no '-' in the name to identify the timestamp. This is unexpected "
+            f"and shouldn't happen. Will delete it now! This might cause"
             f"failures in test until the test is fixed to not use wrong name patterns."
         )
         return True
