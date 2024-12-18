@@ -79,7 +79,7 @@ def test_create_projects_configmaps(namespace: str):
                 # In EVG, we generate a unique ID for the project name in the 'my-project' configmap when we set up a
                 # test. To avoid project name collisions in between two concurrently running tasks in CloudQA,
                 # we concatenate it to the name of the mdb resource
-                "projectName": f"{file_to_resource_name(file_name)}-{base_cm['projectName']}",
+                "projectName": f"{base_cm['projectName']}-{file_to_resource_name(file_name)}",
             },
         )
 
