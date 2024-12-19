@@ -140,8 +140,8 @@ github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd h1:TRLaZ9cD/w
 github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=
 github.com/modern-go/reflect2 v1.0.2 h1:xBagoLtFs94CBntxluKeaWgTMpvLxC4ur3nMaC9Gz0M=
 github.com/modern-go/reflect2 v1.0.2/go.mod h1:yWuevngMOJpCy52FWWMvUC8ws7m/LJsjYzDa0/r8luk=
-github.com/mongodb/mongodb-kubernetes-operator v0.11.1-0.20241202114850-bca2a6eb3517 h1:Q+oLZgVCUSZZTtSV0QnbFBdwsvCk0Ge85ELtFmalQVM=
-github.com/mongodb/mongodb-kubernetes-operator v0.11.1-0.20241202114850-bca2a6eb3517/go.mod h1:g0X43ihlvLOFeGC1Kx19wBj9h4TPE4LkU1i1/y+wreU=
+github.com/mongodb/mongodb-kubernetes-operator v0.12.1-0.20241218134845-85086f749a64 h1:HTZ83EkBEAzzhH2Al4eqDaw2zeZLlJN+YTtZoGNiHxo=
+github.com/mongodb/mongodb-kubernetes-operator v0.12.1-0.20241218134845-85086f749a64/go.mod h1:cwLL2VrabG300vzdynKUrt80bz46Y7tRKfgEcIlYpB4=
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 h1:C3w9PqII01/Oq1c1nUAm88MOHcQC9l5mIlSMApZMrHA=
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822/go.mod h1:+n7T8mK8HuQTcFwEeznm/DIxMOiR9yIdICNftLE1DvQ=
 github.com/nxadm/tail v1.4.4/go.mod h1:kenIhsEOeOJmVchQTgglprH7qJGnHDVpk1VPCcaMI8A=
