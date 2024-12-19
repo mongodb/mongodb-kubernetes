@@ -15,7 +15,7 @@
     "mongodb-kubernetes-readinessprobe": {
       "ssdlc_name": "MongoDB Community Operator Readiness Probe",
       "versions": [
-        "1.0.19"
+        "1.0.22"
       ],
       "variants": [
         "ubi"
@@ -24,7 +24,7 @@
     "mongodb-kubernetes-operator-version-upgrade-post-start-hook": {
       "ssdlc_name": "MongoDB Community Operator Version Upgrade Hook",
       "versions": [
-        "1.0.8"
+        "1.0.9"
       ],
       "variants": [
         "ubi"
