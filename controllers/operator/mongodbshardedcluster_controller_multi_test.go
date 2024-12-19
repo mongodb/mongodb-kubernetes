@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"strconv"
 	"testing"
 
 	"github.com/ghodss/yaml"
@@ -17,12 +18,14 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/exp/constraints"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
 
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -30,16 +33,13 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/test"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
 func newShardedClusterReconcilerForMultiCluster(ctx context.Context, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, kubeClient kubernetesClient.Client, omConnectionFactory *om.CachedOMConnectionFactory) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, error) {
-	r := &ReconcileMongoDbShardedCluster{
-		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
-		omConnectionFactory:       omConnectionFactory.GetConnectionFunc,
-		memberClustersMap:         globalMemberClustersMap,
-	}
+	r := newShardedClusterReconciler(ctx, kubeClient, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc)
 	reconcileHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, sc, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, zap.S())
 	if err != nil {
 		return nil, nil, err
@@ -739,7 +739,7 @@ func TestMigrateToNewDeploymentState(t *testing.T) {
 		Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(sc)
-	memberClusterMap := getFakeMultiClusterMapWithClusters([]string{"member-cluster-1"}, omConnectionFactory)
+	memberClusterMap := getFakeMultiClusterMapWithClusters([]string{multicluster.LegacyCentralClusterName}, omConnectionFactory)
 
 	reconciler, _, err := newShardedClusterReconcilerForMultiCluster(ctx, sc, memberClusterMap, kubeClient, omConnectionFactory)
 	require.NoError(t, err)
@@ -914,11 +914,7 @@ func TestMultiClusterShardedSetRace(t *testing.T) {
 	globalMemberClustersMap := getFakeMultiClusterMapWithConfiguredInterceptor(memberClusterNames, omConnectionFactory, true, false)
 
 	ctx := context.Background()
-	reconciler := &ReconcileMongoDbShardedCluster{
-		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
-		omConnectionFactory:       omConnectionFactory.GetConnectionFunc,
-		memberClustersMap:         globalMemberClustersMap,
-	}
+	reconciler := newShardedClusterReconciler(ctx, kubeClient, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc)
 
 	allHostnames := generateHostsForCluster(ctx, reconciler, sc, mongosDistribution, configSrvDistribution, shardDistribution)
 	allHostnames1 := generateHostsForCluster(ctx, reconciler, sc1, mongosDistribution, configSrvDistribution, shardDistribution)
@@ -936,6 +932,305 @@ func TestMultiClusterShardedSetRace(t *testing.T) {
 	})
 
 	testConcurrentReconciles(ctx, t, fakeClient, reconciler, sc, sc1, sc2)
+}
+
+func computeShardOverridesFromDistribution(shardOverridesDistribution []map[string]int) []mdbv1.ShardOverride {
+	var shardOverrides []mdbv1.ShardOverride
+
+	// This will create shard overrides for shards 0...len(shardOverridesDistribution-1), shardCount can be greater
+	for i, distribution := range shardOverridesDistribution {
+		// Cluster builder has slaney as default name
+		shardName := "slaney" + "-" + strconv.Itoa(i)
+
+		// Build the ClusterSpecList for the current shard
+		var clusterSpecList []mdbv1.ClusterSpecItemOverride
+		for clusterName, members := range distribution {
+			clusterSpecList = append(clusterSpecList, mdbv1.ClusterSpecItemOverride{
+				ClusterName: clusterName,
+				Members:     ptr.To(members),
+			})
+		}
+
+		// Construct the ShardOverride for the current shard
+		shardOverride := mdbv1.ShardOverride{
+			ShardNames: []string{shardName},
+			ShardedClusterComponentOverrideSpec: mdbv1.ShardedClusterComponentOverrideSpec{
+				ClusterSpecList: clusterSpecList,
+			},
+		}
+
+		// Append the constructed ShardOverride to the shardOverrides slice
+		shardOverrides = append(shardOverrides, shardOverride)
+	}
+	return shardOverrides
+}
+
+type MultiClusterShardedScalingTestCase struct {
+	name         string
+	scalingSteps []MultiClusterShardedScalingStep
+}
+
+type MultiClusterShardedScalingStep struct {
+	name                      string
+	shardCount                int
+	shardDistribution         map[string]int
+	shardOverrides            []map[string]int
+	expectedShardDistribution []map[string]int
+}
+
+func MultiClusterShardedScalingWithOverridesTestCase(t *testing.T, tc MultiClusterShardedScalingTestCase) {
+	ctx := context.Background()
+	cluster1 := "member-cluster-1"
+	cluster2 := "member-cluster-2"
+	cluster3 := "member-cluster-3"
+	memberClusterNames := []string{
+		cluster1,
+		cluster2,
+		cluster3,
+	}
+
+	mongosDistribution := map[string]int{cluster2: 1}
+	configSrvDistribution := map[string]int{cluster3: 1}
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	_ = omConnectionFactory.GetConnectionFunc(&om.OMContext{GroupName: om.TestGroupName})
+
+	fakeClient := mock.NewEmptyFakeClientBuilder().WithObjects(mock.GetDefaultResources()...).Build()
+	kubeClient := kubernetesClient.NewClient(fakeClient)
+
+	memberClusterMap := getFakeMultiClusterMapWithoutInterceptor(memberClusterNames)
+	var memberClusterClients []client.Client
+	for _, c := range memberClusterMap {
+		memberClusterClients = append(memberClusterClients, c)
+	}
+
+	sc := test.DefaultClusterBuilder().
+		SetTopology(mdbv1.ClusterTopologyMultiCluster).
+		SetShardCountSpec(tc.scalingSteps[0].shardCount).
+		SetMongodsPerShardCountSpec(0).
+		SetConfigServerCountSpec(0).
+		SetMongosCountSpec(0).
+		SetShardClusterSpec(test.CreateClusterSpecList(memberClusterNames, tc.scalingSteps[0].shardDistribution)).
+		SetConfigSrvClusterSpec(test.CreateClusterSpecList(memberClusterNames, configSrvDistribution)).
+		SetMongosClusterSpec(test.CreateClusterSpecList(memberClusterNames, mongosDistribution)).
+		SetShardOverrides(computeShardOverridesFromDistribution(tc.scalingSteps[0].shardOverrides)).
+		Build()
+
+	err := kubeClient.Create(ctx, sc)
+	require.NoError(t, err)
+
+	addAllHostsWithDistribution := func(connection om.Connection, mongosDistribution map[string]int, clusterMapping map[string]int, configSrvDistribution map[string]int, shardDistribution []map[string]int) {
+		allHostnames, _ := generateAllHosts(sc, mongosDistribution, clusterMapping, configSrvDistribution, shardDistribution, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
+		connection.(*om.MockedOmConnection).AddHosts(allHostnames)
+	}
+
+	for _, scalingStep := range tc.scalingSteps {
+		t.Run(scalingStep.name, func(t *testing.T) {
+			reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, sc, memberClusterMap, kubeClient, omConnectionFactory)
+			require.NoError(t, err)
+			clusterMapping := reconcilerHelper.deploymentState.ClusterMapping
+
+			addAllHostsWithDistribution(omConnectionFactory.GetConnection(), mongosDistribution, clusterMapping, configSrvDistribution, scalingStep.expectedShardDistribution)
+
+			err = kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc)
+			require.NoError(t, err)
+			sc.Spec.ShardSpec.ClusterSpecList = test.CreateClusterSpecList(memberClusterNames, scalingStep.shardDistribution)
+			sc.Spec.ShardOverrides = computeShardOverridesFromDistribution(scalingStep.shardOverrides)
+			err = kubeClient.Update(ctx, sc)
+			require.NoError(t, err)
+			reconcileUntilSuccessful(ctx, t, reconciler, sc, kubeClient, memberClusterClients, nil, false)
+
+			// Verify scaled deployment
+			checkCorrectShardDistributionInStatefulSets(t, ctx, sc, clusterMapping, memberClusterMap, scalingStep.expectedShardDistribution)
+		})
+	}
+}
+
+func TestMultiClusterShardedScalingWithOverrides(t *testing.T) {
+	cluster1 := "member-cluster-1"
+	cluster2 := "member-cluster-2"
+	cluster3 := "member-cluster-3"
+	testCases := []MultiClusterShardedScalingTestCase{
+		{
+			name: "Scale down shard in cluster1",
+			scalingSteps: []MultiClusterShardedScalingStep{
+				{
+					name:       "Initial scaling without overrides",
+					shardCount: 3,
+					shardDistribution: map[string]int{
+						cluster1: 1, cluster2: 1, cluster3: 1,
+					},
+					expectedShardDistribution: []map[string]int{
+						{cluster1: 1, cluster2: 1, cluster3: 1},
+						{cluster1: 1, cluster2: 1, cluster3: 1},
+						{cluster1: 1, cluster2: 1, cluster3: 1},
+					},
+				},
+				{
+					name:       "Scale down one top level with overrides scaling up",
+					shardCount: 3,
+					shardDistribution: map[string]int{
+						cluster1: 0, cluster2: 1, cluster3: 1, // cluster1: 1-0
+					},
+					shardOverrides: []map[string]int{
+						{cluster1: 0, cluster2: 1, cluster3: 1}, // no changes in scaling
+						{cluster1: 1, cluster2: 2, cluster3: 3}, // cluster2: 1->2, cluster3: 1->3
+					},
+					expectedShardDistribution: []map[string]int{
+						{cluster1: 0, cluster2: 1, cluster3: 1},
+						{cluster1: 1, cluster2: 2, cluster3: 3},
+						{cluster1: 0, cluster2: 1, cluster3: 1},
+					},
+				},
+			},
+		},
+		{
+			name: "Scale up from zero members",
+			scalingSteps: []MultiClusterShardedScalingStep{
+				{
+					name:       "Initial scaling without overrides",
+					shardCount: 3,
+					shardDistribution: map[string]int{
+						cluster1: 1, cluster2: 1, cluster3: 0,
+					},
+					expectedShardDistribution: []map[string]int{
+						{cluster1: 1, cluster2: 1, cluster3: 0},
+						{cluster1: 1, cluster2: 1, cluster3: 0},
+						{cluster1: 1, cluster2: 1, cluster3: 0},
+					},
+				},
+				{
+					name:       "Scale up from zero members",
+					shardCount: 3,
+					shardDistribution: map[string]int{
+						cluster1: 1, cluster2: 1, cluster3: 1, // cluster3: 0->1
+					},
+					expectedShardDistribution: []map[string]int{
+						{cluster1: 1, cluster2: 1, cluster3: 1},
+						{cluster1: 1, cluster2: 1, cluster3: 1},
+						{cluster1: 1, cluster2: 1, cluster3: 1},
+					},
+				},
+			},
+		},
+		{
+			name: "Scale up from zero members using shard overrides",
+			scalingSteps: []MultiClusterShardedScalingStep{
+				{
+					name:       "Initial scaling with overrides",
+					shardCount: 3,
+					shardDistribution: map[string]int{
+						cluster1: 1, cluster2: 1, cluster3: 1,
+					},
+					shardOverrides: []map[string]int{
+						{cluster1: 1, cluster2: 1, cluster3: 0},
+					},
+					expectedShardDistribution: []map[string]int{
+						{cluster1: 1, cluster2: 1, cluster3: 0},
+						{cluster1: 1, cluster2: 1, cluster3: 1},
+						{cluster1: 1, cluster2: 1, cluster3: 1},
+					},
+				},
+				{
+					name:       "Scale up from zero members using shard override",
+					shardCount: 3,
+					shardDistribution: map[string]int{
+						cluster1: 1, cluster2: 1, cluster3: 1,
+					},
+					shardOverrides: []map[string]int{
+						{cluster1: 1, cluster2: 1, cluster3: 1}, // cluster3: 0->1
+					},
+					expectedShardDistribution: []map[string]int{
+						{cluster1: 1, cluster2: 1, cluster3: 1},
+						{cluster1: 1, cluster2: 1, cluster3: 1},
+						{cluster1: 1, cluster2: 1, cluster3: 1},
+					},
+				},
+			},
+		},
+		{
+			name: "All shards contain overrides",
+			scalingSteps: []MultiClusterShardedScalingStep{
+				{
+					name:       "Deploy with overrides on all shards",
+					shardCount: 2,
+					shardDistribution: map[string]int{
+						cluster1: 1, cluster2: 1, cluster3: 1,
+					},
+					shardOverrides: []map[string]int{
+						{cluster1: 3, cluster2: 2, cluster3: 1},
+						{cluster1: 1, cluster2: 2, cluster3: 3},
+					},
+					expectedShardDistribution: []map[string]int{
+						{cluster1: 3, cluster2: 2, cluster3: 1},
+						{cluster1: 1, cluster2: 2, cluster3: 3},
+					},
+				},
+				{
+					name:       "Scale shards",
+					shardCount: 2,
+					shardDistribution: map[string]int{
+						cluster1: 1, cluster2: 1, cluster3: 1, // we don't change the default distribution
+					},
+					shardOverrides: []map[string]int{
+						{cluster1: 0, cluster2: 3, cluster3: 1}, // cluster1: 3->0, cluster 2: 2->3
+						{cluster1: 3, cluster2: 2, cluster3: 0}, // cluster2: 1->3, cluster3: 3->0
+					},
+					expectedShardDistribution: []map[string]int{
+						{cluster1: 0, cluster2: 3, cluster3: 1},
+						{cluster1: 3, cluster2: 2, cluster3: 0},
+					},
+				},
+				{
+					name:       "Scale zero to one in one shard override",
+					shardCount: 2,
+					shardDistribution: map[string]int{
+						cluster1: 1, cluster2: 1, cluster3: 1, // we don't change the default distribution
+					},
+					shardOverrides: []map[string]int{
+						{cluster1: 0, cluster2: 3, cluster3: 1},
+						{cluster1: 3, cluster2: 2, cluster3: 1}, // {cluster3: 0->1};
+					},
+					/*
+						slaney-1-0-1-svc.my-namespace.svc.cluster.local
+						slaney-1-0-2-svc.my-namespace.svc.cluster.local
+
+						slaney-1-1-0-svc.my-namespace.svc.cluster.local
+						slaney-1-1-1-svc.my-namespace.svc.cluster.local
+
+						slaney-1-2-0-svc.my-namespace.svc.cluster.local
+						slaney-1-2-1-svc.my-namespace.svc.cluster.local
+						slaney-1-2-2-svc.my-namespace.svc.cluster.local
+
+					*/
+					expectedShardDistribution: []map[string]int{
+						{cluster1: 0, cluster2: 3, cluster3: 1},
+						{cluster1: 3, cluster2: 2, cluster3: 1},
+					},
+				},
+				{
+					name:       "Remove one override",
+					shardCount: 2,
+					shardDistribution: map[string]int{
+						cluster1: 1, cluster2: 1, cluster3: 1, // we don't change the default distribution
+					},
+					shardOverrides: []map[string]int{
+						{cluster1: 0, cluster2: 3, cluster3: 1},
+					},
+					expectedShardDistribution: []map[string]int{
+						{cluster1: 0, cluster2: 3, cluster3: 1},
+						{cluster1: 1, cluster2: 1, cluster3: 1}, // This shard should scale to the default distribution
+					},
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			MultiClusterShardedScalingWithOverridesTestCase(t, tc)
+		})
+	}
 }
 
 func TestMultiClusterShardedScaling(t *testing.T) {
@@ -994,6 +1289,8 @@ func TestMultiClusterShardedScaling(t *testing.T) {
 	require.NoError(t, mock.MarkAllStatefulSetsAsReady(ctx, sc.Namespace, memberClusterClients...))
 	addAllHostsWithDistribution(omConnectionFactory.GetConnection(), mongosDistribution, clusterMapping, configSrvDistribution, shardDistribution)
 	reconcileUntilSuccessful(ctx, t, reconciler, sc, kubeClient, memberClusterClients, nil, false)
+
+	// Ensure that reconciliation generated the correct deployment state
 	checkCorrectShardDistributionInStatus(t, sc)
 
 	// 1 successful reconcile finished, we have initial scaling done and Phase=Running
@@ -1030,6 +1327,7 @@ func TestMultiClusterShardedScaling(t *testing.T) {
 
 	require.NoError(t, err)
 	reconcileUntilSuccessful(ctx, t, reconciler, sc, kubeClient, memberClusterClients, nil, false)
+	// Ensure that reconciliation generated the correct deployment state
 	checkCorrectShardDistributionInStatus(t, sc)
 
 	// remove members from one cluster and move them to another
@@ -1082,6 +1380,7 @@ func reconcileUntilSuccessful(ctx context.Context, t *testing.T, reconciler reco
 			return
 		}
 		require.NoError(t, operatorClient.Get(ctx, mock.ObjectKeyFromApiObject(object), object))
+
 		if object.Status.Phase == status.PhaseRunning {
 			assert.Equal(t, reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}, result)
 			if expectedReconciles != nil {
@@ -1123,16 +1422,53 @@ func buildShardedClusterWithCustomProjectName(mcShardedClusterName string, shard
 		Build(), mock.GetProjectConfigMap(configMapName, projectName, ""), projectName
 }
 
+func checkCorrectShardDistributionInStatefulSets(t *testing.T, ctx context.Context, sc *mdbv1.MongoDB, clusterMapping map[string]int,
+	memberClusterMap map[string]client.Client, expectedShardsDistributions []map[string]int,
+) {
+	for shardIdx, shardExpectedDistributions := range expectedShardsDistributions {
+		for memberClusterName, expectedMemberCount := range shardExpectedDistributions {
+			c := memberClusterMap[memberClusterName]
+			sts := appsv1.StatefulSet{}
+			var stsName string
+			if memberClusterName == multicluster.LegacyCentralClusterName {
+				stsName = fmt.Sprintf("%s-%d", sc.Name, shardIdx)
+			} else {
+				stsName = fmt.Sprintf("%s-%d-%d", sc.Name, shardIdx, clusterMapping[memberClusterName])
+			}
+			err := c.Get(ctx, types.NamespacedName{Namespace: sc.Namespace, Name: stsName}, &sts)
+			stsMessage := fmt.Sprintf("shardIdx: %d, clusterName: %s, stsName: %s", shardIdx, memberClusterName, stsName)
+			require.NoError(t, err)
+			assert.Equal(t, int32(expectedMemberCount), sts.Status.ReadyReplicas, stsMessage)
+			assert.Equal(t, int32(expectedMemberCount), sts.Status.Replicas, stsMessage)
+		}
+	}
+}
+
 func checkCorrectShardDistributionInStatus(t *testing.T, sc *mdbv1.MongoDB) {
 	clusterSpecItemToClusterNameMembers := func(clusterSpecItem mdbv1.ClusterSpecItem, _ int) (string, int) {
 		return clusterSpecItem.ClusterName, clusterSpecItem.Members
 	}
+	clusterSpecItemOverrideToClusterNameMembers := func(clusterSpecItem mdbv1.ClusterSpecItemOverride, _ int) (string, int) {
+		return clusterSpecItem.ClusterName, *clusterSpecItem.Members
+	}
+	expectedShardSizeStatusInClusters := util.TransformToMap(sc.Spec.ShardSpec.ClusterSpecList, clusterSpecItemToClusterNameMembers)
+	var expectedShardOverridesInClusters map[string]map[string]int
+	for _, shardOverride := range sc.Spec.ShardOverrides {
+		for _, shardName := range shardOverride.ShardNames {
+			if expectedShardOverridesInClusters == nil {
+				// we need to initialize it only when there are any shard overrides because we receive nil from status)
+				expectedShardOverridesInClusters = map[string]map[string]int{}
+			}
+			expectedShardOverridesInClusters[shardName] = util.TransformToMap(shardOverride.ClusterSpecList, clusterSpecItemOverrideToClusterNameMembers)
+		}
+	}
+
 	expectedMongosSizeStatusInClusters := util.TransformToMap(sc.Spec.MongosSpec.ClusterSpecList, clusterSpecItemToClusterNameMembers)
 	expectedConfigSrvSizeStatusInClusters := util.TransformToMap(sc.Spec.ConfigSrvSpec.ClusterSpecList, clusterSpecItemToClusterNameMembers)
-	expectedShardSizeStatusInClusters := util.TransformToMap(sc.Spec.ShardSpec.ClusterSpecList, clusterSpecItemToClusterNameMembers)
 
 	assert.Equal(t, expectedMongosSizeStatusInClusters, sc.Status.SizeStatusInClusters.MongosCountInClusters)
 	assert.Equal(t, expectedShardSizeStatusInClusters, sc.Status.SizeStatusInClusters.ShardMongodsInClusters)
+	assert.Equal(t, expectedShardOverridesInClusters, sc.Status.SizeStatusInClusters.ShardOverridesInClusters)
 	assert.Equal(t, expectedConfigSrvSizeStatusInClusters, sc.Status.SizeStatusInClusters.ConfigServerMongodsInClusters)
 
 	clusterSpecItemToMembers := func(item mdbv1.ClusterSpecItem) int {

@@ -542,7 +542,7 @@ class MongoDB(CustomObject, MongoDBCommon):
 
         return f"{self.mongos_pod_name(member_idx, cluster_idx)}.{service_name}.{self.namespace}.svc.cluster.local"
 
-    def mongos_service_name(self, member_idx: int, cluster_idx: Optional[int] = None) -> str:
+    def mongos_service_name(self, member_idx: Optional[int], cluster_idx: Optional[int] = None) -> str:
         if self.is_multicluster():
             return f"{self.name}-mongos-{cluster_idx}-{member_idx}-svc"
         else:

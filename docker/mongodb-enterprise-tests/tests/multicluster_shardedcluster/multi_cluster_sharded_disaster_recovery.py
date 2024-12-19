@@ -1,3 +1,4 @@
+import time
 from typing import Optional
 
 import kubernetes
@@ -11,20 +12,28 @@ from kubetester import (
 )
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import run_periodically, skip_if_local
+from kubetester.kubetester import (
+    is_static_containers_architecture,
+    run_periodically,
+    skip_if_local,
+)
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.operator import Operator
 from pytest import fixture, mark
 from tests import test_logger
-from tests.conftest import get_member_cluster_api_client
+from tests.conftest import get_member_cluster_api_client, get_member_cluster_names
 from tests.multicluster.conftest import cluster_spec_list
-from tests.shardedcluster.conftest import enable_multi_cluster_deployment
+from tests.shardedcluster.conftest import (
+    enable_multi_cluster_deployment,
+    get_all_sharded_cluster_pod_names,
+)
 
 MEMBER_CLUSTERS = ["kind-e2e-cluster-1", "kind-e2e-cluster-2", "kind-e2e-cluster-3"]
 FAILED_MEMBER_CLUSTER_INDEX = 2
 FAILED_MEMBER_CLUSTER_NAME = MEMBER_CLUSTERS[FAILED_MEMBER_CLUSTER_INDEX]
 
 logger = test_logger.get_test_logger(__name__)
+
 
 # We test a simple disaster recovery scenario: we lose one cluster without losing the majority.
 # We ensure that the operator correctly ignores the unhealthy cluster in the subsequent reconciliation,
@@ -46,9 +55,9 @@ def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
 
     enable_multi_cluster_deployment(
         resource=resource,
-        shard_members_array=[1, 1, 1],
-        mongos_members_array=[1, 0, 0],
-        configsrv_members_array=[0, 1, 0],
+        shard_members_array=[1, 2, 2],
+        mongos_members_array=[1, 0, 2],
+        configsrv_members_array=[2, 1, 0],
     )
 
     return resource.update()
@@ -69,7 +78,7 @@ def test_install_operator(multi_cluster_operator: Operator):
 
 @mark.e2e_multi_cluster_sharded_disaster_recovery
 def test_create_sharded_cluster(sc: MongoDB, config_version_store):
-    sc.assert_reaches_phase(Phase.Running, timeout=650)
+    sc.assert_reaches_phase(Phase.Running, timeout=1200)
     config_version_store.version = KubernetesTester.get_automation_config()["version"]
     logger.debug(f"Automation Config Version after initial deployment: {config_version_store.version}")
 
@@ -98,9 +107,15 @@ def test_remove_cluster_from_operator_member_list_to_simulate_it_is_unhealthy(
         api_client=central_cluster_client,
     )
 
+    # sleeping to ensure the operator will suicide after config map is changed
+    # TODO: as part of https://jira.mongodb.org/browse/CLOUDP-288588, and when we re-activate this test, ensure
+    #  this sleep is really nededed or if the subsquent call to multi_cluster_operator.assert_is_running() is enough
+    time.sleep(30)
+
 
 @skip_if_local
 # Modifying the configmap triggered an (intentional) panic, the pod should restart, it has to be done manually locally
+@mark.e2e_multi_cluster_sharded_disaster_recovery
 def test_operator_has_restarted(multi_cluster_operator: Operator):
     multi_cluster_operator.assert_is_running()
 
@@ -155,28 +170,41 @@ def test_delete_all_statefulsets_in_failed_cluster(sc: MongoDB, central_cluster_
 def test_sharded_cluster_is_stable(sc: MongoDB, config_version_store):
     sc.assert_reaches_phase(Phase.Running)
     # Automation Config shouldn't change when we lose a cluster
-    assert config_version_store.version == KubernetesTester.get_automation_config()["version"]
+    expected_version = config_version_store.version
+    # in non static, every restart of the operator increases version of ac due to agent upgrades
+    if not is_static_containers_architecture():
+        expected_version += 1
+
+    assert expected_version == KubernetesTester.get_automation_config()["version"]
+
     logger.debug(f"Automation Config Version after losing cluster: {config_version_store.version}")
 
 
 @mark.e2e_multi_cluster_sharded_disaster_recovery
-def test_remove_failed_member_cluster_has_been_scaled_down(sc: MongoDB, config_version_store):
-    logger.info("Removing failed member clusters from cluster spec lists")
-    # remove failed member cluster
-    sc["spec"]["shard"]["clusterSpecList"] = cluster_spec_list(MEMBER_CLUSTERS, [1, 1, 0])
-    sc["spec"]["mongos"]["clusterSpecList"] = cluster_spec_list(MEMBER_CLUSTERS, [1, 0, 0])
-    sc["spec"]["configSrv"]["clusterSpecList"] = cluster_spec_list(MEMBER_CLUSTERS, [0, 1, 0])
-    sc.update()
-    sc.assert_reaches_phase(Phase.Running)
+class TestScaleShardsAndMongosToZeroFirst:
+    def test_scale_shards_and_mongos_to_zero_first(self, sc: MongoDB):
+        sc["spec"]["shard"]["clusterSpecList"] = cluster_spec_list(MEMBER_CLUSTERS, [1, 2, 0])  # cluster3: 2->0
+        sc["spec"]["mongos"]["clusterSpecList"] = cluster_spec_list(MEMBER_CLUSTERS, [1, 0, 0])  # cluster3: 2->0
+        sc.update()
+        # TODO: as part of https://jira.mongodb.org/browse/CLOUDP-288588, and when we re-activate this test, ensure
+        #  we fine tune all the timeouts
+        sc.assert_reaches_phase(Phase.Running, timeout=2300)
+
+    def test_expected_processes_in_ac(self, sc: MongoDB):
+        all_process_names = [p["name"] for p in sc.get_automation_config_tester().get_all_processes()]
+        assert set(get_all_sharded_cluster_pod_names(sc)) == set(all_process_names)
 
 
 @mark.e2e_multi_cluster_sharded_disaster_recovery
-def test_scale_up_on_healthy_clusters(sc: MongoDB, config_version_store):
-    logger.info("Scaling up components on healthy clusters")
-    # scale up on other clusters
-    sc["spec"]["shard"]["clusterSpecList"] = cluster_spec_list(MEMBER_CLUSTERS, [2, 1, 0])
-    sc["spec"]["mongos"]["clusterSpecList"] = cluster_spec_list(MEMBER_CLUSTERS, [1, 1, 0])
-    sc["spec"]["configSrv"]["clusterSpecList"] = cluster_spec_list(MEMBER_CLUSTERS, [2, 1, 0])
-    sc.update()
-    sc.assert_abandons_phase(Phase.Running, timeout=200)
-    sc.assert_reaches_phase(Phase.Running, timeout=1200)  # The scaleup can be quite slow
+class TestMoveFailedToHealthyClusters:
+    def test_move_failed_to_healthy_clusters(self, sc: MongoDB):
+        sc["spec"]["shard"]["clusterSpecList"] = cluster_spec_list(MEMBER_CLUSTERS, [3, 2, 0])  # cluster1: 1->3
+        sc["spec"]["mongos"]["clusterSpecList"] = cluster_spec_list(
+            MEMBER_CLUSTERS, [2, 1, 0]
+        )  # cluster1: 1->2, cluster2: 0->1
+        sc.update()
+        sc.assert_reaches_phase(Phase.Running, timeout=2300)
+
+    def test_expected_processes_in_ac(self, sc: MongoDB):
+        all_process_names = [p["name"] for p in sc.get_automation_config_tester().get_all_processes()]
+        assert set(get_all_sharded_cluster_pod_names(sc)) == set(all_process_names)

@@ -487,6 +487,9 @@ func (oc *MockedOmConnection) RemoveHost(hostID string) error {
 		}
 	}
 	oc.hostResults = &host.Result{Results: toKeep}
+	oc.agentHostnameMap = util.TransformToMap(oc.hostResults.Results, func(obj host.Host, idx int) (string, struct{}) {
+		return obj.Hostname, struct{}{}
+	})
 	return nil
 }
 

@@ -72,6 +72,24 @@ func (in *MongodbShardedSizeStatusInClusters) DeepCopyInto(out *MongodbShardedSi
 			(*out)[key] = val
 		}
 	}
+	if in.ShardOverridesInClusters != nil {
+		in, out := &in.ShardOverridesInClusters, &out.ShardOverridesInClusters
+		*out = make(map[string]map[string]int, len(*in))
+		for key, val := range *in {
+			var outVal map[string]int
+			if val == nil {
+				(*out)[key] = nil
+			} else {
+				inVal := (*in)[key]
+				in, out := &inVal, &outVal
+				*out = make(map[string]int, len(*in))
+				for key, val := range *in {
+					(*out)[key] = val
+				}
+			}
+			(*out)[key] = outVal
+		}
+	}
 	if in.MongosCountInClusters != nil {
 		in, out := &in.MongosCountInClusters, &out.MongosCountInClusters
 		*out = make(map[string]int, len(*in))
