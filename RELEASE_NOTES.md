@@ -10,6 +10,7 @@
 
 ## Bug Fixes
 * **MongoDB**: Fixed placeholder name for `mongos` in Single Cluster Sharded with External Domain set. Previously it was called `mongodProcessDomain` and `mongodProcessFQDN` now they're called `mongosProcessDomain` and `mongosProcessFQDN`.
+* **MongoDB**, **MongoDBMultiCluster**, **MongoDBOpsManager**: In case of losing one of the member clusters we no longer emit validation errors if the failed cluster still exists in the `clusterSpecList`. This allows easier reconfiguration of the deployments as part of disaster recovery procedure.
 
 ## Kubernetes versions
   * The minimum supported Kubernetes version for this operator is 1.29 and OpenShift 1.16.
@@ -30,9 +31,9 @@
 
 ## New Features
 
-* **MongoDB**: public preview release of multi kubernetes cluster support for sharded clusters. This can be enabled by setting `spec.topology=MultiCluster` when creating `MongoDB` resource of `spec.type=ShardedCluster`. More details can be found [here](to-be-added). 
+* **MongoDB**: public preview release of multi kubernetes cluster support for sharded clusters. This can be enabled by setting `spec.topology=MultiCluster` when creating `MongoDB` resource of `spec.type=ShardedCluster`. More details can be found [here](https://www.mongodb.com/docs/kubernetes-operator/master/multi-cluster-sharded-cluster/). 
 * **MongoDB**, **MongoDBMultiCluster**: support for automated expansion of the PVC.
-  More details can be found [here](to-be-added).
+  More details can be found [here](https://www.mongodb.com/docs/kubernetes-operator/upcoming/tutorial/resize-pv-storage/).
   **Note**: Expansion of the pvc is only supported if the storageClass supports expansion.
   Please ensure that the storageClass supports in-place expansion without data-loss.
   * **MongoDB** This can be done by increasing the size of the PVC in the CRD setting: 

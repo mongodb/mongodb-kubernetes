@@ -44,7 +44,7 @@ def get_supported_version_for_image_matrix_handling(image: str) -> List[str]:
 
 
 def get_supported_operator_versions():
-    min_supported_version_operator_for_static = "1.27.0"
+    min_supported_version_operator_for_static = "1.28.0"
     last_supported_operator_versions = [
         v
         for v in get_release()["supportedImages"]["operator"]["versions"]

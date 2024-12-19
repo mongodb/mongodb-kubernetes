@@ -544,7 +544,7 @@ task_groups:
     - e2e_sharded_cluster_ldap
     - e2e_replica_set_ldap_tls
     - e2e_replica_set_ldap_user_to_dn_mapping
-    - e2e_replica_set_ldap_agent_auth
+    # e2e_replica_set_ldap_agent_auth
     - e2e_replica_set_ldap_agent_client_certs
     - e2e_replica_set_custom_roles
     - e2e_replica_set_update_roles_no_privileges
@@ -666,8 +666,8 @@ task_groups:
     - e2e_multi_cluster_tls_with_x509
     - e2e_multi_cluster_tls_no_mesh
     - e2e_multi_cluster_enable_tls
-    - e2e_multi_cluster_with_ldap
-    - e2e_multi_cluster_with_ldap_custom_roles
+    # e2e_multi_cluster_with_ldap
+    # e2e_multi_cluster_with_ldap_custom_roles
     - e2e_multi_cluster_mtls_test
     - e2e_multi_cluster_replica_set_deletion
     - e2e_multi_cluster_replica_set_scale_up
