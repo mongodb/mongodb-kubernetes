@@ -215,14 +215,6 @@ spec:
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.2.8729-1_1.29.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_2_8729_1_1_30_0
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.2.8729-1_1.30.0"
-            - name: RELATED_IMAGE_AGENT_IMAGE_12_0_29_7785_1
-              value: "quay.io/mongodb/mongodb-agent-ubi:12.0.29.7785-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_12_0_29_7785_1_1_28_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:12.0.29.7785-1_1.28.0"
-            - name: RELATED_IMAGE_AGENT_IMAGE_12_0_29_7785_1_1_29_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:12.0.29.7785-1_1.29.0"
-            - name: RELATED_IMAGE_AGENT_IMAGE_12_0_29_7785_1_1_30_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:12.0.29.7785-1_1.30.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_30_7791_1
               value: "quay.io/mongodb/mongodb-agent-ubi:12.0.30.7791-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_30_7791_1_1_28_0
