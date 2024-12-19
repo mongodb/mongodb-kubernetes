@@ -6,6 +6,7 @@ from kubernetes import client
 from kubetester import (
     assert_pod_container_security_context,
     assert_pod_security_context,
+    try_load,
 )
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester, fcv_from_version
@@ -35,6 +36,10 @@ def _get_group_id(envs) -> str:
 @fixture(scope="module")
 def replica_set(namespace: str, custom_mdb_version: str, cluster_domain: str) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), "my-replica-set", namespace)
+
+    if try_load(resource):
+        return resource
+
     resource.set_version(custom_mdb_version)
     resource["spec"]["clusterDomain"] = cluster_domain
 

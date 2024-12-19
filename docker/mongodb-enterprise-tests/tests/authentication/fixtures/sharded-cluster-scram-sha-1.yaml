@@ -15,7 +15,7 @@ spec:
       name: my-project
   credentials: my-credentials
   logLevel: WARN
-  persistent: false
+  persistent: true
   security:
     authentication:
       agents:

@@ -245,6 +245,8 @@ func TestNoIgnoredFieldUsed(t *testing.T) {
 		mongodsPerShard   int
 		configServerCount int
 		mongosCount       int
+		members           int
+		memberConfig      []automationconfig.MemberOptions
 		shardOverrides    []ShardOverride
 		expectWarning     bool
 		expectError       bool
@@ -313,6 +315,20 @@ func TestNoIgnoredFieldUsed(t *testing.T) {
 			},
 		},
 		{
+			name:           "Warnings when Members and MemberConfig are set at top level",
+			isMultiCluster: true,
+			members:        1,
+			memberConfig: []automationconfig.MemberOptions{{
+				Votes:    ptr.To(1),
+				Priority: ptr.To("3"),
+			}},
+			expectWarning: true,
+			expectedWarnings: []status.Warning{
+				"spec.members is ignored in Multi Cluster topology. Use instead: spec.[...].clusterSpecList.members",
+				"spec.memberConfig is ignored in Multi Cluster topology. Use instead: spec.[...].clusterSpecList.memberConfig",
+			},
+		},
+		{
 			name:           "Multiple warnings when several ignored fields are set in MultiCluster topology",
 			isMultiCluster: true,
 			shardOverrides: []ShardOverride{
@@ -353,6 +369,8 @@ func TestNoIgnoredFieldUsed(t *testing.T) {
 			sc.Spec.ConfigServerCount = tt.configServerCount
 			sc.Spec.MongosCount = tt.mongosCount
 			sc.Spec.ShardOverrides = tt.shardOverrides
+			sc.Spec.Members = tt.members
+			sc.Spec.MemberConfig = tt.memberConfig
 			// To avoid validation errors
 			if len(tt.shardOverrides) > 0 {
 				sc.Spec.ShardCount = len(tt.shardOverrides)

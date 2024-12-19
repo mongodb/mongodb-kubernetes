@@ -48,6 +48,13 @@ def enable_multi_cluster_deployment(
     resource["spec"]["mongosCount"] = None
     resource["spec"]["configServerCount"] = None
 
+    # Members and MemberConfig fields should be empty in overrides for MultiCluster
+    for idx, _ in enumerate(resource["spec"].get("shardOverrides", [])):
+        if "members" in resource["spec"]["shards"][idx]:
+            resource["spec"]["shardOverrides"][idx]["members"] = 0
+        if "memberConfig" in resource["spec"]["shards"][idx]:
+            resource["spec"]["shardOverrides"][idx]["memberConfig"] = None
+
     setup_cluster_spec_list(resource, "shard", shard_members_array or [1, 1, 1])
     setup_cluster_spec_list(resource, "configSrv", configsrv_members_array or [1, 1, 1])
     setup_cluster_spec_list(resource, "mongos", mongos_members_array or [1, 1, 1])
@@ -97,7 +104,7 @@ def _setup_external_access(resource: MongoDB, cluster_spec_type: str, cluster_me
             "port": 27017,
         },
     ]
-    if cluster_spec_type is "shard" or "":
+    if cluster_spec_type in ["shard", ""]:
         ports = [
             {
                 "name": "mongodb",
@@ -197,6 +204,16 @@ def get_member_cluster_clients_using_cluster_mapping(resource_name: str, namespa
     return get_member_cluster_clients(cluster_mapping)
 
 
+def get_member_cluster_client_using_cluster_mapping(
+    resource_name: str, namespace: str, cluster_name: str
+) -> MultiClusterClient:
+    cluster_mapping = read_deployment_state(resource_name, namespace)["clusterMapping"]
+    for m in get_member_cluster_clients(cluster_mapping):
+        if m.cluster_name == cluster_name:
+            return m
+    raise Exception(f"cluster {cluster_name} not found in deployment state mapping {cluster_mapping}")
+
+
 def get_mongos_service_names(resource: MongoDB):
     service_names = []
     for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(resource.name, resource.namespace):
@@ -205,6 +222,41 @@ def get_mongos_service_names(resource: MongoDB):
             service_names.append(service_name)
 
     return service_names
+
+
+def get_all_sharded_cluster_pod_names(resource: MongoDB):
+    return get_mongos_pod_names(resource) + get_config_server_pod_names(resource) + get_all_shards_pod_names(resource)
+
+
+def get_mongos_pod_names(resource: MongoDB):
+    pod_names = []
+    for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(resource.name, resource.namespace):
+        for member_idx in range(resource.mongos_members_in_cluster(cluster_member_client.cluster_name)):
+            pod_name = resource.mongos_pod_name(member_idx, cluster_member_client.cluster_index)
+            pod_names.append(pod_name)
+
+    return pod_names
+
+
+def get_config_server_pod_names(resource: MongoDB):
+    pod_names = []
+    for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(resource.name, resource.namespace):
+        for member_idx in range(resource.config_srv_members_in_cluster(cluster_member_client.cluster_name)):
+            pod_name = resource.config_srv_pod_name(member_idx, cluster_member_client.cluster_index)
+            pod_names.append(pod_name)
+
+    return pod_names
+
+
+def get_all_shards_pod_names(resource: MongoDB):
+    pod_names = []
+    for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(resource.name, resource.namespace):
+        for shard_idx in range(resource["spec"]["shardCount"]):
+            for member_idx in range(resource.shard_members_in_cluster(cluster_member_client.cluster_name)):
+                pod_name = resource.shard_pod_name(shard_idx, member_idx, cluster_member_client.cluster_index)
+                pod_names.append(pod_name)
+
+    return pod_names
 
 
 def read_deployment_state(resource_name: str, namespace: str) -> dict[str, Any]:

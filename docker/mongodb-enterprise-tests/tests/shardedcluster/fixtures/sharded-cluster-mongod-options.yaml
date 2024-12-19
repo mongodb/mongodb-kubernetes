@@ -10,7 +10,7 @@ spec:
     configMapRef:
       name: my-project
   credentials: my-credentials
-  persistent: false
+  persistent: true
   shardCount: 2
   mongodsPerShardCount: 3
   mongosCount: 2

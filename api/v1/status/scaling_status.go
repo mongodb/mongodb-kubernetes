@@ -121,9 +121,10 @@ func (m *MongodbShardedClusterSizeConfig) String() string {
 // MongodbShardedSizeStatusInClusters describes the number and sizes of replica sets members deployed across member clusters
 // +k8s:deepcopy-gen=true
 type MongodbShardedSizeStatusInClusters struct {
-	ShardMongodsInClusters        map[string]int `json:"shardMongodsInClusters,omitempty"`
-	MongosCountInClusters         map[string]int `json:"mongosCountInClusters,omitempty"`
-	ConfigServerMongodsInClusters map[string]int `json:"configServerMongodsInClusters,omitempty"`
+	ShardMongodsInClusters        map[string]int            `json:"shardMongodsInClusters,omitempty"`
+	ShardOverridesInClusters      map[string]map[string]int `json:"shardOverridesInClusters,omitempty"`
+	MongosCountInClusters         map[string]int            `json:"mongosCountInClusters,omitempty"`
+	ConfigServerMongodsInClusters map[string]int            `json:"configServerMongodsInClusters,omitempty"`
 }
 
 func String(m *MongodbShardedSizeStatusInClusters) string {

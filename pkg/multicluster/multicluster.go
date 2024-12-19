@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ghodss/yaml"
@@ -249,4 +250,38 @@ func getNextIndex(m map[string]int) int {
 		maxi = intp.Max(maxi, val)
 	}
 	return maxi + 1
+}
+
+var memberClusterMapMutex sync.Mutex
+
+// IsMemberClusterMapInitializedForMultiCluster checks if global member cluster map
+// is properly initialized for multi-cluster workloads. The assumption is that if the map
+// contains only __default cluster, that means it's not configured for multi-cluster.
+func IsMemberClusterMapInitializedForMultiCluster(memberClusterMap map[string]client.Client) bool {
+	memberClusterMapMutex.Lock()
+	defer memberClusterMapMutex.Unlock()
+
+	if len(memberClusterMap) == 0 {
+		return false
+	} else if len(memberClusterMap) == 1 {
+		if _, ok := memberClusterMap[LegacyCentralClusterName]; ok {
+			return false
+		}
+	}
+
+	return true
+}
+
+func InitializeGlobalMemberClusterMapForSingleCluster(globalMemberClustersMap map[string]client.Client, defaultKubeClient client.Client) map[string]client.Client {
+	memberClusterMapMutex.Lock()
+	defer memberClusterMapMutex.Unlock()
+
+	if _, ok := globalMemberClustersMap[LegacyCentralClusterName]; !ok {
+		if globalMemberClustersMap == nil {
+			globalMemberClustersMap = map[string]client.Client{}
+		}
+		globalMemberClustersMap[LegacyCentralClusterName] = defaultKubeClient
+	}
+
+	return globalMemberClustersMap
 }

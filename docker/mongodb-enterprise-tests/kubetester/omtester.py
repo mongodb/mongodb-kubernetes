@@ -449,6 +449,9 @@ class OMTester(object):
         if len(json["results"]) == 0:
             return ""
         if len(json["results"]) > 1:
+            for res in json["results"]:
+                if res["name"] == group_name:
+                    return res["id"]
             raise Exception(f"More than one groups with name {group_name} found!")
         return json["results"][0]["id"]
 

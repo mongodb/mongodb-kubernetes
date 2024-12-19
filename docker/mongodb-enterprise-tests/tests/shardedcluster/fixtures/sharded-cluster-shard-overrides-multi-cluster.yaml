@@ -1,0 +1,64 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: mdb-sh-shard-overrides
+spec:
+  shardCount: 4
+  topology: MultiCluster
+  type: ShardedCluster
+  version: 5.0.15
+  cloudManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  persistent: true
+  shard:
+    clusterSpecList:
+      - clusterName: kind-e2e-cluster-1
+        members: 2
+      - clusterName: kind-e2e-cluster-2
+        members: 1
+  configSrv:
+    clusterSpecList:
+      - clusterName: kind-e2e-cluster-1
+        members: 1
+      - clusterName: kind-e2e-cluster-2
+        members: 2
+  mongos:
+    clusterSpecList:
+      - clusterName: kind-e2e-cluster-1
+        members: 1
+
+  # Shard #2 has no override
+  shardOverrides:
+    - shardNames: [ "mdb-sh-shard-overrides-0", "mdb-sh-shard-overrides-1" ] # this override will apply to shards #0 and #1
+      clusterSpecList:
+        - clusterName: kind-e2e-cluster-1
+          members: 1
+          memberConfig: # we prefer to have primaries in this cluster
+            - votes: 1
+              priority: "5"
+        - clusterName: kind-e2e-cluster-2
+          members: 1
+          memberConfig:
+            - votes: 1
+              priority: "0"
+
+    - shardNames: ["mdb-sh-shard-overrides-3"] # this override will apply to only shard #3
+      clusterSpecList:
+        - clusterName: kind-e2e-cluster-1
+          members: 1
+          memberConfig:
+            - votes: 0
+              priority: "0"
+        - clusterName: kind-e2e-cluster-2
+          members: 1
+          memberConfig:
+            - votes: 1
+              priority: "0"
+        - clusterName: kind-e2e-cluster-3 # Cluster 3 is used only by this shard
+          members: 1
+          memberConfig: # we prefer to have primaries in this cluster
+            - votes: 1
+              priority: "10"
+

@@ -1,17 +1,17 @@
 [//]: # (Consider renaming or removing the header for next release, otherwise it appears as duplicate in the published release, e.g: https://github.com/mongodb/mongodb-enterprise-kubernetes/releases/tag/1.22.0 )
 <!-- Next Release -->
 # MongoDB Enterprise Kubernetes Operator 1.30.0
-* **General Availability - Multi Cluster Sharded Clusters:** Support configuring highly available MongoDB Sharded Clusters across multiple Kubernetes clusters.
-  - `MongoDB` resources of type Sharded Cluster now support both single and multi cluster topologies.
-  - The implementation is backwards compatible with single cluster deployments of MongoDB Sharded Clusters, by defaulting `spec.topology` to `SingleCluster`. Existing `MongoDB` resources do not need to be modified to upgrade to this version of the operator.
-  - `spec.shardSpecificPodSpec` was deprecated, the recommended way of adding per-shard settings is to use `spec.shardOverrides`, for both Single and Multi Cluster topology. A specific example of how to migrate the settings to ShardOverrides is available in the public documentation.
-  - More details can be found in the [public documentation](https://deploy-preview-1840--docs-k8s-operator.netlify.app/reference/k8s-operator-specification/#sharded-cluster-settings).
-  - Introduced support for Sharded deployments across multiple Kubernetes clusters without requiring a Service Mesh - the is made possible by enabling all components of such a deployment (including mongos, config servers, and mongod) to be exposed externally to the Kubernetes clusters, which enables routing via external interfaces.
+
+## New Features
+
+* **MongoDB**: fixes and improvements to Multi-Cluster Sharded Cluster deployments (Public Preview)
+* **MongoDB**: `spec.shardOverrides` field, which was added in 1.28.0 as part of Multi-Cluster Sharded Cluster Public Preview is now fully supported for single-cluster topologies and is the recommended way of customizing settings for specific shards. 
+* **MongoDB**: `spec.shardSpecificPodSpec` was deprecated. The recommended way of customizing specific shard settings is to use `spec.shardOverrides` for both Single and Multi Cluster topology. An example of how to migrate the settings to spec.shardOverrides is available [here](https://github.com/mongodb/mongodb-enterprise-kubernetes/blob/master/samples/sharded_multicluster/shardSpecificPodSpec_migration.yaml).
 
 ## Bug Fixes
 * **MongoDB**: Fixed placeholder name for `mongos` in Single Cluster Sharded with External Domain set. Previously it was called `mongodProcessDomain` and `mongodProcessFQDN` now they're called `mongosProcessDomain` and `mongosProcessFQDN`.
 
-* **Kubernetes versions**
+## Kubernetes versions
   * The minimum supported Kubernetes version for this operator is 1.29 and OpenShift 1.16.
   
 [//]: # (TODO: update above link with Multi Cluster Sharded main page when added in public doc ; also update the link in 1.28 release notes below)

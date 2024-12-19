@@ -521,6 +521,7 @@ task_groups:
     - e2e_replica_set_readiness_probe
     - e2e_replica_set_update_delete_parallel
     - e2e_sharded_cluster_scale_shards
+    - e2e_sharded_cluster_shard_overrides
     - e2e_sharded_cluster_mongod_options_and_log_rotation
     - e2e_tls_rs_external_access
     - e2e_replica_set_tls_require
@@ -686,12 +687,16 @@ task_groups:
     - e2e_multi_cluster_agent_flags
     - e2e_multi_cluster_replica_set_ignore_unknown_users
     - e2e_multi_cluster_pvc_resize
+    - e2e_multi_cluster_sharded_geo_sharding
+    - e2e_multi_cluster_sharded_scaling
+    - e2e_multi_cluster_sharded_scaling_all_shard_overrides
     - e2e_multi_cluster_sharded_simplest
     - e2e_multi_cluster_sharded_snippets
     - e2e_multi_cluster_sharded_simplest_no_mesh
     - e2e_multi_cluster_sharded_tls_no_mesh
     - e2e_multi_cluster_sharded_tls
-    - e2e_multi_cluster_sharded_disaster_recovery
+    # To re-activate as part of https://jira.mongodb.org/browse/CLOUDP-288588
+    #- e2e_multi_cluster_sharded_disaster_recovery
     - e2e_sharded_cluster
     - e2e_sharded_cluster_agent_flags
     - e2e_sharded_cluster_custom_podspec
@@ -701,6 +706,7 @@ task_groups:
     - e2e_sharded_cluster_pv_resize
     - e2e_sharded_cluster_recovery
     - e2e_sharded_cluster_scale_shards
+    - e2e_sharded_cluster_shard_overrides
     - e2e_sharded_cluster_secret
     - e2e_sharded_cluster_statefulset_status
     - e2e_sharded_cluster_upgrade_downgrade

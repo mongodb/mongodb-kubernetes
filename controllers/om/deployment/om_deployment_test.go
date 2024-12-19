@@ -29,7 +29,7 @@ func TestPrepareScaleDown_OpsManagerRemovedMember(t *testing.T) {
 
 	// We try to prepare two members for scale down, but one of them will fail (bam-2)
 	rsWithThreeMembers := map[string][]string{"bam": {"bam-1", "bam-2"}}
-	assert.NoError(t, replicaset.PrepareScaleDownFromMap(mockedOmConnection, rsWithThreeMembers, zap.S()))
+	assert.NoError(t, replicaset.PrepareScaleDownFromMap(mockedOmConnection, rsWithThreeMembers, rsWithThreeMembers["bam"], zap.S()))
 
 	expectedDeployment := CreateFromReplicaSet(rs)
 

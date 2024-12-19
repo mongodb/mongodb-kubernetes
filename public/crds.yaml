@@ -2626,6 +2626,12 @@ spec:
                     additionalProperties:
                       type: integer
                     type: object
+                  shardOverridesInClusters:
+                    additionalProperties:
+                      additionalProperties:
+                        type: integer
+                      type: object
+                    type: object
                 type: object
               version:
                 type: string
@@ -5625,6 +5631,12 @@ spec:
                       shardMongodsInClusters:
                         additionalProperties:
                           type: integer
+                        type: object
+                      shardOverridesInClusters:
+                        additionalProperties:
+                          additionalProperties:
+                            type: integer
+                          type: object
                         type: object
                     type: object
                   version:
