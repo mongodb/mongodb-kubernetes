@@ -99,29 +99,36 @@ func hasClusterSpecList(clusterSpecList ClusterSpecList) bool {
 
 // Validate clusterSpecList field, the validation for shard overrides clusterSpecList require different rules
 func validClusterSpecLists(m MongoDB) v1.ValidationResult {
-	msg := "All clusters specified in %s.clusterSpecList require clusterName and members fields"
-	if !isValidClusterSpecList(m.Spec.ShardSpec.ClusterSpecList) {
-		return v1.ValidationError(msg, "spec.shardSpec")
+	clusterSpecs := []struct {
+		list     ClusterSpecList
+		specName string
+	}{
+		{m.Spec.ShardSpec.ClusterSpecList, "spec.shardSpec"},
+		{m.Spec.ConfigSrvSpec.ClusterSpecList, "spec.configSrvSpec"},
+		{m.Spec.MongosSpec.ClusterSpecList, "spec.mongosSpec"},
 	}
-	if !isValidClusterSpecList(m.Spec.ConfigSrvSpec.ClusterSpecList) {
-		return v1.ValidationError(msg, "spec.configSrvSpec")
+	for _, spec := range clusterSpecs {
+		if result := isValidClusterSpecList(spec.list, spec.specName); result != v1.ValidationSuccess() {
+			return result
+		}
 	}
-	if !isValidClusterSpecList(m.Spec.MongosSpec.ClusterSpecList) {
-		return v1.ValidationError(msg, "spec.mongosSpec")
-	}
+	// MemberConfig and Members fields are ignored at top level for MC Sharded
 	if len(m.Spec.MemberConfig) > 0 && len(m.Spec.MemberConfig) < m.Spec.Members {
 		return v1.ValidationError("Invalid clusterSpecList: %s", MemberConfigErrorMessage)
 	}
 	return v1.ValidationSuccess()
 }
 
-func isValidClusterSpecList(clusterSpecList ClusterSpecList) bool {
+func isValidClusterSpecList(clusterSpecList ClusterSpecList, specName string) v1.ValidationResult {
 	for _, clusterSpecItem := range clusterSpecList {
 		if clusterSpecItem.ClusterName == "" {
-			return false
+			return v1.ValidationError("All clusters specified in %s.clusterSpecList require clusterName and members fields", specName)
+		}
+		if len(clusterSpecItem.MemberConfig) > 0 && len(clusterSpecItem.MemberConfig) < clusterSpecItem.Members {
+			return v1.ValidationError("Invalid member configuration in %s.clusterSpecList: %s", specName, MemberConfigErrorMessage)
 		}
 	}
-	return true
+	return v1.ValidationSuccess()
 }
 
 func validateShardOverrideClusterSpecList(clusterSpecList []ClusterSpecItemOverride, shardNames []string) (bool, v1.ValidationResult) {
@@ -225,6 +232,14 @@ func noIgnoredFieldUsed(m MongoDB) []v1.ValidationResult {
 
 	if m.Spec.ConfigServerCount != 0 {
 		appendValidationError(&errors, "spec.configServerCount", "spec.configSrv.clusterSpecList.members")
+	}
+
+	if m.Spec.Members != 0 {
+		appendValidationWarning(&warnings, "spec.members", "spec.[...].clusterSpecList.members")
+	}
+
+	if m.Spec.MemberConfig != nil {
+		appendValidationWarning(&warnings, "spec.memberConfig", "spec.[...].clusterSpecList.memberConfig")
 	}
 
 	for _, clusterSpec := range m.Spec.ShardSpec.ClusterSpecList {

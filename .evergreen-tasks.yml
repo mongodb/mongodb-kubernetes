@@ -302,6 +302,11 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_sharded_cluster_shard_overrides
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_sharded_cluster_statefulset_status
     tags: [ "patch-run" ]
     commands:
@@ -1108,6 +1113,21 @@ tasks:
     commands:
       - func: e2e_test
 
+  - name: e2e_multi_cluster_sharded_geo_sharding
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_sharded_scaling
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_sharded_scaling_all_shard_overrides
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
   - name: e2e_multi_cluster_sharded_simplest
     tags: [ "patch-run" ]
     commands:
@@ -1122,6 +1142,7 @@ tasks:
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
+
 
   - name : e2e_multi_cluster_sharded_snippets
     tags: [ "patch-run" ]

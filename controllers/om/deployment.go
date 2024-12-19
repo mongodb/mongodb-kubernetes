@@ -3,7 +3,6 @@ package om
 import (
 	"encoding/gob"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math"
 	"regexp"
@@ -359,7 +358,7 @@ func (d Deployment) DisableProcesses(processNames []string) {
 func (d Deployment) MarkRsMembersUnvoted(rsName string, rsMembers []string) error {
 	rs := d.getReplicaSetByName(rsName)
 	if rs == nil {
-		return errors.New("Failed to find Replica Set " + rsName)
+		return xerrors.New("Failed to find Replica Set " + rsName)
 	}
 
 	failedMembers := ""
@@ -395,7 +394,7 @@ func (d Deployment) RemoveProcessByName(name string, log *zap.SugaredLogger) err
 func (d Deployment) RemoveReplicaSetByName(name string, log *zap.SugaredLogger) error {
 	rs := d.getReplicaSetByName(name)
 	if rs == nil {
-		return errors.New("ReplicaSet does not exist")
+		return xerrors.New("ReplicaSet does not exist")
 	}
 
 	currentRs := d.getReplicaSets()
@@ -425,7 +424,7 @@ func (d Deployment) RemoveReplicaSetByName(name string, log *zap.SugaredLogger) 
 func (d Deployment) RemoveShardedClusterByName(clusterName string, log *zap.SugaredLogger) error {
 	sc := d.getShardedClusterByName(clusterName)
 	if sc == nil {
-		return errors.New("sharded Cluster does not exist")
+		return xerrors.New("sharded Cluster does not exist")
 	}
 
 	// 1. Remove the sharded cluster
@@ -779,7 +778,7 @@ func (d Deployment) mergeMongosProcesses(opts DeploymentShardedClusterMergeOptio
 	// Then merging mongos processes with existing ones
 	for _, p := range opts.MongosProcesses {
 		if p.ProcessType() != ProcessTypeMongos {
-			return errors.New(`all mongos processes must have processType="mongos"`)
+			return xerrors.New(`all mongos processes must have processType="mongos"`)
 		}
 		p.setCluster(opts.Name)
 		d.MergeStandalone(p, opts.MongosAdditionalOptionsDesired, opts.MongosAdditionalOptionsPrev, log)

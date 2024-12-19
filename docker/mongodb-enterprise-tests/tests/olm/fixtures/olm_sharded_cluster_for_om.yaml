@@ -13,6 +13,6 @@ spec:
     configMapRef:
       name: om-sc-configmap
   credentials: my-credentials
-  persistent: false
+  persistent: true
   logLevel: DEBUG
 

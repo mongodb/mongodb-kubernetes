@@ -237,7 +237,7 @@ func (r *ReconcileAppDbReplicaSet) initializeMemberClusters(ctx context.Context,
 		}
 
 		clusterSpecList := appDBSpec.GetClusterSpecList()
-		r.memberClusters = createMemberClusterListFromClusterSpecList(clusterSpecList, globalMemberClustersMap, log, r.deploymentState.ClusterMapping, getLastAppliedMemberCountFunc)
+		r.memberClusters = createMemberClusterListFromClusterSpecList(clusterSpecList, globalMemberClustersMap, log, r.deploymentState.ClusterMapping, getLastAppliedMemberCountFunc, false)
 
 		if err := r.saveAppDBState(ctx, appDBSpec, log); err != nil {
 			return err
@@ -297,7 +297,7 @@ func (r *ReconcileAppDbReplicaSet) writeLegacyStateConfigMaps(ctx context.Contex
 	return nil
 }
 
-func createMemberClusterListFromClusterSpecList(clusterSpecList mdbv1.ClusterSpecList, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger, memberClusterMapping map[string]int, getLastAppliedMemberCountFunc func(memberClusterName string) int) []multicluster.MemberCluster {
+func createMemberClusterListFromClusterSpecList(clusterSpecList mdbv1.ClusterSpecList, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger, memberClusterMapping map[string]int, getLastAppliedMemberCountFunc func(memberClusterName string) int, legacyMemberCluster bool) []multicluster.MemberCluster {
 	var memberClusters []multicluster.MemberCluster
 	specClusterMap := map[string]struct{}{}
 	for _, clusterSpecItem := range clusterSpecList {
@@ -329,6 +329,7 @@ func createMemberClusterListFromClusterSpecList(clusterSpecList mdbv1.ClusterSpe
 			Replicas:     getLastAppliedMemberCountFunc(clusterSpecItem.ClusterName),
 			Active:       true,
 			Healthy:      memberClusterKubeClient != nil,
+			Legacy:       legacyMemberCluster,
 		})
 	}
 

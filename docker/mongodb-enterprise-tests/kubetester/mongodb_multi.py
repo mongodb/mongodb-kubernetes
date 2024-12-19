@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Dict, List, Optional
 
 import kubernetes.client
+import pytest
 from kubernetes import client
 from kubetester import MongoDB
 from kubetester.mongotester import MongoTester, MultiReplicaSetTester
@@ -39,6 +40,15 @@ class MultiClusterClient:
 
     def read_namespaced_persistent_volume_claim(self, name: str, namespace: str):
         return self.core_v1_api().read_namespaced_persistent_volume_claim(name, namespace)
+
+    def assert_sts_members_count(self, sts_name: str, namespace: str, expected_shard_members_in_cluster: int):
+        try:
+            sts = self.read_namespaced_stateful_set(sts_name, namespace)
+            assert sts.spec.replicas == expected_shard_members_in_cluster
+        except kubernetes.client.ApiException as api_exception:
+            assert (
+                0 == expected_shard_members_in_cluster and api_exception.status == 404
+            ), f"expected {expected_shard_members_in_cluster} members, but received {api_exception.status} exception while reading {namespace}:{sts_name}"
 
 
 class MongoDBMulti(MongoDB):

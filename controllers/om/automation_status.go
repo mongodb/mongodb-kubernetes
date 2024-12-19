@@ -3,6 +3,8 @@ package om
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -40,7 +42,7 @@ func buildAutomationStatusFromBytes(b []byte) (*AutomationStatus, error) {
 // WaitForReadyState waits until the agents for relevant processes reach their state
 func WaitForReadyState(oc Connection, processNames []string, supressErrors bool, log *zap.SugaredLogger) error {
 	if len(processNames) == 0 {
-		log.Infow("Not waiting for MongoDB agents as there are no expected processes in automation config yet")
+		log.Infow("Not waiting for MongoDB agents to reach READY state (no expected processes to wait for)")
 		return nil
 	}
 
@@ -51,11 +53,11 @@ func WaitForReadyState(oc Connection, processNames []string, supressErrors bool,
 			return fmt.Sprintf("Error reading Automation Agents status: %s", lastErr), false
 		}
 
-		if checkAutomationStatusIsGoal(as, processNames) {
-			return "", true
+		if allReachedGoalState, msg := checkAutomationStatusIsGoal(as, processNames, log); allReachedGoalState {
+			return msg, true
+		} else {
+			return fmt.Sprintf("MongoDB agents haven't reached READY state; %s", msg), false
 		}
-
-		return "MongoDB agents haven't reached READY state", false
 	}
 	ok, msg := util.DoAndRetry(reachStateFunc, log, 30, 3)
 	if !ok {
@@ -75,7 +77,41 @@ func WaitForReadyState(oc Connection, processNames []string, supressErrors bool,
 // if one of the requested processes doesn't exist in the list of OM status processes - this is considered as ok
 // (maybe we are doing the scale down for the RS and some members were removed from OM manually - this is ok as the Operator
 // will fix this later)
-func checkAutomationStatusIsGoal(as *AutomationStatus, relevantProcesses []string) bool {
+func checkAutomationStatusIsGoal(as *AutomationStatus, relevantProcesses []string, log *zap.SugaredLogger) (bool, string) {
+	if areAnyAgentsInKubeUpgradeMode(as, relevantProcesses, log) {
+		return true, ""
+	}
+
+	goalsNotAchievedMap := map[string]int{}
+	goalsAchievedMap := map[string]int{}
+	for _, p := range as.Processes {
+		if !stringutil.Contains(relevantProcesses, p.Name) {
+			continue
+		}
+		if p.LastGoalVersionAchieved == as.GoalVersion {
+			goalsAchievedMap[p.Name] = p.LastGoalVersionAchieved
+		} else {
+			goalsNotAchievedMap[p.Name] = p.LastGoalVersionAchieved
+		}
+	}
+
+	var goalsNotAchievedMsgList []string
+	for processName, goalAchieved := range goalsNotAchievedMap {
+		goalsNotAchievedMsgList = append(goalsNotAchievedMsgList, fmt.Sprintf("%s@%d", processName, goalAchieved))
+	}
+	goalsAchievedMsgList := slices.Collect(maps.Keys(goalsAchievedMap))
+
+	if len(goalsNotAchievedMap) > 0 {
+		return false, fmt.Sprintf("%d processes waiting to reach automation config goal state (version=%d): %s, %d processes reached goal state: %s",
+			len(goalsNotAchievedMap), as.GoalVersion, goalsNotAchievedMsgList, len(goalsAchievedMsgList), goalsAchievedMsgList)
+	} else if len(goalsAchievedMap) == 0 {
+		return true, "there were no processes in automation config matched with the processes to wait for"
+	} else {
+		return true, fmt.Sprintf("processes that reached goal state: %s", goalsAchievedMsgList)
+	}
+}
+
+func areAnyAgentsInKubeUpgradeMode(as *AutomationStatus, relevantProcesses []string, log *zap.SugaredLogger) bool {
 	for _, p := range as.Processes {
 		if !stringutil.Contains(relevantProcesses, p.Name) {
 			continue
@@ -86,20 +122,10 @@ func checkAutomationStatusIsGoal(as *AutomationStatus, relevantProcesses []strin
 			// - the agents are in a dedicated upgrade process, waiting for their binaries to be replaced by kubernetes
 			// - this can only happen if the statefulset is ready, therefore we are returning ready here
 			if plan == automationAgentKubeUpgradePlan {
-				zap.S().Debug("cluster is in changeVersionKube mode, returning the agent is ready.")
+				log.Debug("cluster is in changeVersionKube mode, returning the agent is ready.")
 				return true
 			}
 		}
 	}
-
-	for _, p := range as.Processes {
-		if !stringutil.Contains(relevantProcesses, p.Name) {
-			continue
-		}
-
-		if p.LastGoalVersionAchieved != as.GoalVersion {
-			return false
-		}
-	}
-	return true
+	return false
 }

@@ -13,4 +13,4 @@ spec:
     configMapRef:
       name: my-project
   credentials: my-credentials
-  persistent: false
+  persistent: true

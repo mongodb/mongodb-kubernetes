@@ -110,6 +110,10 @@ func getAgentRegisterError(errorMsg string) error {
 // waitUntilRegistered waits until all agents with 'agentHostnames' are registered in OM. Note, that wait
 // happens after retrial - this allows to skip waiting in case agents are already registered
 func waitUntilRegistered(omConnection om.Connection, log *zap.SugaredLogger, r retryParams, agentHostnames ...string) (bool, string) {
+	if len(agentHostnames) == 0 {
+		log.Debugf("Not waiting for agents as the agentHostnames list is empty")
+		return true, "Not waiting for agents as the agentHostnames list is empty"
+	}
 	log.Infow("Waiting for agents to register with OM", "agent hosts", agentHostnames)
 	// environment variables are used only for tests
 	waitSeconds := env.ReadIntOrDefault(util.PodWaitSecondsEnv, r.waitSeconds)
@@ -117,11 +121,10 @@ func waitUntilRegistered(omConnection om.Connection, log *zap.SugaredLogger, r r
 
 	agentsCheckFunc := func() (string, bool) {
 		registeredHostnamesMap := map[string]struct{}{}
-		found, err := om.TraversePages(
+		_, err := om.TraversePages(
 			omConnection.ReadAutomationAgents,
 			func(aa interface{}) bool {
 				automationAgent := aa.(om.Status)
-
 				for _, hostname := range agentHostnames {
 					if automationAgent.IsRegistered(hostname, log) {
 						registeredHostnamesMap[hostname] = struct{}{}
@@ -145,9 +148,9 @@ func waitUntilRegistered(omConnection om.Connection, log *zap.SugaredLogger, r r
 
 		var msg string
 		if len(registeredHostnamesList) == 0 {
-			msg = fmt.Sprintf("None of %d expected agents has registered with OM, expected hostnames: %+v", len(agentHostnames), agentHostnames)
+			return fmt.Sprintf("None of %d expected agents has registered with OM, expected hostnames: %+v", len(agentHostnames), agentHostnames), false
 		} else if len(registeredHostnamesList) == len(agentHostnames) {
-			msg = fmt.Sprintf("All of %d expected agents have registered with OM, hostnames: %+v", len(registeredHostnamesList), registeredHostnamesList)
+			return fmt.Sprintf("All of %d expected agents have registered with OM, hostnames: %+v", len(registeredHostnamesList), registeredHostnamesList), true
 		} else {
 			var missingHostnames []string
 			for _, expectedHostname := range agentHostnames {
@@ -156,8 +159,8 @@ func waitUntilRegistered(omConnection om.Connection, log *zap.SugaredLogger, r r
 				}
 			}
 			msg = fmt.Sprintf("Only %d of %d expected agents have registered with OM, missing hostnames: %+v, registered hostnames in OM: %+v, expected hostnames: %+v", len(registeredHostnamesList), len(agentHostnames), missingHostnames, registeredHostnamesList, agentHostnames)
+			return msg, false
 		}
-		return msg, found
 	}
 
 	return util.DoAndRetry(agentsCheckFunc, log, retrials, waitSeconds)

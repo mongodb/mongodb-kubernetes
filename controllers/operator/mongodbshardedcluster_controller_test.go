@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -167,7 +168,7 @@ func TestReconcileCreateSingleClusterShardedClusterWithExternalDomainSimplest(t 
 
 func getStsReplicas(ctx context.Context, client kubernetesClient.Client, key client.ObjectKey, t *testing.T) int32 {
 	sts, err := client.GetStatefulSet(ctx, key)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	return *sts.Spec.Replicas
 }
@@ -194,10 +195,7 @@ func TestShardedClusterRace(t *testing.T) {
 		WithObjects(mock.GetDefaultResources()...).
 		Build()
 
-	reconciler := &ReconcileMongoDbShardedCluster{
-		ReconcileCommonController: NewReconcileCommonController(ctx, fakeClient),
-		omConnectionFactory:       omConnectionFactory.GetConnectionFunc,
-	}
+	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, omConnectionFactory.GetConnectionFunc)
 
 	testConcurrentReconciles(ctx, t, fakeClient, reconciler, sc1, sc2, sc3)
 }
@@ -1593,11 +1591,7 @@ func defaultClusterReconciler(ctx context.Context, sc *mdbv1.MongoDB, globalMemb
 }
 
 func newShardedClusterReconcilerFromResource(ctx context.Context, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, kubeClient kubernetesClient.Client, omConnectionFactory *om.CachedOMConnectionFactory) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, error) {
-	r := &ReconcileMongoDbShardedCluster{
-		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
-		omConnectionFactory:       omConnectionFactory.GetConnectionFunc,
-		memberClustersMap:         globalMemberClustersMap,
-	}
+	r := newShardedClusterReconciler(ctx, kubeClient, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc)
 	reconcileHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, sc, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, zap.S())
 	if err != nil {
 		return nil, nil, err
@@ -1606,4 +1600,219 @@ func newShardedClusterReconcilerFromResource(ctx context.Context, sc *mdbv1.Mong
 		return nil, nil, err
 	}
 	return r, reconcileHelper, nil
+}
+
+func computeSingleClusterShardOverridesFromDistribution(shardOverridesDistribution map[string]int) []mdbv1.ShardOverride {
+	var shardOverrides []mdbv1.ShardOverride
+
+	// This will create shard overrides for shards references by shardNames, shardCount can be greater than the length
+	// of the map
+	for shardName, memberCount := range shardOverridesDistribution {
+		// Construct the ShardOverride for that shard
+		shardOverride := mdbv1.ShardOverride{
+			ShardNames: []string{shardName},
+			Members:    ptr.To(memberCount),
+		}
+
+		// Append the constructed ShardOverride to the shardOverrides slice
+		shardOverrides = append(shardOverrides, shardOverride)
+	}
+	return shardOverrides
+}
+
+type SingleClusterShardedScalingTestCase struct {
+	name         string
+	scalingSteps []SingleClusterShardedScalingStep
+}
+
+type SingleClusterShardedScalingStep struct {
+	name                      string
+	shardCount                int
+	mongodsPerShardCount      int
+	shardOverrides            map[string]int
+	expectedShardDistribution []int
+}
+
+// This scaling test simulates multiple reconciliation loops until the reconciliation succeeds.
+// We add hostnames to the OM mock so that the operator sees them as ready, and we mark the sts ready in the kube client
+// as well. Because we mark all hostnames in OM ready at the beginning of the test, there are edge cases where we don't
+// catch errors.
+func SingleClusterShardedScalingWithOverridesTestCase(t *testing.T, tc SingleClusterShardedScalingTestCase) {
+	ctx := context.Background()
+
+	mongosCount := 1
+	configSrvCount := 1
+
+	sc := test.DefaultClusterBuilder().
+		SetTopology(mdbv1.ClusterTopologySingleCluster).
+		SetShardCountSpec(tc.scalingSteps[0].shardCount).
+		SetMongodsPerShardCountSpec(tc.scalingSteps[0].mongodsPerShardCount).
+		SetConfigServerCountSpec(configSrvCount).
+		SetMongosCountSpec(mongosCount).
+		SetShardOverrides(computeSingleClusterShardOverridesFromDistribution(tc.scalingSteps[0].shardOverrides)).
+		Build()
+
+	sc.Status = mdbv1.MongoDbStatus{} // The default builder fill scaling status with incorrect values by default, TODO change the builder
+
+	// We add these hosts so that they are available in the mocked OM connection
+	addAllHostsWithDistribution := func(connection om.Connection, mongosCount int, configSrvCount int, shardDistribution []map[string]int) {
+		var shardMemberCounts []int
+		for _, distribution := range shardDistribution {
+			memberCount := distribution[multicluster.LegacyCentralClusterName]
+			shardMemberCounts = append(shardMemberCounts, memberCount)
+		}
+		allHostnames, _ := generateAllHostsSingleCluster(sc, mongosCount, configSrvCount, shardMemberCounts, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
+		connection.(*om.MockedOmConnection).AddHosts(allHostnames)
+	}
+
+	for _, scalingStep := range tc.scalingSteps {
+		t.Run(scalingStep.name, func(t *testing.T) {
+			reconciler, reconcilerHelper, kubeClient, omConnectionFactory, err := defaultClusterReconciler(ctx, sc, nil)
+			_ = omConnectionFactory.GetConnectionFunc(&om.OMContext{GroupName: om.TestGroupName})
+			require.NoError(t, err)
+			clusterMapping := reconcilerHelper.deploymentState.ClusterMapping
+
+			var expectedShardDistribution []map[string]int
+			for _, memberCount := range scalingStep.expectedShardDistribution {
+				expectedShardDistribution = append(expectedShardDistribution, map[string]int{multicluster.LegacyCentralClusterName: memberCount})
+			}
+
+			addAllHostsWithDistribution(omConnectionFactory.GetConnection(), mongosCount, configSrvCount, expectedShardDistribution)
+
+			err = kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc)
+			require.NoError(t, err)
+			sc.Spec.MongodsPerShardCount = scalingStep.mongodsPerShardCount
+			sc.Spec.ShardCount = scalingStep.shardCount
+			sc.Spec.ShardOverrides = computeSingleClusterShardOverridesFromDistribution(scalingStep.shardOverrides)
+			err = kubeClient.Update(ctx, sc)
+			require.NoError(t, err)
+			reconcileUntilSuccessful(ctx, t, reconciler, sc, kubeClient, []client.Client{kubeClient}, nil, false)
+
+			// Verify scaled deployment
+			checkCorrectShardDistributionInStatefulSets(t, ctx, sc, clusterMapping, map[string]client.Client{multicluster.LegacyCentralClusterName: kubeClient}, expectedShardDistribution)
+		})
+	}
+}
+
+func TestSingleClusterShardedScalingWithOverrides(t *testing.T) {
+	scDefaultName := "slaney-"
+	testCases := []SingleClusterShardedScalingTestCase{
+		{
+			name: "Basic sample test",
+			scalingSteps: []SingleClusterShardedScalingStep{
+				{
+					name:                 "Initial scaling",
+					shardCount:           3,
+					mongodsPerShardCount: 3,
+					shardOverrides: map[string]int{
+						scDefaultName + "0": 5,
+					},
+					expectedShardDistribution: []int{
+						5,
+						3,
+						3,
+					},
+				},
+				{
+					name:                 "Scale up mongodsPerShard",
+					shardCount:           3,
+					mongodsPerShardCount: 5,
+					shardOverrides: map[string]int{
+						scDefaultName + "0": 5,
+					},
+					expectedShardDistribution: []int{
+						5,
+						5,
+						5,
+					},
+				},
+			},
+		},
+		{
+			// This operation works in unit test only
+			// In e2e tests, the operator is waiting for uncreated hostnames to be ready
+			name: "Scale overrides up and down",
+			scalingSteps: []SingleClusterShardedScalingStep{
+				{
+					name:                 "Initial deployment",
+					shardCount:           4,
+					mongodsPerShardCount: 2,
+					shardOverrides: map[string]int{
+						scDefaultName + "0": 3,
+						scDefaultName + "1": 3,
+						scDefaultName + "3": 2,
+					},
+					expectedShardDistribution: []int{
+						3,
+						3,
+						2, // Not overridden
+						2,
+					},
+				},
+				{
+					name:                 "Scale overrides",
+					shardCount:           4,
+					mongodsPerShardCount: 2,
+					shardOverrides: map[string]int{
+						scDefaultName + "0": 2, // Scaled down
+						scDefaultName + "1": 2, // Scaled down
+						scDefaultName + "3": 3, // Scaled up
+					},
+					expectedShardDistribution: []int{
+						2, // Scaled down
+						2, // Scaled down
+						2, // Not overridden
+						3, // Scaled up
+					},
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			SingleClusterShardedScalingWithOverridesTestCase(t, tc)
+		})
+	}
+}
+
+func generateHostsWithDistributionSingleCluster(stsName string, namespace string, memberCount int, clusterDomain string, externalClusterDomain string) ([]string, []string) {
+	var hosts []string
+	var podNames []string
+	for podIdx := range memberCount {
+		hosts = append(hosts, getSingleClusterFQDN(stsName, namespace, podIdx, clusterDomain, externalClusterDomain))
+		podNames = append(podNames, getPodNameSingleCluster(stsName, podIdx))
+	}
+
+	return podNames, hosts
+}
+
+func getPodNameSingleCluster(stsName string, podIdx int) string {
+	return fmt.Sprintf("%s-%d", stsName, podIdx)
+}
+
+func getSingleClusterFQDN(stsName string, namespace string, podIdx int, clusterDomain string, externalClusterDomain string) string {
+	if len(externalClusterDomain) != 0 {
+		return fmt.Sprintf("%s.%s", getPodNameSingleCluster(stsName, podIdx), externalClusterDomain)
+	}
+	return fmt.Sprintf("%s-svc.%s.svc.%s", getPodNameSingleCluster(stsName, podIdx), namespace, clusterDomain)
+}
+
+func generateAllHostsSingleCluster(sc *mdbv1.MongoDB, mongosCount int, configSrvCount int, shardsMemberCounts []int, clusterDomain test.ClusterDomains, externalClusterDomain test.ClusterDomains) ([]string, []string) {
+	var allHosts []string
+	var allPodNames []string
+	podNames, hosts := generateHostsWithDistributionSingleCluster(sc.MongosRsName(), sc.Namespace, mongosCount, clusterDomain.MongosExternalDomain, externalClusterDomain.MongosExternalDomain)
+	allHosts = append(allHosts, hosts...)
+	allPodNames = append(allPodNames, podNames...)
+
+	podNames, hosts = generateHostsWithDistributionSingleCluster(sc.ConfigRsName(), sc.Namespace, configSrvCount, clusterDomain.ConfigServerExternalDomain, externalClusterDomain.ConfigServerExternalDomain)
+	allHosts = append(allHosts, hosts...)
+	allPodNames = append(allPodNames, podNames...)
+
+	for shardIdx := 0; shardIdx < sc.Spec.ShardCount; shardIdx++ {
+		podNames, hosts = generateHostsWithDistributionSingleCluster(sc.ShardRsName(shardIdx), sc.Namespace, shardsMemberCounts[shardIdx], clusterDomain.ShardsExternalDomain, externalClusterDomain.ShardsExternalDomain)
+		allHosts = append(allHosts, hosts...)
+		allPodNames = append(allPodNames, podNames...)
+	}
+	return allHosts, allPodNames
 }

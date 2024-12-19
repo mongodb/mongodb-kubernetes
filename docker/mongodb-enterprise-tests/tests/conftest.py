@@ -58,7 +58,7 @@ CLUSTER_HOST_MAPPING = {
     "us-west1-a_member-3a": "https://35.230.121.15",
 }
 
-LEGACY_CENTRAL_CLUSTER_NAME: str = "central"
+LEGACY_CENTRAL_CLUSTER_NAME: str = "__default"
 LEGACY_DEPLOYMENT_STATE_VERSION: str = "1.27.0"
 
 logger = test_logger.get_test_logger(__name__)

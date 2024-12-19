@@ -1370,18 +1370,6 @@ func (r *OpsManagerReconciler) prepareOpsManager(ctx context.Context, opsManager
 	if err != nil {
 		return workflow.Failed(xerrors.Errorf("failed to read user data from the secret %s: %w", adminObjectKey, err)), nil
 	}
-	APISecretName, status := r.getOpsManagerAPIKeySecretName(ctx, opsManager)
-	if !status.IsOK() {
-		return status, nil
-	}
-
-	adminKeySecretName := kube.ObjectKey(operatorNamespace(), APISecretName)
-
-	// 2. Create a user in Ops Manager if necessary. Note, that we don't send the request if the API key secret exists.
-	// This is because of the weird Ops Manager /unauth endpoint logic: it allows to create any number of users though only
-	// the first one will have GLOBAL_ADMIN permission. So we should avoid the situation when the admin changes the
-	// user secret and reconciles OM resource and the new user (non admin one) is created overriding the previous API secret
-	_, err = r.ReadSecret(ctx, adminKeySecretName, operatorVaultPath)
 
 	var ca *string
 	if opsManager.IsTLSEnabled() {
@@ -1394,7 +1382,16 @@ func (r *OpsManagerReconciler) prepareOpsManager(ctx context.Context, opsManager
 		ca = ptr.To(cm.Data["mms-ca.crt"])
 	}
 
-	adminSecretCreatedThisReconcile := false
+	APISecretName, status := r.getOpsManagerAPIKeySecretName(ctx, opsManager)
+	if !status.IsOK() {
+		return status, nil
+	}
+	adminKeySecretName := kube.ObjectKey(operatorNamespace(), APISecretName)
+	// 2. Create a user in Ops Manager if necessary. Note, that we don't send the request if the API key secret exists.
+	// This is because of the weird Ops Manager /unauth endpoint logic: it allows to create any number of users though only
+	// the first one will have GLOBAL_ADMIN permission. So we should avoid the situation when the admin changes the
+	// user secret and reconciles OM resource and the new user (non admin one) is created overriding the previous API secret
+	_, err = r.ReadSecret(ctx, adminKeySecretName, operatorVaultPath)
 	if secrets.SecretNotExist(err) {
 		apiKey, err := r.omInitializer.TryCreateUser(centralURL, opsManager.Spec.Version, newUser, ca)
 		if err != nil {
@@ -1426,23 +1423,23 @@ func (r *OpsManagerReconciler) prepareOpsManager(ctx context.Context, opsManager
 				return workflow.Failed(xerrors.Errorf("failed to create a secret for admin public api key. %s. The error : %w",
 					detailedAPIErrorMsg(adminKeySecretName), err)).WithRetry(30), nil
 			}
-			adminSecretCreatedThisReconcile = true
 			log.Infof("Created a secret for admin public api key %s", adminKeySecretName)
 		} else {
 			log.Debug("Ops Manager did not return a valid User object.")
 		}
 	}
 
-	if !adminSecretCreatedThisReconcile {
-		// 3. Final validation of admin secret - if it has been successfully created this reconcile - it needs to be valid.
-		//    Otherwise, we validate it. This could be due to the retry after failing to create the secret during
-		//    previous reconciliation (and the apiKey is empty as "the first user already exists") - the only fix is
-		//    to create the secret manually
-		_, err = r.ReadSecret(ctx, adminKeySecretName, operatorVaultPath)
-		if err != nil {
-			return workflow.Failed(xerrors.Errorf("admin API key secret for Ops Manager doesn't exit - was it removed accidentally? %s. The error : %w",
-				detailedAPIErrorMsg(adminKeySecretName), err)).WithRetry(30), nil
+	// 3. Final validation of admin secret. We must ensure it's refreshed by the informers as ReadCredentials
+	// is going to fail otherwise.
+	readAdminKeySecretFunc := func() (string, bool) {
+		if _, err = r.ReadSecret(ctx, adminKeySecretName, operatorVaultPath); err != nil {
+			return fmt.Sprintf("%v", err), false
 		}
+		return "", true
+	}
+	if found, msg := util.DoAndRetry(readAdminKeySecretFunc, log, 10, 5); !found {
+		return workflow.Failed(xerrors.Errorf("admin API key secret for Ops Manager doesn't exist - was it removed accidentally? %s. The error: %s",
+			detailedAPIErrorMsg(adminKeySecretName), msg)).WithRetry(30), nil
 	}
 
 	// Ops Manager api key Secret has the same structure as the MongoDB credentials secret

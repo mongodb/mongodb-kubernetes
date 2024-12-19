@@ -33,6 +33,9 @@ class AutomationConfigTester:
         we have only a single resource per deployment"""
         return [process for process in self.automation_config["processes"] if process["processType"] == "mongos"]
 
+    def get_all_processes(self):
+        return self.automation_config["processes"]
+
     def assert_expected_users(self, expected_users: int):
         automation_config_users = 0
 
