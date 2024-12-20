@@ -13,9 +13,9 @@
 * **MongoDB**, **MongoDBMultiCluster**, **MongoDBOpsManager**: In case of losing one of the member clusters we no longer emit validation errors if the failed cluster still exists in the `clusterSpecList`. This allows easier reconfiguration of the deployments as part of disaster recovery procedure.
 
 ## Kubernetes versions
-  * The minimum supported Kubernetes version for this operator is 1.29 and OpenShift 1.16.
-  
-[//]: # (TODO: update above link with Multi Cluster Sharded main page when added in public doc ; also update the link in 1.28 release notes below)
+  * The minimum supported Kubernetes version for this operator is 1.29 and OpenShift 4.17.
+
+<!-- Past Releases -->
 
 # MongoDB Enterprise Kubernetes Operator 1.29.0
 
