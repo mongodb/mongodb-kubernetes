@@ -5,7 +5,14 @@ from typing import List
 
 import boto3
 
-REPOSITORIES_NAMES = ["dev/mongodb-agent-ubi"]
+REPOSITORIES_NAMES = [
+    "dev/mongodb-agent-ubi",
+    "dev/mongodb-enterprise-init-appdb-ubi",
+    "dev/mongodb-enterprise-database-ubi",
+    "dev/mongodb-enterprise-init-database-ubi",
+    "dev/mongodb-enterprise-init-ops-manager-ubi",
+    "dev/mongodb-enterprise-operator-ubi",
+]
 REGISTRY_ID = "268558157000"
 REGION = "us-east-1"
 DEFAULT_AGE_THRESHOLD_DAYS = 1  # Number of days to consider as the age threshold
@@ -41,8 +48,8 @@ def filter_images_matching_tag(images: List[dict]) -> List[dict]:
             for tag in image_detail["imageTags"]:
                 # The Evergreen patch id we use for building the test images tags uses an Object ID
                 # https://www.mongodb.com/docs/v6.2/reference/bson-types/#std-label-objectid
-                # It uses a timestamp, so it will always have the same prefix for a while (_6 in that case)
-                # This must be changed before: July 2029
+                # The first 4 bytes are based on the timestamp, so it will always have the same prefix for a while (_6 in that case)
+                # This is valid until and must be changed before: July 2029
                 # 70000000 -> decimal -> 1879048192 => Wednesday, July 18, 2029
                 # Note that if the operator ever gets to major version 6, some tags can unintentionally match '_6'
                 # It is an easy and relatively reliable way of identifying our test images tags
