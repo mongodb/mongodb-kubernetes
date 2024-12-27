@@ -468,6 +468,9 @@ functions:
           - pin_tag_at
           - SILK_CLIENT_ID
           - SILK_CLIENT_SECRET
+          - otel_trace_id
+          - otel_parent_id
+          - otel_collector_endpoint
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         binary: scripts/evergreen/run_python.sh pipeline.py --include ${image_name} --parallel --sign
 
