@@ -23,6 +23,20 @@ from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 import requests
 import semver
+from opentelemetry import context
+from opentelemetry import context as otel_context
+from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
+    OTLPSpanExporter as OTLPSpanGrpcExporter,
+)
+from opentelemetry.sdk.resources import SERVICE_NAME, Resource
+from opentelemetry.sdk.trace import (
+    SynchronousMultiSpanProcessor,
+    Tracer,
+    TracerProvider,
+)
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
 from packaging.version import Version
 
 import docker
@@ -38,6 +52,37 @@ from scripts.evergreen.release.images_signing import (
     verify_signature,
 )
 from scripts.evergreen.release.sbom import generate_sbom, generate_sbom_for_cli
+
+TRACER = trace.get_tracer("evergreen-agent")
+
+
+def _setup_tracing():
+    trace_id = os.environ.get("otel_trace_id")
+    parent_id = os.environ.get("otel_parent_id")
+    endpoint = os.environ.get("otel_collector_endpoint")
+    logger.info(f"parent_id is {parent_id}")
+    logger.info(f"trace_id is {trace_id}")
+    logger.info(f"endpoint is {endpoint}")
+    span_context = SpanContext(
+        trace_id=int(trace_id, 16),
+        span_id=int(parent_id, 16),
+        is_remote=False,
+        # Magic number needed for our OTEL collector
+        trace_flags=TraceFlags(0x01),
+    )
+    ctx = trace.set_span_in_context(NonRecordingSpan(span_context))
+    context.attach(ctx)
+    sp = SynchronousMultiSpanProcessor()
+    span_processor = BatchSpanProcessor(
+        OTLPSpanGrpcExporter(
+            endpoint=endpoint,
+        )
+    )
+    sp.add_span_processor(span_processor)
+    resource = Resource(attributes={SERVICE_NAME: "evergreen-agent"})
+    provider = TracerProvider(resource=resource, active_span_processor=sp)
+    trace.set_tracer_provider(provider)
+
 
 DEFAULT_IMAGE_TYPE = "ubi"
 DEFAULT_NAMESPACE = "default"
@@ -321,6 +366,7 @@ def check_multi_arch(image: str, suffix: str) -> bool:
     return False
 
 
+@TRACER.start_as_current_span("sonar_build_image")
 def sonar_build_image(
     image_name: str,
     build_configuration: BuildConfiguration,
@@ -329,6 +375,12 @@ def sonar_build_image(
     with_sbom: bool = True,
 ):
     """Calls sonar to build `image_name` with arguments defined in `args`."""
+    span = trace.get_current_span()
+    span.set_attribute("meko.image_name", image_name)
+    span.set_attribute("meko.inventory", inventory)
+    if args:
+        span.set_attribute("meko.build_args", str(args))
+
     build_options = {
         # Will continue building an image if it finds an error. See next comment.
         "continue_on_errors": True,
@@ -352,7 +404,9 @@ def sonar_build_image(
         produce_sbom(build_configuration, args)
 
 
+@TRACER.start_as_current_span("produce_sbom")
 def produce_sbom(build_configuration, args):
+    span = trace.get_current_span()
     if not is_running_in_evg_pipeline():
         logger.info("Skipping SBOM Generation (enabled only for EVG)")
         return
@@ -366,6 +420,7 @@ def produce_sbom(build_configuration, args):
 
     try:
         image_tag = args["release_version"]
+        span.set_attribute("meko.release_version", image_tag)
     except KeyError:
         logger.error(f"Could not find image tag. Args: {args}, BuildConfiguration: {build_configuration}")
         logger.error(f"Skipping SBOM generation")
@@ -639,6 +694,30 @@ def get_versions_to_rebuild_per_operator_version(supported_versions, operator_ve
     return versions_to_rebuild
 
 
+class TracedThreadPoolExecutor(ThreadPoolExecutor):
+    """Implementation of :class:ThreadPoolExecutor that will pass context into sub tasks."""
+
+    def __init__(self, tracer: Tracer, *args, **kwargs):
+        self.tracer = tracer
+        super().__init__(*args, **kwargs)
+
+    def with_otel_context(self, c: otel_context.Context, fn: Callable):
+        otel_context.attach(c)
+        return fn()
+
+    def submit(self, fn, *args, **kwargs):
+        """Submit a new task to the thread pool."""
+
+        # get the current otel context
+        c = otel_context.get_current()
+        if c:
+            return super().submit(
+                lambda: self.with_otel_context(c, lambda: fn(*args, **kwargs)),
+            )
+        else:
+            return super().submit(lambda: fn(*args, **kwargs))
+
+
 """
 Starts the daily build process for an image. This function works for all images we support, for community and
 enterprise operator. The list of supported image_name is defined in get_builder_function_for_image_name.
@@ -691,6 +770,7 @@ def build_image_daily(
         future = executor.submit(sign_image_in_repositories, args, arch)
         futures.append(future)
 
+    @TRACER.start_as_current_span("inner")
     def inner(build_configuration: BuildConfiguration):
         supported_versions = get_supported_version_for_image_matrix_handling(image_name)
         variants = get_supported_variants_for_image(image_name)
@@ -706,9 +786,7 @@ def build_image_daily(
 
         logger.info("Building Versions for {}: {}".format(image_name, filtered_versions))
 
-        logger.info("Building Versions for {}: {}".format(image_name, filtered_versions))
-
-        with ThreadPoolExecutor() as executor:
+        with TracedThreadPoolExecutor(TRACER) as executor:
             futures = []
             for version in filtered_versions:
                 build_configuration = copy.deepcopy(build_configuration)
@@ -770,6 +848,8 @@ def build_image_daily(
                 except Exception as e:
                     logger.error(f"Error in future: {e}")
                     encountered_error = True
+
+            executor.shutdown(wait=True)
             logger.info("All tasks completed.")
 
             # we execute them concurrently with retries, if one of them eventually fails, we fail the whole task
@@ -780,11 +860,16 @@ def build_image_daily(
     return inner
 
 
+@TRACER.start_as_current_span("sign_image_in_repositories")
 def sign_image_in_repositories(args: Dict[str, str], arch: str = None):
+    span = trace.get_current_span()
     repositories = [args["ecr_registry_ubi"] + args["ubi_suffix"], args["quay_registry"] + args["ubi_suffix"]]
     tag = args["release_version"]
     if arch:
         tag = f"{tag}-{arch}"
+
+    span.set_attribute("meko.tag", tag)
+    span.set_attribute("meko.repositories", str(repositories))
 
     for repository in repositories:
         sign_image(repository, tag)
@@ -1356,6 +1441,8 @@ def calculate_images_to_build(
 
 
 def main():
+    _setup_tracing()
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--include", action="append")
     parser.add_argument("--exclude", action="append")

@@ -6,6 +6,7 @@ import time
 from typing import List, Optional
 
 import requests
+from opentelemetry import trace
 
 from lib.base_logger import logger
 
@@ -14,6 +15,8 @@ SIGNING_IMAGE_URI = os.environ.get(
 )
 
 RETRYABLE_ERRORS = [500, 502, 503, 504, 429, "timeout", "WARNING"]
+
+TRACER = trace.get_tracer("evergreen-agent")
 
 
 def is_retryable_error(stderr: str) -> bool:
@@ -144,7 +147,11 @@ def build_cosign_docker_command(additional_args: List[str], cosign_command: List
     return base_command + additional_args + [SIGNING_IMAGE_URI, "cosign"] + cosign_command
 
 
+@TRACER.start_as_current_span("sign_image")
 def sign_image(repository: str, tag: str) -> None:
+    start_time = time.time()
+    span = trace.get_current_span()
+
     image = repository + ":" + tag
     logger.debug(f"Signing image {image}")
 
@@ -193,10 +200,19 @@ def sign_image(repository: str, tag: str) -> None:
         # Fail the pipeline if signing fails
         logger.error(f"Failed to sign image {image}: {e.stderr}")
         raise
+
+    end_time = time.time()
+    duration = end_time - start_time
+    span.set_attribute(f"meko.signing.duration", duration)
+    span.set_attribute(f"meko.signing.repository", repository)
     logger.debug("Signing successful")
 
 
+@TRACER.start_as_current_span("verify_signature")
 def verify_signature(repository: str, tag: str) -> bool:
+    start_time = time.time()
+    span = trace.get_current_span()
+
     image = repository + ":" + tag
     logger.debug(f"Verifying signature of {image}")
     public_key_url = os.environ.get(
@@ -225,4 +241,9 @@ def verify_signature(repository: str, tag: str) -> bool:
         # Fail the pipeline if verification fails
         logger.error(f"Failed to verify signature for image {image}: {e.stderr}")
         raise
+
+    end_time = time.time()
+    duration = end_time - start_time
+    span.set_attribute(f"meko.verification.duration", duration)
+    span.set_attribute(f"meko.verification.repository", repository),
     logger.debug("Successful verification")
