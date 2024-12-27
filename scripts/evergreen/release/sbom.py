@@ -122,7 +122,7 @@ def validate_environment():
         raise ValueError("SILK_CLIENT_SECRET not defined in environment")
 
 
-def upload_sbom_lite_to_silk(directory: str, file_name: str, asset_group: str, platform: str):
+def upload_sbom_lite_to_silk(directory: str, file_name: str, asset_group: str):
     logger.debug(f"Uploading SBOM Lite {directory}/{file_name} to Silk")
     mongodb_artifactory_login()
     silk_client_id = os.getenv("SILK_CLIENT_ID")
@@ -155,7 +155,7 @@ def upload_sbom_lite_to_silk(directory: str, file_name: str, asset_group: str, p
         logger.error(f"Failed to upload SBOM Lite")
 
 
-def download_augmented_sbom_from_silk(directory: str, file_name: str, asset_group: str, platform: str):
+def download_augmented_sbom_from_silk(directory: str, file_name: str, asset_group: str) -> bool:
     logger.debug(f"Downloading Augmented SBOM {directory}/{file_name} from Silk")
     silk_client_id = os.getenv("SILK_CLIENT_ID")
     silk_client_secret = os.getenv("SILK_CLIENT_SECRET")
@@ -182,8 +182,10 @@ def download_augmented_sbom_from_silk(directory: str, file_name: str, asset_grou
     logger.debug(f"Calling Silk download: {' '.join(command)}")
     if retry(lambda: subprocess.run(command, check=True)):
         logger.debug(f"Downloading Augmented SBOM done")
+        return True
     else:
         logger.error(f"Failed to download Augmented SBOM")
+        return False
 
 
 def retry(f, max_retries=5) -> bool:
@@ -276,11 +278,13 @@ def generate_sbom_for_cli(cli_version: str = "1.25.0", platform: str = "linux/am
                 unpack(directory, binary_file_name)
                 create_sbom_light_for_binary(directory, unpacked_binary_file_name, sbom_lite_file_name, platform)
                 upload_to_s3(directory, sbom_lite_file_name, S3_BUCKET, s3_release_sbom_lite_path)
-                upload_sbom_lite_to_silk(directory, sbom_lite_file_name, asset_group_release_id, platform)
+                upload_sbom_lite_to_silk(directory, sbom_lite_file_name, asset_group_release_id)
             elif not s3_path_exists(s3_release_sbom_augmented_path):
                 logger.info("Uploading Augmented SBOM for the first release")
-                download_augmented_sbom_from_silk(directory, sbom_augmented_file_name, asset_group_release_id, platform)
-                upload_to_s3(directory, sbom_augmented_file_name, S3_BUCKET, s3_release_sbom_augmented_path)
+                if download_augmented_sbom_from_silk(directory, sbom_augmented_file_name, asset_group_release_id):
+                    upload_to_s3(directory, sbom_augmented_file_name, S3_BUCKET, s3_release_sbom_augmented_path)
+                else:
+                    logger.exception(f"Could not download release Augmented SBOM from Silk")
     except:
         logger.exception("Skipping SBOM Generation because of an error")
 
@@ -295,8 +299,8 @@ def create_asset_group_in_silk_if_needed(asset_group: str, description: str, pro
 
 
 def get_asset_group_data(image_name: str, tag: str, platform_sanitized: str):
-    daily_asset_group_id = f"{image_name}-release-{tag}-{platform_sanitized}"
-    release_asset_group_id = f"{image_name}-daily-{tag}-{platform_sanitized}"
+    daily_asset_group_id = f"{image_name}-daily-{tag}-{platform_sanitized}"
+    release_asset_group_id = f"{image_name}-release-{tag}-{platform_sanitized}"
     if image_name.startswith("mongodb-enterprise"):
         return daily_asset_group_id, release_asset_group_id, f"MEKO {image_name}", "10gen/ops-manager-kubernetes"
     return daily_asset_group_id, release_asset_group_id, f"MCO {image_name}", "mongodb/mongodb-kubernetes-operator"
@@ -337,6 +341,10 @@ def generate_sbom(image_pull_spec: str, platform: str = "linux/amd64"):
         with tempfile.TemporaryDirectory() as directory:
             sbom_lite_file_name = f"{image_name}_{tag}_{platform_sanitized}.json"
             sbom_augmented_file_name = f"{image_name}_{tag}_{platform_sanitized}-augmented.json"
+
+            create_sbom_lite_for_image(image_pull_spec, directory, sbom_lite_file_name, platform)
+
+            ### Daily SBOM generation ###
             s3_daily_path_for_specific_tag = (
                 f"sboms/daily/lite/{registry}/{organization}/{image_name}/{tag}/{platform_sanitized}"
             )
@@ -347,6 +355,21 @@ def generate_sbom(image_pull_spec: str, platform: str = "linux/amd64"):
                 f"sboms/daily/augmented/{registry}/{organization}/{image_name}/{tag}/{platform_sanitized}/{sha}"
             )
 
+            create_asset_group_in_silk_if_needed(asset_group_daily_id, asset_group_description, asset_group_project)
+
+            # Silk augmentation happens at the fetch time, however the Snyk vuln. association happens asynchronously.
+            # This means we need to fetch the Augmented SBOMs and store them in our S3 to be ready for generating the
+            # report one day after the release.
+            if s3_path_exists(s3_daily_path_for_specific_tag):
+                if download_augmented_sbom_from_silk(directory, sbom_augmented_file_name, asset_group_daily_id):
+                    upload_to_s3(directory, sbom_augmented_file_name, S3_BUCKET, s3_daily_sbom_augmented_path)
+                else:
+                    logger.exception(f"Could not download daily Augmented SBOM from Silk. Continuing...")
+
+            upload_sbom_lite_to_silk(directory, sbom_lite_file_name, asset_group_daily_id)
+            upload_to_s3(directory, sbom_lite_file_name, S3_BUCKET, s3_daily_sbom_lite_path)
+
+            ### Release SBOM generation ###
             # Then checking for path, we don't want to include SHA Digest.
             # We just want to keep there the initial one. Nothing more.
             s3_release_sbom_lite_path_for_specific_tag = (
@@ -363,39 +386,24 @@ def generate_sbom(image_pull_spec: str, platform: str = "linux/amd64"):
                 f"sboms/release/augmented/{registry}/{organization}/{image_name}/{tag}/{platform_sanitized}/{sha}"
             )
 
-            create_asset_group_in_silk_if_needed(asset_group_daily_id, asset_group_description, asset_group_project)
-
-            # Silk augmentation happens at the fetch time, however the Snyk vuln. association happens asynchronously.
-            # This means we need to fetch the Augmented SBOMs and store them in our S3 to be ready for generating the
-            # report one day after the release.
-            if s3_path_exists(s3_daily_path_for_specific_tag):
-                try:
-                    download_augmented_sbom_from_silk(
-                        directory, sbom_augmented_file_name, asset_group_daily_id, platform
-                    )
-                    upload_to_s3(directory, sbom_augmented_file_name, S3_BUCKET, s3_daily_sbom_augmented_path)
-                except subprocess.CalledProcessError:
-                    logger.exception("Could not download Augmented SBOM. Continuing...")
-
-            create_sbom_lite_for_image(image_pull_spec, directory, sbom_lite_file_name, platform)
-            upload_sbom_lite_to_silk(directory, sbom_lite_file_name, asset_group_daily_id, platform)
-            upload_to_s3(directory, sbom_lite_file_name, S3_BUCKET, s3_daily_sbom_lite_path)
-
             create_asset_group_in_silk_if_needed(asset_group_release_id, asset_group_description, asset_group_project)
 
             # This path is only executed when there's a first rebuild of the release artifacts.
             # Then, we upload the SBOM Lite this single time only.
             if not s3_path_exists(s3_release_sbom_lite_path_for_specific_tag):
                 logger.info("Uploading SBOM Lite for the first release")
-                upload_sbom_lite_to_silk(directory, sbom_lite_file_name, asset_group_release_id, platform)
+                upload_sbom_lite_to_silk(directory, sbom_lite_file_name, asset_group_release_id)
                 upload_to_s3(directory, sbom_lite_file_name, S3_BUCKET, s3_release_sbom_lite_path)
             # This condition is evaluated at Release Date +1 day and here we check if we got the latest
             # Augmented SBOM for the release
             elif not s3_path_exists(s3_release_sbom_augmented_path_for_specific_tag):
                 logger.info("Uploading Augmented SBOM for the first release")
-                download_augmented_sbom_from_silk(directory, sbom_augmented_file_name, asset_group_release_id, platform)
-                upload_to_s3(directory, sbom_augmented_file_name, S3_BUCKET, s3_release_sbom_augmented_path)
-    except:
-        logger.exception("Skipping SBOM Generation because of an error")
+                if download_augmented_sbom_from_silk(directory, sbom_augmented_file_name, asset_group_release_id):
+                    upload_to_s3(directory, sbom_augmented_file_name, S3_BUCKET, s3_release_sbom_augmented_path)
+                else:
+                    logger.exception(f"Could not download release Augmented SBOM from Silk")
+
+    except Exception as err:
+        logger.exception(f"Skipping SBOM Generation because of an error: {err}")
 
     logger.info(f"Generating SBOM done")
