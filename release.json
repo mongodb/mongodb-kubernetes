@@ -146,15 +146,7 @@
             "tools_version": "100.10.0"
           },
           "6.0.0": {
-            "agent_version": "12.0.30.7791-1",
-            "tools_version": "100.9.4"
-          },
-          "6.0.21": {
-            "agent_version": "12.0.30.7791-1",
-            "tools_version": "100.9.4"
-          },
-          "6.0.22": {
-            "agent_version": "12.0.30.7791-1",
+            "agent_version": "12.0.31.7825-1",
             "tools_version": "100.9.4"
           },
           "7.0.0": {
