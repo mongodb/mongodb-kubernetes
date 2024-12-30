@@ -30,10 +30,6 @@ COPY --from=base /data/licenses /licenses/
 
 USER 2000
 
-{% if debug|default(false) %}
-COPY --from=base /data/dlv /usr/local/bin/dlv
-{% endif %}
-
 ENTRYPOINT exec /usr/local/bin/mongodb-enterprise-operator
 
 {% block healthcheck %}

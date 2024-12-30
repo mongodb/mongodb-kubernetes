@@ -46,15 +46,6 @@ images:
     output:
     - dockerfile: $(functions.tempfile)
 
-  - name: operator-race-template-ubi
-    task_type: dockerfile_template
-    template_file_extension: race # this enables us to use the Dockerfile.race which uses ubi9
-    inputs:
-    - version
-    - debug
-    output:
-    - dockerfile: $(functions.tempfile)
-
   - name: operator-ubi-build
     task_type: docker_build
     dockerfile: $(stages['operator-template-ubi'].outputs[0].dockerfile)
@@ -66,7 +57,7 @@ images:
 
   - name: operator-ubi-race-build
     task_type: docker_build
-    dockerfile: $(stages['operator-race-template-ubi'].outputs[0].dockerfile)
+    dockerfile: $(stages['operator-template-ubi'].outputs[0].dockerfile)
     buildargs:
       imagebase: $(inputs.params.registry)/operator-context:$(inputs.params.version_id)-race
     output:

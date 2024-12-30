@@ -1,8 +1,0 @@
-{% extends "Dockerfile.ubi_minimal" %}
-
-{% block healthcheck %}
-{%- if is_appdb %}
-HEALTHCHECK --timeout=30s CMD ls /probes/readinessprobe || exit 1
-{%- else %}
-{%- endif %}
-{% endblock %}

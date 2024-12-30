@@ -42,11 +42,8 @@ RUN mkdir -p /data
 RUN cat release.json | jq -r '.supportedImages."mongodb-agent" | { "supportedImages": { "mongodb-agent": . } }' > /data/om_version_mapping.json
 RUN chmod +r /data/om_version_mapping.json
 
-RUN go install github.com/go-delve/delve/cmd/dlv@latest
-
 FROM scratch
 
-COPY --from=builder /go/bin/dlv /data/dlv
 COPY --from=builder /build/mongodb-enterprise-operator /data/
 COPY --from=builder /data/om_version_mapping.json /data/om_version_mapping.json
 
