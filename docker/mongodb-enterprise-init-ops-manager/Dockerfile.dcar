@@ -1,5 +1,0 @@
-{% extends "Dockerfile.ubi_minimal" %}
-
-{% block healthcheck %}
-HEALTHCHECK --timeout=30s CMD ls /scripts/docker-entry-point.sh || exit 1
-{% endblock %}

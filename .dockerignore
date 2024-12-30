@@ -1,6 +1,76 @@
-vendor/**
-pkg/client/**
-samples/*
-public/*
-.git/**
-bin/**
+# Exclude version control folders and configuration
+.git/
+.gitignore
+.github/
+
+# Generated or build-related directories
+.generated/
+vendor/
+pkg/client/
+docker/mongodb-enterprise-tests
+scripts/
+samples/
+.multi_cluster_local_test_files/
+
+# Python-related ignore patterns
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.toml
+
+# Virtual environment and dependency files
+venv/
+.env
+
+# Ignore temporary and system files
+*.swp
+*.bak
+*.tmp
+.DS_Store
+Thumbs.db
+
+# Testing-related files
+*.test.*
+*_test.go
+cover.out
+
+# Compiled and object files
+*.o
+*.so
+*.dylib
+
+# Logs and binary artifacts
+logs/
+*.log
+*.csv
+*.tgz
+
+# Tools and binaries
+bin/
+tools.go
+
+# Kubernetes and operator-related artifacts
+deploy/
+config/manifests/
+helm_chart/templates/
+helm_chart/crds/
+public/
+
+# Documentation files
+docs/
+*.md
+
+# IDE and editor config files
+*.iml
+*.idea/
+.vscode/
+
+# Data and build artifacts
+blobs/
+ssdlc-report/
+
+# Dockerfiles or specific project directories
+# (Add Docker-specific exclusion patterns here if known)
+
+# By excluding directories, specific files inside them are also excluded, so listing every specific file isn't necessary unless needed.
