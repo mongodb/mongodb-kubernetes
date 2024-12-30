@@ -3,10 +3,21 @@
 ARG init_database_image
 FROM ${init_database_image} as init_database
 
-# Build compilable stuff
+FROM public.ecr.aws/docker/library/golang:1.23 as dependency_downloader
+
+WORKDIR /go/src/github.com/10gen/ops-manager-kubernetes/
+
+COPY go.mod go.sum ./
+
+RUN go mod download
+
 FROM public.ecr.aws/docker/library/golang:1.23 as readiness_builder
-COPY . /go/src/github.com/10gen/ops-manager-kubernetes
-WORKDIR /go/src/github.com/10gen/ops-manager-kubernetes
+
+WORKDIR /go/src/github.com/10gen/ops-manager-kubernetes/
+
+COPY --from=dependency_downloader /go/pkg /go/pkg
+COPY go.mod go.sum ./
+
 RUN CGO_ENABLED=0 go build -o /readinessprobe github.com/mongodb/mongodb-kubernetes-operator/cmd/readiness
 RUN CGO_ENABLED=0 go build -o /version-upgrade-hook github.com/mongodb/mongodb-kubernetes-operator/cmd/versionhook
 
