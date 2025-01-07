@@ -305,10 +305,6 @@ docker manifest push config.repo_url/image:tag
 
 def create_and_push_manifest(image: str, tag: str) -> None:
     final_manifest = image + ":" + tag
-    args = ["docker", "manifest", "rm", final_manifest]
-    args_str = " ".join(args)
-    logger.debug(f"removing existing manifest: {args_str}")
-    subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     args = [
         "docker",
