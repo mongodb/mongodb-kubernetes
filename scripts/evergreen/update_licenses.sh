@@ -20,7 +20,7 @@ process_licenses() {
         return 1
     fi
 
-    PATH=$GOPATH/bin:$PATH GOOS=linux GOARCH=amd64 go-licenses report . --template "$SCRIPTS_DIR/update_licenses.tpl" > licenses_full.csv 2> licenses_stderr  || true
+    PATH=$GOPATH/bin:$PATH GOOS=linux GOARCH=amd64 GOFLAGS="-mod=mod" go-licenses report . --template "$SCRIPTS_DIR/update_licenses.tpl" > licenses_full.csv 2> licenses_stderr  || true
 
     # Filter and sort the licenses report
     grep -v 10gen licenses_full.csv | grep -v "github.com/mongodb" | grep -v "^golang.org" | sort > licenses.csv || true
