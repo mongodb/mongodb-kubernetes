@@ -280,13 +280,6 @@ tasks:
 - name: release_agent_operator_release
   tags: ["image_release"]
   git_tag_only: true
-  # Once we release the operator, we will also release the init databases, we require them to be out first
-  # such that we can reference them and retrieve those binaries.
-  # Since we immediately run daily rebuild after creating the image, we can ensure that the init_database is out
-  # such that the agent image build can use it.
-  depends_on:
-    - name: release_init_database
-      variant: release
   commands:
     - func: clone
     - func: setup_building_host
@@ -1348,7 +1341,13 @@ buildvariants:
     - name: release_init_database
     - name: release_init_ops_manager
     - name: release_database
+    # Once we release the operator, we will also release the init databases, we require them to be out first
+    # such that we can reference them and retrieve those binaries.
+    # Since we immediately run daily rebuild after creating the image, we can ensure that the init_database is out
+    # such that the agent image build can use it.
     - name: release_agent_operator_release
+      depends_on:
+        - name: release_init_database
 
 - name: preflight_release_images
   display_name: preflight_release_images
