@@ -145,8 +145,11 @@ def test_recover_operator_remove_cluster(
 def test_mongodb_multi_recovers_removing_cluster(mongodb_multi: MongoDBMulti, member_cluster_names: List[str]):
     mongodb_multi.load()
 
+    last_transition_time = mongodb_multi.get_status_last_transition_time()
+
     mongodb_multi["metadata"]["annotations"]["failedClusters"] = None
     mongodb_multi["spec"]["clusterSpecList"].pop()
     mongodb_multi.update()
+    mongodb_multi.assert_state_transition_happens(last_transition_time)
 
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1500)
