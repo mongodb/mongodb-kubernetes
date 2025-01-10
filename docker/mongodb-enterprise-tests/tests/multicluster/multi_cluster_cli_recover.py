@@ -125,11 +125,12 @@ def test_recover_operator_remove_cluster(
 
 @pytest.mark.e2e_multi_cluster_recover
 def test_mongodb_multi_recovers_removing_cluster(mongodb_multi: MongoDBMulti, member_cluster_names: List[str]):
-    last_transition_time = mongodb_multi.get_status_last_transition_time()
     mongodb_multi.load()
 
-    mongodb_multi.assert_state_transition_happens(last_transition_time)
+    last_transition_time = mongodb_multi.get_status_last_transition_time()
 
     mongodb_multi["spec"]["clusterSpecList"].pop(0)
     mongodb_multi.update()
+    mongodb_multi.assert_state_transition_happens(last_transition_time)
+
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1500)
