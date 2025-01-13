@@ -43,6 +43,6 @@ types-freezegun==0.1.4
 types-PyYAML==5.4.3
 types-pytz==2021.1.0
 types-python-dateutil==0.1.4
-pipupgrade==1.9.0
+pipupgrade==1.12.0
 pytest-cov==2.12.1
 pytest-socket==0.4.0
