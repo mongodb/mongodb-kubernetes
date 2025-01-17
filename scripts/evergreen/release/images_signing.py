@@ -29,6 +29,7 @@ def is_retryable_error(stderr: str) -> bool:
     return any(str(error) in stderr for error in RETRYABLE_ERRORS)
 
 
+@TRACER.start_as_current_span("run_command_with_retries")
 def run_command_with_retries(command, retries=6, base_delay=10):
     """
     Runs a subprocess command with retries and exponential backoff.
@@ -39,11 +40,14 @@ def run_command_with_retries(command, retries=6, base_delay=10):
     :param base_delay: Base delay in seconds for exponential backoff.
     :raises subprocess.CalledProcessError: If the command fails after retries.
     """
+    span = trace.get_current_span()
+    span.set_attribute(f"meko.command.command", command)
     for attempt in range(retries):
         try:
             result = subprocess.run(command, capture_output=True, text=True, check=True)
-            logger.debug(f"Command executed successfully with {attempt+1} attempts")
-            logger.debug(f"Command: {command} has output: {result.stdout}")
+            span.set_attribute(f"meko.command.retries", attempt)
+            span.set_attribute(f"meko.command.failure", False)
+            span.set_attribute(f"meko.command.result", result.stdout)
             return result
         except subprocess.CalledProcessError as e:
             logger.error(f"Attempt {attempt + 1} failed: {e.stderr}")
@@ -55,9 +59,11 @@ def run_command_with_retries(command, retries=6, base_delay=10):
                     time.sleep(delay)
                 else:
                     logger.error(f"All {retries} attempts failed for command: {command}")
+                    span.set_attribute(f"meko.command.failure", "no_retries")
                     raise
             else:
                 logger.error(f"Non-retryable error occurred: {e.stderr}")
+                span.set_attribute(f"meko.command.failure", e.stderr)
                 raise
 
 
