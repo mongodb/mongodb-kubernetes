@@ -290,7 +290,6 @@ tasks:
         include_tags: release
 
 - name: build_test_image
-  priority: 60
   commands:
   - func: clone
   - func: setup_building_host
@@ -300,7 +299,6 @@ tasks:
       image_name: test
 
 - name: build_operator_ubi
-  priority: 60
   commands:
   - func: clone
   - func: setup_building_host
@@ -311,7 +309,6 @@ tasks:
       image_name: operator
 
 - name: build_init_om_images_ubi
-  priority: 60
   commands:
   - func: clone
   - func: setup_building_host
@@ -585,7 +582,7 @@ task_groups:
 # This is mostly a smoke test, so we execute only a few essential ones.
 - name: e2e_mdb_openshift_ubi_cloudqa_task_group
   # OM tests are also run on the same Openshift cluster, so we use 1 max host to not
-  # allow the helm installations to interfere with eachother during the setup of the tests.
+  # allow the helm installations to interfere with each other during the setup of the tests.
   max_hosts: 1
   <<: *setup_group
   <<: *setup_and_teardown_task_cloudqa
@@ -1322,6 +1319,7 @@ buildvariants:
 ## to public Docker repositories is of the periodic-build task.
 - name: release
   display_name: release
+  max_hosts: -1
   depends_on:
     - name: build_operator_ubi
       variant: init_test_run
@@ -1351,6 +1349,7 @@ buildvariants:
 
 - name: preflight_release_images
   display_name: preflight_release_images
+  max_hosts: -1
   run_on:
   - rhel90-large
   tasks:
@@ -1368,6 +1367,7 @@ buildvariants:
 
 - name: init_test_run
   display_name: init_test_run
+  max_hosts: -1
   run_on:
     - ubuntu2204-small
   tasks:
