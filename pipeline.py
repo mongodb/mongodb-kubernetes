@@ -60,6 +60,9 @@ def _setup_tracing():
     trace_id = os.environ.get("otel_trace_id")
     parent_id = os.environ.get("otel_parent_id")
     endpoint = os.environ.get("otel_collector_endpoint")
+    if any(value is None for value in [trace_id, parent_id, endpoint]):
+        logger.info("tracing environment variables are missing, not configuring tracing")
+        return
     logger.info(f"parent_id is {parent_id}")
     logger.info(f"trace_id is {trace_id}")
     logger.info(f"endpoint is {endpoint}")
