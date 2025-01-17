@@ -349,6 +349,8 @@ class OMTester(object):
     def om_request(self, method, path, json_object: Optional[Dict] = None, retries=3):
         """performs the digest API request to Ops Manager. Note that the paths don't need to be prefixed with
         '/api../v1.0' as the method does it internally."""
+        span = trace.get_current_span()
+
         headers = {"Content-Type": "application/json"}
         auth = build_auth(self.context.user, self.context.public_key)
         start_time = time.time()
@@ -360,9 +362,10 @@ class OMTester(object):
         adapter = HTTPAdapter(max_retries=retry)
         session.mount("http://", adapter)
         session.mount("https://", adapter)
-        last_path_part = path.split("/")[-1]
 
-        span = trace.get_current_span()
+        pattern = re.compile(r"/[a-f0-9]{24}")
+        sanitized_path = pattern.sub("/{id}", path)
+        span.set_attribute(key=f"meko.om.request.resource", value=sanitized_path)
 
         def om_request():
             try:
@@ -379,8 +382,8 @@ class OMTester(object):
                 print("failed connecting to om")
                 raise e
 
-            # Removing OM Request time from span attributes as Honeycomb indexes unique keys and we're limited to 1000
-            # span.set_attribute(key=f"meko_om_request_path_{last_path_part}_time", value=time.time() - start_time)
+            span.set_attribute(key=f"meko.om.request.duration", value=time.time() - start_time)
+            span.set_attribute(key=f"meko.om.request.fullpath", value=path)
 
             if response.status_code >= 300:
                 raise Exception(
@@ -394,9 +397,12 @@ class OMTester(object):
         last_exception = Exception("Failed unexpectedly while retrying OM request")
         while retry_count >= 0:
             try:
-                return om_request()
+                resp = om_request()
+                span.set_attribute(key=f"meko.om.request.retries", value=retries - retry_count)
+                return resp
             except Exception as e:
                 print(f"Encountered exception: {e} on retry number {retries-retry_count}")
+                span.set_attribute(key=f"meko.om.request.exception", value=str(e))
                 last_exception = e
                 time.sleep(1)
                 retry_count -= 1
