@@ -18,7 +18,7 @@ kubectl_cmd() {
   error_code=$?
   if [[ ${error_code} -ne 0 ]]; then
       echo -e "${red_color}"
-      echo "$cmd"
+      echo "${cmd}"
       echo -e "${msg}${reset_color}"
       return ${error_code}
   fi
@@ -30,13 +30,13 @@ reset_context() {
   context=$1
   # Deleting ClusterRoleBindings
   matching_resources=$(kubectl get clusterrolebindings --context "${context}" -o name | grep mongodb || echo "")
-  if [ -n "$matching_resources" ]; then
+  if [ -n "${matching_resources}" ]; then
     kubectl_cmd delete --context "${context}" "${matching_resources}"
   fi
 
   # Deleting ClusterRoles
   matching_resources=$(kubectl get clusterroles --context "${context}" -o name | grep mongodb || echo "")
-  if [ -n "$matching_resources" ]; then
+  if [ -n "${matching_resources}" ]; then
     kubectl_cmd delete --context "${context}" "${matching_resources}"
   fi
 }

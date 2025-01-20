@@ -8,11 +8,11 @@ get_timeout_for_task () {
     local exec_timeout
     # OMG: really???
     exec_timeout=$(grep "name: ${task_name}$" .evergreen.yml -A 3 | grep exec_timeout_secs | awk '{ print $2 }')
-    if [[ $exec_timeout = "" ]]; then
+    if [[ ${exec_timeout} = "" ]]; then
         exec_timeout=$(grep "^exec_timeout_secs:" .evergreen.yml | head -1 | awk '{ print $2 }')
     fi
 
-    echo "$exec_timeout"
+    echo "${exec_timeout}"
 }
 
 # Returns a random string that can be used as a namespace.

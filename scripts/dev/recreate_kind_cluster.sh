@@ -15,5 +15,5 @@ if [[ "${DELETE_KIND_NETWORK:-"false"}" == "true" ]]; then
   delete_kind_network
 fi
 
-scripts/dev/setup_kind_cluster.sh -r -e -n "${cluster_name}" -l "172.18.255.200-172.18.255.250" -c "$CLUSTER_DOMAIN"
+scripts/dev/setup_kind_cluster.sh -r -e -n "${cluster_name}" -l "172.18.255.200-172.18.255.250" -c "${CLUSTER_DOMAIN}"
 CTX_CLUSTER1=${cluster_name}-kind scripts/dev/install_csi_driver.sh

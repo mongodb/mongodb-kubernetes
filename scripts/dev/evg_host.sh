@@ -31,7 +31,7 @@ if [[ "${cmd}" != "" && "${cmd}" != "help" ]]; then
   host_url=$(get_host_url)
 fi
 
-kubeconfig_path="$HOME/.operator-dev/evg-host.kubeconfig"
+kubeconfig_path="${HOME}/.operator-dev/evg-host.kubeconfig"
 
 configure() {
   shift 1
@@ -45,9 +45,9 @@ configure() {
   fi
 
   ssh -T -q "${host_url}" "sudo chown ubuntu:ubuntu ~/.docker || true; mkdir -p ~/.docker"
-  if [[ -f "$HOME/.docker/config.json" ]]; then
+  if [[ -f "${HOME}/.docker/config.json" ]]; then
     echo "Copying local ~/.docker/config.json authorization credentials to EVG host"
-    jq '. | with_entries(select(.key == "auths"))' "$HOME/.docker/config.json" | ssh -T -q "${host_url}" 'cat > /home/ubuntu/.docker/config.json'
+    jq '. | with_entries(select(.key == "auths"))' "${HOME}/.docker/config.json" | ssh -T -q "${host_url}" 'cat > /home/ubuntu/.docker/config.json'
   fi
 
   sync
@@ -141,8 +141,8 @@ ssh_to_host() {
 
 upload-my-ssh-private-key() {
     ssh -T -q "${host_url}" "mkdir -p ~/.ssh"
-    scp "$HOME/.ssh/id_rsa" "${host_url}:/home/ubuntu/.ssh/id_rsa"
-    scp "$HOME/.ssh/id_rsa.pub" "${host_url}:/home/ubuntu/.ssh/id_rsa.pub"
+    scp "${HOME}/.ssh/id_rsa" "${host_url}:/home/ubuntu/.ssh/id_rsa"
+    scp "${HOME}/.ssh/id_rsa.pub" "${host_url}:/home/ubuntu/.ssh/id_rsa.pub"
     ssh -T -q "${host_url}" "chmod 700 ~/.ssh && chown -R ubuntu:ubuntu ~/.ssh"
 }
 
@@ -152,7 +152,7 @@ cmd() {
   fi
 
   cmd="cd ~/ops-manager-kubernetes; $*"
-  ssh -T -q "${host_url}" "$cmd"
+  ssh -T -q "${host_url}" "${cmd}"
 }
 
 usage() {
@@ -179,7 +179,7 @@ COMMANDS:
 "
 }
 
-case $cmd in
+case ${cmd} in
 configure) configure "$@" ;;
 recreate-kind-clusters) recreate-kind-clusters ;;
 recreate-kind-cluster) recreate-kind-cluster "$@" ;;

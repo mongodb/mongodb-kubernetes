@@ -13,24 +13,24 @@ SCRIPTS_DIR=$(dirname "$(readlink -f "$0")")
 process_licenses() {
     local DIR="$1"
 
-    echo "Processing licenses for module: $DIR"
+    echo "Processing licenses for module: ${DIR}"
 
-    if ! cd "$DIR"; then
-        echo "Failed to change directory to $DIR"
+    if ! cd "${DIR}"; then
+        echo "Failed to change directory to ${DIR}"
         return 1
     fi
 
-    PATH=$GOPATH/bin:$PATH GOOS=linux GOARCH=amd64 GOFLAGS="-mod=mod" go-licenses report . --template "$SCRIPTS_DIR/update_licenses.tpl" > licenses_full.csv 2> licenses_stderr  || true
+    PATH=${GOPATH}/bin:${PATH} GOOS=linux GOARCH=amd64 GOFLAGS="-mod=mod" go-licenses report . --template "${SCRIPTS_DIR}/update_licenses.tpl" > licenses_full.csv 2> licenses_stderr  || true
 
     # Filter and sort the licenses report
     grep -v 10gen licenses_full.csv | grep -v "github.com/mongodb" | grep -v "^golang.org" | sort > licenses.csv || true
 
     # Return to the repo root directory
-    cd "$REPO_DIR" || exit
+    cd "${REPO_DIR}" || exit
 }
 
-process_licenses "$REPO_DIR" &
-process_licenses "$REPO_DIR/public/tools/multicluster" &
+process_licenses "${REPO_DIR}" &
+process_licenses "${REPO_DIR}/public/tools/multicluster" &
 
 wait
 

@@ -26,12 +26,12 @@ delete_buckets_from_file() {
     echo "[${list_file}/${bucket_name}] Processing bucket name=${bucket_name}, creationDate=${bucket_creation_date})"
 
     tags=$(aws s3api get-bucket-tagging --bucket "${bucket_name}" --output json || true)
-    operatorTagExists=$(echo "$tags" |  jq -r 'select(.TagSet | map({(.Key): .Value}) | add | .evg_task and .environment == "mongodb-enterprise-operator-tests")')
-    if [[ -n "$operatorTagExists" ]]; then
+    operatorTagExists=$(echo "${tags}" |  jq -r 'select(.TagSet | map({(.Key): .Value}) | add | .evg_task and .environment == "mongodb-enterprise-operator-tests")')
+    if [[ -n "${operatorTagExists}" ]]; then
       # Bucket created by the test run in EVG, check if it's older than 2 hours
       hours_since_creation=$(calculate_hours_since_creation "${bucket_creation_date}")
 
-      if [[ $hours_since_creation -ge 2 ]]; then
+      if [[ ${hours_since_creation} -ge 2 ]]; then
         aws_cmd="aws s3 rb s3://${bucket_name} --force"
         echo "[${list_file}/${bucket_name}] Deleting e2e bucket: ${bucket_name}/${bucket_creation_date}; age in hours: ${hours_since_creation}; (${aws_cmd}), tags: Tags: $(echo "${tags}" | jq -cr .)"
         ${aws_cmd} || true
@@ -41,8 +41,8 @@ delete_buckets_from_file() {
     else
       # Bucket not created by the test run in EVG, check if it's older than 24 hours and owned by us
       hours_since_creation=$(calculate_hours_since_creation "${bucket_creation_date}")
-      operatorOwnedTagExists=$(echo "$tags" |  jq -r 'select(.TagSet | map({(.Key): .Value}) | add | .environment == "mongodb-enterprise-operator-tests")')
-      if [[ $hours_since_creation -ge 24 && -n "$operatorOwnedTagExists" ]]; then
+      operatorOwnedTagExists=$(echo "${tags}" |  jq -r 'select(.TagSet | map({(.Key): .Value}) | add | .environment == "mongodb-enterprise-operator-tests")')
+      if [[ ${hours_since_creation} -ge 24 && -n "${operatorOwnedTagExists}" ]]; then
         aws_cmd="aws s3 rb s3://${bucket_name} --force"
         echo "[${list_file}/${bucket_name}] Deleting manual bucket: ${bucket_name}/${bucket_creation_date}; age in hours: ${hours_since_creation}; (${aws_cmd}), tags: Tags: $(echo "${tags}" | jq -cr .)"
         ${aws_cmd} || true
@@ -82,15 +82,15 @@ remove_old_buckets() {
   num_lines=$(wc -l < "${bucket_list_file}")
 
   # Check if file is empty
-  if [ "$num_lines" -eq 0 ]; then
+  if [ "${num_lines}" -eq 0 ]; then
       echo "Error: ${bucket_list_file} is empty."
       exit 1
   fi
 
   # Calculate the number of lines per split file
-  if [ "$num_lines" -lt 30 ]; then
+  if [ "${num_lines}" -lt 30 ]; then
       # If the file has fewer than 30 lines, split it into the number of lines
-      lines_per_split="$num_lines"
+      lines_per_split="${num_lines}"
   else
       # Otherwise, set the max at 30
       lines_per_split=30

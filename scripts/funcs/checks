@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-pushd "$PWD" > /dev/null || return
+pushd "${PWD}" > /dev/null || return
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
-cd "$DIR" || return
+cd "${DIR}" || return
 source errors
 popd > /dev/null || return
 
@@ -28,8 +28,8 @@ check_app() {
 check_mandatory_param() {
     local param="${1-}"
     local param_name="${2-}"
-    if [[ -z "$param" ]]; then
-        fatal "Parameter $param_name must be specified!"
+    if [[ -z "${param}" ]]; then
+        fatal "Parameter ${param_name} must be specified!"
     fi
 }
 
