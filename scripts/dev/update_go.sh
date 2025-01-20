@@ -17,7 +17,7 @@ next_ver=$2
 prev_ver="${prev_ver/\./\\.}"
 next_ver="${next_ver/\./\\.}"
 
-for i in $(git grep --files-with-matches "[go :]$prev_ver" | grep -v RELEASE_NOTES.md)
+for i in $(git grep --files-with-matches "[go :]${prev_ver}" | grep -v RELEASE_NOTES.md)
 do
-  perl -p -i -e "s/$prev_ver/$next_ver/g" "$i"
+  perl -p -i -e "s/${prev_ver}/${next_ver}/g" "${i}"
 done

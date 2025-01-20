@@ -10,7 +10,7 @@ source scripts/funcs/printing
 recreate="${1-}"
 CLUSTER="${2:-e2e.mongokubernetes.com}"
 
-title "Deleting kops cluster $CLUSTER"
+title "Deleting kops cluster ${CLUSTER}"
 
 if [[ "${recreate}" != "yes" ]]; then
 	fatal "Exiting as \"imsure=yes\" parameter is not specified"
@@ -18,15 +18,15 @@ fi
 
 # make sure kops version is >= 1.14.0
 kops_version=$(kops version | awk '{ print $2 }')
-major=$(echo "$kops_version" | cut -d "." -f 1)
-minor=$(echo "$kops_version" | cut -d "." -f 2)
+major=$(echo "${kops_version}" | cut -d "." -f 1)
+minor=$(echo "${kops_version}" | cut -d "." -f 2)
 if (( major != 1 || minor < 14 )); then
         fatal "kops must be of version >= 1.14.0!"
 fi
 
 
 # wait until the cluster is removed (could be removed already)
-kops delete cluster "$CLUSTER" --yes || true
+kops delete cluster "${CLUSTER}" --yes || true
 
 title "Cluster deleted"
 

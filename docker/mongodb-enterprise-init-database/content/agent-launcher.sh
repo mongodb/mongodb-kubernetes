@@ -8,8 +8,8 @@ MDB_STATIC_CONTAINERS_ARCHITECTURE="${MDB_STATIC_CONTAINERS_ARCHITECTURE:-}"
 MMS_HOME=${MMS_HOME:-/mongodb-automation}
 MMS_LOG_DIR=${MMS_LOG_DIR:-/var/log/mongodb-mms-automation}
 
-if [ -z "$MDB_STATIC_CONTAINERS_ARCHITECTURE" ]; then
-  AGENT_BINARY_PATH="$MMS_HOME/files/mongodb-mms-automation-agent"
+if [ -z "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" ]; then
+  AGENT_BINARY_PATH="${MMS_HOME}/files/mongodb-mms-automation-agent"
 else
   AGENT_BINARY_PATH="/agent/mongodb-agent"
 fi
@@ -67,9 +67,9 @@ if [[ -d /data/journal ]] && [[ ! -L /data/journal ]]; then
     if [[ $(ls -A /journal) && ${MDB_CLEAN_JOURNAL:-1} -eq 1 ]]; then
        # we can only create a dir under tmp, since its read only
         MDB_JOURNAL_BACKUP_DIR="/tmp/journal_backup_$(date +%Y%m%d%H%M%S)"
-        script_log "The /journal directory is not empty - moving its content to $MDB_JOURNAL_BACKUP_DIR"
-        mkdir -p "$MDB_JOURNAL_BACKUP_DIR"
-        mv /journal/* "$MDB_JOURNAL_BACKUP_DIR"
+        script_log "The /journal directory is not empty - moving its content to ${MDB_JOURNAL_BACKUP_DIR}"
+        mkdir -p "${MDB_JOURNAL_BACKUP_DIR}"
+        mv /journal/* "${MDB_JOURNAL_BACKUP_DIR}"
     fi
 
 
@@ -94,7 +94,7 @@ base_url="${BASE_URL-}" # If unassigned, set to empty string to avoid set-u erro
 base_url="${base_url%/}" # Remove any accidentally defined trailing slashes
 declare -r base_url
 
-if [ -z "$MDB_STATIC_CONTAINERS_ARCHITECTURE" ]; then
+if [ -z "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" ]; then
   # Download the Automation Agent from Ops Manager
   # Note, that it will be skipped if the agent is supposed to be run in headless mode
   if [[ -n "${base_url}" ]]; then
@@ -119,7 +119,7 @@ hostpath="$(hostname)"
 # or whenever Multi-Cluster is on.
 override_file="/opt/scripts/config/${hostpath}"
 if [[ -f "${override_file}" ]]; then
-  override="$(cat "$override_file")"
+  override="$(cat "${override_file}")"
   agentOpts+=("-overrideLocalHost=${override}")
   agentOpts+=("-ephemeralPortOffset=1")
 elif [ "${MULTI_CLUSTER_MODE-}" = "true" ]; then
@@ -127,7 +127,7 @@ elif [ "${MULTI_CLUSTER_MODE-}" = "true" ]; then
 fi
 
 agentOpts+=("-healthCheckFilePath=${MMS_LOG_DIR}/agent-health-status.json")
-if [ -z "$MDB_STATIC_CONTAINERS_ARCHITECTURE" ]; then
+if [ -z "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" ]; then
   agentOpts+=("-useLocalMongoDbTools=true")
 else
   agentOpts+=("-operatorMode=true")
@@ -165,8 +165,8 @@ fi
 # the delimiter option
 splittedAgentFlags=();
 while read -rd,; do
-    splittedAgentFlags+=("$REPLY")
-done <<<"$AGENT_FLAGS";
+    splittedAgentFlags+=("${REPLY}")
+done <<<"${AGENT_FLAGS}";
 
 AGENT_API_KEY="$(cat "${MMS_HOME}"/agent-api-key/agentApiKey)"
 script_log "Launching automation agent with following arguments: ${agentOpts[*]} -mmsApiKey=${AGENT_API_KEY+<hidden>} ${splittedAgentFlags[*]}"
@@ -175,7 +175,7 @@ agentOpts+=("-mmsApiKey=${AGENT_API_KEY-}")
 
 rm /tmp/mongodb-mms-automation-cluster-backup.json &> /dev/null || true
 
-if [ -z "$MDB_STATIC_CONTAINERS_ARCHITECTURE" ]; then
+if [ -z "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" ]; then
   echo "Skipping creating symlinks because this is not Static Containers Architecture"
 else
   WAIT_TIME=5
@@ -183,22 +183,22 @@ else
   ELAPSED_TIME=0
 
   # Polling loop to wait for the PID value to be non-zero
-  while [ $ELAPSED_TIME -lt $MAX_WAIT ]; do
+  while [ ${ELAPSED_TIME} -lt ${MAX_WAIT} ]; do
     script_log "waiting for mongod_pid being available"
     # shellcheck disable=SC2009
     MONGOD_PID=$(ps aux | grep "mongodb_marker" | grep -v grep | awk '{print $2}') || true
 
-    if [ -n "$MONGOD_PID" ] && [ "$MONGOD_PID" -ne 0 ]; then
+    if [ -n "${MONGOD_PID}" ] && [ "${MONGOD_PID}" -ne 0 ]; then
     break
     fi
 
-    sleep $WAIT_TIME
+    sleep ${WAIT_TIME}
     ELAPSED_TIME=$((ELAPSED_TIME + WAIT_TIME))
   done
 
   # Check if a non-zero PID value is found
-  if [ -n "$MONGOD_PID" ] && [ "$MONGOD_PID" -ne 0 ]; then
-    echo "Mongod PID: $MONGOD_PID"
+  if [ -n "${MONGOD_PID}" ] && [ "${MONGOD_PID}" -ne 0 ]; then
+    echo "Mongod PID: ${MONGOD_PID}"
     MONGOD_ROOT="/proc/${MONGOD_PID}/root"
     mkdir -p "${mdb_downloads_dir}/mongod"
     mkdir -p "${mdb_downloads_dir}/mongod/bin"
@@ -227,15 +227,15 @@ if [ "${debug}" = "true" ]; then
   tar -xzf go1.20.1.linux-amd64.tar.gz
   export GOPATH=${mdb_downloads_dir}/gopath
   export GOCACHE=${mdb_downloads_dir}/.cache
-  export PATH=$PATH:${mdb_downloads_dir}/go/bin
-  export PATH=$PATH:${mdb_downloads_dir}/gopath/bin
+  export PATH=${PATH}:${mdb_downloads_dir}/go/bin
+  export PATH=${PATH}:${mdb_downloads_dir}/gopath/bin
   go install github.com/go-delve/delve/cmd/dlv@latest
-  export PATH=$PATH:${mdb_downloads_dir}/gopath/bin
+  export PATH=${PATH}:${mdb_downloads_dir}/gopath/bin
   cd ${mdb_downloads_dir} || true
-  dlv --headless=true --listen=:5006 --accept-multiclient=true --continue --api-version=2 exec "$AGENT_BINARY_PATH" -- "${agentOpts[@]}" "${splittedAgentFlags[@]}" 2>> "${MDB_LOG_FILE_AUTOMATION_AGENT_STDERR}" > >(json_log "automation-agent-stdout") &
+  dlv --headless=true --listen=:5006 --accept-multiclient=true --continue --api-version=2 exec "${AGENT_BINARY_PATH}" -- "${agentOpts[@]}" "${splittedAgentFlags[@]}" 2>> "${MDB_LOG_FILE_AUTOMATION_AGENT_STDERR}" > >(json_log "automation-agent-stdout") &
 else
 # Note, that we do logging in subshell - this allows us to save the correct PID to variable (not the logging one)
-  "$AGENT_BINARY_PATH" "${agentOpts[@]}" "${splittedAgentFlags[@]}" 2>> "${MDB_LOG_FILE_AUTOMATION_AGENT_STDERR}" >> >(json_log "automation-agent-stdout") &
+  "${AGENT_BINARY_PATH}" "${agentOpts[@]}" "${splittedAgentFlags[@]}" 2>> "${MDB_LOG_FILE_AUTOMATION_AGENT_STDERR}" >> >(json_log "automation-agent-stdout") &
 fi
 
 export agentPid=$!

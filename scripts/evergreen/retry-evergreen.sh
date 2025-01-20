@@ -26,12 +26,12 @@ then
 else
   VERSION=$1
 fi
-if [ -z "$EVERGREEN_USER" ]
+if [ -z "${EVERGREEN_USER}" ]
 then
     echo "$$EVERGREEN_USER not set"
     exit 1
 fi
-if [ -z "$EVERGREEN_API_KEY" ]
+if [ -z "${EVERGREEN_API_KEY}" ]
 then
     echo "$$EVERGREEN_API_KEY not set"
     exit 1
@@ -41,15 +41,15 @@ EVERGREEN_API="https://evergreen.mongodb.com/api"
 MAX_RETRIES="${EVERGREEN_MAX_RETRIES:-3}"
 
 # shellcheck disable=SC2207
-BUILD_IDS=($(curl -s -H "Api-User: $EVERGREEN_USER" -H "Api-Key: $EVERGREEN_API_KEY" $EVERGREEN_API/rest/v2/versions/"$VERSION" | jq -r '.build_variants_status[] | .build_id'))
+BUILD_IDS=($(curl -s -H "Api-User: ${EVERGREEN_USER}" -H "Api-Key: ${EVERGREEN_API_KEY}" ${EVERGREEN_API}/rest/v2/versions/"${VERSION}" | jq -r '.build_variants_status[] | .build_id'))
 
 for BUILD_ID in "${BUILD_IDS[@]}"; do
-  echo "Finding failed tasks in BUILD ID: $BUILD_ID"
+  echo "Finding failed tasks in BUILD ID: ${BUILD_ID}"
   # shellcheck disable=SC2207
-  TASK_IDS=($(curl -s -H "Api-User: $EVERGREEN_USER" -H "Api-Key: $EVERGREEN_API_KEY" $EVERGREEN_API/rest/v2/builds/"$BUILD_ID"/tasks | jq ".[] | select(.status == \"failed\" and .execution <= $MAX_RETRIES)" | jq -r '.task_id'))
+  TASK_IDS=($(curl -s -H "Api-User: ${EVERGREEN_USER}" -H "Api-Key: ${EVERGREEN_API_KEY}" ${EVERGREEN_API}/rest/v2/builds/"${BUILD_ID}"/tasks | jq ".[] | select(.status == \"failed\" and .execution <= ${MAX_RETRIES})" | jq -r '.task_id'))
 
   for TASK_ID in "${TASK_IDS[@]}"; do
-    echo "Retriggering TASK ID: $TASK_ID"
-    curl -H "Api-User: $EVERGREEN_USER" -H "Api-Key: $EVERGREEN_API_KEY" -X POST $EVERGREEN_API/rest/v2/tasks/"$TASK_ID"/restart
+    echo "Retriggering TASK ID: ${TASK_ID}"
+    curl -H "Api-User: ${EVERGREEN_USER}" -H "Api-Key: ${EVERGREEN_API_KEY}" -X POST ${EVERGREEN_API}/rest/v2/tasks/"${TASK_ID}"/restart
   done
 done

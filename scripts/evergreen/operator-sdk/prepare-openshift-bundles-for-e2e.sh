@@ -48,14 +48,14 @@ function clone_git_repo_into_temp() {
   git_repo_url=$1
   tmpdir=$(mktemp -d)
   git clone --depth 1 "${git_repo_url}" "${tmpdir}"
-  echo "$tmpdir"
+  echo "${tmpdir}"
 }
 
 function find_the_latest_certified_operator() {
   certified_operators_cloned_repo=$1
   # In this specific case, we don't want to use find as ls sorts things lexicographically - we need this!
   # shellcheck disable=SC2012
-  ls -r "$certified_operators_cloned_repo/operators/mongodb-enterprise" | sed -n '2 p'
+  ls -r "${certified_operators_cloned_repo}/operators/mongodb-enterprise" | sed -n '2 p'
 }
 
 # Clones git_repo_url, builds the bundle in the given version and publishes it to bundle_image_url.
@@ -125,7 +125,7 @@ entries:
   opm validate "${catalog_dir}"
   echo "Catalog is valid"
   echo "Building catalog image"
-  cd "$catalog_dir" && cd ../
+  cd "${catalog_dir}" && cd ../
   docker build --platform "${DOCKER_PLATFORM}" . -f mongodb-enterprise-operator-catalog.Dockerfile -t "${catalog_image}"
   docker push "${catalog_image}"
   echo "Catalog has been build and published"
@@ -139,7 +139,7 @@ export DOCKER_PLATFORM=${DOCKER_PLATFORM:-"linux/amd64"}
 CERTIFIED_OPERATORS_REPO="https://github.com/redhat-openshift-ecosystem/certified-operators.git"
 
 certified_repo_cloned="$(clone_git_repo_into_temp ${CERTIFIED_OPERATORS_REPO})"
-latest_released_operator_version="$(find_the_latest_certified_operator "$certified_repo_cloned")"
+latest_released_operator_version="$(find_the_latest_certified_operator "${certified_repo_cloned}")"
 current_operator_version_from_release_json=$(jq -r .mongodbOperator < release.json)
 current_incremented_operator_version_from_release_json=$(increment_version "${current_operator_version_from_release_json}")
 current_incremented_operator_version_from_release_json_with_version_id="${current_incremented_operator_version_from_release_json}-${VERSION_ID:-"latest"}"
@@ -151,20 +151,20 @@ export CURRENT_COMMUNITY_BUNDLE_IMAGE="${base_repo_url}/mongodb-enterprise-opera
 
 
 header "Configuration:"
-echo "certified_repo_cloned: $certified_repo_cloned"
-echo "latest_released_operator_version: $latest_released_operator_version"
-echo "current_incremented_operator_version_from_release_json: $current_incremented_operator_version_from_release_json"
-echo "current_incremented_operator_version_from_release_json_with_version_id: $current_incremented_operator_version_from_release_json_with_version_id"
-echo "LATEST_CERTIFIED_BUNDLE_IMAGE: $LATEST_CERTIFIED_BUNDLE_IMAGE"
-echo "CURRENT_BUNDLE_IMAGE: $CURRENT_BUNDLE_IMAGE"
-echo "CURRENT_COMMUNITY_BUNDLE_IMAGE: $CURRENT_COMMUNITY_BUNDLE_IMAGE"
-echo "BUILD_DOCKER_IMAGES: $BUILD_DOCKER_IMAGES"
-echo "DOCKER_PLATFORM: $DOCKER_PLATFORM"
-echo "CERTIFIED_OPERATORS_REPO: $CERTIFIED_OPERATORS_REPO"
+echo "certified_repo_cloned: ${certified_repo_cloned}"
+echo "latest_released_operator_version: ${latest_released_operator_version}"
+echo "current_incremented_operator_version_from_release_json: ${current_incremented_operator_version_from_release_json}"
+echo "current_incremented_operator_version_from_release_json_with_version_id: ${current_incremented_operator_version_from_release_json_with_version_id}"
+echo "LATEST_CERTIFIED_BUNDLE_IMAGE: ${LATEST_CERTIFIED_BUNDLE_IMAGE}"
+echo "CURRENT_BUNDLE_IMAGE: ${CURRENT_BUNDLE_IMAGE}"
+echo "CURRENT_COMMUNITY_BUNDLE_IMAGE: ${CURRENT_COMMUNITY_BUNDLE_IMAGE}"
+echo "BUILD_DOCKER_IMAGES: ${BUILD_DOCKER_IMAGES}"
+echo "DOCKER_PLATFORM: ${DOCKER_PLATFORM}"
+echo "CERTIFIED_OPERATORS_REPO: ${CERTIFIED_OPERATORS_REPO}"
 
 # Build latest published bundle form RedHat's certified operators repository.
 header "Building bundle:"
-build_bundle_from_git_repo "$certified_repo_cloned" "${latest_released_operator_version}" "${LATEST_CERTIFIED_BUNDLE_IMAGE}"
+build_bundle_from_git_repo "${certified_repo_cloned}" "${latest_released_operator_version}" "${LATEST_CERTIFIED_BUNDLE_IMAGE}"
 
 # Generate helm charts providing overrides for images to reference images build in EVG pipeline.
 header "Building Helm charts:"
@@ -180,7 +180,7 @@ scripts/evergreen/operator-sdk/prepare-openshift-bundles.sh
 
 # publish two-channel catalog source to be used in e2e test.
 header "Building and pushing the catalog:"
-build_and_publish_catalog_with_two_channels "$certified_repo_cloned" "${latest_released_operator_version}" "${LATEST_CERTIFIED_BUNDLE_IMAGE}" "${current_incremented_operator_version_from_release_json}" "${CURRENT_BUNDLE_IMAGE}" "${certified_catalog_image}"
+build_and_publish_catalog_with_two_channels "${certified_repo_cloned}" "${latest_released_operator_version}" "${LATEST_CERTIFIED_BUNDLE_IMAGE}" "${current_incremented_operator_version_from_release_json}" "${CURRENT_BUNDLE_IMAGE}" "${certified_catalog_image}"
 
 header "Cleaning up tmp directory"
-rm -rf "$certified_repo_cloned"
+rm -rf "${certified_repo_cloned}"

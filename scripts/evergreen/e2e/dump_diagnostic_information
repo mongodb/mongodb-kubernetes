@@ -15,8 +15,8 @@ dump_all () {
     # with a different context.
     local original_context
     original_context="$(kubectl config current-context)"
-    kubectl config use-context "${1:-$original_context}" &> /dev/null
-    prefix="${1:-$original_context}_"
+    kubectl config use-context "${1:-${original_context}}" &> /dev/null
+    prefix="${1:-${original_context}}_"
     # shellcheck disable=SC2154
     if [[ "${KUBE_ENVIRONMENT_NAME:-}" != "multi" ]]; then
         prefix=""
@@ -94,14 +94,14 @@ dump_pod_logs() {
         kubectl logs -n "${namespace}" "${pod}" | jq -c -r 'select( .logType == "agent-launcher-script") | .contents' 2> /dev/null > "logs/${prefix}${pod}-launcher.log"
     else
         # for all other pods we want each log per container from kubectl
-        for container in $(kubectl get pods -n "${namespace}" "$pod" -o jsonpath='{.spec.containers[*].name}'); do
+        for container in $(kubectl get pods -n "${namespace}" "${pod}" -o jsonpath='{.spec.containers[*].name}'); do
             echo "Writing log file for pod ${pod} - container ${container} to logs/${pod}-${container}.log"
             kubectl logs -n "${namespace}" "${pod}" -c "${container}" > "logs/${pod}-${container}.log"
 
             # Check if the container has restarted by examining its restart count
             restartCount=$(kubectl get pod -n "${namespace}" "${pod}" -o jsonpath="{.status.containerStatuses[?(@.name=='${container}')].restartCount}")
 
-            if [ "$restartCount" -gt 0 ]; then
+            if [ "${restartCount}" -gt 0 ]; then
                 echo "Writing log file for restarted ${pod} - container ${container} to logs/${pod}-${container}-previous.log"
                 kubectl logs --previous -n "${namespace}" "${pod}" -c "${container}" > "logs/${pod}-${container}-previous.log" || true
             fi

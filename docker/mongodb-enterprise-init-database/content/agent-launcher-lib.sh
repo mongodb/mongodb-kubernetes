@@ -5,7 +5,7 @@ use_jq="$(command -v jq)"
 
 # log stdout as structured json with given log type
 json_log() {
-    if [ "$use_jq" ]; then
+    if [ "${use_jq}" ]; then
         jq --unbuffered --null-input -c --raw-input "inputs | {\"logType\": \"$1\", \"contents\": .}"
     else
     echo "$1"
@@ -32,13 +32,13 @@ cleanup() {
 
     mongoPid="$(cat /data/mongod.lock)"
 
-    if [ -n "$mongoPid" ]; then
-      kill -15 "$mongoPid"
+    if [ -n "${mongoPid}" ]; then
+      kill -15 "${mongoPid}"
 
-      script_log "Waiting until mongod process is shutdown. Note, that if mongod process fails to shutdown in the time specified by the 'terminationGracePeriodSeconds' property (default $termination_timeout_seconds seconds) then the container will be killed by Kubernetes."
+      script_log "Waiting until mongod process is shutdown. Note, that if mongod process fails to shutdown in the time specified by the 'terminationGracePeriodSeconds' property (default ${termination_timeout_seconds} seconds) then the container will be killed by Kubernetes."
 
       # dev note: we cannot use 'wait' for the external processes, seems the spinning loop is the best option
-      while [ -e "/proc/$mongoPid" ]; do sleep 0.1; done
+      while [ -e "/proc/${mongoPid}" ]; do sleep 0.1; done
     fi
 
     script_log "Mongod and automation agent processes are shutdown"

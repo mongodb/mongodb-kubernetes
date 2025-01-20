@@ -18,7 +18,7 @@ append_missing_version() {
     fi
 }
 
-for version in $_44_versions; do
+for version in ${_44_versions}; do
     docker build \
         -f 4.4/ubi/Dockerfile \
         --build-arg MONGO_PACKAGE=mongodb-enterprise \
@@ -32,7 +32,7 @@ for version in $_44_versions; do
     docker push "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:${version}-ent"
 done
 
-for version in $_50_versions; do
+for version in ${_50_versions}; do
     docker build \
         -f 5.0/ubi/Dockerfile \
         --build-arg MONGO_PACKAGE=mongodb-enterprise \
