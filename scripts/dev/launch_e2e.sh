@@ -62,7 +62,7 @@ else
     TASK_NAME=${test} \
     WAIT_TIMEOUT="4m" \
     MODE="dev" \
-    WATCH_NAMESPACE=${watch_namespace:-$NAMESPACE} \
+    WATCH_NAMESPACE=${watch_namespace:-${NAMESPACE}} \
     REGISTRY=${REGISTRY} \
     DEBUG=${debug-} \
     ./scripts/evergreen/e2e/e2e.sh

@@ -2,9 +2,9 @@
 
 set -Eeou pipefail
 
-pushd "$PWD" > /dev/null || return
+pushd "${PWD}" > /dev/null || return
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
-cd "$DIR" || return
+cd "${DIR}" || return
 # shellcheck source=scripts/funcs/checks
 source checks
 # shellcheck source=scripts/funcs/errors
@@ -46,7 +46,7 @@ delete_operator() {
 
     title "Removing the Operator deployment ${name}"
     ! kubectl --namespace "${ns}" get deployments | grep -q "${name}" \
-        || kubectl delete deployment "$name" -n "${ns}" || true
+        || kubectl delete deployment "${name}" -n "${ns}" || true
 }
 
 # wait_for_operator waits for the Operator to start
@@ -164,10 +164,10 @@ reset_namespace() {
   # a while to delete it.
   should_wait="false"
   # shellcheck disable=SC2153
-  if [[ $CONTEXT == e2e_mdb_openshift_ubi_cloudqa || $CONTEXT == e2e_openshift_static_mdb_ubi_cloudqa ]]; then
+  if [[ ${CONTEXT} == e2e_mdb_openshift_ubi_cloudqa || ${CONTEXT} == e2e_openshift_static_mdb_ubi_cloudqa ]]; then
     should_wait="true"
-    echo "Removing the test namespace ${namespace}, should_wait=$should_wait"
-    kubectl --context "${context}" delete "namespace/${namespace}" --wait="$should_wait" || true
+    echo "Removing the test namespace ${namespace}, should_wait=${should_wait}"
+    kubectl --context "${context}" delete "namespace/${namespace}" --wait="${should_wait}" || true
   fi
 
   echo "Removing CSRs"

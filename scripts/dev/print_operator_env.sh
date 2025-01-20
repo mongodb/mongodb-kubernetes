@@ -8,9 +8,9 @@ UBI_IMAGE_SUFFIX="-ubi"
 
 # Convert context variables to variables required by the operator binary
 function print_operator_env() {
-  echo "OPERATOR_ENV=\"$OPERATOR_ENV\"
-WATCH_NAMESPACE=\"$WATCH_NAMESPACE\"
-NAMESPACE=\"$NAMESPACE\"
+  echo "OPERATOR_ENV=\"${OPERATOR_ENV}\"
+WATCH_NAMESPACE=\"${WATCH_NAMESPACE}\"
+NAMESPACE=\"${NAMESPACE}\"
 IMAGE_PULL_POLICY=\"Always\"
 MONGODB_ENTERPRISE_DATABASE_IMAGE=\"${MONGODB_ENTERPRISE_DATABASE_IMAGE:-${DATABASE_REGISTRY}/mongodb-enterprise-database${UBI_IMAGE_SUFFIX}}\"
 INIT_DATABASE_IMAGE_REPOSITORY=\"${INIT_DATABASE_REGISTRY}/mongodb-enterprise-init-database${UBI_IMAGE_SUFFIX}\"

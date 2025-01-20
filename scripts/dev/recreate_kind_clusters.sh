@@ -14,10 +14,10 @@ fi
 
 # first script prepares registry, so to avoid race it have to finish running before we execute subsequent ones in parallel
 # To future maintainers: whenever modifying this bit, make sure you also update coredns.yaml
-scripts/dev/setup_kind_cluster.sh -n "e2e-operator" -p "10.244.0.0/16" -s "10.96.0.0/16" -l "172.18.255.200-172.18.255.210" -c "$CLUSTER_DOMAIN"
-scripts/dev/setup_kind_cluster.sh -n "e2e-cluster-1" -p "10.245.0.0/16" -s "10.97.0.0/16" -l "172.18.255.210-172.18.255.220" -c "$CLUSTER_DOMAIN" &
-scripts/dev/setup_kind_cluster.sh -n "e2e-cluster-2" -p "10.246.0.0/16" -s "10.98.0.0/16" -l "172.18.255.220-172.18.255.230" -c "$CLUSTER_DOMAIN" &
-scripts/dev/setup_kind_cluster.sh -n "e2e-cluster-3" -p "10.247.0.0/16" -s "10.99.0.0/16" -l "172.18.255.230-172.18.255.240" -c "$CLUSTER_DOMAIN" &
+scripts/dev/setup_kind_cluster.sh -n "e2e-operator" -p "10.244.0.0/16" -s "10.96.0.0/16" -l "172.18.255.200-172.18.255.210" -c "${CLUSTER_DOMAIN}"
+scripts/dev/setup_kind_cluster.sh -n "e2e-cluster-1" -p "10.245.0.0/16" -s "10.97.0.0/16" -l "172.18.255.210-172.18.255.220" -c "${CLUSTER_DOMAIN}" &
+scripts/dev/setup_kind_cluster.sh -n "e2e-cluster-2" -p "10.246.0.0/16" -s "10.98.0.0/16" -l "172.18.255.220-172.18.255.230" -c "${CLUSTER_DOMAIN}" &
+scripts/dev/setup_kind_cluster.sh -n "e2e-cluster-3" -p "10.247.0.0/16" -s "10.99.0.0/16" -l "172.18.255.230-172.18.255.240" -c "${CLUSTER_DOMAIN}" &
 
 echo "Waiting for recreate_kind_cluster.sh to complete"
 wait

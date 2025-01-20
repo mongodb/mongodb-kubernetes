@@ -41,21 +41,21 @@ pod_network="10.244.0.0/16"
 service_network="10.96.0.0/16"
 metallb_ip_range="172.18.255.200-172.18.255.250"
 while getopts ':c:l:p:s:n:her' opt; do
-  case $opt in
-  n) cluster_name=$OPTARG ;;
+  case ${opt} in
+  n) cluster_name=${OPTARG} ;;
   e) export_kubeconfig=1 ;;
   r) recreate=1 ;;
-  p) pod_network=$OPTARG ;;
-  s) service_network=$OPTARG ;;
-  l) metallb_ip_range=$OPTARG ;;
-  c) cluster_domain=$OPTARG ;;
+  p) pod_network=${OPTARG} ;;
+  s) service_network=${OPTARG} ;;
+  l) metallb_ip_range=${OPTARG} ;;
+  c) cluster_domain=${OPTARG} ;;
   h) usage ;;
   *) usage ;;
   esac
 done
 shift "$((OPTIND - 1))"
 
-kubeconfig_path="$HOME/.kube/${cluster_name}"
+kubeconfig_path="${HOME}/.kube/${cluster_name}"
 
 # We create docker network primarily so that all kind clusters use the same network.
 # We hardcode 172.18/16 subnet in few places, so we must ensure the network uses that subnet:
@@ -76,7 +76,7 @@ retry_count=0
 success=false
 
 if [ "${running}" != 'true' ]; then
-  while [ "$retry_count" -lt "$max_retries" ]; do
+  while [ "${retry_count}" -lt "${max_retries}" ]; do
     if run_docker; then
       echo "Docker container started successfully."
       success=true
@@ -86,8 +86,8 @@ if [ "${running}" != 'true' ]; then
     fi
   done
 
-  if [ "$success" = false ]; then
-    echo "Docker run command failed after $max_retries attempts!"
+  if [ "${success}" = false ]; then
+    echo "Docker run command failed after ${max_retries} attempts!"
     exit 1
   fi
 fi
@@ -102,7 +102,7 @@ if [[ "${RUNNING_IN_EVG:-false}" == "true" ]]; then
   registry="268558157000.dkr.ecr.eu-west-1.amazonaws.com/docker-hub-mirrors"
 fi
 
-if [ "$KUBE_ENVIRONMENT_NAME" = "performance" ]; then
+if [ "${KUBE_ENVIRONMENT_NAME}" = "performance" ]; then
   echo "installing kind with more nodes with performance"
   cat <<EOF | kind create cluster --name "${cluster_name}" --kubeconfig "${kubeconfig_path}" --wait 700s --config=-
 kind: Cluster

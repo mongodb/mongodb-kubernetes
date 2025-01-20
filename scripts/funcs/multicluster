@@ -213,16 +213,16 @@ prepare_multi_cluster_e2e_run() {
       cd public/tools/multicluster/
       GOOS=darwin GOARCH="${goarch}" go build -o "${MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH}" main.go
     )
-    PATH=$PATH:docker/mongodb-enterprise-tests
+    PATH=${PATH}:docker/mongodb-enterprise-tests
   else
     (
       cd public/tools/multicluster/
       # shellcheck disable=SC2030
-      export PATH=$GOROOT:$PATH
+      export PATH=${GOROOT}:${PATH}
       GOOS=linux GOARCH=amd64 go build -o "${MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH}" main.go
     )
     # shellcheck disable=SC2031
-    PATH=$PATH:docker/mongodb-enterprise-tests
+    PATH=${PATH}:docker/mongodb-enterprise-tests
   fi
 
   test_pod_secret_name="test-pod-multi-cluster-config"
@@ -231,9 +231,9 @@ prepare_multi_cluster_e2e_run() {
 
   # escape "." sign from cluster names
   # shellcheck disable=SC2001,SC2086
-  central_cluster_escaped=$(echo $CENTRAL_CLUSTER | sed 's/\./\\./g')
+  central_cluster_escaped=$(echo ${CENTRAL_CLUSTER} | sed 's/\./\\./g')
   # shellcheck disable=SC2206
-  member_cluster_list=($MEMBER_CLUSTERS)
+  member_cluster_list=(${MEMBER_CLUSTERS})
 
   kubectl --context "${test_pod_cluster}" get secret "${test_pod_secret_name}" -n "${NAMESPACE}" -o jsonpath="{ .data.central_cluster }" | base64 -d >"${MULTI_CLUSTER_CONFIG_DIR}/central_cluster"
   kubectl --context "${test_pod_cluster}" get secret "${test_pod_secret_name}" -n "${NAMESPACE}" -o jsonpath="{ .data.${central_cluster_escaped} }" | base64 -d >"${MULTI_CLUSTER_CONFIG_DIR}/${CENTRAL_CLUSTER}"

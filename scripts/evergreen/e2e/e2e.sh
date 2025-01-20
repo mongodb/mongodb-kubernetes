@@ -57,7 +57,7 @@ else
 fi
 
 export TEST_NAME
-echo "TEST_NAME is set to: $TEST_NAME"
+echo "TEST_NAME is set to: ${TEST_NAME}"
 
 delete_operator "${NAMESPACE}"
 

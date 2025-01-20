@@ -16,12 +16,12 @@ git add -u
 final_index_state=$(git diff --name-only --cached --diff-filter=AM)
 
 # Check if there are differences between the initial and final states
-if [ "$initial_index_state" != "$final_index_state" ]; then
+if [ "${initial_index_state}" != "${final_index_state}" ]; then
   echo "Initial index state:"
-  echo "$initial_index_state"
+  echo "${initial_index_state}"
 
   echo "Final index state:"
-  echo "$final_index_state"
+  echo "${final_index_state}"
 
   echo "We have files that differ after running pre-commit, please run the pre-commit locally"
   echo "Full diff: "

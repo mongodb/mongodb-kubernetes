@@ -76,7 +76,7 @@ deploy_test_app() {
     if [[ -n "${otel_parent_id:-}" ]]; then
         otel_resource_attributes="evergreen.version.id=${VERSION_ID:-},evergreen.version.requester=${requester:-},meko_git_branch=${branch_name:-},evergreen.version.pr_num=${github_pr_number:-},meko_git_commit=${github_commit:-},meko_revision=${revision:-},is_patch=${IS_PATCH},evergreen.task.name=${TASK_NAME},evergreen.task.execution=${EXECUTION},evergreen.build.id=${BUILD_ID},evergreen.build.name=${BUILD_VARIANT},evergreen.task.id=${task_id},evergreen.project.id=${project_identifier:-}"
         # shellcheck disable=SC2001
-        escaped_otel_resource_attributes=$(echo "$otel_resource_attributes" | sed 's/,/\\,/g')
+        escaped_otel_resource_attributes=$(echo "${otel_resource_attributes}" | sed 's/,/\\,/g')
         # The test needs to create an OM resource with specific version
         helm_params+=("--set" "otel_parent_id=${otel_parent_id:-"unknown"}")
         helm_params+=("--set" "otel_trace_id=${OTEL_TRACE_ID:-"unknown"}")
@@ -111,7 +111,7 @@ deploy_test_app() {
         helm_params+=("--set" "projectDir=/ops-manager-kubernetes")
     fi
 
-    if [[ "$LOCAL_OPERATOR" == true ]]; then
+    if [[ "${LOCAL_OPERATOR}" == true ]]; then
         helm_params+=("--set" "localOperator=true")
     fi
 
@@ -166,7 +166,7 @@ run_tests() {
     if [[ "${KUBE_ENVIRONMENT_NAME}" = "multi" ]]; then
         operator_context="${CENTRAL_CLUSTER}"
         # shellcheck disable=SC2154,SC2269
-        test_pod_context="${test_pod_cluster:-$operator_context}"
+        test_pod_context="${test_pod_cluster:-${operator_context}}"
     fi
 
     echo "Operator running in cluster ${operator_context}"

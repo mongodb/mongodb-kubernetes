@@ -9,8 +9,8 @@ script_dir=$(dirname "${script_name}")
 
 source public/samples/ops-manager-multi-cluster/env_variables.sh
 
-source "$script_dir/root-context"
-source "$script_dir/variables/om60"
+source "${script_dir}/root-context"
+source "${script_dir}/variables/om60"
 
 export NAMESPACE="mongodb-operator"
 export WATCH_NAMESPACE="mongodb"

@@ -6,7 +6,7 @@ script_name=$(readlink -f "${BASH_SOURCE[0]}")
 script_dir=$(dirname "${script_name}")
 
 # shellcheck disable=SC1091
-source "$script_dir/root-context"
+source "${script_dir}/root-context"
 
 export ops_manager_version="cloud_qa"
 export MDB_DEFAULT_ARCHITECTURE=static

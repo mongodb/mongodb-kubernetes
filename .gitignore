@@ -53,7 +53,6 @@ docker/mongodb-enterprise-tests/requirements.txt
 docker/mongodb-enterprise-tests/.flake8
 docker/mongodb-enterprise-tests/.pylintrc
 docker/mongodb-enterprise-tests/pyproject.toml
-.shellcheckrc
 
 bundle
 

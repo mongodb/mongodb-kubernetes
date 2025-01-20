@@ -6,8 +6,8 @@ set -Eeou pipefail
 # to the child process ("tail" in this case)
 cleanup () {
     echo "Caught SIGTERM signal."
-    if [[ -n "$child" ]]; then
-        kill -TERM "$child"
+    if [[ -n "${child}" ]]; then
+        kill -TERM "${child}"
     else
         # Kill all tail processes
         echo "Was not able to find child process, killing all tail processes"
@@ -23,7 +23,7 @@ CONFIG_DIR=${MMS_HOME}/conf
 
 if [ -d "${CONFIG_TEMPLATE_DIR}" ]
 then
-    if [ "$(ls -A "$CONFIG_DIR")" ]; then
+    if [ "$(ls -A "${CONFIG_DIR}")" ]; then
         echo "The ${CONFIG_DIR} directory is not empty. Skipping copying files from ${CONFIG_TEMPLATE_DIR}"
         echo "This might cause errors when booting up the OpsManager with read-only root filesystem"
     else
@@ -78,4 +78,4 @@ echo "Launched tail, pid=${child}"
 
 trap cleanup SIGTERM
 
-wait "$child"
+wait "${child}"
