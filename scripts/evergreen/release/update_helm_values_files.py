@@ -12,7 +12,12 @@ import sys
 from typing import List
 
 from agent_matrix import get_supported_version_for_image_matrix_handling
-from helm_files_handler import set_value_in_yaml_file, update_all_helm_values_files
+from helm_files_handler import (
+    get_value_in_yaml_file,
+    set_value_in_yaml_file,
+    update_all_helm_values_files,
+    update_standalone_installer,
+)
 
 RELEASE_JSON_TO_HELM_KEY = {
     "mongodbOperator": "operator",
@@ -36,10 +41,27 @@ def filterNonReleaseOut(versions: List[str]) -> List[str]:
 
 def main() -> int:
     release = load_release()
+
+    operator_version = release["mongodbOperator"]
+
     for k in release:
         if k in RELEASE_JSON_TO_HELM_KEY:
             update_all_helm_values_files(RELEASE_JSON_TO_HELM_KEY[k], release[k])
 
+    update_helm_charts(operator_version, release)
+    update_standalone(operator_version)
+    update_cluster_service_version(operator_version)
+
+    return 0
+
+
+def update_standalone(operator_version):
+    update_standalone_installer("public/mongodb-enterprise.yaml", operator_version),
+    update_standalone_installer("public/mongodb-enterprise-openshift.yaml", operator_version),
+    update_standalone_installer("public/mongodb-enterprise-multi-cluster.yaml", operator_version),
+
+
+def update_helm_charts(operator_version, release):
     set_value_in_yaml_file(
         "helm_chart/values-openshift.yaml",
         "relatedImages.opsManager",
@@ -60,8 +82,30 @@ def main() -> int:
         "relatedImages.agent",
         filterNonReleaseOut(get_supported_version_for_image_matrix_handling("mongodb-agent")),
     )
+    set_value_in_yaml_file("helm_chart/values-openshift.yaml", "operator.version", operator_version)
+    set_value_in_yaml_file("helm_chart/values.yaml", "operator.version", operator_version)
+    set_value_in_yaml_file("helm_chart/Chart.yaml", "version", operator_version)
 
-    return 0
+
+def update_cluster_service_version(operator_version):
+    old_operator_version = get_value_in_yaml_file(
+        "config/manifests/bases/mongodb-enterprise.clusterserviceversion.yaml", "metadata.annotations.containerImage"
+    ).split(":")[-1]
+
+    if old_operator_version != operator_version:
+        set_value_in_yaml_file(
+            "config/manifests/bases/mongodb-enterprise.clusterserviceversion.yaml",
+            "spec.replaces",
+            f"mongodb-enterprise.{old_operator_version}",
+            preserve_quotes=True,
+        )
+
+    set_value_in_yaml_file(
+        "config/manifests/bases/mongodb-enterprise.clusterserviceversion.yaml",
+        "metadata.annotations.containerImage",
+        f"quay.io/mongodb/mongodb-enterprise-operator-ubi:{operator_version}",
+        preserve_quotes=True,
+    )
 
 
 if __name__ == "__main__":
