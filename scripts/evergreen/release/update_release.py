@@ -44,8 +44,12 @@ def update_release_json():
         data = json.load(fd)
 
     # PCT already bumps the release.json, such that the last element contains the newest version, since they are sorted
-    newest_version = data["supportedImages"]["ops-manager"]["versions"][-1]
-    update_agent_and_tools_version(data, newest_version)
+    newest_om_version = data["supportedImages"]["ops-manager"]["versions"][-1]
+    update_agent_and_tools_version(data, newest_om_version)
+
+    # PCT bumps this field, and we can use this as a base to set the version for everything else in release.json
+    newest_operator_version = data["mongodbOperator"]
+    update_operator_related_versions(data, newest_operator_version)
 
     with open(release, "w") as f:
         json.dump(
@@ -54,6 +58,38 @@ def update_release_json():
             indent=2,
         )
         f.write("\n")
+
+
+def update_operator_related_versions(release: dict, version: str):
+    """
+    Updates version on `source`, that corresponds to `release.json`.
+    """
+
+    logger.debug(f"Updating release.json for version: {version}")
+
+    keys_to_update_with_current_version = [
+        "initDatabaseVersion",
+        "initOpsManagerVersion",
+        "initAppDbVersion",
+        "databaseImageVersion",
+    ]
+
+    for key in keys_to_update_with_current_version:
+        release[key] = version
+
+    keys_to_add_supported_versions = [
+        "operator",
+        "init-ops-manager",
+        "init-database",
+        "init-appdb",
+        "database",
+    ]
+
+    for key in keys_to_add_supported_versions:
+        if version not in release["supportedImages"][key]["versions"]:
+            release["supportedImages"][key]["versions"].append(version)
+
+    logger.debug(f"Updated content {release}")
 
 
 def update_agent_and_tools_version(data, missing_version):
