@@ -339,7 +339,7 @@ func (r *ReconcileCommonController) validateInternalClusterCertsAndCheckTLSType(
 	secretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
 
 	// Validates that the secret is valid
-	if err := certs.ValidateCertificates(ctx, r.client, secretName, opts.Namespace); err != nil {
+	if err := certs.ValidateCertificates(ctx, r.client, secretName, opts.Namespace, log); err != nil {
 		return err
 	}
 	return nil
