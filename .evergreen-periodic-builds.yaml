@@ -7,6 +7,14 @@ parameters:
     value: 00:00
     description: Pin tags at this time of the day. Midnight by default.
 
+patch_aliases:
+  - alias: "periodic_builds"
+    variant_tags: [ "periodic_build" ]
+    task: ".*"
+  - alias: "periodic_teardowns"
+    variant_tags: [ "periodic_teardown" ]
+    task: ".*"
+
 tasks:
   - name: periodic_build_operator
     commands:
@@ -107,12 +115,12 @@ tasks:
         vars:
           image_name: ops-manager-8-daily
 
-# the periodic agent builds are more commented in the pipeline.py file.
-# The gist is - we want to split up the periodic build on as many machines as possible
-# To speed up the builds as we have too many agents due to the matrix build.
-# For now its one without operator suffix and the last 3. This only works as long as we
-# only have operator versions we support (minor version), as soon as we have multiple patch versions -
-# this won't work anymore and we will need a dynamic solution.
+  # the periodic agent builds are more commented in the pipeline.py file.
+  # The gist is - we want to split up the periodic build on as many machines as possible
+  # To speed up the builds as we have too many agents due to the matrix build.
+  # For now its one without operator suffix and the last 3. This only works as long as we
+  # only have operator versions we support (minor version), as soon as we have multiple patch versions -
+  # this won't work anymore and we will need a dynamic solution.
   - name: periodic_build_agent
     exec_timeout_secs: 43200
     commands:
@@ -277,6 +285,7 @@ task_groups:
 buildvariants:
   - name: periodic_teardown
     display_name: periodic_teardown
+    tags: [ "periodic_teardown" ]
     run_on:
       - ubuntu2204-small
     tasks:
@@ -284,6 +293,7 @@ buildvariants:
 
   - name: periodic_build
     display_name: periodic_build
+    tags: [ "periodic_build" ]
     run_on:
       - ubuntu1804-large
     tasks:
@@ -291,35 +301,9 @@ buildvariants:
 
   - name: preflight_images
     display_name: preflight_images
+    tags: [ "periodic_build" ]
     depends_on:
-      # We have to add every task in the periodic build variant here
-      # because otherwise evergreen moves on to the preflight task after
-      # a single task in the referenced task group succeeds.
-      - name: periodic_build_operator
-        variant: periodic_build
-      - name: periodic_build_init_appdb
-        variant: periodic_build
-      - name: periodic_build_init_database
-        variant: periodic_build
-      - name: periodic_build_init_opsmanager
-        variant: periodic_build
-      - name: periodic_build_ops_manager_6
-        variant: periodic_build
-      - name: periodic_build_ops_manager_7
-        variant: periodic_build
-      - name: periodic_build_ops_manager_8
-        variant: periodic_build
-      - name: periodic_build_database
-        variant: periodic_build
-      - name: periodic_build_agent
-        variant: periodic_build
-      - name: periodic_build_agent_1
-        variant: periodic_build
-      - name: periodic_build_agent_2
-        variant: periodic_build
-      - name: periodic_build_agent_3
-        variant: periodic_build
-      - name: periodic_build_appdb_database
+      - name: "*"
         variant: periodic_build
     run_on:
       - rhel90-large
@@ -330,39 +314,9 @@ buildvariants:
 
   - name: prepare_openshift_bundles
     display_name: prepare_openshift_bundles
+    tags: [ "periodic_build" ]
     depends_on:
-      # We have to add every task in the periodic build variant here
-      # because otherwise evergreen moves on to the preflight task after
-      # a single task in the referenced task group succeeds.
-      - name: periodic_build_operator
-        variant: periodic_build
-      - name: periodic_build_readiness_probe
-        variant: periodic_build
-      - name: periodic_build_version_upgrade_post_start_hook
-        variant: periodic_build
-      - name: periodic_build_init_appdb
-        variant: periodic_build
-      - name: periodic_build_init_database
-        variant: periodic_build
-      - name: periodic_build_init_opsmanager
-        variant: periodic_build
-      - name: periodic_build_ops_manager_6
-        variant: periodic_build
-      - name: periodic_build_ops_manager_7
-        variant: periodic_build
-      - name: periodic_build_ops_manager_8
-        variant: periodic_build
-      - name: periodic_build_database
-        variant: periodic_build
-      - name: periodic_build_agent
-        variant: periodic_build
-      - name: periodic_build_agent_1
-        variant: periodic_build
-      - name: periodic_build_agent_2
-        variant: periodic_build
-      - name: periodic_build_agent_3
-        variant: periodic_build
-      - name: periodic_build_appdb_database
+      - name: "*"
         variant: periodic_build
     run_on:
       - ubuntu2204-large
