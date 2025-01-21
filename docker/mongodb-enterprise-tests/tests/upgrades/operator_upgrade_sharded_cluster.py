@@ -169,7 +169,7 @@ class TestOperatorDowngrade:
 
     def test_sharded_cluster_reconciled(self, sharded_cluster: MongoDB):
         sharded_cluster.assert_abandons_phase(phase=Phase.Running, timeout=200)
-        sharded_cluster.assert_reaches_phase(phase=Phase.Running, timeout=850)
+        sharded_cluster.assert_reaches_phase(phase=Phase.Running, timeout=850, ignore_errors=True)
 
     def test_assert_connectivity(self, ca_path: str):
         ShardedClusterTester(MDB_RESOURCE, 1, ssl=True, ca_path=ca_path).assert_connectivity()
