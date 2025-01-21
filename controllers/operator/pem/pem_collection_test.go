@@ -3,6 +3,8 @@ package pem
 import (
 	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestParseCertificate(t *testing.T) {
@@ -76,4 +78,18 @@ H5jBImIxPL4WxQNiBTexAkF8D1EtpYuWdlVQ80/h/f4pBcGiXPqX5h2PQSQY7hP1
 		_, err := tt.inp.ParseCertificate()
 		errors.Is(err, tt.err)
 	}
+}
+
+func TestFile(t *testing.T) {
+	data := []byte(`{
+  "H7NQYI7GBGJBC3RZ76DQEAEOX6L6HALZLPIVZI77RHJRDMGPQEYA": "-----BEGIN CERTIFICATE-----
+mycert
+-----END CERTIFICATE-----
+-----BEGIN RSA PRIVATE KEY-----
+mykey==
+-----END RSA PRIVATE KEY-----
+"
+}`)
+	f := NewFileFromData(data)
+	assert.True(t, f.IsValid())
 }

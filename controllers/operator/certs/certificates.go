@@ -284,19 +284,27 @@ func validatePemSecret(secret corev1.Secret, key string, additionalDomains []str
 }
 
 // ValidateCertificates verifies the Secret containing the certificates and the keys is valid.
-func ValidateCertificates(ctx context.Context, secretGetter secret.Getter, name, namespace string) error {
-	byteData, err := secret.ReadByteData(ctx, secretGetter, kube.ObjectKey(namespace, name))
-	if err == nil {
-		// Validate that the secret contains the keys, if it contains the certs.
-		for key, value := range byteData {
-			if key == util.LatestHashSecretKey || key == util.PreviousHashSecretKey {
-				continue
-			}
-			pemFile := enterprisepem.NewFileFromData(value)
-			if !pemFile.IsValid() {
-				return xerrors.Errorf("The Secret %s containing certificates is not valid. Entries must contain a certificate and a private key.", name)
+func ValidateCertificates(ctx context.Context, secretGetter secret.Getter, name, namespace string, log *zap.SugaredLogger) error {
+	validateCertificates := func() (string, bool) {
+		byteData, err := secret.ReadByteData(ctx, secretGetter, kube.ObjectKey(namespace, name))
+		if err == nil {
+			// Validate that the secret contains the keys, if it contains the certs.
+			for key, value := range byteData {
+				if key == util.LatestHashSecretKey || key == util.PreviousHashSecretKey {
+					continue
+				}
+				pemFile := enterprisepem.NewFileFromData(value)
+				if !pemFile.IsValid() {
+					return fmt.Sprintf("The Secret %s containing certificates is not valid. Entries must contain a certificate and a private key.", name), false
+				}
 			}
 		}
+		return "", true
+	}
+
+	// we immediately create the certificate in a prior call, thus we need to retry to account for races.
+	if found, msg := util.DoAndRetry(validateCertificates, log, 10, 5); !found {
+		return xerrors.Errorf(msg)
 	}
 	return nil
 }
@@ -437,7 +445,7 @@ func ValidateSelfManagedSSLCertsForStatefulSet(ctx context.Context, secretReadCl
 
 	secretName = fmt.Sprintf("%s-pem", secretName)
 
-	if err := ValidateCertificates(ctx, secretReadClient.KubeClient, secretName, opts.Namespace); err != nil {
+	if err := ValidateCertificates(ctx, secretReadClient.KubeClient, secretName, opts.Namespace, log); err != nil {
 		return workflow.Failed(err)
 	}
 
