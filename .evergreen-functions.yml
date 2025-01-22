@@ -408,7 +408,6 @@ functions:
     - *switch_context
     - command: subprocess.exec
       params:
-        shell: bash
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         add_to_path:
           - ${workdir}/bin
