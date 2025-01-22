@@ -137,7 +137,7 @@ def run_preflight_check(image: str, version: str, submit: bool = False) -> int:
         preflight_command.append("--docker-config=./temp-authfile.json")
         logging.info(f'Running command: {" ".join(preflight_command)}')
 
-        subprocess.run(preflight_command)
+        subprocess.run(preflight_command, check=True)
 
         result_file = os.path.join(f"{tmpdir}", arch, "results.json")
 
