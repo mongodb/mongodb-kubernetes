@@ -9,10 +9,10 @@
 container_ids=$(docker ps -q)
 
 # Iterate through each container ID
-for container_id in $container_ids; do
-    echo "Cleaning up container $container_id"
+for container_id in ${container_ids}; do
+    echo "Cleaning up container ${container_id}"
     # Use docker exec to run crictl rmi --prune inside the container
-    docker exec $container_id crictl rmi --prune
+    docker exec "${container_id}" crictl rmi --prune
 done
 
 echo "Cleanup complete!"

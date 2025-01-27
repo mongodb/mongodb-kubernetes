@@ -4,19 +4,19 @@ set -Eeou pipefail
 
 script_name=$(readlink -f "${BASH_SOURCE[0]}")
 script_dir=$(dirname "${script_name}")
-source "$script_dir/private-context"
+source "${script_dir}/private-context"
 
-export PROJECT_DIR="$PWD"
+export PROJECT_DIR="${PWD}"
 export IMAGE_TYPE=ubi
 export UBI_IMAGE_WITHOUT_SUFFIX=true
-export WATCH_NAMESPACE=${WATCH_NAMESPACE:-$NAMESPACE}
+export WATCH_NAMESPACE=${WATCH_NAMESPACE:-${NAMESPACE}}
 
 #
 # changing variables below should not be necessary
 #
 
 # these are fixed when using scripts/dev/recreate_kind_clusters.sh
-export TEST_POD_CLUSTER="$CLUSTER_NAME"
+export TEST_POD_CLUSTER="${CLUSTER_NAME}"
 
 export CENTRAL_CLUSTER="${CLUSTER_NAME}"
 export MULTI_CLUSTER_CREATE_SERVICE_ACCOUNT_TOKEN_SECRETS=true
@@ -52,12 +52,12 @@ if [[ "${OVERRIDE_VERSION_ID:-}" != "" ]]; then
   version_id="${OVERRIDE_VERSION_ID}"
 fi
 export version_id
-export VERSION_ID="$version_id"
+export VERSION_ID="${version_id}"
 
-export INIT_APPDB_VERSION="$VERSION_ID"
-export INIT_DATABASE_VERSION="$VERSION_ID"
-export INIT_OPS_MANAGER_VERSION="$VERSION_ID"
-export DATABASE_VERSION="$VERSION_ID"
+export INIT_APPDB_VERSION="${VERSION_ID}"
+export INIT_DATABASE_VERSION="${VERSION_ID}"
+export INIT_OPS_MANAGER_VERSION="${VERSION_ID}"
+export DATABASE_VERSION="${VERSION_ID}"
 
 export KUBE_ENVIRONMENT_NAME=kind
 
@@ -88,8 +88,8 @@ export MDB_IMAGE_TYPE="ubi9"
 export OM_HOST=https://cloud-qa.mongodb.com
 export OM_BASE_URL=https://cloud-qa.mongodb.com
 
-export e2e_cloud_qa_baseurl="$OM_HOST"
-export e2e_cloud_qa_baseurl_static_2="$OM_HOST"
+export e2e_cloud_qa_baseurl="${OM_HOST}"
+export e2e_cloud_qa_baseurl_static_2="${OM_HOST}"
 
 # see CLOUDP-281384
 export OLM_VERSION=v0.28.0

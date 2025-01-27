@@ -2,7 +2,7 @@
 
 set -Eeou pipefail
 
-source scripts/evergreen/e2e/lib
+source scripts/evergreen/e2e/lib.sh
 
 
 # This is the default cluster name to be used for single cluster. Multi-cluster variants need to override this.
@@ -16,27 +16,27 @@ export OM_HOST=""
 export OM_BASE_URL=""
 # This file is used for injecting credentials when interacting with Cloud QA. Probably should be refactored
 # into env vars in the future.
-export ENV_FILE="$workdir/.ops-manager-env"
-if [ -f "$ENV_FILE" ]; then
-    source "$ENV_FILE"
+export ENV_FILE="${workdir:-}/.ops-manager-env"
+if [ -f "${ENV_FILE}" ]; then
+    source "${ENV_FILE}"
 fi
 
-export PROJECT_DIR="$script_dir/../../../"
+export PROJECT_DIR="${script_dir:-}/../../../"
 
-export NAMESPACE_FILE="$workdir/.namespace"
-if [ -f "$NAMESPACE_FILE" ]; then
+export NAMESPACE_FILE="${workdir}/.namespace"
+if [ -f "${NAMESPACE_FILE}" ]; then
   echo "found existing namespace file"
-  NAMESPACE=$(cat "$NAMESPACE_FILE")
+  NAMESPACE=$(cat "${NAMESPACE_FILE}")
 else
   echo "generating new namespace name"
   NAMESPACE=$(generate_random_namespace)
-  echo "$NAMESPACE" > "${NAMESPACE_FILE}"
+  echo "${NAMESPACE}" > "${NAMESPACE_FILE}"
 fi
 export NAMESPACE
 
 export BASE_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
 
-export REGISTRY="$BASE_REPO_URL"
+export REGISTRY="${BASE_REPO_URL}"
 export QUAY_REGISTRY=quay.io/mongodb
 export OPERATOR_REGISTRY=${REGISTRY}
 export INIT_IMAGES_REGISTRY=${INIT_IMAGES_REGISTRY:-${REGISTRY}}
@@ -60,18 +60,18 @@ export CLUSTER_TYPE="kind"
 export EVG_HOST_NAME=""
 export GOROOT="/opt/golang/go1.23"
 # shell.exec EVG Task doesn't have add_to_path, so we need to explicitly add those things here.
-if [[ ! $PATH =~ .*${workdir:-.}/bin.* ]]; then
-  export PATH=$PATH:${workdir:-.}/bin
+if [[ ! ${PATH} =~ .*${workdir:-.}/bin.* ]]; then
+  export PATH=${PATH}:${workdir:-.}/bin
 fi
-if [[ ! $PATH =~ .*$GOROOT/bin.* ]]; then
-  export PATH=$GOROOT/bin:$PATH
+if [[ ! ${PATH} =~ .*${GOROOT}/bin.* ]]; then
+  export PATH=${GOROOT}/bin:${PATH}
 fi
 
 export LOCAL_OPERATOR="false"
 
-export AWS_ACCESS_KEY_ID="$mms_eng_test_aws_access_key"
-export AWS_SECRET_ACCESS_KEY="$mms_eng_test_aws_secret"
-export AWS_DEFAULT_REGION="$mms_eng_test_aws_region"
+export AWS_ACCESS_KEY_ID="${mms_eng_test_aws_access_key}"
+export AWS_SECRET_ACCESS_KEY="${mms_eng_test_aws_secret}"
+export AWS_DEFAULT_REGION="${mms_eng_test_aws_region}"
 
 # setup_cloud_qa.py
 export e2e_cloud_qa_orgid_owner="${e2e_cloud_qa_orgid_owner_ubi_cloudqa}"
@@ -84,7 +84,7 @@ export e2e_cloud_qa_baseurl="https://cloud-qa.mongodb.com"
 export kubernetes_kind_version=1.22.0
 
 # Note: this name is correct
-export task_id="$EVR_TASK_ID"
+export task_id="${EVR_TASK_ID}"
 
 export OTEL_TRACE_ID="${otel_trace_id:-"0xdeadbeef"}"
 export OTEL_COLLECTOR_ENDPOINT="${otel_collector_endpoint:-"unknown"}"
