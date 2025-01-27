@@ -11,7 +11,7 @@ script_name=$(readlink -f "${BASH_SOURCE[0]}")
 script_dir=$(dirname "${script_name}")
 # The workdir is used in many places and needs to point into the project root.
 # Don't change it unless you know what you're doing.
-export workdir="$script_dir/../../../"
+export workdir="${script_dir}/../../../"
 
 
 # Here are all the required registries used by the Operator. We are defaulting to images ecr for most, some to quay
@@ -23,7 +23,7 @@ export workdir="$script_dir/../../../"
 export QUAY_REGISTRY=quay.io/mongodb
 export BASE_REPO_URL_SHARED="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
 # Note: the Operator registry (OPERATOR_REGISTRY variable) is defined in the private context
-export REGISTRY="$BASE_REPO_URL_SHARED"
+export REGISTRY="${BASE_REPO_URL_SHARED}"
 
 export INIT_IMAGES_REGISTRY=${INIT_IMAGES_REGISTRY:-"${REGISTRY}"}
 
@@ -50,9 +50,9 @@ export INIT_OPS_MANAGER_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-enterp
 # Environment variable needed for local development
 # Used in controllers/operator/mongodbopsmanager_controller.go
 # The file is created by scripts/dev/prepare_local_e2e_run.sh
-export MDB_OM_VERSION_MAPPING_PATH="$workdir/release.json"
-export ENV_FILE="$workdir/.ops-manager-env"
-export NAMESPACE_FILE="$workdir/.namespace"
+export MDB_OM_VERSION_MAPPING_PATH="${workdir}/release.json"
+export ENV_FILE="${workdir}/.ops-manager-env"
+export NAMESPACE_FILE="${workdir}/.namespace"
 
 # TO ensure we don't release by accident via pipeline.py
 export skip_tags="release"

@@ -6,8 +6,8 @@ start_time=$(date +%s)
 source scripts/funcs/checks
 source scripts/funcs/kubernetes
 source scripts/funcs/printing
-source scripts/evergreen/e2e/dump_diagnostic_information
-source scripts/evergreen/e2e/lib
+source scripts/evergreen/e2e/dump_diagnostic_information.sh
+source scripts/evergreen/e2e/lib.sh
 source scripts/dev/set_env_context.sh
 
 if [[ -n "${KUBECONFIG:-}" && ! -f "${KUBECONFIG}" ]]; then
@@ -39,7 +39,7 @@ fi
 ensure_namespace "${NAMESPACE}"
 
 # 2. Fetch OM connection information - it will be saved to environment variables
-. scripts/evergreen/e2e/fetch_om_information
+. scripts/evergreen/e2e/fetch_om_information.sh
 
 # 3. Configure Operator resources
 . scripts/evergreen/e2e/configure_operator.sh
