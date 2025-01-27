@@ -151,6 +151,12 @@ parameters:
 
 # Triggered manually or by PCT.
 patch_aliases:
+  - alias: "periodic_builds"
+    variant_tags: [ "periodic_build" ]
+    task: ".*"
+  - alias: "periodic_teardowns"
+    variant_tags: [ "periodic_teardown" ]
+    task: ".*"
   - alias: "release_agent"
     variant_tags: [ "release_agent" ]
     task: ".*"

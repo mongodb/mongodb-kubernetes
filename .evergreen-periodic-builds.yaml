@@ -7,14 +7,6 @@ parameters:
     value: 00:00
     description: Pin tags at this time of the day. Midnight by default.
 
-patch_aliases:
-  - alias: "periodic_builds"
-    variant_tags: [ "periodic_build" ]
-    task: ".*"
-  - alias: "periodic_teardowns"
-    variant_tags: [ "periodic_teardown" ]
-    task: ".*"
-
 tasks:
   - name: periodic_build_operator
     commands:
