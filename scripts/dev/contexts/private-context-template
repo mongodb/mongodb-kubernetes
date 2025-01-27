@@ -24,7 +24,7 @@ export EVG_HOST_NAME=""
 # - a full path to the ECR repo
 # Sensible default:
 # - 268558157000.dkr.ecr.us-east-1.amazonaws.com/<your MongoDB username>
-export BASE_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/$USER"
+export BASE_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/${USER}"
 # The operator image should -in general- be pulled from the user repository
 # In certain case, the /dev repo can be used as well (BASE_REPO_URL_SHARED)
 export OPERATOR_REGISTRY="${BASE_REPO_URL}"
@@ -90,9 +90,9 @@ export OM_ORGID=""
 #   E2e Cloud QA credentials (taken from EVG)
 # Sensible default
 #   As is
-export e2e_cloud_qa_orgid_owner="$OM_ORGID"
-export e2e_cloud_qa_apikey_owner="$OM_API_KEY"
-export e2e_cloud_qa_user_owner="$OM_USER"
-export e2e_cloud_qa_orgid_owner_static_2="$OM_ORGID"
-export e2e_cloud_qa_apikey_owner_static_2="$OM_API_KEY"
-export e2e_cloud_qa_user_owner_static_2="$OM_USER"
+export e2e_cloud_qa_orgid_owner="${OM_ORGID}"
+export e2e_cloud_qa_apikey_owner="${OM_API_KEY}"
+export e2e_cloud_qa_user_owner="${OM_USER}"
+export e2e_cloud_qa_orgid_owner_static_2="${OM_ORGID}"
+export e2e_cloud_qa_apikey_owner_static_2="${OM_API_KEY}"
+export e2e_cloud_qa_user_owner_static_2="${OM_USER}"

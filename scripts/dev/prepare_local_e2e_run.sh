@@ -27,7 +27,7 @@ on_exit() {
 trap on_exit EXIT
 if [[ "${RESET:-"true"}" == "true" ]]; then
   echo "Running reset script..."
-  go run ${PROJECT_DIR}/scripts/dev/reset.go
+  go run "${PROJECT_DIR}"/scripts/dev/reset.go
 fi
 
 current_context=$(kubectl config current-context)
@@ -69,20 +69,23 @@ scripts/dev/delete_om_projects.sh
 
 if [[ "${DEPLOY_OPERATOR:-"false"}" == "true" ]]; then
   echo "installing operator helm chart to create the necessary sa and roles"
+  # shellcheck disable=SC2178
   helm_values=$(get_operator_helm_values)
-  if [[ "$LOCAL_OPERATOR" == true ]]; then
+  # shellcheck disable=SC2179
+  if [[ "${LOCAL_OPERATOR}" == true ]]; then
     helm_values+=" operator.replicas=0"
   fi
 
-  helm upgrade --install mongodb-enterprise-operator helm_chart --set "$(echo "$helm_values" | tr ' ' ',')"
+  # shellcheck disable=SC2128
+  helm upgrade --install mongodb-enterprise-operator helm_chart --set "$(echo "${helm_values}" | tr ' ' ',')"
 fi
 
-if [[ "$KUBE_ENVIRONMENT_NAME" == "kind" ]]; then
+if [[ "${KUBE_ENVIRONMENT_NAME}" == "kind" ]]; then
   echo "patching all default sa with imagePullSecrets to ensure we can deploy without setting it for each pod"
 
   service_accounts=$(kubectl get serviceaccounts -n "${NAMESPACE}" -o jsonpath='{.items[*].metadata.name}')
 
-  for service_account in $service_accounts; do
-    kubectl patch serviceaccount "$service_account" -n "${NAMESPACE}" -p "{\"imagePullSecrets\": [{\"name\": \"image-registries-secret\"}]}"
+  for service_account in ${service_accounts}; do
+    kubectl patch serviceaccount "${service_account}" -n "${NAMESPACE}" -p "{\"imagePullSecrets\": [{\"name\": \"image-registries-secret\"}]}"
   done
 fi

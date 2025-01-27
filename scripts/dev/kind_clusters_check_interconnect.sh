@@ -23,12 +23,12 @@ install_echo() {
   ns=$3
   recreate=$4
 
-  if [[ "$recreate" == "true" ]]; then
-    kubectl --context "${ctx}" delete namespace $ns --wait
+  if [[ "${recreate}" == "true" ]]; then
+    kubectl --context "${ctx}" delete namespace "${ns}" --wait
   fi
 
-  kubectl --context "${ctx}" create namespace $ns || true
-  kubectl --context "${ctx}" label namespace $ns istio-injection=enabled || true
+  kubectl --context "${ctx}" create namespace "${ns}" || true
+  kubectl --context "${ctx}" label namespace "${ns}" istio-injection=enabled || true
 
   kubectl apply --context "${ctx}" -n "${ns}" -f - <<EOF
 apiVersion: apps/v1
@@ -92,21 +92,21 @@ test_connectivity() {
   pod1=$(kubectl get pods --context "${first_context}" -n "${NAMESPACE}" -o name | grep "echoserver${first_idx}")
   pod2=$(kubectl get pods --context "${second_context}" -n "${NAMESPACE}" -o name | grep "echoserver${second_idx}")
 
-  lbpod1=$(kubectl get svc --context "${first_context}" -n "${NAMESPACE}" echoserver${first_idx}-lb -o=jsonpath='{.status.loadBalancer.ingress[0].ip}')
-  lbpod2=$(kubectl get svc --context "${second_context}" -n "${NAMESPACE}" echoserver${second_idx}-lb -o=jsonpath='{.status.loadBalancer.ingress[0].ip}')
+  lbpod1=$(kubectl get svc --context "${first_context}" -n "${NAMESPACE}" echoserver"${first_idx}"-lb -o=jsonpath='{.status.loadBalancer.ingress[0].ip}')
+  lbpod2=$(kubectl get svc --context "${second_context}" -n "${NAMESPACE}" echoserver"${second_idx}"-lb -o=jsonpath='{.status.loadBalancer.ingress[0].ip}')
 
   echo "Checking own service connection"
   kubectl exec --context "${first_context}" -n "${NAMESPACE}" "${pod1}" -- /bin/bash -c "curl http://echoserver${first_idx}.${NAMESPACE}.svc.cluster.local:8080"
   echo "Checking own LB service connection"
-  kubectl exec --context "${first_context}" -n "${NAMESPACE}" "${pod1}" -- /bin/bash -c "curl http://$lbpod1:8080"
+  kubectl exec --context "${first_context}" -n "${NAMESPACE}" "${pod1}" -- /bin/bash -c "curl http://${lbpod1}:8080"
   echo "Checking service connection from ${first_context} to ${second_context}"
   kubectl exec --context "${first_context}" -n "${NAMESPACE}" "${pod1}" -- /bin/bash -c "curl http://echoserver${second_idx}.${NAMESPACE}.svc.cluster.local:8080"
   echo "Checking LB service connection from ${first_context} to ${second_context}"
-  kubectl exec --context "${first_context}" -n "${NAMESPACE}" "${pod1}" -- /bin/bash -c "curl http://$lbpod2:8080"
+  kubectl exec --context "${first_context}" -n "${NAMESPACE}" "${pod1}" -- /bin/bash -c "curl http://${lbpod2}:8080"
   echo "Checking service connection from ${second_context} to ${first_context}"
   kubectl exec --context "${second_context}" -n "${NAMESPACE}" "${pod2}" -- /bin/bash -c "curl http://echoserver${first_idx}.${NAMESPACE}.svc.cluster.local:8080"
   echo "Checking LB service connection from ${second_context} to ${first_context}"
-  kubectl exec --context "${second_context}" -n "${NAMESPACE}" "${pod2}" -- /bin/bash -c "curl http://$lbpod1:8080"
+  kubectl exec --context "${second_context}" -n "${NAMESPACE}" "${pod2}" -- /bin/bash -c "curl http://${lbpod1}:8080"
 }
 
 wait_for_deployment() {
@@ -128,7 +128,8 @@ undeploy() {
 recreate="false"
 undeploy="true"
 while getopts ':hru' opt; do
-  case $opt in
+  # shellcheck disable=SC2220
+  case ${opt} in
     h) usage ;;
     r) recreate="true" ;;
     u) undeploy="false" ;;
@@ -136,9 +137,9 @@ while getopts ':hru' opt; do
 done
 shift "$((OPTIND - 1))"
 
-install_echo "kind-e2e-cluster-1" 1 "${NAMESPACE}" "$recreate" &
-install_echo "kind-e2e-cluster-2" 2 "${NAMESPACE}" "$recreate" &
-install_echo "kind-e2e-cluster-3" 3 "${NAMESPACE}" "$recreate" &
+install_echo "kind-e2e-cluster-1" 1 "${NAMESPACE}" "${recreate}" &
+install_echo "kind-e2e-cluster-2" 2 "${NAMESPACE}" "${recreate}" &
+install_echo "kind-e2e-cluster-3" 3 "${NAMESPACE}" "${recreate}" &
 
 wait
 
@@ -157,7 +158,7 @@ test_connectivity "kind-e2e-cluster-3" 3 "kind-e2e-cluster-2" 2
 test_connectivity "kind-e2e-cluster-3" 3 "kind-e2e-cluster-1" 1
 test_connectivity "kind-e2e-cluster-1" 1 "kind-e2e-cluster-3" 3
 
-if [[ "$undeploy" == "true" ]]; then
+if [[ "${undeploy}" == "true" ]]; then
   undeploy "kind-e2e-cluster-1" 1 "${NAMESPACE}" &
   undeploy "kind-e2e-cluster-2" 2 "${NAMESPACE}" &
   undeploy "kind-e2e-cluster-3" 3 "${NAMESPACE}" &

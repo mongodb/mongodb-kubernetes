@@ -109,7 +109,7 @@ status:
 # opens the automation config in your editor
 open-automation-config: ac
 ac:
-	@ scripts/dev/print_automation_config
+	@ scripts/dev/print_automation_config.sh
 
 ###############################################################################
 # Internal Targets

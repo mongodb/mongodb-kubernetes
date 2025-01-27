@@ -129,18 +129,35 @@ function pre_commit() {
     exit 1
   fi
 
-  # run shellcheck on all modified shell scripts
-  for file in $(find ./scripts -type f -not -name "*.sh") $(find . -type f -name "*.sh"); do
-    # check if bash script
-    if head -1 "${file}" | grep "#!/usr/bin/env bash" >/dev/null; then
-      echo "Running shellcheck on ${file}"
-      if ! shellcheck -x "${file}" -e SC2154 -e SC1091 -o require-variable-braces -P "$(dirname "${file}")"; then
-        echo "shellcheck failed on ${file}"
-        exit 1
-      fi
-    fi
+  start_shellcheck
 
+}
+
+# Function to run shellcheck on a single file
+run_shellcheck() {
+  local file="$1"
+  echo "Running shellcheck on $file"
+  if ! shellcheck -x "$file" -e SC2154 -e SC1091 -e SC1090 -o require-variable-braces -P "scripts"; then
+     echo "shellcheck failed on $file"
+     exit 1
+  fi
+}
+
+start_shellcheck() {
+  files_1=$(find scripts -type f -name "*.sh")
+  files_2=$(find scripts/dev/contexts -type f)
+  files_3=$(find scripts/funcs -type f)
+  files=$(echo -e "$files_1\n$files_2\n$files_3")
+  # Process each file in parallel
+  for file in $files; do
+    run_shellcheck "$file" &
   done
+
+  # Wait for all background jobs
+  for job in $(jobs -p); do
+      wait "$job" || exit 1
+  done
+
 }
 
 cmd=${1:-"pre-commit"}
@@ -150,4 +167,6 @@ if [[ "${cmd}" == "generate_standalone_yaml" ]]; then
   generate_standalone_yaml "$@"
 elif [[ "${cmd}" == "pre-commit" ]]; then
   pre_commit
+elif [[ "${cmd}" == "shellcheck" ]]; then
+  start_shellcheck
 fi
