@@ -187,7 +187,7 @@ def get_filtered_tags_parallel(image, max_pages=5, regex_filter=""):
         for future in concurrent.futures.as_completed(futures):
             all_tags.update(future.result())
 
-    return all_tags
+    return list(all_tags)
 
 
 def main() -> int:
@@ -207,32 +207,32 @@ def main() -> int:
 
     # mongodb-enterprise-server are externally provided. We preflight for all of them.
     if args.image == "mongodb-enterprise-server":
-        available_versions = get_filtered_tags_parallel(
+        versions = get_filtered_tags_parallel(
             image=image_args["image"], max_pages=10, regex_filter=r"^[0-9]+\.[0-9]+\.[0-9]+-ubi[89]$"
         )
     else:
         # these are the images we own, we preflight all of them as long as we officially support them in release.json
-        available_versions = get_supported_version_for_image_matrix_handling(args.image)
+        versions = get_supported_version_for_image_matrix_handling(args.image)
 
     # only preflight the current agent version and the subset of agent images suffixed with the current operator version
     if args.image == "mongodb-agent":
         release = get_release()
         operator_version = release["mongodbOperator"]
-        available_versions = list(filter(lambda version: version.endswith(f"_{operator_version}"), available_versions))
-        available_versions.append(release["agentVersion"])
+        versions = list(filter(lambda version: version.endswith(f"_{operator_version}"), versions))
+        versions.append(release["agentVersion"])
 
     # Attempt to run a pre-flight check on a single version of the image
     if image_version is not None:
-        return preflight_single_image(args, image_version, submit, available_versions)
+        return preflight_single_image(args, image_version, submit, versions)
 
     # Attempt to run pre-flight checks on all the supported and unpublished versions of the image
     logging.info(f"preflight for image: {image_args['image']}")
-    logging.info(f"preflight for available_versions: {available_versions}")
+    logging.info(f"preflight for versions: {versions}")
 
     create_auth_file()
 
     # Note: if running preflight on image tag (not daily tag) we in turn preflight the corresponding sha it is pointing to.
-    return_codes_version = preflight_parallel(args, available_versions, submit)
+    return_codes_version = preflight_parallel(args, versions, submit)
     logging.info("preflight complete, printing summary")
     found_error = False
     for return_code, version in return_codes_version:
@@ -247,34 +247,35 @@ def main() -> int:
     return 0
 
 
-def preflight_parallel(args, missing_versions, submit):
+def preflight_parallel(args, versions, submit):
     with ThreadPoolExecutor() as executor:
         futures = []
         return_codes = []
 
-        for version in missing_versions:
+        for version in versions:
             logging.info(f"Running preflight check for image: {args.image}:{version}")
             future = executor.submit(run_preflight_check, args.image, version, submit)
             futures.append(future)
 
         # Collect results as they complete
         for future in concurrent.futures.as_completed(futures):
+            index = futures.index(future)
+            version = versions[index]  # Get the version from the original list
             try:
                 result = future.result()
-                index = futures.index(future)
-                version = missing_versions[index]  # Get the version from the original list
                 return_codes.append((result, version))
             except Exception as e:
+                return_codes.append((1, version))
                 logging.error(f"Preflight check failed with exception: {e}")
 
     return return_codes
 
 
-def preflight_single_image(args, image_version, submit, supported_versions):
+def preflight_single_image(args, image_version, submit, versions):
     logging.info("Submitting preflight check for a single image version")
-    if image_version not in supported_versions:
+    if image_version not in versions:
         logging.error(
-            f"Version {image_version} for image {args.image} is not supported. Supported versions: {supported_versions}"
+            f"Version {image_version} for image {args.image} is not supported. Supported versions: {versions}"
         )
         return 1
     else:
