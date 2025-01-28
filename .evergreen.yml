@@ -165,7 +165,7 @@ patch_aliases:
     task: ".*"
   - alias: "release"
     variant_tags: [ "release" ]
-    task_tags: [ "image_release" ]
+    task_tags: [ "image_release", "openshift_bundles" ]
   - alias: "smoke_test_release"
     variant_tags: [ "e2e_smoke_release_test_suite" ]
     task_tags: [ "patch-run"]
@@ -191,7 +191,7 @@ github_checks_aliases:
 git_tag_aliases:
   - git_tag: "^(\\d+\\.)?(\\d+\\.)?(\\d+)$"
     variant_tags: [ "release" ]
-    task_tags: [ "image_release" ]
+    task_tags: [ "image_release", "openshift_bundles" ]
 
 tasks:
 
@@ -477,6 +477,34 @@ tasks:
     - func: download_kube_tools
     - func: setup_prepare_openshift_bundles
     - func: prepare_openshift_bundles_for_e2e
+
+- name: prepare_and_upload_openshift_bundles
+  tags: [ "openshift_bundles" ]
+  commands:
+    - func: clone
+    - func: setup_aws
+    - func: configure_docker_auth
+    - func: quay_login
+    - func: setup_prepare_openshift_bundles
+    - func: prepare_openshift_bundles
+    - func: update_evergreen_expansions
+    - func: upload_openshift_bundle
+      vars:
+        # mongoDbOperator expansion is added in update_evergreen_expansions func from release.json
+        bundle_file_name: "operator-community-${mongodbOperator}.tgz"
+    - func: upload_openshift_bundle
+      vars:
+        bundle_file_name: "operator-certified-${mongodbOperator}.tgz"
+
+- name: run_conditionally_prepare_and_upload_openshift_bundles
+  tags: [ "openshift_bundles" ]
+  commands:
+    - func: clone
+    - func: run_task_conditionally
+      vars:
+        condition_script: scripts/evergreen/should_prepare_openshift_bundles.sh
+        variant: prepare_openshift_bundles
+        task: prepare_and_upload_openshift_bundles
 
 task_groups:
 - name: unit_task_group
@@ -1420,6 +1448,18 @@ buildvariants:
     - ubuntu2204-small
   tasks:
     - name: upload_dockerfiles
+
+- name: prepare_openshift_bundles
+  display_name: prepare_openshift_bundles
+  tags: [ "release" ]
+  allowed_requesters: ["patch", "github_tag"]
+  depends_on:
+    - name: release_operator
+      variant: release
+  run_on:
+    - ubuntu2204-large
+  tasks:
+    - name: run_conditionally_prepare_and_upload_openshift_bundles
 
 - name: init_test_run
   display_name: init_test_run

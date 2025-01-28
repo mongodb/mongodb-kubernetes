@@ -208,32 +208,6 @@ tasks:
       - func: quay_login
       - func: build_and_push_appdb_database
 
-  - name: prepare_and_upload_openshift_bundles
-    commands:
-      - func: clone
-      - func: setup_aws
-      - func: configure_docker_auth
-      - func: quay_login
-      - func: setup_prepare_openshift_bundles
-      - func: prepare_openshift_bundles
-      - func: update_evergreen_expansions
-      - func: upload_openshift_bundle
-        vars:
-          # mongoDbOperator expansion is added in update_evergreen_expansions func from release.json
-          bundle_file_name: "operator-community-${mongodbOperator}.tgz"
-      - func: upload_openshift_bundle
-        vars:
-          bundle_file_name: "operator-certified-${mongodbOperator}.tgz"
-
-  - name: run_conditionally_prepare_and_upload_openshift_bundles
-    commands:
-      - func: clone
-      - func: run_task_conditionally
-        vars:
-          condition_script: scripts/evergreen/should_prepare_openshift_bundles.sh
-          variant: prepare_openshift_bundles
-          task: prepare_and_upload_openshift_bundles
-
   - name: teardowns
     commands:
       - func: clone
@@ -303,14 +277,3 @@ buildvariants:
       preflight_submit: true
     tasks:
       - name: preflight_images_task_group
-
-  - name: prepare_openshift_bundles
-    display_name: prepare_openshift_bundles
-    tags: [ "periodic_build" ]
-    depends_on:
-      - name: "*"
-        variant: periodic_build
-    run_on:
-      - ubuntu2204-large
-    tasks:
-      - name: run_conditionally_prepare_and_upload_openshift_bundles
