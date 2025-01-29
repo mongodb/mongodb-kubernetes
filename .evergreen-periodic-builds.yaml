@@ -236,14 +236,6 @@ task_groups:
       - periodic_build_agent_2
       - periodic_build_agent_3
 
-  - name: preflight_images_task_group
-    max_hosts: -1
-    tasks:
-      - preflight_images
-      - preflight_official_database_image
-      - preflight_mongodb_agent_image
-      - preflight_ops_manager
-
   - name: periodic_teardown_task_group
     tasks:
       - teardowns
@@ -265,15 +257,13 @@ buildvariants:
     tasks:
       - name: periodic_build_task_group
 
-  - name: preflight_images
-    display_name: preflight_images
+  - name: preflight_release_images_check_only
+    display_name: preflight_release_images_check_only
     tags: [ "periodic_build" ]
     depends_on:
       - name: "*"
         variant: periodic_build
     run_on:
       - rhel90-large
-    expansions:
-      preflight_submit: true
     tasks:
       - name: preflight_images_task_group
