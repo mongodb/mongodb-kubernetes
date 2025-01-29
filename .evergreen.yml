@@ -180,12 +180,8 @@ github_pr_aliases:
 # Allows to see evergreen checks in GitHub commits
 # https://github.com/10gen/ops-manager-kubernetes/commits/master/
 github_checks_aliases:
-  - variant_tags: [ "unit_tests" ]
-    task_tags: [ "unit_tests" ]
-  - variant_tags: [ "e2e_test_suite" ]
-    task_tags: [ "patch-run" ]
-  - variant_tags: [ "e2e_openshift_test_suite" ]
-    task_tags: [ "patch-run" ]
+  - variant: ".*"
+    task: ".*"
 
 # Triggered on git tag
 git_tag_aliases:
