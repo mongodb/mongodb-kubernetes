@@ -1,5 +1,15 @@
+task_groups:
+  - name: preflight_images_task_group
+    max_hosts: -1
+    tasks:
+      - preflight_images
+      - preflight_official_database_image
+      - preflight_mongodb_agent_image
+      - preflight_ops_manager
+
 tasks:
   - name: preflight_images
+    tags: [ "image_preflight" ]
     commands:
       - func: clone
       - func: setup_preflight
@@ -20,6 +30,7 @@ tasks:
           image_name: database
 
   - name: preflight_ops_manager
+    tags: [ "image_preflight" ]
     commands:
       - func: clone
       - func: setup_preflight
@@ -28,6 +39,7 @@ tasks:
           image_name: ops-manager
 
   - name: preflight_official_database_image
+    tags: [ "image_preflight" ]
     commands:
       - func: clone
       - func: setup_preflight
@@ -36,6 +48,7 @@ tasks:
           image_name: mongodb-enterprise-server
 
   - name: preflight_mongodb_agent_image
+    tags: [ "image_preflight" ]
     commands:
       - func: clone
       - func: setup_preflight
@@ -44,6 +57,7 @@ tasks:
           image_name: mongodb-agent
 
   - name: preflight_om_image
+    tags: [ "image_preflight" ]
     commands:
       - func: clone
       - func: setup_preflight
