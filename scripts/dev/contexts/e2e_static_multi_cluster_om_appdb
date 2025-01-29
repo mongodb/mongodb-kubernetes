@@ -14,6 +14,11 @@ source "${script_dir}/variables/om70"
 # shellcheck disable=SC2034
 export CUSTOM_OM_PREV_VERSION=6.0.23
 
+# TODO Remove this once the startup script for OM can handle skipping preflight checks.
+# As it stands now, OM 7.0.13 will fail the preflight checks in a disaster recovery scenario.
+# https://jira.mongodb.org/browse/CLOUDP-297377
+export CUSTOM_OM_VERSION=7.0.12
+
 export KUBE_ENVIRONMENT_NAME=multi
 export CLUSTER_NAME="kind-e2e-cluster-1"
 export MEMBER_CLUSTERS="kind-e2e-cluster-1 kind-e2e-cluster-2 kind-e2e-cluster-3"
