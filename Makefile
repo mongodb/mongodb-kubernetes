@@ -9,7 +9,7 @@ usage:
 	@ echo "switch to it using 'make switch', make sure Ops Manager is running (use 'make om') "
 	@ echo "and call 'make' to start the Kubernetes cluster and the Operator"
 	@ echo
-	@ echo "More information can be found by the link https://github.com/10gen/ops-manager-kubernetes/blob/master/docs/dev/dev-start-guide.md"
+	@ echo "More information can be found by the link https://wiki.corp.mongodb.com/display/MMS/Setting+up+local+development+and+E2E+testing"
 	@ echo
 	@ echo "Usage:"
 	@ echo "  prerequisites:                  installs the command line applications necessary for working with this tool and adds git pre-commit hook."
