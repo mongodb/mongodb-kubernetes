@@ -160,8 +160,8 @@ patch_aliases:
   - alias: "release_agent"
     variant_tags: [ "release_agent" ]
     task: ".*"
-  - alias: "release_agent_manually"
-    variant_tags: [ "release_agent_manually" ]
+  - alias: "release_all_agents_manually"
+    variant_tags: [ "release_all_agents_manually" ]
     task: ".*"
   - alias: "release"
     variant_tags: [ "release" ]
@@ -323,6 +323,22 @@ tasks:
         vars:
           image_name: agent-pct
           skip_tags: release
+
+  - name: release_all_agents_on_ecr
+    # this enables us to run this manually (patch) and release all agent versions to ECR
+    # it's needed during operator new version release process - e2e tests (especially olm tests)
+    # will look for agent with new operator version suffix, but during PR checks we only build
+    # agent versions for most recent major OM versions and the tests will fail. Before running the PR
+    # we have to manually release all agents to ECR by triggering this patch
+    allowed_requesters: [ "patch" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: agent-pct
+          skip_tags: release
+          all_agents: true
 
   - name: build_test_image
     commands:
@@ -1629,12 +1645,12 @@ buildvariants:
     # Only called manually, It's used for testing the task release_agents_on_ecr in case the release.json
     # has not changed, and you still want to push the images to ecr.
   - name: manual_ecr_release_agent
-    display_name: Manual Agent Release
-    tags: [ "release_agent_manually" ]
+    display_name: Manual Agent Release for all versions
+    tags: [ "release_all_agents_manually" ]
     run_on:
       - ubuntu2204-large
     tasks:
-      - name: release_agents_on_ecr
+      - name: release_all_agents_on_ecr
 
   ### Build variants for manual patch only
 
