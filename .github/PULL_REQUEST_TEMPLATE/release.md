@@ -1,7 +1,7 @@
 # Release <x.y.z version>
 
 *For in-depth information of how to perform any of these steps, please read
-refer to [how-to-release](../../docs/dev/release/how-to-release.md) document.*
+refer to [Kubernetes Enterprise Operator Release Guide](https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Enterprise+Operator+Release+Guide) document.*
 
 # Pre-merging tasks
 
@@ -31,7 +31,7 @@ refer to [how-to-release](../../docs/dev/release/how-to-release.md) document.*
 ## Openshift/RedHat Changes
 
 *Refer to
-[publishing-to-marketplaces.md](docs/dev/release/publishing-to-marketplaces.md)
+[Red Hat Image and Container Certification Process](https://wiki.corp.mongodb.com/display/MMS/Red+Hat+Image+and+Container+Certification+Process)
 for more infomation on how to do this*
 
 - [ ] New version has been pushed to Operatorhub.io.
