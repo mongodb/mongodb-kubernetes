@@ -152,15 +152,7 @@
             "tools_version": "100.9.4"
           },
           "7.0.0": {
-            "agent_version": "107.0.1.8507-1",
-            "tools_version": "100.9.4"
-          },
-          "7.0.1": {
-            "agent_version": "107.0.1.8507-1",
-            "tools_version": "100.9.4"
-          },
-          "7.0.2": {
-            "agent_version": "107.0.2.8531-1",
+            "agent_version": "107.0.3.8550-1",
             "tools_version": "100.9.4"
           },
           "7.0.3": {
