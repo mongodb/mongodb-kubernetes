@@ -303,14 +303,6 @@ spec:
               value: "quay.io/mongodb/mongodb-enterprise-init-ops-manager-ubi:1.30.0"
             - name: RELATED_IMAGE_INIT_APPDB_IMAGE_REPOSITORY_1_30_0
               value: "quay.io/mongodb/mongodb-enterprise-init-appdb-ubi:1.30.0"
-            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_1_8507_1
-              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.1.8507-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_1_8507_1_1_28_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.1.8507-1_1.28.0"
-            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_1_8507_1_1_29_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.1.8507-1_1.29.0"
-            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_1_8507_1_1_30_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.1.8507-1_1.30.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_10_8627_1
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.10.8627-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_10_8627_1_1_28_0
@@ -343,14 +335,6 @@ spec:
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.13.8702-1_1.29.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_13_8702_1_1_30_0
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.13.8702-1_1.30.0"
-            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_2_8531_1
-              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.2.8531-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_2_8531_1_1_28_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.2.8531-1_1.28.0"
-            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_2_8531_1_1_29_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.2.8531-1_1.29.0"
-            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_2_8531_1_1_30_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.2.8531-1_1.30.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_3_8550_1
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.3.8550-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_3_8550_1_1_28_0
