@@ -10,6 +10,7 @@ import requests
 from requests.auth import HTTPDigestAuth
 
 ALLOWED_OPS_MANAGER_VERSION = "cloud_qa"
+PAGINATION_LIMIT = 100
 
 BASE_URL = "e2e_cloud_qa_baseurl"
 ENV_FILE = "ENV_FILE"
@@ -178,30 +179,6 @@ def generate_key_description() -> str:
     return str(int(time.time()))
 
 
-def get_projects_older_than(org_id: str, minutes_interval: int = 0) -> List[Dict]:
-    """Returns the project ids which are older than 'age' days ago"""
-    base_url = os.getenv(BASE_URL)
-    url = "{}/api/public/v1.0/orgs/{}/groups".format(base_url, org_id)
-
-    groups = requests.get(url, auth=get_auth())
-
-    json = groups.json()
-
-    return [group for group in json["results"] if project_was_created_before(group["name"], minutes_interval)]
-
-
-def get_keys_older_than(org_id: str, minutes_interval: int = 0) -> List[Dict]:
-    """Returns the programmatic keys which are older than 'minutes_interval' ago"""
-    base_url = os.getenv(BASE_URL)
-    url = "{}/api/public/v1.0/orgs/{}/apiKeys".format(base_url, org_id)
-
-    groups = requests.get(url, auth=get_auth())
-
-    json = groups.json()
-
-    return [key for key in json["results"] if key_is_older_than(key["desc"], minutes_interval)]
-
-
 def remove_group_by_id(group_id: str, retry=3):
     """Removes a group with a given Id."""
     base_url = os.getenv(BASE_URL)
@@ -300,6 +277,55 @@ def configure():
         fd.write("export OM_EXTERNALLY_CONFIGURED=true\n")
 
 
+def get_projects_older_than(org_id: str, minutes_interval: int = 0) -> Tuple[List[Dict], List[Dict]]:
+    """Returns the project ids which are older than 'age' days ago"""
+    query_params = {"includeCount": True, "itemsPerPage": 500, "pageNum": 1}
+    base_url = os.getenv(BASE_URL)
+    url = "{}/api/public/v1.0/orgs/{}/groups".format(base_url, org_id)
+    old_groups = []
+    new_groups = []
+    while True:
+        response = requests.get(url, auth=get_auth(), params=query_params)
+        print(f"Queried page {query_params['pageNum']}, URL: {response.request.url}")
+        results = response.json().get("results", [])
+        for group in results:
+            if project_was_created_before(group["name"], minutes_interval):
+                old_groups.append(group)
+            else:
+                new_groups.append(group)
+
+        if len(results) == 0 or query_params["pageNum"] > PAGINATION_LIMIT:
+            break
+        query_params["pageNum"] += 1
+
+    return old_groups, new_groups
+
+
+def get_keys_older_than(org_id: str, minutes_interval: int = 0) -> Tuple[List[Dict], List[Dict]]:
+    """Returns the programmatic keys which are older than 'minutes_interval' ago"""
+    query_params = {"includeCount": True, "itemsPerPage": 500, "pageNum": 1}
+    base_url = os.getenv(BASE_URL)
+    url = "{}/api/public/v1.0/orgs/{}/apiKeys".format(base_url, org_id)
+    old_keys = []
+    new_keys = []
+    while True:
+        response = requests.get(url, auth=get_auth(), params=query_params)
+        print(f"Queried page {query_params['pageNum']}, URL: {response.request.url}")
+        results = response.json().get("results", [])
+        for key in results:
+            if key_is_older_than(key["desc"], minutes_interval):
+                old_keys.append(key)
+            else:
+                new_keys.append(key)
+
+        if len(results) == 0 or query_params["pageNum"] > PAGINATION_LIMIT:
+            break
+
+        query_params["pageNum"] += 1
+
+    return old_keys, new_keys
+
+
 def clean_unused_keys(org_id: str):
     """Iterates over all existing keys in the organization and removes the leftovers.
     Keeps keys:
@@ -307,15 +333,26 @@ def clean_unused_keys(org_id: str):
     - currently used by the script (USER_OWNER env variable)
     - containing "EVG" or "NOT_DELETE" in their description
     """
-    keys = get_keys_older_than(org_id, minutes_interval=70)
+    keys, newer_keys = get_keys_older_than(org_id, minutes_interval=70)
     print(f"found {len(keys)} keys for potential removal")
+    deleted_keys = []
+    kept_keys = []
 
     for key in keys:
         if not keep_the_key(key):
             print("Removing the key {} ({})".format(key["publicKey"], key["desc"]))
             delete_api_key(org_id, key["id"])
+            deleted_keys.append(key["id"])
         else:
             print("Keeping the key {} ({})".format(key["publicKey"], key["desc"]))
+            kept_keys.append(key)
+    print(f"KEY REMOVAL SUMMARY\n----------")
+    print(f"Ignored {len(newer_keys)} keys because they are too new.")
+    print(f"Removed {len(deleted_keys)} keys.")
+    print(f"Kept {len(kept_keys)}:")
+    for key in kept_keys:
+        print(f"\t{key['publicKey']}\t{key['desc']}")
+    print("----------")
 
 
 def keep_the_key(key: Dict) -> bool:
@@ -325,12 +362,25 @@ def keep_the_key(key: Dict) -> bool:
 
 def clean_unused_projects(org_id: str):
     """Iterates over all existing projects in the organization and removes the leftovers"""
-    projects = get_projects_older_than(org_id, minutes_interval=70)
+    projects, newer_projects = get_projects_older_than(org_id, minutes_interval=70)
     print(f"found {len(projects)} projects for potential removal")
+    deleted_projects = []
+    kept_projects = []
 
     for project in projects:
         print("Removing the project {} ({})".format(project["id"], project["name"]))
-        remove_group_by_id(project["id"])
+        response = remove_group_by_id(project["id"])
+        if response.status_code == 202:
+            deleted_projects.append(project["id"])
+        else:
+            kept_projects.append(project)
+    print(f"PROJECT REMOVAL SUMMARY\n----------")
+    print(f"Ignored {len(newer_projects)} projects because they are too new.")
+    print(f"Removed {len(deleted_projects)} projects.")
+    print(f"Kept {len(kept_projects)} projects:")
+    for project in kept_projects:
+        print(f"\t{project['name']}\t{project['id']}")
+    print("----------")
 
 
 def unconfigure_all():
