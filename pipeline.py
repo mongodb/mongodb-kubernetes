@@ -1163,8 +1163,13 @@ def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
     release = get_release()
     is_release = build_configuration.is_release_step_executed()
 
-    # we only need to release the latest images, we don't need to re-push old images, as we don't clean them up anymore.
-    agent_versions_to_build = gather_latest_agent_versions(release)
+    if build_configuration.all_agents:
+        # We need to release [all agents x latest operator] on operator releases to make e2e tests work
+        # This was changed previously in https://github.com/10gen/ops-manager-kubernetes/pull/3960
+        agent_versions_to_build = gather_all_supported_agent_versions(release)
+    else:
+        # we only need to release the latest images, we don't need to re-push old images, as we don't clean them up anymore.
+        agent_versions_to_build = gather_latest_agent_versions(release)
 
     legacy_agent_versions_to_build = release["supportedImages"]["mongodb-agent"]["versions"]
 
