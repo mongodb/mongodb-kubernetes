@@ -57,7 +57,7 @@ components:
 
 Most of the required configuration is achieved by using `make` at the
 root of the project. [This
-document](https://github.com/10gen/ops-manager-kubernetes/blob/master/docs/dev/dev-start-guide.md)
+document](https://wiki.corp.mongodb.com/display/MMS/Setting+up+local+development+and+E2E+testing)
 will guide you on how to do this.
 
 The result of this is to have a running Ops Manager with
