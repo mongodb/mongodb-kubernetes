@@ -277,21 +277,21 @@ func AddMongoDBUserController(ctx context.Context, mgr manager.Manager, memberCl
 		return err
 	}
 
-	err = c.Watch(source.Kind(mgr.GetCache(), &corev1.ConfigMap{}),
-		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: reconciler.resourceWatcher})
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{},
+		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: reconciler.resourceWatcher}))
 	if err != nil {
 		return err
 	}
 
-	err = c.Watch(source.Kind(mgr.GetCache(), &corev1.Secret{}),
-		&watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: reconciler.resourceWatcher})
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.Secret{},
+		&watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: reconciler.resourceWatcher}))
 	if err != nil {
 		return err
 	}
 
 	// watch for changes to MongoDBUser resources
 	eventHandler := MongoDBUserEventHandler{reconciler: reconciler}
-	err = c.Watch(source.Kind(mgr.GetCache(), &userv1.MongoDBUser{}), &eventHandler, watch.PredicatesForUser())
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &userv1.MongoDBUser{}, &eventHandler, watch.PredicatesForUser()))
 	if err != nil {
 		return err
 	}
