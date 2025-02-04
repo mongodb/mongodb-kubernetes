@@ -1499,28 +1499,24 @@ func AddShardedClusterController(ctx context.Context, mgr manager.Manager, membe
 
 	// watch for changes to sharded cluster MongoDB resources
 	eventHandler := ResourceEventHandler{deleter: reconciler}
-	err = c.Watch(source.Kind(mgr.GetCache(), &mdbv1.MongoDB{}), &eventHandler, watch.PredicatesForMongoDB(mdbv1.ShardedCluster))
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &eventHandler, watch.PredicatesForMongoDB(mdbv1.ShardedCluster)))
 	if err != nil {
 		return err
 	}
 
-	err = c.Watch(
-		&source.Channel{Source: OmUpdateChannel},
-		&handler.EnqueueRequestForObject{},
-		watch.PredicatesForMongoDB(mdbv1.ShardedCluster),
-	)
+	err = c.Watch(source.Channel[client.Object](OmUpdateChannel, &handler.EnqueueRequestForObject{}, source.WithPredicates(watch.PredicatesForMongoDB(mdbv1.ShardedCluster))))
 	if err != nil {
 		return xerrors.Errorf("not able to setup OmUpdateChannel to listent to update events from OM: %s", err)
 	}
 
-	err = c.Watch(source.Kind(mgr.GetCache(), &corev1.ConfigMap{}),
-		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: reconciler.resourceWatcher})
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{},
+		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: reconciler.resourceWatcher}))
 	if err != nil {
 		return err
 	}
 
-	err = c.Watch(source.Kind(mgr.GetCache(), &corev1.Secret{}),
-		&watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: reconciler.resourceWatcher})
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.Secret{},
+		&watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: reconciler.resourceWatcher}))
 	if err != nil {
 		return err
 	}
@@ -1529,10 +1525,7 @@ func AddShardedClusterController(ctx context.Context, mgr manager.Manager, membe
 		eventChannel := make(chan event.GenericEvent)
 		go vaultwatcher.WatchSecretChangeForMDB(ctx, zap.S(), eventChannel, reconciler.client, reconciler.VaultClient, mdbv1.ShardedCluster)
 
-		err = c.Watch(
-			&source.Channel{Source: eventChannel},
-			&handler.EnqueueRequestForObject{},
-		)
+		err = c.Watch(source.Channel[client.Object](eventChannel, &handler.EnqueueRequestForObject{}))
 		if err != nil {
 			zap.S().Errorf("Failed to watch for vault secret changes: %w", err)
 		}

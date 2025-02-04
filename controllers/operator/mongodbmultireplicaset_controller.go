@@ -1079,7 +1079,7 @@ func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, memb
 	}
 
 	eventHandler := ResourceEventHandler{deleter: reconciler}
-	err = c.Watch(source.Kind(mgr.GetCache(), &mdbmultiv1.MongoDBMultiCluster{}), &eventHandler, predicate.Funcs{
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbmultiv1.MongoDBMultiCluster{}, &eventHandler, predicate.Funcs{
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldResource := e.ObjectOld.(*mdbmultiv1.MongoDBMultiCluster)
 			newResource := e.ObjectNew.(*mdbmultiv1.MongoDBMultiCluster)
@@ -1095,28 +1095,25 @@ func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, memb
 
 			return reflect.DeepEqual(oldResource.GetStatus(), newResource.GetStatus())
 		},
-	})
+	}))
 	if err != nil {
 		return err
 	}
 
-	err = c.Watch(
-		&source.Channel{Source: OmUpdateChannel},
-		&handler.EnqueueRequestForObject{},
-	)
+	err = c.Watch(source.Channel[client.Object](OmUpdateChannel, &handler.EnqueueRequestForObject{}))
 	if err != nil {
 		return xerrors.Errorf("not able to setup OmUpdateChannel to listent to update events from OM: %s", err)
 	}
 
-	err = c.Watch(source.Kind(mgr.GetCache(), &corev1.Secret{}),
-		&watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: reconciler.resourceWatcher})
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.Secret{},
+		&watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: reconciler.resourceWatcher}))
 	if err != nil {
 		return err
 	}
 
 	// register watcher across member clusters
 	for k, v := range memberClustersMap {
-		err := c.Watch(source.Kind(v.GetCache(), &appsv1.StatefulSet{}), &khandler.EnqueueRequestForOwnerMultiCluster{}, watch.PredicatesForMultiStatefulSet())
+		err := c.Watch(source.Kind[client.Object](v.GetCache(), &appsv1.StatefulSet{}, &khandler.EnqueueRequestForOwnerMultiCluster{}, watch.PredicatesForMultiStatefulSet()))
 		if err != nil {
 			return xerrors.Errorf("failed to set Watch on member cluster: %s, err: %w", k, err)
 		}
@@ -1127,21 +1124,18 @@ func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, memb
 	memberClusterHealthChecker := memberwatch.MemberClusterHealthChecker{Cache: make(map[string]*memberwatch.MemberHeathCheck)}
 	go memberClusterHealthChecker.WatchMemberClusterHealth(ctx, zap.S(), eventChannel, reconciler.client, memberClustersMap)
 
-	err = c.Watch(
-		&source.Channel{Source: eventChannel},
-		&handler.EnqueueRequestForObject{},
-	)
+	err = c.Watch(source.Channel[client.Object](eventChannel, &handler.EnqueueRequestForObject{}))
 	if err != nil {
 		zap.S().Errorf("failed to watch for member cluster healthcheck: %s", err)
 	}
 
-	err = c.Watch(source.Kind(mgr.GetCache(), &corev1.ConfigMap{}),
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{},
 		watch.ConfigMapEventHandler{
 			ConfigMapName:      util.MemberListConfigMapName,
 			ConfigMapNamespace: env.ReadOrPanic(util.CurrentNamespace),
 		},
 		predicate.ResourceVersionChangedPredicate{},
-	)
+	))
 	if err != nil {
 		return err
 	}

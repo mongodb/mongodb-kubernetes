@@ -1,5 +1,11 @@
 [//]: # (Consider renaming or removing the header for next release, otherwise it appears as duplicate in the published release, e.g: https://github.com/mongodb/mongodb-enterprise-kubernetes/releases/tag/1.22.0 )
 <!-- Next Release -->
+# MongoDB Enterprise Kubernetes Operator 1.31.0
+
+## Kubernetes versions
+* The minimum supported Kubernetes version for this operator is 1.30 and OpenShift 4.17.
+
+
 # MongoDB Enterprise Kubernetes Operator 1.30.0
 
 ## New Features
