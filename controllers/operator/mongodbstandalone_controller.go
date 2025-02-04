@@ -58,28 +58,28 @@ func AddStandaloneController(ctx context.Context, mgr manager.Manager, memberClu
 
 	// watch for changes to standalone MongoDB resources
 	eventHandler := ResourceEventHandler{deleter: reconciler}
-	err = c.Watch(source.Kind(mgr.GetCache(), &mdbv1.MongoDB{}), &eventHandler, watch.PredicatesForMongoDB(mdbv1.Standalone))
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &eventHandler, watch.PredicatesForMongoDB(mdbv1.Standalone)))
 	if err != nil {
 		return err
 	}
 
 	err = c.Watch(
-		&source.Channel{Source: OmUpdateChannel},
-		&handler.EnqueueRequestForObject{},
-		watch.PredicatesForMongoDB(mdbv1.Standalone),
-	)
+		source.Channel[client.Object](OmUpdateChannel,
+			&handler.EnqueueRequestForObject{},
+			source.WithPredicates(watch.PredicatesForMongoDB(mdbv1.Standalone)),
+		))
 	if err != nil {
 		return xerrors.Errorf("not able to setup OmUpdateChannel to listent to update events from OM: %s", err)
 	}
 
-	err = c.Watch(source.Kind(mgr.GetCache(), &corev1.ConfigMap{}),
-		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: reconciler.resourceWatcher})
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{},
+		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: reconciler.resourceWatcher}))
 	if err != nil {
 		return err
 	}
 
-	err = c.Watch(source.Kind(mgr.GetCache(), &corev1.Secret{}),
-		&watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: reconciler.resourceWatcher})
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.Secret{},
+		&watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: reconciler.resourceWatcher}))
 	if err != nil {
 		return err
 	}
@@ -90,9 +90,9 @@ func AddStandaloneController(ctx context.Context, mgr manager.Manager, memberClu
 		go vaultwatcher.WatchSecretChangeForMDB(ctx, zap.S(), eventChannel, reconciler.client, reconciler.VaultClient, mdbv1.Standalone)
 
 		err = c.Watch(
-			&source.Channel{Source: eventChannel},
-			&handler.EnqueueRequestForObject{},
-		)
+			source.Channel[client.Object](eventChannel,
+				&handler.EnqueueRequestForObject{},
+			))
 		if err != nil {
 			zap.S().Errorf("Failed to watch for vault secret changes: %w", err)
 		}

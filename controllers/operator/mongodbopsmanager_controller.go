@@ -915,25 +915,25 @@ func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClu
 	// watch for changes to the Ops Manager resources
 	eventHandler := MongoDBOpsManagerEventHandler{reconciler: reconciler}
 
-	if err = c.Watch(source.Kind(mgr.GetCache(), &omv1.MongoDBOpsManager{}), &eventHandler, watch.PredicatesForOpsManager()); err != nil {
+	if err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &omv1.MongoDBOpsManager{}, &eventHandler, watch.PredicatesForOpsManager())); err != nil {
 		return err
 	}
 
 	// watch the secret with the Ops Manager user password
-	err = c.Watch(source.Kind(mgr.GetCache(), &corev1.Secret{}),
-		&watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: reconciler.resourceWatcher})
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.Secret{},
+		&watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: reconciler.resourceWatcher}))
 	if err != nil {
 		return err
 	}
 
-	err = c.Watch(source.Kind(mgr.GetCache(), &corev1.Secret{}),
-		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: reconciler.resourceWatcher})
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.Secret{},
+		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: reconciler.resourceWatcher}))
 	if err != nil {
 		return err
 	}
 
-	err = c.Watch(source.Kind(mgr.GetCache(), &mdbv1.MongoDB{}),
-		&watch.ResourcesHandler{ResourceType: watch.MongoDB, ResourceWatcher: reconciler.resourceWatcher})
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{},
+		&watch.ResourcesHandler{ResourceType: watch.MongoDB, ResourceWatcher: reconciler.resourceWatcher}))
 	if err != nil {
 		return err
 	}
@@ -943,10 +943,7 @@ func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClu
 		eventChannel := make(chan event.GenericEvent)
 		go vaultwatcher.WatchSecretChangeForOM(ctx, zap.S(), eventChannel, reconciler.client, reconciler.VaultClient)
 
-		err = c.Watch(
-			&source.Channel{Source: eventChannel},
-			&handler.EnqueueRequestForObject{},
-		)
+		err = c.Watch(source.Channel[client.Object](eventChannel, &handler.EnqueueRequestForObject{}))
 		if err != nil {
 			zap.S().Errorf("Failed to watch for vault secret changes: %v", err)
 		}

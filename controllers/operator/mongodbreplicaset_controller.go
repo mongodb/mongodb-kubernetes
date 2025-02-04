@@ -342,36 +342,32 @@ func AddReplicaSetController(ctx context.Context, mgr manager.Manager, _ map[str
 	// watch for changes to replica set MongoDB resources
 	eventHandler := ResourceEventHandler{deleter: reconciler}
 	// Watch for changes to primary resource MongoDbReplicaSet
-	err = c.Watch(source.Kind(mgr.GetCache(), &mdbv1.MongoDB{}), &eventHandler, watch.PredicatesForMongoDB(mdbv1.ReplicaSet))
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &eventHandler, watch.PredicatesForMongoDB(mdbv1.ReplicaSet)))
 	if err != nil {
 		return err
 	}
 
-	err = c.Watch(
-		&source.Channel{Source: OmUpdateChannel},
-		&handler.EnqueueRequestForObject{},
-		watch.PredicatesForMongoDB(mdbv1.ReplicaSet),
-	)
+	err = c.Watch(source.Channel[client.Object](OmUpdateChannel, &handler.EnqueueRequestForObject{}, source.WithPredicates(watch.PredicatesForMongoDB(mdbv1.ReplicaSet))))
 	if err != nil {
 		return xerrors.Errorf("not able to setup OmUpdateChannel to listent to update events from OM: %s", err)
 	}
 
 	err = c.Watch(
-		source.Kind(mgr.GetCache(), &appsv1.StatefulSet{}),
-		handler.EnqueueRequestForOwner(mgr.GetScheme(), mgr.GetRESTMapper(), &mdbv1.MongoDB{}, handler.OnlyControllerOwner()),
-		watch.PredicatesForStatefulSet())
+		source.Kind[client.Object](mgr.GetCache(), &appsv1.StatefulSet{},
+			handler.EnqueueRequestForOwner(mgr.GetScheme(), mgr.GetRESTMapper(), &mdbv1.MongoDB{}, handler.OnlyControllerOwner()),
+			watch.PredicatesForStatefulSet()))
 	if err != nil {
 		return err
 	}
 
-	err = c.Watch(source.Kind(mgr.GetCache(), &corev1.ConfigMap{}),
-		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: reconciler.resourceWatcher})
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{},
+		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: reconciler.resourceWatcher}))
 	if err != nil {
 		return err
 	}
 
-	err = c.Watch(source.Kind(mgr.GetCache(), &corev1.Secret{}),
-		&watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: reconciler.resourceWatcher})
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.Secret{},
+		&watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: reconciler.resourceWatcher}))
 	if err != nil {
 		return err
 	}
@@ -381,10 +377,7 @@ func AddReplicaSetController(ctx context.Context, mgr manager.Manager, _ map[str
 		eventChannel := make(chan event.GenericEvent)
 		go vaultwatcher.WatchSecretChangeForMDB(ctx, zap.S(), eventChannel, reconciler.client, reconciler.VaultClient, mdbv1.ReplicaSet)
 
-		err = c.Watch(
-			&source.Channel{Source: eventChannel},
-			&handler.EnqueueRequestForObject{},
-		)
+		err = c.Watch(source.Channel[client.Object](eventChannel, &handler.EnqueueRequestForObject{}))
 		if err != nil {
 			zap.S().Errorf("Failed to watch for vault secret changes: %w", err)
 		}
