@@ -264,10 +264,13 @@ python-tests:
 generate-ssdlc-report:
 	@ scripts/evergreen/run_python.sh generate_ssdlc_report.py
 
-# test-race runs test with race enabled
-test-race: generate fmt vet manifests golang-tests-race python-tests
+# test-race runs golang test with race enabled
+test-race: generate fmt vet manifests golang-tests-race
 
-test: generate fmt vet manifests golang-tests python-tests
+test: generate fmt vet manifests golang-tests
+
+# all-tests will run golang and python tests without race (used locally)
+all-tests: test python-tests
 
 # Build manager binary
 manager: generate fmt vet
