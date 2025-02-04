@@ -191,10 +191,15 @@ git_tag_aliases:
 
 tasks:
 
-  - name: unit_tests
+  - name: unit_tests_golang
     tags: [ "unit_tests" ]
     commands:
-      - func: "test_operator"
+      - func: "test_golang_unit"
+
+  - name: unit_tests_python
+    tags: [ "unit_tests" ]
+    commands:
+      - func: "test_python_unit"
 
   - name: sbom_tests
     tags: [ "unit_tests" ]
@@ -522,7 +527,8 @@ task_groups:
       - func: setup_shellcheck
     tasks:
       - lint_repo
-      - unit_tests
+      - unit_tests_golang
+      - unit_tests_python
       - sbom_tests
 
   # This is the task group that contains all the tests run in the e2e_mdb_kind_ubuntu_cloudqa build variant
@@ -1052,8 +1058,8 @@ buildvariants:
 
   ## Unit tests + lint build variant
 
-  - name: go_unit_tests
-    display_name: "go_unit_tests"
+  - name: unit_tests
+    display_name: "unit_tests"
     tags: [ "unit_tests" ]
     run_on:
       - ubuntu2204-small

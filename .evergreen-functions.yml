@@ -588,7 +588,20 @@ functions:
           TEST_NAME_OVERRIDE: ${TEST_NAME_OVERRIDE}
         binary: scripts/evergreen/e2e/e2e.sh
 
-  test_operator:
+  test_golang_unit:
+    - command: shell.exec
+      type: test
+      params:
+        shell: bash
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        script: |
+          source .generated/context.export.env
+          make test-race
+    - command: gotest.parse_files
+      params:
+        files: ["src/github.com/10gen/ops-manager-kubernetes/*.suite", "src/github.com/10gen/ops-manager-kubernetes/public/tools/multicluster/*.suite"]
+
+  test_python_unit:
     - *python_venv
     - *python_requirements
     - command: shell.exec
@@ -598,7 +611,7 @@ functions:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         script: |
           source .generated/context.export.env
-          make test-race
+          make python-tests
 
   test_sboms:
     - *python_venv
