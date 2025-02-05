@@ -4,7 +4,7 @@ set -Eeou pipefail
 
 source scripts/dev/set_env_context.sh
 if [ -f "${workdir}"/venv/bin/activate ]; then
-    source "${workdir}"/venv/bin/activate
+  source "${workdir}"/venv/bin/activate
 fi
 
 if [[ -z "${EVERGREEN_MODE:-}" ]]; then
@@ -44,7 +44,7 @@ function generate_standalone_yaml() {
   # generate openshift files for kustomize used for generating OLM bundle
   rm -rf "${charttmpdir:?}/*"
   helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" --values helm_chart/values-openshift.yaml \
-   --set operator.webhook.registerConfiguration=false --set operator.webhook.installClusterRole=false ${HELM_OPTS[@]}
+    --set operator.webhook.registerConfiguration=false --set operator.webhook.installClusterRole=false ${HELM_OPTS[@]}
 
   # update kustomize files for OLM bundle with files generated for openshift
   cp "${charttmpdir}/enterprise-operator/templates/operator.yaml" config/manager/manager.yaml
@@ -60,7 +60,7 @@ function generate_standalone_yaml() {
 
 function python_formatting() {
   # installing Black
-  if ! command -v "black" >/dev/null ; then
+  if ! command -v "black" >/dev/null; then
     pip install -r requirements.txt
   fi
 
@@ -138,8 +138,8 @@ run_shellcheck() {
   local file="$1"
   echo "Running shellcheck on $file"
   if ! shellcheck -x "$file" -e SC2154 -e SC1091 -e SC1090 -o require-variable-braces -P "scripts"; then
-     echo "shellcheck failed on $file"
-     exit 1
+    echo "shellcheck failed on $file"
+    exit 1
   fi
 }
 
@@ -155,7 +155,7 @@ start_shellcheck() {
 
   # Wait for all background jobs
   for job in $(jobs -p); do
-      wait "$job" || exit 1
+    wait "$job" || exit 1
   done
 
 }
