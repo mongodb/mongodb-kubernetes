@@ -133,6 +133,11 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_operator_proxy
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_operator_multi_namespaces
     tags: [ "patch-run" ]
     commands:
