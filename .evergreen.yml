@@ -691,6 +691,7 @@ task_groups:
       - e2e_operator_upgrade_replica_set
       - e2e_operator_upgrade_sharded_cluster
       - e2e_operator_upgrade_ops_manager
+      - e2e_operator_proxy
       - e2e_operator_partial_crd
       - e2e_operator_clusterwide
       - e2e_operator_multi_namespaces
@@ -716,6 +717,7 @@ task_groups:
       - e2e_operator_upgrade_replica_set
       - e2e_operator_upgrade_sharded_cluster
       - e2e_operator_upgrade_ops_manager
+      - e2e_operator_proxy
       - e2e_operator_partial_crd
       - e2e_operator_clusterwide
       - e2e_operator_multi_namespaces

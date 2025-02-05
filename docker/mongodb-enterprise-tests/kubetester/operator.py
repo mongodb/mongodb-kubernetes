@@ -194,7 +194,7 @@ class Operator(object):
             try:
                 response = requests.post(webhook_endpoint, headers=headers, verify=False, timeout=2)
             except Exception as e:
-                logging.debug(e)
+                logging.warn(e)
                 time.sleep(2)
                 continue
 
@@ -203,7 +203,7 @@ class Operator(object):
                 # is already in place.
                 response.json()
             except Exception:
-                logging.debug("Didn't get a json response from webhook")
+                logging.warn("Didn't get a json response from webhook")
             else:
                 return
 
