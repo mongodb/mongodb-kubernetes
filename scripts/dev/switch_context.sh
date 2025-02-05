@@ -21,10 +21,15 @@ if [[ "${context}" == "" ]]; then
   context="$(ls -1 "${contexts_dir}" | fzf --sort)"
 fi
 
+if [[ "${additional_override}" != *"private-context-"* && -n "${additional_override}" ]]; then
+  # shellcheck disable=SC2010
+  additional_override="$(ls -1 "${contexts_dir}" | grep "private-context-" | fzf --sort)"
+fi
+
 context_file="${contexts_dir}/${context}"
 local_development_default_file="${contexts_dir}/local-defaults-context"
 override_context_file="${contexts_dir}/private-context-override"
-additional_override_file="${contexts_dir}/private-context-${additional_override}"
+additional_override_file="${contexts_dir}/${additional_override}"
 
 mkdir -p "${destination_envs_dir}"
 
