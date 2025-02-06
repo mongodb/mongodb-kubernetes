@@ -6,7 +6,7 @@ include:
   - filename: .evergreen-tasks.yml
 
 variables:
-  - &ops_manager_60_latest 6.0.26 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_60_latest 6.0.27 # The order/index is important, since these are anchors. Please do not change
 
   - &ops_manager_70_latest 7.0.14 # The order/index is important, since these are anchors. Please do not change
 
