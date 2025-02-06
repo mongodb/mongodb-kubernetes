@@ -169,6 +169,9 @@ patch_aliases:
   - alias: "smoke_test_release"
     variant_tags: [ "e2e_smoke_release_test_suite" ]
     task_tags: [ "patch-run" ]
+  - alias: "patch-run-cloudqa"
+    variant_tags: [ "cloudqa" ]
+    task: ".*"
 
 # Triggered whenever the GitHub PR is created
 github_pr_aliases:
@@ -1080,7 +1083,7 @@ buildvariants:
   ## MongoDB build variants
   - name: e2e_mdb_kind_ubi_cloudqa
     display_name: e2e_mdb_kind_ubi_cloudqa
-    tags: [ "e2e_test_suite" ]
+    tags: [ "e2e_test_suite", "cloudqa" ]
     run_on:
       - ubuntu2204-large
     <<: *base_no_om_image_dependency
@@ -1089,7 +1092,7 @@ buildvariants:
 
   - name: e2e_custom_domain_mdb_kind_ubi_cloudqa
     display_name: e2e_custom_domain_mdb_kind_ubi_cloudqa
-    tags: [ "e2e_test_suite" ]
+    tags: [ "e2e_test_suite", "cloudqa" ]
     run_on:
       - ubuntu2204-large
     <<: *base_no_om_image_dependency
@@ -1098,7 +1101,7 @@ buildvariants:
 
   - name: e2e_static_mdb_kind_ubi_cloudqa
     display_name: e2e_static_mdb_kind_ubi_cloudqa
-    tags: [ "e2e_test_suite" ]
+    tags: [ "e2e_test_suite", "cloudqa" ]
     run_on:
       - ubuntu2204-large
     <<: *base_no_om_image_dependency
@@ -1107,7 +1110,7 @@ buildvariants:
 
   - name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
     display_name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
-    tags: [ "e2e_test_suite" ]
+    tags: [ "e2e_test_suite", "cloudqa" ]
     run_on:
       - ubuntu2204-large
     depends_on:
@@ -1128,7 +1131,7 @@ buildvariants:
 
   - name: e2e_mdb_openshift_ubi_cloudqa
     display_name: e2e_mdb_openshift_ubi_cloudqa
-    tags: [ "e2e_openshift_test_suite" ]
+    tags: [ "e2e_openshift_test_suite", "cloudqa" ]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1148,7 +1151,7 @@ buildvariants:
   # in evergreen for all variants matching e2e_static-*, but we do not want to run openshift variants on every pr.
   - name: e2e_openshift_static_mdb_ubi_cloudqa
     display_name: e2e_openshift_static_mdb_ubi_cloudqa
-    tags: [ "e2e_openshift_test_suite" ]
+    tags: [ "e2e_openshift_test_suite", "cloudqa" ]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1352,7 +1355,7 @@ buildvariants:
 
   - name: e2e_operator_kind_ubi_cloudqa
     display_name: e2e_operator_kind_ubi_cloudqa
-    tags: [ "e2e_test_suite" ]
+    tags: [ "e2e_test_suite", "cloudqa" ]
     run_on:
       - ubuntu2204-large
     <<: *base_no_om_image_dependency
@@ -1361,7 +1364,7 @@ buildvariants:
 
   - name: e2e_static_operator_kind_ubi_cloudqa
     display_name: e2e_static_operator_kind_ubi_cloudqa
-    tags: [ "e2e_test_suite" ]
+    tags: [ "e2e_test_suite", "cloudqa" ]
     run_on:
       - ubuntu2204-large
     <<: *base_no_om_image_dependency
@@ -1370,7 +1373,7 @@ buildvariants:
 
   - name: e2e_operator_no_webhook_roles_cloudqa
     display_name: e2e_operator_no_webhook_roles_cloudqa
-    tags: [ "e2e_test_suite" ]
+    tags: [ "e2e_test_suite", "cloudqa" ]
     run_on:
       - ubuntu2204-large
     <<: *base_no_om_image_dependency
