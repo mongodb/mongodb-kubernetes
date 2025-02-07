@@ -96,7 +96,7 @@ def update_cluster_service_version(operator_version):
         set_value_in_yaml_file(
             "config/manifests/bases/mongodb-enterprise.clusterserviceversion.yaml",
             "spec.replaces",
-            f"mongodb-enterprise.{old_operator_version}",
+            f"mongodb-enterprise.v{old_operator_version}",
             preserve_quotes=True,
         )
 

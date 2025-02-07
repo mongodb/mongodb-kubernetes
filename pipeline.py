@@ -1209,9 +1209,7 @@ def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
                     )
                 )
             for operator_version in get_supported_operator_versions():
-                logger.info(
-                    f"Building Agent versions: {agent_versions_to_build} for Operator versions: {operator_version}"
-                )
+                logger.info(f"Building Agent versions: {agent_version} for Operator versions: {operator_version}")
                 _build_agent_operator(
                     agent_version, build_configuration, executor, operator_version, tasks_queue, is_release
                 )
