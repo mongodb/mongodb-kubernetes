@@ -18,7 +18,12 @@ additional_override="${2:-}"
 
 if [[ "${context}" == "" ]]; then
   # shellcheck disable=SC2012
-  context="$(ls -1 "${contexts_dir}" | fzf --sort)"
+  contexts=$(ls -1 "${contexts_dir}")
+  if [[ -f "${destination_envs_dir}/.current_context" ]]; then
+    current_context=$(cat "${destination_envs_dir}/.current_context")
+    contexts=$(printf "${current_context}\n%s" "${contexts}")
+  fi
+  context="$(fzf --sort <<< "${contexts}")"
 fi
 
 if [[ "${additional_override}" != *"private-context-"* && -n "${additional_override}" ]]; then
@@ -84,6 +89,8 @@ awk '{print "export " $0}' < "${destination_envs_file}".env | tail -n +5 > "${de
 scripts/dev/print_operator_env.sh | sort | uniq >"${destination_envs_file}.operator.env"
 awk '{print "export " $0}' < "${destination_envs_file}".operator.env > "${destination_envs_file}".operator.export.env
 
+echo -n "${context}" > "${destination_envs_dir}/.current_context"
+
 echo "Generated env files in $(readlink -f "${destination_envs_dir}"):"
 # shellcheck disable=SC2010
 ls -l1 "${destination_envs_dir}" | grep "context"
@@ -106,4 +113,3 @@ if which kubectl > /dev/null; then
 else
     echo "Kubectl doesn't exist, skipping setting the context"
 fi
-
