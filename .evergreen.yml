@@ -266,7 +266,6 @@ tasks:
       - func: pipeline
         vars:
           image_name: init-ops-manager
-          include_tags: release
 
   - name: release_agent_operator_release
     tags: [ "image_release" ]
@@ -278,7 +277,6 @@ tasks:
       - func: pipeline
         vars:
           image_name: agent
-          include_tags: release
 
   - name: upload_dockerfiles
     tags: [ "image_release" ]
@@ -1484,7 +1482,7 @@ buildvariants:
     # We want that to run first and finish asap. Digest pinning depends on this to succeed.
     priority: 70
     run_on:
-      - ubuntu2204-small
+      - ubuntu2204-large
     tasks:
       - name: release_agents_on_ecr_conditional
 
@@ -1577,6 +1575,17 @@ buildvariants:
     max_hosts: -1
     run_on:
       - ubuntu2204-large
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: build_init_appdb_images_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
     tasks:
       - name: release_operator
       - name: release_init_appdb
