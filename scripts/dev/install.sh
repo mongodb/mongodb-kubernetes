@@ -55,7 +55,4 @@ fi
 echo "Installing Python packages"
 PIP_CONSTRAINT=constraints.txt python -m pip install -r requirements.txt
 
-echo "Configuring git hooks path"
-git config core.hooksPath .githooks
-
 title "Tools are installed"
