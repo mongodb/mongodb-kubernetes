@@ -70,6 +70,14 @@ function python_formatting() {
   black .
 }
 
+function generate_manifests() {
+  make manifests
+
+  git add config/crd/bases
+  git add helm_chart/crds
+  git add public/crds.yaml
+}
+
 function update_values_yaml_files() {
   # ensure that all helm values files are up to date.
   # shellcheck disable=SC2154
@@ -96,6 +104,8 @@ function update_release_json() {
 function pre_commit() {
   # Update release.json first in case there is a newer version
   update_release_json
+  # Generate operator manifests (CRDs, etc)
+  generate_manifests
   # We need to generate the values files first
   update_values_yaml_files
   # The values files are used for generating the standalone yaml
