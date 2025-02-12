@@ -813,16 +813,16 @@ def build_image_daily(
                                 with_sbom=False,
                             )
                             if build_configuration.sign:
-                                sign_image_concurrently(executor, args, futures, arch)
+                                sign_image_concurrently(executor, copy.deepcopy(args), futures, arch)
                         create_and_push_manifests(args)
                         for arch in arch_set:
                             args["architecture_suffix"] = f"-{arch}"
                             args["platform"] = arch
                             logger.info(f"Enqueuing SBOM production task for image: {version}")
-                            future = executor.submit(produce_sbom, build_configuration, args)
+                            future = executor.submit(produce_sbom, build_configuration, copy.deepcopy(args))
                             futures.append(future)
                         if build_configuration.sign:
-                            sign_image_concurrently(executor, args, futures)
+                            sign_image_concurrently(executor, copy.deepcopy(args), futures)
                     else:
                         # No suffix for single arch images
                         args["architecture_suffix"] = ""
@@ -834,7 +834,7 @@ def build_image_daily(
                             inventory="inventories/daily.yaml",
                         )
                         if build_configuration.sign:
-                            sign_image_concurrently(executor, args, futures)
+                            sign_image_concurrently(executor, copy.deepcopy(args), futures)
                     completed_versions.add(version)
 
             # wait for all signings to be done
