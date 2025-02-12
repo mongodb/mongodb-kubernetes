@@ -17,12 +17,14 @@ def build_agent_gather_versions(release: Dict[str, str]):
     return agent_versions_to_be_build
 
 
-def get_supported_version_for_image_matrix_handling(image: str) -> List[str]:
+def get_supported_version_for_image_matrix_handling(image: str, latest_operator_only: bool = False) -> List[str]:
     # if we are a certifying mongodb-agent, we will need to also certify the
     # static container images which are a matrix of <agent_version>_<operator_version>
     if image == "mongodb-agent":
         # officially, we start the support with 1.25.0, but we only support the last three versions
         last_supported_operator_versions = get_supported_operator_versions()
+        if latest_operator_only:
+            last_supported_operator_versions = [last_supported_operator_versions[-1]]
         agent_version_with_static_support_without_operator_suffix = build_agent_gather_versions(get_release())
         agent_version_with_static_support_with_operator_suffix = list()
         for agent in agent_version_with_static_support_without_operator_suffix:
