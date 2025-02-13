@@ -5,10 +5,12 @@ import json
 import logging
 import os
 import platform
+import random
 import re
 import subprocess
 import sys
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Tuple
 
@@ -137,7 +139,7 @@ def run_preflight_check(image: str, version: str, submit: bool = False) -> int:
         preflight_command.append("--docker-config=./temp-authfile.json")
         logging.info(f'Running command: {" ".join(preflight_command)}')
 
-        subprocess.run(preflight_command, check=True)
+        run_preflight_with_retries(preflight_command, version)
 
         result_file = os.path.join(f"{tmpdir}", arch, "results.json")
 
@@ -159,6 +161,22 @@ def run_preflight_check(image: str, version: str, submit: bool = False) -> int:
                 f"Result file not found, counting as failed for image: {args_for_image(image)['registry']}:{version}"
             )
             return 1
+
+
+def run_preflight_with_retries(preflight_command, version, max_retries=5):
+    for attempt in range(max_retries):
+        try:
+            subprocess.run(preflight_command, capture_output=True, check=True)
+            return
+        except subprocess.CalledProcessError as e:
+            if attempt + 1 < max_retries:
+                delay = (2**attempt) + random.uniform(0, 1)
+                logging.error(f"Attempt {attempt + 1} failed for version {version}: {e.stderr}")
+                logging.info(f"Retrying in {delay:.2f} seconds...")
+                time.sleep(delay)
+            else:
+                logging.error(f"All {max_retries} attempts failed for version: {version}")
+                raise
 
 
 def fetch_tags(page, image, regex_filter):
