@@ -12,7 +12,7 @@ if [[ $CTX_CLUSTER1 = kind* ]]; then
   IS_KIND="true"
 fi
 
-source multi_cluster/tools/download_istio.sh || true
+source multi_cluster/tools/download_istio.sh
 
 #
 cd istio-${VERSION}
