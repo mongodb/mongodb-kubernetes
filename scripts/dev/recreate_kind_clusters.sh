@@ -33,7 +33,7 @@ scripts/dev/interconnect_kind_clusters.sh -v e2e-cluster-1 e2e-cluster-2 e2e-clu
 
 export VERSION=${VERSION:-1.16.1}
 
-source multi_cluster/tools/download_istio.sh || true
+source multi_cluster/tools/download_istio.sh
 
 VERSION=1.16.1 CTX_CLUSTER1=kind-e2e-cluster-1 CTX_CLUSTER2=kind-e2e-cluster-2 CTX_CLUSTER3=kind-e2e-cluster-3 multi_cluster/tools/install_istio.sh &
 VERSION=1.16.1 CTX_CLUSTER=kind-e2e-operator multi_cluster/tools/install_istio_central.sh &
