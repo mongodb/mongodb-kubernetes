@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/go-logr/zapr"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -25,6 +26,7 @@ import (
 	localruntime "runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	runtime_cluster "sigs.k8s.io/controller-runtime/pkg/cluster"
+	kubelog "sigs.k8s.io/controller-runtime/pkg/log"
 	metricsServer "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	crWebhook "sigs.k8s.io/controller-runtime/pkg/webhook"
 
@@ -275,13 +277,7 @@ func setupWebhook(ctx context.Context, cfg *rest.Config, log *zap.SugaredLogger,
 }
 
 func initializeEnvironment() {
-	omOperatorEnv := os.Getenv(util.OmOperatorEnv)
-	configuredEnv := omOperatorEnv
-	if !validateEnv(omOperatorEnv) {
-		omOperatorEnv = operatorEnvironments[0]
-	}
-
-	initLogger(omOperatorEnv)
+	omOperatorEnv, configuredEnv := getOperatorEnvs()
 
 	if configuredEnv != omOperatorEnv {
 		log.Infof("Configured environment %s, not recognized. Must be one of %v", configuredEnv, operatorEnvironments)
@@ -318,6 +314,15 @@ func initializeEnvironment() {
 
 	// Only env variables with one of these prefixes will be printed
 	env.PrintWithPrefix(printableEnvPrefixes)
+}
+
+func getOperatorEnvs() (string, string) {
+	omOperatorEnv := os.Getenv(util.OmOperatorEnv)
+	configuredEnv := omOperatorEnv
+	if !validateEnv(omOperatorEnv) {
+		omOperatorEnv = operatorEnvironments[0]
+	}
+	return omOperatorEnv, configuredEnv
 }
 
 // quoteKey reports whether key is required to be quoted. Taken from: 1.22.0 mod.go
@@ -360,22 +365,41 @@ func validateEnv(env string) bool {
 	return stringutil.Contains(operatorEnvironments[:], env)
 }
 
-func initLogger(env string) {
+func init() {
+	InitGlobalLogger()
+}
+
+func InitGlobalLogger() {
+	omOperatorEnv, _ := getOperatorEnvs()
+
 	var logger *zap.Logger
 	var e error
 
-	switch env {
+	switch omOperatorEnv {
 	case "prod":
 		logger, e = zap.NewProduction()
 	case "dev", "local":
 		// Overriding the default stacktrace behavior - have them only for errors but not for warnings
 		logger, e = zap.NewDevelopment(zap.AddStacktrace(zap.ErrorLevel))
+	default:
+		// if for some reason we didn't set a logger, let's be safe and default to prod
+		fmt.Println("No OPERATOR_ENV set, defaulting setting logger to prod")
+		logger, e = zap.NewProduction()
 	}
 
 	if e != nil {
 		fmt.Println("Failed to create logger, will use the default one")
 		fmt.Println(e)
+		// in the worst case logger might stay nil, replacing everything with a nil logger,
+		// we don't want that
+		logger = zap.S().Desugar()
 	}
+
+	// Set the global logger used by our operator
 	zap.ReplaceGlobals(logger)
+	// Set the logger for controller-runtime based on the general level of the operator
+	kubelog.SetLogger(zapr.NewLogger(logger))
+
+	// Set the logger used by main.go
 	log = zap.S()
 }
