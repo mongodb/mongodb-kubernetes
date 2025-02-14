@@ -39,12 +39,14 @@ functions:
           unzip -u macos-notary.zip
           chmod 755 ./linux_amd64/macnotary
   "release":
+    - command: github.generate_token
+      params:
+        expansion_name: generated_token
     - command: shell.exec
       type: setup
       params:
         working_dir: src/github.com/mongodb/mongodb-enterprise-kubernetes/tools/multicluster
         include_expansions_in_env:
-          - GITHUB_TOKEN
           - GRS_USERNAME
           - GRS_PASSWORD
           - PKCS11_URI
@@ -65,18 +67,19 @@ functions:
           set -Eeu pipefail
 
           export PATH=$GOROOT/bin:$PATH
+          export GITHUB_TOKEN=${generated_token}
           ${workdir}/goreleaser release --rm-dist
 
 tasks:
   - name: package_goreleaser
-    git_tag_only: true
+    allowed_requesters: [ "patch", "github_tag" ]
     tags: ["packaging"]
     commands:
       - func: "clone"
       - func: "install goreleaser"
       - func: "install macos notarization service"
       - func: "release"
-# add a noop task because if the only task in a variant is git_tag_only: true Evergreen doesn't start it at all
+  # add a noop task because if the only task in a variant is git_tag_only: true Evergreen doesn't start it at all
   - name: noop
     commands:
       - command: shell.exec
@@ -85,11 +88,11 @@ tasks:
           script: echo "this is the noop task"
 
 buildvariants:
-# This variant is run when a new tag is out similar to github actions.
-- name: release_mcli
-  display_name: Release Go multi-cluster binary
-  run_on:
-    - ubuntu2204-small
-  tasks:
-    - name: package_goreleaser
-    - name: noop
+  # This variant is run when a new tag is out similar to github actions.
+  - name: release_mcli
+    display_name: Release Go multi-cluster binary
+    run_on:
+      - ubuntu2204-small
+    tasks:
+      - name: package_goreleaser
+      - name: noop
