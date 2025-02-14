@@ -91,5 +91,4 @@ export OM_BASE_URL=https://cloud-qa.mongodb.com
 export e2e_cloud_qa_baseurl="${OM_HOST}"
 export e2e_cloud_qa_baseurl_static_2="${OM_HOST}"
 
-# see CLOUDP-281384
-export OLM_VERSION=v0.28.0
+export OLM_VERSION=v0.31.0
