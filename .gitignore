@@ -49,6 +49,7 @@ docker/mongodb-enterprise-init-database/Dockerfile
 docker/mongodb-enterprise-init-ops-manager/Dockerfile
 docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator.tar
 docker/mongodb-enterprise-tests/helm_chart/
+docker/mongodb-enterprise-tests/public/
 docker/mongodb-enterprise-tests/requirements.txt
 docker/mongodb-enterprise-tests/.flake8
 docker/mongodb-enterprise-tests/.pylintrc
