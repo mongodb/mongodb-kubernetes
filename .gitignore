@@ -25,7 +25,7 @@ bin/*
 helm_out
 .redo-last-namespace
 exports.do
-__debug_bin
+__debug_bin*
 .generated/
 scripts/dev/contexts/private-context
 scripts/dev/contexts/private-context-*
@@ -68,11 +68,13 @@ multi_cluster/examples/service_account_using_go/service_account_using_go
 
 _.yaml
 
-# name of binary that is built for the e2e tests
+# Things we built or download for the e2e tests & local dev
 multi-cluster-kube-config-creator
 multi-cluster-kube-config-creator_linux
 istio-*
 .multi_cluster_local_test_files
+csi-driver-host-path-*
+downloadIstioCandidate.sh
 
 
 # ignore symlink to ~/.operator-dev
@@ -83,6 +85,5 @@ licenses_full.csv
 licenses_stderr
 docker/mongodb-enterprise-tests/.test_identifiers*
 
-__debug_bin
 logs-debug/
 /ssdlc-report/*
