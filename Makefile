@@ -259,6 +259,7 @@ sbom-tests:
 python-tests:
 	@ scripts/evergreen/run_python.sh -m pytest pipeline_test.py
 	@ scripts/evergreen/run_python.sh -m pytest lib/sonar
+	@ scripts/evergreen/run_python.sh -m pytest scripts/evergreen/release/agent_matrix_test.py
 	@ scripts/evergreen/run_python.sh -m pytest docker/mongodb-enterprise-tests/kubeobject
 
 generate-ssdlc-report:
