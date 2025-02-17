@@ -204,11 +204,9 @@ def prepare_sbom_markdown(supported_images: Dict[str, SupportedImage], subreport
     for supported_image_key in supported_images:
         supported_image = supported_images[supported_image_key]
         if supported_image.subreport == subreport:
-            lines = f"{lines}\n\t\t- {supported_image.ssdlc_report_name}:"
+            lines = f"{lines}\n\t- {supported_image.ssdlc_report_name}:"
             for sbom_location in supported_image.sbom_file_names:
-                lines = (
-                    f"{lines}\n\t\t\t- [{sbom_location}](./{supported_image.subreport.sbom_subpath}/{sbom_location})"
-                )
+                lines = f"{lines}\n\t\t- [{sbom_location}](./{supported_image.subreport.sbom_subpath}/{sbom_location})"
     return lines
 
 
