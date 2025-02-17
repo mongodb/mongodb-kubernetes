@@ -41,7 +41,7 @@ def get_release() -> Dict[str, str]:
     return json.load(open("release.json"))
 
 
-def get_supported_variants_for_image(image: str) -> List[Dict[str, str]]:
+def get_supported_variants_for_image(image: str) -> List[str]:
     splitted_image_name = image.split("mongodb-enterprise-", 1)
     if len(splitted_image_name) == 2:
         image = splitted_image_name[1]
@@ -49,7 +49,7 @@ def get_supported_variants_for_image(image: str) -> List[Dict[str, str]]:
     return get_release()["supportedImages"][image]["variants"]
 
 
-def get_supported_version_for_image(image: str) -> List[Dict[str, str]]:
+def get_supported_version_for_image(image: str) -> List[str]:
     splitted_image_name = image.split("mongodb-enterprise-", 1)
     if len(splitted_image_name) == 2:
         image = splitted_image_name[1]
