@@ -147,9 +147,9 @@ function pre_commit() {
 run_shellcheck() {
   local file="$1"
   echo "Running shellcheck on $file"
-  if ! shellcheck -x "$file" -e SC2154 -e SC1091 -e SC1090 -o require-variable-braces -P "scripts"; then
-    echo "shellcheck failed on $file"
-    exit 1
+  if ! shellcheck -x "$file" -e SC2154 -e SC1091 -e SC1090 -e SC2148 -o require-variable-braces -P "scripts"; then
+   echo "shellcheck failed on $file"
+   exit 1
   fi
 }
 
@@ -157,7 +157,8 @@ start_shellcheck() {
   files_1=$(find scripts -type f -name "*.sh")
   files_2=$(find scripts/dev/contexts -type f)
   files_3=$(find scripts/funcs -type f)
-  files=$(echo -e "$files_1\n$files_2\n$files_3")
+  files_4=$(find public/architectures -type f -name "*.sh")
+  files=$(echo -e "$files_1\n$files_2\n$files_3\n$files_4")
   # Process each file in parallel
   for file in $files; do
     run_shellcheck "$file" &

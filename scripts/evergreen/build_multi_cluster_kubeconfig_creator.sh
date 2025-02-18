@@ -3,6 +3,9 @@ set -Eeou pipefail
 
 source scripts/dev/set_env_context.sh
 
+WORKDIR="${workdir}"
+mkdir -p "${WORKDIR}/bin"
+
 OS=${OS:-$(uname -s | tr '[:upper:]' '[:lower:]')}
 ARCH=${ARCH:-$(uname -m | tr '[:upper:]' '[:lower:]')}
 if [[ "${ARCH}" == "x86_64" ]]; then
@@ -24,4 +27,4 @@ chmod +x docker/mongodb-enterprise-tests/multi-cluster-kube-config-creator_linux
 
 mkdir -p bin || true
 cp docker/mongodb-enterprise-tests/multi-cluster-kube-config-creator bin/kubectl-mongodb
-
+cp bin/kubectl-mongodb "${WORKDIR}/bin/kubectl-mongodb"
