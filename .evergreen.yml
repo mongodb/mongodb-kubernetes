@@ -69,6 +69,17 @@ variables:
       - func: setup_building_host
       - func: build_multi_cluster_binary
 
+  - &setup_and_teardown_group_gke_code_snippets
+    setup_group:
+      - func: clone
+      - func: setup_gcloud_cli
+      - func: setup_mongosh
+      - func: download_kube_tools
+      - func: build_multi_cluster_binary
+    teardown_group:
+      - func: code_snippets_commit_output
+      - func: upload_code_snippets_logs
+
   - &setup_and_teardown_task_cloudqa
     setup_task_can_fail_task: true
     setup_task:
@@ -148,6 +159,10 @@ parameters:
   - key: OVERRIDE_VERSION_ID
     value: ""
     description: "Patch id to reuse images from other Evergreen build"
+
+  - key: code_snippets_teardown
+    value: "true"
+    description: set this to false if you would like to keep the clusters created during code snippets tests
 
 # Triggered manually or by PCT.
 patch_aliases:
@@ -531,6 +546,11 @@ task_groups:
       - unit_tests_golang
       - unit_tests_python
       - sbom_tests
+
+  - name: gke_code_snippets
+    <<: *setup_and_teardown_group_gke_code_snippets
+    tasks:
+      - gke_multi_cluster_snippets
 
   # This is the task group that contains all the tests run in the e2e_mdb_kind_ubuntu_cloudqa build variant
   - name: e2e_mdb_kind_cloudqa_task_group
@@ -1671,6 +1691,38 @@ buildvariants:
       - ubuntu2204-large
     tasks:
       - name: release_all_agents_on_ecr
+
+    # These variants are used to test the code snippets and each one can be used in patches
+    # Prerelease is especially used when the repo is tagged
+    # More details in the TD: https://docs.google.com/document/d/1fuTxfRtP8QPtn7sKYxQM_AGcD6xycTZH8svngGxyKhc/edit?tab=t.0#bookmark=id.e8uva0393mbe
+  - name: public_gke_code_snippets
+    display_name: public_gke_code_snippets
+    allowed_requesters: ["patch"]
+    run_on:
+      - ubuntu2204-small
+    tasks:
+      - name: gke_code_snippets
+
+  - name: prerelease_gke_code_snippets
+    display_name: prerelease_gke_code_snippets
+    allowed_requesters: ["patch", "github_tag"]
+    depends_on:
+      - variant: release_images
+        name: '*'
+        patch_optional: true
+    run_on:
+      - ubuntu2204-small
+    tasks:
+      - name: gke_code_snippets
+
+  - name: private_gke_code_snippets
+    display_name: private_gke_code_snippets
+    allowed_requesters: ["patch"]
+    run_on:
+      - ubuntu2204-small
+    <<: *base_om8_dependency
+    tasks:
+      - name: gke_code_snippets
 
   ### Build variants for manual patch only
 

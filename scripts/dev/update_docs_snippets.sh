@@ -2,8 +2,8 @@
 
 # script to update code snippets file from MEKO in docs repository
 # Usage:
-#   cd <dir where meko and docs repositories are cloned>
-#   ./update_docs_snippets.sh
+#   cd <ops-manager-kubernetes directory>
+#   ./scripts/dev/update_docs_snippets.sh
 #
 # To customize directories run
 #   MEKO_DIR=<path to meko repository> DOCS_DIR=<path to docs repository> ./update_docs_snippets.sh
@@ -47,14 +47,15 @@ function prepare_repositories() {
 
 function copy_files() {
   samples_dir=$1
-  dst_dir="${DOCS_DIR}/source/includes/code-examples/${samples_dir}"
-  src_dir="${MEKO_DIR}/public/samples/${samples_dir}"
+  dst_dir="${DOCS_DIR}/source/includes/code-examples/reference-architectures/${samples_dir}"
+  src_dir="${MEKO_DIR}/public/architectures/${samples_dir}"
 
+  rm -rf "${dst_dir}"
   mkdir -p "${dst_dir}"
 
   cp -r "${src_dir}/code_snippets" "${dst_dir}"
   cp -r "${src_dir}/output" "${dst_dir}"
-  cp "${src_dir}/env_variables.sh" "${dst_dir}"
+  cp "${src_dir}/env_variables.sh" "${dst_dir}" || true
 }
 
 function prepare_docs_pr() {
@@ -73,5 +74,12 @@ function prepare_docs_pr() {
 pushd ../
 prepare_repositories
 copy_files "ops-manager-multi-cluster"
+copy_files "mongodb-sharded-multi-cluster"
+copy_files "mongodb-replicaset-multi-cluster"
+copy_files "setup-multi-cluster/verify-connectivity"
+copy_files "setup-multi-cluster/setup-gke"
+copy_files "setup-multi-cluster/setup-istio"
+copy_files "setup-multi-cluster/setup-operator"
+copy_files "setup-multi-cluster/setup-cert-manager"
 prepare_docs_pr
 popd

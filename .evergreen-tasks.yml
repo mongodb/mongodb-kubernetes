@@ -65,6 +65,9 @@ tasks:
         vars:
           image_name: ops-manager
 
+  - name: gke_multi_cluster_snippets
+    commands:
+      - func: gke_multi_cluster_snippets
 ## Below are only e2e runs for .evergreen.yml ##
 
   - name: e2e_multiple_cluster_failures
