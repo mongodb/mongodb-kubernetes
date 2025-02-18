@@ -35,10 +35,10 @@ scripts/dev/contexts/private-context-*
 
 public/support/*.gz
 public/support/logs*
-public/samples/**/log
-public/samples/**/*.run.log
-public/samples/**/.generated
-public/samples/**/certs/*
+public/architectures/**/log
+public/architectures/**/*.run.log
+public/architectures/**/.generated
+public/architectures/**/certs/*
 
 docker/mongodb-enterprise-appdb/content/readinessprobe
 ops-manager-kubernetes

@@ -50,6 +50,9 @@ functions:
       shell: bash
       working_dir: src/github.com/10gen/ops-manager-kubernetes
       <<: *e2e_include_expansions_in_env
+      add_to_path:
+        - ${workdir}/bin
+        - ${workdir}/google-cloud-sdk/bin
       script: |
         echo "Switching context"
         scripts/dev/switch_context.sh "${build_variant}"
@@ -77,6 +80,14 @@ functions:
       type: setup
       params:
         directory: src/github.com/10gen/ops-manager-kubernetes
+    - command: subprocess.exec
+      type: setup
+      params:
+        command: "git config --global user.name 'Evergreen'"
+    - command: subprocess.exec
+      type: setup
+      params:
+        command: "git config --global user.email 'kubernetes-hosted-team@mongodb.com'"
     - *setup_context
 
   setup_kubectl: &setup_kubectl
@@ -110,6 +121,26 @@ functions:
       add_to_path:
         - ${workdir}/bin
       binary: scripts/evergreen/setup_aws.sh
+
+  setup_gcloud_cli:
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      include_expansions_in_env:
+        - GCP_SERVICE_ACCOUNT_JSON_FOR_SNIPPETS_TESTS
+      add_to_path:
+        - ${workdir}/google-cloud-sdk/bin
+      binary: scripts/evergreen/setup_gcloud_cli.sh
+
+  setup_mongosh:
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      add_to_path:
+        - ${workdir}/google-cloud-sdk/bin
+      binary: scripts/evergreen/setup_mongosh.sh
 
   # configures Docker size, installs the Kind binary (if necessary)
   setup_kind: &setup_kind
@@ -396,6 +427,19 @@ functions:
     - command: attach.xunit_results
       params:
         file: "src/github.com/10gen/ops-manager-kubernetes/logs/myreport.xml"
+
+  upload_code_snippets_logs:
+    - command: s3.put
+      params:
+        aws_key: ${enterprise_aws_access_key_id}
+        aws_secret: ${enterprise_aws_secret_access_key}
+        local_files_include_filter:
+          - src/github.com/10gen/ops-manager-kubernetes/public/architectures/**/*.log
+          - src/github.com/10gen/ops-manager-kubernetes/public/architectures/**/*.out
+        remote_file: logs/${task_id}/${execution}/
+        bucket: operator-e2e-artifacts
+        permissions: public-read
+        content_type: text/plain
 
   preflight_image:
     - *switch_context
@@ -687,3 +731,28 @@ functions:
         files:
           - evergreen_tasks.json
         optional: true
+
+  #
+  # Code snippet test automation
+  #
+
+  gke_multi_cluster_snippets:
+    - *switch_context
+    - command: shell.exec
+      params:
+        shell: bash
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        include_expansions_in_env:
+          - version_id
+          - code_snippets_teardown
+        script: |
+          ./scripts/code_snippets/gke_multi_cluster_test.sh
+
+  code_snippets_commit_output:
+    - *switch_context
+    - command: shell.exec
+      params:
+        shell: bash
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        script: |
+          ./scripts/code_snippets/sample_commit_output.sh
