@@ -145,6 +145,11 @@ def test_ops_manager_state_correctly_updated_sha_and_x509():
 
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_and_x509
+def test_x509_user_reaches_updated_phase(x509_user: MongoDBUser):
+    x509_user.assert_reaches_phase(Phase.Updated, timeout=150)
+
+
+@pytest.mark.e2e_sharded_cluster_scram_sha_and_x509
 def test_x509_user_exists_in_automation_config(x509_user: MongoDBUser):
     ac = KubernetesTester.get_automation_config()
     users = ac["auth"]["usersWanted"]
