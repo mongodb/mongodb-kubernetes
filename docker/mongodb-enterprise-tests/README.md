@@ -67,19 +67,7 @@ have done this, you can proceed to complete the Python installation.
 
 ### Installing Python and Dependencies ###
 
-You should have Python 3.6 installed, create a virtualenv and install
-the dependencies on the `requirements.txt` file. The following is an
-example on how to achieve this:
-
-
-* First time install only: Create a virtualenv
-``` bash
-python3.6 -m pip install venv --user
-python3.6 -m venv venv
-
-source venv/bin/activate
-PIP_CONSTRAINT=constraints.txt python -m pip install -r requirements.txt
-```
+Run `scripts/dev/install.sh` or `scripts/dev/recreate_python_venv.sh` to install necessary tools and create python virtualenv. 
 
 * After the first run, when coming back to the project it should be
 required to `activate` your virtual environment once again.

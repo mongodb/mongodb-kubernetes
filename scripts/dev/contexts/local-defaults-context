@@ -9,10 +9,12 @@ set -Eeou pipefail
 
 script_name=$(readlink -f "${BASH_SOURCE[0]}")
 script_dir=$(dirname "${script_name}")
-# The workdir is used in many places and needs to point into the project root.
-# Don't change it unless you know what you're doing.
-export workdir="${script_dir}/../../../"
 
+PROJECT_DIR=$(realpath "${script_dir}/../../../")
+# DEPRECATED: usage of workdir is deprecated, use PROJECT_DIR instead
+workdir=$(realpath "${script_dir}/../../../")
+export PROJECT_DIR
+export workdir
 
 # Here are all the required registries used by the Operator. We are defaulting to images ecr for most, some to quay
 # The main registry to use for local test runs
@@ -50,9 +52,9 @@ export INIT_OPS_MANAGER_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-enterp
 # Environment variable needed for local development
 # Used in controllers/operator/mongodbopsmanager_controller.go
 # The file is created by scripts/dev/prepare_local_e2e_run.sh
-export MDB_OM_VERSION_MAPPING_PATH="${workdir}/release.json"
-export ENV_FILE="${workdir}/.ops-manager-env"
-export NAMESPACE_FILE="${workdir}/.namespace"
+export MDB_OM_VERSION_MAPPING_PATH="${PROJECT_DIR}/release.json"
+export ENV_FILE="${PROJECT_DIR}/.ops-manager-env"
+export NAMESPACE_FILE="${PROJECT_DIR}/.namespace"
 
 # TO ensure we don't release by accident via pipeline.py
 export skip_tags="release"

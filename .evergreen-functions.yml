@@ -1,30 +1,44 @@
 variables:
   - &e2e_include_expansions_in_env
     include_expansions_in_env:
-      - ecr_registry
-      - ecr_registry_needs_auth
-      - openshift_url
-      - openshift_token
-      - workdir
-      - mms_eng_test_aws_access_key
-      - mms_eng_test_aws_secret
-      - mms_eng_test_aws_region
+      - ARTIFACTORY_PASSWORD
+      - ARTIFACTORY_USERNAME
+      - GRS_PASSWORD
+      - GRS_USERNAME
       - OVERRIDE_VERSION_ID
-      - version_id
-      - task_name
-      - e2e_cloud_qa_user_owner_ubi_cloudqa
+      - PKCS11_URI
+      - SILK_CLIENT_ID
+      - SILK_CLIENT_SECRET
+      - branch_name
+      - build_id
+      - build_variant
+      - distro
       - e2e_cloud_qa_apikey_owner_ubi_cloudqa
       - e2e_cloud_qa_orgid_owner_ubi_cloudqa
-      - otel_trace_id
-      - otel_parent_id
-      - otel_collector_endpoint
-      - branch_name
-      - requester
-      - is_patch
-      - github_commit
-      - build_variant
+      - e2e_cloud_qa_user_owner_ubi_cloudqa
+      - ecr_registry
+      - ecr_registry_needs_auth
       - execution
-      - build_id
+      - github_commit
+      - image_name
+      - include_tags
+      - is_patch
+      - mms_eng_test_aws_access_key
+      - mms_eng_test_aws_region
+      - mms_eng_test_aws_secret
+      - openshift_token
+      - openshift_url
+      - otel_collector_endpoint
+      - otel_parent_id
+      - otel_trace_id
+      - pin_tag_at
+      - registry
+      - requester
+      - skip_tags
+      - task_name
+      - triggered_by_git_tag
+      - version_id
+      - workdir
 
 functions:
 
@@ -62,14 +76,8 @@ functions:
     command: subprocess.exec
     type: setup
     params:
-      command: /opt/python/3.9/bin/python3 -m venv --upgrade-deps ./venv
-
-  python_requirements: &python_requirements
-    command: subprocess.exec
-    type: setup
-    params:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
-      command: scripts/evergreen/run_python.sh -m pip install -r requirements.txt --quiet --no-warn-script-location
+      command: scripts/dev/recreate_python_venv.sh
 
   "clone":
     - command: subprocess.exec
@@ -167,13 +175,6 @@ functions:
         add_to_path:
           - ${workdir}/bin
         binary: scripts/evergreen/setup_preflight.sh
-    # The python binary is in a different location for RHEL machines so we can't use the same process
-    # for creating the virtual environment.
-    - command: subprocess.exec
-      type: setup
-      params:
-        command: python3 -m venv --upgrade-deps ./venv
-    - *python_requirements
 
   setup_prepare_openshift_bundles:
     - command: subprocess.exec
@@ -227,8 +228,6 @@ functions:
       binary: scripts/dev/configure_docker_auth.sh
 
   lint_repo:
-    - *python_venv
-    - *python_requirements
     - command: subprocess.exec
       type: setup
       params:
@@ -251,6 +250,7 @@ functions:
     - *setup_aws
     - *configure_docker_auth
     - *setup_docker_datadir
+    - *python_venv
 
   prune_docker_resources:
     - command: subprocess.exec
@@ -369,8 +369,6 @@ functions:
       command: scripts/evergreen/prepare_aws.sh
 
   build-dockerfiles:
-    - *python_venv
-    - *python_requirements
     - command: subprocess.exec
       type: setup
       params:
@@ -470,8 +468,6 @@ functions:
           - ${workdir}
 
   pipeline:
-    - *python_venv
-    - *python_requirements
     - *switch_context
     - command: shell.exec
       type: setup
@@ -487,32 +483,11 @@ functions:
       type: setup
       params:
         shell: bash
-        include_expansions_in_env:
-          - version_id
-          - registry
-          - image_name
-          - skip_tags
-          - include_tags
-          - distro
-          - is_patch
-          - GRS_USERNAME
-          - GRS_PASSWORD
-          - PKCS11_URI
-          - ARTIFACTORY_USERNAME
-          - ARTIFACTORY_PASSWORD
-          - triggered_by_git_tag
-          - pin_tag_at
-          - SILK_CLIENT_ID
-          - SILK_CLIENT_SECRET
-          - otel_trace_id
-          - otel_parent_id
-          - otel_collector_endpoint
+        <<: *e2e_include_expansions_in_env
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         binary: scripts/evergreen/run_python.sh pipeline.py --include ${image_name} --parallel --sign
 
   teardown_cloud_qa_all:
-    - *python_venv
-    - *python_requirements
     - *switch_context
     - command: shell.exec
       type: setup
@@ -639,8 +614,6 @@ functions:
         files: [ "src/github.com/10gen/ops-manager-kubernetes/*.suite", "src/github.com/10gen/ops-manager-kubernetes/public/tools/multicluster/*.suite", "src/github.com/10gen/ops-manager-kubernetes/docker/mongodb-enterprise-init-ops-manager/mmsconfiguration/*.suite" ]
 
   test_python_unit:
-    - *python_venv
-    - *python_requirements
     - command: shell.exec
       type: test
       params:
@@ -651,8 +624,6 @@ functions:
           make python-tests
 
   test_sboms:
-    - *python_venv
-    - *python_requirements
     - command: shell.exec
       type: test
       params:
@@ -664,8 +635,6 @@ functions:
 
   generate_perf_tests_tasks:
     - *switch_context
-    - *python_venv
-    - *python_requirements
     - command: shell.exec
       type: setup
       params:

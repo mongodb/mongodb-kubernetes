@@ -8,6 +8,8 @@ images:
   - name: build
     task_type: docker_build
     dockerfile: Dockerfile
+    buildargs:
+      PYTHON_VERSION: $(inputs.params.python_version)
     output:
     - registry: $(inputs.params.registry)/mongodb-enterprise-tests
       tag: latest
