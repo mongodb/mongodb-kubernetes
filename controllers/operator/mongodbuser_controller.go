@@ -370,6 +370,13 @@ func (r *MongoDBUserReconciler) handleScramShaUser(ctx context.Context, user *us
 		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("error updating user %w", err)), log)
 	}
 
+	// Before we update the MongoDBUser's status to Updated,
+	// we need to wait for the cluster to be in a ready state
+	// to ensure that the user has been created successfully and is usable.
+	if err := waitForReadyState(conn, log); err != nil {
+		return r.updateStatus(ctx, user, workflow.Pending("error waiting for ready state: %s", err.Error()).WithRetry(10), log)
+	}
+
 	annotationsToAdd, err := getAnnotationsForUserResource(user)
 	if err != nil {
 		return r.updateStatus(ctx, user, workflow.Failed(err), log)
@@ -413,6 +420,13 @@ func (r *MongoDBUserReconciler) handleExternalAuthUser(ctx context.Context, user
 		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("error updating user %w", err)), log)
 	}
 
+	// Before we update the MongoDBUser's status to Updated,
+	// we need to wait for the cluster to be in a ready state
+	// to ensure that the user has been created successfully and is usable.
+	if err := waitForReadyState(conn, log); err != nil {
+		return r.updateStatus(ctx, user, workflow.Pending("error waiting for ready state: %s", err.Error()).WithRetry(10), log)
+	}
+
 	annotationsToAdd, err := getAnnotationsForUserResource(user)
 	if err != nil {
 		return r.updateStatus(ctx, user, workflow.Failed(err), log)
@@ -424,6 +438,16 @@ func (r *MongoDBUserReconciler) handleExternalAuthUser(ctx context.Context, user
 
 	log.Infow("Finished reconciliation for MongoDBUser!")
 	return r.updateStatus(ctx, user, workflow.OK(), log)
+}
+
+func waitForReadyState(conn om.Connection, log *zap.SugaredLogger) error {
+	automationConfig, err := conn.ReadAutomationConfig()
+	if err != nil {
+		return err
+	}
+
+	processes := automationConfig.Deployment.GetAllProcessNames()
+	return om.WaitForReadyState(conn, processes, false, log)
 }
 
 func externalAuthMechanismsAvailable(mechanisms []string) bool {

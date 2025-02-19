@@ -1,5 +1,12 @@
 [//]: # (Consider renaming or removing the header for next release, otherwise it appears as duplicate in the published release, e.g: https://github.com/mongodb/mongodb-enterprise-kubernetes/releases/tag/1.22.0 )
 <!-- Next Release -->
+# MongoDB Enterprise Kubernetes Operator 1.32.0
+
+## Bug Fixes
+* Fixes the bug when status of `MongoDBUser` was being set to `Updated` prematurely. For example, new users were not immediately usable following `MongoDBUser` creation despite the operator reporting `Updated` state.
+
+<!-- Past releases -->
+
 # MongoDB Enterprise Kubernetes Operator 1.31.0
 
 ## Kubernetes versions
@@ -14,7 +21,7 @@
 ## New Features
 
 * **MongoDB**: fixes and improvements to Multi-Cluster Sharded Cluster deployments (Public Preview)
-* **MongoDB**: `spec.shardOverrides` field, which was added in 1.28.0 as part of Multi-Cluster Sharded Cluster Public Preview is now fully supported for single-cluster topologies and is the recommended way of customizing settings for specific shards. 
+* **MongoDB**: `spec.shardOverrides` field, which was added in 1.28.0 as part of Multi-Cluster Sharded Cluster Public Preview is now fully supported for single-cluster topologies and is the recommended way of customizing settings for specific shards.
 * **MongoDB**: `spec.shardSpecificPodSpec` was deprecated. The recommended way of customizing specific shard settings is to use `spec.shardOverrides` for both Single and Multi Cluster topology. An example of how to migrate the settings to spec.shardOverrides is available [here](https://github.com/mongodb/mongodb-enterprise-kubernetes/blob/master/samples/sharded_multicluster/shardSpecificPodSpec_migration.yaml).
 
 ## Bug Fixes
@@ -23,8 +30,6 @@
 
 ## Kubernetes versions
   * The minimum supported Kubernetes version for this operator is 1.29 and OpenShift 4.17.
-
-<!-- Past Releases -->
 
 # MongoDB Enterprise Kubernetes Operator 1.29.0
 
@@ -40,12 +45,12 @@
 
 ## New Features
 
-* **MongoDB**: public preview release of multi kubernetes cluster support for sharded clusters. This can be enabled by setting `spec.topology=MultiCluster` when creating `MongoDB` resource of `spec.type=ShardedCluster`. More details can be found [here](https://www.mongodb.com/docs/kubernetes-operator/master/multi-cluster-sharded-cluster/). 
+* **MongoDB**: public preview release of multi kubernetes cluster support for sharded clusters. This can be enabled by setting `spec.topology=MultiCluster` when creating `MongoDB` resource of `spec.type=ShardedCluster`. More details can be found [here](https://www.mongodb.com/docs/kubernetes-operator/master/multi-cluster-sharded-cluster/).
 * **MongoDB**, **MongoDBMultiCluster**: support for automated expansion of the PVC.
   More details can be found [here](https://www.mongodb.com/docs/kubernetes-operator/upcoming/tutorial/resize-pv-storage/).
   **Note**: Expansion of the pvc is only supported if the storageClass supports expansion.
   Please ensure that the storageClass supports in-place expansion without data-loss.
-  * **MongoDB** This can be done by increasing the size of the PVC in the CRD setting: 
+  * **MongoDB** This can be done by increasing the size of the PVC in the CRD setting:
     * one PVC - increase: `spec.persistence.single.storage`
     * multiple PVCs - increase: `spec.persistence.multiple.(data/journal/logs).storage`
   * **MongoDBMulti** This can be done by increasing the storage via the statefulset override:
@@ -61,7 +66,7 @@
                 storage: 2Gi # this is my increased storage
                 storageClass: <my-class-that-supports-expansion>
 ```
-* **MongoDB**, **MongoDBMultiCluster** **AppDB**: change default behaviour of setting featurecompatibilityversion (fcv) for the database. 
+* **MongoDB**, **MongoDBMultiCluster** **AppDB**: change default behaviour of setting featurecompatibilityversion (fcv) for the database.
   * When upgrading mongoDB version the operator sets the FCV to the prior version we are upgrading from. This allows to
   have sanity checks before setting the fcv to the upgraded version. More information can be found [here](https://www.mongodb.com/docs/kubernetes-operator/current/reference/k8s-operator-specification/#mongodb-setting-spec.featureCompatibilityVersion).
   * To keep the prior behaviour to always use the mongoDB version as FCV; set `spec.featureCompatibilityVersion: "AlwaysMatchVersion"`
@@ -78,7 +83,7 @@ For a full `ubi9` setup, the [Static Containers](https://www.mongodb.com/docs/ku
 
 ## New Features
 
-* **MongoDB** Added Support for enabling LogRotation for MongoDB processes, MonitoringAgent and BackupAgent. More can be found in the following [documentation](LINK TO DOCS). 
+* **MongoDB** Added Support for enabling LogRotation for MongoDB processes, MonitoringAgent and BackupAgent. More can be found in the following [documentation](LINK TO DOCS).
   * `spec.agent.mongod.logRotation` to configure the mongoDB processes
   * `spec.agent.mongod.auditLogRotation` to configure the mongoDB processes audit logs
   * `spec.agent.backupAgent.logRotation` to configure the backup agent
@@ -88,14 +93,14 @@ For a full `ubi9` setup, the [Static Containers](https://www.mongodb.com/docs/ku
   the supported environment settings can be found [here](https://github.com/mongodb/mongodb-kubernetes-operator/blob/master/docs/logging.md#readinessprobe).
   * the same applies for AppDB:
     * you can configure AppDB via `spec.applicationDatabase.agent.mongod.logRotation`
-  * Please Note: For shardedCluster we only support configuring logRotation under `spec.Agent` 
-  and not per process type (mongos, configsrv etc.) 
+  * Please Note: For shardedCluster we only support configuring logRotation under `spec.Agent`
+  and not per process type (mongos, configsrv etc.)
 
 * **Opsmanager** Added support for replacing the logback.xml which configures general logging settings like logRotation
   * `spec.logging.LogBackAccessRef` points at a ConfigMap/key with the logback access configuration file to mount on the Pod
     * the key of the configmap has to be `logback-access.xml`
   * `spec.logging.LogBackRef` points at a ConfigMap/key with the logback access configuration file to mount on the Pod
-    * the key of the configmap has to be `logback.xml` 
+    * the key of the configmap has to be `logback.xml`
 
 ## Deprecations
 
@@ -108,7 +113,7 @@ For a full `ubi9` setup, the [Static Containers](https://www.mongodb.com/docs/ku
   The agent now makes sure that there are not conflicting journal data and prioritizes the data from `/data/journal`.
     * To deactivate this behaviour set the environment variable in the operator `MDB_CLEAN_JOURNAL`
       to any other value than 1.
-* **MongoDB**, **AppDB**, **MongoDBMulti**: make sure to use external domains in the connectionString created if configured.  
+* **MongoDB**, **AppDB**, **MongoDBMulti**: make sure to use external domains in the connectionString created if configured.
 
 * **MongoDB**: Removed panic response when configuring shorter horizon config compared to number of members. The operator now signals a
 descriptive error in the status of the **MongoDB** resource.
@@ -120,8 +125,8 @@ descriptive error in the status of the **MongoDB** resource.
 ## New Features
 
 * Added the ability to control how many reconciles can be performed in parallel by the operator.
-  This enables strongly improved cpu utilization and vertical scaling of the operator and will lead to quicker reconcile of all managed resources. 
-  * It might lead to increased load on the Ops Manager and K8s API server in the same time window. 
+  This enables strongly improved cpu utilization and vertical scaling of the operator and will lead to quicker reconcile of all managed resources.
+  * It might lead to increased load on the Ops Manager and K8s API server in the same time window.
     by setting `MDB_MAX_CONCURRENT_RECONCILES` for the operator deployment or `operator.maxConcurrentReconciles` in the operator's Helm chart.
     If not provided, the default value is 1.
     * Observe the operator's resource usage and adjust (`operator.resources.requests` and `operator.resources.limits`) if needed.
@@ -148,7 +153,7 @@ descriptive error in the status of the **MongoDB** resource.
     * The Operator supports seamless migration between the Static and non-Static architectures.
     * To learn more please see the relevant documentation:
       * [Use Static Containers](https://www.mongodb.com/docs/kubernetes-operator/stable/tutorial/plan-k8s-op-considerations/#use-static-containers--beta-)
-      * [Migrate to Static Containers](https://www.mongodb.com/docs/kubernetes-operator/stable/tutorial/plan-k8s-op-container-images/#migrate-to-static-containers) 
+      * [Migrate to Static Containers](https://www.mongodb.com/docs/kubernetes-operator/stable/tutorial/plan-k8s-op-container-images/#migrate-to-static-containers)
 * **MongoDB**: Recover Resource Due to Broken Automation Configuration has been extended to all types of MongoDB resources, now including Sharded Clusters. For more information see https://www.mongodb.com/docs/kubernetes-operator/master/reference/troubleshooting/#recover-resource-due-to-broken-automation-configuration
 * **MongoDB, MongoDBMultiCluster**: Placeholders in external services.
     * You can now define annotations for external services managed by the operator that contain placeholders which will be automatically replaced to the proper values.
@@ -159,9 +164,9 @@ descriptive error in the status of the **MongoDB** resource.
       * MongoDBMultiCluster: [spec.externalAccess.externalService.annotations](https://www.mongodb.com/docs/kubernetes-operator/stable/reference/k8s-operator-multi-cluster-specification/#mongodb-setting-spec.externalAccess.externalService.annotations)
 *  `kubectl mongodb`:
   * Added printing build info when using the plugin.
-  * `setup` command: 
+  * `setup` command:
     * Added `--image-pull-secrets` parameter. If specified, created service accounts will reference the specified secret on `ImagePullSecrets` field.
-    * Improved handling of configurations when the operator is installed in a separate namespace than the resources it's watching and when the operator is watching more than one namespace. 
+    * Improved handling of configurations when the operator is installed in a separate namespace than the resources it's watching and when the operator is watching more than one namespace.
     * Optimized roles and permissions setup in member clusters, using a single service account per cluster with correctly configured Role and RoleBinding (no ClusterRoles necessary) for each watched namespace.
 * **OpsManager**: Added the `spec.internalConnectivity` field to allow overrides for the service used by the operator to ensure internal connectivity to the `OpsManager` pods.
 * Extended the existing event based reconciliation by a time-based one, that is triggered every 24 hours. This ensures all Agents are always upgraded on timely manner.
@@ -216,12 +221,12 @@ actually defined in `spec.externalAccess.externalDomain` or `spec.clusterSpecLis
 ## Bug Fixes
 * Fix a bug with scaling a multi-cluster replica-set in the case of losing connectivity to a member cluster. The fix addresses both the manual and automated recovery procedures.
 * Fix of a bug where changing the names of the automation agent and MongoDB audit logs prevented them from being sent to Kubernetes pod logs. There are no longer restrictions on MongoDB audit log file names (mentioned in the previous release).
-* New log types from the `mongodb-enterprise-database` container are now streamed to Kubernetes logs. 
-  * New log types: 
+* New log types from the `mongodb-enterprise-database` container are now streamed to Kubernetes logs.
+  * New log types:
     * agent-launcher-script
     * monitoring-agent
     * backup-agent
-  * The rest of available log types: 
+  * The rest of available log types:
     * automation-agent-verbose
     * automation-agent-stderr
     * automation-agent
@@ -578,7 +583,6 @@ spec:
     enabled ApplicationDB, when the ApplicationDB TLS certificate is stored in a
     `Secret` of type Opaque.
 
-<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.15.0
 
 

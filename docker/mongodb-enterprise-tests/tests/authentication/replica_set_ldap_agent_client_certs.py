@@ -141,6 +141,11 @@ def test_replica_set(replica_set: MongoDB):
 
 
 @mark.e2e_replica_set_ldap_agent_client_certs
+def test_ldap_user_mongodb_reaches_updated_phase(ldap_user_mongodb: MongoDBUser):
+    ldap_user_mongodb.assert_reaches_phase(Phase.Updated, timeout=150)
+
+
+@mark.e2e_replica_set_ldap_agent_client_certs
 def test_new_ldap_users_can_authenticate(replica_set: MongoDB, ldap_user_mongodb: MongoDBUser, ca_path: str):
     tester = replica_set.tester()
 
