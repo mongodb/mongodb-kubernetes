@@ -12,7 +12,7 @@ kubernetes==17.17.0
 pymongo==4.6.3
 pytest==7.4.3
 pytest-asyncio==0.14.0
-PyYAML==5.4.1
+PyYAML==6.0.2
 urllib3==1.26.19
 cryptography==43.0.1
 python-dateutil==2.9.0
@@ -40,7 +40,7 @@ autopep8==1.5.7
 flake8-isort==4.0.0
 mypy==1.14.1
 types-freezegun==0.1.4
-types-PyYAML==5.4.3
+types-PyYAML==6.0.2
 types-pytz==2021.1.0
 types-python-dateutil==0.1.4
 pipupgrade==1.12.0

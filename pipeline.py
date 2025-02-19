@@ -17,7 +17,6 @@ import time
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from distutils.dir_util import copy_tree
 from queue import Queue
 from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple, Union
 
@@ -459,12 +458,18 @@ def build_tests_image(build_configuration: BuildConfiguration):
     shutil.rmtree(public_dest, ignore_errors=True)
 
     # Copy directories and files (recursive copy)
-    copy_tree(helm_src, helm_dest)
-    copy_tree(public_src, public_dest)
+    shutil.copytree(helm_src, helm_dest)
+    shutil.copytree(public_src, public_dest)
     shutil.copyfile("release.json", "docker/mongodb-enterprise-tests/release.json")
     shutil.copyfile("requirements.txt", requirements_dest)
 
-    sonar_build_image(image_name, build_configuration, {}, "inventories/test.yaml")
+    python_version = os.getenv("PYTHON_VERSION", "")
+    if python_version == "":
+        raise Exception("Missing PYTHON_VERSION environment variable")
+
+    buildargs = dict({"python_version": python_version})
+
+    sonar_build_image(image_name, build_configuration, buildargs, "inventories/test.yaml")
 
 
 def build_operator_image(build_configuration: BuildConfiguration):

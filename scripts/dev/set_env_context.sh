@@ -15,3 +15,5 @@ fi
 
 # shellcheck disable=SC1090
 source "${context_file}"
+
+export PATH="${PROJECT_DIR}/bin:${PATH}"

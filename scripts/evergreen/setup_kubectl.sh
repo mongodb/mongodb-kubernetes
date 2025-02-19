@@ -3,7 +3,7 @@ set -Eeou pipefail
 
 source scripts/dev/set_env_context.sh
 
-bindir="${workdir:?}/bin"
+bindir="${PROJECT_DIR}/bin"
 mkdir -p "${bindir}"
 
 echo "Downloading latest kubectl"

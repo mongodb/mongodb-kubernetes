@@ -4,33 +4,15 @@ set -Eeou pipefail
 source scripts/funcs/printing
 source scripts/dev/set_env_context.sh
 
-title "The following tools will be installed: kubectl, kops, helm, coreutils"
+tools="kubectl helm coreutils kind jq shellcheck python@${PYTHON_VERSION}"
+echo "The following tools will be installed using homebrew: ${tools}"
 echo "Note, that you must download 'go' and Docker by yourself"
 
-grep -a "KOPS_STATE_STORE='s3://kube-om-state-store'" ~/.bashrc || echo "export KOPS_STATE_STORE='s3://kube-om-state-store'" >> ~/.bashrc
 grep -a "/usr/local/opt/coreutils/libexec/gnubin:\$PATH" ~/.bashrc || echo "PATH=\"/usr/local/opt/coreutils/libexec/gnubin:\$PATH\"" >> ~/.bashrc
 
 if [ "$(uname)" = "Darwin" ] ; then
-  # kubectl
-  brew install kubectl
-
-  # kops
-  brew install kops  || true
-
-  # helm
-  brew install helm  || true
-
-  # coreutils
-  brew install coreutils  || true
-
-  # kind
-  brew install kind  || true
-
-  # jq
-  brew install jq
-
-  brew install shellcheck
-
+  # shellcheck disable=SC2086
+  brew install ${tools}  2>&1 | prepend "brew install"
 elif [ "$(uname)" = "Linux" ] ; then # Ubuntu only
   sudo snap install kubectl --classic  || true
 
@@ -53,6 +35,6 @@ else
 fi
 
 echo "Installing Python packages"
-PIP_CONSTRAINT=constraints.txt python -m pip install -r requirements.txt
+scripts/dev/recreate_python_venv.sh 2>&1 | prepend "recreate_python_venv.sh"
 
 title "Tools are installed"

@@ -3,8 +3,8 @@ set -Eeou pipefail
 
 source scripts/dev/set_env_context.sh
 
-bindir="${workdir:?}/bin"
-mkdir -p "${workdir}/bin/"
+bindir="${PROJECT_DIR:?}/bin"
+mkdir -p "${PROJECT_DIR}/bin/"
 
 echo "Downloading shellcheck"
 shellcheck=shellcheck.tar.xz
