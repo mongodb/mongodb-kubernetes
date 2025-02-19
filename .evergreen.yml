@@ -539,6 +539,7 @@ task_groups:
     setup_group_can_fail_task: true
     setup_group:
       - func: clone
+      - func: python_venv
       - func: download_kube_tools
       - func: setup_shellcheck
     tasks:

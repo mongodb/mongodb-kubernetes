@@ -32,4 +32,3 @@ check_mandatory_param() {
         fatal "Parameter ${param_name} must be specified!"
     fi
 }
-

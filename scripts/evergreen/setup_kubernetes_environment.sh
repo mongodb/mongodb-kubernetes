@@ -5,7 +5,7 @@ source scripts/dev/set_env_context.sh
 source scripts/funcs/kubernetes
 
 # shellcheck disable=SC2154
-bindir="${workdir}/bin"
+bindir="${PROJECT_DIR}/bin"
 
 if [[ "${KUBE_ENVIRONMENT_NAME}" == "vanilla" || ("${KUBE_ENVIRONMENT_NAME}" == "multi" && "${CLUSTER_TYPE}" == "kops") ]]; then
     export AWS_ACCESS_KEY_ID="${mms_eng_test_aws_access_key:?}"

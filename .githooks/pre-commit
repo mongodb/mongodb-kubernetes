@@ -3,8 +3,8 @@
 set -Eeou pipefail
 
 source scripts/dev/set_env_context.sh
-if [ -f "${workdir}"/venv/bin/activate ]; then
-  source "${workdir}"/venv/bin/activate
+if [ -f "${PROJECT_DIR}"/venv/bin/activate ]; then
+  source "${PROJECT_DIR}"/venv/bin/activate
 fi
 
 if [[ -z "${EVERGREEN_MODE:-}" ]]; then

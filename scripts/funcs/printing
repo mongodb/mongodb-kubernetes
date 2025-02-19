@@ -18,3 +18,6 @@ prepend() {
   prefix=$1
   awk -v prefix="${prefix}" '{printf "%s: %s\n", prefix, $0}'
 }
+
+export RED='\033[0;31m'
+export NO_COLOR='\033[0m'

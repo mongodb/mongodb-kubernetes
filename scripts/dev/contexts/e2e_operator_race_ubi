@@ -16,3 +16,6 @@ export TEST_POD_CLUSTER=kind-e2e-cluster-1
 export test_pod_cluster=kind-e2e-cluster-1
 export ops_manager_version="cloud_qa"
 export BUILD_WITH_RACE_DETECTION=true
+
+# there is no python 3.13 in ubuntu1804-xlarge
+export PYTHON_VERSION=3.12
