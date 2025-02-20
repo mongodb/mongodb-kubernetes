@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Note: running directly docker system prune and related commands won't be enough since
 # images are accumulated via containerd which is running in docker. So you need to jump into docker and cleanup

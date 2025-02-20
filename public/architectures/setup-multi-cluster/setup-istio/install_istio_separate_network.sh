@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # This script is an adjusted version of the official Istio guide:
 # https://istio.io/latest/docs/setup/install/multicluster/multi-primary_multi-network/

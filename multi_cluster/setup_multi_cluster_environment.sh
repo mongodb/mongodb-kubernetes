@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 aws_region="eu-west-2"
 region="${aws_region}a"

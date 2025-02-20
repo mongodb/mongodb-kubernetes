@@ -164,7 +164,7 @@ reset_namespace() {
   # a while to delete it.
   should_wait="false"
   # shellcheck disable=SC2153
-  if [[ ${CONTEXT} == e2e_mdb_openshift_ubi_cloudqa || ${CONTEXT} == e2e_openshift_static_mdb_ubi_cloudqa ]]; then
+  if [[ ${CURRENT_VARIANT_CONTEXT} == e2e_mdb_openshift_ubi_cloudqa || ${CURRENT_VARIANT_CONTEXT} == e2e_openshift_static_mdb_ubi_cloudqa ]]; then
     should_wait="true"
     echo "Removing the test namespace ${namespace}, should_wait=${should_wait}"
     kubectl --context "${context}" delete "namespace/${namespace}" --wait="${should_wait}" || true
