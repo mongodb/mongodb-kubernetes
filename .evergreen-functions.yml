@@ -496,7 +496,7 @@ functions:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         script: |
           source .generated/context.export.env
-          scripts/evergreen/e2e/setup_cloud_qa.py delete_all
+          scripts/evergreen/run_python.sh scripts/evergreen/e2e/setup_cloud_qa.py delete_all
 
   # Updates current expansions with variables from release.json file.
   # Use e.g. ${mongoDbOperator} afterwards.
