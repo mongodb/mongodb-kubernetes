@@ -7,102 +7,68 @@ parameters:
     value: 00:00
     description: Pin tags at this time of the day. Midnight by default.
 
+variables:
+  - &setup_group
+    setup_group_can_fail_task: true
+    setup_group:
+      - func: clone
+      - func: setup_docker_sbom
+      - func: download_kube_tools
+      - func: setup_building_host
+      - func: quay_login
+      - func: switch_context
+
 tasks:
   - name: periodic_build_operator
     commands:
-      - func: clone
-      - func: setup_docker_sbom
-      - func: setup_aws
-      - func: configure_docker_auth
-      - func: quay_login
       - func: pipeline
         vars:
           image_name: operator-daily
 
   - name: periodic_build_init_appdb
     commands:
-      - func: clone
-      - func: setup_docker_sbom
-      - func: setup_aws
-      - func: configure_docker_auth
-      - func: quay_login
       - func: pipeline
         vars:
           image_name: init-appdb-daily
 
   - name: periodic_build_init_database
     commands:
-      - func: clone
-      - func: setup_docker_sbom
-      - func: setup_aws
-      - func: configure_docker_auth
-      - func: quay_login
       - func: pipeline
         vars:
           image_name: init-database-daily
 
   - name: periodic_build_init_opsmanager
     commands:
-      - func: clone
-      - func: setup_docker_sbom
-      - func: setup_aws
-      - func: configure_docker_auth
-      - func: quay_login
       - func: pipeline
         vars:
           image_name: init-ops-manager-daily
 
   - name: periodic_build_database
     commands:
-      - func: clone
-      - func: setup_docker_sbom
-      - func: setup_aws
-      - func: configure_docker_auth
-      - func: quay_login
       - func: pipeline
         vars:
           image_name: database-daily
 
   - name: periodic_build_sbom_cli
     commands:
-      - func: clone
-      - func: setup_docker_sbom
-      - func: setup_aws
-      - func: configure_docker_auth
-      - func: quay_login
       - func: pipeline
         vars:
           image_name: cli
 
   - name: periodic_build_ops_manager_6
     commands:
-      - func: clone
-      - func: setup_docker_sbom
-      - func: setup_aws
-      - func: configure_docker_auth
-      - func: quay_login
       - func: pipeline
         vars:
           image_name: ops-manager-6-daily
 
   - name: periodic_build_ops_manager_7
     commands:
-      - func: clone
-      - func: setup_docker_sbom
-      - func: setup_aws
-      - func: configure_docker_auth
-      - func: quay_login
       - func: pipeline
         vars:
           image_name: ops-manager-7-daily
 
   - name: periodic_build_ops_manager_8
     commands:
-      - func: clone
-      - func: setup_docker_sbom
-      - func: setup_aws
-      - func: configure_docker_auth
-      - func: quay_login
       - func: pipeline
         vars:
           image_name: ops-manager-8-daily
@@ -116,11 +82,6 @@ tasks:
   - name: periodic_build_agent
     exec_timeout_secs: 43200
     commands:
-      - func: clone
-      - func: setup_docker_sbom
-      - func: setup_aws
-      - func: configure_docker_auth
-      - func: quay_login
       - func: enable_QEMU
       - func: pipeline
         vars:
@@ -129,11 +90,6 @@ tasks:
   - name: periodic_build_agent_1
     exec_timeout_secs: 43200
     commands:
-      - func: clone
-      - func: setup_docker_sbom
-      - func: setup_aws
-      - func: configure_docker_auth
-      - func: quay_login
       - func: enable_QEMU
       - func: pipeline
         vars:
@@ -142,11 +98,6 @@ tasks:
   - name: periodic_build_agent_2
     exec_timeout_secs: 43200
     commands:
-      - func: clone
-      - func: setup_docker_sbom
-      - func: setup_aws
-      - func: configure_docker_auth
-      - func: quay_login
       - func: enable_QEMU
       - func: pipeline
         vars:
@@ -155,11 +106,6 @@ tasks:
   - name: periodic_build_agent_3
     exec_timeout_secs: 43200
     commands:
-      - func: clone
-      - func: setup_docker_sbom
-      - func: setup_aws
-      - func: configure_docker_auth
-      - func: quay_login
       - func: enable_QEMU
       - func: pipeline
         vars:
@@ -167,11 +113,6 @@ tasks:
 
   - name: periodic_build_community_operator
     commands:
-      - func: clone
-      - func: setup_docker_sbom
-      - func: setup_aws
-      - func: configure_docker_auth
-      - func: quay_login
       - func: enable_QEMU
       - func: pipeline
         vars:
@@ -179,44 +120,28 @@ tasks:
 
   - name: periodic_build_readiness_probe
     commands:
-      - func: clone
-      - func: setup_docker_sbom
-      - func: setup_aws
-      - func: configure_docker_auth
-      - func: quay_login
       - func: pipeline
         vars:
           image_name: mongodb-kubernetes-readinessprobe-daily
 
   - name: periodic_build_version_upgrade_post_start_hook
     commands:
-      - func: clone
-      - func: setup_docker_sbom
-      - func: setup_aws
-      - func: configure_docker_auth
-      - func: quay_login
       - func: pipeline
         vars:
           image_name: mongodb-kubernetes-operator-version-upgrade-post-start-hook-daily
 
   - name: periodic_build_appdb_database
     commands:
-      - func: clone
-      - func: setup_docker_sbom
-      - func: setup_aws
-      - func: configure_docker_auth
-      - func: quay_login
       - func: build_and_push_appdb_database
 
   - name: teardowns
     commands:
-      - func: clone
       - func: teardown_cloud_qa_all
-      - func: cleanup_aws
 
 task_groups:
   - name: periodic_build_task_group
     max_hosts: -1
+    <<: *setup_group
     tasks:
       - periodic_build_operator
       - periodic_build_readiness_probe
@@ -237,6 +162,7 @@ task_groups:
       - periodic_build_agent_3
 
   - name: periodic_teardown_task_group
+    <<: *setup_group
     tasks:
       - teardowns
 
@@ -253,7 +179,7 @@ buildvariants:
     display_name: periodic_build
     tags: [ "periodic_build" ]
     run_on:
-      - ubuntu1804-large
+      - ubuntu2204-large
     tasks:
       - name: periodic_build_task_group
 
