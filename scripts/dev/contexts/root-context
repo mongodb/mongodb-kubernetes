@@ -35,8 +35,8 @@ fi
 
 export OPERATOR_ENV=${OPERATOR_ENV:-"dev"}
 
-# provide a way to automatically source it from release.json/agentVersion
-export AGENT_VERSION="107.0.0.8502-1"
+AGENT_VERSION="$(jq -r '.agentVersion' release.json)"
+export AGENT_VERSION
 export AGENT_IMAGE="${MDB_AGENT_IMAGE_REPOSITORY}:${AGENT_VERSION}"
 
 # Ops Manager
