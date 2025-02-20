@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -Eeou pipefail
 
 export VERSION=${VERSION:-1.16.1}
