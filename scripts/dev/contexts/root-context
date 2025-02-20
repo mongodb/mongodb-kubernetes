@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 set -Eeou pipefail
 
@@ -68,8 +68,6 @@ else
   KUBECONFIG=~/.kube/config
 fi
 export KUBECONFIG
-# Passed by the switch_context.sh
-export CONTEXT="${context:-"unknown"}"
 
 if [[ "$(uname)" == "Linux" ]]; then
   export GOROOT=/opt/golang/go1.23

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 ###
 # This is a cleanup script for preparing cloud-qa to e2e run.
