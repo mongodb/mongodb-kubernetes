@@ -40,9 +40,10 @@ def describe_all_ecr_images(repository: str) -> List[dict]:
     return images
 
 
-def filter_images_matching_tag(images: List[dict]) -> List[dict]:
-    """Filter list for images containing the target pattern"""
-    images_matching_tag = []
+def filter_tags_to_delete(images: List[dict]) -> List[dict]:
+    """Filter the image list to only delete tags matching the pattern, signatures, or untagged images."""
+    filtered_images = []
+    untagged_count = 0
     for image_detail in images:
         if "imageTags" in image_detail:
             for tag in image_detail["imageTags"]:
@@ -54,8 +55,24 @@ def filter_images_matching_tag(images: List[dict]) -> List[dict]:
                 # Note that if the operator ever gets to major version 6, some tags can unintentionally match '_6'
                 # It is an easy and relatively reliable way of identifying our test images tags
                 if "_6" in tag or ".sig" in tag or contains_timestamped_tag(tag):
-                    images_matching_tag.append({"imageTag": tag, "imagePushedAt": image_detail["imagePushedAt"]})
-    return images_matching_tag
+                    filtered_images.append(
+                        {
+                            "imageTag": tag,
+                            "imagePushedAt": image_detail["imagePushedAt"],
+                            "imageDigest": image_detail["imageDigest"],
+                        }
+                    )
+        else:
+            filtered_images.append(
+                {
+                    "imageTag": "",
+                    "imagePushedAt": image_detail["imagePushedAt"],
+                    "imageDigest": image_detail["imageDigest"],
+                }
+            )
+            untagged_count += 1
+    print(f"found {untagged_count} untagged images")
+    return filtered_images
 
 
 # match 107.0.0.8502-1-b20241125T000000Z-arm64
@@ -70,9 +87,20 @@ def get_images_with_dates(repository: str) -> List[dict]:
     """Retrieve the list of patch images, corresponding to the regex, with push dates"""
     ecr_images = describe_all_ecr_images(repository)
     print(f"Found {len(ecr_images)} images in repository {repository}")
-    images_matching_tag = filter_images_matching_tag(ecr_images)
+    images_matching_tag = filter_tags_to_delete(ecr_images)
 
     return images_matching_tag
+
+
+def batch_delete_images(repository: str, images: List[dict]) -> None:
+    print(f"Deleting {len(images)} images in repository {repository}")
+    digests_to_delete = [{"imageDigest": image["imageDigest"]} for image in images]
+    # batch_delete_image only support a maximum of 100 images at a time
+    for i in range(0, len(digests_to_delete), 100):
+        batch = digests_to_delete[i : i + 100]
+        print(f"Deleting batch {i//100 + 1} with {len(batch)} images...")
+        ecr_client.batch_delete_image(repositoryName=repository, registryId=REGISTRY_ID, imageIds=batch)
+    print(f"Deleted images")
 
 
 def delete_image(repository: str, image_tag: str) -> None:
@@ -92,26 +120,28 @@ def delete_images(
     # Process the images, deleting those older than the threshold
     delete_count = 0
     age_threshold_timedelta = timedelta(days=age_threshold)
+    images_to_delete = []
     for image in images_with_dates:
         tag = image["imageTag"]
         push_date = image["imagePushedAt"]
         image_age = current_time - push_date
 
-        log_message_base = f"Image {tag}, was pushed at {push_date.isoformat()}"
+        log_message_base = f"Image {tag if tag else 'UNTAGGED'} was pushed at {push_date.isoformat()}"
         delete_message = "should be cleaned up" if dry_run else "deleting..."
         if image_age > age_threshold_timedelta:
             print(f"{log_message_base}, older than {age_threshold} day(s), {delete_message}")
-            if not dry_run:
-                delete_image(repository, tag)
+            images_to_delete.append(image)
             delete_count += 1
         else:
             print(f"{log_message_base}, not older than {age_threshold} day(s)")
+    if not dry_run:
+        batch_delete_images(repository, images_to_delete)
     deleted_message = "need to be cleaned up" if dry_run else "deleted"
     print(f"{delete_count} images {deleted_message}")
 
 
 def cleanup_repository(repository: str, age_threshold: int = DEFAULT_AGE_THRESHOLD_DAYS, dry_run: bool = False):
-    print(f"Cleaning up images older than {DEFAULT_AGE_THRESHOLD_DAYS} day(s) from repository {repository}")
+    print(f"Cleaning up images older than {age_threshold} day(s) from repository {repository}")
     print("Getting list of images...")
     images_with_dates = get_images_with_dates(repository)
     print(f"Images matching the pattern: {len(images_with_dates)}")
