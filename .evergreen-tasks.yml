@@ -12,6 +12,7 @@ tasks:
     tags: [ "image_preflight" ]
     commands:
       - func: clone
+      - func: python_venv
       - func: setup_preflight
       - func: preflight_image
         vars:
@@ -33,6 +34,7 @@ tasks:
     tags: [ "image_preflight" ]
     commands:
       - func: clone
+      - func: python_venv
       - func: setup_preflight
       - func: preflight_image
         vars:
@@ -42,6 +44,7 @@ tasks:
     tags: [ "image_preflight" ]
     commands:
       - func: clone
+      - func: python_venv
       - func: setup_preflight
       - func: preflight_image
         vars:
@@ -51,6 +54,7 @@ tasks:
     tags: [ "image_preflight" ]
     commands:
       - func: clone
+      - func: python_venv
       - func: setup_preflight
       - func: preflight_image
         vars:
@@ -60,6 +64,7 @@ tasks:
     tags: [ "image_preflight" ]
     commands:
       - func: clone
+      - func: python_venv
       - func: setup_preflight
       - func: preflight_image
         vars:
