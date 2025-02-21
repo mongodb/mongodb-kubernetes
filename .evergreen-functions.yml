@@ -393,7 +393,7 @@ functions:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         script: |
           echo "Enabling QEMU building for Docker"
-          sudo docker run --rm --privileged 268558157000.dkr.ecr.eu-west-1.amazonaws.com/docker-hub-mirrors/multiarch/qemu-user-static --reset -p yes
+          docker run --rm --privileged 268558157000.dkr.ecr.eu-west-1.amazonaws.com/docker-hub-mirrors/multiarch/qemu-user-static --reset -p yes
 
   upload_dockerfiles:
     - command: s3.put

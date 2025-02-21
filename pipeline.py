@@ -16,7 +16,7 @@ import tarfile
 import time
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from queue import Queue
 from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple, Union
 
@@ -215,7 +215,7 @@ def should_pin_at() -> Optional[Tuple[str, str]]:
         raise MissingEnvironmentVariable(f"pin_tag_at environment variable does not exist, but is required")
     if is_patch:
         if pinned == "00:00":
-            raise "Pinning to midnight during a patch is not supported. Please pin to another date!"
+            raise Exception("Pinning to midnight during a patch is not supported. Please pin to another date!")
 
     hour, _, minute = pinned.partition(":")
     return hour, minute
@@ -239,7 +239,7 @@ def build_id() -> str:
 
     """
 
-    date = datetime.utcnow()
+    date = datetime.now(timezone.utc)
     try:
         created_at = os.environ["created_at"]
         date = datetime.strptime(created_at, "%y_%m_%d_%H_%M_%S")
