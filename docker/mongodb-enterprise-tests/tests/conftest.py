@@ -844,6 +844,7 @@ def install_official_operator(
     helm_args = {
         "registry.imagePullSecrets": operator_installation_config["registry.imagePullSecrets"],
         "managedSecurityContext": managed_security_context,
+        "operator.mdbDefaultArchitecture": operator_installation_config["operator.mdbDefaultArchitecture"],
     }
     name = "mongodb-enterprise-operator"
 
