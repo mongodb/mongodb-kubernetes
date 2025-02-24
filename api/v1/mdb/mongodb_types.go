@@ -30,7 +30,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/fcv"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 )
@@ -671,7 +670,7 @@ func (m *MongoDB) CurrentReplicas() int {
 
 // GetMongoDBVersion returns the version of the MongoDB.
 func (m *MongoDbSpec) GetMongoDBVersion(annotations map[string]string) string {
-	return architectures.GetMongoVersionForAutomationConfig(m.Version, annotations)
+	return m.Version
 }
 
 func (m *MongoDbSpec) GetClusterDomain() string {

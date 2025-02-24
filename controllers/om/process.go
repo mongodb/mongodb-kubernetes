@@ -13,6 +13,7 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
 )
 
@@ -396,7 +397,7 @@ type ProcessOption func(process Process)
 
 func WithResourceSpec(resourceSpec mdbv1.DbSpec, annotations map[string]string, fcv string) ProcessOption {
 	return func(process Process) {
-		processVersion := resourceSpec.GetMongoDBVersion(annotations)
+		processVersion := architectures.GetMongoVersionForAutomationConfig(resourceSpec.GetMongoDBVersion(nil), annotations)
 		process["version"] = processVersion
 		process["authSchemaVersion"] = CalculateAuthSchemaVersion()
 		process["featureCompatibilityVersion"] = fcv

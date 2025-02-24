@@ -27,7 +27,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster/failedcluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
 	intp "github.com/10gen/ops-manager-kubernetes/pkg/util/int"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 )
@@ -504,7 +503,7 @@ func (m *MongoDBMultiSpec) GetClusterDomain() string {
 }
 
 func (m *MongoDBMultiSpec) GetMongoDBVersion(annotations map[string]string) string {
-	return architectures.GetMongoVersionForAutomationConfig(m.Version, annotations)
+	return m.Version
 }
 
 func (m *MongoDBMultiSpec) GetSecurityAuthenticationModes() []string {
