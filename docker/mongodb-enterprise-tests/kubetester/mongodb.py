@@ -77,7 +77,7 @@ class MongoDB(CustomObject, MongoDBCommon):
         super(MongoDB, self).__init__(*args, **with_defaults)
 
     @classmethod
-    def from_yaml(cls, yaml_file, name=None, namespace=None):
+    def from_yaml(cls, yaml_file, name=None, namespace=None) -> MongoDB:
         resource = super().from_yaml(yaml_file=yaml_file, name=name, namespace=namespace)
         custom_mdb_prev_version = os.getenv("CUSTOM_MDB_VERSION")
         custom_mdb_version = os.getenv("CUSTOM_MDB_VERSION")

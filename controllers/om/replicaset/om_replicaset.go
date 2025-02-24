@@ -36,7 +36,7 @@ func BuildFromStatefulSetWithReplicas(set appsv1.StatefulSet, dbSpec mdbv1.DbSpe
 // https://jira.mongodb.org/browse/HELP-3818?focusedCommentId=1548348 for more details)
 // Note, that we are skipping setting nodes as "disabled" (but the code is commented to be able to revert this if
 // needed)
-func PrepareScaleDownFromMap(omClient om.Connection, rsMembers map[string][]string, healthyProcessesToWaitForGoalState []string, log *zap.SugaredLogger) error {
+func PrepareScaleDownFromMap(omClient om.Connection, rsMembers map[string][]string, processesToWaitForGoalState []string, log *zap.SugaredLogger) error {
 	processes := make([]string, 0)
 	for _, v := range rsMembers {
 		processes = append(processes, v...)
@@ -59,7 +59,7 @@ func PrepareScaleDownFromMap(omClient om.Connection, rsMembers map[string][]stri
 			return xerrors.Errorf("unable to set votes, priority to 0 in Ops Manager, hosts: %v, err: %w", processes, err)
 		}
 
-		if err := om.WaitForReadyState(omClient, healthyProcessesToWaitForGoalState, false, log); err != nil {
+		if err := om.WaitForReadyState(omClient, processesToWaitForGoalState, false, log); err != nil {
 			return err
 		}
 
