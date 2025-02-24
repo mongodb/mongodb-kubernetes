@@ -55,8 +55,12 @@ def is_multi_cluster():
     return len(os.getenv("MEMBER_CLUSTERS", "")) > 0
 
 
-def is_static_containers_architecture():
+def is_static_containers_architecture() -> bool:
     return os.getenv("MDB_DEFAULT_ARCHITECTURE", "non-static") == "static"
+
+
+def get_static_containers_architecture() -> str:
+    return "static" if is_static_containers_architecture() else "non-static"
 
 
 skip_if_static_containers = pytest.mark.skipif(

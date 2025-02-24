@@ -2,6 +2,10 @@ import pytest
 from kubernetes.client.rest import ApiException
 from kubetester import MongoDB, read_service, wait_for_webhook
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import (
+    get_static_containers_architecture,
+    is_static_containers_architecture,
+)
 from kubetester.opsmanager import MongoDBOpsManager
 from tests.olm.olm_test_commons import (
     get_catalog_image,
@@ -31,6 +35,7 @@ def test_upgrade_operator_only(namespace: str, version_id: str):
     )
     catalog_source_resource.update()
 
+    static_value = get_static_containers_architecture()
     subscription = get_subscription_custom_object(
         "mongodb-enterprise-operator",
         namespace,
@@ -46,6 +51,7 @@ def test_upgrade_operator_only(namespace: str, version_id: str):
                 "env": [
                     {"name": "MANAGED_SECURITY_CONTEXT", "value": "false"},
                     {"name": "OPERATOR_ENV", "value": "dev"},
+                    {"name": "MDB_DEFAULT_ARCHITECTURE", "value": static_value},
                 ]
             },
         },

@@ -11,7 +11,11 @@ from kubetester.awss3client import AwsS3Client
 from kubetester.certs import create_sharded_cluster_certs
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import run_periodically
+from kubetester.kubetester import (
+    get_static_containers_architecture,
+    is_static_containers_architecture,
+    run_periodically,
+)
 from kubetester.mongodb import Phase
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.opsmanager import MongoDBOpsManager
@@ -58,6 +62,7 @@ def catalog_source(namespace: str, version_id: str):
 
 @fixture
 def subscription(namespace: str, catalog_source: CustomObject):
+    static_value = get_static_containers_architecture()
     return get_subscription_custom_object(
         "mongodb-enterprise-operator",
         namespace,
@@ -73,6 +78,7 @@ def subscription(namespace: str, catalog_source: CustomObject):
                 "env": [
                     {"name": "MANAGED_SECURITY_CONTEXT", "value": "false"},
                     {"name": "OPERATOR_ENV", "value": "dev"},
+                    {"name": "MDB_DEFAULT_ARCHITECTURE", "value": static_value},
                 ]
             },
         },
