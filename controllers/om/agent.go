@@ -9,7 +9,7 @@ import (
 
 // Checks if the agents have registered.
 
-type automationAgentStatusResponse struct {
+type AutomationAgentStatusResponse struct {
 	OMPaginated
 	AutomationAgents []AgentStatus `json:"results"`
 }
@@ -22,7 +22,7 @@ type AgentStatus struct {
 	TypeName  string `json:"typeName"`
 }
 
-var _ Paginated = automationAgentStatusResponse{}
+var _ Paginated = AutomationAgentStatusResponse{}
 
 // IsRegistered will return true if this given agent has `hostname_prefix` as a
 // prefix. This is needed to check if the given agent has registered.
@@ -48,7 +48,7 @@ func (agent AgentStatus) IsRegistered(hostnamePrefix string, log *zap.SugaredLog
 }
 
 // Results are needed to fulfil the Paginated interface
-func (aar automationAgentStatusResponse) Results() []interface{} {
+func (aar AutomationAgentStatusResponse) Results() []interface{} {
 	ans := make([]interface{}, len(aar.AutomationAgents))
 	for i, aa := range aar.AutomationAgents {
 		ans[i] = aa

@@ -790,8 +790,7 @@ task_groups:
       - e2e_multi_cluster_sharded_simplest_no_mesh
       - e2e_multi_cluster_sharded_tls_no_mesh
       - e2e_multi_cluster_sharded_tls
-      # To re-activate as part of https://jira.mongodb.org/browse/CLOUDP-288588
-      #- e2e_multi_cluster_sharded_disaster_recovery
+      - e2e_multi_cluster_sharded_disaster_recovery
       - e2e_sharded_cluster
       - e2e_sharded_cluster_agent_flags
       - e2e_sharded_cluster_custom_podspec
@@ -869,6 +868,7 @@ task_groups:
       - e2e_om_update_before_reconciliation
       - e2e_om_feature_controls
       - e2e_multi_cluster_appdb_state_operator_upgrade_downgrade
+      - e2e_multi_cluster_sharded_disaster_recovery
     # disabled tests:
     #    - e2e_om_multiple # multi-cluster failures in EVG
     #    - e2e_om_appdb_scale_up_down # test not "reused" for multi-cluster appdb
@@ -921,6 +921,7 @@ task_groups:
       - e2e_multi_cluster_appdb_state_operator_upgrade_downgrade
       - e2e_om_update_before_reconciliation
       - e2e_om_feature_controls
+      - e2e_multi_cluster_sharded_disaster_recovery
     <<: *teardown_group
 
   # Dedicated task group for deploying OM Multi-Cluster when the operator is in the central cluster
@@ -928,7 +929,7 @@ task_groups:
   - name: e2e_multi_cluster_om_operator_not_in_mesh_task_group
     max_hosts: -1
     <<: *setup_group_multi_cluster
-    <<: *setup_and_teardown_task_cloudqa
+    <<: *setup_and_teardown_task
     tasks:
       - e2e_multi_cluster_om_clusterwide_operator_not_in_mesh_networking
     <<: *teardown_group

@@ -173,6 +173,8 @@ spec:
     - name: OM_DEBUG_HTTP
       value: "{{ .Values.omDebugHttp }}"
     {{ end }}
+    - name: ops_manager_version
+      value: "{{ .Values.opsManagerVersion }}"
     image: {{ .Values.repo }}/mongodb-enterprise-tests:{{ .Values.tag }}
     # Options to pytest command should go in the pytest.ini file.
     command: ["pytest"]

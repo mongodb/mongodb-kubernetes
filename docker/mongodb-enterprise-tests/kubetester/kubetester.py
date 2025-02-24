@@ -918,9 +918,9 @@ class KubernetesTester(object):
         return ids
 
     @staticmethod
-    def get_automation_config(group_id=None):
+    def get_automation_config(group_id=None, group_name=None):
         if group_id is None:
-            group_id = KubernetesTester.get_om_group_id()
+            group_id = KubernetesTester.get_om_group_id(group_name=group_name)
 
         url = build_automation_config_endpoint(KubernetesTester.get_om_base_url(), group_id)
         response = KubernetesTester.om_request("get", url)
