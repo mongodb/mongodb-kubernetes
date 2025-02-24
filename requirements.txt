@@ -14,7 +14,7 @@ pytest==7.4.3
 pytest-asyncio==0.14.0
 PyYAML==6.0.2
 urllib3==1.26.19
-cryptography==43.0.1
+cryptography==44.0.1
 python-dateutil==2.9.0
 python-ldap==3.4.3
 GitPython==3.1.43
