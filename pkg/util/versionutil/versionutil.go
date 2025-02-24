@@ -24,7 +24,7 @@ func StringToSemverVersion(version string) (semver.Version, error) {
 			semverRegex = regexp.MustCompile(`^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)?(-|$)`)
 		}
 		result := semverRegex.FindStringSubmatch(version)
-		if result == nil || len(result) < 4 {
+		if len(result) < 4 {
 			return semver.Version{}, xerrors.Errorf("Ops Manager Status spec.version %s is invalid", version)
 		}
 		// Concatenate Major.Minor.Patch

@@ -9,8 +9,8 @@ source scripts/funcs/multicluster
 source scripts/funcs/kubernetes
 
 if [[ "$(uname)" == "Linux" ]]; then
-  export PATH=/opt/golang/go1.23/bin:${PATH}
-  export GOROOT=/opt/golang/go1.23
+  export PATH=/opt/golang/go1.24/bin:${PATH}
+  export GOROOT=/opt/golang/go1.24
 fi
 
 on_exit() {
@@ -65,7 +65,6 @@ fi
 make install 2>&1 | prepend "make install: "
 test -f "docker/mongodb-enterprise-tests/.test_identifiers" && rm "docker/mongodb-enterprise-tests/.test_identifiers"
 scripts/dev/delete_om_projects.sh
-
 
 if [[ "${DEPLOY_OPERATOR:-"false"}" == "true" ]]; then
   echo "installing operator helm chart to create the necessary sa and roles"
