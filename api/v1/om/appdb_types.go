@@ -21,7 +21,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 )
 
@@ -278,11 +277,6 @@ type ConnectionSpec struct {
 
 type AppDbBuilder struct {
 	appDb *AppDBSpec
-}
-
-// GetMongoDBVersionStatic returns the version of the MongoDB.
-func (m *AppDBSpec) GetMongoDBVersionStatic() string {
-	return architectures.GetMongoVersionForAutomationConfig(m.Version, nil)
 }
 
 // GetMongoDBVersion returns the version of the MongoDB.
