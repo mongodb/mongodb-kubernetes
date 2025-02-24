@@ -2,7 +2,7 @@
 set -Eeou pipefail
 
 # Set required version
-required_version="v1.61.0"
+required_version="v1.64.5"
 
 # Install or update golangci-lint if not installed or version is incorrect
 if ! [[ -x "$(command -v golangci-lint)" ]]; then

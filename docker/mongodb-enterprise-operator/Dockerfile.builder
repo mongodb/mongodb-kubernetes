@@ -4,7 +4,7 @@
 # docker build . -f docker/mongodb-enterprise-operator/Dockerfile.builder
 #
 
-FROM public.ecr.aws/docker/library/golang:1.23 as builder
+FROM public.ecr.aws/docker/library/golang:1.24 as builder
 
 ARG release_version
 ARG log_automation_config_diff

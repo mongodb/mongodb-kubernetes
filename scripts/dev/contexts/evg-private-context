@@ -4,7 +4,6 @@ set -Eeou pipefail
 
 source scripts/evergreen/e2e/lib.sh
 
-
 # This is the default cluster name to be used for single cluster. Multi-cluster variants need to override this.
 export CLUSTER_NAME="kind-kind"
 # In case of EVG tests, those variables need to be empty (in this case we assume an OpsManager test) or created by
@@ -18,7 +17,7 @@ export OM_BASE_URL=""
 # into env vars in the future.
 export ENV_FILE="${workdir:-}/.ops-manager-env"
 if [ -f "${ENV_FILE}" ]; then
-    source "${ENV_FILE}"
+  source "${ENV_FILE}"
 fi
 
 export PROJECT_DIR="${script_dir:-}/../../../"
@@ -30,7 +29,7 @@ if [ -f "${NAMESPACE_FILE}" ]; then
 else
   echo "generating new namespace name"
   NAMESPACE=$(generate_random_namespace)
-  echo "${NAMESPACE}" > "${NAMESPACE_FILE}"
+  echo "${NAMESPACE}" >"${NAMESPACE_FILE}"
 fi
 export NAMESPACE
 
@@ -58,7 +57,7 @@ export INIT_OPS_MANAGER_IMAGE_REPOSITORY=${INIT_IMAGES_REGISTRY}/mongodb-enterpr
 export CLUSTER_TYPE="kind"
 # Empty sting means that we're not using it.
 export EVG_HOST_NAME=""
-export GOROOT="/opt/golang/go1.23"
+export GOROOT="/opt/golang/go1.24"
 
 if [[ ! ${PATH} =~ .*${workdir:-.}/bin.* ]]; then
   export PATH=${PATH}:${workdir:-.}/bin
@@ -77,7 +76,6 @@ export AWS_DEFAULT_REGION="${mms_eng_test_aws_region}"
 export e2e_cloud_qa_orgid_owner="${e2e_cloud_qa_orgid_owner_ubi_cloudqa}"
 export e2e_cloud_qa_apikey_owner="${e2e_cloud_qa_apikey_owner_ubi_cloudqa}"
 export e2e_cloud_qa_user_owner="${e2e_cloud_qa_user_owner_ubi_cloudqa}"
-
 
 export e2e_cloud_qa_baseurl="https://cloud-qa.mongodb.com"
 

@@ -70,7 +70,7 @@ fi
 export KUBECONFIG
 
 if [[ "$(uname)" == "Linux" ]]; then
-  export GOROOT=/opt/golang/go1.23
+  export GOROOT=/opt/golang/go1.24
 fi
 
 export MONGODB_REPO_URL="quay.io/mongodb"
