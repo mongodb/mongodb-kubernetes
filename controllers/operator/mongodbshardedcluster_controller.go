@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sort"
+	"strings"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -772,13 +775,21 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 		return r.updateStatus(ctx, sc, workflowStatus, log)
 	}
 
+	// note: we don't calculate shardCount in calculateSizeStatus
+	// shardCount is only updated at the last updateStatus in the reconcile
 	sizeStatusInClusters, sizeStatus := r.calculateSizeStatus(r.sc)
 
-	// this will be true when we finish adding a single node at that time, it's sts is ready,
-	// but more than one was added in the CR, so we still need another reconcile to scale the rest
-	// Important: scalers, expecially ReplicasThisReconciliation(scaler) will always return the same
-	// value throughout a single Reconcile execution.
-	if r.isStillScaling() {
+	// We will continue scaling here if any of the components (i.e. statefulsets in any cluster of any component - mongos, cs, shards)
+	// are not yet on the target (defined in the spec) levels.
+	// It's important to understand the flow here:
+	//  - we reach to this point only if we have all the statefulsets reporting ready state (statefulsets ready and agents are in goal state)
+	//  - reaching here means, the all the statefulsets must be on the sizes reported by ReplicasThisReconciliation
+	//  - ReplicasThisReconciliation is always taking into account what's written into the sizes in the deployment state and returns +1 if not at the target level
+	//  - so reaching here means, we're done scaling by the increment (+1 for existing RS, or to the final size if this is a new replicaset scaled from zero)
+	// Returning true, means we've done the scaling, "one by one" step and it's time to save the current (incremented) size to the deployment state.
+	// Saving the inremented sizes into the deployment state and requeuing will make ReplicasThisReconciliation to report again +1 and will perform another scaling one by one.
+	// Returning false here means, we've finished scaling. In this case the sizes will be updated as the last step of the reconcile when reporting Running state.
+	if r.shouldContinueScalingOneByOne() {
 		return r.updateStatus(ctx, sc, workflow.Pending("Continuing scaling operation for ShardedCluster %s mongodsPerShardCount ... %+v, mongosCount %+v, configServerCount %+v",
 			sc.ObjectKey(),
 			sizeStatus.MongodsPerShardCount,
@@ -787,9 +798,10 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 		), log, mdbstatus.ShardedClusterSizeConfigOption{SizeConfig: sizeStatus}, mdbstatus.ShardedClusterSizeStatusInClustersOption{SizeConfigInClusters: sizeStatusInClusters})
 	}
 
-	// only remove any stateful sets if we are scaling down
-	// Note: we should only remove unused stateful sets once we are fully complete
-	// removing members 1 at a time.
+	// Only remove any stateful sets if we are scaling down.
+	// This is executed only after the replicaset which are going to be removed are properly drained and
+	// all the processes in the cluster reports ready state. At this point the statefulsets are
+	// no longer part of the replicaset and are safe to remove - all the data from them is migrated (drained) to other shards.
 	if sc.Spec.ShardCount < r.deploymentState.Status.MongodbShardedClusterSizeConfig.ShardCount {
 		r.removeUnusedStatefulsets(ctx, sc, log)
 	}
@@ -820,7 +832,15 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	// Save last achieved spec in state
 	r.deploymentState.LastAchievedSpec = &sc.Spec
 	log.Infof("Finished reconciliation for Sharded Cluster! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
-	return r.updateStatus(ctx, sc, workflowStatus, log, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), mdbstatus.ShardedClusterSizeConfigOption{SizeConfig: sizeStatus}, mdbstatus.ShardedClusterSizeStatusInClustersOption{SizeConfigInClusters: sizeStatusInClusters}, mdbstatus.ShardedClusterMongodsPerShardCountOption{Members: r.sc.Spec.ShardCount}, mdbstatus.NewPVCsStatusOptionEmptyStatus())
+	// It's the second place in the reconcile logic we're updating sizes of all the components
+	// We're also updating the shardCount here - it's the only place we're doing that.
+	return r.updateStatus(ctx, sc, workflowStatus, log,
+		mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())),
+		mdbstatus.ShardedClusterSizeConfigOption{SizeConfig: sizeStatus},
+		mdbstatus.ShardedClusterSizeStatusInClustersOption{SizeConfigInClusters: sizeStatusInClusters},
+		mdbstatus.ShardedClusterMongodsPerShardCountOption{Members: r.sc.Spec.ShardCount},
+		mdbstatus.NewPVCsStatusOptionEmptyStatus(),
+	)
 }
 
 func (r *ShardedClusterReconcileHelper) logAllScalers(log *zap.SugaredLogger) {
@@ -829,7 +849,6 @@ func (r *ShardedClusterReconcileHelper) logAllScalers(log *zap.SugaredLogger) {
 	}
 }
 
-// implements all the logic to do the sharded cluster thing
 func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.Context, obj interface{}, conn om.Connection, projectConfig mdbv1.ProjectConfig, log *zap.SugaredLogger) workflow.Status {
 	log.Info("ShardedCluster.doShardedClusterProcessing")
 	sc := obj.(*mdbv1.MongoDB)
@@ -846,7 +865,6 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 	}
 
 	security := sc.Spec.Security
-	// TODO move to webhook validations
 	if security.Authentication != nil && security.Authentication.Enabled && security.Authentication.IsX509Enabled() && !sc.Spec.GetSecurity().IsTLSEnabled() {
 		return workflow.Invalid("cannot have a non-tls deployment when x509 authentication is enabled")
 	}
@@ -1425,7 +1443,8 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 		return err
 	}
 
-	if err := om.WaitForReadyState(conn, processNames, false, log); err != nil {
+	logDiffOfProcessNames(processNames, r.getHealthyProcessNames(), log.With("ctx", "cleanOpsManagerState"))
+	if err := om.WaitForReadyState(conn, r.getHealthyProcessNames(), false, log); err != nil {
 		return err
 	}
 
@@ -1454,6 +1473,14 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 
 	log.Infof("Removed deployment %s from Ops Manager at %s", sc.Name, conn.BaseURL())
 	return nil
+}
+
+func logDiffOfProcessNames(acProcesses []string, healthyProcesses []string, log *zap.SugaredLogger) {
+	sort.Strings(acProcesses)
+	sort.Strings(healthyProcesses)
+	if diff := cmp.Diff(acProcesses, healthyProcesses); diff != "" {
+		log.Debugf("difference of AC processes vs healthy processes: %s\n AC processes: %v, healthy processes: %v", diff, acProcesses, healthyProcesses)
+	}
 }
 
 func (r *ShardedClusterReconcileHelper) deleteClusterResources(ctx context.Context, c kubernetesClient.Client, sc *mdbv1.MongoDB, log *zap.SugaredLogger) error {
@@ -1578,7 +1605,6 @@ func (r *ShardedClusterReconcileHelper) getMongosHostnames(memberCluster multicl
 // all clusters, and pass them to PrepareScaleDownFromMap, which sets their votes and priorities to 0
 func (r *ShardedClusterReconcileHelper) prepareScaleDownShardedCluster(omClient om.Connection, log *zap.SugaredLogger) error {
 	membersToScaleDown := make(map[string][]string)
-	var healthyProcessesToWaitForGoalState []string
 
 	for _, memberCluster := range r.configSrvMemberClusters {
 		currentReplicas := memberCluster.Replicas
@@ -1592,9 +1618,6 @@ func (r *ShardedClusterReconcileHelper) prepareScaleDownShardedCluster(omClient 
 			}
 			podNamesToScaleDown := currentPodNames[desiredReplicas:currentReplicas]
 			membersToScaleDown[configRsName] = append(membersToScaleDown[configRsName], podNamesToScaleDown...)
-			if memberCluster.Healthy {
-				healthyProcessesToWaitForGoalState = append(healthyProcessesToWaitForGoalState, podNamesToScaleDown...)
-			}
 		}
 	}
 
@@ -1612,15 +1635,13 @@ func (r *ShardedClusterReconcileHelper) prepareScaleDownShardedCluster(omClient 
 				}
 				podNamesToScaleDown := currentPodNames[desiredReplicas:currentReplicas]
 				membersToScaleDown[shardRsName] = append(membersToScaleDown[shardRsName], podNamesToScaleDown...)
-				if memberCluster.Healthy {
-					healthyProcessesToWaitForGoalState = append(healthyProcessesToWaitForGoalState, podNamesToScaleDown...)
-				}
 			}
 		}
 	}
 
 	if len(membersToScaleDown) > 0 {
-		if err := replicaset.PrepareScaleDownFromMap(omClient, membersToScaleDown, healthyProcessesToWaitForGoalState, log); err != nil {
+		healthyProcessesToWaitForReadyState := r.getHealthyProcessNamesToWaitForReadyState(omClient, log)
+		if err := replicaset.PrepareScaleDownFromMap(omClient, membersToScaleDown, healthyProcessesToWaitForReadyState, log); err != nil {
 			return err
 		}
 	}
@@ -1676,10 +1697,12 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 		logWarnIgnoredDueToRecovery(log, workflowStatus)
 	}
 
-	if err = om.WaitForReadyState(conn, processNames, isRecovering, log); err != nil {
+	healthyProcessesToWaitForReadyState := r.getHealthyProcessNamesToWaitForReadyState(conn, log)
+	logDiffOfProcessNames(processNames, healthyProcessesToWaitForReadyState, log.With("ctx", "updateOmDeploymentShardedCluster"))
+	if err = om.WaitForReadyState(conn, healthyProcessesToWaitForReadyState, isRecovering, log); err != nil {
 		if !isRecovering {
 			if shardsRemoving {
-				return workflow.Pending("automation agents haven't reached READY state: shards removal in progress")
+				return workflow.Pending("automation agents haven't reached READY state: shards removal in progress: %v", err)
 			}
 			return workflow.Failed(err)
 		}
@@ -1698,7 +1721,9 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 			logWarnIgnoredDueToRecovery(log, workflowStatus)
 		}
 
-		if err = om.WaitForReadyState(conn, processNames, isRecovering, log); err != nil {
+		healthyProcessesToWaitForReadyState := r.getHealthyProcessNamesToWaitForReadyState(conn, log)
+		logDiffOfProcessNames(processNames, healthyProcessesToWaitForReadyState, log.With("ctx", "shardsRemoving"))
+		if err = om.WaitForReadyState(conn, healthyProcessesToWaitForReadyState, isRecovering, log); err != nil {
 			if !isRecovering {
 				return workflow.Failed(xerrors.Errorf("automation agents haven't reached READY state while cleaning replica set and processes: %w", err))
 			}
@@ -1782,7 +1807,11 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 		return nil, false, workflow.Failed(err)
 	}
 
-	workflowStatus, additionalReconciliationRequired := r.commonController.updateOmAuthentication(ctx, conn, opts.processNames, sc, opts.agentCertSecretName, opts.caFilePath, "", isRecovering, log)
+	healthyProcessesToWaitForReadyState := r.getHealthyProcessNamesToWaitForReadyState(conn, log)
+
+	logDiffOfProcessNames(opts.processNames, healthyProcessesToWaitForReadyState, log.With("ctx", "updateOmAuthentication"))
+
+	workflowStatus, additionalReconciliationRequired := r.commonController.updateOmAuthentication(ctx, conn, healthyProcessesToWaitForReadyState, sc, opts.agentCertSecretName, opts.caFilePath, "", isRecovering, log)
 	if !workflowStatus.IsOK() {
 		if !isRecovering {
 			return nil, false, workflowStatus
@@ -1861,7 +1890,9 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 		return nil, shardsRemoving, reconcileResult
 	}
 
-	if err := om.WaitForReadyState(conn, opts.processNames, isRecovering, log); err != nil {
+	healthyProcessesToWaitForReadyState = r.getHealthyProcessNamesToWaitForReadyState(conn, log)
+	logDiffOfProcessNames(opts.processNames, healthyProcessesToWaitForReadyState, log.With("ctx", "publishDeployment"))
+	if err := om.WaitForReadyState(conn, healthyProcessesToWaitForReadyState, isRecovering, log); err != nil {
 		return nil, shardsRemoving, workflow.Failed(err)
 	}
 
@@ -2431,7 +2462,7 @@ func (r *ShardedClusterReconcileHelper) reconcileConfigServerServices(ctx contex
 				podNum,
 				portOrDefault)
 			if err != nil {
-				return xerrors.Errorf("failed to create an external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
+				return xerrors.Errorf("failed to create an external service %s in cluster: %s, err: %w", dns.GetMultiExternalServiceName(r.sc.ConfigSrvServiceName(), memberCluster.Index, podNum), memberCluster.Name, err)
 			}
 			if err = mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
@@ -2469,7 +2500,7 @@ func (r *ShardedClusterReconcileHelper) reconcileShardServices(ctx context.Conte
 				podNum,
 				portOrDefault)
 			if err != nil {
-				return xerrors.Errorf("failed to create an external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
+				return xerrors.Errorf("failed to create an external service %s in cluster: %s, err: %w", dns.GetMultiExternalServiceName(r.sc.ShardRsName(shardIdx), memberCluster.Index, podNum), memberCluster.Name, err)
 			}
 			if err = mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
@@ -2507,7 +2538,7 @@ func (r *ShardedClusterReconcileHelper) reconcileMongosServices(ctx context.Cont
 				podNum,
 				portOrDefault)
 			if err != nil {
-				return xerrors.Errorf("failed to create an external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
+				return xerrors.Errorf("failed to create an external service %s in cluster: %s, err: %w", dns.GetMultiExternalServiceName(r.sc.MongosRsName(), memberCluster.Index, podNum), memberCluster.Name, err)
 			}
 			if err = mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
@@ -2544,7 +2575,7 @@ func (r *ShardedClusterReconcileHelper) getPodExternalService(memberCluster mult
 	svc.Name = dns.GetMultiExternalServiceName(statefulSetName, memberCluster.Index, podNum)
 	svc.Spec.Type = corev1.ServiceTypeLoadBalancer
 
-	if externalAccessConfiguration != nil {
+	if externalAccessConfiguration.ExternalService.Annotations != nil {
 		svc.Annotations = merge.StringToStringMap(svc.Annotations, externalAccessConfiguration.ExternalService.Annotations)
 	}
 
@@ -2613,7 +2644,34 @@ func (r *ShardedClusterReconcileHelper) replicateSSLMMSCAConfigMap(ctx context.C
 	return nil
 }
 
+// isStillScaling checks whether we're in the process of scaling.
+// It checks whether any of the components/statefulsets still require scaling by checking
+// the actual state from the deployment state vs what's in the spec.
+//
+// When we're in the last step of the sizing, and the statefulsets were sized to the desired numbers and everything is ready, this function will still
+// report that we're in the process of scaling. This is because it gets the previous state from the deployment state, which is updated only after we finished scaling *step* (by one).
+//
+// This function cannot be used to determine if we're done with the scaling *step* in this reconciliation, so that we can increment
+// current sizes in the deployment state. For that case use shouldContinueScalingOneByOne.
 func (r *ShardedClusterReconcileHelper) isStillScaling() bool {
+	for _, s := range r.getAllScalers() {
+		if s.CurrentReplicas() != s.(*scalers.MultiClusterReplicaSetScaler).TargetReplicas() {
+			return true
+		}
+	}
+
+	return false
+}
+
+// shouldContinueScalingOneByOne iterates over all scalers for each statefulset in the sharded cluster
+// and checks whether scale.ReplicasThisReconciliation are equal with the target replicas according to the spec.
+//
+// If this function returns true, it means that the current sizes reported by ReplicasThisReconciliation are not equal with the desired (spec) sizes.
+// So we need to save the current sizes to the deployment state, in order to allow the next reconciliation to calculate next (+1) sizes.
+//
+// If this function return false, it means we've completely finished scaling process, but it could be that we've just finished the scaling in the current reconciliation.
+// The difference vs isStillScaling is subtle. isStillScaling tells us if we're generally in the process of scaling (current sizes != spec).
+func (r *ShardedClusterReconcileHelper) shouldContinueScalingOneByOne() bool {
 	for _, s := range r.getAllScalers() {
 		if scale.ReplicasThisReconciliation(s) != s.(*scalers.MultiClusterReplicaSetScaler).TargetReplicas() {
 			return true
@@ -2679,4 +2737,143 @@ func (r *ShardedClusterReconcileHelper) AllShardsMemberClusters() []multicluster
 
 func (r *ShardedClusterReconcileHelper) AllMemberClusters() []multicluster.MemberCluster {
 	return r.allMemberClusters
+}
+
+func (r *ShardedClusterReconcileHelper) getHealthyProcessNames() []string {
+	_, mongosProcessNames := r.getHealthyMongosProcesses()
+	_, configSrvProcessNames := r.getHealthyConfigSrvProcesses()
+	_, shardsProcessNames := r.getHealthyShardsProcesses()
+
+	var processNames []string
+	processNames = append(processNames, mongosProcessNames...)
+	processNames = append(processNames, configSrvProcessNames...)
+	processNames = append(processNames, shardsProcessNames...)
+
+	return processNames
+}
+
+func (r *ShardedClusterReconcileHelper) getHealthyProcessNamesToWaitForReadyState(conn om.Connection, log *zap.SugaredLogger) []string {
+	processList := r.getHealthyProcessNames()
+
+	clusterState, err := agents.GetMongoDBClusterState(conn)
+	if err != nil {
+		log.Warnf("Skipping check for mongos deadlock for all the nodes being healthy (deadlock) due to error: %v", err)
+		return processList
+	}
+
+	if mongosDeadlock, deadlockedMongos := checkForMongosDeadlock(clusterState, r.sc.MongosRsName(), r.isStillScaling(), log); mongosDeadlock {
+		deadlockedProcessNames := util.Transform(deadlockedMongos, func(obj agents.ProcessState) string {
+			return obj.ProcessName
+		})
+		log.Warnf("The following processes are skipped from waiting for the goal state: %+v", deadlockedProcessNames)
+		processList = slices.DeleteFunc(processList, func(processName string) bool {
+			for _, processState := range deadlockedMongos {
+				if processName == processState.ProcessName {
+					return true
+				}
+			}
+			return false
+		})
+	}
+
+	return processList
+}
+
+func (r *ShardedClusterReconcileHelper) getHealthyMongosProcesses() ([]string, []string) {
+	var processNames []string
+	var hostnames []string
+	for _, memberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
+		clusterHostnames, clusterProcessNames := r.getMongosHostnames(memberCluster, scale.ReplicasThisReconciliation(r.GetMongosScaler(memberCluster)))
+		hostnames = append(hostnames, clusterHostnames...)
+		processNames = append(processNames, clusterProcessNames...)
+	}
+	return hostnames, processNames
+}
+
+func (r *ShardedClusterReconcileHelper) getHealthyConfigSrvProcesses() ([]string, []string) {
+	var processNames []string
+	var hostnames []string
+	for _, memberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
+		clusterHostnames, clusterProcessNames := r.getConfigSrvHostnames(memberCluster, scale.ReplicasThisReconciliation(r.GetConfigSrvScaler(memberCluster)))
+		hostnames = append(hostnames, clusterHostnames...)
+		processNames = append(processNames, clusterProcessNames...)
+	}
+	return hostnames, processNames
+}
+
+func (r *ShardedClusterReconcileHelper) getHealthyShardsProcesses() ([]string, []string) {
+	var processNames []string
+	var hostnames []string
+	for shardIdx := 0; shardIdx < r.sc.Spec.ShardCount; shardIdx++ {
+		for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[shardIdx]) {
+			clusterHostnames, clusterProcessNames := r.getShardHostnames(shardIdx, memberCluster, scale.ReplicasThisReconciliation(r.GetShardScaler(shardIdx, memberCluster)))
+			hostnames = append(hostnames, clusterHostnames...)
+			processNames = append(processNames, clusterProcessNames...)
+		}
+	}
+	return hostnames, processNames
+}
+
+// checkForMongosDeadlock reports whether the cluster is in a deadlocked state due to mongos waiting on unhealthy
+// processes (https://jira.mongodb.org/browse/CLOUDP-288588)
+// We are in a deadlock if:
+//   - We are in the process of scaling.
+//   - There are healthy mongos process not in goal state (their automation config version is lesser than the goal version).
+//   - The agent plan of those mongos processes contains 'RollingChangeArgs'.
+//   - All other healthy processes other than mongos are in goal state.
+func checkForMongosDeadlock(clusterState agents.MongoDBClusterStateInOM, mongosReplicaSetName string, isScaling bool, log *zap.SugaredLogger) (isDeadlocked bool, deadlockedMongos []agents.ProcessState) {
+	if !isScaling {
+		log.Debugf("Skipping mongos deadlock check as there is no scaling in progress")
+		return false, nil
+	}
+
+	staleProcesses := slices.DeleteFunc(clusterState.GetProcesses(), func(processState agents.ProcessState) bool {
+		return !processState.IsStale()
+	})
+
+	if len(staleProcesses) == 0 {
+		log.Debugf("Mongos deadlock check reported negative. There are no stale processes in the cluster")
+		return false, nil
+	}
+
+	allHealthyProcessesNotInGoalState := slices.DeleteFunc(clusterState.GetProcessesNotInGoalState(), func(processState agents.ProcessState) bool {
+		return processState.IsStale()
+	})
+
+	allHealthyMongosNotInGoalState := slices.DeleteFunc(slices.Clone(allHealthyProcessesNotInGoalState), func(processState agents.ProcessState) bool {
+		return !strings.HasPrefix(processState.ProcessName, mongosReplicaSetName)
+	})
+
+	if len(allHealthyMongosNotInGoalState) == 0 {
+		log.Debugf("Mongos deadlock check reported negative. All healthy mongos processes are in goal state in the cluster")
+		return false, nil
+	}
+
+	if len(allHealthyProcessesNotInGoalState) > len(allHealthyMongosNotInGoalState) {
+		log.Debugf("Mongos deadlock check reported negative. There are other healthy processes not in goal state that are not mongos; allHealthyProcessesNotInGoalState=%+v", allHealthyProcessesNotInGoalState)
+		return false, nil
+	}
+
+	allDeadlockedMongos := slices.DeleteFunc(slices.Clone(allHealthyMongosNotInGoalState), func(processState agents.ProcessState) bool {
+		for _, agentMove := range processState.Plan {
+			if agentMove == agents.RollingChangeArgs {
+				return false
+			} // TODO make a constant
+		}
+		return true
+	})
+
+	if len(allDeadlockedMongos) > 0 {
+		staleHostnames := util.Transform(staleProcesses, func(obj agents.ProcessState) string {
+			return obj.Hostname
+		})
+		log.Warnf("Detected mongos %+v performing RollingChangeArgs operation while there are processes in the cluster that are considered down. "+
+			"Skipping waiting for those mongos processes in order to allow the operator to perform scaling. "+
+			"Please verify the list of stale (down/unhealthy) processes and change MongoDB resource to remove them from the cluster. "+
+			"The operator will not perform removal of those procesess automatically. Hostnames of stale processes: %+v", allDeadlockedMongos, staleHostnames)
+
+		return true, allDeadlockedMongos
+	}
+
+	return false, nil
 }

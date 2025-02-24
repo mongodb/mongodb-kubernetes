@@ -512,7 +512,7 @@ func (oc *HTTPOmConnection) ReadAutomationAgents(pageNum int) (Paginated, error)
 	if err != nil {
 		return nil, err
 	}
-	var resp automationAgentStatusResponse
+	var resp AutomationAgentStatusResponse
 	if err := json.Unmarshal(ans, &resp); err != nil {
 		return nil, err
 	}

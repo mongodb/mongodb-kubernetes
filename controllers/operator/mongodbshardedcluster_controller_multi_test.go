@@ -9,6 +9,7 @@ import (
 	"path"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/ghodss/yaml"
 	"github.com/stretchr/testify/assert"
@@ -32,6 +33,7 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/test"
@@ -932,6 +934,595 @@ func TestMultiClusterShardedSetRace(t *testing.T) {
 	})
 
 	testConcurrentReconciles(ctx, t, fakeClient, reconciler, sc, sc1, sc2)
+}
+
+// TODO extract this, please don't review
+func TestMultiClusterShardedMongosDeadlock(t *testing.T) {
+	t.Skip("The test is not finished and will fail")
+	/*
+
+
+		   waitForReadyState: we wait on all the process, even if they are down
+		   BUT even if we fix that
+		   mongos will report ready only if all down processes are removed from the project
+
+
+
+		   We need to mock automationStatus (wait for goal/ready state) and agentStatus (wait for agents to be registered)
+
+		   === AutomationStatus: list of processes
+
+		   JSON
+		   "hostname": "sh-disaster-recovery-mongos-2-0-svc.mongodb-test.svc.cluster.local",
+		   "lastGoalVersionAchieved": 8,
+		   "name": "sh-disaster-recovery-mongos-2-0",
+
+		   GO struct
+		   // AutomationStatus represents the status of automation agents registered with Ops Manager
+		   type AutomationStatus struct {
+		   GoalVersion int             `json:"goalVersion"`
+		   Processes   []ProcessStatus `json:"processes"`
+		   }
+
+		   // ProcessStatus status of the process and what's the last version achieved
+		   type ProcessStatus struct {
+		   Hostname                string   `json:"hostname"`
+		   Name                    string   `json:"name"`
+		   LastGoalVersionAchieved int      `json:"lastGoalVersionAchieved"`
+		   Plan                    []string `json:"plan"`
+		   }
+
+		   ReadAutomationStatus is built from deployment lists
+
+
+
+			WaitForReadyState fetches the automation status -> checkAutomationStatusIsGoal ->
+			if p.LastGoalVersionAchieved == as.GoalVersion {
+					goalsAchievedMap[p.Name] = p.LastGoalVersionAchieved
+
+
+
+		   === AutomationAgentStatus: List of
+
+		   type AgentStatus struct {
+		   ConfCount int    `json:"confCount"`
+		   Hostname  string `json:"hostname"`
+		   LastConf  string `json:"lastConf"`
+		   StateName string `json:"stateName"`
+		   TypeName  string `json:"typeName"`
+		   }
+
+		   automationStatus.json
+
+		   "results": [
+		   {
+		    "confCount": 24683,
+		    "hostname": "sh-disaster-recovery-0-0-0-svc.mongodb-test.svc.cluster.local",
+		    "lastConf": "2025-01-24T09:48:58Z",
+		    "stateName": "ACTIVE",
+		    "typeName": "AUTOMATION"
+		   },
+
+		   ReadAutomationAgents returns automation agent status based on what is in
+		   AgentStatus{Hostname: r.Hostname, LastConf: time.Now().Add(time.Second * -1).Format(time.RFC3339)})
+
+		   Results []Host
+		   type Host struct {
+		   	Username          string `json:"username"`
+		   	Hostname          string `json:"hostname"`
+		   	[...]
+		   }
+
+		   What is in results is not necessarily relevant, but we need to extend what the method puts in AgentStatus
+
+	*/
+
+	ctx := context.Background()
+	cluster1 := "member-cluster-1"
+	cluster2 := "member-cluster-2"
+	cluster3 := "member-cluster-3"
+	memberClusterNames := []string{
+		cluster1,
+		cluster2,
+		cluster3,
+	}
+
+	mongosDistribution := map[string]int{cluster1: 1, cluster2: 0, cluster3: 2}
+	shardDistribution := map[string]int{cluster1: 2, cluster2: 1, cluster3: 2}
+	shardFullDistribution := []map[string]int{
+		{cluster1: 2, cluster2: 1, cluster3: 2},
+		{cluster1: 2, cluster2: 1, cluster3: 2},
+	}
+	configServerDistribution := shardDistribution
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	omConnection := omConnectionFactory.GetConnectionFunc(&om.OMContext{GroupName: om.TestGroupName})
+
+	fakeClient := mock.NewEmptyFakeClientBuilder().WithObjects(mock.GetDefaultResources()...).Build()
+	kubeClient := kubernetesClient.NewClient(fakeClient)
+
+	// TODO: remove cluster 2 from config map
+	memberClusterMap := getFakeMultiClusterMapWithoutInterceptor(memberClusterNames)
+	var memberClusterClients []client.Client
+	for _, c := range memberClusterMap {
+		memberClusterClients = append(memberClusterClients, c)
+	}
+
+	sc := test.DefaultClusterBuilder().
+		SetTopology(mdbv1.ClusterTopologyMultiCluster).
+		SetShardCountSpec(2).
+		SetMongodsPerShardCountSpec(0).
+		SetConfigServerCountSpec(0).
+		SetMongosCountSpec(0).
+		SetShardClusterSpec(test.CreateClusterSpecList(memberClusterNames, shardDistribution)).
+		SetConfigSrvClusterSpec(test.CreateClusterSpecList(memberClusterNames, configServerDistribution)).
+		SetMongosClusterSpec(test.CreateClusterSpecList(memberClusterNames, mongosDistribution)).
+		Build()
+
+	sc.ObjectMeta.Name = "sh-disaster-recovery"
+
+	err := kubeClient.Create(ctx, sc)
+	require.NoError(t, err)
+
+	addAllHostsWithDistribution := func(connection om.Connection, mongosDistribution map[string]int, clusterMapping map[string]int, configSrvDistribution map[string]int, shardDistribution []map[string]int) {
+		allHostnames, _ := generateAllHosts(sc, mongosDistribution, clusterMapping, configSrvDistribution, shardDistribution, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
+		connection.(*om.MockedOmConnection).AddHosts(allHostnames)
+	}
+
+	//We need to mock automation status:
+	//- Config servers 2 1 2
+	//- Mongos 1 0 2
+	//- (2) Shards 2 1 2
+	//
+	//Cluster with index 2 is down
+
+	deadlockedGoalVersion := 13
+	deadlockedProcesses := []om.ProcessStatus{
+		// Mongos
+		{
+			Hostname:                "sh-disaster-recovery-mongos-2-0-svc.my-namespace.svc.cluster.local",
+			Name:                    "sh-disaster-recovery-mongos-2-0",
+			LastGoalVersionAchieved: deadlockedGoalVersion - 5,
+			Plan:                    []string{},
+		},
+		{
+			Hostname:                "sh-disaster-recovery-mongos-2-1-svc.my-namespace.svc.cluster.local",
+			Name:                    "sh-disaster-recovery-mongos-2-1",
+			LastGoalVersionAchieved: deadlockedGoalVersion - 5,
+			Plan:                    []string{},
+		},
+		{
+			Hostname:                "sh-disaster-recovery-mongos-0-0-svc.my-namespace.svc.cluster.local",
+			Name:                    "sh-disaster-recovery-mongos-0-0",
+			LastGoalVersionAchieved: deadlockedGoalVersion - 1, // Cluster up but mongos deadlock, cannot reach goal version
+			Plan:                    []string{agents.RollingChangeArgs},
+		},
+
+		// Config server
+		// Cluster 0
+		{
+			Hostname:                "sh-disaster-recovery-config-0-0-svc.my-namespace.svc.cluster.local",
+			Name:                    "sh-disaster-recovery-config-0-0",
+			LastGoalVersionAchieved: deadlockedGoalVersion,
+			Plan:                    []string{},
+		},
+		{
+			Hostname:                "sh-disaster-recovery-config-0-1-svc.my-namespace.svc.cluster.local",
+			Name:                    "sh-disaster-recovery-config-0-1",
+			LastGoalVersionAchieved: deadlockedGoalVersion,
+			Plan:                    []string{},
+		},
+		// Cluster 1
+		{
+			Hostname:                "sh-disaster-recovery-config-1-0-svc.my-namespace.svc.cluster.local",
+			Name:                    "sh-disaster-recovery-config-1-0",
+			LastGoalVersionAchieved: deadlockedGoalVersion,
+			Plan:                    []string{},
+		},
+		// Cluster 2
+		{
+			Hostname:                "sh-disaster-recovery-config-2-0-svc.my-namespace.svc.cluster.local",
+			Name:                    "sh-disaster-recovery-config-2-0",
+			LastGoalVersionAchieved: deadlockedGoalVersion - 5, // Cluster 2 down, not ready
+			Plan:                    []string{},
+		},
+		{
+			Hostname:                "sh-disaster-recovery-config-2-1-svc.my-namespace.svc.cluster.local",
+			Name:                    "sh-disaster-recovery-config-2-1",
+			LastGoalVersionAchieved: deadlockedGoalVersion - 5, // Cluster 2 down, not ready
+			Plan:                    []string{},
+		},
+
+		// Shards
+		// Shard 0
+		{
+			Hostname:                "sh-disaster-recovery-0-0-0-svc.my-namespace.svc.cluster.local",
+			Name:                    "sh-disaster-recovery-0-0-0",
+			LastGoalVersionAchieved: deadlockedGoalVersion,
+			Plan:                    []string{},
+		},
+		{
+			Hostname:                "sh-disaster-recovery-0-1-0-svc.my-namespace.svc.cluster.local",
+			Name:                    "sh-disaster-recovery-0-1-0",
+			LastGoalVersionAchieved: deadlockedGoalVersion,
+			Plan:                    []string{},
+		},
+		{
+			Hostname:                "sh-disaster-recovery-0-1-1-svc.my-namespace.svc.cluster.local",
+			Name:                    "sh-disaster-recovery-0-1-1",
+			LastGoalVersionAchieved: deadlockedGoalVersion,
+			Plan:                    []string{},
+		},
+		{
+			Hostname:                "sh-disaster-recovery-0-2-0-svc.my-namespace.svc.cluster.local",
+			Name:                    "sh-disaster-recovery-0-2-0",
+			LastGoalVersionAchieved: deadlockedGoalVersion - 5, // Cluster 2 down, not ready
+			Plan:                    []string{},
+		},
+		{
+			Hostname:                "sh-disaster-recovery-0-2-1-svc.my-namespace.svc.cluster.local",
+			Name:                    "sh-disaster-recovery-0-2-1",
+			LastGoalVersionAchieved: deadlockedGoalVersion - 5, // Cluster 2 down, not ready
+			Plan:                    []string{},
+		},
+
+		// Shard 1
+		{
+			Hostname:                "sh-disaster-recovery-1-0-0-svc.my-namespace.svc.cluster.local",
+			Name:                    "sh-disaster-recovery-1-0-0",
+			LastGoalVersionAchieved: deadlockedGoalVersion,
+			Plan:                    []string{},
+		},
+		{
+			Hostname:                "sh-disaster-recovery-1-1-0-svc.my-namespace.svc.cluster.local",
+			Name:                    "sh-disaster-recovery-1-1-0",
+			LastGoalVersionAchieved: deadlockedGoalVersion,
+			Plan:                    []string{},
+		},
+		{
+			Hostname:                "sh-disaster-recovery-1-1-1-svc.my-namespace.svc.cluster.local",
+			Name:                    "sh-disaster-recovery-1-1-1",
+			LastGoalVersionAchieved: deadlockedGoalVersion,
+			Plan:                    []string{},
+		},
+		{
+			Hostname:                "sh-disaster-recovery-1-2-0-svc.my-namespace.svc.cluster.local",
+			Name:                    "sh-disaster-recovery-1-2-0",
+			LastGoalVersionAchieved: deadlockedGoalVersion - 5, // Cluster 2 down, not ready
+			Plan:                    []string{},
+		},
+		{
+			Hostname:                "sh-disaster-recovery-1-2-1-svc.my-namespace.svc.cluster.local",
+			Name:                    "sh-disaster-recovery-1-2-1",
+			LastGoalVersionAchieved: deadlockedGoalVersion - 5, // Cluster 2 down, not ready
+			Plan:                    []string{},
+		},
+	}
+
+	deadlockedAutomationStatus := om.AutomationStatus{
+		GoalVersion: deadlockedGoalVersion,
+		Processes:   deadlockedProcesses,
+	}
+
+	readyTimestamp := time.Now().Add(-20 * time.Second).Format(time.RFC3339)
+	notReadyTimestamp := time.Now().Add(-100 * time.Second).Format(time.RFC3339)
+
+	// An agent is considered registered if its last ping was <1min ago
+	deadLockedAgentStatus := []om.AgentStatus{
+		// Mongos
+		{
+			Hostname: "sh-disaster-recovery-mongos-0-0-svc.my-namespace.svc.cluster.local",
+			LastConf: readyTimestamp,
+		},
+		{
+			Hostname: "sh-disaster-recovery-mongos-2-0-svc.my-namespace.svc.cluster.local",
+			LastConf: notReadyTimestamp,
+		},
+		{
+			Hostname: "sh-disaster-recovery-mongos-2-1-svc.my-namespace.svc.cluster.local",
+			LastConf: notReadyTimestamp,
+		},
+
+		// Config server
+		// Cluster 0
+		{
+			Hostname: "sh-disaster-recovery-config-0-0-svc.my-namespace.svc.cluster.local",
+			LastConf: readyTimestamp,
+		},
+		{
+			Hostname: "sh-disaster-recovery-config-0-1-svc.my-namespace.svc.cluster.local",
+			LastConf: readyTimestamp,
+		},
+		// Cluster 1
+		{
+			Hostname: "sh-disaster-recovery-config-1-0-svc.my-namespace.svc.cluster.local",
+			LastConf: readyTimestamp,
+		},
+		// Cluster 2
+		{
+			Hostname: "sh-disaster-recovery-config-2-0-svc.my-namespace.svc.cluster.local",
+			LastConf: notReadyTimestamp,
+		},
+		{
+			Hostname: "sh-disaster-recovery-config-2-1-svc.my-namespace.svc.cluster.local",
+			LastConf: notReadyTimestamp,
+		},
+
+		// Shards
+		// Shard 0
+		{
+			Hostname: "sh-disaster-recovery-0-0-0-svc.my-namespace.svc.cluster.local",
+			LastConf: readyTimestamp,
+		},
+		{
+			Hostname: "sh-disaster-recovery-0-1-0-svc.my-namespace.svc.cluster.local",
+			LastConf: readyTimestamp,
+		},
+		{
+			Hostname: "sh-disaster-recovery-0-1-1-svc.my-namespace.svc.cluster.local",
+			LastConf: readyTimestamp,
+		},
+		{
+			Hostname: "sh-disaster-recovery-0-2-0-svc.my-namespace.svc.cluster.local",
+			LastConf: notReadyTimestamp,
+		},
+		{
+			Hostname: "sh-disaster-recovery-0-2-1-svc.my-namespace.svc.cluster.local",
+			LastConf: notReadyTimestamp,
+		},
+
+		// Shard 1
+		{
+			Hostname: "sh-disaster-recovery-1-0-0-svc.my-namespace.svc.cluster.local",
+			LastConf: readyTimestamp,
+		},
+		{
+			Hostname: "sh-disaster-recovery-1-1-0-svc.my-namespace.svc.cluster.local",
+			LastConf: readyTimestamp,
+		},
+		{
+			Hostname: "sh-disaster-recovery-1-1-1-svc.my-namespace.svc.cluster.local",
+			LastConf: readyTimestamp,
+		},
+		{
+			Hostname: "sh-disaster-recovery-1-2-0-svc.my-namespace.svc.cluster.local",
+			LastConf: notReadyTimestamp,
+		},
+		{
+			Hostname: "sh-disaster-recovery-1-2-1-svc.my-namespace.svc.cluster.local",
+			LastConf: notReadyTimestamp,
+		},
+	}
+
+	omConnection.(*om.MockedOmConnection).ReadAutomationStatusFunc = func() (*om.AutomationStatus, error) {
+		return &deadlockedAutomationStatus, nil
+	}
+
+	omConnection.(*om.MockedOmConnection).ReadAutomationAgentsFunc = func(int) (om.Paginated, error) {
+		response := om.AutomationAgentStatusResponse{
+			OMPaginated: om.OMPaginated{
+				TotalCount: 1,
+				Links:      nil,
+			},
+			AutomationAgents: deadLockedAgentStatus,
+		}
+		return response, nil
+	}
+
+	// TODO: statuses in OM mock
+	// TODO: OM mock: set agent ready depending on a clusterDown parameter ? + set mongos not ready if anything is not ready
+
+	reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, sc, memberClusterMap, kubeClient, omConnectionFactory)
+	require.NoError(t, err)
+	clusterMapping := reconcilerHelper.deploymentState.ClusterMapping
+
+	addAllHostsWithDistribution(omConnectionFactory.GetConnection(), mongosDistribution, clusterMapping, configServerDistribution, shardFullDistribution)
+
+	err = kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc)
+	require.NoError(t, err)
+	reconcileUntilSuccessful(ctx, t, reconciler, sc, kubeClient, memberClusterClients, nil, false)
+
+	// End of reconciliation, verify state is as expected
+}
+
+func TestCheckForMongosDeadlock(t *testing.T) {
+	type CheckForMongosDeadlockTestCase struct {
+		name                      string
+		clusterState              agents.MongoDBClusterStateInOM
+		mongosReplicaSetName      string
+		isScaling                 bool
+		expectedDeadlock          bool
+		expectedProcessStatesSize int
+	}
+
+	goalVersion := 3
+	mongosReplicaSetName := "mongos-"
+	// Processes are considered stale if the last agent ping is >2 min
+	healthyPingTime := time.Now().Add(-20 * time.Second)
+	unHealthyPingTime := time.Now().Add(-200 * time.Second)
+
+	testCases := []CheckForMongosDeadlockTestCase{
+		{
+			name: "Mongos Deadlock",
+			clusterState: agents.MongoDBClusterStateInOM{
+				GoalVersion: goalVersion,
+				ProcessStateMap: map[string]agents.ProcessState{
+					"1": {
+						Hostname:            "",
+						LastAgentPing:       healthyPingTime,
+						GoalVersionAchieved: goalVersion - 1,
+						Plan:                []string{agents.RollingChangeArgs},
+						ProcessName:         mongosReplicaSetName,
+					},
+					"2": {
+						Hostname:            "",
+						LastAgentPing:       unHealthyPingTime, // We need at least one stale process
+						GoalVersionAchieved: goalVersion,
+						Plan:                nil,
+						ProcessName:         "shard",
+					},
+					"3": {
+						Hostname:            "",
+						LastAgentPing:       healthyPingTime,
+						GoalVersionAchieved: goalVersion,
+						Plan:                nil,
+						ProcessName:         "shard",
+					},
+				},
+			},
+			mongosReplicaSetName:      mongosReplicaSetName,
+			isScaling:                 true,
+			expectedDeadlock:          true,
+			expectedProcessStatesSize: 1,
+		},
+		{
+			name: "Unhealthy mongos",
+			clusterState: agents.MongoDBClusterStateInOM{
+				GoalVersion: goalVersion,
+				ProcessStateMap: map[string]agents.ProcessState{
+					"1": {
+						Hostname:            "",
+						LastAgentPing:       unHealthyPingTime,
+						GoalVersionAchieved: goalVersion - 1,
+						Plan:                []string{agents.RollingChangeArgs},
+						ProcessName:         mongosReplicaSetName,
+					},
+					"2": {
+						Hostname:            "",
+						LastAgentPing:       healthyPingTime,
+						GoalVersionAchieved: goalVersion,
+						Plan:                nil,
+						ProcessName:         "shard",
+					},
+					"3": {
+						Hostname:            "",
+						LastAgentPing:       healthyPingTime,
+						GoalVersionAchieved: goalVersion,
+						Plan:                nil,
+						ProcessName:         "shard",
+					},
+				},
+			},
+			mongosReplicaSetName:      mongosReplicaSetName,
+			isScaling:                 true,
+			expectedDeadlock:          false,
+			expectedProcessStatesSize: 0,
+		},
+		{
+			name: "Other process not in goal state",
+			clusterState: agents.MongoDBClusterStateInOM{
+				GoalVersion: goalVersion,
+				ProcessStateMap: map[string]agents.ProcessState{
+					"1": {
+						Hostname:            "",
+						LastAgentPing:       healthyPingTime,
+						GoalVersionAchieved: goalVersion - 1,
+						Plan:                []string{agents.RollingChangeArgs},
+						ProcessName:         mongosReplicaSetName,
+					},
+					"2": {
+						Hostname:            "",
+						LastAgentPing:       unHealthyPingTime,
+						GoalVersionAchieved: goalVersion,
+						Plan:                nil,
+						ProcessName:         "shard",
+					},
+					"3": {
+						Hostname:            "",
+						LastAgentPing:       healthyPingTime,
+						GoalVersionAchieved: goalVersion - 1,
+						Plan:                nil,
+						ProcessName:         "shard",
+					},
+				},
+			},
+			mongosReplicaSetName:      mongosReplicaSetName,
+			isScaling:                 true,
+			expectedDeadlock:          false,
+			expectedProcessStatesSize: 0,
+		},
+		{
+			name: "Not scaling",
+			clusterState: agents.MongoDBClusterStateInOM{
+				GoalVersion: goalVersion,
+				ProcessStateMap: map[string]agents.ProcessState{
+					"1": {
+						Hostname:            "",
+						LastAgentPing:       healthyPingTime,
+						GoalVersionAchieved: goalVersion - 1,
+						Plan:                []string{agents.RollingChangeArgs},
+						ProcessName:         mongosReplicaSetName,
+					},
+					"2": {
+						Hostname:            "",
+						LastAgentPing:       unHealthyPingTime,
+						GoalVersionAchieved: goalVersion,
+						Plan:                nil,
+						ProcessName:         "shard",
+					},
+					"3": {
+						Hostname:            "",
+						LastAgentPing:       healthyPingTime,
+						GoalVersionAchieved: goalVersion,
+						Plan:                nil,
+						ProcessName:         "shard",
+					},
+				},
+			},
+			mongosReplicaSetName:      mongosReplicaSetName,
+			isScaling:                 false,
+			expectedDeadlock:          false,
+			expectedProcessStatesSize: 0,
+		},
+		{
+			name: "All healthy mongos in goal state",
+			clusterState: agents.MongoDBClusterStateInOM{
+				GoalVersion: goalVersion,
+				ProcessStateMap: map[string]agents.ProcessState{
+					"1": {
+						Hostname:            "",
+						LastAgentPing:       healthyPingTime,
+						GoalVersionAchieved: goalVersion,
+						Plan:                []string{agents.RollingChangeArgs},
+						ProcessName:         mongosReplicaSetName,
+					},
+					"2": {
+						Hostname:            "",
+						LastAgentPing:       unHealthyPingTime,
+						GoalVersionAchieved: goalVersion - 1,
+						Plan:                nil,
+						ProcessName:         mongosReplicaSetName,
+					},
+					"3": {
+						Hostname:            "",
+						LastAgentPing:       unHealthyPingTime, // We need at least one stale process
+						GoalVersionAchieved: goalVersion,
+						Plan:                nil,
+						ProcessName:         "shard",
+					},
+					"4": {
+						Hostname:            "",
+						LastAgentPing:       healthyPingTime,
+						GoalVersionAchieved: goalVersion,
+						Plan:                nil,
+						ProcessName:         "shard",
+					},
+				},
+			},
+			mongosReplicaSetName:      mongosReplicaSetName,
+			isScaling:                 true,
+			expectedDeadlock:          false,
+			expectedProcessStatesSize: 0,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			isDeadLocked, processStates := checkForMongosDeadlock(tc.clusterState, tc.mongosReplicaSetName, tc.isScaling, zap.S())
+			assert.Equal(t, tc.expectedDeadlock, isDeadLocked)
+			assert.Equal(t, tc.expectedProcessStatesSize, len(processStates))
+		})
+	}
 }
 
 func computeShardOverridesFromDistribution(shardOverridesDistribution []map[string]int) []mdbv1.ShardOverride {

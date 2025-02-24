@@ -68,6 +68,9 @@ type MockedOmConnection struct {
 	hostResults      *host.Result
 	agentHostnameMap map[string]struct{}
 
+	ReadAutomationStatusFunc func() (*AutomationStatus, error)
+	ReadAutomationAgentsFunc func(int) (Paginated, error)
+
 	numRequestsSent         int
 	AgentAPIKey             string
 	OrganizationsWithGroups map[*Organization][]*Project
@@ -449,6 +452,9 @@ func (oc *MockedOmConnection) GenerateAgentKey() (string, error) {
 
 func (oc *MockedOmConnection) ReadAutomationStatus() (*AutomationStatus, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadAutomationStatus))
+	if oc.ReadAutomationStatusFunc != nil {
+		return oc.ReadAutomationStatusFunc()
+	}
 
 	if oc.AgentsDelayCount <= 0 {
 		// Emulating "agents reached goal state": returning the proper status for all the
@@ -462,6 +468,9 @@ func (oc *MockedOmConnection) ReadAutomationStatus() (*AutomationStatus, error) 
 
 func (oc *MockedOmConnection) ReadAutomationAgents(pageNum int) (Paginated, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadAutomationAgents))
+	if oc.ReadAutomationAgentsFunc != nil {
+		return oc.ReadAutomationAgentsFunc(pageNum)
+	}
 
 	results := make([]AgentStatus, 0)
 	for _, r := range oc.hostResults.Results {
@@ -469,8 +478,7 @@ func (oc *MockedOmConnection) ReadAutomationAgents(pageNum int) (Paginated, erro
 			AgentStatus{Hostname: r.Hostname, LastConf: time.Now().Add(time.Second * -1).Format(time.RFC3339)})
 	}
 
-	// todo extend this for real testing
-	return automationAgentStatusResponse{AutomationAgents: results}, nil
+	return AutomationAgentStatusResponse{AutomationAgents: results}, nil
 }
 
 func (oc *MockedOmConnection) GetHosts() (*host.Result, error) {

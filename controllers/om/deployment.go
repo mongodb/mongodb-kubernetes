@@ -921,6 +921,7 @@ func (d Deployment) removeProcesses(processNames []string, log *zap.SugaredLogge
 		for _, p2 := range processNames {
 			if p.Name() == p2 {
 				found = true
+				break
 			}
 		}
 		if !found {

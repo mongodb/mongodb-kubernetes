@@ -254,6 +254,7 @@ prepare_multi_cluster_e2e_run() {
 # TODO: unify with scripts/funcs/operator_deployment
 run_multi_cluster_kube_config_creator() {
   if [[ "${LOCAL_OPERATOR}" != "true" ]]; then
+    echo "Skipping configuring multi-cluster with kubectl mongodb cli tool due to LOCAL_OPERATOR=false"
     return
   fi
 
