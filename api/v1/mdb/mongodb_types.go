@@ -1,7 +1,6 @@
 package mdb
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -11,8 +10,6 @@ import (
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/cluster"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
@@ -20,7 +17,6 @@ import (
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	ctrl "sigs.k8s.io/controller-runtime"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
@@ -146,10 +142,6 @@ func (m *MongoDB) GetPrometheus() *mdbcv1.Prometheus {
 
 func (m *MongoDB) GetMinimumMajorVersion() uint64 {
 	return m.Spec.MinimumMajorVersion()
-}
-
-func (m *MongoDB) AddValidationToManager(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
-	return ctrl.NewWebhookManagedBy(mgr).For(m).Complete()
 }
 
 func (m *MongoDB) GetBackupSpec() *Backup {
@@ -1202,10 +1194,6 @@ func (m *MongoDB) SetWarnings(warnings []status.Warning, _ ...status.Option) {
 
 func (m *MongoDB) AddWarningIfNotExists(warning status.Warning) {
 	m.Status.Warnings = status.Warnings(m.Status.Warnings).AddIfNotExists(warning)
-}
-
-func (m *MongoDB) GetPlural() string {
-	return "mongodb"
 }
 
 func (m *MongoDB) GetStatus(...status.Option) interface{} {
