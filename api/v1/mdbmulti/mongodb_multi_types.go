@@ -1,21 +1,17 @@
 package mdbmulti
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/blang/semver"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/cluster"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
 
 	mdbc "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	ctrl "sigs.k8s.io/controller-runtime"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
@@ -58,10 +54,6 @@ type MongoDBMultiCluster struct {
 	// +optional
 	Status MongoDBMultiStatus `json:"status"`
 	Spec   MongoDBMultiSpec   `json:"spec"`
-}
-
-func (m *MongoDBMultiCluster) AddValidationToManager(ctx context.Context, mgr manager.Manager, clt map[string]cluster.Cluster) error {
-	return ctrl.NewWebhookManagedBy(mgr).For(m).Complete()
 }
 
 func (m *MongoDBMultiCluster) GetProjectConfigMapNamespace() string {
@@ -233,10 +225,6 @@ type MongoDBMultiSpec struct {
 
 func (m *MongoDBMultiSpec) GetAgentConfig() mdbv1.AgentConfig {
 	return m.Agent
-}
-
-func (m *MongoDBMultiCluster) GetPlural() string {
-	return "mongodbmulticluster"
 }
 
 func (m *MongoDBMultiCluster) GetStatus(...status.Option) interface{} {

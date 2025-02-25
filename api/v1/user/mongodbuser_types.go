@@ -191,10 +191,6 @@ func (u *MongoDBUser) SetWarnings(warnings []status.Warning, _ ...status.Option)
 	u.Status.Warnings = warnings
 }
 
-func (u MongoDBUser) GetPlural() string {
-	return "mongodbusers"
-}
-
 func (u *MongoDBUser) GetStatus(...status.Option) interface{} {
 	return u.Status
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -18,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 
 	corev1 "k8s.io/api/core/v1"
@@ -31,7 +33,9 @@ import (
 	crWebhook "sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	apiv1 "github.com/10gen/ops-manager-kubernetes/api/v1"
-	"github.com/10gen/ops-manager-kubernetes/controllers"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
+	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/telemetry"
@@ -39,6 +43,13 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 	"github.com/10gen/ops-manager-kubernetes/pkg/webhook"
+)
+
+const (
+	mongoDBCRDPlural             = "mongodb"
+	mongoDBUserCRDPlural         = "mongodbusers"
+	mongoDBOpsManagerCRDPlural   = "opsmanagers"
+	mongoDBMultiClusterCRDPlural = "mongodbmulticluster"
 )
 
 var (
@@ -49,6 +60,9 @@ var (
 	operatorEnvironments = []string{util.OperatorEnvironmentDev, util.OperatorEnvironmentLocal, util.OperatorEnvironmentProd}
 
 	scheme = runtime.NewScheme()
+
+	// Default CRDs to watch (if not specified on the command line)
+	crds crdsToWatch
 )
 
 func init() {
@@ -57,11 +71,8 @@ func init() {
 	utilruntime.Must(corev1.AddToScheme(scheme))
 
 	// +kubebuilder:scaffold:scheme
-}
 
-// commandLineFlags struct holds the command line arguments passed to the operator deployment
-type commandLineFlags struct {
-	crdsToWatch string
+	flag.Var(&crds, "watch-resource", "A Watch Resource specifies if the Operator should watch the given resource")
 }
 
 // crdsToWatch is a custom Value implementation which can be
@@ -69,7 +80,7 @@ type commandLineFlags struct {
 type crdsToWatch []string
 
 func (c *crdsToWatch) Set(value string) error {
-	*c = append(*c, value)
+	*c = append(*c, strings.ToLower(value))
 	return nil
 }
 
@@ -77,19 +88,13 @@ func (c *crdsToWatch) String() string {
 	return strings.Join(*c, ",")
 }
 
-// parseCommandLineArgs parses the command line arguments passed in the operator deployment specs
-func parseCommandLineArgs() commandLineFlags {
-	crds := crdsToWatch{}
-
-	flag.Var(&crds, "watch-resource", "A Watch Resource specifies if the Operator should watch the given resource")
-	flag.Parse()
-
-	return commandLineFlags{
-		crdsToWatch: crds.String(),
-	}
-}
-
 func main() {
+	flag.Parse()
+	// If no CRDs are specified, we set default to non-multicluster CRDs
+	if len(crds) == 0 {
+		crds = crdsToWatch{mongoDBCRDPlural, mongoDBUserCRDPlural, mongoDBOpsManagerCRDPlural}
+	}
+
 	ctx := context.Background()
 	operator.OmUpdateChannel = make(chan event.GenericEvent)
 
@@ -129,9 +134,7 @@ func main() {
 		managerOptions.HealthProbeBindAddress = "127.0.0.1:8181"
 	}
 
-	commandLineFlags := parseCommandLineArgs()
-	crdsToWatch := commandLineFlags.crdsToWatch
-	webhookOptions := setupWebhook(ctx, cfg, log, multicluster.IsMultiClusterMode(crdsToWatch))
+	webhookOptions := setupWebhook(ctx, cfg, log, slices.Contains(crds, mongoDBMultiClusterCRDPlural))
 	managerOptions.WebhookServer = crWebhook.NewServer(webhookOptions)
 
 	mgr, err := ctrl.NewManager(cfg, managerOptions)
@@ -148,7 +151,7 @@ func main() {
 	// memberClusterObjectsMap is a map of clusterName -> clusterObject
 	memberClusterObjectsMap := make(map[string]runtime_cluster.Cluster)
 
-	if multicluster.IsMultiClusterMode(crdsToWatch) {
+	if slices.Contains(crds, mongoDBMultiClusterCRDPlural) {
 		memberClustersNames, err := getMemberClusters(ctx, cfg)
 		if err != nil {
 			log.Fatal(err)
@@ -196,12 +199,28 @@ func main() {
 	}
 
 	// Setup all Controllers
-	var registeredCRDs []string
-	if registeredCRDs, err = controllers.AddToManager(ctx, mgr, crdsToWatch, memberClusterObjectsMap); err != nil {
-		log.Fatal(err)
+	if slices.Contains(crds, mongoDBCRDPlural) {
+		if err := setupMongoDBCRD(ctx, mgr, memberClusterObjectsMap); err != nil {
+			log.Fatal(err)
+		}
+	}
+	if slices.Contains(crds, mongoDBOpsManagerCRDPlural) {
+		if err := setupMongoDBOpsManagerCRD(ctx, mgr, memberClusterObjectsMap); err != nil {
+			log.Fatal(err)
+		}
+	}
+	if slices.Contains(crds, mongoDBUserCRDPlural) {
+		if err := setupMongoDBUserCRD(ctx, mgr, memberClusterObjectsMap); err != nil {
+			log.Fatal(err)
+		}
+	}
+	if slices.Contains(crds, mongoDBMultiClusterCRDPlural) {
+		if err := setupMongoDBMultiClusterCRD(ctx, mgr, memberClusterObjectsMap); err != nil {
+			log.Fatal(err)
+		}
 	}
 
-	for _, r := range registeredCRDs {
+	for _, r := range crds {
 		log.Infof("Registered CRD: %s", r)
 	}
 
@@ -224,6 +243,37 @@ func main() {
 	if err := mgr.Start(signals.SetupSignalHandler()); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func setupMongoDBCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {
+	if err := operator.AddStandaloneController(ctx, mgr); err != nil {
+		return err
+	}
+	if err := operator.AddReplicaSetController(ctx, mgr); err != nil {
+		return err
+	}
+	if err := operator.AddShardedClusterController(ctx, mgr, memberClusterObjectsMap); err != nil {
+		return err
+	}
+	return ctrl.NewWebhookManagedBy(mgr).For(&mdbv1.MongoDB{}).Complete()
+}
+
+func setupMongoDBOpsManagerCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {
+	if err := operator.AddOpsManagerController(ctx, mgr, memberClusterObjectsMap); err != nil {
+		return err
+	}
+	return ctrl.NewWebhookManagedBy(mgr).For(&omv1.MongoDBOpsManager{}).Complete()
+}
+
+func setupMongoDBUserCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {
+	return operator.AddMongoDBUserController(ctx, mgr, memberClusterObjectsMap)
+}
+
+func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {
+	if err := operator.AddMultiReplicaSetController(ctx, mgr, memberClusterObjectsMap); err != nil {
+		return err
+	}
+	return ctrl.NewWebhookManagedBy(mgr).For(&mdbmultiv1.MongoDBMultiCluster{}).Complete()
 }
 
 // getMemberClusters retrieves the member clusters from the configmap util.MemberListConfigMapName
