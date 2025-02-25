@@ -18,7 +18,7 @@ require (
 	github.com/r3labs/diff/v3 v3.0.1
 	github.com/spf13/cast v1.6.0
 	github.com/stretchr/objx v0.5.2
-	github.com/stretchr/testify v1.9.0
+	github.com/stretchr/testify v1.10.0
 	github.com/xdg/stringprep v1.0.3
 	github.com/yudai/gojsondiff v1.0.0
 	go.uber.org/zap v1.27.0
@@ -47,7 +47,7 @@ require (
 	github.com/evanphx/json-patch v5.9.0+incompatible // indirect
 	github.com/evanphx/json-patch/v5 v5.9.0 // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
-	github.com/go-jose/go-jose/v4 v4.0.1 // indirect
+	github.com/go-jose/go-jose/v4 v4.0.5 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-openapi/jsonpointer v0.19.6 // indirect
 	github.com/go-openapi/jsonreference v0.20.2 // indirect
