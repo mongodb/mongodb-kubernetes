@@ -10,7 +10,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/hashicorp/go-retryablehttp v0.7.7
-	github.com/hashicorp/vault/api v1.14.0
+	github.com/hashicorp/vault/api v1.16.0
 	github.com/imdario/mergo v0.3.15
 	github.com/mongodb/mongodb-kubernetes-operator v0.12.1-0.20250203171630-423b6ebbf169
 	github.com/pkg/errors v0.9.1
@@ -40,7 +40,7 @@ require google.golang.org/protobuf v1.36.1 // indirect
 
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/cenkalti/backoff/v3 v3.0.0 // indirect
+	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/emicklei/go-restful/v3 v3.11.0 // indirect
