@@ -720,13 +720,14 @@ task_groups:
       - e2e_operator_upgrade_appdb_tls
     <<: *teardown_group
 
-  # e2e_operator_race_task_group includes the tests for testing the operator with race detector enabled
-  - name: e2e_operator_race_task_group
+  # e2e_operator_race_with_telemetry_task_group includes the tests for testing the operator with race detector enabled
+  # additionally, it sends telemetry to cloud-dev; more here: https://wiki.corp.mongodb.com/display/MMS/Telemetry
+  - name: e2e_operator_race_with_telemetry_task_group
     max_hosts: -1
     <<: *setup_group_multi_cluster
     <<: *setup_and_teardown_task
     tasks:
-      - e2e_om_reconcile_race
+      - e2e_om_reconcile_race_with_telemetry
     <<: *teardown_group
 
   # e2e_operator_task_group includes the tests for the specific Operator configuration/behavior. They may deal with
@@ -1253,14 +1254,14 @@ buildvariants:
       - name: e2e_static_ops_manager_kind_only_task_group
       - name: e2e_static_ops_manager_kind_6_0_only_task_group
 
-  - name: e2e_operator_race_ubi
-    display_name: e2e_operator_race_ubi
+  - name: e2e_operator_race_ubi_with_telemetry
+    display_name: e2e_operator_race_ubi_with_telemetry
     tags: [ "e2e_test_suite" ]
     run_on:
       - ubuntu1804-xlarge
     <<: *base_om7_dependency
     tasks:
-      - name: e2e_operator_race_task_group
+      - name: e2e_operator_race_with_telemetry_task_group
 
   - name: e2e_smoke
     display_name: e2e_smoke

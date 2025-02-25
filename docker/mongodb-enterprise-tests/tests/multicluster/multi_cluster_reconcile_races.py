@@ -1,4 +1,5 @@
 # It's intended to check for reconcile data races.
+import json
 import time
 from typing import Optional
 
@@ -132,30 +133,30 @@ def get_all_users(ops_manager, namespace, mdb: MongoDB) -> list[MongoDBUser]:
     return [get_user(ops_manager, namespace, idx, mdb) for idx in range(0, 2)]
 
 
-@pytest.mark.e2e_om_reconcile_race
+@pytest.mark.e2e_om_reconcile_race_with_telemetry
 def test_deploy_operator(multi_cluster_operator: Operator):
     multi_cluster_operator.assert_is_running()
 
 
-@pytest.mark.e2e_om_reconcile_race
+@pytest.mark.e2e_om_reconcile_race_with_telemetry
 def test_create_om(ops_manager: MongoDBOpsManager, ops_manager2: MongoDBOpsManager):
     ops_manager.update()
     ops_manager2.update()
 
 
-@pytest.mark.e2e_om_reconcile_race
+@pytest.mark.e2e_om_reconcile_race_with_telemetry
 def test_om_ready(ops_manager: MongoDBOpsManager):
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1800)
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1800)
 
 
-@pytest.mark.e2e_om_reconcile_race
+@pytest.mark.e2e_om_reconcile_race_with_telemetry
 def test_om2_ready(ops_manager2: MongoDBOpsManager):
     ops_manager2.appdb_status().assert_reaches_phase(Phase.Running, timeout=1800)
     ops_manager2.om_status().assert_reaches_phase(Phase.Running, timeout=1800)
 
 
-@pytest.mark.e2e_om_reconcile_race
+@pytest.mark.e2e_om_reconcile_race_with_telemetry
 def test_create_mdb(ops_manager: MongoDBOpsManager, namespace: str):
     for resource in get_all_rs(ops_manager, namespace):
         resource["spec"]["security"] = {
@@ -168,7 +169,7 @@ def test_create_mdb(ops_manager: MongoDBOpsManager, namespace: str):
         r.assert_reaches_phase(Phase.Running)
 
 
-@pytest.mark.e2e_om_reconcile_race
+@pytest.mark.e2e_om_reconcile_race_with_telemetry
 def test_create_mdbmc(ops_manager: MongoDBOpsManager, namespace: str):
     for resource in get_all_mdbmc(ops_manager, namespace):
         resource.set_version(get_custom_mdb_version())
@@ -179,7 +180,7 @@ def test_create_mdbmc(ops_manager: MongoDBOpsManager, namespace: str):
         r.assert_reaches_phase(Phase.Running)
 
 
-@pytest.mark.e2e_om_reconcile_race
+@pytest.mark.e2e_om_reconcile_race_with_telemetry
 def test_create_sharded(ops_manager: MongoDBOpsManager, namespace: str):
     for resource in get_all_sharded(ops_manager, namespace):
         resource.set_version(get_custom_mdb_version())
@@ -189,7 +190,7 @@ def test_create_sharded(ops_manager: MongoDBOpsManager, namespace: str):
         r.assert_reaches_phase(Phase.Running)
 
 
-@pytest.mark.e2e_om_reconcile_race
+@pytest.mark.e2e_om_reconcile_race_with_telemetry
 def test_create_standalone(ops_manager: MongoDBOpsManager, namespace: str):
     for resource in get_all_standalone(ops_manager, namespace):
         resource.set_version(get_custom_mdb_version())
@@ -199,7 +200,7 @@ def test_create_standalone(ops_manager: MongoDBOpsManager, namespace: str):
         r.assert_reaches_phase(Phase.Running)
 
 
-@pytest.mark.e2e_om_reconcile_race
+@pytest.mark.e2e_om_reconcile_race_with_telemetry
 def test_create_users(ops_manager: MongoDBOpsManager, namespace: str):
     create_or_update_secret(
         namespace,
@@ -216,7 +217,7 @@ def test_create_users(ops_manager: MongoDBOpsManager, namespace: str):
         r.assert_reaches_phase(Phase.Running)
 
 
-@pytest.mark.e2e_om_reconcile_race
+@pytest.mark.e2e_om_reconcile_race_with_telemetry
 def test_pod_logs_race(multi_cluster_operator: Operator):
     pods = multi_cluster_operator.list_operator_pods()
     pod_name = pods[0].metadata.name
@@ -228,7 +229,7 @@ def test_pod_logs_race(multi_cluster_operator: Operator):
     assert not contains_race
 
 
-@pytest.mark.e2e_om_reconcile_race
+@pytest.mark.e2e_om_reconcile_race_with_telemetry
 def test_restart_operator_pod(ops_manager: MongoDBOpsManager, namespace: str, multi_cluster_operator: Operator):
     # this enforces a requeue of all existing resources, increasing the chances of races to happen
     multi_cluster_operator.restart_operator_deployment()
@@ -238,7 +239,7 @@ def test_restart_operator_pod(ops_manager: MongoDBOpsManager, namespace: str, mu
         r.assert_reaches_phase(Phase.Running)
 
 
-@pytest.mark.e2e_om_reconcile_race
+@pytest.mark.e2e_om_reconcile_race_with_telemetry
 def test_pod_logs_race_after_restart(multi_cluster_operator: Operator):
     pods = multi_cluster_operator.list_operator_pods()
     pod_name = pods[0].metadata.name
@@ -248,3 +249,22 @@ def test_pod_logs_race_after_restart(multi_cluster_operator: Operator):
     )
     contains_race = "WARNING: DATA RACE" in pod_logs_str
     assert not contains_race
+
+
+@pytest.mark.e2e_om_reconcile_race_with_telemetry
+def test_telemetry_configmap(namespace: str):
+    telemetry_configmap_name = "mongodb-enterprise-operator-telemetry"
+    config = KubernetesTester.read_configmap(namespace, telemetry_configmap_name)
+    for ts_key in ["lastSendTimestampClusters", "lastSendTimestampDeployments", "lastSendTimestampOperators"]:
+        ts_cm = config.get(ts_key)
+        assert ts_cm.isdigit()  # it should be a timestamp
+
+    for ps_key in ["lastSendPayloadClusters", "lastSendPayloadDeployments", "lastSendPayloadOperators"]:
+        try:
+            payload_string = config.get(ps_key)
+            payload = json.loads(payload_string)
+            # Perform a rudimentary check
+            assert isinstance(payload, list), "payload should be a list"
+            assert len(payload) > 0, "payload should not be empty"
+        except json.JSONDecodeError:
+            pytest.fail("payload contains invalid JSON data")

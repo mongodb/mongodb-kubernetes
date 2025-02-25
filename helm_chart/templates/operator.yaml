@@ -76,6 +76,10 @@ spec:
               value: {{ .Values.operator.env }}
             - name: MDB_DEFAULT_ARCHITECTURE
               value: {{ .Values.operator.mdbDefaultArchitecture }}
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
     {{- if .Values.operator.vaultSecretBackend }}
       {{- if .Values.operator.vaultSecretBackend.enabled }}
             - name: SECRET_BACKEND
@@ -90,13 +94,41 @@ spec:
                 fieldRef:
                   fieldPath: metadata.namespace
     {{- end }}
-            - name: NAMESPACE
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.namespace
     {{- if eq .Values.managedSecurityContext true }}
             - name: MANAGED_SECURITY_CONTEXT
               value: 'true'
+    {{- end }}
+    {{- if eq .Values.operator.telemetry.enabled false}}
+            - name: MDB_OPERATOR_TELEMETRY_ENABLED
+              value: 'false'
+    {{- end }}
+    {{- if eq .Values.operator.telemetry.send.enabled false}}
+            - name: MDB_OPERATOR_TELEMETRY_SEND_ENABLED
+              value: 'false'
+    {{- end }}
+    {{- if .Values.operator.telemetry.send.frequency}}
+            - name: MDB_OPERATOR_TELEMETRY_SEND_FREQUENCY
+              value: "{{ .Values.operator.telemetry.send.frequency }}"
+    {{- end }}
+    {{- if .Values.operator.telemetry.send.baseUrl}}
+            - name: MDB_OPERATOR_TELEMETRY_SEND_BASEURL
+              value: "{{ .Values.operator.telemetry.send.baseUrl }}"
+    {{- end }}
+    {{- if eq .Values.operator.telemetry.collection.clusters.enabled false}}
+            - name: MDB_OPERATOR_TELEMETRY_COLLECTION_CLUSTERS_ENABLED
+              value: 'false'
+    {{- end }}
+    {{- if eq .Values.operator.telemetry.collection.deployments.enabled false}}
+            - name: MDB_OPERATOR_TELEMETRY_COLLECTION_DEPLOYMENTS_ENABLED
+              value: 'false'
+    {{- end }}
+    {{- if eq .Values.operator.telemetry.collection.operators.enabled false}}
+            - name: MDB_OPERATOR_TELEMETRY_COLLECTION_OPERATORS_ENABLED
+              value: 'false'
+    {{- end }}
+    {{- if.Values.operator.telemetry.collection.frequency}}
+            - name: MDB_OPERATOR_TELEMETRY_COLLECTION_FREQUENCY
+              value: "{{ .Values.operator.telemetry.collection.frequency }}"
     {{- end }}
     {{- if .Values.multiCluster.clusterClientTimeout }}
             - name: CLUSTER_CLIENT_TIMEOUT

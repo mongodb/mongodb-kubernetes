@@ -34,6 +34,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
+	"github.com/10gen/ops-manager-kubernetes/pkg/telemetry"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
@@ -202,6 +203,19 @@ func main() {
 
 	for _, r := range registeredCRDs {
 		log.Infof("Registered CRD: %s", r)
+	}
+
+	if telemetry.IsTelemetryActivated() {
+		log.Info("Running telemetry component!")
+		telemetryRunnable, err := telemetry.NewLeaderRunnable(mgr, memberClusterObjectsMap)
+		if err != nil {
+			log.Errorf("Unable to enable telemetry; err: %s", err)
+		}
+		if err := mgr.Add(telemetryRunnable); err != nil {
+			log.Errorf("Unable to enable telemetry; err: %s", err)
+		}
+	} else {
+		log.Info("Not running telemetry component!")
 	}
 
 	log.Info("Starting the Cmd.")
@@ -399,6 +413,8 @@ func InitGlobalLogger() {
 	zap.ReplaceGlobals(logger)
 	// Set the logger for controller-runtime based on the general level of the operator
 	kubelog.SetLogger(zapr.NewLogger(logger))
+	// Set the logger used by telemetry package
+	telemetry.ConfigureLogger()
 
 	// Set the logger used by main.go
 	log = zap.S()

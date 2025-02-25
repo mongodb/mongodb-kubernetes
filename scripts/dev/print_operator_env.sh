@@ -3,6 +3,7 @@
 set -Eeou pipefail
 
 # NOTE: these are the env vars which are required to run the operator, either via a pod or locally
+# This is not used by E2E evergreen, only when running tests "locally"
 
 UBI_IMAGE_SUFFIX="-ubi"
 
@@ -28,6 +29,8 @@ MONGODB_REPO_URL=\"${MONGODB_REPO_URL:-}\"
 IMAGE_PULL_SECRETS=\"image-registries-secret\"
 MDB_DEFAULT_ARCHITECTURE=\"${MDB_DEFAULT_ARCHITECTURE:-non-static}\"
 MDB_IMAGE_TYPE=\"${MDB_IMAGE_TYPE:-ubi8}\"
+MDB_OPERATOR_TELEMETRY_COLLECTION_FREQUENCY=\"${MDB_OPERATOR_TELEMETRY_COLLECTION_FREQUENCY:-1m}\"
+MDB_OPERATOR_TELEMETRY_SEND_ENABLED=\"${MDB_OPERATOR_TELEMETRY_SEND_ENABLED:-false}\"
 "
 
 if [[ "${AGENT_IMAGE:-}" != "" ]]; then
@@ -38,6 +41,15 @@ fi
 
 if [[ "${KUBECONFIG:-""}" != "" ]]; then
   echo "KUBECONFIG=${KUBECONFIG}"
+fi
+
+if [[ "${MDB_OPERATOR_TELEMETRY_SEND_FREQUENCY:-""}" != "" ]]; then
+  echo "MDB_OPERATOR_TELEMETRY_SEND_FREQUENCY=${MDB_OPERATOR_TELEMETRY_SEND_FREQUENCY}"
+fi
+
+
+if [[ "${MDB_OPERATOR_TELEMETRY_SEND_BASEURL:-""}" != "" ]]; then
+  echo "MDB_OPERATOR_TELEMETRY_SEND_BASEURL=${MDB_OPERATOR_TELEMETRY_SEND_BASEURL}"
 fi
 
 if [[ "${MDB_AGENT_VERSION:-""}" != "" ]]; then
@@ -79,8 +91,6 @@ fi
 if [[ "${MDB_MAX_CONCURRENT_RECONCILES:-""}" != "" ]]; then
   echo "MDB_MAX_CONCURRENT_RECONCILES=${MDB_MAX_CONCURRENT_RECONCILES}"
 fi
-
-
 }
 
 print_operator_env
