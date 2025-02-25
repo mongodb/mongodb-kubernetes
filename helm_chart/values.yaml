@@ -98,6 +98,32 @@ operator:
     #  - ValidatingWebhookConfigurations will be managed by the operator.
     registerConfiguration: true
 
+  telemetry:
+    # Enables telemetry. Setting this to false will stop all telemetry related work on the operator.
+    enabled: true
+    collection:
+      # Valid time units are "m", "h". Anything less than one minute defaults to 1h
+      frequency: 1h
+      # Enables the operator to collect and send cluster level telemetry
+      # Adds RBAC clusterRole for kube-system uid detection for the kubernetes cluster uid
+      # Adds RBAC clusterRole for RBAC for nodes. We are listing exactly one node to detect the cluster provider (e.g. eks)
+      # Adds RBAC clusterRole for /version query for detecting kubernetes server version
+      # Note: the cluster UUID is unique but random and mongoDB has no way to map this to a customer.
+      clusters:
+        enabled: true
+      # Enables the operator to collect and send deployment level telemetry
+      deployments:
+        enabled: true
+      # Enables the operator to collect and send operator level telemetry
+      operators:
+        enabled: true
+    # Enables sending the collected telemetry to MongoDB
+    send:
+      enabled: true
+      # 168 hours is one week
+      # Valid time units are "h". Anything less than one hours defaults to 168h
+      frequency: 168h
+
 ## Database
 database:
   name: mongodb-enterprise-database-ubi

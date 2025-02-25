@@ -1129,7 +1129,7 @@ tasks:
       - func: e2e_test
 
   # this test is run, with an operator with race enabled
-  - name: e2e_om_reconcile_race
+  - name: e2e_om_reconcile_race_with_telemetry
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test

@@ -64,6 +64,15 @@ func IsRunningStaticArchitecture(annotations map[string]string) bool {
 	return operatorEnv == string(Static)
 }
 
+func GetArchitecture(annotations map[string]string) string {
+	isStatic := IsRunningStaticArchitecture(annotations)
+	architecture := NonStatic
+	if isStatic {
+		architecture = Static
+	}
+	return string(architecture)
+}
+
 // GetMongoVersionForAutomationConfig returns the required version with potentially the suffix -ent.
 // If we are in static containers architecture, we need the -ent suffix in case we are running the ea image.
 // If not, the agent will try to change the version to reflect the non-enterprise image.

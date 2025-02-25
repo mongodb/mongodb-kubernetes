@@ -30,6 +30,14 @@ get_operator_helm_values() {
     "mongodb.imageType=${MDB_IMAGE_TYPE:-ubi8}"
     "operator.mdbDefaultArchitecture=${MDB_DEFAULT_ARCHITECTURE:-non-static}"
     "operator.enablePVCResize=${MDB_ENABLE_PVC_RESIZE:-true}"
+    "operator.telemetry.enabled=true"
+    "operator.telemetry.collection.clusters.enabled=true"
+    "operator.telemetry.collection.deployments.enabled=true"
+    "operator.telemetry.collection.operators.enabled=true"
+    # only send the telemetry to the backend on a specific variant, thus default to false
+    "operator.telemetry.send.enabled=${MDB_OPERATOR_TELEMETRY_SEND_ENABLED:-false}"
+    # lets collect and save in the configmap as frequently as we can
+    "operator.telemetry.collection.frequency=${MDB_OPERATOR_TELEMETRY_COLLECTION_FREQUENCY:-1m}"
   )
 
    # shellcheck disable=SC2154
@@ -49,6 +57,11 @@ get_operator_helm_values() {
 
   if [[ "${MDB_MAX_CONCURRENT_RECONCILES:-}" != "" ]]; then
       config+=("operator.maxConcurrentReconciles=${MDB_MAX_CONCURRENT_RECONCILES}")
+  fi
+
+  # change this locally or as changed in variant e2e_operator_race_ubi_with_telemetry which also sends telemetry
+  if [[ "${MDB_OPERATOR_TELEMETRY_SEND_BASEURL:-}" != "" ]]; then
+      config+=("operator.telemetry.send.baseUrl=${MDB_OPERATOR_TELEMETRY_SEND_BASEURL}")
   fi
 
   if [[ "${MDB_HELM_OPERATOR_WEBHOOK_INSTALL_CLUSTER_ROLE:-}" != "" ]]; then
