@@ -11,8 +11,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/cluster"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 
@@ -21,7 +19,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	ctrl "sigs.k8s.io/controller-runtime"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
@@ -64,10 +61,6 @@ type MongoDBOpsManager struct {
 	Spec              MongoDBOpsManagerSpec `json:"spec"`
 	// +optional
 	Status MongoDBOpsManagerStatus `json:"status"`
-}
-
-func (om *MongoDBOpsManager) AddValidationToManager(ctx context.Context, mgr manager.Manager, _ map[string]cluster.Cluster) error {
-	return ctrl.NewWebhookManagedBy(mgr).For(om).Complete()
 }
 
 func (om *MongoDBOpsManager) GetAppDBProjectConfig(ctx context.Context, secretClient secrets.SecretClient, client kubernetesClient.Client) (mdbv1.ProjectConfig, error) {
@@ -774,10 +767,6 @@ func (om *MongoDBOpsManager) AddAppDBWarningIfNotExists(warning status.Warning) 
 
 func (om *MongoDBOpsManager) AddBackupWarningIfNotExists(warning status.Warning) {
 	om.Status.BackupStatus.Warnings = status.Warnings(om.Status.BackupStatus.Warnings).AddIfNotExists(warning)
-}
-
-func (om *MongoDBOpsManager) GetPlural() string {
-	return "opsmanagers"
 }
 
 func (om *MongoDBOpsManager) GetStatus(options ...status.Option) interface{} {
