@@ -128,9 +128,9 @@ subjects:
   - kind: ServiceAccount
     name: {{ $.Values.operator.name }}
     namespace: {{ include "mongodb-enterprise-operator.namespace" $ }}
-{{- end }} {{/* range */}}
+{{- end }}
 
-{{- end }} {{/* if .Values.operator.createOperatorServiceAccount */}}
+{{- end }}
 ---
 
 {{/* This cluster role and binding is necessary to allow the operator to automatically register ValidatingWebhookConfiguration. */}}
@@ -161,7 +161,7 @@ rules:
       - create
       - update
       - delete
-{{- end }} {{/* if not (lookup ... */}}
+{{- end }}
 ---
 
 kind: ClusterRoleBinding
@@ -177,4 +177,51 @@ subjects:
     name: {{ .Values.operator.name }}
     namespace: {{ include "mongodb-enterprise-operator.namespace" . }}
 
-{{- end }} {{/* if and .Values.operator.webhook.registerConfiguration .Values.operator.webhook.installClusterRole */}}
+{{- end }}
+
+
+{{ if and .Values.operator.telemetry.collection.clusters.enabled .Values.operator.telemetry.enabled}}
+---
+# Additional ClusterRole for clusterVersionDetection
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ .Values.operator.name }}-cluster-telemetry
+rules:
+{{ if .Values.operator.telemetry.collection.clusters.enabled }}
+  # Non-resource URL permissions
+  - nonResourceURLs:
+      - "/version"
+    verbs:
+      - get
+  # Cluster-scoped resource permissions
+  - apiGroups:
+      - ''
+    resources:
+      - namespaces
+    resourceNames:
+      - kube-system
+    verbs:
+      - get
+  - apiGroups:
+      - ''
+    resources:
+      - nodes
+    verbs:
+      - list
+{{- end}}
+---
+# ClusterRoleBinding for clusterVersionDetection
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ .Values.operator.name }}-{{ include "mongodb-enterprise-operator.namespace" . }}-cluster-telemetry-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Values.operator.name }}-cluster-telemetry
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.operator.name }}
+    namespace: {{ include "mongodb-enterprise-operator.namespace" . }}
+{{- end }}

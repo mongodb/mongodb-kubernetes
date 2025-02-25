@@ -8,6 +8,7 @@ docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator
 docker/mongodb-enterprise-database/content/mongodb-mms-automation-agent-version.properties
 docker/mongodb-enterprise-database/content/readinessprobe
 docker/mongodb-enterprise-ops-manager/scripts/mmsconfiguration
+docker/mongodb-enterprise-tests/public
 
 my-*
 .vscode

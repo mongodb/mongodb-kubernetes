@@ -27,6 +27,35 @@ rules:
       - delete
 ---
 # Source: enterprise-operator/templates/operator-roles.yaml
+# Additional ClusterRole for clusterVersionDetection
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-enterprise-operator-cluster-telemetry
+rules:
+
+  # Non-resource URL permissions
+  - nonResourceURLs:
+      - "/version"
+    verbs:
+      - get
+  # Cluster-scoped resource permissions
+  - apiGroups:
+      - ''
+    resources:
+      - namespaces
+    resourceNames:
+      - kube-system
+    verbs:
+      - get
+  - apiGroups:
+      - ''
+    resources:
+      - nodes
+    verbs:
+      - list
+---
+# Source: enterprise-operator/templates/operator-roles.yaml
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -35,6 +64,21 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: mongodb-enterprise-operator-mongodb-webhook
+subjects:
+  - kind: ServiceAccount
+    name: mongodb-enterprise-operator
+    namespace: mongodb
+---
+# Source: enterprise-operator/templates/operator-roles.yaml
+# ClusterRoleBinding for clusterVersionDetection
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-enterprise-operator-mongodb-cluster-telemetry-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mongodb-enterprise-operator-cluster-telemetry
 subjects:
   - kind: ServiceAccount
     name: mongodb-enterprise-operator
@@ -244,16 +288,20 @@ spec:
               value: prod
             - name: MDB_DEFAULT_ARCHITECTURE
               value: non-static
-            - name: WATCH_NAMESPACE
+            - name: NAMESPACE
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
-            - name: NAMESPACE
+            - name: WATCH_NAMESPACE
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
             - name: MANAGED_SECURITY_CONTEXT
               value: 'true'
+            - name: MDB_OPERATOR_TELEMETRY_SEND_FREQUENCY
+              value: "168h"
+            - name: MDB_OPERATOR_TELEMETRY_COLLECTION_FREQUENCY
+              value: "1h"
             - name: CLUSTER_CLIENT_TIMEOUT
               value: "10"
             - name: IMAGE_PULL_POLICY

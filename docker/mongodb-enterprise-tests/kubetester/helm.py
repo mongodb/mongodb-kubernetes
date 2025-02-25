@@ -125,11 +125,11 @@ def process_run_and_check(args, **kwargs):
     except subprocess.CalledProcessError as exc:
         if exc.stdout is not None:
             stdout = exc.stdout.decode("utf-8")
-            logger.info(stdout)
+            logger.error(f"stdout: {stdout}")
         if exc.stderr is not None:
             stderr = exc.stderr.decode("utf-8")
-            logger.info(stderr)
-        logger.info(exc.output)
+            logger.error(f"stderr: {stderr}")
+        logger.error(f"output: {exc.output}")
         raise
 
 
