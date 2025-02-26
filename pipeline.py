@@ -433,6 +433,7 @@ def produce_sbom(build_configuration, args):
         elif args["platform"] == "amd64":
             platform = "linux/amd64"
         else:
+            # TODO: return here?
             logger.error(f"Unrecognized architectures in {args}. Skipping SBOM generation")
     else:
         platform = "linux/amd64"
@@ -981,7 +982,7 @@ def build_image_generic(
         )
         # Sleep for a random time between 0 and 5 seconds to distribute daily builds better,
         # as we do a lot of things there that require network connections like:
-        # - silk uploads, downloads
+        # - Kondukto uploads, downloads
         # - image verification and signings
         # - manifest creations
         # - docker image pushes
