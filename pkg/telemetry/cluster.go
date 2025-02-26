@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/version"
@@ -16,10 +17,25 @@ import (
 const (
 	unknown   = "Unknown"
 	eks       = "AWS (EKS)"
+	vmware    = "VmWare"
 	gke       = "Google (GKE)"
 	aks       = "Azure (AKS)"
 	openshift = "Openshift"
+	rke       = "RKE"
+	rke2      = "RKE2"
 )
+
+var kubernetesFlavourLabelsMapping = map[string]string{
+	"eks.amazonaws.com/nodegroup":    eks,
+	"cloud.google.com/gke-nodepool":  gke,
+	"kubernetes.azure.com/agentpool": aks,
+	"node.openshift.io/os_id":        openshift,
+}
+
+var kubernetesFlavourAnnotationsMapping = map[string]string{
+	"rke.cattle.io/external-ip": rke,
+	"rke.cattle.io/internal-ip": rke,
+}
 
 // detectClusterInfo detects the Kubernetes version and cluster flavor
 func detectClusterInfos(ctx context.Context, memberClusterMap map[string]ConfigClient) []KubernetesClusterUsageSnapshotProperties {
@@ -53,7 +69,7 @@ func getKubernetesClusterProperty(ctx context.Context, discoveryClient discovery
 		}
 	}
 
-	kubernetesFlavour := detectKubernetesFlavour(ctx, uncachedClient)
+	kubernetesFlavour := detectKubernetesFlavour(ctx, uncachedClient, kubernetesAPIVersion)
 
 	property := KubernetesClusterUsageSnapshotProperties{
 		KubernetesClusterID:  kubeClusterUUID,
@@ -74,38 +90,46 @@ func getServerVersion(discoveryClient discovery.DiscoveryInterface) *version.Inf
 }
 
 // detectKubernetesFlavour detects the cloud provider based on node labels.
-func detectKubernetesFlavour(ctx context.Context, uncachedClient kubeclient.Reader) string {
-	nodes := &corev1.NodeList{}
-	// Limit is propagated to the apiserver which propagates to etcd as it is. Thus, there is not a lot of
-	// work required on the APIServer and ETCD to retrieve that node even in large clusters
-	listOptions := &kubeclient.ListOptions{
-		Limit: 1,
+func detectKubernetesFlavour(ctx context.Context, uncachedClient kubeclient.Reader, kubeGitApiVersion string) string {
+	// Check Kubernetes API version for known cloud providers
+	switch {
+	case strings.Contains(kubeGitApiVersion, "+rke2"):
+		return rke2
+	case strings.Contains(kubeGitApiVersion, "-gke"):
+		return gke
+	case strings.Contains(kubeGitApiVersion, "-eks"):
+		return eks
+	case strings.Contains(kubeGitApiVersion, "+vmware"):
+		return vmware
 	}
 
-	if err := uncachedClient.List(ctx, nodes, listOptions); err != nil {
+	// Limit is propagated to the apiserver which propagates to etcd as it is. Thus, there is not a lot of
+	// work required on the APIServer and ETCD to retrieve that node even in large clusters
+	nodes := &corev1.NodeList{}
+	if err := uncachedClient.List(ctx, nodes, &kubeclient.ListOptions{Limit: 1}); err != nil {
 		Logger.Debugf("Failed to fetch node to detect the cloud provider: %s", err)
 		return unknown
 	}
-
 	if len(nodes.Items) == 0 {
 		Logger.Debugf("No nodes found, returning Unknown")
 		return unknown
 	}
 
-	labels := nodes.Items[0].Labels
+	node := nodes.Items[0]
+	labels, annotations := node.Labels, node.Annotations
 
-	if _, ok := labels["eks.amazonaws.com/nodegroup"]; ok {
-		return eks
+	for key, provider := range kubernetesFlavourLabelsMapping {
+		if _, exists := labels[key]; exists {
+			return provider
+		}
 	}
-	if _, ok := labels["cloud.google.com/gke-nodepool"]; ok {
-		return gke
+
+	for key, provider := range kubernetesFlavourAnnotationsMapping {
+		if _, exists := annotations[key]; exists {
+			return provider
+		}
 	}
-	if _, ok := labels["kubernetes.azure.com/agentpool"]; ok {
-		return aks
-	}
-	if _, ok := labels["node.openshift.io/os_id"]; ok {
-		return openshift
-	}
+
 	return unknown
 }
 

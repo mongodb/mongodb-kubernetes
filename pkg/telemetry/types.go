@@ -61,7 +61,7 @@ var AllEventTypes = []EventType{
 	Clusters,
 }
 
-var EventTypeMappingToEnvVar map[EventType]string = map[EventType]string{
+var EventTypeMappingToEnvVar = map[EventType]string{
 	Deployments: "MDB_OPERATOR_TELEMETRY_COLLECTION_DEPLOYMENTS",
 	Clusters:    "MDB_OPERATOR_TELEMETRY_COLLECTION_CLUSTERS",
 	Operators:   "MDB_OPERATOR_TELEMETRY_COLLECTION_OPERATORS",

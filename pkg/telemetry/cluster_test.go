@@ -173,6 +173,7 @@ func TestDetectKubernetesFlavour(t *testing.T) {
 	tests := []struct {
 		name            string
 		labels          map[string]string
+		gitVersion      string
 		expectedFlavour string
 	}{
 		{
@@ -184,6 +185,12 @@ func TestDetectKubernetesFlavour(t *testing.T) {
 			name:            "unknown",
 			labels:          map[string]string{"something": "default"},
 			expectedFlavour: unknown,
+		},
+		{
+			name:            "based on gitversion",
+			labels:          map[string]string{"something": "default"},
+			gitVersion:      "v123-gke",
+			expectedFlavour: gke,
 		},
 	}
 
@@ -198,7 +205,7 @@ func TestDetectKubernetesFlavour(t *testing.T) {
 			}
 
 			fakeClient := fake.NewClientBuilder().WithObjects(node).Build()
-			cloudProvider := detectKubernetesFlavour(ctx, fakeClient)
+			cloudProvider := detectKubernetesFlavour(ctx, fakeClient, tt.gitVersion)
 
 			assert.Equal(t, tt.expectedFlavour, cloudProvider)
 		})
