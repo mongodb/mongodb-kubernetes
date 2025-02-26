@@ -11,6 +11,8 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
+const SCBuilderDefaultName = "slaney"
+
 type ClusterBuilder struct {
 	*mdb.MongoDB
 }
@@ -61,7 +63,7 @@ func DefaultClusterBuilder() *ClusterBuilder {
 	}
 
 	resource := &mdb.MongoDB{
-		ObjectMeta: v1.ObjectMeta{Name: "slaney", Namespace: mock.TestNamespace},
+		ObjectMeta: v1.ObjectMeta{Name: SCBuilderDefaultName, Namespace: mock.TestNamespace},
 		Status:     status,
 		Spec:       spec,
 	}

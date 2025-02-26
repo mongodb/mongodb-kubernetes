@@ -82,12 +82,19 @@ class TestShardedClusterShardOverrides:
 
     def test_scale_shard_overrides(self, sc: MongoDB):
         if is_multi_cluster():
+            # Override for shards 0 and 1
             sc["spec"]["shardOverrides"][0]["clusterSpecList"] = cluster_spec_list(
                 get_member_cluster_names()[:2], [1, 2]
             )  # cluster2: 1->2
+
+            # Override for shard 3
             sc["spec"]["shardOverrides"][1]["clusterSpecList"] = cluster_spec_list(
-                get_member_cluster_names(), [0, 1, 3]
-            )  # cluster1: 1->0 cluster3: 1->3
+                get_member_cluster_names(), [1, 1, 3]
+            )  # cluster3: 1->3
+
+            # This replica initially had 0 votes, we need to restore the setting after using 'cluster_spec_list' above
+            sc["spec"]["shardOverrides"][1]["clusterSpecList"][0]["memberConfig"] = [{"votes": 0, "priority": "0"}]
+
             sc.update()
             sc.assert_reaches_phase(Phase.Running, timeout=1000)
         else:

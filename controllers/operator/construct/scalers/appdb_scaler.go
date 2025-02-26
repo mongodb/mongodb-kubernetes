@@ -33,6 +33,10 @@ func (s *appDBSingleClusterScaler) DesiredReplicas() int {
 	return s.opsManager.Spec.AppDB.Members
 }
 
+func (s *appDBSingleClusterScaler) TargetReplicas() int {
+	return s.DesiredReplicas()
+}
+
 func (s *appDBSingleClusterScaler) CurrentReplicas() int {
 	return s.opsManager.Status.AppDbStatus.Members
 }
@@ -48,3 +52,5 @@ func (s *appDBSingleClusterScaler) MemberClusterName() string {
 func (s *appDBSingleClusterScaler) MemberClusterNum() int {
 	return 0
 }
+
+func (s *appDBSingleClusterScaler) ScalerDescription() string { return "AppDB" }

@@ -2,6 +2,9 @@
 <!-- Next Release -->
 # MongoDB Enterprise Kubernetes Operator 1.32.0
 
+## New Features
+* **MongoDB**: To ensure the correctness of scaling operations, a new validation has been added to Sharded Cluster deployments. This validation restricts scaling different components in two directions simultaneously within a single change to the YAML file. For example, it is not allowed to add more nodes (scaling up) to shards while simultaneously removing (scaling down) config servers or mongos. This restriction also applies to multi-cluster deployments. A simple change that involves "moving" one node from one cluster to another—without altering the total number of members—will now be blocked. It is necessary to perform a scale-up operation first and then execute a separate change for scaling down.
+
 ## Bug Fixes
 * Fixes the bug when status of `MongoDBUser` was being set to `Updated` prematurely. For example, new users were not immediately usable following `MongoDBUser` creation despite the operator reporting `Updated` state.
 * Fixed a bug causing cluster health check issues when ordering of users and tokens differed in Kubeconfig.

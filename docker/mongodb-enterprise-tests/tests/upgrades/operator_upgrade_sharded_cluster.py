@@ -136,6 +136,7 @@ class TestOperatorUpgrade:
 
     def test_scale_down_sharded_cluster(self, sharded_cluster: MongoDB, namespace: str):
         sharded_cluster.load()
+        # Scale down both by 1
         sharded_cluster["spec"]["mongodsPerShardCount"] = 2
         sharded_cluster["spec"]["configServerCount"] = 2
         sharded_cluster.update()
@@ -179,4 +180,4 @@ class TestOperatorDowngrade:
         sharded_cluster["spec"]["mongodsPerShardCount"] = 3
         sharded_cluster["spec"]["configServerCount"] = 3
         sharded_cluster.update()
-        sharded_cluster.assert_reaches_phase(phase=Phase.Running, timeout=250)
+        sharded_cluster.assert_reaches_phase(phase=Phase.Running, timeout=350)

@@ -39,7 +39,8 @@ func TestCheckAutomationStatusIsGoal(t *testing.T) {
 				relevantProcesses: []string{"a", "b"},
 			},
 			expectedResult: true,
-			expectedMsg:    "processes that reached goal state: [a b]",
+			// We can not check for the full message as the ordering of the processes won't be deterministic (stored in a map)
+			expectedMsg: "processes that reached goal state:",
 		}, {
 			name: "one not in goal state",
 			args: args{
