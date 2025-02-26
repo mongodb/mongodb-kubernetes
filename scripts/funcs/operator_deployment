@@ -31,7 +31,7 @@ get_operator_helm_values() {
     "operator.mdbDefaultArchitecture=${MDB_DEFAULT_ARCHITECTURE:-non-static}"
     "operator.enablePVCResize=${MDB_ENABLE_PVC_RESIZE:-true}"
     "operator.telemetry.enabled=true"
-    "operator.telemetry.collection.clusters.enabled=true"
+    "operator.telemetry.collection.clusters.enabled=${MDB_OPERATOR_TELEMETRY_COLLECTION_CLUSTERS_ENABLED:-true}"
     "operator.telemetry.collection.deployments.enabled=true"
     "operator.telemetry.collection.operators.enabled=true"
     # only send the telemetry to the backend on a specific variant, thus default to false
@@ -40,11 +40,11 @@ get_operator_helm_values() {
     "operator.telemetry.collection.frequency=${MDB_OPERATOR_TELEMETRY_COLLECTION_FREQUENCY:-1m}"
   )
 
-   # shellcheck disable=SC2154
+  # shellcheck disable=SC2154
   if [[ "${KUBE_ENVIRONMENT_NAME-}" = "multi" ]]; then
-     comma_separated_list="$(echo "${MEMBER_CLUSTERS}" | tr ' ' ',')"
-     # shellcheck disable=SC2154
-     config+=("multiCluster.clusters={${comma_separated_list}}")
+    comma_separated_list="$(echo "${MEMBER_CLUSTERS}" | tr ' ' ',')"
+    # shellcheck disable=SC2154
+    config+=("multiCluster.clusters={${comma_separated_list}}")
   fi
 
   if [[ "${KUBE_ENVIRONMENT_NAME:-}" == "multi" ]]; then
@@ -56,31 +56,31 @@ get_operator_helm_values() {
   fi
 
   if [[ "${MDB_MAX_CONCURRENT_RECONCILES:-}" != "" ]]; then
-      config+=("operator.maxConcurrentReconciles=${MDB_MAX_CONCURRENT_RECONCILES}")
+    config+=("operator.maxConcurrentReconciles=${MDB_MAX_CONCURRENT_RECONCILES}")
   fi
 
   # change this locally or as changed in variant e2e_operator_race_ubi_with_telemetry which also sends telemetry
   if [[ "${MDB_OPERATOR_TELEMETRY_SEND_BASEURL:-}" != "" ]]; then
-      config+=("operator.telemetry.send.baseUrl=${MDB_OPERATOR_TELEMETRY_SEND_BASEURL}")
+    config+=("operator.telemetry.send.baseUrl=${MDB_OPERATOR_TELEMETRY_SEND_BASEURL}")
   fi
 
   if [[ "${MDB_HELM_OPERATOR_WEBHOOK_INSTALL_CLUSTER_ROLE:-}" != "" ]]; then
-      config+=("operator.webhook.installClusterRole=${MDB_HELM_OPERATOR_WEBHOOK_INSTALL_CLUSTER_ROLE}")
+    config+=("operator.webhook.installClusterRole=${MDB_HELM_OPERATOR_WEBHOOK_INSTALL_CLUSTER_ROLE}")
   fi
 
   echo "${config[@]}"
 }
 
 prepare_operator_config_map() {
-    local context=${1}
-    kubectl --context "${context}" delete configmap operator-installation-config --ignore-not-found
-    title "Preparing the ConfigMap with Operator installation configuration"
+  local context=${1}
+  kubectl --context "${context}" delete configmap operator-installation-config --ignore-not-found
+  title "Preparing the ConfigMap with Operator installation configuration"
 
-    read -ra helm_values < <(get_operator_helm_values)
-    declare -a config_map_values=()
-    for param in "${helm_values[@]}"; do
-      config_map_values+=("--from-literal" "${param}")
-    done
-    # shellcheck disable=SC2086,SC2048
-    kubectl --context "${context}" create configmap operator-installation-config -n "${NAMESPACE}" ${config_map_values[*]} || true
+  read -ra helm_values < <(get_operator_helm_values)
+  declare -a config_map_values=()
+  for param in "${helm_values[@]}"; do
+    config_map_values+=("--from-literal" "${param}")
+  done
+  # shellcheck disable=SC2086,SC2048
+  kubectl --context "${context}" create configmap operator-installation-config -n "${NAMESPACE}" ${config_map_values[*]} || true
 }
