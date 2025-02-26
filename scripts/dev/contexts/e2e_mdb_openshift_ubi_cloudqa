@@ -13,6 +13,7 @@ export ecr_registry_needs_auth=ecr-registry
 export MANAGED_SECURITY_CONTEXT="true"
 export ALWAYS_REMOVE_TESTING_NAMESPACE="true"
 export ops_manager_version="cloud_qa"
+export MDB_OPERATOR_TELEMETRY_COLLECTION_CLUSTERS_ENABLED="false"
 
 export CUSTOM_MDB_VERSION=6.0.16
 
