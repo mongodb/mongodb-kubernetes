@@ -1,11 +1,5 @@
-from typing import Dict, List
-
-import kubernetes
-import pytest
 from kubetester import find_fixture, try_load
-from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb import MongoDB, Phase
-from kubetester.mongodb_multi import MultiClusterClient
 from kubetester.operator import Operator
 from pytest import fixture, mark
 from tests import test_logger
@@ -16,11 +10,6 @@ from tests.multicluster_shardedcluster import (
     assert_correct_automation_config_after_scaling,
     assert_mongos_sts_members_count,
     assert_shard_sts_members_count,
-    validate_member_count_in_ac,
-    validate_shard_configurations_in_ac_multi,
-)
-from tests.shardedcluster.conftest import (
-    get_member_cluster_clients_using_cluster_mapping,
 )
 
 logger = test_logger.get_test_logger(__name__)
@@ -70,12 +59,12 @@ class TestShardedClusterScalingInitial:
 
 
 @mark.e2e_multi_cluster_sharded_scaling
-class TestShardedClusterScalingUpgradeByOne:
+class TestShardedClusterScalingUpscale:
 
-    def test_upgrade_by_one(self, sc: MongoDB, custom_mdb_version: str, issuer_ca_configmap: str):
-        sc["spec"]["shard"]["clusterSpecList"] = cluster_spec_list(get_member_cluster_names(), [1, 2, 1])
-        sc["spec"]["configSrv"]["clusterSpecList"] = cluster_spec_list(get_member_cluster_names(), [2, 1, 1])
-        sc["spec"]["mongos"]["clusterSpecList"] = cluster_spec_list(get_member_cluster_names(), [1, 1, 2])
+    def test_upscale(self, sc: MongoDB, custom_mdb_version: str, issuer_ca_configmap: str):
+        sc["spec"]["shard"]["clusterSpecList"] = cluster_spec_list(get_member_cluster_names(), [1, 3, 1])
+        sc["spec"]["configSrv"]["clusterSpecList"] = cluster_spec_list(get_member_cluster_names(), [2, 2, 1])
+        sc["spec"]["mongos"]["clusterSpecList"] = cluster_spec_list(get_member_cluster_names(), [1, 1, 1])
 
         sc.update()
 
@@ -88,18 +77,17 @@ class TestShardedClusterScalingUpgradeByOne:
 
     def test_assert_stateful_sets_after_scaling(self, sc: MongoDB):
         logger.info("Validating statefulsets in cluster(s)")
-        assert_shard_sts_members_count(sc, [[1, 2, 1]])
-        assert_config_srv_sts_members_count(sc, [2, 1, 1])
-        assert_mongos_sts_members_count(sc, [1, 1, 2])
+        assert_shard_sts_members_count(sc, [[1, 3, 1]])
+        assert_config_srv_sts_members_count(sc, [2, 2, 1])
+        assert_mongos_sts_members_count(sc, [1, 1, 1])
 
 
 @mark.e2e_multi_cluster_sharded_scaling
-class TestShardedClusterScalingDowngradeUpgradeByOne:
-
-    def test_downgrade_upgrade_by_one(self, sc: MongoDB, custom_mdb_version: str, issuer_ca_configmap: str):
-        sc["spec"]["shard"]["clusterSpecList"] = cluster_spec_list(get_member_cluster_names(), [2, 1, 1])
-        sc["spec"]["configSrv"]["clusterSpecList"] = cluster_spec_list(get_member_cluster_names(), [1, 1, 2])
-        sc["spec"]["mongos"]["clusterSpecList"] = cluster_spec_list(get_member_cluster_names(), [1, 2, 1])
+class TestShardedClusterScalingDownscale:
+    def test_downgrade_downscale(self, sc: MongoDB, custom_mdb_version: str, issuer_ca_configmap: str):
+        sc["spec"]["shard"]["clusterSpecList"] = cluster_spec_list(get_member_cluster_names(), [1, 2, 1])
+        sc["spec"]["configSrv"]["clusterSpecList"] = cluster_spec_list(get_member_cluster_names(), [2, 1, 1])
+        sc["spec"]["mongos"]["clusterSpecList"] = cluster_spec_list(get_member_cluster_names(), [1, 1, 1])
 
         sc.update()
 
@@ -112,18 +100,17 @@ class TestShardedClusterScalingDowngradeUpgradeByOne:
 
     def test_assert_stateful_sets_after_scaling(self, sc: MongoDB):
         logger.info("Validating statefulsets in cluster(s)")
-        assert_shard_sts_members_count(sc, [[2, 1, 1]])
-        assert_config_srv_sts_members_count(sc, [1, 1, 2])
-        assert_mongos_sts_members_count(sc, [1, 2, 1])
+        assert_shard_sts_members_count(sc, [[1, 2, 1]])
+        assert_config_srv_sts_members_count(sc, [2, 1, 1])
+        assert_mongos_sts_members_count(sc, [1, 1, 1])
 
 
 @mark.e2e_multi_cluster_sharded_scaling
-class TestShardedClusterScalingDowngradeUpgradeToZero:
-
-    def test_downgrade_upgrade_to_zero(self, sc: MongoDB, custom_mdb_version: str, issuer_ca_configmap: str):
+class TestShardedClusterScalingDownscaleToZero:
+    def test_downscale_to_zero(self, sc: MongoDB, custom_mdb_version: str, issuer_ca_configmap: str):
         sc["spec"]["shard"]["clusterSpecList"] = cluster_spec_list(get_member_cluster_names(), [0, 2, 1])
-        sc["spec"]["configSrv"]["clusterSpecList"] = cluster_spec_list(get_member_cluster_names(), [2, 0, 1])
-        sc["spec"]["mongos"]["clusterSpecList"] = cluster_spec_list(get_member_cluster_names(), [1, 0, 2])
+        sc["spec"]["configSrv"]["clusterSpecList"] = cluster_spec_list(get_member_cluster_names(), [1, 1, 1])
+        sc["spec"]["mongos"]["clusterSpecList"] = cluster_spec_list(get_member_cluster_names(), [1, 0, 0])
 
         sc.update()
 
@@ -137,5 +124,5 @@ class TestShardedClusterScalingDowngradeUpgradeToZero:
     def test_assert_stateful_sets_after_scaling(self, sc: MongoDB):
         logger.info("Validating statefulsets in cluster(s)")
         assert_shard_sts_members_count(sc, [[0, 2, 1]])
-        assert_config_srv_sts_members_count(sc, [2, 0, 1])
-        assert_mongos_sts_members_count(sc, [1, 0, 2])
+        assert_config_srv_sts_members_count(sc, [1, 1, 1])
+        assert_mongos_sts_members_count(sc, [1, 0, 0])

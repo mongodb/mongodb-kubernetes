@@ -480,7 +480,7 @@ func checkReconcilePending(ctx context.Context, t *testing.T, reconciler reconci
 	assert.Nil(t, e, "When pending, error should be nil")
 	assert.Equal(t, failedResult, result)
 
-	// also need to make sure the object status is updated to failed
+	// also need to make sure the object status is pending
 	assert.NoError(t, client.Get(ctx, mock.ObjectKeyFromApiObject(object), object))
 	assert.Equal(t, status.PhasePending, object.Status.Phase)
 	assert.Contains(t, object.Status.Message, expectedErrorMessage)

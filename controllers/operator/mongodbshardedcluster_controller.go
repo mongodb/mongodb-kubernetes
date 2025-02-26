@@ -91,6 +91,21 @@ type ShardedClusterDeploymentState struct {
 	Status                *mdbv1.MongoDbStatus `json:"status"`
 }
 
+// updateStatusFromResourceStatus updates the status in the deployment state with values from the resource status with additional ensurance that no data is accidentally lost.
+// In a rare situation when we're performing an upgrade of the operator from non-deployment state version (<=1.27) the migrateToNewDeploymentState
+// function correctly migrates the sizes of the cluster, but then, in case of an early return (in case of any error or waiting too long for the sts/agents)
+// the updateStatus might clear the migrated data.
+// This function ensures we're copying the status, but at the same time we're not losing those sizes from the deployment state.
+// The logic of updateStatus in the reconciler works on options. If the option is not passed, the value is not updated, but it's also not cleared if the option is not passed.
+// Early returns with updateStatus don't pass any options, so the calculated status shouldn't clear the sizes we've just calculated into the deployment state.
+func (s *ShardedClusterDeploymentState) updateStatusFromResourceStatus(statusFromResource mdbv1.MongoDbStatus) {
+	resultStatus := statusFromResource.DeepCopy()
+	if resultStatus.SizeStatusInClusters == nil && s.Status.SizeStatusInClusters != nil {
+		resultStatus.SizeStatusInClusters = s.Status.SizeStatusInClusters.DeepCopy()
+	}
+	s.Status = resultStatus
+}
+
 func NewShardedClusterDeploymentState() *ShardedClusterDeploymentState {
 	return &ShardedClusterDeploymentState{
 		CommonDeploymentState: CommonDeploymentState{ClusterMapping: map[string]int{}},
@@ -203,6 +218,11 @@ func (r *ShardedClusterReconcileHelper) createShardsMemberClusterLists(shardsMap
 					// If we stored an override for this shard in the status, get the member count from it
 					return count
 				}
+			}
+			// Because we store one common distribution for all shards in ShardMongodsInClusters, we need to make sure
+			// we assign a size of 0 to newly created shards, as they haven't scaled yet.
+			if shardIdx >= deploymentState.Status.ShardCount {
+				return 0
 			}
 			if count, ok := deploymentState.Status.SizeStatusInClusters.ShardMongodsInClusters[memberClusterName]; ok {
 				// Otherwise get the default one ShardMongodsInClusters
@@ -647,6 +667,41 @@ func NewShardedClusterReconcilerHelper(ctx context.Context, reconciler *Reconcil
 	return helper, nil
 }
 
+func blockScalingBothWays(desiredReplicasScalers []interfaces.MultiClusterReplicaSetScaler) error {
+	scalingUp := false
+	scalingDown := false
+	var scalingUpLogs []string
+	var scalingDownLogs []string
+
+	// We have one scaler instance per component per cluster. That means we block scaling both ways across components,
+	// but also within a single component
+	// For example, if a component (e.g the config server) tries to scale up on member cluster 1 and scale down on
+	// member cluster 2, reconciliation will be blocked, even if the total number of replicas for this component stays
+	// the same.
+	for _, mcScaler := range desiredReplicasScalers {
+		desired := mcScaler.TargetReplicas()
+		current := mcScaler.CurrentReplicas()
+		logMessage := fmt.Sprintf("Component=%s, Cluster=%s, Current=%d, Desired=%d;", mcScaler.ScalerDescription(), mcScaler.MemberClusterName(), current, desired)
+		if desired > current {
+			scalingUp = true
+			scalingUpLogs = append(scalingUpLogs, logMessage)
+		}
+		if desired < current {
+			scalingDown = true
+			scalingDownLogs = append(scalingDownLogs, logMessage)
+		}
+	}
+
+	if scalingUp && scalingDown {
+		return xerrors.Errorf(
+			"Cannot perform scale up and scale down operations at the same time. Scaling Up: %v, Scaling Down: %v",
+			scalingUpLogs, scalingDownLogs,
+		)
+	}
+
+	return nil
+}
+
 func (r *ShardedClusterReconcileHelper) initializeStateStore(ctx context.Context, reconciler *ReconcileCommonController, sc *mdbv1.MongoDB, log *zap.SugaredLogger) error {
 	r.deploymentState = NewShardedClusterDeploymentState()
 
@@ -724,16 +779,25 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 		return r.commonController.updateStatus(ctx, sc, workflow.Invalid("%s", err.Error()), log)
 	}
 
-	if !architectures.IsRunningStaticArchitecture(sc.Annotations) {
-		agents.UpgradeAllIfNeeded(ctx, agents.ClientSecret{Client: r.commonController.client, SecretClient: r.commonController.SecretClient}, r.omConnectionFactory, GetWatchedNamespace(), false)
-	}
-
 	log.Info("-> ShardedCluster.Reconcile")
 	log.Infow("ShardedCluster.Spec", "spec", sc.Spec)
 	log.Infow("ShardedCluster.Status", "status", r.deploymentState.Status)
 	log.Infow("ShardedCluster.deploymentState", "sizeStatus", r.deploymentState.Status.MongodbShardedClusterSizeConfig, "sizeStatusInClusters", r.deploymentState.Status.SizeStatusInClusters)
 
 	r.logAllScalers(log)
+
+	// After processing normal validations, we check for conflicting scale-up and scale-down operations within the same
+	// reconciliation cycle. If both scaling directions are detected, we block the reconciliation.
+	// This is not currently possible to do it safely with the operator. We check direction of scaling to decide for
+	// global operations like publishing AC first.
+	// Therefore, we can obtain inconsistent behaviour in case scaling goes in both directions.
+	if err := blockScalingBothWays(r.getAllScalers()); err != nil {
+		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
+	}
+
+	if !architectures.IsRunningStaticArchitecture(sc.Annotations) {
+		agents.UpgradeAllIfNeeded(ctx, agents.ClientSecret{Client: r.commonController.client, SecretClient: r.commonController.SecretClient}, r.omConnectionFactory, GetWatchedNamespace(), false)
+	}
 
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.commonController.client, r.commonController.SecretClient, sc, log)
 	if err != nil {
@@ -2238,7 +2302,7 @@ func (r *ShardedClusterReconcileHelper) updateStatus(ctx context.Context, resour
 	} else {
 		// UpdateStatus in the sharded cluster controller should be executed only once per reconcile (always with a return)
 		// We are saving the status and writing back to the state configmap at this time
-		r.deploymentState.Status = resource.Status.DeepCopy()
+		r.deploymentState.updateStatusFromResourceStatus(resource.Status)
 		if err := r.stateStore.WriteState(ctx, r.deploymentState, log); err != nil {
 			return r.commonController.updateStatus(ctx, resource, workflow.Failed(xerrors.Errorf("Failed to write deployment state after updating status: %w", err)), log, nil)
 		}
@@ -2282,11 +2346,12 @@ func (r *ShardedClusterReconcileHelper) GetShardScaler(shardIdx int, memberClust
 	return scalers.NewMultiClusterReplicaSetScaler(fmt.Sprintf("shard idx %d", shardIdx), r.desiredShardsConfiguration[shardIdx].ClusterSpecList, memberCluster.Name, memberCluster.Index, r.shardsMemberClustersMap[shardIdx])
 }
 
-func (r *ShardedClusterReconcileHelper) getAllScalers() []scale.ReplicaSetScaler {
-	var result []scale.ReplicaSetScaler
+func (r *ShardedClusterReconcileHelper) getAllScalers() []interfaces.MultiClusterReplicaSetScaler {
+	var result []interfaces.MultiClusterReplicaSetScaler
 	for shardIdx := 0; shardIdx < r.sc.Spec.ShardCount; shardIdx++ {
 		for _, memberCluster := range r.shardsMemberClustersMap[shardIdx] {
-			result = append(result, r.GetShardScaler(shardIdx, memberCluster))
+			scaler := r.GetShardScaler(shardIdx, memberCluster)
+			result = append(result, scaler)
 		}
 	}
 
@@ -2673,7 +2738,7 @@ func (r *ShardedClusterReconcileHelper) isStillScaling() bool {
 // The difference vs isStillScaling is subtle. isStillScaling tells us if we're generally in the process of scaling (current sizes != spec).
 func (r *ShardedClusterReconcileHelper) shouldContinueScalingOneByOne() bool {
 	for _, s := range r.getAllScalers() {
-		if scale.ReplicasThisReconciliation(s) != s.(*scalers.MultiClusterReplicaSetScaler).TargetReplicas() {
+		if scale.ReplicasThisReconciliation(s) != s.TargetReplicas() {
 			return true
 		}
 	}

@@ -285,15 +285,15 @@ func TestReconcilePVCResizeShardedCluster(t *testing.T) {
 	assert.NoError(t, e)
 
 	// its only one sts in the pvc status, since we haven't started the next one yet
-	testMDBStatus(t, c, ctx, sc, status.PhasePending, status.PVCS{{Phase: pvc.PhasePVCResize, StatefulsetName: "slaney-config"}})
+	testMDBStatus(t, c, ctx, sc, status.PhasePending, status.PVCS{{Phase: pvc.PhasePVCResize, StatefulsetName: test.SCBuilderDefaultName + "-config"}})
 
-	testPVCSizeHasIncreased(t, c, ctx, newSize, "slaney-config")
+	testPVCSizeHasIncreased(t, c, ctx, newSize, test.SCBuilderDefaultName+"-config")
 
 	// Running the same resize makes no difference, we are still resizing
 	_, e = reconciler.Reconcile(ctx, requestFromObject(sc))
 	assert.NoError(t, e)
 
-	testMDBStatus(t, c, ctx, sc, status.PhasePending, status.PVCS{{Phase: pvc.PhasePVCResize, StatefulsetName: "slaney-config"}})
+	testMDBStatus(t, c, ctx, sc, status.PhasePending, status.PVCS{{Phase: pvc.PhasePVCResize, StatefulsetName: test.SCBuilderDefaultName + "-config"}})
 
 	for _, claim := range createdConfigPVCs {
 		setPVCWithUpdatedResource(ctx, t, c, &claim)
@@ -305,10 +305,10 @@ func TestReconcilePVCResizeShardedCluster(t *testing.T) {
 
 	// the second pvc is now getting resized
 	testMDBStatus(t, c, ctx, sc, status.PhasePending, status.PVCS{
-		{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: "slaney-config"},
-		{Phase: pvc.PhasePVCResize, StatefulsetName: "slaney-0"},
+		{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: sc.Name + "-config"},
+		{Phase: pvc.PhasePVCResize, StatefulsetName: sc.Name + "-0"},
 	})
-	testPVCSizeHasIncreased(t, c, ctx, newSize, "slaney-0")
+	testPVCSizeHasIncreased(t, c, ctx, newSize, sc.Name+"-0")
 	testStatefulsetHasAnnotationAndCorrectSize(t, c, ctx, sc.Namespace, sc.Name+"-config")
 
 	for _, claim := range createdSharded0PVCs {
@@ -320,11 +320,11 @@ func TestReconcilePVCResizeShardedCluster(t *testing.T) {
 	assert.NoError(t, e)
 
 	testMDBStatus(t, c, ctx, sc, status.PhasePending, status.PVCS{
-		{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: "slaney-config"},
-		{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: "slaney-0"},
-		{Phase: pvc.PhasePVCResize, StatefulsetName: "slaney-1"},
+		{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: sc.Name + "-config"},
+		{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: sc.Name + "-0"},
+		{Phase: pvc.PhasePVCResize, StatefulsetName: sc.Name + "-1"},
 	})
-	testPVCSizeHasIncreased(t, c, ctx, newSize, "slaney-1")
+	testPVCSizeHasIncreased(t, c, ctx, newSize, sc.Name+"-1")
 	testStatefulsetHasAnnotationAndCorrectSize(t, c, ctx, sc.Namespace, sc.Name+"-0")
 
 	for _, claim := range createdSharded1PVCs {
@@ -641,8 +641,8 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 	firstMongos := sc.MongosRsName() + "-1"
 
 	mockOm.CheckMonitoredHostsRemoved(t, []string{
-		firstConfig + ".slaney-cs.mongodb.svc.cluster.local",
-		firstMongos + ".slaney-svc.mongodb.svc.cluster.local",
+		firstConfig + fmt.Sprintf(".%s-cs.mongodb.svc.cluster.local", scScaledDown.Name),
+		firstMongos + fmt.Sprintf(".%s-svc.mongodb.svc.cluster.local", scScaledDown.Name),
 	})
 }
 
@@ -1034,18 +1034,21 @@ func TestScalingShardedCluster_ScalesOneMemberAtATime_WhenScalingUp(t *testing.T
 
 		assert.Equal(t, 2, sc.Status.MongosCount)
 		assert.Equal(t, 2, sc.Status.ConfigServerCount)
+		// Shard 0 is scaling one replica at a time
 		assert.Equal(t, int32(4), *getShard(0).Spec.Replicas)
-		assert.Equal(t, int32(4), *getShard(1).Spec.Replicas)
-		assert.Len(t, deployment.GetAllProcessNames(), 12)
+		// Shard 1 is scaling for the first time (new shard), we create it directly with the target number of replicas
+		assert.Equal(t, int32(6), *getShard(1).Spec.Replicas)
+		assert.Len(t, deployment.GetAllProcessNames(), 14)
 	})
 
 	t.Run("2nd reconciliation", func(t *testing.T) {
 		performReconciliation(true)
 		assert.Equal(t, 3, sc.Status.MongosCount)
 		assert.Equal(t, 2, sc.Status.ConfigServerCount)
+		// Shard 0 is scaling one replica at a time
 		assert.Equal(t, int32(5), *getShard(0).Spec.Replicas)
-		assert.Equal(t, int32(5), *getShard(1).Spec.Replicas)
-		assert.Len(t, deployment.GetAllProcessNames(), 15)
+		assert.Equal(t, int32(6), *getShard(1).Spec.Replicas)
+		assert.Len(t, deployment.GetAllProcessNames(), 16)
 	})
 
 	t.Run("3rd reconciliation", func(t *testing.T) {
@@ -1695,7 +1698,7 @@ func SingleClusterShardedScalingWithOverridesTestCase(t *testing.T, tc SingleClu
 }
 
 func TestSingleClusterShardedScalingWithOverrides(t *testing.T) {
-	scDefaultName := "slaney-"
+	scDefaultName := test.SCBuilderDefaultName + "-"
 	testCases := []SingleClusterShardedScalingTestCase{
 		{
 			name: "Basic sample test",

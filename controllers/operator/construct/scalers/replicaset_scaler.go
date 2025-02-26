@@ -142,6 +142,10 @@ func (s *MultiClusterReplicaSetScaler) MemberClusterNum() int {
 	return s.memberClusterNum
 }
 
+func (s *MultiClusterReplicaSetScaler) ScalerDescription() string {
+	return s.scalerDescription
+}
+
 func (s *MultiClusterReplicaSetScaler) String() string {
 	return fmt.Sprintf("{MultiClusterReplicaSetScaler (%s): still scaling: %t (finishing this reconcile: %t), clusterName=%s, clusterIdx=%d, current/target replicas:%d/%d, "+
 		"replicas this reconciliation: %d, scaling first time: %t}", s.scalerDescription, s.CurrentReplicas() != s.TargetReplicas(), scale.ReplicasThisReconciliation(s) == s.TargetReplicas(), s.memberClusterName, s.memberClusterNum,

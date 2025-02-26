@@ -49,6 +49,322 @@ func newShardedClusterReconcilerForMultiCluster(ctx context.Context, sc *mdbv1.M
 	return r, reconcileHelper, nil
 }
 
+// createMockStateConfigMap creates a configMap with the sizeStatusInClusters populated based on the cluster state
+// passed in parameters, to simulate it is the current state of the cluster
+func createMockStateConfigMap(kubeClient client.Client, namespace, scName string, state MultiClusterShardedScalingStep) error {
+	sizeStatus := map[string]interface{}{
+		"status": map[string]interface{}{
+			"shardCount": state.shardCount,
+			"sizeStatusInClusters": map[string]interface{}{
+				"shardMongodsInClusters":        state.shardDistribution,
+				"mongosCountInClusters":         state.mongosDistribution,
+				"configServerMongodsInClusters": state.configServerDistribution,
+				"shardOverridesInClusters":      ConvertTargetStateToMap(scName, state.shardOverrides),
+			},
+		},
+	}
+
+	// Convert state to JSON
+	stateJSON, err := json.Marshal(sizeStatus)
+	if err != nil {
+		return err
+	}
+
+	// Create ConfigMap definition
+	configMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-state", scName),
+			Namespace: namespace,
+		},
+		Data: map[string]string{
+			stateKey: string(stateJSON),
+		},
+	}
+
+	err = kubeClient.Create(context.TODO(), configMap)
+	return err
+}
+
+// ConvertTargetStateToMap converts a slice of shardOverrides (target state format) into a map format.
+func ConvertTargetStateToMap(scName string, shardOverridesDistribution []map[string]int) map[string]map[string]int {
+	convertedMap := make(map[string]map[string]int)
+
+	for i, distribution := range shardOverridesDistribution {
+		resourceKey := scName + "-" + strconv.Itoa(i)
+		convertedMap[resourceKey] = distribution
+	}
+
+	return convertedMap
+}
+
+type BlockReconcileScalingBothWaysTestCase struct {
+	name         string
+	initialState MultiClusterShardedScalingStep
+	targetState  MultiClusterShardedScalingStep
+	expectError  bool
+}
+
+// TestBlockReconcileScalingBothWays checks that we block reconciliation when member clusters in a replica set need to
+// be scaled both up and down in the same reconciliation
+func TestBlockReconcileScalingBothWays(t *testing.T) {
+	cluster1 := "member-cluster-1"
+	cluster2 := "member-cluster-2"
+	cluster3 := "member-cluster-3"
+	testCases := []BlockReconcileScalingBothWaysTestCase{
+		{
+			name: "No scaling",
+			initialState: MultiClusterShardedScalingStep{
+				shardCount: 3,
+				configServerDistribution: map[string]int{
+					cluster1: 2, cluster2: 1, cluster3: 0,
+				},
+				mongosDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 0,
+				},
+				shardDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 1,
+				},
+			},
+			targetState: MultiClusterShardedScalingStep{
+				shardCount: 3,
+				configServerDistribution: map[string]int{
+					cluster1: 2, cluster2: 1, cluster3: 0,
+				},
+				mongosDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 0,
+				},
+				shardDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 1,
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "Scaling in the same direction",
+			initialState: MultiClusterShardedScalingStep{
+				shardCount: 3,
+				configServerDistribution: map[string]int{
+					cluster1: 2, cluster2: 1, cluster3: 0,
+				},
+				mongosDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 0,
+				},
+				shardDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 1,
+				},
+			},
+			targetState: MultiClusterShardedScalingStep{
+				shardCount: 3,
+				configServerDistribution: map[string]int{
+					cluster1: 2, cluster2: 2, cluster3: 1,
+				},
+				mongosDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 0,
+				},
+				shardDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 3,
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "Scaling both directions: cfg server and mongos",
+			initialState: MultiClusterShardedScalingStep{
+				shardCount: 3,
+				configServerDistribution: map[string]int{
+					cluster1: 2, cluster2: 1, cluster3: 0,
+				},
+				mongosDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 0,
+				},
+				shardDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 1,
+				},
+			},
+			targetState: MultiClusterShardedScalingStep{
+				shardCount: 3,
+				// Upscale
+				configServerDistribution: map[string]int{
+					cluster1: 3, cluster2: 1, cluster3: 1,
+				},
+				// Downscale
+				mongosDistribution: map[string]int{
+					cluster1: 1, cluster2: 0, cluster3: 0,
+				},
+				shardDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 1,
+				},
+			},
+			expectError: true,
+		},
+		{
+			name: "Scale both ways because of shard override",
+			initialState: MultiClusterShardedScalingStep{
+				shardCount: 3,
+				configServerDistribution: map[string]int{
+					cluster1: 2, cluster2: 1, cluster3: 0,
+				},
+				mongosDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 0,
+				},
+				shardDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 1,
+				},
+				shardOverrides: []map[string]int{
+					{cluster1: 3, cluster2: 1, cluster3: 1},
+				},
+			},
+			targetState: MultiClusterShardedScalingStep{
+				shardCount: 3,
+				configServerDistribution: map[string]int{
+					cluster1: 2, cluster2: 1, cluster3: 0,
+				},
+				mongosDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 0,
+				},
+				shardDistribution: map[string]int{
+					cluster1: 3, cluster2: 0, cluster3: 2, // cluster 1: 1 -> 3, cluster2 : 1 -> 0, cluster3: 1 -> 2
+				},
+				shardOverrides: []map[string]int{
+					// Downscale shard 0 (was overridden with 5 replicas)
+					{cluster1: 1, cluster2: 1, cluster3: 1},
+					// Upscale shard 1
+					{cluster1: 1, cluster2: 3, cluster3: 1},
+				},
+			},
+			expectError: true,
+		},
+		{
+			// Increasing shardCount creates a new shard, that scales from 0 members. We want to block reconciliation
+			// in that case
+			name: "Increase shardcount and downscale override",
+			initialState: MultiClusterShardedScalingStep{
+				shardCount: 2,
+				configServerDistribution: map[string]int{
+					cluster1: 2, cluster2: 1, cluster3: 0,
+				},
+				mongosDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 0,
+				},
+				shardDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 1,
+				},
+				shardOverrides: []map[string]int{
+					{cluster1: 3, cluster2: 1, cluster3: 1},
+				},
+			},
+			targetState: MultiClusterShardedScalingStep{
+				shardCount: 3,
+				configServerDistribution: map[string]int{
+					cluster1: 2, cluster2: 1, cluster3: 0,
+				},
+				mongosDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 0,
+				},
+				shardDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 1, // shard distribution stays the same
+				},
+				shardOverrides: []map[string]int{
+					// Downscale shard 0 (was overridden with 5 replicas)
+					{cluster1: 1, cluster2: 1, cluster3: 1},
+				},
+			},
+			expectError: true,
+		},
+		{
+			// We move replicas from one cluster to another, without changing the total number, and we scale shards up
+			// Moving replicas necessitate a scale down on one cluster and a scale up on another.
+			// We need to block reconciliation.
+			name: "Moving replicas between clusters",
+			initialState: MultiClusterShardedScalingStep{
+				shardCount: 3,
+				configServerDistribution: map[string]int{
+					cluster1: 2, cluster2: 1, cluster3: 0,
+				},
+				mongosDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 0,
+				},
+				shardDistribution: map[string]int{
+					cluster1: 2, cluster2: 0, cluster3: 1,
+				},
+			},
+			targetState: MultiClusterShardedScalingStep{
+				shardCount: 3,
+				configServerDistribution: map[string]int{
+					cluster1: 2, cluster2: 1, cluster3: 0, // No scaling
+				},
+				mongosDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 0,
+				},
+				shardDistribution: map[string]int{
+					cluster1: 2, cluster2: 0, cluster3: 1, // No scaling
+				},
+				shardOverrides: []map[string]int{
+					{cluster1: 0, cluster2: 2, cluster3: 1}, // Moved two replicas by adding an override, but no scaling
+				},
+			},
+			expectError: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			BlockReconcileScalingBothWaysCase(t, tc)
+		})
+	}
+}
+
+func BlockReconcileScalingBothWaysCase(t *testing.T, tc BlockReconcileScalingBothWaysTestCase) {
+	ctx := context.Background()
+	cluster1 := "member-cluster-1"
+	cluster2 := "member-cluster-2"
+	cluster3 := "member-cluster-3"
+	memberClusterNames := []string{
+		cluster1,
+		cluster2,
+		cluster3,
+	}
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	_ = omConnectionFactory.GetConnectionFunc(&om.OMContext{GroupName: om.TestGroupName})
+
+	fakeClient := mock.NewEmptyFakeClientBuilder().WithObjects(mock.GetDefaultResources()...).Build()
+	kubeClient := kubernetesClient.NewClient(fakeClient)
+
+	memberClusterMap := getFakeMultiClusterMapWithoutInterceptor(memberClusterNames)
+
+	// The MDB resource applied is defined by the target state. The initial state is the status we store in the
+	// config map
+	sc := test.DefaultClusterBuilder().
+		SetTopology(mdbv1.ClusterTopologyMultiCluster).
+		SetShardCountSpec(tc.targetState.shardCount).
+		SetMongodsPerShardCountSpec(0).
+		SetConfigServerCountSpec(0).
+		SetMongosCountSpec(0).
+		SetShardClusterSpec(test.CreateClusterSpecList(memberClusterNames, tc.targetState.shardDistribution)).
+		SetConfigSrvClusterSpec(test.CreateClusterSpecList(memberClusterNames, tc.targetState.configServerDistribution)).
+		SetMongosClusterSpec(test.CreateClusterSpecList(memberClusterNames, tc.targetState.mongosDistribution)).
+		SetShardOverrides(computeShardOverridesFromDistribution(tc.targetState.shardOverrides)).
+		Build()
+
+	err := kubeClient.Create(ctx, sc)
+	require.NoError(t, err)
+
+	err = createMockStateConfigMap(kubeClient, mock.TestNamespace, sc.Name, tc.initialState)
+	require.NoError(t, err)
+
+	// Checking that we don't scale both ways is done when we initiate the reconciler, not in the reconcile loop.
+	reconciler, _, err := newShardedClusterReconcilerForMultiCluster(ctx, sc, memberClusterMap, kubeClient, omConnectionFactory)
+	require.NoError(t, err)
+	// The validation happens at the beginning of the reconciliation loop. We expect to fail immediately when scaling is
+	// invalid, or stay in pending phase otherwise.
+	if tc.expectError {
+		checkReconcileFailed(ctx, t, reconciler, sc, true, "Cannot perform scale up and scale down operations at the same time", kubeClient)
+	} else {
+		checkReconcilePending(ctx, t, reconciler, sc, "StatefulSet not ready", kubeClient, 3)
+	}
+}
+
 // TestReconcileCreateMultiClusterShardedClusterWithExternalDomain checks if all components have been exposed using
 // their own domains
 func TestReconcileCreateMultiClusterShardedClusterWithExternalDomain(t *testing.T) {
@@ -81,6 +397,7 @@ func TestReconcileCreateMultiClusterShardedClusterWithExternalDomain(t *testing.
 	memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(memberClusters.ClusterNames, omConnectionFactory, true, true)
 
 	reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, sc, memberClusterMap, kubeClient, omConnectionFactory)
+	require.NoError(t, err)
 	clusterMapping := reconcilerHelper.deploymentState.ClusterMapping
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		allHostnames, _ := generateAllHosts(sc, memberClusters.MongosDistribution, clusterMapping, memberClusters.ConfigServerDistribution, memberClusters.ShardDistribution, test.ClusterLocalDomains, test.ExampleExternalClusterDomains)
@@ -1531,7 +1848,7 @@ func computeShardOverridesFromDistribution(shardOverridesDistribution []map[stri
 	// This will create shard overrides for shards 0...len(shardOverridesDistribution-1), shardCount can be greater
 	for i, distribution := range shardOverridesDistribution {
 		// Cluster builder has slaney as default name
-		shardName := "slaney" + "-" + strconv.Itoa(i)
+		shardName := test.SCBuilderDefaultName + "-" + strconv.Itoa(i)
 
 		// Build the ClusterSpecList for the current shard
 		var clusterSpecList []mdbv1.ClusterSpecItemOverride
@@ -1565,6 +1882,8 @@ type MultiClusterShardedScalingStep struct {
 	name                      string
 	shardCount                int
 	shardDistribution         map[string]int
+	configServerDistribution  map[string]int
+	mongosDistribution        map[string]int
 	shardOverrides            []map[string]int
 	expectedShardDistribution []map[string]int
 }
@@ -1621,12 +1940,18 @@ func MultiClusterShardedScalingWithOverridesTestCase(t *testing.T, tc MultiClust
 			require.NoError(t, err)
 			clusterMapping := reconcilerHelper.deploymentState.ClusterMapping
 
-			addAllHostsWithDistribution(omConnectionFactory.GetConnection(), mongosDistribution, clusterMapping, configSrvDistribution, scalingStep.expectedShardDistribution)
-
 			err = kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc)
 			require.NoError(t, err)
+			sc.Spec.ShardCount = scalingStep.shardCount
 			sc.Spec.ShardSpec.ClusterSpecList = test.CreateClusterSpecList(memberClusterNames, scalingStep.shardDistribution)
 			sc.Spec.ShardOverrides = computeShardOverridesFromDistribution(scalingStep.shardOverrides)
+
+			// Hosts must be added after updating the spec because the function below depends on spec.ShardCount
+			// to generate the shard distribution.
+			// We pass the *expected* distribution as a parameter, ensuring that all hosts expected to be registered
+			// by the end of the full reconciliation process are added to OM.
+			addAllHostsWithDistribution(omConnectionFactory.GetConnection(), mongosDistribution, clusterMapping, configSrvDistribution, scalingStep.expectedShardDistribution)
+
 			err = kubeClient.Update(ctx, sc)
 			require.NoError(t, err)
 			reconcileUntilSuccessful(ctx, t, reconciler, sc, kubeClient, memberClusterClients, nil, false)
@@ -1658,18 +1983,18 @@ func TestMultiClusterShardedScalingWithOverrides(t *testing.T) {
 					},
 				},
 				{
-					name:       "Scale down one top level with overrides scaling up",
+					name:       "Scale down a shard, add an override",
 					shardCount: 3,
 					shardDistribution: map[string]int{
 						cluster1: 0, cluster2: 1, cluster3: 1, // cluster1: 1-0
 					},
 					shardOverrides: []map[string]int{
 						{cluster1: 0, cluster2: 1, cluster3: 1}, // no changes in scaling
-						{cluster1: 1, cluster2: 2, cluster3: 3}, // cluster2: 1->2, cluster3: 1->3
+						{cluster1: 1, cluster2: 1, cluster3: 0}, // cluster3: 1->3
 					},
 					expectedShardDistribution: []map[string]int{
 						{cluster1: 0, cluster2: 1, cluster3: 1},
-						{cluster1: 1, cluster2: 2, cluster3: 3},
+						{cluster1: 1, cluster2: 1, cluster3: 0},
 						{cluster1: 0, cluster2: 1, cluster3: 1},
 					},
 				},
@@ -1764,12 +2089,12 @@ func TestMultiClusterShardedScalingWithOverrides(t *testing.T) {
 						cluster1: 1, cluster2: 1, cluster3: 1, // we don't change the default distribution
 					},
 					shardOverrides: []map[string]int{
-						{cluster1: 0, cluster2: 3, cluster3: 1}, // cluster1: 3->0, cluster 2: 2->3
-						{cluster1: 3, cluster2: 2, cluster3: 0}, // cluster2: 1->3, cluster3: 3->0
+						{cluster1: 0, cluster2: 2, cluster3: 1}, // cluster1: 3->0
+						{cluster1: 1, cluster2: 2, cluster3: 0}, // cluster3: 3->0
 					},
 					expectedShardDistribution: []map[string]int{
-						{cluster1: 0, cluster2: 3, cluster3: 1},
-						{cluster1: 3, cluster2: 2, cluster3: 0},
+						{cluster1: 0, cluster2: 2, cluster3: 1},
+						{cluster1: 1, cluster2: 2, cluster3: 0},
 					},
 				},
 				{
@@ -1799,18 +2124,107 @@ func TestMultiClusterShardedScalingWithOverrides(t *testing.T) {
 						{cluster1: 3, cluster2: 2, cluster3: 1},
 					},
 				},
+				// This scaling step test an edge case: when all shards contain overrides, the mongod distribution is
+				// empty in the status (sizeStatusInClusters)
+				{
+					name:       "Add a shard",
+					shardCount: 3,
+					shardDistribution: map[string]int{
+						cluster1: 3, cluster2: 3, cluster3: 3, // We set default distribution to 3
+					},
+					shardOverrides: []map[string]int{
+						{cluster1: 0, cluster2: 3, cluster3: 1},
+						{cluster1: 3, cluster2: 2, cluster3: 1},
+					},
+					expectedShardDistribution: []map[string]int{
+						{cluster1: 0, cluster2: 3, cluster3: 1},
+						{cluster1: 3, cluster2: 2, cluster3: 1},
+						{cluster1: 3, cluster2: 3, cluster3: 3},
+					},
+				},
 				{
 					name:       "Remove one override",
-					shardCount: 2,
+					shardCount: 3,
 					shardDistribution: map[string]int{
-						cluster1: 1, cluster2: 1, cluster3: 1, // we don't change the default distribution
+						cluster1: 3, cluster2: 3, cluster3: 3,
 					},
 					shardOverrides: []map[string]int{
 						{cluster1: 0, cluster2: 3, cluster3: 1},
 					},
 					expectedShardDistribution: []map[string]int{
 						{cluster1: 0, cluster2: 3, cluster3: 1},
-						{cluster1: 1, cluster2: 1, cluster3: 1}, // This shard should scale to the default distribution
+						{cluster1: 3, cluster2: 3, cluster3: 3}, // This shard should scale to the default distribution
+						{cluster1: 3, cluster2: 3, cluster3: 3},
+					},
+				},
+			},
+		},
+		{
+			// In this test, we try adding shards after the initial deployment. We expect the sizeStatusInClusters
+			// field to be incorrect, as it will be set to 3 3 3, but is shared between all shards.
+			// When adding a new shard, operator will think it is scaled to this distribution, while in reality it
+			// has no replicas
+			// We use an override, but this edge case doesn't need one to happen
+			name: "Add shards after deployment",
+			scalingSteps: []MultiClusterShardedScalingStep{
+				{
+					name:       "Initial deployment",
+					shardCount: 2,
+					shardDistribution: map[string]int{
+						cluster1: 3, cluster2: 3, cluster3: 3,
+					},
+					shardOverrides: []map[string]int{
+						{cluster1: 3, cluster2: 2, cluster3: 1},
+					},
+					expectedShardDistribution: []map[string]int{
+						{cluster1: 3, cluster2: 2, cluster3: 1},
+						{cluster1: 3, cluster2: 3, cluster3: 3},
+					},
+				},
+				{
+					name:       "Add two shards",
+					shardCount: 4, // We only change shardCount
+					shardDistribution: map[string]int{
+						cluster1: 3, cluster2: 3, cluster3: 3,
+					},
+					shardOverrides: []map[string]int{
+						{cluster1: 3, cluster2: 2, cluster3: 1},
+					},
+					expectedShardDistribution: []map[string]int{
+						{cluster1: 3, cluster2: 2, cluster3: 1},
+						{cluster1: 3, cluster2: 3, cluster3: 3},
+						{cluster1: 3, cluster2: 3, cluster3: 3},
+						{cluster1: 3, cluster2: 3, cluster3: 3},
+					},
+				},
+				{
+					name:       "Remove one shard",
+					shardCount: 3, // We only change shardCount
+					shardDistribution: map[string]int{
+						cluster1: 3, cluster2: 3, cluster3: 3,
+					},
+					shardOverrides: []map[string]int{
+						{cluster1: 3, cluster2: 2, cluster3: 1},
+					},
+					expectedShardDistribution: []map[string]int{
+						{cluster1: 3, cluster2: 2, cluster3: 1},
+						{cluster1: 3, cluster2: 3, cluster3: 3},
+						{cluster1: 3, cluster2: 3, cluster3: 3},
+					},
+				},
+				{
+					name:       "Re-scale",
+					shardCount: 3,
+					shardDistribution: map[string]int{
+						cluster1: 3, cluster2: 1, cluster3: 1, // Scale down base shards
+					},
+					shardOverrides: []map[string]int{
+						{cluster1: 3, cluster2: 1, cluster3: 1}, // Scale down override on cluter 2
+					},
+					expectedShardDistribution: []map[string]int{
+						{cluster1: 3, cluster2: 1, cluster3: 1},
+						{cluster1: 3, cluster2: 1, cluster3: 1},
+						{cluster1: 3, cluster2: 1, cluster3: 1},
 					},
 				},
 			},
@@ -1897,7 +2311,7 @@ func TestMultiClusterShardedScaling(t *testing.T) {
 	}
 	// add two mongos
 	// mongosDistribution := map[string]int{cluster2: 1}
-	mongosDistribution = map[string]int{cluster3: 2, cluster2: 1}
+	mongosDistribution = map[string]int{cluster1: 0, cluster2: 1, cluster3: 2}
 	// add two config servers
 	// configSrvDistribution := map[string]int{cluster3: 1}
 	configSrvDistribution = map[string]int{cluster1: 2, cluster3: 1}
@@ -1921,21 +2335,13 @@ func TestMultiClusterShardedScaling(t *testing.T) {
 	// Ensure that reconciliation generated the correct deployment state
 	checkCorrectShardDistributionInStatus(t, sc)
 
-	// remove members from one cluster and move them to another
-	// shardDistribution = []map[string]int{
-	// 	{cluster3: 2, cluster1: 1, cluster2: 2},
-	// 	{cluster3: 2, cluster1: 1, cluster2: 2},
-	// }
+	// remove members from cluster 1
 	shardDistribution = []map[string]int{
-		{cluster3: 2, cluster1: 0, cluster2: 3},
-		{cluster3: 2, cluster1: 0, cluster2: 3},
+		{cluster3: 2, cluster1: 0, cluster2: 2},
+		{cluster3: 2, cluster1: 0, cluster2: 2},
 	}
 
-	// mongosDistribution = map[string]int{cluster3: 2, cluster2: 1}
-	mongosDistribution = map[string]int{cluster1: 2, cluster2: 1, cluster3: 0}
-	// add two config servers
-	// configSrvDistribution = map[string]int{cluster1: 2, cluster3: 1}
-	configSrvDistribution = map[string]int{cluster2: 2, cluster3: 1, cluster1: 0}
+	mongosDistribution = map[string]int{cluster1: 0, cluster2: 1, cluster3: 1}
 	addAllHostsWithDistribution(omConnectionFactory.GetConnection(), mongosDistribution, clusterMapping, configSrvDistribution, shardDistribution)
 
 	err = kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc)
