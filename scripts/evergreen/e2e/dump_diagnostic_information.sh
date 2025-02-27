@@ -89,6 +89,9 @@ dump_pod_logs() {
         echo "Writing agent and mongodb logs for pod ${pod} to logs"
         kubectl cp "${namespace}/${pod}:var/log/mongodb-mms-automation/automation-agent-verbose.log" "logs/${prefix}${pod}-agent-verbose.log" &> /dev/null
         tail -n 500 "logs/${pod}-agent-verbose.log" > "logs/${prefix}${pod}-agent.log" || true
+        kubectl cp "${namespace}/${pod}:var/log/mongodb-mms-automation/monitoring-agent-verbose.log" "logs/${prefix}${pod}-monitoring-agent-verbose.log" &> /dev/null
+        kubectl cp "${namespace}/${pod}:var/log/mongodb-mms-automation/monitoring-agent.log" "logs/${prefix}${pod}-monitoring-agent.log" &> /dev/null
+        kubectl logs -n "${namespace}" "${pod}" -c "mongodb-agent-monitoring" > "logs/${prefix}${pod}-monitoring-agent-stdout.log" || true
         kubectl cp "${namespace}/${pod}:var/log/mongodb-mms-automation/mongodb.log" "logs/${prefix}${pod}-mongodb.log" &> /dev/null || true
         # note that this file may get empty if the logs have already grew too much - seems it's better to have it explicitly empty then just omit
         kubectl logs -n "${namespace}" "${pod}" | jq -c -r 'select( .logType == "agent-launcher-script") | .contents' 2> /dev/null > "logs/${prefix}${pod}-launcher.log"
