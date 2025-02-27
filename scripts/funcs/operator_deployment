@@ -32,6 +32,7 @@ get_operator_helm_values() {
     "operator.enablePVCResize=${MDB_ENABLE_PVC_RESIZE:-true}"
     "operator.telemetry.enabled=true"
     "operator.telemetry.collection.clusters.enabled=${MDB_OPERATOR_TELEMETRY_COLLECTION_CLUSTERS_ENABLED:-true}"
+    "operator.telemetry.collection.clusters.installClusterRoles=true"
     "operator.telemetry.collection.deployments.enabled=true"
     "operator.telemetry.collection.operators.enabled=true"
     # only send the telemetry to the backend on a specific variant, thus default to false

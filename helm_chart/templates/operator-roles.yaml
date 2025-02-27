@@ -181,14 +181,15 @@ subjects:
 
 
 {{ if and .Values.operator.telemetry.collection.clusters.enabled .Values.operator.telemetry.enabled}}
+{{- $clusterRoleName := printf "%s-cluster-telemetry" .Values.operator.name }}
+{{- if .Values.operator.telemetry.installClusterRoles }}
 ---
 # Additional ClusterRole for clusterVersionDetection
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: {{ .Values.operator.name }}-cluster-telemetry
+  name: {{ $clusterRoleName }}
 rules:
-{{ if .Values.operator.telemetry.collection.clusters.enabled }}
   # Non-resource URL permissions
   - nonResourceURLs:
       - "/version"
@@ -219,7 +220,7 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ .Values.operator.name }}-cluster-telemetry
+  name: {{ $clusterRoleName }}
 subjects:
   - kind: ServiceAccount
     name: {{ .Values.operator.name }}
