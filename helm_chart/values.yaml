@@ -101,14 +101,15 @@ operator:
   telemetry:
     # Enables telemetry. Setting this to false will stop all telemetry related work on the operator.
     enabled: true
+    # Adds RBAC clusterRole for kube-system uid detection for the kubernetes cluster uid
+    # Adds RBAC clusterRole for RBAC for nodes. We are listing exactly one node to detect the cluster provider (e.g. eks)
+    # Adds RBAC clusterRole for /version query for detecting kubernetes server version
+    # Note: the cluster UUID is unique but random and mongoDB has no way to map this to a customer.
+    installClusterRoles: true
     collection:
       # Valid time units are "m", "h". Anything less than one minute defaults to 1h
       frequency: 1h
       # Enables the operator to collect and send cluster level telemetry
-      # Adds RBAC clusterRole for kube-system uid detection for the kubernetes cluster uid
-      # Adds RBAC clusterRole for RBAC for nodes. We are listing exactly one node to detect the cluster provider (e.g. eks)
-      # Adds RBAC clusterRole for /version query for detecting kubernetes server version
-      # Note: the cluster UUID is unique but random and mongoDB has no way to map this to a customer.
       clusters:
         enabled: true
       # Enables the operator to collect and send deployment level telemetry

@@ -7,7 +7,6 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: mongodb-enterprise-operator-cluster-telemetry
 rules:
-
   # Non-resource URL permissions
   - nonResourceURLs:
       - "/version"
