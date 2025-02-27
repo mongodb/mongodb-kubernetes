@@ -310,7 +310,7 @@ func TestGetAppDBImage(t *testing.T) {
 			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8",
 			setupEnvs: func(t *testing.T) {
 				t.Setenv(construct.MongodbRepoUrl, "quay.io/mongodb")
-				t.Setenv(construct.MongodbImageEnv, util.OfficialServerImageAppdbUrl)
+				t.Setenv(construct.MongodbImageEnv, util.OfficialEnterpriseServerImageUrl)
 			},
 		},
 		{
@@ -319,7 +319,7 @@ func TestGetAppDBImage(t *testing.T) {
 			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8",
 			setupEnvs: func(t *testing.T) {
 				t.Setenv(construct.MongodbRepoUrl, "quay.io/mongodb")
-				t.Setenv(construct.MongodbImageEnv, util.OfficialServerImageAppdbUrl)
+				t.Setenv(construct.MongodbImageEnv, util.OfficialEnterpriseServerImageUrl)
 			},
 		},
 		{
@@ -328,7 +328,7 @@ func TestGetAppDBImage(t *testing.T) {
 			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-something",
 			setupEnvs: func(t *testing.T) {
 				t.Setenv(construct.MongodbRepoUrl, "quay.io/mongodb")
-				t.Setenv(construct.MongodbImageEnv, util.OfficialServerImageAppdbUrl)
+				t.Setenv(construct.MongodbImageEnv, util.OfficialEnterpriseServerImageUrl)
 			},
 		},
 		{
@@ -337,7 +337,7 @@ func TestGetAppDBImage(t *testing.T) {
 			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8",
 			setupEnvs: func(t *testing.T) {
 				t.Setenv(construct.MongodbRepoUrl, "quay.io/mongodb")
-				t.Setenv(construct.MongodbImageEnv, util.OfficialServerImageAppdbUrl)
+				t.Setenv(construct.MongodbImageEnv, util.OfficialEnterpriseServerImageUrl)
 			},
 		},
 		{
@@ -368,7 +368,7 @@ func TestGetAppDBImage(t *testing.T) {
 				t.Setenv("RELATED_IMAGE_MONGODB_IMAGE_4_2_11_ubi8", "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8")
 				t.Setenv("RELATED_IMAGE_MONGODB_IMAGE_4_2_11_ent", "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ent")
 				t.Setenv(construct.MongoDBImageType, "ubi8")
-				t.Setenv(construct.MongodbImageEnv, util.OfficialServerImageAppdbUrl)
+				t.Setenv(construct.MongodbImageEnv, util.OfficialEnterpriseServerImageUrl)
 				t.Setenv(construct.MongodbRepoUrl, construct.OfficialMongodbRepoUrls[1])
 			},
 		},
@@ -388,7 +388,7 @@ func TestGetAppDBImage(t *testing.T) {
 			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ent",
 			setupEnvs: func(t *testing.T) {
 				t.Setenv(construct.MongodbRepoUrl, "quay.io/mongodb")
-				t.Setenv(construct.MongodbImageEnv, util.OfficialServerImageAppdbUrl)
+				t.Setenv(construct.MongodbImageEnv, util.OfficialEnterpriseServerImageUrl)
 				t.Setenv(util.MdbAppdbAssumeOldFormat, "true")
 			},
 		},
@@ -401,7 +401,7 @@ func TestGetAppDBImage(t *testing.T) {
 			want: "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi9",
 			setupEnvs: func(t *testing.T) {
 				t.Setenv(construct.MongodbRepoUrl, "quay.io/mongodb")
-				t.Setenv(construct.MongodbImageEnv, util.OfficialServerImageAppdbUrl)
+				t.Setenv(construct.MongodbImageEnv, util.OfficialEnterpriseServerImageUrl)
 			},
 		},
 		{
@@ -413,7 +413,7 @@ func TestGetAppDBImage(t *testing.T) {
 			want: "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi9",
 			setupEnvs: func(t *testing.T) {
 				t.Setenv(construct.MongodbRepoUrl, "quay.io/mongodb")
-				t.Setenv(construct.MongodbImageEnv, util.OfficialServerImageAppdbUrl)
+				t.Setenv(construct.MongodbImageEnv, util.OfficialEnterpriseServerImageUrl)
 			},
 		},
 	}
@@ -537,4 +537,55 @@ func TestGetAutomationLogEnvVars(t *testing.T) {
 		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentVerboseEnv, Value: path.Join(util.PvcMountPathLogs, "automation-agent-verbose.log")})
 		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentStderrEnv, Value: path.Join(util.PvcMountPathLogs, "automation-agent-stderr.log")})
 	})
+}
+
+func TestDeploymentIsEnterpriseImage(t *testing.T) {
+	tests := []struct {
+		name           string
+		isStatic       bool   // this sets the environment to be static
+		envVarValue    string // if static, we will set the respective environment variable to overwrite the used image
+		expectedResult bool
+	}{
+		{
+			name:           "Static Architecture - Enterprise Image",
+			envVarValue:    "myregistry.com/mongo/mongodb-enterprise-server:latest",
+			isStatic:       true,
+			expectedResult: true,
+		},
+		{
+			name:           "Non-Static Architecture - Enterprise Image",
+			envVarValue:    "myregistry.com/mongo/mongodb-enterprise-server:latest",
+			isStatic:       false,
+			expectedResult: true,
+		},
+		{
+			name:           "Static Architecture - Community Image",
+			envVarValue:    "myregistry.com/mongo/mongodb-community-server:latest",
+			isStatic:       true,
+			expectedResult: false,
+		},
+		{
+			name:           "Non-Static Architecture - Community Image",
+			envVarValue:    "myregistry.com/mongo/mongodb-community-server:latest",
+			isStatic:       false,
+			expectedResult: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.isStatic {
+				t.Setenv(construct.MongodbImageEnv, tt.envVarValue)
+				t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
+			} else {
+				t.Setenv(util.NonStaticDatabaseEnterpriseImage, tt.envVarValue)
+			}
+
+			result := DeploymentIsEnterpriseImage(map[string]string{})
+
+			if result != tt.expectedResult {
+				t.Errorf("expected %v, got %v", tt.expectedResult, result)
+			}
+		})
+	}
 }

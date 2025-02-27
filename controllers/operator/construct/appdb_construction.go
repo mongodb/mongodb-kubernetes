@@ -478,14 +478,12 @@ func getOfficialImage(version string, annotations map[string]string) string {
 		imageType = string(architectures.ImageTypeUBI8)
 	}
 
-	imageURL := os.Getenv(construct.MongodbImageEnv)
-
 	if strings.HasSuffix(repoUrl, "/") {
 		repoUrl = strings.TrimRight(repoUrl, "/")
 	}
 
 	assumeOldFormat := envvar.ReadBool(util.MdbAppdbAssumeOldFormat)
-	if strings.HasSuffix(imageURL, util.OfficialServerImageAppdbUrl) && !assumeOldFormat {
+	if AppDBIsEnterpriseImage() && !assumeOldFormat {
 		// 5.0.6-ent -> 5.0.6-ubi8
 		if strings.HasSuffix(version, "-ent") {
 			version = fmt.Sprintf("%s%s", strings.TrimSuffix(version, "ent"), imageType)
@@ -502,6 +500,7 @@ func getOfficialImage(version string, annotations map[string]string) string {
 	}
 
 	mongoImageName := ContainerImage(construct.MongodbImageEnv, version, func() string {
+		imageURL := os.Getenv(construct.MongodbImageEnv)
 		return imageURL
 	})
 
@@ -510,6 +509,11 @@ func getOfficialImage(version string, annotations map[string]string) string {
 	}
 
 	return fmt.Sprintf("%s/%s", repoUrl, mongoImageName)
+}
+
+func AppDBIsEnterpriseImage() bool {
+	imageURL := os.Getenv(construct.MongodbImageEnv)
+	return strings.HasSuffix(imageURL, util.OfficialEnterpriseServerImageUrl)
 }
 
 func containerImageModification(containerName string, image string, args []string) statefulset.Modification {
