@@ -20,6 +20,7 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
@@ -206,11 +207,12 @@ func getMdbEvents(ctx context.Context, operatorClusterClient kubeclient.Client, 
 		for _, item := range mdbList.Items {
 			numberOfClustersUsed := getMaxNumberOfClustersSCIsDeployedOn(item)
 			properties := DeploymentUsageSnapshotProperties{
-				DeploymentUID:  string(item.UID),
-				OperatorID:     operatorUUID,
-				Architecture:   architectures.GetArchitecture(item.Annotations),
-				IsMultiCluster: item.Spec.IsMultiCluster(),
-				Type:           string(item.Spec.GetResourceType()),
+				DeploymentUID:            string(item.UID),
+				OperatorID:               operatorUUID,
+				Architecture:             architectures.GetArchitecture(item.Annotations),
+				IsMultiCluster:           item.Spec.IsMultiCluster(),
+				Type:                     string(item.Spec.GetResourceType()),
+				IsRunningEnterpriseImage: construct.DeploymentIsEnterpriseImage(item.Annotations),
 			}
 
 			if numberOfClustersUsed > 0 {
@@ -233,12 +235,13 @@ func addMultiEvents(ctx context.Context, operatorClusterClient kubeclient.Client
 		clusters := len(item.Spec.ClusterSpecList)
 
 		properties := DeploymentUsageSnapshotProperties{
-			DatabaseClusters: ptr.To(clusters), // cannot be null in mdbmulti
-			DeploymentUID:    string(item.UID),
-			OperatorID:       operatorUUID,
-			Architecture:     architectures.GetArchitecture(item.Annotations),
-			IsMultiCluster:   true,
-			Type:             string(item.Spec.GetResourceType()),
+			DatabaseClusters:         ptr.To(clusters), // cannot be null in mdbmulti
+			DeploymentUID:            string(item.UID),
+			OperatorID:               operatorUUID,
+			Architecture:             architectures.GetArchitecture(item.Annotations),
+			IsMultiCluster:           true,
+			Type:                     string(item.Spec.GetResourceType()),
+			IsRunningEnterpriseImage: construct.DeploymentIsEnterpriseImage(item.Annotations),
 		}
 		events = append(events, addEvents(properties, events, now, Deployments)...)
 	}
@@ -254,14 +257,16 @@ func addOmEvents(ctx context.Context, operatorClusterClient kubeclient.Client, o
 		Logger.Warnf("failed to fetch OMList from Kubernetes: %v", err)
 	} else {
 		for _, item := range omList.Items {
+			// Detect enterprise
 			omClusters := len(item.Spec.ClusterSpecList)
 			appDBClusters := len(item.Spec.AppDB.ClusterSpecList)
 			properties := DeploymentUsageSnapshotProperties{
-				DeploymentUID:  string(item.UID),
-				OperatorID:     operatorUUID,
-				Architecture:   architectures.GetArchitecture(item.Annotations),
-				IsMultiCluster: item.Spec.IsMultiCluster(),
-				Type:           "OpsManager",
+				DeploymentUID:            string(item.UID),
+				OperatorID:               operatorUUID,
+				Architecture:             architectures.GetArchitecture(item.Annotations),
+				IsMultiCluster:           item.Spec.IsMultiCluster(),
+				Type:                     "OpsManager",
+				IsRunningEnterpriseImage: construct.AppDBIsEnterpriseImage(),
 			}
 			if omClusters > 0 {
 				properties.OmClusters = ptr.To(omClusters)

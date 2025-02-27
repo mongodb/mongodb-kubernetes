@@ -295,7 +295,7 @@ const (
 
 	DeprecatedImageAppdbUbiUrl = "mongodb-enterprise-appdb-database-ubi"
 
-	OfficialServerImageAppdbUrl = "mongodb-enterprise-server"
+	OfficialEnterpriseServerImageUrl = "mongodb-enterprise-server"
 
 	MdbAppdbAssumeOldFormat = "MDB_APPDB_ASSUME_OLD_FORMAT"
 

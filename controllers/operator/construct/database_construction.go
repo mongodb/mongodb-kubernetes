@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 	"k8s.io/utils/ptr"
 
+	"github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/persistentvolumeclaim"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/podtemplatespec"
@@ -1176,4 +1177,14 @@ func ContainerImage(imageURLEnv string, version string, retrieveImageURL func() 
 	}
 
 	return fmt.Sprintf("%s:%s", imageURL, version)
+}
+
+func DeploymentIsEnterpriseImage(annotations map[string]string) bool {
+	imageURL := ""
+	if architectures.IsRunningStaticArchitecture(annotations) {
+		imageURL = os.Getenv(construct.MongodbImageEnv)
+	} else {
+		imageURL = os.Getenv(util.NonStaticDatabaseEnterpriseImage)
+	}
+	return strings.Contains(imageURL, util.OfficialEnterpriseServerImageUrl)
 }

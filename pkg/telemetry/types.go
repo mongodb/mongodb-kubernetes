@@ -23,14 +23,15 @@ type KubernetesClusterUsageSnapshotProperties struct {
 
 // DeploymentUsageSnapshotProperties represents the structure for tracking Deployment events.
 type DeploymentUsageSnapshotProperties struct {
-	DatabaseClusters *int   `json:"databaseClusters,omitempty"` // pointers allow us to not send that value if it's not set.
-	AppDBClusters    *int   `json:"appDBClusters,omitempty"`
-	OmClusters       *int   `json:"OmClusters,omitempty"`
-	DeploymentUID    string `json:"deploymentUID"`
-	OperatorID       string `json:"operatorID"`
-	Architecture     string `json:"architecture"`
-	IsMultiCluster   bool   `json:"isMultiCluster"`
-	Type             string `json:"type"` // RS, SC, OM, Single
+	DatabaseClusters         *int   `json:"databaseClusters,omitempty"` // pointers allow us to not send that value if it's not set.
+	AppDBClusters            *int   `json:"appDBClusters,omitempty"`
+	OmClusters               *int   `json:"OmClusters,omitempty"`
+	DeploymentUID            string `json:"deploymentUID"`
+	OperatorID               string `json:"operatorID"`
+	Architecture             string `json:"architecture"`
+	IsMultiCluster           bool   `json:"isMultiCluster"`
+	Type                     string `json:"type"` // RS, SC, OM, Single
+	IsRunningEnterpriseImage bool   `json:"IsRunningEnterpriseImage"`
 }
 
 type Event struct {
