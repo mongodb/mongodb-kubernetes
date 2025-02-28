@@ -97,7 +97,9 @@ def get_cluster_info(cluster_name: str) -> ClusterInfo:
     return val
 
 
-def _setup_external_access(resource: MongoDB, cluster_spec_type: str, cluster_member_list: List[str]):
+def _setup_external_access(
+    resource: MongoDB, cluster_spec_type: str, cluster_member_list: List[str], enable_external_domain=True
+):
     ports = [
         {
             "name": "mongodb",
@@ -124,7 +126,6 @@ def _setup_external_access(resource: MongoDB, cluster_spec_type: str, cluster_me
         resource["spec"]["externalAccess"] = {}
         for index, cluster_member_name in enumerate(cluster_member_list):
             resource["spec"][cluster_spec_type]["clusterSpecList"][index]["externalAccess"] = {
-                "externalDomain": get_cluster_info(cluster_member_name).external_domain,
                 "externalService": {
                     "spec": {
                         "type": "LoadBalancer",
@@ -132,25 +133,44 @@ def _setup_external_access(resource: MongoDB, cluster_spec_type: str, cluster_me
                     }
                 },
             }
+            if enable_external_domain:
+                resource["spec"][cluster_spec_type]["clusterSpecList"][index]["externalAccess"]["externalDomain"] = (
+                    get_cluster_info(cluster_member_name).external_domain
+                )
     else:
         resource["spec"]["externalAccess"] = {}
-        resource["spec"]["externalAccess"]["externalDomain"] = get_cluster_info(cluster_member_list[0]).external_domain
+        if enable_external_domain:
+            resource["spec"]["externalAccess"]["externalDomain"] = get_cluster_info(
+                cluster_member_list[0]
+            ).external_domain
 
 
-def setup_external_access(resource: MongoDB):
+def setup_external_access(resource: MongoDB, enable_external_domain=True):
     if "topology" in resource["spec"] and resource["spec"]["topology"] == "MultiCluster":
         _setup_external_access(
-            resource=resource, cluster_spec_type="mongos", cluster_member_list=get_member_cluster_names()
+            resource=resource,
+            cluster_spec_type="mongos",
+            cluster_member_list=get_member_cluster_names(),
+            enable_external_domain=enable_external_domain,
         )
         _setup_external_access(
-            resource=resource, cluster_spec_type="configSrv", cluster_member_list=get_member_cluster_names()
+            resource=resource,
+            cluster_spec_type="configSrv",
+            cluster_member_list=get_member_cluster_names(),
+            enable_external_domain=enable_external_domain,
         )
         _setup_external_access(
-            resource=resource, cluster_spec_type="shard", cluster_member_list=get_member_cluster_names()
+            resource=resource,
+            cluster_spec_type="shard",
+            cluster_member_list=get_member_cluster_names(),
+            enable_external_domain=enable_external_domain,
         )
     else:
         _setup_external_access(
-            resource=resource, cluster_spec_type="", cluster_member_list=[get_central_cluster_name()]
+            resource=resource,
+            cluster_spec_type="",
+            cluster_member_list=[get_central_cluster_name()],
+            enable_external_domain=enable_external_domain,
         )
 
 

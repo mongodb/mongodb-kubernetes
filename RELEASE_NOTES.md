@@ -8,6 +8,7 @@
 ## Bug Fixes
 * Fixes the bug when status of `MongoDBUser` was being set to `Updated` prematurely. For example, new users were not immediately usable following `MongoDBUser` creation despite the operator reporting `Updated` state.
 * Fixed a bug causing cluster health check issues when ordering of users and tokens differed in Kubeconfig.
+* Fixed a bug when deploying a Multi-Cluster sharded resource with an external access configuration could result in pods not being able to reach each others.
 
 # MongoDB Enterprise Kubernetes Operator 1.31.0
 
