@@ -1165,6 +1165,11 @@ tasks:
     commands:
       - func: e2e_test
 
+  - name: e2e_multi_cluster_sharded_external_access_no_ext_domain
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
   - name: e2e_multi_cluster_sharded_tls_no_mesh
     tags: [ "patch-run" ]
     commands:

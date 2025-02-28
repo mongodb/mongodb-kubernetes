@@ -550,21 +550,22 @@ func TestReconcileCreateMultiClusterShardedClusterWithExternalAccessAndNoExterna
 		configSrvStsName := fmt.Sprintf("%s-config-%d", sc.Name, clusterIdx)
 		configMembers := memberClusters.ConfigServerDistribution[clusterSpecItem.ClusterName]
 		memberClusterChecks.checkInternalServices(ctx, configSrvStsName)
-		memberClusterChecks.checkExternalServicesDontNotExist(ctx, configSrvStsName, configMembers)
+		memberClusterChecks.checkExternalServicesDontExist(ctx, configSrvStsName, configMembers)
 		memberClusterChecks.checkPerPodServices(ctx, configSrvStsName, configMembers)
 
 		mongosStsName := fmt.Sprintf("%s-mongos-%d", sc.Name, clusterIdx)
 		mongosMembers := memberClusters.MongosDistribution[clusterSpecItem.ClusterName]
 		memberClusterChecks.checkExternalServices(ctx, mongosStsName, mongosMembers)
 		memberClusterChecks.checkInternalServices(ctx, mongosStsName)
-		memberClusterChecks.checkPerPodServicesDontExist(ctx, mongosStsName, mongosMembers)
+		// Without external domain, we need per-pod mongos services
+		memberClusterChecks.checkPerPodServices(ctx, mongosStsName, mongosMembers)
 		memberClusterChecks.checkServiceAnnotations(ctx, mongosStsName, mongosMembers, sc, clusterSpecItem.ClusterName, clusterIdx, test.ExampleAccessWithNoExternalDomain.MongosExternalDomain)
 
 		for shardIdx := 0; shardIdx < memberClusters.ShardCount(); shardIdx++ {
 			shardStsName := fmt.Sprintf("%s-%d-%d", sc.Name, shardIdx, clusterIdx)
 			shardMembers := memberClusters.ShardDistribution[shardIdx][clusterSpecItem.ClusterName]
 			memberClusterChecks.checkInternalServices(ctx, shardStsName)
-			memberClusterChecks.checkExternalServicesDontNotExist(ctx, shardStsName, shardMembers)
+			memberClusterChecks.checkExternalServicesDontExist(ctx, shardStsName, shardMembers)
 			memberClusterChecks.checkPerPodServices(ctx, shardStsName, shardMembers)
 		}
 		memberClusterChecks.checkHostnameOverrideConfigMap(ctx, fmt.Sprintf("%s-hostname-override", sc.Name), expectedHostnameOverrideMap)
