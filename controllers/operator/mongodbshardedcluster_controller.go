@@ -2374,22 +2374,6 @@ func (r *ShardedClusterReconcileHelper) GetConfigSrvServiceName(memberCluster mu
 	}
 }
 
-func (r *ShardedClusterReconcileHelper) GetMongosServiceName(memberCluster multicluster.MemberCluster) string {
-	if memberCluster.Legacy {
-		return r.sc.ServiceName()
-	} else {
-		return dns.GetMultiHeadlessServiceName(r.sc.Name, memberCluster.Index)
-	}
-}
-
-func (r *ShardedClusterReconcileHelper) GetShardServiceName(memberCluster multicluster.MemberCluster) string {
-	if memberCluster.Legacy {
-		return r.sc.ServiceName()
-	} else {
-		return r.sc.ShardServiceName()
-	}
-}
-
 func (r *ShardedClusterReconcileHelper) replicateAgentKeySecret(ctx context.Context, conn om.Connection, agentKey string, log *zap.SugaredLogger) error {
 	for _, memberCluster := range getHealthyMemberClusters(r.allMemberClusters) {
 		var databaseSecretPath string
@@ -2519,6 +2503,7 @@ func (r *ShardedClusterReconcileHelper) reconcileConfigServerServices(ctx contex
 		if configServerExternalAccess == nil {
 			configServerExternalAccess = r.sc.Spec.DbCommonSpec.ExternalAccessConfiguration
 		}
+		// Config servers need external services only if an externalDomain is configured
 		if configServerExternalAccess != nil && configServerExternalAccess.ExternalDomain != nil {
 			log.Debugf("creating external services for %s in cluster: %s", r.sc.ConfigRsName(), memberCluster.Name)
 			svc, err := r.getPodExternalService(memberCluster,
@@ -2532,7 +2517,9 @@ func (r *ShardedClusterReconcileHelper) reconcileConfigServerServices(ctx contex
 			if err = mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
 			}
-		} else {
+		}
+		// We don't need internal per-pod services in case we have externalAccess configured AND an external domain
+		if configServerExternalAccess == nil || configServerExternalAccess.ExternalDomain == nil {
 			log.Debugf("creating internal services for %s in cluster: %s", r.sc.ConfigRsName(), memberCluster.Name)
 			svc := r.getPodService(r.sc.ConfigRsName(), memberCluster, podNum, portOrDefault)
 			if err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
@@ -2556,6 +2543,7 @@ func (r *ShardedClusterReconcileHelper) reconcileShardServices(ctx context.Conte
 	scaler := r.GetShardScaler(shardIdx, memberCluster)
 
 	for podNum := 0; podNum < scaler.DesiredReplicas(); podNum++ {
+		// Shards need external services only if an externalDomain is configured
 		if shardsExternalAccess != nil && shardsExternalAccess.ExternalDomain != nil {
 			log.Debugf("creating external services for %s in cluster: %s", r.sc.ShardRsName(shardIdx), memberCluster.Name)
 			svc, err := r.getPodExternalService(
@@ -2570,7 +2558,9 @@ func (r *ShardedClusterReconcileHelper) reconcileShardServices(ctx context.Conte
 			if err = mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
 			}
-		} else {
+		}
+		// We don't need internal per-pod services in case we have externalAccess configured AND an external domain
+		if shardsExternalAccess == nil || shardsExternalAccess.ExternalDomain == nil {
 			log.Debugf("creating internal services for %s in cluster: %s", r.sc.ShardRsName(shardIdx), memberCluster.Name)
 			svc := r.getPodService(r.sc.ShardRsName(shardIdx), memberCluster, podNum, portOrDefault)
 			if err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil {
@@ -2595,6 +2585,7 @@ func (r *ShardedClusterReconcileHelper) reconcileMongosServices(ctx context.Cont
 		if mongosExternalAccess == nil {
 			mongosExternalAccess = r.sc.Spec.DbCommonSpec.ExternalAccessConfiguration
 		}
+		// Mongos always need external services if externalAccess is configured
 		if mongosExternalAccess != nil {
 			log.Debugf("creating external services for %s in cluster: %s", r.sc.MongosRsName(), memberCluster.Name)
 			svc, err := r.getPodExternalService(memberCluster,
@@ -2608,7 +2599,9 @@ func (r *ShardedClusterReconcileHelper) reconcileMongosServices(ctx context.Cont
 			if err = mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
 			}
-		} else {
+		}
+		// We don't need internal per-pod services in case we have externalAccess configured AND an external domain
+		if mongosExternalAccess == nil || mongosExternalAccess.ExternalDomain == nil {
 			log.Debugf("creating internal services for %s in cluster: %s", r.sc.MongosRsName(), memberCluster.Name)
 			svc := r.getPodService(r.sc.MongosRsName(), memberCluster, podNum, portOrDefault)
 			if err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
@@ -2617,6 +2610,7 @@ func (r *ShardedClusterReconcileHelper) reconcileMongosServices(ctx context.Cont
 
 			_ = append(allServices, &svc)
 		}
+
 		if err := createHeadlessServiceForStatefulSet(ctx, r.sc.MongosRsName(), portOrDefault, r.sc.Namespace, memberCluster); err != nil {
 			return err
 		}

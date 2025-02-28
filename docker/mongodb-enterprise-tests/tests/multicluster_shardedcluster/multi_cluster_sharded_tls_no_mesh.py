@@ -152,7 +152,7 @@ def test_deploy_certs(all_certs, agent_certs):
 @mark.e2e_multi_cluster_sharded_tls_no_mesh
 def test_sharded_cluster_with_prefix_gets_to_running_state(sharded_cluster: MongoDB):
     sharded_cluster.update()
-    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1800)
+    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=800)
 
 
 # TODO: (slaskawi) clearly the client tries to connect to mongos without TLS (we can see this in the logs).

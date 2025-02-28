@@ -789,6 +789,7 @@ task_groups:
       - e2e_multi_cluster_sharded_simplest
       - e2e_multi_cluster_sharded_snippets
       - e2e_multi_cluster_sharded_simplest_no_mesh
+      - e2e_multi_cluster_sharded_external_access_no_ext_domain
       - e2e_multi_cluster_sharded_tls_no_mesh
       - e2e_multi_cluster_sharded_tls
       - e2e_multi_cluster_sharded_disaster_recovery

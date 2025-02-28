@@ -149,16 +149,16 @@ func TestReconcileCreateSingleClusterShardedClusterWithExternalDomainSimplest(t 
 	memberClusterChecks.checkServiceAnnotations(ctx, mongosStatefulSetName, sc.Spec.MongosCount, sc, multicluster.LegacyCentralClusterName, 0, test.ExampleExternalClusterDomains.SingleClusterDomain)
 
 	configServerStatefulSetName := fmt.Sprintf("%s-config", sc.Name)
-	memberClusterChecks.checkExternalServicesDontNotExist(ctx, configServerStatefulSetName, sc.Spec.ConfigServerCount)
+	memberClusterChecks.checkExternalServicesDontExist(ctx, configServerStatefulSetName, sc.Spec.ConfigServerCount)
 	memberClusterChecks.checkPerPodServicesDontExist(ctx, configServerStatefulSetName, sc.Spec.ConfigServerCount)
 	// This is something to be unified - why MC and SC Services are called differently?
 	configServerInternalServiceName := fmt.Sprintf("%s-cs", sc.Name)
 	memberClusterChecks.checkServiceExists(ctx, configServerInternalServiceName)
 
-	memberClusterChecks.checkExternalServicesDontNotExist(ctx, fmt.Sprintf("%s-config", sc.Name), sc.Spec.ConfigServerCount)
+	memberClusterChecks.checkExternalServicesDontExist(ctx, fmt.Sprintf("%s-config", sc.Name), sc.Spec.ConfigServerCount)
 	for shardIdx := 0; shardIdx < sc.Spec.ShardCount; shardIdx++ {
 		shardStatefulSetName := fmt.Sprintf("%s-%d", sc.Name, shardIdx)
-		memberClusterChecks.checkExternalServicesDontNotExist(ctx, shardStatefulSetName, sc.Spec.ShardCount)
+		memberClusterChecks.checkExternalServicesDontExist(ctx, shardStatefulSetName, sc.Spec.ShardCount)
 		memberClusterChecks.checkPerPodServicesDontExist(ctx, shardStatefulSetName, sc.Spec.ShardCount)
 		// This is something to be unified - why MC and SC Services are called differently?
 		shardInternalServiceName := fmt.Sprintf("%s-sh", sc.Name)

@@ -137,7 +137,7 @@ func (c *clusterChecks) checkExternalServices(ctx context.Context, statefulSetNa
 	}
 }
 
-func (c *clusterChecks) checkExternalServicesDontNotExist(ctx context.Context, statefulSetName string, expectedMembers int) {
+func (c *clusterChecks) checkExternalServicesDontExist(ctx context.Context, statefulSetName string, expectedMembers int) {
 	for podIdx := 0; podIdx < expectedMembers; podIdx++ {
 		svc := corev1.Service{}
 		serviceName := fmt.Sprintf("%s-%d-svc-external", statefulSetName, podIdx)

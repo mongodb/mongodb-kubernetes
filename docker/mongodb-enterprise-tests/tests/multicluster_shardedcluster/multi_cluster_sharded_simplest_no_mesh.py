@@ -28,7 +28,7 @@ def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource.set_version(ensure_ent_version(custom_mdb_version))
 
     enable_multi_cluster_deployment(resource=resource)
-    setup_external_access(resource=resource)
+    setup_external_access(resource=resource, enable_external_domain=True)
 
     resource.set_architecture_annotation()
 
@@ -55,7 +55,7 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 @mark.e2e_multi_cluster_sharded_simplest_no_mesh
 def test_sharded_cluster(sharded_cluster: MongoDB):
     sharded_cluster.update()
-    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1800)
+    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=800)
 
 
 # Testing connectivity with External Access requires using the same DNS as deployed in Kube within
