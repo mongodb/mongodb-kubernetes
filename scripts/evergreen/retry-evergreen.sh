@@ -19,29 +19,26 @@ if [[ "${EVERGREEN_RETRY:-"true"}" != "true" ]]; then
   exit 0
 fi
 
-if [ $# -eq 0 ]
-then
-    echo "Details URL not passed in, exiting..."
-    exit 1
+if [ $# -eq 0 ]; then
+  echo "Details URL not passed in, exiting..."
+  exit 1
 else
   VERSION=$1
 fi
-if [ -z "${EVERGREEN_USER}" ]
-then
-    echo "$$EVERGREEN_USER not set"
-    exit 1
+if [ -z "${EVERGREEN_USER}" ]; then
+  echo "$$EVERGREEN_USER not set"
+  exit 1
 fi
-if [ -z "${EVERGREEN_API_KEY}" ]
-then
-    echo "$$EVERGREEN_API_KEY not set"
-    exit 1
+if [ -z "${EVERGREEN_API_KEY}" ]; then
+  echo "$$EVERGREEN_API_KEY not set"
+  exit 1
 fi
 
 EVERGREEN_API="https://evergreen.mongodb.com/api"
 MAX_RETRIES="${EVERGREEN_MAX_RETRIES:-3}"
 
 # shellcheck disable=SC2207
-BUILD_IDS=($(curl -s -H "Api-User: ${EVERGREEN_USER}" -H "Api-Key: ${EVERGREEN_API_KEY}" ${EVERGREEN_API}/rest/v2/versions/"${VERSION}" | jq -r '.build_variants_status[] | .build_id'))
+BUILD_IDS=($(curl -s -H "Api-User: ${EVERGREEN_USER}" -H "Api-Key: ${EVERGREEN_API_KEY}" ${EVERGREEN_API}/rest/v2/versions/"${VERSION}" | jq -r '.build_variants_status[] | select(.build_variant!="unit_tests") | .build_id'))
 
 for BUILD_ID in "${BUILD_IDS[@]}"; do
   echo "Finding failed tasks in BUILD ID: ${BUILD_ID}"
