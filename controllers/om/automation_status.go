@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"sort"
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -100,6 +101,7 @@ func checkAutomationStatusIsGoal(as *AutomationStatus, relevantProcesses []strin
 		goalsNotAchievedMsgList = append(goalsNotAchievedMsgList, fmt.Sprintf("%s@%d", processName, goalAchieved))
 	}
 	goalsAchievedMsgList := slices.Collect(maps.Keys(goalsAchievedMap))
+	sort.Strings(goalsAchievedMsgList)
 
 	if len(goalsNotAchievedMap) > 0 {
 		return false, fmt.Sprintf("%d processes waiting to reach automation config goal state (version=%d): %s, %d processes reached goal state: %s",
