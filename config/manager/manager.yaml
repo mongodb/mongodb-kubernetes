@@ -52,10 +52,10 @@ spec:
                   fieldPath: metadata.namespace
             - name: MANAGED_SECURITY_CONTEXT
               value: 'true'
-            - name: MDB_OPERATOR_TELEMETRY_SEND_FREQUENCY
-              value: "168h"
             - name: MDB_OPERATOR_TELEMETRY_COLLECTION_FREQUENCY
               value: "1h"
+            - name: MDB_OPERATOR_TELEMETRY_SEND_FREQUENCY
+              value: "168h"
             - name: CLUSTER_CLIENT_TIMEOUT
               value: "10"
             - name: IMAGE_PULL_POLICY

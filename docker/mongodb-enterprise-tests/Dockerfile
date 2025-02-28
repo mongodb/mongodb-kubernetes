@@ -30,7 +30,7 @@ RUN apt-get -qq update \
     git \
     openssl
 
-ENV HELM_NAME "helm-v3.6.3-linux-amd64.tar.gz"
+ENV HELM_NAME "helm-v3.17.1-linux-amd64.tar.gz"
 # install Helm
 RUN curl --fail --retry 3 -L -o "${HELM_NAME}" "https://get.helm.sh/${HELM_NAME}" \
     && tar -xzf "${HELM_NAME}" \

@@ -30,16 +30,18 @@ get_operator_helm_values() {
     "mongodb.imageType=${MDB_IMAGE_TYPE:-ubi8}"
     "operator.mdbDefaultArchitecture=${MDB_DEFAULT_ARCHITECTURE:-non-static}"
     "operator.enablePVCResize=${MDB_ENABLE_PVC_RESIZE:-true}"
-    "operator.telemetry.enabled=true"
-    "operator.telemetry.collection.clusters.enabled=${MDB_OPERATOR_TELEMETRY_COLLECTION_CLUSTERS_ENABLED:-true}"
-    "operator.telemetry.collection.clusters.installClusterRoles=true"
-    "operator.telemetry.collection.deployments.enabled=true"
-    "operator.telemetry.collection.operators.enabled=true"
     # only send the telemetry to the backend on a specific variant, thus default to false
     "operator.telemetry.send.enabled=${MDB_OPERATOR_TELEMETRY_SEND_ENABLED:-false}"
     # lets collect and save in the configmap as frequently as we can
     "operator.telemetry.collection.frequency=${MDB_OPERATOR_TELEMETRY_COLLECTION_FREQUENCY:-1m}"
   )
+
+  if [[ "${MDB_OPERATOR_TELEMETRY_ENABLED:-true}" == "false" ]]; then
+    config+=("operator.telemetry.enabled=false")
+    config+=("operator.telemetry.collection.clusters.enabled=false")
+    config+=("operator.telemetry.collection.deployments.enabled=false")
+    config+=("operator.telemetry.collection.operators.enabled=false")
+  fi
 
   # shellcheck disable=SC2154
   if [[ "${KUBE_ENVIRONMENT_NAME-}" = "multi" ]]; then
