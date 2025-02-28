@@ -3,6 +3,11 @@
 # MongoDB Enterprise Kubernetes Operator 1.32.0
 
 ## New Features
+* Adding opt-out anonymized telemetry to the operator. The data does not contain any Personally Identifiable Information
+  (PII) or even data that can be tied back to any specific customer or company. More can be read [here](https://www.mongodb.com/docs/kubernetes-operator/current/reference/meko-telemetry), this link further elaborates on the following topics:
+  * What data is included in the telemetry
+  * How to disable telemetry
+  * What RBACs are added and why they are required
 * **MongoDB**: To ensure the correctness of scaling operations, a new validation has been added to Sharded Cluster deployments. This validation restricts scaling different components in two directions simultaneously within a single change to the YAML file. For example, it is not allowed to add more nodes (scaling up) to shards while simultaneously removing (scaling down) config servers or mongos. This restriction also applies to multi-cluster deployments. A simple change that involves "moving" one node from one cluster to another—without altering the total number of members—will now be blocked. It is necessary to perform a scale-up operation first and then execute a separate change for scaling down.
 
 ## Bug Fixes
