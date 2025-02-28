@@ -179,10 +179,15 @@ subjects:
 
 {{- end }}
 
-
-{{ if and .Values.operator.telemetry.collection.clusters.enabled .Values.operator.telemetry.enabled}}
 {{- $clusterRoleName := printf "%s-cluster-telemetry" .Values.operator.name }}
-{{- if .Values.operator.telemetry.installClusterRoles }}
+{{- $telemetry := default dict .Values.operator.telemetry }}
+
+{{/* We can't use default here, as 0, false and nil as determined as unset and thus set the default value */}}
+{{- $telemetryEnabled := $telemetry.enabled }}
+{{- $installClusterRoles := $telemetry.installClusterRoles }}
+
+{{- if ne $telemetry.enabled false }}
+  {{- if ne $telemetry.installClusterRoles false}}
 ---
 # Additional ClusterRole for clusterVersionDetection
 kind: ClusterRole

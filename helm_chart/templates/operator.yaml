@@ -98,37 +98,38 @@ spec:
             - name: MANAGED_SECURITY_CONTEXT
               value: 'true'
     {{- end }}
-    {{- if eq .Values.operator.telemetry.enabled false}}
+    {{- $telemetry := default dict .Values.operator.telemetry }}
+    {{- if eq $telemetry.enabled false }}
             - name: MDB_OPERATOR_TELEMETRY_ENABLED
-              value: 'false'
+              value: "false"
     {{- end }}
-    {{- if eq .Values.operator.telemetry.send.enabled false}}
+    {{- if eq $telemetry.collection.clusters.enabled false }}
+            - name: MDB_OPERATOR_TELEMETRY_CLUSTERS_ENABLED
+              value: "false"
+    {{- end }}
+    {{- if eq $telemetry.collection.deployments.enabled false }}
+            - name: MDB_OPERATOR_TELEMETRY_DEPLOYMENTS_ENABLED
+              value: "false"
+    {{- end }}
+    {{- if eq $telemetry.collection.operators.enabled false }}
+            - name: MDB_OPERATOR_TELEMETRY_OPERATORS_ENABLED
+              value: "false"
+    {{- end }}
+    {{- if $telemetry.collection.frequency}}
+            - name: MDB_OPERATOR_TELEMETRY_COLLECTION_FREQUENCY
+              value: "{{ $telemetry.collection.frequency }}"
+    {{- end }}
+    {{- if eq $telemetry.send.enabled false }}
             - name: MDB_OPERATOR_TELEMETRY_SEND_ENABLED
-              value: 'false'
+              value: "false"
     {{- end }}
-    {{- if .Values.operator.telemetry.send.frequency}}
+    {{- if $telemetry.send.frequency}}
             - name: MDB_OPERATOR_TELEMETRY_SEND_FREQUENCY
               value: "{{ .Values.operator.telemetry.send.frequency }}"
     {{- end }}
-    {{- if .Values.operator.telemetry.send.baseUrl}}
+    {{- if $telemetry.send.baseUrl}}
             - name: MDB_OPERATOR_TELEMETRY_SEND_BASEURL
-              value: "{{ .Values.operator.telemetry.send.baseUrl }}"
-    {{- end }}
-    {{- if eq .Values.operator.telemetry.collection.clusters.enabled false}}
-            - name: MDB_OPERATOR_TELEMETRY_COLLECTION_CLUSTERS_ENABLED
-              value: 'false'
-    {{- end }}
-    {{- if eq .Values.operator.telemetry.collection.deployments.enabled false}}
-            - name: MDB_OPERATOR_TELEMETRY_COLLECTION_DEPLOYMENTS_ENABLED
-              value: 'false'
-    {{- end }}
-    {{- if eq .Values.operator.telemetry.collection.operators.enabled false}}
-            - name: MDB_OPERATOR_TELEMETRY_COLLECTION_OPERATORS_ENABLED
-              value: 'false'
-    {{- end }}
-    {{- if.Values.operator.telemetry.collection.frequency}}
-            - name: MDB_OPERATOR_TELEMETRY_COLLECTION_FREQUENCY
-              value: "{{ .Values.operator.telemetry.collection.frequency }}"
+              value: "{{ $telemetry.send.baseUrl }}"
     {{- end }}
     {{- if .Values.multiCluster.clusterClientTimeout }}
             - name: CLUSTER_CLIENT_TIMEOUT

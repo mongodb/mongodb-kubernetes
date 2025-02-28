@@ -150,7 +150,7 @@ func isTimestampOlderThanConfiguredFrequency(ctx context.Context, k8sClient kube
 	return isOlder, nil
 }
 
-// updateTelemetryConfigMapTimeStamp updates the configmap with the current collected telemetry data
+// updateTelemetryConfigMapPayload updates the configmap with the current collected telemetry data
 func updateTelemetryConfigMapPayload(ctx context.Context, k8sClient kubeclient.Client, events []Event, namespace string, OperatorConfigMapTelemetryConfigMapName string, eventType EventType) error {
 	cm := &corev1.ConfigMap{}
 	err := k8sClient.Get(ctx, types.NamespacedName{Name: OperatorConfigMapTelemetryConfigMapName, Namespace: namespace}, cm)
@@ -176,7 +176,7 @@ func updateTelemetryConfigMapPayload(ctx context.Context, k8sClient kubeclient.C
 	return nil
 }
 
-// updateTelemetryConfigMapPayload updates the configmap with the current timestamp
+// updateTelemetryConfigMapTimeStamp updates the configmap with the current timestamp
 func updateTelemetryConfigMapTimeStamp(ctx context.Context, k8sClient kubeclient.Client, namespace string, OperatorConfigMapTelemetryConfigMapName string, eventType EventType) error {
 	cm := &corev1.ConfigMap{}
 	err := k8sClient.Get(ctx, types.NamespacedName{Name: OperatorConfigMapTelemetryConfigMapName, Namespace: namespace}, cm)
