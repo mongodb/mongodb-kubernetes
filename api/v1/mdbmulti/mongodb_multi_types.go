@@ -118,10 +118,6 @@ func (m *MongoDBMultiCluster) GetPrometheus() *mdbc.Prometheus {
 	return m.Spec.Prometheus
 }
 
-func (m *MongoDBMultiCluster) GetMinimumMajorVersion() uint64 {
-	return m.Spec.MinimumMajorVersion()
-}
-
 func (m *MongoDBMultiCluster) IsLDAPEnabled() bool {
 	if m.Spec.Security == nil || m.Spec.Security.Authentication == nil {
 		return false

@@ -14,6 +14,7 @@
 * Fixes the bug when status of `MongoDBUser` was being set to `Updated` prematurely. For example, new users were not immediately usable following `MongoDBUser` creation despite the operator reporting `Updated` state.
 * Fixed a bug causing cluster health check issues when ordering of users and tokens differed in Kubeconfig.
 * Fixed a bug when deploying a Multi-Cluster sharded resource with an external access configuration could result in pods not being able to reach each others.
+* Fixed a bug when setting `spec.fcv = AlwaysMatchVersion` and `agentAuth` to be `SCRAM` causes the operator to set the auth value to be `SCRAM-SHA-1` instead of `SCRAM-SHA-256`.
 
 # MongoDB Enterprise Kubernetes Operator 1.31.0
 

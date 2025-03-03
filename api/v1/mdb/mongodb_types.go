@@ -140,10 +140,6 @@ func (m *MongoDB) GetPrometheus() *mdbcv1.Prometheus {
 	return m.Spec.Prometheus
 }
 
-func (m *MongoDB) GetMinimumMajorVersion() uint64 {
-	return m.Spec.MinimumMajorVersion()
-}
-
 func (m *MongoDB) GetBackupSpec() *Backup {
 	return m.Spec.Backup
 }
