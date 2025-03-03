@@ -15,41 +15,15 @@ func init() {
 	zap.ReplaceGlobals(logger)
 }
 
-func TestConfigureScramSha1FallbackToCr(t *testing.T) {
-	dep := om.NewDeployment()
-	conn := om.NewMockedOmConnection(dep)
-
-	opts := Options{
-		MinimumMajorVersion: 3,
-		AuthoritativeSet:    true,
-		ProcessNames:        []string{"process-1", "process-2", "process-3"},
-		Mechanisms:          []string{"SCRAM"},
-		AgentMechanism:      "SCRAM",
-	}
-
-	if err := Configure(conn, opts, false, zap.S()); err != nil {
-		t.Fatal(err)
-	}
-
-	ac, err := conn.ReadAutomationConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	assertAuthenticationEnabled(t, ac.Auth)
-	assertAuthenticationMechanism(t, ac.Auth, "MONGODB-CR")
-}
-
 func TestConfigureScramSha256(t *testing.T) {
 	dep := om.NewDeployment()
 	conn := om.NewMockedOmConnection(dep)
 
 	opts := Options{
-		MinimumMajorVersion: 4,
-		AuthoritativeSet:    true,
-		ProcessNames:        []string{"process-1", "process-2", "process-3"},
-		Mechanisms:          []string{"SCRAM"},
-		AgentMechanism:      "SCRAM",
+		AuthoritativeSet: true,
+		ProcessNames:     []string{"process-1", "process-2", "process-3"},
+		Mechanisms:       []string{"SCRAM"},
+		AgentMechanism:   "SCRAM",
 	}
 
 	if err := Configure(conn, opts, false, zap.S()); err != nil {
@@ -70,12 +44,11 @@ func TestConfigureX509(t *testing.T) {
 	conn := om.NewMockedOmConnection(dep)
 
 	opts := Options{
-		MinimumMajorVersion: 4,
-		AuthoritativeSet:    true,
-		ProcessNames:        []string{"process-1", "process-2", "process-3"},
-		Mechanisms:          []string{"X509"},
-		AgentMechanism:      "X509",
-		ClientCertificates:  util.RequireClientCertificates,
+		AuthoritativeSet:   true,
+		ProcessNames:       []string{"process-1", "process-2", "process-3"},
+		Mechanisms:         []string{"X509"},
+		AgentMechanism:     "X509",
+		ClientCertificates: util.RequireClientCertificates,
 		UserOptions: UserOptions{
 			AutomationSubject: validSubject("automation"),
 		},
@@ -99,11 +72,10 @@ func TestConfigureScramSha1(t *testing.T) {
 	conn := om.NewMockedOmConnection(dep)
 
 	opts := Options{
-		MinimumMajorVersion: 4,
-		AuthoritativeSet:    true,
-		ProcessNames:        []string{"process-1", "process-2", "process-3"},
-		Mechanisms:          []string{"SCRAM-SHA-1"},
-		AgentMechanism:      "SCRAM-SHA-1",
+		AuthoritativeSet: true,
+		ProcessNames:     []string{"process-1", "process-2", "process-3"},
+		Mechanisms:       []string{"SCRAM-SHA-1"},
+		AgentMechanism:   "SCRAM-SHA-1",
 	}
 
 	if err := Configure(conn, opts, false, zap.S()); err != nil {
@@ -122,11 +94,10 @@ func TestConfigureMultipleAuthenticationMechanisms(t *testing.T) {
 	conn := om.NewMockedOmConnection(dep)
 
 	opts := Options{
-		MinimumMajorVersion: 4,
-		AuthoritativeSet:    true,
-		ProcessNames:        []string{"process-1", "process-2", "process-3"},
-		Mechanisms:          []string{"X509", "SCRAM"},
-		AgentMechanism:      "SCRAM",
+		AuthoritativeSet: true,
+		ProcessNames:     []string{"process-1", "process-2", "process-3"},
+		Mechanisms:       []string{"X509", "SCRAM"},
+		AgentMechanism:   "SCRAM",
 		UserOptions: UserOptions{
 			AutomationSubject: validSubject("automation"),
 		},
@@ -149,90 +120,6 @@ func TestConfigureMultipleAuthenticationMechanisms(t *testing.T) {
 	assert.Len(t, ac.Auth.AutoAuthMechanisms, 1)
 	assert.Contains(t, ac.Auth.DeploymentAuthMechanisms, "SCRAM-SHA-256")
 	assert.Contains(t, ac.Auth.DeploymentAuthMechanisms, "MONGODB-X509")
-}
-
-func TestScramSha1MongoDBUpgrade(t *testing.T) {
-	dep := om.NewDeployment()
-	conn := om.NewMockedOmConnection(dep)
-
-	opts := Options{
-		MinimumMajorVersion: 3,
-		AuthoritativeSet:    true,
-		ProcessNames:        []string{"process-1", "process-2", "process-3"},
-		Mechanisms:          []string{"SCRAM"},
-		AgentMechanism:      "SCRAM",
-	}
-
-	if err := Configure(conn, opts, false, zap.S()); err != nil {
-		t.Fatal(err)
-	}
-
-	ac, err := conn.ReadAutomationConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	assertAuthenticationEnabled(t, ac.Auth)
-	assertAuthenticationMechanism(t, ac.Auth, "MONGODB-CR")
-
-	opts = Options{
-		MinimumMajorVersion: 4,
-		AuthoritativeSet:    true,
-		ProcessNames:        []string{"process-1", "process-2", "process-3"},
-		Mechanisms:          []string{"SCRAM"},
-		AgentMechanism:      "SCRAM",
-	}
-
-	if err := Configure(conn, opts, false, zap.S()); err != nil {
-		t.Fatal(err)
-	}
-
-	ac, err = conn.ReadAutomationConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	assertAuthenticationEnabled(t, ac.Auth)
-	assertAuthenticationMechanism(t, ac.Auth, "MONGODB-CR")
-}
-
-func TestConfigureAndDisable(t *testing.T) {
-	dep := om.NewDeployment()
-	conn := om.NewMockedOmConnection(dep)
-
-	opts := Options{
-		MinimumMajorVersion: 3,
-		AuthoritativeSet:    true,
-		ProcessNames:        []string{"process-1", "process-2", "process-3"},
-		Mechanisms:          []string{"SCRAM"},
-		AgentMechanism:      "SCRAM",
-		UserOptions: UserOptions{
-			AutomationSubject: validSubject("automation"),
-		},
-	}
-
-	if err := Configure(conn, opts, false, zap.S()); err != nil {
-		t.Fatal(err)
-	}
-
-	ac, err := conn.ReadAutomationConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	assertAuthenticationEnabled(t, ac.Auth)
-	assertAuthenticationMechanism(t, ac.Auth, "MONGODB-CR")
-
-	if err := Disable(conn, opts, true, zap.S()); err != nil {
-		t.Fatal(err)
-	}
-
-	ac, err = conn.ReadAutomationConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	assertAuthenticationDisabled(t, ac.Auth)
 }
 
 func TestDisableAuthentication(t *testing.T) {
@@ -261,17 +148,12 @@ func TestGetCorrectAuthMechanismFromVersion(t *testing.T) {
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 	ac, _ := conn.ReadAutomationConfig()
 
-	mechanismNames := getMechanismNames(ac, 3, []string{"X509"})
+	mechanismNames := getMechanismNames(ac, []string{"X509"})
 
 	assert.Len(t, mechanismNames, 1)
 	assert.Contains(t, mechanismNames, MechanismName("MONGODB-X509"))
 
-	mechanismNames = getMechanismNames(ac, 3, []string{"SCRAM", "X509"})
-
-	assert.Contains(t, mechanismNames, MechanismName("MONGODB-CR"))
-	assert.Contains(t, mechanismNames, MechanismName("MONGODB-X509"))
-
-	mechanismNames = getMechanismNames(ac, 4, []string{"SCRAM", "X509"})
+	mechanismNames = getMechanismNames(ac, []string{"SCRAM", "X509"})
 
 	assert.Contains(t, mechanismNames, MechanismName("SCRAM-SHA-256"))
 	assert.Contains(t, mechanismNames, MechanismName("MONGODB-X509"))
@@ -280,7 +162,7 @@ func TestGetCorrectAuthMechanismFromVersion(t *testing.T) {
 	ac.Auth.AutoAuthMechanism = "MONGODB-CR"
 	ac.Auth.Enable()
 
-	mechanismNames = getMechanismNames(ac, 4, []string{"SCRAM", "X509"})
+	mechanismNames = getMechanismNames(ac, []string{"SCRAM", "X509"})
 
 	assert.Contains(t, mechanismNames, MechanismName("MONGODB-CR"))
 	assert.Contains(t, mechanismNames, MechanismName("MONGODB-X509"))
