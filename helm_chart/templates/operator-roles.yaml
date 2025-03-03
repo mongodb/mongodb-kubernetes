@@ -183,11 +183,23 @@ subjects:
 {{- $telemetry := default dict .Values.operator.telemetry }}
 
 {{/* We can't use default here, as 0, false and nil as determined as unset and thus set the default value */}}
-{{- $telemetryEnabled := $telemetry.enabled }}
-{{- $installClusterRoles := $telemetry.installClusterRoles }}
-
 {{- if ne $telemetry.enabled false }}
-  {{- if ne $telemetry.installClusterRoles false}}
+  {{- if ne $telemetry.installClusterRole false}}
+---
+# ClusterRoleBinding for clusterVersionDetection
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ .Values.operator.name }}-{{ include "mongodb-enterprise-operator.namespace" . }}-cluster-telemetry-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $clusterRoleName }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.operator.name }}
+    namespace: {{ include "mongodb-enterprise-operator.namespace" . }}
+{{- end }}
 ---
 # Additional ClusterRole for clusterVersionDetection
 kind: ClusterRole
@@ -216,18 +228,3 @@ rules:
     verbs:
       - list
 {{- end}}
----
-# ClusterRoleBinding for clusterVersionDetection
-kind: ClusterRoleBinding
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: {{ .Values.operator.name }}-{{ include "mongodb-enterprise-operator.namespace" . }}-cluster-telemetry-binding
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: {{ $clusterRoleName }}
-subjects:
-  - kind: ServiceAccount
-    name: {{ .Values.operator.name }}
-    namespace: {{ include "mongodb-enterprise-operator.namespace" . }}
-{{- end }}
