@@ -21,14 +21,11 @@ type AuthResource interface {
 	GetSecurity() *mdbv1.Security
 	IsLDAPEnabled() bool
 	GetLDAP(password, caContents string) *ldap.Ldap
-	GetMinimumMajorVersion() uint64
 }
 
 // Options contains all the required values that are required to configure authentication
 // for a set of processes
 type Options struct {
-	// MinimumMajorVersion is required in order to determine if we will be enabling SCRAM-SHA-1 or SCRAM-SHA-256
-	MinimumMajorVersion uint64
 	// Mechanisms is a list of strings coming from MongoDB.Spec.Security.Authentication.Modes, these strings
 	// are mapped to the corresponding mechanisms in the Automation Config
 	Mechanisms []string
@@ -84,7 +81,7 @@ type UserOptions struct {
 // Configure will configure all the specified authentication Mechanisms. We need to ensure we wait for
 // the agents to reach ready state after each operation as prematurely updating the automation config can cause the agents to get stuck.
 func Configure(conn om.Connection, opts Options, isRecovering bool, log *zap.SugaredLogger) error {
-	log.Infow("ensuring correct deployment mechanisms", "MinimumMajorVersion", opts.MinimumMajorVersion, "ProcessNames", opts.ProcessNames, "Mechanisms", opts.Mechanisms)
+	log.Infow("ensuring correct deployment mechanisms", "ProcessNames", opts.ProcessNames, "Mechanisms", opts.Mechanisms)
 
 	// In case we're recovering, we can push all changes at once, because the mechanism is triggered after 20min by default.
 	// Otherwise, we might unnecessarily enter this waiting loop 7 times, and waste >10 min
@@ -257,7 +254,7 @@ func Disable(conn om.Connection, opts Options, deleteUsers bool, log *zap.Sugare
 	return nil
 }
 
-func getMechanismName(mongodbResourceMode string, ac *om.AutomationConfig, minimumMajorVersion uint64) MechanismName {
+func getMechanismName(mongodbResourceMode string, ac *om.AutomationConfig) MechanismName {
 	switch mongodbResourceMode {
 	case util.X509:
 		return MongoDBX509
@@ -278,12 +275,7 @@ func getMechanismName(mongodbResourceMode string, ac *om.AutomationConfig, minim
 		if ac.Auth.AutoAuthMechanism == string(MongoDBCR) && ac.Auth.IsEnabled() {
 			return MongoDBCR
 		}
-
-		if minimumMajorVersion < 4 {
-			return MongoDBCR
-		} else {
-			return ScramSha256
-		}
+		return ScramSha256
 	}
 	// this should never be reached as validation of this string happens at the CR level
 	panic(fmt.Sprintf("unknown mechanism name %s", mongodbResourceMode))
@@ -316,7 +308,7 @@ func removeUnusedAuthenticationMechanisms(conn om.Connection, opts Options, log 
 		return xerrors.Errorf("error reading automation config: %w", err)
 	}
 
-	automationConfigAuthMechanismNames := getMechanismNames(ac, opts.MinimumMajorVersion, opts.Mechanisms)
+	automationConfigAuthMechanismNames := getMechanismNames(ac, opts.Mechanisms)
 
 	unrequiredMechanisms := mechanismsToDisable(automationConfigAuthMechanismNames)
 
@@ -344,7 +336,7 @@ func enableAgentAuthentication(conn om.Connection, opts Options, log *zap.Sugare
 	}
 
 	// we then configure the agent authentication for that type
-	agentAuthMechanism := getMechanismName(opts.AgentMechanism, ac, opts.MinimumMajorVersion)
+	agentAuthMechanism := getMechanismName(opts.AgentMechanism, ac)
 	if err := ensureAgentAuthenticationIsConfigured(conn, opts, ac, agentAuthMechanism, log); err != nil {
 		return xerrors.Errorf("error ensuring agent authentication is configured: %w", err)
 	}
@@ -381,7 +373,7 @@ func ensureDeploymentsMechanismsExist(conn om.Connection, opts Options, log *zap
 
 	// "opts.Mechanisms" is the list of mechanism names passed through from the MongoDB resource.
 	// We need to convert this to the list of strings the automation config expects.
-	automationConfigMechanismNames := getMechanismNames(ac, opts.MinimumMajorVersion, opts.Mechanisms)
+	automationConfigMechanismNames := getMechanismNames(ac, opts.Mechanisms)
 
 	log.Debugf("Automation config authentication mechanisms: %+v", automationConfigMechanismNames)
 	if err := ensureDeploymentMechanisms(conn, ac, automationConfigMechanismNames, opts, log); err != nil {
@@ -401,7 +393,7 @@ func removeUnrequiredDeploymentMechanisms(conn om.Connection, opts Options, log 
 
 	// "opts.Mechanisms" is the list of mechanism names passed through from the MongoDB resource.
 	// We need to convert this to the list of strings the automation config expects.
-	automationConfigAuthMechanismNames := getMechanismNames(ac, opts.MinimumMajorVersion, opts.Mechanisms)
+	automationConfigAuthMechanismNames := getMechanismNames(ac, opts.Mechanisms)
 
 	toDisable := mechanismsToDisable(automationConfigAuthMechanismNames)
 	log.Infow("Removing unrequired deployment authentication mechanisms", "Mechanisms", toDisable)
@@ -420,7 +412,7 @@ func addOrRemoveAgentClientCertificate(conn om.Connection, opts Options, log *za
 	// If x509 is not enabled but still Client Certificates are, this automation config update
 	// will add the required configuration.
 	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
-		if getMechanismName(opts.AgentMechanism, ac, opts.MinimumMajorVersion) == MongoDBX509 {
+		if getMechanismName(opts.AgentMechanism, ac) == MongoDBX509 {
 			// If TLS client authentication is managed by x509, we won't disable or enable it
 			// in here.
 			return nil
@@ -442,10 +434,10 @@ func addOrRemoveAgentClientCertificate(conn om.Connection, opts Options, log *za
 	}, log)
 }
 
-func getMechanismNames(ac *om.AutomationConfig, minimumMajorVersion uint64, mechanisms []string) []MechanismName {
+func getMechanismNames(ac *om.AutomationConfig, mechanisms []string) []MechanismName {
 	automationConfigMechanismNames := make([]MechanismName, 0)
 	for _, m := range mechanisms {
-		automationConfigMechanismNames = append(automationConfigMechanismNames, getMechanismName(m, ac, minimumMajorVersion))
+		automationConfigMechanismNames = append(automationConfigMechanismNames, getMechanismName(m, ac))
 	}
 	return automationConfigMechanismNames
 }

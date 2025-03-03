@@ -503,15 +503,14 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 	}
 
 	authOpts := authentication.Options{
-		MinimumMajorVersion: ar.GetMinimumMajorVersion(),
-		Mechanisms:          mdbv1.ConvertAuthModesToStrings(ar.GetSecurity().Authentication.Modes),
-		ProcessNames:        processNames,
-		AuthoritativeSet:    !ar.GetSecurity().Authentication.IgnoreUnknownUsers,
-		AgentMechanism:      ar.GetSecurity().GetAgentMechanism(ac.Auth.AutoAuthMechanism),
-		ClientCertificates:  clientCerts,
-		AutoUser:            scramAgentUserName,
-		AutoLdapGroupDN:     ar.GetSecurity().Authentication.Agents.AutomationLdapGroupDN,
-		CAFilePath:          caFilepath,
+		Mechanisms:         mdbv1.ConvertAuthModesToStrings(ar.GetSecurity().Authentication.Modes),
+		ProcessNames:       processNames,
+		AuthoritativeSet:   !ar.GetSecurity().Authentication.IgnoreUnknownUsers,
+		AgentMechanism:     ar.GetSecurity().GetAgentMechanism(ac.Auth.AutoAuthMechanism),
+		ClientCertificates: clientCerts,
+		AutoUser:           scramAgentUserName,
+		AutoLdapGroupDN:    ar.GetSecurity().Authentication.Agents.AutomationLdapGroupDN,
+		CAFilePath:         caFilepath,
 	}
 	var databaseSecretPath string
 	if r.VaultClient != nil {
