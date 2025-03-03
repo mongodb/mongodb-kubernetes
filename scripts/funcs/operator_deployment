@@ -36,6 +36,10 @@ get_operator_helm_values() {
     "operator.telemetry.collection.frequency=${MDB_OPERATOR_TELEMETRY_COLLECTION_FREQUENCY:-1m}"
   )
 
+  if [[ "${MDB_OPERATOR_TELEMETRY_INSTALL_CLUSTER_ROLE_INSTALLATION:-}" != "" ]]; then
+    config+=("operator.telemetry.installClusterRole=${MDB_OPERATOR_TELEMETRY_INSTALL_CLUSTER_ROLE_INSTALLATION}")
+  fi
+
   if [[ "${MDB_OPERATOR_TELEMETRY_ENABLED:-true}" == "false" ]]; then
     config+=("operator.telemetry.enabled=false")
     config+=("operator.telemetry.collection.clusters.enabled=false")
