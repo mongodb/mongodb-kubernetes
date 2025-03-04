@@ -556,7 +556,8 @@ func sharedDatabaseContainerFunc(podSpecWrapper mdbv1.PodSpecWrapper, volumeMoun
 			return env.ReadOrDefault(architectures.MdbAgentImageRepo, "quay.io/mongodb/mongodb-agent-ubi")
 		}))
 	} else {
-		image = container.WithImage(env.ReadOrPanic(util.NonStaticDatabaseEnterpriseImage))
+		databaseImageVersion := env.ReadOrDefault(DatabaseVersionEnv, "latest")
+		image = container.WithImage(ContainerImage(util.NonStaticDatabaseEnterpriseImage, databaseImageVersion, nil))
 	}
 
 	return container.Apply(
