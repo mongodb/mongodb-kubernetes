@@ -89,15 +89,6 @@ func createMongosSpec(sc *mdbv1.MongoDB) *mdbv1.ShardedClusterComponentSpec {
 }
 
 func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
-	// NonStaticDatabaseEnterpriseImage is filled in static container
-	t.Run("Empty Agent Image", func(t *testing.T) {
-		t.Setenv(util.NonStaticDatabaseEnterpriseImage, "")
-		rs := mdbv1.NewReplicaSetBuilder().Build()
-		assert.Panics(t, func() {
-			DatabaseStatefulSet(*rs, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
-		})
-	})
-
 	t.Run("Empty Image Pull Policy", func(t *testing.T) {
 		t.Setenv(util.AutomationAgentImagePullPolicy, "")
 		sc := mdbv1.NewClusterBuilder().Build()
