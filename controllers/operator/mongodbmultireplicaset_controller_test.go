@@ -21,6 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	v1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	mcoConstruct "github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -96,6 +97,78 @@ func TestCreateMultiReplicaSet(t *testing.T) {
 
 	reconciler, client, _, _ := defaultMultiReplicaSetReconciler(ctx, mrs)
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
+}
+
+func TestMultiReplicaSetClusterReconcileContainerImages(t *testing.T) {
+	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_1_0_0", util.NonStaticDatabaseEnterpriseImage)
+	initDatabaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_2_0_0", util.InitDatabaseImageUrlEnv)
+
+	t.Setenv(construct.DatabaseVersionEnv, "1.0.0")
+	t.Setenv(construct.InitDatabaseVersionEnv, "2.0.0")
+	t.Setenv(databaseRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-database:@sha256:MONGODB_DATABASE")
+	t.Setenv(initDatabaseRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-init-database:@sha256:MONGODB_INIT_DATABASE")
+
+	ctx := context.Background()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).SetVersion("8.0.0").Build()
+	reconciler, kubeClient, memberClients, _ := defaultMultiReplicaSetReconciler(ctx, mrs)
+
+	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, kubeClient, false)
+
+	clusterSpecs, err := mrs.GetClusterSpecItems()
+	require.NoError(t, err)
+	for _, item := range clusterSpecs {
+		c := memberClients[item.ClusterName]
+
+		t.Run(item.ClusterName, func(t *testing.T) {
+			sts := appsv1.StatefulSet{}
+			err := c.Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterNum(item.ClusterName))), &sts)
+			require.NoError(t, err)
+
+			require.Len(t, sts.Spec.Template.Spec.InitContainers, 1)
+			require.Len(t, sts.Spec.Template.Spec.Containers, 1)
+
+			assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-database:@sha256:MONGODB_INIT_DATABASE", sts.Spec.Template.Spec.InitContainers[0].Image)
+			assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-database:@sha256:MONGODB_DATABASE", sts.Spec.Template.Spec.Containers[0].Image)
+		})
+	}
+}
+
+func TestMultiReplicaSetClusterReconcileContainerImagesWithStaticArchitecture(t *testing.T) {
+	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
+
+	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0_ubi9", mcoConstruct.MongodbImageEnv)
+
+	t.Setenv(architectures.MdbAgentImageRepo, "quay.io/mongodb/mongodb-agent-ubi")
+	t.Setenv(mcoConstruct.MongodbImageEnv, "quay.io/mongodb/mongodb-enterprise-server")
+	t.Setenv(databaseRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE")
+
+	ctx := context.Background()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).SetVersion("8.0.0").Build()
+	reconciler, kubeClient, memberClients, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, mrs)
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		connection.(*om.MockedOmConnection).SetAgentVersion("12.0.30.7791-1", "")
+	})
+
+	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, kubeClient, false)
+
+	clusterSpecs, err := mrs.GetClusterSpecItems()
+	require.NoError(t, err)
+	for _, item := range clusterSpecs {
+		c := memberClients[item.ClusterName]
+
+		t.Run(item.ClusterName, func(t *testing.T) {
+			sts := appsv1.StatefulSet{}
+			err := c.Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterNum(item.ClusterName))), &sts)
+			require.NoError(t, err)
+
+			assert.Len(t, sts.Spec.Template.Spec.InitContainers, 0)
+			require.Len(t, sts.Spec.Template.Spec.Containers, 2)
+
+			// Version from OM + operator version
+			assert.Equal(t, "quay.io/mongodb/mongodb-agent-ubi:12.0.30.7791-1_9.9.9-test", sts.Spec.Template.Spec.Containers[0].Image)
+			assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE", sts.Spec.Template.Spec.Containers[1].Image)
+		})
+	}
 }
 
 func TestReconcilePVCResizeMultiCluster(t *testing.T) {

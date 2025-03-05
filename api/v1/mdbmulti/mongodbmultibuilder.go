@@ -63,6 +63,11 @@ func (m *MultiReplicaSetBuilder) Build() *MongoDBMultiCluster {
 	return res
 }
 
+func (m *MultiReplicaSetBuilder) SetVersion(version string) *MultiReplicaSetBuilder {
+	m.Spec.Version = version
+	return m
+}
+
 func (m *MultiReplicaSetBuilder) SetSecurity(s *mdbv1.Security) *MultiReplicaSetBuilder {
 	m.Spec.Security = s
 	return m

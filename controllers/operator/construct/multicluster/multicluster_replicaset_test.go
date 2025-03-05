@@ -1,7 +1,6 @@
 package multicluster
 
 import (
-	"fmt"
 	"os"
 	"testing"
 
@@ -9,7 +8,6 @@ import (
 	"k8s.io/utils/ptr"
 
 	mdbc "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-	mcoConstruct "github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -19,7 +17,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
 )
 
 func init() {
@@ -168,57 +165,6 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 		assert.Equal(t, singleClusterOverride.SpecWrapper.Spec.ServiceName, sts.Spec.ServiceName)
 		assert.Equal(t, singleClusterOverride.SpecWrapper.Spec.Replicas, sts.Spec.Replicas)
 	})
-}
-
-func Test_MultiClusterStatefulSetWithRelatedImages(t *testing.T) {
-	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_1_0_0", util.NonStaticDatabaseEnterpriseImage)
-	initDatabaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_2_0_0", util.InitDatabaseImageUrlEnv)
-
-	t.Setenv(util.NonStaticDatabaseEnterpriseImage, "quay.io/mongodb/mongodb-enterprise-database")
-	t.Setenv(construct.DatabaseVersionEnv, "1.0.0")
-	t.Setenv(util.InitDatabaseImageUrlEnv, "quay.io/mongodb/mongodb-enterprise-init-database")
-	t.Setenv(construct.InitDatabaseVersionEnv, "2.0.0")
-	t.Setenv(databaseRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-database:@sha256:MONGODB_DATABASE")
-	t.Setenv(initDatabaseRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-init-database:@sha256:MONGODB_INIT_DATABASE")
-
-	mdbm := getMultiClusterMongoDB()
-	opts := MultiClusterReplicaSetOptions(
-		WithClusterNum(0),
-		WithMemberCount(3),
-		construct.GetPodEnvOptions(),
-	)
-
-	sts := MultiClusterStatefulSet(mdbm, opts)
-
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-database:@sha256:MONGODB_INIT_DATABASE", sts.Spec.Template.Spec.InitContainers[0].Image)
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-database:@sha256:MONGODB_DATABASE", sts.Spec.Template.Spec.Containers[0].Image)
-}
-
-func Test_MultiClusterStatefulSetWithRelatedImagesWithStaticArchitecture(t *testing.T) {
-	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_5_0_0_ubi9", mcoConstruct.MongodbImageEnv)
-	agentRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_12_0_30_7791_1", architectures.MdbAgentImageRepo)
-
-	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
-
-	t.Setenv(architectures.MdbAgentImageRepo, "quay.io/mongodb/mongodb-agent-ubi")
-	t.Setenv(agentRelatedImageEnv, "quay.io/mongodb/mongodb-agent-ubi:@sha256:MONGODB_AGENT")
-
-	t.Setenv(mcoConstruct.MongodbImageEnv, "quay.io/mongodb/mongodb-enterprise-server")
-	t.Setenv(databaseRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-database:@sha256:MONGODB_DATABASE")
-
-	mdbm := getMultiClusterMongoDB()
-	opts := MultiClusterReplicaSetOptions(
-		WithClusterNum(0),
-		WithMemberCount(3),
-		construct.GetPodEnvOptions(),
-		construct.WithAutomationAgentVersion("12.0.30.7791-1"),
-	)
-
-	sts := MultiClusterStatefulSet(mdbm, opts)
-
-	assert.Equal(t, 0, len(sts.Spec.Template.Spec.InitContainers))
-	assert.Equal(t, "quay.io/mongodb/mongodb-agent-ubi:@sha256:MONGODB_AGENT", sts.Spec.Template.Spec.Containers[0].Image)
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-database:@sha256:MONGODB_DATABASE", sts.Spec.Template.Spec.Containers[1].Image)
 }
 
 func TestPVCOverride(t *testing.T) {

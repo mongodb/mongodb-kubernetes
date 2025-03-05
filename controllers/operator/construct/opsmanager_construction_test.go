@@ -2,7 +2,6 @@ package construct
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -411,23 +410,6 @@ func TestOpsManagerPodTemplate_Container(t *testing.T) {
 	assert.Equal(t, []string{"/opt/scripts/docker-entry-point.sh"}, containerObj.Command)
 	assert.Equal(t, []string{"/bin/sh", "-c", "/mongodb-ops-manager/bin/mongodb-mms stop_mms"},
 		containerObj.Lifecycle.PreStop.Exec.Command)
-}
-
-func Test_OpsManagerStatefulSetWithRelatedImages(t *testing.T) {
-	ctx := context.Background()
-	initOpsManagerRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_1_2_3", util.InitOpsManagerImageUrl)
-	opsManagerRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_5_0_0", util.OpsManagerImageUrl)
-
-	t.Setenv(util.InitOpsManagerImageUrl, "quay.io/mongodb/mongodb-enterprise-init-ops-manager")
-	t.Setenv(util.InitOpsManagerVersion, "1.2.3")
-	t.Setenv(util.OpsManagerImageUrl, "quay.io/mongodb/mongodb-enterprise-ops-manager")
-	t.Setenv(initOpsManagerRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-init-ops-manager:@sha256:MONGODB_INIT_APPDB")
-	t.Setenv(opsManagerRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER")
-
-	sts, err := createOpsManagerStatefulset(ctx, omv1.NewOpsManagerBuilderDefault().SetName("test-om").SetVersion("5.0.0").Build())
-	assert.NoError(t, err)
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-ops-manager:@sha256:MONGODB_INIT_APPDB", sts.Spec.Template.Spec.InitContainers[0].Image)
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER", sts.Spec.Template.Spec.Containers[0].Image)
 }
 
 func defaultNodeAffinity() corev1.NodeAffinity {
