@@ -162,8 +162,23 @@ func (r *ShardedClusterReconcileHelper) initializeMemberClusters(globalMemberClu
 		r.shardsMemberClustersMap, r.allShardsMemberClusters = r.createShardsMemberClusterLists(shardsMap, globalMemberClustersMap, log, r.deploymentState, false)
 	} else {
 		r.shardsMemberClustersMap, r.allShardsMemberClusters = r.createShardsMemberClusterLists(shardsMap, globalMemberClustersMap, log, r.deploymentState, true)
-		r.configSrvMemberClusters = []multicluster.MemberCluster{multicluster.GetLegacyCentralMemberCluster(r.deploymentState.Status.MongodbShardedClusterSizeConfig.ConfigServerCount, 0, r.commonController.client, r.commonController.SecretClient)}
-		r.mongosMemberClusters = []multicluster.MemberCluster{multicluster.GetLegacyCentralMemberCluster(r.deploymentState.Status.MongodbShardedClusterSizeConfig.MongosCount, 0, r.commonController.client, r.commonController.SecretClient)}
+
+		// SizeStatusInClusters is the primary struct for storing state, designed with multi-cluster support in mind.
+		// For a single-cluster setup, we first attempt to read from the fields in SizeStatusInClusters,
+		// falling back to the legacy structure (MongodbShardedClusterSizeConfig) if they are unavailable. The fallback
+		// is to be defensive but with the migration performed at the beginning of the reconcile (if necessary), there
+		// should be no case of having only the legacy fields populated in the state.
+		configSrvCount, configSrvCountExists := r.deploymentState.Status.SizeStatusInClusters.ConfigServerMongodsInClusters[multicluster.LegacyCentralClusterName]
+		if !configSrvCountExists {
+			configSrvCount = r.deploymentState.Status.MongodbShardedClusterSizeConfig.ConfigServerCount
+		}
+		r.configSrvMemberClusters = []multicluster.MemberCluster{multicluster.GetLegacyCentralMemberCluster(configSrvCount, 0, r.commonController.client, r.commonController.SecretClient)}
+
+		mongosCount, mongosCountExists := r.deploymentState.Status.SizeStatusInClusters.MongosCountInClusters[multicluster.LegacyCentralClusterName]
+		if !mongosCountExists {
+			mongosCount = r.deploymentState.Status.MongodbShardedClusterSizeConfig.MongosCount
+		}
+		r.mongosMemberClusters = []multicluster.MemberCluster{multicluster.GetLegacyCentralMemberCluster(mongosCount, 0, r.commonController.client, r.commonController.SecretClient)}
 	}
 
 	r.allMemberClusters = r.createAllMemberClustersList()
@@ -1665,12 +1680,9 @@ func (r *ShardedClusterReconcileHelper) getMongosHostnames(memberCluster multicl
 	}
 }
 
-// prepareScaleDownShardedCluster collects all replicasets members to scale down, from configservers and shards, accross
-// all clusters, and pass them to PrepareScaleDownFromMap, which sets their votes and priorities to 0
-func (r *ShardedClusterReconcileHelper) prepareScaleDownShardedCluster(omClient om.Connection, log *zap.SugaredLogger) error {
+func (r *ShardedClusterReconcileHelper) computeMembersToScaleDown(configSrvMemberClusters []multicluster.MemberCluster, shardsMemberClustersMap map[int][]multicluster.MemberCluster, log *zap.SugaredLogger) map[string][]string {
 	membersToScaleDown := make(map[string][]string)
-
-	for _, memberCluster := range r.configSrvMemberClusters {
+	for _, memberCluster := range configSrvMemberClusters {
 		currentReplicas := memberCluster.Replicas
 		desiredReplicas := scale.ReplicasThisReconciliation(r.GetConfigSrvScaler(memberCluster))
 		_, currentPodNames := r.getConfigSrvHostnames(memberCluster, currentReplicas)
@@ -1686,7 +1698,7 @@ func (r *ShardedClusterReconcileHelper) prepareScaleDownShardedCluster(omClient 
 	}
 
 	// Scaledown size of each shard
-	for shardIdx, memberClusters := range r.shardsMemberClustersMap {
+	for shardIdx, memberClusters := range shardsMemberClustersMap {
 		for _, memberCluster := range memberClusters {
 			currentReplicas := memberCluster.Replicas
 			desiredReplicas := scale.ReplicasThisReconciliation(r.GetShardScaler(shardIdx, memberCluster))
@@ -1702,6 +1714,14 @@ func (r *ShardedClusterReconcileHelper) prepareScaleDownShardedCluster(omClient 
 			}
 		}
 	}
+
+	return membersToScaleDown
+}
+
+// prepareScaleDownShardedCluster collects all replicasets members to scale down, from configservers and shards, across
+// all clusters, and pass them to PrepareScaleDownFromMap, which sets their votes and priorities to 0
+func (r *ShardedClusterReconcileHelper) prepareScaleDownShardedCluster(omClient om.Connection, log *zap.SugaredLogger) error {
+	membersToScaleDown := r.computeMembersToScaleDown(r.configSrvMemberClusters, r.shardsMemberClustersMap, log)
 
 	if len(membersToScaleDown) > 0 {
 		healthyProcessesToWaitForReadyState := r.getHealthyProcessNamesToWaitForReadyState(omClient, log)

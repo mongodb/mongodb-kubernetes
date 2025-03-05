@@ -52,9 +52,22 @@ func newShardedClusterReconcilerForMultiCluster(ctx context.Context, sc *mdbv1.M
 // createMockStateConfigMap creates a configMap with the sizeStatusInClusters populated based on the cluster state
 // passed in parameters, to simulate it is the current state of the cluster
 func createMockStateConfigMap(kubeClient client.Client, namespace, scName string, state MultiClusterShardedScalingStep) error {
+	sumMap := func(m map[string]int) int {
+		sum := 0
+		for _, val := range m {
+			sum += val
+		}
+		return sum
+	}
+
+	configServerSum := sumMap(state.configServerDistribution)
+	mongosSum := sumMap(state.mongosDistribution)
+
 	sizeStatus := map[string]interface{}{
 		"status": map[string]interface{}{
-			"shardCount": state.shardCount,
+			"shardCount":        state.shardCount,
+			"configServerCount": configServerSum,
+			"mongosCount":       mongosSum,
 			"sizeStatusInClusters": map[string]interface{}{
 				"shardMongodsInClusters":        state.shardDistribution,
 				"mongosCountInClusters":         state.mongosDistribution,
@@ -2475,6 +2488,125 @@ func checkCorrectShardDistributionInStatus(t *testing.T, sc *mdbv1.MongoDB) {
 	assert.Equal(t, sumSlice(util.Transform(sc.Spec.MongosSpec.ClusterSpecList, clusterSpecItemToMembers)), sc.Status.MongodbShardedClusterSizeConfig.MongosCount)
 	assert.Equal(t, sumSlice(util.Transform(sc.Spec.ConfigSrvSpec.ClusterSpecList, clusterSpecItemToMembers)), sc.Status.MongodbShardedClusterSizeConfig.ConfigServerCount)
 	assert.Equal(t, sumSlice(util.Transform(sc.Spec.ShardSpec.ClusterSpecList, clusterSpecItemToMembers)), sc.Status.MongodbShardedClusterSizeConfig.MongodsPerShardCount)
+}
+
+func TestComputeMembersToScaleDown(t *testing.T) {
+	ctx := context.Background()
+	memberCluster1 := "cluster1"
+	memberCluster2 := "cluster2"
+	memberClusterNames := []string{memberCluster1, memberCluster2}
+
+	type testCase struct {
+		name                        string
+		shardCount                  int
+		cfgServerCurrentClusters    []multicluster.MemberCluster
+		shardsCurrentClusters       map[int][]multicluster.MemberCluster
+		targetCfgServerDistribution map[string]int
+		targetShardDistribution     map[string]int
+		expected                    map[string][]string
+	}
+
+	testCases := []testCase{
+		{
+			name:       "Case 1: Downscale config server and shard",
+			shardCount: 1,
+			cfgServerCurrentClusters: []multicluster.MemberCluster{
+				{Name: memberCluster1, Index: 0, Replicas: 5},
+				{Name: memberCluster2, Index: 1, Replicas: 0},
+			},
+			shardsCurrentClusters: map[int][]multicluster.MemberCluster{
+				0: {
+					{Name: memberCluster1, Index: 0, Replicas: 3},
+					{Name: memberCluster2, Index: 1, Replicas: 2},
+				},
+			},
+			targetCfgServerDistribution: map[string]int{
+				memberCluster1: 2,
+				memberCluster2: 1,
+			},
+			targetShardDistribution: map[string]int{
+				memberCluster1: 1,
+				memberCluster2: 2,
+			},
+			expected: map[string][]string{
+				// For the config replica set: downscale from 5 to 2 means remove members with indices 2, 3, 4
+				test.SCBuilderDefaultName + "-config": {
+					test.SCBuilderDefaultName + "-config-0-2",
+					test.SCBuilderDefaultName + "-config-0-3",
+					test.SCBuilderDefaultName + "-config-0-4",
+				},
+				// For the shard replica set (shard 0): downscale from 3 to 1, so remove two members
+				test.SCBuilderDefaultName + "-0": {
+					test.SCBuilderDefaultName + "-0-0-1",
+					test.SCBuilderDefaultName + "-0-0-2",
+				},
+			},
+		},
+		{
+			name:       "Case 2: Scale down and move replicas among clusters",
+			shardCount: 2,
+			cfgServerCurrentClusters: []multicluster.MemberCluster{
+				{Name: memberCluster1, Index: 0, Replicas: 2},
+				{Name: memberCluster2, Index: 1, Replicas: 1},
+			},
+			shardsCurrentClusters: map[int][]multicluster.MemberCluster{
+				0: {
+					{Name: memberCluster1, Index: 0, Replicas: 3},
+					{Name: memberCluster2, Index: 1, Replicas: 2},
+				},
+				1: {
+					{Name: memberCluster1, Index: 0, Replicas: 3},
+					{Name: memberCluster2, Index: 1, Replicas: 2},
+				},
+			},
+			targetCfgServerDistribution: map[string]int{
+				memberCluster1: 1,
+				memberCluster2: 2,
+			},
+			targetShardDistribution: map[string]int{
+				memberCluster1: 3,
+				memberCluster2: 0,
+			},
+			expected: map[string][]string{
+				test.SCBuilderDefaultName + "-config": {
+					test.SCBuilderDefaultName + "-config" + "-0" + "-1",
+				},
+				// For each shard replica set, we remove two members from cluster with index 1
+				test.SCBuilderDefaultName + "-0": {
+					test.SCBuilderDefaultName + "-0-1-0",
+					test.SCBuilderDefaultName + "-0-1-1",
+				},
+				test.SCBuilderDefaultName + "-1": {
+					test.SCBuilderDefaultName + "-1-1-0",
+					test.SCBuilderDefaultName + "-1-1-1",
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			targetSpec := test.DefaultClusterBuilder().
+				SetTopology(mdbv1.ClusterTopologyMultiCluster).
+				SetShardCountSpec(tc.shardCount).
+				SetMongodsPerShardCountSpec(0).
+				SetConfigServerCountSpec(0).
+				SetMongosCountSpec(0).
+				SetConfigSrvClusterSpec(test.CreateClusterSpecList(memberClusterNames, tc.targetCfgServerDistribution)).
+				SetShardClusterSpec(test.CreateClusterSpecList(memberClusterNames, tc.targetShardDistribution)).
+				Build()
+
+			_, omConnectionFactory := mock.NewDefaultFakeClient(targetSpec)
+			memberClusterMap := getFakeMultiClusterMapWithClusters(memberClusterNames, omConnectionFactory)
+
+			_, reconcileHelper, _, _, err := defaultClusterReconciler(ctx, targetSpec, memberClusterMap)
+			assert.NoError(t, err)
+
+			membersToScaleDown := reconcileHelper.computeMembersToScaleDown(tc.cfgServerCurrentClusters, tc.shardsCurrentClusters, zap.S())
+
+			assert.Equal(t, tc.expected, membersToScaleDown)
+		})
+	}
 }
 
 func sumSlice[T constraints.Integer](s []T) int {
