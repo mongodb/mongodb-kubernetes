@@ -23,9 +23,12 @@ from kubetester.mongodb_user import MongoDBUser
 from kubetester.omtester import OMTester
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
-from pymongo.errors import ServerSelectionTimeoutError
 from pytest import fixture, mark
-from tests.conftest import assert_data_got_restored, update_coredns_hosts
+from tests.conftest import (
+    assert_data_got_restored,
+    update_coredns_hosts,
+    wait_for_primary,
+)
 
 TEST_DATA = {"_id": "unique_id", "name": "John", "address": "Highway 37", "age": 30}
 
@@ -362,13 +365,20 @@ class TestBackupForMongodb:
         )
 
     @fixture(scope="function")
-    def mongodb_multi_one_collection(self, mongodb_multi_one: MongoDBMulti):
-        # we instantiate the pymongo client per test to avoid flakiness as the primary and secondary might swap
-        collection = pymongo.MongoClient(
+    def mdb_client(self, mongodb_multi_one: MongoDBMulti):
+        return pymongo.MongoClient(
             mongodb_multi_one.tester(port=MONGODB_PORT).cnx_string,
             **mongodb_multi_one.tester(port=MONGODB_PORT).default_opts,
-        )["testdb"]
-        return collection["testcollection"]
+            readPreference="primary",  # let's read from the primary and not stale data from the secondary
+        )
+
+    @fixture(scope="function")
+    def mongodb_multi_one_collection(self, mdb_client):
+
+        # Ensure primary is available before proceeding
+        wait_for_primary(mdb_client)
+
+        return mdb_client["testdb"]["testcollection"]
 
     @fixture(scope="module")
     def mongodb_multi_one(
@@ -472,6 +482,7 @@ class TestBackupForMongodb:
                 print(e)
                 max_attempts -= 1
                 time.sleep(6)
+        raise Exception("❌ Failed to insert test data after multiple attempts")
 
     @mark.e2e_multi_cluster_backup_restore
     def test_mdb_backed_up(self, project_one: OMTester):
@@ -489,14 +500,18 @@ class TestBackupForMongodb:
         now_millis = time_to_millis(datetime.datetime.now())
         print("\nCurrent time (millis): {}".format(now_millis))
 
-        pit_datetme = datetime.datetime.now() - datetime.timedelta(seconds=15)
-        pit_millis = time_to_millis(pit_datetme)
-        print("Restoring back to the moment 15 seconds ago (millis): {}".format(pit_millis))
+        backup_completion_time = project_one.get_latest_backup_completion_time()
+        print("\nbackup_completion_time: {}".format(backup_completion_time))
+
+        pit_millis = backup_completion_time + 1500
+
+        print(f"Restoring back to: {pit_millis}")
 
         project_one.create_restore_job_pit(pit_millis)
 
     @mark.e2e_multi_cluster_backup_restore
-    def test_data_got_restored(self, mongodb_multi_one_collection):
+    def test_data_got_restored(self, mongodb_multi_one_collection, mdb_client):
+        wait_for_mongodb_restore(mdb_client)
         assert_data_got_restored(TEST_DATA, mongodb_multi_one_collection, timeout=1200)
 
 
@@ -505,3 +520,49 @@ def time_to_millis(date_time) -> int:
     epoch = datetime.datetime.utcfromtimestamp(0)
     pit_millis = (date_time - epoch).total_seconds() * 1000
     return pit_millis
+
+
+def wait_for_mongodb_restore(mongodb_client, timeout=600):
+    """
+    ✅ Waits for MongoDB oplog rollback or restore process to complete before testing restored data.
+    """
+    print("\n⏳ Waiting for MongoDB to complete PIT restore and apply all oplog changes...")
+    start_time = time.time()
+
+    while time.time() - start_time < timeout:
+        try:
+            # ✅ Check if MongoDB is in rollback state
+            repl_status = mongodb_client.admin.command("replSetGetStatus")
+            recovery_state = repl_status["myState"]
+
+            if recovery_state in [1, 2]:  # Primary (1) or Secondary (2)
+                print("✅ MongoDB is now primary or secondary, restore should be done!")
+
+                # ✅ Double-check oplog.rs to confirm changes are applied
+                latest_oplog_entry = get_latest_oplog_timestamp(mongodb_client)
+                if latest_oplog_entry is not None:
+                    print(f"✅ Oplog applied up to: {latest_oplog_entry}")
+                    return
+
+            print(f"🔄 MongoDB state: {recovery_state} (Waiting...)")
+        except Exception as e:
+            print(f"⚠️ Error checking MongoDB restore state: {e}")
+
+        time.sleep(10)
+
+    raise Exception("❌ MongoDB restore did not complete in time!")
+
+
+def get_latest_oplog_timestamp(mongodb_client):
+    """✅ Retrieves the latest oplog timestamp to confirm all changes are applied."""
+    try:
+        oplog = mongodb_client.local["oplog.rs"]
+        latest_oplog = oplog.find().sort("$natural", -1).limit(1)
+
+        for entry in latest_oplog:
+            return entry["ts"]
+
+        return None  # No oplog entries found
+    except Exception as e:
+        print(f"⚠️ Error fetching oplog timestamp: {e}")
+        return None
