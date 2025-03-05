@@ -1,9 +1,8 @@
 package test
 
 import (
-	"k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	v12 "k8s.io/api/core/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
@@ -73,6 +72,11 @@ func DefaultClusterBuilder() *ClusterBuilder {
 
 func (b *ClusterBuilder) SetName(name string) *ClusterBuilder {
 	b.Name = name
+	return b
+}
+
+func (b *ClusterBuilder) SetVersion(version string) *ClusterBuilder {
+	b.Spec.Version = version
 	return b
 }
 

@@ -2,16 +2,19 @@ package operator
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	mcoConstruct "github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -71,6 +74,62 @@ func TestOnAddStandalone(t *testing.T) {
 
 	omConn.(*om.MockedOmConnection).CheckDeployment(t, createDeploymentFromStandalone(st), "auth", "tls")
 	omConn.(*om.MockedOmConnection).CheckNumberOfUpdateRequests(t, 1)
+}
+
+func TestStandaloneClusterReconcileContainerImages(t *testing.T) {
+	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_1_0_0", util.NonStaticDatabaseEnterpriseImage)
+	initDatabaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_2_0_0", util.InitDatabaseImageUrlEnv)
+
+	t.Setenv(construct.DatabaseVersionEnv, "1.0.0")
+	t.Setenv(construct.InitDatabaseVersionEnv, "2.0.0")
+	t.Setenv(databaseRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-database:@sha256:MONGODB_DATABASE")
+	t.Setenv(initDatabaseRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-init-database:@sha256:MONGODB_INIT_DATABASE")
+
+	ctx := context.Background()
+	st := DefaultStandaloneBuilder().SetVersion("8.0.0").Build()
+	reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, st)
+
+	checkReconcileSuccessful(ctx, t, reconciler, st, kubeClient)
+
+	sts := &appsv1.StatefulSet{}
+	err := kubeClient.Get(ctx, kube.ObjectKey(st.Namespace, st.Name), sts)
+	assert.NoError(t, err)
+
+	require.Len(t, sts.Spec.Template.Spec.InitContainers, 1)
+	require.Len(t, sts.Spec.Template.Spec.Containers, 1)
+
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-database:@sha256:MONGODB_INIT_DATABASE", sts.Spec.Template.Spec.InitContainers[0].Image)
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-database:@sha256:MONGODB_DATABASE", sts.Spec.Template.Spec.Containers[0].Image)
+}
+
+func TestStandaloneClusterReconcileContainerImagesWithStaticArchitecture(t *testing.T) {
+	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
+
+	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0_ubi9", mcoConstruct.MongodbImageEnv)
+
+	t.Setenv(architectures.MdbAgentImageRepo, "quay.io/mongodb/mongodb-agent-ubi")
+	t.Setenv(mcoConstruct.MongodbImageEnv, "quay.io/mongodb/mongodb-enterprise-server")
+	t.Setenv(databaseRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE")
+
+	ctx := context.Background()
+	st := DefaultStandaloneBuilder().SetVersion("8.0.0").Build()
+	reconciler, kubeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, st)
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		connection.(*om.MockedOmConnection).SetAgentVersion("12.0.30.7791-1", "")
+	})
+
+	checkReconcileSuccessful(ctx, t, reconciler, st, kubeClient)
+
+	sts := &appsv1.StatefulSet{}
+	err := kubeClient.Get(ctx, kube.ObjectKey(st.Namespace, st.Name), sts)
+	assert.NoError(t, err)
+
+	assert.Len(t, sts.Spec.Template.Spec.InitContainers, 0)
+	require.Len(t, sts.Spec.Template.Spec.Containers, 2)
+
+	// Version from OM + operator version
+	assert.Equal(t, "quay.io/mongodb/mongodb-agent-ubi:12.0.30.7791-1_9.9.9-test", sts.Spec.Template.Spec.Containers[0].Image)
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE", sts.Spec.Template.Spec.Containers[1].Image)
 }
 
 // TestOnAddStandaloneWithDelay checks the reconciliation on standalone creation with some "delay" in getting

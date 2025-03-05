@@ -1,14 +1,11 @@
 package construct
 
 import (
-	"fmt"
 	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
-
-	"github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
 
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -78,39 +75,4 @@ func TestResourceRequirements(t *testing.T) {
 			assert.Equal(t, agentResourceRequirements, c.Resources)
 		}
 	}
-}
-
-func TestAppDbStatefulSetWithRelatedImages(t *testing.T) {
-	agentRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_10_26_0_6851_1", construct.AgentImageEnv)
-	mongodbRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_1_2_3_ubi8", construct.MongodbImageEnv)
-	initAppdbRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_3_4_5", util.InitAppdbImageUrlEnv)
-
-	om := omv1.NewOpsManagerBuilderDefault().Build()
-
-	t.Setenv(construct.MongodbImageEnv, "mongodb-enterprise-appdb-database-ubi")
-	t.Setenv(construct.MongodbRepoUrl, "quay.io/mongodb")
-	t.Setenv(util.InitAppdbImageUrlEnv, "quay.io/mongodb/mongodb-enterprise-init-appdb")
-	t.Setenv(initAppdbVersionEnv, "3.4.5")
-	agentImageEnv := "quay.io/mongodb/mongodb-agent:10.26.0.6851-1"
-
-	// without related imaged sts is configured using env vars
-	om.Spec.AppDB.Version = "1.2.3-ent"
-	sts, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"}, AppDBStatefulSetOptions{AgentVersion: agentImageEnv}, scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil), v1.OnDeleteStatefulSetStrategyType, nil)
-	assert.NoError(t, err)
-	assert.Equal(t, "quay.io/mongodb/mongodb-agent:10.26.0.6851-1", sts.Spec.Template.Spec.Containers[0].Image)
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:1.2.3-ent", sts.Spec.Template.Spec.Containers[1].Image)
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-appdb:3.4.5", sts.Spec.Template.Spec.InitContainers[0].Image)
-
-	// sts should be configured with related images when they are defined
-	t.Setenv(agentRelatedImageEnv, "quay.io/mongodb/mongodb-agent@sha256:AGENT_SHA")
-	t.Setenv(mongodbRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA")
-	t.Setenv(initAppdbRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-init-appdb@sha256:INIT_APPDB_SHA")
-
-	om.Spec.AppDB.Version = "1.2.3-ent"
-	sts, err = AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"}, AppDBStatefulSetOptions{AgentVersion: agentImageEnv}, scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil), v1.OnDeleteStatefulSetStrategyType, nil)
-	assert.NoError(t, err)
-	// agent's image is not used from RELATED_IMAGE because its value is from AGENT_IMAGE which is full image version
-	assert.Equal(t, "quay.io/mongodb/mongodb-agent:10.26.0.6851-1", sts.Spec.Template.Spec.Containers[0].Image)
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:1.2.3-ent", sts.Spec.Template.Spec.Containers[1].Image)
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-appdb@sha256:INIT_APPDB_SHA", sts.Spec.Template.Spec.InitContainers[0].Image)
 }

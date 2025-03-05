@@ -21,6 +21,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 
+	mcoConstruct "github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -245,6 +246,83 @@ func TestReconcileCreateShardedCluster_ScaleDown(t *testing.T) {
 
 	// No matter how many members we scale down by, we will only have one fewer each reconciliation
 	assert.Len(t, mock.GetMapForObject(clusterClient, &appsv1.StatefulSet{}), 5)
+}
+
+func TestShardedClusterReconcileContainerImages(t *testing.T) {
+	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_1_0_0", util.NonStaticDatabaseEnterpriseImage)
+	initDatabaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_2_0_0", util.InitDatabaseImageUrlEnv)
+
+	t.Setenv(construct.DatabaseVersionEnv, "1.0.0")
+	t.Setenv(construct.InitDatabaseVersionEnv, "2.0.0")
+	t.Setenv(databaseRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-database:@sha256:MONGODB_DATABASE")
+	t.Setenv(initDatabaseRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-init-database:@sha256:MONGODB_INIT_DATABASE")
+
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().SetVersion("8.0.0").SetShardCountSpec(1).Build()
+
+	reconciler, _, kubeClient, _, err := defaultClusterReconciler(ctx, sc, nil)
+	require.NoError(t, err)
+
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+
+	for stsAlias, stsName := range map[string]string{
+		"config":  sc.ConfigRsName(),
+		"mongos":  sc.MongosRsName(),
+		"shard-0": sc.ShardRsName(0),
+	} {
+		t.Run(stsAlias, func(t *testing.T) {
+			sts := &appsv1.StatefulSet{}
+			err = kubeClient.Get(ctx, kube.ObjectKey(sc.Namespace, stsName), sts)
+			assert.NoError(t, err)
+
+			require.Len(t, sts.Spec.Template.Spec.InitContainers, 1)
+			require.Len(t, sts.Spec.Template.Spec.Containers, 1)
+
+			assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-database:@sha256:MONGODB_INIT_DATABASE", sts.Spec.Template.Spec.InitContainers[0].Image)
+			assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-database:@sha256:MONGODB_DATABASE", sts.Spec.Template.Spec.Containers[0].Image)
+		})
+	}
+}
+
+func TestShardedClusterReconcileContainerImagesWithStaticArchitecture(t *testing.T) {
+	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
+
+	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0_ubi9", mcoConstruct.MongodbImageEnv)
+
+	t.Setenv(architectures.MdbAgentImageRepo, "quay.io/mongodb/mongodb-agent-ubi")
+	t.Setenv(mcoConstruct.MongodbImageEnv, "quay.io/mongodb/mongodb-enterprise-server")
+	t.Setenv(databaseRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE")
+
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().SetVersion("8.0.0").SetShardCountSpec(1).Build()
+
+	reconciler, _, kubeClient, omConnectionFactory, err := defaultClusterReconciler(ctx, sc, nil)
+	require.NoError(t, err)
+
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		connection.(*om.MockedOmConnection).SetAgentVersion("12.0.30.7791-1", "")
+	})
+
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+
+	for stsAlias, stsName := range map[string]string{
+		"config":  sc.ConfigRsName(),
+		"mongos":  sc.MongosRsName(),
+		"shard-0": sc.ShardRsName(0),
+	} {
+		t.Run(stsAlias, func(t *testing.T) {
+			sts := &appsv1.StatefulSet{}
+			err = kubeClient.Get(ctx, kube.ObjectKey(sc.Namespace, stsName), sts)
+			assert.NoError(t, err)
+
+			assert.Len(t, sts.Spec.Template.Spec.InitContainers, 0)
+			require.Len(t, sts.Spec.Template.Spec.Containers, 2)
+
+			// Version from OM + operator version
+			assert.Equal(t, "quay.io/mongodb/mongodb-agent-ubi:12.0.30.7791-1_9.9.9-test", sts.Spec.Template.Spec.Containers[0].Image)
+			assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE", sts.Spec.Template.Spec.Containers[1].Image)
+		})
+	}
 }
 
 func TestReconcilePVCResizeShardedCluster(t *testing.T) {
