@@ -16,15 +16,15 @@ import (
 
 // BuildFromStatefulSet returns a replica set that can be set in the Automation Config
 // based on the given StatefulSet and MongoDB resource.
-func BuildFromStatefulSet(set appsv1.StatefulSet, dbSpec mdbv1.DbSpec, fcv string) om.ReplicaSetWithProcesses {
-	return BuildFromStatefulSetWithReplicas(set, dbSpec, int(*set.Spec.Replicas), fcv)
+func BuildFromStatefulSet(mongoDBImage string, forceEnterprise bool, set appsv1.StatefulSet, dbSpec mdbv1.DbSpec, fcv string) om.ReplicaSetWithProcesses {
+	return BuildFromStatefulSetWithReplicas(mongoDBImage, forceEnterprise, set, dbSpec, int(*set.Spec.Replicas), fcv)
 }
 
 // BuildFromStatefulSetWithReplicas returns a replica set that can be set in the Automation Config
 // based on the given StatefulSet and MongoDB spec. The amount of members is set by the replicas
 // parameter.
-func BuildFromStatefulSetWithReplicas(set appsv1.StatefulSet, dbSpec mdbv1.DbSpec, replicas int, fcv string) om.ReplicaSetWithProcesses {
-	members := process.CreateMongodProcessesWithLimit(set, dbSpec, replicas, fcv)
+func BuildFromStatefulSetWithReplicas(mongoDBImage string, forceEnterprise bool, set appsv1.StatefulSet, dbSpec mdbv1.DbSpec, replicas int, fcv string) om.ReplicaSetWithProcesses {
+	members := process.CreateMongodProcessesWithLimit(mongoDBImage, forceEnterprise, set, dbSpec, replicas, fcv)
 	replicaSet := om.NewReplicaSet(set.Name, dbSpec.GetMongoDBVersion(nil))
 	rsWithProcesses := om.NewReplicaSetWithProcesses(replicaSet, members, dbSpec.GetMemberOptions())
 	rsWithProcesses.SetHorizons(dbSpec.GetHorizonConfig())

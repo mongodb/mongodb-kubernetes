@@ -195,7 +195,7 @@ func TestShardedClusterRace(t *testing.T) {
 		WithObjects(mock.GetDefaultResources()...).
 		Build()
 
-	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, omConnectionFactory.GetConnectionFunc)
+	reconciler := newShardedClusterReconciler(ctx, fakeClient, false, nil, omConnectionFactory.GetConnectionFunc)
 
 	testConcurrentReconciles(ctx, t, fakeClient, reconciler, sc1, sc2, sc3)
 }
@@ -971,7 +971,7 @@ func TestFeatureControlsNoAuth(t *testing.T) {
 	sc := test.DefaultClusterBuilder().RemoveAuth().Build()
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, sc)
-	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, omConnectionFactory.GetConnectionFunc)
+	reconciler := newShardedClusterReconciler(ctx, fakeClient, false, nil, omConnectionFactory.GetConnectionFunc)
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, fakeClient)
 
@@ -1172,7 +1172,7 @@ func TestFeatureControlsAuthEnabled(t *testing.T) {
 	sc := test.DefaultClusterBuilder().Build()
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, sc)
-	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, omConnectionFactory.GetConnectionFunc)
+	reconciler := newShardedClusterReconciler(ctx, fakeClient, false, nil, omConnectionFactory.GetConnectionFunc)
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, fakeClient)
 
@@ -1539,12 +1539,12 @@ func assertPodSpecSts(t *testing.T, sts *appsv1.StatefulSet, nodeName, hostName 
 	}
 }
 
-func createMongosProcesses(set appsv1.StatefulSet, mdb *mdbv1.MongoDB, certificateFilePath string) []om.Process {
+func createMongosProcesses(mongoDBImage string, forceEnterprise bool, set appsv1.StatefulSet, mdb *mdbv1.MongoDB, certificateFilePath string) []om.Process {
 	hostnames, names := dns.GetDnsForStatefulSet(set, mdb.Spec.GetClusterDomain(), nil)
 	processes := make([]om.Process, len(hostnames))
 
 	for idx, hostname := range hostnames {
-		processes[idx] = om.NewMongosProcess(names[idx], hostname, mdb.Spec.MongosSpec.GetAdditionalMongodConfig(), mdb.GetSpec(), certificateFilePath, mdb.Annotations, mdb.CalculateFeatureCompatibilityVersion())
+		processes[idx] = om.NewMongosProcess(names[idx], hostname, mongoDBImage, forceEnterprise, mdb.Spec.MongosSpec.GetAdditionalMongodConfig(), mdb.GetSpec(), certificateFilePath, mdb.Annotations, mdb.CalculateFeatureCompatibilityVersion())
 	}
 
 	return processes
@@ -1563,7 +1563,7 @@ func createDeploymentFromShardedCluster(t *testing.T, updatable v1.CustomResourc
 			construct.GetPodEnvOptions(),
 		)
 		shardSts := construct.DatabaseStatefulSet(*sh, shardOptions, zap.S())
-		shards[i], _ = buildReplicaSetFromProcesses(shardSts.Name, createShardProcesses(shardSts, sh, ""), sh, sh.Spec.GetMemberOptions(), om.NewDeployment())
+		shards[i], _ = buildReplicaSetFromProcesses(shardSts.Name, createShardProcesses("fake-mongoDBImage", false, shardSts, sh, ""), sh, sh.Spec.GetMemberOptions(), om.NewDeployment())
 	}
 
 	desiredMongosConfig := createMongosSpec(sh)
@@ -1574,7 +1574,7 @@ func createDeploymentFromShardedCluster(t *testing.T, updatable v1.CustomResourc
 		construct.GetPodEnvOptions(),
 	)
 	mongosSts := construct.DatabaseStatefulSet(*sh, mongosOptions, zap.S())
-	mongosProcesses := createMongosProcesses(mongosSts, sh, util.PEMKeyFilePathInContainer)
+	mongosProcesses := createMongosProcesses("fake-mongoDBImage", false, mongosSts, sh, util.PEMKeyFilePathInContainer)
 
 	desiredConfigSrvConfig := createConfigSrvSpec(sh)
 	configServerOptions := construct.ConfigServerOptions(
@@ -1584,7 +1584,7 @@ func createDeploymentFromShardedCluster(t *testing.T, updatable v1.CustomResourc
 		construct.GetPodEnvOptions(),
 	)
 	configSvrSts := construct.DatabaseStatefulSet(*sh, configServerOptions, zap.S())
-	configRs, _ := buildReplicaSetFromProcesses(configSvrSts.Name, createConfigSrvProcesses(configSvrSts, sh, ""), sh, sh.Spec.GetMemberOptions(), om.NewDeployment())
+	configRs, _ := buildReplicaSetFromProcesses(configSvrSts.Name, createConfigSrvProcesses("fake-mongoDBImage", false, configSvrSts, sh, ""), sh, sh.Spec.GetMemberOptions(), om.NewDeployment())
 
 	d := om.NewDeployment()
 	_, err := d.MergeShardedCluster(om.DeploymentShardedClusterMergeOptions{
@@ -1609,8 +1609,8 @@ func defaultClusterReconciler(ctx context.Context, sc *mdbv1.MongoDB, globalMemb
 }
 
 func newShardedClusterReconcilerFromResource(ctx context.Context, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, kubeClient kubernetesClient.Client, omConnectionFactory *om.CachedOMConnectionFactory) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, error) {
-	r := newShardedClusterReconciler(ctx, kubeClient, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc)
-	reconcileHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, sc, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, zap.S())
+	r := newShardedClusterReconciler(ctx, kubeClient, false, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc)
+	reconcileHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, "fake-mongoDBImage", false, sc, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, zap.S())
 	if err != nil {
 		return nil, nil, err
 	}
