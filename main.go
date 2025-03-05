@@ -40,6 +40,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/telemetry"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 	"github.com/10gen/ops-manager-kubernetes/pkg/webhook"
@@ -100,6 +101,8 @@ func main() {
 
 	klog.InitFlags(nil)
 	initializeEnvironment()
+
+	forceEnterprise := env.ReadBoolOrDefault(architectures.MdbAssumeEnterpriseImage, false)
 
 	// Get a config to talk to the apiserver
 	cfg := ctrl.GetConfigOrDie()
@@ -200,7 +203,7 @@ func main() {
 
 	// Setup all Controllers
 	if slices.Contains(crds, mongoDBCRDPlural) {
-		if err := setupMongoDBCRD(ctx, mgr, memberClusterObjectsMap); err != nil {
+		if err := setupMongoDBCRD(ctx, mgr, forceEnterprise, memberClusterObjectsMap); err != nil {
 			log.Fatal(err)
 		}
 	}
@@ -215,7 +218,7 @@ func main() {
 		}
 	}
 	if slices.Contains(crds, mongoDBMultiClusterCRDPlural) {
-		if err := setupMongoDBMultiClusterCRD(ctx, mgr, memberClusterObjectsMap); err != nil {
+		if err := setupMongoDBMultiClusterCRD(ctx, mgr, forceEnterprise, memberClusterObjectsMap); err != nil {
 			log.Fatal(err)
 		}
 	}
@@ -245,14 +248,14 @@ func main() {
 	}
 }
 
-func setupMongoDBCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {
-	if err := operator.AddStandaloneController(ctx, mgr); err != nil {
+func setupMongoDBCRD(ctx context.Context, mgr manager.Manager, forceEnterprise bool, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {
+	if err := operator.AddStandaloneController(ctx, mgr, forceEnterprise); err != nil {
 		return err
 	}
-	if err := operator.AddReplicaSetController(ctx, mgr); err != nil {
+	if err := operator.AddReplicaSetController(ctx, mgr, forceEnterprise); err != nil {
 		return err
 	}
-	if err := operator.AddShardedClusterController(ctx, mgr, memberClusterObjectsMap); err != nil {
+	if err := operator.AddShardedClusterController(ctx, mgr, forceEnterprise, memberClusterObjectsMap); err != nil {
 		return err
 	}
 	return ctrl.NewWebhookManagedBy(mgr).For(&mdbv1.MongoDB{}).Complete()
@@ -269,8 +272,8 @@ func setupMongoDBUserCRD(ctx context.Context, mgr manager.Manager, memberCluster
 	return operator.AddMongoDBUserController(ctx, mgr, memberClusterObjectsMap)
 }
 
-func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {
-	if err := operator.AddMultiReplicaSetController(ctx, mgr, memberClusterObjectsMap); err != nil {
+func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, forceEnterprise bool, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {
+	if err := operator.AddMultiReplicaSetController(ctx, mgr, forceEnterprise, memberClusterObjectsMap); err != nil {
 		return err
 	}
 	return ctrl.NewWebhookManagedBy(mgr).For(&mdbmultiv1.MongoDBMultiCluster{}).Complete()

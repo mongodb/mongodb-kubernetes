@@ -1,12 +1,11 @@
 package architectures
 
 import (
-	"os"
 	"strings"
 
 	"k8s.io/utils/env"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
 type DefaultArchitecture string
@@ -64,26 +63,24 @@ func IsRunningStaticArchitecture(annotations map[string]string) bool {
 	return operatorEnv == string(Static)
 }
 
-func GetArchitecture(annotations map[string]string) string {
+func GetArchitecture(annotations map[string]string) DefaultArchitecture {
 	isStatic := IsRunningStaticArchitecture(annotations)
 	architecture := NonStatic
 	if isStatic {
 		architecture = Static
 	}
-	return string(architecture)
+	return architecture
 }
 
 // GetMongoVersionForAutomationConfig returns the required version with potentially the suffix -ent.
 // If we are in static containers architecture, we need the -ent suffix in case we are running the ea image.
 // If not, the agent will try to change the version to reflect the non-enterprise image.
-func GetMongoVersionForAutomationConfig(version string, annotations map[string]string) string {
-	if !IsRunningStaticArchitecture(annotations) {
+func GetMongoVersionForAutomationConfig(mongoDBImage, version string, forceEnterprise bool, architecture DefaultArchitecture) string {
+	if architecture != Static {
 		return version
 	}
-	imageURL := os.Getenv(construct.MongodbImageEnv)
-	assumeEnterprise, _ := env.GetBool(MdbAssumeEnterpriseImage, false)
 	// the image repo should be	either mongodb / mongodb-enterprise-server or mongodb / mongodb-community-server
-	if strings.Contains(imageURL, "mongodb-enterprise-server") || assumeEnterprise {
+	if strings.Contains(mongoDBImage, util.OfficialEnterpriseServerImageUrl) || forceEnterprise {
 		if !strings.HasSuffix(version, "-ent") {
 			version = version + "-ent"
 		}

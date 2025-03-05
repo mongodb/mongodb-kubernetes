@@ -94,17 +94,19 @@ func NewProcessFromInterface(i interface{}) Process {
 	return i.(map[string]interface{})
 }
 
-func NewMongosProcess(name, hostName string, additionalMongodConfig *mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec, certificateFilePath string, annotations map[string]string, fcv string) Process {
+func NewMongosProcess(name, hostName, mongoDBImage string, forceEnterprise bool, additionalMongodConfig *mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec, certificateFilePath string, annotations map[string]string, fcv string) Process {
 	if additionalMongodConfig == nil {
 		additionalMongodConfig = mdbv1.NewEmptyAdditionalMongodConfig()
 	}
 
+	architecture := architectures.GetArchitecture(annotations)
+	processVersion := architectures.GetMongoVersionForAutomationConfig(mongoDBImage, spec.GetMongoDBVersion(nil), forceEnterprise, architecture)
 	p := createProcess(
 		WithName(name),
 		WithHostname(hostName),
 		WithProcessType(ProcessTypeMongos),
 		WithAdditionalMongodConfig(*additionalMongodConfig),
-		WithResourceSpec(spec, annotations, fcv),
+		WithResourceSpec(processVersion, fcv),
 	)
 
 	// default values for configurable values
@@ -118,17 +120,19 @@ func NewMongosProcess(name, hostName string, additionalMongodConfig *mdbv1.Addit
 	return p
 }
 
-func NewMongodProcess(name, hostName string, additionalConfig *mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec, certificateFilePath string, annotations map[string]string, fcv string) Process {
+func NewMongodProcess(name, hostName, mongoDBImage string, forceEnterprise bool, additionalConfig *mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec, certificateFilePath string, annotations map[string]string, fcv string) Process {
 	if additionalConfig == nil {
 		additionalConfig = mdbv1.NewEmptyAdditionalMongodConfig()
 	}
 
+	architecture := architectures.GetArchitecture(annotations)
+	processVersion := architectures.GetMongoVersionForAutomationConfig(mongoDBImage, spec.GetMongoDBVersion(nil), forceEnterprise, architecture)
 	p := createProcess(
 		WithName(name),
 		WithHostname(hostName),
 		WithProcessType(ProcessTypeMongod),
 		WithAdditionalMongodConfig(*additionalConfig),
-		WithResourceSpec(spec, annotations, fcv),
+		WithResourceSpec(processVersion, fcv),
 	)
 
 	// default values for configurable values
@@ -395,9 +399,8 @@ func createProcess(opts ...ProcessOption) Process {
 
 type ProcessOption func(process Process)
 
-func WithResourceSpec(resourceSpec mdbv1.DbSpec, annotations map[string]string, fcv string) ProcessOption {
+func WithResourceSpec(processVersion, fcv string) ProcessOption {
 	return func(process Process) {
-		processVersion := architectures.GetMongoVersionForAutomationConfig(resourceSpec.GetMongoDBVersion(nil), annotations)
 		process["version"] = processVersion
 		process["authSchemaVersion"] = CalculateAuthSchemaVersion()
 		process["featureCompatibilityVersion"] = fcv

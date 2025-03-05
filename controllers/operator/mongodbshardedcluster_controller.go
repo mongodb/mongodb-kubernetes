@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"os"
 	"slices"
 	"sort"
 	"strings"
@@ -32,6 +33,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
 
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	mcoConstruct "github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -75,13 +77,15 @@ type ReconcileMongoDbShardedCluster struct {
 	*ReconcileCommonController
 	omConnectionFactory om.ConnectionFactory
 	memberClustersMap   map[string]client.Client
+	forceEnterprise     bool
 }
 
-func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, memberClusterMap map[string]client.Client, omFunc om.ConnectionFactory) *ReconcileMongoDbShardedCluster {
+func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, forceEnterprise bool, memberClusterMap map[string]client.Client, omFunc om.ConnectionFactory) *ReconcileMongoDbShardedCluster {
 	return &ReconcileMongoDbShardedCluster{
 		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:       omFunc,
 		memberClustersMap:         memberClusterMap,
+		forceEnterprise:           forceEnterprise,
 	}
 }
 
@@ -614,6 +618,8 @@ func processClusterSpecList(
 type ShardedClusterReconcileHelper struct {
 	commonController       *ReconcileCommonController
 	omConnectionFactory    om.ConnectionFactory
+	mongoDBImage           string
+	forceEnterprise        bool
 	automationAgentVersion string
 
 	// sc is the resource being reconciled
@@ -639,7 +645,7 @@ type ShardedClusterReconcileHelper struct {
 	stateStore *StateStore[ShardedClusterDeploymentState]
 }
 
-func NewShardedClusterReconcilerHelper(ctx context.Context, reconciler *ReconcileCommonController, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, omConnectionFactory om.ConnectionFactory, log *zap.SugaredLogger) (*ShardedClusterReconcileHelper, error) {
+func NewShardedClusterReconcilerHelper(ctx context.Context, reconciler *ReconcileCommonController, mongoDBImage string, forceEnterprise bool, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, omConnectionFactory om.ConnectionFactory, log *zap.SugaredLogger) (*ShardedClusterReconcileHelper, error) {
 	// It's a workaround for single cluster topology to add there __default cluster.
 	// With the multi-cluster sharded refactor, we went so far with the multi-cluster first approach so we have very few places with conditional single/multi logic.
 	// Therefore, some parts of the reconciler logic uses that globalMemberClusterMap even in single-cluster mode (look for usages of createShardsMemberClusterLists) and expect
@@ -650,6 +656,8 @@ func NewShardedClusterReconcilerHelper(ctx context.Context, reconciler *Reconcil
 	helper := &ShardedClusterReconcileHelper{
 		commonController:    reconciler,
 		omConnectionFactory: omConnectionFactory,
+		mongoDBImage:        mongoDBImage,
+		forceEnterprise:     forceEnterprise,
 	}
 
 	helper.sc = sc
@@ -772,7 +780,10 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 		}
 		return reconcileResult, err
 	}
-	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, sc, r.memberClustersMap, r.omConnectionFactory, log)
+
+	// FIXME(Mikalai): this will go way in the next iteration where we will be reading form a imagesMap
+	mongoDBImage := os.Getenv(mcoConstruct.MongodbImageEnv)
+	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, mongoDBImage, r.forceEnterprise, sc, r.memberClustersMap, r.omConnectionFactory, log)
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(xerrors.Errorf("Failed to initialize sharded cluster reconciler: %w", err)), log)
 	}
@@ -781,7 +792,9 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 
 // OnDelete tries to complete a Deletion reconciliation event
 func (r *ReconcileMongoDbShardedCluster) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
-	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, obj.(*mdbv1.MongoDB), r.memberClustersMap, r.omConnectionFactory, log)
+	// FIXME(Mikalai): this will go way in the next iteration where we will be reading form a imagesMap
+	mongoDBImage := os.Getenv(mcoConstruct.MongodbImageEnv)
+	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, mongoDBImage, r.forceEnterprise, obj.(*mdbv1.MongoDB), r.memberClustersMap, r.omConnectionFactory, log)
 	if err != nil {
 		return err
 	}
@@ -1594,9 +1607,9 @@ func (r *ShardedClusterReconcileHelper) deleteClusterResources(ctx context.Conte
 	return errs
 }
 
-func AddShardedClusterController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
+func AddShardedClusterController(ctx context.Context, mgr manager.Manager, forceEnterprise bool, memberClustersMap map[string]cluster.Cluster) error {
 	// Create a new controller
-	reconciler := newShardedClusterReconciler(ctx, mgr.GetClient(), multicluster.ClustersMapToClientMap(memberClustersMap), om.NewOpsManagerConnection)
+	reconciler := newShardedClusterReconciler(ctx, mgr.GetClient(), forceEnterprise, multicluster.ClustersMapToClientMap(memberClustersMap), om.NewOpsManagerConnection)
 	options := controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}
 	c, err := controller.New(util.MongoDbShardedClusterController, mgr, options)
 	if err != nil {
@@ -2118,7 +2131,7 @@ func (r *ShardedClusterReconcileHelper) createDesiredMongosProcesses(certificate
 	for _, memberCluster := range r.mongosMemberClusters {
 		hostnames, podNames := r.getMongosHostnames(memberCluster, scale.ReplicasThisReconciliation(r.GetMongosScaler(memberCluster)))
 		for i := range hostnames {
-			process := om.NewMongosProcess(podNames[i], hostnames[i], r.sc.Spec.MongosSpec.GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion())
+			process := om.NewMongosProcess(podNames[i], hostnames[i], r.mongoDBImage, r.forceEnterprise, r.sc.Spec.MongosSpec.GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion())
 			processes = append(processes, process)
 		}
 	}
@@ -2132,7 +2145,7 @@ func (r *ShardedClusterReconcileHelper) createDesiredConfigSrvProcessesAndMember
 	for _, memberCluster := range r.configSrvMemberClusters {
 		hostnames, podNames := r.getConfigSrvHostnames(memberCluster, scale.ReplicasThisReconciliation(r.GetConfigSrvScaler(memberCluster)))
 		for i := range hostnames {
-			process := om.NewMongodProcess(podNames[i], hostnames[i], r.sc.Spec.ConfigSrvSpec.GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion())
+			process := om.NewMongodProcess(podNames[i], hostnames[i], r.mongoDBImage, r.forceEnterprise, r.sc.Spec.ConfigSrvSpec.GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion())
 			processes = append(processes, process)
 		}
 
@@ -2149,7 +2162,7 @@ func (r *ShardedClusterReconcileHelper) createDesiredShardProcessesAndMemberOpti
 	for _, memberCluster := range r.shardsMemberClustersMap[shardIdx] {
 		hostnames, podNames := r.getShardHostnames(shardIdx, memberCluster, scale.ReplicasThisReconciliation(r.GetShardScaler(shardIdx, memberCluster)))
 		for i := range hostnames {
-			process := om.NewMongodProcess(podNames[i], hostnames[i], r.desiredShardsConfiguration[shardIdx].GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion())
+			process := om.NewMongodProcess(podNames[i], hostnames[i], r.mongoDBImage, r.forceEnterprise, r.desiredShardsConfiguration[shardIdx].GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion())
 			processes = append(processes, process)
 		}
 		specMemberOptions := r.desiredShardsConfiguration[shardIdx].GetClusterSpecItem(memberCluster.Name).MemberConfig
@@ -2159,20 +2172,20 @@ func (r *ShardedClusterReconcileHelper) createDesiredShardProcessesAndMemberOpti
 	return processes, memberOptions
 }
 
-func createConfigSrvProcesses(set appsv1.StatefulSet, mdb *mdbv1.MongoDB, certificateFilePath string) []om.Process {
-	return createMongodProcessForShardedCluster(set, mdb.Spec.ConfigSrvSpec.GetAdditionalMongodConfig(), mdb, certificateFilePath)
+func createConfigSrvProcesses(mongoDBImage string, forceEnterprise bool, set appsv1.StatefulSet, mdb *mdbv1.MongoDB, certificateFilePath string) []om.Process {
+	return createMongodProcessForShardedCluster(mongoDBImage, forceEnterprise, set, mdb.Spec.ConfigSrvSpec.GetAdditionalMongodConfig(), mdb, certificateFilePath)
 }
 
-func createShardProcesses(set appsv1.StatefulSet, mdb *mdbv1.MongoDB, certificateFilePath string) []om.Process {
-	return createMongodProcessForShardedCluster(set, mdb.Spec.ShardSpec.GetAdditionalMongodConfig(), mdb, certificateFilePath)
+func createShardProcesses(mongoDBImage string, forceEnterprise bool, set appsv1.StatefulSet, mdb *mdbv1.MongoDB, certificateFilePath string) []om.Process {
+	return createMongodProcessForShardedCluster(mongoDBImage, forceEnterprise, set, mdb.Spec.ShardSpec.GetAdditionalMongodConfig(), mdb, certificateFilePath)
 }
 
-func createMongodProcessForShardedCluster(set appsv1.StatefulSet, additionalMongodConfig *mdbv1.AdditionalMongodConfig, mdb *mdbv1.MongoDB, certificateFilePath string) []om.Process {
+func createMongodProcessForShardedCluster(mongoDBImage string, forceEnterprise bool, set appsv1.StatefulSet, additionalMongodConfig *mdbv1.AdditionalMongodConfig, mdb *mdbv1.MongoDB, certificateFilePath string) []om.Process {
 	hostnames, names := dns.GetDnsForStatefulSet(set, mdb.Spec.GetClusterDomain(), nil)
 	processes := make([]om.Process, len(hostnames))
 
 	for idx, hostname := range hostnames {
-		processes[idx] = om.NewMongodProcess(names[idx], hostname, additionalMongodConfig, &mdb.Spec, certificateFilePath, mdb.Annotations, mdb.CalculateFeatureCompatibilityVersion())
+		processes[idx] = om.NewMongodProcess(names[idx], hostname, mongoDBImage, forceEnterprise, additionalMongodConfig, &mdb.Spec, certificateFilePath, mdb.Annotations, mdb.CalculateFeatureCompatibilityVersion())
 	}
 
 	return processes

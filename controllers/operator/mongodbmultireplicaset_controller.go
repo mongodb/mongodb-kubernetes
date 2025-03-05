@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"reflect"
 	"sort"
 
@@ -25,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
+	"github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
@@ -79,11 +81,12 @@ type ReconcileMongoDbMultiReplicaSet struct {
 	omConnectionFactory           om.ConnectionFactory
 	memberClusterClientsMap       map[string]kubernetesClient.Client // holds the client for each of the memberclusters(where the MongoDB ReplicaSet is deployed)
 	memberClusterSecretClientsMap map[string]secrets.SecretClient
+	forceEnterprise               bool
 }
 
 var _ reconcile.Reconciler = &ReconcileMongoDbMultiReplicaSet{}
 
-func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.Client, omFunc om.ConnectionFactory, memberClustersMap map[string]client.Client) *ReconcileMongoDbMultiReplicaSet {
+func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.Client, forceEnterprise bool, omFunc om.ConnectionFactory, memberClustersMap map[string]client.Client) *ReconcileMongoDbMultiReplicaSet {
 	clientsMap := make(map[string]kubernetesClient.Client)
 	secretClientsMap := make(map[string]secrets.SecretClient)
 
@@ -101,6 +104,7 @@ func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.
 		omConnectionFactory:           omFunc,
 		memberClusterClientsMap:       clientsMap,
 		memberClusterSecretClientsMap: secretClientsMap,
+		forceEnterprise:               forceEnterprise,
 	}
 }
 
@@ -707,7 +711,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 		}
 	}
 
-	processes, err := process.CreateMongodProcessesWithLimitMulti(mrs, certificateFileName)
+	// FIXME(Mikalai): this will go way in the next iteration where we will be reading form a imagesMap
+	mongoDBImage := os.Getenv(construct.MongodbImageEnv)
+	processes, err := process.CreateMongodProcessesWithLimitMulti(mongoDBImage, r.forceEnterprise, mrs, certificateFileName)
 	if err != nil && !isRecovering {
 		return err
 	}
@@ -1070,9 +1076,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileOMCAConfigMap(ctx context.Con
 
 // AddMultiReplicaSetController creates a new MongoDbMultiReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
+func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, forceEnterprise bool, memberClustersMap map[string]cluster.Cluster) error {
 	// Create a new controller
-	reconciler := newMultiClusterReplicaSetReconciler(ctx, mgr.GetClient(), om.NewOpsManagerConnection, multicluster.ClustersMapToClientMap(memberClustersMap))
+	reconciler := newMultiClusterReplicaSetReconciler(ctx, mgr.GetClient(), forceEnterprise, om.NewOpsManagerConnection, multicluster.ClustersMapToClientMap(memberClustersMap))
 	c, err := controller.New(util.MongoDbMultiClusterController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)})
 	if err != nil {
 		return err
