@@ -24,6 +24,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/constants"
 
+	mcoConstruct "github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -45,6 +46,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
 )
 
 func TestOpsManagerReconciler_watchedResources(t *testing.T) {
@@ -459,6 +461,124 @@ func TestOpsManagerPodTemplateSpec_IsAnnotatedWithHash(t *testing.T) {
 	testOm.Spec.AppDB.Version = "4.2.0"
 	assert.Equal(t, podTemplate.Annotations["connectionStringHash"], hashConnectionString(buildMongoConnectionUrl(testOm, "password", nil)),
 		"Changing version should not change connection string and so the hash should stay the same")
+}
+
+func TestOpsManagerReconcileContainerImages(t *testing.T) {
+	// Ops manager & backup deamon images
+	initOpsManagerRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_1_2_3", util.InitOpsManagerImageUrl)
+	opsManagerRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", util.OpsManagerImageUrl)
+	t.Setenv(util.InitOpsManagerVersion, "1.2.3")
+	t.Setenv(initOpsManagerRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-init-ops-manager:@sha256:MONGODB_INIT_APPDB")
+	t.Setenv(opsManagerRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER")
+
+	// AppDB images
+	mongodbRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", mcoConstruct.MongodbImageEnv)
+	initAppdbRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_3_4_5", util.InitAppdbImageUrlEnv)
+	t.Setenv(operatorConstruct.InitAppdbVersionEnv, "3.4.5")
+	// In non-static architecture, this env var holds full container image uri
+	t.Setenv(mcoConstruct.AgentImageEnv, "quay.io/mongodb/mongodb-agent@sha256:AGENT_SHA")
+	t.Setenv(mongodbRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA")
+	t.Setenv(initAppdbRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-init-appdb@sha256:INIT_APPDB_SHA")
+
+	ctx := context.Background()
+	testOm := DefaultOpsManagerBuilder().
+		SetVersion("8.0.0").
+		SetAppDbVersion("8.0.0").
+		AddOplogStoreConfig("oplog-store-2", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		AddBlockStoreConfig("block-store-config-0", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		Build()
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	reconciler, client, _ := defaultTestOmReconciler(ctx, t, testOm, nil, omConnectionFactory)
+	configureBackupResources(ctx, client, testOm)
+
+	checkOMReconciliationSuccessful(ctx, t, reconciler, testOm, reconciler.client)
+
+	for stsAlias, stsName := range map[string]string{
+		"opsManagerSts": testOm.Name,
+		"backupSts":     testOm.BackupDaemonStatefulSetName(),
+	} {
+		t.Run(stsAlias, func(t *testing.T) {
+			sts := appsv1.StatefulSet{}
+			err := client.Get(ctx, kube.ObjectKey(testOm.Namespace, stsName), &sts)
+			require.NoError(t, err)
+
+			require.Len(t, sts.Spec.Template.Spec.InitContainers, 1)
+			require.Len(t, sts.Spec.Template.Spec.Containers, 1)
+
+			assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-ops-manager:@sha256:MONGODB_INIT_APPDB", sts.Spec.Template.Spec.InitContainers[0].Image)
+			assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER", sts.Spec.Template.Spec.Containers[0].Image)
+		})
+	}
+
+	appDBSts := appsv1.StatefulSet{}
+	err := client.Get(ctx, kube.ObjectKey(testOm.Namespace, testOm.Spec.AppDB.Name()), &appDBSts)
+	require.NoError(t, err)
+
+	require.Len(t, appDBSts.Spec.Template.Spec.InitContainers, 1)
+	require.Len(t, appDBSts.Spec.Template.Spec.Containers, 3)
+
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-appdb@sha256:INIT_APPDB_SHA", appDBSts.Spec.Template.Spec.InitContainers[0].Image)
+	assert.Equal(t, "quay.io/mongodb/mongodb-agent@sha256:AGENT_SHA", appDBSts.Spec.Template.Spec.Containers[0].Image)
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA", appDBSts.Spec.Template.Spec.Containers[1].Image)
+	// Version from the mapping file (agent version + operator version)
+	assert.Equal(t, "quay.io/mongodb/mongodb-agent:108.0.0.8694-1_9.9.9-test", appDBSts.Spec.Template.Spec.Containers[2].Image)
+}
+
+func TestOpsManagerReconcileContainerImagesWithStaticArchitecture(t *testing.T) {
+	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
+
+	// Ops manager & backup deamon images
+	opsManagerRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", util.OpsManagerImageUrl)
+	t.Setenv(opsManagerRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER")
+
+	// AppDB images
+	mongodbRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", mcoConstruct.MongodbImageEnv)
+	t.Setenv(mongodbRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA")
+	t.Setenv(architectures.MdbAgentImageRepo, "quay.io/mongodb/mongodb-agent-ubi")
+
+	ctx := context.Background()
+	testOm := DefaultOpsManagerBuilder().
+		SetVersion("8.0.0").
+		SetAppDbVersion("8.0.0").
+		AddOplogStoreConfig("oplog-store-2", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		AddBlockStoreConfig("block-store-config-0", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		Build()
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	reconciler, client, _ := defaultTestOmReconciler(ctx, t, testOm, nil, omConnectionFactory)
+	configureBackupResources(ctx, client, testOm)
+
+	checkOMReconciliationSuccessful(ctx, t, reconciler, testOm, reconciler.client)
+
+	for stsAlias, stsName := range map[string]string{
+		"opsManagerSts": testOm.Name,
+		"backupSts":     testOm.BackupDaemonStatefulSetName(),
+	} {
+		t.Run(stsAlias, func(t *testing.T) {
+			sts := appsv1.StatefulSet{}
+			err := client.Get(ctx, kube.ObjectKey(testOm.Namespace, stsName), &sts)
+			require.NoError(t, err)
+
+			assert.Len(t, sts.Spec.Template.Spec.InitContainers, 0)
+			require.Len(t, sts.Spec.Template.Spec.Containers, 1)
+
+			assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER", sts.Spec.Template.Spec.Containers[0].Image)
+		})
+	}
+
+	appDBSts := appsv1.StatefulSet{}
+	err := client.Get(ctx, kube.ObjectKey(testOm.Namespace, testOm.Spec.AppDB.Name()), &appDBSts)
+	require.NoError(t, err)
+
+	require.Len(t, appDBSts.Spec.Template.Spec.InitContainers, 0)
+	require.Len(t, appDBSts.Spec.Template.Spec.Containers, 3)
+
+	// Version from the mapping file (agent version + operator version)
+	assert.Equal(t, "quay.io/mongodb/mongodb-agent-ubi:108.0.0.8694-1_9.9.9-test", appDBSts.Spec.Template.Spec.Containers[0].Image)
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA", appDBSts.Spec.Template.Spec.Containers[1].Image)
+	// In static architecture this container is a copy of agent container
+	assert.Equal(t, appDBSts.Spec.Template.Spec.Containers[0].Image, appDBSts.Spec.Template.Spec.Containers[2].Image)
 }
 
 func TestOpsManagerConnectionString_IsPassedAsSecretRef(t *testing.T) {

@@ -268,24 +268,6 @@ func TestContainerImage(t *testing.T) {
 	assert.Equal(t, "mongodb:1.2.3", ContainerImage(util.OpsManagerImageUrl, "1.2.3", nil))
 }
 
-func Test_DatabaseStatefulSetWithRelatedImages(t *testing.T) {
-	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_1_0_0", util.NonStaticDatabaseEnterpriseImage)
-	initDatabaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_2_0_0", util.InitDatabaseImageUrlEnv)
-
-	t.Setenv(util.NonStaticDatabaseEnterpriseImage, "quay.io/mongodb/mongodb-enterprise-database")
-	t.Setenv(DatabaseVersionEnv, "1.0.0")
-	t.Setenv(util.InitDatabaseImageUrlEnv, "quay.io/mongodb/mongodb-enterprise-init-database")
-	t.Setenv(InitDatabaseVersionEnv, "2.0.0")
-	t.Setenv(databaseRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-database:@sha256:MONGODB_DATABASE")
-	t.Setenv(initDatabaseRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-init-database:@sha256:MONGODB_INIT_DATABASE")
-
-	rs := mdbv1.NewReplicaSetBuilder().Build()
-	sts := DatabaseStatefulSet(*rs, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
-
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-database:@sha256:MONGODB_INIT_DATABASE", sts.Spec.Template.Spec.InitContainers[0].Image)
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-database:@sha256:MONGODB_DATABASE", sts.Spec.Template.Spec.Containers[0].Image)
-}
-
 func TestGetAppDBImage(t *testing.T) {
 	// Note: if no construct.DefaultImageType is given, we will default to ubi8
 	tests := []struct {
