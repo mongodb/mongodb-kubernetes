@@ -450,26 +450,34 @@ func getEmptyDeploymentOptions() deploymentOptions {
 // TestPrepareScaleDownShardedCluster tests the scale down operation for config servers and mongods per shard. It checks
 // that all members that will be removed are marked as unvoted
 func TestPrepareScaleDownShardedCluster_ConfigMongodsUp(t *testing.T) {
-	t.Skip("This test is too fragile to be executed; it's based on status and not deployment state and test internal interactions that are no longer true. Either we rewrite it to full Reconcile or remove it.")
 	ctx := context.Background()
+
+	initialState := MultiClusterShardedScalingStep{
+		shardCount: 2,
+		configServerDistribution: map[string]int{
+			multicluster.LegacyCentralClusterName: 3,
+		},
+		shardDistribution: map[string]int{
+			multicluster.LegacyCentralClusterName: 4,
+		},
+	}
+
 	scBeforeScale := test.DefaultClusterBuilder().
-		SetConfigServerCountStatus(3).
 		SetConfigServerCountSpec(3).
-		SetMongodsPerShardCountStatus(4).
 		SetMongodsPerShardCountSpec(4).
 		Build()
 
-	omConnectionFactory := om.NewCachedOMConnectionFactoryWithInitializedConnection(om.NewMockedOmConnection(createDeploymentFromShardedCluster(t, scBeforeScale)))
-	_, reconcileHelper, _, _, _ := defaultClusterReconciler(ctx, scBeforeScale, nil)
-
-	// TODO prepareScaleDownShardedCluster is getting data from deployment state so modify it instead of passing state in MongoDB object
 	scAfterScale := test.DefaultClusterBuilder().
-		SetConfigServerCountStatus(3).
 		SetConfigServerCountSpec(2).
-		SetMongodsPerShardCountStatus(4).
 		SetMongodsPerShardCountSpec(3).
 		Build()
 
+	omConnectionFactory := om.NewCachedOMConnectionFactoryWithInitializedConnection(om.NewMockedOmConnection(createDeploymentFromShardedCluster(t, scBeforeScale)))
+	kubeClient, _ := mock.NewDefaultFakeClient(scAfterScale)
+	// Store the initial scaling status in state configmap
+	assert.NoError(t, createMockStateConfigMap(kubeClient, mock.TestNamespace, scBeforeScale.Name, initialState))
+	_, reconcileHelper, err := newShardedClusterReconcilerFromResource(ctx, scAfterScale, nil, kubeClient, omConnectionFactory)
+	assert.NoError(t, err)
 	assert.NoError(t, reconcileHelper.prepareScaleDownShardedCluster(omConnectionFactory.GetConnection(), zap.S()))
 
 	// create the expected deployment from the sharded cluster that has not yet scaled
@@ -493,16 +501,31 @@ func TestPrepareScaleDownShardedCluster_ConfigMongodsUp(t *testing.T) {
 // TestPrepareScaleDownShardedCluster_ShardsUpMongodsDown checks the situation when shards count increases and mongods
 // count per shard is decreased - scale down operation is expected to be called only for existing shards
 func TestPrepareScaleDownShardedCluster_ShardsUpMongodsDown(t *testing.T) {
-	t.Skip("This test is too fragile to be executed; it's based on status and not deployment state and test internal interactions that are no longer true. Either we rewrite it to full Reconcile or remove it.")
 	ctx := context.Background()
+
+	initialState := MultiClusterShardedScalingStep{
+		shardCount: 4,
+		shardDistribution: map[string]int{
+			multicluster.LegacyCentralClusterName: 4,
+		},
+	}
+
 	scBeforeScale := test.DefaultClusterBuilder().
-		SetShardCountStatus(4).
 		SetShardCountSpec(4).
-		SetMongodsPerShardCountStatus(4).
 		SetMongodsPerShardCountSpec(4).
 		Build()
 
-	_, reconcileHelper, _, omConnectionFactory, _ := defaultClusterReconciler(ctx, scBeforeScale, nil)
+	scAfterScale := test.DefaultClusterBuilder().
+		SetShardCountSpec(2).
+		SetMongodsPerShardCountSpec(3).
+		Build()
+
+	omConnectionFactory := om.NewCachedOMConnectionFactoryWithInitializedConnection(om.NewMockedOmConnection(createDeploymentFromShardedCluster(t, scBeforeScale)))
+	kubeClient, _ := mock.NewDefaultFakeClient(scAfterScale)
+	assert.NoError(t, createMockStateConfigMap(kubeClient, mock.TestNamespace, scBeforeScale.Name, initialState))
+	_, reconcileHelper, err := newShardedClusterReconcilerFromResource(ctx, scAfterScale, nil, kubeClient, omConnectionFactory)
+	assert.NoError(t, err)
+
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		deployment := createDeploymentFromShardedCluster(t, scBeforeScale)
 		if _, err := connection.UpdateDeployment(deployment); err != nil {
@@ -511,17 +534,6 @@ func TestPrepareScaleDownShardedCluster_ShardsUpMongodsDown(t *testing.T) {
 		connection.(*om.MockedOmConnection).AddHosts(deployment.GetAllHostnames())
 		connection.(*om.MockedOmConnection).CleanHistory()
 	})
-
-	// TODO prepareScaleDownShardedCluster is getting data from deployment state so modify it instead of passing state in MongoDB object
-	scAfterScale := test.DefaultClusterBuilder().
-		SetShardCountStatus(4).
-		SetShardCountSpec(2).
-		SetMongodsPerShardCountStatus(4).
-		SetMongodsPerShardCountSpec(3).
-		Build()
-
-	// necessary otherwise next omConnectionFactory.GetConnection() will return nil as the connectionFactoryFunc hasn't been called yet
-	initializeOMConnection(t, ctx, reconcileHelper, scAfterScale, zap.S(), omConnectionFactory)
 
 	assert.NoError(t, reconcileHelper.prepareScaleDownShardedCluster(omConnectionFactory.GetConnection(), zap.S()))
 
@@ -589,17 +601,34 @@ func initializeOMConnection(t *testing.T, ctx context.Context, reconcileHelper *
 // TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring verifies that if scale down operation was performed -
 // hosts are removed
 func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.T) {
-	t.Skip("This test is too fragile to be executed; it's based on status and not deployment state and test internal interactions that are no longer true. Either we rewrite it to full Reconcile or remove it.")
 	ctx := context.Background()
-	// TODO use deployment state instead of status
+
+	initialState := MultiClusterShardedScalingStep{
+		mongosDistribution: map[string]int{
+			multicluster.LegacyCentralClusterName: 2,
+		},
+		configServerDistribution: map[string]int{
+			multicluster.LegacyCentralClusterName: 4,
+		},
+	}
+
 	sc := test.DefaultClusterBuilder().
-		SetMongosCountStatus(2).
 		SetMongosCountSpec(2).
-		SetConfigServerCountStatus(4).
 		SetConfigServerCountSpec(4).
 		Build()
 
-	_, reconcileHelper, _, omConnectionFactory, _ := defaultClusterReconciler(ctx, sc, nil)
+	// we need to create a different sharded cluster that is currently in the process of scaling down
+	scScaledDown := test.DefaultClusterBuilder().
+		SetMongosCountSpec(1).
+		SetConfigServerCountSpec(3).
+		Build()
+
+	omConnectionFactory := om.NewCachedOMConnectionFactoryWithInitializedConnection(om.NewMockedOmConnection(createDeploymentFromShardedCluster(t, sc)))
+	kubeClient, _ := mock.NewDefaultFakeClient(sc)
+	assert.NoError(t, createMockStateConfigMap(kubeClient, mock.TestNamespace, sc.Name, initialState))
+	_, reconcileHelper, err := newShardedClusterReconcilerFromResource(ctx, scScaledDown, nil, kubeClient, omConnectionFactory)
+	assert.NoError(t, err)
+
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		// the initial deployment we create should have all processes
 		deployment := createDeploymentFromShardedCluster(t, sc)
@@ -609,20 +638,6 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 		connection.(*om.MockedOmConnection).AddHosts(deployment.GetAllHostnames())
 		connection.(*om.MockedOmConnection).CleanHistory()
 	})
-	// necessary otherwise next omConnectionFactory.GetConnection() will return nil as the connectionFactoryFunc hasn't been called yet
-	initializeOMConnection(t, ctx, reconcileHelper, sc, zap.S(), omConnectionFactory)
-
-	// we need to create a different sharded cluster that is currently in the process of scaling down
-	// TODO use deployment state instead of status
-	scScaledDown := test.DefaultClusterBuilder().
-		SetMongosCountStatus(2).
-		SetMongosCountSpec(1).
-		SetConfigServerCountStatus(4).
-		SetConfigServerCountSpec(3).
-		Build()
-
-	// necessary otherwise next omConnectionFactory.GetConnection() will return nil as the connectionFactoryFunc hasn't been called yet
-	initializeOMConnection(t, ctx, reconcileHelper, scScaledDown, zap.S(), omConnectionFactory)
 
 	// updateOmDeploymentShardedCluster checks an element from ac.Auth.DeploymentAuthMechanisms
 	// so we need to ensure it has a non-nil value. An empty list implies no authentication
