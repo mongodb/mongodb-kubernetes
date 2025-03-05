@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -21,6 +22,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
 
+	mcoConstruct "github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -56,14 +58,16 @@ import (
 type ReconcileMongoDbReplicaSet struct {
 	*ReconcileCommonController
 	omConnectionFactory om.ConnectionFactory
+	forceEnterprise     bool
 }
 
 var _ reconcile.Reconciler = &ReconcileMongoDbReplicaSet{}
 
-func newReplicaSetReconciler(ctx context.Context, kubeClient client.Client, omFunc om.ConnectionFactory) *ReconcileMongoDbReplicaSet {
+func newReplicaSetReconciler(ctx context.Context, kubeClient client.Client, forceEnterprise bool, omFunc om.ConnectionFactory) *ReconcileMongoDbReplicaSet {
 	return &ReconcileMongoDbReplicaSet{
 		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:       omFunc,
+		forceEnterprise:           forceEnterprise,
 	}
 }
 
@@ -330,9 +334,9 @@ func (r *ReconcileMongoDbReplicaSet) reconcileHostnameOverrideConfigMap(ctx cont
 
 // AddReplicaSetController creates a new MongoDbReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func AddReplicaSetController(ctx context.Context, mgr manager.Manager) error {
+func AddReplicaSetController(ctx context.Context, mgr manager.Manager, forceEnterprise bool) error {
 	// Create a new controller
-	reconciler := newReplicaSetReconciler(ctx, mgr.GetClient(), om.NewOpsManagerConnection)
+	reconciler := newReplicaSetReconciler(ctx, mgr.GetClient(), forceEnterprise, om.NewOpsManagerConnection)
 	c, err := controller.New(util.MongoDbReplicaSetController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)})
 	if err != nil {
 		return err
@@ -389,6 +393,9 @@ func AddReplicaSetController(ctx context.Context, mgr manager.Manager) error {
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
 func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, conn om.Connection, membersNumberBefore int, rs *mdbv1.MongoDB, set appsv1.StatefulSet, log *zap.SugaredLogger, caFilePath string, agentCertSecretName string, prometheusCertHash string, isRecovering bool) workflow.Status {
+	// FIXME(Mikalai): this will go way in the next iteration where we will be reading form a imagesMap
+	mongoDBImage := os.Getenv(mcoConstruct.MongodbImageEnv)
+
 	log.Debug("Entering UpdateOMDeployments")
 	// Only "concrete" RS members should be observed
 	// - if scaling down, let's observe only members that will remain after scale-down operation
@@ -400,7 +407,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 
 	// If current operation is to Disable TLS, then we should the current members of the Replica Set,
 	// this is, do not scale them up or down util TLS disabling has completed.
-	shouldLockMembers, err := updateOmDeploymentDisableTLSConfiguration(conn, membersNumberBefore, rs, set, log, caFilePath)
+	shouldLockMembers, err := updateOmDeploymentDisableTLSConfiguration(conn, mongoDBImage, r.forceEnterprise, membersNumberBefore, rs, set, log, caFilePath)
 	if err != nil && !isRecovering {
 		return workflow.Failed(err)
 	}
@@ -414,7 +421,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 		updatedMembers = int(*set.Spec.Replicas)
 	}
 
-	replicaSet := replicaset.BuildFromStatefulSetWithReplicas(set, rs.GetSpec(), updatedMembers, rs.CalculateFeatureCompatibilityVersion())
+	replicaSet := replicaset.BuildFromStatefulSetWithReplicas(mongoDBImage, r.forceEnterprise, set, rs.GetSpec(), updatedMembers, rs.CalculateFeatureCompatibilityVersion())
 	processNames := replicaSet.GetProcessNames()
 
 	internalClusterPath := ""
@@ -483,7 +490,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 // updateOmDeploymentDisableTLSConfiguration checks if TLS configuration needs
 // to be disabled. In which case it will disable it and inform to the calling
 // function.
-func updateOmDeploymentDisableTLSConfiguration(conn om.Connection, membersNumberBefore int, rs *mdbv1.MongoDB, set appsv1.StatefulSet, log *zap.SugaredLogger, caFilePath string) (bool, error) {
+func updateOmDeploymentDisableTLSConfiguration(conn om.Connection, mongoDBImage string, forceEnterprise bool, membersNumberBefore int, rs *mdbv1.MongoDB, set appsv1.StatefulSet, log *zap.SugaredLogger, caFilePath string) (bool, error) {
 	tlsConfigWasDisabled := false
 
 	err := conn.ReadUpdateDeployment(
@@ -497,7 +504,7 @@ func updateOmDeploymentDisableTLSConfiguration(conn om.Connection, membersNumber
 
 			// configure as many agents/Pods as we currently have, no more (in case
 			// there's a scale up change at the same time).
-			replicaSet := replicaset.BuildFromStatefulSetWithReplicas(set, rs.GetSpec(), membersNumberBefore, rs.CalculateFeatureCompatibilityVersion())
+			replicaSet := replicaset.BuildFromStatefulSetWithReplicas(mongoDBImage, forceEnterprise, set, rs.GetSpec(), membersNumberBefore, rs.CalculateFeatureCompatibilityVersion())
 
 			lastConfig, err := rs.GetLastAdditionalMongodConfigByType(mdbv1.ReplicaSetConfig)
 			if err != nil {

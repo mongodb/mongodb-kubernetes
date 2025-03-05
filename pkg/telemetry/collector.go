@@ -209,7 +209,7 @@ func getMdbEvents(ctx context.Context, operatorClusterClient kubeclient.Client, 
 			properties := DeploymentUsageSnapshotProperties{
 				DeploymentUID:            string(item.UID),
 				OperatorID:               operatorUUID,
-				Architecture:             architectures.GetArchitecture(item.Annotations),
+				Architecture:             string(architectures.GetArchitecture(item.Annotations)),
 				IsMultiCluster:           item.Spec.IsMultiCluster(),
 				Type:                     string(item.Spec.GetResourceType()),
 				IsRunningEnterpriseImage: construct.DeploymentIsEnterpriseImage(item.Annotations),
@@ -238,7 +238,7 @@ func addMultiEvents(ctx context.Context, operatorClusterClient kubeclient.Client
 			DatabaseClusters:         ptr.To(clusters), // cannot be null in mdbmulti
 			DeploymentUID:            string(item.UID),
 			OperatorID:               operatorUUID,
-			Architecture:             architectures.GetArchitecture(item.Annotations),
+			Architecture:             string(architectures.GetArchitecture(item.Annotations)),
 			IsMultiCluster:           true,
 			Type:                     string(item.Spec.GetResourceType()),
 			IsRunningEnterpriseImage: construct.DeploymentIsEnterpriseImage(item.Annotations),
@@ -263,7 +263,7 @@ func addOmEvents(ctx context.Context, operatorClusterClient kubeclient.Client, o
 			properties := DeploymentUsageSnapshotProperties{
 				DeploymentUID:            string(item.UID),
 				OperatorID:               operatorUUID,
-				Architecture:             architectures.GetArchitecture(item.Annotations),
+				Architecture:             string(architectures.GetArchitecture(item.Annotations)),
 				IsMultiCluster:           item.Spec.IsMultiCluster(),
 				Type:                     "OpsManager",
 				IsRunningEnterpriseImage: construct.AppDBIsEnterpriseImage(),

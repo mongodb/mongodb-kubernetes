@@ -71,52 +71,50 @@ func TestIsRunningStaticArchitecture(t *testing.T) {
 
 func TestGetMongoVersion(t *testing.T) {
 	tests := []struct {
-		name    string
-		version string
-		want    string
-		envs    func(t *testing.T)
+		name            string
+		mongoDBImage    string
+		version         string
+		forceEnterprise bool
+		architecture    DefaultArchitecture
+		want            string
 	}{
 		{
-			name:    "nothing",
-			version: "8.0.0",
-			want:    "8.0.0",
-			envs: func(t *testing.T) {
-			},
+			name:            "nothing",
+			mongoDBImage:    "",
+			version:         "8.0.0",
+			forceEnterprise: false,
+			architecture:    NonStatic,
+			want:            "8.0.0",
 		},
 		{
-			name:    "enterprise repo",
-			version: "8.0.0",
-			want:    "8.0.0-ent",
-			envs: func(t *testing.T) {
-				t.Setenv("MONGODB_IMAGE", "quay.io/mongodb/mongodb-enterprise-server")
-				t.Setenv(DefaultEnvArchitecture, string(Static))
-			},
+			name:            "enterprise repo",
+			mongoDBImage:    "quay.io/mongodb/mongodb-enterprise-server",
+			version:         "8.0.0",
+			forceEnterprise: false,
+			architecture:    Static,
+			want:            "8.0.0-ent",
 		},
 		{
-			name:    "community repo",
-			version: "8.0.0",
-			want:    "8.0.0",
-			envs: func(t *testing.T) {
-				t.Setenv("MONGODB_IMAGE", "quay.io/mongodb/mongodb-community-server")
-			},
+			name:            "community repo",
+			mongoDBImage:    "quay.io/mongodb/mongodb-community-server",
+			version:         "8.0.0",
+			forceEnterprise: false,
+			architecture:    NonStatic,
+			want:            "8.0.0",
 		},
 		{
-			name:    "enterprise repo forced",
-			version: "8.0.0",
-			want:    "8.0.0-ent",
-			envs: func(t *testing.T) {
-				t.Setenv("MONGODB_IMAGE", "quay.io/mongodb/mongodb-private-server")
-				t.Setenv("MDB_ASSUME_ENTERPRISE_IMAGE", "True")
-				t.Setenv(DefaultEnvArchitecture, string(Static))
-			},
+			name:            "enterprise repo forced",
+			mongoDBImage:    "quay.io/mongodb/mongodb-private-server",
+			version:         "8.0.0",
+			forceEnterprise: true,
+			architecture:    Static,
+			want:            "8.0.0-ent",
 		},
 	}
 	for _, tt := range tests {
-		testConfig := tt
-		t.Run(testConfig.name, func(t *testing.T) {
-			testConfig.envs(t)
-			if got := GetMongoVersionForAutomationConfig(testConfig.version, nil); got != testConfig.want {
-				t.Errorf("GetMongoVersionForAutomationConfig() = %v, want %v", got, testConfig.want)
+		t.Run(tt.name, func(t *testing.T) {
+			if got := GetMongoVersionForAutomationConfig(tt.mongoDBImage, tt.version, tt.forceEnterprise, tt.architecture); got != tt.want {
+				t.Errorf("GetMongoVersionForAutomationConfig() = %v, want %v", got, tt.want)
 			}
 		})
 	}

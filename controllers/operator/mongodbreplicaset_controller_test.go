@@ -65,7 +65,7 @@ func TestCreateReplicaSet(t *testing.T) {
 	assert.Equal(t, *sts.Spec.Replicas, int32(3))
 
 	connection := omConnectionFactory.GetConnection()
-	connection.(*om.MockedOmConnection).CheckDeployment(t, deployment.CreateFromReplicaSet(rs), "auth", "ssl")
+	connection.(*om.MockedOmConnection).CheckDeployment(t, deployment.CreateFromReplicaSet("fake-mongoDBImage", false, rs), "auth", "ssl")
 	connection.(*om.MockedOmConnection).CheckNumberOfUpdateRequests(t, 2)
 }
 
@@ -90,7 +90,7 @@ func TestReplicaSetRace(t *testing.T) {
 			Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, true),
 		}).Build()
 
-	reconciler := newReplicaSetReconciler(ctx, fakeClient, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, false, omConnectionFactory.GetConnectionFunc)
 
 	testConcurrentReconciles(ctx, t, fakeClient, reconciler, rs, rs2, rs3)
 }
@@ -175,7 +175,7 @@ func TestHorizonVerificationCount(t *testing.T) {
 //	assert.Equal(t, set.Spec, updatedSet.Spec)
 //
 //	connection := omConnectionFactory.GetConnection()
-//	connection.(*om.MockedOmConnection).CheckDeployment(t, deployment.CreateFromReplicaSet(rs), "auth", "tls")
+//	connection.(*om.MockedOmConnection).CheckDeployment(t, deployment.CreateFromReplicaSet("fake-mongoDBImage", false, rs), "auth", "tls")
 //	connection.(*om.MockedOmConnection).CheckNumberOfUpdateRequests(t, 4)
 //}
 
@@ -316,28 +316,28 @@ func TestCreateReplicaSet_TLS(t *testing.T) {
 func TestUpdateDeploymentTLSConfiguration(t *testing.T) {
 	rsWithTLS := mdbv1.NewReplicaSetBuilder().SetSecurityTLSEnabled().Build()
 	rsNoTLS := mdbv1.NewReplicaSetBuilder().Build()
-	deploymentWithTLS := deployment.CreateFromReplicaSet(rsWithTLS)
-	deploymentNoTLS := deployment.CreateFromReplicaSet(rsNoTLS)
+	deploymentWithTLS := deployment.CreateFromReplicaSet("fake-mongoDBImage", false, rsWithTLS)
+	deploymentNoTLS := deployment.CreateFromReplicaSet("fake-mongoDBImage", false, rsNoTLS)
 	stsWithTLS := construct.DatabaseStatefulSet(*rsWithTLS, construct.ReplicaSetOptions(construct.GetPodEnvOptions()), zap.S())
 	stsNoTLS := construct.DatabaseStatefulSet(*rsNoTLS, construct.ReplicaSetOptions(construct.GetPodEnvOptions()), zap.S())
 
 	// TLS Disabled -> TLS Disabled
-	shouldLockMembers, err := updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentNoTLS), 3, rsNoTLS, stsNoTLS, zap.S(), util.CAFilePathInContainer)
+	shouldLockMembers, err := updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentNoTLS), "fake-mongoDBImage", false, 3, rsNoTLS, stsNoTLS, zap.S(), util.CAFilePathInContainer)
 	assert.NoError(t, err)
 	assert.False(t, shouldLockMembers)
 
 	// TLS Disabled -> TLS Enabled
-	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentNoTLS), 3, rsWithTLS, stsWithTLS, zap.S(), util.CAFilePathInContainer)
+	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentNoTLS), "fake-mongoDBImage", false, 3, rsWithTLS, stsWithTLS, zap.S(), util.CAFilePathInContainer)
 	assert.NoError(t, err)
 	assert.False(t, shouldLockMembers)
 
 	// TLS Enabled -> TLS Enabled
-	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentWithTLS), 3, rsWithTLS, stsWithTLS, zap.S(), util.CAFilePathInContainer)
+	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentWithTLS), "fake-mongoDBImage", false, 3, rsWithTLS, stsWithTLS, zap.S(), util.CAFilePathInContainer)
 	assert.NoError(t, err)
 	assert.False(t, shouldLockMembers)
 
 	// TLS Enabled -> TLS Disabled
-	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentWithTLS), 3, rsNoTLS, stsNoTLS, zap.S(), util.CAFilePathInContainer)
+	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentWithTLS), "fake-mongoDBImage", false, 3, rsNoTLS, stsNoTLS, zap.S(), util.CAFilePathInContainer)
 	assert.NoError(t, err)
 	assert.True(t, shouldLockMembers)
 }
@@ -350,7 +350,7 @@ func TestCreateDeleteReplicaSet(t *testing.T) {
 
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
-	reconciler := newReplicaSetReconciler(ctx, fakeClient, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, false, omConnectionFactory.GetConnectionFunc)
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
 	omConn := omConnectionFactory.GetConnection()
@@ -489,7 +489,7 @@ func TestFeatureControlPolicyAndTagAddedWithNewerOpsManager(t *testing.T) {
 
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
-	reconciler := newReplicaSetReconciler(ctx, fakeClient, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, false, omConnectionFactory.GetConnectionFunc)
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
 
@@ -513,7 +513,7 @@ func TestFeatureControlPolicyNoAuthNewerOpsManager(t *testing.T) {
 
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
-	reconciler := newReplicaSetReconciler(ctx, fakeClient, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, false, omConnectionFactory.GetConnectionFunc)
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
 
@@ -923,7 +923,7 @@ func assertCorrectNumberOfMembersAndProcesses(ctx context.Context, t *testing.T,
 
 func defaultReplicaSetReconciler(ctx context.Context, rs *mdbv1.MongoDB) (*ReconcileMongoDbReplicaSet, kubernetesClient.Client, *om.CachedOMConnectionFactory) {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
-	return newReplicaSetReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc), kubeClient, omConnectionFactory
+	return newReplicaSetReconciler(ctx, kubeClient, false, omConnectionFactory.GetConnectionFunc), kubeClient, omConnectionFactory
 }
 
 // newDefaultPodSpec creates pod spec with default values,sets only the topology key and persistence sizes,
