@@ -64,12 +64,10 @@ func IsRunningStaticArchitecture(annotations map[string]string) bool {
 }
 
 func GetArchitecture(annotations map[string]string) DefaultArchitecture {
-	isStatic := IsRunningStaticArchitecture(annotations)
-	architecture := NonStatic
-	if isStatic {
-		architecture = Static
+	if IsRunningStaticArchitecture(annotations) {
+		return Static
 	}
-	return architecture
+	return NonStatic
 }
 
 // GetMongoVersionForAutomationConfig returns the required version with potentially the suffix -ent.
