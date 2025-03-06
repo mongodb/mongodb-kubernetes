@@ -402,8 +402,6 @@ func main() {
 				fmt.Fprintf(os.Stderr, "  %v\n", err)
 			}
 		}
-		// TODO: once the script has been used for a while without problem, remove reset.sh and below line
-		fmt.Fprintf(os.Stderr, "reset.go is a new script, you can try using scripts/dev/reset.sh instead\n")
 		os.Exit(1)
 	}
 

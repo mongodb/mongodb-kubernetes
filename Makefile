@@ -99,9 +99,9 @@ e2e-telepresence: build-and-push-test-image
 recreate-e2e-kops:
 	@ scripts/dev/recreate_e2e_kops.sh $(imsure) $(cluster)
 
-# clean all kubernetes cluster resources and OM state. "light=true" to clean only Mongodb resources
+# clean all kubernetes cluster resources and OM state
 reset:
-	@ scripts/dev/reset.sh $(light)
+	go run scripts/dev/reset.go
 
 status:
 	@ scripts/dev/status
