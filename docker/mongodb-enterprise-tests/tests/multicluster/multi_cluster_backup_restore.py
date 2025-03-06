@@ -511,7 +511,6 @@ class TestBackupForMongodb:
 
     @mark.e2e_multi_cluster_backup_restore
     def test_data_got_restored(self, mongodb_multi_one_collection, mdb_client):
-        wait_for_mongodb_restore(mdb_client)
         assert_data_got_restored(TEST_DATA, mongodb_multi_one_collection, timeout=1200)
 
 
@@ -520,49 +519,3 @@ def time_to_millis(date_time) -> int:
     epoch = datetime.datetime.utcfromtimestamp(0)
     pit_millis = (date_time - epoch).total_seconds() * 1000
     return pit_millis
-
-
-def wait_for_mongodb_restore(mongodb_client, timeout=600):
-    """
-    ✅ Waits for MongoDB oplog rollback or restore process to complete before testing restored data.
-    """
-    print("\n⏳ Waiting for MongoDB to complete PIT restore and apply all oplog changes...")
-    start_time = time.time()
-
-    while time.time() - start_time < timeout:
-        try:
-            # ✅ Check if MongoDB is in rollback state
-            repl_status = mongodb_client.admin.command("replSetGetStatus")
-            recovery_state = repl_status["myState"]
-
-            if recovery_state in [1, 2]:  # Primary (1) or Secondary (2)
-                print("✅ MongoDB is now primary or secondary, restore should be done!")
-
-                # ✅ Double-check oplog.rs to confirm changes are applied
-                latest_oplog_entry = get_latest_oplog_timestamp(mongodb_client)
-                if latest_oplog_entry is not None:
-                    print(f"✅ Oplog applied up to: {latest_oplog_entry}")
-                    return
-
-            print(f"🔄 MongoDB state: {recovery_state} (Waiting...)")
-        except Exception as e:
-            print(f"⚠️ Error checking MongoDB restore state: {e}")
-
-        time.sleep(10)
-
-    raise Exception("❌ MongoDB restore did not complete in time!")
-
-
-def get_latest_oplog_timestamp(mongodb_client):
-    """✅ Retrieves the latest oplog timestamp to confirm all changes are applied."""
-    try:
-        oplog = mongodb_client.local["oplog.rs"]
-        latest_oplog = oplog.find().sort("$natural", -1).limit(1)
-
-        for entry in latest_oplog:
-            return entry["ts"]
-
-        return None  # No oplog entries found
-    except Exception as e:
-        print(f"⚠️ Error fetching oplog timestamp: {e}")
-        return None
