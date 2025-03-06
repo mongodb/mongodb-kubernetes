@@ -1,5 +1,6 @@
 ---
 # Source: enterprise-operator/templates/operator-roles.yaml
+---
 # Additional ClusterRole for clusterVersionDetection
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
@@ -28,7 +29,6 @@ rules:
       - list
 ---
 # Source: enterprise-operator/templates/operator-roles.yaml
----
 # ClusterRoleBinding for clusterVersionDetection
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
