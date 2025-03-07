@@ -38,7 +38,7 @@ EVERGREEN_API="https://evergreen.mongodb.com/api"
 MAX_RETRIES="${EVERGREEN_MAX_RETRIES:-3}"
 
 # shellcheck disable=SC2207
-BUILD_IDS=($(curl -s -H "Api-User: ${EVERGREEN_USER}" -H "Api-Key: ${EVERGREEN_API_KEY}" ${EVERGREEN_API}/rest/v2/versions/"${VERSION}" | jq -r '.build_variants_status[] | select(.build_variant!="unit_tests") | .build_id'))
+BUILD_IDS=($(curl -s -H "Api-User: ${EVERGREEN_USER}" -H "Api-Key: ${EVERGREEN_API_KEY}" ${EVERGREEN_API}/rest/v2/versions/"${VERSION}" | jq -r '.build_variants_status[] | select(.build_variant != "unit_tests" and .build_variant != "run_pre_commit") | .build_id'))
 
 for BUILD_ID in "${BUILD_IDS[@]}"; do
   echo "Finding failed tasks in BUILD ID: ${BUILD_ID}"

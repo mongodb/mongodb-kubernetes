@@ -194,6 +194,8 @@ github_pr_aliases:
     task_tags: [ "unit_tests" ]
   - variant_tags: [ "e2e_test_suite" ]
     task_tags: [ "patch-run" ]
+  - variant_tags: [ "auto_bump" ]
+    task_tags: [ "patch-run" ]
 
 # Allows to see evergreen checks in GitHub commits
 # https://github.com/10gen/ops-manager-kubernetes/commits/master/
@@ -315,6 +317,24 @@ tasks:
         vars:
           image_name: agent-pct
           include_tags: release
+
+  - name: run_precommit_and_push
+    tags: ["patch-run"]
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: download_kube_tools
+      - func: setup_shellcheck
+      - command: github.generate_token
+        params:
+          expansion_name: GH_TOKEN
+      - command: subprocess.exec
+        type: setup
+        params:
+          include_expansions_in_env:
+            - GH_TOKEN
+          working_dir: src/github.com/10gen/ops-manager-kubernetes
+          binary: scripts/evergreen/precommit_bump.sh
 
   # Pct only triggers this variant once a new agent image is out
   # these releases the agent with the operator suffix (not patch id) on ecr to allow for digest pinning to pass.
@@ -1509,6 +1529,16 @@ buildvariants:
       - ubuntu2204-large
     tasks:
       - name: release_agents_on_ecr_conditional
+
+  - name: run_pre_commit
+    priority: 70
+    display_name: run_pre_commit
+    allowed_requesters: [ "patch", "github_pr" ]
+    tags: [ "auto_bump" ]
+    run_on:
+      - ubuntu2204-small
+    tasks:
+      - name: run_precommit_and_push
 
   - name: init_tests_with_olm
     display_name: init_tests_with_olm
