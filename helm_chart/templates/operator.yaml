@@ -104,15 +104,15 @@ spec:
               value: "false"
     {{- end }}
     {{- if eq $telemetry.collection.clusters.enabled false }}
-            - name: MDB_OPERATOR_TELEMETRY_CLUSTERS_ENABLED
+            - name: MDB_OPERATOR_TELEMETRY_COLLECTION_CLUSTERS_ENABLED
               value: "false"
     {{- end }}
     {{- if eq $telemetry.collection.deployments.enabled false }}
-            - name: MDB_OPERATOR_TELEMETRY_DEPLOYMENTS_ENABLED
+            - name: MDB_OPERATOR_TELEMETRY_COLLECTION_DEPLOYMENTS_ENABLED
               value: "false"
     {{- end }}
     {{- if eq $telemetry.collection.operators.enabled false }}
-            - name: MDB_OPERATOR_TELEMETRY_OPERATORS_ENABLED
+            - name: MDB_OPERATOR_TELEMETRY_COLLECTION_OPERATORS_ENABLED
               value: "false"
     {{- end }}
     {{- if $telemetry.collection.frequency}}
