@@ -21,6 +21,7 @@ cache
 **/env*/
 *.bak
 **/pytest_cache/
+tmp/*
 bin/*
 **/*.iml
 helm_out
@@ -89,3 +90,4 @@ docker/mongodb-enterprise-tests/.test_identifiers*
 
 logs-debug/
 /ssdlc-report/*
+.gocache/
