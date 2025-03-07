@@ -769,6 +769,7 @@ def should_include_tag(version: Optional[Dict[str, str]]) -> bool:
     Manager.
 
     """
+
     feature_controls_enabled_version = "4.2.2"
     if version is None:
         return True
