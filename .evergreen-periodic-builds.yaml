@@ -25,6 +25,14 @@ tasks:
         vars:
           image_name: operator-daily
 
+  - name: periodic_teardown_aws
+    commands:
+      - func: cleanup_aws
+
+  - name: periodic_teardown_cloudqa
+    commands:
+      - func: teardown_cloud_qa_all
+
   - name: periodic_build_init_appdb
     commands:
       - func: pipeline
@@ -134,10 +142,6 @@ tasks:
     commands:
       - func: build_and_push_appdb_database
 
-  - name: teardowns
-    commands:
-      - func: teardown_cloud_qa_all
-
 task_groups:
   - name: periodic_build_task_group
     max_hosts: -1
@@ -164,7 +168,8 @@ task_groups:
   - name: periodic_teardown_task_group
     <<: *setup_group
     tasks:
-      - teardowns
+      - periodic_teardown_aws
+      - periodic_teardown_cloudqa
 
 buildvariants:
   - name: periodic_teardown
