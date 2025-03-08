@@ -3,8 +3,13 @@
 # MongoDB Enterprise Kubernetes Operator 1.32.0
 
 ## New Features
+* **General Availability - Multi Cluster Sharded Clusters:** Support configuring highly available MongoDB Sharded Clusters across multiple Kubernetes clusters.
+  - `MongoDB` resources of type Sharded Cluster now support both single and multi cluster topologies.
+  - The implementation is backwards compatible with single cluster deployments of MongoDB Sharded Clusters, by defaulting `spec.topology` to `SingleCluster`. Existing `MongoDB` resources do not need to be modified to upgrade to this version of the operator.
+  - Introduced support for Sharded deployments across multiple Kubernetes clusters without requiring a Service Mesh - the is made possible by enabling all components of such a deployment (including mongos, config servers, and mongod) to be exposed externally to the Kubernetes clusters, which enables routing via external interfaces.
+  - More details can be found in the [public documentation](https://www.mongodb.com/docs/kubernetes-operator/current/reference/k8s-operator-specification/#sharded-cluster-settings).
 * Adding opt-out anonymized telemetry to the operator. The data does not contain any Personally Identifiable Information
-  (PII) or even data that can be tied back to any specific customer or company. More can be read [here](https://www.mongodb.com/docs/kubernetes-operator/current/reference/meko-telemetry), this link further elaborates on the following topics:
+(PII) or even data that can be tied back to any specific customer or company. More can be read [public documentation](https://www.mongodb.com/docs/kubernetes-operator/current/reference/meko-telemetry), this link further elaborates on the following topics:
   * What data is included in the telemetry
   * How to disable telemetry
   * What RBACs are added and why they are required
@@ -16,6 +21,7 @@
 * Fixed a bug when deploying a Multi-Cluster sharded resource with an external access configuration could result in pods not being able to reach each others.
 * Fixed a bug when setting `spec.fcv = AlwaysMatchVersion` and `agentAuth` to be `SCRAM` causes the operator to set the auth value to be `SCRAM-SHA-1` instead of `SCRAM-SHA-256`.
 
+<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.31.0
 
 ## Kubernetes versions
