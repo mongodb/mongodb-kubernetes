@@ -2,11 +2,11 @@
   "mongodbToolsBundle": {
     "ubi": "mongodb-database-tools-rhel88-x86_64-100.10.0.tgz"
   },
-  "mongodbOperator": "1.31.0",
-  "initDatabaseVersion": "1.31.0",
-  "initOpsManagerVersion": "1.31.0",
-  "initAppDbVersion": "1.31.0",
-  "databaseImageVersion": "1.31.0",
+  "mongodbOperator": "1.32.0",
+  "initDatabaseVersion": "1.32.0",
+  "initOpsManagerVersion": "1.32.0",
+  "initAppDbVersion": "1.32.0",
+  "databaseImageVersion": "1.32.0",
   "agentVersion": "108.0.2.8729-1",
   "openshift": {
     "minimumSupportedVersion": "4.6"
@@ -107,7 +107,8 @@
         "1.28.0",
         "1.29.0",
         "1.30.0",
-        "1.31.0"
+        "1.31.0",
+        "1.32.0"
       ],
       "variants": [
         "ubi"
@@ -265,7 +266,8 @@
         "1.28.0",
         "1.29.0",
         "1.30.0",
-        "1.31.0"
+        "1.31.0",
+        "1.32.0"
       ],
       "variants": [
         "ubi"
@@ -294,7 +296,8 @@
         "1.28.0",
         "1.29.0",
         "1.30.0",
-        "1.31.0"
+        "1.31.0",
+        "1.32.0"
       ],
       "variants": [
         "ubi"
@@ -322,7 +325,8 @@
         "1.28.0",
         "1.29.0",
         "1.30.0",
-        "1.31.0"
+        "1.31.0",
+        "1.32.0"
       ],
       "variants": [
         "ubi"
@@ -341,7 +345,8 @@
         "1.28.0",
         "1.29.0",
         "1.30.0",
-        "1.31.0"
+        "1.31.0",
+        "1.32.0"
       ],
       "variants": [
         "ubi"
