@@ -78,15 +78,21 @@ type ReconcileMongoDbShardedCluster struct {
 	memberClustersMap   map[string]client.Client
 	imageUrls           construct.ImageUrls
 	forceEnterprise     bool
+
+	initDatabaseNonStaticImageVersion string
+	databaseNonStaticImageVersion     string
 }
 
-func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, imageUrls construct.ImageUrls, forceEnterprise bool, memberClusterMap map[string]client.Client, omFunc om.ConnectionFactory) *ReconcileMongoDbShardedCluster {
+func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, imageUrls construct.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, memberClusterMap map[string]client.Client, omFunc om.ConnectionFactory) *ReconcileMongoDbShardedCluster {
 	return &ReconcileMongoDbShardedCluster{
 		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:       omFunc,
 		memberClustersMap:         memberClusterMap,
 		forceEnterprise:           forceEnterprise,
 		imageUrls:                 imageUrls,
+
+		initDatabaseNonStaticImageVersion: initDatabaseNonStaticImageVersion,
+		databaseNonStaticImageVersion:     databaseNonStaticImageVersion,
 	}
 }
 
@@ -649,17 +655,13 @@ type ShardedClusterReconcileHelper struct {
 	stateStore *StateStore[ShardedClusterDeploymentState]
 }
 
-func NewShardedClusterReconcilerHelper(ctx context.Context, reconciler *ReconcileCommonController, imageUrls construct.ImageUrls, forceEnterprise bool, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, omConnectionFactory om.ConnectionFactory, log *zap.SugaredLogger) (*ShardedClusterReconcileHelper, error) {
+func NewShardedClusterReconcilerHelper(ctx context.Context, reconciler *ReconcileCommonController, imageUrls construct.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, omConnectionFactory om.ConnectionFactory, log *zap.SugaredLogger) (*ShardedClusterReconcileHelper, error) {
 	// It's a workaround for single cluster topology to add there __default cluster.
 	// With the multi-cluster sharded refactor, we went so far with the multi-cluster first approach so we have very few places with conditional single/multi logic.
 	// Therefore, some parts of the reconciler logic uses that globalMemberClusterMap even in single-cluster mode (look for usages of createShardsMemberClusterLists) and expect
 	// to have __default member cluster defined in the globalMemberClustersMap as the __default member cluster is artificially added in initializeMemberClusters to clusterSpecList
 	// in single-cluster mode to simulate it's a special case of multi-cluster run.
 	globalMemberClustersMap = multicluster.InitializeGlobalMemberClusterMapForSingleCluster(globalMemberClustersMap, reconciler.client)
-
-	// FIXME(Mikalai): move env var read up the call stack
-	initDatabaseNonStaticImageVersion := env.ReadOrDefault(construct.InitDatabaseVersionEnv, "latest")
-	databaseNonStaticImageVersion := env.ReadOrDefault(construct.DatabaseVersionEnv, "latest")
 
 	helper := &ShardedClusterReconcileHelper{
 		commonController:    reconciler,
@@ -792,7 +794,7 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 		return reconcileResult, err
 	}
 
-	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.forceEnterprise, sc, r.memberClustersMap, r.omConnectionFactory, log)
+	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, sc, r.memberClustersMap, r.omConnectionFactory, log)
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(xerrors.Errorf("Failed to initialize sharded cluster reconciler: %w", err)), log)
 	}
@@ -801,7 +803,7 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 
 // OnDelete tries to complete a Deletion reconciliation event
 func (r *ReconcileMongoDbShardedCluster) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
-	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.forceEnterprise, obj.(*mdbv1.MongoDB), r.memberClustersMap, r.omConnectionFactory, log)
+	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, obj.(*mdbv1.MongoDB), r.memberClustersMap, r.omConnectionFactory, log)
 	if err != nil {
 		return err
 	}
@@ -1614,9 +1616,9 @@ func (r *ShardedClusterReconcileHelper) deleteClusterResources(ctx context.Conte
 	return errs
 }
 
-func AddShardedClusterController(ctx context.Context, mgr manager.Manager, imageUrls construct.ImageUrls, forceEnterprise bool, memberClustersMap map[string]cluster.Cluster) error {
+func AddShardedClusterController(ctx context.Context, mgr manager.Manager, imageUrls construct.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, memberClustersMap map[string]cluster.Cluster) error {
 	// Create a new controller
-	reconciler := newShardedClusterReconciler(ctx, mgr.GetClient(), imageUrls, forceEnterprise, multicluster.ClustersMapToClientMap(memberClustersMap), om.NewOpsManagerConnection)
+	reconciler := newShardedClusterReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, multicluster.ClustersMapToClientMap(memberClustersMap), om.NewOpsManagerConnection)
 	options := controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}
 	c, err := controller.New(util.MongoDbShardedClusterController, mgr, options)
 	if err != nil {

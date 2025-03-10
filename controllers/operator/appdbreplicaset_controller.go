@@ -117,15 +117,17 @@ type ReconcileAppDbReplicaSet struct {
 	stateStore      *StateStore[AppDBDeploymentState]
 	deploymentState *AppDBDeploymentState
 
-	imageUrls construct.ImageUrls
+	imageUrls        construct.ImageUrls
+	initAppdbVersion string
 }
 
-func NewAppDBReplicaSetReconciler(ctx context.Context, imageUrls construct.ImageUrls, appDBSpec omv1.AppDBSpec, commonController *ReconcileCommonController, omConnectionFactory om.ConnectionFactory, omAnnotations map[string]string, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
+func NewAppDBReplicaSetReconciler(ctx context.Context, imageUrls construct.ImageUrls, initAppdbVersion string, appDBSpec omv1.AppDBSpec, commonController *ReconcileCommonController, omConnectionFactory om.ConnectionFactory, omAnnotations map[string]string, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
 	reconciler := &ReconcileAppDbReplicaSet{
 		ReconcileCommonController: commonController,
 		omConnectionFactory:       omConnectionFactory,
 		centralClient:             commonController.client,
 		imageUrls:                 imageUrls,
+		initAppdbVersion:          initAppdbVersion,
 	}
 
 	if err := reconciler.initializeStateStore(ctx, appDBSpec, omAnnotations, log); err != nil {
@@ -553,11 +555,8 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 		}
 	}
 
-	// FIXME(Mikalai): move env var read up the call stack
-	version := env.ReadOrDefault(construct.InitAppdbVersionEnv, "latest")
-
 	appdbOpts := construct.AppDBStatefulSetOptions{
-		InitAppDBImage: construct.ContainerImage(r.imageUrls, util.InitAppdbImageUrlEnv, version),
+		InitAppDBImage: construct.ContainerImage(r.imageUrls, util.InitAppdbImageUrlEnv, r.initAppdbVersion),
 		MongodbImage:   construct.GetOfficialImage(r.imageUrls, opsManager.Spec.AppDB.Version, opsManager.GetAnnotations()),
 	}
 	if architectures.IsRunningStaticArchitecture(opsManager.Annotations) {
