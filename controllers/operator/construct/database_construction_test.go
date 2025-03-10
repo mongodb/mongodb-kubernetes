@@ -31,8 +31,7 @@ func init() {
 }
 
 func Test_buildDatabaseInitContainer(t *testing.T) {
-	tag := env.ReadOrDefault(InitDatabaseVersionEnv, "latest")
-	modification := buildDatabaseInitContainer()
+	modification := buildDatabaseInitContainer("quay.io/mongodb/mongodb-enterprise-init-database:latest")
 	container := &corev1.Container{}
 	modification(container)
 	expectedVolumeMounts := []corev1.VolumeMount{{
@@ -42,7 +41,7 @@ func Test_buildDatabaseInitContainer(t *testing.T) {
 	}}
 	expectedContainer := &corev1.Container{
 		Name:         InitDatabaseContainerName,
-		Image:        "quay.io/mongodb/mongodb-enterprise-init-database:" + tag,
+		Image:        "quay.io/mongodb/mongodb-enterprise-init-database:latest",
 		VolumeMounts: expectedVolumeMounts,
 		SecurityContext: &corev1.SecurityContext{
 			ReadOnlyRootFilesystem:   ptr.To(true),
@@ -236,36 +235,43 @@ func TestContainerImage(t *testing.T) {
 	t.Setenv(initDatabaseRelatedImageEnv3, "quay.io/mongodb/mongodb-enterprise-init-database@sha256:f1a7f49cd6533d8ca9425f25cdc290d46bb883997f07fac83b66cc799313adad")
 
 	// there is no related image for 0.0.1
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-database:0.0.1", ContainerImage(util.InitDatabaseImageUrlEnv, "0.0.1", nil))
+	imageUrls := LoadImageUrlsFromEnv()
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-database:0.0.1", ContainerImage(imageUrls, util.InitDatabaseImageUrlEnv, "0.0.1"))
 	// for 10.2.25.6008-1 there is no RELATED_IMAGE variable set, so we use input instead of digest
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-database:10.2.25.6008-1", ContainerImage(util.InitDatabaseImageUrlEnv, "10.2.25.6008-1", nil))
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-database:10.2.25.6008-1", ContainerImage(imageUrls, util.InitDatabaseImageUrlEnv, "10.2.25.6008-1"))
 	// for following versions we set RELATED_IMAGE_MONGODB_IMAGE_* env variables to sha256 digest
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-database@sha256:608daf56296c10c9bd02cc85bb542a849e9a66aff0697d6359b449540696b1fd", ContainerImage(util.InitDatabaseImageUrlEnv, "1.0.0", nil))
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-database@sha256:b631ee886bb49ba8d7b90bb003fe66051dadecbc2ac126ac7351221f4a7c377c", ContainerImage(util.InitDatabaseImageUrlEnv, "12.0.4.7554-1", nil))
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-database@sha256:f1a7f49cd6533d8ca9425f25cdc290d46bb883997f07fac83b66cc799313adad", ContainerImage(util.InitDatabaseImageUrlEnv, "2.0.0-b20220912000000", nil))
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-database@sha256:608daf56296c10c9bd02cc85bb542a849e9a66aff0697d6359b449540696b1fd", ContainerImage(imageUrls, util.InitDatabaseImageUrlEnv, "1.0.0"))
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-database@sha256:b631ee886bb49ba8d7b90bb003fe66051dadecbc2ac126ac7351221f4a7c377c", ContainerImage(imageUrls, util.InitDatabaseImageUrlEnv, "12.0.4.7554-1"))
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-database@sha256:f1a7f49cd6533d8ca9425f25cdc290d46bb883997f07fac83b66cc799313adad", ContainerImage(imageUrls, util.InitDatabaseImageUrlEnv, "2.0.0-b20220912000000"))
 
 	// env var has input already, so it is replaced
 	t.Setenv(util.InitAppdbImageUrlEnv, "quay.io/mongodb/mongodb-enterprise-init-appdb:12.0.4.7554-1")
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-appdb:10.2.25.6008-1", ContainerImage(util.InitAppdbImageUrlEnv, "10.2.25.6008-1", nil))
+	imageUrls = LoadImageUrlsFromEnv()
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-appdb:10.2.25.6008-1", ContainerImage(imageUrls, util.InitAppdbImageUrlEnv, "10.2.25.6008-1"))
 
 	// env var has input already, but there is related image with this input
 	t.Setenv(fmt.Sprintf("RELATED_IMAGE_%s_12_0_4_7554_1", util.InitAppdbImageUrlEnv), "quay.io/mongodb/mongodb-enterprise-init-appdb@sha256:a48829ce36bf479dc25a4de79234c5621b67beee62ca98a099d0a56fdb04791c")
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-appdb@sha256:a48829ce36bf479dc25a4de79234c5621b67beee62ca98a099d0a56fdb04791c", ContainerImage(util.InitAppdbImageUrlEnv, "12.0.4.7554-1", nil))
+	imageUrls = LoadImageUrlsFromEnv()
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-appdb@sha256:a48829ce36bf479dc25a4de79234c5621b67beee62ca98a099d0a56fdb04791c", ContainerImage(imageUrls, util.InitAppdbImageUrlEnv, "12.0.4.7554-1"))
 
 	t.Setenv(util.InitAppdbImageUrlEnv, "quay.io/mongodb/mongodb-enterprise-init-appdb@sha256:608daf56296c10c9bd02cc85bb542a849e9a66aff0697d6359b449540696b1fd")
+	imageUrls = LoadImageUrlsFromEnv()
 	// env var has input already as digest, but there is related image with this input
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-appdb@sha256:a48829ce36bf479dc25a4de79234c5621b67beee62ca98a099d0a56fdb04791c", ContainerImage(util.InitAppdbImageUrlEnv, "12.0.4.7554-1", nil))
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-appdb@sha256:a48829ce36bf479dc25a4de79234c5621b67beee62ca98a099d0a56fdb04791c", ContainerImage(imageUrls, util.InitAppdbImageUrlEnv, "12.0.4.7554-1"))
 	// env var has input already as digest, there is no related image with this input, so we use input instead of digest
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-appdb:1.2.3", ContainerImage(util.InitAppdbImageUrlEnv, "1.2.3", nil))
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-appdb:1.2.3", ContainerImage(imageUrls, util.InitAppdbImageUrlEnv, "1.2.3"))
 
 	t.Setenv(util.OpsManagerImageUrl, "quay.io:3000/mongodb/ops-manager-kubernetes")
-	assert.Equal(t, "quay.io:3000/mongodb/ops-manager-kubernetes:1.2.3", ContainerImage(util.OpsManagerImageUrl, "1.2.3", nil))
+	imageUrls = LoadImageUrlsFromEnv()
+	assert.Equal(t, "quay.io:3000/mongodb/ops-manager-kubernetes:1.2.3", ContainerImage(imageUrls, util.OpsManagerImageUrl, "1.2.3"))
 
 	t.Setenv(util.OpsManagerImageUrl, "localhost/mongodb/ops-manager-kubernetes")
-	assert.Equal(t, "localhost/mongodb/ops-manager-kubernetes:1.2.3", ContainerImage(util.OpsManagerImageUrl, "1.2.3", nil))
+	imageUrls = LoadImageUrlsFromEnv()
+	assert.Equal(t, "localhost/mongodb/ops-manager-kubernetes:1.2.3", ContainerImage(imageUrls, util.OpsManagerImageUrl, "1.2.3"))
 
 	t.Setenv(util.OpsManagerImageUrl, "mongodb")
-	assert.Equal(t, "mongodb:1.2.3", ContainerImage(util.OpsManagerImageUrl, "1.2.3", nil))
+	imageUrls = LoadImageUrlsFromEnv()
+	assert.Equal(t, "mongodb:1.2.3", ContainerImage(imageUrls, util.OpsManagerImageUrl, "1.2.3"))
 }
 
 func TestGetAppDBImage(t *testing.T) {
@@ -393,7 +399,8 @@ func TestGetAppDBImage(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.setupEnvs(t)
-			assert.Equalf(t, tt.want, getOfficialImage(tt.input, tt.annotations), "getOfficialImage(%v)", tt.input)
+			imageUrlsMock := LoadImageUrlsFromEnv()
+			assert.Equalf(t, tt.want, GetOfficialImage(imageUrlsMock, tt.input, tt.annotations), "getOfficialImage(%v)", tt.input)
 		})
 	}
 }
@@ -515,46 +522,24 @@ func TestGetAutomationLogEnvVars(t *testing.T) {
 func TestDeploymentIsEnterpriseImage(t *testing.T) {
 	tests := []struct {
 		name           string
-		isStatic       bool   // this sets the environment to be static
-		envVarValue    string // if static, we will set the respective environment variable to overwrite the used image
+		imageURL       string
 		expectedResult bool
 	}{
 		{
-			name:           "Static Architecture - Enterprise Image",
-			envVarValue:    "myregistry.com/mongo/mongodb-enterprise-server:latest",
-			isStatic:       true,
+			name:           "Enterprise Image",
+			imageURL:       "myregistry.com/mongo/mongodb-enterprise-server:latest",
 			expectedResult: true,
 		},
 		{
-			name:           "Non-Static Architecture - Enterprise Image",
-			envVarValue:    "myregistry.com/mongo/mongodb-enterprise-server:latest",
-			isStatic:       false,
-			expectedResult: true,
-		},
-		{
-			name:           "Static Architecture - Community Image",
-			envVarValue:    "myregistry.com/mongo/mongodb-community-server:latest",
-			isStatic:       true,
-			expectedResult: false,
-		},
-		{
-			name:           "Non-Static Architecture - Community Image",
-			envVarValue:    "myregistry.com/mongo/mongodb-community-server:latest",
-			isStatic:       false,
+			name:           "Community Image",
+			imageURL:       "myregistry.com/mongo/mongodb-community-server:latest",
 			expectedResult: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.isStatic {
-				t.Setenv(construct.MongodbImageEnv, tt.envVarValue)
-				t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
-			} else {
-				t.Setenv(util.NonStaticDatabaseEnterpriseImage, tt.envVarValue)
-			}
-
-			result := DeploymentIsEnterpriseImage(map[string]string{})
+			result := IsEnterpriseImage(tt.imageURL)
 
 			if result != tt.expectedResult {
 				t.Errorf("expected %v, got %v", tt.expectedResult, result)

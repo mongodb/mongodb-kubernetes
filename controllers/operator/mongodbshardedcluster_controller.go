@@ -3,7 +3,6 @@ package operator
 import (
 	"context"
 	"fmt"
-	"os"
 	"slices"
 	"sort"
 	"strings"
@@ -77,15 +76,17 @@ type ReconcileMongoDbShardedCluster struct {
 	*ReconcileCommonController
 	omConnectionFactory om.ConnectionFactory
 	memberClustersMap   map[string]client.Client
+	imageUrls           construct.ImageUrls
 	forceEnterprise     bool
 }
 
-func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, forceEnterprise bool, memberClusterMap map[string]client.Client, omFunc om.ConnectionFactory) *ReconcileMongoDbShardedCluster {
+func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, imageUrls construct.ImageUrls, forceEnterprise bool, memberClusterMap map[string]client.Client, omFunc om.ConnectionFactory) *ReconcileMongoDbShardedCluster {
 	return &ReconcileMongoDbShardedCluster{
 		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:       omFunc,
 		memberClustersMap:         memberClusterMap,
 		forceEnterprise:           forceEnterprise,
+		imageUrls:                 imageUrls,
 	}
 }
 
@@ -618,9 +619,12 @@ func processClusterSpecList(
 type ShardedClusterReconcileHelper struct {
 	commonController       *ReconcileCommonController
 	omConnectionFactory    om.ConnectionFactory
-	mongoDBImage           string
+	imageUrls              construct.ImageUrls
 	forceEnterprise        bool
 	automationAgentVersion string
+
+	initDatabaseNonStaticImageVersion string
+	databaseNonStaticImageVersion     string
 
 	// sc is the resource being reconciled
 	sc *mdbv1.MongoDB
@@ -645,7 +649,7 @@ type ShardedClusterReconcileHelper struct {
 	stateStore *StateStore[ShardedClusterDeploymentState]
 }
 
-func NewShardedClusterReconcilerHelper(ctx context.Context, reconciler *ReconcileCommonController, mongoDBImage string, forceEnterprise bool, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, omConnectionFactory om.ConnectionFactory, log *zap.SugaredLogger) (*ShardedClusterReconcileHelper, error) {
+func NewShardedClusterReconcilerHelper(ctx context.Context, reconciler *ReconcileCommonController, imageUrls construct.ImageUrls, forceEnterprise bool, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, omConnectionFactory om.ConnectionFactory, log *zap.SugaredLogger) (*ShardedClusterReconcileHelper, error) {
 	// It's a workaround for single cluster topology to add there __default cluster.
 	// With the multi-cluster sharded refactor, we went so far with the multi-cluster first approach so we have very few places with conditional single/multi logic.
 	// Therefore, some parts of the reconciler logic uses that globalMemberClusterMap even in single-cluster mode (look for usages of createShardsMemberClusterLists) and expect
@@ -653,11 +657,18 @@ func NewShardedClusterReconcilerHelper(ctx context.Context, reconciler *Reconcil
 	// in single-cluster mode to simulate it's a special case of multi-cluster run.
 	globalMemberClustersMap = multicluster.InitializeGlobalMemberClusterMapForSingleCluster(globalMemberClustersMap, reconciler.client)
 
+	// FIXME(Mikalai): move env var read up the call stack
+	initDatabaseNonStaticImageVersion := env.ReadOrDefault(construct.InitDatabaseVersionEnv, "latest")
+	databaseNonStaticImageVersion := env.ReadOrDefault(construct.DatabaseVersionEnv, "latest")
+
 	helper := &ShardedClusterReconcileHelper{
 		commonController:    reconciler,
 		omConnectionFactory: omConnectionFactory,
-		mongoDBImage:        mongoDBImage,
+		imageUrls:           imageUrls,
 		forceEnterprise:     forceEnterprise,
+
+		initDatabaseNonStaticImageVersion: initDatabaseNonStaticImageVersion,
+		databaseNonStaticImageVersion:     databaseNonStaticImageVersion,
 	}
 
 	helper.sc = sc
@@ -781,9 +792,7 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 		return reconcileResult, err
 	}
 
-	// FIXME(Mikalai): this will go way in the next iteration where we will be reading form a imagesMap
-	mongoDBImage := os.Getenv(mcoConstruct.MongodbImageEnv)
-	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, mongoDBImage, r.forceEnterprise, sc, r.memberClustersMap, r.omConnectionFactory, log)
+	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.forceEnterprise, sc, r.memberClustersMap, r.omConnectionFactory, log)
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(xerrors.Errorf("Failed to initialize sharded cluster reconciler: %w", err)), log)
 	}
@@ -792,9 +801,7 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 
 // OnDelete tries to complete a Deletion reconciliation event
 func (r *ReconcileMongoDbShardedCluster) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
-	// FIXME(Mikalai): this will go way in the next iteration where we will be reading form a imagesMap
-	mongoDBImage := os.Getenv(mcoConstruct.MongodbImageEnv)
-	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, mongoDBImage, r.forceEnterprise, obj.(*mdbv1.MongoDB), r.memberClustersMap, r.omConnectionFactory, log)
+	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.forceEnterprise, obj.(*mdbv1.MongoDB), r.memberClustersMap, r.omConnectionFactory, log)
 	if err != nil {
 		return err
 	}
@@ -1607,9 +1614,9 @@ func (r *ShardedClusterReconcileHelper) deleteClusterResources(ctx context.Conte
 	return errs
 }
 
-func AddShardedClusterController(ctx context.Context, mgr manager.Manager, forceEnterprise bool, memberClustersMap map[string]cluster.Cluster) error {
+func AddShardedClusterController(ctx context.Context, mgr manager.Manager, imageUrls construct.ImageUrls, forceEnterprise bool, memberClustersMap map[string]cluster.Cluster) error {
 	// Create a new controller
-	reconciler := newShardedClusterReconciler(ctx, mgr.GetClient(), forceEnterprise, multicluster.ClustersMapToClientMap(memberClustersMap), om.NewOpsManagerConnection)
+	reconciler := newShardedClusterReconciler(ctx, mgr.GetClient(), imageUrls, forceEnterprise, multicluster.ClustersMapToClientMap(memberClustersMap), om.NewOpsManagerConnection)
 	options := controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}
 	c, err := controller.New(util.MongoDbShardedClusterController, mgr, options)
 	if err != nil {
@@ -2131,7 +2138,7 @@ func (r *ShardedClusterReconcileHelper) createDesiredMongosProcesses(certificate
 	for _, memberCluster := range r.mongosMemberClusters {
 		hostnames, podNames := r.getMongosHostnames(memberCluster, scale.ReplicasThisReconciliation(r.GetMongosScaler(memberCluster)))
 		for i := range hostnames {
-			process := om.NewMongosProcess(podNames[i], hostnames[i], r.mongoDBImage, r.forceEnterprise, r.sc.Spec.MongosSpec.GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion())
+			process := om.NewMongosProcess(podNames[i], hostnames[i], r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, r.sc.Spec.MongosSpec.GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion())
 			processes = append(processes, process)
 		}
 	}
@@ -2145,7 +2152,7 @@ func (r *ShardedClusterReconcileHelper) createDesiredConfigSrvProcessesAndMember
 	for _, memberCluster := range r.configSrvMemberClusters {
 		hostnames, podNames := r.getConfigSrvHostnames(memberCluster, scale.ReplicasThisReconciliation(r.GetConfigSrvScaler(memberCluster)))
 		for i := range hostnames {
-			process := om.NewMongodProcess(podNames[i], hostnames[i], r.mongoDBImage, r.forceEnterprise, r.sc.Spec.ConfigSrvSpec.GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion())
+			process := om.NewMongodProcess(podNames[i], hostnames[i], r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, r.sc.Spec.ConfigSrvSpec.GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion())
 			processes = append(processes, process)
 		}
 
@@ -2162,7 +2169,7 @@ func (r *ShardedClusterReconcileHelper) createDesiredShardProcessesAndMemberOpti
 	for _, memberCluster := range r.shardsMemberClustersMap[shardIdx] {
 		hostnames, podNames := r.getShardHostnames(shardIdx, memberCluster, scale.ReplicasThisReconciliation(r.GetShardScaler(shardIdx, memberCluster)))
 		for i := range hostnames {
-			process := om.NewMongodProcess(podNames[i], hostnames[i], r.mongoDBImage, r.forceEnterprise, r.desiredShardsConfiguration[shardIdx].GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion())
+			process := om.NewMongodProcess(podNames[i], hostnames[i], r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, r.desiredShardsConfiguration[shardIdx].GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion())
 			processes = append(processes, process)
 		}
 		specMemberOptions := r.desiredShardsConfiguration[shardIdx].GetClusterSpecItem(memberCluster.Name).MemberConfig
@@ -2236,9 +2243,12 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 		PrometheusTLSCertHash(opts.prometheusCertHash),
 		WithVaultConfig(vaultConfig),
 		WithAdditionalMongodConfig(configSrvSpec.GetAdditionalMongodConfig()),
-		WithAgentVersion(r.automationAgentVersion),
 		WithDefaultConfigSrvStorageSize(),
 		WithStsLabels(r.statefulsetLabels()),
+		WithInitDatabaseNonStaticImage(construct.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
+		WithDatabaseNonStaticImage(construct.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
+		WithAgentImage(construct.ContainerImage(r.imageUrls, architectures.MdbAgentImageRepo, r.automationAgentVersion)),
+		WithMongodbImage(construct.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations())),
 	)
 }
 
@@ -2264,8 +2274,11 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 		PrometheusTLSCertHash(opts.prometheusCertHash),
 		WithVaultConfig(vaultConfig),
 		WithAdditionalMongodConfig(sc.Spec.MongosSpec.GetAdditionalMongodConfig()),
-		WithAgentVersion(r.automationAgentVersion),
 		WithStsLabels(r.statefulsetLabels()),
+		WithInitDatabaseNonStaticImage(construct.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
+		WithDatabaseNonStaticImage(construct.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
+		WithAgentImage(construct.ContainerImage(r.imageUrls, architectures.MdbAgentImageRepo, r.automationAgentVersion)),
+		WithMongodbImage(construct.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations())),
 	)
 }
 
@@ -2291,8 +2304,11 @@ func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc 
 		PrometheusTLSCertHash(opts.prometheusCertHash),
 		WithVaultConfig(vaultConfig),
 		WithAdditionalMongodConfig(shardSpec.GetAdditionalMongodConfig()),
-		WithAgentVersion(r.automationAgentVersion),
 		WithStsLabels(r.statefulsetLabels()),
+		WithInitDatabaseNonStaticImage(construct.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
+		WithDatabaseNonStaticImage(construct.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
+		WithAgentImage(construct.ContainerImage(r.imageUrls, architectures.MdbAgentImageRepo, r.automationAgentVersion)),
+		WithMongodbImage(construct.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations())),
 	)
 }
 
