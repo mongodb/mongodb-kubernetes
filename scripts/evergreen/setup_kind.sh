@@ -6,7 +6,7 @@ source scripts/dev/set_env_context.sh
 # Store the lowercase name of Operating System
 os=$(uname | tr '[:upper:]' '[:lower:]')
 # This should be changed when needed
-latest_version="v0.26.0"
+latest_version="v0.27.0"
 
 mkdir -p "${PROJECT_DIR}/bin/"
 echo "Saving kind to ${PROJECT_DIR}/bin"
