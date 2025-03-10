@@ -9,9 +9,3 @@ func GetPodEnvOptions() func(options *DatabaseStatefulSetOptions) {
 		options.PodVars = &env.PodEnvVars{ProjectID: "abcd"}
 	}
 }
-
-func WithAutomationAgentVersion(version string) func(options *DatabaseStatefulSetOptions) {
-	return func(options *DatabaseStatefulSetOptions) {
-		options.AutomationAgentVersion = version
-	}
-}

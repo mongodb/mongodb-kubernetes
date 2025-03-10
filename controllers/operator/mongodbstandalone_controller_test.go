@@ -148,7 +148,7 @@ func TestOnAddStandaloneWithDelay(t *testing.T) {
 		},
 	})
 
-	reconciler := newStandaloneReconciler(ctx, kubeClient, false, omConnectionFactory.GetConnectionFunc)
+	reconciler := newStandaloneReconciler(ctx, kubeClient, nil, false, omConnectionFactory.GetConnectionFunc)
 
 	checkReconcilePending(ctx, t, reconciler, st, "StatefulSet not ready", kubeClient, 3)
 	// this affects Get interceptor func, blocking automatically marking sts as ready
@@ -327,7 +327,8 @@ func TestStandaloneAgentVersionMapping(t *testing.T) {
 func defaultStandaloneReconciler(ctx context.Context, omConnectionFactoryFunc om.ConnectionFactory, rs *mdbv1.MongoDB) (*ReconcileMongoDbStandalone, kubernetesClient.Client, *om.CachedOMConnectionFactory) {
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFunc)
 	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
-	return newStandaloneReconciler(ctx, kubeClient, false, omConnectionFactory.GetConnectionFunc), kubeClient, omConnectionFactory
+	imageUrlsMock := construct.LoadImageUrlsFromEnv()
+	return newStandaloneReconciler(ctx, kubeClient, imageUrlsMock, false, omConnectionFactory.GetConnectionFunc), kubeClient, omConnectionFactory
 }
 
 // TODO remove in favor of '/api/mongodbbuilder.go'

@@ -107,8 +107,11 @@ type DatabaseStatefulSetOptions struct {
 	StatefulSetSpecOverride *appsv1.StatefulSetSpec
 	StsType                 StsType
 	AdditionalMongodConfig  *mdbv1.AdditionalMongodConfig
-	MongoDBVersion          string
-	AutomationAgentVersion  string
+
+	InitDatabaseNonStaticImage string
+	DatabaseNonStaticImage     string
+	MongodbImage               string
+	AgentImage                 string
 
 	Annotations map[string]string
 	VaultConfig vault.VaultConfiguration
@@ -158,7 +161,6 @@ func StandaloneOptions(additionalOpts ...func(options *DatabaseStatefulSetOption
 		}
 
 		opts := DatabaseStatefulSetOptions{
-			MongoDBVersion:          mdb.Spec.Version,
 			Replicas:                1,
 			Name:                    mdb.Name,
 			ServiceName:             mdb.ServiceName(),
@@ -189,7 +191,6 @@ func ReplicaSetOptions(additionalOpts ...func(options *DatabaseStatefulSetOption
 		}
 
 		opts := DatabaseStatefulSetOptions{
-			MongoDBVersion:          mdb.Spec.Version,
 			Replicas:                scale.ReplicasThisReconciliation(&mdb),
 			Name:                    mdb.Name,
 			ServiceName:             mdb.ServiceName(),
@@ -237,7 +238,6 @@ func shardedOptions(cfg shardedOptionCfg, additionalOpts ...func(options *Databa
 	}
 
 	opts := DatabaseStatefulSetOptions{
-		MongoDBVersion:          cfg.mdb.Spec.Version,
 		Name:                    cfg.rsName,
 		ServiceName:             cfg.serviceName,
 		PodSpec:                 NewDefaultPodSpecWrapper(podSpec),
@@ -498,6 +498,13 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 		secondContainerModification = podtemplatespec.WithContainerByIndex(1, container.WithVolumeMounts(volumeMounts))
 	}
 
+	var databaseImage string
+	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations()) {
+		databaseImage = opts.AgentImage
+	} else {
+		databaseImage = opts.DatabaseNonStaticImage
+	}
+
 	return statefulset.Apply(
 		statefulset.WithLabels(ssLabels),
 		statefulset.WithName(stsName),
@@ -514,7 +521,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 			podtemplatespec.WithAffinity(podAffinity, PodAntiAffinityLabelKey, 100),
 			podtemplatespec.WithTerminationGracePeriodSeconds(util.DefaultPodTerminationPeriodSeconds),
 			podtemplatespec.WithPodLabels(podLabels),
-			podtemplatespec.WithContainerByIndex(0, sharedDatabaseContainerFunc(*opts.PodSpec, volumeMounts, configureContainerSecurityContext, opts.ServicePort, mdb.GetAnnotations(), opts.AutomationAgentVersion)),
+			podtemplatespec.WithContainerByIndex(0, sharedDatabaseContainerFunc(databaseImage, *opts.PodSpec, volumeMounts, configureContainerSecurityContext, opts.ServicePort)),
 			secondContainerModification,
 			volumesFunc,
 			configurePodSpecSecurityContext,
@@ -549,23 +556,13 @@ func buildPersistentVolumeClaimsFuncs(opts DatabaseStatefulSetOptions) (map[stri
 	return claims, mounts
 }
 
-func sharedDatabaseContainerFunc(podSpecWrapper mdbv1.PodSpecWrapper, volumeMounts []corev1.VolumeMount, configureContainerSecurityContext container.Modification, port int32, annotations map[string]string, automationAgentVersion string) container.Modification {
-	var image container.Modification
-	if architectures.IsRunningStaticArchitecture(annotations) {
-		image = container.WithImage(ContainerImage(architectures.MdbAgentImageRepo, automationAgentVersion, func() string {
-			return env.ReadOrDefault(architectures.MdbAgentImageRepo, "quay.io/mongodb/mongodb-agent-ubi")
-		}))
-	} else {
-		databaseImageVersion := env.ReadOrDefault(DatabaseVersionEnv, "latest")
-		image = container.WithImage(ContainerImage(util.NonStaticDatabaseEnterpriseImage, databaseImageVersion, nil))
-	}
-
+func sharedDatabaseContainerFunc(databaseImage string, podSpecWrapper mdbv1.PodSpecWrapper, volumeMounts []corev1.VolumeMount, configureContainerSecurityContext container.Modification, port int32) container.Modification {
 	return container.Apply(
 		container.WithResourceRequirements(buildRequirementsFromPodSpec(podSpecWrapper)),
 		container.WithPorts([]corev1.ContainerPort{{ContainerPort: port}}),
 		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))),
 		container.WithVolumeMounts(volumeMounts),
-		image,
+		container.WithImage(databaseImage),
 		container.WithLivenessProbe(DatabaseLivenessProbe()),
 		container.WithReadinessProbe(DatabaseReadinessProbe()),
 		container.WithStartupProbe(DatabaseStartupProbe()),
@@ -672,10 +669,6 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 
 // buildMongoDBPodTemplateSpec constructs the podTemplateSpec for the MongoDB resource
 func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseStatefulSetSource) podtemplatespec.Modification {
-	// Database image version should be a specific version to avoid using stale 'non-empty' versions (before versioning)
-	databaseImageVersion := env.ReadOrDefault(DatabaseVersionEnv, "latest")
-	databaseNonStaticImage := ContainerImage(util.NonStaticDatabaseEnterpriseImage, databaseImageVersion, nil)
-
 	// scripts volume is shared by the init container and the AppDB, so the startup
 	// script can be copied over
 	scriptsVolume := statefulset.CreateVolumeFromEmptyDir("database-scripts")
@@ -684,10 +677,10 @@ func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseSt
 	volumes := []corev1.Volume{scriptsVolume}
 	volumeMounts := []corev1.VolumeMount{databaseScriptsVolumeMount}
 
-	initContainerModifications := []func(*corev1.Container){buildDatabaseInitContainer()}
+	initContainerModifications := []func(*corev1.Container){buildDatabaseInitContainer(opts.InitDatabaseNonStaticImage)}
 	databaseContainerModifications := []func(*corev1.Container){container.Apply(
 		container.WithName(util.DatabaseContainerName),
-		container.WithImage(databaseNonStaticImage),
+		container.WithImage(opts.DatabaseNonStaticImage),
 		container.WithEnvs(databaseEnvVars(opts)...),
 		container.WithCommand([]string{"/opt/scripts/agent-launcher.sh"}),
 		container.WithVolumeMounts(volumeMounts),
@@ -702,22 +695,18 @@ func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseSt
 		mongodModification := []func(*corev1.Container){container.Apply(
 			container.WithName(util.DatabaseContainerName),
 			container.WithArgs([]string{""}),
-			container.WithImage(getOfficialImage(opts.MongoDBVersion, mdb.GetAnnotations())),
+			container.WithImage(opts.MongodbImage),
 			container.WithEnvs(databaseEnvVars(opts)...),
 			container.WithCommand([]string{"bash", "-c", "tail -F -n0 ${MDB_LOG_FILE_MONGODB} mongodb_marker"}),
 			containerSecurityContext,
 		)}
 		staticContainerMongodContainerModification = podtemplatespec.WithContainerByIndex(1, mongodModification...)
 
-		agentImage := ContainerImage(architectures.MdbAgentImageRepo, opts.AutomationAgentVersion, func() string {
-			return env.ReadOrDefault(architectures.MdbAgentImageRepo, "quay.io/mongodb/mongodb-agent-ubi")
-		})
-
 		// We are not setting the database-scripts volume on purpose,
 		// since we don't need to copy things from the init container over.
 		databaseContainerModifications = []func(*corev1.Container){container.Apply(
 			container.WithName(util.AgentContainerName),
-			container.WithImage(agentImage),
+			container.WithImage(opts.AgentImage),
 			container.WithEnvs(databaseEnvVars(opts)...),
 			containerSecurityContext,
 		)}
@@ -957,15 +946,12 @@ func databaseScriptsVolumeMount(readOnly bool) corev1.VolumeMount {
 }
 
 // buildDatabaseInitContainer builds the container specification for mongodb-enterprise-init-database image
-func buildDatabaseInitContainer() container.Modification {
-	version := env.ReadOrDefault(InitDatabaseVersionEnv, "latest")
-	initContainerImageURL := ContainerImage(util.InitDatabaseImageUrlEnv, version, nil)
-
+func buildDatabaseInitContainer(initDatabaseImage string) container.Modification {
 	_, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 
 	return container.Apply(
 		container.WithName(InitDatabaseContainerName),
-		container.WithImage(initContainerImageURL),
+		container.WithImage(initDatabaseImage),
 		container.WithVolumeMounts([]corev1.VolumeMount{
 			databaseScriptsVolumeMount(false),
 		}),
@@ -1145,27 +1131,66 @@ func replaceImageTagOrDigestToTag(image string, newVersion string) string {
 	}
 }
 
-// ContainerImage builds container image using image environment variable imageURLEnv and version.
+// TODO: In a follow up - move to a separate package (including replaceImageTagOrDigestToTag)
+// ImageUrls is a map of image names to their corresponding image URLs.
+type ImageUrls map[string]string
+
+// LoadImageUrlsFromEnv reads all environment variables and selects
+// the ones that are related to images for workloads. This includes env vars
+// with RELATED_IMAGE_ prefix.
+// RELATED_IMAGE_* env variables are set in Helm chart for OpenShift.
+func LoadImageUrlsFromEnv() ImageUrls {
+	imageUrls := make(ImageUrls)
+
+	for imageName, defaultValue := range map[string]string{
+		// If you are considering adding a new variable here
+		// you at least one of the following should be true:
+		//   - New env var has a RELATED_IMAGE_* counterpart
+		//   - New env var contains an image URL or part of the URL
+		//     and it will be used in container for MongoDB workfloads
+		construct.MongodbRepoUrl:              "",
+		construct.MongodbImageEnv:             "",
+		util.InitOpsManagerImageUrl:           "",
+		util.OpsManagerImageUrl:               "",
+		util.InitDatabaseImageUrlEnv:          "",
+		util.InitAppdbImageUrlEnv:             "",
+		util.NonStaticDatabaseEnterpriseImage: "",
+		construct.AgentImageEnv:               "",
+		architectures.MdbAgentImageRepo:       architectures.MdbAgentImageRepoDefault,
+	} {
+		imageUrls[imageName] = env.ReadOrDefault(imageName, defaultValue)
+	}
+
+	for _, env := range os.Environ() {
+		parts := strings.SplitN(env, "=", 2)
+		if len(parts) != 2 {
+			// Should never happen because os.Environ() returns key=value pairs
+			// but we are being defensive here.
+			continue
+		}
+
+		if strings.HasPrefix(parts[0], "RELATED_IMAGE_") {
+			imageUrls[parts[0]] = parts[1]
+		}
+	}
+	return imageUrls
+}
+
+// ContainerImage selects container image from imageUrls.
 // It handles image digests when running in disconnected environment in OpenShift, where images
 // are referenced by sha256 digest instead of tags.
-// It works by convention by looking up RELATED_IMAGE_{imageURLEnv}_{version_underscored}.
-// RELATED_IMAGE_* env variables are set in Helm chart for OpenShift.
-// In case there is no RELATED_IMAGE defined it replaces digest or tag to version.
-func ContainerImage(imageURLEnv string, version string, retrieveImageURL func() string) string {
+// It works by convention by looking up RELATED_IMAGE_{imageName}_{versionUnderscored}.
+// In case there is no RELATED_IMAGE_ defined it replaces digest or tag to version.
+func ContainerImage(imageUrls ImageUrls, imageName string, version string) string {
 	versionUnderscored := strings.ReplaceAll(version, ".", "_")
 	versionUnderscored = strings.ReplaceAll(versionUnderscored, "-", "_")
-	relatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_%s", imageURLEnv, versionUnderscored)
+	relatedImageKey := fmt.Sprintf("RELATED_IMAGE_%s_%s", imageName, versionUnderscored)
 
-	if relatedImage := os.Getenv(relatedImageEnv); relatedImage != "" {
+	if relatedImage, ok := imageUrls[relatedImageKey]; ok {
 		return relatedImage
 	}
 
-	var imageURL string
-	if retrieveImageURL != nil {
-		imageURL = retrieveImageURL()
-	} else {
-		imageURL = os.Getenv(imageURLEnv)
-	}
+	imageURL := imageUrls[imageName]
 
 	if strings.Contains(imageURL, ":") {
 		// here imageURL is not a host only but also with version or digest
@@ -1180,12 +1205,6 @@ func ContainerImage(imageURLEnv string, version string, retrieveImageURL func() 
 	return fmt.Sprintf("%s:%s", imageURL, version)
 }
 
-func DeploymentIsEnterpriseImage(annotations map[string]string) bool {
-	imageURL := ""
-	if architectures.IsRunningStaticArchitecture(annotations) {
-		imageURL = os.Getenv(construct.MongodbImageEnv)
-	} else {
-		imageURL = os.Getenv(util.NonStaticDatabaseEnterpriseImage)
-	}
-	return strings.Contains(imageURL, util.OfficialEnterpriseServerImageUrl)
+func IsEnterpriseImage(mongodbImage string) bool {
+	return strings.Contains(mongodbImage, util.OfficialEnterpriseServerImageUrl)
 }

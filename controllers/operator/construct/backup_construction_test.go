@@ -51,7 +51,9 @@ func TestBuildBackupDaemonContainer(t *testing.T) {
 		VaultClient: &vault.VaultClient{},
 		KubeClient:  client,
 	}
-	sts, err := BackupDaemonStatefulSet(ctx, secretsClient, omv1.NewOpsManagerBuilderDefault().SetVersion("4.2.0").Build(), multicluster.GetLegacyCentralMemberCluster(1, 0, client, secretsClient), zap.S())
+	sts, err := BackupDaemonStatefulSet(ctx, secretsClient, omv1.NewOpsManagerBuilderDefault().SetVersion("4.2.0").Build(), multicluster.GetLegacyCentralMemberCluster(1, 0, client, secretsClient), zap.S(),
+		WithOpsManagerImage("quay.io/mongodb/mongodb-enterprise-ops-manager:4.2.0"),
+	)
 	assert.NoError(t, err)
 	template := sts.Spec.Template
 	container := template.Spec.Containers[0]

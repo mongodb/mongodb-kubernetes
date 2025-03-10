@@ -3,7 +3,6 @@ package operator
 import (
 	"context"
 	"fmt"
-	"os"
 	"path"
 	"sort"
 	"strconv"
@@ -32,7 +31,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
 
 	mdbcv1_controllers "github.com/mongodb/mongodb-kubernetes-operator/controllers"
-	mdbconstruct "github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
+	mcoConstruct "github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -117,13 +116,16 @@ type ReconcileAppDbReplicaSet struct {
 	memberClusters  []multicluster.MemberCluster
 	stateStore      *StateStore[AppDBDeploymentState]
 	deploymentState *AppDBDeploymentState
+
+	imageUrls construct.ImageUrls
 }
 
-func NewAppDBReplicaSetReconciler(ctx context.Context, appDBSpec omv1.AppDBSpec, commonController *ReconcileCommonController, omConnectionFactory om.ConnectionFactory, omAnnotations map[string]string, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
+func NewAppDBReplicaSetReconciler(ctx context.Context, imageUrls construct.ImageUrls, appDBSpec omv1.AppDBSpec, commonController *ReconcileCommonController, omConnectionFactory om.ConnectionFactory, omAnnotations map[string]string, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
 	reconciler := &ReconcileAppDbReplicaSet{
 		ReconcileCommonController: commonController,
 		omConnectionFactory:       omConnectionFactory,
 		centralClient:             commonController.client,
+		imageUrls:                 imageUrls,
 	}
 
 	if err := reconciler.initializeStateStore(ctx, appDBSpec, omAnnotations, log); err != nil {
@@ -551,30 +553,40 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 		}
 	}
 
-	appdbOpts := construct.AppDBStatefulSetOptions{}
+	// FIXME(Mikalai): move env var read up the call stack
+	version := env.ReadOrDefault(construct.InitAppdbVersionEnv, "latest")
+
+	appdbOpts := construct.AppDBStatefulSetOptions{
+		InitAppDBImage: construct.ContainerImage(r.imageUrls, util.InitAppdbImageUrlEnv, version),
+		MongodbImage:   construct.GetOfficialImage(r.imageUrls, opsManager.Spec.AppDB.Version, opsManager.GetAnnotations()),
+	}
 	if architectures.IsRunningStaticArchitecture(opsManager.Annotations) {
 		if !rs.PodSpec.IsAgentImageOverridden() {
 			// Because OM is not available when starting AppDB, we read the version from the mapping
 			// We plan to change this in the future, but for the sake of simplicity we leave it that way for the moment
 			// It avoids unnecessary reconciles, race conditions...
-			appdbOpts.AgentVersion, err = r.getAgentVersion(nil, opsManager.Spec.Version, true, log)
+			agentVersion, err := r.getAgentVersion(nil, opsManager.Spec.Version, true, log)
 			if err != nil {
 				log.Errorf("Impossible to get agent version, please override the agent image by providing a pod template")
 				return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Failed to get agent version: %w. Please use spec.statefulSet to supply proper Agent version", err)), log)
 			}
+
+			appdbOpts.AgentImage = construct.ContainerImage(r.imageUrls, architectures.MdbAgentImageRepo, agentVersion)
 		}
 	} else {
 		// instead of using a hard-coded monitoring version, we use the "newest" one based on the release.json.
 		// This ensures we need to care less about CVEs compared to the prior older hardcoded versions.
-		appdbOpts.LegacyMonitoringAgent, err = r.getAgentVersion(nil, opsManager.Spec.Version, true, log)
+		legacyMonitoringAgentVersion, err := r.getAgentVersion(nil, opsManager.Spec.Version, true, log)
+		if err != nil {
+			return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error reading monitoring agent version: %w", err)), log, appDbStatusOption)
+		}
+
+		appdbOpts.LegacyMonitoringAgentImage = construct.ContainerImage(r.imageUrls, mcoConstruct.AgentImageEnv, legacyMonitoringAgentVersion)
 
 		// AgentImageEnv contains the full container image uri e.g. quay.io/mongodb/mongodb-agent-ubi:107.0.0.8502-1
 		// In non-static containers we don't ask OM for the correct version, therefore we just rely on the provided
 		// environment variable.
-		appdbOpts.AgentVersion = os.Getenv(mdbconstruct.AgentImageEnv)
-		if err != nil {
-			return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error reading monitoring agent version: %w", err)), log, appDbStatusOption)
-		}
+		appdbOpts.AgentImage = r.imageUrls[mcoConstruct.AgentImageEnv]
 	}
 
 	workflowStatus := r.ensureTLSSecretAndCreatePEMIfNeeded(ctx, opsManager, log)

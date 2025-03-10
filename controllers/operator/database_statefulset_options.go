@@ -94,14 +94,36 @@ func WithAdditionalMongodConfig(additionalMongodConfig *mdbv1.AdditionalMongodCo
 	}
 }
 
-func WithAgentVersion(agentVersion string) func(options *construct.DatabaseStatefulSetOptions) {
-	return func(options *construct.DatabaseStatefulSetOptions) {
-		options.AutomationAgentVersion = agentVersion
-	}
-}
-
 func WithDefaultConfigSrvStorageSize() func(options *construct.DatabaseStatefulSetOptions) {
 	return func(options *construct.DatabaseStatefulSetOptions) {
 		options.PodSpec.Default.Persistence.SingleConfig.Storage = util.DefaultConfigSrvStorageSize
+	}
+}
+
+// WithInitDatabaseNonStaticImage sets the InitDatabaseNonStaticImage field.
+func WithInitDatabaseNonStaticImage(image string) func(*construct.DatabaseStatefulSetOptions) {
+	return func(opts *construct.DatabaseStatefulSetOptions) {
+		opts.InitDatabaseNonStaticImage = image
+	}
+}
+
+// WithDatabaseNonStaticImage sets the DatabaseNonStaticImage field.
+func WithDatabaseNonStaticImage(image string) func(*construct.DatabaseStatefulSetOptions) {
+	return func(opts *construct.DatabaseStatefulSetOptions) {
+		opts.DatabaseNonStaticImage = image
+	}
+}
+
+// WithMongodbImage sets the MongodbImage field.
+func WithMongodbImage(image string) func(*construct.DatabaseStatefulSetOptions) {
+	return func(opts *construct.DatabaseStatefulSetOptions) {
+		opts.MongodbImage = image
+	}
+}
+
+// WithAgentImage sets the AgentImage field.
+func WithAgentImage(image string) func(*construct.DatabaseStatefulSetOptions) {
+	return func(opts *construct.DatabaseStatefulSetOptions) {
+		opts.AgentImage = image
 	}
 }
