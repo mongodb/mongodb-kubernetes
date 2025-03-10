@@ -253,7 +253,7 @@ func TestOpsManagerMultiCluster(t *testing.T) {
 	opsManager.Spec.Security.CertificatesSecretsPrefix = "om-prefix"
 	appDB := opsManager.Spec.AppDB
 
-	reconciler, omClient, _ := defaultTestOmReconciler(ctx, t, opsManager, memberClusterMap, omConnectionFactory)
+	reconciler, omClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", opsManager, memberClusterMap, omConnectionFactory)
 
 	// prepare TLS certificates and CA in central cluster
 
@@ -353,7 +353,7 @@ func TestOpsManagerMultiClusterUnreachableNoPanic(t *testing.T) {
 	opsManager.Spec.Security.CertificatesSecretsPrefix = "om-prefix"
 	appDB := opsManager.Spec.AppDB
 
-	reconciler, omClient, _ := defaultTestOmReconciler(ctx, t, opsManager, memberClusterMap, omConnectionFactory)
+	reconciler, omClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", opsManager, memberClusterMap, omConnectionFactory)
 
 	// prepare TLS certificates and CA in central cluster
 

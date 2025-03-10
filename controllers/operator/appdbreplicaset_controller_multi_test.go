@@ -832,7 +832,7 @@ func TestAppDBMultiClusterRemoveResources(t *testing.T) {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
 	clusters = []string{"a", "b", "c"}
 	memberClusterMap := getFakeMultiClusterMapWithClusters(clusters, omConnectionFactory)
-	reconciler, _, _ := defaultTestOmReconciler(ctx, t, opsManager, memberClusterMap, omConnectionFactory)
+	reconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", opsManager, memberClusterMap, omConnectionFactory)
 
 	// create opsmanager reconciler
 	appDBReconciler, _ := newAppDbMultiReconciler(ctx, kubeClient, opsManager, memberClusterMap, zap.S(), omConnectionFactory.GetConnectionFunc)
