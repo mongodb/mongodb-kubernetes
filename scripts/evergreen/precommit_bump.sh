@@ -5,12 +5,13 @@ source scripts/dev/set_env_context.sh
 
 export GOLANGCI_LINT_CACHE="${HOME}/.cache/golangci-lint"
 
+ORIGINAL_BRANCH=""
 # Detect the original branch (same commit, but not the evg-pr-test-* branch which evg creates)
-ORIGINAL_BRANCH=$(git for-each-ref --format='%(refname:short) %(objectname)' refs/remotes/origin | grep "$(git rev-parse HEAD)" | grep -v "evg-pr-test-" | awk '{print $1}' | sed 's|^origin/||' | head -n 1)
+ORIGINAL_BRANCH=$(git for-each-ref --format='%(refname:short) %(objectname)' refs/remotes/origin | grep "$(git rev-parse HEAD)" | grep -v "evg-pr-test-" | awk '{print $1}' | sed 's|^origin/||' | head -n 1 || true)
 
 if [[ -z "${ORIGINAL_BRANCH}" ]]; then
-  echo "Error: Could not determine the original branch."
-  exit 1
+  echo "Fork: Could not determine the original branch. Running in a fork"
+  exit 0
 fi
 echo "Detected original branch: ${ORIGINAL_BRANCH}"
 
