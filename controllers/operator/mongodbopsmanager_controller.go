@@ -92,11 +92,13 @@ type OpsManagerReconciler struct {
 	programmaticKeyVersion semver.Version
 
 	memberClustersMap map[string]client.Client
+
+	imageUrls construct.ImageUrls
 }
 
 var _ reconcile.Reconciler = &OpsManagerReconciler{}
 
-func NewOpsManagerReconciler(ctx context.Context, kubeClient client.Client, memberClustersMap map[string]client.Client, omFunc om.ConnectionFactory, initializer api.Initializer, adminProvider api.AdminProvider) *OpsManagerReconciler {
+func NewOpsManagerReconciler(ctx context.Context, kubeClient client.Client, memberClustersMap map[string]client.Client, imageUrls construct.ImageUrls, omFunc om.ConnectionFactory, initializer api.Initializer, adminProvider api.AdminProvider) *OpsManagerReconciler {
 	return &OpsManagerReconciler{
 		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:       omFunc,
@@ -105,6 +107,7 @@ func NewOpsManagerReconciler(ctx context.Context, kubeClient client.Client, memb
 		oldestSupportedVersion:    semver.MustParse(oldestSupportedOpsManagerVersion),
 		programmaticKeyVersion:    semver.MustParse(programmaticKeyVersion),
 		memberClustersMap:         memberClustersMap,
+		imageUrls:                 imageUrls,
 	}
 }
 
@@ -454,8 +457,13 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 		}
 	}
 
+	// FIXME(Mikalai): move env var read up the call stack
+	initOpsManagerImageVersion := env.ReadOrDefault(util.InitOpsManagerVersion, "latest")
+	initOpsManagerImage := construct.ContainerImage(r.imageUrls, util.InitOpsManagerImageUrl, initOpsManagerImageVersion)
+	opsManagerImage := construct.ContainerImage(r.imageUrls, util.OpsManagerImageUrl, opsManager.Spec.Version)
+
 	// 2. Reconcile Ops Manager
-	status, omAdmin := r.reconcileOpsManager(ctx, opsManagerReconcilerHelper, opsManager, appDBConnectionString, log)
+	status, omAdmin := r.reconcileOpsManager(ctx, opsManagerReconcilerHelper, opsManager, appDBConnectionString, initOpsManagerImage, opsManagerImage, log)
 	if !status.IsOK() {
 		return r.updateStatus(ctx, opsManager, status, log, opsManagerExtraStatusParams, mdbstatus.NewBaseUrlOption(opsManager.CentralURL()))
 	}
@@ -468,7 +476,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	}
 
 	// 3. Reconcile Backup Daemon
-	if status := r.reconcileBackupDaemon(ctx, opsManagerReconcilerHelper, opsManager, omAdmin, appDBConnectionString, log); !status.IsOK() {
+	if status := r.reconcileBackupDaemon(ctx, opsManagerReconcilerHelper, opsManager, omAdmin, appDBConnectionString, initOpsManagerImage, opsManagerImage, log); !status.IsOK() {
 		return r.updateStatus(ctx, opsManager, status, log, mdbstatus.NewOMPartOption(mdbstatus.Backup))
 	}
 
@@ -624,7 +632,7 @@ func createOrUpdateSecretIfNotFound(ctx context.Context, secretGetUpdaterCreator
 	return nil
 }
 
-func (r *OpsManagerReconciler) reconcileOpsManager(ctx context.Context, reconcilerHelper *OpsManagerReconcilerHelper, opsManager *omv1.MongoDBOpsManager, appDBConnectionString string, log *zap.SugaredLogger) (workflow.Status, api.OpsManagerAdmin) {
+func (r *OpsManagerReconciler) reconcileOpsManager(ctx context.Context, reconcilerHelper *OpsManagerReconcilerHelper, opsManager *omv1.MongoDBOpsManager, appDBConnectionString, initOpsManagerImage, opsManagerImage string, log *zap.SugaredLogger) (workflow.Status, api.OpsManagerAdmin) {
 	var genKeySecretMap map[string][]byte
 	var err error
 	if genKeySecretMap, err = r.ensureGenKeyInOperatorCluster(ctx, opsManager, log); err != nil {
@@ -657,7 +665,7 @@ func (r *OpsManagerReconciler) reconcileOpsManager(ctx context.Context, reconcil
 
 	// Prepare Ops Manager StatefulSets in parallel in all member clusters
 	for _, memberCluster := range reconcilerHelper.getHealthyMemberClusters() {
-		status := r.createOpsManagerStatefulsetInMemberCluster(ctx, reconcilerHelper, appDBConnectionString, memberCluster, log)
+		status := r.createOpsManagerStatefulsetInMemberCluster(ctx, reconcilerHelper, appDBConnectionString, memberCluster, initOpsManagerImage, opsManagerImage, log)
 		if !status.IsOK() {
 			return status, nil
 		}
@@ -776,7 +784,7 @@ func (r *OpsManagerReconciler) stopBackupDaemonIfNeeded(ctx context.Context, rec
 	return nil
 }
 
-func (r *OpsManagerReconciler) reconcileBackupDaemon(ctx context.Context, reconcilerHelper *OpsManagerReconcilerHelper, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, appDBConnectionString string, log *zap.SugaredLogger) workflow.Status {
+func (r *OpsManagerReconciler) reconcileBackupDaemon(ctx context.Context, reconcilerHelper *OpsManagerReconcilerHelper, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, appDBConnectionString, initOpsManagerImage, opsManagerImage string, log *zap.SugaredLogger) workflow.Status {
 	backupStatusPartOption := mdbstatus.NewOMPartOption(mdbstatus.Backup)
 
 	// If backup is not enabled, we check whether it is still configured in OM to update the status.
@@ -804,7 +812,7 @@ func (r *OpsManagerReconciler) reconcileBackupDaemon(ctx context.Context, reconc
 
 	for _, memberCluster := range reconcilerHelper.getHealthyMemberClusters() {
 		// Prepare Backup Daemon StatefulSet (create and wait)
-		if status := r.createBackupDaemonStatefulset(ctx, reconcilerHelper, appDBConnectionString, memberCluster, log); !status.IsOK() {
+		if status := r.createBackupDaemonStatefulset(ctx, reconcilerHelper, appDBConnectionString, memberCluster, initOpsManagerImage, opsManagerImage, log); !status.IsOK() {
 			return status
 		}
 	}
@@ -882,7 +890,7 @@ func hashConnectionString(connectionString string) string {
 	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(hashBytes[:])
 }
 
-func (r *OpsManagerReconciler) createOpsManagerStatefulsetInMemberCluster(ctx context.Context, reconcilerHelper *OpsManagerReconcilerHelper, appDBConnectionString string, memberCluster multicluster.MemberCluster, log *zap.SugaredLogger) workflow.Status {
+func (r *OpsManagerReconciler) createOpsManagerStatefulsetInMemberCluster(ctx context.Context, reconcilerHelper *OpsManagerReconcilerHelper, appDBConnectionString string, memberCluster multicluster.MemberCluster, initOpsManagerImage, opsManagerImage string, log *zap.SugaredLogger) workflow.Status {
 	opsManager := reconcilerHelper.opsManager
 
 	r.ensureConfiguration(reconcilerHelper, log)
@@ -893,7 +901,15 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulsetInMemberCluster(ctx co
 	}
 
 	clusterSpecItem := reconcilerHelper.getClusterSpecOMItem(memberCluster.Name)
-	sts, err := construct.OpsManagerStatefulSet(ctx, r.SecretClient, opsManager, memberCluster, log, construct.WithConnectionStringHash(hashConnectionString(appDBConnectionString)), construct.WithVaultConfig(vaultConfig), construct.WithKmipConfig(ctx, opsManager, memberCluster.Client, log), construct.WithStsOverride(clusterSpecItem.GetStatefulSetSpecOverride()), construct.WithReplicas(reconcilerHelper.OpsManagerMembersForMemberCluster(memberCluster)))
+	sts, err := construct.OpsManagerStatefulSet(ctx, r.SecretClient, opsManager, memberCluster, log,
+		construct.WithInitOpsManagerImage(initOpsManagerImage),
+		construct.WithOpsManagerImage(opsManagerImage),
+		construct.WithConnectionStringHash(hashConnectionString(appDBConnectionString)),
+		construct.WithVaultConfig(vaultConfig),
+		construct.WithKmipConfig(ctx, opsManager, memberCluster.Client, log),
+		construct.WithStsOverride(clusterSpecItem.GetStatefulSetSpecOverride()),
+		construct.WithReplicas(reconcilerHelper.OpsManagerMembersForMemberCluster(memberCluster)),
+	)
 	if err != nil {
 		return workflow.Failed(xerrors.Errorf("error building OpsManager stateful set: %w", err))
 	}
@@ -905,8 +921,8 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulsetInMemberCluster(ctx co
 	return workflow.OK()
 }
 
-func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
-	reconciler := NewOpsManagerReconciler(ctx, mgr.GetClient(), multicluster.ClustersMapToClientMap(memberClustersMap), om.NewOpsManagerConnection, &api.DefaultInitializer{}, api.NewOmAdmin)
+func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, imageUrls construct.ImageUrls) error {
+	reconciler := NewOpsManagerReconciler(ctx, mgr.GetClient(), multicluster.ClustersMapToClientMap(memberClustersMap), imageUrls, om.NewOpsManagerConnection, &api.DefaultInitializer{}, api.NewOmAdmin)
 	c, err := controller.New(util.MongoDbOpsManagerController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)})
 	if err != nil {
 		return err
@@ -979,7 +995,7 @@ func (r *OpsManagerReconciler) ensureConfiguration(reconcilerHelper *OpsManagerR
 // Note, that the idea of creating two statefulsets for Ops Manager and Backup Daemon in parallel hasn't worked out
 // as the daemon in this case just hangs silently (in practice it's ok to start it in ~1 min after start of OM though
 // we will just start them sequentially)
-func (r *OpsManagerReconciler) createBackupDaemonStatefulset(ctx context.Context, reconcilerHelper *OpsManagerReconcilerHelper, appDBConnectionString string, memberCluster multicluster.MemberCluster, log *zap.SugaredLogger) workflow.Status {
+func (r *OpsManagerReconciler) createBackupDaemonStatefulset(ctx context.Context, reconcilerHelper *OpsManagerReconcilerHelper, appDBConnectionString string, memberCluster multicluster.MemberCluster, initOpsManagerImage, opsManagerImage string, log *zap.SugaredLogger) workflow.Status {
 	if !reconcilerHelper.opsManager.Spec.Backup.Enabled {
 		return workflow.OK()
 	}
@@ -996,6 +1012,8 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(ctx context.Context
 	}
 	clusterSpecItem := reconcilerHelper.getClusterSpecOMItem(memberCluster.Name)
 	sts, err := construct.BackupDaemonStatefulSet(ctx, r.SecretClient, reconcilerHelper.opsManager, memberCluster, log,
+		construct.WithInitOpsManagerImage(initOpsManagerImage),
+		construct.WithOpsManagerImage(opsManagerImage),
 		construct.WithConnectionStringHash(hashConnectionString(appDBConnectionString)),
 		construct.WithVaultConfig(vaultConfig),
 		// TODO KMIP support will not work across clusters
@@ -2141,7 +2159,7 @@ func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj interface{}, lo
 }
 
 func (r *OpsManagerReconciler) createNewAppDBReconciler(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
-	return NewAppDBReplicaSetReconciler(ctx, opsManager.Spec.AppDB, r.ReconcileCommonController, r.omConnectionFactory, opsManager.Annotations, r.memberClustersMap, log)
+	return NewAppDBReplicaSetReconciler(ctx, r.imageUrls, opsManager.Spec.AppDB, r.ReconcileCommonController, r.omConnectionFactory, opsManager.Annotations, r.memberClustersMap, log)
 }
 
 // getAnnotationsForOpsManagerResource returns all the annotations that should be applied to the resource

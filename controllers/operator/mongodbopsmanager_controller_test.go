@@ -877,7 +877,7 @@ func TestOpsManagerRace(t *testing.T) {
 
 	initializer := &MockedInitializer{expectedOmURL: opsManager1.CentralURL(), t: t, skipChecks: true}
 
-	reconciler := NewOpsManagerReconciler(ctx, kubeClient, nil, omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
+	reconciler := NewOpsManagerReconciler(ctx, kubeClient, nil, nil, omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
 		return api.NewMockedAdminProvider(baseUrl, user, publicApiKey, false).(*api.MockedOmAdmin)
 	})
 
@@ -1239,7 +1239,8 @@ func defaultTestOmReconciler(ctx context.Context, t *testing.T, opsManager *omv1
 
 	initializer := &MockedInitializer{expectedOmURL: opsManager.CentralURL(), t: t}
 
-	reconciler := NewOpsManagerReconciler(ctx, kubeClient, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
+	imageUrlsMock := operatorConstruct.LoadImageUrlsFromEnv()
+	reconciler := NewOpsManagerReconciler(ctx, kubeClient, globalMemberClustersMap, imageUrlsMock, omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
 		if api.CurrMockedAdmin == nil {
 			api.CurrMockedAdmin = api.NewMockedAdminProvider(baseUrl, user, publicApiKey, true).(*api.MockedOmAdmin)
 		}

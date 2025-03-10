@@ -3,7 +3,6 @@ package operator
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -49,9 +48,9 @@ import (
 
 // AddStandaloneController creates a new MongoDbStandalone Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func AddStandaloneController(ctx context.Context, mgr manager.Manager, forceEnterprise bool) error {
+func AddStandaloneController(ctx context.Context, mgr manager.Manager, imageUrls construct.ImageUrls, forceEnterprise bool) error {
 	// Create a new controller
-	reconciler := newStandaloneReconciler(ctx, mgr.GetClient(), forceEnterprise, om.NewOpsManagerConnection)
+	reconciler := newStandaloneReconciler(ctx, mgr.GetClient(), imageUrls, forceEnterprise, om.NewOpsManagerConnection)
 	c, err := controller.New(util.MongoDbStandaloneController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)})
 	if err != nil {
 		return err
@@ -103,10 +102,11 @@ func AddStandaloneController(ctx context.Context, mgr manager.Manager, forceEnte
 	return nil
 }
 
-func newStandaloneReconciler(ctx context.Context, kubeClient client.Client, forceEnterprise bool, omFunc om.ConnectionFactory) *ReconcileMongoDbStandalone {
+func newStandaloneReconciler(ctx context.Context, kubeClient client.Client, imageUrls construct.ImageUrls, forceEnterprise bool, omFunc om.ConnectionFactory) *ReconcileMongoDbStandalone {
 	return &ReconcileMongoDbStandalone{
 		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:       omFunc,
+		imageUrls:                 imageUrls,
 		forceEnterprise:           forceEnterprise,
 	}
 }
@@ -115,6 +115,7 @@ func newStandaloneReconciler(ctx context.Context, kubeClient client.Client, forc
 type ReconcileMongoDbStandalone struct {
 	*ReconcileCommonController
 	omConnectionFactory om.ConnectionFactory
+	imageUrls           construct.ImageUrls
 	forceEnterprise     bool
 }
 
@@ -223,13 +224,20 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		}
 	}
 
+	// FIXME(Mikalai): move env var read up the call stack
+	initDatabaseNonStaticImageVersion := env.ReadOrDefault(construct.InitDatabaseVersionEnv, "latest")
+	databaseNonStaticImageVersion := env.ReadOrDefault(construct.DatabaseVersionEnv, "latest")
+
 	standaloneOpts := construct.StandaloneOptions(
 		CertificateHash(pem.ReadHashFromSecret(ctx, r.SecretClient, s.Namespace, standaloneCertSecretName, databaseSecretPath, log)),
 		CurrentAgentAuthMechanism(currentAgentAuthMode),
 		PodEnvVars(podVars),
 		WithVaultConfig(vaultConfig),
 		WithAdditionalMongodConfig(s.Spec.GetAdditionalMongodConfig()),
-		WithAgentVersion(automationAgentVersion),
+		WithInitDatabaseNonStaticImage(construct.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, initDatabaseNonStaticImageVersion)),
+		WithDatabaseNonStaticImage(construct.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, databaseNonStaticImageVersion)),
+		WithAgentImage(construct.ContainerImage(r.imageUrls, architectures.MdbAgentImageRepo, automationAgentVersion)),
+		WithMongodbImage(construct.GetOfficialImage(r.imageUrls, s.Spec.Version, s.GetAnnotations())),
 	)
 
 	sts := construct.DatabaseStatefulSet(*s, standaloneOpts, log)
@@ -302,9 +310,7 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, con
 		return status
 	}
 
-	// FIXME(Mikalai): this will go way in the next iteration where we will be reading form a imagesMap
-	mongoDBImage := os.Getenv(mcoConstruct.MongodbImageEnv)
-	standaloneOmObject := createProcess(mongoDBImage, r.forceEnterprise, set, util.DatabaseContainerName, s)
+	standaloneOmObject := createProcess(r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, set, util.DatabaseContainerName, s)
 	err := conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			excessProcesses := d.GetNumberOfExcessProcesses(s.Name)

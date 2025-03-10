@@ -23,7 +23,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 )
 
@@ -33,10 +32,7 @@ func init() {
 }
 
 func Test_buildOpsManagerAndBackupInitContainer(t *testing.T) {
-	tag := env.ReadOrDefault(util.InitOpsManagerVersion, "latest")
-	t.Setenv(util.InitOpsManagerImageUrl, "test-registry")
-
-	modification := buildOpsManagerAndBackupInitContainer()
+	modification := buildOpsManagerAndBackupInitContainer("test-registry:latest")
 	containerObj := &corev1.Container{}
 	modification(containerObj)
 	expectedVolumeMounts := []corev1.VolumeMount{{
@@ -46,7 +42,7 @@ func Test_buildOpsManagerAndBackupInitContainer(t *testing.T) {
 	}}
 	expectedContainer := &corev1.Container{
 		Name:         util.InitOpsManagerContainerName,
-		Image:        "test-registry:" + tag,
+		Image:        "test-registry:latest",
 		VolumeMounts: expectedVolumeMounts,
 		SecurityContext: &corev1.SecurityContext{
 			ReadOnlyRootFilesystem:   ptr.To(true),
@@ -97,14 +93,14 @@ func TestBuildJvmParamsEnvVars_FromCustomContainerResource(t *testing.T) {
 	assert.Equal(t, "-DFakeOptionEnabled", envVarsNoLimitsOrReqs[0].Value)
 }
 
-func createOpsManagerStatefulset(ctx context.Context, om *omv1.MongoDBOpsManager) (appsv1.StatefulSet, error) {
+func createOpsManagerStatefulset(ctx context.Context, om *omv1.MongoDBOpsManager, additionalOpts ...func(*OpsManagerStatefulSetOptions)) (appsv1.StatefulSet, error) {
 	client, _ := mock.NewDefaultFakeClient()
 	secretsClient := secrets.SecretClient{
 		VaultClient: &vault.VaultClient{},
 		KubeClient:  client,
 	}
 
-	omSts, err := OpsManagerStatefulSet(ctx, secretsClient, om, multicluster.GetLegacyCentralMemberCluster(om.Spec.Replicas, 0, client, secretsClient), zap.S())
+	omSts, err := OpsManagerStatefulSet(ctx, secretsClient, om, multicluster.GetLegacyCentralMemberCluster(om.Spec.Replicas, 0, client, secretsClient), zap.S(), additionalOpts...)
 	return omSts, err
 }
 
@@ -386,9 +382,11 @@ func TestOpsManagerPodTemplate_ImagePullPolicy(t *testing.T) {
 
 // TestOpsManagerPodTemplate_Container verifies the default OM container built by 'opsManagerPodTemplate' method
 func TestOpsManagerPodTemplate_Container(t *testing.T) {
+	const opsManagerImage = "quay.io/mongodb/mongodb-enterprise-ops-manager:4.2.0"
+
 	ctx := context.Background()
 	om := omv1.NewOpsManagerBuilderDefault().SetVersion("4.2.0").Build()
-	sts, err := createOpsManagerStatefulset(ctx, om)
+	sts, err := createOpsManagerStatefulset(ctx, om, WithOpsManagerImage(opsManagerImage))
 	assert.NoError(t, err)
 	template := sts.Spec.Template
 
@@ -396,7 +394,7 @@ func TestOpsManagerPodTemplate_Container(t *testing.T) {
 	containerObj := template.Spec.Containers[0]
 	assert.Equal(t, util.OpsManagerContainerName, containerObj.Name)
 	// TODO change when we stop using versioning
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-ops-manager:4.2.0", containerObj.Image)
+	assert.Equal(t, opsManagerImage, containerObj.Image)
 	assert.Equal(t, corev1.PullNever, containerObj.ImagePullPolicy)
 
 	assert.Equal(t, int32(util.OpsManagerDefaultPortHTTP), containerObj.Ports[0].ContainerPort)

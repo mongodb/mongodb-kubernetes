@@ -54,7 +54,8 @@ type OpsManagerStatefulSetOptions struct {
 	AppDBConnectionSecretName    string
 	AppDBConnectionStringHash    string
 	EnvVars                      []corev1.EnvVar
-	Version                      string
+	InitOpsManagerImage          string
+	OpsManagerImage              string
 	Name                         string
 	Replicas                     int
 	ServiceName                  string
@@ -92,6 +93,18 @@ func WithConnectionStringHash(hash string) func(opts *OpsManagerStatefulSetOptio
 func WithVaultConfig(config vault.VaultConfiguration) func(opts *OpsManagerStatefulSetOptions) {
 	return func(opts *OpsManagerStatefulSetOptions) {
 		opts.VaultConfig = config
+	}
+}
+
+func WithInitOpsManagerImage(initOpsManagerImage string) func(opts *OpsManagerStatefulSetOptions) {
+	return func(opts *OpsManagerStatefulSetOptions) {
+		opts.InitOpsManagerImage = initOpsManagerImage
+	}
+}
+
+func WithOpsManagerImage(opsManagerImage string) func(opts *OpsManagerStatefulSetOptions) {
+	return func(opts *OpsManagerStatefulSetOptions) {
+		opts.OpsManagerImage = opsManagerImage
 	}
 }
 
@@ -253,7 +266,6 @@ func getSharedOpsManagerOptions(opsManager *omv1.MongoDBOpsManager) OpsManagerSt
 		HTTPSCertSecretName:     opsManager.TLSCertificateSecretName(),
 		AppDBTlsCAConfigMapName: opsManager.Spec.AppDB.GetCAConfigMapName(),
 		EnvVars:                 opsManagerConfigurationToEnvVars(opsManager),
-		Version:                 opsManager.Spec.Version,
 		Namespace:               opsManager.Namespace,
 		Labels:                  opsManager.Labels,
 	}
@@ -317,8 +329,6 @@ func opsManagerStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.Mo
 // backupAndOpsManagerSharedConfiguration returns a function which configures all of the shared
 // options between the backup and Ops Manager StatefulSet
 func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) statefulset.Modification {
-	omImageURL := ContainerImage(util.OpsManagerImageUrl, opts.Version, nil)
-
 	configurePodSpecSecurityContext, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 
 	pullSecretsConfigurationFunc := podtemplatespec.NOOP()
@@ -427,7 +437,7 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 
 	if !architectures.IsRunningStaticArchitecture(opts.Annotations) {
 		initContainerMod = podtemplatespec.WithInitContainerByIndex(0,
-			buildOpsManagerAndBackupInitContainer(),
+			buildOpsManagerAndBackupInitContainer(opts.InitOpsManagerImage),
 		)
 	}
 
@@ -457,7 +467,7 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 						container.WithResourceRequirements(defaultOpsManagerResourceRequirements()),
 						container.WithPorts(buildOpsManagerContainerPorts(opts.HTTPSCertSecretName)),
 						container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.OpsManagerPullPolicy))),
-						container.WithImage(omImageURL),
+						container.WithImage(opts.OpsManagerImage),
 						container.WithEnvs(opts.EnvVars...),
 						container.WithEnvs(getOpsManagerHTTPSEnvVars(opts.HTTPSCertSecretName, opts.CertHash)...),
 						container.WithCommand([]string{"/opt/scripts/docker-entry-point.sh"}),
@@ -552,15 +562,12 @@ func opsManagerStartupProbe() probes.Modification {
 
 // buildOpsManagerAndBackupInitContainer creates the init container which
 // copies the entry point script in the OM/Backup container
-func buildOpsManagerAndBackupInitContainer() container.Modification {
-	version := env.ReadOrDefault(util.InitOpsManagerVersion, "latest")
-	initContainerImageURL := ContainerImage(util.InitOpsManagerImageUrl, version, nil)
-
+func buildOpsManagerAndBackupInitContainer(initOpsManagerImage string) container.Modification {
 	_, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 
 	return container.Apply(
 		container.WithName(util.InitOpsManagerContainerName),
-		container.WithImage(initContainerImageURL),
+		container.WithImage(initOpsManagerImage),
 		container.WithVolumeMounts([]corev1.VolumeMount{buildOmScriptsVolumeMount(false)}),
 		configureContainerSecurityContext,
 	)

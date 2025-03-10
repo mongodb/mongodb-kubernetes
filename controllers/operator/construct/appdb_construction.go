@@ -53,10 +53,13 @@ const (
 )
 
 type AppDBStatefulSetOptions struct {
-	VaultConfig           vault.VaultConfiguration
-	CertHash              string
-	AgentVersion          string
-	LegacyMonitoringAgent string
+	VaultConfig vault.VaultConfiguration
+	CertHash    string
+
+	InitAppDBImage             string
+	MongodbImage               string
+	AgentImage                 string
+	LegacyMonitoringAgentImage string
 
 	PrometheusTLSCertHash string
 }
@@ -104,7 +107,7 @@ func appDbLabels(opsManager *om.MongoDBOpsManager, memberClusterNum int) statefu
 }
 
 // appDbPodSpec return the podtemplatespec modification required for the AppDB statefulset.
-func appDbPodSpec(om om.MongoDBOpsManager) podtemplatespec.Modification {
+func appDbPodSpec(initContainerImage string, om om.MongoDBOpsManager) podtemplatespec.Modification {
 	// The following sets almost the exact same values for the containers
 	// But with the addition of a default memory request for the mongod one
 	appdbPodSpec := NewDefaultPodSpecWrapper(*om.Spec.AppDB.PodSpec)
@@ -128,7 +131,7 @@ func appDbPodSpec(om om.MongoDBOpsManager) podtemplatespec.Modification {
 			templateSpec.Spec.InitContainers = []corev1.Container{}
 			scriptsVolumeMount := statefulset.CreateVolumeMount("agent-scripts", "/opt/scripts", statefulset.WithReadOnly(false))
 			hooksVolumeMount := statefulset.CreateVolumeMount("hooks", "/hooks", statefulset.WithReadOnly(false))
-			podtemplatespec.WithInitContainer(InitAppDbContainerName, buildAppDBInitContainer([]corev1.VolumeMount{scriptsVolumeMount, hooksVolumeMount}))(templateSpec)
+			podtemplatespec.WithInitContainer(InitAppDbContainerName, buildAppDBInitContainer(initContainerImage, []corev1.VolumeMount{scriptsVolumeMount, hooksVolumeMount}))(templateSpec)
 		}
 	}
 
@@ -140,10 +143,7 @@ func appDbPodSpec(om om.MongoDBOpsManager) podtemplatespec.Modification {
 }
 
 // buildAppDBInitContainer builds the container specification for mongodb-enterprise-init-appdb image.
-func buildAppDBInitContainer(volumeMounts []corev1.VolumeMount) container.Modification {
-	version := env.ReadOrDefault(InitAppdbVersionEnv, "latest")
-	initContainerImageURL := ContainerImage(util.InitAppdbImageUrlEnv, version, nil)
-
+func buildAppDBInitContainer(initContainerImageURL string, volumeMounts []corev1.VolumeMount) container.Modification {
 	_, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 
 	return container.Apply(
@@ -401,11 +401,9 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		MountPath: "/var/lib/automation/config/acVersion",
 	}
 
-	mod := construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, scaler, opts.AgentVersion, true)
+	mod := construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, scaler, opts.AgentImage, true)
 	if architectures.IsRunningStaticArchitecture(opsManager.Annotations) {
-		mod = construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, scaler, ContainerImage(architectures.MdbAgentImageRepo, opts.AgentVersion, func() string {
-			return env.ReadOrDefault(architectures.MdbAgentImageRepo, "quay.io/mongodb/mongodb-agent-ubi")
-		}), false)
+		mod = construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, scaler, opts.AgentImage, false)
 	}
 
 	sts := statefulset.New(
@@ -418,7 +416,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		// mongod image as it is constructed from 2 env variables and version from spec, and it will not be replaced to sha256 digest properly.
 		// The official image provides both CMD and ENTRYPOINT. We're reusing the former and need to replace
 		// the latter with an empty string.
-		containerImageModification(construct.MongodbName, getOfficialImage(opsManager.Spec.AppDB.Version, opsManager.GetAnnotations()), []string{""}),
+		containerImageModification(construct.MongodbName, opts.MongodbImage, []string{""}),
 		// we don't need to update here the automation agent image for digest pinning, because it is defined in AGENT_IMAGE env var as full url with version
 		// if we run in certified bundle with digest pinning it will be properly updated to digest
 		customPersistenceConfig(&opsManager),
@@ -437,7 +435,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 					),
 				),
 				vaultModification(*appDb, podVars, opts),
-				appDbPodSpec(opsManager),
+				appDbPodSpec(opts.InitAppDBImage, opsManager),
 				monitoringModification,
 				tlsVolumes(*appDb, podVars, log),
 			),
@@ -463,8 +461,8 @@ func IsEnterprise() bool {
 	return true
 }
 
-func getOfficialImage(version string, annotations map[string]string) string {
-	repoUrl := os.Getenv(construct.MongodbRepoUrl)
+func GetOfficialImage(imageUrls ImageUrls, version string, annotations map[string]string) string {
+	repoUrl := imageUrls[construct.MongodbRepoUrl]
 	// TODO: rethink the logic of handling custom image types. We are currently only handling ubi9 and ubi8 and we never
 	// were really handling erroneus types, we just leave them be if specified (e.g. -ubuntu).
 	// envvar.GetEnvOrDefault(construct.MongoDBImageType, string(architectures.DefaultImageType))
@@ -478,12 +476,14 @@ func getOfficialImage(version string, annotations map[string]string) string {
 		imageType = string(architectures.ImageTypeUBI8)
 	}
 
+	imageURL := imageUrls[construct.MongodbImageEnv]
+
 	if strings.HasSuffix(repoUrl, "/") {
 		repoUrl = strings.TrimRight(repoUrl, "/")
 	}
 
 	assumeOldFormat := envvar.ReadBool(util.MdbAppdbAssumeOldFormat)
-	if AppDBIsEnterpriseImage() && !assumeOldFormat {
+	if IsEnterpriseImage(imageURL) && !assumeOldFormat {
 		// 5.0.6-ent -> 5.0.6-ubi8
 		if strings.HasSuffix(version, "-ent") {
 			version = fmt.Sprintf("%s%s", strings.TrimSuffix(version, "ent"), imageType)
@@ -499,21 +499,13 @@ func getOfficialImage(version string, annotations map[string]string) string {
 		// if neither, let's not change it: 5.0.6-ubi8 -> 5.0.6-ubi8
 	}
 
-	mongoImageName := ContainerImage(construct.MongodbImageEnv, version, func() string {
-		imageURL := os.Getenv(construct.MongodbImageEnv)
-		return imageURL
-	})
+	mongoImageName := ContainerImage(imageUrls, construct.MongodbImageEnv, version)
 
 	if strings.Contains(mongoImageName, "@sha256:") || strings.HasPrefix(mongoImageName, repoUrl) {
 		return mongoImageName
 	}
 
 	return fmt.Sprintf("%s/%s", repoUrl, mongoImageName)
-}
-
-func AppDBIsEnterpriseImage() bool {
-	imageURL := os.Getenv(construct.MongodbImageEnv)
-	return strings.HasSuffix(imageURL, util.OfficialEnterpriseServerImageUrl)
 }
 
 func containerImageModification(containerName string, image string, args []string) statefulset.Modification {
@@ -631,8 +623,8 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 
 			// we ensure that the monitoring agent image is compatible with the input of Ops Manager we're using.
 			// once we make static containers the default, we can remove this code.
-			if opts.LegacyMonitoringAgent != "" {
-				monitoringContainer.Image = ContainerImage(construct.AgentImageEnv, opts.LegacyMonitoringAgent, nil)
+			if opts.LegacyMonitoringAgentImage != "" {
+				monitoringContainer.Image = opts.LegacyMonitoringAgentImage
 			}
 
 			// Replace the automation config volume
