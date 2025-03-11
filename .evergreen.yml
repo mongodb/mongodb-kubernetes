@@ -77,7 +77,6 @@ variables:
       - func: download_kube_tools
       - func: build_multi_cluster_binary
     teardown_group:
-      - func: code_snippets_commit_output
       - func: upload_code_snippets_logs
 
   - &setup_and_teardown_task_cloudqa
