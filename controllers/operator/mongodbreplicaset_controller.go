@@ -45,6 +45,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
+	"github.com/10gen/ops-manager-kubernetes/pkg/images"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
@@ -57,7 +58,7 @@ import (
 type ReconcileMongoDbReplicaSet struct {
 	*ReconcileCommonController
 	omConnectionFactory om.ConnectionFactory
-	imageUrls           construct.ImageUrls
+	imageUrls           images.ImageUrls
 	forceEnterprise     bool
 
 	initDatabaseNonStaticImageVersion string
@@ -66,7 +67,7 @@ type ReconcileMongoDbReplicaSet struct {
 
 var _ reconcile.Reconciler = &ReconcileMongoDbReplicaSet{}
 
-func newReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls construct.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, omFunc om.ConnectionFactory) *ReconcileMongoDbReplicaSet {
+func newReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, omFunc om.ConnectionFactory) *ReconcileMongoDbReplicaSet {
 	return &ReconcileMongoDbReplicaSet{
 		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:       omFunc,
@@ -202,10 +203,10 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		WithVaultConfig(vaultConfig),
 		WithLabels(rs.Labels),
 		WithAdditionalMongodConfig(rs.Spec.GetAdditionalMongodConfig()),
-		WithInitDatabaseNonStaticImage(construct.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
-		WithDatabaseNonStaticImage(construct.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
-		WithAgentImage(construct.ContainerImage(r.imageUrls, architectures.MdbAgentImageRepo, automationAgentVersion)),
-		WithMongodbImage(construct.GetOfficialImage(r.imageUrls, rs.Spec.Version, rs.GetAnnotations())),
+		WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
+		WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
+		WithAgentImage(images.ContainerImage(r.imageUrls, architectures.MdbAgentImageRepo, automationAgentVersion)),
+		WithMongodbImage(images.GetOfficialImage(r.imageUrls, rs.Spec.Version, rs.GetAnnotations())),
 	)
 
 	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
@@ -344,7 +345,7 @@ func (r *ReconcileMongoDbReplicaSet) reconcileHostnameOverrideConfigMap(ctx cont
 
 // AddReplicaSetController creates a new MongoDbReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls construct.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool) error {
+func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool) error {
 	// Create a new controller
 	reconciler := newReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, om.NewOpsManagerConnection)
 	c, err := controller.New(util.MongoDbReplicaSetController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)})
