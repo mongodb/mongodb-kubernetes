@@ -733,9 +733,12 @@ functions:
 
   code_snippets_commit_output:
     - *switch_context
-    - command: shell.exec
+    - command: github.generate_token
       params:
-        shell: bash
+        expansion_name: GH_TOKEN
+    - command: subprocess.exec
+      params:
+        include_expansions_in_env:
+          - GH_TOKEN
         working_dir: src/github.com/10gen/ops-manager-kubernetes
-        script: |
-          ./scripts/code_snippets/sample_commit_output.sh
+        binary: scripts/code_snippets/sample_commit_output.sh
