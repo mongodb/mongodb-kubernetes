@@ -730,9 +730,6 @@ functions:
           - code_snippets_teardown
         script: |
           ./scripts/code_snippets/gke_multi_cluster_test.sh
-
-  code_snippets_commit_output:
-    - *switch_context
     - command: github.generate_token
       params:
         expansion_name: GH_TOKEN
