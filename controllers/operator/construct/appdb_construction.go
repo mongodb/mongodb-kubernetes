@@ -4,9 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"regexp"
 	"strconv"
-	"strings"
 
 	"go.uber.org/zap"
 
@@ -14,7 +12,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/envvar"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
 
@@ -459,53 +456,6 @@ func IsEnterprise() bool {
 		return overrideAssumption
 	}
 	return true
-}
-
-func GetOfficialImage(imageUrls ImageUrls, version string, annotations map[string]string) string {
-	repoUrl := imageUrls[construct.MongodbRepoUrl]
-	// TODO: rethink the logic of handling custom image types. We are currently only handling ubi9 and ubi8 and we never
-	// were really handling erroneus types, we just leave them be if specified (e.g. -ubuntu).
-	// envvar.GetEnvOrDefault(construct.MongoDBImageType, string(architectures.DefaultImageType))
-	var imageType string
-
-	if architectures.IsRunningStaticArchitecture(annotations) {
-		imageType = string(architectures.ImageTypeUBI9)
-	} else {
-		// For non-static architecture, we need to default to UBI8 to support customers running MongoDB versions < 6.0.4,
-		// which don't have UBI9 binaries.
-		imageType = string(architectures.ImageTypeUBI8)
-	}
-
-	imageURL := imageUrls[construct.MongodbImageEnv]
-
-	if strings.HasSuffix(repoUrl, "/") {
-		repoUrl = strings.TrimRight(repoUrl, "/")
-	}
-
-	assumeOldFormat := envvar.ReadBool(util.MdbAppdbAssumeOldFormat)
-	if IsEnterpriseImage(imageURL) && !assumeOldFormat {
-		// 5.0.6-ent -> 5.0.6-ubi8
-		if strings.HasSuffix(version, "-ent") {
-			version = fmt.Sprintf("%s%s", strings.TrimSuffix(version, "ent"), imageType)
-		}
-		// 5.0.6 ->  5.0.6-ubi8
-		r := regexp.MustCompile("-.+$")
-		if !r.MatchString(version) {
-			version = version + "-" + imageType
-		}
-		if found, suffix := architectures.HasSupportedImageTypeSuffix(version); found {
-			version = fmt.Sprintf("%s%s", strings.TrimSuffix(version, suffix), imageType)
-		}
-		// if neither, let's not change it: 5.0.6-ubi8 -> 5.0.6-ubi8
-	}
-
-	mongoImageName := ContainerImage(imageUrls, construct.MongodbImageEnv, version)
-
-	if strings.Contains(mongoImageName, "@sha256:") || strings.HasPrefix(mongoImageName, repoUrl) {
-		return mongoImageName
-	}
-
-	return fmt.Sprintf("%s/%s", repoUrl, mongoImageName)
 }
 
 func containerImageModification(containerName string, image string, args []string) statefulset.Modification {

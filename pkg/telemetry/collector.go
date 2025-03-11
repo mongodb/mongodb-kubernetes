@@ -20,7 +20,7 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
+	"github.com/10gen/ops-manager-kubernetes/pkg/images"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
@@ -225,7 +225,7 @@ func getMdbEvents(ctx context.Context, operatorClusterClient kubeclient.Client, 
 				Architecture:             string(architectures.GetArchitecture(item.Annotations)),
 				IsMultiCluster:           item.Spec.IsMultiCluster(),
 				Type:                     string(item.Spec.GetResourceType()),
-				IsRunningEnterpriseImage: construct.IsEnterpriseImage(imageURL),
+				IsRunningEnterpriseImage: images.IsEnterpriseImage(imageURL),
 			}
 
 			if numberOfClustersUsed > 0 {
@@ -259,7 +259,7 @@ func addMultiEvents(ctx context.Context, operatorClusterClient kubeclient.Client
 			Architecture:             string(architectures.GetArchitecture(item.Annotations)),
 			IsMultiCluster:           true,
 			Type:                     string(item.Spec.GetResourceType()),
-			IsRunningEnterpriseImage: construct.IsEnterpriseImage(imageURL),
+			IsRunningEnterpriseImage: images.IsEnterpriseImage(imageURL),
 		}
 		events = append(events, addEvents(properties, events, now, Deployments)...)
 	}
@@ -284,7 +284,7 @@ func addOmEvents(ctx context.Context, operatorClusterClient kubeclient.Client, o
 				Architecture:             string(architectures.GetArchitecture(item.Annotations)),
 				IsMultiCluster:           item.Spec.IsMultiCluster(),
 				Type:                     "OpsManager",
-				IsRunningEnterpriseImage: construct.IsEnterpriseImage(mongodbImage),
+				IsRunningEnterpriseImage: images.IsEnterpriseImage(mongodbImage),
 			}
 			if omClusters > 0 {
 				properties.OmClusters = ptr.To(omClusters)

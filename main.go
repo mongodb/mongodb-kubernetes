@@ -39,6 +39,7 @@ import (
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
+	"github.com/10gen/ops-manager-kubernetes/pkg/images"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/telemetry"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -104,7 +105,7 @@ func main() {
 	klog.InitFlags(nil)
 	initializeEnvironment()
 
-	imageUrls := construct.LoadImageUrlsFromEnv()
+	imageUrls := images.LoadImageUrlsFromEnv()
 	forceEnterprise := env.ReadBoolOrDefault(architectures.MdbAssumeEnterpriseImage, false)
 	initDatabaseNonStaticImageVersion := env.ReadOrDefault(construct.InitDatabaseVersionEnv, "latest")
 	databaseNonStaticImageVersion := env.ReadOrDefault(construct.DatabaseVersionEnv, "latest")
@@ -255,7 +256,7 @@ func main() {
 	}
 }
 
-func setupMongoDBCRD(ctx context.Context, mgr manager.Manager, imageUrls construct.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {
+func setupMongoDBCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {
 	if err := operator.AddStandaloneController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise); err != nil {
 		return err
 	}
@@ -268,7 +269,7 @@ func setupMongoDBCRD(ctx context.Context, mgr manager.Manager, imageUrls constru
 	return ctrl.NewWebhookManagedBy(mgr).For(&mdbv1.MongoDB{}).Complete()
 }
 
-func setupMongoDBOpsManagerCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster, imageUrls construct.ImageUrls, initAppdbVersion, initOpsManagerImageVersion string) error {
+func setupMongoDBOpsManagerCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster, imageUrls images.ImageUrls, initAppdbVersion, initOpsManagerImageVersion string) error {
 	if err := operator.AddOpsManagerController(ctx, mgr, memberClusterObjectsMap, imageUrls, initAppdbVersion, initOpsManagerImageVersion); err != nil {
 		return err
 	}
@@ -279,7 +280,7 @@ func setupMongoDBUserCRD(ctx context.Context, mgr manager.Manager, memberCluster
 	return operator.AddMongoDBUserController(ctx, mgr, memberClusterObjectsMap)
 }
 
-func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, imageUrls construct.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {
+func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {
 	if err := operator.AddMultiReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, memberClusterObjectsMap); err != nil {
 		return err
 	}

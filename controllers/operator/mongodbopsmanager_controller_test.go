@@ -44,6 +44,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
+	"github.com/10gen/ops-manager-kubernetes/pkg/images"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
@@ -469,8 +470,8 @@ func TestOpsManagerReconcileContainerImages(t *testing.T) {
 	mongodbRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", mcoConstruct.MongodbImageEnv)
 	initAppdbRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_3_4_5", util.InitAppdbImageUrlEnv)
 
-	imageUrlsMock := operatorConstruct.ImageUrls{
-		// Ops manager & backup daemon images
+	imageUrlsMock := images.ImageUrls{
+		// Ops manager & backup deamon images
 		initOpsManagerRelatedImageEnv: "quay.io/mongodb/mongodb-enterprise-init-ops-manager:@sha256:MONGODB_INIT_APPDB",
 		opsManagerRelatedImageEnv:     "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER",
 
@@ -531,8 +532,8 @@ func TestOpsManagerReconcileContainerImagesWithStaticArchitecture(t *testing.T) 
 	opsManagerRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", util.OpsManagerImageUrl)
 	mongodbRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", mcoConstruct.MongodbImageEnv)
 
-	imageUrlsMock := operatorConstruct.ImageUrls{
-		// Ops manager & backup daemon images
+	imageUrlsMock := images.ImageUrls{
+		// Ops manager & backup deamon images
 		opsManagerRelatedImageEnv: "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER",
 
 		// AppDB images
@@ -1226,7 +1227,7 @@ func configureBackupResources(ctx context.Context, m kubernetesClient.Client, te
 	}
 }
 
-func defaultTestOmReconciler(ctx context.Context, t *testing.T, imageUrls operatorConstruct.ImageUrls, initAppdbVersion, initOpsManagerImageVersion string, opsManager *omv1.MongoDBOpsManager, globalMemberClustersMap map[string]client.Client, omConnectionFactory *om.CachedOMConnectionFactory) (*OpsManagerReconciler, kubernetesClient.Client, *MockedInitializer) {
+func defaultTestOmReconciler(ctx context.Context, t *testing.T, imageUrls images.ImageUrls, initAppdbVersion, initOpsManagerImageVersion string, opsManager *omv1.MongoDBOpsManager, globalMemberClustersMap map[string]client.Client, omConnectionFactory *om.CachedOMConnectionFactory) (*OpsManagerReconciler, kubernetesClient.Client, *MockedInitializer) {
 	kubeClient := mock.NewEmptyFakeClientWithInterceptor(omConnectionFactory, opsManager.DeepCopy())
 
 	// create an admin user secret

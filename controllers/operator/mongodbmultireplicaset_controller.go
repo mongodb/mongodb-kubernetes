@@ -52,7 +52,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/authentication"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connection"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	mconstruct "github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
 	enterprisepem "github.com/10gen/ops-manager-kubernetes/controllers/operator/pem"
@@ -63,6 +62,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	khandler "github.com/10gen/ops-manager-kubernetes/pkg/handler"
+	"github.com/10gen/ops-manager-kubernetes/pkg/images"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	mekoService "github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
@@ -83,14 +83,14 @@ type ReconcileMongoDbMultiReplicaSet struct {
 	memberClusterSecretClientsMap map[string]secrets.SecretClient
 	forceEnterprise               bool
 
-	imageUrls                         construct.ImageUrls
+	imageUrls                         images.ImageUrls
 	initDatabaseNonStaticImageVersion string
 	databaseNonStaticImageVersion     string
 }
 
 var _ reconcile.Reconciler = &ReconcileMongoDbMultiReplicaSet{}
 
-func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls construct.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, omFunc om.ConnectionFactory, memberClustersMap map[string]client.Client) *ReconcileMongoDbMultiReplicaSet {
+func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, omFunc om.ConnectionFactory, memberClustersMap map[string]client.Client) *ReconcileMongoDbMultiReplicaSet {
 	clientsMap := make(map[string]kubernetesClient.Client)
 	secretClientsMap := make(map[string]secrets.SecretClient)
 
@@ -501,10 +501,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			InternalClusterHash(internalCertHash),
 			WithLabels(mongoDBMultiLabels(mrs.Name, mrs.Namespace)),
 			WithAdditionalMongodConfig(mrs.Spec.GetAdditionalMongodConfig()),
-			WithInitDatabaseNonStaticImage(construct.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
-			WithDatabaseNonStaticImage(construct.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
-			WithAgentImage(construct.ContainerImage(r.imageUrls, architectures.MdbAgentImageRepo, automationAgentVersion)),
-			WithMongodbImage(construct.GetOfficialImage(r.imageUrls, mrs.Spec.Version, mrs.GetAnnotations())),
+			WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
+			WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
+			WithAgentImage(images.ContainerImage(r.imageUrls, architectures.MdbAgentImageRepo, automationAgentVersion)),
+			WithMongodbImage(images.GetOfficialImage(r.imageUrls, mrs.Spec.Version, mrs.GetAnnotations())),
 		)
 
 		sts := mconstruct.MultiClusterStatefulSet(*mrs, opts)
@@ -1084,7 +1084,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileOMCAConfigMap(ctx context.Con
 
 // AddMultiReplicaSetController creates a new MongoDbMultiReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls construct.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, memberClustersMap map[string]cluster.Cluster) error {
+func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, memberClustersMap map[string]cluster.Cluster) error {
 	// Create a new controller
 	reconciler := newMultiClusterReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, om.NewOpsManagerConnection, multicluster.ClustersMapToClientMap(memberClustersMap))
 	c, err := controller.New(util.MongoDbMultiClusterController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)})

@@ -55,6 +55,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
+	"github.com/10gen/ops-manager-kubernetes/pkg/images"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -93,14 +94,14 @@ type OpsManagerReconciler struct {
 
 	memberClustersMap map[string]client.Client
 
-	imageUrls                  construct.ImageUrls
+	imageUrls                  images.ImageUrls
 	initAppdbVersion           string
 	initOpsManagerImageVersion string
 }
 
 var _ reconcile.Reconciler = &OpsManagerReconciler{}
 
-func NewOpsManagerReconciler(ctx context.Context, kubeClient client.Client, memberClustersMap map[string]client.Client, imageUrls construct.ImageUrls, initAppdbVersion, initOpsManagerImageVersion string, omFunc om.ConnectionFactory, initializer api.Initializer, adminProvider api.AdminProvider) *OpsManagerReconciler {
+func NewOpsManagerReconciler(ctx context.Context, kubeClient client.Client, memberClustersMap map[string]client.Client, imageUrls images.ImageUrls, initAppdbVersion, initOpsManagerImageVersion string, omFunc om.ConnectionFactory, initializer api.Initializer, adminProvider api.AdminProvider) *OpsManagerReconciler {
 	return &OpsManagerReconciler{
 		ReconcileCommonController:  NewReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:        omFunc,
@@ -461,8 +462,8 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 		}
 	}
 
-	initOpsManagerImage := construct.ContainerImage(r.imageUrls, util.InitOpsManagerImageUrl, r.initOpsManagerImageVersion)
-	opsManagerImage := construct.ContainerImage(r.imageUrls, util.OpsManagerImageUrl, opsManager.Spec.Version)
+	initOpsManagerImage := images.ContainerImage(r.imageUrls, util.InitOpsManagerImageUrl, r.initOpsManagerImageVersion)
+	opsManagerImage := images.ContainerImage(r.imageUrls, util.OpsManagerImageUrl, opsManager.Spec.Version)
 
 	// 2. Reconcile Ops Manager
 	status, omAdmin := r.reconcileOpsManager(ctx, opsManagerReconcilerHelper, opsManager, appDBConnectionString, initOpsManagerImage, opsManagerImage, log)
@@ -923,7 +924,7 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulsetInMemberCluster(ctx co
 	return workflow.OK()
 }
 
-func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, imageUrls construct.ImageUrls, initAppdbVersion, initOpsManagerImageVersion string) error {
+func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, imageUrls images.ImageUrls, initAppdbVersion, initOpsManagerImageVersion string) error {
 	reconciler := NewOpsManagerReconciler(ctx, mgr.GetClient(), multicluster.ClustersMapToClientMap(memberClustersMap), imageUrls, initAppdbVersion, initOpsManagerImageVersion, om.NewOpsManagerConnection, &api.DefaultInitializer{}, api.NewOmAdmin)
 	c, err := controller.New(util.MongoDbOpsManagerController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)})
 	if err != nil {

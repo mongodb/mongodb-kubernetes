@@ -60,6 +60,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
+	"github.com/10gen/ops-manager-kubernetes/pkg/images"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	mekoService "github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
@@ -76,14 +77,14 @@ type ReconcileMongoDbShardedCluster struct {
 	*ReconcileCommonController
 	omConnectionFactory om.ConnectionFactory
 	memberClustersMap   map[string]client.Client
-	imageUrls           construct.ImageUrls
+	imageUrls           images.ImageUrls
 	forceEnterprise     bool
 
 	initDatabaseNonStaticImageVersion string
 	databaseNonStaticImageVersion     string
 }
 
-func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, imageUrls construct.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, memberClusterMap map[string]client.Client, omFunc om.ConnectionFactory) *ReconcileMongoDbShardedCluster {
+func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, memberClusterMap map[string]client.Client, omFunc om.ConnectionFactory) *ReconcileMongoDbShardedCluster {
 	return &ReconcileMongoDbShardedCluster{
 		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:       omFunc,
@@ -625,7 +626,7 @@ func processClusterSpecList(
 type ShardedClusterReconcileHelper struct {
 	commonController       *ReconcileCommonController
 	omConnectionFactory    om.ConnectionFactory
-	imageUrls              construct.ImageUrls
+	imageUrls              images.ImageUrls
 	forceEnterprise        bool
 	automationAgentVersion string
 
@@ -655,7 +656,7 @@ type ShardedClusterReconcileHelper struct {
 	stateStore *StateStore[ShardedClusterDeploymentState]
 }
 
-func NewShardedClusterReconcilerHelper(ctx context.Context, reconciler *ReconcileCommonController, imageUrls construct.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, omConnectionFactory om.ConnectionFactory, log *zap.SugaredLogger) (*ShardedClusterReconcileHelper, error) {
+func NewShardedClusterReconcilerHelper(ctx context.Context, reconciler *ReconcileCommonController, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, omConnectionFactory om.ConnectionFactory, log *zap.SugaredLogger) (*ShardedClusterReconcileHelper, error) {
 	// It's a workaround for single cluster topology to add there __default cluster.
 	// With the multi-cluster sharded refactor, we went so far with the multi-cluster first approach so we have very few places with conditional single/multi logic.
 	// Therefore, some parts of the reconciler logic uses that globalMemberClusterMap even in single-cluster mode (look for usages of createShardsMemberClusterLists) and expect
@@ -1616,7 +1617,7 @@ func (r *ShardedClusterReconcileHelper) deleteClusterResources(ctx context.Conte
 	return errs
 }
 
-func AddShardedClusterController(ctx context.Context, mgr manager.Manager, imageUrls construct.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, memberClustersMap map[string]cluster.Cluster) error {
+func AddShardedClusterController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, memberClustersMap map[string]cluster.Cluster) error {
 	// Create a new controller
 	reconciler := newShardedClusterReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, multicluster.ClustersMapToClientMap(memberClustersMap), om.NewOpsManagerConnection)
 	options := controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}
@@ -2247,10 +2248,10 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 		WithAdditionalMongodConfig(configSrvSpec.GetAdditionalMongodConfig()),
 		WithDefaultConfigSrvStorageSize(),
 		WithStsLabels(r.statefulsetLabels()),
-		WithInitDatabaseNonStaticImage(construct.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
-		WithDatabaseNonStaticImage(construct.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
-		WithAgentImage(construct.ContainerImage(r.imageUrls, architectures.MdbAgentImageRepo, r.automationAgentVersion)),
-		WithMongodbImage(construct.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations())),
+		WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
+		WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
+		WithAgentImage(images.ContainerImage(r.imageUrls, architectures.MdbAgentImageRepo, r.automationAgentVersion)),
+		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations())),
 	)
 }
 
@@ -2277,10 +2278,10 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 		WithVaultConfig(vaultConfig),
 		WithAdditionalMongodConfig(sc.Spec.MongosSpec.GetAdditionalMongodConfig()),
 		WithStsLabels(r.statefulsetLabels()),
-		WithInitDatabaseNonStaticImage(construct.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
-		WithDatabaseNonStaticImage(construct.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
-		WithAgentImage(construct.ContainerImage(r.imageUrls, architectures.MdbAgentImageRepo, r.automationAgentVersion)),
-		WithMongodbImage(construct.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations())),
+		WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
+		WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
+		WithAgentImage(images.ContainerImage(r.imageUrls, architectures.MdbAgentImageRepo, r.automationAgentVersion)),
+		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations())),
 	)
 }
 
@@ -2307,10 +2308,10 @@ func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc 
 		WithVaultConfig(vaultConfig),
 		WithAdditionalMongodConfig(shardSpec.GetAdditionalMongodConfig()),
 		WithStsLabels(r.statefulsetLabels()),
-		WithInitDatabaseNonStaticImage(construct.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
-		WithDatabaseNonStaticImage(construct.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
-		WithAgentImage(construct.ContainerImage(r.imageUrls, architectures.MdbAgentImageRepo, r.automationAgentVersion)),
-		WithMongodbImage(construct.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations())),
+		WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
+		WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
+		WithAgentImage(images.ContainerImage(r.imageUrls, architectures.MdbAgentImageRepo, r.automationAgentVersion)),
+		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations())),
 	)
 }
 
