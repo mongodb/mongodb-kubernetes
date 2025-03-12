@@ -25,7 +25,7 @@ func BuildFromStatefulSet(mongoDBImage string, forceEnterprise bool, set appsv1.
 // parameter.
 func BuildFromStatefulSetWithReplicas(mongoDBImage string, forceEnterprise bool, set appsv1.StatefulSet, dbSpec mdbv1.DbSpec, replicas int, fcv string) om.ReplicaSetWithProcesses {
 	members := process.CreateMongodProcessesWithLimit(mongoDBImage, forceEnterprise, set, dbSpec, replicas, fcv)
-	replicaSet := om.NewReplicaSet(set.Name, dbSpec.GetMongoDBVersion(nil))
+	replicaSet := om.NewReplicaSet(set.Name, dbSpec.GetMongoDBVersion())
 	rsWithProcesses := om.NewReplicaSetWithProcesses(replicaSet, members, dbSpec.GetMemberOptions())
 	rsWithProcesses.SetHorizons(dbSpec.GetHorizonConfig())
 	return rsWithProcesses

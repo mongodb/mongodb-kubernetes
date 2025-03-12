@@ -2204,7 +2204,7 @@ func createMongodProcessForShardedCluster(mongoDBImage string, forceEnterprise b
 // buildReplicaSetFromProcesses creates the 'ReplicaSetWithProcesses' with specified processes. This is of use only
 // for sharded cluster (config server, shards)
 func buildReplicaSetFromProcesses(name string, members []om.Process, mdb *mdbv1.MongoDB, memberOptions []automationconfig.MemberOptions, deployment om.Deployment) (om.ReplicaSetWithProcesses, error) {
-	replicaSet := om.NewReplicaSet(name, mdb.Spec.GetMongoDBVersion(nil))
+	replicaSet := om.NewReplicaSet(name, mdb.Spec.GetMongoDBVersion())
 
 	existingProcessIds := getReplicaSetProcessIdsFromReplicaSets(replicaSet.Name(), deployment)
 	var rsWithProcesses om.ReplicaSetWithProcesses

@@ -12,7 +12,7 @@ require (
 	github.com/hashicorp/go-retryablehttp v0.7.7
 	github.com/hashicorp/vault/api v1.16.0
 	github.com/imdario/mergo v0.3.15
-	github.com/mongodb/mongodb-kubernetes-operator v0.12.1-0.20250203171630-423b6ebbf169
+	github.com/mongodb/mongodb-kubernetes-operator v0.12.1-0.20250311084916-0e7208998804
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.21.0
 	github.com/r3labs/diff/v3 v3.0.1
@@ -27,9 +27,9 @@ require (
 	golang.org/x/exp v0.0.0-20220722155223-a9213eeb770e
 	golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
-	k8s.io/api v0.30.1
-	k8s.io/apimachinery v0.30.1
-	k8s.io/client-go v0.30.1
+	k8s.io/api v0.30.10
+	k8s.io/apimachinery v0.30.10
+	k8s.io/client-go v0.30.10
 	k8s.io/code-generator v0.30.1
 	k8s.io/klog/v2 v2.130.1
 	k8s.io/utils v0.0.0-20240502163921-fe8a2dddb1d0

@@ -61,7 +61,7 @@ func LoadImageUrlsFromEnv() ImageUrls {
 		//   - New env var has a RELATED_IMAGE_* counterpart
 		//   - New env var contains an image URL or part of the URL
 		//     and it will be used in container for MongoDB workfloads
-		construct.MongodbRepoUrl:              "",
+		construct.MongodbRepoUrlEnv:           "",
 		construct.MongodbImageEnv:             "",
 		util.InitOpsManagerImageUrl:           "",
 		util.OpsManagerImageUrl:               "",
@@ -119,7 +119,7 @@ func ContainerImage(imageUrls ImageUrls, imageName string, version string) strin
 }
 
 func GetOfficialImage(imageUrls ImageUrls, version string, annotations map[string]string) string {
-	repoUrl := imageUrls[construct.MongodbRepoUrl]
+	repoUrl := imageUrls[construct.MongodbRepoUrlEnv]
 	// TODO: rethink the logic of handling custom image types. We are currently only handling ubi9 and ubi8 and we never
 	// were really handling erroneus types, we just leave them be if specified (e.g. -ubuntu).
 	// envvar.GetEnvOrDefault(construct.MongoDBImageType, string(architectures.DefaultImageType))
