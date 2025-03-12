@@ -100,7 +100,7 @@ func NewMongosProcess(name, hostName, mongoDBImage string, forceEnterprise bool,
 	}
 
 	architecture := architectures.GetArchitecture(annotations)
-	processVersion := architectures.GetMongoVersionForAutomationConfig(mongoDBImage, spec.GetMongoDBVersion(nil), forceEnterprise, architecture)
+	processVersion := architectures.GetMongoVersionForAutomationConfig(mongoDBImage, spec.GetMongoDBVersion(), forceEnterprise, architecture)
 	p := createProcess(
 		WithName(name),
 		WithHostname(hostName),
@@ -126,7 +126,7 @@ func NewMongodProcess(name, hostName, mongoDBImage string, forceEnterprise bool,
 	}
 
 	architecture := architectures.GetArchitecture(annotations)
-	processVersion := architectures.GetMongoVersionForAutomationConfig(mongoDBImage, spec.GetMongoDBVersion(nil), forceEnterprise, architecture)
+	processVersion := architectures.GetMongoVersionForAutomationConfig(mongoDBImage, spec.GetMongoDBVersion(), forceEnterprise, architecture)
 	p := createProcess(
 		WithName(name),
 		WithHostname(hostName),

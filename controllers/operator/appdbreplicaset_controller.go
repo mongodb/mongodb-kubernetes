@@ -1041,7 +1041,7 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 		SetFCV(fcVersion).
 		AddVersions(existingAutomationConfig.Versions).
 		IsEnterprise(construct.IsEnterprise()).
-		SetMongoDBVersion(rs.GetMongoDBVersion(nil)).
+		SetMongoDBVersion(rs.GetMongoDBVersion()).
 		SetOptions(automationconfig.Options{DownloadBase: util.AgentDownloadsDir}).
 		SetPreviousAutomationConfig(existingAutomationConfig).
 		SetTLSConfig(
