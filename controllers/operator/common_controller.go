@@ -428,7 +428,7 @@ func getStatefulSetStatus(ctx context.Context, namespace, name string, client ku
 
 // validateScram ensures that the SCRAM configuration is valid for the MongoDBResource
 func validateScram(mdb *mdbv1.MongoDB, ac *om.AutomationConfig) workflow.Status {
-	specVersion, err := semver.Make(util.StripEnt(mdb.Spec.GetMongoDBVersion(nil)))
+	specVersion, err := semver.Make(util.StripEnt(mdb.Spec.GetMongoDBVersion()))
 	if err != nil {
 		return workflow.Failed(err)
 	}

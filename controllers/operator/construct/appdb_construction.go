@@ -398,9 +398,12 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		MountPath: "/var/lib/automation/config/acVersion",
 	}
 
-	mod := construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, scaler, opts.AgentImage, true)
+	// Here we ask to craete init containers which also creates required volumens.
+	// Note that we provide empty images for init containers. They are not important
+	// at this stage beucase later we will define our own init containers for non-static architecture.
+	mod := construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, scaler, opts.MongodbImage, opts.AgentImage, "", "", true)
 	if architectures.IsRunningStaticArchitecture(opsManager.Annotations) {
-		mod = construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, scaler, opts.AgentImage, false)
+		mod = construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, scaler, opts.MongodbImage, opts.AgentImage, "", "", false)
 	}
 
 	sts := statefulset.New(

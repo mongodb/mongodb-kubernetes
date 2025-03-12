@@ -282,7 +282,7 @@ type AppDbBuilder struct {
 // GetMongoDBVersion returns the version of the MongoDB.
 // For AppDB we directly rely on the version field which can
 // contain -ent or not for enterprise and static containers.
-func (m *AppDBSpec) GetMongoDBVersion(map[string]string) string {
+func (m *AppDBSpec) GetMongoDBVersion() string {
 	return m.Version
 }
 
@@ -501,7 +501,7 @@ func (m *AppDBSpec) BuildConnectionURL(username, password string, scheme connect
 		SetPassword(password).
 		SetReplicas(m.Replicas()).
 		SetService(m.ServiceName()).
-		SetVersion(m.GetMongoDBVersion(nil)).
+		SetVersion(m.GetMongoDBVersion()).
 		SetAuthenticationModes(m.GetSecurityAuthenticationModes()).
 		SetClusterDomain(m.GetClusterDomain()).
 		SetExternalDomain(m.GetExternalDomain()).

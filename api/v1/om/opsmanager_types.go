@@ -706,7 +706,7 @@ func (om *MongoDBOpsManager) updateStatusAppDb(phase status.Phase, statusOptions
 	if phase == status.PhaseRunning {
 		spec := om.Spec.AppDB
 		om.Status.AppDbStatus.FeatureCompatibilityVersion = om.CalculateFeatureCompatibilityVersion()
-		om.Status.AppDbStatus.Version = spec.GetMongoDBVersion(nil)
+		om.Status.AppDbStatus.Version = spec.GetMongoDBVersion()
 		om.Status.AppDbStatus.Message = ""
 	}
 }
