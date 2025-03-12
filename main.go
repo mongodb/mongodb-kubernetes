@@ -111,6 +111,8 @@ func main() {
 	databaseNonStaticImageVersion := env.ReadOrDefault(construct.DatabaseVersionEnv, "latest")
 	initAppdbVersion := env.ReadOrDefault(construct.InitAppdbVersionEnv, "latest")
 	initOpsManagerImageVersion := env.ReadOrDefault(util.InitOpsManagerVersion, "latest")
+	// Namespace where the operator is installed
+	currentNamespace := env.ReadOrPanic(util.CurrentNamespace)
 
 	// Get a config to talk to the apiserver
 	cfg := ctrl.GetConfigOrDie()
@@ -118,9 +120,6 @@ func main() {
 	managerOptions := ctrl.Options{
 		Scheme: scheme,
 	}
-
-	// Namespace where the operator is installed
-	currentNamespace := env.ReadOrPanic(util.CurrentNamespace)
 
 	namespacesToWatch := operator.GetWatchedNamespace()
 	if len(namespacesToWatch) > 1 || namespacesToWatch[0] != "" {
@@ -145,7 +144,7 @@ func main() {
 		managerOptions.HealthProbeBindAddress = "127.0.0.1:8181"
 	}
 
-	webhookOptions := setupWebhook(ctx, cfg, log, slices.Contains(crds, mongoDBMultiClusterCRDPlural))
+	webhookOptions := setupWebhook(ctx, cfg, log, slices.Contains(crds, mongoDBMultiClusterCRDPlural), currentNamespace)
 	managerOptions.WebhookServer = crWebhook.NewServer(webhookOptions)
 
 	mgr, err := ctrl.NewManager(cfg, managerOptions)
@@ -163,7 +162,7 @@ func main() {
 	memberClusterObjectsMap := make(map[string]runtime_cluster.Cluster)
 
 	if slices.Contains(crds, mongoDBMultiClusterCRDPlural) {
-		memberClustersNames, err := getMemberClusters(ctx, cfg)
+		memberClustersNames, err := getMemberClusters(ctx, cfg, currentNamespace)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -237,7 +236,7 @@ func main() {
 
 	if telemetry.IsTelemetryActivated() {
 		log.Info("Running telemetry component!")
-		telemetryRunnable, err := telemetry.NewLeaderRunnable(mgr, memberClusterObjectsMap, imageUrls[mcoConstruct.MongodbImageEnv], imageUrls[util.NonStaticDatabaseEnterpriseImage])
+		telemetryRunnable, err := telemetry.NewLeaderRunnable(mgr, memberClusterObjectsMap, currentNamespace, imageUrls[mcoConstruct.MongodbImageEnv], imageUrls[util.NonStaticDatabaseEnterpriseImage])
 		if err != nil {
 			log.Errorf("Unable to enable telemetry; err: %s", err)
 		}
@@ -288,14 +287,14 @@ func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, image
 }
 
 // getMemberClusters retrieves the member clusters from the configmap util.MemberListConfigMapName
-func getMemberClusters(ctx context.Context, cfg *rest.Config) ([]string, error) {
+func getMemberClusters(ctx context.Context, cfg *rest.Config, currentNamespace string) ([]string, error) {
 	c, err := client.New(cfg, client.Options{})
 	if err != nil {
 		panic(err)
 	}
 
 	m := corev1.ConfigMap{}
-	err = c.Get(ctx, types.NamespacedName{Name: util.MemberListConfigMapName, Namespace: env.ReadOrPanic(util.CurrentNamespace)}, &m)
+	err = c.Get(ctx, types.NamespacedName{Name: util.MemberListConfigMapName, Namespace: currentNamespace}, &m)
 	if err != nil {
 		return nil, err
 	}
@@ -314,7 +313,7 @@ func isInLocalMode() bool {
 
 // setupWebhook sets up the validation webhook for MongoDB resources in order
 // to give people early warning when their MongoDB resources are wrong.
-func setupWebhook(ctx context.Context, cfg *rest.Config, log *zap.SugaredLogger, multiClusterMode bool) crWebhook.Options {
+func setupWebhook(ctx context.Context, cfg *rest.Config, log *zap.SugaredLogger, multiClusterMode bool, currentNamespace string) crWebhook.Options {
 	// set webhook port — 1993 is chosen as Ben's birthday
 	webhookPort := env.ReadIntOrDefault(util.MdbWebhookPortEnv, 1993)
 
@@ -337,7 +336,7 @@ func setupWebhook(ctx context.Context, cfg *rest.Config, log *zap.SugaredLogger,
 	// that will be created.
 	webhookServiceLocation := types.NamespacedName{
 		Name:      "operator-webhook",
-		Namespace: env.ReadOrPanic(util.CurrentNamespace),
+		Namespace: currentNamespace,
 	}
 
 	if err := webhook.Setup(ctx, webhookClient, webhookServiceLocation, certDir, webhookPort, multiClusterMode, log); err != nil {

@@ -21,9 +21,7 @@ import (
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/images"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
 )
@@ -55,7 +53,7 @@ func (l *LeaderRunnable) NeedLeaderElection() bool {
 	return true
 }
 
-func NewLeaderRunnable(operatorMgr manager.Manager, memberClusterObjectsMap map[string]cluster.Cluster, mongodbImage, databaseNonStaticImage string) (*LeaderRunnable, error) {
+func NewLeaderRunnable(operatorMgr manager.Manager, memberClusterObjectsMap map[string]cluster.Cluster, currentNamespace, mongodbImage, databaseNonStaticImage string) (*LeaderRunnable, error) {
 	atlasClient, err := NewClient(nil)
 	if err != nil {
 		return nil, xerrors.Errorf("Failed creating atlas telemetry client: %w", err)
@@ -64,7 +62,7 @@ func NewLeaderRunnable(operatorMgr manager.Manager, memberClusterObjectsMap map[
 		atlasClient:             atlasClient,
 		operatorMgr:             operatorMgr,
 		memberClusterObjectsMap: memberClusterObjectsMap,
-		currentNamespace:        env.ReadOrPanic(util.CurrentNamespace),
+		currentNamespace:        currentNamespace,
 
 		mongodbImage:           mongodbImage,
 		databaseNonStaticImage: databaseNonStaticImage,
