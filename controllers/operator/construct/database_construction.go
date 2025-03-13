@@ -417,7 +417,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 	configurePodSpecSecurityContext, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 
 	configureImagePullSecrets := podtemplatespec.NOOP()
-	name, found := env.Read(util.ImagePullSecrets)
+	name, found := env.Read(util.ImagePullSecrets) // nolint:forbidigo
 	if found {
 		configureImagePullSecrets = podtemplatespec.WithImagePullSecrets(name)
 	}
@@ -558,7 +558,7 @@ func sharedDatabaseContainerFunc(databaseImage string, podSpecWrapper mdbv1.PodS
 	return container.Apply(
 		container.WithResourceRequirements(buildRequirementsFromPodSpec(podSpecWrapper)),
 		container.WithPorts([]corev1.ContainerPort{{ContainerPort: port}}),
-		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))),
+		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))), // nolint:forbidigo
 		container.WithVolumeMounts(volumeMounts),
 		container.WithImage(databaseImage),
 		container.WithLivenessProbe(DatabaseLivenessProbe()),
@@ -766,7 +766,7 @@ func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions, mdb databaseSt
 	configurePodSpecSecurityContext, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 
 	pullSecretsConfigurationFunc := podtemplatespec.NOOP()
-	if pullSecrets, ok := env.Read(util.ImagePullSecrets); ok {
+	if pullSecrets, ok := env.Read(util.ImagePullSecrets); ok { // nolint:forbidigo
 		pullSecretsConfigurationFunc = podtemplatespec.WithImagePullSecrets(pullSecrets)
 	}
 
@@ -774,7 +774,7 @@ func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions, mdb databaseSt
 		container.Apply(
 			container.WithResourceRequirements(buildRequirementsFromPodSpec(*opts.PodSpec)),
 			container.WithPorts([]corev1.ContainerPort{{ContainerPort: opts.ServicePort}}),
-			container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))),
+			container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))), // nolint:forbidigo
 			container.WithLivenessProbe(DatabaseLivenessProbe()),
 			container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
 			container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
@@ -791,7 +791,7 @@ func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions, mdb databaseSt
 				container.WithArgs([]string{"tail -F -n0 \"${MDB_LOG_FILE_MONGODB}\""}),
 				container.WithResourceRequirements(buildRequirementsFromPodSpec(*opts.PodSpec)),
 				container.WithPorts([]corev1.ContainerPort{{ContainerPort: opts.ServicePort}}),
-				container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))),
+				container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))), // nolint:forbidigo
 				container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
 				container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
 				configureContainerSecurityContext,
@@ -799,7 +799,7 @@ func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions, mdb databaseSt
 		)
 		agentModification = podtemplatespec.WithContainerByIndex(0,
 			container.Apply(
-				container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))),
+				container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))), // nolint:forbidigo
 				container.WithLivenessProbe(DatabaseLivenessProbe()),
 				container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
 				container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
@@ -995,13 +995,13 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 	}
 
 	// This is only used for debugging
-	if useDebugAgent := os.Getenv(util.EnvVarDebug); useDebugAgent != "" {
+	if useDebugAgent := os.Getenv(util.EnvVarDebug); useDebugAgent != "" { // nolint:forbidigo
 		zap.S().Debugf("running the agent in debug mode")
 		vars = append(vars, corev1.EnvVar{Name: util.EnvVarDebug, Value: useDebugAgent})
 	}
 
 	// This is only used for debugging
-	if agentVersion := os.Getenv(util.EnvVarAgentVersion); agentVersion != "" {
+	if agentVersion := os.Getenv(util.EnvVarAgentVersion); agentVersion != "" { // nolint:forbidigo
 		zap.S().Debugf("using a custom agent version: %s", agentVersion)
 		vars = append(vars, corev1.EnvVar{Name: util.EnvVarAgentVersion, Value: agentVersion})
 	}

@@ -1,7 +1,6 @@
 package multicluster
 
 import (
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -224,8 +223,8 @@ func TestPVCOverride(t *testing.T) {
 		},
 	}
 
-	os.Setenv(util.NonStaticDatabaseEnterpriseImage, "some-registry")
-	os.Setenv(util.InitDatabaseImageUrlEnv, "some-registry")
+	t.Setenv(util.NonStaticDatabaseEnterpriseImage, "some-registry")
+	t.Setenv(util.InitDatabaseImageUrlEnv, "some-registry")
 
 	for _, tt := range tests {
 		mdbm := getMultiClusterMongoDB()

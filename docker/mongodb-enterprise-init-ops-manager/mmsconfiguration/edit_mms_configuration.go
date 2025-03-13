@@ -30,12 +30,12 @@ const (
 func updateConfFile(confFile string) error {
 	confFilePropertyName := mmsJvmParamsVar
 	var isBackupDaemon bool
-	if _, isBackupDaemon = os.LookupEnv(backupDaemon); isBackupDaemon {
+	if _, isBackupDaemon = os.LookupEnv(backupDaemon); isBackupDaemon { // nolint:forbidigo
 		confFilePropertyName = backupDaemonJvmParamsVar
 	}
 
 	customJvmParamsVar := "CUSTOM_" + confFilePropertyName
-	jvmParams, jvmParamsEnvVarExists := os.LookupEnv(customJvmParamsVar)
+	jvmParams, jvmParamsEnvVarExists := os.LookupEnv(customJvmParamsVar) // nolint:forbidigo
 
 	if !jvmParamsEnvVarExists || jvmParams == "" {
 		fmt.Printf("%s not specified, not modifying %s\n", customJvmParamsVar, confFile)

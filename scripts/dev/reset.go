@@ -148,7 +148,7 @@ func resetContext(ctx context.Context, contextName string, deleteCRD bool, colle
 	}
 	if len(clusterNamespaces) == 0 {
 		// This env variable is used for single cluster tests
-		namespace := os.Getenv("NAMESPACE")
+		namespace := os.Getenv("NAMESPACE") // nolint:forbidigo
 		clusterNamespaces = append(clusterNamespaces, namespace)
 	}
 	fmt.Printf("%s: resetting namespaces: %v\n", contextName, clusterNamespaces)
@@ -341,25 +341,25 @@ func main() {
 	ctx := context.Background()
 
 	kubeEnvNameVar := "KUBE_ENVIRONMENT_NAME"
-	kubeEnvironmentName, found := os.LookupEnv(kubeEnvNameVar)
+	kubeEnvironmentName, found := os.LookupEnv(kubeEnvNameVar) // nolint:forbidigo
 	if !found {
 		fmt.Println(kubeEnvNameVar, "must be set. Make sure you sourced your env file")
 		os.Exit(1)
 	}
 
-	deleteCRD := env.ReadOrDefault("DELETE_CRD", "true") == "true"
+	deleteCRD := env.ReadOrDefault("DELETE_CRD", "true") == "true" // nolint:forbidigo
 
 	// Cluster is a set because central cluster can be part of member clusters
 	clusters := make(map[string]bool)
 	if kubeEnvironmentName == "multi" {
-		memberClusters := strings.Fields(os.Getenv("MEMBER_CLUSTERS"))
+		memberClusters := strings.Fields(os.Getenv("MEMBER_CLUSTERS")) // nolint:forbidigo
 		for _, cluster := range memberClusters {
 			clusters[cluster] = true
 		}
-		centralClusterName := os.Getenv("CENTRAL_CLUSTER")
+		centralClusterName := os.Getenv("CENTRAL_CLUSTER") // nolint:forbidigo
 		clusters[centralClusterName] = true
 	} else {
-		clusterName := os.Getenv("CLUSTER_NAME")
+		clusterName := os.Getenv("CLUSTER_NAME") // nolint:forbidigo
 		clusters[clusterName] = true
 	}
 

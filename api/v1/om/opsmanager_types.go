@@ -825,7 +825,7 @@ func (om *MongoDBOpsManager) GetStatusPath(options ...status.Option) string {
 // with the same name.
 func (om *MongoDBOpsManager) APIKeySecretName(ctx context.Context, client secrets.SecretClientInterface, operatorSecretPath string) (string, error) {
 	oldAPISecretName := fmt.Sprintf("%s-admin-key", om.Name)
-	operatorNamespace := env.ReadOrPanic(util.CurrentNamespace)
+	operatorNamespace := env.ReadOrPanic(util.CurrentNamespace) // nolint:forbidigo
 	oldAPIKeySecretNamespacedName := types.NamespacedName{Name: oldAPISecretName, Namespace: operatorNamespace}
 
 	_, err := client.ReadSecret(ctx, oldAPIKeySecretNamespacedName, fmt.Sprintf("%s/%s/%s", operatorSecretPath, operatorNamespace, oldAPISecretName))

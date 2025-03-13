@@ -38,7 +38,7 @@ func ReadBoolOrDefault(key string, defaultValue bool) bool {
 // just log the warning
 func EnsureVar(key, value string) {
 	if _, exist := Read(key); !exist {
-		if err := os.Setenv(key, value); err != nil {
+		if err := os.Setenv(key, value); err != nil { // nolint:forbidigo
 			zap.S().Warnf("Failed to set environment variable \"%s\" to \"%s\": %s", key, value, err)
 		}
 	}

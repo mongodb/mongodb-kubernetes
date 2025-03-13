@@ -354,7 +354,7 @@ func ShouldEnableMonitoring(podVars *env.PodEnvVars) bool {
 
 // GlobalMonitoringSettingEnabled returns global setting whether to enable or disable monitoring in appdb (OPS_MANAGER_MONITOR_APPDB env var)
 func GlobalMonitoringSettingEnabled() bool {
-	return env.ReadBoolOrDefault(util.OpsManagerMonitorAppDB, util.OpsManagerMonitorAppDBDefault)
+	return env.ReadBoolOrDefault(util.OpsManagerMonitorAppDB, util.OpsManagerMonitorAppDBDefault) // nolint:forbidigo
 }
 
 // ShouldMountSSLMMSCAConfigMap returns true if we need to mount MMSCA to monitoring container in the current reconcile loop.
@@ -454,7 +454,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 // By default, it should be true, but
 // for safety mechanisms we implement a backdoor to deactivate the enterprise AC feature.
 func IsEnterprise() bool {
-	overrideAssumption, err := strconv.ParseBool(os.Getenv(construct.MongoDBAssumeEnterpriseEnv))
+	overrideAssumption, err := strconv.ParseBool(os.Getenv(construct.MongoDBAssumeEnterpriseEnv)) // nolint:forbidigo
 	if err == nil {
 		return overrideAssumption
 	}

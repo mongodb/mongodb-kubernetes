@@ -25,14 +25,14 @@ var ProxyEnvNames = []string{"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"}
 // variables from the running environment and returns a slice of corev1 EnvVar
 // containing upper and lower case versions of those variables.
 func ReadDatabaseProxyVarsFromEnv() []corev1.EnvVar {
-	propagateProxyVar, _ := os.LookupEnv(PropagateProxyEnv)
+	propagateProxyVar, _ := os.LookupEnv(PropagateProxyEnv) // nolint:forbidigo
 	propagateProxy, _ := strconv.ParseBool(propagateProxyVar)
 	if !propagateProxy {
 		return nil
 	}
 	var envVars []corev1.EnvVar
 	for _, s := range ProxyEnvNames {
-		value, isSet := os.LookupEnv(s)
+		value, isSet := os.LookupEnv(s) // nolint:forbidigo
 		if isSet {
 			envVars = append(envVars, corev1.EnvVar{
 				Name:  s,

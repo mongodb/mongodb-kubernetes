@@ -515,13 +515,13 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 
 // ensureSharedGlobalResources ensures that resources that are shared across watched namespaces (e.g. secrets) are in sync
 func ensureSharedGlobalResources(ctx context.Context, secretGetUpdaterCreator secret.GetUpdateCreator, opsManager *omv1.MongoDBOpsManager) error {
-	operatorNamespace := env.ReadOrPanic(util.CurrentNamespace)
+	operatorNamespace := env.ReadOrPanic(util.CurrentNamespace) // nolint:forbidigo
 	if operatorNamespace == opsManager.Namespace {
 		// nothing to sync, OM runs in the same namespace as the operator
 		return nil
 	}
 
-	if imagePullSecretsName, found := env.Read(util.ImagePullSecrets); found {
+	if imagePullSecretsName, found := env.Read(util.ImagePullSecrets); found { // nolint:forbidigo
 		imagePullSecrets, err := secretGetUpdaterCreator.GetSecret(ctx, kube.ObjectKey(operatorNamespace, imagePullSecretsName))
 		if err != nil {
 			return err
@@ -926,7 +926,7 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulsetInMemberCluster(ctx co
 
 func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, imageUrls images.ImageUrls, initAppdbVersion, initOpsManagerImageVersion string) error {
 	reconciler := NewOpsManagerReconciler(ctx, mgr.GetClient(), multicluster.ClustersMapToClientMap(memberClustersMap), imageUrls, initAppdbVersion, initOpsManagerImageVersion, om.NewOpsManagerConnection, &api.DefaultInitializer{}, api.NewOmAdmin)
-	c, err := controller.New(util.MongoDbOpsManagerController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)})
+	c, err := controller.New(util.MongoDbOpsManagerController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err
 	}

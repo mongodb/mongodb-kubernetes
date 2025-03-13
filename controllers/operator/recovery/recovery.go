@@ -15,11 +15,11 @@ const (
 )
 
 func isAutomaticRecoveryTurnedOn() bool {
-	return env.ReadBoolOrDefault(EnableRecoveryEnvVar, true)
+	return env.ReadBoolOrDefault(EnableRecoveryEnvVar, true) // nolint:forbidigo
 }
 
 func automaticRecoveryBackoffSeconds() int {
-	return env.ReadIntOrDefault(RecoveryBackoffTimeEnvVar, DefaultAutomaticRecoveryBackoffTimeSeconds)
+	return env.ReadIntOrDefault(RecoveryBackoffTimeEnvVar, DefaultAutomaticRecoveryBackoffTimeSeconds) // nolint:forbidigo
 }
 
 func ShouldTriggerRecovery(isResourceFailing bool, lastTransitionTime string) bool {

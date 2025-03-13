@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"sort"
 	"testing"
 
@@ -1262,8 +1261,7 @@ func TestMultiClusterFailover(t *testing.T) {
 	err = client.Update(ctx, mrs)
 	assert.NoError(t, err)
 
-	os.Setenv("PERFORM_FAILOVER", "true")
-	defer os.Unsetenv("PERFORM_FAILOVER")
+	t.Setenv("PERFORM_FAILOVER", "true")
 
 	err = memberwatch.AddFailoverAnnotation(ctx, *mrs, cluster.ClusterName, client)
 	assert.NoError(t, err)

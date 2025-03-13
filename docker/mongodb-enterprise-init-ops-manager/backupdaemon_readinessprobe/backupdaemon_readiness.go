@@ -53,7 +53,7 @@ type httpGetter interface {
 
 // getHealthResponse fetches the health response from the health endpoint.
 func getHealthResponse(getter httpGetter) (HealthResponse, error) {
-	url := fmt.Sprintf("http://localhost:%s/health", os.Getenv(healthEndpointPortEnv))
+	url := fmt.Sprintf("http://localhost:%s/health", os.Getenv(healthEndpointPortEnv)) // nolint:forbidigo
 	fmt.Printf("attempting GET request to: [%s]\n", url)
 	resp, err := getter.Get(url)
 	if err != nil {

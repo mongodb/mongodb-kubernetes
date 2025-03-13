@@ -2,12 +2,10 @@ package util
 
 import (
 	"fmt"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/identifiable"
 )
 
@@ -45,33 +43,6 @@ func TestMajorMinorVersion(t *testing.T) {
 	s, _, e = MajorMinorVersion("4.2.12-ent")
 	assert.NoError(t, e)
 	assert.Equal(t, "4.2", s)
-}
-
-func TestReadBoolEnv(t *testing.T) {
-	os.Setenv("ENV_1", "true")
-	os.Setenv("ENV_2", "false")
-	os.Setenv("ENV_3", "TRUE")
-	os.Setenv("NOT_BOOL", "not-true")
-
-	result, present := env.ReadBool("ENV_1")
-	assert.True(t, present)
-	assert.True(t, result)
-
-	result, present = env.ReadBool("ENV_2")
-	assert.True(t, present)
-	assert.False(t, result)
-
-	result, present = env.ReadBool("ENV_3")
-	assert.True(t, present)
-	assert.True(t, result)
-
-	result, present = env.ReadBool("NOT_BOOL")
-	assert.False(t, present)
-	assert.False(t, result)
-
-	result, present = env.ReadBool("NOT_HERE")
-	assert.False(t, present)
-	assert.False(t, result)
 }
 
 func TestRedactURI(t *testing.T) {

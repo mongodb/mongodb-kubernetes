@@ -71,10 +71,10 @@ func LoadImageUrlsFromEnv() ImageUrls {
 		construct.AgentImageEnv:               "",
 		architectures.MdbAgentImageRepo:       architectures.MdbAgentImageRepoDefault,
 	} {
-		imageUrls[imageName] = env.ReadOrDefault(imageName, defaultValue)
+		imageUrls[imageName] = env.ReadOrDefault(imageName, defaultValue) // nolint:forbidigo
 	}
 
-	for _, env := range os.Environ() {
+	for _, env := range os.Environ() { // nolint:forbidigo
 		parts := strings.SplitN(env, "=", 2)
 		if len(parts) != 2 {
 			// Should never happen because os.Environ() returns key=value pairs
