@@ -22,6 +22,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/envvar"
+
+	mcov1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	mcoController "github.com/mongodb/mongodb-kubernetes-operator/controllers"
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
 	corev1 "k8s.io/api/core/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -54,6 +58,7 @@ const (
 	mongoDBUserCRDPlural         = "mongodbusers"
 	mongoDBOpsManagerCRDPlural   = "opsmanagers"
 	mongoDBMultiClusterCRDPlural = "mongodbmulticluster"
+	mongoDBCommunityCRDPlural    = "mongodbcommunity"
 )
 
 var (
@@ -72,8 +77,8 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(apiv1.AddToScheme(scheme))
+	utilruntime.Must(mcov1.AddToScheme(scheme))
 	utilruntime.Must(corev1.AddToScheme(scheme))
-
 	// +kubebuilder:scaffold:scheme
 
 	flag.Var(&crds, "watch-resource", "A Watch Resource specifies if the Operator should watch the given resource")
@@ -234,6 +239,24 @@ func main() {
 		log.Infof("Registered CRD: %s", r)
 	}
 
+	// TODO: only if the crd
+	// TODO: local operator run requires default values as defined here in env var like manager.yaml from MCO
+	if err := setupCommunityController(
+		mgr,
+		os.Getenv(mcoConstruct.MongodbRepoUrlEnv),
+		// when running MCO resource -> mongodb-community-server
+		// when running appdb -> mongodb-enterprise-server
+		envvar.GetEnvOrDefault(util.MongodbCommunityImageEnv, "mongodb-community-server"),
+		envvar.GetEnvOrDefault(mcoConstruct.MongoDBImageTypeEnv, mcoConstruct.DefaultImageType),
+		// right now we don't add imagePullSecrets so we cannot rely on the ecr ones
+		// agent_image is also used by appdb, some people might not want the same for both
+		envvar.GetEnvOrDefault(util.MongodbCommunityAgentImageEnv, "quay.io/mongodb/mongodb-agent-ubi:108.0.2.8729-1"),
+		envvar.GetEnvOrDefault(mcoConstruct.VersionUpgradeHookImageEnv, "quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook:1.0.9"),
+		envvar.GetEnvOrDefault(mcoConstruct.ReadinessProbeImageEnv, "quay.io/mongodb/mongodb-kubernetes-readinessprobe:1.0.22"),
+	); err != nil {
+		log.Fatal(err)
+	}
+
 	if telemetry.IsTelemetryActivated() {
 		log.Info("Running telemetry component!")
 		telemetryRunnable, err := telemetry.NewLeaderRunnable(mgr, memberClusterObjectsMap, currentNamespace, imageUrls[mcoConstruct.MongodbImageEnv], imageUrls[util.NonStaticDatabaseEnterpriseImage])
@@ -284,6 +307,26 @@ func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, image
 		return err
 	}
 	return ctrl.NewWebhookManagedBy(mgr).For(&mdbmultiv1.MongoDBMultiCluster{}).Complete()
+}
+
+func setupCommunityController(
+	mgr manager.Manager,
+	mongodbRepoURL string,
+	mongodbImage string,
+	mongodbImageType string,
+	agentImage string,
+	versionUpgradeHookImage string,
+	readinessProbeImage string,
+) error {
+	return mcoController.NewReconciler(
+		mgr,
+		mongodbRepoURL,
+		mongodbImage,
+		mongodbImageType,
+		agentImage,
+		versionUpgradeHookImage,
+		readinessProbeImage,
+	).SetupWithManager(mgr)
 }
 
 // getMemberClusters retrieves the member clusters from the configmap util.MemberListConfigMapName

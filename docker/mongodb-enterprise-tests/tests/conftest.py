@@ -102,7 +102,7 @@ def get_operator_installation_config(namespace):
         config["customEnvVars"] += "\&OM_DEBUG_HTTP=true"
 
     if local_operator():
-        config["operator.replicas"] = 0
+        config["operator.replicas"] = "0"
     return config
 
 

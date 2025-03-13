@@ -95,6 +95,19 @@ rules:
       - delete
       - deletecollection
   - apiGroups:
+      - mongodbcommunity.mongodb.com
+    resources:
+      - mongodbcommunity
+      - mongodbcommunity/status
+      - mongodbcommunity/spec
+      - mongodbcommunity/finalizers
+    verbs:
+      - get
+      - patch
+      - list
+      - update
+      - watch
+  - apiGroups:
       - mongodb.com
     verbs:
       - '*'

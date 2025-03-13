@@ -112,6 +112,10 @@ operator:
       frequency: 168h
 
 ## Database
+community:
+  name: mongodb-database
+
+## Database
 database:
   name: mongodb-enterprise-database-ubi
   version: 1.32.0
