@@ -2,7 +2,7 @@
 
 import json
 import sys
-from typing import Dict, Callable
+from typing import Callable, Dict
 
 import ruamel.yaml
 
@@ -45,12 +45,8 @@ def _replace_tag(image: str, new_tag: str) -> str:
 
 
 def update_operator_deployment(operator_deployment: Dict, release: Dict) -> None:
-    operator_container = operator_deployment["spec"]["template"]["spec"]["containers"][
-        0
-    ]
-    operator_container["image"] = _replace_tag(
-        operator_container["image"], release["operator"]
-    )
+    operator_container = operator_deployment["spec"]["template"]["spec"]["containers"][0]
+    operator_container["image"] = _replace_tag(operator_container["image"], release["operator"])
     operator_envs = operator_container["env"]
     for env in operator_envs:
         if env["name"] == "VERSION_UPGRADE_HOOK_IMAGE":
@@ -80,9 +76,7 @@ def update_chart(chart: Dict, release: Dict) -> None:
 def main() -> int:
     # Updating local files
     update_and_write_file(RELATIVE_PATH_TO_MANAGER_YAML, update_operator_deployment)
-    update_and_write_file(
-        RELATIVE_PATH_TO_OPENSHIFT_MANAGER_YAML, update_operator_deployment
-    )
+    update_and_write_file(RELATIVE_PATH_TO_OPENSHIFT_MANAGER_YAML, update_operator_deployment)
 
     # Updating Helm Chart files
     update_and_write_file(RELATIVE_PATH_TO_CHART_VALUES, update_chart_values)

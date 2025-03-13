@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
+import io
+import sys
 from typing import Dict
 
-from ghat.template import template_github_action
-import sys
-import io
 import ruamel.yaml
+from ghat.template import template_github_action
 
 yaml = ruamel.yaml.YAML()
 

@@ -1,5 +1,5 @@
 import time
-from typing import Callable, Tuple, List, Optional, Any
+from typing import Any, Callable, List, Optional, Tuple
 
 from kubernetes.client.rest import ApiException
 

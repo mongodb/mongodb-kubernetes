@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
+import os.path
 import sys
 from typing import Dict
-import os.path
 
-
-from dev_config import load_config, DevConfig, Distro
+from dev_config import DevConfig, Distro, load_config
 
 
 def _get_e2e_test_envs(dev_config: DevConfig) -> Dict[str, str]:

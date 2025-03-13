@@ -97,5 +97,5 @@ subjects:
     name: mongodb-database
 roleRef:
   kind: Role
-  name: mongodb-enterprise-database-ubi
+  name: mongodb-database
   apiGroup: rbac.authorization.k8s.io

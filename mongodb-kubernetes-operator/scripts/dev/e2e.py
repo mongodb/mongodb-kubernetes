@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 
-from kubernetes.client.rest import ApiException
-
-import k8s_conditions
-from typing import Dict
-from dev_config import load_config, DevConfig, Distro
-from kubernetes import client, config
 import argparse
 import sys
+from typing import Dict
+
+import k8s_conditions
 import yaml
+from dev_config import DevConfig, Distro, load_config
+from kubernetes import client, config
+from kubernetes.client.rest import ApiException
 
 TEST_POD_NAME = "e2e-test"
 TEST_CLUSTER_ROLE_NAME = "e2e-test"
@@ -47,24 +47,18 @@ def _prepare_test_environment(config_file: str) -> None:
 
     print("Creating Namespace")
     k8s_conditions.ignore_if_already_exists(
-        lambda: corev1.create_namespace(
-            client.V1Namespace(metadata=dict(name=dev_config.namespace))
-        )
+        lambda: corev1.create_namespace(client.V1Namespace(metadata=dict(name=dev_config.namespace)))
     )
 
     print("Creating Cluster Role")
-    k8s_conditions.ignore_if_already_exists(
-        lambda: rbacv1.create_cluster_role(_load_test_role())
-    )
+    k8s_conditions.ignore_if_already_exists(lambda: rbacv1.create_cluster_role(_load_test_role()))
 
     print("Creating Cluster Role Binding")
     role_binding = _load_test_role_binding()
     # set namespace specified in config.json
     role_binding["subjects"][0]["namespace"] = dev_config.namespace
 
-    k8s_conditions.ignore_if_already_exists(
-        lambda: rbacv1.create_cluster_role_binding(role_binding)
-    )
+    k8s_conditions.ignore_if_already_exists(lambda: rbacv1.create_cluster_role_binding(role_binding))
 
     print("Creating Service Account")
     service_account = _load_test_service_account()
@@ -72,9 +66,7 @@ def _prepare_test_environment(config_file: str) -> None:
     service_account["metadata"]["namespace"] = dev_config.namespace
 
     k8s_conditions.ignore_if_already_exists(
-        lambda: corev1.create_namespaced_service_account(
-            dev_config.namespace, service_account
-        )
+        lambda: corev1.create_namespaced_service_account(dev_config.namespace, service_account)
     )
 
 
@@ -154,9 +146,7 @@ def create_test_pod(args: argparse.Namespace, dev_config: DevConfig) -> None:
         timeout=30,
         sleep_time=0.5,
     ):
-        raise Exception(
-            "Execution timed out while waiting for the existing pod to be deleted"
-        )
+        raise Exception("Execution timed out while waiting for the existing pod to be deleted")
 
     if not k8s_conditions.call_eventually_succeeds(
         lambda: corev1.create_namespaced_pod(dev_config.namespace, body=test_pod),
@@ -167,9 +157,7 @@ def create_test_pod(args: argparse.Namespace, dev_config: DevConfig) -> None:
         raise Exception("Could not create test pod!")
 
 
-def wait_for_pod_to_be_running(
-    corev1: client.CoreV1Api, name: str, namespace: str
-) -> None:
+def wait_for_pod_to_be_running(corev1: client.CoreV1Api, name: str, namespace: str) -> None:
     print("Waiting for pod to be running")
     if not k8s_conditions.wait(
         lambda: corev1.read_namespaced_pod(name, namespace),
@@ -193,18 +181,12 @@ def _delete_test_environment(config_file: str) -> None:
     corev1 = client.CoreV1Api()
     dev_config = load_config(config_file)
 
-    k8s_conditions.ignore_if_doesnt_exist(
-        lambda: rbacv1.delete_cluster_role(TEST_CLUSTER_ROLE_NAME)
-    )
+    k8s_conditions.ignore_if_doesnt_exist(lambda: rbacv1.delete_cluster_role(TEST_CLUSTER_ROLE_NAME))
+
+    k8s_conditions.ignore_if_doesnt_exist(lambda: rbacv1.delete_cluster_role_binding(TEST_CLUSTER_ROLE_BINDING_NAME))
 
     k8s_conditions.ignore_if_doesnt_exist(
-        lambda: rbacv1.delete_cluster_role_binding(TEST_CLUSTER_ROLE_BINDING_NAME)
-    )
-
-    k8s_conditions.ignore_if_doesnt_exist(
-        lambda: corev1.delete_namespaced_service_account(
-            TEST_SERVICE_ACCOUNT_NAME, dev_config.namespace
-        )
+        lambda: corev1.delete_namespaced_service_account(TEST_SERVICE_ACCOUNT_NAME, dev_config.namespace)
     )
 
 
@@ -214,9 +196,7 @@ def _delete_test_pod(config_file: str) -> None:
     """
     dev_config = load_config(config_file)
     corev1 = client.CoreV1Api()
-    k8s_conditions.ignore_if_doesnt_exist(
-        lambda: corev1.delete_namespaced_pod(TEST_POD_NAME, dev_config.namespace)
-    )
+    k8s_conditions.ignore_if_doesnt_exist(lambda: corev1.delete_namespaced_pod(TEST_POD_NAME, dev_config.namespace))
 
 
 def parse_args() -> argparse.Namespace:
