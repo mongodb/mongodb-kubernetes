@@ -44,7 +44,7 @@ const OperatorNamespace = "operatorNs"
 
 func init() {
 	util.OperatorVersion = "9.9.9-test"
-	_ = os.Setenv(util.CurrentNamespace, OperatorNamespace)
+	_ = os.Setenv(util.CurrentNamespace, OperatorNamespace) // nolint:forbidigo
 }
 
 func TestEnsureTagAdded(t *testing.T) {

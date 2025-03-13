@@ -43,7 +43,7 @@ func NewKubeConfigFile(kubeConfigPath string) (KubeConfig, error) {
 }
 
 func GetKubeConfigPath() string {
-	return env.ReadOrDefault(KubeConfigPathEnv, DefaultKubeConfigPath)
+	return env.ReadOrDefault(KubeConfigPathEnv, DefaultKubeConfigPath) // nolint:forbidigo
 }
 
 // LoadKubeConfigFile returns the KubeConfig file containing the multi cluster context.
@@ -72,7 +72,7 @@ func CreateMemberClusterClients(clusterNames []string, kubeConfigPath string) (m
 		if clientset == nil {
 			return nil, xerrors.Errorf("failed to get clientset for cluster: %s", c)
 		}
-		clientset.Timeout = time.Duration(env.ReadIntOrDefault(ClusterClientTimeoutEnv, 10)) * time.Second
+		clientset.Timeout = time.Duration(env.ReadIntOrDefault(ClusterClientTimeoutEnv, 10)) * time.Second // nolint:forbidigo
 		clusterClientsMap[c] = clientset
 	}
 	return clusterClientsMap, nil
@@ -96,7 +96,7 @@ func getClient(context, kubeConfigPath string) (*restclient.Config, error) {
 // shouldPerformFailover checks if the operator is configured to perform automatic failover
 // of the MongoDB Replicaset members spread over multiple Kubernetes clusters.
 func ShouldPerformFailover() bool {
-	str := os.Getenv("PERFORM_FAILOVER")
+	str := os.Getenv("PERFORM_FAILOVER") // nolint:forbidigo
 	val, err := strconv.ParseBool(str)
 	if err != nil {
 		return false

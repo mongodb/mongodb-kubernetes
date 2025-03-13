@@ -183,7 +183,7 @@ func GetWebhookConfig(serviceLocation types.NamespacedName) admissionv1.Validati
 }
 
 func shouldRegisterWebhookConfiguration() bool {
-	return env.ReadBoolOrDefault(util.MdbWebhookRegisterConfigurationEnv, true)
+	return env.ReadBoolOrDefault(util.MdbWebhookRegisterConfigurationEnv, true) // nolint:forbidigo
 }
 
 func Setup(ctx context.Context, client client.Client, serviceLocation types.NamespacedName, certDirectory string, webhookPort int, multiClusterMode bool, log *zap.SugaredLogger) error {

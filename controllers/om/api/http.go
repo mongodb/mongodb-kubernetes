@@ -35,7 +35,7 @@ var omClient = prometheus.NewCounterVec(prometheus.CounterOpts{
 
 func init() {
 	// Register custom metrics with the global prometheus registry
-	if os.Getenv(util.OmOperatorEnv) != util.OperatorEnvironmentProd {
+	if os.Getenv(util.OmOperatorEnv) != util.OperatorEnvironmentProd { // nolint:forbidigo
 		zap.S().Debugf("collecting operator specific debug metrics")
 		registerClientMetrics()
 	}

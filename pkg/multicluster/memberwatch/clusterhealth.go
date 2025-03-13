@@ -44,7 +44,7 @@ func NewMemberHealthCheck(server string, ca []byte, token string, log *zap.Sugar
 						MinVersion: tls.VersionTLS12,
 					},
 				},
-				Timeout: time.Duration(env.ReadIntOrDefault(multicluster.ClusterClientTimeoutEnv, 10)) * time.Second,
+				Timeout: time.Duration(env.ReadIntOrDefault(multicluster.ClusterClientTimeoutEnv, 10)) * time.Second, // nolint:forbidigo
 			},
 			RetryWaitMin: DefaultRetryWaitMin,
 			RetryWaitMax: DefaultRetryWaitMax,

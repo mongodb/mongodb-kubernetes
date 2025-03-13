@@ -415,7 +415,7 @@ func CreateOMHttpClient(ca *string, user *string, key *string) (*Client, error) 
 		opts = append(opts, OptionDigestAuth(*user, *key))
 	}
 
-	if env.ReadBoolOrDefault("OM_DEBUG_HTTP", false) {
+	if env.ReadBoolOrDefault("OM_DEBUG_HTTP", false) { // nolint:forbidigo
 		opts = append(opts, OptionDebug)
 	}
 

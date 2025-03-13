@@ -7,5 +7,5 @@ import (
 
 // operatorNamespace returns the current namespace where the Operator is deployed
 func operatorNamespace() string {
-	return env.ReadOrPanic(util.CurrentNamespace)
+	return env.ReadOrPanic(util.CurrentNamespace) // nolint:forbidigo
 }

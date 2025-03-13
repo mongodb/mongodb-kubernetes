@@ -52,7 +52,7 @@ const (
 	PREVIOUS_HASH_INJECT_TEMPLATE = `{{- with secret "%s" -}}
 {{- if .Data.data.%[2]s -}}
 {{ .Data.data.%[2]s }}
-{{ index .Data.data (.Data.data.%[2]s) }} 
+{{ index .Data.data (.Data.data.%[2]s) }}
 {{- end }}
 {{- end }}`
 )
@@ -93,7 +93,7 @@ type OpsManagerSecretsToInject struct {
 }
 
 func IsVaultSecretBackend() bool {
-	return os.Getenv("SECRET_BACKEND") == VaultBackend
+	return os.Getenv("SECRET_BACKEND") == VaultBackend // nolint:forbidigo
 }
 
 type VaultConfiguration struct {
@@ -111,7 +111,7 @@ type VaultClient struct {
 }
 
 func readVaultConfig(ctx context.Context, client *kubernetes.Clientset) VaultConfiguration {
-	cm, err := client.CoreV1().ConfigMaps(env.ReadOrPanic(util.CurrentNamespace)).Get(ctx, "secret-configuration", v1.GetOptions{})
+	cm, err := client.CoreV1().ConfigMaps(env.ReadOrPanic(util.CurrentNamespace)).Get(ctx, "secret-configuration", v1.GetOptions{}) // nolint:forbidigo
 	if err != nil {
 		panic(xerrors.Errorf("error reading vault configmap: %w", err))
 	}
@@ -137,7 +137,7 @@ func setTLSConfig(ctx context.Context, config *api.Config, client *kubernetes.Cl
 	}
 	var secret *corev1.Secret
 	var err error
-	secret, err = client.CoreV1().Secrets(env.ReadOrPanic(util.CurrentNamespace)).Get(ctx, tlsSecretRef, v1.GetOptions{})
+	secret, err = client.CoreV1().Secrets(env.ReadOrPanic(util.CurrentNamespace)).Get(ctx, tlsSecretRef, v1.GetOptions{}) // nolint:forbidigo
 	if err != nil {
 		return xerrors.Errorf("can't read tls secret %s for vault: %w", tlsSecretRef, err)
 	}
