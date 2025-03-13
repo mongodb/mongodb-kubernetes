@@ -144,8 +144,8 @@ func disableBackup(readUpdater ConfigHostReadUpdater, backupConfig *Config, log 
 }
 
 func waitUntilBackupReachesStatus(configReader ConfigReader, backupConfig *Config, status Status, log *zap.SugaredLogger) (bool, string) {
-	waitSeconds := env.ReadIntOrPanic(util.BackupDisableWaitSecondsEnv)
-	retries := env.ReadIntOrPanic(util.BackupDisableWaitRetriesEnv)
+	waitSeconds := env.ReadIntOrPanic(util.BackupDisableWaitSecondsEnv) // nolint:forbidigo
+	retries := env.ReadIntOrPanic(util.BackupDisableWaitRetriesEnv)     // nolint:forbidigo
 
 	backupStatusFunc := func() (string, bool) {
 		config, err := configReader.ReadBackupConfig(backupConfig.ClusterId)

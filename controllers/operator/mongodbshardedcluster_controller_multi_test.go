@@ -1157,7 +1157,7 @@ func testDesiredConfigurationFromYAML[T *mdbv1.ShardedClusterComponentSpec | map
 	if !assert.Empty(t, visualDiff) {
 		// it is extremely difficult to diagnose problems in IDE's console as the diff dump is very large >400 lines,
 		// therefore we're saving visual diffs in ops-manager-kubernetes/tmp dir to a temp file
-		tmpFile, err := os.CreateTemp(path.Join(os.Getenv("PROJECT_DIR"), "tmp"), "jsondiff")
+		tmpFile, err := os.CreateTemp(path.Join(os.Getenv("PROJECT_DIR"), "tmp"), "jsondiff") // nolint:forbidigo
 		if err != nil {
 			// ignore the error, it's not part of the actual test
 			fmt.Printf("error saving diff to tmp file: %v", err)

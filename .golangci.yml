@@ -14,6 +14,12 @@ issues:
         - dupl
         - gosec
         - goconst
+    - path: ^pkg\/util\/env
+      linters:
+        - forbidigo
+    - path: ^main.go$
+      linters:
+        - forbidigo
 linters:
   enable:
     - govet
@@ -32,6 +38,7 @@ linters:
     - dupl
     - goconst
     - gofumpt
+    - forbidigo
 
 run:
   modules-download-mode: mod
@@ -50,6 +57,20 @@ linters-settings:
     # Module path which contains the source code being formatted.
     # Default: ""
     module-path: github.com/10gen/ops-manager-kubernetes
+
+  forbidigo:
+    forbid:
+      - p: os\.(Getenv|LookupEnv|Environ|ExpandEnv)
+        pkg: os
+        msg: "Reading environemnt variables here is prohibited. Please read environment variables in the main package."
+      - p: os\.(Clearenv|Unsetenv|Setenv)
+        msg: "Modifying environemnt variables is prohibited."
+        pkg: os
+      - p: env\.(Read.*?|EnsureVar)
+        pkg: github.com/10gen/ops-manager-kubernetes/pkg/util/env
+        msg: "Using this env package here is prohibited. Please work with environment variables in the main package."
+    # Rules with the `pkg` depend on it
+    analyze-types: true
 
   gci:
     # Section configuration to compare against.

@@ -1,7 +1,6 @@
 package operator
 
 import (
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -29,8 +28,5 @@ func TestGetWatchedNamespace(t *testing.T) {
 	assert.Equal(t, []string{""}, GetWatchedNamespace())
 
 	t.Setenv(util.WatchNamespace, "*,hi")
-	assert.Equal(t, []string{""}, GetWatchedNamespace())
-
-	os.Unsetenv(util.WatchNamespace)
 	assert.Equal(t, []string{""}, GetWatchedNamespace())
 }

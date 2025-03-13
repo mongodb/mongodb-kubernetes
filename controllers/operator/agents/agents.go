@@ -299,8 +299,8 @@ func waitUntilRegistered(omConnection om.Connection, log *zap.SugaredLogger, r r
 	}
 	log.Infow("Waiting for agents to register with OM", "agent hosts", agentHostnames)
 	// environment variables are used only for tests
-	waitSeconds := env.ReadIntOrDefault(util.PodWaitSecondsEnv, r.waitSeconds)
-	retrials := env.ReadIntOrDefault(util.PodWaitRetriesEnv, r.retrials)
+	waitSeconds := env.ReadIntOrDefault(util.PodWaitSecondsEnv, r.waitSeconds) // nolint:forbidigo
+	retrials := env.ReadIntOrDefault(util.PodWaitRetriesEnv, r.retrials)       // nolint:forbidigo
 
 	agentsCheckFunc := func() (string, bool) {
 		return agentCheck(omConnection, agentHostnames, log)

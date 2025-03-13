@@ -332,7 +332,7 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 	configurePodSpecSecurityContext, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 
 	pullSecretsConfigurationFunc := podtemplatespec.NOOP()
-	if pullSecrets, ok := env.Read(util.ImagePullSecrets); ok {
+	if pullSecrets, ok := env.Read(util.ImagePullSecrets); ok { // nolint:forbidigo
 		pullSecretsConfigurationFunc = podtemplatespec.WithImagePullSecrets(pullSecrets)
 	}
 	var omVolumeMounts []corev1.VolumeMount
@@ -466,7 +466,7 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 					container.Apply(
 						container.WithResourceRequirements(defaultOpsManagerResourceRequirements()),
 						container.WithPorts(buildOpsManagerContainerPorts(opts.HTTPSCertSecretName)),
-						container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.OpsManagerPullPolicy))),
+						container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.OpsManagerPullPolicy))), // nolint:forbidigo
 						container.WithImage(opts.OpsManagerImage),
 						container.WithEnvs(opts.EnvVars...),
 						container.WithEnvs(getOpsManagerHTTPSEnvVars(opts.HTTPSCertSecretName, opts.CertHash)...),

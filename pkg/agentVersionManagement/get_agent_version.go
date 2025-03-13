@@ -111,7 +111,7 @@ func InitializeAgentVersionManager(mappingFilePath string) (*AgentVersionManager
 func GetAgentVersionManager() (*AgentVersionManager, error) {
 	initializationMutex.Lock()
 	defer initializationMutex.Unlock()
-	mappingFilePath := env.ReadOrDefault(MappingFilePathEnv, mappingFileDefaultPath)
+	mappingFilePath := env.ReadOrDefault(MappingFilePathEnv, mappingFileDefaultPath) // nolint:forbidigo
 	if lastUsedMappingPath != mappingFilePath {
 		lastUsedMappingPath = mappingFilePath
 		var err error

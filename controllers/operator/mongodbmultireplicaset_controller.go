@@ -1087,7 +1087,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileOMCAConfigMap(ctx context.Con
 func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, memberClustersMap map[string]cluster.Cluster) error {
 	// Create a new controller
 	reconciler := newMultiClusterReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, om.NewOpsManagerConnection, multicluster.ClustersMapToClientMap(memberClustersMap))
-	c, err := controller.New(util.MongoDbMultiClusterController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)})
+	c, err := controller.New(util.MongoDbMultiClusterController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err
 	}
@@ -1146,7 +1146,7 @@ func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imag
 	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{},
 		watch.ConfigMapEventHandler{
 			ConfigMapName:      util.MemberListConfigMapName,
-			ConfigMapNamespace: env.ReadOrPanic(util.CurrentNamespace),
+			ConfigMapNamespace: env.ReadOrPanic(util.CurrentNamespace), // nolint:forbidigo
 		},
 		predicate.ResourceVersionChangedPredicate{},
 	))

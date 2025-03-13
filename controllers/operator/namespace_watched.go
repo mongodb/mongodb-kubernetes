@@ -17,7 +17,7 @@ import (
 //
 // If `WATCH_NAMESPACE` is '*' it will return []string{""}, which means all namespaces will be watched.
 func GetWatchedNamespace() []string {
-	watchNamespace, nsSpecified := os.LookupEnv(util.WatchNamespace)
+	watchNamespace, nsSpecified := os.LookupEnv(util.WatchNamespace) // nolint:forbidigo
 
 	// If WatchNamespace is not specified - we assume the Operator is watching all namespaces.
 	// In contrast to the common way to configure cluster-wide operators we additionally support '*'
@@ -48,7 +48,7 @@ func GetWatchedNamespace() []string {
 			return namespaceList
 		}
 
-		return []string{env.ReadOrDefault(util.CurrentNamespace, "")}
+		return []string{env.ReadOrDefault(util.CurrentNamespace, "")} // nolint:forbidigo
 	}
 
 	return []string{watchNamespace}

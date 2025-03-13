@@ -6,6 +6,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
+// nolint:forbidigo
 func InitDefaultEnvVariables() {
 	os.Setenv(util.NonStaticDatabaseEnterpriseImage, "mongodb-enterprise-database")
 	os.Setenv(util.AutomationAgentImagePullPolicy, "Never")

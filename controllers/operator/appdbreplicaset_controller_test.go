@@ -69,9 +69,9 @@ func getReleaseJsonPath() (string, error) {
 // This approach ensures all test methods in this file have properly defined variables.
 func TestMain(m *testing.M) {
 	path, _ := getReleaseJsonPath()
-	_ = os.Setenv(agentVersionManagement.MappingFilePathEnv, path)
+	_ = os.Setenv(agentVersionManagement.MappingFilePathEnv, path) // nolint:forbidigo
 	defer func(key string) {
-		_ = os.Unsetenv(key)
+		_ = os.Unsetenv(key) // nolint:forbidigo
 	}(agentVersionManagement.MappingFilePathEnv)
 	code := m.Run()
 	os.Exit(code)
