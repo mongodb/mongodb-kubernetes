@@ -171,7 +171,10 @@ def test_mongodb_multi_tls_enable_internal_cluster_x509(
     mongodb_multi["spec"]["security"]["authentication"]["internalCluster"] = "X509"
     mongodb_multi.update()
 
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=2100)
+    # sometimes the agents need more time to register than the time we wait ->
+    # "Failed to enable Authentication for MongoDB Multi Replicaset"
+    # after this the agents eventually succeed.
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=5000)
 
 
 @mark.e2e_multi_cluster_tls_with_x509
