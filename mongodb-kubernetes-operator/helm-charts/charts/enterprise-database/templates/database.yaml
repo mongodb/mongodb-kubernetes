@@ -1,0 +1,56 @@
+{{- $mongoDeploymentType := .Values.mongodb.type | default "ReplicaSet" -}}
+
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  type: {{ .Values.mongodb.type }}
+  members: {{ .Values.mongodb.members | default 3 }}
+  version: {{ .Values.mongodb.version | default "5.0.4" }}
+
+  {{- if eq $mongoDeploymentType "ShardedCluster" }}
+  shardCount: {{ .Values.mongodb.sharding.shardCount }}
+  mongodsPerShardCount: {{ .Values.mongodb.sharding.mongodbsPerShardCount }}
+  mongosCount: {{ .Values.mongodb.sharding.monosCount }}
+  configServerCount: {{ .Values.mongodb.sharding.configServerCount }}
+  {{- end }}
+
+  opsManager:
+    configMapRef:
+      name: {{ required "`manager.configMapRef` is required!" .Values.manager.configMapRef }}
+  credentials: {{ required "`manager.credentials` is required!" .Values.manager.credentials }}
+
+  security:
+    authentication:
+      enabled: true
+      modes: ["SCRAM"]
+
+      ignoreUnknownUsers: true
+
+  backup:
+    mode: {{ .Values.backup.mode | default "disabled" }}
+
+{{ if eq $mongoDeploymentType "ReplicaSet" }}
+  # You can change podSpec for the Pods holding the database using
+  # `values.yaml` as a reference.
+  podSpec:
+{{ toYaml .Values.podSpec | indent 4 }}
+
+{{- end }}
+
+{{- if eq $mongoDeploymentType "ShardedCluster" }}
+# The following values will be set if the MongoDB is of type "ShardedCluster".
+
+  configSrvPodSpec:
+{{ toYaml .Values.configSrvPodSpec | indent 4 }}
+
+  shardPodSpec:
+{{ toYaml .Values.shardPodSpec | indent 4 }}
+
+  mongosPodSpec:
+{{ toYaml .Values.mongosPodSpec | indent 4 }}
+
+{{- end -}}

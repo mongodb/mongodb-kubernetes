@@ -1,0 +1,32 @@
+{{- if .Values.project.create }}
+{{- range .Values.users }}
+---
+apiVersion: atlas.mongodb.com/v1
+kind: AtlasDatabaseUser
+metadata:
+  name: {{ include "atlas-deployment.fullname" $ }}-{{ .username }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "atlas-deployment.labels" $ | nindent 4 }}
+spec:
+  username: {{ .username }}
+  databaseName: {{ .databaseName }}
+  passwordSecretRef:
+    name: {{ include "atlas-deployment.fullname" $ }}-{{ .username }}
+  projectRef:
+    name: {{ include "atlas-deployment.projectfullname" $ }}
+  roles:
+    {{- toYaml .roles | nindent 4 }}
+  {{- if .deleteAfterDate }}
+  deleteAfterDate: {{ .deleteAfterDate }}
+  {{- end }}
+  {{- if .labels }}
+  labels:
+    {{- toYaml .labels | nindent 4 }}
+  {{- end }}
+  {{- if .scopes }}
+  scopes:
+    {{- toYaml .scopes | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- end }}

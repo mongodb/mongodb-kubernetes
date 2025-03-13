@@ -1,0 +1,123 @@
+{{- $operatorName := include "mongodb-atlas-operator.name" . -}}
+{{- $serviceAccountName := include "mongodb-atlas-operator.serviceAccountName" . -}}
+{{- $operatorNamespaceManaged := has .Release.Namespace .Values.watchNamespaces -}}
+
+{{- /* so far we support only a single namespace but otherwise should iterate over the watchNamespaces */}}
+{{- if and (.Values.watchNamespaces) (.Values.crossNamespaceRoles) }}
+{{- range $namespace := .Values.watchNamespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: "{{ $operatorName }}"
+  namespace: {{ $namespace }}
+  labels:
+  {{- include "mongodb-atlas-operator.labels" $ | nindent 4 }}
+rules:
+{{- range ($.Files.Lines "rbac.yaml") }}
+  {{ . -}}
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: "{{ $operatorName }}"
+  namespace: {{ $namespace }}
+  labels:
+  {{- include "mongodb-atlas-operator.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: "{{ $operatorName }}"
+subjects:
+  - kind: ServiceAccount
+    name: "{{ $serviceAccountName }}"
+    namespace: {{ $.Release.Namespace }}
+
+{{- end }}
+{{- end }}
+
+{{- /* If operator namespace is not in the managed namespaces list, we need to give the same permissions to it in adition to above */}}
+{{- if or (not $operatorNamespaceManaged) (not .Values.crossNamespaceRoles) }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: "{{ $operatorName }}"
+  labels:
+  {{- include "mongodb-atlas-operator.labels" $ | nindent 4 }}
+rules:
+{{- range (.Files.Lines "rbac.yaml") }}
+  {{ . -}}
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: "{{ $operatorName }}"
+  labels:
+  {{- include "mongodb-atlas-operator.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: "{{ $operatorName }}"
+subjects:
+  - kind: ServiceAccount
+    name: "{{ $serviceAccountName }}"
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
+
+
+{{- /* we always create the leader election role - it doesn't need to be clusterwide */}}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: "{{ $operatorName }}-leader-election-role"
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: "{{ $operatorName }}-leader-election-rolebinding"
+  labels:
+  {{- include "mongodb-atlas-operator.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: "{{ $operatorName }}-leader-election-role"
+subjects:
+  - kind: ServiceAccount
+    name: {{ $serviceAccountName }}
+    namespace: {{ $.Release.Namespace }}

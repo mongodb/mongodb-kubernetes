@@ -1,0 +1,61 @@
+name: Lint and Test Charts
+
+on:
+  pull_request:
+    paths:
+      - 'charts/**'
+
+jobs:
+  lint-chart:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v1
+        with:
+          version: v3.7.0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.8
+
+      - name: Set up chart-testing
+        uses: helm/chart-testing-action@v2.2.0
+
+      - name: Test dependencies
+        run: |
+          chmod 755 .github/dependency_as_file.sh
+          .github/dependency_as_file.sh atlas-operator-crds atlas-operator
+          .github/dependency_as_file.sh community-operator-crds community-operator
+
+      - name: Run chart-testing (lint)
+        run: ct lint --config .github/ct.yaml
+
+  kubeconform-chart:
+    runs-on: ubuntu-latest
+    needs:
+      - lint-chart
+    strategy:
+      matrix:
+        k8s:
+          - v1.15.11
+          - v1.16.8
+          - v1.17.4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Test dependencies
+        run: |
+          chmod 755 .github/dependency_as_file.sh
+          .github/dependency_as_file.sh atlas-operator-crds atlas-operator
+          .github/dependency_as_file.sh community-operator-crds community-operator
+
+      - name: Run kubeconform
+        env:
+          KUBERNETES_VERSION: ${{ matrix.k8s }}
+        run: .github/kubeconform.sh

@@ -1,0 +1,20 @@
+---
+apiVersion: v2
+name: sample-app
+description: |
+  A sample application to install in your Kubernetes cluster that uses
+  a Secret containing a connection string to your Mongo Database.
+
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.16-0"
+keywords:
+  - mongodb
+  - database
+  - nosql
+icon: https://mongodb-images-new.s3.eu-west-1.amazonaws.com/leaf-green-dark.png
+home: https://github.com/mongodb/helm-charts
+maintainers:
+  - name: MongoDB
+    email: support@mongodb.com

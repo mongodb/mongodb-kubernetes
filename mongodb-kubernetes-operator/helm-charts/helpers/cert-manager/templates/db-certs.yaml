@@ -1,0 +1,26 @@
+# server-certificates.yaml
+#
+{{- range untilStep 0 ( .Values.mongoDB.members | int ) 1 }}
+---
+apiVersion: cert-manager.io/v1alpha2
+kind: Certificate
+metadata:
+  name: {{ $.Values.mongoDB.name }}-{{ . }}
+  namespace: {{ $.Release.Namespace }}
+spec:
+  dnsNames:
+  - {{ $.Values.mongoDB.name }}-{{ . }}
+  - {{ $.Values.mongoDB.name }}-{{ . }}.{{ $.Values.mongoDB.name }}-svc.{{ $.Release.Namespace }}.svc.cluster.local
+  duration: 7200h
+  issuerRef:
+    name: ca-issuer
+  renewBefore: 680h
+  secretName: {{ $.Values.mongoDB.name }}-{{ . }}
+  subject:
+    organizationalUnits:
+    - Your Company
+  usages:
+  # All Server TLS certs need to be created with “server auth” usage!
+  - server auth
+  - client auth
+{{- end }}

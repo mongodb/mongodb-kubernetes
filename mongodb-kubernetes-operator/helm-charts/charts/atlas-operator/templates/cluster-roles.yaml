@@ -1,0 +1,32 @@
+{{- $operatorName := include "mongodb-atlas-operator.name" . -}}
+
+{{- if not .Values.watchNamespaces }}
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: "{{ $operatorName }}"
+  labels:
+  {{- include "mongodb-atlas-operator.labels" $ | nindent 4 }}
+rules:
+{{- range (.Files.Lines "rbac.yaml") }}
+  {{ . -}}
+{{- end }}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $operatorName }}
+  labels:
+  {{- include "mongodb-atlas-operator.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $operatorName }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "mongodb-atlas-operator.serviceAccountName" . }}
+    namespace: {{ $.Release.Namespace }}
+
+{{- end }}

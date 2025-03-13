@@ -1,0 +1,33 @@
+apiVersion: atlas.mongodb.com/v1
+kind: AtlasDeployment
+metadata:
+  name: {{ include "atlas-advanced.fullname" $ }}
+  labels:
+    {{- include "atlas-advanced.labels" $ | nindent 4 }}
+  namespace: {{ $.Release.Namespace }}
+spec:
+  projectRef:
+    name: {{ include "atlas-advanced.projectfullname" $ }}
+    namespace: {{ $.Release.Namespace }}
+  deploymentSpec:
+    name: {{ include "atlas-advanced.fullname" $ }}
+    clusterType: REPLICASET
+    replicationSpecs:
+      - zoneName: Zone 1
+        regionConfigs:
+        {{- range $idx, $val := index .Values.deployment.regions }}
+          - regionName: {{ $val.name }}
+            electableSpecs:
+              instanceSize: {{ include "getInstanceSizeOrFail" $val.instanceSize }}
+              nodeCount: {{ $val.nodeCount }}
+            providerName: {{ include "getProviderNameOrFail" $val.providerName }}
+            backingProviderName: {{ include "getProviderNameOrFail" $val.providerName }}
+            priority: {{ $val.priority }}
+            {{- if $val.autoscaling.enabled }}
+            autoScaling:
+              compute:
+                enabled: true
+                minInstanceSize: {{ include "getInstanceSizeOrFail" $val.autoscaling.min }}
+                maxInstanceSize: {{ include "getInstanceSizeOrFail" $val.autoscaling.max }}
+            {{- end }}
+        {{- end }}

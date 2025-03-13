@@ -1,0 +1,216 @@
+# Name of the Namespace to use
+namespace: mongodb
+
+# Set this to true if your cluster is managing SecurityContext for you.
+# If running OpenShift (Cloud, Minishift, etc.), set this to true.
+managedSecurityContext: true
+
+operator:
+  webhook:
+    # registerConfiguration setting (default: true) controls if the operator should automatically register ValidatingWebhookConfiguration and if required for it cluster-wide roles should be installed.
+    #
+    # Setting false:
+    #  - Adds env var MDB_WEBHOOK_REGISTER_CONFIGURATION=false to the operator deployment.
+    #  - ClusterRole and ClusterRoleBinding required to manage ValidatingWebhookConfigurations will not be installed
+    #  - The operator will not create ValidatingWebhookConfigurations upon startup.
+    #  - The operator will not create the service for the webhook. If the `operator-webhook` service was created before, it will be deleted.
+    #  - The operator will still expose the webhook's endpoint on port on MDB_WEBHOOK_PORT (if not specified, the operator uses a default 1993) in case the ValidatingWebhookConfigurations is configured externally (e.g. in OLM/OpenShift) or by the administrator manually.
+    #
+    # Setting true:
+    #  - It's the default setting, behaviour of the operator w.r.t. webhook configuration is the same as before.
+    #  - operator-webhook service will be created by the operator
+    #  - ClusterRole and ClusterRoleBinding required to manage ValidatingWebhookConfigurations will be installed.
+    #  - ValidatingWebhookConfigurations will be managed by the operator (requires cluster permissions)
+    registerConfiguration: true
+
+# Versions listed here are used to populate RELATED_IMAGE_ env variables in the operator deployment.
+# Environment variables prefixed with RELATED_IMAGE_ are used by operator-sdk to generate relatedImages section
+# with sha256 digests pinning for the certified operator bundle with disconnected environment feature enabled.
+# https://docs.openshift.com/container-platform/4.14/operators/operator_sdk/osdk-generating-csvs.html#olm-enabling-operator-for-restricted-network_osdk-generating-csvs
+  version: 1.30.0
+relatedImages:
+  opsManager:
+  - 6.0.0
+  - 6.0.1
+  - 6.0.2
+  - 6.0.3
+  - 6.0.4
+  - 6.0.5
+  - 6.0.6
+  - 6.0.7
+  - 6.0.8
+  - 6.0.9
+  - 6.0.10
+  - 6.0.11
+  - 6.0.12
+  - 6.0.13
+  - 6.0.14
+  - 6.0.15
+  - 6.0.16
+  - 6.0.17
+  - 6.0.18
+  - 6.0.19
+  - 6.0.20
+  - 6.0.21
+  - 6.0.22
+  - 6.0.23
+  - 6.0.24
+  - 6.0.25
+  - 7.0.0
+  - 7.0.1
+  - 7.0.2
+  - 7.0.3
+  - 7.0.4
+  - 7.0.6
+  - 7.0.7
+  - 7.0.8
+  - 7.0.9
+  - 7.0.10
+  - 7.0.11
+  - 7.0.12
+  - 8.0.0
+  - 8.0.1
+  - 8.0.2
+  mongodb:
+  - 4.4.0-ubi8
+  - 4.4.1-ubi8
+  - 4.4.2-ubi8
+  - 4.4.3-ubi8
+  - 4.4.4-ubi8
+  - 4.4.5-ubi8
+  - 4.4.6-ubi8
+  - 4.4.7-ubi8
+  - 4.4.8-ubi8
+  - 4.4.9-ubi8
+  - 4.4.10-ubi8
+  - 4.4.11-ubi8
+  - 4.4.12-ubi8
+  - 4.4.13-ubi8
+  - 4.4.14-ubi8
+  - 4.4.15-ubi8
+  - 4.4.16-ubi8
+  - 4.4.17-ubi8
+  - 4.4.18-ubi8
+  - 4.4.19-ubi8
+  - 4.4.20-ubi8
+  - 4.4.21-ubi8
+  - 5.0.0-ubi8
+  - 5.0.1-ubi8
+  - 5.0.2-ubi8
+  - 5.0.3-ubi8
+  - 5.0.4-ubi8
+  - 5.0.5-ubi8
+  - 5.0.6-ubi8
+  - 5.0.7-ubi8
+  - 5.0.8-ubi8
+  - 5.0.9-ubi8
+  - 5.0.10-ubi8
+  - 5.0.11-ubi8
+  - 5.0.12-ubi8
+  - 5.0.13-ubi8
+  - 5.0.14-ubi8
+  - 5.0.15-ubi8
+  - 5.0.16-ubi8
+  - 5.0.17-ubi8
+  - 5.0.18-ubi8
+  - 6.0.0-ubi8
+  - 6.0.1-ubi8
+  - 6.0.2-ubi8
+  - 6.0.3-ubi8
+  - 6.0.4-ubi8
+  - 6.0.5-ubi8
+  - 8.0.0-ubi8
+  - 8.0.0-ubi9
+  agent:
+  - 107.0.1.8507-1
+  - 107.0.1.8507-1_1.28.0
+  - 107.0.1.8507-1_1.29.0
+  - 107.0.1.8507-1_1.30.0
+  - 107.0.10.8627-1
+  - 107.0.10.8627-1_1.28.0
+  - 107.0.10.8627-1_1.29.0
+  - 107.0.10.8627-1_1.30.0
+  - 107.0.11.8645-1
+  - 107.0.11.8645-1_1.28.0
+  - 107.0.11.8645-1_1.29.0
+  - 107.0.11.8645-1_1.30.0
+  - 107.0.12.8669-1
+  - 107.0.12.8669-1_1.28.0
+  - 107.0.12.8669-1_1.29.0
+  - 107.0.12.8669-1_1.30.0
+  - 107.0.2.8531-1
+  - 107.0.2.8531-1_1.28.0
+  - 107.0.2.8531-1_1.29.0
+  - 107.0.2.8531-1_1.30.0
+  - 107.0.3.8550-1
+  - 107.0.3.8550-1_1.28.0
+  - 107.0.3.8550-1_1.29.0
+  - 107.0.3.8550-1_1.30.0
+  - 107.0.4.8567-1
+  - 107.0.4.8567-1_1.28.0
+  - 107.0.4.8567-1_1.29.0
+  - 107.0.4.8567-1_1.30.0
+  - 107.0.6.8587-1
+  - 107.0.6.8587-1_1.28.0
+  - 107.0.6.8587-1_1.29.0
+  - 107.0.6.8587-1_1.30.0
+  - 107.0.7.8596-1
+  - 107.0.7.8596-1_1.28.0
+  - 107.0.7.8596-1_1.29.0
+  - 107.0.7.8596-1_1.30.0
+  - 107.0.8.8615-1
+  - 107.0.8.8615-1_1.28.0
+  - 107.0.8.8615-1_1.29.0
+  - 107.0.8.8615-1_1.30.0
+  - 107.0.9.8621-1
+  - 107.0.9.8621-1_1.28.0
+  - 107.0.9.8621-1_1.29.0
+  - 107.0.9.8621-1_1.30.0
+  - 108.0.0.8694-1
+  - 108.0.0.8694-1_1.28.0
+  - 108.0.0.8694-1_1.29.0
+  - 108.0.0.8694-1_1.30.0
+  - 108.0.1.8718-1
+  - 108.0.1.8718-1_1.28.0
+  - 108.0.1.8718-1_1.29.0
+  - 108.0.1.8718-1_1.30.0
+  - 108.0.2.8729-1
+  - 108.0.2.8729-1_1.28.0
+  - 108.0.2.8729-1_1.29.0
+  - 108.0.2.8729-1_1.30.0
+  - 12.0.30.7791-1
+  - 12.0.30.7791-1_1.28.0
+  - 12.0.30.7791-1_1.29.0
+  - 12.0.30.7791-1_1.30.0
+  - 12.0.31.7825-1
+  - 12.0.31.7825-1_1.28.0
+  - 12.0.31.7825-1_1.29.0
+  - 12.0.31.7825-1_1.30.0
+  - 12.0.32.7857-1
+  - 12.0.32.7857-1_1.28.0
+  - 12.0.32.7857-1_1.29.0
+  - 12.0.32.7857-1_1.30.0
+  - 12.0.33.7866-1
+  - 12.0.33.7866-1_1.28.0
+  - 12.0.33.7866-1_1.29.0
+  - 12.0.33.7866-1_1.30.0
+  - 13.27.0.9284-1
+  - 13.27.0.9284-1_1.28.0
+  - 13.27.0.9284-1_1.29.0
+  - 13.27.0.9284-1_1.30.0
+  mongodbLegacyAppDb:
+  - 4.2.11-ent
+  - 4.2.2-ent
+  - 4.2.24-ent
+  - 4.2.6-ent
+  - 4.2.8-ent
+  - 4.4.0-ent
+  - 4.4.11-ent
+  - 4.4.4-ent
+  - 4.4.21-ent
+  - 5.0.1-ent
+  - 5.0.5-ent
+  - 5.0.6-ent
+  - 5.0.7-ent
+  - 5.0.14-ent
+  - 5.0.18-ent

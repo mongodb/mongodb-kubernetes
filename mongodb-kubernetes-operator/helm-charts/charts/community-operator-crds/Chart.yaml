@@ -1,0 +1,16 @@
+apiVersion: v2
+name: community-operator-crds
+description: MongoDB Kubernetes Community Operator - CRDs
+type: application
+version: 0.12.0
+appVersion: 0.12.0
+kubeVersion: '>=1.16-0'
+keywords:
+- mongodb
+- database
+- nosql
+icon: https://mongodb-images-new.s3.eu-west-1.amazonaws.com/leaf-green-dark.png
+home: https://github.com/mongodb/mongodb-kubernetes-operator
+maintainers:
+- name: MongoDB
+  email: support@mongodb.com

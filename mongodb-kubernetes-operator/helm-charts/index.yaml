@@ -1,0 +1,20 @@
+apiVersion: v1
+entries:
+  mongodb-enterprise-operator:
+  - apiVersion: v2
+    created: "2020-10-13T19:27:13.477973+01:00"
+    description: MongoDB Kubernetes Enterprise Operator deployment
+    digest: aae8357dd8fbdb69daf3d75f9d40bbcb8248c1a05c88b139cdc8d7e2cfecb24d
+    home: https://github.com/mongodb/helm-charts
+    keywords:
+    - mongodb
+    - database
+    - nosql
+    kubeVersion: '>=1.15-0'
+    maintainers:
+    - name: MongoDB Cloud Team
+    name: mongodb-enterprise-operator
+    urls:
+    - https://github.com/mongodb/helm-charts/mongodb-enterprise-operator-0.1.0.tgz
+    version: 0.1.0
+generated: "2020-10-13T19:27:13.475384+01:00"

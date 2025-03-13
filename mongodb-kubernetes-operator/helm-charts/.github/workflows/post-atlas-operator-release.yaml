@@ -1,0 +1,109 @@
+name: Create PR with Atlas Operator Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'version'
+        required: true
+
+jobs:
+  create-pr:
+    permissions: write-all
+    name: Create Release branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repositories
+        run: |
+          mkdir operator
+          cd operator
+          git clone https://github.com/mongodb/mongodb-atlas-kubernetes.git
+          cd ..
+          mkdir helm
+          cd helm
+          git clone https://github.com/mongodb/helm-charts.git
+          cd ..
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Copy crd template files
+        run: |
+          find operator/mongodb-atlas-kubernetes/bundle/manifests -name "*.yaml" -not -name "*.clusterserviceversion.yaml" \
+          -not -name "mongodb-atlas-controller-manager-metrics-service_v1_service.yaml" \
+          -not -name "mongodb-atlas-metrics-reader_rbac.authorization.k8s.io_v1_clusterrole.yaml" \
+          -exec cp "{}" helm/helm-charts/charts/atlas-operator-crds/templates \;
+      - name: Edit versions in chart files
+        id: set-version
+        run: |
+          VERSION=${{ github.event.inputs.version }}
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          cd helm/helm-charts/charts/atlas-operator-crds
+          sed -i -r 's/version:....../version: '"$VERSION"'/g' Chart.yaml
+          sed -i -r 's/appVersion:....../appVersion: '"$VERSION"'/g' Chart.yaml
+          cd ..
+          cd atlas-operator
+          sed -i -r 's/version:.\x22.....\x22/version: \x22'"$VERSION"'\x22/g' Chart.yaml
+          sed -i -r 's/version:......$/version: '"$VERSION"'/g' Chart.yaml
+          sed -i -r 's/appVersion:....../appVersion: '"$VERSION"'/g' Chart.yaml
+          cd ..
+      - name: Set branch name
+        id: git-config
+        run: |
+          echo ${{ steps.set-version.outputs.version }}
+          branch="atlas-operator-release-${{ steps.set-version.outputs.version }}"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create and push branch
+        run: |
+          export VERSION=${{ github.event.inputs.version }}
+          export MAJOR_VERSION=$(cat operator/mongodb-atlas-kubernetes/major-version)
+          ## Check that VERSION starts with MAJOR_VERSION
+          if [[ ${VERSION} == ${MAJOR_VERSION}.* ]]; then
+            echo "Version OK";
+          else
+            echo "Version mismatch: target version ${VERSION} doesn't match the Kubernetes Atlas Operator major version ${MAJOR_VERSION}.x.y";
+            exit 1
+          fi
+          cp helm/helm-charts/.github/actions/push-files/push-files.sh helm/helm-charts
+          cd helm/helm-charts
+          chmod +x push-files.sh
+          git checkout -b ${{ steps.git-config.outputs.branch }}
+          gh auth setup-git
+          git push origin ${{ steps.git-config.outputs.branch }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Commit and push crds chart
+        run: |
+          cd helm/helm-charts
+          git add .
+          git fetch origin ${{ steps.git-config.outputs.branch }}
+          git init
+          ./push-files.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DESTINATION_BRANCH: ${{ steps.git-config.outputs.branch }}
+          PATH_TO_COMMIT: "charts/atlas-operator-crds/Chart.yaml"
+      - name: Commit and push operator chart
+        run: |
+          cd helm/helm-charts
+          ./push-files.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DESTINATION_BRANCH: ${{ steps.git-config.outputs.branch }}
+          PATH_TO_COMMIT: "charts/atlas-operator/Chart.yaml"
+      - name: Commit and push crd templates
+        run: |
+          cd helm/helm-charts
+          ./push-files.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DESTINATION_BRANCH: ${{ steps.git-config.outputs.branch }}
+          PATH_TO_COMMIT: "charts/atlas-operator-crds/templates"
+      - name: create pull request
+        run: |
+          cd helm/helm-charts
+          gh pr create --title "Release Atlas Operator  ${{ steps.set-version.outputs.version }}" \
+          --body "Update atlas operator version to ${{ steps.set-version.outputs.version }}" \
+          --base main --head ${{ steps.git-config.outputs.branch }} \
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

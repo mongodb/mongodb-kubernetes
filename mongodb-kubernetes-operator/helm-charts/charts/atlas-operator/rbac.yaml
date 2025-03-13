@@ -1,0 +1,65 @@
+- apiGroups:
+    - ""
+  resources:
+    - events
+  verbs:
+    - create
+    - patch
+- apiGroups:
+    - ""
+  resources:
+    - secrets
+  verbs:
+    - create
+    - delete
+    - get
+    - list
+    - patch
+    - update
+    - watch
+- apiGroups:
+    - atlas.mongodb.com
+  resources:
+    - atlasbackupcompliancepolicies
+    - atlasbackuppolicies
+    - atlasbackupschedules
+    - atlasdatabaseusers
+    - atlasdatafederations
+    - atlasdeployments
+    - atlasfederatedauths
+    - atlasprivateendpoints
+    - atlasprojects
+    - atlassearchindexconfigs
+    - atlasstreamconnections
+    - atlasstreaminstances
+    - atlasteams
+    - atlascustomroles
+  verbs:
+    - create
+    - delete
+    - get
+    - list
+    - patch
+    - update
+    - watch
+- apiGroups:
+    - atlas.mongodb.com
+  resources:
+    - atlasbackupcompliancepolicies/status
+    - atlasbackuppolicies/status
+    - atlasbackupschedules/status
+    - atlasdatabaseusers/status
+    - atlasdatafederations/status
+    - atlasdeployments/status
+    - atlasfederatedauths/status
+    - atlasprivateendpoints/status
+    - atlasprojects/status
+    - atlassearchindexconfigs/status
+    - atlasstreamconnections/status
+    - atlasstreaminstances/status
+    - atlasteams/status
+    - atlascustomroles/status
+  verbs:
+    - get
+    - patch
+    - update

@@ -1,0 +1,53 @@
+---
+###########################
+###########################
+## Linter GitHub Actions ##
+###########################
+###########################
+name: Lint Code Base
+
+#
+# Documentation:
+# https://help.github.com/en/articles/workflow-syntax-for-github-actions
+#
+
+#############################
+# Start the job on all push #
+#############################
+on:
+  pull_request:
+    branches: [master]
+
+###############
+# Set the Job #
+###############
+jobs:
+  build:
+    # Name the Job
+    name: Lint Code Base
+    # Set the agent to run on
+    runs-on: ubuntu-latest
+
+    ##################
+    # Load all steps #
+    ##################
+    steps:
+      ##########################
+      # Checkout the code base #
+      ##########################
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          # Make sure we also get the helm-charts submodule!
+          submodules: true
+
+      - name: Install missing python packages
+        run: sudo apt-get install -y --no-install-recommends python3-venv python3-setuptools
+
+      - name: Install dependencies with pip + requirements.txt
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+
+      - name: Move the dependencies
+        run: mv .venv /home/runner/work/_temp/_github_workflow

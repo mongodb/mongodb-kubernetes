@@ -1,0 +1,16 @@
+---
+apiVersion: v2
+name: enterprise-database
+description: MongoDB Kubernetes Enterprise Database.
+version: 1.13.0
+kubeVersion: '>=1.16-0'
+type: application
+keywords:
+  - mongodb
+  - database
+  - nosql
+icon: https://mongodb-images-new.s3.eu-west-1.amazonaws.com/leaf-green-dark.png
+home: https://github.com/mongodb/mongodb-enterprise-kubernetes
+maintainers:
+  - name: MongoDB
+    email: support@mongodb.com
