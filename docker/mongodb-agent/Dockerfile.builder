@@ -18,8 +18,8 @@ WORKDIR /go/src/github.com/10gen/ops-manager-kubernetes/
 COPY --from=dependency_downloader /go/pkg /go/pkg
 COPY go.mod go.sum ./
 
-RUN CGO_ENABLED=0 go build -o /readinessprobe github.com/mongodb/mongodb-kubernetes-operator/cmd/readiness
-RUN CGO_ENABLED=0 go build -o /version-upgrade-hook github.com/mongodb/mongodb-kubernetes-operator/cmd/versionhook
+RUN CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -o /readinessprobe ./mongodb-community-operator/cmd/readiness
+RUN CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -o /version-upgrade-hook ./mongodb-community-operator/cmd/versionhook
 
 FROM scratch
 ARG mongodb_tools_url_ubi

@@ -116,4 +116,4 @@ require (
 
 go 1.24.0
 
-replace github.com/mongodb/mongodb-kubernetes-operator => ./mongodb-kubernetes-operator
+replace github.com/mongodb/mongodb-kubernetes-operator => ./mongodb-community-operator

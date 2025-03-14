@@ -56,6 +56,7 @@ config/manifests/
 helm_chart/templates/
 helm_chart/crds/
 public/
+!/public/tools/multicluster/go.mod
 
 # Documentation files
 docs/
