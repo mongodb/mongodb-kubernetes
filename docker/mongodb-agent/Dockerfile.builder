@@ -17,6 +17,7 @@ WORKDIR /go/src/github.com/10gen/ops-manager-kubernetes/
 
 COPY --from=dependency_downloader /go/pkg /go/pkg
 COPY go.mod go.sum ./
+COPY mongodb-community-operator/go.mod mongodb-community-operator/go.sum /go/src/github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/
 
 RUN CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -o /readinessprobe ./mongodb-community-operator/cmd/readiness/main.go
 RUN CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -o /version-upgrade-hook ./mongodb-community-operator/cmd/versionhook/main.go
