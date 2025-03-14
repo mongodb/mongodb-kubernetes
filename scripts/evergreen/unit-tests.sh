@@ -15,6 +15,9 @@ else
   echo "running test without race enabled"
   GO_TEST_CMD="go test -v -coverprofile cover.out ./..."
 fi
+if [[ "$0" == *"./mongodb-community-operator"* ]]; then
+  GO_TEST_CMD="make test"
+fi
 echo "running $GO_TEST_CMD"
 eval "$GO_TEST_CMD" | tee -a result.suite
 '
