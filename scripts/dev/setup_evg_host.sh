@@ -10,6 +10,9 @@ sudo sysctl -w fs.inotify.max_user_instances=8192
 echo "Increasing fs.inotify.max_user_watches"
 sudo sysctl -w fs.inotify.max_user_watches=10485760
 
+sudo cp /home/ubuntu/ops-manager-kubernetes/scripts/dev/kindclusters.service /etc/systemd/system/kindclusters.service
+sudo systemctl enable kindclusters.service
+
 # retrieve arch variable off the shell command line
 ARCH=${1-"amd64"}
 

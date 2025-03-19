@@ -1,0 +1,14 @@
+[Unit]
+Description=Recreate kind clusters at boot
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/ops-manager-kubernetes
+Environment=HOME=/home/ubuntu
+ExecStart=/home/ubuntu/ops-manager-kubernetes/scripts/dev/recreate_kind_clusters.sh
+ExecStart=/home/ubuntu/ops-manager-kubernetes/scripts/dev/recreate_kind_cluster.sh kind
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
