@@ -1,6 +1,7 @@
 [Unit]
 Description=Recreate kind clusters at boot
 After=docker.service
+Requires=docker.service
 
 [Service]
 Type=oneshot

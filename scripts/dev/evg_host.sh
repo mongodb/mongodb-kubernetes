@@ -115,8 +115,8 @@ recreate-kind-cluster() {
 
 tunnel() {
   shift 1
-  # shellcheck disable=SC2016
   get-kubeconfig
+  # shellcheck disable=SC2016
   api_servers=$(yq '.contexts[].context.cluster as $cluster | .clusters[] | select(.name == $cluster).cluster.server' < "${kubeconfig_path}" | sed 's/https:\/\///g')
   echo "Extracted the following API server urls from ${kubeconfig_path}: ${api_servers}"
   port_forwards=()
