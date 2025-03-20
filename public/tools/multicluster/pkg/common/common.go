@@ -383,6 +383,16 @@ func getCentralRules() []rbacv1.PolicyRule {
 			},
 			APIGroups: []string{"mongodb.com"},
 		},
+		{
+			Verbs: []string{"*"},
+			Resources: []string{
+				"mongodbcommunity",
+				"mongodbcommunity/status",
+				"mongodbcommunity/spec",
+				"mongodbcommunity/finalizers",
+			},
+			APIGroups: []string{"mongodbcommunity.mongodb.com"},
+		},
 	}
 }
 

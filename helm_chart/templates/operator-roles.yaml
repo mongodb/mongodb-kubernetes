@@ -70,11 +70,7 @@ rules:
       - mongodbcommunity/spec
       - mongodbcommunity/finalizers
     verbs:
-      - get
-      - patch
-      - list
-      - update
-      - watch
+      - '*'
   - apiGroups:
       - mongodb.com
     verbs:
