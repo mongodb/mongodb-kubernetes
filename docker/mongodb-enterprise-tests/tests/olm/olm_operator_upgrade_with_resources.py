@@ -79,6 +79,7 @@ def subscription(namespace: str, catalog_source: CustomObject):
                     {"name": "MANAGED_SECURITY_CONTEXT", "value": "false"},
                     {"name": "OPERATOR_ENV", "value": "dev"},
                     {"name": "MDB_DEFAULT_ARCHITECTURE", "value": static_value},
+                    {"name": "MDB_OPERATOR_TELEMETRY_SEND_ENABLED", "value": "false"},
                 ]
             },
         },
