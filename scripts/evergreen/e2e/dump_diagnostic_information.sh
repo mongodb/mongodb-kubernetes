@@ -8,7 +8,7 @@ set +e
 
 source scripts/funcs/printing
 
-dump_all () {
+dump_all() {
     [[ "${MODE-}" = "dev" ]] && return
 
     # TODO: provide a cleaner way of handling this. For now we run the same command with kubectl configured
@@ -26,7 +26,8 @@ dump_all () {
     # but in some exceptional cases (e.g. clusterwide operator) there can be more than 1 namespace to print diagnostics
     # In this case the python test app may create the test namespace and add necessary labels and annotations so they
     # would be dumped for diagnostics as well
-    for ns in $(kubectl get namespace -l "evg=task" --output=jsonpath={.items..metadata.name}); do
+    # TODO: MCK mco not all
+    for ns in $(kubectl get namespace --output=jsonpath={.items..metadata.name}); do
         if kubectl get namespace "${ns}" -o jsonpath='{.metadata.annotations}' | grep -q "${task_id:?}"; then
             echo "Dumping all diagnostic information for namespace ${ns}"
             dump_namespace "${ns}" "${prefix}"
@@ -221,6 +222,7 @@ dump_diagnostics() {
     dump_objects mongodbusers "MongoDBUser Resources" "${namespace}"
     dump_objects opsmanagers "MongoDBOpsManager Resources" "${namespace}"
     dump_objects mongodbmulticluster "MongoDB Multi Resources" "${namespace}"
+    dump_objects mongodbcommunity "MongoDB Community Resources" "${namespace}"
 
     header "All namespace resources"
     kubectl get all -n "${namespace}"
@@ -265,6 +267,7 @@ dump_namespace() {
     dump_objects clusterserviceversions "OLM ClusterServiceVersions" "${namespace}"  2> /dev/null > "logs/${prefix}z_olm_clusterserviceversions.txt"
     dump_objects pods "Pods" "${namespace}"  2> /dev/null > "logs/${prefix}z_pods.txt"
 
+    kubectl get crd -o name
     # shellcheck disable=SC2046
-    kubectl describe $(kubectl get crd -o name | grep mongodb.com) > "logs/${prefix}z_mongodb_crds.log"
+    kubectl describe $(kubectl get crd -o name | grep mongodb) > "logs/${prefix}z_mongodb_crds.log"
 }

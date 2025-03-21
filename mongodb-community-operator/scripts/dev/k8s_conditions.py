@@ -66,7 +66,8 @@ def call_eventually_succeeds(
         try:
             fn()
             return True
-        except exceptions_to_ignore:  # type: ignore
+        except exceptions_to_ignore as e:
+            print(e)
             pass
 
         time.sleep(sleep_time)
@@ -78,6 +79,7 @@ def _ignore_error_codes(fn: Callable, codes: Optional[List[int]]) -> Any:
     try:
         return fn()
     except ApiException as e:
+        print(e)
         if codes is not None and e.status not in codes:
             raise
 

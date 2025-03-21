@@ -63,6 +63,19 @@ rules:
       - delete
       - deletecollection
   - apiGroups:
+      - mongodbcommunity.mongodb.com
+    resources:
+      - mongodbcommunity
+      - mongodbcommunity/status
+      - mongodbcommunity/spec
+      - mongodbcommunity/finalizers
+    verbs:
+      - get
+      - patch
+      - list
+      - update
+      - watch
+  - apiGroups:
       - mongodb.com
     verbs:
       - '*'
@@ -128,9 +141,9 @@ subjects:
   - kind: ServiceAccount
     name: {{ $.Values.operator.name }}
     namespace: {{ include "mongodb-enterprise-operator.namespace" $ }}
-{{- end }} {{/* range */}}
+{{- end }}
 
-{{- end }} {{/* if .Values.operator.createOperatorServiceAccount */}}
+{{- end }}
 ---
 
 {{/* This cluster role and binding is necessary to allow the operator to automatically register ValidatingWebhookConfiguration. */}}
@@ -161,7 +174,7 @@ rules:
       - create
       - update
       - delete
-{{- end }} {{/* if not (lookup ... */}}
+{{- end }}
 ---
 
 kind: ClusterRoleBinding
@@ -177,4 +190,55 @@ subjects:
     name: {{ .Values.operator.name }}
     namespace: {{ include "mongodb-enterprise-operator.namespace" . }}
 
-{{- end }} {{/* if and .Values.operator.webhook.registerConfiguration .Values.operator.webhook.installClusterRole */}}
+{{- end }}
+
+{{- $clusterRoleName := printf "%s-cluster-telemetry" .Values.operator.name }}
+{{- $telemetry := default dict .Values.operator.telemetry }}
+
+{{/* We can't use default here, as 0, false and nil as determined as unset and thus set the default value */}}
+{{- if ne $telemetry.enabled false }}
+  {{- if ne $telemetry.installClusterRole false}}
+
+---
+# Additional ClusterRole for clusterVersionDetection
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ $clusterRoleName }}
+rules:
+  # Non-resource URL permissions
+  - nonResourceURLs:
+      - "/version"
+    verbs:
+      - get
+  # Cluster-scoped resource permissions
+  - apiGroups:
+      - ''
+    resources:
+      - namespaces
+    resourceNames:
+      - kube-system
+    verbs:
+      - get
+  - apiGroups:
+      - ''
+    resources:
+      - nodes
+    verbs:
+      - list
+{{- end}}
+---
+# ClusterRoleBinding for clusterVersionDetection
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ .Values.operator.name }}-{{ include "mongodb-enterprise-operator.namespace" . }}-cluster-telemetry-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $clusterRoleName }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.operator.name }}
+    namespace: {{ include "mongodb-enterprise-operator.namespace" . }}
+{{- end }}

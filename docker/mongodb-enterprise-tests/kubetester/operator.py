@@ -6,7 +6,7 @@ from typing import Dict, List, Optional
 
 import requests
 from kubernetes import client
-from kubernetes.client import V1beta1CustomResourceDefinition, V1Deployment, V1Pod
+from kubernetes.client import V1CustomResourceDefinition, V1Deployment, V1Pod
 from kubernetes.client.rest import ApiException
 from kubetester import wait_for_webhook
 from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
@@ -269,7 +269,7 @@ def delete_operator_crds():
                 raise e
 
 
-def list_operator_crds() -> List[V1beta1CustomResourceDefinition]:
+def list_operator_crds() -> List[V1CustomResourceDefinition]:
     return sorted(
         [
             crd

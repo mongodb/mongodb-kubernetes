@@ -473,6 +473,28 @@ def build_tests_image(build_configuration: BuildConfiguration):
     sonar_build_image(image_name, build_configuration, buildargs, "inventories/test.yaml")
 
 
+def build_mco_tests_image(build_configuration: BuildConfiguration):
+    """
+    Builds image used to run community tests.
+    """
+    image_name = "community-operator-e2e"
+    # community_test_src = "mongodb-community-operator"
+    # community_test_dest = "docker/mongodb-community-test"
+    #
+    # shutil.rmtree(community_test_dest, ignore_errors=True)
+    #
+    # shutil.copytree(community_test_src, community_test_dest)
+
+    # TODO: MCK update
+    golang_version = os.getenv("GOLANG_VERSION", "1.24")
+    if golang_version == "":
+        raise Exception("Missing PYTHON_VERSION environment variable")
+
+    buildargs = dict({"golang_version": golang_version})
+
+    sonar_build_image(image_name, build_configuration, buildargs, "inventories/mco_test.yaml")
+
+
 def build_operator_image(build_configuration: BuildConfiguration):
     """Calculates arguments required to build the operator image, and starts the build process."""
     # In evergreen, we can pass test_suffix env to publish the operator to a quay
@@ -1338,6 +1360,11 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         "cli": build_CLI_SBOM,
         "test": build_tests_image,
         "operator": build_operator_image,
+        "mco-test": build_mco_tests_image,
+        # TODO: add support to build this per patch
+        # "readinessProbe": build_readinessProbe_image,
+        # "upgradeHook": build_upgradehook_image,
+        # "agent-community": build_agent_community_image,
         "operator-quick": build_operator_image_patch,
         "database": build_database_image,
         "agent-pct": build_agent_on_agent_bump,

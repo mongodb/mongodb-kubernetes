@@ -61,6 +61,13 @@ variables:
       - func: download_kube_tools
       - func: setup_building_host
 
+  - &setup_group_community
+    setup_group_can_fail_task: true
+    setup_group:
+      - func: clone
+      - func: download_kube_tools
+      - func: setup_building_host
+
   - &setup_group_multi_cluster
     setup_group_can_fail_task: true
     setup_group:
@@ -193,6 +200,8 @@ github_pr_aliases:
     task_tags: [ "unit_tests" ]
   - variant_tags: [ "e2e_test_suite" ]
     task_tags: [ "patch-run" ]
+  - variant_tags: [ "e2e_mco_test_suite" ]
+    task: ".*"
   - variant_tags: [ "auto_bump" ]
     task_tags: [ "patch-run" ]
 
@@ -208,8 +217,8 @@ git_tag_aliases:
     variant_tags: [ "release" ]
     task_tags: [ "image_release", "image_preflight", "openshift_bundles" ]
 
+# TODO: MCK: have this part of e2e.sh and its expansions
 tasks:
-
   - name: unit_tests_golang
     tags: [ "unit_tests" ]
     commands:
@@ -389,6 +398,14 @@ tasks:
         vars:
           image_name: test
 
+  - name: build_mco_test_image
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: mco-test
+
   - name: build_operator_ubi
     commands:
       - func: clone
@@ -483,6 +500,13 @@ tasks:
         vars:
           variant: e2e_operator_perf_thirty
           size: small
+
+  # this task generates all e2e tests for mco variant
+  - name: generate_community_tasks
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: generate_community_tests_tasks
 
   - name: release_database
     tags: [ "image_release" ]
@@ -1471,6 +1495,20 @@ buildvariants:
     tasks:
       - name: e2e_kind_olm_group
 
+    # This variants runs the tests from MCO with the MEKO operator binary
+  - name: e2e_mco_tests
+    display_name: "e2e_mco_tests"
+    tags: [ "e2e_mco_test_suite"]
+    run_on:
+      - ubuntu2004-large
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_mco_test_image
+        variant: init_test_run
+    tasks:
+      - name: generate_community_tasks
+
   ## Manual (patch) E2E tests not run for every PR and commit
 
   - name: e2e_operator_perf
@@ -1513,10 +1551,12 @@ buildvariants:
     tasks:
       - name: build_operator_ubi
       - name: build_test_image
+      - name: build_mco_test_image
       - name: build_init_appdb_images_ubi
       - name: build_init_om_images_ubi
       - name: build_init_database_image_ubi
       - name: build_database_image_ubi
+      - name: build_agent_images_ubi
       - name: build_agent_images_ubi
       - name: prepare_aws
 

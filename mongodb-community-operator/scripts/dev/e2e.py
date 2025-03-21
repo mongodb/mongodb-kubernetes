@@ -22,18 +22,18 @@ def load_yaml_from_file(path: str) -> Dict:
 
 
 def _load_test_service_account() -> Dict:
-    return load_yaml_from_file("deploy/e2e/service_account.yaml")
+    return load_yaml_from_file("mongodb-community-operator/deploy/e2e/service_account.yaml")
 
 
 def _load_test_role() -> Dict:
-    return load_yaml_from_file("deploy/e2e/role.yaml")
+    return load_yaml_from_file("mongodb-community-operator/deploy/e2e/role.yaml")
 
 
 def _load_test_role_binding() -> Dict:
-    return load_yaml_from_file("deploy/e2e/role_binding.yaml")
+    return load_yaml_from_file("mongodb-community-operator/deploy/e2e/role_binding.yaml")
 
 
-def _prepare_test_environment(config_file: str) -> None:
+def _prepare_test_environment(args) -> None:
     """
     _prepare_test_environment ensures that the old test pod is deleted
     and that namespace, cluster role, cluster role binding and service account
@@ -41,26 +41,23 @@ def _prepare_test_environment(config_file: str) -> None:
     """
     rbacv1 = client.RbacAuthorizationV1Api()
     corev1 = client.CoreV1Api()
-    dev_config = load_config(config_file)
+    dev_config = load_config(args.config_file, namespace=args.namespace)
 
-    _delete_test_pod(config_file)
+    _delete_test_pod(args)
 
     print("Creating Namespace")
     k8s_conditions.ignore_if_already_exists(
         lambda: corev1.create_namespace(client.V1Namespace(metadata=dict(name=dev_config.namespace)))
     )
 
-    print("Creating Cluster Role")
-    k8s_conditions.ignore_if_already_exists(lambda: rbacv1.create_cluster_role(_load_test_role()))
-
-    print("Creating Cluster Role Binding")
+    print("Creating Cluster Role Binding and Service Account for test pod")
     role_binding = _load_test_role_binding()
     # set namespace specified in config.json
     role_binding["subjects"][0]["namespace"] = dev_config.namespace
 
     k8s_conditions.ignore_if_already_exists(lambda: rbacv1.create_cluster_role_binding(role_binding))
 
-    print("Creating Service Account")
+    print("Creating Service Account for test pod")
     service_account = _load_test_service_account()
     # set namespace specified in config.json
     service_account["metadata"]["namespace"] = dev_config.namespace
@@ -94,26 +91,30 @@ def create_test_pod(args: argparse.Namespace, dev_config: DevConfig) -> None:
                         },
                         {
                             "name": "OPERATOR_IMAGE",
-                            "value": f"{dev_config.repo_url}/{dev_config.operator_image_dev}:{args.tag}",
+                            "value": f"{dev_config.repo_url}/{dev_config.operator_image}:{args.tag}",
                         },
+                        # TODO: MCK: when running locally - let's default to /dev and not our own image unless specified
+                        # TODO: MCK: change this to be per patch and not hard coded
                         {
-                            "name": "AGENT_IMAGE",
-                            "value": f"{dev_config.repo_url}/{dev_config.agent_image_dev}:{args.tag}",
+                            "name": "MONGODB_COMMUNITY_AGENT_IMAGE",
+                            "value": f"{dev_config.mongodb_image_repo_url}/{dev_config.agent_image}:108.0.2.8729-1",
                         },
                         {
                             "name": "TEST_NAMESPACE",
-                            "value": dev_config.namespace,
+                            "value": args.namespace,
                         },
+                        # TODO: MCK: change this to be per patch and not hard coded
                         {
                             "name": "VERSION_UPGRADE_HOOK_IMAGE",
-                            "value": f"{dev_config.repo_url}/{dev_config.version_upgrade_hook_image_dev}:{args.tag}",
+                            "value": f"{dev_config.mongodb_image_repo_url}/{dev_config.version_upgrade_hook_image}:1.0.9",
                         },
+                        # TODO: MCK: change this to be per patch and not hard coded
                         {
                             "name": "READINESS_PROBE_IMAGE",
-                            "value": f"{dev_config.repo_url}/{dev_config.readiness_probe_image_dev}:{args.tag}",
+                            "value": f"{dev_config.mongodb_image_repo_url}/{dev_config.readiness_probe_image}:1.0.22",
                         },
                         {
-                            "name": "MONGODB_IMAGE",
+                            "name": "MONGODB_COMMUNITY_IMAGE",
                             "value": f"{dev_config.mongodb_image_name}",
                         },
                         {
@@ -172,14 +173,14 @@ def wait_for_pod_to_be_running(corev1: client.CoreV1Api, name: str, namespace: s
     print("Pod is running")
 
 
-def _delete_test_environment(config_file: str) -> None:
+def _delete_test_environment(args) -> None:
     """
     _delete_test_environment ensures that the cluster role, cluster role binding and service account
     for the test pod are deleted.
     """
     rbacv1 = client.RbacAuthorizationV1Api()
     corev1 = client.CoreV1Api()
-    dev_config = load_config(config_file)
+    dev_config = load_config(args.config_file, namespace=args.namespace)
 
     k8s_conditions.ignore_if_doesnt_exist(lambda: rbacv1.delete_cluster_role(TEST_CLUSTER_ROLE_NAME))
 
@@ -190,11 +191,11 @@ def _delete_test_environment(config_file: str) -> None:
     )
 
 
-def _delete_test_pod(config_file: str) -> None:
+def _delete_test_pod(args) -> None:
     """
     _delete_test_pod deletes the test pod.
     """
-    dev_config = load_config(config_file)
+    dev_config = load_config(args.config_file, namespace=args.namespace)
     corev1 = client.CoreV1Api()
     k8s_conditions.ignore_if_doesnt_exist(lambda: corev1.delete_namespaced_pod(TEST_POD_NAME, dev_config.namespace))
 
@@ -229,12 +230,18 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="ubi",
     )
+    parser.add_argument(
+        "--namespace",
+        help="The namespace where all the things should be deployed and run it",
+        type=str,
+        default="ubi",
+    )
     parser.add_argument("--config_file", help="Path to the config file")
     return parser.parse_args()
 
 
 def prepare_and_run_test(args: argparse.Namespace, dev_config: DevConfig) -> None:
-    _prepare_test_environment(args.config_file)
+    _prepare_test_environment(args)
     create_test_pod(args, dev_config)
     corev1 = client.CoreV1Api()
 
@@ -253,9 +260,15 @@ def prepare_and_run_test(args: argparse.Namespace, dev_config: DevConfig) -> Non
 
 def main() -> int:
     args = parse_args()
-    config.load_kube_config()
 
-    dev_config = load_config(args.config_file, Distro.from_string(args.distro))
+    # TODO: MCK
+    try:
+        config.load_kube_config()
+    except Exception:
+        config.load_incluster_config()
+
+    dev_config = load_config(args.config_file, Distro.from_string(args.distro), args.namespace)
+
     prepare_and_run_test(args, dev_config)
 
     corev1 = client.CoreV1Api()
@@ -267,7 +280,7 @@ def main() -> int:
         exceptions_to_ignore=ApiException,
     ):
         return 1
-    _delete_test_environment(args.config_file)
+    _delete_test_environment(args)
     return 0
 
 

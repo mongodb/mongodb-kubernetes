@@ -26,5 +26,5 @@ chmod +x docker/mongodb-enterprise-tests/multi-cluster-kube-config-creator
 chmod +x docker/mongodb-enterprise-tests/multi-cluster-kube-config-creator_linux
 
 mkdir -p bin || true
-cp docker/mongodb-enterprise-tests/multi-cluster-kube-config-creator bin/kubectl-mongodb
-cp bin/kubectl-mongodb "${WORKDIR}/bin/kubectl-mongodb"
+cp docker/mongodb-enterprise-tests/multi-cluster-kube-config-creator bin/kubectl-mongodb || true
+cp bin/kubectl-mongodb "${WORKDIR}/bin/kubectl-mongodb" || true

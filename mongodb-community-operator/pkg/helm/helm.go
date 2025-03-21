@@ -4,23 +4,24 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"testing"
 )
 
 // Uninstall uninstalls a helm chart of the given name. There is no error in the case
 // of the helm chart not existing.
-func Uninstall(chartName string, namespace string) error {
+func Uninstall(t *testing.T, chartName string, namespace string) error {
 	helmArgs := []string{"uninstall", chartName, "-n", namespace}
-	return executeHelmCommand(helmArgs, isNotFoundMessage)
+	return executeHelmCommand(t, helmArgs, isNotFoundMessage)
 }
 
 // DependencyUpdate downloads dependencies for a Chart.
-func DependencyUpdate(chartPath string) error {
+func DependencyUpdate(t *testing.T, chartPath string) error {
 	helmArgs := []string{"dependency", "update", chartPath}
-	return executeHelmCommand(helmArgs, nil)
+	return executeHelmCommand(t, helmArgs, nil)
 }
 
 // Install a helm chert at the given path with the given name and the provided set arguments.
-func Install(chartPath, chartName string, flags map[string]string, templateValues map[string]string) error {
+func Install(t *testing.T, chartPath, chartName string, flags, templateValues map[string]string) error {
 	helmArgs := []string{"install"}
 	helmArgs = append(helmArgs, chartName, chartPath)
 	for flagKey, flagValue := range flags {
@@ -30,7 +31,7 @@ func Install(chartPath, chartName string, flags map[string]string, templateValue
 		}
 	}
 	helmArgs = append(helmArgs, mapToHelmValuesArg(templateValues)...)
-	return executeHelmCommand(helmArgs, nil)
+	return executeHelmCommand(t, helmArgs, nil)
 }
 
 func isNotFoundMessage(s string) bool {
@@ -39,9 +40,11 @@ func isNotFoundMessage(s string) bool {
 
 // executeHelmCommand accepts a list of arguments that should be passed to the helm command
 // and a predicate that when returning true, indicates that the error message should be ignored.
-func executeHelmCommand(args []string, messagePredicate func(string) bool) error {
+func executeHelmCommand(t *testing.T, args []string, messagePredicate func(string) bool) error {
 	cmd := exec.Command("helm", args...)
+	t.Logf("cmd: %s", cmd.String())
 	output, err := cmd.CombinedOutput()
+	t.Logf("output: %s", output)
 	if err != nil {
 		if messagePredicate != nil && messagePredicate(string(output)) {
 			return nil

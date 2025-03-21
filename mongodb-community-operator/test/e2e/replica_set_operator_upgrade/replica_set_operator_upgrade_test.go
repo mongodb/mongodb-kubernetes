@@ -63,7 +63,7 @@ func TestReplicaSetOperatorUpgrade(t *testing.T) {
 
 	// upgrade the operator to master
 	config := setup.LoadTestConfigFromEnv()
-	err = setup.DeployOperator(ctx, config, resourceName, true, false)
+	err = setup.DeployOperator(ctx, t, config, resourceName, true, false)
 	assert.NoError(t, err)
 
 	// Perform the basic tests
@@ -122,7 +122,7 @@ func TestReplicaSetOperatorUpgradeFrom0_7_2(t *testing.T) {
 	// rescale helm operator deployment to zero and run local operator then.
 
 	testConfig = setup.LoadTestConfigFromEnv()
-	err = setup.DeployOperator(ctx, testConfig, resourceName, true, false)
+	err = setup.DeployOperator(ctx, t, testConfig, resourceName, true, false)
 	assert.NoError(t, err)
 
 	runTests(t)

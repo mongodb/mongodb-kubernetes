@@ -21,3 +21,4 @@ curl -s https://get.helm.sh/helm-${helm_version}-linux-amd64.tar.gz --output "${
 
 tar xfz "${helm_archive}" -C "${tmpdir}" &> /dev/null
 mv "${tmpdir}/linux-amd64/helm" "${bindir}"
+"${bindir}"/helm version

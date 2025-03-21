@@ -664,6 +664,26 @@ functions:
         files:
           - evergreen_tasks.json
 
+  # this generates the mco tests via task generation
+  # shrub generates a yaml/json which gets embedded into this file
+  # TODO: MCK there is a ticket considering not doing this dynamic but rather per pre-commit
+  generate_community_tests_tasks:
+    - *switch_context
+    - command: shell.exec
+      type: setup
+      params:
+        shell: bash
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        script: |
+          source .generated/context.export.env
+          scripts/evergreen/run_python.sh scripts/evergreen/e2e/mco/create_mco_tests.py > evergreen_tasks.json
+          echo "tasks to run:"
+          cat evergreen_tasks.json
+    - command: generate.tasks
+      params:
+        files:
+          - evergreen_tasks.json
+
   ### Other ###
 
   run_retry_script:

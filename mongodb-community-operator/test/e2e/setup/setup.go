@@ -49,7 +49,7 @@ func Setup(ctx context.Context, t *testing.T) *e2eutil.TestContext {
 	}
 
 	config := LoadTestConfigFromEnv()
-	if err := DeployOperator(ctx, config, "mdb", false, false); err != nil {
+	if err := DeployOperator(ctx, t, config, "mdb", false, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -64,11 +64,11 @@ func SetupWithTLS(ctx context.Context, t *testing.T, resourceName string, additi
 	}
 
 	config := LoadTestConfigFromEnv()
-	if err := deployCertManager(config); err != nil {
+	if err := deployCertManager(t, config); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := DeployOperator(ctx, config, resourceName, true, false, additionalHelmArgs...); err != nil {
+	if err := DeployOperator(ctx, t, config, resourceName, true, false, additionalHelmArgs...); err != nil {
 		t.Fatal(err)
 	}
 
@@ -83,12 +83,12 @@ func SetupWithTestConfig(ctx context.Context, t *testing.T, testConfig TestConfi
 	}
 
 	if withTLS {
-		if err := deployCertManager(testConfig); err != nil {
+		if err := deployCertManager(t, testConfig); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	if err := DeployOperator(ctx, testConfig, resourceName, withTLS, defaultOperator); err != nil {
+	if err := DeployOperator(ctx, t, testConfig, resourceName, withTLS, defaultOperator); err != nil {
 		t.Fatal(err)
 	}
 
@@ -171,12 +171,15 @@ func getHelmArgs(testConfig TestConfig, watchNamespace string, resourceName stri
 		helmArgs["registry.readinessProbe"] = readinessProbeRegistry
 	}
 
-	helmArgs["community-operator-crds.enabled"] = strconv.FormatBool(false)
+	helmArgs["community-operator-crds.enabled"] = strconv.FormatBool(true)
 
 	helmArgs["createResource"] = strconv.FormatBool(false)
 	helmArgs["resource.name"] = resourceName
 	helmArgs["resource.tls.enabled"] = strconv.FormatBool(withTLS)
 	helmArgs["resource.tls.useCertManager"] = strconv.FormatBool(withTLS)
+
+	// TODO: MCK
+	helmArgs["registry.imagePullSecrets"] = "image-registries-secret"
 
 	for _, arg := range additionalHelmArgs {
 		helmArgs[arg.Name] = arg.Value
@@ -186,7 +189,7 @@ func getHelmArgs(testConfig TestConfig, watchNamespace string, resourceName stri
 }
 
 // DeployOperator installs all resources required by the operator using helm.
-func DeployOperator(ctx context.Context, config TestConfig, resourceName string, withTLS bool, defaultOperator bool, additionalHelmArgs ...HelmArg) error {
+func DeployOperator(ctx context.Context, t *testing.T, config TestConfig, resourceName string, withTLS bool, defaultOperator bool, additionalHelmArgs ...HelmArg) error {
 	e2eutil.OperatorNamespace = config.Namespace
 	fmt.Printf("Setting operator namespace to %s\n", e2eutil.OperatorNamespace)
 	watchNamespace := config.Namespace
@@ -196,29 +199,25 @@ func DeployOperator(ctx context.Context, config TestConfig, resourceName string,
 	fmt.Printf("Setting namespace to watch to %s\n", watchNamespace)
 
 	helmChartName := "mongodb-kubernetes-operator"
-	if err := helm.Uninstall(helmChartName, config.Namespace); err != nil {
+	if err := helm.Uninstall(t, helmChartName, config.Namespace); err != nil {
 		return err
 	}
 
 	helmArgs := getHelmArgs(config, watchNamespace, resourceName, withTLS, defaultOperator, additionalHelmArgs...)
 	helmFlags := map[string]string{
 		"namespace":        config.Namespace,
-		"create-namespace": "",
 	}
 
 	if config.LocalOperator {
 		helmArgs["operator.replicas"] = "0"
 	}
 
-	if err := helm.DependencyUpdate(config.HelmChartPath); err != nil {
+	if err := helm.Install(t, config.HelmChartPath, helmChartName, helmFlags, helmArgs); err != nil {
 		return err
 	}
 
-	if err := helm.Install(config.HelmChartPath, helmChartName, helmFlags, helmArgs); err != nil {
-		return err
-	}
-
-	dep, err := waite2e.ForDeploymentToExist(ctx, "mongodb-kubernetes-operator", time.Second*10, time.Minute*1, e2eutil.OperatorNamespace)
+	// TODO: MCK change deployment name to mck in helm chart then here as well
+	dep, err := waite2e.ForDeploymentToExist(ctx, "mongodb-enterprise-operator", time.Second*10, time.Minute*1, e2eutil.OperatorNamespace)
 	if err != nil {
 		return err
 	}
@@ -244,20 +243,20 @@ func DeployOperator(ctx context.Context, config TestConfig, resourceName string,
 	return nil
 }
 
-func deployCertManager(config TestConfig) error {
+func deployCertManager(t *testing.T, config TestConfig) error {
 	const helmChartName = "cert-manager"
-	if err := helm.Uninstall(helmChartName, config.CertManagerNamespace); err != nil {
+	if err := helm.Uninstall(t, helmChartName, config.CertManagerNamespace); err != nil {
 		return fmt.Errorf("failed to uninstall cert-manager Helm chart: %s", err)
 	}
 
-	charlUrl := fmt.Sprintf("https://charts.jetstack.io/charts/cert-manager-%s.tgz", config.CertManagerVersion)
+	chartUrl := fmt.Sprintf("https://charts.jetstack.io/charts/cert-manager-%s.tgz", config.CertManagerVersion)
 	flags := map[string]string{
 		"version":          config.CertManagerVersion,
 		"namespace":        config.CertManagerNamespace,
 		"create-namespace": "",
 	}
 	values := map[string]string{"installCRDs": "true"}
-	if err := helm.Install(charlUrl, helmChartName, flags, values); err != nil {
+	if err := helm.Install(t, chartUrl, helmChartName, flags, values); err != nil {
 		return fmt.Errorf("failed to install cert-manager Helm chart: %s", err)
 	}
 	return nil

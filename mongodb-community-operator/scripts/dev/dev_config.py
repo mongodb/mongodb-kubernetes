@@ -53,6 +53,10 @@ class DevConfig:
         return self._config["repo_url"]
 
     @property
+    def shared_repo_url(self) -> str:
+        return self._config["shared_repo_url"]
+
+    @property
     def s3_bucket(self) -> str:
         return self._config["s3_bucket"]
 
@@ -147,13 +151,16 @@ class DevConfig:
         return self._config[image]
 
 
-def load_config(config_file_path: Optional[str] = None, distro: Distro = Distro.UBI) -> DevConfig:
+def load_config(config_file_path: Optional[str] = None, distro: Distro = Distro.UBI, namespace: str = "") -> DevConfig:
     if config_file_path is None:
         config_file_path = get_config_path()
 
     try:
         with open(config_file_path, "r") as f:
-            return DevConfig(json.loads(f.read()), distro=distro)
+            cfg = json.loads(f.read())
+            if namespace:
+                cfg["namespace"] = namespace
+            return DevConfig(cfg, distro=distro)
     except FileNotFoundError:
         print(f"No DevConfig found. Please ensure that the configuration file exists at '{config_file_path}'")
         raise
