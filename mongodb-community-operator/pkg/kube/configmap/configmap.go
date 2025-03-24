@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"strings"
 
-	corev1 "k8s.io/api/core/v1"
-	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	corev1 "k8s.io/api/core/v1"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 type Getter interface {
@@ -133,7 +134,6 @@ func ReadFileLikeField(ctx context.Context, getter Getter, objectKey client.Obje
 // Exists return whether a configmap with the given namespaced name exists
 func Exists(ctx context.Context, cmGetter Getter, nsName types.NamespacedName) (bool, error) {
 	_, err := cmGetter.GetConfigMap(ctx, nsName)
-
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
 			return false, nil

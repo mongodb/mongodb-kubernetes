@@ -29,30 +29,33 @@ func WithExecCommand(cmd []string) Modification {
 	}
 }
 
-func WithFailureThreshold(failureThreshold int) Modification {
+func WithFailureThreshold(failureThreshold int32) Modification {
 	return func(probe *corev1.Probe) {
-		probe.FailureThreshold = int32(failureThreshold)
+		probe.FailureThreshold = failureThreshold
 	}
 }
 
-func WithInitialDelaySeconds(initialDelaySeconds int) Modification {
+func WithInitialDelaySeconds(initialDelaySeconds int32) Modification {
 	return func(probe *corev1.Probe) {
-		probe.InitialDelaySeconds = int32(initialDelaySeconds)
+		probe.InitialDelaySeconds = initialDelaySeconds
 	}
 }
-func WithSuccessThreshold(successThreshold int) Modification {
+
+func WithSuccessThreshold(successThreshold int32) Modification {
 	return func(probe *corev1.Probe) {
-		probe.SuccessThreshold = int32(successThreshold)
+		probe.SuccessThreshold = successThreshold
 	}
 }
-func WithPeriodSeconds(periodSeconds int) Modification {
+
+func WithPeriodSeconds(periodSeconds int32) Modification {
 	return func(probe *corev1.Probe) {
-		probe.PeriodSeconds = int32(periodSeconds)
+		probe.PeriodSeconds = periodSeconds
 	}
 }
-func WithTimeoutSeconds(timeoutSeconds int) Modification {
+
+func WithTimeoutSeconds(timeoutSeconds int32) Modification {
 	return func(probe *corev1.Probe) {
-		probe.TimeoutSeconds = int32(timeoutSeconds)
+		probe.TimeoutSeconds = timeoutSeconds
 	}
 }
 

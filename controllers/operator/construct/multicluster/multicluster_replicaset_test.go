@@ -6,7 +6,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"k8s.io/utils/ptr"
 
-	mdbc "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -15,6 +14,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
+	mdbc "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 

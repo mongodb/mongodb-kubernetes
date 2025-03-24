@@ -8,7 +8,6 @@ FROM public.ecr.aws/docker/library/golang:1.24 as dependency_downloader
 WORKDIR /go/src/github.com/10gen/ops-manager-kubernetes/
 
 COPY go.mod go.sum ./
-COPY mongodb-community-operator/go.mod mongodb-community-operator/go.sum /go/src/github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/
 
 RUN go mod download
 

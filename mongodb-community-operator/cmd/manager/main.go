@@ -4,24 +4,23 @@ import (
 	"fmt"
 	"os"
 
-	"sigs.k8s.io/controller-runtime/pkg/cache"
-
-	mdbv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes-operator/controllers"
-	"github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/envvar"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/runtime"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
+
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/controllers"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/controllers/construct"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/envvar"
 )
 
-var (
-	scheme = runtime.NewScheme()
-)
+var scheme = runtime.NewScheme()
 
 const (
 	WatchNamespaceEnv = "WATCH_NAMESPACE"

@@ -1,13 +1,13 @@
 images:
 - name: community-operator-e2e
   vars:
-    context: mongodb-community-operator
+    context: . # we will need the whole root for the go tests
   platform: linux/amd64
 
   stages:
   - name: build
     task_type: docker_build
-    dockerfile: Dockerfile
+    dockerfile: docker/mongodb-community-tests/Dockerfile
     buildargs:
       GOLANG_VERSION: $(inputs.params.golang_version)
     output:

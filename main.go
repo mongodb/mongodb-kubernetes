@@ -22,11 +22,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/envvar"
-
-	mcov1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-	mcoController "github.com/mongodb/mongodb-kubernetes-operator/controllers"
-	mcoConstruct "github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
 	corev1 "k8s.io/api/core/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -43,6 +38,10 @@ import (
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
+	mcov1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
+	mcoController "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/controllers"
+	mcoConstruct "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/controllers/construct"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/envvar"
 	"github.com/10gen/ops-manager-kubernetes/pkg/images"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/telemetry"

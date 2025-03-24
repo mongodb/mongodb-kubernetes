@@ -3,8 +3,9 @@ package merge
 import (
 	"sort"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/contains"
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/contains"
 )
 
 func PodTemplateSpecs(original, override corev1.PodTemplateSpec) corev1.PodTemplateSpec {

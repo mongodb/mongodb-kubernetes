@@ -6,17 +6,18 @@ import (
 	"os"
 	"testing"
 
-	corev1 "k8s.io/api/core/v1"
+	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/types"
 
-	v1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/constants"
-	e2eutil "github.com/mongodb/mongodb-kubernetes-operator/test/e2e"
-	"github.com/mongodb/mongodb-kubernetes-operator/test/e2e/mongodbtests"
-	"github.com/mongodb/mongodb-kubernetes-operator/test/e2e/setup"
-	"github.com/mongodb/mongodb-kubernetes-operator/test/e2e/tlstests"
-	. "github.com/mongodb/mongodb-kubernetes-operator/test/e2e/util/mongotester"
-	"github.com/stretchr/testify/assert"
+	corev1 "k8s.io/api/core/v1"
+
+	v1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/constants"
+	e2eutil "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e/mongodbtests"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e/setup"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e/tlstests"
+	. "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e/util/mongotester"
 )
 
 func TestMain(m *testing.M) {
@@ -152,7 +153,6 @@ func TestReplicaSetX509(t *testing.T) {
 		t.Run("Basic tests", mongodbtests.BasicFunctionality(ctx, &mdb))
 		t.Run("Connectivity Succeeds", tester.ConnectivitySucceeds(WithURI(fmt.Sprintf("%s&tlsCAFile=%s&tlsCertificateKeyFile=%s", mongodbtests.GetConnectionStringForUser(ctx, mdb, users[0]), root, cert))))
 	})
-
 }
 
 func getValidUser() v1.MongoDBUser {

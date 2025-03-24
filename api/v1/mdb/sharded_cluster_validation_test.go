@@ -9,12 +9,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/utils/ptr"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
-
-	v1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
+	v1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 )
 

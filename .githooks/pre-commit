@@ -180,4 +180,6 @@ elif [[ "${cmd}" == "pre-commit" ]]; then
   pre_commit
 elif [[ "${cmd}" == "shellcheck" ]]; then
   start_shellcheck
+elif [[ "${cmd}" == "lint" ]]; then
+  source scripts/evergreen/lint_code.sh
 fi

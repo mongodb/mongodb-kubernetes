@@ -99,6 +99,20 @@ spec:
               value: "false"
             - name: MDB_MAX_CONCURRENT_RECONCILES
               value: "1"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OPERATOR_NAME
+              value: mongodb-enterprise-operator
+            - name: MONGODB_COMMUNITY_AGENT_IMAGE
+              value: "quay.io/mongodb/mongodb-agent-ubi:108.0.2.8729-1"
+            - name: VERSION_UPGRADE_HOOK_IMAGE
+              value: "quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook:1.0.9"
+            - name: READINESS_PROBE_IMAGE
+              value: "quay.io/mongodb/mongodb-kubernetes-readinessprobe:1.0.22"
+            - name: MONGODB_COMMUNITY_IMAGE
+              value: mongodb-enterprise-server
             - name: RELATED_IMAGE_MONGODB_ENTERPRISE_DATABASE_IMAGE_1_32_0
               value: "quay.io/mongodb/mongodb-enterprise-database-ubi:1.32.0"
             - name: RELATED_IMAGE_INIT_DATABASE_IMAGE_REPOSITORY_1_32_0

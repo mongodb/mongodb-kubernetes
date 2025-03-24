@@ -1,12 +1,11 @@
 package construct
 
 import (
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/persistentvolumeclaim"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
-
 	corev1 "k8s.io/api/core/v1"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/persistentvolumeclaim"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 

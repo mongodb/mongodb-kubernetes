@@ -6,9 +6,9 @@ import (
 	"strings"
 
 	"github.com/blang/semver"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/versions"
-
 	"k8s.io/utils/ptr"
+
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/versions"
 )
 
 type Topology string
@@ -264,7 +264,6 @@ func (b *Builder) Build() (AutomationConfig, error) {
 
 	if b.fcv != "" {
 		_, err := semver.Make(fmt.Sprintf("%s.0", b.fcv))
-
 		if err != nil {
 			return AutomationConfig{}, fmt.Errorf("invalid feature compatibility version: %s", err)
 		}

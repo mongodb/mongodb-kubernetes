@@ -165,6 +165,9 @@ registry:
   initAppDb: quay.io/mongodb
   appDb: quay.io/mongodb
   agent: quay.io/mongodb
+  # TODO: MCO of MCK
+  versionUpgradeHook: quay.io/mongodb
+  readinessProbe: quay.io/mongodb
 
 multiCluster:
   # Specify if we want to deploy the operator in multi-cluster mode
@@ -175,3 +178,29 @@ multiCluster:
 # Set this to false to disable subresource utilization
 # It might be required on some versions of Openshift
 subresourceEnabled: true
+
+# TODO: MCO of MCK
+versionUpgradeHook:
+  name: mongodb-kubernetes-operator-version-upgrade-post-start-hook
+  version: 1.0.9
+readinessProbe:
+  name: mongodb-kubernetes-readinessprobe
+  version: 1.0.22
+
+# TODO: MCK this is copied from MCO
+resource:
+  name: mongodb-replica-set
+  version: 4.4.0
+  members: 3
+  tls:
+    enabled: false
+
+    # Installs Cert-Manager in this cluster.
+    useX509: false
+    sampleX509User: false
+    useCertManager: true
+    certificateKeySecretRef: tls-certificate
+    caCertificateSecretRef: tls-ca-key-pair
+    certManager:
+      certDuration: 8760h   # 365 days
+      renewCertBefore: 720h   # 30 days

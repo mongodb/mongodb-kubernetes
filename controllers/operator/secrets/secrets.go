@@ -10,12 +10,11 @@ import (
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
-
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
+	kubernetesClient "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/secret"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 )
 

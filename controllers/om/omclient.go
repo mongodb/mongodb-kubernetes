@@ -16,14 +16,13 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/utils/ptr"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
-
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/api"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/host"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/controlledfeature"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"

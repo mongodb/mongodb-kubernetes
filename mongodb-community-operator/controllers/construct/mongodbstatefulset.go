@@ -5,26 +5,24 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/readiness/config"
-
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/persistentvolumeclaim"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/podtemplatespec"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/probes"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/resourcerequirements"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
-	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/container"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/persistentvolumeclaim"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/probes"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/resourcerequirements"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/statefulset"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/readiness/config"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/scale"
 )
 
-var (
-	OfficialMongodbRepoUrls = []string{"docker.io/mongodb", "quay.io/mongodb"}
-)
+var OfficialMongodbRepoUrls = []string{"docker.io/mongodb", "quay.io/mongodb"}
 
 // Environment variables used to configure the MongoDB StatefulSet.
 const (

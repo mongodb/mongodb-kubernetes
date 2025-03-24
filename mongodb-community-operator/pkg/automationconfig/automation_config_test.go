@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/stretchr/testify/require"
-
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func defaultMongoDbVersion(version string) MongoDbVersionConfig {
@@ -396,7 +395,6 @@ func TestModifications(t *testing.T) {
 }
 
 func TestMongoDBVersionsConfig(t *testing.T) {
-
 	t.Run("Dummy Config is used when no versions are set", func(t *testing.T) {
 		ac, err := NewBuilder().SetMongoDBVersion("4.4.2").Build()
 		assert.NoError(t, err)
@@ -439,14 +437,11 @@ func TestMongoDBVersionsConfig(t *testing.T) {
 		assert.Equal(t, "arch", b.Architecture)
 		assert.Equal(t, "minOs", b.MinOsVersion)
 		assert.Equal(t, "maxOs", b.MaxOsVersion)
-
 	})
-
 }
 
 func TestAreEqual(t *testing.T) {
 	t.Run("Automation Configs with same values are equal", func(t *testing.T) {
-
 		areEqual, err := AreEqual(
 			createAutomationConfig("name0", "mdbVersion0", "domain0", Options{DownloadBase: "downloadBase0"}, Auth{Disabled: true}, 5, 2),
 			createAutomationConfig("name0", "mdbVersion0", "domain0", Options{DownloadBase: "downloadBase0"}, Auth{Disabled: true}, 5, 2),
@@ -457,7 +452,6 @@ func TestAreEqual(t *testing.T) {
 	})
 
 	t.Run("Automation Configs with same values but different version are equal", func(t *testing.T) {
-
 		areEqual, err := AreEqual(
 			createAutomationConfig("name0", "mdbVersion0", "domain0", Options{DownloadBase: "downloadBase0"}, Auth{Disabled: true}, 5, 2),
 			createAutomationConfig("name0", "mdbVersion0", "domain0", Options{DownloadBase: "downloadBase0"}, Auth{Disabled: true}, 5, 10),
@@ -468,7 +462,6 @@ func TestAreEqual(t *testing.T) {
 	})
 
 	t.Run("Automation Configs with different values are not equal", func(t *testing.T) {
-
 		areEqual, err := AreEqual(
 			createAutomationConfig("name0", "differentVersion", "domain0", Options{DownloadBase: "downloadBase1"}, Auth{Disabled: false}, 2, 2),
 			createAutomationConfig("name0", "mdbVersion0", "domain0", Options{DownloadBase: "downloadBase0"}, Auth{Disabled: true}, 5, 2),
@@ -482,11 +475,11 @@ func TestAreEqual(t *testing.T) {
 		votes := 1
 		priority := "0.0"
 		firstBuilder := NewBuilder().SetName("name0").SetMongoDBVersion("mdbVersion0").SetOptions(Options{DownloadBase: "downloadBase0"}).SetDomain("domain0").SetMembers(2).SetAuth(Auth{Disabled: true})
-		firstBuilder.SetMemberOptions([]MemberOptions{MemberOptions{Votes: &votes, Priority: &priority}})
+		firstBuilder.SetMemberOptions([]MemberOptions{{Votes: &votes, Priority: &priority}})
 		firstAc, _ := firstBuilder.Build()
 		firstAc.Version = 2
 		secondBuilder := NewBuilder().SetName("name0").SetMongoDBVersion("mdbVersion0").SetOptions(Options{DownloadBase: "downloadBase0"}).SetDomain("domain0").SetMembers(2).SetAuth(Auth{Disabled: true})
-		secondBuilder.SetMemberOptions([]MemberOptions{MemberOptions{Votes: &votes, Priority: nil}})
+		secondBuilder.SetMemberOptions([]MemberOptions{{Votes: &votes, Priority: nil}})
 		secondAc, _ := secondBuilder.Build()
 		secondAc.Version = 2
 
@@ -503,14 +496,14 @@ func TestValidateFCV(t *testing.T) {
 }
 
 func TestEnterpriseVersion(t *testing.T) {
-	//given
+	// given
 	mongoDBVersion := "6.0.5"
 	expectedVersionInTheAutomationConfig := mongoDBVersion + "-ent"
 
-	//when
+	// when
 	ac, err := NewBuilder().SetMongoDBVersion(mongoDBVersion).SetMembers(1).IsEnterprise(true).Build()
 
-	//then
+	// then
 	assert.NoError(t, err)
 	assert.Equal(t, expectedVersionInTheAutomationConfig, ac.Processes[0].Version)
 	assert.Equal(t, "enterprise", ac.Versions[0].Builds[0].Modules[0])

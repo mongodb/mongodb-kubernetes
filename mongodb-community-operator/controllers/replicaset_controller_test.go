@@ -9,41 +9,33 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/x509"
-
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/constants"
-
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
+	"github.com/stretchr/objx"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	apiErrors "k8s.io/apimachinery/pkg/api/errors"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
-
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
-
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/yaml"
 
-	"github.com/stretchr/objx"
-
-	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
-
-	"github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/probes"
-
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
-
-	mdbv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/resourcerequirements"
-	"github.com/stretchr/testify/assert"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
+
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/controllers/construct"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/authentication/x509"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/annotations"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/container"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/probes"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/resourcerequirements"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/secret"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/statefulset"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/constants"
 )
 
 const (
@@ -846,7 +838,6 @@ func TestAutomationConfigFCVIsNotIncreasedWhenUpgradingMinorVersion(t *testing.T
 	assert.NoError(t, err)
 	assert.Len(t, currentAc.Processes, 3)
 	assert.Equal(t, currentAc.Processes[0].FeatureCompatibilityVersion, "4.2")
-
 }
 
 func TestAutomationConfig_CustomMongodConfig(t *testing.T) {
@@ -916,7 +907,6 @@ func TestExistingPasswordAndKeyfile_AreUsedWhenTheSecretExists(t *testing.T) {
 	assert.Equal(t, "my-keyfile", currentAc.Auth.Key)
 	assert.NotEmpty(t, currentAc.Auth.KeyFileWindows)
 	assert.Equal(t, "my-pass", currentAc.Auth.AutoPwd)
-
 }
 
 func TestScramIsConfigured(t *testing.T) {

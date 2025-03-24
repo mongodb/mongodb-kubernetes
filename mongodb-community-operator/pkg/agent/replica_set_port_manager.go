@@ -1,9 +1,11 @@
 package agent
 
 import (
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
 	"go.uber.org/zap"
+
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/automationconfig"
 )
 
 // ReplicaSetPortManager is used to determine which ports should be set in pods (mongod processes) and in the service.
@@ -55,18 +57,18 @@ func (r *ReplicaSetPortManager) GetServicePorts() []corev1.ServicePort {
 
 	if !portChangeRequired || oldPort == r.expectedPort {
 		return []corev1.ServicePort{{
-			Port: int32(r.expectedPort),
+			Port: int32(r.expectedPort), //nolint:gosec
 			Name: "mongodb",
 		}}
 	}
 
 	servicePorts := []corev1.ServicePort{
 		{
-			Port: int32(r.expectedPort),
+			Port: int32(r.expectedPort), //nolint:gosec
 			Name: "mongodb-new",
 		},
 		{
-			Port: int32(oldPort),
+			Port: int32(oldPort), //nolint:gosec
 			Name: "mongodb",
 		},
 	}

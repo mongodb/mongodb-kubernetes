@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -102,7 +103,6 @@ func TestAddVolumeAndMount(t *testing.T) {
 	assert.Equal(t, int32(416), *sts.Spec.Template.Spec.Volumes[1].Secret.DefaultMode)
 	assert.Nil(t, sts.Spec.Template.Spec.Volumes[1].VolumeSource.ConfigMap, "volume should not have been configured from a config map source")
 	assert.NotNil(t, sts.Spec.Template.Spec.Volumes[1].VolumeSource.Secret, "volume should have been configured from a secret source")
-
 }
 
 func TestAddVolumeClaimTemplates(t *testing.T) {

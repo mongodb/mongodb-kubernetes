@@ -478,14 +478,10 @@ def build_mco_tests_image(build_configuration: BuildConfiguration):
     Builds image used to run community tests.
     """
     image_name = "community-operator-e2e"
-    # community_test_src = "mongodb-community-operator"
-    # community_test_dest = "docker/mongodb-community-test"
-    #
-    # shutil.rmtree(community_test_dest, ignore_errors=True)
-    #
-    # shutil.copytree(community_test_src, community_test_dest)
 
     # TODO: MCK update
+    # TODO: MCK copy go mod to build the community image
+
     golang_version = os.getenv("GOLANG_VERSION", "1.24")
     if golang_version == "":
         raise Exception("Missing PYTHON_VERSION environment variable")

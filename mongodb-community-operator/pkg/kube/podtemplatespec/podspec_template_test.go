@@ -3,13 +3,13 @@ package podtemplatespec
 import (
 	"testing"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
+	"github.com/stretchr/testify/assert"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
-	"github.com/stretchr/testify/assert"
-	corev1 "k8s.io/api/core/v1"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/container"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/merge"
 )
 
 func TestPodTemplateSpec(t *testing.T) {
@@ -488,7 +488,8 @@ func TestAddVolumes(t *testing.T) {
 			HostPath: &corev1.HostPathVolumeSource{
 				Path: "old-host-path",
 			},
-		}},
+		},
+	},
 	)
 
 	toAddVolumes := []corev1.Volume{

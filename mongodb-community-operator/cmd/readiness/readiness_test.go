@@ -9,14 +9,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/cmd/readiness/testdata"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/readiness/config"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/readiness/health"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/stretchr/testify/assert"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/stretchr/testify/assert"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/cmd/readiness/testdata"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/readiness/config"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/readiness/health"
 )
 
 // TestDeadlockDetection verifies that if the agent is stuck in "WaitAllRsMembersUp" phase (started > 15 seconds ago)

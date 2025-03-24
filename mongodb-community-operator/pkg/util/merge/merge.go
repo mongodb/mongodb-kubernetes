@@ -4,8 +4,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/contains"
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/contains"
 )
 
 // StringSlices accepts two slices of strings, and returns a string slice
@@ -78,7 +79,6 @@ func Containers(defaultContainers, overrideContainers []corev1.Container) []core
 		return mergedContainers[i].Name < mergedContainers[j].Name
 	})
 	return mergedContainers
-
 }
 
 func createContainerMap(containers []corev1.Container) map[string]corev1.Container {

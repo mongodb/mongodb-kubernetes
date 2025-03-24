@@ -3,9 +3,8 @@ package mdb
 import (
 	"fmt"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
-
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	mdbcv1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/automationconfig"
 )
 
 // ShardedClusterSpec is the spec consisting of configuration specific for sharded cluster only.

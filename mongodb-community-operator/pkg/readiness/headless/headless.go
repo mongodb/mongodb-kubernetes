@@ -7,11 +7,12 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/readiness/config"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/readiness/health"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/readiness/pod"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/readiness/secret"
 	"go.uber.org/zap"
+
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/readiness/config"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/readiness/health"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/readiness/pod"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/readiness/secret"
 )
 
 const (

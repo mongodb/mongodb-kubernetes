@@ -12,8 +12,6 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"go.uber.org/zap"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
-
 	gocmp "github.com/google/go-cmp/cmp"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -21,6 +19,7 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 )
 
