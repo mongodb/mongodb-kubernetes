@@ -803,7 +803,7 @@ func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions, mdb databaseSt
 				container.WithLivenessProbe(DatabaseLivenessProbe()),
 				container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
 				container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
-				container.WithEnvs(staticContainersEnvVars(opts)...),
+				container.WithEnvs(staticContainersEnvVars(mdb)...),
 				container.WithEnvs(readinessEnvironmentVariablesToEnvVars(opts.AgentConfig.ReadinessProbe.EnvironmentVariables)...),
 				container.WithArgs([]string{}),
 				container.WithCommand([]string{"/opt/scripts/agent-launcher.sh"}),
@@ -891,9 +891,9 @@ func logConfigurationToEnvVars(parameters mdbv1.StartupParameters, additionalMon
 	return envVars
 }
 
-func staticContainersEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
+func staticContainersEnvVars(mdb databaseStatefulSetSource) []corev1.EnvVar {
 	var envVars []corev1.EnvVar
-	if architectures.IsRunningStaticArchitecture(opts.Annotations) {
+	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations()) {
 		envVars = append(envVars, corev1.EnvVar{Name: "MDB_STATIC_CONTAINERS_ARCHITECTURE", Value: "true"})
 	}
 	return envVars
