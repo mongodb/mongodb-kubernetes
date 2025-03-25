@@ -1,5 +1,13 @@
 [//]: # (Consider renaming or removing the header for next release, otherwise it appears as duplicate in the published release, e.g: https://github.com/mongodb/mongodb-enterprise-kubernetes/releases/tag/1.22.0 )
 <!-- Next Release -->
+
+# MongoDB Enterprise Kubernetes Operator 1.33.0
+
+## Bug Fixes
+* Fixed a bug where workloads in the `static` container architecture were still downloading binaries. This occurred when the operator was running with the default container architecture set to `non-static`, but the workload was deployed with the `static` architecture using the `mongodb.com/v1.architecture: "static"` annotation.
+
+<!-- Past Releases -->
+
 # MongoDB Enterprise Kubernetes Operator 1.32.0
 
 ## New Features
@@ -21,7 +29,6 @@
 * Fixed a bug when deploying a Multi-Cluster sharded resource with an external access configuration could result in pods not being able to reach each others.
 * Fixed a bug when setting `spec.fcv = AlwaysMatchVersion` and `agentAuth` to be `SCRAM` causes the operator to set the auth value to be `SCRAM-SHA-1` instead of `SCRAM-SHA-256`.
 
-<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.31.0
 
 ## Kubernetes versions

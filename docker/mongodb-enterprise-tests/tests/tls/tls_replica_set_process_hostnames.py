@@ -10,7 +10,9 @@
 
 from kubetester import try_load
 from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs
+from kubetester.kubetester import assert_statefulset_architecture
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import get_static_containers_architecture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.operator import Operator
 from pytest import fixture, mark
@@ -109,9 +111,24 @@ def test_connectivity(replica_set: MongoDB, ca_path: str):
 
 @mark.e2e_replica_set_tls_process_hostnames
 def test_migrate_architecture(replica_set: MongoDB):
+    """
+    If the E2E is running with default architecture as non-static,
+    then the test will migrate to static and vice versa.
+    """
+    original_default_architecture = get_static_containers_architecture()
+    target_architecture = "non-static" if original_default_architecture == "static" else "static"
+
     replica_set.trigger_architecture_migration()
+
+    replica_set.load()
+    assert replica_set["metadata"]["annotations"]["mongodb.com/v1.architecture"] == target_architecture
+
     replica_set.assert_abandons_phase(Phase.Running, timeout=1000)
     replica_set.assert_reaches_phase(Phase.Running, timeout=1000)
+
+    # Read StatefulSet after successful reconciliation
+    sts = replica_set.read_statefulset()
+    assert_statefulset_architecture(sts, target_architecture)
 
 
 @mark.e2e_replica_set_tls_process_hostnames
