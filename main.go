@@ -238,22 +238,23 @@ func main() {
 		log.Infof("Registered CRD: %s", r)
 	}
 
-	// TODO: only if the crd
 	// TODO: local operator run requires default values as defined here in env var like manager.yaml from MCO
-	if err := setupCommunityController(
-		mgr,
-		os.Getenv(mcoConstruct.MongodbRepoUrlEnv),
-		// when running MCO resource -> mongodb-community-server
-		// when running appdb -> mongodb-enterprise-server
-		envvar.GetEnvOrDefault(util.MongodbCommunityImageEnv, "mongodb-community-server"),
-		envvar.GetEnvOrDefault(mcoConstruct.MongoDBImageTypeEnv, mcoConstruct.DefaultImageType),
-		// right now we don't add imagePullSecrets so we cannot rely on the ecr ones
-		// agent_image is also used by appdb, some people might not want the same for both
-		envvar.GetEnvOrDefault(util.MongodbCommunityAgentImageEnv, "quay.io/mongodb/mongodb-agent-ubi:108.0.2.8729-1"),
-		envvar.GetEnvOrDefault(mcoConstruct.VersionUpgradeHookImageEnv, "quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook:1.0.9"),
-		envvar.GetEnvOrDefault(mcoConstruct.ReadinessProbeImageEnv, "quay.io/mongodb/mongodb-kubernetes-readinessprobe:1.0.22"),
-	); err != nil {
-		log.Fatal(err)
+	if slices.Contains(crds, mongoDBCommunityCRDPlural) {
+		if err := setupCommunityController(
+			mgr,
+			os.Getenv(mcoConstruct.MongodbRepoUrlEnv),
+			// when running MCO resource -> mongodb-community-server
+			// when running appdb -> mongodb-enterprise-server
+			envvar.GetEnvOrDefault(util.MongodbCommunityImageEnv, "mongodb-community-server"),
+			envvar.GetEnvOrDefault(mcoConstruct.MongoDBImageTypeEnv, mcoConstruct.DefaultImageType),
+			// right now we don't add imagePullSecrets so we cannot rely on the ecr ones
+			// agent_image is also used by appdb, some people might not want the same for both
+			envvar.GetEnvOrDefault(util.MongodbCommunityAgentImageEnv, "quay.io/mongodb/mongodb-agent-ubi:108.0.2.8729-1"),
+			envvar.GetEnvOrDefault(mcoConstruct.VersionUpgradeHookImageEnv, "quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook:1.0.9"),
+			envvar.GetEnvOrDefault(mcoConstruct.ReadinessProbeImageEnv, "quay.io/mongodb/mongodb-kubernetes-readinessprobe:1.0.22"),
+		); err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	if telemetry.IsTelemetryActivated() {

@@ -280,10 +280,7 @@ def get_crd_names(
     api_client: Optional[client.ApiClient] = None,
 ) -> Optional[Dict]:
     """Gets the CRD entry that matches all the parameters passed."""
-    #
-    # TODO: Update to `client.ApiextensionsV1Api()`
-    #
-    api = client.ApiextensionsV1beta1Api(api_client=api_client)
+    api = client.ApiextensionsV1Api(api_client=api_client)
 
     if plural == kind == group == version is None:
         return None

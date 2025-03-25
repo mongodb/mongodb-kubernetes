@@ -30,6 +30,7 @@ func Install(t *testing.T, chartPath, chartName string, flags, templateValues ma
 			helmArgs = append(helmArgs, flagValue)
 		}
 	}
+	templateValues["operator.watchedResources"] = "{opsmanagers,mongodb,mongodbusers,mongodbcommunity}"
 	helmArgs = append(helmArgs, mapToHelmValuesArg(templateValues)...)
 	return executeHelmCommand(t, helmArgs, nil)
 }

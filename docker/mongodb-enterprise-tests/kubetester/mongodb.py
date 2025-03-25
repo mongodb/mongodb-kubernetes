@@ -77,14 +77,21 @@ class MongoDB(CustomObject, MongoDBCommon):
         super(MongoDB, self).__init__(*args, **with_defaults)
 
     @classmethod
-    def from_yaml(cls, yaml_file, name=None, namespace=None) -> MongoDB:
+    def from_yaml(cls, yaml_file, name=None, namespace=None, with_mdb_version_from_env=True) -> MongoDB:
         resource = super().from_yaml(yaml_file=yaml_file, name=name, namespace=namespace)
-        custom_mdb_prev_version = os.getenv("CUSTOM_MDB_VERSION")
-        custom_mdb_version = os.getenv("CUSTOM_MDB_VERSION")
-        if custom_mdb_prev_version is not None and semver.compare(resource.get_version(), custom_mdb_prev_version) < 0:
-            resource.set_version(ensure_ent_version(custom_mdb_prev_version))
-        elif custom_mdb_version is not None and semver.compare(resource.get_version(), custom_mdb_version) < 0:
-            resource.set_version(ensure_ent_version(custom_mdb_version))
+        # `with_mdb_version_from_env` flag enables to skip the custom version setting for class inheriting from MongoDB
+        # for example, community must not have an enterprise version set, but we can inherit the from_yaml (itself
+        # inherited from CustomObject class
+        if with_mdb_version_from_env:
+            custom_mdb_prev_version = os.getenv("CUSTOM_MDB_VERSION")
+            custom_mdb_version = os.getenv("CUSTOM_MDB_VERSION")
+            if (
+                custom_mdb_prev_version is not None
+                and semver.compare(resource.get_version(), custom_mdb_prev_version) < 0
+            ):
+                resource.set_version(ensure_ent_version(custom_mdb_prev_version))
+            elif custom_mdb_version is not None and semver.compare(resource.get_version(), custom_mdb_version) < 0:
+                resource.set_version(ensure_ent_version(custom_mdb_version))
         return resource
 
     def assert_state_transition_happens(self, last_transition, timeout=None):

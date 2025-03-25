@@ -219,6 +219,7 @@ dump_diagnostics() {
     local namespace="${1}"
 
     dump_objects mongodb "MongoDB Resources" "${namespace}"
+    dump_objects mongodbcommunity "MongoDBCommunity Resources" "${namespace}"
     dump_objects mongodbusers "MongoDBUser Resources" "${namespace}"
     dump_objects opsmanagers "MongoDBOpsManager Resources" "${namespace}"
     dump_objects mongodbmulticluster "MongoDB Multi Resources" "${namespace}"

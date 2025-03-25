@@ -17,12 +17,15 @@ from kubetester.helm import (
     helm_uninstall,
     helm_upgrade,
 )
+from tests import test_logger
 
 OPERATOR_CRDS = (
     "mongodb.mongodb.com",
     "mongodbusers.mongodb.com",
     "opsmanagers.mongodb.com",
 )
+
+logger = test_logger.get_test_logger(__name__)
 
 
 class Operator(object):
@@ -171,7 +174,7 @@ class Operator(object):
         from tests.conftest import get_central_cluster_name, get_test_pod_cluster_name
 
         if multi_cluster and get_central_cluster_name() != get_test_pod_cluster_name():
-            print(
+            logger.info(
                 f"Skipping waiting for the webhook as we cannot call the webhook endpoint from a test_pod_cluster ({get_test_pod_cluster_name()}) "
                 f"to central cluster ({get_central_cluster_name()}); sleeping for 10s instead"
             )
@@ -179,22 +182,21 @@ class Operator(object):
             time.sleep(10)
             return
 
-        logging.debug("_wait_operator_webhook_is_ready")
+        logger.debug("_wait_operator_webhook_is_ready")
         validation_endpoint = "validate-mongodb-com-v1-mongodb"
         webhook_endpoint = "https://operator-webhook.{}.svc.{}/{}".format(
             self.namespace, get_cluster_domain(), validation_endpoint
         )
         headers = {"Content-Type": "application/json"}
-
+        logger.debug(f"Webhook_endpoint: {webhook_endpoint}")
         retry_count = retries + 1
         while retry_count > 0:
             retry_count -= 1
-
-            logging.debug("Waiting for operator/webhook to be functional")
+            logger.debug("Waiting for operator/webhook to be functional")
             try:
                 response = requests.post(webhook_endpoint, headers=headers, verify=False, timeout=2)
             except Exception as e:
-                logging.warn(e)
+                logger.warning(e)
                 time.sleep(2)
                 continue
 
@@ -203,23 +205,22 @@ class Operator(object):
                 # is already in place.
                 response.json()
             except Exception:
-                logging.warn("Didn't get a json response from webhook")
+                logger.warning("Didn't get a json response from webhook")
             else:
                 return
-
             time.sleep(2)
 
         raise Exception("Operator webhook didn't start after {} retries".format(retries))
 
     def print_diagnostics(self):
-        logging.info("Operator Deployment: ")
-        logging.info(self.read_deployment())
+        logger.info("Operator Deployment: ")
+        logger.info(self.read_deployment())
 
         pods = self.list_operator_pods()
         if len(pods) > 0:
-            logging.info("Operator pods: %d", len(pods))
-            logging.info("Operator spec: %s", pods[0].spec)
-            logging.info("Operator status: %s", pods[0].status)
+            logger.info("Operator pods: %d", len(pods))
+            logger.info("Operator spec: %s", pods[0].spec)
+            logger.info("Operator status: %s", pods[0].status)
 
     def wait_for_webhook(self, retries=5, delay=5):
         return wait_for_webhook(namespace=self.namespace, retries=retries, delay=delay)

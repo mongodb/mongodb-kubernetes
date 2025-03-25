@@ -54,6 +54,15 @@ variables:
       - name: build_agent_images_ubi
         variant: init_test_run
 
+  - &community_dependency
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
+
   - &setup_group
     setup_group_can_fail_task: true
     setup_group:
@@ -595,6 +604,14 @@ task_groups:
     <<: *setup_and_teardown_group_gke_code_snippets
     tasks:
       - gke_multi_cluster_snippets
+
+  # Task group for deploying mongodbcommunity resources and testing the (former) MCO
+  - name: e2e_mdb_community_task_group
+    max_hosts: -1
+    <<: *setup_group
+    <<: *setup_and_teardown_task
+    tasks:
+      - e2e_community_replicaset_scale
 
   # This is the task group that contains all the tests run in the e2e_mdb_kind_ubuntu_cloudqa build variant
   - name: e2e_mdb_kind_cloudqa_task_group
@@ -1144,6 +1161,16 @@ buildvariants:
   # where <cluster> is any of kind|openshift
   # where <distro> is any of ubuntu|ubi
   # where <om_version> denotes the OM version tested (e.g. om50, om60, cloudqa) - used only for MDB tests
+
+  ## MongoDBCommunity build variant
+  - name: e2e_mdb_community
+    display_name: e2e_mdb_community
+    tags: [ "e2e_test_suite"]
+    run_on:
+      - ubuntu2204-large
+    <<: *community_dependency
+    tasks:
+      - name: e2e_mdb_community_task_group
 
   ## MongoDB build variants
   - name: e2e_mdb_kind_ubi_cloudqa
