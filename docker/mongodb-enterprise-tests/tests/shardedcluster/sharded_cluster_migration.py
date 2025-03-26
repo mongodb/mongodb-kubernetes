@@ -5,7 +5,7 @@ from kubetester import MongoDB, try_load
 from kubetester.kubetester import assert_statefulset_architecture, ensure_ent_version
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.kubetester import (
-    get_static_containers_architecture,
+    get_default_architecture,
     is_multi_cluster,
     skip_if_multi_cluster,
 )
@@ -78,7 +78,7 @@ class TestShardedClusterMigrationStatic:
         If the E2E is running with default architecture as non-static,
         then the test will migrate to static and vice versa.
         """
-        original_default_architecture = get_static_containers_architecture()
+        original_default_architecture = get_default_architecture()
         target_architecture = "non-static" if original_default_architecture == "static" else "static"
 
         mdb.trigger_architecture_migration()

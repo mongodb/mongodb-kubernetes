@@ -12,8 +12,8 @@ from kubetester.certs import create_sharded_cluster_certs
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import (
-    get_static_containers_architecture,
-    is_static_containers_architecture,
+    get_default_architecture,
+    is_default_architecture_static,
     run_periodically,
 )
 from kubetester.mongodb import Phase
@@ -62,7 +62,7 @@ def catalog_source(namespace: str, version_id: str):
 
 @fixture
 def subscription(namespace: str, catalog_source: CustomObject):
-    static_value = get_static_containers_architecture()
+    static_value = get_default_architecture()
     return get_subscription_custom_object(
         "mongodb-enterprise-operator",
         namespace,
