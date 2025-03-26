@@ -1,5 +1,5 @@
 from shrub.v2 import BuildVariant, ShrubProject, TaskGroup
-from shrub.v2.command import FunctionCall
+from shrub.v2.command import FunctionCall, gotest_parse_files
 from shrub.v2.task import Task
 
 # Define the list of dynamically generated task names
@@ -42,7 +42,7 @@ for task_name in task_names:
     task = Task(
         name=task_name,
         commands=[
-            FunctionCall(name="e2e_test"),  # Calls the pre-defined function
+            FunctionCall(name="e2e_test"),
         ],
     )
     tasks.append(task)
@@ -62,7 +62,7 @@ group = TaskGroup(
         FunctionCall("setup_kubernetes_environment"),
     ],
     teardown_task=[
-        FunctionCall("upload_e2e_logs"),
+        FunctionCall("upload_e2e_logs_gotest"),
         FunctionCall("teardown_kubernetes_environment"),
     ],
     teardown_group=[FunctionCall("prune_docker_resources"), FunctionCall("run_retry_script")],
@@ -73,4 +73,4 @@ build_variant = BuildVariant("e2e_mco_tests").display_task("e2e_mco_tests")
 build_variant.add_task_group(group)
 project = ShrubProject({build_variant})
 
-print(project.json())
+print(project.yaml())

@@ -229,6 +229,22 @@ dump_diagnostics() {
     kubectl get all -n "${namespace}"
 }
 
+download_test_results() {
+    local namespace="${1}"
+    local test_pod_name="${2:-e2e-test}"
+
+    echo "Downloading test results from ${test_pod_name} pod"
+
+    # Try to copy from shared volume using the keepalive container
+    if kubectl cp "${namespace}/${test_pod_name}:/tmp/results/result.suite" "logs/result.suite" -c keepalive 2>/dev/null; then
+        echo "Successfully downloaded result.suite from test pod"
+    else
+        echo "Could not find result.suite via direct copy"
+        # Get logs from the test container
+        kubectl logs -n "${namespace}" "${test_pod_name}" -c e2e-test > "logs/result.suite" 2>/dev/null
+    fi
+}
+
 # dump_namespace dumps a namespace, diagnostics, logs and generic Kubernetes
 # resources.
 dump_namespace() {
@@ -247,6 +263,9 @@ dump_namespace() {
 
     # 3. Print Pod logs
     dump_pods "${namespace}" "${prefix}"
+
+   # Download test results from the test pod in community
+    download_test_results "${namespace}" "e2e-test"
 
     # 4. Print other Kubernetes resources
     dump_configmaps "${namespace}" "${prefix}"

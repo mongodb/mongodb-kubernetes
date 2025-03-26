@@ -67,12 +67,6 @@ delete_operator "${NAMESPACE}"
 # - direct variant and test name check check
 # - config.json version difference
 if [[ "${BUILD_VARIANT:-${CURRENT_VARIANT_CONTEXT}}" == "e2e_mco_tests" ]]; then
-    echo "running community test ${TEST_NAME}"
-    config_file="./mongodb-community-operator/scripts/ci/config.json"
-    # shellcheck disable=SC2154
-    if [ -z "${EVR_TASK_ID-}" ]; then
-      config_file="./.generated/config.json"
-    fi
     CLUSTER_WIDE="false"
 
     if [[ "${TEST_NAME}" == "replica_set_cross_namespace_deploy" ]]; then
@@ -80,7 +74,7 @@ if [[ "${BUILD_VARIANT:-${CURRENT_VARIANT_CONTEXT}}" == "e2e_mco_tests" ]]; then
     fi
 
     set +e # let's not fail here, such that we can still dump all information
-    scripts/evergreen/run_python.sh mongodb-community-operator/scripts/dev/e2e.py --config_file "${config_file}" --test "${TEST_NAME}" --distro ubi --cluster-wide "${CLUSTER_WIDE}" --tag "${version_id}" --namespace "${NAMESPACE}"
+    scripts/evergreen/run_python.sh mongodb-community-operator/scripts/dev/e2e.py --test "${TEST_NAME}" --distro ubi --cluster-wide "${CLUSTER_WIDE}"
     TEST_RESULTS=$?
     set -e
     dump_all || true

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import os
 import sys
 from typing import Dict
 
@@ -33,7 +34,7 @@ def _load_test_role_binding() -> Dict:
     return load_yaml_from_file("mongodb-community-operator/deploy/e2e/role_binding.yaml")
 
 
-def _prepare_test_environment(args) -> None:
+def _prepare_test_environment(namespace) -> None:
     """
     _prepare_test_environment ensures that the old test pod is deleted
     and that namespace, cluster role, cluster role binding and service account
@@ -41,48 +42,47 @@ def _prepare_test_environment(args) -> None:
     """
     rbacv1 = client.RbacAuthorizationV1Api()
     corev1 = client.CoreV1Api()
-    dev_config = load_config(args.config_file, namespace=args.namespace)
-
-    _delete_test_pod(args)
+    _delete_test_pod(namespace)
 
     print("Creating Namespace")
     k8s_conditions.ignore_if_already_exists(
-        lambda: corev1.create_namespace(client.V1Namespace(metadata=dict(name=dev_config.namespace)))
+        lambda: corev1.create_namespace(client.V1Namespace(metadata=dict(name=namespace)))
     )
 
     print("Creating Cluster Role Binding and Service Account for test pod")
     role_binding = _load_test_role_binding()
     # set namespace specified in config.json
-    role_binding["subjects"][0]["namespace"] = dev_config.namespace
+    role_binding["subjects"][0]["namespace"] = namespace
 
     k8s_conditions.ignore_if_already_exists(lambda: rbacv1.create_cluster_role_binding(role_binding))
 
     print("Creating Service Account for test pod")
     service_account = _load_test_service_account()
     # set namespace specified in config.json
-    service_account["metadata"]["namespace"] = dev_config.namespace
+    service_account["metadata"]["namespace"] = namespace
 
     k8s_conditions.ignore_if_already_exists(
-        lambda: corev1.create_namespaced_service_account(dev_config.namespace, service_account)
+        lambda: corev1.create_namespaced_service_account(namespace, service_account)
     )
 
 
-def create_test_pod(args: argparse.Namespace, dev_config: DevConfig) -> None:
+def create_test_pod(args: argparse.Namespace, namespace: str) -> None:
     corev1 = client.CoreV1Api()
     test_pod = {
         "kind": "Pod",
         "metadata": {
             "name": TEST_POD_NAME,
-            "namespace": dev_config.namespace,
+            "namespace": namespace,
             "labels": {"e2e-test": "true"},
         },
         "spec": {
             "restartPolicy": "Never",
             "serviceAccountName": "e2e-test",
+            "volumes": [{"name": "results", "emptyDir": {}}],
             "containers": [
                 {
                     "name": TEST_POD_NAME,
-                    "image": f"{dev_config.repo_url}/{dev_config.e2e_image}:{args.tag}",
+                    "image": f"{os.getenv('BASE_REPO_URL')}/mongodb-community-tests:{os.getenv('VERSION_ID')}",
                     "imagePullPolicy": "Always",
                     "env": [
                         {
@@ -90,36 +90,36 @@ def create_test_pod(args: argparse.Namespace, dev_config: DevConfig) -> None:
                             "value": f"{args.cluster_wide}",
                         },
                         {
-                            "name": "OPERATOR_IMAGE",
-                            "value": f"{dev_config.repo_url}/{dev_config.operator_image}:{args.tag}",
+                            "name": "VERSION_ID",
+                            "value": f"{os.getenv('VERSION_ID')}",
+                        },
+                        {
+                            "name": "BASE_REPO_URL",
+                            "value": f"{os.getenv('BASE_REPO_URL')}",
                         },
                         # TODO: MCK: when running locally - let's default to /dev and not our own image unless specified
                         # TODO: MCK: change this to be per patch and not hard coded
                         {
                             "name": "MONGODB_COMMUNITY_AGENT_IMAGE",
-                            "value": f"{dev_config.mongodb_image_repo_url}/{dev_config.agent_image}:108.0.2.8729-1",
+                            "value": f"{os.getenv('MONGODB_COMMUNITY_AGENT_IMAGE')}",
                         },
                         {
                             "name": "TEST_NAMESPACE",
-                            "value": args.namespace,
+                            "value": namespace,
                         },
                         # TODO: MCK: change this to be per patch and not hard coded
                         {
                             "name": "VERSION_UPGRADE_HOOK_IMAGE",
-                            "value": f"{dev_config.mongodb_image_repo_url}/{dev_config.version_upgrade_hook_image}:1.0.9",
+                            "value": f"{os.getenv('VERSION_UPGRADE_HOOK_IMAGE')}",
                         },
                         # TODO: MCK: change this to be per patch and not hard coded
                         {
                             "name": "READINESS_PROBE_IMAGE",
-                            "value": f"{dev_config.mongodb_image_repo_url}/{dev_config.readiness_probe_image}:1.0.22",
+                            "value": f"{os.getenv('READINESS_PROBE_IMAGE')}",
                         },
                         {
                             "name": "MONGODB_COMMUNITY_IMAGE",
-                            "value": f"{dev_config.mongodb_image_name}",
-                        },
-                        {
-                            "name": "MONGODB_REPO_URL",
-                            "value": f"{dev_config.mongodb_image_repo_url}",
+                            "value": f"{os.getenv('MONGODB_COMMUNITY_IMAGE')}",
                         },
                         {
                             "name": "PERFORM_CLEANUP",
@@ -127,20 +127,24 @@ def create_test_pod(args: argparse.Namespace, dev_config: DevConfig) -> None:
                         },
                     ],
                     "command": [
-                        "go",
-                        "test",
-                        "-v",
-                        "-timeout=45m",
-                        "-failfast",
-                        f"./mongodb-community-operator/test/e2e/{args.test}",
+                        "sh",
+                        "-c",
+                        f"go test -v -timeout=45m -failfast ./mongodb-community-operator/test/e2e/{args.test} | tee -a /tmp/results/result.suite",
                     ],
-                }
+                    "volumeMounts": [{"name": "results", "mountPath": "/tmp/results"}],
+                },
+                {
+                    "name": "keepalive",
+                    "image": "busybox",
+                    "command": ["sh", "-c", "sleep inf"],
+                    "volumeMounts": [{"name": "results", "mountPath": "/tmp/results"}],
+                },
             ],
         },
     }
     if not k8s_conditions.wait(
         lambda: corev1.list_namespaced_pod(
-            dev_config.namespace,
+            namespace,
             field_selector=f"metadata.name=={TEST_POD_NAME}",
         ),
         lambda pod_list: len(pod_list.items) == 0,
@@ -150,7 +154,7 @@ def create_test_pod(args: argparse.Namespace, dev_config: DevConfig) -> None:
         raise Exception("Execution timed out while waiting for the existing pod to be deleted")
 
     if not k8s_conditions.call_eventually_succeeds(
-        lambda: corev1.create_namespaced_pod(dev_config.namespace, body=test_pod),
+        lambda: corev1.create_namespaced_pod(namespace, body=test_pod),
         sleep_time=10,
         timeout=60,
         exceptions_to_ignore=ApiException,
@@ -173,47 +177,34 @@ def wait_for_pod_to_be_running(corev1: client.CoreV1Api, name: str, namespace: s
     print("Pod is running")
 
 
-def _delete_test_environment(args) -> None:
+def _delete_test_environment(namespace) -> None:
     """
     _delete_test_environment ensures that the cluster role, cluster role binding and service account
     for the test pod are deleted.
     """
     rbacv1 = client.RbacAuthorizationV1Api()
     corev1 = client.CoreV1Api()
-    dev_config = load_config(args.config_file, namespace=args.namespace)
 
     k8s_conditions.ignore_if_doesnt_exist(lambda: rbacv1.delete_cluster_role(TEST_CLUSTER_ROLE_NAME))
 
     k8s_conditions.ignore_if_doesnt_exist(lambda: rbacv1.delete_cluster_role_binding(TEST_CLUSTER_ROLE_BINDING_NAME))
 
     k8s_conditions.ignore_if_doesnt_exist(
-        lambda: corev1.delete_namespaced_service_account(TEST_SERVICE_ACCOUNT_NAME, dev_config.namespace)
+        lambda: corev1.delete_namespaced_service_account(TEST_SERVICE_ACCOUNT_NAME, namespace)
     )
 
 
-def _delete_test_pod(args) -> None:
+def _delete_test_pod(namespace) -> None:
     """
     _delete_test_pod deletes the test pod.
     """
-    dev_config = load_config(args.config_file, namespace=args.namespace)
     corev1 = client.CoreV1Api()
-    k8s_conditions.ignore_if_doesnt_exist(lambda: corev1.delete_namespaced_pod(TEST_POD_NAME, dev_config.namespace))
+    k8s_conditions.ignore_if_doesnt_exist(lambda: corev1.delete_namespaced_pod(TEST_POD_NAME, namespace))
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--test", help="Name of the test to run")
-    parser.add_argument(
-        "--tag",
-        help="Tag for the images, it will be the same for all images",
-        type=str,
-        default="latest",
-    )
-    parser.add_argument(
-        "--skip-dump-diagnostic",
-        help="Skip the dump of diagnostic information into files",
-        action="store_true",
-    )
     parser.add_argument(
         "--perform-cleanup",
         help="Cleanup the context after executing the tests",
@@ -230,30 +221,24 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="ubi",
     )
-    parser.add_argument(
-        "--namespace",
-        help="The namespace where all the things should be deployed and run it",
-        type=str,
-        default="ubi",
-    )
     parser.add_argument("--config_file", help="Path to the config file")
     return parser.parse_args()
 
 
-def prepare_and_run_test(args: argparse.Namespace, dev_config: DevConfig) -> None:
-    _prepare_test_environment(args)
-    create_test_pod(args, dev_config)
+def prepare_and_run_test(args: argparse.Namespace, namespace: str) -> None:
+    _prepare_test_environment(namespace)
+    create_test_pod(args, namespace)
     corev1 = client.CoreV1Api()
 
     wait_for_pod_to_be_running(
         corev1,
         TEST_POD_NAME,
-        dev_config.namespace,
+        namespace,
     )
 
-    # stream all of the pod output as the pod is running
+    print("stream all of the pod output as the pod is running")
     for line in corev1.read_namespaced_pod_log(
-        TEST_POD_NAME, dev_config.namespace, follow=True, _preload_content=False
+        TEST_POD_NAME, namespace, follow=True, _preload_content=False, container="e2e-test"
     ).stream():
         print(line.decode("utf-8").rstrip())
 
@@ -267,20 +252,23 @@ def main() -> int:
     except Exception:
         config.load_incluster_config()
 
-    dev_config = load_config(args.config_file, Distro.from_string(args.distro), args.namespace)
-
-    prepare_and_run_test(args, dev_config)
+    namespace = os.getenv("NAMESPACE")
+    prepare_and_run_test(args, namespace)
 
     corev1 = client.CoreV1Api()
     if not k8s_conditions.wait(
-        lambda: corev1.read_namespaced_pod(TEST_POD_NAME, dev_config.namespace),
-        lambda pod: pod.status.phase == "Succeeded",
+        lambda: corev1.read_namespaced_pod(TEST_POD_NAME, namespace),
+        lambda pod: any(
+            container.state.terminated and container.state.terminated.exit_code == 0
+            for container in pod.status.container_statuses
+            if container.name == "e2e-test"
+        ),
         sleep_time=5,
         timeout=60,
         exceptions_to_ignore=ApiException,
     ):
         return 1
-    _delete_test_environment(args)
+    _delete_test_environment(namespace)
     return 0
 
 

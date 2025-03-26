@@ -92,7 +92,7 @@ e2e: build-and-push-test-image
 	fi
 	@ scripts/dev/launch_e2e.sh
 
-mco-e2e: build-and-push-mco-test-image
+mco-e2e: aws_login build-and-push-mco-test-image
 	@ if [[ -z "$(skip)" ]]; then \
 		$(MAKE) reset; \
 	fi
@@ -109,12 +109,8 @@ reset-helm-leftovers: ## sometimes you didn't cleanly uninstall a helm release, 
 e2e-telepresence: build-and-push-test-image
 	telepresence connect --context $(test_pod_cluster); scripts/dev/launch_e2e.sh; telepresence quit
 
-# deletes and creates a kops e2e cluster
-recreate-e2e-kops:
-	@ scripts/dev/recreate_e2e_kops.sh $(imsure) $(cluster)
-
 # clean all kubernetes cluster resources and OM state
-reset:
+reset: reset-mco
 	go run scripts/dev/reset.go
 
 reset-mco: ## Cleans up e2e test env
@@ -394,7 +390,7 @@ dockerfiles:
 	python scripts/update_supported_dockerfiles.py
 	tar -czvf ./public/dockerfiles-$(VERSION).tgz ./public/dockerfiles
 
-prepare-local-e2e: # prepares the local environment to run a local operator
+prepare-local-e2e: reset-mco # prepares the local environment to run a local operator
 	scripts/dev/prepare_local_e2e_run.sh
 
 prepare-operator-configmap: # prepares the local environment to run a local operator

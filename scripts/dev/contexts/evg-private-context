@@ -100,3 +100,8 @@ export BUILD_VARIANT="${build_variant:-"unknown"}"
 export RUNNING_IN_EVG="true"
 
 export DELETE_KIND_NETWORK="true"
+
+# MCO
+# shellcheck disable=SC2154
+export OPERATOR_IMAGE="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-operator:${version_id}"
+export MCO_TEST_IMAGE="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-community-tests:${version_id}"

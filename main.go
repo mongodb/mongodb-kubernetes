@@ -242,14 +242,14 @@ func main() {
 	if slices.Contains(crds, mongoDBCommunityCRDPlural) {
 		if err := setupCommunityController(
 			mgr,
-			os.Getenv(mcoConstruct.MongodbRepoUrlEnv),
+			envvar.GetEnvOrDefault(mcoConstruct.MongodbCommunityRepoUrlEnv, "quay.io/mongodb"), // TODO: MCK check whether this truly needs a new env var
 			// when running MCO resource -> mongodb-community-server
 			// when running appdb -> mongodb-enterprise-server
-			envvar.GetEnvOrDefault(util.MongodbCommunityImageEnv, "mongodb-community-server"),
-			envvar.GetEnvOrDefault(mcoConstruct.MongoDBImageTypeEnv, mcoConstruct.DefaultImageType),
+			envvar.GetEnvOrDefault(util.MongodbCommunityImageEnv, "mongodb-community-server"),                // TODO: MCK check whether this truly needs a new env var
+			envvar.GetEnvOrDefault(mcoConstruct.MongoDBCommunityImageTypeEnv, mcoConstruct.DefaultImageType), // TODO: MCK check whether this truly needs a new env var
 			// right now we don't add imagePullSecrets so we cannot rely on the ecr ones
 			// agent_image is also used by appdb, some people might not want the same for both
-			envvar.GetEnvOrDefault(util.MongodbCommunityAgentImageEnv, "quay.io/mongodb/mongodb-agent-ubi:108.0.2.8729-1"),
+			envvar.GetEnvOrDefault(util.MongodbCommunityAgentImageEnv, "quay.io/mongodb/mongodb-agent-ubi:108.0.2.8729-1"), // TODO: MCK check whether this truly needs a new env var
 			envvar.GetEnvOrDefault(mcoConstruct.VersionUpgradeHookImageEnv, "quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook:1.0.9"),
 			envvar.GetEnvOrDefault(mcoConstruct.ReadinessProbeImageEnv, "quay.io/mongodb/mongodb-kubernetes-readinessprobe:1.0.22"),
 		); err != nil {

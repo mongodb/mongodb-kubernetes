@@ -1,0 +1,146 @@
+buildvariants:
+  - display_tasks:
+      - execution_tasks: []
+        name: e2e_mco_tests
+    name: e2e_mco_tests
+    tasks:
+      - name: e2e_mco_task_group
+task_groups:
+  - max_hosts: -1
+    name: e2e_mco_task_group
+    setup_group:
+      - func: clone
+      - func: download_kube_tools
+      - func: setup_building_host
+    setup_task:
+      - func: cleanup_exec_environment
+      - func: configure_docker_auth
+      - func: setup_kubernetes_environment
+    tasks:
+      - feature_compatibility_version
+      - prometheus
+      - replica_set
+      - replica_set_arbiter
+      - replica_set_change_version
+      - replica_set_connection_string_options
+      - replica_set_cross_namespace_deploy
+      - replica_set_custom_persistent_volume
+      - replica_set_custom_role
+      - replica_set_enterprise_upgrade_4_5
+      - replica_set_enterprise_upgrade_5_6
+      - replica_set_enterprise_upgrade_6_7
+      - replica_set_enterprise_upgrade_7_8
+      - replica_set_mongod_config
+      - replica_set_mongod_port_change_with_arbiters
+      - replica_set_mongod_readiness
+      - replica_set_mount_connection_string
+      - replica_set_operator_upgrade
+      - replica_set_recovery
+      - replica_set_remove_user
+      - replica_set_scale
+      - replica_set_scale_down
+      - replica_set_tls
+      - replica_set_tls_recreate_mdbc
+      - replica_set_tls_rotate
+      - replica_set_tls_rotate_delete_sts
+      - replica_set_tls_upgrade
+      - replica_set_x509
+      - statefulset_arbitrary_config
+      - statefulset_arbitrary_config_update
+    teardown_group:
+      - func: prune_docker_resources
+      - func: run_retry_script
+    teardown_task:
+      - func: upload_e2e_logs_gotest
+      - func: teardown_kubernetes_environment
+tasks:
+  - commands:
+      - func: e2e_test
+    name: feature_compatibility_version
+  - commands:
+      - func: e2e_test
+    name: prometheus
+  - commands:
+      - func: e2e_test
+    name: replica_set
+  - commands:
+      - func: e2e_test
+    name: replica_set_arbiter
+  - commands:
+      - func: e2e_test
+    name: replica_set_change_version
+  - commands:
+      - func: e2e_test
+    name: replica_set_connection_string_options
+  - commands:
+      - func: e2e_test
+    name: replica_set_cross_namespace_deploy
+  - commands:
+      - func: e2e_test
+    name: replica_set_custom_persistent_volume
+  - commands:
+      - func: e2e_test
+    name: replica_set_custom_role
+  - commands:
+      - func: e2e_test
+    name: replica_set_enterprise_upgrade_4_5
+  - commands:
+      - func: e2e_test
+    name: replica_set_enterprise_upgrade_5_6
+  - commands:
+      - func: e2e_test
+    name: replica_set_enterprise_upgrade_6_7
+  - commands:
+      - func: e2e_test
+    name: replica_set_enterprise_upgrade_7_8
+  - commands:
+      - func: e2e_test
+    name: replica_set_mongod_config
+  - commands:
+      - func: e2e_test
+    name: replica_set_mongod_port_change_with_arbiters
+  - commands:
+      - func: e2e_test
+    name: replica_set_mongod_readiness
+  - commands:
+      - func: e2e_test
+    name: replica_set_mount_connection_string
+  - commands:
+      - func: e2e_test
+    name: replica_set_operator_upgrade
+  - commands:
+      - func: e2e_test
+    name: replica_set_recovery
+  - commands:
+      - func: e2e_test
+    name: replica_set_remove_user
+  - commands:
+      - func: e2e_test
+    name: replica_set_scale
+  - commands:
+      - func: e2e_test
+    name: replica_set_scale_down
+  - commands:
+      - func: e2e_test
+    name: replica_set_tls
+  - commands:
+      - func: e2e_test
+    name: replica_set_tls_recreate_mdbc
+  - commands:
+      - func: e2e_test
+    name: replica_set_tls_rotate
+  - commands:
+      - func: e2e_test
+    name: replica_set_tls_rotate_delete_sts
+  - commands:
+      - func: e2e_test
+    name: replica_set_tls_upgrade
+  - commands:
+      - func: e2e_test
+    name: replica_set_x509
+  - commands:
+      - func: e2e_test
+    name: statefulset_arbitrary_config
+  - commands:
+      - func: e2e_test
+    name: statefulset_arbitrary_config_update

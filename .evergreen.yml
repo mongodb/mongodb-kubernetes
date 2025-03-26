@@ -4,6 +4,7 @@ exec_timeout_secs: 7200
 include:
   - filename: .evergreen-functions.yml
   - filename: .evergreen-tasks.yml
+  - filename: .evergreen-mco.yml
 
 variables:
   - &ops_manager_60_latest 6.0.27 # The order/index is important, since these are anchors. Please do not change
@@ -509,13 +510,6 @@ tasks:
         vars:
           variant: e2e_operator_perf_thirty
           size: small
-
-  # this task generates all e2e tests for mco variant
-  - name: generate_community_tasks
-    commands:
-      - func: clone
-      - func: python_venv
-      - func: generate_community_tests_tasks
 
   - name: release_database
     tags: [ "image_release" ]
@@ -1533,8 +1527,6 @@ buildvariants:
         variant: init_test_run
       - name: build_mco_test_image
         variant: init_test_run
-    tasks:
-      - name: generate_community_tasks
 
   ## Manual (patch) E2E tests not run for every PR and commit
 

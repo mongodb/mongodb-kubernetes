@@ -9,18 +9,18 @@ const (
 	testNamespaceEnvName            = "TEST_NAMESPACE"
 	testCertManagerNamespaceEnvName = "TEST_CERT_MANAGER_NAMESPACE"
 	testCertManagerVersionEnvName   = "TEST_CERT_MANAGER_VERSION"
-	operatorImageEnvName            = "OPERATOR_IMAGE"
+	operatorImageRepoEnvName        = "BASE_REPO_URL"
 	clusterWideEnvName              = "CLUSTER_WIDE"
 	performCleanupEnvName           = "PERFORM_CLEANUP"
 	helmChartPathEnvName            = "HELM_CHART_PATH"
 	LocalOperatorEnvName            = "MDB_LOCAL_OPERATOR"
+	versionIdEnv                    = "VERSION_ID"
 )
 
 type TestConfig struct {
 	Namespace               string
 	CertManagerNamespace    string
 	CertManagerVersion      string
-	OperatorImage           string
 	VersionUpgradeHookImage string
 	ClusterWide             bool
 	PerformCleanup          bool
@@ -30,14 +30,20 @@ type TestConfig struct {
 	MongoDBImage            string
 	MongoDBRepoUrl          string
 	LocalOperator           bool
+	OperatorImageRepoUrl    string
+	OperatorVersion         string
+	OperatorImage           string
 }
 
 func LoadTestConfigFromEnv() TestConfig {
 	return TestConfig{
-		Namespace:            envvar.GetEnvOrDefault(testNamespaceEnvName, "mongodb"),                                       // nolint:forbidigo
-		CertManagerNamespace: envvar.GetEnvOrDefault(testCertManagerNamespaceEnvName, "cert-manager"),                       // nolint:forbidigo
-		CertManagerVersion:   envvar.GetEnvOrDefault(testCertManagerVersionEnvName, "v1.5.3"),                               // nolint:forbidigo
-		OperatorImage:        envvar.GetEnvOrDefault(operatorImageEnvName, "quay.io/mongodb/community-operator-dev:latest"), // nolint:forbidigo
+		OperatorImage: "mongodb-enterprise-operator-ubi",
+		Namespace:     envvar.GetEnvOrDefault(testNamespaceEnvName, "mongodb"), // nolint:forbidigo
+		// The operator version is based on the versionID, which context sets either locally manually or evg per patch
+		OperatorVersion:      envvar.GetEnvOrDefault(versionIdEnv, ""),                                // nolint:forbidigo
+		CertManagerNamespace: envvar.GetEnvOrDefault(testCertManagerNamespaceEnvName, "cert-manager"), // nolint:forbidigo
+		CertManagerVersion:   envvar.GetEnvOrDefault(testCertManagerVersionEnvName, "v1.5.3"),         // nolint:forbidigo
+		OperatorImageRepoUrl: envvar.GetEnvOrDefault(operatorImageRepoEnvName, "quay.io/mongodb"),     // nolint:forbidigo
 		// TODO: MCK
 		MongoDBImage:            envvar.GetEnvOrDefault("MONGODB_COMMUNITY_IMAGE", "mongodb-community-server"),                                                                     // nolint:forbidigo
 		MongoDBRepoUrl:          envvar.GetEnvOrDefault(construct.MongodbRepoUrlEnv, "quay.io/mongodb"),                                                                            // nolint:forbidigo

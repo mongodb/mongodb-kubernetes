@@ -132,12 +132,11 @@ func extractRegistryNameAndVersion(fullImage string) (string, string, string) {
 }
 
 // getHelmArgs returns a map of helm arguments that are required to install the operator.
+// TODO: MCK unify this with python e2e as we now use the same helm chart as meko
 func getHelmArgs(testConfig TestConfig, watchNamespace string, resourceName string, withTLS bool, defaultOperator bool, additionalHelmArgs ...HelmArg) map[string]string {
 	agentRegistry, agentName, agentVersion := extractRegistryNameAndVersion(testConfig.AgentImage)
 	versionUpgradeHookRegistry, versionUpgradeHookName, versionUpgradeHookVersion := extractRegistryNameAndVersion(testConfig.VersionUpgradeHookImage)
 	readinessProbeRegistry, readinessProbeName, readinessProbeVersion := extractRegistryNameAndVersion(testConfig.ReadinessProbeImage)
-	operatorRegistry, operatorName, operatorVersion := extractRegistryNameAndVersion(testConfig.OperatorImage)
-
 	helmArgs := make(map[string]string)
 
 	helmArgs["namespace"] = testConfig.Namespace
@@ -145,8 +144,9 @@ func getHelmArgs(testConfig TestConfig, watchNamespace string, resourceName stri
 	helmArgs["operator.watchNamespace"] = watchNamespace
 
 	if !defaultOperator {
-		helmArgs["operator.operatorImageName"] = operatorName
-		helmArgs["operator.version"] = operatorVersion
+		// TODO: MCK does this make sense
+		helmArgs["operator.operatorImageName"] = testConfig.OperatorImage
+		helmArgs["operator.version"] = testConfig.OperatorVersion
 		helmArgs["versionUpgradeHook.name"] = versionUpgradeHookName
 		helmArgs["versionUpgradeHook.version"] = versionUpgradeHookVersion
 
@@ -160,7 +160,7 @@ func getHelmArgs(testConfig TestConfig, watchNamespace string, resourceName stri
 		helmArgs["mongodb.repo"] = testConfig.MongoDBRepoUrl
 
 		helmArgs["registry.versionUpgradeHook"] = versionUpgradeHookRegistry
-		helmArgs["registry.operator"] = operatorRegistry
+		helmArgs["registry.operator"] = testConfig.OperatorImageRepoUrl
 		helmArgs["registry.agent"] = agentRegistry
 		helmArgs["registry.readinessProbe"] = readinessProbeRegistry
 	}

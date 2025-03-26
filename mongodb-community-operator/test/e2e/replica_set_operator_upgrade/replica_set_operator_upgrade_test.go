@@ -80,7 +80,9 @@ func TestReplicaSetOperatorUpgradeFrom0_7_2(t *testing.T) {
 	testConfig := setup.LoadTestConfigFromEnv()
 
 	// deploy operator and other components as it was at version 0.7.2
-	testConfig.OperatorImage = "quay.io/mongodb/mongodb-kubernetes-operator:0.7.2"
+	testConfig.OperatorImageRepoUrl = "quay.io/mongodb"
+	testConfig.OperatorImage = "mongodb-kubernetes-operator"
+	testConfig.OperatorVersion = "0.7.2"
 	testConfig.VersionUpgradeHookImage = "quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook:1.0.3"
 	testConfig.ReadinessProbeImage = "quay.io/mongodb/mongodb-kubernetes-readinessprobe:1.0.6"
 	testConfig.AgentImage = "quay.io/mongodb/mongodb-agent-ubi:11.0.5.6963-1"
