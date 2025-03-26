@@ -20,7 +20,7 @@ from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import (
     KubernetesTester,
     build_list_of_hosts,
-    is_static_containers_architecture,
+    is_default_architecture_static,
 )
 from kubetester.mongodb import MongoDB, MongoDBCommon, Phase, get_pods, in_desired_state
 from kubetester.mongotester import MongoTester, MultiReplicaSetTester, ReplicaSetTester
@@ -56,7 +56,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     def trigger_architecture_migration(self):
         self.load()
 
-        if is_static_containers_architecture():
+        if is_default_architecture_static():
             self["metadata"]["annotations"].update({"mongodb.com/v1.architecture": "non-static"})
             self.update()
         else:

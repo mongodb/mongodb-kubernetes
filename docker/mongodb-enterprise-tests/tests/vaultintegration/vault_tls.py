@@ -6,7 +6,7 @@ from kubetester import create_secret, delete_secret, get_statefulset, read_secre
 from kubetester.certs import Certificate
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import is_static_containers_architecture
+from kubetester.kubetester import is_default_architecture_static
 from kubetester.mongodb import MongoDB, Phase, get_pods
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
@@ -314,7 +314,7 @@ def test_mdb_created(replica_set: MongoDB, namespace: str):
     replica_set.assert_reaches_phase(Phase.Running, timeout=500, ignore_errors=True)
     for pod_name in get_pods(MDB_RESOURCE + "-{}", 3):
         pod = client.CoreV1Api().read_namespaced_pod(pod_name, namespace)
-        if is_static_containers_architecture():
+        if is_default_architecture_static():
             assert len(pod.spec.containers) == 3
         else:
             assert len(pod.spec.containers) == 2

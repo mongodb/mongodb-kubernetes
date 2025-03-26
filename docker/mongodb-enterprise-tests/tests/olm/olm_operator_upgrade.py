@@ -3,8 +3,8 @@ from kubernetes.client.rest import ApiException
 from kubetester import MongoDB, read_service, wait_for_webhook
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import (
-    get_static_containers_architecture,
-    is_static_containers_architecture,
+    get_default_architecture,
+    is_default_architecture_static,
 )
 from kubetester.opsmanager import MongoDBOpsManager
 from tests.olm.olm_test_commons import (
@@ -35,7 +35,7 @@ def test_upgrade_operator_only(namespace: str, version_id: str):
     )
     catalog_source_resource.update()
 
-    static_value = get_static_containers_architecture()
+    static_value = get_default_architecture()
     subscription = get_subscription_custom_object(
         "mongodb-enterprise-operator",
         namespace,

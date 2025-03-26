@@ -3,7 +3,7 @@ import logging
 from typing import Optional
 
 import kubernetes
-from kubetester.kubetester import KubernetesTester, is_static_containers_architecture
+from kubetester.kubetester import KubernetesTester, is_default_architecture_static
 
 
 def parse_json_pod_logs(pod_logs: str) -> list[dict[str, any]]:
@@ -77,7 +77,7 @@ def assert_log_types_in_structured_json_pod_log(
     It fails when there are any unexpected log types in logs.
     """
 
-    if not is_static_containers_architecture():
+    if not is_default_architecture_static():
         container_name = "mongodb-enterprise-database"
 
     pod_logs = get_structured_json_pod_logs(namespace, pod_name, container_name, api_client=api_client)
