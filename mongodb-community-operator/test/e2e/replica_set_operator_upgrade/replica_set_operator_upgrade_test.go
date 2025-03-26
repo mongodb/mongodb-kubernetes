@@ -23,6 +23,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestReplicaSetOperatorUpgrade(t *testing.T) {
+	t.Skipf("Skipping test until CLOUDP-308559 has been fixed, we should also update this test to update from MCO to MCK")
 	ctx := context.Background()
 	resourceName := "mdb0"
 	testConfig := setup.LoadTestConfigFromEnv()

@@ -72,7 +72,8 @@ if [[ "${BUILD_VARIANT:-${CURRENT_VARIANT_CONTEXT}}" == "e2e_mco_tests" ]]; then
     if [[ "${TEST_NAME}" == "replica_set_cross_namespace_deploy" ]]; then
       CLUSTER_WIDE="true"
     fi
-
+    # mco pv test relies on this
+    docker exec kind-control-plane  mkdir -p /opt/data/mongo-data-0 /opt/data/mongo-data-1 /opt/data/mongo-data-2 /opt/data/mongo-logs-0 /opt/data/mongo-logs-1 /opt/data/mongo-logs-2
     set +e # let's not fail here, such that we can still dump all information
     scripts/evergreen/run_python.sh mongodb-community-operator/scripts/dev/e2e.py --test "${TEST_NAME}" --distro ubi --cluster-wide "${CLUSTER_WIDE}"
     TEST_RESULTS=$?
