@@ -55,14 +55,12 @@ def is_multi_cluster():
     return len(os.getenv("MEMBER_CLUSTERS", "")) > 0
 
 
-# TODO: Rename to is_default_architecture_static
-def is_static_containers_architecture() -> bool:
+def is_default_architecture_static() -> bool:
     return os.getenv("MDB_DEFAULT_ARCHITECTURE", "non-static") == "static"
 
 
-# TODO: Rename to get_default_architecture
-def get_static_containers_architecture() -> str:
-    return "static" if is_static_containers_architecture() else "non-static"
+def get_default_architecture() -> str:
+    return "static" if is_default_architecture_static() else "non-static"
 
 
 def assert_statefulset_architecture(statefulset: client.V1StatefulSet, architecture: str):
@@ -85,7 +83,7 @@ def assert_statefulset_architecture(statefulset: client.V1StatefulSet, architect
 
 
 skip_if_static_containers = pytest.mark.skipif(
-    is_static_containers_architecture(),
+    is_default_architecture_static(),
     reason="Skip if this test is executed using the Static Containers architecture",
 )
 

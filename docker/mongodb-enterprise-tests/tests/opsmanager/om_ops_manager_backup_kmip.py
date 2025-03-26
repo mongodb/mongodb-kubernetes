@@ -7,7 +7,7 @@ from kubetester.certs import create_tls_certs
 from kubetester.kmip import KMIPDeployment
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import is_static_containers_architecture
+from kubetester.kubetester import is_default_architecture_static
 from kubetester.mongodb import Phase
 from kubetester.omtester import OMTester
 from kubetester.opsmanager import MongoDBOpsManager
@@ -90,7 +90,7 @@ def mdb_latest(
     custom_mdb_version: str,
 ):
     fixture_file_name = "replica-set-kmip.yaml"
-    if is_static_containers_architecture():
+    if is_default_architecture_static():
         fixture_file_name = "replica-set-kmip-static.yaml"
     resource = MongoDB.from_yaml(
         yaml_fixture(fixture_file_name),

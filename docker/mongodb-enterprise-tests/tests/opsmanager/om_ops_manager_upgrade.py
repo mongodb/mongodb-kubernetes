@@ -10,7 +10,7 @@ from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import (
-    is_static_containers_architecture,
+    is_default_architecture_static,
     run_periodically,
     skip_if_local,
 )
@@ -276,7 +276,7 @@ class TestOpsManagerVersionUpgrade:
     agent_version = None
 
     def test_agent_version(self, mdb: MongoDB):
-        if is_static_containers_architecture:
+        if is_default_architecture_static:
             # Containers will not call the upgrade endpoint. Therefore, agent_version is not part of AC
             pod = client.CoreV1Api().read_namespaced_pod(mdb.name + "-0", mdb.namespace)
             image_tag = pod.spec.containers[0].image.split(":")[-1]
@@ -363,7 +363,7 @@ class TestMongoDbsVersionUpgrade:
         # Note, that this happens only for OM major/minor upgrade, so we need to check only this case
         prev_version = semver.VersionInfo.parse(custom_om_prev_version)
         new_version = semver.VersionInfo.parse(ops_manager.get_version())
-        if is_static_containers_architecture():
+        if is_default_architecture_static():
             pod = client.CoreV1Api().read_namespaced_pod(mdb.name + "-0", mdb.namespace)
             image_tag = pod.spec.containers[0].image.split(":")[-1]
             if prev_version.major != new_version.major:
