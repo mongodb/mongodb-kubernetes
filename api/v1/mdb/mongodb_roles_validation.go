@@ -77,6 +77,18 @@ func validDbActions() []string {
 // This is the list of valid actions for pivileges defined on the Cluster level
 func validClusterActions() []string {
 	return []string{
+		"bypassWriteBlockingMode",
+		"checkMetadataConsistency",
+		"transitionFromDedicatedConfigServer",
+		"setUserWriteBlockMode",
+		"setFeatureCompatibilityVersion",
+		"setDefaultRWConcern",
+		"rotateCertificates",
+		"getClusterParameter",
+		"setClusterParameter",
+		"getDefaultRWConcern",
+		"transitionToDedicatedConfigServer",
+		"compact",
 		"useUUID",
 		"dropConnections",
 		"killAnyCursor",
