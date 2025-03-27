@@ -96,11 +96,6 @@ export PYTHON_VERSION=3.13
 
 
 ## MCO
-export HELM_CHART_PATH="${PROJECT_DIR}/mongodb-community-operator/helm-chart"
-export TEST_DATA_DIR="${PROJECT_DIR}/testdata" # default root
 export MONGODB_COMMUNITY_IMAGE=mongodb-community-server
 export MONGODB_COMMUNITY_REPO_URL=quay.io/mongodb
 export MDB_COMMUNITY_IMAGE_TYPE=ubi8
-
-# Where the test should run on, realistically it should be the same as where we deploy all other test topics
-export TEST_NAMESPACE=${WATCH_NAMESPACE:-${NAMESPACE}}

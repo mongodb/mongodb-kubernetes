@@ -14,12 +14,6 @@ func Uninstall(t *testing.T, chartName string, namespace string) error {
 	return executeHelmCommand(t, helmArgs, isNotFoundMessage)
 }
 
-// DependencyUpdate downloads dependencies for a Chart.
-func DependencyUpdate(t *testing.T, chartPath string) error {
-	helmArgs := []string{"dependency", "update", chartPath}
-	return executeHelmCommand(t, helmArgs, nil)
-}
-
 // Install a helm chert at the given path with the given name and the provided set arguments.
 func Install(t *testing.T, chartPath, chartName string, flags, templateValues map[string]string) error {
 	helmArgs := []string{"install"}

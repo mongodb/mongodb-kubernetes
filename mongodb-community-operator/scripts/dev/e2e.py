@@ -104,7 +104,7 @@ def create_test_pod(args: argparse.Namespace, namespace: str) -> None:
                             "value": f"{os.getenv('MONGODB_COMMUNITY_AGENT_IMAGE')}",
                         },
                         {
-                            "name": "TEST_NAMESPACE",
+                            "name": "WATCH_NAMESPACE",
                             "value": namespace,
                         },
                         # TODO: MCK: change this to be per patch and not hard coded

@@ -6,14 +6,13 @@ import (
 )
 
 const (
-	testNamespaceEnvName            = "TEST_NAMESPACE"
+	testNamespaceEnvName            = "WATCH_NAMESPACE"
 	testCertManagerNamespaceEnvName = "TEST_CERT_MANAGER_NAMESPACE"
 	testCertManagerVersionEnvName   = "TEST_CERT_MANAGER_VERSION"
 	operatorImageRepoEnvName        = "BASE_REPO_URL"
 	clusterWideEnvName              = "CLUSTER_WIDE"
 	performCleanupEnvName           = "PERFORM_CLEANUP"
-	helmChartPathEnvName            = "HELM_CHART_PATH"
-	LocalOperatorEnvName            = "MDB_LOCAL_OPERATOR"
+	LocalOperatorEnvName            = "LOCAL_OPERATOR"
 	versionIdEnv                    = "VERSION_ID"
 )
 
@@ -53,7 +52,7 @@ func LoadTestConfigFromEnv() TestConfig {
 		ClusterWide:         envvar.ReadBool(clusterWideEnvName),                                                                                 // nolint:forbidigo
 		PerformCleanup:      envvar.ReadBool(performCleanupEnvName),                                                                              // nolint:forbidigo
 		ReadinessProbeImage: envvar.GetEnvOrDefault(construct.ReadinessProbeImageEnv, "quay.io/mongodb/mongodb-kubernetes-readinessprobe:1.0.3"), // nolint:forbidigo
-		HelmChartPath:       envvar.GetEnvOrDefault(helmChartPathEnvName, "/workspace/helm_chart"),                                               // nolint:forbidigo
-		LocalOperator:       envvar.ReadBool(LocalOperatorEnvName),                                                                               // nolint:forbidigo
+		HelmChartPath:       "../../../../helm_chart",                                                                                            // TODO: MCK update this later once we change folder or choose a different solution, alternatives, copy helm chart to test folder/search for helm_chart folder
+		LocalOperator:       envvar.ReadBool(LocalOperatorEnvName),                                                                               // nolint:forbidigo // TODO MCK: combine with meko one
 	}
 }

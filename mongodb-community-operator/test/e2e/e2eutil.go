@@ -16,10 +16,7 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/secret"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/envvar"
 )
-
-const testDataDirEnv = "TEST_DATA_DIR"
 
 // TestLabels should be applied to all resources created by tests.
 func TestLabels() map[string]string {
@@ -33,14 +30,6 @@ func TestAnnotations() map[string]string {
 	return map[string]string{
 		"e2e-test-annotated": "true",
 	}
-}
-
-func TestDataDir() string {
-	return envvar.GetEnvOrDefault(testDataDirEnv, "/workspace/testdata") // nolint:forbidigo
-}
-
-func TlsTestDataDir() string {
-	return fmt.Sprintf("%s/tls", TestDataDir())
 }
 
 // UpdateMongoDBResource applies the provided function to the most recent version of the MongoDB resource
