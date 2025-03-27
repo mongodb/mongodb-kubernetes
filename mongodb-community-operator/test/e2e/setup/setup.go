@@ -25,17 +25,13 @@ import (
 	waite2e "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e/util/wait"
 )
 
-type tlsSecretType string
-
 type HelmArg struct {
 	Name  string
 	Value string
 }
 
 const (
-	performCleanupEnv               = "PERFORM_CLEANUP"
-	CertKeyPair       tlsSecretType = "CERTKEYPAIR"
-	Pem               tlsSecretType = "PEM"
+	performCleanupEnv = "PERFORM_CLEANUP"
 )
 
 func Setup(ctx context.Context, t *testing.T) *e2eutil.TestContext {
@@ -132,7 +128,6 @@ func extractRegistryNameAndVersion(fullImage string) (string, string, string) {
 }
 
 // getHelmArgs returns a map of helm arguments that are required to install the operator.
-// TODO: MCK unify this with python e2e as we now use the same helm chart as meko
 func getHelmArgs(testConfig TestConfig, watchNamespace string, resourceName string, withTLS bool, defaultOperator bool, additionalHelmArgs ...HelmArg) map[string]string {
 	agentRegistry, agentName, agentVersion := extractRegistryNameAndVersion(testConfig.AgentImage)
 	versionUpgradeHookRegistry, versionUpgradeHookName, versionUpgradeHookVersion := extractRegistryNameAndVersion(testConfig.VersionUpgradeHookImage)
@@ -144,8 +139,7 @@ func getHelmArgs(testConfig TestConfig, watchNamespace string, resourceName stri
 	helmArgs["operator.watchNamespace"] = watchNamespace
 
 	if !defaultOperator {
-		// TODO: MCK does this make sense
-		helmArgs["operator.operatorImageName"] = testConfig.OperatorImage
+		helmArgs["operator.operator_image_name"] = testConfig.OperatorImage
 		helmArgs["operator.version"] = testConfig.OperatorVersion
 		helmArgs["versionUpgradeHook.name"] = versionUpgradeHookName
 		helmArgs["versionUpgradeHook.version"] = versionUpgradeHookVersion
@@ -163,17 +157,14 @@ func getHelmArgs(testConfig TestConfig, watchNamespace string, resourceName stri
 		helmArgs["registry.operator"] = testConfig.OperatorImageRepoUrl
 		helmArgs["registry.agent"] = agentRegistry
 		helmArgs["registry.readinessProbe"] = readinessProbeRegistry
+		helmArgs["registry.imagePullSecrets"] = "image-registries-secret"
 	}
 
-	helmArgs["community-operator-crds.enabled"] = strconv.FormatBool(true)
-
+	// TODO: only used for one mco tls test
 	helmArgs["createResource"] = strconv.FormatBool(false)
 	helmArgs["resource.name"] = resourceName
 	helmArgs["resource.tls.enabled"] = strconv.FormatBool(withTLS)
 	helmArgs["resource.tls.useCertManager"] = strconv.FormatBool(withTLS)
-
-	// TODO: MCK
-	helmArgs["registry.imagePullSecrets"] = "image-registries-secret"
 
 	for _, arg := range additionalHelmArgs {
 		helmArgs[arg.Name] = arg.Value
