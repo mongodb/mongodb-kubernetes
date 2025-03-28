@@ -50,7 +50,7 @@ func (f *invalidStatus) Merge(other Status) Status {
 }
 
 func (f *invalidStatus) OnErrorPrepend(msg string) Status {
-	f.commonStatus.prependMsg(msg)
+	f.prependMsg(msg)
 	return f
 }
 

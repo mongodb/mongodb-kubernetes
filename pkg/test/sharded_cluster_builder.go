@@ -229,7 +229,7 @@ func (b *ClusterBuilder) SetAnnotations(annotations map[string]string) *ClusterB
 }
 
 func (b *ClusterBuilder) SetTopology(topology string) *ClusterBuilder {
-	b.MongoDB.Spec.Topology = topology
+	b.Spec.Topology = topology
 	return b
 }
 
@@ -254,7 +254,7 @@ func (b *ClusterBuilder) SetShardOverrides(override []mdb.ShardOverride) *Cluste
 }
 
 func (b *ClusterBuilder) SetOpsManagerConfigMapName(configMapName string) *ClusterBuilder {
-	b.Spec.SharedConnectionSpec.OpsManagerConfig.ConfigMapRef.Name = configMapName
+	b.Spec.OpsManagerConfig.ConfigMapRef.Name = configMapName
 	return b
 }
 

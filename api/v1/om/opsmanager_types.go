@@ -1027,7 +1027,7 @@ func newBackup() *MongoDBOpsManagerBackup {
 // OM_PROP_mms_mail_transport
 func ConvertNameToEnvVarFormat(propertyFormat string) string {
 	withPrefix := fmt.Sprintf("%s%s", util.OmPropertyPrefix, propertyFormat)
-	return strings.Replace(withPrefix, ".", "_", -1)
+	return strings.ReplaceAll(withPrefix, ".", "_")
 }
 
 func SchemePortFromAnnotation(annotation string) (corev1.URIScheme, int32) {

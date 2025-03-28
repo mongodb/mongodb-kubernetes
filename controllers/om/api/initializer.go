@@ -83,7 +83,9 @@ func (o *DefaultInitializer) TryCreateUser(omUrl string, omVersion string, user 
 
 	var body []byte
 	if resp.Body != nil {
-		defer resp.Body.Close()
+		defer func(Body io.ReadCloser) {
+			_ = Body.Close()
+		}(resp.Body)
 		body, err = io.ReadAll(resp.Body)
 		if err != nil {
 			return OpsManagerKeyPair{}, xerrors.Errorf("Error reading response body from %v status=%v", omUrl, resp.StatusCode)

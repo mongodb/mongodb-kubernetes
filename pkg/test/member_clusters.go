@@ -41,7 +41,7 @@ func NewMemberClusters(memberClusterDetails ...MemberClusterDetails) MemberClust
 
 func (clusters MemberClusters) ShardCount() int {
 	ignoredValue := 1
-	var distinctShardNumbers map[int]int = make(map[int]int)
+	distinctShardNumbers := make(map[int]int)
 	for _, shardDistribution := range clusters.ShardDistribution {
 		for _, shardNumber := range shardDistribution {
 			distinctShardNumbers[shardNumber] = ignoredValue
