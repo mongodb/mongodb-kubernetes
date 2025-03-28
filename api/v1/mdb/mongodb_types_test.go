@@ -280,15 +280,15 @@ func TestAgentClientCertificateSecretName(t *testing.T) {
 	rs := NewReplicaSetBuilder().SetSecurityTLSEnabled().EnableAuth([]AuthMode{util.X509}).Build()
 
 	// Default is the hardcoded "agent-certs"
-	assert.Equal(t, util.AgentSecretName, rs.GetSecurity().AgentClientCertificateSecretName(rs.Name).LocalObjectReference.Name)
+	assert.Equal(t, util.AgentSecretName, rs.GetSecurity().AgentClientCertificateSecretName(rs.Name).Name)
 
 	// If the top-level prefix is there, we use it
 	rs.Spec.Security.CertificatesSecretsPrefix = "prefix"
-	assert.Equal(t, fmt.Sprintf("prefix-%s-%s", rs.Name, util.AgentSecretName), rs.GetSecurity().AgentClientCertificateSecretName(rs.Name).LocalObjectReference.Name)
+	assert.Equal(t, fmt.Sprintf("prefix-%s-%s", rs.Name, util.AgentSecretName), rs.GetSecurity().AgentClientCertificateSecretName(rs.Name).Name)
 
 	// If the name is provided (deprecated) we return it
 	rs.GetSecurity().Authentication.Agents.ClientCertificateSecretRefWrap.ClientCertificateSecretRef.Name = "foo"
-	assert.Equal(t, "foo", rs.GetSecurity().AgentClientCertificateSecretName(rs.Name).LocalObjectReference.Name)
+	assert.Equal(t, "foo", rs.GetSecurity().AgentClientCertificateSecretName(rs.Name).Name)
 }
 
 func TestInternalClusterAuthSecretName(t *testing.T) {

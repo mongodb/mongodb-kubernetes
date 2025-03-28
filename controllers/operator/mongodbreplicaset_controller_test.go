@@ -1182,5 +1182,5 @@ func (b *ReplicaSetBuilder) ExposedExternally(specOverride *corev1.ServiceSpec, 
 
 func (b *ReplicaSetBuilder) Build() *mdbv1.MongoDB {
 	b.InitDefaults()
-	return b.MongoDB.DeepCopy()
+	return b.DeepCopy()
 }

@@ -182,13 +182,13 @@ func (r *ShardedClusterReconcileHelper) initializeMemberClusters(globalMemberClu
 		// should be no case of having only the legacy fields populated in the state.
 		configSrvCount, configSrvCountExists := r.deploymentState.Status.SizeStatusInClusters.ConfigServerMongodsInClusters[multicluster.LegacyCentralClusterName]
 		if !configSrvCountExists {
-			configSrvCount = r.deploymentState.Status.MongodbShardedClusterSizeConfig.ConfigServerCount
+			configSrvCount = r.deploymentState.Status.ConfigServerCount
 		}
 		r.configSrvMemberClusters = []multicluster.MemberCluster{multicluster.GetLegacyCentralMemberCluster(configSrvCount, 0, r.commonController.client, r.commonController.SecretClient)}
 
 		mongosCount, mongosCountExists := r.deploymentState.Status.SizeStatusInClusters.MongosCountInClusters[multicluster.LegacyCentralClusterName]
 		if !mongosCountExists {
-			mongosCount = r.deploymentState.Status.MongodbShardedClusterSizeConfig.MongosCount
+			mongosCount = r.deploymentState.Status.MongosCount
 		}
 		r.mongosMemberClusters = []multicluster.MemberCluster{multicluster.GetLegacyCentralMemberCluster(mongosCount, 0, r.commonController.client, r.commonController.SecretClient)}
 	}
@@ -280,7 +280,7 @@ func (r *ShardedClusterReconcileHelper) createShardsMemberClusterLists(shardsMap
 
 func (r *ShardedClusterReconcileHelper) getShardNameToShardIdxMap() map[string]int {
 	mapping := map[string]int{}
-	for shardIdx := 0; shardIdx < max(r.sc.Spec.ShardCount, r.deploymentState.Status.MongodbShardedClusterSizeConfig.ShardCount); shardIdx++ {
+	for shardIdx := 0; shardIdx < max(r.sc.Spec.ShardCount, r.deploymentState.Status.ShardCount); shardIdx++ {
 		mapping[r.sc.ShardRsName(shardIdx)] = shardIdx
 	}
 
@@ -351,7 +351,7 @@ func (r *ShardedClusterReconcileHelper) prepareDesiredShardsConfiguration() map[
 	// For multiple clusters, each shard will have configuration specified for each member cluster.
 	shardComponentSpecs := map[int]*mdbv1.ShardedClusterComponentSpec{}
 
-	for shardIdx := 0; shardIdx < max(spec.ShardCount, r.deploymentState.Status.MongodbShardedClusterSizeConfig.ShardCount); shardIdx++ {
+	for shardIdx := 0; shardIdx < max(spec.ShardCount, r.deploymentState.Status.ShardCount); shardIdx++ {
 		topLevelPersistenceOverride, topLevelPodSpecOverride := getShardTopLevelOverrides(spec, shardIdx)
 		shardComponentSpec := *spec.ShardSpec.DeepCopy()
 		shardComponentSpec.ClusterSpecList = processClusterSpecList(shardComponentSpec.ClusterSpecList, topLevelPodSpecOverride, topLevelPersistenceOverride)
@@ -904,7 +904,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	// This is executed only after the replicaset which are going to be removed are properly drained and
 	// all the processes in the cluster reports ready state. At this point the statefulsets are
 	// no longer part of the replicaset and are safe to remove - all the data from them is migrated (drained) to other shards.
-	if sc.Spec.ShardCount < r.deploymentState.Status.MongodbShardedClusterSizeConfig.ShardCount {
+	if sc.Spec.ShardCount < r.deploymentState.Status.ShardCount {
 		r.removeUnusedStatefulsets(ctx, sc, log)
 	}
 
@@ -1195,8 +1195,8 @@ func getHealthyMemberClusters(memberClusters []multicluster.MemberCluster) []mul
 }
 
 func (r *ShardedClusterReconcileHelper) removeUnusedStatefulsets(ctx context.Context, sc *mdbv1.MongoDB, log *zap.SugaredLogger) {
-	statefulsetsToRemove := r.deploymentState.Status.MongodbShardedClusterSizeConfig.ShardCount - sc.Spec.ShardCount
-	shardsCount := r.deploymentState.Status.MongodbShardedClusterSizeConfig.ShardCount
+	statefulsetsToRemove := r.deploymentState.Status.ShardCount - sc.Spec.ShardCount
+	shardsCount := r.deploymentState.Status.ShardCount
 
 	// we iterate over last 'statefulsetsToRemove' shards if any
 	for i := shardsCount - statefulsetsToRemove; i < shardsCount; i++ {
@@ -2326,14 +2326,14 @@ func (r *ShardedClusterReconcileHelper) migrateToNewDeploymentState(sc *mdbv1.Mo
 	if !sc.Spec.IsMultiCluster() {
 		r.deploymentState.Status.SizeStatusInClusters = &mdbstatus.MongodbShardedSizeStatusInClusters{
 			ShardMongodsInClusters: map[string]int{
-				multicluster.LegacyCentralClusterName: r.deploymentState.Status.MongodbShardedClusterSizeConfig.MongodsPerShardCount,
+				multicluster.LegacyCentralClusterName: r.deploymentState.Status.MongodsPerShardCount,
 			},
 			ShardOverridesInClusters: map[string]map[string]int{},
 			MongosCountInClusters: map[string]int{
-				multicluster.LegacyCentralClusterName: r.deploymentState.Status.MongodbShardedClusterSizeConfig.MongosCount,
+				multicluster.LegacyCentralClusterName: r.deploymentState.Status.MongosCount,
 			},
 			ConfigServerMongodsInClusters: map[string]int{
-				multicluster.LegacyCentralClusterName: r.deploymentState.Status.MongodbShardedClusterSizeConfig.ConfigServerCount,
+				multicluster.LegacyCentralClusterName: r.deploymentState.Status.ConfigServerCount,
 			},
 		}
 	} else {
@@ -2472,7 +2472,7 @@ func (r *ShardedClusterReconcileHelper) createHostnameOverrideConfigMapData() ma
 		}
 	}
 
-	for shardIdx := 0; shardIdx < max(r.sc.Spec.ShardCount, r.deploymentState.Status.MongodbShardedClusterSizeConfig.ShardCount); shardIdx++ {
+	for shardIdx := 0; shardIdx < max(r.sc.Spec.ShardCount, r.deploymentState.Status.ShardCount); shardIdx++ {
 		for _, memberCluster := range r.shardsMemberClustersMap[shardIdx] {
 			shardScaler := r.GetShardScaler(shardIdx, memberCluster)
 			shardHostnames, shardPodNames := r.getShardHostnames(shardIdx, memberCluster, max(shardScaler.CurrentReplicas(), shardScaler.DesiredReplicas()))
@@ -2553,7 +2553,7 @@ func (r *ShardedClusterReconcileHelper) reconcileConfigServerServices(ctx contex
 	for podNum := 0; podNum < scaler.DesiredReplicas(); podNum++ {
 		configServerExternalAccess := r.desiredConfigServerConfiguration.ClusterSpecList.GetExternalAccessConfigurationForMemberCluster(memberCluster.Name)
 		if configServerExternalAccess == nil {
-			configServerExternalAccess = r.sc.Spec.DbCommonSpec.ExternalAccessConfiguration
+			configServerExternalAccess = r.sc.Spec.ExternalAccessConfiguration
 		}
 		// Config servers need external services only if an externalDomain is configured
 		if configServerExternalAccess != nil && configServerExternalAccess.ExternalDomain != nil {
@@ -2589,7 +2589,7 @@ func (r *ShardedClusterReconcileHelper) reconcileConfigServerServices(ctx contex
 func (r *ShardedClusterReconcileHelper) reconcileShardServices(ctx context.Context, log *zap.SugaredLogger, shardIdx int, memberCluster multicluster.MemberCluster, allServices []*corev1.Service) error {
 	shardsExternalAccess := r.desiredShardsConfiguration[shardIdx].ClusterSpecList.GetExternalAccessConfigurationForMemberCluster(memberCluster.Name)
 	if shardsExternalAccess == nil {
-		shardsExternalAccess = r.sc.Spec.DbCommonSpec.ExternalAccessConfiguration
+		shardsExternalAccess = r.sc.Spec.ExternalAccessConfiguration
 	}
 	portOrDefault := r.desiredShardsConfiguration[shardIdx].AdditionalMongodConfig.GetPortOrDefault()
 	scaler := r.GetShardScaler(shardIdx, memberCluster)
@@ -2635,7 +2635,7 @@ func (r *ShardedClusterReconcileHelper) reconcileMongosServices(ctx context.Cont
 	for podNum := 0; podNum < scaler.DesiredReplicas(); podNum++ {
 		mongosExternalAccess := r.desiredMongosConfiguration.ClusterSpecList.GetExternalAccessConfigurationForMemberCluster(memberCluster.Name)
 		if mongosExternalAccess == nil {
-			mongosExternalAccess = r.sc.Spec.DbCommonSpec.ExternalAccessConfiguration
+			mongosExternalAccess = r.sc.Spec.ExternalAccessConfiguration
 		}
 		// Mongos always need external services if externalAccess is configured
 		if mongosExternalAccess != nil {

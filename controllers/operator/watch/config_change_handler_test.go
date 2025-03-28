@@ -20,7 +20,7 @@ func TestShouldHandleUpdate(t *testing.T) {
 			Data: map[string]string{"testKey": "testValue"},
 		}
 		newObj := oldObj.DeepCopy()
-		newObj.ObjectMeta.ResourceVersion = "4243"
+		newObj.ResourceVersion = "4243"
 
 		assert.False(t, shouldHandleUpdate(event.UpdateEvent{ObjectOld: oldObj, ObjectNew: newObj}))
 	})
@@ -33,7 +33,7 @@ func TestShouldHandleUpdate(t *testing.T) {
 			Data: map[string]string{"testKey": "testValue"},
 		}
 		newObj := oldObj.DeepCopy()
-		newObj.ObjectMeta.ResourceVersion = "4243"
+		newObj.ResourceVersion = "4243"
 		newObj.Data["secondKey"] = "secondValue"
 
 		assert.True(t, shouldHandleUpdate(event.UpdateEvent{ObjectOld: oldObj, ObjectNew: newObj}))
@@ -47,7 +47,7 @@ func TestShouldHandleUpdate(t *testing.T) {
 			Data: map[string][]byte{"testKey": []byte("testValue")},
 		}
 		newObj := oldObj.DeepCopy()
-		newObj.ObjectMeta.ResourceVersion = "4243"
+		newObj.ResourceVersion = "4243"
 
 		assert.False(t, shouldHandleUpdate(event.UpdateEvent{ObjectOld: oldObj, ObjectNew: newObj}))
 	})
@@ -60,7 +60,7 @@ func TestShouldHandleUpdate(t *testing.T) {
 			Data: map[string][]byte{"testKey": []byte("testValue")},
 		}
 		newObj := oldObj.DeepCopy()
-		newObj.ObjectMeta.ResourceVersion = "4243"
+		newObj.ResourceVersion = "4243"
 		newObj.Data["secondKey"] = []byte("secondValue")
 
 		assert.True(t, shouldHandleUpdate(event.UpdateEvent{ObjectOld: oldObj, ObjectNew: newObj}))

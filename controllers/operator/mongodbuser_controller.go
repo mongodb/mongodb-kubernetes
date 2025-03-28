@@ -180,7 +180,7 @@ func (r *MongoDBUserReconciler) Reconcile(ctx context.Context, request reconcile
 		return r.updateStatus(ctx, user, workflow.Failed(err), log)
 	}
 
-	if !user.ObjectMeta.DeletionTimestamp.IsZero() {
+	if !user.DeletionTimestamp.IsZero() {
 		log.Info("MongoDBUser is being deleted")
 
 		if controllerutil.ContainsFinalizer(user, util.Finalizer) {

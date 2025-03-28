@@ -144,14 +144,14 @@ func validateAuthenticationRestriction(ar AuthenticationRestriction) v1.Validati
 
 	// Validate all clientSources, they have to be either valid IP addresses or CIDR ranges
 	for _, clientSource := range clientSources {
-		if !(isValidIp(clientSource) || isValidCIDR(clientSource)) {
+		if !isValidIp(clientSource) && !isValidCIDR(clientSource) {
 			return v1.ValidationError("clientSource %s is neither a valid IP address nor a valid CIDR range", clientSource)
 		}
 	}
 
 	// validate all serveraddresses, they have to be either valid IP addresses or CIDR ranges
 	for _, serverAddress := range serverAddresses {
-		if !(isValidIp(serverAddress) || isValidCIDR(serverAddress)) {
+		if !isValidIp(serverAddress) && !isValidCIDR(serverAddress) {
 			return v1.ValidationError("serverAddress %s is neither a valid IP address nor a valid CIDR range", serverAddress)
 		}
 	}

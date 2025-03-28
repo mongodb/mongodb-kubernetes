@@ -19,14 +19,14 @@ func TestService_merge0(t *testing.T) {
 	dst := corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"}}
 	src := corev1.Service{}
 	dst = Merge(dst, src)
-	assert.Equal(t, "my-service", dst.ObjectMeta.Name)
-	assert.Equal(t, "my-namespace", dst.ObjectMeta.Namespace)
+	assert.Equal(t, "my-service", dst.Name)
+	assert.Equal(t, "my-namespace", dst.Namespace)
 
 	// Name and Namespace will not be copied over.
 	src = corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "new-service", Namespace: "new-namespace"}}
 	dst = Merge(dst, src)
-	assert.Equal(t, "my-service", dst.ObjectMeta.Name)
-	assert.Equal(t, "my-namespace", dst.ObjectMeta.Namespace)
+	assert.Equal(t, "my-service", dst.Name)
+	assert.Equal(t, "my-namespace", dst.Namespace)
 }
 
 func TestService_NodePortIsNotOverwritten(t *testing.T) {
@@ -155,8 +155,8 @@ func TestService_mergeAnnotations(t *testing.T) {
 		},
 	}
 	dst = Merge(dst, src)
-	assert.Len(t, dst.ObjectMeta.Annotations, 3)
-	assert.Equal(t, dst.ObjectMeta.Annotations["annotation0"], "valueXXXX")
+	assert.Len(t, dst.Annotations, 3)
+	assert.Equal(t, dst.Annotations["annotation0"], "valueXXXX")
 }
 
 func TestService_mergeFieldsWhenDestFieldsAreNil(t *testing.T) {
@@ -188,8 +188,8 @@ func TestService_mergeFieldsWhenDestFieldsAreNil(t *testing.T) {
 		},
 	}
 	dst = Merge(dst, src)
-	assert.Len(t, dst.ObjectMeta.Annotations, 2)
-	assert.Equal(t, dst.ObjectMeta.Annotations, annotationsSrc)
-	assert.Equal(t, dst.ObjectMeta.Labels, labelsSrc)
+	assert.Len(t, dst.Annotations, 2)
+	assert.Equal(t, dst.Annotations, annotationsSrc)
+	assert.Equal(t, dst.Labels, labelsSrc)
 	assert.Equal(t, dst.Spec.Selector, selectorsSrc)
 }

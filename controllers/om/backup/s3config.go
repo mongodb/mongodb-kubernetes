@@ -170,5 +170,5 @@ func (s S3Config) MergeIntoOpsManagerConfig(opsManagerS3Config S3Config) S3Confi
 
 func (s S3Config) String() string {
 	return fmt.Sprintf("id %s, uri: %s, enabled: %t, awsAccessKey: %s, awsSecretKey: %s, bucketEndpoint: %s, bucketName: %s, pathStyleAccessEnabled: %t",
-		s.Id, util.RedactMongoURI(s.Uri), s.AssignmentEnabled, util.Redact(s.AccessKey), util.Redact(s.SecretKey), s.S3Bucket.Endpoint, s.S3Bucket.Name, s.PathStyleAccessEnabled)
+		s.Id, util.RedactMongoURI(s.Uri), s.AssignmentEnabled, util.Redact(s.AccessKey), util.Redact(s.SecretKey), s.Endpoint, s.Name, s.PathStyleAccessEnabled)
 }

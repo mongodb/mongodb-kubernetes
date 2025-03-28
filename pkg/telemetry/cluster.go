@@ -153,5 +153,5 @@ func getKubernetesClusterUUID(ctx context.Context, uncachedClient kubeclient.Rea
 		return unknown
 	}
 
-	return string(namespace.ObjectMeta.UID)
+	return string(namespace.UID)
 }
