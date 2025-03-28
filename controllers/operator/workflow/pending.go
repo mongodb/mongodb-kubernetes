@@ -61,7 +61,7 @@ func (p *pendingStatus) Merge(other Status) Status {
 }
 
 func (p *pendingStatus) OnErrorPrepend(msg string) Status {
-	p.commonStatus.prependMsg(msg)
+	p.prependMsg(msg)
 	return p
 }
 

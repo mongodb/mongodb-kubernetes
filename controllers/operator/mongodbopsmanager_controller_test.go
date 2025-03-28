@@ -608,8 +608,8 @@ func TestOpsManagerConnectionString_IsPassedAsSecretRef(t *testing.T) {
 	}
 	assert.NotEmpty(t, uriVol.Name, "MmsMongoUri volume should have been present!")
 	assert.NotNil(t, uriVol.VolumeSource)
-	assert.NotNil(t, uriVol.VolumeSource.Secret)
-	assert.Equal(t, uriVol.VolumeSource.Secret.SecretName, testOm.AppDBMongoConnectionStringSecretName())
+	assert.NotNil(t, uriVol.Secret)
+	assert.Equal(t, uriVol.Secret.SecretName, testOm.AppDBMongoConnectionStringSecretName())
 }
 
 func TestOpsManagerWithKMIP(t *testing.T) {
@@ -1324,7 +1324,7 @@ func addKMIPTestResources(ctx context.Context, client client.Client, om *omv1.Mo
 	ca := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      om.Spec.Backup.Encryption.Kmip.Server.CA,
-			Namespace: om.ObjectMeta.Namespace,
+			Namespace: om.Namespace,
 		},
 	}
 	ca.Data = map[string]string{}
@@ -1334,7 +1334,7 @@ func addKMIPTestResources(ctx context.Context, client client.Client, om *omv1.Mo
 	clientCertificate := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      mdb.GetBackupSpec().Encryption.Kmip.Client.ClientCertificateSecretName(mdb.GetName()),
-			Namespace: om.ObjectMeta.Namespace,
+			Namespace: om.Namespace,
 		},
 	}
 	clientCertificate.Data = map[string][]byte{}
@@ -1345,7 +1345,7 @@ func addKMIPTestResources(ctx context.Context, client client.Client, om *omv1.Mo
 	clientCertificatePassword := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      mdb.GetBackupSpec().Encryption.Kmip.Client.ClientCertificatePasswordSecretName(mdb.GetName()),
-			Namespace: om.ObjectMeta.Namespace,
+			Namespace: om.Namespace,
 		},
 	}
 	clientCertificatePassword.Data = map[string]string{

@@ -1390,7 +1390,7 @@ func TestMultiClusterShardedMongosDeadlock(t *testing.T) {
 		SetMongosClusterSpec(test.CreateClusterSpecList(memberClusterNames, mongosDistribution)).
 		Build()
 
-	sc.ObjectMeta.Name = "sh-disaster-recovery"
+	sc.Name = "sh-disaster-recovery"
 
 	err := kubeClient.Create(ctx, sc)
 	require.NoError(t, err)
@@ -2485,9 +2485,9 @@ func checkCorrectShardDistributionInStatus(t *testing.T, sc *mdbv1.MongoDB) {
 	clusterSpecItemToMembers := func(item mdbv1.ClusterSpecItem) int {
 		return item.Members
 	}
-	assert.Equal(t, sumSlice(util.Transform(sc.Spec.MongosSpec.ClusterSpecList, clusterSpecItemToMembers)), sc.Status.MongodbShardedClusterSizeConfig.MongosCount)
-	assert.Equal(t, sumSlice(util.Transform(sc.Spec.ConfigSrvSpec.ClusterSpecList, clusterSpecItemToMembers)), sc.Status.MongodbShardedClusterSizeConfig.ConfigServerCount)
-	assert.Equal(t, sumSlice(util.Transform(sc.Spec.ShardSpec.ClusterSpecList, clusterSpecItemToMembers)), sc.Status.MongodbShardedClusterSizeConfig.MongodsPerShardCount)
+	assert.Equal(t, sumSlice(util.Transform(sc.Spec.MongosSpec.ClusterSpecList, clusterSpecItemToMembers)), sc.Status.MongosCount)
+	assert.Equal(t, sumSlice(util.Transform(sc.Spec.ConfigSrvSpec.ClusterSpecList, clusterSpecItemToMembers)), sc.Status.ConfigServerCount)
+	assert.Equal(t, sumSlice(util.Transform(sc.Spec.ShardSpec.ClusterSpecList, clusterSpecItemToMembers)), sc.Status.MongodsPerShardCount)
 }
 
 func TestComputeMembersToScaleDown(t *testing.T) {
