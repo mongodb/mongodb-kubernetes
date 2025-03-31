@@ -4,7 +4,7 @@ import kubernetes
 import pytest
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-from kubetester import delete_statefulset
+from kubetester import delete_statefulset, get_statefulset, wait_until
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
@@ -187,17 +187,26 @@ def test_delete_member_cluster_sts(
     mongodb_multi: MongoDBMulti,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    date = mongodb_multi.get_status_last_transition_time()
-
     sts_name = "{}-0".format(mongodb_multi.name)
+    api_client = member_cluster_clients[0].api_client
+    sts_old = get_statefulset(namespace, sts_name, api_client)
     delete_statefulset(
         namespace=namespace,
         name=sts_name,
-        api_client=member_cluster_clients[0].api_client,
+        api_client=api_client,
     )
 
-    # abandons running phase since the statefulset in cluster1 has been deleted
-    mongodb_multi.assert_state_transition_happens(date)
+    def check_if_sts_was_recreated() -> bool:
+        try:
+            sts = get_statefulset(namespace, sts_name, api_client)
+            return sts.metadata.uid != sts_old.metadata.uid
+        except ApiException as e:
+            if e.status == 404:
+                return False
+            else:
+                raise e
+
+    wait_until(check_if_sts_was_recreated, timeout=120)
 
     # the operator should reconcile and recreate the statefulset
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=400)
