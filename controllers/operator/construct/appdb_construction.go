@@ -16,6 +16,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/scalers/interfaces"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1/common"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/controllers/construct"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/container"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
@@ -293,7 +294,7 @@ func customPersistenceConfig(om *om.MongoDBOpsManager) statefulset.Modification 
 	// Two main branches - as the user can either define a single volume for data, logs and journal
 	// or three different volumes
 	if !om.Spec.AppDB.HasSeparateDataAndLogsVolumes() {
-		var config *mdbv1.PersistenceConfig
+		var config *common.PersistenceConfig
 		if om.Spec.AppDB.PodSpec.Persistence != nil && om.Spec.AppDB.PodSpec.Persistence.SingleConfig != nil {
 			config = om.Spec.AppDB.PodSpec.Persistence.SingleConfig
 		}

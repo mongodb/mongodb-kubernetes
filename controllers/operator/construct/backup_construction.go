@@ -10,9 +10,9 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1/common"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/container"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/lifecycle"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
@@ -106,7 +106,7 @@ func backupDaemonStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.
 	// PodSecurityContext is added in the backupAndOpsManagerSharedConfiguration
 	_, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 
-	defaultConfig := mdbv1.PersistenceConfig{Storage: util.DefaultHeadDbStorageSize}
+	defaultConfig := common.PersistenceConfig{Storage: util.DefaultHeadDbStorageSize}
 	pvc := pvcFunc(util.PvcNameHeadDb, opts.HeadDbPersistenceConfig, defaultConfig, opts.Labels)
 	headDbMount := statefulset.CreateVolumeMount(util.PvcNameHeadDb, util.PvcMountPathHeadDb)
 

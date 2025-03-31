@@ -15,6 +15,7 @@ import (
 	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1/common"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/secret"
 )
 
@@ -100,8 +101,8 @@ func NewTestMongoDB(ctx *TestContext, name string, namespace string) (mdbv1.Mong
 					ScramCredentialsSecretName: fmt.Sprintf("%s-my-scram", name),
 				},
 			},
-			StatefulSetConfiguration: mdbv1.StatefulSetConfiguration{
-				SpecWrapper: mdbv1.StatefulSetSpecWrapper{
+			StatefulSetConfiguration: common.StatefulSetConfiguration{
+				SpecWrapper: common.StatefulSetSpecWrapper{
 					Spec: appsv1.StatefulSetSpec{
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{

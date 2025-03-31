@@ -19,6 +19,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/ldap"
 	mdbcv1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1/common"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/annotations"
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
@@ -257,7 +258,7 @@ type ClusterSpecItem struct {
 	// +optional
 	MemberConfig []automationconfig.MemberOptions `json:"memberConfig,omitempty"`
 	// +optional
-	StatefulSetConfiguration *mdbcv1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	StatefulSetConfiguration *common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 	// +optional
 	PodSpec *MongoDbPodSpec `json:"podSpec,omitempty"`
 }
@@ -279,7 +280,7 @@ type ClusterSpecItemOverride struct {
 	// +optional
 	MemberConfig []automationconfig.MemberOptions `json:"memberConfig,omitempty"`
 	// +optional
-	StatefulSetConfiguration *mdbcv1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	StatefulSetConfiguration *common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 	// +optional
 	PodSpec *MongoDbPodSpec `json:"podSpec,omitempty"`
 }
@@ -381,7 +382,7 @@ type DbCommonSpec struct {
 	// StatefulSetConfiguration provides the statefulset override for each of the cluster's statefulset
 	// if "StatefulSetConfiguration" is specified at cluster level under "clusterSpecList" that takes precedence over
 	// the global one
-	StatefulSetConfiguration *mdbcv1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	StatefulSetConfiguration *common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 
 	// AdditionalMongodConfig is additional configuration that can be passed to
 	// each data-bearing mongod at runtime. Uses the same structure as the mongod
@@ -975,7 +976,7 @@ type AgentAuthentication struct {
 	AutomationLdapGroupDN string `json:"automationLdapGroupDN"`
 	// +optional
 	// +kubebuilder:pruning:PreserveUnknownFields
-	ClientCertificateSecretRefWrap ClientCertificateSecretRefWrapper `json:"clientCertificateSecretRef,omitempty"`
+	ClientCertificateSecretRefWrap common.ClientCertificateSecretRefWrapper `json:"clientCertificateSecretRef,omitempty"`
 }
 
 // IsX509Enabled determines if X509 is to be enabled at the project level
@@ -1325,7 +1326,7 @@ type ExternalServiceConfiguration struct {
 	// A wrapper for the Service spec object.
 	// +optional
 	// +kubebuilder:pruning:PreserveUnknownFields
-	SpecWrapper *ServiceSpecWrapper `json:"spec"`
+	SpecWrapper *common.ServiceSpecWrapper `json:"spec"`
 
 	// A map of annotations that shall be added to the externally available Service.
 	// +optional
@@ -1344,14 +1345,14 @@ type MongoDbPodSpec struct {
 	ContainerResourceRequirements `json:"-"`
 
 	// +kubebuilder:pruning:PreserveUnknownFields
-	PodTemplateWrapper PodTemplateSpecWrapper `json:"podTemplate,omitempty"`
+	PodTemplateWrapper common.PodTemplateSpecWrapper `json:"podTemplate,omitempty"`
 	// Note, this field is not serialized in the CRD, it's only present here because of the
 	// way we currently set defaults for this field in the operator, similar to "ContainerResourceRequirements"
 
 	PodAntiAffinityTopologyKey string `json:"-"`
 
 	// Note, that this field is used by MongoDB resources only, let's keep it here for simplicity
-	Persistence *Persistence `json:"persistence,omitempty"`
+	Persistence *common.Persistence `json:"persistence,omitempty"`
 }
 
 func (m *MongoDbPodSpec) IsAgentImageOverridden() bool {
@@ -1376,25 +1377,6 @@ type PodSpecWrapper struct {
 	// These are the default values, unfortunately Golang doesn't provide the possibility to inline default values into
 	// structs so use the operator.NewDefaultPodSpec constructor for this
 	Default MongoDbPodSpec
-}
-
-type Persistence struct {
-	SingleConfig   *PersistenceConfig         `json:"single,omitempty"`
-	MultipleConfig *MultiplePersistenceConfig `json:"multiple,omitempty"`
-}
-
-type MultiplePersistenceConfig struct {
-	Data    *PersistenceConfig `json:"data,omitempty"`
-	Journal *PersistenceConfig `json:"journal,omitempty"`
-	Logs    *PersistenceConfig `json:"logs,omitempty"`
-}
-
-type PersistenceConfig struct {
-	Storage      string  `json:"storage,omitempty"`
-	StorageClass *string `json:"storageClass,omitempty"`
-
-	// +kubebuilder:pruning:PreserveUnknownFields
-	LabelSelector *LabelSelectorWrapper `json:"labelSelector,omitempty"`
 }
 
 func (p PodSpecWrapper) GetCpuOrDefault() string {
@@ -1451,7 +1433,7 @@ func (p PodSpecWrapper) SetTopology(topology string) PodSpecWrapper {
 	return p
 }
 
-func GetStorageOrDefault(config *PersistenceConfig, defaultConfig PersistenceConfig) string {
+func GetStorageOrDefault(config *common.PersistenceConfig, defaultConfig common.PersistenceConfig) string {
 	if config == nil || config.Storage == "" {
 		return defaultConfig.Storage
 	}

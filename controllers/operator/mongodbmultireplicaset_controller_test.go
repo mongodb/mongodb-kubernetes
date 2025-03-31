@@ -33,7 +33,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
-	v1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1/common"
 	mcoConstruct "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/controllers/construct"
 	kubernetesClient "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/10gen/ops-manager-kubernetes/pkg/agentVersionManagement"
@@ -176,8 +176,8 @@ func TestMultiReplicaSetClusterReconcileContainerImagesWithStaticArchitecture(t 
 func TestReconcilePVCResizeMultiCluster(t *testing.T) {
 	ctx := context.Background()
 
-	configuration := v1.StatefulSetConfiguration{
-		SpecWrapper: v1.StatefulSetSpecWrapper{
+	configuration := common.StatefulSetConfiguration{
+		SpecWrapper: common.StatefulSetSpecWrapper{
 			Spec: appsv1.StatefulSetSpec{
 				VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
 					{
@@ -798,8 +798,8 @@ func TestScaling(t *testing.T) {
 	})
 
 	t.Run("Scale one at a time when scaling up", func(t *testing.T) {
-		stsWrapper := &v1.StatefulSetConfiguration{
-			SpecWrapper: v1.StatefulSetSpecWrapper{
+		stsWrapper := &common.StatefulSetConfiguration{
+			SpecWrapper: common.StatefulSetSpecWrapper{
 				Spec: appsv1.StatefulSetSpec{
 					Selector: &metav1.LabelSelector{
 						MatchLabels: map[string]string{"a": "b"},

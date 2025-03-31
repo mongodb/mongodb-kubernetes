@@ -25,6 +25,7 @@ import (
 	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1/common"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/controllers/construct"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/authentication/x509"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/automationconfig"
@@ -243,8 +244,8 @@ func TestGuessEnterprise(t *testing.T) {
 			setArgs: func(t *testing.T) {},
 			mdb: mdbv1.MongoDBCommunity{
 				Spec: mdbv1.MongoDBCommunitySpec{
-					StatefulSetConfiguration: mdbv1.StatefulSetConfiguration{
-						SpecWrapper: mdbv1.StatefulSetSpecWrapper{
+					StatefulSetConfiguration: common.StatefulSetConfiguration{
+						SpecWrapper: common.StatefulSetSpecWrapper{
 							Spec: appsv1.StatefulSetSpec{
 								Template: corev1.PodTemplateSpec{
 									Spec: corev1.PodSpec{
@@ -268,8 +269,8 @@ func TestGuessEnterprise(t *testing.T) {
 			setArgs: func(t *testing.T) {},
 			mdb: mdbv1.MongoDBCommunity{
 				Spec: mdbv1.MongoDBCommunitySpec{
-					StatefulSetConfiguration: mdbv1.StatefulSetConfiguration{
-						SpecWrapper: mdbv1.StatefulSetSpecWrapper{
+					StatefulSetConfiguration: common.StatefulSetConfiguration{
+						SpecWrapper: common.StatefulSetSpecWrapper{
 							Spec: appsv1.StatefulSetSpec{
 								Template: corev1.PodTemplateSpec{
 									Spec: corev1.PodSpec{

@@ -36,6 +36,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1/common"
 	mcoConstruct "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/controllers/construct"
 	kubernetesClient "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/secret"
@@ -331,8 +332,8 @@ func TestReconcilePVCResizeShardedCluster(t *testing.T) {
 	ctx := context.Background()
 	// First creation
 	sc := test.DefaultClusterBuilder().SetShardCountSpec(2).SetShardCountStatus(2).Build()
-	persistence := mdbv1.Persistence{
-		SingleConfig: &mdbv1.PersistenceConfig{
+	persistence := common.Persistence{
+		SingleConfig: &common.PersistenceConfig{
 			Storage: "1Gi",
 		},
 	}

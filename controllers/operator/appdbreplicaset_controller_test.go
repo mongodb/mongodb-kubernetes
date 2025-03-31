@@ -32,6 +32,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
 	mdbcv1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1/common"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	kubernetesClient "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/secret"
@@ -421,7 +422,7 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 	opsManager := builder.Build()
 	appdbScaler := scalers.GetAppDBScaler(opsManager, multicluster.LegacyCentralClusterName, 0, nil)
 
-	opsManager.Spec.AppDB.PodSpec.PodTemplateWrapper = mdb.PodTemplateSpecWrapper{
+	opsManager.Spec.AppDB.PodSpec.PodTemplateWrapper = common.PodTemplateSpecWrapper{
 		PodTemplate: &corev1.PodTemplateSpec{
 			Spec: corev1.PodSpec{
 				Containers: []corev1.Container{

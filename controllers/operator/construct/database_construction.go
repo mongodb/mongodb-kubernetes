@@ -18,6 +18,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
 	mdbcv1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1/common"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/container"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/persistentvolumeclaim"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
@@ -537,7 +538,7 @@ func buildPersistentVolumeClaimsFuncs(opts DatabaseStatefulSetOptions) (map[stri
 	if podSpec.Persistence == nil ||
 		(podSpec.Persistence.SingleConfig == nil && podSpec.Persistence.MultipleConfig == nil) ||
 		podSpec.Persistence.SingleConfig != nil {
-		var config *mdbv1.PersistenceConfig
+		var config *common.PersistenceConfig
 		if podSpec.Persistence != nil && podSpec.Persistence.SingleConfig != nil {
 			config = podSpec.Persistence.SingleConfig
 		}

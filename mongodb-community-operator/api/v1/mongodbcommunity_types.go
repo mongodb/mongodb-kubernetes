@@ -16,6 +16,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1/common"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/authentication/authtypes"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/annotations"
@@ -100,7 +101,7 @@ type MongoDBCommunitySpec struct {
 	Users []MongoDBUser `json:"users"`
 
 	// +optional
-	StatefulSetConfiguration StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	StatefulSetConfiguration common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 
 	// AgentConfiguration sets options for the MongoDB automation agent
 	// +optional
@@ -344,15 +345,6 @@ type OverrideProcess struct {
 	LogRotate *automationconfig.CrdLogRotate `json:"logRotate,omitempty"`
 }
 
-// StatefulSetConfiguration holds the optional custom StatefulSet
-// that should be merged into the operator created one.
-type StatefulSetConfiguration struct {
-	// +kubebuilder:pruning:PreserveUnknownFields
-	SpecWrapper StatefulSetSpecWrapper `json:"spec"`
-	// +optional
-	MetadataWrapper StatefulSetMetadataWrapper `json:"metadata"`
-}
-
 type LogLevel string
 
 const (
@@ -381,44 +373,6 @@ type AgentConfiguration struct {
 	// +optional
 	// SystemLog configures system log of mongod
 	SystemLog *automationconfig.SystemLog `json:"systemLog,omitempty"`
-}
-
-// StatefulSetSpecWrapper is a wrapper around StatefulSetSpec with a custom implementation
-// of MarshalJSON and UnmarshalJSON which delegate to the underlying Spec to avoid CRD pollution.
-
-type StatefulSetSpecWrapper struct {
-	Spec appsv1.StatefulSetSpec `json:"-"`
-}
-
-// MarshalJSON defers JSON encoding to the wrapped map
-func (m *StatefulSetSpecWrapper) MarshalJSON() ([]byte, error) {
-	return json.Marshal(m.Spec)
-}
-
-// UnmarshalJSON will decode the data into the wrapped map
-func (m *StatefulSetSpecWrapper) UnmarshalJSON(data []byte) error {
-	return json.Unmarshal(data, &m.Spec)
-}
-
-func (m *StatefulSetSpecWrapper) DeepCopy() *StatefulSetSpecWrapper {
-	return &StatefulSetSpecWrapper{
-		Spec: m.Spec,
-	}
-}
-
-// StatefulSetMetadataWrapper is a wrapper around Labels and Annotations
-type StatefulSetMetadataWrapper struct {
-	// +optional
-	Labels map[string]string `json:"labels,omitempty"`
-	// +optional
-	Annotations map[string]string `json:"annotations,omitempty"`
-}
-
-func (m *StatefulSetMetadataWrapper) DeepCopy() *StatefulSetMetadataWrapper {
-	return &StatefulSetMetadataWrapper{
-		Labels:      m.Labels,
-		Annotations: m.Annotations,
-	}
 }
 
 // MongodConfiguration holds the optional mongod configuration
