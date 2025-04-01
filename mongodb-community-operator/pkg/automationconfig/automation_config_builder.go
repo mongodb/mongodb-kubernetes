@@ -54,6 +54,7 @@ type Builder struct {
 	port                      int
 	memberOptions             []MemberOptions
 	forceReconfigureToVersion *int64
+	replicaSetId              *string
 	settings                  map[string]interface{}
 }
 
@@ -196,6 +197,11 @@ func (b *Builder) SetAuth(auth Auth) *Builder {
 
 func (b *Builder) SetSettings(settings map[string]interface{}) *Builder {
 	b.settings = settings
+	return b
+}
+
+func (b *Builder) SetReplicaSetId(id *string) *Builder {
+	b.replicaSetId = id
 	return b
 }
 
@@ -371,12 +377,17 @@ func (b *Builder) Build() (AutomationConfig, error) {
 		replSetForceConfig = &ReplSetForceConfig{CurrentVersion: *b.forceReconfigureToVersion}
 	}
 
+	replicaSetId := b.name
+	if b.replicaSetId != nil {
+		replicaSetId = *b.replicaSetId
+	}
+
 	currentAc := AutomationConfig{
 		Version:   b.previousAC.Version,
 		Processes: processes,
 		ReplicaSets: []ReplicaSet{
 			{
-				Id:              b.name,
+				Id:              replicaSetId,
 				Members:         members,
 				ProtocolVersion: "1",
 				NumberArbiters:  b.arbiters,

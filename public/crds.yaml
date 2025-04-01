@@ -4889,6 +4889,11 @@ spec:
                         type: array
                       replicaSet:
                         properties:
+                          id:
+                            description: |-
+                              Id can be used together with additionalMongodConfig.replication.replSetName
+                              to manage clusters where replSetName differs from the MongoDBCommunity resource name
+                            type: string
                           settings:
                             description: |-
                               MapWrapper is a wrapper for a map to be used by other structs.
@@ -6702,6 +6707,11 @@ spec:
                     type: array
                   replicaSet:
                     properties:
+                      id:
+                        description: |-
+                          Id can be used together with additionalMongodConfig.replication.replSetName
+                          to manage clusters where replSetName differs from the MongoDBCommunity resource name
+                        type: string
                       settings:
                         description: |-
                           MapWrapper is a wrapper for a map to be used by other structs.
