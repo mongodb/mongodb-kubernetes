@@ -249,8 +249,8 @@ func createExternalServices(ctx context.Context, client kubernetesClient.Client,
 		externalService.Spec.Ports = append(externalService.Spec.Ports, corev1.ServicePort{Port: backupPort, TargetPort: intstr.FromInt32(backupPort), Name: "backup"})
 	}
 
-	if mdb.Spec.DbCommonSpec.ExternalAccessConfiguration.ExternalService.SpecWrapper != nil {
-		externalService.Spec = merge.ServiceSpec(externalService.Spec, mdb.Spec.DbCommonSpec.ExternalAccessConfiguration.ExternalService.SpecWrapper.Spec)
+	if mdb.Spec.ExternalAccessConfiguration.ExternalService.SpecWrapper != nil {
+		externalService.Spec = merge.ServiceSpec(externalService.Spec, mdb.Spec.ExternalAccessConfiguration.ExternalService.SpecWrapper.Spec)
 	}
 	externalService.Annotations = merge.StringToStringMap(externalService.Annotations, mdb.Spec.ExternalAccessConfiguration.ExternalService.Annotations)
 

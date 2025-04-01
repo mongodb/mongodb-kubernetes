@@ -11,7 +11,7 @@ from kubetester import (
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import is_static_containers_architecture, skip_if_local
+from kubetester.kubetester import is_default_architecture_static, skip_if_local
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongotester import ReplicaSetTester
 from pytest import fixture
@@ -45,7 +45,7 @@ def replica_set(namespace: str, custom_mdb_version: str, cluster_domain: str) ->
 
     # Setting podSpec shortcut values here to test they are still
     # added as resources when needed.
-    if is_static_containers_architecture():
+    if is_default_architecture_static():
         resource["spec"]["podSpec"] = {
             "podTemplate": {
                 "spec": {
@@ -164,7 +164,7 @@ class TestReplicaSetCreation(KubernetesTester):
         for podname in self._get_pods("my-replica-set-{}", 3):
             pod = self.corev1.read_namespaced_pod(podname, self.namespace)
             c0 = pod.spec.containers[0]
-            if is_static_containers_architecture():
+            if is_default_architecture_static():
                 assert c0.name == "mongodb-agent"
             else:
                 assert c0.name == "mongodb-enterprise-database"
@@ -317,7 +317,7 @@ class TestReplicaSetCreation(KubernetesTester):
         # We create 3 members of the replicaset here, so there will be 2 changes.
         # Anything more than 2 + 4 (logRotation has 4 changes) changes
         # indicates that we're sending more things to the Ops/Cloud Manager than we should.
-        if is_static_containers_architecture():
+        if is_default_architecture_static():
             assert (config["version"] - config_version.version) == 5
         else:
             assert (config["version"] - config_version.version) == 6
@@ -403,7 +403,7 @@ class TestReplicaSetScaleUp(KubernetesTester):
         for podname in self._get_pods("my-replica-set-{}", 5):
             pod = self.corev1.read_namespaced_pod(podname, self.namespace)
             c0 = pod.spec.containers[0]
-            if is_static_containers_architecture():
+            if is_default_architecture_static():
                 assert c0.name == "mongodb-agent"
             else:
                 assert c0.name == "mongodb-enterprise-database"

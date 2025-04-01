@@ -1388,10 +1388,10 @@ func (p PodSpecWrapper) GetCpuOrDefault() string {
 
 func (p PodSpecWrapper) GetMemoryOrDefault() string {
 	// We don't set default if either Memory requests or Memory limits are specified by the User
-	if p.ContainerResourceRequirements.MemoryLimit == "" && p.ContainerResourceRequirements.MemoryRequests == "" {
-		return p.Default.ContainerResourceRequirements.MemoryLimit
+	if p.MemoryLimit == "" && p.MemoryRequests == "" {
+		return p.Default.MemoryLimit
 	}
-	return p.ContainerResourceRequirements.MemoryLimit
+	return p.MemoryLimit
 }
 
 func (p PodSpecWrapper) GetCpuRequestsOrDefault() string {

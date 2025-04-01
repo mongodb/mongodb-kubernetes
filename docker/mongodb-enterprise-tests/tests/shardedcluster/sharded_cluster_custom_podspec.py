@@ -2,7 +2,7 @@ from kubetester import try_load
 from kubetester.custom_podspec import assert_stateful_set_podspec
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import is_static_containers_architecture
+from kubetester.kubetester import is_default_architecture_static
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.operator import Operator
 from pytest import fixture, mark
@@ -98,7 +98,7 @@ def test_stateful_sets_spec_updated(sc: MongoDB):
             topology_key=MONGOS_TOPOLOGY_KEY,
         )
 
-        if is_static_containers_architecture():
+        if is_default_architecture_static():
             containers = shard0_sts.spec.template.spec.containers
             assert len(containers) == 3
             assert containers[0].name == "mongodb-agent"

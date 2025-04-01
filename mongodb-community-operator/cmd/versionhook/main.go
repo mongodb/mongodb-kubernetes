@@ -129,7 +129,11 @@ func getAgentHealthStatus() (agent.Health, error) {
 	if err != nil {
 		return agent.Health{}, err
 	}
-	defer f.Close()
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			zap.S().Warnf("Failed to close agent health file: %v", closeErr)
+		}
+	}()
 
 	h, err := readAgentHealthStatus(f)
 	if err != nil {

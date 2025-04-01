@@ -16,7 +16,7 @@ export MDB_DEFAULT_ARCHITECTURE=static
 # This CUSTOM version is required for upgrade tests to work
 # Default value for this variable in om60 context file is 6.0.0
 # shellcheck disable=SC2034
-export CUSTOM_OM_PREV_VERSION=6.0.23
+export CUSTOM_OM_PREV_VERSION=6.0.27
 
 export CUSTOM_MDB_VERSION=6.0.16
 # We can't use a 5.0.x version for this static variant because there's no UBI9 image for the 5.0.x series

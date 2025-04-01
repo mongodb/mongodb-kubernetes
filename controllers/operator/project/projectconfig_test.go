@@ -25,7 +25,7 @@ func TestSSLOptionsArePassedCorrectly_SSLRequireValidMMSServerCertificates(t *te
 	projectConfig, err := ReadProjectConfig(ctx, client, kube.ObjectKey(mock.TestNamespace, "cm1"), "")
 
 	assert.NoError(t, err)
-	assert.True(t, projectConfig.SSLProjectConfig.SSLRequireValidMMSServerCertificates)
+	assert.True(t, projectConfig.SSLRequireValidMMSServerCertificates)
 
 	assert.Equal(t, projectConfig.SSLMMSCAConfigMap, "")
 	assert.Equal(t, projectConfig.SSLMMSCAConfigMapContents, "")
@@ -38,7 +38,7 @@ func TestSSLOptionsArePassedCorrectly_SSLRequireValidMMSServerCertificates(t *te
 	projectConfig, err = ReadProjectConfig(ctx, client, kube.ObjectKey(mock.TestNamespace, "cm2"), "")
 
 	assert.NoError(t, err)
-	assert.True(t, projectConfig.SSLProjectConfig.SSLRequireValidMMSServerCertificates)
+	assert.True(t, projectConfig.SSLRequireValidMMSServerCertificates)
 
 	assert.Equal(t, projectConfig.SSLMMSCAConfigMap, "")
 	assert.Equal(t, projectConfig.SSLMMSCAConfigMapContents, "")
@@ -53,7 +53,7 @@ func TestSSLOptionsArePassedCorrectly_SSLRequireValidMMSServerCertificates(t *te
 	projectConfig, err = ReadProjectConfig(ctx, client, kube.ObjectKey(mock.TestNamespace, "cm3"), "")
 
 	assert.NoError(t, err)
-	assert.False(t, projectConfig.SSLProjectConfig.SSLRequireValidMMSServerCertificates)
+	assert.False(t, projectConfig.SSLRequireValidMMSServerCertificates)
 
 	assert.Equal(t, projectConfig.SSLMMSCAConfigMap, "")
 	assert.Equal(t, projectConfig.SSLMMSCAConfigMapContents, "")
@@ -80,7 +80,7 @@ func TestSSLOptionsArePassedCorrectly_SSLMMSCAConfigMap(t *testing.T) {
 	projectConfig, err := ReadProjectConfig(ctx, client, kube.ObjectKey(mock.TestNamespace, "cm"), "")
 
 	assert.NoError(t, err)
-	assert.False(t, projectConfig.SSLProjectConfig.SSLRequireValidMMSServerCertificates)
+	assert.False(t, projectConfig.SSLRequireValidMMSServerCertificates)
 
 	assert.Equal(t, projectConfig.SSLMMSCAConfigMap, "configmap-with-ca-entry")
 	assert.Equal(t, projectConfig.SSLMMSCAConfigMapContents, "---- some cert ----")

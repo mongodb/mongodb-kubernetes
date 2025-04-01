@@ -1,10 +1,14 @@
+from typing import List
+
 import kubernetes
 import pymongo
 import pytest
 from kubetester import try_load
+from kubetester.kubetester import assert_statefulset_architecture
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import get_default_architecture
 from kubetester.mongodb import Phase
-from kubetester.mongodb_multi import MongoDBMulti
+from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.mongotester import MongoDBBackgroundTester
 from kubetester.operator import Operator
 from tests.multicluster.conftest import cluster_spec_list
@@ -58,10 +62,25 @@ def test_start_background_checker(mdb_health_checker: MongoDBBackgroundTester):
 
 
 @pytest.mark.e2e_multi_cluster_replica_set_migration
-def test_migrate_architecture(mongodb_multi: MongoDBMulti):
+def test_migrate_architecture(mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]):
+    """
+    If the E2E is running with default architecture as non-static,
+    then the test will migrate to static and vice versa.
+    """
+    original_default_architecture = get_default_architecture()
+    target_architecture = "non-static" if original_default_architecture == "static" else "static"
+
     mongodb_multi.trigger_architecture_migration()
+
+    mongodb_multi.load()
+    assert mongodb_multi["metadata"]["annotations"]["mongodb.com/v1.architecture"] == target_architecture
+
     mongodb_multi.assert_abandons_phase(Phase.Running, timeout=1000)
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1000)
+
+    statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients)
+    for statefulset in statefulsets.values():
+        assert_statefulset_architecture(statefulset, target_architecture)
 
 
 @pytest.mark.e2e_multi_cluster_replica_set_migration

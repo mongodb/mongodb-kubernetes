@@ -129,6 +129,6 @@ func (m *MultiReplicaSetBuilder) SetName(name string) *MultiReplicaSetBuilder {
 }
 
 func (m *MultiReplicaSetBuilder) SetOpsManagerConfigMapName(configMapName string) *MultiReplicaSetBuilder {
-	m.Spec.SharedConnectionSpec.OpsManagerConfig.ConfigMapRef.Name = configMapName
+	m.Spec.OpsManagerConfig.ConfigMapRef.Name = configMapName
 	return m
 }

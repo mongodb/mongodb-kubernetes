@@ -563,8 +563,8 @@ func Volume(defaultVolume corev1.Volume, overrideVolume corev1.Volume) corev1.Vo
 	}
 	// - ConfigMap
 	if overrideSource.ConfigMap != nil && defaultSource.ConfigMap != nil {
-		if overrideSource.ConfigMap.LocalObjectReference.Name != "" {
-			mergedVolume.ConfigMap.LocalObjectReference.Name = overrideSource.ConfigMap.LocalObjectReference.Name
+		if overrideSource.ConfigMap.Name != "" {
+			mergedVolume.ConfigMap.Name = overrideSource.ConfigMap.Name
 		}
 		mergedVolume.ConfigMap.Items = mergeKeyToPathItems(defaultSource.ConfigMap.Items, overrideSource.ConfigMap.Items)
 		if overrideSource.ConfigMap.DefaultMode != nil {

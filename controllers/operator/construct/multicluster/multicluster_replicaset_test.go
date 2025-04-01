@@ -1,9 +1,11 @@
 package multicluster
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/utils/ptr"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -16,6 +18,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1/common"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
 )
 
 func init() {
@@ -240,5 +243,72 @@ func TestPVCOverride(t *testing.T) {
 		assert.Equal(t, tt.out.AccessMode, sts.Spec.VolumeClaimTemplates[0].Spec.AccessModes)
 		storage, _ := sts.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests.Storage().AsInt64()
 		assert.Equal(t, tt.out.Storage, storage)
+	}
+}
+
+func TestMultiClusterStatefulSet_StaticContainersEnvVars(t *testing.T) {
+	tests := []struct {
+		name                 string
+		defaultArchitecture  string
+		annotations          map[string]string
+		expectedEnvVar       corev1.EnvVar
+		expectAgentContainer bool
+	}{
+		{
+			name:                 "Default architecture - static, no annotations",
+			defaultArchitecture:  string(architectures.Static),
+			annotations:          nil,
+			expectedEnvVar:       corev1.EnvVar{Name: "MDB_STATIC_CONTAINERS_ARCHITECTURE", Value: "true"},
+			expectAgentContainer: true,
+		},
+		{
+			name:                 "Default architecture - non-static, annotations - static",
+			defaultArchitecture:  string(architectures.NonStatic),
+			annotations:          map[string]string{architectures.ArchitectureAnnotation: string(architectures.Static)},
+			expectedEnvVar:       corev1.EnvVar{Name: "MDB_STATIC_CONTAINERS_ARCHITECTURE", Value: "true"},
+			expectAgentContainer: true,
+		},
+		{
+			name:                 "Default architecture - non-static, no annotations",
+			defaultArchitecture:  string(architectures.NonStatic),
+			annotations:          nil,
+			expectedEnvVar:       corev1.EnvVar{},
+			expectAgentContainer: false,
+		},
+		{
+			name:                 "Default architecture - static, annotations - non-static",
+			defaultArchitecture:  string(architectures.Static),
+			annotations:          map[string]string{architectures.ArchitectureAnnotation: string(architectures.NonStatic)},
+			expectedEnvVar:       corev1.EnvVar{},
+			expectAgentContainer: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(architectures.DefaultEnvArchitecture, tt.defaultArchitecture)
+
+			mdbm := getMultiClusterMongoDB()
+			mdbm.Annotations = tt.annotations
+			opts := MultiClusterReplicaSetOptions(
+				WithClusterNum(0),
+				WithMemberCount(3),
+				construct.GetPodEnvOptions(),
+			)
+
+			sts := MultiClusterStatefulSet(mdbm, opts)
+
+			agentContainerIdx := slices.IndexFunc(sts.Spec.Template.Spec.Containers, func(container corev1.Container) bool {
+				return container.Name == util.AgentContainerName
+			})
+			if tt.expectAgentContainer {
+				require.NotEqual(t, -1, agentContainerIdx)
+				assert.Contains(t, sts.Spec.Template.Spec.Containers[agentContainerIdx].Env, tt.expectedEnvVar)
+			} else {
+				// In non-static architecture there is no agent container
+				// so the index should be -1.
+				require.Equal(t, -1, agentContainerIdx)
+			}
+		})
 	}
 }

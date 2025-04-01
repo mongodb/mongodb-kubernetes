@@ -150,10 +150,10 @@ func NOOP() Modification {
 
 func WithSecretDefaultMode(mode *int32) func(*corev1.Volume) {
 	return func(v *corev1.Volume) {
-		if v.VolumeSource.Secret == nil {
-			v.VolumeSource.Secret = &corev1.SecretVolumeSource{}
+		if v.Secret == nil {
+			v.Secret = &corev1.SecretVolumeSource{}
 		}
-		v.VolumeSource.Secret.DefaultMode = mode
+		v.Secret.DefaultMode = mode
 	}
 }
 

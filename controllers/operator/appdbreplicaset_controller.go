@@ -786,13 +786,9 @@ func getMultiClusterAppDBService(appdb omv1.AppDBSpec, clusterNum int, podNum in
 }
 
 func (r *ReconcileAppDbReplicaSet) publishAutomationConfigFirst(opsManager *omv1.MongoDBOpsManager, allStatefulSetsExist bool, log *zap.SugaredLogger) bool {
-	automationConfigFirst := true
-
 	// The only case when we push the StatefulSet first is when we are ensuring TLS for the already existing AppDB
 	// TODO this feels insufficient. Shouldn't we check if there is actual change in TLS settings requiring to push sts first? Now it will always publish sts first when TLS enabled
-	if allStatefulSetsExist && opsManager.Spec.AppDB.GetSecurity().IsTLSEnabled() {
-		automationConfigFirst = false
-	}
+	automationConfigFirst := !allStatefulSetsExist || !opsManager.Spec.AppDB.GetSecurity().IsTLSEnabled()
 
 	if r.isChangingVersion(opsManager) {
 		log.Info("Version change in progress, the StatefulSet must be updated first")

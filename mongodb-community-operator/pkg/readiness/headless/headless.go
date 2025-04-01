@@ -38,7 +38,11 @@ func PerformCheckHeadlessMode(ctx context.Context, health health.Status, conf co
 			if err != nil {
 				return false, err
 			}
-			defer file.Close()
+			defer func() {
+				if closeErr := file.Close(); closeErr != nil {
+					zap.S().Warnf("Failed to close automation config version file: %v", closeErr)
+				}
+			}()
 
 			data, err := io.ReadAll(file)
 			if err != nil {

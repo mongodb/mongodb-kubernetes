@@ -15,7 +15,7 @@ from kubetester.kubetester import (
     build_host_fqdn,
     ensure_ent_version,
     ensure_nested_objects,
-    is_static_containers_architecture,
+    is_default_architecture_static,
 )
 from kubetester.omtester import OMContext, OMTester
 from opentelemetry import trace
@@ -224,7 +224,7 @@ class MongoDB(CustomObject, MongoDBCommon):
     def set_architecture_annotation(self):
         if "annotations" not in self["metadata"]:
             self["metadata"]["annotations"] = {}
-        if is_static_containers_architecture():
+        if is_default_architecture_static():
             self["metadata"]["annotations"].update({"mongodb.com/v1.architecture": "static"})
         else:
             self["metadata"]["annotations"].update({"mongodb.com/v1.architecture": "non-static"})
@@ -233,7 +233,7 @@ class MongoDB(CustomObject, MongoDBCommon):
         self.load()
         if "annotations" not in self["metadata"]:
             self["metadata"]["annotations"] = {}
-        if is_static_containers_architecture():
+        if is_default_architecture_static():
             self["metadata"]["annotations"].update({"mongodb.com/v1.architecture": "non-static"})
             self.update()
         else:

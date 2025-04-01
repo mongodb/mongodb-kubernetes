@@ -76,8 +76,8 @@ func TestAddVolumeAndMount(t *testing.T) {
 	// assert the volumes were added to the podspec template
 	assert.Len(t, sts.Spec.Template.Spec.Volumes, 1)
 	assert.Equal(t, sts.Spec.Template.Spec.Volumes[0].Name, "mount-name")
-	assert.NotNil(t, sts.Spec.Template.Spec.Volumes[0].VolumeSource.ConfigMap, "volume should have been configured from a config map source")
-	assert.Nil(t, sts.Spec.Template.Spec.Volumes[0].VolumeSource.Secret, "volume should not have been configured from a secret source")
+	assert.NotNil(t, sts.Spec.Template.Spec.Volumes[0].ConfigMap, "volume should have been configured from a config map source")
+	assert.Nil(t, sts.Spec.Template.Spec.Volumes[0].Secret, "volume should not have been configured from a secret source")
 
 	stsBuilder = defaultStatefulSetBuilder().SetPodTemplateSpec(podTemplateWithContainers([]corev1.Container{{Name: "container-0"}, {Name: "container-1"}})).AddVolumeAndMount(vmd, "container-0")
 	sts, err = stsBuilder.Build()
@@ -101,8 +101,8 @@ func TestAddVolumeAndMount(t *testing.T) {
 	assert.Len(t, sts.Spec.Template.Spec.Volumes, 2)
 	assert.Equal(t, "mount-name-secret", sts.Spec.Template.Spec.Volumes[1].Name)
 	assert.Equal(t, int32(416), *sts.Spec.Template.Spec.Volumes[1].Secret.DefaultMode)
-	assert.Nil(t, sts.Spec.Template.Spec.Volumes[1].VolumeSource.ConfigMap, "volume should not have been configured from a config map source")
-	assert.NotNil(t, sts.Spec.Template.Spec.Volumes[1].VolumeSource.Secret, "volume should have been configured from a secret source")
+	assert.Nil(t, sts.Spec.Template.Spec.Volumes[1].ConfigMap, "volume should not have been configured from a config map source")
+	assert.NotNil(t, sts.Spec.Template.Spec.Volumes[1].Secret, "volume should have been configured from a secret source")
 }
 
 func TestAddVolumeClaimTemplates(t *testing.T) {
@@ -131,15 +131,15 @@ func TestBuildStructImmutable(t *testing.T) {
 	var err error
 	sts, err = stsBuilder.Build()
 	assert.NoError(t, err)
-	assert.Len(t, sts.ObjectMeta.Labels, 2)
+	assert.Len(t, sts.Labels, 2)
 
 	delete(labels, "label_2")
 	// checks that modifying the underlying object did not change the built statefulset
-	assert.Len(t, sts.ObjectMeta.Labels, 2)
+	assert.Len(t, sts.Labels, 2)
 
 	sts, err = stsBuilder.Build()
 	assert.NoError(t, err)
-	assert.Len(t, sts.ObjectMeta.Labels, 1)
+	assert.Len(t, sts.Labels, 1)
 }
 
 func defaultStatefulSetBuilder() *Builder {

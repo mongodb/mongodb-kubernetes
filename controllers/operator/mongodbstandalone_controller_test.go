@@ -397,7 +397,7 @@ func (b *StandaloneBuilder) SetPodSpecTemplate(spec corev1.PodTemplateSpec) *Sta
 func (b *StandaloneBuilder) Build() *mdbv1.MongoDB {
 	b.Spec.ResourceType = mdbv1.Standalone
 	b.InitDefaults()
-	return b.MongoDB.DeepCopy()
+	return b.DeepCopy()
 }
 
 func createDeploymentFromStandalone(st *mdbv1.MongoDB) om.Deployment {

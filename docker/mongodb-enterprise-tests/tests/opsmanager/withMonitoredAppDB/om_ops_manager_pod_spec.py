@@ -10,7 +10,7 @@ from kubernetes import client
 from kubetester import try_load
 from kubetester.custom_podspec import assert_volume_mounts_are_equal
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import is_static_containers_architecture
+from kubetester.kubetester import is_default_architecture_static
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
@@ -250,7 +250,7 @@ class TestOpsManagerCreation:
                 continue
             assert om_container[k] == expected_spec[k]
 
-        if not is_static_containers_architecture():
+        if not is_default_architecture_static():
             expected_spec["volume_mounts"].append(
                 {
                     "name": "ops-manager-scripts",
@@ -265,7 +265,7 @@ class TestOpsManagerCreation:
         assert_volume_mounts_are_equal(om_container["volume_mounts"], expected_spec["volume_mounts"])
 
         # new volume was added and the old ones ('gen-key' and 'ops-manager-scripts') stayed there
-        if is_static_containers_architecture():
+        if is_default_architecture_static():
             # static containers will not use the ops-manager-scripts volume
             assert len(sts.spec.template.spec.volumes) == 4
         else:

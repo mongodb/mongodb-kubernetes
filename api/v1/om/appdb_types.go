@@ -360,9 +360,9 @@ func (m *AppDBSpec) UnmarshalJSON(data []byte) error {
 		m.PasswordSecretKeyRef.Key = util.DefaultAppDbPasswordKey
 	}
 
-	m.ConnectionSpec.Credentials = ""
-	m.ConnectionSpec.CloudManagerConfig = nil
-	m.ConnectionSpec.OpsManagerConfig = nil
+	m.Credentials = ""
+	m.CloudManagerConfig = nil
+	m.OpsManagerConfig = nil
 
 	// all resources have a pod spec
 	if m.PodSpec == nil {

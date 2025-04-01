@@ -12,7 +12,7 @@ source "${script_dir}/variables/om70"
 # We started supporting Static Containers in 6.0.21, except for OM
 # This CUSTOM version is required for upgrade tests to work
 # shellcheck disable=SC2034
-export CUSTOM_OM_PREV_VERSION=6.0.23
+export CUSTOM_OM_PREV_VERSION=6.0.27
 
 # TODO Remove this once the startup script for OM can handle skipping preflight checks.
 # As it stands now, OM 7.0.13 will fail the preflight checks in a disaster recovery scenario.

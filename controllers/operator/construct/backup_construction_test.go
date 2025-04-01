@@ -25,7 +25,7 @@ func TestBuildBackupDaemonStatefulSet(t *testing.T) {
 	}
 	sts, err := BackupDaemonStatefulSet(ctx, secretsClient, omv1.NewOpsManagerBuilderDefault().SetName("test-om").Build(), multicluster.GetLegacyCentralMemberCluster(1, 0, client, secretsClient), zap.S())
 	assert.NoError(t, err)
-	assert.Equal(t, "test-om-backup-daemon", sts.ObjectMeta.Name)
+	assert.Equal(t, "test-om-backup-daemon", sts.Name)
 	assert.Equal(t, util.BackupDaemonContainerName, sts.Spec.Template.Spec.Containers[0].Name)
 	assert.NotNil(t, sts.Spec.Template.Spec.Containers[0].ReadinessProbe)
 }

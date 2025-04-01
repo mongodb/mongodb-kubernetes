@@ -147,7 +147,9 @@ func setTLSConfig(ctx context.Context, config *api.Config, client *kubernetes.Cl
 	if err != nil {
 		return xerrors.Errorf("can't create temporary file for CA data: %w", err)
 	}
-	defer f.Close()
+	defer func(f *os.File) {
+		_ = f.Close()
+	}(f)
 
 	_, err = f.Write(caData)
 	if err != nil {

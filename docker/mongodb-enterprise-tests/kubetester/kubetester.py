@@ -55,16 +55,35 @@ def is_multi_cluster():
     return len(os.getenv("MEMBER_CLUSTERS", "")) > 0
 
 
-def is_static_containers_architecture() -> bool:
+def is_default_architecture_static() -> bool:
     return os.getenv("MDB_DEFAULT_ARCHITECTURE", "non-static") == "static"
 
 
-def get_static_containers_architecture() -> str:
-    return "static" if is_static_containers_architecture() else "non-static"
+def get_default_architecture() -> str:
+    return "static" if is_default_architecture_static() else "non-static"
+
+
+def assert_statefulset_architecture(statefulset: client.V1StatefulSet, architecture: str):
+    """
+    Asserts that the statefulset is configured with the expected architecture.
+    """
+    agent_container = next((c for c in statefulset.spec.template.spec.containers if c.name == "mongodb-agent"), None)
+    if architecture == "non-static":
+        # In non-static architecture expect agent container to not be present
+        assert agent_container is None
+    else:
+        # In static architecture we expect agent container to be present
+        # and contain static environment variable which
+        # instructs the agent launcher script to not download binaries
+        assert agent_container is not None
+        static_env_var = next(
+            (env for env in agent_container.env if env.name == "MDB_STATIC_CONTAINERS_ARCHITECTURE"), None
+        )
+        assert static_env_var.value == "true"
 
 
 skip_if_static_containers = pytest.mark.skipif(
-    is_static_containers_architecture(),
+    is_default_architecture_static(),
     reason="Skip if this test is executed using the Static Containers architecture",
 )
 

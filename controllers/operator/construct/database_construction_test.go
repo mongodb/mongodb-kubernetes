@@ -2,10 +2,12 @@ package construct
 
 import (
 	"path"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"k8s.io/utils/ptr"
 
@@ -325,4 +327,64 @@ func TestGetAutomationLogEnvVars(t *testing.T) {
 		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentVerboseEnv, Value: path.Join(util.PvcMountPathLogs, "automation-agent-verbose.log")})
 		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentStderrEnv, Value: path.Join(util.PvcMountPathLogs, "automation-agent-stderr.log")})
 	})
+}
+
+func TestDatabaseStatefulSet_StaticContainersEnvVars(t *testing.T) {
+	tests := []struct {
+		name                 string
+		defaultArchitecture  string
+		annotations          map[string]string
+		expectedEnvVar       corev1.EnvVar
+		expectAgentContainer bool
+	}{
+		{
+			name:                 "Default architecture - static, no annotations",
+			defaultArchitecture:  string(architectures.Static),
+			annotations:          nil,
+			expectedEnvVar:       corev1.EnvVar{Name: "MDB_STATIC_CONTAINERS_ARCHITECTURE", Value: "true"},
+			expectAgentContainer: true,
+		},
+		{
+			name:                 "Default architecture - non-static, annotations - static",
+			defaultArchitecture:  string(architectures.NonStatic),
+			annotations:          map[string]string{architectures.ArchitectureAnnotation: string(architectures.Static)},
+			expectedEnvVar:       corev1.EnvVar{Name: "MDB_STATIC_CONTAINERS_ARCHITECTURE", Value: "true"},
+			expectAgentContainer: true,
+		},
+		{
+			name:                 "Default architecture - non-static, no annotations",
+			defaultArchitecture:  string(architectures.NonStatic),
+			annotations:          nil,
+			expectedEnvVar:       corev1.EnvVar{},
+			expectAgentContainer: false,
+		},
+		{
+			name:                 "Default architecture - static, annotations - non-static",
+			defaultArchitecture:  string(architectures.Static),
+			annotations:          map[string]string{architectures.ArchitectureAnnotation: string(architectures.NonStatic)},
+			expectedEnvVar:       corev1.EnvVar{},
+			expectAgentContainer: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(architectures.DefaultEnvArchitecture, tt.defaultArchitecture)
+
+			mdb := mdbv1.NewReplicaSetBuilder().SetAnnotations(tt.annotations).Build()
+			sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
+
+			agentContainerIdx := slices.IndexFunc(sts.Spec.Template.Spec.Containers, func(container corev1.Container) bool {
+				return container.Name == util.AgentContainerName
+			})
+			if tt.expectAgentContainer {
+				require.NotEqual(t, -1, agentContainerIdx)
+				assert.Contains(t, sts.Spec.Template.Spec.Containers[agentContainerIdx].Env, tt.expectedEnvVar)
+			} else {
+				// In non-static architecture there is no agent container
+				// so the index should be -1.
+				require.Equal(t, -1, agentContainerIdx)
+			}
+		})
+	}
 }

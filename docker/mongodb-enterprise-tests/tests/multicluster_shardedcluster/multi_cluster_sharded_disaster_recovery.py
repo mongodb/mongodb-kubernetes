@@ -15,8 +15,8 @@ from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import (
     get_env_var_or_fail,
+    is_default_architecture_static,
     is_multi_cluster,
-    is_static_containers_architecture,
     run_periodically,
     skip_if_local,
 )
@@ -241,7 +241,7 @@ class TestDeployShardedClusterWithFailedCluster:
         # Automation Config shouldn't change when we lose a cluster
         expected_version = config_version_store.version
         # in non-static, every restart of the operator increases version of ac due to agent upgrades
-        if not is_static_containers_architecture():
+        if not is_default_architecture_static():
             expected_version += 1
 
         assert expected_version == sc.get_automation_config_tester().automation_config["version"]

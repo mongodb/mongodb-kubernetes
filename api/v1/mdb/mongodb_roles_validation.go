@@ -77,6 +77,18 @@ func validDbActions() []string {
 // This is the list of valid actions for pivileges defined on the Cluster level
 func validClusterActions() []string {
 	return []string{
+		"bypassWriteBlockingMode",
+		"checkMetadataConsistency",
+		"transitionFromDedicatedConfigServer",
+		"setUserWriteBlockMode",
+		"setFeatureCompatibilityVersion",
+		"setDefaultRWConcern",
+		"rotateCertificates",
+		"getClusterParameter",
+		"setClusterParameter",
+		"getDefaultRWConcern",
+		"transitionToDedicatedConfigServer",
+		"compact",
 		"useUUID",
 		"dropConnections",
 		"killAnyCursor",
@@ -132,14 +144,14 @@ func validateAuthenticationRestriction(ar AuthenticationRestriction) v1.Validati
 
 	// Validate all clientSources, they have to be either valid IP addresses or CIDR ranges
 	for _, clientSource := range clientSources {
-		if !(isValidIp(clientSource) || isValidCIDR(clientSource)) {
+		if !isValidIp(clientSource) && !isValidCIDR(clientSource) {
 			return v1.ValidationError("clientSource %s is neither a valid IP address nor a valid CIDR range", clientSource)
 		}
 	}
 
 	// validate all serveraddresses, they have to be either valid IP addresses or CIDR ranges
 	for _, serverAddress := range serverAddresses {
-		if !(isValidIp(serverAddress) || isValidCIDR(serverAddress)) {
+		if !isValidIp(serverAddress) && !isValidCIDR(serverAddress) {
 			return v1.ValidationError("serverAddress %s is neither a valid IP address nor a valid CIDR range", serverAddress)
 		}
 	}

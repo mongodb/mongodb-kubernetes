@@ -271,7 +271,7 @@ func TestStatefulSetIsCorrectlyConfiguredWithTLSAfterChangingExistingVolumes(t *
 	// updating sts tls-ca volume directly to simulate changing of underlying volume's secret
 	for i := range sts.Spec.Template.Spec.Volumes {
 		if sts.Spec.Template.Spec.Volumes[i].Name == "tls-ca" {
-			sts.Spec.Template.Spec.Volumes[i].VolumeSource.Secret.SecretName = changedTLSCAVolumeSecretName
+			sts.Spec.Template.Spec.Volumes[i].Secret.SecretName = changedTLSCAVolumeSecretName
 		}
 	}
 

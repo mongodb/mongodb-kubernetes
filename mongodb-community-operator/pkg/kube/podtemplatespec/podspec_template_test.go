@@ -476,7 +476,7 @@ func TestMergeVolumes_DoesNotAddDuplicatesWithSameName(t *testing.T) {
 
 	assert.Len(t, mergedPodSpecTemplate.Spec.Volumes, 3)
 	assert.Equal(t, "new-volume", mergedPodSpecTemplate.Spec.Volumes[0].Name)
-	assert.Equal(t, "updated-host-path", mergedPodSpecTemplate.Spec.Volumes[0].VolumeSource.HostPath.Path)
+	assert.Equal(t, "updated-host-path", mergedPodSpecTemplate.Spec.Volumes[0].HostPath.Path)
 	assert.Equal(t, "new-volume-2", mergedPodSpecTemplate.Spec.Volumes[1].Name)
 	assert.Equal(t, "new-volume-3", mergedPodSpecTemplate.Spec.Volumes[2].Name)
 }
@@ -512,7 +512,7 @@ func TestAddVolumes(t *testing.T) {
 	assert.Len(t, p.Spec.Volumes, 2)
 	assert.Equal(t, "new-volume", p.Spec.Volumes[0].Name)
 	assert.Equal(t, "new-volume-2", p.Spec.Volumes[1].Name)
-	assert.Equal(t, "new-host-path", p.Spec.Volumes[0].VolumeSource.HostPath.Path)
+	assert.Equal(t, "new-host-path", p.Spec.Volumes[0].HostPath.Path)
 }
 
 func int64Ref(i int64) *int64 {

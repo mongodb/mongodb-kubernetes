@@ -76,7 +76,7 @@ func createDatabaseServiceAccountRoleAndRoleBinding(ctx context.Context, t *test
 	}
 
 	sa.Namespace = namespace
-	sa.ObjectMeta.ResourceVersion = ""
+	sa.ResourceVersion = ""
 
 	err = e2eutil.TestClient.Create(ctx, &sa, &e2eutil.CleanupOptions{})
 	if err != nil {
@@ -90,7 +90,7 @@ func createDatabaseServiceAccountRoleAndRoleBinding(ctx context.Context, t *test
 	}
 
 	role.Namespace = namespace
-	role.ObjectMeta.ResourceVersion = ""
+	role.ResourceVersion = ""
 
 	err = e2eutil.TestClient.Create(ctx, &role, &e2eutil.CleanupOptions{})
 	if err != nil {
@@ -104,7 +104,7 @@ func createDatabaseServiceAccountRoleAndRoleBinding(ctx context.Context, t *test
 	}
 
 	rolebinding.Namespace = namespace
-	rolebinding.ObjectMeta.ResourceVersion = ""
+	rolebinding.ResourceVersion = ""
 
 	err = e2eutil.TestClient.Create(ctx, &rolebinding, &e2eutil.CleanupOptions{})
 	if err != nil {

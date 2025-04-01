@@ -543,7 +543,7 @@ func DeletePod(ctx context.Context, mdb *mdbv1.MongoDBCommunity, podNum int) fun
 			t.Fatal(err)
 		}
 
-		t.Logf("pod %s/%s deleted", pod.ObjectMeta.Namespace, pod.ObjectMeta.Name)
+		t.Logf("pod %s/%s deleted", pod.Namespace, pod.Name)
 	}
 }
 
@@ -560,7 +560,7 @@ func DeleteStatefulSet(ctx context.Context, mdb *mdbv1.MongoDBCommunity) func(*t
 			t.Fatal(err)
 		}
 
-		t.Logf("StatefulSet %s/%s deleted", sts.ObjectMeta.Namespace, sts.ObjectMeta.Name)
+		t.Logf("StatefulSet %s/%s deleted", sts.Namespace, sts.Name)
 	}
 }
 

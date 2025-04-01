@@ -27,7 +27,7 @@ func ReadCredentials(ctx context.Context, secretClient secrets.SecretClient, cre
 
 	newSecretEntries, publicKey, privateKey := secretContainsPairOfKeys(secret, util.OmPublicApiKey, util.OmPrivateKey)
 
-	if !(oldSecretEntries || newSecretEntries) {
+	if !oldSecretEntries && !newSecretEntries {
 		return mdbv1.Credentials{}, xerrors.Errorf("secret %s does not contain the required entries. It should contain either %s and %s, or %s and %s", credentialsSecret, util.OldOmUser, util.OldOmPublicApiKey, util.OmPublicApiKey, util.OmPrivateKey)
 	}
 

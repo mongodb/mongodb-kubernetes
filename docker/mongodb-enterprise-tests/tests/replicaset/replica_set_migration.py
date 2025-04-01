@@ -1,8 +1,9 @@
 import pymongo
 import pytest
 from kubetester import MongoDB, try_load
-from kubetester.kubetester import ensure_ent_version
+from kubetester.kubetester import assert_statefulset_architecture, ensure_ent_version
 from kubetester.kubetester import fixture as load_fixture
+from kubetester.kubetester import get_default_architecture
 from kubetester.mongodb import Phase
 from kubetester.mongotester import MongoDBBackgroundTester, MongoTester
 from pytest import fixture
@@ -55,9 +56,24 @@ class TestReplicaSetMigrationStatic:
         mdb_health_checker.start()
 
     def test_migrate_architecture(self, mdb: MongoDB):
+        """
+        If the E2E is running with default architecture as non-static,
+        then the test will migrate to static and vice versa.
+        """
+        original_default_architecture = get_default_architecture()
+        target_architecture = "non-static" if original_default_architecture == "static" else "static"
+
         mdb.trigger_architecture_migration()
+
+        mdb.load()
+        assert mdb["metadata"]["annotations"]["mongodb.com/v1.architecture"] == target_architecture
+
         mdb.assert_abandons_phase(Phase.Running, timeout=1000)
         mdb.assert_reaches_phase(Phase.Running, timeout=1000)
+
+        # Read StatefulSet after successful reconciliation
+        sts = mdb.read_statefulset()
+        assert_statefulset_architecture(sts, target_architecture)
 
     def test_mdb_healthy_throughout_change_version(self, mdb_health_checker):
         mdb_health_checker.assert_healthiness()

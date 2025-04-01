@@ -192,7 +192,7 @@ func Test_buildOpsManagerStatefulSet(t *testing.T) {
 	ctx := context.Background()
 	sts, err := createOpsManagerStatefulset(ctx, omv1.NewOpsManagerBuilderDefault().SetName("test-om").Build())
 	assert.NoError(t, err)
-	assert.Equal(t, "test-om", sts.ObjectMeta.Name)
+	assert.Equal(t, "test-om", sts.Name)
 	assert.Equal(t, util.OpsManagerContainerName, sts.Spec.Template.Spec.Containers[0].Name)
 	assert.Equal(t, []string{"/opt/scripts/docker-entry-point.sh"},
 		sts.Spec.Template.Spec.Containers[0].Command)
@@ -397,12 +397,12 @@ func TestOpsManagerPodTemplate_Container(t *testing.T) {
 	assert.Equal(t, corev1.PullNever, containerObj.ImagePullPolicy)
 
 	assert.Equal(t, int32(util.OpsManagerDefaultPortHTTP), containerObj.Ports[0].ContainerPort)
-	assert.Equal(t, "/monitor/health", containerObj.ReadinessProbe.ProbeHandler.HTTPGet.Path)
-	assert.Equal(t, int32(8080), containerObj.ReadinessProbe.ProbeHandler.HTTPGet.Port.IntVal)
-	assert.Equal(t, "/monitor/health", containerObj.LivenessProbe.ProbeHandler.HTTPGet.Path)
-	assert.Equal(t, int32(8080), containerObj.LivenessProbe.ProbeHandler.HTTPGet.Port.IntVal)
-	assert.Equal(t, "/monitor/health", containerObj.StartupProbe.ProbeHandler.HTTPGet.Path)
-	assert.Equal(t, int32(8080), containerObj.StartupProbe.ProbeHandler.HTTPGet.Port.IntVal)
+	assert.Equal(t, "/monitor/health", containerObj.ReadinessProbe.HTTPGet.Path)
+	assert.Equal(t, int32(8080), containerObj.ReadinessProbe.HTTPGet.Port.IntVal)
+	assert.Equal(t, "/monitor/health", containerObj.LivenessProbe.HTTPGet.Path)
+	assert.Equal(t, int32(8080), containerObj.LivenessProbe.HTTPGet.Port.IntVal)
+	assert.Equal(t, "/monitor/health", containerObj.StartupProbe.HTTPGet.Path)
+	assert.Equal(t, int32(8080), containerObj.StartupProbe.HTTPGet.Port.IntVal)
 
 	assert.Equal(t, []string{"/opt/scripts/docker-entry-point.sh"}, containerObj.Command)
 	assert.Equal(t, []string{"/bin/sh", "-c", "/mongodb-ops-manager/bin/mongodb-mms stop_mms"},

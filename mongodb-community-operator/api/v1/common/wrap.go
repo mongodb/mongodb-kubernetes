@@ -116,18 +116,18 @@ type StatefulSetSpecWrapper struct {
 }
 
 // MarshalJSON defers JSON encoding to the wrapped map
-func (s *StatefulSetSpecWrapper) MarshalJSON() ([]byte, error) {
-	return json.Marshal(s.Spec)
+func (in *StatefulSetSpecWrapper) MarshalJSON() ([]byte, error) {
+	return json.Marshal(in.Spec)
 }
 
 // UnmarshalJSON will decode the data into the wrapped map
-func (s *StatefulSetSpecWrapper) UnmarshalJSON(data []byte) error {
-	return json.Unmarshal(data, &s.Spec)
+func (in *StatefulSetSpecWrapper) UnmarshalJSON(data []byte) error {
+	return json.Unmarshal(data, &in.Spec)
 }
 
-func (s *StatefulSetSpecWrapper) DeepCopy() *StatefulSetSpecWrapper {
+func (in *StatefulSetSpecWrapper) DeepCopy() *StatefulSetSpecWrapper {
 	return &StatefulSetSpecWrapper{
-		Spec: s.Spec,
+		Spec: in.Spec,
 	}
 }
 
@@ -168,10 +168,10 @@ type StatefulSetMetadataWrapper struct {
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
-func (m *StatefulSetMetadataWrapper) DeepCopy() *StatefulSetMetadataWrapper {
+func (in *StatefulSetMetadataWrapper) DeepCopy() *StatefulSetMetadataWrapper {
 	return &StatefulSetMetadataWrapper{
-		Labels:      m.Labels,
-		Annotations: m.Annotations,
+		Labels:      in.Labels,
+		Annotations: in.Annotations,
 	}
 }
 

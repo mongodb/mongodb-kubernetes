@@ -22,10 +22,10 @@ func New(funcs ...Modification) corev1.Probe {
 
 func WithExecCommand(cmd []string) Modification {
 	return func(probe *corev1.Probe) {
-		if probe.ProbeHandler.Exec == nil {
-			probe.ProbeHandler.Exec = &corev1.ExecAction{}
+		if probe.Exec == nil {
+			probe.Exec = &corev1.ExecAction{}
 		}
-		probe.ProbeHandler.Exec.Command = cmd
+		probe.Exec.Command = cmd
 	}
 }
 

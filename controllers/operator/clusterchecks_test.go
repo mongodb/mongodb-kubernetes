@@ -176,11 +176,11 @@ func (c *clusterChecks) checkServiceAnnotations(ctx context.Context, statefulSet
 		useExternalDomain := sc.Spec.GetExternalDomain() != nil
 		if !useExternalDomain {
 			if strings.HasSuffix(statefulSetName, "-mongos") {
-				useExternalDomain = sc.Spec.ShardedClusterSpec.MongosSpec.ClusterSpecList.GetExternalDomainForMemberCluster(clusterName) != nil
+				useExternalDomain = sc.Spec.MongosSpec.ClusterSpecList.GetExternalDomainForMemberCluster(clusterName) != nil
 			} else if strings.HasSuffix(statefulSetName, "-config") {
-				useExternalDomain = sc.Spec.ShardedClusterSpec.ConfigSrvSpec.ClusterSpecList.GetExternalDomainForMemberCluster(clusterName) != nil
+				useExternalDomain = sc.Spec.ConfigSrvSpec.ClusterSpecList.GetExternalDomainForMemberCluster(clusterName) != nil
 			} else {
-				useExternalDomain = sc.Spec.ShardedClusterSpec.ShardSpec.ClusterSpecList.GetExternalDomainForMemberCluster(clusterName) != nil
+				useExternalDomain = sc.Spec.ShardSpec.ClusterSpecList.GetExternalDomainForMemberCluster(clusterName) != nil
 			}
 		}
 
@@ -221,7 +221,7 @@ func (c *clusterChecks) checkStatefulSet(ctx context.Context, statefulSetName st
 	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, statefulSetName), &sts)
 	require.NoError(c.t, err, "clusterName: %s stsName: %s", c.clusterName, statefulSetName)
 	require.Equal(c.t, expectedMembers, int(*sts.Spec.Replicas))
-	require.Equal(c.t, statefulSetName, sts.ObjectMeta.Name)
+	require.Equal(c.t, statefulSetName, sts.Name)
 }
 
 func (c *clusterChecks) checkStatefulSetDoesNotExist(ctx context.Context, statefulSetName string) {

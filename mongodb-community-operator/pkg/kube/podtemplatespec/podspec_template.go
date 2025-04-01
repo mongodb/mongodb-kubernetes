@@ -100,7 +100,7 @@ func WithPodLabels(labels map[string]string) Modification {
 		labels = map[string]string{}
 	}
 	return func(podTemplateSpec *corev1.PodTemplateSpec) {
-		podTemplateSpec.ObjectMeta.Labels = labels
+		podTemplateSpec.Labels = labels
 	}
 }
 
