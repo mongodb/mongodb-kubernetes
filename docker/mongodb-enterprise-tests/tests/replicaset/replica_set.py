@@ -16,6 +16,9 @@ from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongotester import ReplicaSetTester
 from pytest import fixture
 from tests.conftest import (
+    DATABASE_SA_NAME,
+    LEGACY_OPERATOR_NAME,
+    OPERATOR_NAME,
     assert_log_rotation_backup_monitoring,
     assert_log_rotation_process,
     setup_log_rotate_for_agents,
@@ -141,8 +144,8 @@ class TestReplicaSetCreation(KubernetesTester):
 
         tmpl = sts.spec.template
         assert tmpl.metadata.labels["app"] == "my-replica-set-svc"
-        assert tmpl.metadata.labels["controller"] == "mongodb-enterprise-operator"
-        assert tmpl.spec.service_account_name == "mongodb-enterprise-database-pods"
+        assert tmpl.metadata.labels["controller"] == LEGACY_OPERATOR_NAME
+        assert tmpl.spec.service_account_name == DATABASE_SA_NAME
         assert tmpl.spec.affinity.node_affinity is None
         assert tmpl.spec.affinity.pod_affinity is None
         assert tmpl.spec.affinity.pod_anti_affinity is not None
@@ -199,7 +202,7 @@ class TestReplicaSetCreation(KubernetesTester):
         """Test that replica set is not exposed externally."""
         services = self.clients("corev1").list_namespaced_service(
             self.get_namespace(),
-            label_selector="controller=mongodb-enterprise-operator",
+            label_selector=f"controller={LEGACY_OPERATOR_NAME}",
         )
 
         # 1 for replica set
@@ -218,7 +221,7 @@ class TestReplicaSetCreation(KubernetesTester):
     def test_security_context_operator(self, operator_installation_config: Dict[str, str]):
         # todo there should be a better way to find the pods for deployment
         response = self.corev1.list_namespaced_pod(self.namespace)
-        operator_pod = [pod for pod in response.items if pod.metadata.name.startswith("mongodb-enterprise-operator-")][
+        operator_pod = [pod for pod in response.items if pod.metadata.name.startswith(f"{OPERATOR_NAME}-")][
             0
         ]
         security_context = operator_pod.spec.security_context

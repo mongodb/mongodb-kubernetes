@@ -1,4 +1,3 @@
-import pytest
 from kubetester import MongoDB
 from kubetester.certs import create_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester
@@ -6,7 +5,7 @@ from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.operator import Operator
-from pytest import fixture
+from pytest import fixture, mark
 
 RS_NAME = "my-replica-set"
 USER_PASSWORD = "/qwerty@!#:"
@@ -75,33 +74,33 @@ def replica_set_user(replica_set: MongoDB) -> MongoDBUser:
     yield resource.create()
 
 
-@pytest.mark.e2e_operator_upgrade_replica_set
+@mark.e2e_operator_upgrade_replica_set
 def test_install_latest_official_operator(official_operator: Operator):
     official_operator.assert_is_running()
 
 
-@pytest.mark.e2e_operator_upgrade_replica_set
+@mark.e2e_operator_upgrade_replica_set
 def test_install_replicaset(replica_set: MongoDB):
     replica_set.assert_reaches_phase(phase=Phase.Running)
 
 
-@pytest.mark.e2e_operator_upgrade_replica_set
+@mark.e2e_operator_upgrade_replica_set
 def test_replicaset_user_created(replica_set_user: MongoDBUser):
     replica_set_user.assert_reaches_phase(Phase.Updated)
 
 
-@pytest.mark.e2e_operator_upgrade_replica_set
+@mark.e2e_operator_upgrade_replica_set
 def test_upgrade_operator(default_operator: Operator):
     default_operator.assert_is_running()
 
 
-@pytest.mark.e2e_operator_upgrade_replica_set
+@mark.e2e_operator_upgrade_replica_set
 def test_replicaset_reconciled(replica_set: MongoDB):
     replica_set.assert_abandons_phase(phase=Phase.Running, timeout=300)
     replica_set.assert_reaches_phase(phase=Phase.Running, timeout=800)
 
 
-@pytest.mark.e2e_operator_upgrade_replica_set
+@mark.e2e_operator_upgrade_replica_set
 def test_replicaset_connectivity(replica_set: MongoDB, ca_path: str):
     tester = replica_set.tester(use_ssl=True, ca_path=ca_path)
     tester.assert_connectivity()

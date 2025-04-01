@@ -5,6 +5,7 @@ from kubernetes import client
 from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB, Phase
+from tests.conftest import LEGACY_OPERATOR_NAME, OPERATOR_NAME
 
 
 @pytest.mark.e2e_replica_set_pv
@@ -48,7 +49,7 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
 
         tmpl = sts.spec.template
         assert tmpl.metadata.labels["app"] == "rs001-pv-svc"
-        assert tmpl.metadata.labels["controller"] == "mongodb-enterprise-operator"
+        assert tmpl.metadata.labels["controller"] == LEGACY_OPERATOR_NAME
         assert tmpl.spec.affinity.node_affinity is None
         assert tmpl.spec.affinity.pod_affinity is None
         assert tmpl.spec.affinity.pod_anti_affinity is not None

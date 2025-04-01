@@ -75,9 +75,10 @@ const (
 	EnvVarSSLTrustedMMSServerCertificate = "SSL_TRUSTED_MMS_SERVER_CERTIFICATE"
 
 	// Pod/StatefulSet specific constants
+	OperatorName                   = "mongodb-kubernetes-operator"
+	LegacyOperatorName             = "mongodb-enterprise-operator" // Still used for some selectors and labels
+	MultiClusterOperatorName       = "mongodb-kubernetes-operator-multi-cluster"
 	OperatorLabelName              = "controller"
-	OperatorName                   = "mongodb-enterprise-operator"
-	MultiClusterOperatorName       = "mongodb-enterprise-operator-multi-cluster"
 	OpsManagerContainerName        = "mongodb-ops-manager"
 	BackupDaemonContainerName      = "mongodb-backup-daemon"
 	DatabaseContainerName          = "mongodb-enterprise-database"
@@ -126,8 +127,8 @@ const (
 	FsGroup   = 2000
 
 	// Service accounts
-	OpsManagerServiceAccount = "mongodb-enterprise-ops-manager"
-	MongoDBServiceAccount    = "mongodb-enterprise-database-pods"
+	OpsManagerServiceAccount = "mongodb-kubernetes-ops-manager"
+	MongoDBServiceAccount    = "mongodb-kubernetes-database-pods"
 
 	// Authentication
 	AgentSecretName                   = "agent-certs"
