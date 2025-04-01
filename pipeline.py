@@ -1024,6 +1024,64 @@ def build_init_appdb(build_configuration: BuildConfiguration):
     build_image_generic(build_configuration, "init-appdb", "inventories/init_appdb.yaml", args)
 
 
+def build_community_image(build_configuration: BuildConfiguration, image_type: str):
+    """
+    Builds image for community components (readiness probe, upgrade hook).
+
+    Args:
+        build_configuration: The build configuration to use
+        image_type: Type of image to build ("readiness-probe" or "upgrade-hook")
+    """
+
+    if image_type == "readiness-probe":
+        image_name = "mongodb-kubernetes-readinessprobe"
+        inventory_file = "inventories/readiness_probe.yaml"
+    elif image_type == "upgrade-hook":
+        image_name = "mongodb-kubernetes-operator-version-upgrade-post-start-hook"
+        inventory_file = "inventories/upgrade_hook.yaml"
+    else:
+        raise ValueError(f"Unsupported image type: {image_type}")
+
+    version, is_release = get_git_release_tag()
+    golang_version = os.getenv("GOLANG_VERSION", "1.24")
+    architectures = build_configuration.architecture or ["amd64", "arm64"]
+    multi_arch_args_list = []
+
+    for arch in architectures:
+        arch_args = {
+            "version": version,
+            "golang_version": golang_version,
+            "architecture": arch,
+        }
+        multi_arch_args_list.append(arch_args)
+
+    ecr_registry = os.environ.get("BASE_REPO_URL", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
+    base_repo = QUAY_REGISTRY_URL if is_release else ecr_registry
+
+    build_image_generic(
+        config=build_configuration,
+        image_name=image_name,
+        multi_arch_args_list=multi_arch_args_list,
+        inventory_file=inventory_file,
+        registry_address=f"{base_repo}/{image_name}",
+        is_multi_arch=True,
+    )
+
+
+def build_readiness_probe_image(build_configuration: BuildConfiguration):
+    """
+    Builds image used for readiness probe.
+    """
+    build_community_image(build_configuration, "readiness-probe")
+
+
+def build_upgrade_hook_image(build_configuration: BuildConfiguration):
+    """
+    Builds image used for version upgrade post-start hook.
+    """
+    build_community_image(build_configuration, "upgrade-hook")
+
+
 def build_agent_in_sonar(
     build_configuration: BuildConfiguration,
     image_version,
@@ -1358,9 +1416,8 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         "operator": build_operator_image,
         "mco-test": build_mco_tests_image,
         # TODO: add support to build this per patch
-        # "readinessProbe": build_readinessProbe_image,
-        # "upgradeHook": build_upgradehook_image,
-        # "agent-community": build_agent_community_image,
+        "readiness-probe": build_readiness_probe_image,
+        "upgrade-hook": build_upgrade_hook_image,
         "operator-quick": build_operator_image_patch,
         "database": build_database_image,
         "agent-pct": build_agent_on_agent_bump,

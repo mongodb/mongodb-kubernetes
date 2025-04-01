@@ -63,15 +63,14 @@ variables:
         variant: init_test_run
       - name: build_agent_images_ubi
         variant: init_test_run
+      - name: build_readiness_probe_image
+        variant: init_test_run
+      - name: build_upgrade_hook_image
+        variant: init_test_run
+      - name: build_mco_test_image
+        variant: init_test_run
 
   - &setup_group
-    setup_group_can_fail_task: true
-    setup_group:
-      - func: clone
-      - func: download_kube_tools
-      - func: setup_building_host
-
-  - &setup_group_community
     setup_group_can_fail_task: true
     setup_group:
       - func: clone
@@ -472,6 +471,24 @@ tasks:
       - func: pipeline
         vars:
           image_name: database
+          skip_tags: ubuntu,release
+
+  - name: build_readiness_probe_image
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: readiness-probe
+          skip_tags: ubuntu,release
+
+  - name: build_upgrade_hook_image
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: upgrade-hook
           skip_tags: ubuntu,release
 
   - name: prepare_aws
@@ -1521,13 +1538,9 @@ buildvariants:
   - name: e2e_mco_tests
     display_name: "e2e_mco_tests"
     tags: [ "e2e_mco_test_suite"]
+    <<: *community_dependency
     run_on:
       - ubuntu2004-large
-    depends_on:
-      - name: build_operator_ubi
-        variant: init_test_run
-      - name: build_mco_test_image
-        variant: init_test_run
 
   ## Manual (patch) E2E tests not run for every PR and commit
 
@@ -1577,7 +1590,8 @@ buildvariants:
       - name: build_init_database_image_ubi
       - name: build_database_image_ubi
       - name: build_agent_images_ubi
-      - name: build_agent_images_ubi
+      - name: build_readiness_probe_image
+      - name: build_upgrade_hook_image
       - name: prepare_aws
 
   - name: init_release_agents_on_ecr

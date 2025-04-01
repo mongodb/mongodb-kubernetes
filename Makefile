@@ -71,6 +71,12 @@ operator: configure-operator build-and-push-operator-image
 database: aws_login
 	@ scripts/evergreen/run_python.sh pipeline.py --include database
 
+readiness_probe: aws_login
+	@ scripts/evergreen/run_python.sh pipeline.py --include readiness-probe
+
+upgrade_hook: aws_login
+	@ scripts/evergreen/run_python.sh pipeline.py --include upgrade-hook
+
 # ensures cluster is up, cleans Kubernetes + OM, build-push-deploy operator,
 # push-deploy database, create secrets, config map, resources etc
 full: build-and-push-images

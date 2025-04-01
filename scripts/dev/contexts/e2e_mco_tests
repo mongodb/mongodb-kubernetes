@@ -9,7 +9,3 @@ source "${script_dir}/root-context"
 
 # TODO: MCK this is requires that we skip trying to configure/reach om
 export OM_EXTERNALLY_CONFIGURED=true
-# TODO: make this per patch based on version_id{}
-export MONGODB_COMMUNITY_AGENT_IMAGE="${QUAY_REGISTRY}/mongodb-agent-ubi:108.0.2.8729-1"
-export VERSION_UPGRADE_HOOK_IMAGE="${QUAY_REGISTRY}/mongodb-kubernetes-operator-version-upgrade-post-start-hook:1.0.9"
-export READINESS_PROBE_IMAGE="${QUAY_REGISTRY}/mongodb-kubernetes-readinessprobe:1.0.22"
