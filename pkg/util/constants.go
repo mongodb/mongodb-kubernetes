@@ -302,10 +302,16 @@ const (
 	Finalizer = "mongodb.com/v1.userRemovalFinalizer"
 )
 
+type OperatorEnvironment string
+
+func (o OperatorEnvironment) String() string {
+	return string(o)
+}
+
 const (
-	OperatorEnvironmentDev   string = "dev"
-	OperatorEnvironmentProd  string = "prod"
-	OperatorEnvironmentLocal string = "local"
+	OperatorEnvironmentDev   OperatorEnvironment = "dev"
+	OperatorEnvironmentProd  OperatorEnvironment = "prod"
+	OperatorEnvironmentLocal OperatorEnvironment = "local"
 )
 
 // ***** These variables are set at compile time
