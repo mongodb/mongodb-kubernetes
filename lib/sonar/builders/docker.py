@@ -3,17 +3,21 @@ import subprocess
 from typing import Dict, Optional
 
 import docker.errors
+from opentelemetry import trace
 
 import docker
 from lib.base_logger import logger
 
 from . import SonarAPIError
 
+TRACER = trace.get_tracer("evergreen-agent")
+
 
 def docker_client() -> docker.DockerClient:
     return docker.client.from_env(timeout=60 * 60 * 24)
 
 
+@TRACER.start_as_current_span("docker_build")
 def docker_build(
     path: str,
     dockerfile: str,
@@ -132,22 +136,37 @@ def docker_tag(
         raise SonarAPIError from e
 
 
+@TRACER.start_as_current_span("image_exists")
 def image_exists(repository, tag):
-    """Check if a Docker image with the specified tag exists in the repository."""
+    """Check if a Docker image with the specified tag exists in the repository using efficient HEAD requests."""
     logger.info(f"checking image {tag}, exists in remote repository: {repository}")
-    client = docker_client()
+
+    return check_registry_image_exists(repository, tag)
+
+
+def check_registry_image_exists(repository, tag):
+    """Check if image exists in generic registries using HTTP HEAD requests."""
+    import requests
 
     try:
-        # Pull the repository's image list
-        image = client.images.get_registry_data(f"{repository}:{tag}")
+        # Determine registry URL format
+        parts = repository.split("/")
+        registry_domain = parts[0]
+        repository_path = "/".join(parts[1:])
 
-        # If the image is found, return True
-        return True
+        # Construct URL for manifest check
+        url = f"https://{registry_domain}/v2/{repository_path}/manifests/{tag}"
+        headers = {"Accept": "application/vnd.docker.distribution.manifest.v2+json"}
+
+        # Make HEAD request instead of full manifest retrieval
+        response = requests.head(url, headers=headers, timeout=3)
+        return response.status_code == 200
     except Exception as e:
-        logger.warning(f"An error occurred while checking the image: {e}")
+        logger.warning(f"Error checking registry for {repository}:{tag}: {e}")
         return False
 
 
+@TRACER.start_as_current_span("docker_push")
 def docker_push(registry: str, tag: str):
     def inner_docker_push(should_raise=False):
 
