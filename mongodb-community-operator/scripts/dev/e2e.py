@@ -100,8 +100,8 @@ def create_test_pod(args: argparse.Namespace, namespace: str) -> None:
                         # TODO: MCK: when running locally - let's default to /dev and not our own image unless specified
                         # TODO: MCK: change this to be per patch and not hard coded
                         {
-                            "name": "MONGODB_COMMUNITY_AGENT_IMAGE",
-                            "value": f"{os.getenv('MONGODB_COMMUNITY_AGENT_IMAGE')}",
+                            "name": "MDB_COMMUNITY_AGENT_IMAGE",
+                            "value": f"{os.getenv('MDB_COMMUNITY_AGENT_IMAGE')}",
                         },
                         {
                             "name": "WATCH_NAMESPACE",
@@ -118,8 +118,8 @@ def create_test_pod(args: argparse.Namespace, namespace: str) -> None:
                             "value": f"{os.getenv('READINESS_PROBE_IMAGE')}",
                         },
                         {
-                            "name": "MONGODB_COMMUNITY_IMAGE",
-                            "value": f"{os.getenv('MONGODB_COMMUNITY_IMAGE')}",
+                            "name": "MDB_COMMUNITY_IMAGE",
+                            "value": f"{os.getenv('MDB_COMMUNITY_IMAGE')}",
                         },
                         {
                             "name": "PERFORM_CLEANUP",

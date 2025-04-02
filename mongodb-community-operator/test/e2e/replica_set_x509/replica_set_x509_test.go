@@ -32,8 +32,8 @@ func TestReplicaSetX509(t *testing.T) {
 	ctx := context.Background()
 	resourceName := "mdb-tls"
 	helmArgs := []setup.HelmArg{
-		{Name: "resource.tls.useX509", Value: "true"},
-		{Name: "resource.tls.sampleX509User", Value: "true"},
+		{Name: "community.resource.tls.useX509", Value: "true"},
+		{Name: "community.resource.tls.sampleX509User", Value: "true"},
 	}
 	testCtx, testConfig := setup.SetupWithTLS(ctx, t, resourceName, helmArgs...)
 	defer testCtx.Teardown()

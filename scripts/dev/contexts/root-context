@@ -96,7 +96,7 @@ export PYTHON_VERSION=3.13
 
 
 ## MCO
-export MONGODB_COMMUNITY_IMAGE=mongodb-community-server
-export MONGODB_COMMUNITY_REPO_URL=quay.io/mongodb
-export MONGODB_COMMUNITY_AGENT_IMAGE=${AGENT_IMAGE}
+export MDB_COMMUNITY_IMAGE=mongodb-community-server
+export MDB_COMMUNITY_REPO_URL=quay.io/mongodb
+export MDB_COMMUNITY_AGENT_IMAGE=${AGENT_IMAGE}
 export MDB_COMMUNITY_IMAGE_TYPE=ubi8

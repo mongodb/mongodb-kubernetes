@@ -44,11 +44,11 @@ func LoadTestConfigFromEnv() TestConfig {
 		CertManagerVersion:   envvar.GetEnvOrDefault(testCertManagerVersionEnvName, "v1.5.3"),         // nolint:forbidigo
 		OperatorImageRepoUrl: envvar.GetEnvOrDefault(operatorImageRepoEnvName, "quay.io/mongodb"),     // nolint:forbidigo
 		// TODO: MCK
-		MongoDBImage:            envvar.GetEnvOrDefault("MONGODB_COMMUNITY_IMAGE", "mongodb-community-server"),                                                                     // nolint:forbidigo
+		MongoDBImage:            envvar.GetEnvOrDefault("MDB_COMMUNITY_IMAGE", "mongodb-community-server"),                                                                         // nolint:forbidigo
 		MongoDBRepoUrl:          envvar.GetEnvOrDefault(construct.MongodbRepoUrlEnv, "quay.io/mongodb"),                                                                            // nolint:forbidigo
 		VersionUpgradeHookImage: envvar.GetEnvOrDefault(construct.VersionUpgradeHookImageEnv, "quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook:1.0.2"), // nolint:forbidigo
 		// TODO: MCK better way to decide default agent image.
-		AgentImage:          envvar.GetEnvOrDefault("MONGODB_COMMUNITY_AGENT_IMAGE", "quay.io/mongodb/mongodb-agent-ubi:108.0.2.8729-1"),         // nolint:forbidigo
+		AgentImage:          envvar.GetEnvOrDefault("MDB_COMMUNITY_AGENT_IMAGE", "quay.io/mongodb/mongodb-agent-ubi:108.0.2.8729-1"),             // nolint:forbidigo
 		ClusterWide:         envvar.ReadBool(clusterWideEnvName),                                                                                 // nolint:forbidigo
 		PerformCleanup:      envvar.ReadBool(performCleanupEnvName),                                                                              // nolint:forbidigo
 		ReadinessProbeImage: envvar.GetEnvOrDefault(construct.ReadinessProbeImageEnv, "quay.io/mongodb/mongodb-kubernetes-readinessprobe:1.0.3"), // nolint:forbidigo

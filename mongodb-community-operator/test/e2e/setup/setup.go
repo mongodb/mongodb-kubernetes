@@ -141,30 +141,30 @@ func getHelmArgs(testConfig TestConfig, watchNamespace string, resourceName stri
 	if !defaultOperator {
 		helmArgs["operator.operator_image_name"] = testConfig.OperatorImage
 		helmArgs["operator.version"] = testConfig.OperatorVersion
+		helmArgs["registry.operator"] = testConfig.OperatorImageRepoUrl
+
+		helmArgs["community.agent.version"] = agentVersion
+		helmArgs["community.agent.name"] = agentName
+
+		helmArgs["community.mongodb.name"] = testConfig.MongoDBImage
+		helmArgs["community.mongodb.repo"] = testConfig.MongoDBRepoUrl
+		helmArgs["community.registry.agent"] = agentRegistry
+
+		helmArgs["registry.versionUpgradeHook"] = versionUpgradeHookRegistry
+		helmArgs["registry.readinessProbe"] = readinessProbeRegistry
+		helmArgs["registry.imagePullSecrets"] = "image-registries-secret"
 		helmArgs["versionUpgradeHook.name"] = versionUpgradeHookName
 		helmArgs["versionUpgradeHook.version"] = versionUpgradeHookVersion
 
 		helmArgs["readinessProbe.name"] = readinessProbeName
 		helmArgs["readinessProbe.version"] = readinessProbeVersion
-
-		helmArgs["agent.version"] = agentVersion
-		helmArgs["agent.name"] = agentName
-
-		helmArgs["mongodb.name"] = testConfig.MongoDBImage
-		helmArgs["mongodb.repo"] = testConfig.MongoDBRepoUrl
-
-		helmArgs["registry.versionUpgradeHook"] = versionUpgradeHookRegistry
-		helmArgs["registry.operator"] = testConfig.OperatorImageRepoUrl
-		helmArgs["registry.agent"] = agentRegistry
-		helmArgs["registry.readinessProbe"] = readinessProbeRegistry
-		helmArgs["registry.imagePullSecrets"] = "image-registries-secret"
 	}
 
-	// TODO: only used for one mco tls test
-	helmArgs["createResource"] = strconv.FormatBool(false)
-	helmArgs["resource.name"] = resourceName
-	helmArgs["resource.tls.enabled"] = strconv.FormatBool(withTLS)
-	helmArgs["resource.tls.useCertManager"] = strconv.FormatBool(withTLS)
+	// only used for one mco tls test
+	helmArgs["community.createResource"] = strconv.FormatBool(false)
+	helmArgs["community.resource.name"] = resourceName
+	helmArgs["community.resource.tls.enabled"] = strconv.FormatBool(withTLS)
+	helmArgs["community.resource.tls.useCertManager"] = strconv.FormatBool(withTLS)
 
 	for _, arg := range additionalHelmArgs {
 		helmArgs[arg.Name] = arg.Value

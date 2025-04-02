@@ -14,8 +14,8 @@ import (
 )
 
 func DeployEnterpriseAndUpgradeTest(ctx context.Context, t *testing.T, versionsToBeTested []string) {
-	t.Setenv(construct.MongodbRepoUrlEnv, "docker.io/mongodb")
-	t.Setenv(construct.MongodbImageEnv, "mongodb-enterprise-server")
+	t.Setenv(construct.MongodbCommunityRepoUrlEnv, "docker.io/mongodb")
+	t.Setenv(construct.MongodbCommunityImageEnv, "mongodb-enterprise-server")
 	testCtx := setup.Setup(ctx, t)
 	defer testCtx.Teardown()
 

@@ -240,20 +240,17 @@ func main() {
 		log.Infof("Registered CRD: %s", r)
 	}
 
-	// TODO: local operator run requires default values as defined here in env var like manager.yaml from MCO
 	if slices.Contains(crds, mongoDBCommunityCRDPlural) {
 		if err := setupCommunityController(
 			mgr,
-			envvar.GetEnvOrDefault(mcoConstruct.MongodbCommunityRepoUrlEnv, "quay.io/mongodb"), // TODO: MCK check whether this truly needs a new env var
+			envvar.GetEnvOrDefault(mcoConstruct.MongodbCommunityRepoUrlEnv, "quay.io/mongodb"),
 			// when running MCO resource -> mongodb-community-server
 			// when running appdb -> mongodb-enterprise-server
-			envvar.GetEnvOrDefault(util.MongodbCommunityImageEnv, "mongodb-community-server"),                // TODO: MCK check whether this truly needs a new env var
-			envvar.GetEnvOrDefault(mcoConstruct.MongoDBCommunityImageTypeEnv, mcoConstruct.DefaultImageType), // TODO: MCK check whether this truly needs a new env var
-			// right now we don't add imagePullSecrets so we cannot rely on the ecr ones
-			// agent_image is also used by appdb, some people might not want the same for both
-			envvar.GetEnvOrDefault(util.MongodbCommunityAgentImageEnv, "quay.io/mongodb/mongodb-agent-ubi:108.0.2.8729-1"), // TODO: MCK check whether this truly needs a new env var
-			envvar.GetEnvOrDefault(mcoConstruct.VersionUpgradeHookImageEnv, "quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook:1.0.9"),
-			envvar.GetEnvOrDefault(mcoConstruct.ReadinessProbeImageEnv, "quay.io/mongodb/mongodb-kubernetes-readinessprobe:1.0.22"),
+			env.ReadOrPanic(mcoConstruct.MongodbCommunityImageEnv),
+			envvar.GetEnvOrDefault(mcoConstruct.MongoDBCommunityImageTypeEnv, mcoConstruct.DefaultImageType),
+			os.Getenv(util.MongodbCommunityAgentImageEnv),
+			os.Getenv(mcoConstruct.VersionUpgradeHookImageEnv),
+			os.Getenv(mcoConstruct.ReadinessProbeImageEnv),
 		); err != nil {
 			log.Fatal(err)
 		}
@@ -322,8 +319,8 @@ func setupCommunityController(
 ) error {
 	return mcoController.NewReconciler(
 		mgr,
-		mongodbRepoURL,
-		mongodbImage,
+		mongodbRepoURL, //
+		mongodbImage,   // defaults to enterprise in appdb, here should be community
 		mongodbImageType,
 		agentImage,
 		versionUpgradeHookImage,

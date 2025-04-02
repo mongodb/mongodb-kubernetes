@@ -182,8 +182,7 @@ const (
 	CurrentNamespace                 = "NAMESPACE"
 	WatchNamespace                   = "WATCH_NAMESPACE"
 	OpsManagerMonitorAppDB           = "OPS_MANAGER_MONITOR_APPDB"
-	MongodbCommunityImageEnv         = "MONGODB_COMMUNITY_IMAGE"
-	MongodbCommunityAgentImageEnv    = "MONGODB_COMMUNITY_AGENT_IMAGE"
+	MongodbCommunityAgentImageEnv    = "MDB_COMMUNITY_AGENT_IMAGE"
 
 	MdbWebhookRegisterConfigurationEnv = "MDB_WEBHOOK_REGISTER_CONFIGURATION"
 	MdbWebhookPortEnv                  = "MDB_WEBHOOK_PORT"
