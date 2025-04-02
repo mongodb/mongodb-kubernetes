@@ -1187,6 +1187,11 @@ func containsName(name string, nsNames []types.NamespacedName) bool {
 func configureBackupResources(ctx context.Context, m kubernetesClient.Client, testOm *omv1.MongoDBOpsManager) {
 	// configure S3 Secret
 	for _, s3Config := range testOm.Spec.Backup.S3Configs {
+		// skip if no secret ref is provided (valid for IRSA enabled deployments)
+		if s3Config.S3SecretRef == nil {
+			continue
+		}
+
 		s3Creds := secret.Builder().
 			SetName(s3Config.S3SecretRef.Name).
 			SetNamespace(testOm.Namespace).

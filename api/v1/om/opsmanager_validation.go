@@ -187,6 +187,39 @@ func validateClusterSpecList(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
+func validateBackupS3Stores(os MongoDBOpsManagerSpec) v1.ValidationResult {
+	backup := os.Backup
+	if backup == nil || !backup.Enabled {
+		return v1.ValidationSuccess()
+	}
+
+	if len(backup.S3Configs) > 0 {
+		for _, config := range backup.S3Configs {
+			if config.IRSAEnabled {
+				if config.S3SecretRef != nil {
+					return v1.OpsManagerResourceValidationWarning("'s3SecretRef' must not be specified if using IRSA (S3 Store: %s)", status.OpsManager, config.Name)
+				}
+			} else if config.S3SecretRef == nil || config.S3SecretRef.Name == "" {
+				return v1.OpsManagerResourceValidationError("'s3SecretRef' must be specified if not using IRSA (S3 Store: %s)", status.OpsManager, config.Name)
+			}
+		}
+	}
+
+	if len(backup.S3OplogStoreConfigs) > 0 {
+		for _, oplogStoreConfig := range backup.S3OplogStoreConfigs {
+			if oplogStoreConfig.IRSAEnabled {
+				if oplogStoreConfig.S3SecretRef != nil {
+					return v1.OpsManagerResourceValidationWarning("'s3SecretRef' must not be specified if using IRSA (S3 OpLog Store: %s)", status.OpsManager, oplogStoreConfig.Name)
+				}
+			} else if oplogStoreConfig.S3SecretRef == nil || oplogStoreConfig.S3SecretRef.Name == "" {
+				return v1.OpsManagerResourceValidationError("'s3SecretRef' must be specified if not using IRSA (S3 OpLog Store: %s)", status.OpsManager, oplogStoreConfig.Name)
+			}
+		}
+	}
+
+	return v1.ValidationSuccess()
+}
+
 func (om *MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 	validators := []func(m MongoDBOpsManagerSpec) v1.ValidationResult{
 		validOmVersion,
@@ -200,6 +233,7 @@ func (om *MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 		validateEmptyClusterSpecListSingleCluster,
 		validateTopologyIsSpecified,
 		validateClusterSpecList,
+		validateBackupS3Stores,
 		featureCompatibilityVersionValidation,
 	}
 

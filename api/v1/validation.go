@@ -34,6 +34,10 @@ func ValidationError(msg string, params ...interface{}) ValidationResult {
 	return ValidationResult{Msg: fmt.Sprintf(msg, params...), Level: ErrorLevel}
 }
 
+func OpsManagerResourceValidationWarning(msg string, part status.Part, params ...interface{}) ValidationResult {
+	return ValidationResult{Msg: fmt.Sprintf(msg, params...), Level: WarningLevel, OmStatusPart: part}
+}
+
 func OpsManagerResourceValidationError(msg string, part status.Part, params ...interface{}) ValidationResult {
 	return ValidationResult{Msg: fmt.Sprintf(msg, params...), Level: ErrorLevel, OmStatusPart: part}
 }

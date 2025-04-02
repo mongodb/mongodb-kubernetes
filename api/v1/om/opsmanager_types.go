@@ -505,13 +505,16 @@ type SecretRef struct {
 }
 
 type S3Config struct {
-	MongoDBResourceRef     *userv1.MongoDBResourceRef `json:"mongodbResourceRef,omitempty"`
-	MongoDBUserRef         *MongoDBUserRef            `json:"mongodbUserRef,omitempty"`
-	S3SecretRef            SecretRef                  `json:"s3SecretRef"`
-	Name                   string                     `json:"name"`
-	PathStyleAccessEnabled bool                       `json:"pathStyleAccessEnabled"`
-	S3BucketEndpoint       string                     `json:"s3BucketEndpoint"`
-	S3BucketName           string                     `json:"s3BucketName"`
+	MongoDBResourceRef *userv1.MongoDBResourceRef `json:"mongodbResourceRef,omitempty"`
+	MongoDBUserRef     *MongoDBUserRef            `json:"mongodbUserRef,omitempty"`
+	// S3SecretRef is the secret that contains the AWS credentials used to access S3
+	// It is optional because the credentials can be provided via AWS IRSA
+	// +optional
+	S3SecretRef            *SecretRef `json:"s3SecretRef,omitempty"`
+	Name                   string     `json:"name"`
+	PathStyleAccessEnabled bool       `json:"pathStyleAccessEnabled"`
+	S3BucketEndpoint       string     `json:"s3BucketEndpoint"`
+	S3BucketName           string     `json:"s3BucketName"`
 	// +optional
 	S3RegionOverride string `json:"s3RegionOverride"`
 	// Set this to "true" to use the appDBCa as a CA to access S3.
@@ -784,6 +787,19 @@ func (om *MongoDBOpsManager) GetStatus(options ...status.Option) interface{} {
 	return om.Status
 }
 
+func (om *MongoDBOpsManager) GetStatusWarnings(part status.Part) []status.Warning {
+	switch part {
+	case status.OpsManager:
+		return om.Status.OpsManagerStatus.Warnings
+	case status.AppDb:
+		return om.Status.AppDbStatus.Warnings
+	case status.Backup:
+		return om.Status.BackupStatus.Warnings
+	default:
+		return []status.Warning{}
+	}
+}
+
 func (om *MongoDBOpsManager) GetCommonStatus(options ...status.Option) *status.Common {
 	if part, exists := status.GetOption(options, status.OMPartOption{}); exists {
 		switch part.Value().(status.Part) {
@@ -957,7 +973,7 @@ func (om *MongoDBOpsManager) GetSecretsMountedIntoPod() []string {
 
 	if om.Spec.Backup != nil {
 		for _, config := range om.Spec.Backup.S3Configs {
-			if config.S3SecretRef.Name != "" {
+			if config.S3SecretRef != nil && config.S3SecretRef.Name != "" {
 				secretNames = append(secretNames, config.S3SecretRef.Name)
 			}
 		}
