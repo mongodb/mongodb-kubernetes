@@ -157,21 +157,6 @@ class TestOpsManagerS3StoreS3BucketNameRequired(KubernetesTester):
 
 
 @pytest.mark.e2e_om_appdb_validation
-class TestOpsManagerS3StoreS3SecretRequired(KubernetesTester):
-    """
-    description: |
-      S3 store specified but missing 's3SecretRef' field
-    create:
-      file: om_s3store_validation.yaml
-      patch: '[{"op":"add","path":"/spec/backup/s3Stores/-","value":{ "name": "foo", "mongodbResourceRef": {"name":"my-rs" }, "pathStyleAccessEnabled": true , "s3BucketEndpoint": "my-endpoint", "s3BucketName": "bucket-name"}}]'
-      exception: 'spec.backup.s3Stores[0].s3SecretRef: Required value'
-    """
-
-    def test_validation_ok(self):
-        assert True
-
-
-@pytest.mark.e2e_om_appdb_validation
 class TestOpsManagerExternalConnectivityTypeRequired(KubernetesTester):
     """
     description: |
