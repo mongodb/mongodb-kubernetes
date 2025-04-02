@@ -84,7 +84,7 @@ func (b *OpsManagerBuilder) AddS3Config(s3ConfigName, credentialsName string) *O
 		b.om.Spec.Backup.S3Configs = []S3Config{}
 	}
 	b.om.Spec.Backup.S3Configs = append(b.om.Spec.Backup.S3Configs, S3Config{
-		S3SecretRef: SecretRef{
+		S3SecretRef: &SecretRef{
 			Name: credentialsName,
 		},
 		Name: s3ConfigName,
@@ -109,6 +109,17 @@ func (b *OpsManagerBuilder) AddOplogStoreConfig(oplogStoreName, userName string,
 			Name: userName,
 		},
 	})
+	return b
+}
+
+func (b *OpsManagerBuilder) AddS3OplogStoreConfig(s3Config S3Config) *OpsManagerBuilder {
+	if b.om.Spec.Backup == nil {
+		b.om.Spec.Backup = &MongoDBOpsManagerBackup{Enabled: true}
+	}
+	if b.om.Spec.Backup.S3OplogStoreConfigs == nil {
+		b.om.Spec.Backup.S3OplogStoreConfigs = []S3Config{}
+	}
+	b.om.Spec.Backup.S3OplogStoreConfigs = append(b.om.Spec.Backup.S3OplogStoreConfigs, s3Config)
 	return b
 }
 
