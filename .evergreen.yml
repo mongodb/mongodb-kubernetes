@@ -857,6 +857,7 @@ task_groups:
       - e2e_multi_cluster_appdb_disaster_recovery_force_reconfigure
       - e2e_multi_cluster_om_networking_clusterwide
       # Reused OM tests with AppDB Multi-Cluster topology
+      - e2e_operator_upgrade_appdb_tls
       - e2e_om_appdb_flags_and_config
       - e2e_om_appdb_upgrade
       - e2e_om_appdb_monitoring_tls

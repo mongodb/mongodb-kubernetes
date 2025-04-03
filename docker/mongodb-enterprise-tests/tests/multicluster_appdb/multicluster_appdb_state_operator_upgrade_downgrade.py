@@ -37,7 +37,7 @@ though we don't officially support these paths.
 The workflow of this test is the following
 Install Operator 1.27 -> Deploy OM/AppDB -> Upgrade operator (dev version) -> Scale AppDB
 -> Downgrade Operator to 1.27 -> Scale AppDB
-At each step, we verify that the state is correct 
+At each step, we verify that the state is correct
 """
 
 
