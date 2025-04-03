@@ -26,7 +26,7 @@ from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 from kubernetes.stream import stream
 from kubetester.crypto import wait_for_certs_to_be_issued
-from requests.auth import HTTPDigestAuth
+from requests.auth import HTTPBasicAuth, HTTPDigestAuth
 
 SSL_CA_CERT = "/var/run/secrets/kubernetes.io/serviceaccount/..data/ca.crt"
 EXTERNALLY_MANAGED_TAG = "EXTERNALLY_MANAGED_BY_KUBERNETES"
@@ -1451,8 +1451,10 @@ def run_periodically(fn, *args, **kwargs):
     start_time = current_milliseconds()
     end = start_time + (timeout * 1000)
     callable_name = fn.__name__
+    attempts = 0
 
     while current_milliseconds() < end or timeout <= 0:
+        attempts += 1
         fn_result = fn()
         fn_condition_msg = None
         if isinstance(fn_result, bool):
@@ -1465,8 +1467,8 @@ def run_periodically(fn, *args, **kwargs):
 
         if fn_condition:
             print(
-                "{} executed successfully after {} seconds".format(
-                    callable_name, (current_milliseconds() - start_time) / 1000
+                "{} executed successfully after {} seconds and {} attempts".format(
+                    callable_name, (current_milliseconds() - start_time) / 1000, attempts
                 )
             )
             return True
@@ -1476,7 +1478,9 @@ def run_periodically(fn, *args, **kwargs):
         time.sleep(sleep_time)
 
     raise AssertionError(
-        "Timed out executing {} after {} seconds".format(callable_name, (current_milliseconds() - start_time) / 1000)
+        "Timed out executing {} after {} seconds and {} attempt(s)".format(
+            callable_name, (current_milliseconds() - start_time) / 1000, attempts
+        )
     )
 
 
@@ -1498,6 +1502,10 @@ def get_env_var_or_fail(name):
 
 def build_auth(user, api_key):
     return HTTPDigestAuth(user, api_key)
+
+
+def build_agent_auth(group_id, api_key):
+    return HTTPBasicAuth(group_id, api_key)
 
 
 def build_om_groups_endpoint(base_url):

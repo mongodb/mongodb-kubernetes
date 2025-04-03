@@ -351,7 +351,7 @@ func TestEnsureAppDbAgentApiKey(t *testing.T) {
 	require.NoError(t, err)
 
 	omConnectionFactory.GetConnection().(*om.MockedOmConnection).AgentAPIKey = "my-api-key"
-	err = reconciler.ensureAppDbAgentApiKey(ctx, opsManager, omConnectionFactory.GetConnection(), omConnectionFactory.GetConnection().GroupID(), zap.S())
+	_, err = reconciler.ensureAppDbAgentApiKey(ctx, opsManager, omConnectionFactory.GetConnection(), omConnectionFactory.GetConnection().GroupID(), zap.S())
 	assert.NoError(t, err)
 
 	secretName := agents.ApiKeySecretName(omConnectionFactory.GetConnection().GroupID())
@@ -407,8 +407,15 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 	assert.Equal(t, om.TestGroupID, podVars.ProjectID)
 	assert.Equal(t, "publicApiKey", podVars.User)
 
-	hosts, _ := omConnectionFactory.GetConnection().GetHosts()
-	assert.Len(t, hosts.Results, 5, "the AppDB hosts should have been added")
+	expectedHostnames := []string{
+		"test-om-db-0.test-om-db-svc.my-namespace.svc.cluster.local",
+		"test-om-db-1.test-om-db-svc.my-namespace.svc.cluster.local",
+		"test-om-db-2.test-om-db-svc.my-namespace.svc.cluster.local",
+		"test-om-db-3.test-om-db-svc.my-namespace.svc.cluster.local",
+		"test-om-db-4.test-om-db-svc.my-namespace.svc.cluster.local",
+	}
+
+	assertExpectedHostnamesAndPreferred(t, omConnectionFactory.GetConnection().(*om.MockedOmConnection), expectedHostnames)
 
 	appDbSts, err = construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, v1.OnDeleteStatefulSetStrategyType, zap.S())
 	assert.NoError(t, err)

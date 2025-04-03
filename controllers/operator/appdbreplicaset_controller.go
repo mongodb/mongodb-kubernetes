@@ -542,7 +542,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 				log.Warnf("ignoring ensureProjectIDConfigMap error: %v", err)
 			}
 			// OM connection is passed as nil as it's used only for generating agent api key. Here we have it already
-			if err := r.ensureAppDbAgentApiKey(ctx, opsManager, nil, podVars.ProjectID, log); err != nil {
+			if _, err := r.ensureAppDbAgentApiKey(ctx, opsManager, nil, podVars.ProjectID, log); err != nil {
 				// we ignore the error here and let reconciler continue
 				log.Warnf("ignoring ensureAppDbAgentApiKey error: %v", err)
 			}
@@ -1255,7 +1255,7 @@ func (r *ReconcileAppDbReplicaSet) generateMemberOptions(opsManager *omv1.MongoD
 	return memberOptionsList
 }
 
-func (r *ReconcileAppDbReplicaSet) generateHeadlessHostnamesForMonitoring(opsManager *omv1.MongoDBOpsManager) []string {
+func (r *ReconcileAppDbReplicaSet) generateHostnamesForMonitoring(opsManager *omv1.MongoDBOpsManager) []string {
 	var hostnames []string
 	// We want all clusters to generate stable process list in case of some clusters being down. Process list cannot change regardless of the cluster health.
 	for _, memberCluster := range r.getAllMemberClusters() {
@@ -1400,7 +1400,7 @@ func (r *ReconcileAppDbReplicaSet) registerAppDBHostsWithProject(hostnames []str
 
 		if currentHost, ok := hostMap[hostname]; ok {
 			// Host is already on the list, we need to update it.
-			log.Debugf("Host %s is already registred with group %s", hostname, conn.GroupID())
+			log.Debugf("Host %s is already registered with group %s", hostname, conn.GroupID())
 			// Need to se the Id first
 			appDbHost.Id = currentHost.Id
 
@@ -1412,6 +1412,30 @@ func (r *ReconcileAppDbReplicaSet) registerAppDBHostsWithProject(hostnames []str
 			log.Debugf("Registering AppDB host %s with project %s", hostname, conn.GroupID())
 			if err := conn.AddHost(appDbHost); err != nil {
 				return xerrors.Errorf("*** error adding appdb host %w", err)
+			}
+		}
+	}
+	return nil
+}
+
+// addPreferredHostnames will add the hostnames as preferred in Ops Manager
+// Ops Manager does not check for duplicates, so we need to treat it here.
+func (r *ReconcileAppDbReplicaSet) addPreferredHostnames(ctx context.Context, conn om.Connection, opsManager *omv1.MongoDBOpsManager, agentApiKey string, hostnames []string) error {
+	existingPreferredHostnames, err := conn.GetPreferredHostnames(agentApiKey)
+	if err != nil {
+		return err
+	}
+
+	existingPreferredHostnamesMap := make(map[string]om.PreferredHostname)
+	for _, hostname := range existingPreferredHostnames {
+		existingPreferredHostnamesMap[hostname.Value] = hostname
+	}
+
+	for _, hostname := range hostnames {
+		if _, ok := existingPreferredHostnamesMap[hostname]; !ok {
+			err := conn.AddPreferredHostname(agentApiKey, hostname, false)
+			if err != nil {
+				return err
 			}
 		}
 	}
@@ -1505,7 +1529,7 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDbPassword(ctx context.Context, opsM
 }
 
 // ensureAppDbAgentApiKey makes sure there is an agent API key for the AppDB automation agent
-func (r *ReconcileAppDbReplicaSet) ensureAppDbAgentApiKey(ctx context.Context, opsManager *omv1.MongoDBOpsManager, conn om.Connection, projectID string, log *zap.SugaredLogger) error {
+func (r *ReconcileAppDbReplicaSet) ensureAppDbAgentApiKey(ctx context.Context, opsManager *omv1.MongoDBOpsManager, conn om.Connection, projectID string, log *zap.SugaredLogger) (string, error) {
 	var appdbSecretPath string
 	if r.VaultClient != nil {
 		appdbSecretPath = r.VaultClient.AppDBSecretPath()
@@ -1514,13 +1538,13 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDbAgentApiKey(ctx context.Context, o
 	agentKey := ""
 	for _, memberCluster := range r.GetHealthyMemberClusters() {
 		if agentKeyFromSecret, err := agents.EnsureAgentKeySecretExists(ctx, memberCluster.SecretClient, conn, opsManager.Namespace, agentKey, projectID, appdbSecretPath, log); err != nil {
-			return xerrors.Errorf("error ensuring agent key secret exists in cluster %s: %w", memberCluster.Name, err)
+			return "", xerrors.Errorf("error ensuring agent key secret exists in cluster %s: %w", memberCluster.Name, err)
 		} else if agentKey == "" {
 			agentKey = agentKeyFromSecret
 		}
 	}
 
-	return nil
+	return agentKey, nil
 }
 
 // tryConfigureMonitoringInOpsManager attempts to configure monitoring in Ops Manager. This might not be possible if Ops Manager
@@ -1583,7 +1607,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 			"visible from Ops/Cloud Manager UI. %s", err)
 	}
 
-	hostnames := r.generateHeadlessHostnamesForMonitoring(opsManager)
+	hostnames := r.generateHostnamesForMonitoring(opsManager)
 	if err != nil {
 		return existingPodVars, xerrors.Errorf("error getting current appdb statefulset hostnames: %w", err)
 	}
@@ -1592,7 +1616,8 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 		return existingPodVars, xerrors.Errorf("error registering hosts with project: %w", err)
 	}
 
-	if err := r.ensureAppDbAgentApiKey(ctx, opsManager, conn, conn.GroupID(), log); err != nil {
+	agentApiKey, err := r.ensureAppDbAgentApiKey(ctx, opsManager, conn, conn.GroupID(), log)
+	if err != nil {
 		return existingPodVars, xerrors.Errorf("error ensuring AppDB agent api key: %w", err)
 	}
 
@@ -1602,6 +1627,10 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 
 	if err := r.ensureProjectIDConfigMap(ctx, opsManager, conn.GroupID()); err != nil {
 		return existingPodVars, xerrors.Errorf("error creating ConfigMap: %w", err)
+	}
+
+	if err := r.addPreferredHostnames(ctx, conn, opsManager, agentApiKey, hostnames); err != nil {
+		return existingPodVars, xerrors.Errorf("error adding preferred hostnames: %w", err)
 	}
 
 	return env.PodEnvVars{User: conn.PublicKey(), ProjectID: conn.GroupID(), SSLProjectConfig: env.SSLProjectConfig{

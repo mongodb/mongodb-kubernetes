@@ -87,6 +87,8 @@ def test_patch_central_namespace(namespace: str, central_cluster_client: kuberne
 def test_create_om(ops_manager: MongoDBOpsManager):
     ops_manager.load()
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
+    ops_manager.assert_appdb_preferred_hostnames_are_added()
+    ops_manager.assert_appdb_hostnames_are_correct()
 
 
 @mark.e2e_multi_cluster_appdb
@@ -97,6 +99,8 @@ def test_scale_up_one_cluster(ops_manager: MongoDBOpsManager, appdb_member_clust
     )
     ops_manager.update()
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
+    ops_manager.assert_appdb_preferred_hostnames_are_added()
+    ops_manager.assert_appdb_hostnames_are_correct()
 
 
 @mark.e2e_multi_cluster_appdb
@@ -107,6 +111,9 @@ def test_scale_down_one_cluster(ops_manager: MongoDBOpsManager, appdb_member_clu
     )
     ops_manager.update()
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
+    # TODO: AppDB does not remove hostnames when scaling down https://jira.mongodb.org/browse/CLOUDP-306333
+    # ops_manager.assert_appdb_preferred_hostnames_are_added()
+    # ops_manager.assert_appdb_hostnames_are_set_correctly()
 
 
 @mark.e2e_multi_cluster_appdb
@@ -148,7 +155,7 @@ def test_remove_cluster_from_cluster_spec(ops_manager: MongoDBOpsManager, appdb_
 
 
 @mark.e2e_multi_cluster_appdb
-def test_readd_cluster_to_cluster_spec(ops_manager: MongoDBOpsManager, appdb_member_cluster_names):
+def test_read_cluster_to_cluster_spec(ops_manager: MongoDBOpsManager, appdb_member_cluster_names):
     ops_manager.load()
     cluster_names = ["kind-e2e-cluster-1"] + appdb_member_cluster_names
     ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(cluster_names, [2, 2, 1])
