@@ -1181,6 +1181,9 @@ spec:
                         s3RegionOverride:
                           type: string
                         s3SecretRef:
+                          description: |-
+                            S3SecretRef is the secret that contains the AWS credentials used to access S3
+                            It is optional because the credentials can be provided via AWS IRSA
                           properties:
                             name:
                               type: string
@@ -1192,7 +1195,6 @@ spec:
                       - pathStyleAccessEnabled
                       - s3BucketEndpoint
                       - s3BucketName
-                      - s3SecretRef
                       type: object
                     type: array
                   s3Stores:
@@ -1273,6 +1275,9 @@ spec:
                         s3RegionOverride:
                           type: string
                         s3SecretRef:
+                          description: |-
+                            S3SecretRef is the secret that contains the AWS credentials used to access S3
+                            It is optional because the credentials can be provided via AWS IRSA
                           properties:
                             name:
                               type: string
@@ -1284,7 +1289,6 @@ spec:
                       - pathStyleAccessEnabled
                       - s3BucketEndpoint
                       - s3BucketName
-                      - s3SecretRef
                       type: object
                     type: array
                   statefulSet:

@@ -20,6 +20,7 @@ import (
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/envvar"
 	"github.com/10gen/ops-manager-kubernetes/pkg/images"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
@@ -43,16 +44,16 @@ type LeaderRunnable struct {
 	operatorMgr             manager.Manager
 	atlasClient             *Client
 	currentNamespace        string
-
-	mongodbImage           string
-	databaseNonStaticImage string
+	mongodbImage            string
+	databaseNonStaticImage  string
+	configuredOperatorEnv   util.OperatorEnvironment
 }
 
 func (l *LeaderRunnable) NeedLeaderElection() bool {
 	return true
 }
 
-func NewLeaderRunnable(operatorMgr manager.Manager, memberClusterObjectsMap map[string]cluster.Cluster, currentNamespace, mongodbImage, databaseNonStaticImage string) (*LeaderRunnable, error) {
+func NewLeaderRunnable(operatorMgr manager.Manager, memberClusterObjectsMap map[string]cluster.Cluster, currentNamespace, mongodbImage, databaseNonStaticImage string, operatorEnv util.OperatorEnvironment) (*LeaderRunnable, error) {
 	atlasClient, err := NewClient(nil)
 	if err != nil {
 		return nil, xerrors.Errorf("Failed creating atlas telemetry client: %w", err)
@@ -62,6 +63,7 @@ func NewLeaderRunnable(operatorMgr manager.Manager, memberClusterObjectsMap map[
 		operatorMgr:             operatorMgr,
 		memberClusterObjectsMap: memberClusterObjectsMap,
 		currentNamespace:        currentNamespace,
+		configuredOperatorEnv:   operatorEnv,
 
 		mongodbImage:           mongodbImage,
 		databaseNonStaticImage: databaseNonStaticImage,
@@ -70,7 +72,7 @@ func NewLeaderRunnable(operatorMgr manager.Manager, memberClusterObjectsMap map[
 
 func (l *LeaderRunnable) Start(ctx context.Context) error {
 	Logger.Debug("Starting leader-only telemetry goroutine")
-	RunTelemetry(ctx, l.mongodbImage, l.databaseNonStaticImage, l.currentNamespace, l.operatorMgr, l.memberClusterObjectsMap, l.atlasClient)
+	RunTelemetry(ctx, l.mongodbImage, l.databaseNonStaticImage, l.currentNamespace, l.operatorMgr, l.memberClusterObjectsMap, l.atlasClient, l.configuredOperatorEnv)
 
 	return nil
 }
@@ -78,7 +80,7 @@ func (l *LeaderRunnable) Start(ctx context.Context) error {
 type snapshotCollector func(ctx context.Context, memberClusterMap map[string]ConfigClient, operatorClusterMgr manager.Manager, operatorUUID, mongodbImage, databaseNonStaticImage string) []Event
 
 // RunTelemetry lists the specified CRDs and sends them as events to Segment
-func RunTelemetry(ctx context.Context, mongodbImage, databaseNonStaticImage, namespace string, operatorClusterMgr manager.Manager, clusterMap map[string]cluster.Cluster, atlasClient *Client) {
+func RunTelemetry(ctx context.Context, mongodbImage, databaseNonStaticImage, namespace string, operatorClusterMgr manager.Manager, clusterMap map[string]cluster.Cluster, atlasClient *Client, configuredOperatorEnv util.OperatorEnvironment) {
 	Logger.Debug("sending telemetry!")
 
 	intervalStr := envvar.GetEnvOrDefault(CollectionFrequency, DefaultCollectionFrequencyStr)
@@ -114,7 +116,7 @@ func RunTelemetry(ctx context.Context, mongodbImage, databaseNonStaticImage, nam
 		operatorUUID := getOrGenerateOperatorUUID(ctx, operatorClusterMgr.GetClient(), namespace)
 
 		for eventType, f := range snapshotCollectors {
-			collectAndSendSnapshot(ctx, eventType, f, cc, operatorClusterMgr, operatorUUID, mongodbImage, databaseNonStaticImage, namespace, atlasClient)
+			collectAndSendSnapshot(ctx, eventType, f, cc, operatorClusterMgr, operatorUUID, mongodbImage, databaseNonStaticImage, namespace, atlasClient, configuredOperatorEnv)
 		}
 	}
 
@@ -134,7 +136,7 @@ func RunTelemetry(ctx context.Context, mongodbImage, databaseNonStaticImage, nam
 	}
 }
 
-func collectAndSendSnapshot(ctx context.Context, eventType EventType, cf snapshotCollector, memberClusterMap map[string]ConfigClient, operatorClusterMgr manager.Manager, operatorUUID, mongodbImage, databaseNonStaticImage, namespace string, atlasClient *Client) {
+func collectAndSendSnapshot(ctx context.Context, eventType EventType, cf snapshotCollector, memberClusterMap map[string]ConfigClient, operatorClusterMgr manager.Manager, operatorUUID, mongodbImage, databaseNonStaticImage, namespace string, atlasClient *Client, configuredOperatorEnv util.OperatorEnvironment) {
 	telemetryIsEnabled := ReadBoolWithTrueAsDefault(EventTypeMappingToEnvVar[eventType])
 	if !telemetryIsEnabled {
 		return
@@ -143,6 +145,9 @@ func collectAndSendSnapshot(ctx context.Context, eventType EventType, cf snapsho
 	Logger.Debugf("Collecting %s events!", eventType)
 
 	events := cf(ctx, memberClusterMap, operatorClusterMgr, operatorUUID, mongodbImage, databaseNonStaticImage)
+	for _, event := range events {
+		event.Properties["operatorEnvironment"] = configuredOperatorEnv.String()
+	}
 
 	handleEvents(ctx, atlasClient, events, eventType, namespace, operatorClusterMgr.GetClient())
 }

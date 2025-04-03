@@ -13,10 +13,10 @@ import (
 
 func TestOpsManagerValidation(t *testing.T) {
 	type args struct {
-		testedOm             *MongoDBOpsManager
-		expectedPart         status.Part
-		expectedError        bool
-		expectedErrorMessage string
+		testedOm               *MongoDBOpsManager
+		expectedPart           status.Part
+		expectedErrorMessage   string
+		expectedWarningMessage status.Warning
 	}
 	tests := map[string]args{
 		"Valid KMIP configuration": {
@@ -31,8 +31,7 @@ func TestOpsManagerValidation(t *testing.T) {
 					},
 				},
 			}).Build(),
-			expectedError: false,
-			expectedPart:  status.None,
+			expectedPart: status.None,
 		},
 		"Valid disabled KMIP configuration": {
 			testedOm: NewOpsManagerBuilderDefault().SetBackup(MongoDBOpsManagerBackup{
@@ -45,8 +44,7 @@ func TestOpsManagerValidation(t *testing.T) {
 					},
 				},
 			}).Build(),
-			expectedError: false,
-			expectedPart:  status.None,
+			expectedPart: status.None,
 		},
 		"Invalid KMIP configuration with wrong url": {
 			testedOm: NewOpsManagerBuilderDefault().SetBackup(MongoDBOpsManagerBackup{
@@ -60,8 +58,8 @@ func TestOpsManagerValidation(t *testing.T) {
 					},
 				},
 			}).Build(),
-			expectedError: true,
-			expectedPart:  status.OpsManager,
+			expectedErrorMessage: "kmip url can not be splitted into host and port, see address wrong:::url:::123: too many colons in address",
+			expectedPart:         status.OpsManager,
 		},
 		"Invalid KMIP configuration url and no port": {
 			testedOm: NewOpsManagerBuilderDefault().SetBackup(MongoDBOpsManagerBackup{
@@ -75,8 +73,8 @@ func TestOpsManagerValidation(t *testing.T) {
 					},
 				},
 			}).Build(),
-			expectedError: true,
-			expectedPart:  status.OpsManager,
+			expectedErrorMessage: "kmip url can not be splitted into host and port, see address localhost: missing port in address",
+			expectedPart:         status.OpsManager,
 		},
 		"Invalid KMIP configuration without CA": {
 			testedOm: NewOpsManagerBuilderDefault().SetBackup(MongoDBOpsManagerBackup{
@@ -89,19 +87,17 @@ func TestOpsManagerValidation(t *testing.T) {
 					},
 				},
 			}).Build(),
-			expectedError: true,
-			expectedPart:  status.OpsManager,
+			expectedErrorMessage: "kmip CA ConfigMap name can not be empty",
+			expectedPart:         status.OpsManager,
 		},
 		"Valid default OpsManager": {
-			testedOm:      NewOpsManagerBuilderDefault().Build(),
-			expectedError: false,
-			expectedPart:  status.None,
+			testedOm:     NewOpsManagerBuilderDefault().Build(),
+			expectedPart: status.None,
 		},
 		"Invalid AppDB connectivity spec": {
 			testedOm: NewOpsManagerBuilderDefault().
 				SetAppDbConnectivity(mdbv1.MongoDBConnectivity{ReplicaSetHorizons: []mdbv1.MongoDBHorizonConfig{}}).
 				Build(),
-			expectedError:        true,
 			expectedErrorMessage: "connectivity field is not configurable for application databases",
 			expectedPart:         status.AppDb,
 		},
@@ -109,7 +105,6 @@ func TestOpsManagerValidation(t *testing.T) {
 			testedOm: NewOpsManagerBuilderDefault().
 				SetAppDbCredentials("invalid").
 				Build(),
-			expectedError:        true,
 			expectedErrorMessage: "credentials field is not configurable for application databases",
 			expectedPart:         status.AppDb,
 		},
@@ -117,7 +112,6 @@ func TestOpsManagerValidation(t *testing.T) {
 			testedOm: NewOpsManagerBuilderDefault().
 				SetOpsManagerConfig(mdbv1.PrivateCloudConfig{}).
 				Build(),
-			expectedError:        true,
 			expectedErrorMessage: "opsManager field is not configurable for application databases",
 			expectedPart:         status.AppDb,
 		},
@@ -125,7 +119,6 @@ func TestOpsManagerValidation(t *testing.T) {
 			testedOm: NewOpsManagerBuilderDefault().
 				SetCloudManagerConfig(mdbv1.PrivateCloudConfig{}).
 				Build(),
-			expectedError:        true,
 			expectedErrorMessage: "cloudManager field is not configurable for application databases",
 			expectedPart:         status.AppDb,
 		},
@@ -133,15 +126,67 @@ func TestOpsManagerValidation(t *testing.T) {
 			testedOm: NewOpsManagerBuilderDefault().
 				AddS3SnapshotStore(S3Config{Name: "test", MongoDBUserRef: &MongoDBUserRef{Name: "foo"}}).
 				Build(),
-			expectedError:        true,
 			expectedErrorMessage: "'mongodbResourceRef' must be specified if 'mongodbUserRef' is configured (S3 Store: test)",
 			expectedPart:         status.OpsManager,
+		},
+		"Invalid S3 Store config - missing s3SecretRef": {
+			testedOm: NewOpsManagerBuilderDefault().
+				AddS3SnapshotStore(S3Config{Name: "test", S3SecretRef: nil}).
+				Build(),
+			expectedErrorMessage: "'s3SecretRef' must be specified if not using IRSA (S3 Store: test)",
+			expectedPart:         status.OpsManager,
+		},
+		"Invalid S3 Store config - missing s3SecretRef.Name": {
+			testedOm: NewOpsManagerBuilderDefault().
+				AddS3SnapshotStore(S3Config{Name: "test", S3SecretRef: &SecretRef{}}).
+				Build(),
+			expectedErrorMessage: "'s3SecretRef' must be specified if not using IRSA (S3 Store: test)",
+			expectedPart:         status.OpsManager,
+		},
+		"Valid S3 Store config - no s3SecretRef if irsaEnabled": {
+			testedOm: NewOpsManagerBuilderDefault().
+				AddS3SnapshotStore(S3Config{Name: "test", IRSAEnabled: true}).
+				Build(),
+			expectedPart: status.None,
+		},
+		"Valid S3 Store config with warning - s3SecretRef present when irsaEnabled": {
+			testedOm: NewOpsManagerBuilderDefault().
+				AddS3SnapshotStore(S3Config{Name: "test", S3SecretRef: &SecretRef{}, IRSAEnabled: true}).
+				Build(),
+			expectedWarningMessage: "'s3SecretRef' must not be specified if using IRSA (S3 Store: test)",
+			expectedPart:           status.OpsManager,
+		},
+		"Invalid S3 OpLog Store config - missing s3SecretRef": {
+			testedOm: NewOpsManagerBuilderDefault().
+				AddS3OplogStoreConfig(S3Config{Name: "test", S3SecretRef: nil}).
+				Build(),
+			expectedErrorMessage: "'s3SecretRef' must be specified if not using IRSA (S3 OpLog Store: test)",
+			expectedPart:         status.OpsManager,
+		},
+		"Invalid S3 OpLog Store config - missing s3SecretRef.Name": {
+			testedOm: NewOpsManagerBuilderDefault().
+				AddS3OplogStoreConfig(S3Config{Name: "test", S3SecretRef: &SecretRef{}}).
+				Build(),
+			expectedErrorMessage: "'s3SecretRef' must be specified if not using IRSA (S3 OpLog Store: test)",
+			expectedPart:         status.OpsManager,
+		},
+		"Valid S3 OpLog Store config - no s3SecretRef if irsaEnabled": {
+			testedOm: NewOpsManagerBuilderDefault().
+				AddS3OplogStoreConfig(S3Config{Name: "test", IRSAEnabled: true}).
+				Build(),
+			expectedPart: status.None,
+		},
+		"Valid S3 OpLog Store config with warning - s3SecretRef present when irsaEnabled": {
+			testedOm: NewOpsManagerBuilderDefault().
+				AddS3OplogStoreConfig(S3Config{Name: "test", S3SecretRef: &SecretRef{}, IRSAEnabled: true}).
+				Build(),
+			expectedWarningMessage: "'s3SecretRef' must not be specified if using IRSA (S3 OpLog Store: test)",
+			expectedPart:           status.OpsManager,
 		},
 		"Invalid OpsManager version": {
 			testedOm: NewOpsManagerBuilderDefault().
 				SetVersion("4.4").
 				Build(),
-			expectedError:        true,
 			expectedErrorMessage: "'4.4' is an invalid value for spec.version: Ops Manager Status spec.version 4.4 is invalid",
 			expectedPart:         status.OpsManager,
 		},
@@ -149,7 +194,6 @@ func TestOpsManagerValidation(t *testing.T) {
 			testedOm: NewOpsManagerBuilderDefault().
 				SetVersion("foo").
 				Build(),
-			expectedError:        true,
 			expectedErrorMessage: "'foo' is an invalid value for spec.version: Ops Manager Status spec.version foo is invalid",
 			expectedPart:         status.OpsManager,
 		},
@@ -157,7 +201,6 @@ func TestOpsManagerValidation(t *testing.T) {
 			testedOm: NewOpsManagerBuilderDefault().
 				SetVersion("4_4.4.0").
 				Build(),
-			expectedError:        true,
 			expectedErrorMessage: "'4_4.4.0' is an invalid value for spec.version: Ops Manager Status spec.version 4_4.4.0 is invalid",
 			expectedPart:         status.OpsManager,
 		},
@@ -165,7 +208,6 @@ func TestOpsManagerValidation(t *testing.T) {
 			testedOm: NewOpsManagerBuilderDefault().
 				SetVersion("4.4_4.0").
 				Build(),
-			expectedError:        true,
 			expectedErrorMessage: "'4.4_4.0' is an invalid value for spec.version: Ops Manager Status spec.version 4.4_4.0 is invalid",
 			expectedPart:         status.OpsManager,
 		},
@@ -173,7 +215,6 @@ func TestOpsManagerValidation(t *testing.T) {
 			testedOm: NewOpsManagerBuilderDefault().
 				SetVersion("4.4.0_0").
 				Build(),
-			expectedError:        true,
 			expectedErrorMessage: "'4.4.0_0' is an invalid value for spec.version: Ops Manager Status spec.version 4.4.0_0 is invalid",
 			expectedPart:         status.OpsManager,
 		},
@@ -181,24 +222,20 @@ func TestOpsManagerValidation(t *testing.T) {
 			testedOm: NewOpsManagerBuilderDefault().
 				SetAppDbVersion("3.6.12").
 				Build(),
-			expectedError:        true,
 			expectedErrorMessage: "the version of Application Database must be >= 4.0",
 			expectedPart:         status.AppDb,
 		},
 		"Valid 4.0.0 OpsManager version": {
-			testedOm:      NewOpsManagerBuilderDefault().SetVersion("4.0.0").Build(),
-			expectedError: false,
-			expectedPart:  status.None,
+			testedOm:     NewOpsManagerBuilderDefault().SetVersion("4.0.0").Build(),
+			expectedPart: status.None,
 		},
 		"Valid 4.2.0-rc1 OpsManager version": {
-			testedOm:      NewOpsManagerBuilderDefault().SetVersion("4.2.0-rc1").Build(),
-			expectedError: false,
-			expectedPart:  status.None,
+			testedOm:     NewOpsManagerBuilderDefault().SetVersion("4.2.0-rc1").Build(),
+			expectedPart: status.None,
 		},
 		"Valid 4.5.0-ent OpsManager version": {
-			testedOm:      NewOpsManagerBuilderDefault().SetVersion("4.5.0-ent").Build(),
-			expectedError: false,
-			expectedPart:  status.None,
+			testedOm:     NewOpsManagerBuilderDefault().SetVersion("4.5.0-ent").Build(),
+			expectedPart: status.None,
 		},
 		"Single cluster AppDB deployment should have empty clusterSpecList": {
 			testedOm: NewOpsManagerBuilderDefault().SetVersion("4.5.0-ent").
@@ -206,7 +243,6 @@ func TestOpsManagerValidation(t *testing.T) {
 				SetOpsManagerClusterSpecList([]ClusterSpecOMItem{{ClusterName: "test"}}).
 				SetAppDBClusterSpecList(mdbv1.ClusterSpecList{{ClusterName: "test"}}).
 				Build(),
-			expectedError:        true,
 			expectedPart:         status.OpsManager,
 			expectedErrorMessage: "Single cluster AppDB deployment should have empty clusterSpecList",
 		},
@@ -215,7 +251,6 @@ func TestOpsManagerValidation(t *testing.T) {
 				SetOpsManagerTopology(mdbv1.ClusterTopologySingleCluster).
 				SetOpsManagerClusterSpecList([]ClusterSpecOMItem{{ClusterName: "test"}}).
 				Build(),
-			expectedError:        true,
 			expectedPart:         status.OpsManager,
 			expectedErrorMessage: "Topology 'MultiCluster' must be specified while setting a not empty spec.clusterSpecList",
 		},
@@ -224,10 +259,19 @@ func TestOpsManagerValidation(t *testing.T) {
 		t.Run(testName, func(t *testing.T) {
 			testConfig := tests[testName]
 			part, err := testConfig.testedOm.ProcessValidationsOnReconcile()
-			assert.Equal(t, testConfig.expectedError, err != nil)
-			assert.Equal(t, testConfig.expectedPart, part)
-			if len(testConfig.expectedErrorMessage) != 0 {
+
+			if testConfig.expectedErrorMessage != "" {
+				assert.NotNil(t, err)
+				assert.Equal(t, testConfig.expectedPart, part)
 				assert.Equal(t, testConfig.expectedErrorMessage, err.Error())
+			} else {
+				assert.Nil(t, err)
+				assert.Equal(t, status.None, part)
+			}
+
+			if testConfig.expectedWarningMessage != "" {
+				warnings := testConfig.testedOm.GetStatusWarnings(testConfig.expectedPart)
+				assert.Contains(t, warnings, testConfig.expectedWarningMessage)
 			}
 		})
 	}

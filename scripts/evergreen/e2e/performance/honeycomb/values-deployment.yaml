@@ -49,7 +49,7 @@ presets:
 config:
   receivers:
     k8s_cluster:
-      collection_interval: 30s
+      collection_interval: 180s
       metrics:
         k8s.pod.status_reason:
           enabled: true
@@ -59,7 +59,7 @@ config:
       config:
         scrape_configs:
           - job_name: "prometheus"
-            scrape_interval: 15s
+            scrape_interval: 300s
             static_configs:
               - targets: ["mongodb-enterprise-operator.${env:NAMESPACE}.svc.cluster.local:8080"]
           - bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token

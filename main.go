@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/go-logr/zapr"
 	"go.uber.org/zap"
@@ -61,11 +62,12 @@ const (
 )
 
 var (
-	log *zap.SugaredLogger
+	log             *zap.SugaredLogger
+	operatorEnvOnce sync.Once
 
 	// List of allowed operator environments. The first element of this list is
 	// considered the default one.
-	operatorEnvironments = []string{util.OperatorEnvironmentDev, util.OperatorEnvironmentLocal, util.OperatorEnvironmentProd}
+	operatorEnvironments = []string{util.OperatorEnvironmentDev.String(), util.OperatorEnvironmentLocal.String(), util.OperatorEnvironmentProd.String()}
 
 	scheme = runtime.NewScheme()
 
@@ -258,7 +260,7 @@ func main() {
 
 	if telemetry.IsTelemetryActivated() {
 		log.Info("Running telemetry component!")
-		telemetryRunnable, err := telemetry.NewLeaderRunnable(mgr, memberClusterObjectsMap, currentNamespace, imageUrls[mcoConstruct.MongodbImageEnv], imageUrls[util.NonStaticDatabaseEnterpriseImage])
+		telemetryRunnable, err := telemetry.NewLeaderRunnable(mgr, memberClusterObjectsMap, currentNamespace, imageUrls[mcoConstruct.MongodbImageEnv], imageUrls[util.NonStaticDatabaseEnterpriseImage], getOperatorEnv())
 		if err != nil {
 			log.Errorf("Unable to enable telemetry; err: %s", err)
 		}
@@ -393,12 +395,7 @@ func setupWebhook(ctx context.Context, cfg *rest.Config, log *zap.SugaredLogger,
 }
 
 func initializeEnvironment() {
-	omOperatorEnv, configuredEnv := getOperatorEnvs()
-
-	if configuredEnv != omOperatorEnv {
-		log.Infof("Configured environment %s, not recognized. Must be one of %v", configuredEnv, operatorEnvironments)
-		log.Infof("Using default environment, %s, instead", operatorEnvironments[0])
-	}
+	omOperatorEnv := getOperatorEnv()
 
 	initEnvVariables()
 
@@ -432,13 +429,17 @@ func initializeEnvironment() {
 	env.PrintWithPrefix(printableEnvPrefixes)
 }
 
-func getOperatorEnvs() (string, string) {
-	omOperatorEnv := os.Getenv(util.OmOperatorEnv)
-	configuredEnv := omOperatorEnv
-	if !validateEnv(omOperatorEnv) {
-		omOperatorEnv = operatorEnvironments[0]
+func getOperatorEnv() util.OperatorEnvironment {
+	operatorFromEnv := os.Getenv(util.OmOperatorEnv)
+	operatorEnv := util.OperatorEnvironment(operatorFromEnv)
+	if !validateOperatorEnv(operatorEnv) {
+		operatorEnvOnce.Do(func() {
+			log.Infof("Configured environment %s, not recognized. Must be one of %v", operatorEnv, operatorEnvironments)
+			log.Infof("Using default environment, %s, instead", util.OperatorEnvironmentDev)
+		})
+		operatorEnv = util.OperatorEnvironmentDev
 	}
-	return omOperatorEnv, configuredEnv
+	return operatorEnv
 }
 
 // quoteKey reports whether key is required to be quoted. Taken from: 1.22.0 mod.go
@@ -477,8 +478,8 @@ func initEnvVariables() {
 	env.EnsureVar(util.OpsManagerMonitorAppDB, strconv.FormatBool(util.OpsManagerMonitorAppDBDefault))
 }
 
-func validateEnv(env string) bool {
-	return stringutil.Contains(operatorEnvironments[:], env)
+func validateOperatorEnv(env util.OperatorEnvironment) bool {
+	return slices.Contains(operatorEnvironments[:], env.String())
 }
 
 func init() {
@@ -486,15 +487,15 @@ func init() {
 }
 
 func InitGlobalLogger() {
-	omOperatorEnv, _ := getOperatorEnvs()
+	omOperatorEnv := getOperatorEnv()
 
 	var logger *zap.Logger
 	var e error
 
 	switch omOperatorEnv {
-	case "prod":
+	case util.OperatorEnvironmentProd:
 		logger, e = zap.NewProduction()
-	case "dev", "local":
+	case util.OperatorEnvironmentDev, util.OperatorEnvironmentLocal:
 		// Overriding the default stacktrace behavior - have them only for errors but not for warnings
 		logger, e = zap.NewDevelopment(zap.AddStacktrace(zap.ErrorLevel))
 	default:
