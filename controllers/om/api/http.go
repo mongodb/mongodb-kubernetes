@@ -163,12 +163,10 @@ func OptionCAValidate(ca string) func(client *Client) error {
 func (client *Client) Request(method, hostname, path string, v interface{}) ([]byte, http.Header, error) {
 	url := hostname + path
 
-	buffer, err := serializeToBuffer(v)
+	req, err := createHTTPRequest(method, url, v)
 	if err != nil {
 		return nil, nil, apierror.New(err)
 	}
-
-	req, _ := createHTTPRequest(method, url, buffer)
 
 	if client.username != "" && client.password != "" {
 		// Only add Digest auth when needed.
@@ -178,8 +176,90 @@ func (client *Client) Request(method, hostname, path string, v interface{}) ([]b
 		}
 	}
 
-	// we need to limit size of request/response dump, because automation config request can have over 1MB size
-	const maxDumpSize = 10000
+	return client.sendRequest(method, url, path, req)
+}
+
+// RequestWithAgentAuth executes an HTTP request using Basic authorization with the agent API key
+// This is used for specific endpoints created for the agent.
+// We use it for /group/v2/info and /group/v2/addPreferredHostname to manage preferred hostnames
+// We have created a ticket for the EA team to add a public or private endpoint
+// whilst maintaining the other 2 https://jira.mongodb.org/browse/CLOUDP-308115
+func (client *Client) RequestWithAgentAuth(method, hostname, path string, agentAuth string, v interface{}) ([]byte, http.Header, error) {
+	url := hostname + path
+
+	req, err := createHTTPRequest(method, url, v)
+	if err != nil {
+		return nil, nil, apierror.New(err)
+	}
+
+	req.Header.Set("Authorization", agentAuth)
+
+	return client.sendRequest(method, url, path, req)
+}
+
+// authorizeRequest executes one request that's meant to be challenged by the
+// server in order to build the next one. The `request` parameter is aggregated
+// with the required `Authorization` header.
+func (client *Client) authorizeRequest(method, hostname, path string, request *retryablehttp.Request) error {
+	url := hostname + path
+
+	digestRequest, err := retryablehttp.NewRequest(method, url, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := client.Do(digestRequest)
+	if err != nil {
+		return err
+	}
+	defer func(Body io.ReadCloser) {
+		_ = Body.Close()
+	}(resp.Body)
+
+	_, err = io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		return apierror.New(
+			xerrors.Errorf(
+				"Received status code '%v' (%v) but expected the '%d', requested url: %v",
+				resp.StatusCode,
+				resp.Status,
+				http.StatusUnauthorized,
+				digestRequest.URL,
+			),
+		)
+	}
+	digestParts := digestParts(resp)
+	digestAuth := getDigestAuthorization(digestParts, method, path, client.username, client.password)
+
+	request.Header.Set("Authorization", digestAuth)
+
+	return nil
+}
+
+// createHTTPRequest
+func createHTTPRequest(method string, url string, v interface{}) (*retryablehttp.Request, error) {
+	buffer, err := serializeToBuffer(v)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := retryablehttp.NewRequest(method, url, buffer)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", "application/json; charset=UTF-8")
+	req.Header.Add("Provider", "KUBERNETES")
+
+	return req, nil
+}
+
+func (client *Client) sendRequest(method, url, path string, req *retryablehttp.Request) ([]byte, http.Header, error) {
+	// we need to limit size of request/response dump, because automation config request can't have over 1MB size
+	const maxDumpSize = 10000 // 1 MB
 	client.RequestLogHook = func(logger retryablehttp.Logger, request *http.Request, i int) {
 		if client.debug {
 			dumpRequest, _ := httputil.DumpRequest(request, true)
@@ -228,61 +308,6 @@ func (client *Client) Request(method, hostname, path string, v interface{}) ([]b
 	}
 
 	return body, resp.Header, nil
-}
-
-// authorizeRequest executes one request that's meant to be challenged by the
-// server in order to build the next one. The `request` parameter is aggregated
-// with the required `Authorization` header.
-func (client *Client) authorizeRequest(method, hostname, path string, request *retryablehttp.Request) error {
-	url := hostname + path
-
-	digestRequest, err := retryablehttp.NewRequest(method, url, nil)
-	if err != nil {
-		return err
-	}
-	resp, err := client.Do(digestRequest)
-	if err != nil {
-		return err
-	}
-	defer func(Body io.ReadCloser) {
-		_ = Body.Close()
-	}(resp.Body)
-
-	_, err = io.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-
-	if resp.StatusCode != http.StatusUnauthorized {
-		return apierror.New(
-			xerrors.Errorf(
-				"Received status code '%v' (%v) but expected the '%d', requested url: %v",
-				resp.StatusCode,
-				resp.Status,
-				http.StatusUnauthorized,
-				digestRequest.URL,
-			),
-		)
-	}
-	digestParts := digestParts(resp)
-	digestAuth := getDigestAuthorization(digestParts, method, path, client.username, client.password)
-
-	request.Header.Set("Authorization", digestAuth)
-
-	return nil
-}
-
-// createHTTPRequest
-func createHTTPRequest(method string, url string, reader io.Reader) (*retryablehttp.Request, error) {
-	req, err := retryablehttp.NewRequest(method, url, reader)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", "application/json; charset=UTF-8")
-	req.Header.Add("Provider", "KUBERNETES")
-
-	return req, nil
 }
 
 // serializeToBuffer takes any object and tries to serialize it to the buffer

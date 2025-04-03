@@ -25,6 +25,7 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
+	"github.com/10gen/ops-manager-kubernetes/controllers/om/host"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
 	enterprisepem "github.com/10gen/ops-manager-kubernetes/controllers/operator/pem"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
@@ -360,6 +361,18 @@ func TestAppDB_MultiCluster_AutomationConfig(t *testing.T) {
 	})
 }
 
+func assertExpectedHostnamesAndPreferred(t *testing.T, omConnection *om.MockedOmConnection, expectedHostnames []string) {
+	hosts, _ := omConnection.GetHosts()
+	assert.Equal(t, expectedHostnames, util.Transform(hosts.Results, func(obj host.Host) string {
+		return obj.Hostname
+	}), "the AppDB hosts should have been added")
+
+	preferredHostnames, _ := omConnection.GetPreferredHostnames(omConnection.AgentAPIKey)
+	assert.Equal(t, expectedHostnames, util.Transform(preferredHostnames, func(obj om.PreferredHostname) string {
+		return obj.Value
+	}), "the AppDB preferred hostnames should have been added")
+}
+
 func assertExpectedProcesses(ctx context.Context, t *testing.T, memberClusterName string, reconciler *ReconcileAppDbReplicaSet, opsManager *omv1.MongoDBOpsManager, expectedHostnames []string, expectedProcessNames []string) {
 	ac, err := automationconfig.ReadFromSecret(ctx, reconciler.getMemberCluster(memberClusterName).SecretClient, types.NamespacedName{
 		Namespace: opsManager.GetNamespace(),
@@ -395,13 +408,13 @@ func reconcileAppDBOnceAndCheckExpectedProcesses(ctx context.Context, t *testing
 	assertExpectedProcesses(ctx, t, memberClusterName, reconciler, opsManager, expectedHostnames, expectedProcessNames)
 }
 
-func reconcileAppDBForExpectedNumberOfTimesAndCheckExpectedProcesses(ctx context.Context, t *testing.T, kubeClient client.Client, omConnectionFactoryFunc om.ConnectionFactory, opsManager *omv1.MongoDBOpsManager, memberClusterMap map[string]client.Client, memberClusterName string, clusterSpecItems mdbv1.ClusterSpecList, expectedHostnames []string, expectedProcessNames []string, expectedReconciles int, log *zap.SugaredLogger) {
+func reconcileAppDBForExpectedNumberOfTimes(ctx context.Context, t *testing.T, kubeClient client.Client, omConnectionFactoryFunc *om.ConnectionFactory, opsManager *omv1.MongoDBOpsManager, memberClusterMap map[string]client.Client, clusterSpecItems mdbv1.ClusterSpecList, expectedReconciles int, log *zap.SugaredLogger) *ReconcileAppDbReplicaSet {
 	opsManager.Spec.AppDB.ClusterSpecList = clusterSpecItems
 
 	var reconciler *ReconcileAppDbReplicaSet
 	var err error
 	for i := 0; i < expectedReconciles; i++ {
-		reconciler, err = newAppDbMultiReconciler(ctx, kubeClient, opsManager, memberClusterMap, log, omConnectionFactoryFunc)
+		reconciler, err = newAppDbMultiReconciler(ctx, kubeClient, opsManager, memberClusterMap, log, *omConnectionFactoryFunc)
 		require.NoError(t, err)
 		reconcileResult, err := reconciler.ReconcileAppDB(ctx, opsManager)
 		require.NoError(t, err)
@@ -415,8 +428,19 @@ func reconcileAppDBForExpectedNumberOfTimesAndCheckExpectedProcesses(ctx context
 			require.Equal(t, ok, reconcileResult, "failed in reconcile %d", i)
 		}
 	}
+	return reconciler
+}
+
+func reconcileAppDBForExpectedNumberOfTimesAndCheckExpectedProcesses(ctx context.Context, t *testing.T, kubeClient client.Client, omConnectionFactoryFunc om.ConnectionFactory, opsManager *omv1.MongoDBOpsManager, memberClusterMap map[string]client.Client, memberClusterName string, clusterSpecItems mdbv1.ClusterSpecList, expectedHostnames []string, expectedProcessNames []string, expectedReconciles int, log *zap.SugaredLogger) {
+	reconciler := reconcileAppDBForExpectedNumberOfTimes(ctx, t, kubeClient, &omConnectionFactoryFunc, opsManager, memberClusterMap, clusterSpecItems, expectedReconciles, log)
 
 	assertExpectedProcesses(ctx, t, memberClusterName, reconciler, opsManager, expectedHostnames, expectedProcessNames)
+}
+
+func reconcileAppDBForExpectedNumberOfTimesAndCheckExpectedHostnames(ctx context.Context, t *testing.T, kubeClient client.Client, omConnectionFactoryFunc om.ConnectionFactory, omConnectionFactory *om.CachedOMConnectionFactory, opsManager *omv1.MongoDBOpsManager, memberClusterMap map[string]client.Client, clusterSpecItems mdbv1.ClusterSpecList, expectedHostnames []string, expectedReconciles int, log *zap.SugaredLogger) {
+	reconcileAppDBForExpectedNumberOfTimes(ctx, t, kubeClient, &omConnectionFactoryFunc, opsManager, memberClusterMap, clusterSpecItems, expectedReconciles, log)
+
+	assertExpectedHostnamesAndPreferred(t, omConnectionFactory.GetConnection().(*om.MockedOmConnection), expectedHostnames)
 }
 
 func makeClusterSpecList(clusters ...string) mdbv1.ClusterSpecList {
@@ -858,4 +882,135 @@ func TestAppDBMultiClusterRemoveResources(t *testing.T) {
 
 		memberClusterChecks.checkStatefulSetDoesNotExist(ctx, opsManager.Spec.AppDB.NameForCluster(appDBReconciler.getMemberClusterIndex(clusterSpecItem.ClusterName)))
 	}
+}
+
+func TestAppDBMultiClusterMonitoringHostnames(t *testing.T) {
+	ctx := context.Background()
+	log := zap.S()
+	centralClusterName := multicluster.LegacyCentralClusterName
+	memberClusterName := "member-cluster-1"
+	memberClusterName2 := "member-cluster-2"
+	memberClusterName3 := "member-cluster-3"
+	clusters := []string{centralClusterName, memberClusterName, memberClusterName2, memberClusterName3}
+
+	builder := DefaultOpsManagerBuilder().
+		SetName("om").
+		SetNamespace("ns").
+		SetAppDBClusterSpecList(mdbv1.ClusterSpecList{
+			{
+				ClusterName: memberClusterName,
+				Members:     2,
+			},
+			{
+				ClusterName: memberClusterName2,
+				Members:     3,
+			},
+			{
+				ClusterName: memberClusterName3,
+				Members:     2,
+			},
+		},
+		).
+		SetAppDbMembers(0).
+		SetAppDBTopology(mdbv1.ClusterTopologyMultiCluster)
+
+	opsManager := builder.Build()
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
+	globalClusterMap := getFakeMultiClusterMapWithClusters(clusters[1:], omConnectionFactory)
+
+	reconciler, err := newAppDbMultiReconciler(ctx, kubeClient, opsManager, globalClusterMap, log, omConnectionFactory.GetConnectionFunc)
+	require.NoError(t, err)
+
+	hostnames := reconciler.generateHostnamesForMonitoring(opsManager)
+
+	expectedHostnames := []string{
+		"om-db-0-0-svc.ns.svc.cluster.local",
+		"om-db-0-1-svc.ns.svc.cluster.local",
+		"om-db-1-0-svc.ns.svc.cluster.local",
+		"om-db-1-1-svc.ns.svc.cluster.local",
+		"om-db-1-2-svc.ns.svc.cluster.local",
+		"om-db-2-0-svc.ns.svc.cluster.local",
+		"om-db-2-1-svc.ns.svc.cluster.local",
+	}
+
+	assert.Equal(t, expectedHostnames, hostnames)
+}
+
+func TestAppDBMultiClusterTryConfigureMonitoring(t *testing.T) {
+	ctx := context.Background()
+	log := zap.S()
+	centralClusterName := multicluster.LegacyCentralClusterName
+	memberClusterName1 := "member-cluster-1"
+	memberClusterName2 := "member-cluster-2"
+	memberClusterName3 := "member-cluster-3"
+	clusters := []string{centralClusterName, memberClusterName1, memberClusterName2, memberClusterName3}
+
+	builder := DefaultOpsManagerBuilder().
+		SetName("om").
+		SetNamespace("ns").
+		SetAppDBClusterSpecList(mdbv1.ClusterSpecList{
+			{
+				ClusterName: memberClusterName1,
+				Members:     2,
+			},
+		},
+		).
+		SetAppDbMembers(0).
+		SetAppDBTopology(mdbv1.ClusterTopologyMultiCluster)
+
+	opsManager := builder.Build()
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
+	globalClusterMap := getAppDBFakeMultiClusterMapWithClusters(clusters[1:], omConnectionFactory)
+
+	err := createOpsManagerUserPasswordSecret(ctx, kubeClient, opsManager, opsManagerUserPassword)
+	assert.NoError(t, err)
+
+	reconciler, err := newAppDbMultiReconciler(ctx, kubeClient, opsManager, globalClusterMap, log, omConnectionFactory.GetConnectionFunc)
+	require.NoError(t, err)
+
+	reconcileResult, err := reconciler.ReconcileAppDB(ctx, opsManager)
+	require.NoError(t, err)
+	// requeue is true to add monitoring
+	assert.True(t, reconcileResult.Requeue)
+
+	// OM API Key secret is required for enabling monitoring to OM
+	createOMAPIKeySecret(ctx, t, reconciler.SecretClient, opsManager)
+
+	t.Run("check expected hostnames", func(t *testing.T) {
+		clusterSpecItems := mdbv1.ClusterSpecList{
+			{
+				ClusterName: memberClusterName1,
+				Members:     2,
+			},
+		}
+
+		expectedHostnames := []string{
+			"om-db-0-0-svc.ns.svc.cluster.local",
+			"om-db-0-1-svc.ns.svc.cluster.local",
+		}
+
+		reconcileAppDBForExpectedNumberOfTimesAndCheckExpectedHostnames(ctx, t, kubeClient, omConnectionFactory.GetConnectionFunc, omConnectionFactory, opsManager, globalClusterMap, clusterSpecItems, expectedHostnames, 1, log)
+	})
+	t.Run("Add second cluster", func(t *testing.T) {
+		clusterSpecItems := mdbv1.ClusterSpecList{
+			{
+				ClusterName: memberClusterName1,
+				Members:     2,
+			},
+			{
+				ClusterName: memberClusterName2,
+				Members:     3,
+			},
+		}
+
+		expectedHostnames := []string{
+			"om-db-0-0-svc.ns.svc.cluster.local",
+			"om-db-0-1-svc.ns.svc.cluster.local",
+			"om-db-1-0-svc.ns.svc.cluster.local",
+			"om-db-1-1-svc.ns.svc.cluster.local",
+			"om-db-1-2-svc.ns.svc.cluster.local",
+		}
+
+		reconcileAppDBForExpectedNumberOfTimesAndCheckExpectedHostnames(ctx, t, kubeClient, omConnectionFactory.GetConnectionFunc, omConnectionFactory, opsManager, globalClusterMap, clusterSpecItems, expectedHostnames, 3, log)
+	})
 }

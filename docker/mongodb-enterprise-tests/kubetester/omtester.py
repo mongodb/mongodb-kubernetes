@@ -15,7 +15,7 @@ import pytest
 import requests
 import semver
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.kubetester import build_auth, run_periodically
+from kubetester.kubetester import build_agent_auth, build_auth, run_periodically
 from kubetester.mongotester import BackgroundHealthChecker
 from kubetester.om_queryable_backups import OMQueryableBackup
 from opentelemetry import trace
@@ -50,6 +50,7 @@ class OMContext(object):
         project_name=None,
         project_id=None,
         org_id=None,
+        agent_api_key=None,
     ):
         self.base_url = base_url
         self.project_id = project_id
@@ -57,6 +58,7 @@ class OMContext(object):
         self.user = user
         self.public_key = public_key
         self.org_id = org_id
+        self.agent_api_key = agent_api_key
 
     @staticmethod
     def build_from_config_map_and_secret(
@@ -346,16 +348,20 @@ class OMTester(object):
             status_code == requests.status_codes.codes.OK
         ), "Expected HTTP 200 from Ops Manager but got {} ({})".format(status_code, datetime.now())
 
-    def om_request(self, method, path, json_object: Optional[Dict] = None, retries=3):
+    def om_request(self, method, path, json_object: Optional[Dict] = None, retries=3, agent_endpoint=False):
         """performs the digest API request to Ops Manager. Note that the paths don't need to be prefixed with
         '/api../v1.0' as the method does it internally."""
         span = trace.get_current_span()
 
         headers = {"Content-Type": "application/json"}
-        auth = build_auth(self.context.user, self.context.public_key)
-        start_time = time.time()
+        if agent_endpoint:
+            auth = build_agent_auth(self.context.project_id, self.context.agent_api_key)
+            endpoint = f"{self.context.base_url}{path}"
+        else:
+            auth = build_auth(self.context.user, self.context.public_key)
+            endpoint = f"{self.context.base_url}/api/public/v1.0{path}"
 
-        endpoint = f"{self.context.base_url}/api/public/v1.0{path}"
+        start_time = time.time()
 
         session = requests.Session()
         retry = Retry(backoff_factor=5)
@@ -653,6 +659,11 @@ class OMTester(object):
         )[db_name]
         collection = dbClient[collection_name]
         return list(collection.find())
+
+    def api_get_preferred_hostnames(self):
+        return self.om_request("get", f"/group/v2/info/{self.context.project_id}", agent_endpoint=True).json()[
+            "preferredHostnames"
+        ]
 
 
 class OMBackgroundTester(BackgroundHealthChecker):

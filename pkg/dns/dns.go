@@ -79,12 +79,12 @@ func GetServiceDomain(namespace string, clusterDomain string, externalDomain *st
 	return fmt.Sprintf("%s.svc.%s", namespace, clusterDomain)
 }
 
-// GetMultiClusterHostnamesForMonitoring returns list of "headless fqdn" (equivalent to hostname -f on a pod) hostnames that are required for registering AppDB hosts for monitoring in OM.
+// GetMultiClusterHostnamesForMonitoring returns list of pod service hostnames that are required for registering AppDB hosts for monitoring in OM.
 func GetMultiClusterHostnamesForMonitoring(stsName, namespace string, clusterNum, members int) []string {
 	hostnames := make([]string, 0)
 
 	for podNum := 0; podNum < members; podNum++ {
-		hostname := fmt.Sprintf("%s.%s.%s.svc.cluster.local", GetMultiPodName(stsName, clusterNum, podNum), GetMultiHeadlessServiceName(stsName, clusterNum), namespace)
+		hostname := fmt.Sprintf("%s.%s.svc.cluster.local", GetMultiServiceName(stsName, clusterNum, podNum), namespace)
 		hostnames = append(hostnames, hostname)
 	}
 

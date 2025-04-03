@@ -462,7 +462,21 @@ def get_custom_om_version():
 def default_operator(
     namespace: str,
     operator_installation_config: Dict[str, str],
+    central_cluster_name: str,
+    multi_cluster_operator_installation_config: Dict[str, str],
+    central_cluster_client: client.ApiClient,
+    member_cluster_clients: List[MultiClusterClient],
+    member_cluster_names: List[str],
 ) -> Operator:
+    if is_multi_cluster():
+        return get_multi_cluster_operator(
+            namespace,
+            central_cluster_name,
+            multi_cluster_operator_installation_config,
+            central_cluster_client,
+            member_cluster_clients,
+            member_cluster_names,
+        )
     return get_default_operator(namespace, operator_installation_config)
 
 
