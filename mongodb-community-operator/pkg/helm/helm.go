@@ -52,6 +52,7 @@ func executeHelmCommand(t *testing.T, args []string, messagePredicate func(strin
 		}
 		return fmt.Errorf("error executing command: %s %s", err, output)
 	}
+	t.Logf("no error")
 	return nil
 }
 

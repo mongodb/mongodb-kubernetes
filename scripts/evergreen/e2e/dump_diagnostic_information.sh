@@ -245,6 +245,19 @@ download_test_results() {
     fi
 }
 
+# dump_events gets all events from a namespace and saves them to a file
+dump_events() {
+    local namespace="${1}"
+    local prefix="${2}"
+
+    echo "Collecting events for namespace ${namespace}"
+    # Sort by lastTimestamp to have the most recent events at the top
+    kubectl get events --sort-by='.lastTimestamp' -n "${namespace}" > "logs/${prefix}events.txt"
+
+    # Also get events in yaml format for more details
+    kubectl get events -n "${namespace}" -o yaml > "logs/${prefix}events_detailed.yaml"
+}
+
 # dump_namespace dumps a namespace, diagnostics, logs and generic Kubernetes
 # resources.
 dump_namespace() {
@@ -264,13 +277,14 @@ dump_namespace() {
     # 3. Print Pod logs
     dump_pods "${namespace}" "${prefix}"
 
-   # Download test results from the test pod in community
-    download_test_results "${namespace}" "e2e-test"
-
     # 4. Print other Kubernetes resources
     dump_configmaps "${namespace}" "${prefix}"
     dump_secrets "${namespace}" "${prefix}"
     dump_services "${namespace}" "${prefix}"
+    dump_events "${namespace}" "${prefix}"
+
+    # Download test results from the test pod in community
+    download_test_results "${namespace}" "e2e-test"
 
     dump_objects pvc "Persistent Volume Claims" "${namespace}"  > "logs/${prefix}z_persistent_volume_claims.txt"
     dump_objects deploy "Deployments" "${namespace}" > "logs/${prefix}z_deployments.txt"

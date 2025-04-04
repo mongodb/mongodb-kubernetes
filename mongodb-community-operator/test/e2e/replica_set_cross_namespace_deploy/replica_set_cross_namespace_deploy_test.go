@@ -70,7 +70,9 @@ func TestCrossNamespaceDeploy(t *testing.T) {
 // for the database StatefulSet in the other namespace.
 func createDatabaseServiceAccountRoleAndRoleBinding(ctx context.Context, t *testing.T, namespace string) error {
 	sa := corev1.ServiceAccount{}
-	err := e2eutil.TestClient.Get(ctx, types.NamespacedName{Name: "mongodb-database", Namespace: e2eutil.OperatorNamespace}, &sa)
+	// TODO: MCK choose a correct SA name
+	mckServiceAccountName := "mongodb-enterprise-appdb"
+	err := e2eutil.TestClient.Get(ctx, types.NamespacedName{Name: mckServiceAccountName, Namespace: e2eutil.OperatorNamespace}, &sa)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +86,7 @@ func createDatabaseServiceAccountRoleAndRoleBinding(ctx context.Context, t *test
 	}
 
 	role := rbacv1.Role{}
-	err = e2eutil.TestClient.Get(ctx, types.NamespacedName{Name: "mongodb-database", Namespace: e2eutil.OperatorNamespace}, &role)
+	err = e2eutil.TestClient.Get(ctx, types.NamespacedName{Name: mckServiceAccountName, Namespace: e2eutil.OperatorNamespace}, &role)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +100,7 @@ func createDatabaseServiceAccountRoleAndRoleBinding(ctx context.Context, t *test
 	}
 
 	rolebinding := rbacv1.RoleBinding{}
-	err = e2eutil.TestClient.Get(ctx, types.NamespacedName{Name: "mongodb-database", Namespace: e2eutil.OperatorNamespace}, &rolebinding)
+	err = e2eutil.TestClient.Get(ctx, types.NamespacedName{Name: mckServiceAccountName, Namespace: e2eutil.OperatorNamespace}, &rolebinding)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,6 +108,13 @@ func createDatabaseServiceAccountRoleAndRoleBinding(ctx context.Context, t *test
 	rolebinding.Namespace = namespace
 	rolebinding.ResourceVersion = ""
 
+	// Update namespace in subjects field
+	for i := range rolebinding.Subjects {
+		if rolebinding.Subjects[i].Kind == "ServiceAccount" &&
+			rolebinding.Subjects[i].Name == mckServiceAccountName {
+			rolebinding.Subjects[i].Namespace = namespace
+		}
+	}
 	err = e2eutil.TestClient.Create(ctx, &rolebinding, &e2eutil.CleanupOptions{})
 	if err != nil {
 		t.Fatal(err)
