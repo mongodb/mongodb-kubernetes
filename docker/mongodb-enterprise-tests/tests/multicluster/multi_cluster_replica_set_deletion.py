@@ -9,7 +9,10 @@ from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.operator import Operator
+from tests import test_logger
 from tests.multicluster.conftest import cluster_spec_list
+
+logger = test_logger.get_test_logger(__name__)
 
 
 @pytest.fixture(scope="module")
@@ -58,7 +61,7 @@ def test_delete_mongodb_multi(mongodb_multi: MongoDBMulti):
             if e.status == 404:
                 return True
             else:
-                print(e)
+                logger.error(e)
                 return False
 
     wait_until(wait_for_deleted, timeout=60)
@@ -72,7 +75,7 @@ def test_deployment_has_been_removed_from_automation_config():
             tester.assert_empty()
             return True
         except AssertionError as e:
-            print(e)
+            logger.error(e)
             return False
 
     wait_until(wait_until_automation_config_is_clean, timeout=60)
@@ -87,7 +90,7 @@ def test_kubernetes_resources_have_been_cleaned_up(
             mongodb_multi.read_services(member_cluster_clients)
             return False
         except kubernetes.client.ApiException as e:
-            print(e)
+            logger.error(e)
             return True
 
     def wait_until_statefulsets_are_removed() -> bool:
@@ -95,7 +98,7 @@ def test_kubernetes_resources_have_been_cleaned_up(
             mongodb_multi.read_statefulsets(member_cluster_clients)
             return False
         except kubernetes.client.ApiException as e:
-            print(e)
+            logger.error(e)
             return True
 
     def wait_until_configmaps_are_removed() -> bool:
@@ -103,7 +106,7 @@ def test_kubernetes_resources_have_been_cleaned_up(
             mongodb_multi.read_configmaps(member_cluster_clients)
             return False
         except kubernetes.client.ApiException as e:
-            print(e)
+            logger.error(e)
             return True
 
     wait_until(wait_until_secrets_are_removed, timeout=60)
