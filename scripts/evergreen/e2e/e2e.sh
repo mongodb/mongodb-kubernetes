@@ -10,6 +10,24 @@ source scripts/evergreen/e2e/dump_diagnostic_information.sh
 source scripts/evergreen/e2e/lib.sh
 source scripts/dev/set_env_context.sh
 
+run_e2e_mco_tests() {
+  local cluster_wide="false"
+
+  if [[ "${TEST_NAME}" == "replica_set_cross_namespace_deploy" ]]; then
+    cluster_wide="true"
+  fi
+
+  # mco pv test relies on this
+  docker exec kind-control-plane mkdir -p /opt/data/mongo-data-{0..2} /opt/data/mongo-logs-{0..2}
+
+  set +e # let's not fail here, such that we can still dump all information
+  scripts/evergreen/run_python.sh mongodb-community-operator/scripts/dev/e2e.py --test "${TEST_NAME}" --distro ubi --cluster-wide "${cluster_wide}"
+  local test_results=$?
+  set -e
+
+  return ${test_results}
+}
+
 if [[ -n "${KUBECONFIG:-}" && ! -f "${KUBECONFIG}" ]]; then
   echo "Kube configuration: ${KUBECONFIG} file does not exist!"
   exit 1
@@ -61,27 +79,6 @@ echo "TEST_NAME is set to: ${TEST_NAME}"
 
 delete_operator "${NAMESPACE}"
 
-# 4. Main test run.
-# TODO: MCK make this cleaner
-# which includes,
-# - direct variant and test name check check
-# - config.json version difference
-if [[ "${BUILD_VARIANT:-${CURRENT_VARIANT_CONTEXT}}" == "e2e_mco_tests" ]]; then
-    CLUSTER_WIDE="false"
-
-    if [[ "${TEST_NAME}" == "replica_set_cross_namespace_deploy" ]]; then
-      CLUSTER_WIDE="true"
-    fi
-    # mco pv test relies on this
-    docker exec kind-control-plane  mkdir -p /opt/data/mongo-data-0 /opt/data/mongo-data-1 /opt/data/mongo-data-2 /opt/data/mongo-logs-0 /opt/data/mongo-logs-1 /opt/data/mongo-logs-2
-    set +e # let's not fail here, such that we can still dump all information
-    scripts/evergreen/run_python.sh mongodb-community-operator/scripts/dev/e2e.py --test "${TEST_NAME}" --distro ubi --cluster-wide "${CLUSTER_WIDE}"
-    TEST_RESULTS=$?
-    set -e
-    dump_all || true
-    exit ${TEST_RESULTS}  # Exit with the same status code as the last command
-fi
-
 # We'll have the task running for the alloca  ted time, minus the time it took us
 # to get all the way here, assuming configuring and deploying the operator can
 # take a bit of time. This is needed because Evergreen kills the process *AND*
@@ -97,7 +94,14 @@ task_timeout=$(get_timeout_for_task "${TASK_NAME:?}")
 timeout_sec=$((task_timeout - elapsed_time - 60))
 echo "This task is allowed to run for ${timeout_sec} seconds"
 TEST_RESULTS=0
-timeout --foreground "${timeout_sec}" scripts/evergreen/e2e/single_e2e.sh || TEST_RESULTS=$?
+
+# 4. Main test run.
+if [[ "${BUILD_VARIANT:-${CURRENT_VARIANT_CONTEXT}}" == "e2e_mco_tests" ]]; then
+  run_e2e_mco_tests || TEST_RESULTS=$?
+else
+  timeout --foreground "${timeout_sec}" scripts/evergreen/e2e/single_e2e.sh || TEST_RESULTS=$?
+fi
+
 # Dump information from all clusters.
 # TODO: ensure cluster name is included in log files so there is no overwriting of cross cluster files.
 # shellcheck disable=SC2154
