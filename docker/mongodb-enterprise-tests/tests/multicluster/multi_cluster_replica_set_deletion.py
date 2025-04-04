@@ -2,7 +2,7 @@ from typing import List
 
 import kubernetes
 import pytest
-from kubetester import wait_until
+from kubetester import try_load, wait_until
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
@@ -20,10 +20,10 @@ def mongodb_multi(
     custom_mdb_version: str,
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", namespace)
-    resource.set_version(custom_mdb_version)
 
-    # TODO: incorporate this into the base class.
-    resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
+    if try_load(resource):
+        return resource
+
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
 
     return resource.update()
@@ -47,30 +47,19 @@ def test_automation_config_has_been_updated(mongodb_multi: MongoDBMulti):
 
 
 @pytest.mark.e2e_multi_cluster_replica_set_deletion
-def test_delete_mongodb_multi(
-    mongodb_multi: MongoDBMulti,
-):
-    mongodb_multi.load()
-
-    # TODO: uncomment when change is merged.
-    # mongodb_multi.delete()
-
-    body = kubernetes.client.V1DeleteOptions()
-    mongodb_multi.api.delete_namespaced_custom_object(
-        mongodb_multi.group,
-        mongodb_multi.version,
-        mongodb_multi.namespace,
-        mongodb_multi.plural,
-        mongodb_multi.name,
-        body=body,
-    )
+def test_delete_mongodb_multi(mongodb_multi: MongoDBMulti):
+    mongodb_multi.delete()
 
     def wait_for_deleted() -> bool:
         try:
             mongodb_multi.load()
             return False
-        except kubernetes.client.ApiException:
-            return True
+        except kubernetes.client.ApiException as e:
+            if e.status == 404:
+                return True
+            else:
+                print(e)
+                return False
 
     wait_until(wait_for_deleted, timeout=60)
 
