@@ -96,10 +96,11 @@ func TestOpsManagerInKubernetes_InternalConnectivityOverride(t *testing.T) {
 		KubeClient:  fakeClient,
 	}
 
-	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, multicluster.GetLegacyCentralMemberCluster(testOm.Spec.Replicas, 0, fakeClient, secretsClient), zap.S())
+	memberCluster := multicluster.GetLegacyCentralMemberCluster(testOm.Spec.Replicas, 0, fakeClient, secretsClient)
+	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, memberCluster, zap.S())
 	assert.NoError(t, err)
 
-	err = OpsManagerInKubernetes(ctx, fakeClient, testOm, sts, zap.S())
+	err = OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
 	assert.NoError(t, err)
 
 	svc, err := fakeClient.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()))
@@ -134,10 +135,11 @@ func TestOpsManagerInKubernetes_DefaultInternalServiceForMultiCluster(t *testing
 		KubeClient:  fakeClient,
 	}
 
-	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, multicluster.GetLegacyCentralMemberCluster(testOm.Spec.Replicas, 0, fakeClient, secretsClient), zap.S())
+	memberCluster := multicluster.GetLegacyCentralMemberCluster(testOm.Spec.Replicas, 0, fakeClient, secretsClient)
+	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, memberCluster, zap.S())
 	assert.NoError(t, err)
 
-	err = OpsManagerInKubernetes(ctx, fakeClient, testOm, sts, zap.S())
+	err = OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
 	assert.NoError(t, err)
 
 	svc, err := fakeClient.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()))
@@ -145,6 +147,342 @@ func TestOpsManagerInKubernetes_DefaultInternalServiceForMultiCluster(t *testing
 
 	assert.Equal(t, svc.Spec.Type, corev1.ServiceTypeClusterIP, "Default internal service for OM multicluster is of type ClusterIP")
 	assert.Equal(t, svc.Spec.ClusterIP, "", "Default internal service for OM multicluster is not a headless service")
+}
+
+func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T) {
+	memberClusterName1 := "member-cluster-1"
+	memberClusterName2 := "member-cluster-2"
+	memberClusterName3 := "member-cluster-3"
+
+	type testCase struct {
+		clusterSpecList            []omv1.ClusterSpecOMItem
+		commonExternalConnectivity *omv1.MongoDBOpsManagerServiceDefinition
+		expectedServices           map[string]corev1.Service
+	}
+
+	testCases := map[string]testCase{
+		"no common external connectivity + cluster specific": {
+			clusterSpecList: []omv1.ClusterSpecOMItem{
+				{
+					ClusterName: memberClusterName1,
+					Members:     1,
+					MongoDBOpsManagerExternalConnectivity: &omv1.MongoDBOpsManagerServiceDefinition{
+						Type: corev1.ServiceTypeNodePort,
+						Port: 30006,
+					},
+				},
+				{
+					ClusterName: memberClusterName2,
+					Members:     1,
+				},
+				{
+					ClusterName: memberClusterName3,
+					Members:     1,
+					MongoDBOpsManagerExternalConnectivity: &omv1.MongoDBOpsManagerServiceDefinition{
+						Type:           corev1.ServiceTypeLoadBalancer,
+						Port:           8080,
+						LoadBalancerIP: "10.10.10.1",
+					},
+				},
+			},
+			commonExternalConnectivity: nil,
+			expectedServices: map[string]corev1.Service{
+				memberClusterName1: {
+					ObjectMeta: metav1.ObjectMeta{
+						Name:            "test-om-svc-ext",
+						ResourceVersion: "1",
+						Labels: map[string]string{
+							"app":                         "test-om-svc",
+							construct.ControllerLabelName: "mongodb-enterprise-operator",
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion:         "mongodb.com/v1",
+								Name:               "test-om",
+								Controller:         ptr.To(true),
+								BlockOwnerDeletion: ptr.To(true),
+							},
+						},
+					},
+					Spec: corev1.ServiceSpec{
+						Ports: []corev1.ServicePort{
+							{
+								Name:       "external-connectivity-port",
+								Port:       30006,
+								TargetPort: intstr.FromInt32(8080),
+								NodePort:   30006,
+							},
+							{
+								Name:       "backup-port",
+								Port:       1234,
+								TargetPort: intstr.FromInt32(0),
+								NodePort:   0,
+							},
+						},
+						Selector: map[string]string{
+							"app":                         "test-om-svc",
+							construct.ControllerLabelName: "mongodb-enterprise-operator",
+						},
+						Type:                     corev1.ServiceTypeNodePort,
+						PublishNotReadyAddresses: true,
+					},
+				},
+				memberClusterName3: {
+					ObjectMeta: metav1.ObjectMeta{
+						Name:            "test-om-svc-ext",
+						ResourceVersion: "1",
+						Labels: map[string]string{
+							"app":                         "test-om-svc",
+							construct.ControllerLabelName: "mongodb-enterprise-operator",
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion:         "mongodb.com/v1",
+								Name:               "test-om",
+								Controller:         ptr.To(true),
+								BlockOwnerDeletion: ptr.To(true),
+							},
+						},
+					},
+					Spec: corev1.ServiceSpec{
+						Ports: []corev1.ServicePort{
+							{
+								Name:       "external-connectivity-port",
+								Port:       8080,
+								TargetPort: intstr.FromInt32(8080),
+							},
+							{
+								Name:       "backup-port",
+								Port:       1234,
+								TargetPort: intstr.FromInt32(0),
+								NodePort:   0,
+							},
+						},
+						Selector: map[string]string{
+							"app":                         "test-om-svc",
+							construct.ControllerLabelName: "mongodb-enterprise-operator",
+						},
+						Type:                     corev1.ServiceTypeLoadBalancer,
+						LoadBalancerIP:           "10.10.10.1",
+						PublishNotReadyAddresses: true,
+					},
+				},
+			},
+		},
+		"common external connectivity + cluster specific": {
+			clusterSpecList: []omv1.ClusterSpecOMItem{
+				{
+					ClusterName: memberClusterName1,
+					Members:     1,
+					MongoDBOpsManagerExternalConnectivity: &omv1.MongoDBOpsManagerServiceDefinition{
+						Type: corev1.ServiceTypeNodePort,
+						Port: 30006,
+					},
+				},
+				{
+					ClusterName: memberClusterName2,
+					Members:     1,
+				},
+				{
+					ClusterName: memberClusterName3,
+					Members:     1,
+					MongoDBOpsManagerExternalConnectivity: &omv1.MongoDBOpsManagerServiceDefinition{
+						Type:           corev1.ServiceTypeLoadBalancer,
+						Port:           8080,
+						LoadBalancerIP: "10.10.10.1",
+					},
+				},
+			},
+			commonExternalConnectivity: &omv1.MongoDBOpsManagerServiceDefinition{
+				Type:           corev1.ServiceTypeLoadBalancer,
+				Port:           5005,
+				LoadBalancerIP: "20.20.20.2",
+				Annotations: map[string]string{
+					"test-annotation": "test-value",
+				},
+			},
+			expectedServices: map[string]corev1.Service{
+				memberClusterName1: {
+					ObjectMeta: metav1.ObjectMeta{
+						Name:            "test-om-svc-ext",
+						ResourceVersion: "1",
+						Labels: map[string]string{
+							"app":                         "test-om-svc",
+							construct.ControllerLabelName: "mongodb-enterprise-operator",
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion:         "mongodb.com/v1",
+								Name:               "test-om",
+								Controller:         ptr.To(true),
+								BlockOwnerDeletion: ptr.To(true),
+							},
+						},
+					},
+					Spec: corev1.ServiceSpec{
+						Ports: []corev1.ServicePort{
+							{
+								Name:       "external-connectivity-port",
+								Port:       30006,
+								TargetPort: intstr.FromInt32(8080),
+								NodePort:   30006,
+							},
+							{
+								Name:       "backup-port",
+								Port:       1234,
+								TargetPort: intstr.FromInt32(0),
+								NodePort:   0,
+							},
+						},
+						Selector: map[string]string{
+							"app":                         "test-om-svc",
+							construct.ControllerLabelName: "mongodb-enterprise-operator",
+						},
+						Type:                     corev1.ServiceTypeNodePort,
+						PublishNotReadyAddresses: true,
+					},
+				},
+				memberClusterName2: {
+					ObjectMeta: metav1.ObjectMeta{
+						Name:            "test-om-svc-ext",
+						ResourceVersion: "1",
+						Labels: map[string]string{
+							"app":                         "test-om-svc",
+							construct.ControllerLabelName: "mongodb-enterprise-operator",
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion:         "mongodb.com/v1",
+								Name:               "test-om",
+								Controller:         ptr.To(true),
+								BlockOwnerDeletion: ptr.To(true),
+							},
+						},
+						Annotations: map[string]string{
+							"test-annotation": "test-value",
+						},
+					},
+					Spec: corev1.ServiceSpec{
+						Ports: []corev1.ServicePort{
+							{
+								Name:       "external-connectivity-port",
+								Port:       5005,
+								TargetPort: intstr.FromInt32(8080),
+							},
+							{
+								Name:       "backup-port",
+								Port:       1234,
+								TargetPort: intstr.FromInt32(0),
+								NodePort:   0,
+							},
+						},
+						Selector: map[string]string{
+							"app":                         "test-om-svc",
+							construct.ControllerLabelName: "mongodb-enterprise-operator",
+						},
+						Type:                     corev1.ServiceTypeLoadBalancer,
+						LoadBalancerIP:           "20.20.20.2",
+						PublishNotReadyAddresses: true,
+					},
+				},
+				memberClusterName3: {
+					ObjectMeta: metav1.ObjectMeta{
+						Name:            "test-om-svc-ext",
+						ResourceVersion: "1",
+						Labels: map[string]string{
+							"app":                         "test-om-svc",
+							construct.ControllerLabelName: "mongodb-enterprise-operator",
+						},
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion:         "mongodb.com/v1",
+								Name:               "test-om",
+								Controller:         ptr.To(true),
+								BlockOwnerDeletion: ptr.To(true),
+							},
+						},
+					},
+					Spec: corev1.ServiceSpec{
+						Ports: []corev1.ServicePort{
+							{
+								Name:       "external-connectivity-port",
+								Port:       8080,
+								TargetPort: intstr.FromInt32(8080),
+							},
+							{
+								Name:       "backup-port",
+								Port:       1234,
+								TargetPort: intstr.FromInt32(0),
+								NodePort:   0,
+							},
+						},
+						Selector: map[string]string{
+							"app":                         "test-om-svc",
+							construct.ControllerLabelName: "mongodb-enterprise-operator",
+						},
+						Type:                     corev1.ServiceTypeLoadBalancer,
+						LoadBalancerIP:           "10.10.10.1",
+						PublishNotReadyAddresses: true,
+					},
+				},
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			testOmBuilder := omv1.NewOpsManagerBuilderDefault().
+				SetName("test-om").
+				SetOpsManagerTopology(mdbv1.ClusterTopologyMultiCluster).
+				SetAppDBPassword("my-secret", "password").
+				SetBackup(omv1.MongoDBOpsManagerBackup{Enabled: true}).
+				AddConfiguration("brs.queryable.proxyPort", "1234").
+				SetOpsManagerClusterSpecList(tc.clusterSpecList)
+
+			if tc.commonExternalConnectivity != nil {
+				testOmBuilder.SetExternalConnectivity(*tc.commonExternalConnectivity)
+			}
+			testOm := testOmBuilder.Build()
+
+			memberClusters := make([]multicluster.MemberCluster, len(tc.clusterSpecList))
+			for clusterIndex, clusterSpecItem := range tc.clusterSpecList {
+				fakeClient, _ := mock.NewDefaultFakeClient()
+				secretsClient := secrets.SecretClient{
+					VaultClient: &vault.VaultClient{},
+					KubeClient:  fakeClient,
+				}
+
+				memberClusters[clusterIndex] = multicluster.MemberCluster{
+					Name:         clusterSpecItem.ClusterName,
+					Index:        clusterIndex,
+					Replicas:     clusterSpecItem.Members,
+					Client:       fakeClient,
+					SecretClient: secretsClient,
+					Active:       true,
+					Healthy:      true,
+					Legacy:       false,
+				}
+			}
+
+			for _, memberCluster := range memberClusters {
+				ctx := context.Background()
+				sts, err := construct.OpsManagerStatefulSet(ctx, memberCluster.SecretClient, testOm, memberCluster, zap.S())
+				assert.NoError(t, err)
+
+				err = OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
+				assert.NoError(t, err)
+
+				expectedService, ok := tc.expectedServices[memberCluster.Name]
+				svc, err := memberCluster.Client.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.ExternalSvcName()))
+				if ok {
+					assert.NoError(t, err)
+					assert.Equal(t, expectedService, svc, "service for cluster %s does not match", memberCluster.Name)
+				} else {
+					assert.Error(t, err)
+				}
+			}
+		})
+	}
 }
 
 func TestBackupServiceCreated_NoExternalConnectivity(t *testing.T) {
@@ -162,10 +500,11 @@ func TestBackupServiceCreated_NoExternalConnectivity(t *testing.T) {
 		KubeClient:  fakeClient,
 	}
 
-	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, multicluster.GetLegacyCentralMemberCluster(testOm.Spec.Replicas, 0, fakeClient, secretsClient), zap.S())
+	memberCluster := multicluster.GetLegacyCentralMemberCluster(testOm.Spec.Replicas, 0, fakeClient, secretsClient)
+	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, memberCluster, zap.S())
 	assert.NoError(t, err)
 
-	err = OpsManagerInKubernetes(ctx, fakeClient, testOm, sts, zap.S())
+	err = OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
 	assert.NoError(t, err)
 
 	_, err = fakeClient.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()+"-ext"))
@@ -205,10 +544,11 @@ func TestBackupServiceCreated_ExternalConnectivity(t *testing.T) {
 		VaultClient: &vault.VaultClient{},
 		KubeClient:  fakeClient,
 	}
-	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, multicluster.GetLegacyCentralMemberCluster(testOm.Spec.Replicas, 0, fakeClient, secretsClient), zap.S())
+	memberCluster := multicluster.GetLegacyCentralMemberCluster(testOm.Spec.Replicas, 0, fakeClient, secretsClient)
+	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, memberCluster, zap.S())
 	assert.NoError(t, err)
 
-	err = OpsManagerInKubernetes(ctx, fakeClient, testOm, sts, zap.S())
+	err = OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
 	assert.NoError(t, err)
 
 	externalService, err := fakeClient.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()+"-ext"))

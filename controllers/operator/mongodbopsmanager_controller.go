@@ -917,7 +917,7 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulsetInMemberCluster(ctx co
 		return workflow.Failed(xerrors.Errorf("error building OpsManager stateful set: %w", err))
 	}
 
-	if err := create.OpsManagerInKubernetes(ctx, memberCluster.Client, opsManager, sts, log); err != nil {
+	if err := create.OpsManagerInKubernetes(ctx, memberCluster, opsManager, sts, log); err != nil {
 		return workflow.Failed(err)
 	}
 

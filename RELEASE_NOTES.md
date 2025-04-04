@@ -8,7 +8,7 @@
 * **AppDB**: Fixed an issue with wrong monitoring hostnames for `Application Database` deployed in multi-cluster mode. Monitoring agents should discover the correct hostnames and send data back to `Ops Manager`. The hostnames used for monitoring AppDB in Multi-Cluster deployments with a service mesh are `{resource_name}-db-{cluster_index}-{pod_index}-svc.{namespace}.svc.{cluster_domain}`. TLS certificate should be defined for these hostnames.
     * **NOTE (Multi-Cluster)** This bug fix will result in the loss of historical monitoring data for multi-cluster AppDB members. If retaining this data is critical, please back it up before upgrading. This only affects monitoring data for multi-cluster AppDB deployments — it does not impact single-cluster AppDBs or any other MongoDB deployments managed by this Ops Manager instance.
         * To export the monitoring data of AppDB members, please refer to the Ops Manager API reference https://www.mongodb.com/docs/ops-manager/current/reference/api/measures/get-host-process-system-measurements/
-
+* **OpsManager**: Fixed a bug where the `spec.clusterSpecList.externalConnectivity` field was not being used by the operator, but documented in Ops Manager API reference https://www.mongodb.com/docs/kubernetes-operator/current/reference/k8s-operator-om-specification/#mongodb-opsmgrkube-opsmgrkube.spec.clusterSpecList.externalConnectivity
 
 <!-- Past Releases -->
 
