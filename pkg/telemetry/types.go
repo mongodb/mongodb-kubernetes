@@ -31,7 +31,7 @@ type DeploymentUsageSnapshotProperties struct {
 	Architecture             string `json:"architecture"`
 	IsMultiCluster           bool   `json:"isMultiCluster"`
 	Type                     string `json:"type"` // RS, SC, OM, Single
-	IsRunningEnterpriseImage bool   `json:"IsRunningEnterpriseImage"`
+	IsRunningEnterpriseImage bool   `json:"isRunningEnterpriseImage"`
 }
 
 type Event struct {

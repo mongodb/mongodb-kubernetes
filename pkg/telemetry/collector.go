@@ -18,6 +18,7 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
+	mcov1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/envvar"
 	"github.com/10gen/ops-manager-kubernetes/pkg/images"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -204,6 +205,7 @@ func collectDeploymentsSnapshot(ctx context.Context, operatorClusterMgr manager.
 	events = append(events, getMdbEvents(ctx, operatorClusterClient, operatorUUID, mongodbImage, databaseNonStaticImage, now)...)
 	events = append(events, addMultiEvents(ctx, operatorClusterClient, operatorUUID, mongodbImage, databaseNonStaticImage, now)...)
 	events = append(events, addOmEvents(ctx, operatorClusterClient, operatorUUID, mongodbImage, now)...)
+	events = append(events, addCommunityEvents(ctx, operatorClusterClient, operatorUUID, mongodbImage, now)...)
 	return events
 }
 
@@ -233,7 +235,9 @@ func getMdbEvents(ctx context.Context, operatorClusterClient kubeclient.Client, 
 			if numberOfClustersUsed > 0 {
 				properties.DatabaseClusters = ptr.To(numberOfClustersUsed)
 			}
-			events = append(events, addEvents(properties, events, now, Deployments)...)
+			if event := createEvent(properties, now, Deployments); event != nil {
+				events = append(events, *event)
+			}
 		}
 	}
 	return events
@@ -263,7 +267,9 @@ func addMultiEvents(ctx context.Context, operatorClusterClient kubeclient.Client
 			Type:                     string(item.Spec.GetResourceType()),
 			IsRunningEnterpriseImage: images.IsEnterpriseImage(imageURL),
 		}
-		events = append(events, addEvents(properties, events, now, Deployments)...)
+		if event := createEvent(properties, now, Deployments); event != nil {
+			events = append(events, *event)
+		}
 	}
 
 	return events
@@ -294,23 +300,50 @@ func addOmEvents(ctx context.Context, operatorClusterClient kubeclient.Client, o
 			if appDBClusters > 0 {
 				properties.AppDBClusters = ptr.To(appDBClusters)
 			}
-			events = append(events, addEvents(properties, events, now, Deployments)...)
+			if event := createEvent(properties, now, Deployments); event != nil {
+				events = append(events, *event)
+			}
 		}
 	}
 	return events
 }
 
-func addEvents(properties any, events []Event, now time.Time, eventType EventType) []Event {
+func addCommunityEvents(ctx context.Context, operatorClusterClient kubeclient.Client, operatorUUID, mongodbImage string, now time.Time) []Event {
+	var events []Event
+	communityList := &mcov1.MongoDBCommunityList{}
+
+	if err := operatorClusterClient.List(ctx, communityList); err != nil {
+		Logger.Warnf("failed to fetch MongoDBCommunityList from Kubernetes: %v", err)
+	} else {
+		for _, item := range communityList.Items {
+			properties := DeploymentUsageSnapshotProperties{
+				DeploymentUID:            string(item.UID),
+				OperatorID:               operatorUUID,
+				Architecture:             "static", // Community operator is always static
+				IsMultiCluster:           false,    // Community operator doesn't support multi-cluster
+				Type:                     "Community",
+				IsRunningEnterpriseImage: images.IsEnterpriseImage(mongodbImage),
+			}
+			if event := createEvent(properties, now, Deployments); event != nil {
+				events = append(events, *event)
+			}
+		}
+	}
+	return events
+}
+
+func createEvent(properties any, now time.Time, eventType EventType) *Event {
 	convertedProperties, err := maputil.StructToMap(properties)
 	if err != nil {
 		Logger.Debugf("failed to parse %s properties: %v", eventType, err)
-		return events
+		return nil
 	}
-	return append(events, Event{
+
+	return &Event{
 		Timestamp:  now,
 		Source:     eventType,
 		Properties: convertedProperties,
-	})
+	}
 }
 
 func getMaxNumberOfClustersSCIsDeployedOn(item mdbv1.MongoDB) int {
@@ -371,8 +404,11 @@ func collectClustersSnapshot(ctx context.Context, memberClusterMap map[string]Co
 	var events []Event
 
 	for _, properties := range allClusterDetails {
-		events = append(events, addEvents(properties, events, now, Clusters)...)
+		if event := createEvent(properties, now, Clusters); event != nil {
+			events = append(events, *event)
+		}
 	}
+
 	return events
 }
 

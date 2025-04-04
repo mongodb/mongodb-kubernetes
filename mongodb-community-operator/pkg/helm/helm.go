@@ -3,6 +3,7 @@ package helm
 import (
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -16,6 +17,11 @@ func Uninstall(t *testing.T, chartName string, namespace string) error {
 
 // Install a helm chert at the given path with the given name and the provided set arguments.
 func Install(t *testing.T, chartPath, chartName string, flags, templateValues map[string]string) error {
+	// let's ensure we never send telemetry by accident from community
+	templateValues["operator.env"] = "dev"
+	templateValues["operator.telemetry.send.enabled"] = strconv.FormatBool(false)
+	templateValues["operator.telemetry.send.baseUrl"] = "https://cloud-dev.mongodb.com/"
+
 	helmArgs := []string{"install"}
 	helmArgs = append(helmArgs, chartName, chartPath)
 	for flagKey, flagValue := range flags {
