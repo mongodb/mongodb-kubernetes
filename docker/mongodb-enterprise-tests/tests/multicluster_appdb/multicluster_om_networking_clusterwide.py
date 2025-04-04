@@ -17,7 +17,7 @@ from tests.conftest import (
 from tests.multicluster import prepare_multi_cluster_namespaces
 from tests.multicluster.conftest import cluster_spec_list, create_namespace
 
-from ..common.constants import MEMBER_CLUSTER_2, MEMBER_CLUSTER_3
+from ..common.constants import MEMBER_CLUSTER_1, MEMBER_CLUSTER_2, MEMBER_CLUSTER_3
 from ..common.ops_manager.multi_cluster import (
     ops_manager_multi_cluster_with_tls_s3_backups,
 )
@@ -233,7 +233,52 @@ def test_enable_external_connectivity(ops_manager: MongoDBOpsManager):
         "type": "LoadBalancer",
         "port": 9000,
     }
+    # override the default port for the first cluster
+    ops_manager["spec"]["clusterSpecList"][0]["externalConnectivity"] = {
+        "type": "LoadBalancer",
+        "port": 5000,
+    }
+    # override the service type for the second cluster
+    ops_manager["spec"]["clusterSpecList"].append(
+        {
+            "clusterName": MEMBER_CLUSTER_1,
+            "members": 1,
+            "backup": {
+                "members": 1,
+            },
+            "externalConnectivity": {
+                "type": "NodePort",
+                "port": 30006,
+                "annotations": {
+                    "test-annotation": "test-value",
+                },
+            },
+        }
+    )
+
     ops_manager.update()
 
     ops_manager.om_status().assert_reaches_phase(Phase.Running)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
+
+
+@mark.e2e_multi_cluster_om_networking_clusterwide
+def test_external_services_are_created(ops_manager: MongoDBOpsManager):
+    _, external = ops_manager.services(MEMBER_CLUSTER_1)
+    assert external.spec.type == "NodePort"
+    assert external.metadata.annotations == {"test-annotation": "test-value"}
+    assert len(external.spec.ports) == 2
+    assert external.spec.ports[0].port == 30006
+    assert external.spec.ports[0].target_port == 8443
+
+    _, external = ops_manager.services(MEMBER_CLUSTER_2)
+    assert external.spec.type == "LoadBalancer"
+    assert len(external.spec.ports) == 2
+    assert external.spec.ports[0].port == 5000
+    assert external.spec.ports[0].target_port == 8443
+
+    _, external = ops_manager.services(MEMBER_CLUSTER_3)
+    assert external.spec.type == "LoadBalancer"
+    assert len(external.spec.ports) == 2
+    assert external.spec.ports[0].port == 9000
+    assert external.spec.ports[0].target_port == 8443

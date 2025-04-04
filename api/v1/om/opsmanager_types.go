@@ -1033,6 +1033,16 @@ func (om *MongoDBOpsManager) ClusterMappingConfigMapName() string {
 	return om.Name + "-cluster-mapping"
 }
 
+func (om *MongoDBOpsManager) GetExternalConnectivityConfigurationForMemberCluster(clusterName string) *MongoDBOpsManagerServiceDefinition {
+	for _, csl := range om.Spec.ClusterSpecList {
+		if csl.ClusterName == clusterName && csl.MongoDBOpsManagerExternalConnectivity != nil {
+			return csl.MongoDBOpsManagerExternalConnectivity
+		}
+	}
+
+	return om.Spec.MongoDBOpsManagerExternalConnectivity
+}
+
 // newBackup returns an empty backup object
 func newBackup() *MongoDBOpsManagerBackup {
 	return &MongoDBOpsManagerBackup{Enabled: true}
