@@ -39,6 +39,7 @@ func init() {
 
 const (
 	queryableBackupConfigPath  string = "brs.queryable.proxyPort"
+	debuggingPortConfigPath    string = "mms.k8s.debuggingPort"
 	queryableBackupDefaultPort int32  = 25999
 )
 
@@ -659,6 +660,17 @@ func (ms MongoDBOpsManagerSpec) BackupDaemonSvcPort() (int32, error) {
 		return int32(val), nil
 	}
 	return queryableBackupDefaultPort, nil
+}
+
+func (ms MongoDBOpsManagerSpec) DebugPort() (int32, error) {
+	if port, ok := ms.Configuration[debuggingPortConfigPath]; ok {
+		val, err := strconv.ParseInt(port, 10, 32)
+		if err != nil {
+			return 0, fmt.Errorf("failed to parse debugging port %s: %w", port, err)
+		}
+		return int32(val), nil
+	}
+	return 0, nil
 }
 
 func (om *MongoDBOpsManager) AddConfigIfDoesntExist(key, value string) bool {
