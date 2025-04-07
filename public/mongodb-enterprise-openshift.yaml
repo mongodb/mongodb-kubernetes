@@ -382,14 +382,6 @@ spec:
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.13.8702-1_1.31.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_13_8702_1_1_32_0
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.13.8702-1_1.32.0"
-            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_4_8567_1
-              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.4.8567-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_4_8567_1_1_30_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.4.8567-1_1.30.0"
-            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_4_8567_1_1_31_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.4.8567-1_1.31.0"
-            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_4_8567_1_1_32_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.4.8567-1_1.32.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_6_8587_1
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.6.8587-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_6_8587_1_1_30_0
@@ -462,6 +454,14 @@ spec:
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.4.8770-1_1.31.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_4_8770_1_1_32_0
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.4.8770-1_1.32.0"
+            - name: RELATED_IMAGE_AGENT_IMAGE_108_0_6_8796_1
+              value: "quay.io/mongodb/mongodb-agent-ubi:108.0.6.8796-1"
+            - name: RELATED_IMAGE_AGENT_IMAGE_108_0_6_8796_1_1_30_0
+              value: "quay.io/mongodb/mongodb-agent-ubi:108.0.6.8796-1_1.30.0"
+            - name: RELATED_IMAGE_AGENT_IMAGE_108_0_6_8796_1_1_31_0
+              value: "quay.io/mongodb/mongodb-agent-ubi:108.0.6.8796-1_1.31.0"
+            - name: RELATED_IMAGE_AGENT_IMAGE_108_0_6_8796_1_1_32_0
+              value: "quay.io/mongodb/mongodb-agent-ubi:108.0.6.8796-1_1.32.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_32_7857_1
               value: "quay.io/mongodb/mongodb-agent-ubi:12.0.32.7857-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_32_7857_1_1_30_0
@@ -598,6 +598,8 @@ spec:
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:8.0.4"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_8_0_5
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:8.0.5"
+            - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_8_0_6
+              value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:8.0.6"
       # since the official server images end with a different suffix we can re-use the same $mongodbImageEnv
             - name: RELATED_IMAGE_MONGODB_IMAGE_4_4_0_ubi8
               value: "quay.io/mongodb/mongodb-enterprise-server:4.4.0-ubi8"
