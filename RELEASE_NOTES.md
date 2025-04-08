@@ -3,6 +3,15 @@
 
 # MongoDB Enterprise Kubernetes Operator 1.33.0
 
+## New Features
+* **MongoDBOpsManager**, **AppDB**: Introduced support for OpsManager and Application Database deployments across multiple Kubernetes clusters without requiring a Service Mesh.
+  * New property [spec.applicationDatabase.externalAccess](TBD) used for common service configuration or in single cluster deployments
+  * Added support for existing, but unused property [spec.applicationDatabase.clusterSpecList.externalAccess](TBD)
+  * You can define annotations for external services managed by the operator that contain placeholders which will be automatically replaced to the proper values. To learn more please see the relevant documentation:
+      * AppDB: [spec.applicationDatabase.externalAccess.externalService.annotations](TBD)
+      * MongoDBOpsManager: Due to different way of configuring external service placeholders are not yet supported
+  * More details can be found in the [public documentation](TBD).
+
 ## Bug Fixes
 * Fixed a bug where workloads in the `static` container architecture were still downloading binaries. This occurred when the operator was running with the default container architecture set to `non-static`, but the workload was deployed with the `static` architecture using the `mongodb.com/v1.architecture: "static"` annotation.
 * **AppDB**: Fixed an issue with wrong monitoring hostnames for `Application Database` deployed in multi-cluster mode. Monitoring agents should discover the correct hostnames and send data back to `Ops Manager`. The hostnames used for monitoring AppDB in Multi-Cluster deployments with a service mesh are `{resource_name}-db-{cluster_index}-{pod_index}-svc.{namespace}.svc.{cluster_domain}`. TLS certificate should be defined for these hostnames.

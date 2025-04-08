@@ -170,8 +170,6 @@ type MongoDBOpsManagerSpec struct {
 
 	// OpsManagerURL specified the URL with which the operator and AppDB monitoring agent should access Ops Manager instance (or instances).
 	// When not set, the operator is using FQDN of Ops Manager's headless service `{name}-svc.{namespace}.svc.cluster.local` to connect to the instance. If that URL cannot be used, then URL in this field should be provided for the operator to connect to Ops Manager instances.
-	// It defaults (and if not set) to SingleCluster. If MultiCluster specified,
-	// then clusterSpecList field is mandatory and at least one member cluster has to be specified.
 	// +optional
 	OpsManagerURL string `json:"opsManagerURL,omitempty"`
 }

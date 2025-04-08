@@ -154,13 +154,21 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             expected_number_of_agents_are_active = (
                 len([agent for agent in appdb_monitoring_agents if agent["stateName"] == "ACTIVE"]) == 1
             )
+
             return (
                 expected_number_of_agents
                 and expected_number_of_agents_in_standby
                 and expected_number_of_agents_are_active
             )
 
-        KubernetesTester.wait_until(monitoring_agents_have_registered, timeout=120, sleep_time=5)
+        KubernetesTester.wait_until(monitoring_agents_have_registered, timeout=600, sleep_time=5)
+
+        def no_automation_agents_have_registered() -> bool:
+            automation_agents = tester.api_read_automation_agents()
+            appdb_automation_agents = [a for a in automation_agents if a["hostname"] in appdb_hostnames]
+            return len(appdb_automation_agents) == 0
+
+        KubernetesTester.wait_until(no_automation_agents_have_registered, timeout=600, sleep_time=5)
 
     def assert_monitoring_data_exists(
         self, database_name: str = "admin", period: str = "P1DT12H", timeout: int = 120, all_hosts: bool = True
@@ -443,25 +451,35 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         In case of single cluster, the hostnames use the headless service.
         """
         hostnames = []
+        appdb_resource = self.get_appdb_resource()
+        external_domain = appdb_resource["spec"].get("externalAccess", {}).get("externalDomain")
         if self.is_appdb_multi_cluster():
             for cluster_index, cluster_spec_item in self.get_appdb_indexed_cluster_spec_items():
-                cluster_name = cluster_spec_item["clusterName"]
                 pod_names = multi_cluster_pod_names(
                     self.app_db_name(), [(cluster_index, int(cluster_spec_item["members"]))]
                 )
-                hostnames.extend([f"{pod_name}-svc.{self.namespace}.svc.cluster.local" for pod_name in pod_names])
+
+                cluster_external_domain = cluster_spec_item.get("externalAccess", {}).get(
+                    "externalDomain", external_domain
+                )
+                if cluster_external_domain is not None:
+                    hostnames.extend([f"{pod_name}.{cluster_external_domain}" for pod_name in pod_names])
+                else:
+                    hostnames.extend([f"{pod_name}-svc.{self.namespace}.svc.cluster.local" for pod_name in pod_names])
         else:
-            appdb_resource = self.get_appdb_resource()
             resource_name = appdb_resource["metadata"]["name"]
             service_name = f"{resource_name}-svc"
             namespace = appdb_resource["metadata"]["namespace"]
 
             for index in range(appdb_resource["spec"]["members"]):
-                hostnames.append(f"{resource_name}-{index}.{service_name}.{namespace}.svc.cluster.local")
+                if external_domain is not None:
+                    hostnames.append(f"{resource_name}-{index}.{external_domain}")
+                else:
+                    hostnames.append(f"{resource_name}-{index}.{service_name}.{namespace}.svc.cluster.local")
 
         return hostnames
 
-    def get_appdb_indexed_cluster_spec_items(self) -> list[tuple[int, dict[str, str]]]:
+    def get_appdb_indexed_cluster_spec_items(self) -> list[tuple[int, dict[str, any]]]:
         """Returns ordered list (by cluster index) of tuples (cluster index, clusterSpecItem) from spec.applicationDatabase.clusterSpecList.
         Cluster indexes are read from -cluster-mapping config map.
         """
@@ -818,6 +836,8 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         return "MongoDBOpsManager| status:".format(self.get_status())
 
     def get_appdb_members_count(self) -> int:
+        if self.is_appdb_multi_cluster():
+            return sum(i[1] for i in self.get_appdb_member_cluster_indexes_with_member_count())
         return self["spec"]["applicationDatabase"]["members"]
 
     def get_appdb_connection_url_secret_name(self):

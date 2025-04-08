@@ -85,6 +85,11 @@ func (in *AppDBSpec) DeepCopyInto(out *AppDBSpec) {
 		*out = new(mdb.MongoDBConnectivity)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.ExternalAccessConfiguration != nil {
+		in, out := &in.ExternalAccessConfiguration, &out.ExternalAccessConfiguration
+		*out = new(mdb.ExternalAccessConfiguration)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.AdditionalMongodConfig != nil {
 		in, out := &in.AdditionalMongodConfig, &out.AdditionalMongodConfig
 		*out = (*in).DeepCopy()
