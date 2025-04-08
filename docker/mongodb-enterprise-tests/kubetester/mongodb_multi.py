@@ -137,5 +137,6 @@ class MongoDBMulti(MongoDB):
             namespace=self.namespace,
             port=port,
             external=external,
-            # TODO: tls, ca_path
+            ssl=self.is_tls_enabled() if use_ssl is None else use_ssl,
+            ca_path=ca_path,
         )

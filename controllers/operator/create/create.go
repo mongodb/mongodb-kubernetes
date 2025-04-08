@@ -256,7 +256,7 @@ func createExternalServices(ctx context.Context, client kubernetesClient.Client,
 	}
 	externalService.Annotations = merge.StringToStringMap(externalService.Annotations, mdb.Spec.ExternalAccessConfiguration.ExternalService.Annotations)
 
-	placeholderReplacer := GetSingleClusterMongoDBPlaceholderReplacer(mdb.Name, set.Name, mdb.Namespace, mdb.ServiceName(), &mdb.Spec, podNum)
+	placeholderReplacer := GetSingleClusterMongoDBPlaceholderReplacer(mdb.Name, set.Name, mdb.Namespace, mdb.ServiceName(), mdb.Spec.GetExternalDomain(), mdb.Spec.GetClusterDomain(), podNum, mdb.GetResourceType())
 	if processedAnnotations, replacedFlag, err := placeholderReplacer.ProcessMap(externalService.Annotations); err != nil {
 		return xerrors.Errorf("failed to process annotations in service %s: %w", externalService.Name, err)
 	} else if replacedFlag {
@@ -286,7 +286,7 @@ const (
 	PlaceholderClusterIndex        = "clusterIndex"
 )
 
-func GetSingleClusterMongoDBPlaceholderReplacer(resourceName string, statefulSetName string, namespace string, serviceName string, dbSpec mdbv1.DbSpec, podIdx int) *placeholders.Replacer {
+func GetSingleClusterMongoDBPlaceholderReplacer(resourceName string, statefulSetName string, namespace string, serviceName string, externalDomain *string, clusterDomain string, podIdx int, resourceType mdbv1.ResourceType) *placeholders.Replacer {
 	podName := dns.GetPodName(statefulSetName, podIdx)
 	placeholderValues := map[string]string{
 		PlaceholderPodIndex:            fmt.Sprintf("%d", podIdx),
@@ -297,17 +297,17 @@ func GetSingleClusterMongoDBPlaceholderReplacer(resourceName string, statefulSet
 		PlaceholderExternalServiceName: dns.GetExternalServiceName(statefulSetName, podIdx),
 	}
 
-	if dbSpec.GetResourceType() == mdbv1.ShardedCluster {
-		placeholderValues[PlaceholderMongosProcessDomain] = dns.GetServiceFQDN(serviceName, namespace, dbSpec.GetClusterDomain())
-		placeholderValues[PlaceholderMongosProcessFQDN] = dns.GetPodFQDN(podName, serviceName, namespace, dbSpec.GetClusterDomain(), dbSpec.GetExternalDomain())
-		if dbSpec.GetExternalDomain() != nil {
-			placeholderValues[PlaceholderMongosProcessDomain] = *dbSpec.GetExternalDomain()
+	if resourceType == mdbv1.ShardedCluster {
+		placeholderValues[PlaceholderMongosProcessDomain] = dns.GetServiceFQDN(serviceName, namespace, clusterDomain)
+		placeholderValues[PlaceholderMongosProcessFQDN] = dns.GetPodFQDN(podName, serviceName, namespace, clusterDomain, externalDomain)
+		if externalDomain != nil {
+			placeholderValues[PlaceholderMongosProcessDomain] = *externalDomain
 		}
 	} else {
-		placeholderValues[PlaceholderMongodProcessDomain] = dns.GetServiceFQDN(serviceName, namespace, dbSpec.GetClusterDomain())
-		placeholderValues[PlaceholderMongodProcessFQDN] = dns.GetPodFQDN(podName, serviceName, namespace, dbSpec.GetClusterDomain(), dbSpec.GetExternalDomain())
-		if dbSpec.GetExternalDomain() != nil {
-			placeholderValues[PlaceholderMongodProcessDomain] = *dbSpec.GetExternalDomain()
+		placeholderValues[PlaceholderMongodProcessDomain] = dns.GetServiceFQDN(serviceName, namespace, clusterDomain)
+		placeholderValues[PlaceholderMongodProcessFQDN] = dns.GetPodFQDN(podName, serviceName, namespace, clusterDomain, externalDomain)
+		if externalDomain != nil {
+			placeholderValues[PlaceholderMongodProcessDomain] = *externalDomain
 		}
 	}
 

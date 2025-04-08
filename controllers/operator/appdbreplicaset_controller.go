@@ -60,6 +60,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	mekoService "github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
+	"github.com/10gen/ops-manager-kubernetes/pkg/placeholders"
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
@@ -764,19 +765,18 @@ func (r *ReconcileAppDbReplicaSet) deployAutomationConfigOnHealthyClusters(ctx c
 	return 0, workflow.Failed(xerrors.Errorf("Failed to deploy automation configs"))
 }
 
-func getMultiClusterAppDBService(appdb omv1.AppDBSpec, clusterNum int, podNum int) corev1.Service {
+func getAppDBPodService(appdb omv1.AppDBSpec, clusterNum int, podNum int) corev1.Service {
 	svcLabels := map[string]string{
-		"statefulset.kubernetes.io/pod-name": dns.GetMultiPodName(appdb.Name(), clusterNum, podNum),
+		"statefulset.kubernetes.io/pod-name": appdb.GetPodName(clusterNum, podNum),
 		"controller":                         "mongodb-enterprise-operator",
 	}
 	labelSelectors := map[string]string{
-		"statefulset.kubernetes.io/pod-name": dns.GetMultiPodName(appdb.Name(), clusterNum, podNum),
+		"statefulset.kubernetes.io/pod-name": appdb.GetPodName(clusterNum, podNum),
 		"controller":                         "mongodb-enterprise-operator",
 	}
 	additionalConfig := appdb.GetAdditionalMongodConfig()
 	port := additionalConfig.GetPortOrDefault()
 	svc := service.Builder().
-		SetName(dns.GetMultiServiceName(appdb.Name(), clusterNum, podNum)).
 		SetNamespace(appdb.Namespace).
 		SetSelector(labelSelectors).
 		SetLabels(svcLabels).
@@ -784,6 +784,55 @@ func getMultiClusterAppDBService(appdb omv1.AppDBSpec, clusterNum int, podNum in
 		AddPort(&corev1.ServicePort{Port: port, Name: "mongodb"}).
 		Build()
 	return svc
+}
+
+func getAppDBExternalService(appdb omv1.AppDBSpec, clusterIdx int, clusterName string, podIdx int) corev1.Service {
+	svc := getAppDBPodService(appdb, clusterIdx, podIdx)
+	svc.Name = appdb.GetExternalServiceName(clusterIdx, podIdx)
+	svc.Spec.Type = corev1.ServiceTypeLoadBalancer
+
+	externalAccessConfig := appdb.GetExternalAccessConfigurationForMemberCluster(clusterName)
+	if externalAccessConfig != nil {
+		// first we override with the Service spec from the root and then from a specific cluster.
+		if appdb.GetExternalAccessConfiguration() != nil {
+			globalOverrideSpecWrapper := appdb.ExternalAccessConfiguration.ExternalService.SpecWrapper
+			if globalOverrideSpecWrapper != nil {
+				svc.Spec = merge.ServiceSpec(svc.Spec, globalOverrideSpecWrapper.Spec)
+			}
+			svc.Annotations = merge.StringToStringMap(svc.Annotations, appdb.GetExternalAccessConfiguration().ExternalService.Annotations)
+		}
+		clusterLevelOverrideSpec := externalAccessConfig.ExternalService.SpecWrapper
+		additionalAnnotations := externalAccessConfig.ExternalService.Annotations
+		if clusterLevelOverrideSpec != nil {
+			svc.Spec = merge.ServiceSpec(svc.Spec, clusterLevelOverrideSpec.Spec)
+		}
+		svc.Annotations = merge.StringToStringMap(svc.Annotations, additionalAnnotations)
+	}
+
+	return svc
+}
+
+func getPlaceholderReplacer(appdb omv1.AppDBSpec, memberCluster multicluster.MemberCluster, podNum int) *placeholders.Replacer {
+	if appdb.IsMultiCluster() {
+		return create.GetMultiClusterMongoDBPlaceholderReplacer(
+			appdb.Name(),
+			appdb.Name(),
+			appdb.Namespace,
+			memberCluster.Name,
+			memberCluster.Index,
+			appdb.GetExternalDomainForMemberCluster(memberCluster.Name),
+			appdb.GetClusterDomain(),
+			podNum)
+	}
+	return create.GetSingleClusterMongoDBPlaceholderReplacer(
+		appdb.Name(),
+		appdb.Name(),
+		appdb.Namespace,
+		dns.GetServiceName(appdb.Name()),
+		appdb.GetExternalDomain(),
+		appdb.GetClusterDomain(),
+		podNum,
+		mdbv1.ReplicaSet)
 }
 
 func (r *ReconcileAppDbReplicaSet) publishAutomationConfigFirst(opsManager *omv1.MongoDBOpsManager, allStatefulSetsExist bool, log *zap.SugaredLogger) bool {
@@ -1185,14 +1234,24 @@ func getExistingAutomationReplicaSetMembers(automationConfig automationconfig.Au
 	return existingMembers, nextId
 }
 
-func (r *ReconcileAppDbReplicaSet) generateProcessHostnames(opsManager *omv1.MongoDBOpsManager, memberCluster multicluster.MemberCluster) []string {
-	members := scale.ReplicasThisReconciliation(scalers.GetAppDBScaler(opsManager, memberCluster.Name, r.getMemberClusterIndex(memberCluster.Name), r.memberClusters))
+func (r *ReconcileAppDbReplicaSet) generateProcessHostnames(opsManager *omv1.MongoDBOpsManager) []string {
 	var hostnames []string
-	if opsManager.Spec.AppDB.IsMultiCluster() {
-		hostnames = dns.GetMultiClusterProcessHostnames(opsManager.Spec.AppDB.GetName(), opsManager.GetNamespace(), memberCluster.Index, members, opsManager.Spec.GetClusterDomain(), nil)
-	} else {
-		hostnames, _ = dns.GetDNSNames(opsManager.Spec.AppDB.GetName(), opsManager.Spec.AppDB.ServiceName(), opsManager.GetNamespace(), opsManager.Spec.GetClusterDomain(), members, nil)
+	// We want all clusters to generate stable process list in case of some clusters being down. Process list cannot change regardless of the cluster health.
+	for _, memberCluster := range r.getAllMemberClusters() {
+		hostnames = append(hostnames, r.generateProcessHostnamesForCluster(opsManager, memberCluster)...)
 	}
+
+	return hostnames
+}
+
+func (r *ReconcileAppDbReplicaSet) generateProcessHostnamesForCluster(opsManager *omv1.MongoDBOpsManager, memberCluster multicluster.MemberCluster) []string {
+	members := scale.ReplicasThisReconciliation(scalers.GetAppDBScaler(opsManager, memberCluster.Name, r.getMemberClusterIndex(memberCluster.Name), r.memberClusters))
+
+	if opsManager.Spec.AppDB.IsMultiCluster() {
+		return dns.GetMultiClusterProcessHostnames(opsManager.Spec.AppDB.GetName(), opsManager.GetNamespace(), memberCluster.Index, members, opsManager.Spec.AppDB.GetClusterDomain(), opsManager.Spec.AppDB.GetExternalDomainForMemberCluster(memberCluster.Name))
+	}
+
+	hostnames, _ := dns.GetDNSNames(opsManager.Spec.AppDB.GetName(), opsManager.Spec.AppDB.ServiceName(), opsManager.GetNamespace(), opsManager.Spec.AppDB.GetClusterDomain(), members, opsManager.Spec.AppDB.GetExternalDomain())
 	return hostnames
 }
 
@@ -1200,7 +1259,7 @@ func (r *ReconcileAppDbReplicaSet) generateProcessList(opsManager *omv1.MongoDBO
 	var processList []automationconfig.Process
 	// We want all clusters to generate stable process list in case of some clusters being down. Process list cannot change regardless of the cluster health.
 	for _, memberCluster := range r.getAllMemberClusters() {
-		hostnames := r.generateProcessHostnames(opsManager, memberCluster)
+		hostnames := r.generateProcessHostnamesForCluster(opsManager, memberCluster)
 		for idx, hostname := range hostnames {
 			process := automationconfig.Process{
 				Name:     fmt.Sprintf("%s-%d", opsManager.Spec.AppDB.NameForCluster(memberCluster.Index), idx),
@@ -1215,7 +1274,7 @@ func (r *ReconcileAppDbReplicaSet) generateProcessList(opsManager *omv1.MongoDBO
 func (r *ReconcileAppDbReplicaSet) generateMemberOptions(opsManager *omv1.MongoDBOpsManager, previousMembers map[string]automationconfig.ReplicaSetMember) []automationconfig.MemberOptions {
 	var memberOptionsList []automationconfig.MemberOptions
 	for _, memberCluster := range r.getAllMemberClusters() {
-		hostnames := r.generateProcessHostnames(opsManager, memberCluster)
+		hostnames := r.generateProcessHostnamesForCluster(opsManager, memberCluster)
 		memberConfig := make([]automationconfig.MemberOptions, 0)
 		if memberCluster.Active {
 			memberConfigForCluster := opsManager.Spec.AppDB.GetMemberClusterSpecByName(memberCluster.Name).MemberConfig
@@ -1253,21 +1312,6 @@ func (r *ReconcileAppDbReplicaSet) generateMemberOptions(opsManager *omv1.MongoD
 
 	}
 	return memberOptionsList
-}
-
-func (r *ReconcileAppDbReplicaSet) generateHostnamesForMonitoring(opsManager *omv1.MongoDBOpsManager) []string {
-	var hostnames []string
-	// We want all clusters to generate stable process list in case of some clusters being down. Process list cannot change regardless of the cluster health.
-	for _, memberCluster := range r.getAllMemberClusters() {
-		members := scale.ReplicasThisReconciliation(scalers.GetAppDBScaler(opsManager, memberCluster.Name, r.getMemberClusterIndex(memberCluster.Name), r.memberClusters))
-		if opsManager.Spec.AppDB.IsMultiCluster() {
-			hostnames = append(hostnames, dns.GetMultiClusterHostnamesForMonitoring(opsManager.Spec.AppDB.GetName(), opsManager.GetNamespace(), memberCluster.Index, members)...)
-		} else {
-			dnsHostnames, _ := dns.GetDNSNames(opsManager.Spec.AppDB.GetName(), opsManager.Spec.AppDB.ServiceName(), opsManager.GetNamespace(), opsManager.Spec.GetClusterDomain(), members, nil)
-			hostnames = append(hostnames, dnsHostnames...)
-		}
-	}
-	return hostnames
 }
 
 // buildPrometheusModification returns a `Modification` function that will add a
@@ -1607,7 +1651,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 			"visible from Ops/Cloud Manager UI. %s", err)
 	}
 
-	hostnames := r.generateHostnamesForMonitoring(opsManager)
+	hostnames := r.generateProcessHostnames(opsManager)
 	if err != nil {
 		return existingPodVars, xerrors.Errorf("error getting current appdb statefulset hostnames: %w", err)
 	}
@@ -1777,7 +1821,7 @@ func (r *ReconcileAppDbReplicaSet) GetAppDBUpdateStrategyType(om *omv1.MongoDBOp
 }
 
 func (r *ReconcileAppDbReplicaSet) deployStatefulSet(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger, podVars env.PodEnvVars, appdbOpts construct.AppDBStatefulSetOptions) workflow.Status {
-	if err := r.createMultiClusterServices(ctx, opsManager); err != nil {
+	if err := r.createServices(ctx, opsManager, log); err != nil {
 		return workflow.Failed(err)
 	}
 	currentClusterSpecs := map[string]int{}
@@ -1846,18 +1890,50 @@ func (r *ReconcileAppDbReplicaSet) deployStatefulSet(ctx context.Context, opsMan
 	return workflow.OK()
 }
 
-func (r *ReconcileAppDbReplicaSet) createMultiClusterServices(ctx context.Context, opsManager *omv1.MongoDBOpsManager) error {
-	if !opsManager.Spec.AppDB.IsMultiCluster() {
-		return nil
-	}
-
+// This method creates the following services:
+// - external services for Single Cluster deployments
+// - external services for Multi Cluster deployments
+// - pod services for Multi Cluster deployments
+// Note that this does not create any non-external services for Single Cluster deployments
+// Those services are created by the method create.AppDBInKubernetes
+func (r *ReconcileAppDbReplicaSet) createServices(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) error {
 	for _, memberCluster := range r.GetHealthyMemberClusters() {
 		clusterSpecItem := opsManager.Spec.AppDB.GetMemberClusterSpecByName(memberCluster.Name)
-		for podNum := 0; podNum < clusterSpecItem.Members; podNum++ {
-			svc := getMultiClusterAppDBService(opsManager.Spec.AppDB, r.getMemberClusterIndex(memberCluster.Name), podNum)
-			err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc)
-			if err != nil && !apiErrors.IsAlreadyExists(err) {
-				return xerrors.Errorf("failed to create service: %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
+
+		for podIdx := 0; podIdx < clusterSpecItem.Members; podIdx++ {
+
+			// Configures external service for both single and multi cluster deployments
+			// This will also delete external services if the externalAccess configuration is removed
+			if opsManager.Spec.AppDB.GetExternalAccessConfigurationForMemberCluster(memberCluster.Name) != nil {
+				svc := getAppDBExternalService(opsManager.Spec.AppDB, memberCluster.Index, memberCluster.Name, podIdx)
+				placeholderReplacer := getPlaceholderReplacer(opsManager.Spec.AppDB, memberCluster, podIdx)
+
+				if processedAnnotations, replacedFlag, err := placeholderReplacer.ProcessMap(svc.Annotations); err != nil {
+					return xerrors.Errorf("failed to process annotations in external service %s in cluster %s: %w", svc.Name, memberCluster.Name, err)
+				} else if replacedFlag {
+					log.Debugf("Replaced placeholders in annotations in external service %s in cluster: %s. Annotations before: %+v, annotations after: %+v", svc.Name, memberCluster.Name, svc.Annotations, processedAnnotations)
+					svc.Annotations = processedAnnotations
+				}
+
+				if err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !apiErrors.IsAlreadyExists(err) {
+					return xerrors.Errorf("failed to create external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
+				}
+			} else {
+				svcName := opsManager.Spec.AppDB.GetExternalServiceName(memberCluster.Index, podIdx)
+				namespacedName := kube.ObjectKey(opsManager.Spec.AppDB.Namespace, svcName)
+				if err := mekoService.DeleteServiceIfItExists(ctx, memberCluster.Client, namespacedName); err != nil {
+					return xerrors.Errorf("failed to remove external service %s in cluster: %s, err: %w", svcName, memberCluster.Name, err)
+				}
+			}
+
+			// Configures pod services for multi cluster deployments
+			if opsManager.Spec.AppDB.IsMultiCluster() && opsManager.Spec.AppDB.GetExternalDomainForMemberCluster(memberCluster.Name) == nil {
+				svc := getAppDBPodService(opsManager.Spec.AppDB, memberCluster.Index, podIdx)
+				svc.Name = dns.GetMultiServiceName(opsManager.Spec.AppDB.Name(), memberCluster.Index, podIdx)
+				err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc)
+				if err != nil && !apiErrors.IsAlreadyExists(err) {
+					return xerrors.Errorf("failed to create service: %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
+				}
 			}
 		}
 	}

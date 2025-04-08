@@ -802,6 +802,12 @@ func (oc *MockedOmConnection) AddHosts(hostnames []string) {
 	}
 }
 
+// this is internal method only for testing, used by kubernetes mocked client
+func (oc *MockedOmConnection) ClearHosts() {
+	oc.agentHostnameMap = map[string]struct{}{}
+	oc.hostResults = &host.Result{}
+}
+
 func (oc *MockedOmConnection) EnableBackup(resourceName string, resourceType backup.MongoDbResourceType, uuidStr string) {
 	if resourceType == backup.ReplicaSetType {
 		config := backup.Config{ClusterId: uuidStr, Status: backup.Started}

@@ -174,7 +174,7 @@ def setup_external_access(resource: MongoDB, enable_external_domain=True):
         )
 
 
-def get_dns_hosts_for_external_access(resource: MongoDB, cluster_member_list: List[str]) -> List[str]:
+def get_dns_hosts_for_external_access(resource: MongoDB, cluster_member_list: List[str]) -> list[tuple[str, str]]:
     hosts = []
     if "topology" in resource["spec"] and resource["spec"]["topology"] == "MultiCluster":
         for cluster_index, cluster_member_name in enumerate(cluster_member_list):

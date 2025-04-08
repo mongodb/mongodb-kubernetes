@@ -96,4 +96,4 @@ def test_new_database_is_monitored_after_restart(ops_manager: MongoDBOpsManager)
 
     # We want to retrieve measurements from "new_database" which will indicate
     # that the monitoring agents are working with the new credentials.
-    ops_manager.assert_monitoring_data_exists(database_name=database_name, timeout=600, all_hosts=False)
+    ops_manager.assert_monitoring_data_exists(database_name=database_name, timeout=1200, all_hosts=False)

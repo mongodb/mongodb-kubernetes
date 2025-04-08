@@ -187,6 +187,41 @@ func validateClusterSpecList(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
+// validateAppDBUniqueExternalDomains validates uniqueness of the domains if they are provided.
+// External domain might be specified at the top level in spec.externalAccess.externalDomain or in every member cluster.
+// We make sure that if external domains are used, every member cluster has unique external domain defined.
+func validateAppDBUniqueExternalDomains(os MongoDBOpsManagerSpec) v1.ValidationResult {
+	appDBSpec := os.AppDB
+
+	externalDomains := make(map[string]string)
+	for _, e := range appDBSpec.ClusterSpecList {
+		if externalDomain := appDBSpec.GetExternalDomainForMemberCluster(e.ClusterName); externalDomain != nil {
+			externalDomains[e.ClusterName] = *externalDomain
+		}
+	}
+
+	// We don't need to validate external domains if there aren't any specified.
+	// We don't have any flag that enables usage of external domains. We use them if they are provided.
+	if len(externalDomains) == 0 {
+		return v1.ValidationSuccess()
+	}
+
+	present := map[string]struct{}{}
+	for _, e := range appDBSpec.ClusterSpecList {
+		externalDomain, ok := externalDomains[e.ClusterName]
+		if !ok {
+			return v1.ValidationError("The externalDomain is not set for member cluster: %s", e.ClusterName)
+		}
+
+		if _, ok := present[externalDomain]; ok {
+			return v1.ValidationError("Multiple member clusters with the same externalDomain (%s) are not allowed. "+
+				"Check if all spec.applicationDatabase.clusterSpecList[*].externalAccess.externalDomain fields are defined and are unique.", externalDomain)
+		}
+		present[externalDomain] = struct{}{}
+	}
+	return v1.ValidationSuccess()
+}
+
 func validateBackupS3Stores(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	backup := os.Backup
 	if backup == nil || !backup.Enabled {
@@ -235,6 +270,7 @@ func (om *MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 		validateClusterSpecList,
 		validateBackupS3Stores,
 		featureCompatibilityVersionValidation,
+		validateAppDBUniqueExternalDomains,
 	}
 
 	multiClusterAppDBSharedClusterValidators := []func(ms mdb.ClusterSpecList) v1.ValidationResult{
