@@ -71,8 +71,17 @@ tasks:
           image_name: ops-manager
 
   - name: gke_multi_cluster_snippets
+    tags: [ "code_snippets" ]
     commands:
       - func: gke_multi_cluster_snippets
+      - func: sample_commit_output
+
+  - name: gke_multi_cluster_no_mesh_snippets
+    tags: [ "code_snippets" ]
+    commands:
+      - func: gke_multi_cluster_no_mesh_snippets
+      - func: sample_commit_output
+
 ## Below are only e2e runs for .evergreen.yml ##
 
   - name: e2e_multiple_cluster_failures

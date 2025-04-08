@@ -719,17 +719,7 @@ functions:
   # Code snippet test automation
   #
 
-  gke_multi_cluster_snippets:
-    - *switch_context
-    - command: shell.exec
-      params:
-        shell: bash
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
-        include_expansions_in_env:
-          - version_id
-          - code_snippets_teardown
-        script: |
-          ./scripts/code_snippets/gke_multi_cluster_test.sh
+  sample_commit_output:
     - command: github.generate_token
       params:
         expansion_name: GH_TOKEN
@@ -739,3 +729,32 @@ functions:
           - GH_TOKEN
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         binary: scripts/code_snippets/sample_commit_output.sh
+
+  gke_multi_cluster_snippets:
+    - *switch_context
+    - command: shell.exec
+      params:
+        shell: bash
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        include_expansions_in_env:
+          - version_id
+          - code_snippets_teardown
+          - code_snippets_reset
+          - task_name
+        script: |
+          ./scripts/code_snippets/gke_multi_cluster_test.sh
+
+
+  gke_multi_cluster_no_mesh_snippets:
+    - *switch_context
+    - command: shell.exec
+      params:
+        shell: bash
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        include_expansions_in_env:
+          - version_id
+          - code_snippets_teardown
+          - code_snippets_reset
+          - task_name
+        script: |
+          ./scripts/code_snippets/gke_multi_cluster_no_mesh_test.sh

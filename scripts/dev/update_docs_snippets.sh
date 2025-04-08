@@ -56,6 +56,7 @@ function copy_files() {
   cp -r "${src_dir}/code_snippets" "${dst_dir}"
   cp -r "${src_dir}/output" "${dst_dir}"
   cp "${src_dir}/env_variables.sh" "${dst_dir}" || true
+  cp -r "${src_dir}/yamls" "${dst_dir}" || true
 }
 
 function prepare_docs_pr() {
@@ -74,12 +75,16 @@ function prepare_docs_pr() {
 pushd ../
 prepare_repositories
 copy_files "ops-manager-multi-cluster"
+copy_files "ops-manager-mc-no-mesh"
 copy_files "mongodb-sharded-multi-cluster"
+copy_files "mongodb-sharded-mc-no-mesh"
 copy_files "mongodb-replicaset-multi-cluster"
+copy_files "mongodb-replicaset-mc-no-mesh"
 copy_files "setup-multi-cluster/verify-connectivity"
 copy_files "setup-multi-cluster/setup-gke"
 copy_files "setup-multi-cluster/setup-istio"
 copy_files "setup-multi-cluster/setup-operator"
 copy_files "setup-multi-cluster/setup-cert-manager"
+copy_files "setup-multi-cluster/setup-externaldns"
 prepare_docs_pr
 popd
