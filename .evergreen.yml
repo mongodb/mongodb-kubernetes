@@ -163,6 +163,11 @@ parameters:
     value: "true"
     description: set this to false if you would like to keep the clusters created during code snippets tests
 
+  - key: code_snippets_reset
+    value: "false"
+    description: set this to true if you would like to delete the resources created in the code snippet tests, but keep the clusters
+
+
 # Triggered manually or by PCT.
 patch_aliases:
   - alias: "periodic_builds"
@@ -179,7 +184,7 @@ patch_aliases:
     task: ".*"
   - alias: "release"
     variant_tags: [ "release" ]
-    task_tags: [ "image_release", "image_preflight", "openshift_bundles" ]
+    task_tags: [ "image_release", "image_preflight", "openshift_bundles", "code_snippets" ]
   - alias: "smoke_test_release"
     variant_tags: [ "e2e_smoke_release_test_suite" ]
     task_tags: [ "patch-run" ]
@@ -206,7 +211,7 @@ github_checks_aliases:
 git_tag_aliases:
   - git_tag: "^(\\d+\\.)?(\\d+\\.)?(\\d+)$"
     variant_tags: [ "release" ]
-    task_tags: [ "image_release", "image_preflight", "openshift_bundles" ]
+    task_tags: [ "image_release", "image_preflight", "openshift_bundles", "code_snippets" ]
 
 tasks:
 
@@ -567,10 +572,12 @@ task_groups:
       - unit_tests_python
       - sbom_tests
 
-  - name: gke_code_snippets
+  - name: gke_code_snippets_task_group
     <<: *setup_and_teardown_group_gke_code_snippets
+    max_hosts: -1
     tasks:
       - gke_multi_cluster_snippets
+      - gke_multi_cluster_no_mesh_snippets
 
   # This is the task group that contains all the tests run in the e2e_mdb_kind_ubuntu_cloudqa build variant
   - name: e2e_mdb_kind_cloudqa_task_group
@@ -1739,10 +1746,11 @@ buildvariants:
     run_on:
       - ubuntu2204-small
     tasks:
-      - name: gke_code_snippets
+      - name: gke_code_snippets_task_group
 
   - name: prerelease_gke_code_snippets
     display_name: prerelease_gke_code_snippets
+    tags: [ "release" ]
     allowed_requesters: ["patch", "github_tag"]
     depends_on:
       - variant: release_images
@@ -1751,7 +1759,7 @@ buildvariants:
     run_on:
       - ubuntu2204-small
     tasks:
-      - name: gke_code_snippets
+      - name: gke_code_snippets_task_group
 
   - name: private_gke_code_snippets
     display_name: private_gke_code_snippets
@@ -1760,7 +1768,7 @@ buildvariants:
       - ubuntu2204-small
     <<: *base_om8_dependency
     tasks:
-      - name: gke_code_snippets
+      - name: gke_code_snippets_task_group
 
   ### Build variants for manual patch only
 

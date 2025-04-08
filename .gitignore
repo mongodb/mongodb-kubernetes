@@ -41,6 +41,7 @@ public/architectures/**/log
 public/architectures/**/*.run.log
 public/architectures/**/.generated
 public/architectures/**/certs/*
+public/architectures/**/secrets/*
 
 docker/mongodb-enterprise-appdb/content/readinessprobe
 ops-manager-kubernetes
