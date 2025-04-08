@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"k8s.io/utils/ptr"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
@@ -241,7 +242,7 @@ func TestOpsManagerValidation(t *testing.T) {
 			testedOm: NewOpsManagerBuilderDefault().SetVersion("4.5.0-ent").
 				SetOpsManagerTopology(mdbv1.ClusterTopologySingleCluster).
 				SetOpsManagerClusterSpecList([]ClusterSpecOMItem{{ClusterName: "test"}}).
-				SetAppDBClusterSpecList(mdbv1.ClusterSpecList{{ClusterName: "test"}}).
+				SetAppDBClusterSpecList([]mdbv1.ClusterSpecItem{{ClusterName: "test"}}).
 				Build(),
 			expectedPart:         status.OpsManager,
 			expectedErrorMessage: "Single cluster AppDB deployment should have empty clusterSpecList",
@@ -254,7 +255,97 @@ func TestOpsManagerValidation(t *testing.T) {
 			expectedPart:         status.OpsManager,
 			expectedErrorMessage: "Topology 'MultiCluster' must be specified while setting a not empty spec.clusterSpecList",
 		},
+		"Uniform externalDomain can be overwritten multi cluster AppDB": {
+			testedOm: NewOpsManagerBuilderDefault().SetVersion("4.5.0-ent").
+				SetAppDBTopology(ClusterTopologyMultiCluster).
+				SetAppDbExternalAccess(mdbv1.ExternalAccessConfiguration{
+					ExternalDomain: ptr.To("test"),
+				}).
+				SetAppDBClusterSpecList([]mdbv1.ClusterSpecItem{
+					{
+						ClusterName: "cluster1",
+						Members:     1,
+						ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
+							ExternalDomain: ptr.To("test1"),
+						},
+					},
+					{
+						ClusterName: "cluster2",
+						Members:     1,
+						ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
+							ExternalDomain: ptr.To("test2"),
+						},
+					},
+					{
+						ClusterName: "cluster3",
+						Members:     1,
+						ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
+							ExternalDomain: ptr.To("test3"),
+						},
+					},
+				}).
+				Build(),
+			expectedPart:         status.None,
+			expectedErrorMessage: "",
+		},
+		"Uniform externalDomain is not allowed for multi cluster AppDB": {
+			testedOm: NewOpsManagerBuilderDefault().SetVersion("4.5.0-ent").
+				SetAppDBTopology(ClusterTopologyMultiCluster).
+				SetAppDbExternalAccess(mdbv1.ExternalAccessConfiguration{
+					ExternalDomain: ptr.To("test"),
+				}).
+				SetAppDBClusterSpecList([]mdbv1.ClusterSpecItem{
+					{
+						ClusterName: "cluster1",
+						Members:     1,
+					},
+					{
+						ClusterName: "cluster2",
+						Members:     1,
+					},
+					{
+						ClusterName: "cluster3",
+						Members:     1,
+					},
+				}).
+				Build(),
+			expectedPart: status.AppDb,
+			expectedErrorMessage: "Multiple member clusters with the same externalDomain (test) are not allowed. " +
+				"Check if all spec.applicationDatabase.clusterSpecList[*].externalAccess.externalDomain fields are defined and are unique.",
+		},
+		"Multiple member clusters with the same externalDomain are not allowed": {
+			testedOm: NewOpsManagerBuilderDefault().SetVersion("4.5.0-ent").
+				SetAppDBTopology(ClusterTopologyMultiCluster).
+				SetAppDBClusterSpecList([]mdbv1.ClusterSpecItem{
+					{
+						ClusterName: "cluster1",
+						Members:     1,
+						ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
+							ExternalDomain: ptr.To("test"),
+						},
+					},
+					{
+						ClusterName: "cluster2",
+						Members:     1,
+						ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
+							ExternalDomain: ptr.To("test"),
+						},
+					},
+					{
+						ClusterName: "cluster3",
+						Members:     1,
+						ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
+							ExternalDomain: ptr.To("test"),
+						},
+					},
+				}).
+				Build(),
+			expectedPart: status.AppDb,
+			expectedErrorMessage: "Multiple member clusters with the same externalDomain (test) are not allowed. " +
+				"Check if all spec.applicationDatabase.clusterSpecList[*].externalAccess.externalDomain fields are defined and are unique.",
+		},
 	}
+
 	for testName := range tests {
 		t.Run(testName, func(t *testing.T) {
 			testConfig := tests[testName]

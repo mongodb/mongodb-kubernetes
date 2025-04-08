@@ -690,6 +690,11 @@ tasks:
       - func: "e2e_test"
 
   # E2E tests for Ops Manager (sorted alphabetically):
+  - name: e2e_om_appdb_external_connectivity
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_om_appdb_flags_and_config
     tags: [ "patch-run" ]
     commands:
@@ -1119,6 +1124,11 @@ tasks:
       - func: e2e_test
 
   - name: e2e_multi_cluster_om_clusterwide_operator_not_in_mesh_networking
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_om_appdb_no_mesh
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test

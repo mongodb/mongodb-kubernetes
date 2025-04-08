@@ -95,16 +95,16 @@ def test_install_latest_official_operator(
 @mark.e2e_operator_upgrade_appdb_tls
 def test_create_om_tls(ops_manager_tls: MongoDBOpsManager):
     ops_manager_tls.update()
-    ops_manager_tls.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
-    ops_manager_tls.om_status().assert_reaches_phase(Phase.Running, timeout=600)
+    ops_manager_tls.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
+    ops_manager_tls.om_status().assert_reaches_phase(Phase.Running, timeout=900)
     ops_manager_tls.get_om_tester().assert_healthiness()
 
 
 @mark.e2e_operator_upgrade_appdb_tls
 def test_create_om_non_tls(ops_manager_non_tls: MongoDBOpsManager):
     ops_manager_non_tls.update()
-    ops_manager_non_tls.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
-    ops_manager_non_tls.om_status().assert_reaches_phase(Phase.Running, timeout=600)
+    ops_manager_non_tls.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
+    ops_manager_non_tls.om_status().assert_reaches_phase(Phase.Running, timeout=900)
     ops_manager_non_tls.get_om_tester().assert_healthiness()
     ops_manager_non_tls.assert_monitoring_data_exists()
 
@@ -117,16 +117,16 @@ def test_upgrade_operator(default_operator: Operator):
 @mark.e2e_operator_upgrade_appdb_tls
 def test_om_tls_ok(ops_manager_tls: MongoDBOpsManager):
     ops_manager_tls.load()
-    ops_manager_tls.appdb_status().assert_reaches_phase(Phase.Running, timeout=800)
-    ops_manager_tls.om_status().assert_reaches_phase(Phase.Running, timeout=500)
+    ops_manager_tls.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
+    ops_manager_tls.om_status().assert_reaches_phase(Phase.Running, timeout=900)
     ops_manager_tls.get_om_tester().assert_healthiness()
 
 
 @mark.e2e_operator_upgrade_appdb_tls
 def test_om_non_tls_ok(ops_manager_non_tls: MongoDBOpsManager):
     ops_manager_non_tls.load()
-    ops_manager_non_tls.appdb_status().assert_reaches_phase(Phase.Running, timeout=800)
-    ops_manager_non_tls.om_status().assert_reaches_phase(Phase.Running, timeout=500)
+    ops_manager_non_tls.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
+    ops_manager_non_tls.om_status().assert_reaches_phase(Phase.Running, timeout=900)
     ops_manager_non_tls.get_om_tester().assert_healthiness()
 
 

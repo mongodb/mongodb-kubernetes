@@ -546,32 +546,23 @@ func (m *MongoDBMultiSpec) GetClusterSpecList() mdbv1.ClusterSpecList {
 }
 
 func (m *MongoDBMultiSpec) GetExternalAccessConfigurationForMemberCluster(clusterName string) *mdbv1.ExternalAccessConfiguration {
-	var externalAccessConfiguration *mdbv1.ExternalAccessConfiguration
 	for _, csl := range m.ClusterSpecList {
-		if csl.ClusterName == clusterName {
-			externalAccessConfiguration = csl.ExternalAccessConfiguration
-			break
+		if csl.ClusterName == clusterName && csl.ExternalAccessConfiguration != nil {
+			return csl.ExternalAccessConfiguration
 		}
 	}
 
-	if externalAccessConfiguration == nil {
-		externalAccessConfiguration = m.ExternalAccessConfiguration
-	}
-
-	return externalAccessConfiguration
+	return m.ExternalAccessConfiguration
 }
 
 func (m *MongoDBMultiSpec) GetExternalDomainForMemberCluster(clusterName string) *string {
-	var externalDomain *string
 	if cfg := m.GetExternalAccessConfigurationForMemberCluster(clusterName); cfg != nil {
-		externalDomain = cfg.ExternalDomain
+		if externalDomain := cfg.ExternalDomain; externalDomain != nil {
+			return externalDomain
+		}
 	}
 
-	if externalDomain == nil {
-		externalDomain = m.GetExternalDomain()
-	}
-
-	return externalDomain
+	return m.GetExternalDomain()
 }
 
 // GetDesiredSpecList returns the desired cluster spec list for a given reconcile operation.
