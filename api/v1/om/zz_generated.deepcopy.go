@@ -777,7 +777,11 @@ func (in *S3Config) DeepCopyInto(out *S3Config) {
 		*out = new(MongoDBUserRef)
 		**out = **in
 	}
-	out.S3SecretRef = in.S3SecretRef
+	if in.S3SecretRef != nil {
+		in, out := &in.S3SecretRef, &out.S3SecretRef
+		*out = new(SecretRef)
+		**out = **in
+	}
 	if in.AssignmentLabels != nil {
 		in, out := &in.AssignmentLabels, &out.AssignmentLabels
 		*out = make([]string, len(*in))
