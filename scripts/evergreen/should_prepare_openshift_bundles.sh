@@ -22,20 +22,12 @@ check_file_exists() {
 
 version=$(jq -r .mongodbOperator <release.json)
 certified_bundle="https://operator-e2e-bundles.s3.amazonaws.com/bundles/operator-certified-${version}.tgz"
-community_bundle="https://operator-e2e-bundles.s3.amazonaws.com/bundles/operator-community-${version}.tgz"
 
 if ! check_file_exists "${certified_bundle}"; then
   echo "Certified bundle file does not exist in S3: ${certified_bundle}"
   exit 0
 fi
 
-if ! check_file_exists "${community_bundle}"; then
-  echo "Community bundle file does not exist in S3: ${community_bundle}"
-  exit 0
-fi
-
-echo "Both certified and community bundles exists in S3. There is no need to generate openshift bundles.
-  certified_bundle: ${certified_bundle}
-  community_bundle: ${community_bundle}"
+echo "Сertified bundle exists in S3. There is no need to generate openshift bundle: ${certified_bundle}"
 
 exit 1

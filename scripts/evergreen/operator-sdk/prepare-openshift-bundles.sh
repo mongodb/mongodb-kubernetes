@@ -36,15 +36,6 @@ yq e ".annotations.\"com.redhat.openshift.versions\" = \"v${minimum_supported_op
 echo "Adding minimum_supported_openshift_version annotation to ${bundle_dockerfile}"
 echo "LABEL com.redhat.openshift.versions=\"v${minimum_supported_openshift_version}\"" >> "${bundle_dockerfile}"
 
-community_bundle_file="./bundle/operator-community-${VERSION}.tgz"
-echo "Generating community bundle"
-tar -czvf "${community_bundle_file}" "./bundle/${VERSION}"
-
-if [[ "${BUILD_DOCKER_IMAGES}" == "true" ]]; then
-  docker build --platform "${DOCKER_PLATFORM}" -f "./bundle/${VERSION}/bundle.Dockerfile" -t "${COMMUNITY_BUNDLE_IMAGE}" .
-  docker push "${COMMUNITY_BUNDLE_IMAGE}"
-fi
-
 PATH="${PATH}:bin"
 
 echo "Running digest pinning for certified bundle"
