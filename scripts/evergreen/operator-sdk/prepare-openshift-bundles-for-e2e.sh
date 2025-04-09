@@ -118,8 +118,7 @@ package: mongodb-enterprise
 name: fast
 entries:
   - name: mongodb-enterprise.v${current_bundle_version}
-    skips:
-      - mongodb-enterprise.v${latest_bundle_version}" >> "${catalog_dir}"/operator.yaml
+    replaces: mongodb-enterprise.v${latest_bundle_version}" >> "${catalog_dir}"/operator.yaml
 
   echo "Validating catalog"
   opm validate "${catalog_dir}"
