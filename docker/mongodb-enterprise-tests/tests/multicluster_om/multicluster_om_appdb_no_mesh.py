@@ -1,9 +1,11 @@
 import datetime
+import json
 import time
 from typing import List
 
 import kubernetes
 import pymongo
+import pytest
 import yaml
 from kubernetes import client
 from kubetester import create_or_update_configmap, create_or_update_service, try_load
@@ -12,7 +14,7 @@ from kubetester.certs import (
     create_multi_cluster_mongodb_tls_certs,
     create_ops_manager_tls_certs,
 )
-from kubetester.kubetester import ensure_ent_version
+from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as _fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
@@ -292,6 +294,7 @@ def ops_manager(
                 "ca": multi_cluster_issuer_ca_configmap,
             },
         },
+        "externalAccess": {"externalDomain": "some.custom.domain"},
     }
     resource["spec"]["applicationDatabase"]["clusterSpecList"] = [
         {
@@ -302,6 +305,7 @@ def ops_manager(
                 "externalService": {
                     "spec": {
                         "type": "LoadBalancer",
+                        "publishNotReadyAddresses": False,
                         "ports": [
                             {
                                 "name": "mongodb",
@@ -328,6 +332,7 @@ def ops_manager(
                 "externalService": {
                     "spec": {
                         "type": "LoadBalancer",
+                        "publishNotReadyAddresses": False,
                         "ports": [
                             {
                                 "name": "mongodb",
@@ -354,6 +359,7 @@ def ops_manager(
                 "externalService": {
                     "spec": {
                         "type": "LoadBalancer",
+                        "publishNotReadyAddresses": False,
                         "ports": [
                             {
                                 "name": "mongodb",
@@ -608,3 +614,23 @@ def time_to_millis(date_time) -> int:
     epoch = datetime.datetime.fromtimestamp(0, tz=datetime.UTC)
     pit_millis = (date_time - epoch).total_seconds() * 1000
     return pit_millis
+
+
+@mark.e2e_multi_cluster_om_appdb_no_mesh
+def test_telemetry_configmap(namespace: str):
+    telemetry_configmap_name = "mongodb-enterprise-operator-telemetry"
+    config = KubernetesTester.read_configmap(namespace, telemetry_configmap_name)
+
+    try:
+        payload_string = config.get("lastSendPayloadDeployments")
+        payload = json.loads(payload_string)
+        # Perform a rudimentary check
+        assert isinstance(payload, list), "payload should be a list"
+        assert len(payload) == 2, "payload should not be empty"
+
+        assert payload[0]["properties"]["type"] == "ReplicaSet"
+        assert payload[0]["properties"]["externalDomains"] == "ClusterSpecific"
+        assert payload[1]["properties"]["type"] == "OpsManager"
+        assert payload[1]["properties"]["externalDomains"] == "Mixed"
+    except json.JSONDecodeError:
+        pytest.fail("payload contains invalid JSON data")

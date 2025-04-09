@@ -1612,3 +1612,14 @@ func (m ClusterSpecList) GetExternalDomainForMemberCluster(clusterName string) *
 
 	return nil
 }
+
+func (m ClusterSpecList) IsExternalDomainSpecifiedInClusterSpecList() bool {
+	for _, item := range m {
+		externalAccess := item.ExternalAccessConfiguration
+		if externalAccess != nil && externalAccess.ExternalDomain != nil {
+			return true
+		}
+	}
+
+	return false
+}
