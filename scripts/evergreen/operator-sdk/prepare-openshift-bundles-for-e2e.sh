@@ -146,7 +146,6 @@ certified_catalog_image="${base_repo_url}/mongodb-enterprise-operator-certified-
 
 export LATEST_CERTIFIED_BUNDLE_IMAGE="${base_repo_url}/mongodb-enterprise-operator-certified-bundle:${latest_released_operator_version}"
 export CURRENT_BUNDLE_IMAGE="${base_repo_url}/mongodb-enterprise-operator-certified-bundle:${current_incremented_operator_version_from_release_json_with_version_id}"
-export CURRENT_COMMUNITY_BUNDLE_IMAGE="${base_repo_url}/mongodb-enterprise-operator-community-bundle:${current_incremented_operator_version_from_release_json_with_version_id}"
 
 
 header "Configuration:"
@@ -154,9 +153,9 @@ echo "certified_repo_cloned: ${certified_repo_cloned}"
 echo "latest_released_operator_version: ${latest_released_operator_version}"
 echo "current_incremented_operator_version_from_release_json: ${current_incremented_operator_version_from_release_json}"
 echo "current_incremented_operator_version_from_release_json_with_version_id: ${current_incremented_operator_version_from_release_json_with_version_id}"
+echo "certified_catalog_image: ${certified_catalog_image}"
 echo "LATEST_CERTIFIED_BUNDLE_IMAGE: ${LATEST_CERTIFIED_BUNDLE_IMAGE}"
 echo "CURRENT_BUNDLE_IMAGE: ${CURRENT_BUNDLE_IMAGE}"
-echo "CURRENT_COMMUNITY_BUNDLE_IMAGE: ${CURRENT_COMMUNITY_BUNDLE_IMAGE}"
 echo "BUILD_DOCKER_IMAGES: ${BUILD_DOCKER_IMAGES}"
 echo "DOCKER_PLATFORM: ${DOCKER_PLATFORM}"
 echo "CERTIFIED_OPERATORS_REPO: ${CERTIFIED_OPERATORS_REPO}"
@@ -171,7 +170,6 @@ generate_helm_charts
 
 # prepare openshift bundles the same way it's built in release process from the current sources and helm charts.
 export CERTIFIED_BUNDLE_IMAGE=${CURRENT_BUNDLE_IMAGE}
-export COMMUNITY_BUNDLE_IMAGE=${CURRENT_COMMUNITY_BUNDLE_IMAGE}
 export VERSION="${current_incremented_operator_version_from_release_json}"
 export OPERATOR_IMAGE="${OPERATOR_REGISTRY:-${REGISTRY}}/mongodb-enterprise-operator-ubi:${VERSION_ID}"
 header "Preparing OpenShift bundles:"
