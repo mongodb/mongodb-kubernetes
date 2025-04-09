@@ -8,7 +8,7 @@ include:
 variables:
   - &ops_manager_60_latest 6.0.27 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_70_latest 7.0.14 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_70_latest 7.0.15 # The order/index is important, since these are anchors. Please do not change
 
   - &ops_manager_80_latest 8.0.6 # The order/index is important, since these are anchors. Please do not change
 
@@ -1771,7 +1771,7 @@ buildvariants:
 
   - name: publish_om60_images
     display_name: publish_om60_images
-    allowed_requesters: [ "patch" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2204-large
     depends_on:
@@ -1785,7 +1785,7 @@ buildvariants:
 
   - name: publish_om70_images
     display_name: publish_om70_images
-    allowed_requesters: [ "patch" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2204-large
     depends_on:
@@ -1799,7 +1799,7 @@ buildvariants:
 
   - name: publish_om80_images
     display_name: publish_om80_images
-    allowed_requesters: [ "patch" ]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2204-large
     depends_on:
