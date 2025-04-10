@@ -94,6 +94,7 @@ func (c *crdsToWatch) String() string {
 	return strings.Join(*c, ",")
 }
 
+// Trigger patch
 func main() {
 	flag.Parse()
 	// If no CRDs are specified, we set default to non-multicluster CRDs
