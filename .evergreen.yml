@@ -856,6 +856,7 @@ task_groups:
       - e2e_multi_cluster_appdb_validation
       - e2e_multi_cluster_om_validation
       - e2e_multi_cluster_appdb
+      - e2e_multi_cluster_appdb_cleanup
       - e2e_multi_cluster_appdb_s3_based_backup_restore
       - e2e_multi_cluster_appdb_disaster_recovery
       - e2e_multi_cluster_appdb_disaster_recovery_force_reconfigure
@@ -910,6 +911,7 @@ task_groups:
       - e2e_multi_cluster_appdb_validation
       - e2e_multi_cluster_om_validation
       - e2e_multi_cluster_appdb
+      - e2e_multi_cluster_appdb_cleanup
       - e2e_multi_cluster_appdb_s3_based_backup_restore
       - e2e_multi_cluster_appdb_disaster_recovery
       - e2e_multi_cluster_appdb_disaster_recovery_force_reconfigure

@@ -12,6 +12,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/pkg/handler"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
 func MultiClusterReplicaSetOptions(additionalOpts ...func(options *construct.DatabaseStatefulSetOptions)) func(mdbm mdbmultiv1.MongoDBMultiCluster) construct.DatabaseStatefulSetOptions {
@@ -26,7 +27,7 @@ func MultiClusterReplicaSetOptions(additionalOpts ...func(options *construct.Dat
 			Persistent:                    mdbm.Spec.Persistent,
 			AgentConfig:                   &mdbm.Spec.Agent,
 			PodSpec:                       construct.NewDefaultPodSpecWrapper(*mdbv1.NewMongoDbPodSpec()),
-			Labels:                        statefulSetLabels(mdbm.Name, mdbm.Namespace),
+			Labels:                        mdbm.GetOwnerLabels(),
 			MultiClusterMode:              true,
 			HostNameOverrideConfigmapName: mdbm.GetHostNameOverrideConfigmapName(),
 			StatefulSetSpecOverride:       &stsSpec,
@@ -75,13 +76,6 @@ func statefulSetName(mdbmName string, clusterNum int) string {
 	return fmt.Sprintf("%s-%d", mdbmName, clusterNum)
 }
 
-func statefulSetLabels(mdbmName, mdbmNamespace string) map[string]string {
-	return map[string]string{
-		"controller":          "mongodb-enterprise-operator",
-		"mongodbmulticluster": fmt.Sprintf("%s-%s", mdbmName, mdbmNamespace),
-	}
-}
-
 func statefulSetAnnotations(mdbmName string, certHash string) map[string]string {
 	return map[string]string{
 		handler.MongoDBMultiResourceAnnotation: mdbmName,
@@ -91,7 +85,7 @@ func statefulSetAnnotations(mdbmName string, certHash string) map[string]string 
 
 func PodLabel(mdbmName string) map[string]string {
 	return map[string]string{
-		construct.ControllerLabelName:     "mongodb-enterprise-operator",
+		util.OperatorLabelName:            util.OperatorName,
 		construct.PodAntiAffinityLabelKey: mdbmName,
 	}
 }

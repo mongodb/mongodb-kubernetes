@@ -66,6 +66,7 @@ type OpsManagerStatefulSetOptions struct {
 	StatefulSetSpecOverride      *appsv1.StatefulSetSpec
 	VaultConfig                  vault.VaultConfiguration
 	Labels                       map[string]string
+	StsLabels                    map[string]string
 	kmip                         *KmipConfiguration
 	DebugPort                    int32
 	// backup daemon only
@@ -275,6 +276,7 @@ func getSharedOpsManagerOptions(opsManager *omv1.MongoDBOpsManager) OpsManagerSt
 		EnvVars:                 opsManagerConfigurationToEnvVars(opsManager),
 		Namespace:               opsManager.Namespace,
 		Labels:                  opsManager.Labels,
+		StsLabels:               opsManager.GetOwnerLabels(),
 	}
 }
 
@@ -431,9 +433,8 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 
 	// get the labels from the opts and append it to final labels
 	stsLabels := defaultPodLabels(opts.ServiceName, opts.Name)
-	for k, v := range opts.Labels {
-		stsLabels[k] = v
-	}
+	stsLabels = merge.StringToStringMap(stsLabels, opts.Labels)
+	stsLabels = merge.StringToStringMap(stsLabels, opts.StsLabels)
 
 	omVolumes, omVolumeMounts = getNonPersistentOpsManagerVolumeMounts(omVolumes, omVolumeMounts, opts)
 
@@ -611,7 +612,7 @@ func getOpsManagerHTTPSEnvVars(httpsSecretName string, certHash string) []corev1
 func defaultPodLabels(labelKey, antiAffinityKey string) map[string]string {
 	return map[string]string{
 		appLabelKey:             labelKey,
-		ControllerLabelName:     util.OperatorName,
+		util.OperatorLabelName:  util.OperatorName,
 		podAntiAffinityLabelKey: antiAffinityKey,
 	}
 }

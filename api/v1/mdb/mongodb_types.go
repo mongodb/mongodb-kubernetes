@@ -57,7 +57,7 @@ const (
 	ClusterTopologySingleCluster = "SingleCluster"
 	ClusterTopologyMultiCluster  = "MultiCluster"
 
-	LabelMongoDBResourceOwner = "mongodb.com/v1.mongodbResourceOwner"
+	LabelResourceOwner = "mongodb.com/v1.mongodbResourceOwner"
 )
 
 // MongoDB resources allow you to deploy Standalones, ReplicaSets or SharedClusters
@@ -154,6 +154,13 @@ func (m *MongoDB) IsShardedCluster() bool {
 
 func (m *MongoDB) GetResourceName() string {
 	return m.Name
+}
+
+func (m *MongoDB) GetOwnerLabels() map[string]string {
+	return map[string]string{
+		util.OperatorLabelName: util.OperatorName,
+		LabelResourceOwner:     m.Name,
+	}
 }
 
 // GetSecretsMountedIntoDBPod returns a list of all the optional secret names that are used by this resource.

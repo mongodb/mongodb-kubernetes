@@ -13,6 +13,7 @@ import (
 	"syscall"
 
 	"github.com/blang/semver"
+	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
@@ -34,6 +35,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
@@ -197,7 +199,7 @@ func NewOpsManagerReconcilerHelper(ctx context.Context, opsManagerReconciler *Op
 func (r *OpsManagerReconcilerHelper) initializeStateStore(ctx context.Context, reconciler *OpsManagerReconciler, opsManager *omv1.MongoDBOpsManager, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger, clusterNamesFromClusterSpecList []string) error {
 	r.deploymentState = NewOMDeploymentState()
 
-	r.stateStore = NewStateStore[OMDeploymentState](opsManager.Namespace, opsManager.Name, reconciler.client)
+	r.stateStore = NewStateStore[OMDeploymentState](opsManager, reconciler.client)
 	if err := r.stateStore.read(ctx); err != nil {
 		if apiErrors.IsNotFound(err) {
 			// If the deployment state config map is missing, then it might be either:
@@ -250,7 +252,12 @@ func (r *OpsManagerReconcilerHelper) writeLegacyStateConfigMap(ctx context.Conte
 	for k, v := range r.deploymentState.ClusterMapping {
 		mappingConfigMapData[k] = fmt.Sprintf("%d", v)
 	}
-	mappingConfigMap := configmap.Builder().SetName(spec.ClusterMappingConfigMapName()).SetNamespace(spec.Namespace).SetData(mappingConfigMapData).Build()
+	mappingConfigMap := configmap.Builder().
+		SetName(spec.ClusterMappingConfigMapName()).
+		SetLabels(spec.GetOwnerLabels()).
+		SetNamespace(spec.Namespace).
+		SetData(mappingConfigMapData).
+		Build()
 	if err := configmap.CreateOrUpdate(ctx, client, mappingConfigMap); err != nil {
 		return xerrors.Errorf("failed to update cluster mapping configmap %s: %w", spec.ClusterMappingConfigMapName(), err)
 	}
@@ -1331,6 +1338,7 @@ func (r *OpsManagerReconciler) replicateConfigMapInMemberClusters(ctx context.Co
 	}
 
 	caConfigMap := configmap.Builder().
+		SetLabels(reconcileHelper.opsManager.GetOwnerLabels()).
 		SetName(configMapNSName.Name).
 		SetNamespace(configMapNSName.Namespace).
 		SetData(caConfigMapData).
@@ -2112,59 +2120,63 @@ func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj interface{}, lo
 		return
 	}
 
-	// r.resourceWatcher.RemoveAllDependentWatchedResources(opsManager.Namespace, kube.ObjectKeyFromApiObject(opsManager))
-	for _, memberCluster := range helper.getHealthyMemberClusters() {
-		stsName := helper.OpsManagerStatefulSetNameForMemberCluster(memberCluster)
-		r.resourceWatcher.RemoveAllDependentWatchedResources(opsManager.Namespace, kube.ObjectKey(opsManager.Namespace, stsName))
-	}
-
-	for _, memberCluster := range helper.getHealthyMemberClusters() {
-		memberClient := memberCluster.Client
-		stsName := helper.OpsManagerStatefulSetNameForMemberCluster(memberCluster)
-		err := memberClient.DeleteStatefulSet(ctx, kube.ObjectKey(opsManager.Namespace, stsName))
-		if err != nil {
-			log.Warnf("Failed to delete statefulset: %s in cluster: %s", stsName, memberCluster.Name)
-		}
-	}
-
-	for _, memberCluster := range helper.getHealthyMemberClusters() {
-		stsName := helper.BackupDaemonStatefulSetNameForMemberCluster(memberCluster)
-		r.resourceWatcher.RemoveAllDependentWatchedResources(opsManager.Namespace, kube.ObjectKey(opsManager.Namespace, stsName))
-	}
-
-	for _, memberCluster := range helper.getHealthyMemberClusters() {
-		memberClient := memberCluster.Client
-		stsName := helper.BackupDaemonStatefulSetNameForMemberCluster(memberCluster)
-		err := memberClient.DeleteStatefulSet(ctx, kube.ObjectKey(opsManager.Namespace, stsName))
-		if err != nil {
-			log.Warnf("Failed to delete statefulset: %s in cluster: %s", stsName, memberCluster.Name)
-		}
-	}
-
 	appDbReconciler, err := r.createNewAppDBReconciler(ctx, opsManager, log)
 	if err != nil {
 		log.Errorf("Error initializing AppDB reconciler: %s", err)
 		return
 	}
 
-	// remove AppDB from each of the member clusters(or the same cluster as OM in case of single cluster )
-	for _, memberCluster := range appDbReconciler.GetHealthyMemberClusters() {
-		// fetch the clusterNum for a given clusterName
-		r.resourceWatcher.RemoveAllDependentWatchedResources(opsManager.Namespace, opsManager.AppDBStatefulSetObjectKey(appDbReconciler.getMemberClusterIndex(memberCluster.Name)))
-	}
-
-	// delete the AppDB statefulset form each of the member cluster. We need to delete the
+	// delete the OpsManager resources from each of the member cluster. We need to delete the
 	// resource explicitly in case of multi-cluster because we can't set owner reference cross cluster
-	for _, memberCluster := range appDbReconciler.GetHealthyMemberClusters() {
-		memberClient := memberCluster.Client
-		stsNamespacedName := opsManager.AppDBStatefulSetObjectKey(appDbReconciler.getMemberClusterIndex(memberCluster.Name))
-
-		err := memberClient.DeleteStatefulSet(ctx, stsNamespacedName)
-		if err != nil {
-			log.Warnf("Failed to delete statefulset: %s in cluster: %s", stsNamespacedName, memberCluster.Name)
+	for _, memberCluster := range helper.getHealthyMemberClusters() {
+		if err := r.deleteClusterResources(ctx, memberCluster, opsManager, log); err != nil {
+			log.Warnf("Failed to delete OpsManager %s resources in cluster %s: %s", opsManager.ObjectKey(), memberCluster.Name, err)
 		}
 	}
+
+	// delete the AppDB resources from each of the member cluster. We need to delete the
+	// resource explicitly in case of multi-cluster because we can't set owner reference cross cluster
+	for _, memberCluster := range appDbReconciler.GetHealthyMemberClusters() {
+		if err := r.deleteClusterResources(ctx, memberCluster, opsManager, log); err != nil {
+			log.Warnf("Failed to delete AppDB %s resources in cluster %s: %s", opsManager.ObjectKey(), memberCluster.Name, err.Error())
+		}
+	}
+
 	log.Info("Cleaned up Ops Manager related resources.")
+}
+
+func (r *OpsManagerReconciler) deleteClusterResources(ctx context.Context, memberCluster multicluster.MemberCluster, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) error {
+	var errs error
+
+	// cleanup resources in the namespace as the MongoDB with the corresponding label.
+	cleanupOptions := mdbv1.MongodbCleanUpOptions{
+		Namespace: opsManager.Namespace,
+		Labels:    opsManager.GetOwnerLabels(),
+	}
+
+	c := memberCluster.Client
+	objectKey := opsManager.ObjectKey()
+	if err := c.DeleteAllOf(ctx, &corev1.Service{}, &cleanupOptions); err != nil {
+		errs = multierror.Append(errs, err)
+	} else {
+		log.Infof("Removed Services associated with %s in cluster %s", opsManager, memberCluster.Name)
+	}
+
+	if err := c.DeleteAllOf(ctx, &appsv1.StatefulSet{}, &cleanupOptions); err != nil {
+		errs = multierror.Append(errs, err)
+	} else {
+		log.Infof("Removed StatefulSets associated with %s in cluster %s", objectKey, memberCluster.Name)
+	}
+
+	if err := c.DeleteAllOf(ctx, &corev1.ConfigMap{}, &cleanupOptions); err != nil {
+		errs = multierror.Append(errs, err)
+	} else {
+		log.Infof("Removed ConfigMaps associated with %s in cluster %s", objectKey, memberCluster.Name)
+	}
+
+	r.resourceWatcher.RemoveDependentWatchedResources(objectKey)
+
+	return errs
 }
 
 func (r *OpsManagerReconciler) createNewAppDBReconciler(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {

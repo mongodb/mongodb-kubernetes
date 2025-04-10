@@ -480,34 +480,28 @@ func addQueryableBackupPortToService(opsManager *omv1.MongoDBOpsManager, service
 //
 // When appLabel is specified, then the selector is targeting all pods (round-robin service). Usable for e.g. OpsManager service.
 // When podLabel is specified, then the selector is targeting only a single pod. Used for external services or multi-cluster services.
-func BuildService(namespacedName types.NamespacedName, owner v1.CustomResourceReadWriter, appLabel *string, podLabel *string, port int32, mongoServiceDefinition omv1.MongoDBOpsManagerServiceDefinition) corev1.Service {
-	labels := map[string]string{
-		construct.ControllerLabelName: util.OperatorName,
-	}
+func BuildService(namespacedName types.NamespacedName, owner v1.ObjectOwner, appLabel *string, podLabel *string, port int32, mongoServiceDefinition omv1.MongoDBOpsManagerServiceDefinition) corev1.Service {
+	svcLabels := owner.GetOwnerLabels()
 
 	selectorLabels := map[string]string{
-		construct.ControllerLabelName: util.OperatorName,
+		util.OperatorLabelName: util.OperatorName,
 	}
 
 	if appLabel != nil {
-		labels[appLabelKey] = *appLabel
+		svcLabels[appLabelKey] = *appLabel
 		selectorLabels[appLabelKey] = *appLabel
 	}
 
 	if podLabel != nil {
-		labels[podNameLabelKey] = *podLabel
+		svcLabels[podNameLabelKey] = *podLabel
 		selectorLabels[podNameLabelKey] = *podLabel
-	}
-
-	if _, ok := owner.(*mdbv1.MongoDB); ok {
-		labels[mdbv1.LabelMongoDBResourceOwner] = owner.GetName()
 	}
 
 	svcBuilder := service.Builder().
 		SetNamespace(namespacedName.Namespace).
 		SetName(namespacedName.Name).
 		SetOwnerReferences(kube.BaseOwnerReference(owner)).
-		SetLabels(labels).
+		SetLabels(svcLabels).
 		SetSelector(selectorLabels).
 		SetServiceType(mongoServiceDefinition.Type).
 		SetPublishNotReadyAddresses(true)

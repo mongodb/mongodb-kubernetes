@@ -37,6 +37,8 @@ const (
 	LastClusterNumMapping                   = "mongodb.com/v1.lastClusterNumMapping"
 	TransportSecurityNone TransportSecurity = "none"
 	TransportSecurityTLS  TransportSecurity = "tls"
+
+	LabelResourceOwner = "mongodbmulticluster"
 )
 
 // The MongoDBMultiCluster resource allows users to create MongoDB deployment spread over
@@ -164,6 +166,13 @@ func (m *MongoDBMultiCluster) GetHostNameOverrideConfigmapName() string {
 
 func (m *MongoDBMultiCluster) ObjectKey() client.ObjectKey {
 	return kube.ObjectKey(m.Namespace, m.Name)
+}
+
+func (m *MongoDBMultiCluster) GetOwnerLabels() map[string]string {
+	return map[string]string{
+		util.OperatorLabelName: util.OperatorName,
+		LabelResourceOwner:     fmt.Sprintf("%s-%s", m.Namespace, m.Name),
+	}
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

@@ -1007,6 +1007,11 @@ tasks:
     commands:
       - func: e2e_test
 
+  - name: e2e_multi_cluster_appdb_cleanup
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
   - name: e2e_multi_cluster_tls_with_x509
     tags: [ "patch-run" ]
     commands:

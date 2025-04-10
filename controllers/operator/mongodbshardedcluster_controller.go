@@ -742,7 +742,7 @@ func blockScalingBothWays(desiredReplicasScalers []interfaces.MultiClusterReplic
 func (r *ShardedClusterReconcileHelper) initializeStateStore(ctx context.Context, reconciler *ReconcileCommonController, sc *mdbv1.MongoDB, log *zap.SugaredLogger) error {
 	r.deploymentState = NewShardedClusterDeploymentState()
 
-	r.stateStore = NewStateStore[ShardedClusterDeploymentState](sc.GetNamespace(), sc.Name, reconciler.client)
+	r.stateStore = NewStateStore[ShardedClusterDeploymentState](sc, reconciler.client)
 	if state, err := r.stateStore.ReadState(ctx); err != nil {
 		if errors.IsNotFound(err) {
 			// If the deployment state config map is missing, then it might be either:
@@ -1591,28 +1591,29 @@ func (r *ShardedClusterReconcileHelper) deleteClusterResources(ctx context.Conte
 	// cleanup resources in the namespace as the MongoDB with the corresponding label.
 	cleanupOptions := mdbv1.MongodbCleanUpOptions{
 		Namespace: sc.Namespace,
-		Labels:    mongoDBLabels(sc.Name),
+		Labels:    sc.GetOwnerLabels(),
 	}
 
+	objectKey := sc.ObjectKey()
 	if err := c.DeleteAllOf(ctx, &corev1.Service{}, &cleanupOptions); err != nil {
 		errs = multierror.Append(errs, err)
 	} else {
-		log.Infof("Removed Serivces associated with %s/%s", sc.Namespace, sc.Name)
+		log.Infof("Removed Services associated with %s", objectKey)
 	}
 
 	if err := c.DeleteAllOf(ctx, &appsv1.StatefulSet{}, &cleanupOptions); err != nil {
 		errs = multierror.Append(errs, err)
 	} else {
-		log.Infof("Removed StatefulSets associated with %s/%s", sc.Namespace, sc.Name)
+		log.Infof("Removed StatefulSets associated with %s", objectKey)
 	}
 
 	if err := c.DeleteAllOf(ctx, &corev1.ConfigMap{}, &cleanupOptions); err != nil {
 		errs = multierror.Append(errs, err)
 	} else {
-		log.Infof("Removed ConfigMaps associated with %s/%s", sc.Namespace, sc.Name)
+		log.Infof("Removed ConfigMaps associated with %s", objectKey)
 	}
 
-	r.commonController.resourceWatcher.RemoveDependentWatchedResources(sc.ObjectKey())
+	r.commonController.resourceWatcher.RemoveDependentWatchedResources(objectKey)
 
 	return errs
 }
@@ -2446,7 +2447,7 @@ func (r *ShardedClusterReconcileHelper) createHostnameOverrideConfigMap() corev1
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-hostname-override", r.sc.Name),
 			Namespace: r.sc.Namespace,
-			Labels:    mongoDBLabels(r.sc.Name),
+			Labels:    r.sc.GetOwnerLabels(),
 		},
 		Data: data,
 	}
@@ -2580,7 +2581,7 @@ func (r *ShardedClusterReconcileHelper) reconcileConfigServerServices(ctx contex
 			_ = append(allServices, &svc)
 		}
 	}
-	if err := createHeadlessServiceForStatefulSet(ctx, r.sc.ConfigRsName(), portOrDefault, r.sc.Namespace, memberCluster); err != nil {
+	if err := r.createHeadlessServiceForStatefulSet(ctx, r.sc.ConfigRsName(), portOrDefault, memberCluster); err != nil {
 		return err
 	}
 	return nil
@@ -2623,7 +2624,7 @@ func (r *ShardedClusterReconcileHelper) reconcileShardServices(ctx context.Conte
 		}
 	}
 
-	if err := createHeadlessServiceForStatefulSet(ctx, r.sc.ShardRsName(shardIdx), portOrDefault, r.sc.Namespace, memberCluster); err != nil {
+	if err := r.createHeadlessServiceForStatefulSet(ctx, r.sc.ShardRsName(shardIdx), portOrDefault, memberCluster); err != nil {
 		return err
 	}
 	return nil
@@ -2663,17 +2664,17 @@ func (r *ShardedClusterReconcileHelper) reconcileMongosServices(ctx context.Cont
 			_ = append(allServices, &svc)
 		}
 
-		if err := createHeadlessServiceForStatefulSet(ctx, r.sc.MongosRsName(), portOrDefault, r.sc.Namespace, memberCluster); err != nil {
+		if err := r.createHeadlessServiceForStatefulSet(ctx, r.sc.MongosRsName(), portOrDefault, memberCluster); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func createHeadlessServiceForStatefulSet(ctx context.Context, stsName string, port int32, namespace string, memberCluster multicluster.MemberCluster) error {
+func (r *ShardedClusterReconcileHelper) createHeadlessServiceForStatefulSet(ctx context.Context, stsName string, port int32, memberCluster multicluster.MemberCluster) error {
 	headlessServiceName := dns.GetMultiHeadlessServiceName(stsName, memberCluster.Index)
-	nameSpacedName := kube.ObjectKey(namespace, headlessServiceName)
-	headlessService := create.BuildService(nameSpacedName, nil, ptr.To(headlessServiceName), nil, port, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	nameSpacedName := kube.ObjectKey(r.sc.Namespace, headlessServiceName)
+	headlessService := create.BuildService(nameSpacedName, r.sc, ptr.To(headlessServiceName), nil, port, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
 	err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, headlessService)
 	if err != nil && !errors.IsAlreadyExists(err) {
 		return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", headlessService.Name, memberCluster.Name, err)
@@ -2794,14 +2795,13 @@ func (r *ShardedClusterReconcileHelper) shouldContinueScalingOneByOne() bool {
 
 func (r *ShardedClusterReconcileHelper) getPodService(stsName string, memberCluster multicluster.MemberCluster, podNum int, port int32) corev1.Service {
 	svcLabels := map[string]string{
-		"statefulset.kubernetes.io/pod-name": dns.GetMultiPodName(stsName, memberCluster.Index, podNum),
-		"controller":                         "mongodb-enterprise-operator",
-		mdbv1.LabelMongoDBResourceOwner:      r.sc.Name,
+		appsv1.StatefulSetPodNameLabel: dns.GetMultiPodName(stsName, memberCluster.Index, podNum),
 	}
+	svcLabels = merge.StringToStringMap(svcLabels, r.sc.GetOwnerLabels())
 
 	labelSelectors := map[string]string{
-		"statefulset.kubernetes.io/pod-name": dns.GetMultiPodName(stsName, memberCluster.Index, podNum),
-		"controller":                         "mongodb-enterprise-operator",
+		appsv1.StatefulSetPodNameLabel: dns.GetMultiPodName(stsName, memberCluster.Index, podNum),
+		util.OperatorLabelName:         util.OperatorName,
 	}
 
 	svc := service.Builder().
@@ -2820,14 +2820,7 @@ func (r *ShardedClusterReconcileHelper) getPodService(stsName string, memberClus
 }
 
 func (r *ShardedClusterReconcileHelper) statefulsetLabels() map[string]string {
-	return merge.StringToStringMap(r.sc.Labels, mongoDBLabels(r.sc.Name))
-}
-
-func mongoDBLabels(name string) map[string]string {
-	return map[string]string{
-		construct.ControllerLabelName:   util.OperatorName,
-		mdbv1.LabelMongoDBResourceOwner: name,
-	}
+	return merge.StringToStringMap(r.sc.Labels, r.sc.GetOwnerLabels())
 }
 
 func (r *ShardedClusterReconcileHelper) ShardsMemberClustersMap() map[int][]multicluster.MemberCluster {

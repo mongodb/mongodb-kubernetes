@@ -18,7 +18,7 @@ func ObjectKeyFromApiObject(obj metav1.Object) client.ObjectKey {
 	return ObjectKey(obj.GetNamespace(), obj.GetName())
 }
 
-func BaseOwnerReference(owner v1.CustomResourceReadWriter) []metav1.OwnerReference {
+func BaseOwnerReference(owner v1.ObjectOwner) []metav1.OwnerReference {
 	if owner == nil {
 		return []metav1.OwnerReference{}
 	}
