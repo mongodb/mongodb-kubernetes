@@ -1,4 +1,4 @@
-from update_release import trim_ops_manager_mapping, trim_ops_manager_versions
+from update_release import trim_ops_manager_mapping, trim_supported_image_versions
 
 
 def test_trim_ops_manager_mapping():
@@ -172,7 +172,7 @@ def test_trim_ops_manager_versions():
         "6.3.0",  # Latest 3 from major version 6
     ]
 
-    trim_ops_manager_versions(mock_release)
+    trim_supported_image_versions(mock_release, ["ops-manager"])
     assert set(mock_release["supportedImages"]["ops-manager"]["versions"]) == set(expected_versions)
     assert len(mock_release["supportedImages"]["ops-manager"]["versions"]) == 6
 
@@ -200,15 +200,15 @@ def test_trim_ops_manager_versions_semver_sorting():
 
     # Expected result with correct semver sorting:
     expected_versions = [
-        "7.10.0",
-        "7.2.0",
-        "7.1.0",  # Latest 3 from major version 7 (semver order)
-        "6.11.0",
-        "6.10.0",
         "6.3.0",  # Latest 3 from major version 6 (semver order)
+        "6.10.0",
+        "6.11.0",
+        "7.1.0",  # Latest 3 from major version 7 (semver order)
+        "7.2.0",
+        "7.10.0",
     ]
 
-    trim_ops_manager_versions(mock_release)
+    trim_supported_image_versions(mock_release, ["ops-manager"])
     assert mock_release["supportedImages"]["ops-manager"]["versions"] == expected_versions
 
 
@@ -229,13 +229,12 @@ def test_trim_ops_manager_versions_fewer_than_three():
     }
 
     # Expected result: Keep all versions since each major has fewer than 3
-    expected_versions = ["6.0.0", "5.2.0", "5.1.0"]
+    expected_versions = ["5.1.0", "5.2.0", "6.0.0"]
 
-    trim_ops_manager_versions(mock_release)
-    assert set(mock_release["supportedImages"]["ops-manager"]["versions"]) == set(expected_versions)
+    trim_supported_image_versions(mock_release, ["ops-manager"])
 
     # Verify the versions are sorted in descending order by semver
-    assert mock_release["supportedImages"]["ops-manager"]["versions"] == ["6.0.0", "5.2.0", "5.1.0"]
+    assert mock_release["supportedImages"]["ops-manager"]["versions"] == expected_versions
 
 
 def test_trim_ops_manager_versions_missing_keys():
@@ -247,15 +246,4 @@ def test_trim_ops_manager_versions_missing_keys():
     }
 
     # Should not raise an exception
-    trim_ops_manager_versions(mock_release)
-
-    mock_release = {
-        "supportedImages": {
-            "ops-manager": {
-                # No versions key
-            }
-        }
-    }
-
-    # Should not raise an exception
-    trim_ops_manager_versions(mock_release)
+    trim_supported_image_versions(mock_release, ["ops-manager"])

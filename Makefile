@@ -256,11 +256,11 @@ golang-tests-race:
 sbom-tests:
 	@ scripts/evergreen/run_python.sh -m pytest generate_ssdlc_report_test.py
 
+# e2e tests are also in python and we will need to ignore them as they are in the docker/mongodb-enterprise-tests folder
+# additionally, we have one lib which we want to test which is in the =docker/mongodb-enterprise-tests folder.
 python-tests:
-	@ scripts/evergreen/run_python.sh -m pytest pipeline_test.py
-	@ scripts/evergreen/run_python.sh -m pytest lib/sonar
-	@ scripts/evergreen/run_python.sh -m pytest scripts/evergreen/release/agent_matrix_test.py
 	@ scripts/evergreen/run_python.sh -m pytest docker/mongodb-enterprise-tests/kubeobject
+	@ scripts/evergreen/run_python.sh -m pytest --ignore=docker/mongodb-enterprise-tests
 
 generate-ssdlc-report:
 	@ scripts/evergreen/run_python.sh generate_ssdlc_report.py
