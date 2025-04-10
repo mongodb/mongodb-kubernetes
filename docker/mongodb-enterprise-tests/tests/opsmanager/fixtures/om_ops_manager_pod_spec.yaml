@@ -1,0 +1,81 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBOpsManager
+metadata:
+  name: om-pod-spec
+spec:
+  replicas: 1
+  version: 5.0.1
+  adminCredentials: ops-manager-admin-secret
+  configuration:
+    mms.testUtil.enabled: "true"
+  backup:
+    enabled: true
+    statefulSet:
+      spec:
+        template:
+          spec:
+            hostAliases:
+              - ip: "1.2.3.4"
+                hostnames: ["hostname"]
+            containers:
+              - name: "mongodb-backup-daemon"
+                resources:
+                  requests:
+                    cpu: "0.50"
+                    memory: "4500M"
+  statefulSet:
+    spec:
+      template:
+        metadata:
+          annotations:
+            key1: value1
+        spec:
+          volumes:
+            - name: test-volume
+              emptyDir: {}
+          tolerations:
+            - key: "key"
+              operator: "Exists"
+              effect: "NoSchedule"
+          containers:
+            - name: mongodb-ops-manager
+              readinessProbe:
+                failureThreshold: 20
+              startupProbe:
+                periodSeconds: 25
+              volumeMounts:
+                - mountPath: /somewhere
+                  name: test-volume
+              resources:
+                limits:
+                  cpu: "0.70"
+                  memory: "6G"
+  applicationDatabase:
+    members: 3
+    version: 4.4.20-ent
+    podSpec:
+      persistence:
+        single:
+          storage: 1G
+      podTemplate:
+        spec:
+          # TO kill sidecar right away
+          terminationGracePeriodSeconds: 3
+          # This container will be added to each pod as a sidecar
+          containers:
+            - name: appdb-sidecar
+              image: busybox
+              command: ["sleep"]
+              args: ["infinity"]
+              resources:
+                limits:
+                  cpu: "1"
+                requests:
+                  cpu: 500m
+            - name: mongodb-agent
+              resources:
+                requests:
+                  memory: 500M
+                limits:
+                  cpu: "0.75"
+                  memory: 850M

@@ -1,0 +1,19 @@
+vars:
+  registry: somereg
+
+images:
+  - name: image0
+    vars:
+      context: .
+
+    inputs:
+    - input0
+
+    stages:
+    - name: stage0
+      task_type: docker_build
+
+      dockerfile: Dockerfile
+      output:
+      - registry: $(inputs.params.registry)/something
+        tag: something

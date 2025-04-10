@@ -1,0 +1,27 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: rs001-pv-multiple
+  labels:
+    label1: val1
+    label2: val2
+spec:
+  members: 2
+  version: 4.4.0
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  type: ReplicaSet
+  persistent: true
+  podSpec:
+    persistence:
+      multiple:
+        data:
+          storage: 2Gi
+          storageClass: gp2
+        journal:
+          storage: 1Gi
+        logs:
+          storage: 1G # 1G is the minimum PV possible in EBS

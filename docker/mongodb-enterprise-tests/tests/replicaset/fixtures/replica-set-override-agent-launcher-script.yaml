@@ -1,0 +1,24 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: replica-set
+spec:
+  members: 1
+  type: ReplicaSet
+  credentials: my-credentials
+  logLevel: DEBUG
+  persistent: true
+  opsManager:
+    configMapRef:
+      name: my-project
+  podSpec:
+    podTemplate:
+      spec:
+        initContainers:
+          - name: override-agent-launcher
+            image: busybox:latest
+            command: ["/bin/sh"]
+            volumeMounts:
+              - mountPath: /opt/scripts
+                name: database-scripts

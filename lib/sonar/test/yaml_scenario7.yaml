@@ -1,0 +1,15 @@
+images:
+- name: image0
+  vars:
+    context: some-context
+  stages:
+  - name: stage-build0
+    task_type: docker_build
+    dockerfile: https://somedomain/dockerfile
+    output:
+    - registry: foo
+      tag: bar
+      signer_name: evergreen_ci
+      key_secret_name: test/kube/secret
+      passphrase_secret_name: test/kube/passphrase
+      region: us-east-1

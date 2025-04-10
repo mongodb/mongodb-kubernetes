@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+fatal() {
+    error "$1"
+    exit 1
+}
+
+error() {
+    echo "(!!) $1"
+    return
+}
+

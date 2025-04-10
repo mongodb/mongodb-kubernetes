@@ -1,0 +1,20 @@
+#
+# This is a minimal config. To see all the options available, refer to the
+# "extended" directory
+#
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: my-replica-set
+spec:
+  members: 3
+  version: 4.2.1-ent
+  type: ReplicaSet
+
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+
+  persistent: false

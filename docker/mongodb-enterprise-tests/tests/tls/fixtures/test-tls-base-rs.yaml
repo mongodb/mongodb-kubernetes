@@ -1,0 +1,19 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: test-tls-base-rs
+spec:
+  members: 3
+  version: 5.0.15
+  type: ReplicaSet
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  logLevel: DEBUG
+
+  persistent: false
+  security:
+    tls:
+      enabled: true

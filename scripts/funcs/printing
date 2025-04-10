@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+
+title() {
+    echo "=> $1"
+}
+
+header() {
+    echo
+    echo "--------------------------------------------------"
+    echo "$1"
+    echo "--------------------------------------------------"
+}
+
+# Function to prepend every line with a prefix passed as an argument. Useful when spawning
+# multiple jobs in the background to identify to which job the logs belong.
+# Pipe output to it, e.g. <command> | prepend "job prefix: "
+prepend() {
+  prefix=$1
+  awk -v prefix="${prefix}" '{printf "%s: %s\n", prefix, $0}'
+}
+
+export RED='\033[0;31m'
+export NO_COLOR='\033[0m'

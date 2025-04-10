@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-ext-svc-interconnected
+spec:
+  ports:
+    - port: 8180
+      protocol: TCP
+      targetPort: 8180
+  selector:
+    run: nginx
+  type: LoadBalancer

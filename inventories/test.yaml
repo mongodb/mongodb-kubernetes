@@ -1,0 +1,17 @@
+images:
+- name: test
+  vars:
+    context: docker/mongodb-enterprise-tests
+  platform: linux/amd64
+
+  stages:
+  - name: build
+    task_type: docker_build
+    dockerfile: Dockerfile
+    buildargs:
+      PYTHON_VERSION: $(inputs.params.python_version)
+    output:
+    - registry: $(inputs.params.registry)/mongodb-enterprise-tests
+      tag: latest
+    - registry: $(inputs.params.registry)/mongodb-enterprise-tests
+      tag: $(inputs.params.version_id)

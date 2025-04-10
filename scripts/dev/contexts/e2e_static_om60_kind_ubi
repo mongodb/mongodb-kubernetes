@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+script_name=$(readlink -f "${BASH_SOURCE[0]}")
+script_dir=$(dirname "${script_name}")
+
+source "${script_dir}/root-context"
+source "${script_dir}/variables/om60"
+
+export KUBE_ENVIRONMENT_NAME=kind
+export MDB_DEFAULT_ARCHITECTURE=static
+
+# The earliest version supporting Static Containers for OM
+# We started supporting Static Containers in 6.0.21, except for OM
+# This CUSTOM version is required for upgrade tests to work
+# Default value for this variable in om60 context file is 6.0.0
+# shellcheck disable=SC2034
+export CUSTOM_OM_PREV_VERSION=6.0.27
+
+export CUSTOM_MDB_VERSION=6.0.16
+# We can't use a 5.0.x version for this static variant because there's no UBI9 image for the 5.0.x series
+export CUSTOM_MDB_PREV_VERSION=6.0.5
+export CUSTOM_APPDB_VERSION="6.0.5-ubi9-20241112T090442Z"

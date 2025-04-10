@@ -1,0 +1,35 @@
+name: Go
+
+on:
+  pull_request:
+    branches: [master]
+
+jobs:
+
+  UnitTests:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+
+    - name: Test api
+      run: go test -v ./api/...
+
+    - name: Test cmd
+      run: go test -v ./cmd/...
+
+    - name: Test controllers
+      run: go test -v ./controllers/...
+
+    - name: Test pkg
+      run: go test -v ./pkg/...
+
+    - name: Test mongotester
+      run: go test -v ./test/e2e/util/mongotester/...
+
+    - name: Check licenses
+      run: make check-licenses

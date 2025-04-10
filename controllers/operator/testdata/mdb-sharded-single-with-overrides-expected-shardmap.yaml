@@ -1,0 +1,101 @@
+0:
+  agent:
+    logLevel: DEBUG # applied to all shard processes in all clusters
+  additionalMongodConfig: # applied to all shard processes in all clusters
+    operationProfiling:
+      mode: slowOp
+      slowOpThresholdMs: 100
+  clusterSpecList:
+    - clusterName: __default
+      members: 2 # mongodsPerShardCount is 2
+      memberConfig: # From shard override
+        - votes: 1
+          priority: "100"
+        - votes: 1
+          priority: "100"
+      podSpec:
+        persistence: # shard of index 0, persistence overridden in shardSpecificPodSpec
+          single:
+            storage: 14G
+      # shard 0 pod template applied with shardSpecificPodSpec
+      # No sidecar global container here because shardSpecificPodSpec has a replace policy (and not merge)
+      statefulSet:
+        spec:
+          template:
+            spec:
+              containers:
+                - name: mongodb-enterprise-database
+                  resources:
+                    requests:
+                      cpu: 2.3
+                      memory: 2.3G
+                    limits:
+                      cpu: 2.3
+                      memory: 5.3G
+1:
+  agent:
+    logLevel: DEBUG # applied to all shard processes in all clusters
+  additionalMongodConfig: # applied to all shard processes in all clusters
+    operationProfiling:
+      mode: slowOp
+      slowOpThresholdMs: 100
+  clusterSpecList:
+    - clusterName: __default
+      members: 1 # override for shard 1
+      memberConfig:
+        - votes: 1
+          priority: "100"
+      podSpec:
+        persistence: # shard override
+          multiple:
+            journal:
+              storage: "130G"
+            data:
+              storage: "140G"
+            logs:
+              storage: "110G"
+      statefulSet: # statefulset override applied to the shard
+        spec:
+          template:
+            spec:
+              containers:
+                - name: mongodb-enterprise-database
+                  resources:
+                    requests:
+                      cpu: 2.8
+                      memory: 2.8G
+                    limits:
+                      cpu: 2.8
+                      memory: 5.8G
+                - name: sidecar-global
+                  image: busybox
+                  command: [ "sleep" ]
+                  args: [ "infinity" ]
+2:
+  agent:
+    logLevel: INFO # from shard override
+  additionalMongodConfig:
+    operationProfiling:
+      mode: slowOp
+      slowOpThresholdMs: 150
+  clusterSpecList:
+    - clusterName: __default
+      members: 2 # mongodsPerShardCount is 2
+      memberConfig: # When we don't specify a memberConfig, we explicitly set default values
+        - priority: "1"
+          votes: 1
+        - priority: "1"
+          votes: 1
+      podSpec:
+        persistence:
+          single:
+            storage: 12G
+      statefulSet: # statefulset override applied to the shard
+        spec:
+          template:
+            spec:
+              containers:
+                - name: sidecar-global
+                  image: busybox
+                  command: [ "sleep" ]
+                  args: [ "infinity" ]

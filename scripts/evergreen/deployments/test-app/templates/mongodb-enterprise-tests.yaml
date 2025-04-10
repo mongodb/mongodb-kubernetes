@@ -1,0 +1,197 @@
+# grant all permissions in all namespaces to the tests
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: operator-tests-service-account
+  namespace: {{ .Values.namespace }}
+{{- if .Values.imagePullSecrets}}
+imagePullSecrets:
+  - name: {{ .Values.imagePullSecrets }}
+{{- end }}
+
+
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: operator-tests-role-binding-{{ .Values.namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: operator-tests-service-account
+  namespace: {{ .Values.namespace }}
+
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mongodb-enterprise-operator-tests
+  namespace: {{ .Values.namespace }}
+  labels:
+    role: operator-tests
+spec:
+  serviceAccountName: operator-tests-service-account
+  restartPolicy: Never
+  terminationGracePeriodSeconds: 0
+  volumes:
+    - name: results
+      emptyDir: { }
+    - name: diagnostics
+      emptyDir: { }
+  {{ if .Values.multiCluster.memberClusters }}
+    - name: kube-config-volume
+      secret:
+        defaultMode: 420
+        secretName: test-pod-kubeconfig
+    - name: multi-cluster-config
+      secret:
+        defaultMode: 420
+        secretName: test-pod-multi-cluster-config
+  {{ end }}
+  containers:
+  - image: busybox
+    name: keepalive
+    command: [ "/bin/sh", "-c", "sleep inf" ]
+    volumeMounts:
+      - name: results
+        mountPath: /tmp/results
+      - name: diagnostics
+        mountPath: /tmp/diagnostics
+  - name: mongodb-enterprise-operator-tests
+    env:
+    # OTEL env vars can either be used to construct custom spans or are used by pytest opentelemetry dynamic instrumentation
+    {{ if .Values.otel_trace_id }}
+    - name: OTEL_TRACE_ID
+      value: {{ .Values.otel_trace_id }}
+    {{ end }}
+    {{ if .Values.otel_endpoint }}
+    - name: OTEL_EXPORTER_OTLP_ENDPOINT
+      value: {{ .Values.otel_endpoint}}
+    {{ end }}
+    {{ if .Values.otel_parent_id }}
+    - name: OTEL_PARENT_ID
+      value: {{ .Values.otel_parent_id }}
+    {{ end }}
+   {{ if .Values.otel_resource_attributes }}
+    - name: OTEL_RESOURCE_ATTRIBUTES
+      value: {{ .Values.otel_resource_attributes }}
+    {{ end }}
+    - name: OTEL_SERVICE_NAME
+      value: evergreen-agent
+    - name: PYTEST_RUN_NAME
+      value: {{ .Values.taskName }}
+    - name: TASK_ID
+      value: {{ .Values.taskId }}
+    - name: OM_HOST
+      value: {{ .Values.baseUrl }}
+    - name: OM_API_KEY
+      value: {{ .Values.apiKey }}
+    - name: OM_USER
+      value: {{ .Values.apiUser }}
+    - name: OM_ORGID
+      value: {{ .Values.orgId }}
+    - name: NAMESPACE
+      value: {{ .Values.namespace }}
+    # We can pass additional options to pytest. For instance -s
+    - name: PYTEST_ADDOPTS
+      value: {{ .Values.pytest.addopts }}
+    - name: SKIP_EXECUTION
+      value: {{ .Values.skipExecution}}
+    - name: AWS_ACCESS_KEY_ID
+      value: {{ .Values.aws.accessKey}}
+    - name: AWS_SECRET_ACCESS_KEY
+      value: {{ .Values.aws.secretAccessKey}}
+    - name: MANAGED_SECURITY_CONTEXT
+      value: '{{ .Values.managedSecurityContext }}'
+    - name: PYTHONUNBUFFERED
+      value: 'true'
+    - name: PYTHONWARNINGS
+      value: 'ignore:yaml.YAMLLoadWarning,ignore:urllib3.InsecureRequestWarning'
+    - name: POD_NAME
+      value: 'mongodb-enterprise-operator-testing-pod'
+    - name: VERSION_ID
+      value: {{ .Values.tag }}
+    - name: REGISTRY
+      value: {{ .Values.registry }}
+    {{- if .Values.multiCluster.memberClusters }}
+    - name: KUBECONFIG
+      value: /etc/config/kubeconfig
+    - name: MEMBER_CLUSTERS
+      value: {{ .Values.multiCluster.memberClusters }}
+    - name: CENTRAL_CLUSTER
+      value: {{ .Values.multiCluster.centralCluster }}
+    - name: TEST_POD_CLUSTER
+      value: {{ .Values.multiCluster.testPodCluster }}
+    {{- end }}
+    {{ if .Values.customOmVersion }}
+    - name: CUSTOM_OM_VERSION
+      value: {{ .Values.customOmVersion }}
+    {{ end }}
+    {{ if .Values.taskReplicas }}
+    - name: PERF_TASK_REPLICAS
+      value: "{{ .Values.taskReplicas }}"
+    {{ end }}
+    {{ if .Values.taskDeployments }}
+    - name: PERF_TASK_DEPLOYMENTS
+      value: "{{ .Values.taskDeployments }}"
+    {{ end }}
+    {{ if .Values.customOmPrevVersion }}
+    - name: CUSTOM_OM_PREV_VERSION
+      value: {{ .Values.customOmPrevVersion }}
+    {{ end }}
+    {{ if .Values.customOmMdbVersion }}
+    - name: CUSTOM_MDB_VERSION
+      value: {{ .Values.customOmMdbVersion }}
+    {{ end }}
+    {{ if .Values.customOmMdbPrevVersion }}
+    - name: CUSTOM_MDB_PREV_VERSION
+      value: {{ .Values.customOmMdbPrevVersion }}
+    {{ end }}
+    {{ if .Values.customAppDbVersion }}
+    - name: CUSTOM_APPDB_VERSION
+      value: {{ .Values.customAppDbVersion }}
+    {{ end }}
+    {{ if .Values.projectDir }}
+    - name: PROJECT_DIR
+      value: {{ .Values.projectDir }}
+    {{ end }}
+    {{ if .Values.localOperator }}
+    - name: LOCAL_OPERATOR
+      value: "{{ .Values.localOperator }}"
+    {{ end }}
+    - name: MDB_DEFAULT_ARCHITECTURE
+      value: {{ .Values.mdbDefaultArchitecture }}
+    - name: MDB_IMAGE_TYPE
+      value: {{ .Values.mdbImageType }}
+    - name: CLUSTER_DOMAIN
+      value: {{ .Values.clusterDomain }}
+    {{ if .Values.omDebugHttp }}
+    - name: OM_DEBUG_HTTP
+      value: "{{ .Values.omDebugHttp }}"
+    {{ end }}
+    - name: ops_manager_version
+      value: "{{ .Values.opsManagerVersion }}"
+    image: {{ .Values.repo }}/mongodb-enterprise-tests:{{ .Values.tag }}
+    # Options to pytest command should go in the pytest.ini file.
+    command: ["pytest"]
+    {{ if .Values.otel_endpoint }}
+    args: ["-vv", "-m", "{{ .Values.taskName }}", "--trace-parent", "00-{{ .Values.otel_trace_id }}-{{ .Values.otel_parent_id }}-01", "--export-traces"]
+    {{ else }}
+    args: ["-vv", "-m", "{{ .Values.taskName }}"]
+    {{ end }}
+    imagePullPolicy: Always
+    volumeMounts:
+      - name: results
+        mountPath: /tmp/results
+      - name: diagnostics
+        mountPath: /tmp/diagnostics
+    {{ if .Values.multiCluster.memberClusters }}
+      - mountPath: /etc/config
+        name: kube-config-volume
+      - mountPath: /etc/multicluster
+        name: multi-cluster-config
+    {{ end }}

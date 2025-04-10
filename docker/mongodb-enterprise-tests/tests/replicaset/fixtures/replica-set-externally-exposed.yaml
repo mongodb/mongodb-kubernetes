@@ -1,0 +1,14 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: my-replica-set-externally-exposed
+spec:
+  members: 1
+  version: 4.4.0
+  type: ReplicaSet
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  persistent: false
+  externalAccess: {}

@@ -1,0 +1,25 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: test-tls-base-rs-external-access
+spec:
+  members: 3
+  version: 4.4.0
+  type: ReplicaSet
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  logLevel: DEBUG
+
+  persistent: true
+  security:
+    tls:
+      enabled: true
+
+  connectivity:
+    replicaSetHorizons:
+      - "test-horizon": "mdb0-test.website.com:1337"
+      - "test-horizon": "mdb1-test.website.com:1337"
+      - "test-horizon": "mdb2-test.website.com:1337"

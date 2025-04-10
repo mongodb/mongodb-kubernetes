@@ -1,0 +1,22 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDBUser
+metadata:
+  name: scram-user
+spec:
+  passwordSecretKeyRef:
+    name: secret
+    # Match to metadata.name of the User Secret
+    key: password
+  username: "username"
+  db: "admin" #
+  mongodbResourceRef:
+    name: "my-replica-set"
+    # Match to MongoDB resource using authenticaiton
+  roles:
+    - db: "admin"
+      name: "clusterAdmin"
+    - db: "admin"
+      name: "userAdminAnyDatabase"
+    - db: "admin"
+      name: "readWrite"

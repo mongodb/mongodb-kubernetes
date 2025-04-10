@@ -1,0 +1,4 @@
+images:
+  - name: image0
+    inputs:
+    - input0

@@ -1,0 +1,46 @@
+images:
+  - name: image0
+    vars:
+      context: some-context
+
+    stages:
+    - name: stage0
+      tags: ["test_dockerfile_from_url"]
+      task_type: docker_build
+
+      dockerfile: https://somedomain/dockerfile
+      output:
+      - registry: some-registry
+        tag: something
+
+  - name: image1
+    vars:
+      context: some-context
+
+    stages:
+    - name: stage0
+      task_type: docker_build
+      tags: ["test_continue_on_errors"]
+
+      dockerfile: somedockerfile
+      output:
+      - registry: some-registry
+        tag: something
+
+    - name: stage1
+      task_type: docker_build
+      tags: ["test_continue_on_errors"]
+
+      dockerfile: somedockerfile
+      output:
+      - registry: some-registry
+        tag: something
+
+    - name: stage2
+      task_type: docker_build
+      tags: ["test_continue_on_errors"]
+
+      dockerfile: somedockerfile
+      output:
+      - registry: some-registry
+        tag: something

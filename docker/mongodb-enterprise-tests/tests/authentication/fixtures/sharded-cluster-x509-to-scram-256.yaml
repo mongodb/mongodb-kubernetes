@@ -1,0 +1,27 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: sharded-cluster-x509-to-scram-256
+spec:
+  shardCount: 1
+  mongodsPerShardCount: 2
+  mongosCount: 1
+  configServerCount: 2
+  version: 4.4.0-ent
+  type: ShardedCluster
+
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+
+  persistent: true
+  security:
+    tls:
+      enabled: true
+    authentication:
+      agents:
+        mode: X509
+      enabled: true
+      modes: ["X509"]

@@ -1,0 +1,17 @@
+vars:
+  registry: somereg
+
+images:
+  - name: image1
+    vars:
+      context: .
+
+    stages:
+    - name: stage0
+      task_type: dockerfile_template
+
+
+      dockerfile: Dockerfile
+      output:
+      - registry: $(inputs.params.version_id)/something
+        tag: something

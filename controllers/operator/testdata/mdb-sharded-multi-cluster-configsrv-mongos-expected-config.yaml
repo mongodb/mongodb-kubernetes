@@ -1,0 +1,89 @@
+agent:
+  logLevel: DEBUG
+additionalMongodConfig:
+  operationProfiling:
+    mode: slowOp
+    slowOpThresholdMs: 100
+clusterSpecList:
+  - clusterName: cluster-0
+    members: 2
+    memberConfig:
+      - votes: 1
+        priority: "100"
+      - votes: 2
+        priority: "100"
+    podSpec:
+      persistence:
+        single:
+          storage: 15G
+    statefulSet:
+      spec:
+        template:
+          spec:
+            containers:
+              - name: mongodb-enterprise-database
+                resources:
+                  requests: # From top level pod template
+                    cpu: 2.12
+                    memory: 2.12G
+                  limits: # From cluster-specific sts configuration
+                    cpu: 2.0
+                    memory: 5.0G
+              - name: sidecar-global
+                image: busybox
+                command: [ "sleep" ]
+                args: [ "infinity" ]
+  - clusterName: cluster-1
+    members: 2
+    memberConfig:
+      - votes: 2
+        priority: "10"
+      - votes: 1
+        priority: "10"
+    statefulSet:
+      spec:
+        template:
+          spec:
+            containers:
+              - name: mongodb-enterprise-database
+                resources:
+                  requests:
+                    cpu: 2.1
+                    memory: 2.1G
+                  limits:
+                    cpu: 2.1
+                    memory: 5.1G
+              - name: sidecar-global
+                image: busybox
+                command: [ "sleep" ]
+                args: [ "infinity" ]
+    podSpec:
+      persistence: # from configSrvPodSpec
+        single:
+          storage: 10G
+  - clusterName: cluster-2
+    members: 1
+    memberConfig:
+      - votes: 1
+        priority: "5"
+    podSpec:
+      persistence: # from configSrvPodSpec
+        single:
+          storage: 10G
+    statefulSet:
+      spec:
+        template:
+          spec:
+            containers:
+              - name: mongodb-enterprise-database
+                resources:
+                  requests:
+                    cpu: 2.2
+                    memory: 2.2G
+                  limits:
+                    cpu: 2.2
+                    memory: 5.2G
+              - name: sidecar-global
+                image: busybox
+                command: [ "sleep" ]
+                args: [ "infinity" ]

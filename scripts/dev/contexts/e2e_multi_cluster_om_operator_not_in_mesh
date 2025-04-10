@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+script_name=$(readlink -f "${BASH_SOURCE[0]}")
+script_dir=$(dirname "${script_name}")
+
+source "${script_dir}/root-context"
+source "${script_dir}/variables/om60"
+
+export KUBE_ENVIRONMENT_NAME=multi
+export CLUSTER_NAME="kind-e2e-operator"
+export MEMBER_CLUSTERS="kind-e2e-cluster-1 kind-e2e-cluster-2 kind-e2e-cluster-3"
+export CENTRAL_CLUSTER=kind-e2e-operator
+export test_pod_cluster=kind-e2e-cluster-1
+export TEST_POD_CLUSTER=kind-e2e-cluster-1
+export ops_manager_version="${CUSTOM_OM_VERSION}"

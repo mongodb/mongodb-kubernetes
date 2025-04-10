@@ -1,0 +1,29 @@
+# Components licensed under: MIT License
+
+## go.uber.org/multierr
+
+## github.com/spf13/cast
+
+## github.com/blang/semver
+
+## go.uber.org/zap
+
+## github.com/beorn7/perks/quantile
+
+## github.com/stretchr/testify/assert
+
+## go.uber.org/atomic
+
+## github.com/json-iterator/go
+
+## sigs.k8s.io/yaml
+
+## memory-pager@1.5.0
+
+## resolve-from@2.0.0
+
+## safe-buffer@5.2.0
+
+## saslprep@1.0.3
+
+## sparse-bitfield@3.0.3

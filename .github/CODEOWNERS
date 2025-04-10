@@ -1,0 +1,3 @@
+* @10gen/kubernetes-hosted
+
+helm_chart/crds/ @dan-mckean

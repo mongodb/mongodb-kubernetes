@@ -1,0 +1,47 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: sh001-pv-resize
+  labels:
+    label1: val1
+    label2: val2
+spec:
+  shardCount: 2
+  mongodsPerShardCount: 2
+  mongosCount: 2
+  configServerCount: 2
+  version: 4.4.0
+  type: ShardedCluster
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+
+  persistent: true
+
+  shardPodSpec:
+    persistence:
+      multiple:
+        data:
+          storage: 1Gi
+          storageClass: csi-hostpath-sc
+        journal:
+          storage: 1Gi
+          storageClass: csi-hostpath-sc
+        logs:
+          storage: 1Gi
+          storageClass: csi-hostpath-sc
+
+  configSrvPodSpec:
+    persistence:
+      multiple:
+        data:
+          storage: 1Gi
+          storageClass: csi-hostpath-sc
+        journal:
+          storage: 1Gi
+          storageClass: csi-hostpath-sc
+        logs:
+          storage: 1Gi
+          storageClass: csi-hostpath-sc

@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+script_name=$(readlink -f "${BASH_SOURCE[0]}")
+script_dir=$(dirname "${script_name}")
+
+source "${script_dir}/root-context"
+
+export KUBE_ENVIRONMENT_NAME=openshift_4
+export CLUSTER_TYPE="openshift"
+export ecr_registry_needs_auth=ecr-registry
+export MANAGED_SECURITY_CONTEXT="true"
+export ALWAYS_REMOVE_TESTING_NAMESPACE="true"
+export ops_manager_version="cloud_qa"
+export MDB_OPERATOR_TELEMETRY_INSTALL_CLUSTER_ROLE_INSTALLATION="false"
+
+export CUSTOM_MDB_VERSION=6.0.16
+
+# shellcheck disable=SC2154
+export OPENSHIFT_URL="${openshift_url}"
+# shellcheck disable=SC2154
+export OPENSHIFT_TOKEN="${openshift_token}"
+export MDB_DEFAULT_ARCHITECTURE=static

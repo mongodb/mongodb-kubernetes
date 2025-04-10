@@ -1,0 +1,267 @@
+{{ $ns :=  include "mongodb-enterprise-operator.namespace" .  -}}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.operator.name }}
+  namespace: {{$ns}}
+spec:
+  replicas: {{ min 1 .Values.operator.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: controller
+      app.kubernetes.io/name: {{ .Values.operator.name }}
+      app.kubernetes.io/instance: {{ .Values.operator.name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/name: {{ .Values.operator.name }}
+        app.kubernetes.io/instance: {{ .Values.operator.name }}
+{{- if .Values.operator.vaultSecretBackend }}
+  {{- if .Values.operator.vaultSecretBackend.enabled }}
+      annotations:
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "mongodbenterprise"
+        {{- if .Values.operator.vaultSecretBackend.tlsSecretRef }}
+        vault.hashicorp.com/tls-secret: {{ .Values.operator.vaultSecretBackend.tlsSecretRef }}
+        vault.hashicorp.com/ca-cert: /vault/tls/ca.crt
+         {{- end }}
+  {{- end }}
+{{- end }}
+    spec:
+      serviceAccountName: {{ .Values.operator.name }}
+{{- if not .Values.managedSecurityContext }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 2000
+{{- end }}
+{{- if .Values.registry.imagePullSecrets}}
+      imagePullSecrets:
+        - name: {{ .Values.registry.imagePullSecrets }}
+{{- end }}
+      containers:
+        - name: {{ .Values.operator.name }}
+          image: "{{ .Values.registry.operator }}/{{ .Values.operator.operator_image_name }}:{{ .Values.operator.version }}{{ .Values.operator.build }}"
+          imagePullPolicy: {{ .Values.registry.pullPolicy }}
+          {{- if .Values.operator.watchedResources }}
+          args:
+            {{- range .Values.operator.watchedResources }}
+            - -watch-resource={{ . }}
+            {{- end }}
+            {{- if .Values.multiCluster.clusters }}
+            - -watch-resource=mongodbmulticluster
+            {{- end }}
+            {{- range .Values.operator.additionalArguments }}
+            - {{ . }}
+            {{- end }}
+          command:
+            - /usr/local/bin/mongodb-enterprise-operator
+          {{- end }}
+          {{- if .Values.multiCluster.clusters }}
+          volumeMounts:
+            - mountPath: /etc/config/kubeconfig
+              name: kube-config-volume
+          {{- end }}
+          resources:
+            limits:
+              cpu: {{ .Values.operator.resources.limits.cpu }}
+              memory: {{ .Values.operator.resources.limits.memory }}
+            requests:
+              cpu: {{ .Values.operator.resources.requests.cpu }}
+              memory: {{ .Values.operator.resources.requests.memory }}
+          env:
+            - name: OPERATOR_ENV
+              value: {{ .Values.operator.env }}
+            - name: MDB_DEFAULT_ARCHITECTURE
+              value: {{ .Values.operator.mdbDefaultArchitecture }}
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+    {{- if .Values.operator.vaultSecretBackend }}
+      {{- if .Values.operator.vaultSecretBackend.enabled }}
+            - name: SECRET_BACKEND
+              value: VAULT_BACKEND
+      {{- end }}
+    {{- end }}
+            - name: WATCH_NAMESPACE
+    {{- if .Values.operator.watchNamespace }}
+              value: "{{ .Values.operator.watchNamespace }}"
+    {{- else }}
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+    {{- end }}
+    {{- if eq .Values.managedSecurityContext true }}
+            - name: MANAGED_SECURITY_CONTEXT
+              value: 'true'
+    {{- end }}
+    {{- $telemetry := default dict .Values.operator.telemetry }}
+    {{- if eq $telemetry.enabled false }}
+            - name: MDB_OPERATOR_TELEMETRY_ENABLED
+              value: "false"
+    {{- end }}
+    {{- if eq $telemetry.collection.clusters.enabled false }}
+            - name: MDB_OPERATOR_TELEMETRY_COLLECTION_CLUSTERS_ENABLED
+              value: "false"
+    {{- end }}
+    {{- if eq $telemetry.collection.deployments.enabled false }}
+            - name: MDB_OPERATOR_TELEMETRY_COLLECTION_DEPLOYMENTS_ENABLED
+              value: "false"
+    {{- end }}
+    {{- if eq $telemetry.collection.operators.enabled false }}
+            - name: MDB_OPERATOR_TELEMETRY_COLLECTION_OPERATORS_ENABLED
+              value: "false"
+    {{- end }}
+    {{- if $telemetry.collection.frequency}}
+            - name: MDB_OPERATOR_TELEMETRY_COLLECTION_FREQUENCY
+              value: "{{ $telemetry.collection.frequency }}"
+    {{- end }}
+    {{- if eq $telemetry.send.enabled false }}
+            - name: MDB_OPERATOR_TELEMETRY_SEND_ENABLED
+              value: "false"
+    {{- end }}
+    {{- if $telemetry.send.frequency}}
+            - name: MDB_OPERATOR_TELEMETRY_SEND_FREQUENCY
+              value: "{{ .Values.operator.telemetry.send.frequency }}"
+    {{- end }}
+    {{- if $telemetry.send.baseUrl}}
+            - name: MDB_OPERATOR_TELEMETRY_SEND_BASEURL
+              value: "{{ $telemetry.send.baseUrl }}"
+    {{- end }}
+    {{- if .Values.multiCluster.clusterClientTimeout }}
+            - name: CLUSTER_CLIENT_TIMEOUT
+              value: "{{ .Values.multiCluster.clusterClientTimeout }}"
+    {{- end }}
+    {{- $mongodbEnterpriseDatabaseImageEnv := "MONGODB_ENTERPRISE_DATABASE_IMAGE" -}}
+    {{- $initDatabaseImageRepositoryEnv := "INIT_DATABASE_IMAGE_REPOSITORY" -}}
+    {{- $opsManagerImageRepositoryEnv := "OPS_MANAGER_IMAGE_REPOSITORY" -}}
+    {{- $agentImageRepository := "MDB_AGENT_IMAGE_REPOSITORY" -}}
+    {{- $initOpsManagerImageRepositoryEnv := "INIT_OPS_MANAGER_IMAGE_REPOSITORY" -}}
+    {{- $initAppDbImageRepositoryEnv := "INIT_APPDB_IMAGE_REPOSITORY" -}}
+    {{- $agentImageEnv := "AGENT_IMAGE" -}}
+    {{- $mongodbImageEnv := "MONGODB_IMAGE" -}}
+    {{- $initDatabaseVersion := print .Values.initDatabase.version (.Values.build | default "") -}}
+    {{- $databaseVersion := print .Values.database.version (.Values.build | default "") -}}
+    {{- $initOpsManagerVersion := print .Values.initOpsManager.version (.Values.build | default "") -}}
+    {{- $initAppDbVersion := print .Values.initAppDb.version (.Values.build | default "") -}}
+    {{- $agentVersion := .Values.agent.version }}
+            - name: IMAGE_PULL_POLICY
+              value: {{ .Values.registry.pullPolicy }}
+            # Database
+            - name: {{ $mongodbEnterpriseDatabaseImageEnv }}
+              value: {{ .Values.registry.database }}/{{ .Values.database.name }}
+            - name: {{ $initDatabaseImageRepositoryEnv }}
+              value: {{ .Values.registry.initDatabase }}/{{ .Values.initDatabase.name }}
+            - name: INIT_DATABASE_VERSION
+              value: {{ $initDatabaseVersion }}
+            - name: DATABASE_VERSION
+              value: {{ $databaseVersion }}
+            # Ops Manager
+            - name: {{ $opsManagerImageRepositoryEnv }}
+              value: {{ .Values.registry.opsManager }}/{{ .Values.opsManager.name }}
+            - name: {{ $initOpsManagerImageRepositoryEnv }}
+              value: {{ .Values.registry.initOpsManager }}/{{ .Values.initOpsManager.name }}
+            - name: INIT_OPS_MANAGER_VERSION
+              value: {{ $initOpsManagerVersion }}
+            # AppDB
+            - name: {{ $initAppDbImageRepositoryEnv }}
+              value: {{ .Values.registry.initAppDb }}/{{ .Values.initAppDb.name }}
+            - name: INIT_APPDB_VERSION
+              value: {{ $initAppDbVersion }}
+            - name: OPS_MANAGER_IMAGE_PULL_POLICY
+              value: {{ .Values.registry.pullPolicy }}
+            - name: {{ $agentImageEnv }}
+              value: "{{ $.Values.registry.agent }}/{{ $.Values.agent.name }}:{{ .Values.agent.version }}"
+            - name: {{ $agentImageRepository }}
+              value: "{{ $.Values.registry.agent }}/{{ $.Values.agent.name }}"
+            - name: {{ $mongodbImageEnv }}
+              value: {{ .Values.mongodb.name }}
+            - name: MONGODB_REPO_URL
+              value: {{ .Values.mongodb.repo }}
+            - name: MDB_IMAGE_TYPE
+              {{- if eq .Values.operator.mdbDefaultArchitecture "static" }}
+              value: "ubi9"
+              {{- else }}
+              value: {{ .Values.mongodb.imageType }}
+              {{- end }}
+    {{- if eq .Values.mongodb.appdbAssumeOldFormat true }}
+            - name: MDB_APPDB_ASSUME_OLD_FORMAT
+              value: 'true'
+    {{- end }}
+    {{- if eq .Values.multiCluster.performFailOver true }}
+            - name: PERFORM_FAILOVER
+              value: 'true'
+    {{- end }}
+    {{- if .Values.registry.imagePullSecrets }}
+            - name: IMAGE_PULL_SECRETS
+              value: {{ .Values.registry.imagePullSecrets }}
+    {{- end }}
+    {{- if not .Values.operator.webhook.registerConfiguration }}
+            - name: MDB_WEBHOOK_REGISTER_CONFIGURATION
+              value: "false"
+    {{- end }}
+    {{- if .Values.operator.maxConcurrentReconciles }}
+            - name: MDB_MAX_CONCURRENT_RECONCILES
+              value: "{{ .Values.operator.maxConcurrentReconciles }}"
+    {{- end }}
+    {{- if .Values.relatedImages }}
+            - name: RELATED_IMAGE_{{ $mongodbEnterpriseDatabaseImageEnv }}_{{ $databaseVersion | replace "." "_" | replace "-" "_" }}
+              value: "{{ .Values.registry.database }}/{{ .Values.database.name }}:{{ $databaseVersion }}"
+            - name: RELATED_IMAGE_{{ $initDatabaseImageRepositoryEnv }}_{{ $initDatabaseVersion | replace "." "_" | replace "-" "_" }}
+              value: "{{ .Values.registry.initDatabase }}/{{ .Values.initDatabase.name }}:{{ $initDatabaseVersion }}"
+            - name: RELATED_IMAGE_{{ $initOpsManagerImageRepositoryEnv }}_{{ $initOpsManagerVersion | replace "." "_" | replace "-" "_" }}
+              value: "{{ .Values.registry.initOpsManager }}/{{ .Values.initOpsManager.name }}:{{ $initOpsManagerVersion }}"
+            - name: RELATED_IMAGE_{{ $initAppDbImageRepositoryEnv }}_{{ $initAppDbVersion | replace "." "_" | replace "-" "_" }}
+              value: "{{ .Values.registry.initAppDb }}/{{ .Values.initAppDb.name }}:{{ $initAppDbVersion }}"
+      {{- range $version := .Values.relatedImages.agent }}
+            - name: RELATED_IMAGE_{{ $agentImageEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
+              value: "{{ $.Values.registry.agent }}/{{ $.Values.agent.name }}:{{ $version }}"
+      {{- end }}
+      {{- range $version := .Values.relatedImages.opsManager }}
+            - name: RELATED_IMAGE_{{ $opsManagerImageRepositoryEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
+              value: "{{ $.Values.registry.opsManager }}/{{ $.Values.opsManager.name }}:{{ $version }}"
+      {{- end }}
+      # since the official server images end with a different suffix we can re-use the same $mongodbImageEnv
+      {{- range $version := .Values.relatedImages.mongodb }}
+            - name: RELATED_IMAGE_{{ $mongodbImageEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
+              value: "{{ $.Values.mongodb.repo }}/{{ $.Values.mongodb.name }}:{{ $version }}"
+      {{- end }}
+      # mongodbLegacyAppDb will be deleted in 1.23 release
+      {{- range $version := .Values.relatedImages.mongodbLegacyAppDb }}
+            - name: RELATED_IMAGE_{{ $mongodbImageEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
+              value: "{{ $.Values.mongodbLegacyAppDb.repo }}/{{ $.Values.mongodbLegacyAppDb.name }}:{{ $version }}"
+      {{- end }}
+    {{- end }}
+    {{- if .Values.customEnvVars }}
+      {{- range split "&" .Values.customEnvVars }}
+            - name: {{ (split "=" .)._0 }}
+              value: '{{ (split "=" .)._1 }}'
+      {{- end }}
+    {{- end }}
+{{- if .Values.multiCluster.clusters }}
+      volumes:
+        - name: kube-config-volume
+          secret:
+            defaultMode: 420
+            secretName: {{ .Values.multiCluster.kubeConfigSecretName }}
+{{- end }}
+
+{{- with .Values.operator }}
+  {{- with .nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+  {{- end }}
+  {{- with .affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+  {{- end }}
+  {{- with .tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+  {{- end }}
+{{- end }}
+
+

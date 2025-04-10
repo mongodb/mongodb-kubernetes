@@ -1,0 +1,24 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: test-x509-sc
+spec:
+  shardCount: 1
+  mongodsPerShardCount: 3
+  mongosCount: 2
+  configServerCount: 3
+  version: 4.4.0
+  type: ShardedCluster
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+
+  persistent: false
+  security:
+    tls:
+      enabled: true
+    authentication:
+      enabled: true
+      modes: ["X509"]

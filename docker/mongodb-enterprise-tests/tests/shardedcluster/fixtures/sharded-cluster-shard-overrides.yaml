@@ -1,0 +1,36 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: mdb-sh-shard-overrides
+spec:
+  shardCount: 4
+  mongosCount: 1
+  configServerCount: 3
+  mongodsPerShardCount: 2
+  topology: SingleCluster
+  type: ShardedCluster
+  version: 5.0.15
+  cloudManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  persistent: true
+
+  # Shard #2 has no override
+  shardOverrides:
+    - shardNames: [ "mdb-sh-shard-overrides-0", "mdb-sh-shard-overrides-1" ] # this override will apply to shards #0 and #1
+      members: 3
+      memberConfig:
+        - votes: 0
+          priority: "0"
+        - votes: 1
+          priority: "1"
+        - votes: 1
+          priority: "10"
+
+    - shardNames: ["mdb-sh-shard-overrides-3"] # this override will apply to only shard #3
+      memberConfig:
+        - votes: 1
+          priority: "5"
+        - votes: 1
+          priority: "0"

@@ -1,0 +1,192 @@
+{
+  "updated": 1576540800042,
+  "versions": [
+    {
+      "builds": [
+        {
+          "architecture": "amd64",
+          "gitVersion": "1c1c76aeca21c5983dc178920f5052c298db616c",
+          "platform": "linux",
+          "url": "/linux/mongodb-linux-x86_64-2.6.0.tgz"
+        },
+        {
+          "architecture": "amd64",
+          "gitVersion": "1c1c76aeca21c5983dc178920f5052c298db616c",
+          "platform": "osx",
+          "url": "/osx/mongodb-osx-x86_64-2.6.0.tgz"
+        },
+        {
+          "architecture": "amd64",
+          "gitVersion": "1c1c76aeca21c5983dc178920f5052c298db616c",
+          "platform": "windows",
+          "url": "/win32/mongodb-win32-x86_64-2.6.0.zip"
+        },
+        {
+          "architecture": "amd64",
+          "gitVersion": "1c1c76aeca21c5983dc178920f5052c298db616c",
+          "platform": "windows",
+          "url": "/win32/mongodb-win32-x86_64-2008plus-2.6.0.zip",
+          "win2008plus": true
+        }
+      ],
+      "name": "2.6.0"
+    },
+    {
+      "builds": [
+        {
+          "architecture": "amd64",
+          "flavor": "ubuntu",
+          "gitVersion": "1c1c76aeca21c5983dc178920f5052c298db616c modules: enterprise",
+          "maxOsVersion": "13.04",
+          "minOsVersion": "12.04",
+          "platform": "linux",
+          "url": "/linux/mongodb-linux-x86_64-enterprise-ubuntu1204-2.6.0.tgz"
+        },
+        {
+          "architecture": "amd64",
+          "gitVersion": "1c1c76aeca21c5983dc178920f5052c298db616c modules: enterprise",
+          "platform": "windows",
+          "url": "/win32/mongodb-win32-x86_64-enterprise-windows-64-2.6.0.zip",
+          "win2008plus": true,
+          "winVCRedistDll": "msvcr100.dll",
+          "winVCRedistOptions": [
+            "/q",
+            "/norestart"
+          ],
+          "winVCRedistUrl": "http://download.microsoft.com/download/1/6/5/165255E7-1014-4D0A-B094-B6A430A6BFFC/vcredist_x64.exe",
+          "winVCRedistVersion": "10.0.40219.325"
+        }
+      ],
+      "name": "2.6.0-ent"
+    },
+    {
+      "builds": [
+        {
+          "architecture": "amd64",
+          "flavor": "ubuntu",
+          "gitVersion": "a57d8e71e6998a2d0afde7edc11bd23e5661c915",
+          "maxOsVersion": "15.04",
+          "minOsVersion": "14.04",
+          "platform": "linux",
+          "url": "/linux/mongodb-linux-x86_64-ubuntu1404-3.6.0.tgz"
+        },
+        {
+          "architecture": "amd64",
+          "flavor": "ubuntu",
+          "gitVersion": "a57d8e71e6998a2d0afde7edc11bd23e5661c915",
+          "maxOsVersion": "17.04",
+          "minOsVersion": "16.04",
+          "platform": "linux",
+          "url": "/linux/mongodb-linux-x86_64-ubuntu1604-3.6.0.tgz"
+        }
+      ],
+      "name": "3.6.0"
+    },
+    {
+      "builds": [
+        {
+          "architecture": "amd64",
+          "flavor": "amazon",
+          "gitVersion": "a57d8e71e6998a2d0afde7edc11bd23e5661c915",
+          "maxOsVersion": "",
+          "minOsVersion": "2013.03",
+          "modules": [
+            "enterprise"
+          ],
+          "platform": "linux",
+          "url": "/linux/mongodb-linux-x86_64-enterprise-amzn64-3.6.0.tgz"
+        },
+        {
+          "architecture": "amd64",
+          "flavor": "rhel",
+          "gitVersion": "a57d8e71e6998a2d0afde7edc11bd23e5661c915",
+          "maxOsVersion": "7.0",
+          "minOsVersion": "6.2",
+          "modules": [
+            "enterprise"
+          ],
+          "platform": "linux",
+          "url": "/linux/mongodb-linux-x86_64-enterprise-rhel62-3.6.0.tgz"
+        }
+      ],
+      "name": "3.6.0-ent"
+    },
+    {
+      "builds": [
+        {
+          "architecture": "ppc64le",
+          "gitVersion": "a0bbbff6ada159e19298d37946ac8dc4b497eadf",
+          "platform": "linux",
+          "url": "/linux/mongodb-linux-ppc64le-enterprise-rhel71-4.2.2.tgz",
+          "flavor": "rhel",
+          "maxOsVersion": "8.0",
+          "minOsVersion": "7.0",
+          "modules": [
+            "enterprise"
+          ]
+        },
+        {
+          "architecture": "amd64",
+          "gitVersion": "a0bbbff6ada159e19298d37946ac8dc4b497eadf",
+          "platform": "linux",
+          "url": "/linux/mongodb-linux-x86_64-enterprise-rhel62-4.2.2.tgz",
+          "flavor": "rhel",
+          "maxOsVersion": "7.0",
+          "minOsVersion": "6.2",
+          "modules": [
+            "enterprise"
+          ]
+        },
+        {
+          "architecture": "s390x",
+          "gitVersion": "a0bbbff6ada159e19298d37946ac8dc4b497eadf",
+          "platform": "linux",
+          "url": "/linux/mongodb-linux-s390x-enterprise-rhel72-4.2.2.tgz",
+          "flavor": "rhel",
+          "maxOsVersion": "8.0",
+          "minOsVersion": "7.0",
+          "modules": [
+            "enterprise"
+          ]
+        },
+        {
+          "architecture": "amd64",
+          "gitVersion": "a0bbbff6ada159e19298d37946ac8dc4b497eadf",
+          "platform": "linux",
+          "url": "/linux/mongodb-linux-x86_64-enterprise-ubuntu1604-4.2.2.tgz",
+          "flavor": "ubuntu",
+          "maxOsVersion": "17.04",
+          "minOsVersion": "16.04",
+          "modules": [
+            "enterprise"
+          ]
+        },
+        {
+          "architecture": "amd64",
+          "gitVersion": "a0bbbff6ada159e19298d37946ac8dc4b497eadf",
+          "platform": "linux",
+          "url": "/linux/mongodb-linux-x86_64-enterprise-suse12-4.2.2.tgz",
+          "flavor": "suse",
+          "maxOsVersion": "13",
+          "minOsVersion": "12",
+          "modules": [
+            "enterprise"
+          ]
+        },
+        {
+          "architecture": "amd64",
+          "gitVersion": "a0bbbff6ada159e19298d37946ac8dc4b497eadf",
+          "platform": "linux",
+          "url": "/linux/mongodb-linux-x86_64-enterprise-debian92-4.2.2.tgz",
+          "flavor": "debian",
+          "maxOsVersion": "10.0",
+          "minOsVersion": "9.1",
+          "modules": [
+            "enterprise"
+          ]
+        }
+      ],
+      "name": "4.2.2-ent"
+    }
+  ]
+}

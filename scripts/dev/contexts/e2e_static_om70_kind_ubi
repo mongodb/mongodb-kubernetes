@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+script_name=$(readlink -f "${BASH_SOURCE[0]}")
+script_dir=$(dirname "${script_name}")
+
+source "${script_dir}/root-context"
+source "${script_dir}/variables/om70"
+
+export KUBE_ENVIRONMENT_NAME=kind
+export MDB_DEFAULT_ARCHITECTURE=static
+export CUSTOM_MDB_VERSION=7.0.5
+export CUSTOM_MDB_PREV_VERSION=6.0.16
+export CUSTOM_APPDB_VERSION="7.0.2-ubi9-20241112T085558Z"

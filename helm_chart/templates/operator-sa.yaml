@@ -1,0 +1,23 @@
+{{ if .Values.operator.createOperatorServiceAccount }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.operator.name }}
+  namespace: {{ include "mongodb-enterprise-operator.namespace" . }}
+{{- if .Values.registry.imagePullSecrets}}
+imagePullSecrets:
+  - name: {{ .Values.registry.imagePullSecrets }}
+{{- end }}
+
+{{- $watchNamespace := include "mongodb-enterprise-operator.namespace" . | list }}
+{{- if .Values.operator.watchNamespace }}
+{{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 }}
+{{- $watchNamespace = concat $watchNamespace (include "mongodb-enterprise-operator.namespace" . | list) | uniq }}
+{{- end }}
+
+{{- $roleScope := "Role" -}}
+{{- if or (gt (len $watchNamespace) 1) (eq (first $watchNamespace) "*") }}
+{{- $roleScope = "ClusterRole" }}
+{{- end }}
+{{- end }} {{/* if .Values.operator.createOperatorServiceAccount */}}

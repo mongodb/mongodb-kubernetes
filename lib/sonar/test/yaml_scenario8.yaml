@@ -1,0 +1,27 @@
+images:
+- name: image0
+  vars:
+    context: some-context
+  stages:
+  - name: stage-build0
+    task_type: docker_build
+    dockerfile: https://somedomain/dockerfile
+
+    signing: &signing
+      signer_name: evergreen_ci
+      key_secret_name: test/kube/secret
+      passphrase_secret_name: test/kube/passphrase
+      region: us-east-1
+
+
+    output:
+    - registry: foo
+      tag: bar
+      <<: *signing
+    - registry: foo2
+      tag: bar2
+      <<: *signing
+    - registry: foo3
+      tag: bar3
+      <<: *signing
+      signer_name: evergreen_ci_foo

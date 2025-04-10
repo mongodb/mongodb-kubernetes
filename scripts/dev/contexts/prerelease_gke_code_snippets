@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+
+# this context file is for code snippets running on GKE clusters
+set -Eeou pipefail
+
+# overrides of public env_variables.sh
+script_name=$(readlink -f "${BASH_SOURCE[0]}")
+script_dir=$(dirname "${script_name}")
+
+source "${script_dir}/root-context"
+
+export MDB_GKE_PROJECT="scratch-kubernetes-team"
+export K8S_CLUSTER_SUFFIX="-${version_id}-${RANDOM}"
+export COMMIT_OUTPUT=true
+
+# we reset evg host to use a default ~/.kube/config for GKE instead of the one from evg host
+export EVG_HOST_NAME=""
+
+# ENV_VARIABLES.SH overrides
+export OPERATOR_ADDITIONAL_HELM_VALUES=""
+export OPERATOR_HELM_CHART=${PROJECT_DIR}/helm_chart
