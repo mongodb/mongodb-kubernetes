@@ -665,6 +665,10 @@ class OMTester(object):
             "preferredHostnames"
         ]
 
+    def api_update_version_manifest(self, major_version: str = "8.0"):
+        body = requests.get(url=f"https://opsmanager.mongodb.com/static/version_manifest/{major_version}.json").json()
+        self.om_request("put", "/versionManifest", json_object=body)
+
 
 class OMBackgroundTester(BackgroundHealthChecker):
     """

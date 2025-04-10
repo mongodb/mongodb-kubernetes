@@ -91,6 +91,12 @@ def test_om_created_no_tls(ops_manager: MongoDBOpsManager):
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
 
+# Since this is running OM in local mode, and OM6 is EOL, the latest mongodb versions are not available, unless we manually update the version manifest
+@mark.e2e_om_ops_manager_https_enabled
+def test_update_om_version_manifest(ops_manager: MongoDBOpsManager):
+    ops_manager.update_version_manifest()
+
+
 @mark.e2e_om_ops_manager_https_enabled
 def test_appdb_running_no_tls(ops_manager: MongoDBOpsManager):
     ops_manager.get_appdb_tester().assert_connectivity()

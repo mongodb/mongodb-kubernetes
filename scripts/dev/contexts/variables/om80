@@ -10,13 +10,13 @@ export CUSTOM_OM_PREV_VERSION
 CUSTOM_OM_VERSION=$(grep -E "^\s*-\s*&ops_manager_80_latest\s+(\S+)\s+#" < "${script_dir}"/../../../../.evergreen.yml | awk '{print $3}')
 export CUSTOM_OM_VERSION
 
-export CUSTOM_MDB_VERSION=8.0.0
-export CUSTOM_MDB_PREV_VERSION=7.0.9
+export CUSTOM_MDB_VERSION=8.0.6
+export CUSTOM_MDB_PREV_VERSION=7.0.18
 
 export AGENT_VERSION=108.0.0.8694-1
 export AGENT_IMAGE="${MDB_AGENT_IMAGE_REPOSITORY}:${AGENT_VERSION}"
 
-export CUSTOM_APPDB_VERSION=8.0.0-ent
+export CUSTOM_APPDB_VERSION=8.0.6-ent
 export TEST_MODE=opsmanager
 export OPS_MANAGER_REGISTRY=268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
 export APPDB_REGISTRY=268558157000.dkr.ecr.us-east-1.amazonaws.com/dev

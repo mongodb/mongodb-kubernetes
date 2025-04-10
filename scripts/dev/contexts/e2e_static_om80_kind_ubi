@@ -10,4 +10,3 @@ source "${script_dir}/variables/om80"
 
 export KUBE_ENVIRONMENT_NAME=kind
 export MDB_DEFAULT_ARCHITECTURE=static
-export CUSTOM_APPDB_VERSION="8.0.0-ubi9-20241112T091101Z"
