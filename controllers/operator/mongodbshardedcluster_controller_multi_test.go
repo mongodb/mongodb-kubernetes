@@ -19,6 +19,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/exp/constraints"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -34,6 +35,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/test"
@@ -2607,6 +2609,950 @@ func TestComputeMembersToScaleDown(t *testing.T) {
 			assert.Equal(t, tc.expected, membersToScaleDown)
 		})
 	}
+}
+
+func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
+	memberClusterName1 := "member-cluster-1"
+	memberClusterName2 := "member-cluster-2"
+	memberClusterName3 := "member-cluster-3"
+	memberClusters := []string{memberClusterName1, memberClusterName2, memberClusterName3}
+
+	tests := map[string]struct {
+		mongosClusterSpecList    mdbv1.ClusterSpecList
+		shardsClusterSpecList    mdbv1.ClusterSpecList
+		configSrvClusterSpecList mdbv1.ClusterSpecList
+		shardCount               int
+		externalDomains          *test.ClusterDomains
+		expectedServices         map[string][]corev1.Service
+	}{
+		"empty external access configured for single pod": {
+			mongosClusterSpecList: mdbv1.ClusterSpecList{
+				{
+					ClusterName:                 memberClusterName1,
+					ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{},
+					Members:                     1,
+				},
+			},
+			shardsClusterSpecList: mdbv1.ClusterSpecList{
+				{
+					ClusterName: memberClusterName2,
+					ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
+						ExternalDomain: ptr.To("custom.domain"),
+					},
+					Members: 1,
+				},
+			},
+			configSrvClusterSpecList: mdbv1.ClusterSpecList{
+				{
+					ClusterName: memberClusterName3,
+					ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
+						ExternalDomain: ptr.To("custom.config.domain"),
+					},
+					Members: 1,
+				},
+			},
+			shardCount: 1,
+			externalDomains: &test.ClusterDomains{
+				ShardsExternalDomain:       "custom.domain",
+				ConfigServerExternalDomain: "custom.config.domain",
+			},
+			expectedServices: map[string][]corev1.Service{
+				memberClusterName1: {
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:            "test-om-db-mongos-0-0-svc-external",
+							Namespace:       "my-namespace",
+							ResourceVersion: "1",
+							Labels: map[string]string{
+								util.OperatorLabelName:         util.OperatorName,
+								mdbv1.LabelResourceOwner:       "test-om-db",
+								appsv1.StatefulSetPodNameLabel: "test-om-db-mongos-0-0",
+							},
+						},
+						Spec: corev1.ServiceSpec{
+							Type:                     "LoadBalancer",
+							PublishNotReadyAddresses: true,
+							Ports: []corev1.ServicePort{
+								{
+									Name: "mongodb",
+									Port: 27017,
+								},
+								{
+									Name:       "backup",
+									Port:       27018,
+									TargetPort: intstr.FromInt32(27018),
+								},
+							},
+							Selector: map[string]string{
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-mongos-0-0",
+							},
+						},
+					},
+				},
+				memberClusterName2: {
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:            "test-om-db-0-1-0-svc-external",
+							Namespace:       "my-namespace",
+							ResourceVersion: "1",
+							Labels: map[string]string{
+								util.OperatorLabelName:         util.OperatorName,
+								mdbv1.LabelResourceOwner:       "test-om-db",
+								appsv1.StatefulSetPodNameLabel: "test-om-db-0-1-0",
+							},
+						},
+						Spec: corev1.ServiceSpec{
+							Type:                     "LoadBalancer",
+							PublishNotReadyAddresses: true,
+							Ports: []corev1.ServicePort{
+								{
+									Name: "mongodb",
+									Port: 27017,
+								},
+								{
+									Name:       "backup",
+									Port:       27018,
+									TargetPort: intstr.FromInt32(27018),
+								},
+							},
+							Selector: map[string]string{
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-0-1-0",
+							},
+						},
+					},
+				},
+				memberClusterName3: {
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:            "test-om-db-config-2-0-svc-external",
+							Namespace:       "my-namespace",
+							ResourceVersion: "1",
+							Labels: map[string]string{
+								util.OperatorLabelName:         util.OperatorName,
+								mdbv1.LabelResourceOwner:       "test-om-db",
+								appsv1.StatefulSetPodNameLabel: "test-om-db-config-2-0",
+							},
+						},
+						Spec: corev1.ServiceSpec{
+							Type:                     "LoadBalancer",
+							PublishNotReadyAddresses: true,
+							Ports: []corev1.ServicePort{
+								{
+									Name: "mongodb",
+									Port: 27017,
+								},
+								{
+									Name:       "backup",
+									Port:       27018,
+									TargetPort: intstr.FromInt32(27018),
+								},
+							},
+							Selector: map[string]string{
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-config-2-0",
+							},
+						},
+					},
+				},
+			},
+		},
+		"external access configured on different ports": {
+			mongosClusterSpecList: mdbv1.ClusterSpecList{
+				{
+					ClusterName: memberClusterName1,
+					ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
+						ExternalService: mdbv1.ExternalServiceConfiguration{
+							SpecWrapper: &mdbv1.ServiceSpecWrapper{
+								Spec: corev1.ServiceSpec{
+									Type: "LoadBalancer",
+									Ports: []corev1.ServicePort{
+										{
+											Name: "mongodb",
+											Port: 27017,
+										},
+										{
+											Name: "backup",
+											Port: 27018,
+										},
+										{
+											Name: "testing2",
+											Port: 27019,
+										},
+									},
+								},
+							},
+						},
+					},
+					Members: 2,
+				},
+			},
+			shardsClusterSpecList: mdbv1.ClusterSpecList{
+				{
+					ClusterName: memberClusterName1,
+					Members:     1,
+				},
+			},
+			configSrvClusterSpecList: mdbv1.ClusterSpecList{
+				{
+					ClusterName: memberClusterName1,
+					Members:     1,
+				},
+			},
+			shardCount: 1,
+			expectedServices: map[string][]corev1.Service{
+				memberClusterName1: {
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:            "test-om-db-mongos-0-0-svc-external",
+							Namespace:       "my-namespace",
+							ResourceVersion: "1",
+							Labels: map[string]string{
+								util.OperatorLabelName:         util.OperatorName,
+								mdbv1.LabelResourceOwner:       "test-om-db",
+								appsv1.StatefulSetPodNameLabel: "test-om-db-mongos-0-0",
+							},
+						},
+						Spec: corev1.ServiceSpec{
+							Type:                     "LoadBalancer",
+							PublishNotReadyAddresses: true,
+							Ports: []corev1.ServicePort{
+								{
+									Name: "mongodb",
+									Port: 27017,
+								},
+								{
+									Name: "backup",
+									Port: 27018,
+								},
+								{
+									Name: "testing2",
+									Port: 27019,
+								},
+							},
+							Selector: map[string]string{
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-mongos-0-0",
+							},
+						},
+					},
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:            "test-om-db-mongos-0-1-svc-external",
+							Namespace:       "my-namespace",
+							ResourceVersion: "1",
+							Labels: map[string]string{
+								util.OperatorLabelName:         util.OperatorName,
+								mdbv1.LabelResourceOwner:       "test-om-db",
+								appsv1.StatefulSetPodNameLabel: "test-om-db-mongos-0-1",
+							},
+						},
+						Spec: corev1.ServiceSpec{
+							Type:                     "LoadBalancer",
+							PublishNotReadyAddresses: true,
+							Ports: []corev1.ServicePort{
+								{
+									Name: "mongodb",
+									Port: 27017,
+								},
+								{
+									Name: "backup",
+									Port: 27018,
+								},
+								{
+									Name: "testing2",
+									Port: 27019,
+								},
+							},
+							Selector: map[string]string{
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-mongos-0-1",
+							},
+						},
+					},
+				},
+			},
+		},
+		"external service of NodePort type": {
+			mongosClusterSpecList: mdbv1.ClusterSpecList{
+				{
+					ClusterName: memberClusterName1,
+					ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
+						ExternalService: mdbv1.ExternalServiceConfiguration{
+							SpecWrapper: &mdbv1.ServiceSpecWrapper{
+								Spec: corev1.ServiceSpec{
+									Type: "NodePort",
+									Ports: []corev1.ServicePort{
+										{
+											Name:     "mongodb",
+											Port:     27017,
+											NodePort: 30003,
+										},
+									},
+								},
+							},
+						},
+					},
+					Members: 1,
+				},
+			},
+			shardsClusterSpecList: mdbv1.ClusterSpecList{
+				{
+					ClusterName: memberClusterName2,
+					ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
+						ExternalService: mdbv1.ExternalServiceConfiguration{
+							SpecWrapper: &mdbv1.ServiceSpecWrapper{
+								Spec: corev1.ServiceSpec{
+									Type: "NodePort",
+									Ports: []corev1.ServicePort{
+										{
+											Name:     "mongodb",
+											Port:     27017,
+											NodePort: 30004,
+										},
+									},
+								},
+							},
+						},
+						ExternalDomain: ptr.To("custom.domain"),
+					},
+					Members: 1,
+				},
+			},
+			configSrvClusterSpecList: mdbv1.ClusterSpecList{
+				{
+					ClusterName: memberClusterName3,
+					ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
+						ExternalService: mdbv1.ExternalServiceConfiguration{
+							SpecWrapper: &mdbv1.ServiceSpecWrapper{
+								Spec: corev1.ServiceSpec{
+									Type: "NodePort",
+									Ports: []corev1.ServicePort{
+										{
+											Name:     "mongodb",
+											Port:     27017,
+											NodePort: 30005,
+										},
+									},
+								},
+							},
+						},
+						ExternalDomain: ptr.To("custom.config.domain"),
+					},
+					Members: 1,
+				},
+			},
+			shardCount: 1,
+			externalDomains: &test.ClusterDomains{
+				ShardsExternalDomain:       "custom.domain",
+				ConfigServerExternalDomain: "custom.config.domain",
+			},
+			expectedServices: map[string][]corev1.Service{
+				memberClusterName1: {
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:            "test-om-db-mongos-0-0-svc-external",
+							Namespace:       "my-namespace",
+							ResourceVersion: "1",
+							Labels: map[string]string{
+								util.OperatorLabelName:         util.OperatorName,
+								mdbv1.LabelResourceOwner:       "test-om-db",
+								appsv1.StatefulSetPodNameLabel: "test-om-db-mongos-0-0",
+							},
+						},
+						Spec: corev1.ServiceSpec{
+							Type:                     "NodePort",
+							PublishNotReadyAddresses: true,
+							Ports: []corev1.ServicePort{
+								{
+									Name:     "mongodb",
+									Port:     27017,
+									NodePort: 30003,
+								},
+							},
+							Selector: map[string]string{
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-mongos-0-0",
+							},
+						},
+					},
+				},
+				memberClusterName2: {
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:            "test-om-db-0-1-0-svc-external",
+							Namespace:       "my-namespace",
+							ResourceVersion: "1",
+							Labels: map[string]string{
+								util.OperatorLabelName:         util.OperatorName,
+								mdbv1.LabelResourceOwner:       "test-om-db",
+								appsv1.StatefulSetPodNameLabel: "test-om-db-0-1-0",
+							},
+						},
+						Spec: corev1.ServiceSpec{
+							Type:                     "NodePort",
+							PublishNotReadyAddresses: true,
+							Ports: []corev1.ServicePort{
+								{
+									Name:     "mongodb",
+									Port:     27017,
+									NodePort: 30004,
+								},
+							},
+							Selector: map[string]string{
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-0-1-0",
+							},
+						},
+					},
+				},
+				memberClusterName3: {
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:            "test-om-db-config-2-0-svc-external",
+							Namespace:       "my-namespace",
+							ResourceVersion: "1",
+							Labels: map[string]string{
+								util.OperatorLabelName:         util.OperatorName,
+								mdbv1.LabelResourceOwner:       "test-om-db",
+								appsv1.StatefulSetPodNameLabel: "test-om-db-config-2-0",
+							},
+						},
+						Spec: corev1.ServiceSpec{
+							Type:                     "NodePort",
+							PublishNotReadyAddresses: true,
+							Ports: []corev1.ServicePort{
+								{
+									Name:     "mongodb",
+									Port:     27017,
+									NodePort: 30005,
+								},
+							},
+							Selector: map[string]string{
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-config-2-0",
+							},
+						},
+					},
+				},
+			},
+		},
+		"service with annotations with placeholders": {
+			mongosClusterSpecList: mdbv1.ClusterSpecList{
+				{
+					ClusterName: memberClusterName1,
+					ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
+						ExternalService: mdbv1.ExternalServiceConfiguration{
+							Annotations: map[string]string{
+								"test-annotation":                     "test-placeholder-{podIndex}",
+								create.PlaceholderPodIndex:            "{podIndex}",
+								create.PlaceholderNamespace:           "{namespace}",
+								create.PlaceholderResourceName:        "{resourceName}",
+								create.PlaceholderPodName:             "{podName}",
+								create.PlaceholderStatefulSetName:     "{statefulSetName}",
+								create.PlaceholderExternalServiceName: "{externalServiceName}",
+								create.PlaceholderMongodProcessDomain: "{mongodProcessDomain}",
+								create.PlaceholderMongodProcessFQDN:   "{mongodProcessFQDN}",
+								create.PlaceholderClusterName:         "{clusterName}",
+								create.PlaceholderClusterIndex:        "{clusterIndex}",
+							},
+							SpecWrapper: &mdbv1.ServiceSpecWrapper{
+								Spec: corev1.ServiceSpec{
+									Type: "LoadBalancer",
+									Ports: []corev1.ServicePort{
+										{
+											Name: "mongodb",
+											Port: 27017,
+										},
+									},
+								},
+							},
+						},
+						ExternalDomain: ptr.To("custom.mongos.domain"),
+					},
+					Members: 2,
+				},
+			},
+			shardsClusterSpecList: mdbv1.ClusterSpecList{
+				{
+					ClusterName: memberClusterName2,
+					ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
+						ExternalService: mdbv1.ExternalServiceConfiguration{
+							Annotations: map[string]string{
+								"test-annotation":                     "test-placeholder-{podIndex}",
+								create.PlaceholderPodIndex:            "{podIndex}",
+								create.PlaceholderNamespace:           "{namespace}",
+								create.PlaceholderResourceName:        "{resourceName}",
+								create.PlaceholderPodName:             "{podName}",
+								create.PlaceholderStatefulSetName:     "{statefulSetName}",
+								create.PlaceholderExternalServiceName: "{externalServiceName}",
+								create.PlaceholderMongodProcessDomain: "{mongodProcessDomain}",
+								create.PlaceholderMongodProcessFQDN:   "{mongodProcessFQDN}",
+								create.PlaceholderClusterName:         "{clusterName}",
+								create.PlaceholderClusterIndex:        "{clusterIndex}",
+							},
+							SpecWrapper: &mdbv1.ServiceSpecWrapper{
+								Spec: corev1.ServiceSpec{
+									Type: "LoadBalancer",
+									Ports: []corev1.ServicePort{
+										{
+											Name: "mongodb",
+											Port: 27017,
+										},
+									},
+								},
+							},
+						},
+						ExternalDomain: ptr.To("custom.domain"),
+					},
+					Members: 2,
+				},
+			},
+			configSrvClusterSpecList: mdbv1.ClusterSpecList{
+				{
+					ClusterName: memberClusterName3,
+					ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
+						ExternalService: mdbv1.ExternalServiceConfiguration{
+							Annotations: map[string]string{
+								"test-annotation":                     "test-placeholder-{podIndex}",
+								create.PlaceholderPodIndex:            "{podIndex}",
+								create.PlaceholderNamespace:           "{namespace}",
+								create.PlaceholderResourceName:        "{resourceName}",
+								create.PlaceholderPodName:             "{podName}",
+								create.PlaceholderStatefulSetName:     "{statefulSetName}",
+								create.PlaceholderExternalServiceName: "{externalServiceName}",
+								create.PlaceholderMongodProcessDomain: "{mongodProcessDomain}",
+								create.PlaceholderMongodProcessFQDN:   "{mongodProcessFQDN}",
+								create.PlaceholderClusterName:         "{clusterName}",
+								create.PlaceholderClusterIndex:        "{clusterIndex}",
+							},
+							SpecWrapper: &mdbv1.ServiceSpecWrapper{
+								Spec: corev1.ServiceSpec{
+									Type: "LoadBalancer",
+									Ports: []corev1.ServicePort{
+										{
+											Name: "mongodb",
+											Port: 27017,
+										},
+									},
+								},
+							},
+						},
+						ExternalDomain: ptr.To("custom.config.domain"),
+					},
+					Members: 2,
+				},
+			},
+			shardCount: 2,
+			externalDomains: &test.ClusterDomains{
+				MongosExternalDomain:       "custom.mongos.domain",
+				ShardsExternalDomain:       "custom.domain",
+				ConfigServerExternalDomain: "custom.config.domain",
+			},
+			expectedServices: map[string][]corev1.Service{
+				memberClusterName1: {
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:            "test-om-db-mongos-0-0-svc-external",
+							Namespace:       "my-namespace",
+							ResourceVersion: "1",
+							Labels: map[string]string{
+								util.OperatorLabelName:         util.OperatorName,
+								mdbv1.LabelResourceOwner:       "test-om-db",
+								appsv1.StatefulSetPodNameLabel: "test-om-db-mongos-0-0",
+							},
+							Annotations: map[string]string{
+								"test-annotation":                     "test-placeholder-0",
+								create.PlaceholderPodIndex:            "0",
+								create.PlaceholderNamespace:           "my-namespace",
+								create.PlaceholderResourceName:        "test-om-db",
+								create.PlaceholderStatefulSetName:     "test-om-db-mongos-0",
+								create.PlaceholderPodName:             "test-om-db-mongos-0-0",
+								create.PlaceholderExternalServiceName: "test-om-db-mongos-0-0-svc-external",
+								create.PlaceholderMongodProcessDomain: "custom.mongos.domain",
+								create.PlaceholderMongodProcessFQDN:   "test-om-db-mongos-0-0.custom.mongos.domain",
+								create.PlaceholderClusterName:         memberClusterName1,
+								create.PlaceholderClusterIndex:        "0",
+							},
+						},
+						Spec: corev1.ServiceSpec{
+							Type:                     "LoadBalancer",
+							PublishNotReadyAddresses: true,
+							Ports: []corev1.ServicePort{
+								{
+									Name: "mongodb",
+									Port: 27017,
+								},
+							},
+							Selector: map[string]string{
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-mongos-0-0",
+							},
+						},
+					},
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:            "test-om-db-mongos-0-1-svc-external",
+							Namespace:       "my-namespace",
+							ResourceVersion: "1",
+							Labels: map[string]string{
+								util.OperatorLabelName:         util.OperatorName,
+								mdbv1.LabelResourceOwner:       "test-om-db",
+								appsv1.StatefulSetPodNameLabel: "test-om-db-mongos-0-1",
+							},
+							Annotations: map[string]string{
+								"test-annotation":                     "test-placeholder-1",
+								create.PlaceholderPodIndex:            "1",
+								create.PlaceholderNamespace:           "my-namespace",
+								create.PlaceholderResourceName:        "test-om-db",
+								create.PlaceholderStatefulSetName:     "test-om-db-mongos-0",
+								create.PlaceholderPodName:             "test-om-db-mongos-0-1",
+								create.PlaceholderExternalServiceName: "test-om-db-mongos-0-1-svc-external",
+								create.PlaceholderMongodProcessDomain: "custom.mongos.domain",
+								create.PlaceholderMongodProcessFQDN:   "test-om-db-mongos-0-1.custom.mongos.domain",
+								create.PlaceholderClusterName:         memberClusterName1,
+								create.PlaceholderClusterIndex:        "0",
+							},
+						},
+						Spec: corev1.ServiceSpec{
+							Type:                     "LoadBalancer",
+							PublishNotReadyAddresses: true,
+							Ports: []corev1.ServicePort{
+								{
+									Name: "mongodb",
+									Port: 27017,
+								},
+							},
+							Selector: map[string]string{
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-mongos-0-1",
+							},
+						},
+					},
+				},
+				memberClusterName2: {
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:            "test-om-db-0-1-0-svc-external",
+							Namespace:       "my-namespace",
+							ResourceVersion: "1",
+							Labels: map[string]string{
+								util.OperatorLabelName:         util.OperatorName,
+								mdbv1.LabelResourceOwner:       "test-om-db",
+								appsv1.StatefulSetPodNameLabel: "test-om-db-0-1-0",
+							},
+							Annotations: map[string]string{
+								"test-annotation":                     "test-placeholder-0",
+								create.PlaceholderPodIndex:            "0",
+								create.PlaceholderNamespace:           "my-namespace",
+								create.PlaceholderResourceName:        "test-om-db",
+								create.PlaceholderStatefulSetName:     "test-om-db-0-1",
+								create.PlaceholderPodName:             "test-om-db-0-1-0",
+								create.PlaceholderExternalServiceName: "test-om-db-0-1-0-svc-external",
+								create.PlaceholderMongodProcessDomain: "custom.domain",
+								create.PlaceholderMongodProcessFQDN:   "test-om-db-0-1-0.custom.domain",
+								create.PlaceholderClusterName:         memberClusterName2,
+								create.PlaceholderClusterIndex:        "1",
+							},
+						},
+						Spec: corev1.ServiceSpec{
+							Type:                     "LoadBalancer",
+							PublishNotReadyAddresses: true,
+							Ports: []corev1.ServicePort{
+								{
+									Name: "mongodb",
+									Port: 27017,
+								},
+							},
+							Selector: map[string]string{
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-0-1-0",
+							},
+						},
+					},
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:            "test-om-db-0-1-1-svc-external",
+							Namespace:       "my-namespace",
+							ResourceVersion: "1",
+							Labels: map[string]string{
+								util.OperatorLabelName:         util.OperatorName,
+								mdbv1.LabelResourceOwner:       "test-om-db",
+								appsv1.StatefulSetPodNameLabel: "test-om-db-0-1-1",
+							},
+							Annotations: map[string]string{
+								"test-annotation":                     "test-placeholder-1",
+								create.PlaceholderPodIndex:            "1",
+								create.PlaceholderNamespace:           "my-namespace",
+								create.PlaceholderResourceName:        "test-om-db",
+								create.PlaceholderStatefulSetName:     "test-om-db-0-1",
+								create.PlaceholderPodName:             "test-om-db-0-1-1",
+								create.PlaceholderExternalServiceName: "test-om-db-0-1-1-svc-external",
+								create.PlaceholderMongodProcessDomain: "custom.domain",
+								create.PlaceholderMongodProcessFQDN:   "test-om-db-0-1-1.custom.domain",
+								create.PlaceholderClusterName:         memberClusterName2,
+								create.PlaceholderClusterIndex:        "1",
+							},
+						},
+						Spec: corev1.ServiceSpec{
+							Type:                     "LoadBalancer",
+							PublishNotReadyAddresses: true,
+							Ports: []corev1.ServicePort{
+								{
+									Name: "mongodb",
+									Port: 27017,
+								},
+							},
+							Selector: map[string]string{
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-0-1-1",
+							},
+						},
+					},
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:            "test-om-db-1-1-0-svc-external",
+							Namespace:       "my-namespace",
+							ResourceVersion: "1",
+							Labels: map[string]string{
+								util.OperatorLabelName:         util.OperatorName,
+								mdbv1.LabelResourceOwner:       "test-om-db",
+								appsv1.StatefulSetPodNameLabel: "test-om-db-1-1-0",
+							},
+							Annotations: map[string]string{
+								"test-annotation":                     "test-placeholder-0",
+								create.PlaceholderPodIndex:            "0",
+								create.PlaceholderNamespace:           "my-namespace",
+								create.PlaceholderResourceName:        "test-om-db",
+								create.PlaceholderStatefulSetName:     "test-om-db-1-1",
+								create.PlaceholderPodName:             "test-om-db-1-1-0",
+								create.PlaceholderExternalServiceName: "test-om-db-1-1-0-svc-external",
+								create.PlaceholderMongodProcessDomain: "custom.domain",
+								create.PlaceholderMongodProcessFQDN:   "test-om-db-1-1-0.custom.domain",
+								create.PlaceholderClusterName:         memberClusterName2,
+								create.PlaceholderClusterIndex:        "1",
+							},
+						},
+						Spec: corev1.ServiceSpec{
+							Type:                     "LoadBalancer",
+							PublishNotReadyAddresses: true,
+							Ports: []corev1.ServicePort{
+								{
+									Name: "mongodb",
+									Port: 27017,
+								},
+							},
+							Selector: map[string]string{
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-1-1-0",
+							},
+						},
+					},
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:            "test-om-db-1-1-1-svc-external",
+							Namespace:       "my-namespace",
+							ResourceVersion: "1",
+							Labels: map[string]string{
+								util.OperatorLabelName:         util.OperatorName,
+								mdbv1.LabelResourceOwner:       "test-om-db",
+								appsv1.StatefulSetPodNameLabel: "test-om-db-1-1-1",
+							},
+							Annotations: map[string]string{
+								"test-annotation":                     "test-placeholder-1",
+								create.PlaceholderPodIndex:            "1",
+								create.PlaceholderNamespace:           "my-namespace",
+								create.PlaceholderResourceName:        "test-om-db",
+								create.PlaceholderStatefulSetName:     "test-om-db-1-1",
+								create.PlaceholderPodName:             "test-om-db-1-1-1",
+								create.PlaceholderExternalServiceName: "test-om-db-1-1-1-svc-external",
+								create.PlaceholderMongodProcessDomain: "custom.domain",
+								create.PlaceholderMongodProcessFQDN:   "test-om-db-1-1-1.custom.domain",
+								create.PlaceholderClusterName:         memberClusterName2,
+								create.PlaceholderClusterIndex:        "1",
+							},
+						},
+						Spec: corev1.ServiceSpec{
+							Type:                     "LoadBalancer",
+							PublishNotReadyAddresses: true,
+							Ports: []corev1.ServicePort{
+								{
+									Name: "mongodb",
+									Port: 27017,
+								},
+							},
+							Selector: map[string]string{
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-1-1-1",
+							},
+						},
+					},
+				},
+				memberClusterName3: {
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:            "test-om-db-config-2-0-svc-external",
+							Namespace:       "my-namespace",
+							ResourceVersion: "1",
+							Labels: map[string]string{
+								util.OperatorLabelName:         util.OperatorName,
+								mdbv1.LabelResourceOwner:       "test-om-db",
+								appsv1.StatefulSetPodNameLabel: "test-om-db-config-2-0",
+							},
+							Annotations: map[string]string{
+								"test-annotation":                     "test-placeholder-0",
+								create.PlaceholderPodIndex:            "0",
+								create.PlaceholderNamespace:           "my-namespace",
+								create.PlaceholderResourceName:        "test-om-db",
+								create.PlaceholderStatefulSetName:     "test-om-db-config-2",
+								create.PlaceholderPodName:             "test-om-db-config-2-0",
+								create.PlaceholderExternalServiceName: "test-om-db-config-2-0-svc-external",
+								create.PlaceholderMongodProcessDomain: "custom.config.domain",
+								create.PlaceholderMongodProcessFQDN:   "test-om-db-config-2-0.custom.config.domain",
+								create.PlaceholderClusterName:         memberClusterName3,
+								create.PlaceholderClusterIndex:        "2",
+							},
+						},
+						Spec: corev1.ServiceSpec{
+							Type:                     "LoadBalancer",
+							PublishNotReadyAddresses: true,
+							Ports: []corev1.ServicePort{
+								{
+									Name: "mongodb",
+									Port: 27017,
+								},
+							},
+							Selector: map[string]string{
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-config-2-0",
+							},
+						},
+					},
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:            "test-om-db-config-2-1-svc-external",
+							Namespace:       "my-namespace",
+							ResourceVersion: "1",
+							Labels: map[string]string{
+								util.OperatorLabelName:         util.OperatorName,
+								mdbv1.LabelResourceOwner:       "test-om-db",
+								appsv1.StatefulSetPodNameLabel: "test-om-db-config-2-1",
+							},
+							Annotations: map[string]string{
+								"test-annotation":                     "test-placeholder-1",
+								create.PlaceholderPodIndex:            "1",
+								create.PlaceholderNamespace:           "my-namespace",
+								create.PlaceholderResourceName:        "test-om-db",
+								create.PlaceholderStatefulSetName:     "test-om-db-config-2",
+								create.PlaceholderPodName:             "test-om-db-config-2-1",
+								create.PlaceholderExternalServiceName: "test-om-db-config-2-1-svc-external",
+								create.PlaceholderMongodProcessDomain: "custom.config.domain",
+								create.PlaceholderMongodProcessFQDN:   "test-om-db-config-2-1.custom.config.domain",
+								create.PlaceholderClusterName:         memberClusterName3,
+								create.PlaceholderClusterIndex:        "2",
+							},
+						},
+						Spec: corev1.ServiceSpec{
+							Type:                     "LoadBalancer",
+							PublishNotReadyAddresses: true,
+							Ports: []corev1.ServicePort{
+								{
+									Name: "mongodb",
+									Port: 27017,
+								},
+							},
+							Selector: map[string]string{
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-config-2-1",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			sc := test.DefaultClusterBuilder().
+				SetName("test-om-db").
+				SetTopology(mdbv1.ClusterTopologyMultiCluster).
+				SetShardCountSpec(tc.shardCount).
+				SetMongodsPerShardCountSpec(0).
+				SetConfigServerCountSpec(0).
+				SetMongosCountSpec(0).
+				SetMongosClusterSpec(tc.mongosClusterSpecList).
+				SetConfigSrvClusterSpec(tc.configSrvClusterSpecList).
+				SetShardClusterSpec(tc.shardsClusterSpecList).
+				Build()
+
+			kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(sc)
+			memberClusterMap := getFakeMultiClusterMapWithClusters(memberClusters, omConnectionFactory)
+			reconciler, reconcileHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
+			require.NoError(t, err)
+
+			mongosDistribution := clusterSpecListToDistribution(tc.mongosClusterSpecList)
+			configSrvDistribution := clusterSpecListToDistribution(tc.configSrvClusterSpecList)
+			shardDistribution := make([]map[string]int, tc.shardCount)
+			for shardIdx := range tc.shardCount {
+				shardDistribution[shardIdx] = clusterSpecListToDistribution(tc.shardsClusterSpecList)
+			}
+
+			clusterMapping := reconcileHelper.deploymentState.ClusterMapping
+			omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+				externalDomains := test.NoneExternalClusterDomains
+				if tc.externalDomains != nil {
+					externalDomains.MongosExternalDomain = tc.externalDomains.MongosExternalDomain
+					externalDomains.ConfigServerExternalDomain = tc.externalDomains.ConfigServerExternalDomain
+					externalDomains.ShardsExternalDomain = tc.externalDomains.ShardsExternalDomain
+					externalDomains.SingleClusterDomain = tc.externalDomains.SingleClusterDomain
+				}
+
+				allHostnames, _ := generateAllHosts(sc, mongosDistribution, clusterMapping, configSrvDistribution, shardDistribution, test.ClusterLocalDomains, externalDomains)
+				connection.(*om.MockedOmConnection).AddHosts(allHostnames)
+			})
+
+			var memberClusterClients []client.Client
+			for _, c := range memberClusterMap {
+				memberClusterClients = append(memberClusterClients, c)
+			}
+
+			reconcileUntilSuccessful(ctx, t, reconciler, sc, kubeClient, memberClusterClients, nil, false)
+
+			for clusterName, c := range memberClusterMap {
+				for _, expectedService := range tc.expectedServices[clusterName] {
+					serviceList := corev1.ServiceList{}
+					err := c.List(ctx, &serviceList)
+					require.NoError(t, err)
+
+					service := corev1.Service{}
+					objectKey := client.ObjectKeyFromObject(&expectedService)
+					err = c.Get(ctx, objectKey, &service)
+					require.NoError(t, err)
+
+					assert.Equal(t, expectedService, service, fmt.Sprintf("expected service %s for cluster %s is different", objectKey, clusterName))
+				}
+			}
+		})
+	}
+}
+
+func clusterSpecListToDistribution(clusterSpecList mdbv1.ClusterSpecList) map[string]int {
+	distribution := make(map[string]int)
+
+	if len(clusterSpecList) == 0 {
+		return distribution
+	}
+
+	for _, clusterSpecItem := range clusterSpecList {
+		distribution[clusterSpecItem.ClusterName] = clusterSpecItem.Members
+	}
+
+	return distribution
 }
 
 func sumSlice[T constraints.Integer](s []T) int {

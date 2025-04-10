@@ -310,8 +310,9 @@ func (r *ShardedClusterReconcileHelper) getMongosClusterSpecList() mdbv1.Cluster
 	} else {
 		return mdbv1.ClusterSpecList{
 			{
-				ClusterName: multicluster.LegacyCentralClusterName,
-				Members:     spec.MongosCount,
+				ClusterName:                 multicluster.LegacyCentralClusterName,
+				Members:                     spec.MongosCount,
+				ExternalAccessConfiguration: spec.ExternalAccessConfiguration,
 			},
 		}
 	}
@@ -2565,7 +2566,7 @@ func (r *ShardedClusterReconcileHelper) reconcileConfigServerServices(ctx contex
 				podNum,
 				portOrDefault)
 			if err != nil {
-				return xerrors.Errorf("failed to create an external service %s in cluster: %s, err: %w", dns.GetMultiExternalServiceName(r.sc.ConfigSrvServiceName(), memberCluster.Index, podNum), memberCluster.Name, err)
+				return xerrors.Errorf("failed to build an external service %s in cluster: %s, err: %w", dns.GetMultiExternalServiceName(r.sc.ConfigSrvServiceName(), memberCluster.Index, podNum), memberCluster.Name, err)
 			}
 			if err = mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
@@ -2606,7 +2607,7 @@ func (r *ShardedClusterReconcileHelper) reconcileShardServices(ctx context.Conte
 				podNum,
 				portOrDefault)
 			if err != nil {
-				return xerrors.Errorf("failed to create an external service %s in cluster: %s, err: %w", dns.GetMultiExternalServiceName(r.sc.ShardRsName(shardIdx), memberCluster.Index, podNum), memberCluster.Name, err)
+				return xerrors.Errorf("failed to build an external service %s in cluster: %s, err: %w", dns.GetMultiExternalServiceName(r.sc.ShardRsName(shardIdx), memberCluster.Index, podNum), memberCluster.Name, err)
 			}
 			if err = mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
@@ -2647,7 +2648,7 @@ func (r *ShardedClusterReconcileHelper) reconcileMongosServices(ctx context.Cont
 				podNum,
 				portOrDefault)
 			if err != nil {
-				return xerrors.Errorf("failed to create an external service %s in cluster: %s, err: %w", dns.GetMultiExternalServiceName(r.sc.MongosRsName(), memberCluster.Index, podNum), memberCluster.Name, err)
+				return xerrors.Errorf("failed to build an external service %s in cluster: %s, err: %w", dns.GetMultiExternalServiceName(r.sc.MongosRsName(), memberCluster.Index, podNum), memberCluster.Name, err)
 			}
 			if err = mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
@@ -2672,11 +2673,15 @@ func (r *ShardedClusterReconcileHelper) reconcileMongosServices(ctx context.Cont
 }
 
 func (r *ShardedClusterReconcileHelper) createHeadlessServiceForStatefulSet(ctx context.Context, stsName string, port int32, memberCluster multicluster.MemberCluster) error {
+	// If the cluster is legacy (single cluster), we don't create headless services
+	if memberCluster.Legacy {
+		return nil
+	}
+
 	headlessServiceName := dns.GetMultiHeadlessServiceName(stsName, memberCluster.Index)
 	nameSpacedName := kube.ObjectKey(r.sc.Namespace, headlessServiceName)
 	headlessService := create.BuildService(nameSpacedName, r.sc, ptr.To(headlessServiceName), nil, port, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
-	err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, headlessService)
-	if err != nil && !errors.IsAlreadyExists(err) {
+	if err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, headlessService); err != nil && !errors.IsAlreadyExists(err) {
 		return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", headlessService.Name, memberCluster.Name, err)
 	}
 	return nil
@@ -2686,6 +2691,10 @@ func (r *ShardedClusterReconcileHelper) getPodExternalService(memberCluster mult
 	svc := r.getPodService(statefulSetName, memberCluster, podNum, port)
 	svc.Name = dns.GetMultiExternalServiceName(statefulSetName, memberCluster.Index, podNum)
 	svc.Spec.Type = corev1.ServiceTypeLoadBalancer
+
+	if externalAccessConfiguration.ExternalService.SpecWrapper != nil {
+		svc.Spec = merge.ServiceSpec(svc.Spec, externalAccessConfiguration.ExternalService.SpecWrapper.Spec)
+	}
 
 	if externalAccessConfiguration.ExternalService.Annotations != nil {
 		svc.Annotations = merge.StringToStringMap(svc.Annotations, externalAccessConfiguration.ExternalService.Annotations)
