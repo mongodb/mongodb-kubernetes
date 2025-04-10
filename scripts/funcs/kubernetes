@@ -1,0 +1,194 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+pushd "${PWD}" > /dev/null || return
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+cd "${DIR}" || return
+# shellcheck source=scripts/funcs/checks
+source checks
+# shellcheck source=scripts/funcs/errors
+source errors
+# shellcheck source=scripts/funcs/printing
+source printing
+popd > /dev/null || return
+
+ensure_namespace() {
+    local namespace="${1}"
+    local tmp_file
+    tmp_file=$(mktemp)
+    cat <<EOF > "${tmp_file}"
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${namespace}
+  labels:
+    evg: task
+  annotations:
+    evg/version: "https://evergreen.mongodb.com/version/${version_id:-'not-specified'}"
+    evg/task-name: ${TASK_NAME:-'not-specified'}
+    evg/task: "https://evergreen.mongodb.com/task/${task_id:-'not-specified'}"
+    evg/mms-version: "${ops_manager_version:-'not-specified'}"
+EOF
+
+    if kubectl get "ns/${namespace}" -o name &> /dev/null; then
+        echo "Namespace ${namespace} already exists!"
+    else
+        echo "Creating new namespace: ${namespace}"
+        cat "${tmp_file}"
+        kubectl create -f "${tmp_file}"
+    fi
+}
+
+delete_operator() {
+    local ns="$1"
+    local name=${OPERATOR_NAME:=mongodb-enterprise-operator}
+
+    title "Removing the Operator deployment ${name}"
+    ! kubectl --namespace "${ns}" get deployments | grep -q "${name}" \
+        || kubectl delete deployment "${name}" -n "${ns}" || true
+}
+
+# wait_for_operator waits for the Operator to start
+wait_for_operator_start() {
+    local ns="$1"
+    local timeout="${2:-2m}"
+    echo "Waiting until the Operator gets to Running state..."
+    export OPERATOR_NAME
+
+    local cmd
+
+    # Waiting until there is only one pod left as this could be the upgrade operation (very fast in practice)
+    # shellcheck disable=SC2016
+    cmd='while [[ $(kubectl -n '"${ns}"' get pods -l app.kubernetes.io/name=${OPERATOR_NAME}  --no-headers 2>/dev/null | wc -l) -gt 1 ]] ; do printf .; sleep 1; done'
+    timeout --foreground "1m" bash -c "${cmd}" || true
+
+    cmd="while ! kubectl -n ${ns} get pods -l app.kubernetes.io/name=${OPERATOR_NAME} -o jsonpath={.items[0].status.phase} 2>/dev/null | grep -q Running ; do printf .; sleep 1; done"
+    timeout --foreground "${timeout}" bash -c "${cmd}" || true
+
+    # In the end let's check again and print the state
+    if ! kubectl -n "${ns}" get pods -l "app.kubernetes.io/name=${OPERATOR_NAME}" -o jsonpath="{.items[0].status.phase}" | grep -q "Running"; then
+        error "Operator hasn't reached RUNNING state after ${timeout}. The full yaml configuration for the pod is:"
+        kubectl -n "${ns}" get pods -l "app.kubernetes.io/name=${OPERATOR_NAME}" -o yaml
+
+        title "Operator failed to start, exiting"
+        return 1
+    fi
+    echo ""
+
+    title "The Operator successfully installed to the Kubernetes cluster"
+}
+
+# recreates docker credentials secret in the cluster
+create_image_registries_secret() {
+  echo "Started creating image-registries-secret in cluster(s)"
+
+  if ! kubectl cluster-info > /dev/null 2>&1; then
+    echo -e "\033[31mCannot get cluster info - does the cluster exist and is reachable?"
+    exit 0
+  fi
+
+  secret_name="image-registries-secret"
+
+  if [[ "${NAMESPACE:-""}" == "" ]]; then
+    echo -e "\033[31mNAMESPACE env var is not set, skipping creating image-registries-secret"
+    exit 0
+  fi
+
+  if which kubectl > /dev/null; then
+      echo "Kubectl command is there, proceeding..."
+  else
+      echo -e "\033[31mKubectl doesn't exist, skipping setting the context"
+      exit 0
+  fi
+
+  create_pull_secret() {
+    context=$1
+    namespace=$2
+    secret_name=$3
+    # shellcheck disable=SC2154
+    if kubectl --context "${context}" get namespace "${namespace}"; then
+      kubectl --context "${context}" -n "${namespace}" delete secret "${secret_name}" --ignore-not-found
+      echo "${context}: Creating ${namespace}/${secret_name} pull secret"
+      kubectl --context "${context}" -n "${namespace}" create secret generic "${secret_name}" \
+        --from-file=.dockerconfigjson="${HOME}/.docker/config.json" --type=kubernetes.io/dockerconfigjson
+    else
+      echo "Skipping creating pull secret in ${context}/${namespace}. The namespace doesn't exist yet."
+    fi
+  }
+
+  echo "Creating/updating pull secret from docker configured file"
+  if [[ "${KUBE_ENVIRONMENT_NAME:-}" == "multi" ]]; then
+      create_pull_secret "${CENTRAL_CLUSTER}" "${NAMESPACE}" "${secret_name}" &
+      for member_cluster in ${MEMBER_CLUSTERS}; do
+        for ns in ${WATCH_NAMESPACE//,/ }; do
+          create_pull_secret "${member_cluster}" "${ns}" "${secret_name}" &
+        done
+      done
+      wait
+  else
+    current_ctx=$(kubectl config current-context)
+    create_pull_secret "${current_ctx}" "${NAMESPACE}" "${secret_name}" &
+    for ns in ${WATCH_NAMESPACE//,/ }; do
+      create_pull_secret "${current_ctx}" "${ns}" "${secret_name}" &
+    done
+  fi
+}
+
+reset_namespace() {
+  context=$1
+  namespace=$2
+  if [[ "${context}" == "" ]]; then
+    echo "context cannot be empty"
+    exit 1
+  fi
+
+  set +e
+
+  helm uninstall --kube-context="${context}" mongodb-enterprise-operator || true &
+  helm uninstall --kube-context="${context}" mongodb-enterprise-operator-multi-cluster || true &
+
+  # Cleans the namespace. Note, that fine-grained cleanup is performed instead of just deleting the namespace as it takes
+  # considerably less time
+  title "Cleaning Kubernetes resources in context: ${context}"
+
+  ensure_namespace "${namespace}"
+
+  kubectl delete --context "${context}" mdb --all -n "${namespace}" || true
+  kubectl delete --context "${context}" mdbu --all -n "${namespace}" || true
+  kubectl delete --context "${context}" mdbmc --all -n "${namespace}" || true
+  kubectl delete --context "${context}" om --all -n "${namespace}" || true
+
+  # Openshift variant runs all tests sequentially. In order to avoid clashes between tests, we need to wait till
+  # the namespace is gone. This trigger OpenShift Project deletion, which is a "Namespace on Steroids" and it takes
+  # a while to delete it.
+  should_wait="false"
+  # shellcheck disable=SC2153
+  if [[ ${CURRENT_VARIANT_CONTEXT} == e2e_mdb_openshift_ubi_cloudqa || ${CURRENT_VARIANT_CONTEXT} == e2e_openshift_static_mdb_ubi_cloudqa ]]; then
+    should_wait="true"
+    echo "Removing the test namespace ${namespace}, should_wait=${should_wait}"
+    kubectl --context "${context}" delete "namespace/${namespace}" --wait="${should_wait}" || true
+  fi
+
+  echo "Removing CSRs"
+  kubectl --context "${context}" delete "$(kubectl get csr -o name | grep "${NAMESPACE}")" &> /dev/null || true
+}
+
+delete_kind_network() {
+  if ! docker network ls | grep -q "kind"; then
+     echo "Docker network 'kind' does not exist."
+     return 0
+  fi
+  echo "Docker network 'kind' exists."
+
+  # Stop all containers in the "kind" network
+  containers=$(docker network inspect -f '{{range .Containers}}{{.Name}} {{end}}' kind)
+  if [[ -n "${containers}" ]]; then
+      echo "Stopping containers ${containers} using kind network..."
+      # shellcheck disable=SC2086
+      docker stop ${containers}
+      docker container prune -f
+  fi
+
+  docker network rm kind
+}

@@ -1,0 +1,30 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBOpsManager
+metadata:
+  name: om-validate
+spec:
+  replicas: 1
+  version: 5.0.0
+  adminCredentials: ops-manager-admin-secret
+
+  backup:
+    enabled: false
+
+  applicationDatabase:
+    members: 3
+    version: 4.4.20-ent
+
+  statefulSet:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: mongodb-ops-manager
+              resources:
+                limits:
+                  memory: 15G
+
+  configuration:
+    mms.limits.maxGroupsPerOrg: "5000"
+    mms.limits.maxGroupsPerUser: "5000"
+    mms.limits.maxOrgsPerUser: "5000"

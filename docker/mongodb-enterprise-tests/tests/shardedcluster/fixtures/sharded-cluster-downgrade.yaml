@@ -1,0 +1,17 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: sh001-downgrade
+spec:
+  type: ShardedCluster
+  shardCount: 3
+  mongodsPerShardCount: 3
+  mongosCount: 3
+  configServerCount: 3
+  version: 4.4.2
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+
+  persistent: true

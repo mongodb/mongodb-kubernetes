@@ -1,0 +1,27 @@
+{
+  "name": "6.6.2.466-1",
+  "logPath": "/var/log/mongodb-mms-automation/monitoring-agent.log",
+  "logPathWindows": "%SystemDrive%\\MMSAutomation\\log\\mongodb-mms-automation\\monitoring-agent.log",
+  "logRotate": {
+    "sizeThresholdMB": 1000,
+    "timeThresholdHrs": 24
+  },
+  "urls": {
+    "linux": {
+      "default": "http://ec2-54-196-186-93.compute-1.amazonaws.com:9080/download/agent/monitoring/mongodb-mms-monitoring-agent-6.6.2.466-1.linux_x86_64.tar.gz",
+      "ppc64le_rhel7": "http://ec2-54-196-186-93.compute-1.amazonaws.com:9080/download/agent/monitoring/mongodb-mms-monitoring-agent-6.6.2.466-1.rhel7_ppc64le.tar.gz",
+      "ppc64le_ubuntu1604": "http://ec2-54-196-186-93.compute-1.amazonaws.com:9080/download/agent/monitoring/mongodb-mms-monitoring-agent-6.6.2.466-1.ubuntu1604_ppc64le.tar.gz",
+      "rhel7": "http://ec2-54-196-186-93.compute-1.amazonaws.com:9080/download/agent/monitoring/mongodb-mms-monitoring-agent-6.6.2.466-1.rhel7_x86_64.tar.gz",
+      "s390x_rhel6": "http://ec2-54-196-186-93.compute-1.amazonaws.com:9080/download/agent/monitoring/mongodb-mms-monitoring-agent-6.6.2.466-1.rhel6_s390x.tar.gz",
+      "s390x_rhel7": "http://ec2-54-196-186-93.compute-1.amazonaws.com:9080/download/agent/monitoring/mongodb-mms-monitoring-agent-6.6.2.466-1.rhel7_s390x.tar.gz",
+      "s390x_suse12": "http://ec2-54-196-186-93.compute-1.amazonaws.com:9080/download/agent/monitoring/mongodb-mms-monitoring-agent-6.6.2.466-1.suse12_s390x.tar.gz",
+      "s390x_ubuntu1804": "http://ec2-54-196-186-93.compute-1.amazonaws.com:9080/download/agent/monitoring/mongodb-mms-monitoring-agent-6.6.2.466-1.ubuntu1804_s390x.tar.gz"
+    },
+    "osx": {
+      "default": "http://ec2-54-196-186-93.compute-1.amazonaws.com:9080/download/agent/monitoring/mongodb-mms-monitoring-agent-6.6.2.466-1.osx_x86_64.tar.gz"
+    },
+    "windows": {
+      "default": "http://ec2-54-196-186-93.compute-1.amazonaws.com:9080/download/agent/monitoring/mongodb-mms-monitoring-agent-6.6.2.466-1.windows_x86_64.msi"
+    }
+  }
+}

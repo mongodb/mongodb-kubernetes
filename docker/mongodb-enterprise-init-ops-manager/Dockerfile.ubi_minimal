@@ -1,0 +1,8 @@
+{% extends "Dockerfile.template" %}
+
+{% set base_image = "registry.access.redhat.com/ubi9/ubi-minimal" %}
+
+{% block packages %}
+RUN microdnf -y update --nodocs \
+    && microdnf clean all
+{% endblock %}

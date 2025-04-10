@@ -1,0 +1,16 @@
+# This is the simplest replica set possible (1 member only) - use it for the tests not focused on replica set
+# behaviour (e.g. listening to configmaps changes), this will result in minimal running time and lowest resource
+# consumption
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: my-replica-set-single
+spec:
+  members: 1
+  version: 6.0.5
+  type: ReplicaSet
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  persistent: false

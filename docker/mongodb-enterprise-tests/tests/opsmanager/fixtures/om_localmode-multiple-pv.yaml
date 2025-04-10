@@ -1,0 +1,38 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBOpsManager
+metadata:
+  name: om-localmode-multiple-pv
+spec:
+  replicas: 2
+  version: 4.2.12
+  adminCredentials: ops-manager-admin-secret
+  configuration:
+    automation.versions.source: local
+
+  statefulSet:
+    spec:
+      volumeClaimTemplates:
+        - metadata:
+            name: mongodb-versions
+          spec:
+            accessModes: [ "ReadWriteOnce" ]
+            resources:
+              requests:
+                storage: 20G
+      template:
+        spec:
+          containers:
+            - name: mongodb-ops-manager
+              volumeMounts:
+                - name: mongodb-versions
+                  mountPath: /mongodb-ops-manager/mongodb-releases
+
+
+  backup:
+    enabled: false
+
+  applicationDatabase:
+    version: "4.4.20-ent"
+    members: 3
+
+

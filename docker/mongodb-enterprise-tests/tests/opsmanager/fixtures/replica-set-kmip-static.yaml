@@ -1,0 +1,54 @@
+---
+# This fixture contains KMIP OpsManager settings delivered via https://jira.mongodb.org/browse/CLOUDP-135429
+# and cluster encryption settings described in https://kb.corp.mongodb.com/article/000020599/
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: mdb-latest
+spec:
+  members: 3
+  version: 4.4.11
+  type: ReplicaSet
+  opsManager:
+    configMapRef:
+      name: om-rs-configmap
+  credentials: my-credentials
+  persistent: false
+  logLevel: DEBUG
+  backup:
+    encryption:
+      kmip:
+        client:
+          clientCertificatePrefix: "test-prefix"
+  additionalMongodConfig:
+    systemLog:
+      component:
+        network:
+          verbosity: 5
+    security:
+      enableEncryption: true
+      kmip:
+        clientCertificateFile: "/kmip/cert/tls.crt"
+        serverCAFile: "/kmip/ca/ca.pem"
+        serverName: kmip-svc
+        port: 5696
+  podSpec:
+    podTemplate:
+      spec:
+        containers:
+          - name: mongodb-agent
+            volumeMounts:
+              - name: mongodb-kmip-client-pem
+                mountPath: /kmip/cert
+              - name: mongodb-kmip-certificate-authority-pem
+                mountPath: /kmip/ca
+        volumes:
+          - name: mongodb-kmip-client-pem
+            secret:
+              secretName: test-prefix-mdb-latest-kmip-client
+          - name: mongodb-kmip-certificate-authority-pem
+            configMap:
+              name: issuer-ca
+              items:
+                - key: ca-pem
+                  path: ca.pem

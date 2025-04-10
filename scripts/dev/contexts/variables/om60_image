@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+script_name=$(readlink -f "${BASH_SOURCE[0]}")
+script_dir=$(dirname "${script_name}")
+
+om_version=$(grep -E "^\s*-\s*&ops_manager_60_latest\s+(\S+)\s+#" < "${script_dir}"/../../../../.evergreen.yml | awk '{print $3}')
+export om_version

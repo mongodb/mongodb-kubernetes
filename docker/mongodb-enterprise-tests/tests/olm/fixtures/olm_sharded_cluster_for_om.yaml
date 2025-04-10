@@ -1,0 +1,18 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: the-sharded-cluster
+spec:
+  shardCount: 2
+  mongodsPerShardCount: 3
+  mongosCount: 2
+  configServerCount: 2
+  type: ShardedCluster
+  opsManager:
+    configMapRef:
+      name: om-sc-configmap
+  credentials: my-credentials
+  persistent: true
+  logLevel: DEBUG
+

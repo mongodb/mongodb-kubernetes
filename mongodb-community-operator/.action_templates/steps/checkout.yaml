@@ -1,0 +1,4 @@
+- name: Checkout Code
+  uses: actions/checkout@v4
+  with:
+    submodules: true

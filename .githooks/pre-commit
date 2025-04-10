@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+source scripts/dev/set_env_context.sh
+if [ -f "${PROJECT_DIR}"/venv/bin/activate ]; then
+  source "${PROJECT_DIR}"/venv/bin/activate
+fi
+
+if [[ -z "${EVERGREEN_MODE:-}" ]]; then
+  # According to the latest SSDLC recommendations, the CI needs to always check all the files. Not just delta.
+  git_last_changed=$(git ls-tree -r origin/master --name-only)
+else
+  git_last_changed=$(git diff --cached --name-only --diff-filter=ACM origin/master)
+fi
+
+mkdir -p "$(go env GOPATH)/bin"
+
+# Generates a yaml file to install the operator from the helm sources.
+function generate_standalone_yaml() {
+  HELM_OPTS=$@
+
+  charttmpdir=$(mktemp -d 2>/dev/null || mktemp -d -t 'charttmpdir')
+  charttmpdir=${charttmpdir}/chart
+  mkdir -p "${charttmpdir}"
+
+  FILES=(
+    "${charttmpdir}/enterprise-operator/templates/operator-roles.yaml"
+    "${charttmpdir}/enterprise-operator/templates/database-roles.yaml"
+    "${charttmpdir}/enterprise-operator/templates/operator-sa.yaml"
+    "${charttmpdir}/enterprise-operator/templates/operator.yaml"
+  )
+
+  # generate normal public example
+  helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" ${HELM_OPTS[@]}
+  cat "${FILES[@]}" >public/mongodb-enterprise.yaml
+  cat "helm_chart/crds/"* >public/crds.yaml
+
+  # generate openshift public example
+  rm -rf "${charttmpdir:?}/*"
+  helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" --values helm_chart/values-openshift.yaml ${HELM_OPTS[@]}
+  cat "${FILES[@]}" >public/mongodb-enterprise-openshift.yaml
+
+  # generate openshift files for kustomize used for generating OLM bundle
+  rm -rf "${charttmpdir:?}/*"
+  helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" --values helm_chart/values-openshift.yaml \
+    --set operator.webhook.registerConfiguration=false --set operator.webhook.installClusterRole=false ${HELM_OPTS[@]}
+
+  # update kustomize files for OLM bundle with files generated for openshift
+  cp "${charttmpdir}/enterprise-operator/templates/operator.yaml" config/manager/manager.yaml
+  cp "${charttmpdir}/enterprise-operator/templates/database-roles.yaml" config/rbac/database-roles.yaml
+  cp "${charttmpdir}/enterprise-operator/templates/operator-roles.yaml" config/rbac/operator-roles.yaml
+
+  # generate multi-cluster public example
+  rm -rf "${charttmpdir:?}/*"
+  helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" --values helm_chart/values-multi-cluster.yaml ${HELM_OPTS[@]}
+  cat "${FILES[@]}" >public/mongodb-enterprise-multi-cluster.yaml
+
+}
+
+function python_formatting() {
+  # installing Black
+  if ! command -v "black" >/dev/null; then
+    pip install -r requirements.txt
+  fi
+
+  echo "formatting isort"
+  isort .
+  echo "formatting black"
+  black .
+}
+
+function generate_manifests() {
+  make manifests
+
+  git add config/crd/bases
+  git add helm_chart/crds
+  git add public/crds.yaml
+}
+
+function update_values_yaml_files() {
+  # ensure that all helm values files are up to date.
+  # shellcheck disable=SC2154
+  python scripts/evergreen/release/update_helm_values_files.py
+
+  # commit any changes we made
+  git add helm_chart/values.yaml
+  git add helm_chart/values-openshift.yaml
+
+  # these can change if the version of community operator is different
+  git add go.mod
+  git add go.sum
+}
+
+function update_release_json() {
+  # ensure that release.json is up 2 date
+  # shellcheck disable=SC2154
+  python scripts/evergreen/release/update_release.py
+
+  # commit any changes we made
+  git add release.json
+}
+
+function pre_commit() {
+  # Update release.json first in case there is a newer version
+  update_release_json
+  # Generate operator manifests (CRDs, etc)
+  generate_manifests
+  # We need to generate the values files first
+  update_values_yaml_files
+  # The values files are used for generating the standalone yaml
+  generate_standalone_yaml
+  # Run black on python files that have changed
+  python_formatting
+
+  source scripts/evergreen/lint_code.sh
+
+  echo 'regenerating licenses.csv'
+  scripts/evergreen/update_licenses.sh
+  git add licenses.csv
+
+  if echo "$git_last_changed" | grep -q 'public/tools/multicluster'; then
+    echo 'regenerating multicluster RBAC public example'
+    pushd public/tools/multicluster
+    EXPORT_RBAC_SAMPLES="true" go test -run TestPrintingOutRolesServiceAccountsAndRoleBindings
+    popd
+    git add public/samples/multi-cluster-cli-gitops
+  fi
+
+  if find . -name "Makefile" | grep -v vendor | xargs grep "\${"; then
+    echo 'ERROR: Makefiles should NEVER contain curly brackets variables'
+    exit 1
+  fi
+
+  # Makes sure there are not erroneous kubebuilder annotations that can
+  # end up in CRDs as descriptions.
+  if grep "// kubebuilder" ./* -r --exclude-dir=vendor --include=\*.go; then
+    echo "Found an erroneous kubebuilder annotation"
+    exit 1
+  fi
+
+  start_shellcheck
+
+}
+
+# Function to run shellcheck on a single file
+run_shellcheck() {
+  local file="$1"
+  echo "Running shellcheck on $file"
+  if ! shellcheck -x "$file" -e SC2154 -e SC1091 -e SC1090 -e SC2148 -o require-variable-braces -P "scripts"; then
+   echo "shellcheck failed on $file"
+   exit 1
+  fi
+}
+
+start_shellcheck() {
+  files_1=$(find scripts -type f -name "*.sh")
+  files_2=$(find scripts/dev/contexts -type f)
+  files_3=$(find scripts/funcs -type f)
+  files_4=$(find public/architectures -type f -name "*.sh")
+  files=$(echo -e "$files_1\n$files_2\n$files_3\n$files_4")
+  # Process each file in parallel
+  for file in $files; do
+    run_shellcheck "$file" &
+  done
+
+  # Wait for all background jobs
+  for job in $(jobs -p); do
+    wait "$job" || exit 1
+  done
+
+}
+
+cmd=${1:-"pre-commit"}
+
+if [[ "${cmd}" == "generate_standalone_yaml" ]]; then
+  shift 1
+  generate_standalone_yaml "$@"
+elif [[ "${cmd}" == "pre-commit" ]]; then
+  pre_commit
+elif [[ "${cmd}" == "shellcheck" ]]; then
+  start_shellcheck
+fi

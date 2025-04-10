@@ -1,0 +1,15 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: the-replica-set
+spec:
+  members: 3
+  type: ReplicaSet
+  opsManager:
+    configMapRef:
+      name: om-rs-configmap
+  credentials: my-credentials
+  persistent: true
+  logLevel: DEBUG
+

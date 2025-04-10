@@ -1,0 +1,153 @@
+mode: deployment
+
+image:
+  repository: otel/opentelemetry-collector-k8s
+
+extraEnvs:
+  - name: ENDPOINT
+    valueFrom:
+      secretKeyRef:
+        name: honeycomb
+        key: endpoint
+  - name: BUILD_VARIANT
+    valueFrom:
+      secretKeyRef:
+        name: build-variant
+        key: build-variant
+  - name: NAMESPACE
+    valueFrom:
+      secretKeyRef:
+        name: namespace
+        key: namespace
+  - name: task_id
+    valueFrom:
+      secretKeyRef:
+        name: task-id
+        key: task-id
+  - name: task_name
+    valueFrom:
+      secretKeyRef:
+        name: task-name
+        key: task-name
+  - name: version_id
+    valueFrom:
+      secretKeyRef:
+        name: version-id
+        key: version-id
+
+# We only want one of these collectors - any more and we'd produce duplicate data
+replicaCount: 1
+
+presets:
+  # enables the k8sclusterreceiver and adds it to the metrics pipelines
+  clusterMetrics:
+    enabled: true
+  # enables the k8sobjectsreceiver to collect events only and adds it to the logs pipelines
+  kubernetesEvents:
+    enabled: true
+
+config:
+  receivers:
+    k8s_cluster:
+      collection_interval: 180s
+      metrics:
+        k8s.pod.status_reason:
+          enabled: true
+    jaeger: null
+    zipkin: null
+    prometheus:
+      config:
+        scrape_configs:
+          - job_name: "prometheus"
+            scrape_interval: 300s
+            static_configs:
+              - targets: ["mongodb-enterprise-operator.${env:NAMESPACE}.svc.cluster.local:8080"]
+          - bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+            job_name: kubernetes-apiservers
+            kubernetes_sd_configs:
+              - role: endpoints
+            relabel_configs:
+              - action: keep
+                regex: default;kubernetes;https
+                source_labels:
+                  - __meta_kubernetes_namespace
+                  - __meta_kubernetes_service_name
+                  - __meta_kubernetes_endpoint_port_name
+            scheme: https
+            tls_config:
+              ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+  processors:
+    transform/events:
+      error_mode: ignore
+      log_statements:
+        - context: log
+          statements:
+            # adds a new watch-type attribute from the body if it exists
+            - set(attributes["watch-type"], body["type"]) where IsMap(body) and body["type"] != nil
+
+            # create new attributes from the body if the body is an object
+            - merge_maps(attributes, body, "upsert") where IsMap(body) and body["object"] == nil
+            - merge_maps(attributes, body["object"], "upsert") where IsMap(body) and body["object"] != nil
+
+            # Transform the attributes so that the log events use the k8s.* semantic conventions
+            - merge_maps(attributes, attributes[ "metadata"], "upsert") where IsMap(attributes[ "metadata"])
+            - set(attributes["k8s.pod.name"], attributes["regarding"]["name"]) where attributes["regarding"]["kind"] == "Pod"
+            - set(attributes["k8s.node.name"], attributes["regarding"]["name"]) where attributes["regarding"]["kind"] == "Node"
+            - set(attributes["k8s.job.name"], attributes["regarding"]["name"]) where attributes["regarding"]["kind"] == "Job"
+            - set(attributes["k8s.cronjob.name"], attributes["regarding"]["name"]) where attributes["regarding"]["kind"] == "CronJob"
+            - set(attributes["k8s.namespace.name"], attributes["regarding"]["namespace"]) where attributes["regarding"]["kind"] == "Pod" or attributes["regarding"]["kind"] == "Job" or attributes["regarding"]["kind"] == "CronJob"
+
+            # Transform the type attributes into OpenTelemetry Severity types.
+            - set(severity_text, attributes["type"]) where attributes["type"] == "Normal" or attributes["type"] == "Warning"
+            - set(severity_number, SEVERITY_NUMBER_INFO) where attributes["type"] == "Normal"
+            - set(severity_number, SEVERITY_NUMBER_WARN) where attributes["type"] == "Warning"
+    resource/k8s:
+      attributes:
+        - key: k8s.cluster.name
+          from_attribute: k8s-cluster
+          action: insert
+        - key: evergreen.build.name
+          value: ${env:BUILD_VARIANT}
+          action: insert
+        - key: evergreen.task.id
+          value: ${env:task_id}
+          action: insert
+        - key: evergreen.task.name
+          value: ${env:task_name}
+          action: insert
+        - key: evergreen.version.id
+          value: ${env:version_id}
+          action: insert
+        - key: team
+          value: meko
+          action: insert
+  exporters:
+    otlp/k8s-metrics:
+      endpoint: ${env:ENDPOINT}
+      headers:
+        "x-honeycomb-dataset": "k8s-metrics"
+    otlp/k8s-events:
+      endpoint: ${env:ENDPOINT}
+      headers:
+        "x-honeycomb-dataset": "k8s-events"
+
+  service:
+    pipelines:
+      traces: null
+      metrics:
+        processors: [ resource/k8s ]
+        receivers: [ prometheus ]
+        exporters: [ otlp/k8s-metrics ]
+      logs:
+        processors: [ resource/k8s, memory_limiter, transform/events, batch ]
+        exporters: [ otlp/k8s-events ]
+
+ports:
+  jaeger-compact:
+    enabled: false
+  jaeger-thrift:
+    enabled: false
+  jaeger-grpc:
+    enabled: false
+  zipkin:
+    enabled: false

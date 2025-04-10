@@ -1,0 +1,23 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: test-tls-sc-additional-domains
+spec:
+  shardCount: 1
+  mongodsPerShardCount: 1
+  mongosCount: 2
+  configServerCount: 1
+  version: 4.4.0
+  type: ShardedCluster
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  persistent: true
+
+  security:
+    tls:
+      enabled: true
+      additionalCertificateDomains:
+        - "additional-cert-test.com"

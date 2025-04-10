@@ -1,0 +1,15 @@
+operator:
+  # Name that will be assigned to most internal Kubernetes objects like Deployment, ServiceAccount, Role etc.
+  name: mongodb-enterprise-operator-multi-cluster
+
+multiCluster:
+  # Specify if we want to deploy the operator in multi-cluster mode
+  clusters:
+    [
+      "MDB_CLUSTER_1_FULL_NAME",
+      "MDB_CLUSTER_2_FULL_NAME",
+      "MDB_CLUSTER_3_FULL_NAME",
+    ]
+  kubeConfigSecretName: mongodb-enterprise-operator-multi-cluster-kubeconfig
+  performFailOver: true
+  clusterClientTimeout: 10

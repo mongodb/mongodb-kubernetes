@@ -1,0 +1,22 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: test-x509-all-options-rs
+spec:
+  members: 3
+  version: 4.4.0
+  type: ReplicaSet
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  logLevel: DEBUG
+  persistent: false
+  security:
+    tls:
+      enabled: true
+    authentication:
+      internalCluster: X509
+      enabled: true
+      modes: ["X509"]

@@ -1,0 +1,16 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata: 
+  name: sample-sharded-cluster
+spec: 
+  version: 4.4.0-ent
+  type: ShardedCluster
+  configServerCount: 3
+  credentials: my-credentials
+  mongodsPerShardCount: 3
+  mongosCount: 2
+  persistent: true
+  opsManager: 
+    configMapRef:
+      name: my-project
+  shardCount: 1

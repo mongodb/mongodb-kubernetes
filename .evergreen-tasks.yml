@@ -1,0 +1,1206 @@
+task_groups:
+  - name: preflight_images_task_group
+    max_hosts: -1
+    tasks:
+      - preflight_images
+      - preflight_official_database_image
+      - preflight_mongodb_agent_image
+      - preflight_ops_manager
+
+tasks:
+  - name: preflight_images
+    tags: [ "image_preflight" ]
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: setup_preflight
+      - func: preflight_image
+        vars:
+          image_name: operator
+      - func: preflight_image
+        vars:
+          image_name: init-appdb
+      - func: preflight_image
+        vars:
+          image_name: init-database
+      - func: preflight_image
+        vars:
+          image_name: init-ops-manager
+      - func: preflight_image
+        vars:
+          image_name: database
+
+  - name: preflight_ops_manager
+    tags: [ "image_preflight" ]
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: setup_preflight
+      - func: preflight_image
+        vars:
+          image_name: ops-manager
+
+  - name: preflight_official_database_image
+    tags: [ "image_preflight" ]
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: setup_preflight
+      - func: preflight_image
+        vars:
+          image_name: mongodb-enterprise-server
+
+  - name: preflight_mongodb_agent_image
+    tags: [ "image_preflight" ]
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: setup_preflight
+      - func: preflight_image
+        vars:
+          image_name: mongodb-agent
+
+  - name: preflight_om_image
+    tags: [ "image_preflight" ]
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: setup_preflight
+      - func: preflight_image
+        vars:
+          image_name: ops-manager
+
+  - name: gke_multi_cluster_snippets
+    tags: [ "code_snippets" ]
+    commands:
+      - func: gke_multi_cluster_snippets
+      - func: sample_commit_output
+
+  - name: gke_multi_cluster_no_mesh_snippets
+    tags: [ "code_snippets" ]
+    commands:
+      - func: gke_multi_cluster_no_mesh_snippets
+      - func: sample_commit_output
+
+## Below are only e2e runs for .evergreen.yml ##
+
+  - name: e2e_multiple_cluster_failures
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_standalone_custom_podspec
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_standalone_schema_validation
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_schema_validation
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_schema_validation
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_external_access
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_users_schema_validation
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_crd_validation
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_standalone_config_map
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  # TODO: not used in any variant
+  - name: e2e_standalone_groups
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_standalone_recovery
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_operator_partial_crd
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_operator_clusterwide
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_operator_proxy
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_operator_multi_namespaces
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_operator_upgrade_replica_set
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_operator_upgrade_sharded_cluster
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_operator_upgrade_ops_manager
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_operator_upgrade_appdb_tls
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_olm_operator_upgrade
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  # TODO: not used in any variant
+  - name: e2e_olm_operator_webhooks
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_olm_operator_upgrade_with_resources
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_om_ops_manager_backup_delete_sts_and_log_rotation
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_om_ops_manager_backup_kmip
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_liveness_probe
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_mongodb_validation_webhook
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_mongodb_roles_validation_webhook
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_recovery
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_config_map
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  # TODO: not used in any variant
+  - name: e2e_replica_set_groups
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_pv
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_pv_multiple
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_exposed_externally
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_readiness_probe
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_migration
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  # TODO: not used in any variant
+  - name: e2e_replication_state_awareness
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_statefulset_status
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_update_delete_parallel
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_tls_sc_additional_certs
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_tls_sharded_cluster_certs_prefix
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_migration
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_tls_rs_additional_certs
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_tls_rs_intermediate_ca
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_tls_rs_external_access
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_pv
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_recovery
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_secret
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_scale_shards
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_shard_overrides
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_statefulset_status
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_agent_flags
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_standalone_agent_flags
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_agent_flags_and_readinessProbe
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_all_mongodb_resources_parallel
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_standalone_upgrade_downgrade
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_upgrade_downgrade
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_custom_podspec
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_custom_sa
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_report_pending_pods
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_mongod_options
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_mongod_options_and_log_rotation
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_custom_podspec
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_upgrade_downgrade
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_standalone_no_tls_no_status_is_set
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_tls_default
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_tls_override
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_ignore_unknown_users
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_tls_process_hostnames
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_process_hostnames
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_member_options
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_tls_allow
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_tls_prefer
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_tls_require
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_tls_certs_secret_prefix
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_tls_certs_top_level_prefix
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_disable_tls_scale_up
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  # TODO: not used in any variant
+  - name: e2e_replica_set_tls_require_to_allow
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  # TODO: not used in any variant
+  - name: e2e_sharded_cluster_tls_require_custom_ca
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_tls_require_and_disable
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  # TODO: not used in any variant
+  - name: e2e_tls_multiple_different_ssl_configs
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_tls_require_upgrade
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_tls_x509_rs
+    tags: [ "patch-run" ]
+    # longer timeout than usual as this test tests recovery from bad states which can take some time
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_tls_x509_sc
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_tls_x509_users_addition_removal
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_tls_x509_user_connectivity
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_tls_x509_configure_all_options_rs
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_tls_x509_configure_all_options_sc
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_scram_sha_256_user_connectivity
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_scram_sha_256_user_first
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_scram_sha_1_user_connectivity
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_scram_sha_256_user_connectivity
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_scram_sha_1_user_connectivity
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_scram_sha_1_upgrade
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_scram_sha_1_upgrade
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_x509_to_scram_transition
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_x509_to_scram_transition
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_internal_cluster_transition
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_ldap
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_ldap
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_ldap_tls
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_ldap_user_to_dn_mapping
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_ldap_agent_auth
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_ldap_agent_client_certs
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_custom_roles
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_pv_resize
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_pv_resize
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_update_roles_no_privileges
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_ldap_group_dn
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_ldap_group_dn_with_x509_agent
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_feature_controls_authentication
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_scram_sha_and_x509
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_scram_sha_and_x509
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  # TODO: not used in any variant
+  - name: e2e_replica_set_scram_x509_internal_cluster
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_scram_x509_ic_manual_certs
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_scram_x509_ic_manual_certs
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  # TODO: not used in any variant
+  - name: e2e_sharded_cluster_scram_x509_internal_cluster
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_configure_tls_and_x509_simultaneously_rs
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_configure_tls_and_x509_simultaneously_sc
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_configure_tls_and_x509_simultaneously_st
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  # E2E tests for Ops Manager (sorted alphabetically):
+  - name: e2e_om_appdb_external_connectivity
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_om_appdb_flags_and_config
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_om_appdb_monitoring_tls
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_om_appdb_multi_change
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_om_appdb_scale_up_down
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_om_appdb_scram
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_om_appdb_upgrade
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_om_appdb_validation
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_om_external_connectivity
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_om_weak_password
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_om_multiple
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_om_ops_manager_backup
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_om_ops_manager_backup_sharded_cluster
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_om_ops_manager_backup_liveness_probe
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_om_ops_manager_backup_light
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_ops_manager_backup_tls
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_ops_manager_backup_s3_tls
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_ops_manager_backup_tls_custom_ca
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_ops_manager_backup_restore
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_ops_manager_queryable_backup
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_feature_controls
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_ops_manager_scale
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_om_ops_manager_upgrade
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_multi_cluster_appdb_state_operator_upgrade_downgrade
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_om_ops_manager_prometheus
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_om_ops_manager_pod_spec
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_validation_webhook
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_om_ops_manager_https_enabled
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_ops_manager_https_enabled_hybrid
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_ops_manager_https_enabled_prefix
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_ops_manager_https_enabled_internet_mode
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_jvm_params
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_migration
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_localmode
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_ops_manager_enable_local_mode_running_om
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_remotemode
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_localmode_multiple_pv
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_ops_manager_secure_config
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_replica_set
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_replica_set_migration
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_replica_set_member_options
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_replica_set_scale_up
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_scale_up_cluster
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_scale_up_cluster_new_cluster
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_scale_down_cluster
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_replica_set_scale_down
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_replica_set_deletion
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_mtls_test
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_scram
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_sts_override
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_tls_with_scram
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_enable_tls
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_upgrade_downgrade
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  # TODO: not used in any variant
+  - name: e2e_multi_cluster_tls_cert_rotation
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_tls_no_mesh
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_backup_restore
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_appdb_s3_based_backup_restore
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_backup_restore_no_mesh
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_appdb_validation
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_om_validation
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_appdb
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_tls_with_x509
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_with_ldap
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_with_ldap_custom_roles
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_specific_namespaces
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  # TODO: not used in any variant
+  - name: e2e_multi_cluster_clusterwide
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_disaster_recovery
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_multi_disaster_recovery
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_2_clusters_replica_set
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_2_clusters_clusterwide
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_recover
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_recover_network_partition
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_recover_clusterwide
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_agent_flags
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_replica_set_ignore_unknown_users
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_validation
+    tags: [ "patch-run" ]
+    exec_timeout_secs: 1000
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_update_before_reconciliation
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_vault_setup
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_vault_setup_tls
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_vault_setup_om
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_vault_setup_om_backup
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_ops_manager_backup_restore_minio
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_appdb_disaster_recovery
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_sharded_disaster_recovery
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_appdb_disaster_recovery_force_reconfigure
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_om_networking_clusterwide
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_om_clusterwide_operator_not_in_mesh_networking
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_om_appdb_no_mesh
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_pvc_resize
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  # this test is run, with an operator with race enabled
+  - name: e2e_om_reconcile_race_with_telemetry
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  # TODO: not used in any variant
+  - name: e2e_om_reconcile_perf
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_sharded_geo_sharding
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_sharded_scaling
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_sharded_scaling_all_shard_overrides
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_sharded_simplest
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_sharded_simplest_no_mesh
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_sharded_external_access_no_ext_domain
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_sharded_tls_no_mesh
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+
+  - name : e2e_multi_cluster_sharded_snippets
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_sharded_tls
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test

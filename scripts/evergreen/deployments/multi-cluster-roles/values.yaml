@@ -1,0 +1,5 @@
+namespace: ${NAMESPACE}
+
+# Set this when the ECR registry is not accessible from the testing cluster.
+# A Secret with type kubernetes.io/dockerconfigjson needs to exist.
+imagePullSecrets:

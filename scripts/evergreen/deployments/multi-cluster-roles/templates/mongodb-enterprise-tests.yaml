@@ -1,0 +1,25 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: operator-tests-multi-cluster-service-account
+  namespace: {{ .Values.namespace }}
+{{- if .Values.imagePullSecrets}}
+imagePullSecrets:
+  - name: {{ .Values.imagePullSecrets }}
+{{- end }}
+
+
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: operator-multi-cluster-tests-role-binding-{{ .Values.namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: operator-tests-multi-cluster-service-account
+  namespace: {{ .Values.namespace }}

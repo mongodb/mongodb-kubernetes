@@ -1,0 +1,30 @@
+agent:
+  startupOptions:
+    dialTimeoutSeconds: "40"
+additionalMongodConfig:
+  operationProfiling:
+    mode: slowOp
+    slowOpThresholdMs: 100
+clusterSpecList:
+  - clusterName: __default
+    members: 2
+    memberConfig: # When we don't specify a memberConfig, we explicitly set default values
+      - priority: "1"
+        votes: 1
+      - priority: "1"
+        votes: 1
+    podSpec:
+      persistence:
+        single:
+          storage: 10G
+
+    statefulSet:
+      spec:
+        template:
+          spec:
+            containers:
+              - name: mongodb-enterprise-database
+                resources:
+                  requests:
+                    cpu: 2.3
+                    memory: 2.3G

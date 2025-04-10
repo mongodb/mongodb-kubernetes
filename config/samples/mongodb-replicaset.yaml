@@ -1,0 +1,13 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata: 
+  name: my-replica-set
+spec: 
+  credentials: my-credentials
+  members: 3
+  opsManager: 
+    configMapRef:
+      name: my-project
+  type: ReplicaSet
+  version: 4.4.0-ent
+  persistent: true

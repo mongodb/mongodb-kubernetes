@@ -1,0 +1,17 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBOpsManager
+metadata:
+  name: om-basic
+spec:
+  replicas: 1
+  version: 5.0.1
+  adminCredentials: ops-manager-admin-secret
+
+  applicationDatabase:
+    members: 3
+    version: 4.4.20-ent
+    agent:
+      logLevel: DEBUG
+
+  backup:
+    enabled: false

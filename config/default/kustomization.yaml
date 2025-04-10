@@ -1,0 +1,6 @@
+resources:
+- ../crd
+- ../rbac
+- ../manager
+- ../scorecard
+- ../webhooks

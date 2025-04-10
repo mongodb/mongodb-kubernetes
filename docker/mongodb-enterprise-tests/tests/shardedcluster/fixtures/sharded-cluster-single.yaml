@@ -1,0 +1,20 @@
+# This is the simplest sharded cluster possible (1 member for everything) - use it for the tests not focused on sharded
+# cluster behaviour (e.g. listening to secrets changes), this will result in minimal running time and lowest resource
+# consumption
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: sh001-single
+spec:
+  type: ShardedCluster
+  shardCount: 1
+  mongodsPerShardCount: 1
+  mongosCount: 1
+  configServerCount: 1
+  version: 6.0.5
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+
+  persistent: true

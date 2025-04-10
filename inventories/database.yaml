@@ -1,0 +1,65 @@
+vars:
+  quay_registry: quay.io/mongodb/mongodb-enterprise-database
+  s3_bucket: s3://enterprise-operator-dockerfiles/dockerfiles/mongodb-enterprise-database
+
+images:
+- name: database
+  vars:
+    context: docker/mongodb-enterprise-database
+  platform: linux/amd64
+
+  stages:
+  - name: database-build-context
+    task_type: docker_build
+    dockerfile: Dockerfile.builder
+    output:
+    - registry: $(inputs.params.registry)/mongodb-enterprise-database-context
+      tag: $(inputs.params.version_id)
+
+  - name: init-appdb-template-ubi
+    task_type: dockerfile_template
+    distro: ubi
+    tags: ["ubi"]
+    inputs:
+    - version
+    output:
+    - dockerfile: $(functions.tempfile)
+
+  - name: database-build-ubi
+    task_type: docker_build
+    dockerfile: $(stages['init-appdb-template-ubi'].outputs[0].dockerfile)
+    tags: ["ubi"]
+    buildargs:
+      imagebase: $(inputs.params.registry)/mongodb-enterprise-database-context:$(inputs.params.version_id)
+    output:
+    - registry: $(inputs.params.registry)/mongodb-enterprise-database-ubi
+      tag: $(inputs.params.version_id)
+
+  - name: master-latest
+    task_type: tag_image
+    tags: ["master"]
+    source:
+      registry: $(inputs.params.registry)/mongodb-enterprise-database-ubi
+      tag: $(inputs.params.version_id)
+    destination:
+      - registry: $(inputs.params.registry)/mongodb-enterprise-database-ubi
+        tag: latest
+
+  - name: database-release-context
+    task_type: tag_image
+    tags: ["release"]
+    source:
+      registry: $(inputs.params.registry)/mongodb-enterprise-database-context
+      tag: $(inputs.params.version_id)
+    destination:
+    - registry: $(inputs.params.quay_registry)
+      tag: $(inputs.params.version)-context
+
+  - name: database-template-ubi
+    task_type: dockerfile_template
+    distro: ubi
+    tags: ["release"]
+    inputs:
+    - version
+    output:
+    - dockerfile: $(inputs.params.s3_bucket)/$(inputs.params.version)/ubi/Dockerfile

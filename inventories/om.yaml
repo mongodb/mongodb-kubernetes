@@ -1,0 +1,62 @@
+vars:
+  quay_registry: quay.io/mongodb/mongodb-enterprise-ops-manager
+  s3_bucket: s3://enterprise-operator-dockerfiles/dockerfiles/mongodb-enterprise-ops-manager
+  om_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com
+
+images:
+- name: ops-manager
+  vars:
+    context: .
+    template_context: docker/mongodb-enterprise-ops-manager
+  platform: linux/amd64
+
+  stages:
+  - name: ops-manager-context
+    task_type: docker_build
+    dockerfile: docker/mongodb-enterprise-ops-manager/Dockerfile.builder
+    output:
+    - registry: $(inputs.params.registry)/ops-manager-context
+      tag: $(inputs.params.version_id)
+
+  - name: ops-manager-template-ubi
+    task_type: dockerfile_template
+    template_file_extension: ubi
+    tags: ["ubi"]
+    inputs:
+    - om_download_url
+    - version
+    buildargs:
+      imagebase: $(inputs.params.registry)/ops-manager-context:$(inputs.params.version_id)
+    output:
+    - dockerfile: $(functions.tempfile)
+
+  - name: ops-manager-build
+    task_type: docker_build
+    dockerfile: $(stages['ops-manager-template-ubi'].outputs[0].dockerfile)
+    tags: ["ubi"]
+    buildargs:
+      imagebase: $(inputs.params.registry)/ops-manager-context:$(inputs.params.version_id)
+    output:
+    - registry: $(inputs.params.om_registry)/dev/mongodb-enterprise-ops-manager-ubi
+      tag: $(inputs.params.version)
+
+  ## Release tasks
+  - name: ops-manager-template
+    task_type: dockerfile_template
+    template_file_extension: ubi
+    tags: ["ubi", "release"]
+    inputs:
+    - om_download_url
+    - version
+    output:
+    - dockerfile: $(inputs.params.s3_bucket)/$(inputs.params.version)/ubi/Dockerfile
+
+  - name: ops-manager-context-release
+    task_type: tag_image
+    tags: ["release"]
+    source:
+      registry: $(inputs.params.registry)/ops-manager-context
+      tag: $(inputs.params.version_id)
+    destination:
+    - registry: $(inputs.params.quay_registry)
+      tag: $(inputs.params.version)-context

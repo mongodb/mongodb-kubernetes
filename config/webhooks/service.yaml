@@ -1,0 +1,14 @@
+# to output CSV, the operator-sdk is matching together service, webhook and deployment in an opaque and undocumented way. To learn more look into the actual code:
+#   https://github.com/operator-framework/operator-sdk/blob/4abd483aa4004af83b3c05ddf9d7a7e4d4653cc7/internal/generate/clusterserviceversion/clusterserviceversion_updaters.go#L484
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb-enterprise-operator-service
+  namespace: placeholder
+spec:
+  ports:
+    - port: 443
+      name: "webhook-port"
+      targetPort: 1993
+  selector:
+    app.kubernetes.io/name: mongodb-enterprise-operator

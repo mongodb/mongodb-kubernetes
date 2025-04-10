@@ -1,0 +1,18 @@
+Third-party notices
+-------------------
+
+This product uses third-party libraries or other resources that may
+be distributed under licenses different than the MongoDB software.
+
+Please contact the MongoDB Legal Department if you need a required license to
+be added this list, or you would like a copy of the source code from a library in this list.
+
+    https://www.mongodb.com/contact?jmp=docs
+
+The attached notices are provided for information only.
+
+Source code for open source libraries can be obtained from MongoDB.
+
+In the case of components licensed under multiple licenses,
+MongoDB has indicated which license it elects by listing the component
+under the corresponding license sub-directory.

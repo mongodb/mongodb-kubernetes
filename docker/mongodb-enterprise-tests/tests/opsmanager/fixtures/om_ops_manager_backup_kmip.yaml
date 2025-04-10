@@ -1,0 +1,59 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBOpsManager
+metadata:
+  name: om-backup-kmip
+spec:
+  replicas: 1
+  version: 4.2.13
+  adminCredentials: ops-manager-admin-secret
+  backup:
+    enabled: true
+    encryption:
+      kmip:
+        server:
+          url: "kmip-svc:5696"
+          ca: "<fill-me>"
+    s3OpLogStores:
+      - name: s3Store2
+        s3SecretRef:
+          name: my-s3-secret-oplog
+        s3BucketEndpoint: s3.us-east-1.amazonaws.com
+        s3BucketName: "<fill-me>"
+        pathStyleAccessEnabled: true
+    s3Stores:
+      - name: s3Store1
+        s3SecretRef:
+          name: my-s3-secret
+        pathStyleAccessEnabled: true
+        s3BucketEndpoint: s3.us-east-1.amazonaws.com
+        s3BucketName: test-bucket
+  applicationDatabase:
+    members: 3
+    version: 4.4.20-ent
+  statefulSet:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: mongodb-ops-manager
+              resources:
+                requests:
+                  memory: 15G
+                limits:
+                  memory: 15G
+
+  # Dev: adding this just to avoid wizard when opening OM UI
+  # (note, that to debug issues in OM you need to add 'spec.externalConnectivity.type=NodePort'
+  # and specify some port: 'port: 32400'. Don't forget to open it in AWS)
+  configuration:
+    automation.versions.source: mongodb
+    mms.adminEmailAddr: cloud-manager-support@mongodb.com
+    mms.fromEmailAddr: cloud-manager-support@mongodb.com
+    mms.ignoreInitialUiSetup: "true"
+    mms.mail.hostname: email-smtp.us-east-1.amazonaws.com
+    mms.mail.port: "465"
+    mms.mail.ssl: "true"
+    mms.mail.transport: smtp
+    mms.minimumTLSVersion: TLSv1.2
+    mms.replyToEmailAddr: cloud-manager-support@mongodb.com
+    mms.preflight.run: "false"

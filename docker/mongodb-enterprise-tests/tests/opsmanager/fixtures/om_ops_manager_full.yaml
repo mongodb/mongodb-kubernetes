@@ -1,0 +1,33 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBOpsManager
+metadata:
+  name: om-full
+spec:
+  replicas: 1
+  version: 5.0.1
+  adminCredentials: ops-manager-admin-secret
+  configuration:
+    mms.testUtil.enabled: "true"
+
+  backup:
+    enabled: true
+    headDB:
+      storage: 500M
+    opLogStores:
+      - name: oplog1
+        mongodbResourceRef:
+          name: my-mongodb-oplog
+    s3Stores:
+      - name: s3Store1
+        mongodbResourceRef:
+          name: my-mongodb-s3
+        s3SecretRef:
+          name: my-s3-secret
+        pathStyleAccessEnabled: true
+        s3BucketEndpoint: s3.us-east-1.amazonaws.com
+        s3BucketName: test-bucket
+
+  applicationDatabase:
+    members: 3
+    version: 5.0.14-ent
+

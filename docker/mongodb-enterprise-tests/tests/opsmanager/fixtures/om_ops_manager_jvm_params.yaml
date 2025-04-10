@@ -1,0 +1,28 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBOpsManager
+metadata:
+  name: om-jvm-params
+spec:
+  replicas: 1
+  version: 5.0.1
+  adminCredentials: ops-manager-admin-secret
+
+  statefulSet:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: mongodb-ops-manager
+              resources:
+                requests:
+                  memory: "400M"
+                limits:
+                  memory: "5G"
+
+  applicationDatabase:
+    members: 3
+    version: 4.4.20-ent
+
+  backup:
+    enabled: true
+    jvmParameters: ["-Xmx4352m","-Xms4352m"]

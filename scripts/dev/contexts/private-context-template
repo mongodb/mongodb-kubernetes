@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+## This file contains properties that need to overridden by a user.
+## Rename it to "private-context" and fill in with your data.
+
+# Kubernetes namespace for deploying a test
+# Allowed values:
+# - a valid Kubernetes namespace
+# Sensible default:
+# - mongodb-test
+export NAMESPACE="mongodb-test"
+
+# An EVG host name. See https://wiki.corp.mongodb.com/display/MMS/Setting+up+local+development+and+E2E+testing#SettinguplocaldevelopmentandE2Etesting-RunningtestsagainstEvergreenhost
+# Allowed values:
+#   a valid EVG Host
+# Sensible default:
+#   Empty for start.
+export EVG_HOST_NAME=""
+
+# ECR repo used for deploying the images
+# Allowed values:
+# - a full path to the ECR repo
+# Sensible default:
+# - 268558157000.dkr.ecr.us-east-1.amazonaws.com/<your MongoDB username>
+export BASE_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/${USER}"
+# The operator image should -in general- be pulled from the user repository
+# In certain case, the /dev repo can be used as well (BASE_REPO_URL_SHARED)
+export OPERATOR_REGISTRY="${BASE_REPO_URL}"
+
+# Set to true if running operator locally and not in a pod
+# Allowed values:
+# - true
+# - false
+# Sensible default:
+# - false
+export LOCAL_OPERATOR="false"
+
+# Set this to "local" if you wish to start the operator on some port
+# other that 8080. This might be needed is use a tool like kubefwd which binds
+# to port 8080
+export OPERATOR_ENV="dev"
+
+# Set to true for running cluster-wide operator
+# Allowed values:
+# - true
+# - false
+# Sensible default
+# - false
+export OPERATOR_CLUSTER_SCOPED="false"
+
+# Type of environment
+# Allowed values:
+#   kops  - for kops cluster
+#   openshift  - for openshift cluster
+#   kind  - for local/evg kind clusters
+# Sensible default
+# - kind
+export CLUSTER_TYPE=${CLUSTER_TYPE-"###undefined-CLUSTER_TYPE"}
+
+# The main cluster name for setting the kubectl context
+# Allowed values:
+#   kind-kind - for single cluster kind
+#   kind-e2e-operator - for multicluster
+# Sensible default
+# - kind-e2e-operator - when you're using EVG Host
+# - kind-kind - otherwise
+export CLUSTER_NAME="kind"
+
+# Your AWS credentials. Talk to your managed if you don't have them.
+export AWS_ACCESS_KEY_ID="undefined"
+export AWS_SECRET_ACCESS_KEY="undefined"
+export AWS_DEFAULT_REGION="eu-central-1"
+
+# Ops Manager settings. Typically they need to be filled with your credentials from Cloud QA.
+# Make sure your organization type is "Cloud Manager" and not Atlas, and that billing is setup with the fake credit card.
+# OM_USER should be filled with your public API Key and not your username
+export OM_USER=""
+export OM_API_KEY=""
+export OM_ORGID=""
+
+
+# The settings below are used by teardown.sh and setup_cloud_qa.py.
+# Typically, in a local environment they are empty but with provided default settings
+# they can be used in your local dev as well.
+# ENV_FILE and NAMESPACE_FILE might be used to emulate running tests the same way as EVG.
+# Allowed values:
+#   Cloud QA credentials
+#   E2e Cloud QA credentials (taken from EVG)
+# Sensible default
+#   As is
+export e2e_cloud_qa_orgid_owner="${OM_ORGID}"
+export e2e_cloud_qa_apikey_owner="${OM_API_KEY}"
+export e2e_cloud_qa_user_owner="${OM_USER}"
+export e2e_cloud_qa_orgid_owner_static_2="${OM_ORGID}"
+export e2e_cloud_qa_apikey_owner_static_2="${OM_API_KEY}"
+export e2e_cloud_qa_user_owner_static_2="${OM_USER}"

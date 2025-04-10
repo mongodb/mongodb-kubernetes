@@ -1,0 +1,39 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBOpsManager
+metadata:
+  name: om-tls-monitored-appdb
+spec:
+  replicas: 1
+  version: 4.4.1
+  adminCredentials: ops-manager-admin-secret
+  security:
+    tls:
+      secretRef:
+        name: certs-for-ops-manager
+      ca: issuer-ca
+  backup:
+    enabled: false
+  applicationDatabase:
+    members: 3
+    version: 5.0.14-ent
+
+    passwordSecretKeyRef:
+      name: appdb-secret
+
+    security:
+      certsSecretPrefix: appdb
+      tls:
+        ca: issuer-ca
+
+  # adding this just to avoid wizard when opening OM UI
+  configuration:
+    automation.versions.source: mongodb
+    mms.adminEmailAddr: cloud-manager-support@mongodb.com
+    mms.fromEmailAddr: cloud-manager-support@mongodb.com
+    mms.ignoreInitialUiSetup: "true"
+    mms.mail.hostname: email-smtp.us-east-1.amazonaws.com
+    mms.mail.port: "465"
+    mms.mail.ssl: "true"
+    mms.mail.transport: smtp
+    mms.minimumTLSVersion: TLSv1.2
+    mms.replyToEmailAddr: cloud-manager-support@mongodb.com

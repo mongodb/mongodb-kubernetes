@@ -1,0 +1,65 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBOpsManager
+metadata:
+  name: om-backup
+  labels:
+    label1: val1
+    label2: val2
+spec:
+  replicas: 1
+  version: 4.2.13
+  adminCredentials: ops-manager-admin-secret
+  backup:
+    enabled: true
+    s3Stores:
+      - name: s3Store1
+        s3SecretRef:
+          name: my-s3-secret
+        pathStyleAccessEnabled: true
+        s3BucketEndpoint: s3.us-east-1.amazonaws.com
+        s3BucketName: test-bucket
+    statefulSet:
+      spec:
+        template:
+          spec:
+            containers:
+              - name: mongodb-backup-daemon
+                resources:
+                  requests:
+                    memory: 10G
+                  limits:
+                    memory: 10G
+
+  statefulSet:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: mongodb-ops-manager
+              resources:
+                requests:
+                  memory: 15G
+                limits:
+                  memory: 15G
+  applicationDatabase:
+    members: 3
+
+    version: 4.4.20-ent
+
+  # Dev: adding this just to avoid wizard when opening OM UI
+  # (note, that to debug issues in OM you need to add 'spec.externalConnectivity.type=NodePort'
+  # and specify some port: 'port: 32400'. Don't forget to open it in AWS)
+  configuration:
+    # this property is critical to make backup S3 work in OM 4.2.10 and 4.2.12
+    brs.s3.validation.testing: disabled
+
+    automation.versions.source: mongodb
+    mms.adminEmailAddr: cloud-manager-support@mongodb.com
+    mms.fromEmailAddr: cloud-manager-support@mongodb.com
+    mms.ignoreInitialUiSetup: "true"
+    mms.mail.hostname: email-smtp.us-east-1.amazonaws.com
+    mms.mail.port: "465"
+    mms.mail.ssl: "true"
+    mms.mail.transport: smtp
+    mms.minimumTLSVersion: TLSv1.2
+    mms.replyToEmailAddr: cloud-manager-support@mongodb.com

@@ -1,0 +1,16 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: sh001-scale-down-shards
+spec:
+  type: ShardedCluster
+  shardCount: 2
+  mongodsPerShardCount: 1
+  mongosCount: 1
+  configServerCount: 1
+  version: 4.4.0
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  persistent: true
