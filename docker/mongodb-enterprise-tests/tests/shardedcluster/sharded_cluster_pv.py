@@ -85,9 +85,10 @@ class TestShardedClusterCreation:
 
     def test_mongod_sharded_cluster_service(self, sc: MongoDB):
         for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
-            shard_service_name = sc.shard_service_name()
-            shard_service = cluster_member_client.read_namespaced_service(shard_service_name, sc.namespace)
-            assert shard_service
+            for shard_idx in range(sc.shard_members_in_cluster(cluster_member_client.cluster_name)):
+                svc_name = sc.shard_service_name(shard_idx, cluster_member_client.cluster_index)
+                svc = cluster_member_client.read_namespaced_service(svc_name, sc.namespace)
+                assert svc
 
     def test_shard0_was_configured(self, sc: MongoDB):
         hosts = []
@@ -160,12 +161,14 @@ class TestShardedClusterDeletion:
     def test_service_does_not_exist(self, sc: MongoDB, cluster_member_clients):
         def svc_are_deleted() -> bool:
             for cluster_member_client in cluster_member_clients:
-                try:
-                    cluster_member_client.read_namespaced_service(sc.shard_service_name(), sc.namespace)
-                    return False
-                except kubernetes.client.ApiException as e:
-                    if e.status != 404:
+                for shard_idx in range(sc.shard_members_in_cluster(cluster_member_client.cluster_name)):
+                    svc_name = sc.shard_service_name(shard_idx, cluster_member_client.cluster_index)
+                    try:
+                        cluster_member_client.read_namespaced_service(svc_name, sc.namespace)
                         return False
+                    except kubernetes.client.ApiException as e:
+                        if e.status != 404:
+                            return False
 
             return True
 

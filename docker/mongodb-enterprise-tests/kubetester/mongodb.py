@@ -473,15 +473,18 @@ class MongoDB(CustomObject, MongoDBCommon):
             return f"{self.name}-{shard_idx}-{cluster_idx}-{member_idx}"
         return f"{self.name}-{shard_idx}-{member_idx}"
 
-    def shard_service_name(self) -> str:
-        return f"{self.name}-sh"
+    def shard_service_name(self, shard_idx: Optional[int] = None, cluster_idx: Optional[int] = None) -> str:
+        if self.is_multicluster():
+            return f"{self.name}-{shard_idx}-{cluster_idx}-svc"
+        else:
+            return f"{self.name}-sh"
 
     def shard_hostname(
         self, shard_idx: int, member_idx: int, cluster_idx: Optional[int] = None, port: int = 27017
     ) -> str:
         if self.is_multicluster():
             return f"{self.name}-{shard_idx}-{cluster_idx}-{member_idx}-svc.{self.namespace}.svc.cluster.local:{port}"
-        return f"{self.name}-{shard_idx}-{member_idx}.{self.shard_service_name()}.{self.namespace}.svc.cluster.local:{port}"
+        return f"{self.name}-{shard_idx}-{member_idx}.{self.name}-sh.{self.namespace}.svc.cluster.local:{port}"
 
     def shard_pvc_name(self, shard_idx: int, member_idx: int, cluster_idx: Optional[int] = None) -> str:
         if self.is_multicluster():
@@ -535,14 +538,14 @@ class MongoDB(CustomObject, MongoDBCommon):
             return f"{self.name}-mongos-{cluster_idx}-{member_idx}"
         return f"{self.name}-mongos-{member_idx}"
 
-    def mongos_hostname(self, member_idx: int, cluster_idx: Optional[int] = None) -> str:
+    def mongos_hostname(self, member_idx: Optional[int] = None, cluster_idx: Optional[int] = None) -> str:
         service_name = self.mongos_service_name(member_idx, cluster_idx)
         if self.is_multicluster():
             return f"{service_name}.{self.namespace}.svc.cluster.local"
 
         return f"{self.mongos_pod_name(member_idx, cluster_idx)}.{service_name}.{self.namespace}.svc.cluster.local"
 
-    def mongos_service_name(self, member_idx: Optional[int], cluster_idx: Optional[int] = None) -> str:
+    def mongos_service_name(self, member_idx: Optional[int] = None, cluster_idx: Optional[int] = None) -> str:
         if self.is_multicluster():
             return f"{self.name}-mongos-{cluster_idx}-{member_idx}-svc"
         else:
