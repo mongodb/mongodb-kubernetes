@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"k8s.io/utils/ptr"
 
-	ac "github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
+	ac "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/automationconfig"
 )
 
 func TestDetermineNextProcessIdStartingPoint(t *testing.T) {

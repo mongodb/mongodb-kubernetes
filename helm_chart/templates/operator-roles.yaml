@@ -63,6 +63,15 @@ rules:
       - delete
       - deletecollection
   - apiGroups:
+      - mongodbcommunity.mongodb.com
+    resources:
+      - mongodbcommunity
+      - mongodbcommunity/status
+      - mongodbcommunity/spec
+      - mongodbcommunity/finalizers
+    verbs:
+      - '*'
+  - apiGroups:
       - mongodb.com
     verbs:
       - '*'

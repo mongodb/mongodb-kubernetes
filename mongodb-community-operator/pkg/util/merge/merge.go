@@ -4,8 +4,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/contains"
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/contains"
 )
 
 // StringSlices accepts two slices of strings, and returns a string slice
@@ -78,7 +79,6 @@ func Containers(defaultContainers, overrideContainers []corev1.Container) []core
 		return mergedContainers[i].Name < mergedContainers[j].Name
 	})
 	return mergedContainers
-
 }
 
 func createContainerMap(containers []corev1.Container) map[string]corev1.Container {
@@ -563,8 +563,8 @@ func Volume(defaultVolume corev1.Volume, overrideVolume corev1.Volume) corev1.Vo
 	}
 	// - ConfigMap
 	if overrideSource.ConfigMap != nil && defaultSource.ConfigMap != nil {
-		if overrideSource.ConfigMap.LocalObjectReference.Name != "" {
-			mergedVolume.ConfigMap.LocalObjectReference.Name = overrideSource.ConfigMap.LocalObjectReference.Name
+		if overrideSource.ConfigMap.Name != "" {
+			mergedVolume.ConfigMap.Name = overrideSource.ConfigMap.Name
 		}
 		mergedVolume.ConfigMap.Items = mergeKeyToPathItems(defaultSource.ConfigMap.Items, overrideSource.ConfigMap.Items)
 		if overrideSource.ConfigMap.DefaultMode != nil {

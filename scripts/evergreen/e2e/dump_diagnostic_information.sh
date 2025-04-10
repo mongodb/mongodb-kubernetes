@@ -8,7 +8,7 @@ set +e
 
 source scripts/funcs/printing
 
-dump_all () {
+dump_all() {
     [[ "${MODE-}" = "dev" ]] && return
 
     # TODO: provide a cleaner way of handling this. For now we run the same command with kubectl configured
@@ -26,7 +26,8 @@ dump_all () {
     # but in some exceptional cases (e.g. clusterwide operator) there can be more than 1 namespace to print diagnostics
     # In this case the python test app may create the test namespace and add necessary labels and annotations so they
     # would be dumped for diagnostics as well
-    for ns in $(kubectl get namespace -l "evg=task" --output=jsonpath={.items..metadata.name}); do
+    # TODO: MCK mco not all
+    for ns in $(kubectl get namespace --output=jsonpath={.items..metadata.name}); do
         if kubectl get namespace "${ns}" -o jsonpath='{.metadata.annotations}' | grep -q "${task_id:?}"; then
             echo "Dumping all diagnostic information for namespace ${ns}"
             dump_namespace "${ns}" "${prefix}"
@@ -218,12 +219,43 @@ dump_diagnostics() {
     local namespace="${1}"
 
     dump_objects mongodb "MongoDB Resources" "${namespace}"
+    dump_objects mongodbcommunity "MongoDBCommunity Resources" "${namespace}"
     dump_objects mongodbusers "MongoDBUser Resources" "${namespace}"
     dump_objects opsmanagers "MongoDBOpsManager Resources" "${namespace}"
     dump_objects mongodbmulticluster "MongoDB Multi Resources" "${namespace}"
+    dump_objects mongodbcommunity "MongoDB Community Resources" "${namespace}"
 
     header "All namespace resources"
     kubectl get all -n "${namespace}"
+}
+
+download_test_results() {
+    local namespace="${1}"
+    local test_pod_name="${2:-e2e-test}"
+
+    echo "Downloading test results from ${test_pod_name} pod"
+
+    # Try to copy from shared volume using the keepalive container
+    if kubectl cp "${namespace}/${test_pod_name}:/tmp/results/result.suite" "logs/result.suite" -c keepalive 2>/dev/null; then
+        echo "Successfully downloaded result.suite from test pod"
+    else
+        echo "Could not find result.suite via direct copy"
+        # Get logs from the test container
+        kubectl logs -n "${namespace}" "${test_pod_name}" -c e2e-test > "logs/result.suite" 2>/dev/null
+    fi
+}
+
+# dump_events gets all events from a namespace and saves them to a file
+dump_events() {
+    local namespace="${1}"
+    local prefix="${2}"
+
+    echo "Collecting events for namespace ${namespace}"
+    # Sort by lastTimestamp to have the most recent events at the top
+    kubectl get events --sort-by='.lastTimestamp' -n "${namespace}" > "logs/${prefix}events.txt"
+
+    # Also get events in yaml format for more details
+    kubectl get events -n "${namespace}" -o yaml > "logs/${prefix}events_detailed.yaml"
 }
 
 # dump_namespace dumps a namespace, diagnostics, logs and generic Kubernetes
@@ -249,6 +281,10 @@ dump_namespace() {
     dump_configmaps "${namespace}" "${prefix}"
     dump_secrets "${namespace}" "${prefix}"
     dump_services "${namespace}" "${prefix}"
+    dump_events "${namespace}" "${prefix}"
+
+    # Download test results from the test pod in community
+    download_test_results "${namespace}" "e2e-test"
 
     dump_objects pvc "Persistent Volume Claims" "${namespace}"  > "logs/${prefix}z_persistent_volume_claims.txt"
     dump_objects deploy "Deployments" "${namespace}" > "logs/${prefix}z_deployments.txt"
@@ -265,6 +301,7 @@ dump_namespace() {
     dump_objects clusterserviceversions "OLM ClusterServiceVersions" "${namespace}"  2> /dev/null > "logs/${prefix}z_olm_clusterserviceversions.txt"
     dump_objects pods "Pods" "${namespace}"  2> /dev/null > "logs/${prefix}z_pods.txt"
 
+    kubectl get crd -o name
     # shellcheck disable=SC2046
-    kubectl describe $(kubectl get crd -o name | grep mongodb.com) > "logs/${prefix}z_mongodb_crds.log"
+    kubectl describe $(kubectl get crd -o name | grep mongodb) > "logs/${prefix}z_mongodb_crds.log"
 }

@@ -6,9 +6,8 @@ import (
 	"go.uber.org/zap"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/apierrors"
-
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/apierrors"
 )
 
 // Status serves as a container holding the status of the custom resource

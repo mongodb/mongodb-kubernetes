@@ -6,15 +6,16 @@ import (
 	"testing"
 	"time"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
-	e2eutil "github.com/mongodb/mongodb-kubernetes-operator/test/e2e"
-
-	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/statefulset"
+	e2eutil "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e"
 )
 
 type StatefulSetType int
@@ -129,7 +130,7 @@ func ForArbitersStatefulSetToBeReady(ctx context.Context, t *testing.T, mdb *mdb
 func ForStatefulSetToBeReadyAfterScaleDown(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDBCommunity, opts ...Configuration) error {
 	options := newOptions(opts...)
 	return waitForStatefulSetCondition(ctx, t, mdb, options, func(sts appsv1.StatefulSet) bool {
-		return int32(mdb.Spec.Members) == sts.Status.ReadyReplicas
+		return int32(mdb.Spec.Members) == sts.Status.ReadyReplicas //nolint:gosec
 	})
 }
 

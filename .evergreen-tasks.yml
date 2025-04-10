@@ -89,6 +89,11 @@ tasks:
     commands:
       - func: e2e_test
 
+  - name: e2e_community_and_meko_replicaset_scale
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
   - name: e2e_standalone_custom_podspec
     tags: [ "patch-run" ]
     commands:
@@ -208,6 +213,11 @@ tasks:
 
   - name: e2e_replica_set_liveness_probe
     tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_community_replicaset_scale
+    tags: ["patch-run"]
     commands:
       - func: "e2e_test"
 

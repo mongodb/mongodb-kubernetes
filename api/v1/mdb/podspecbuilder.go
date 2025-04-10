@@ -4,6 +4,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1/common"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
@@ -13,7 +14,7 @@ type PodSpecWrapperBuilder struct {
 }
 
 type PersistenceConfigBuilder struct {
-	config *PersistenceConfig
+	config *common.PersistenceConfig
 }
 
 // NewPodSpecWrapperBuilder returns the builder with some default values, used in tests mostly
@@ -25,7 +26,7 @@ func NewPodSpecWrapperBuilder() *PodSpecWrapperBuilder {
 			MemoryLimit:    "500M",
 			MemoryRequests: "400M",
 		},
-		PodTemplateWrapper: PodTemplateSpecWrapper{&corev1.PodTemplateSpec{
+		PodTemplateWrapper: common.PodTemplateSpecWrapper{PodTemplate: &corev1.PodTemplateSpec{
 			Spec: corev1.PodSpec{
 				Affinity: &corev1.Affinity{
 					PodAffinity: &corev1.PodAffinity{},
@@ -49,10 +50,10 @@ func NewPodSpecWrapperBuilderFromSpec(spec *MongoDbPodSpec) *PodSpecWrapperBuild
 func NewEmptyPodSpecWrapperBuilder() *PodSpecWrapperBuilder {
 	return &PodSpecWrapperBuilder{spec: PodSpecWrapper{
 		MongoDbPodSpec: MongoDbPodSpec{
-			Persistence: &Persistence{},
+			Persistence: &common.Persistence{},
 		},
 		Default: MongoDbPodSpec{
-			Persistence: &Persistence{SingleConfig: &PersistenceConfig{}},
+			Persistence: &common.Persistence{SingleConfig: &common.PersistenceConfig{}},
 		},
 	}}
 }
@@ -99,7 +100,7 @@ func (p *PodSpecWrapperBuilder) SetPodTemplate(template *corev1.PodTemplateSpec)
 
 func (p *PodSpecWrapperBuilder) SetSinglePersistence(builder *PersistenceConfigBuilder) *PodSpecWrapperBuilder {
 	if p.spec.Persistence == nil {
-		p.spec.Persistence = &Persistence{}
+		p.spec.Persistence = &common.Persistence{}
 	}
 	p.spec.Persistence.SingleConfig = builder.config
 	return p
@@ -107,9 +108,9 @@ func (p *PodSpecWrapperBuilder) SetSinglePersistence(builder *PersistenceConfigB
 
 func (p *PodSpecWrapperBuilder) SetMultiplePersistence(dataBuilder, journalBuilder, logsBuilder *PersistenceConfigBuilder) *PodSpecWrapperBuilder {
 	if p.spec.Persistence == nil {
-		p.spec.Persistence = &Persistence{}
+		p.spec.Persistence = &common.Persistence{}
 	}
-	p.spec.Persistence.MultipleConfig = &MultiplePersistenceConfig{}
+	p.spec.Persistence.MultipleConfig = &common.MultiplePersistenceConfig{}
 	if dataBuilder != nil {
 		p.spec.Persistence.MultipleConfig.Data = dataBuilder.config
 	}
@@ -132,7 +133,7 @@ func (p *PodSpecWrapperBuilder) Build() *PodSpecWrapper {
 }
 
 func NewPersistenceBuilder(size string) *PersistenceConfigBuilder {
-	return &PersistenceConfigBuilder{config: &PersistenceConfig{Storage: size}}
+	return &PersistenceConfigBuilder{config: &common.PersistenceConfig{Storage: size}}
 }
 
 func (p *PersistenceConfigBuilder) SetStorageClass(class string) *PersistenceConfigBuilder {
@@ -141,18 +142,18 @@ func (p *PersistenceConfigBuilder) SetStorageClass(class string) *PersistenceCon
 }
 
 func (p *PersistenceConfigBuilder) SetLabelSelector(labels map[string]string) *PersistenceConfigBuilder {
-	p.config.LabelSelector = &LabelSelectorWrapper{metav1.LabelSelector{MatchLabels: labels}}
+	p.config.LabelSelector = &common.LabelSelectorWrapper{LabelSelector: metav1.LabelSelector{MatchLabels: labels}}
 	return p
 }
 
 func NewPodSpecWithDefaultValues() MongoDbPodSpec {
 	defaultPodSpec := MongoDbPodSpec{PodAntiAffinityTopologyKey: "kubernetes.io/hostname"}
-	defaultPodSpec.Persistence = &Persistence{
-		SingleConfig: &PersistenceConfig{Storage: "30G"},
-		MultipleConfig: &MultiplePersistenceConfig{
-			Data:    &PersistenceConfig{Storage: util.DefaultMongodStorageSize},
-			Journal: &PersistenceConfig{Storage: util.DefaultJournalStorageSize},
-			Logs:    &PersistenceConfig{Storage: util.DefaultLogsStorageSize},
+	defaultPodSpec.Persistence = &common.Persistence{
+		SingleConfig: &common.PersistenceConfig{Storage: "30G"},
+		MultipleConfig: &common.MultiplePersistenceConfig{
+			Data:    &common.PersistenceConfig{Storage: util.DefaultMongodStorageSize},
+			Journal: &common.PersistenceConfig{Storage: util.DefaultJournalStorageSize},
+			Logs:    &common.PersistenceConfig{Storage: util.DefaultLogsStorageSize},
 		},
 	}
 	defaultPodSpec.PodTemplateWrapper = NewMongoDbPodSpec().PodTemplateWrapper

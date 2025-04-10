@@ -2,15 +2,17 @@ package statefulset
 
 import (
 	"context"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
-	apiErrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/annotations"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/merge"
 )
 
 const (
@@ -117,7 +119,6 @@ func CreateVolumeFromSecret(name, sourceName string, options ...func(v *corev1.V
 		option(volumeMount)
 	}
 	return *volumeMount
-
 }
 
 func CreateVolumeFromEmptyDir(name string) corev1.Volume {
@@ -149,10 +150,10 @@ func NOOP() Modification {
 
 func WithSecretDefaultMode(mode *int32) func(*corev1.Volume) {
 	return func(v *corev1.Volume) {
-		if v.VolumeSource.Secret == nil {
-			v.VolumeSource.Secret = &corev1.SecretVolumeSource{}
+		if v.Secret == nil {
+			v.Secret = &corev1.SecretVolumeSource{}
 		}
-		v.VolumeSource.Secret.DefaultMode = mode
+		v.Secret.DefaultMode = mode
 	}
 }
 
@@ -171,8 +172,8 @@ func WithReadOnly(readonly bool) func(*corev1.VolumeMount) {
 }
 
 func IsReady(sts appsv1.StatefulSet, expectedReplicas int) bool {
-	allUpdated := int32(expectedReplicas) == sts.Status.UpdatedReplicas
-	allReady := int32(expectedReplicas) == sts.Status.ReadyReplicas
+	allUpdated := int32(expectedReplicas) == sts.Status.UpdatedReplicas //nolint:gosec
+	allReady := int32(expectedReplicas) == sts.Status.ReadyReplicas     //nolint:gosec
 	atExpectedGeneration := sts.Generation == sts.Status.ObservedGeneration
 	return allUpdated && allReady && atExpectedGeneration
 }
@@ -233,6 +234,7 @@ func WithMatchLabels(matchLabels map[string]string) Modification {
 		set.Spec.Selector.MatchLabels = copyMap(matchLabels)
 	}
 }
+
 func WithOwnerReference(ownerRefs []metav1.OwnerReference) Modification {
 	ownerReference := make([]metav1.OwnerReference, len(ownerRefs))
 	copy(ownerReference, ownerRefs)
@@ -242,14 +244,14 @@ func WithOwnerReference(ownerRefs []metav1.OwnerReference) Modification {
 }
 
 func WithReplicas(replicas int) Modification {
-	stsReplicas := int32(replicas)
+	stsReplicas := int32(replicas) //nolint:gosec
 	return func(sts *appsv1.StatefulSet) {
 		sts.Spec.Replicas = &stsReplicas
 	}
 }
 
 func WithRevisionHistoryLimit(revisionHistoryLimit int) Modification {
-	rhl := int32(revisionHistoryLimit)
+	rhl := int32(revisionHistoryLimit) //nolint:gosec
 	return func(sts *appsv1.StatefulSet) {
 		sts.Spec.RevisionHistoryLimit = &rhl
 	}

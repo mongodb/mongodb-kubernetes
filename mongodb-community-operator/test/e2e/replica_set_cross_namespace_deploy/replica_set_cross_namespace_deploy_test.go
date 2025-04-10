@@ -6,16 +6,16 @@ import (
 	"os"
 	"testing"
 
-	corev1 "k8s.io/api/core/v1"
-	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/generate"
-	. "github.com/mongodb/mongodb-kubernetes-operator/test/e2e/util/mongotester"
+	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 
-	e2eutil "github.com/mongodb/mongodb-kubernetes-operator/test/e2e"
-	"github.com/mongodb/mongodb-kubernetes-operator/test/e2e/mongodbtests"
-	"github.com/mongodb/mongodb-kubernetes-operator/test/e2e/setup"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/generate"
+	e2eutil "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e/mongodbtests"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e/setup"
+	. "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e/util/mongotester"
 )
 
 func TestMain(m *testing.M) {
@@ -70,13 +70,15 @@ func TestCrossNamespaceDeploy(t *testing.T) {
 // for the database StatefulSet in the other namespace.
 func createDatabaseServiceAccountRoleAndRoleBinding(ctx context.Context, t *testing.T, namespace string) error {
 	sa := corev1.ServiceAccount{}
-	err := e2eutil.TestClient.Get(ctx, types.NamespacedName{Name: "mongodb-database", Namespace: e2eutil.OperatorNamespace}, &sa)
+	// TODO: MCK choose a correct SA name
+	mckServiceAccountName := "mongodb-enterprise-appdb"
+	err := e2eutil.TestClient.Get(ctx, types.NamespacedName{Name: mckServiceAccountName, Namespace: e2eutil.OperatorNamespace}, &sa)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	sa.Namespace = namespace
-	sa.ObjectMeta.ResourceVersion = ""
+	sa.ResourceVersion = ""
 
 	err = e2eutil.TestClient.Create(ctx, &sa, &e2eutil.CleanupOptions{})
 	if err != nil {
@@ -84,13 +86,13 @@ func createDatabaseServiceAccountRoleAndRoleBinding(ctx context.Context, t *test
 	}
 
 	role := rbacv1.Role{}
-	err = e2eutil.TestClient.Get(ctx, types.NamespacedName{Name: "mongodb-database", Namespace: e2eutil.OperatorNamespace}, &role)
+	err = e2eutil.TestClient.Get(ctx, types.NamespacedName{Name: mckServiceAccountName, Namespace: e2eutil.OperatorNamespace}, &role)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	role.Namespace = namespace
-	role.ObjectMeta.ResourceVersion = ""
+	role.ResourceVersion = ""
 
 	err = e2eutil.TestClient.Create(ctx, &role, &e2eutil.CleanupOptions{})
 	if err != nil {
@@ -98,14 +100,21 @@ func createDatabaseServiceAccountRoleAndRoleBinding(ctx context.Context, t *test
 	}
 
 	rolebinding := rbacv1.RoleBinding{}
-	err = e2eutil.TestClient.Get(ctx, types.NamespacedName{Name: "mongodb-database", Namespace: e2eutil.OperatorNamespace}, &rolebinding)
+	err = e2eutil.TestClient.Get(ctx, types.NamespacedName{Name: mckServiceAccountName, Namespace: e2eutil.OperatorNamespace}, &rolebinding)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	rolebinding.Namespace = namespace
-	rolebinding.ObjectMeta.ResourceVersion = ""
+	rolebinding.ResourceVersion = ""
 
+	// Update namespace in subjects field
+	for i := range rolebinding.Subjects {
+		if rolebinding.Subjects[i].Kind == "ServiceAccount" &&
+			rolebinding.Subjects[i].Name == mckServiceAccountName {
+			rolebinding.Subjects[i].Namespace = namespace
+		}
+	}
 	err = e2eutil.TestClient.Create(ctx, &rolebinding, &e2eutil.CleanupOptions{})
 	if err != nil {
 		t.Fatal(err)

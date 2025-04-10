@@ -135,6 +135,15 @@ rules:
       - delete
       - deletecollection
   - apiGroups:
+      - mongodbcommunity.mongodb.com
+    resources:
+      - mongodbcommunity
+      - mongodbcommunity/status
+      - mongodbcommunity/spec
+      - mongodbcommunity/finalizers
+    verbs:
+      - '*'
+  - apiGroups:
       - mongodb.com
     verbs:
       - '*'
@@ -343,3 +352,23 @@ spec:
               value: 'true'
             - name: MDB_MAX_CONCURRENT_RECONCILES
               value: "1"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OPERATOR_NAME
+              value: mongodb-enterprise-operator
+            # Community Env Vars Start
+            - name: MDB_COMMUNITY_AGENT_IMAGE
+              value: "quay.io/mongodb/mongodb-agent-ubi:108.0.2.8729-1"
+            - name: VERSION_UPGRADE_HOOK_IMAGE
+              value: "quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook:1.0.9"
+            - name: READINESS_PROBE_IMAGE
+              value: "quay.io/mongodb/mongodb-kubernetes-readinessprobe:1.0.22"
+            - name: MDB_COMMUNITY_IMAGE
+              value: "mongodb-community-server"
+            - name: MDB_COMMUNITY_REPO_URL
+              value: "quay.io/mongodb"
+            - name: MDB_COMMUNITY_IMAGE_TYPE
+              value: "ubi8"
+            # Community Env Vars End

@@ -207,6 +207,26 @@ spec:
             - name: MDB_MAX_CONCURRENT_RECONCILES
               value: "{{ .Values.operator.maxConcurrentReconciles }}"
     {{- end }}
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OPERATOR_NAME
+              value: {{ .Values.operator.name }}
+            # Community Env Vars Start
+            - name: MDB_COMMUNITY_AGENT_IMAGE
+              value: "{{ .Values.community.registry.agent }}/{{ .Values.community.agent.name }}:{{ .Values.community.agent.version }}"
+            - name: VERSION_UPGRADE_HOOK_IMAGE
+              value: "{{ .Values.registry.versionUpgradeHook }}/{{ .Values.versionUpgradeHook.name }}:{{ .Values.versionUpgradeHook.version }}"
+            - name: READINESS_PROBE_IMAGE
+              value: "{{ .Values.registry.readinessProbe }}/{{ .Values.readinessProbe.name }}:{{ .Values.readinessProbe.version }}"
+            - name: MDB_COMMUNITY_IMAGE
+              value: "{{ .Values.community.mongodb.name }}"
+            - name: MDB_COMMUNITY_REPO_URL
+              value: "{{ .Values.community.mongodb.repo }}"
+            - name: MDB_COMMUNITY_IMAGE_TYPE
+              value: "{{ .Values.community.mongodb.imageType }}"
+            # Community Env Vars End
     {{- if .Values.relatedImages }}
             - name: RELATED_IMAGE_{{ $mongodbEnterpriseDatabaseImageEnv }}_{{ $databaseVersion | replace "." "_" | replace "-" "_" }}
               value: "{{ .Values.registry.database }}/{{ .Values.database.name }}:{{ $databaseVersion }}"

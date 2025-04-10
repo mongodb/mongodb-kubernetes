@@ -19,9 +19,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	v1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-	mcoConstruct "github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,6 +33,9 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1/common"
+	mcoConstruct "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/controllers/construct"
+	kubernetesClient "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/10gen/ops-manager-kubernetes/pkg/agentVersionManagement"
 	"github.com/10gen/ops-manager-kubernetes/pkg/images"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
@@ -176,8 +176,8 @@ func TestMultiReplicaSetClusterReconcileContainerImagesWithStaticArchitecture(t 
 func TestReconcilePVCResizeMultiCluster(t *testing.T) {
 	ctx := context.Background()
 
-	configuration := v1.StatefulSetConfiguration{
-		SpecWrapper: v1.StatefulSetSpecWrapper{
+	configuration := common.StatefulSetConfiguration{
+		SpecWrapper: common.StatefulSetSpecWrapper{
 			Spec: appsv1.StatefulSetSpec{
 				VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
 					{
@@ -798,8 +798,8 @@ func TestScaling(t *testing.T) {
 	})
 
 	t.Run("Scale one at a time when scaling up", func(t *testing.T) {
-		stsWrapper := &v1.StatefulSetConfiguration{
-			SpecWrapper: v1.StatefulSetSpecWrapper{
+		stsWrapper := &common.StatefulSetConfiguration{
+			SpecWrapper: common.StatefulSetSpecWrapper{
 				Spec: appsv1.StatefulSetSpec{
 					Selector: &metav1.LabelSelector{
 						MatchLabels: map[string]string{"a": "b"},

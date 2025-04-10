@@ -3,13 +3,13 @@ package podtemplatespec
 import (
 	"testing"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
+	"github.com/stretchr/testify/assert"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
-	"github.com/stretchr/testify/assert"
-	corev1 "k8s.io/api/core/v1"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/container"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/merge"
 )
 
 func TestPodTemplateSpec(t *testing.T) {
@@ -476,7 +476,7 @@ func TestMergeVolumes_DoesNotAddDuplicatesWithSameName(t *testing.T) {
 
 	assert.Len(t, mergedPodSpecTemplate.Spec.Volumes, 3)
 	assert.Equal(t, "new-volume", mergedPodSpecTemplate.Spec.Volumes[0].Name)
-	assert.Equal(t, "updated-host-path", mergedPodSpecTemplate.Spec.Volumes[0].VolumeSource.HostPath.Path)
+	assert.Equal(t, "updated-host-path", mergedPodSpecTemplate.Spec.Volumes[0].HostPath.Path)
 	assert.Equal(t, "new-volume-2", mergedPodSpecTemplate.Spec.Volumes[1].Name)
 	assert.Equal(t, "new-volume-3", mergedPodSpecTemplate.Spec.Volumes[2].Name)
 }
@@ -488,7 +488,8 @@ func TestAddVolumes(t *testing.T) {
 			HostPath: &corev1.HostPathVolumeSource{
 				Path: "old-host-path",
 			},
-		}},
+		},
+	},
 	)
 
 	toAddVolumes := []corev1.Volume{
@@ -511,7 +512,7 @@ func TestAddVolumes(t *testing.T) {
 	assert.Len(t, p.Spec.Volumes, 2)
 	assert.Equal(t, "new-volume", p.Spec.Volumes[0].Name)
 	assert.Equal(t, "new-volume-2", p.Spec.Volumes[1].Name)
-	assert.Equal(t, "new-host-path", p.Spec.Volumes[0].VolumeSource.HostPath.Path)
+	assert.Equal(t, "new-host-path", p.Spec.Volumes[0].HostPath.Path)
 }
 
 func int64Ref(i int64) *int64 {

@@ -85,7 +85,7 @@ linters:
         path: ^pkg\/util\/env
       - linters:
           - forbidigo
-        path: ^main.go$
+        path: main.go$
 formatters:
   enable:
     - gci

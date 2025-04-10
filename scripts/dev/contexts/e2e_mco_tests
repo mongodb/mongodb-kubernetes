@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+script_name=$(readlink -f "${BASH_SOURCE[0]}")
+script_dir=$(dirname "${script_name}")
+
+source "${script_dir}/root-context"
+
+# TODO: MCK this is requires that we skip trying to configure/reach om
+export OM_EXTERNALLY_CONFIGURED=true

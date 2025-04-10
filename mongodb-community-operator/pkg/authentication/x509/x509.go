@@ -18,11 +18,11 @@ import (
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/authtypes"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/constants"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/generate"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/authentication/authtypes"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/secret"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/constants"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/generate"
 )
 
 // Enable will configure all of the required Kubernetes resources for X509 to be enabled.
@@ -65,7 +65,7 @@ func ensureAgent(ctx context.Context, auth *automationconfig.Auth, secretGetUpda
 	}
 
 	if !isValidX509Subject(agentSubject) {
-		return fmt.Errorf("Agent subject: %s is not a valid subject", agentSubject)
+		return fmt.Errorf("agent subject: %s is not a valid subject", agentSubject)
 	}
 
 	return enableAgentAuthentication(auth, agentKeyFile, agentSubject, mdb.GetAuthOptions())

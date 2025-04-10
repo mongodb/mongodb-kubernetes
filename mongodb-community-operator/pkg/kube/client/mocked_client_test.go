@@ -4,11 +4,13 @@ import (
 	"context"
 	"testing"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/service"
 	"github.com/stretchr/testify/assert"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+
+	corev1 "k8s.io/api/core/v1"
+
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/configmap"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/service"
 )
 
 func TestMockedClient(t *testing.T) {
