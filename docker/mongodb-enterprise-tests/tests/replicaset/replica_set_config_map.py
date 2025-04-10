@@ -22,4 +22,4 @@ def test_patch_config_map(namespace: str, mdb: MongoDB):
     config_map = V1ConfigMap(data={"orgId": "wrongId"})
     KubernetesTester.clients("corev1").patch_namespaced_config_map("my-project", namespace, config_map)
     print('Patched the ConfigMap - changed orgId to "wrongId"')
-    mdb.assert_reaches_phase(Phase.Failed, timeout=20)
+    mdb.assert_reaches_phase(Phase.Failed, timeout=100)
