@@ -41,6 +41,8 @@ dump_all () {
     kubectl config use-context "${original_context}" &> /dev/null
 
     kubectl -n "kube-system" get configmap coredns -o yaml > "logs/${prefix}coredns.yaml"
+
+    kubectl events --all-namespaces > "logs/${prefix}kube_events.json"
 }
 
 dump_objects() {
