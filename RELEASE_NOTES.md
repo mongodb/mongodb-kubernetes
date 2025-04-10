@@ -19,6 +19,8 @@
         * To export the monitoring data of AppDB members, please refer to the Ops Manager API reference https://www.mongodb.com/docs/ops-manager/current/reference/api/measures/get-host-process-system-measurements/
 * **OpsManager**: Fixed a bug where the `spec.clusterSpecList.externalConnectivity` field was not being used by the operator, but documented in Ops Manager API reference https://www.mongodb.com/docs/kubernetes-operator/current/reference/k8s-operator-om-specification/#mongodb-opsmgrkube-opsmgrkube.spec.clusterSpecList.externalConnectivity
 
+## Breaking Change
+* **Images**: Removing all references of the images and repository of `mongodb-enterprise-appdb-database-ubi`, as it has been deprecated since version 1.22.0. This means, we won't rebuild images in that repository anymore nor add RELATED_IMAGES_*.
 <!-- Past Releases -->
 
 # MongoDB Enterprise Kubernetes Operator 1.32.0

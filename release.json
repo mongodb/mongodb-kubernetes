@@ -242,30 +242,6 @@
       "variants": [
         "ubi"
       ]
-    },
-    "appdb-database": {
-      "Description": "4.2 onwards, see https://www.mongodb.com/support-policy/lifecycles",
-      "ssdlc_name": "[Deprecated] MongoDB Enterprise Kubernetes Operator AppDB",
-      "versions": [
-        "4.2.11-ent",
-        "4.2.2-ent",
-        "4.2.24-ent",
-        "4.2.6-ent",
-        "4.2.8-ent",
-        "4.4.0-ent",
-        "4.4.11-ent",
-        "4.4.4-ent",
-        "4.4.21-ent",
-        "5.0.1-ent",
-        "5.0.5-ent",
-        "5.0.6-ent",
-        "5.0.7-ent",
-        "5.0.14-ent",
-        "5.0.18-ent"
-      ],
-      "variants": [
-        "ubi"
-      ]
     }
   }
 }

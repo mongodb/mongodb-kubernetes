@@ -69,11 +69,6 @@ def update_helm_charts(operator_version, release):
     )
     set_value_in_yaml_file(
         "helm_chart/values-openshift.yaml",
-        "relatedImages.mongodbLegacyAppDb",
-        filterNonReleaseOut(release["supportedImages"]["appdb-database"]["versions"]),
-    )
-    set_value_in_yaml_file(
-        "helm_chart/values-openshift.yaml",
         "relatedImages.mongodb",
         filterNonReleaseOut(release["supportedImages"]["mongodb-enterprise-server"]["versions"]),
     )
