@@ -1315,7 +1315,7 @@ def _build_agent_operator(
     # We could rely on input params (quay_registry or registry), but it makes templating more complex in the inventory
     non_quay_registry = os.environ.get("REGISTRY", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
     base_init_database_repo = QUAY_REGISTRY_URL if use_quay else non_quay_registry
-    init_database_image = f"{base_init_database_repo}/mongodb-enterprise-init-database-ubi:{operator_version}"
+    init_database_image = f"{base_init_database_repo}/mongodb-kubernetes-init-database-ubi:{operator_version}"
 
     tasks_queue.put(
         executor.submit(

@@ -81,7 +81,7 @@ const (
 	BackupDaemonContainerName      = "mongodb-backup-daemon"
 	DatabaseContainerName          = "mongodb-enterprise-database"
 	AgentContainerName             = "mongodb-agent"
-	InitOpsManagerContainerName    = "mongodb-enterprise-init-ops-manager"
+	InitOpsManagerContainerName    = "mongodb-kubernetes-init-ops-manager"
 	PvcNameData                    = "data"
 	PvcMountPathData               = "/data"
 	PvcNameJournal                 = "journal"

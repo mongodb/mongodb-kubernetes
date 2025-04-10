@@ -47,8 +47,8 @@ ops-manager-kubernetes
 docker/mongodb-enterprise-operator/Dockerfile
 docker/mongodb-enterprise-database/Dockerfile
 docker/mongodb-enterprise-ops-manager/Dockerfile
-docker/mongodb-enterprise-init-database/Dockerfile
-docker/mongodb-enterprise-init-ops-manager/Dockerfile
+docker/mongodb-kubernetes-init-database/Dockerfile
+docker/mongodb-kubernetes-init-ops-manager/Dockerfile
 docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator.tar
 docker/mongodb-enterprise-tests/helm_chart/
 docker/mongodb-enterprise-tests/public/

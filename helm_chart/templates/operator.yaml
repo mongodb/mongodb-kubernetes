@@ -249,11 +249,6 @@ spec:
             - name: RELATED_IMAGE_{{ $mongodbImageEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
               value: "{{ $.Values.mongodb.repo }}/{{ $.Values.mongodb.name }}:{{ $version }}"
       {{- end }}
-      # mongodbLegacyAppDb will be deleted in 1.23 release
-      {{- range $version := .Values.relatedImages.mongodbLegacyAppDb }}
-            - name: RELATED_IMAGE_{{ $mongodbImageEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
-              value: "{{ $.Values.mongodbLegacyAppDb.repo }}/{{ $.Values.mongodbLegacyAppDb.name }}:{{ $version }}"
-      {{- end }}
     {{- end }}
     {{- if .Values.customEnvVars }}
       {{- range split "&" .Values.customEnvVars }}
