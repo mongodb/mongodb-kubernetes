@@ -30,7 +30,7 @@ func init() {
 }
 
 func Test_buildDatabaseInitContainer(t *testing.T) {
-	modification := buildDatabaseInitContainer("quay.io/mongodb/mongodb-enterprise-init-database:latest")
+	modification := buildDatabaseInitContainer("quay.io/mongodb/mongodb-kubernetes-init-database:latest")
 	container := &corev1.Container{}
 	modification(container)
 	expectedVolumeMounts := []corev1.VolumeMount{{
@@ -40,7 +40,7 @@ func Test_buildDatabaseInitContainer(t *testing.T) {
 	}}
 	expectedContainer := &corev1.Container{
 		Name:         InitDatabaseContainerName,
-		Image:        "quay.io/mongodb/mongodb-enterprise-init-database:latest",
+		Image:        "quay.io/mongodb/mongodb-kubernetes-init-database:latest",
 		VolumeMounts: expectedVolumeMounts,
 		SecurityContext: &corev1.SecurityContext{
 			ReadOnlyRootFilesystem:   ptr.To(true),

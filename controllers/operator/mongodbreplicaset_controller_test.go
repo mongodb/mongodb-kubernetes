@@ -102,8 +102,8 @@ func TestReplicaSetClusterReconcileContainerImages(t *testing.T) {
 	initDatabaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_2_0_0", util.InitDatabaseImageUrlEnv)
 
 	imageUrlsMock := images.ImageUrls{
-		databaseRelatedImageEnv:     "quay.io/mongodb/mongodb-enterprise-database:@sha256:MONGODB_DATABASE",
-		initDatabaseRelatedImageEnv: "quay.io/mongodb/mongodb-enterprise-init-database:@sha256:MONGODB_INIT_DATABASE",
+		databaseRelatedImageEnv:     "quay.io/mongodb/mongodb-kubernetes-database:@sha256:MONGODB_DATABASE",
+		initDatabaseRelatedImageEnv: "quay.io/mongodb/mongodb-kubernetes-init-database:@sha256:MONGODB_INIT_DATABASE",
 	}
 
 	ctx := context.Background()
@@ -119,8 +119,8 @@ func TestReplicaSetClusterReconcileContainerImages(t *testing.T) {
 	require.Len(t, sts.Spec.Template.Spec.InitContainers, 1)
 	require.Len(t, sts.Spec.Template.Spec.Containers, 1)
 
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-database:@sha256:MONGODB_INIT_DATABASE", sts.Spec.Template.Spec.InitContainers[0].Image)
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-database:@sha256:MONGODB_DATABASE", sts.Spec.Template.Spec.Containers[0].Image)
+	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-database:@sha256:MONGODB_INIT_DATABASE", sts.Spec.Template.Spec.InitContainers[0].Image)
+	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-database:@sha256:MONGODB_DATABASE", sts.Spec.Template.Spec.Containers[0].Image)
 }
 
 func TestReplicaSetClusterReconcileContainerImagesWithStaticArchitecture(t *testing.T) {

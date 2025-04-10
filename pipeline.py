@@ -616,7 +616,7 @@ def get_supported_variants_for_image(image: str) -> List[str]:
 
 def image_config(
     image_name: str,
-    name_prefix: str = "mongodb-enterprise-",
+    name_prefix: str = "mongodb-kubernetes-",
     s3_bucket: str = "enterprise-operator-dockerfiles",
     ubi_suffix: str = "-ubi",
     base_suffix: str = "",
@@ -642,14 +642,13 @@ def args_for_daily_image(image_name: str) -> Dict[str, str]:
     This includes the quay_registry and ospid corresponding to RedHat's project id.
     """
     image_configs = [
-        image_config("appdb"),
         image_config("database"),
         image_config("init-appdb"),
-        image_config("agent"),
+        image_config("agent", name_prefix="mongodb-enterprise-"),
         image_config("init-database"),
         image_config("init-ops-manager"),
         image_config("operator"),
-        image_config("ops-manager"),
+        image_config("ops-manager", name_prefix="mongodb-enterprise-"),
         image_config("mongodb-agent", name_prefix="", ubi_suffix="-ubi", base_suffix="-ubi"),
         image_config(
             image_name="mongodb-kubernetes-operator",

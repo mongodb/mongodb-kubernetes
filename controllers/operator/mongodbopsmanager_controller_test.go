@@ -471,13 +471,13 @@ func TestOpsManagerReconcileContainerImages(t *testing.T) {
 
 	imageUrlsMock := images.ImageUrls{
 		// Ops manager & backup deamon images
-		initOpsManagerRelatedImageEnv: "quay.io/mongodb/mongodb-enterprise-init-ops-manager:@sha256:MONGODB_INIT_APPDB",
+		initOpsManagerRelatedImageEnv: "quay.io/mongodb/mongodb-kubernetes-init-ops-manager:@sha256:MONGODB_INIT_APPDB",
 		opsManagerRelatedImageEnv:     "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER",
 
 		// AppDB images
 		mcoConstruct.AgentImageEnv: "quay.io/mongodb/mongodb-agent@sha256:AGENT_SHA", // In non-static architecture, this env var holds full container image uri
 		mongodbRelatedImageEnv:     "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA",
-		initAppdbRelatedImageEnv:   "quay.io/mongodb/mongodb-enterprise-init-appdb@sha256:INIT_APPDB_SHA",
+		initAppdbRelatedImageEnv:   "quay.io/mongodb/mongodb-kubernetes-init-appdb@sha256:INIT_APPDB_SHA",
 	}
 
 	ctx := context.Background()
@@ -506,7 +506,7 @@ func TestOpsManagerReconcileContainerImages(t *testing.T) {
 			require.Len(t, sts.Spec.Template.Spec.InitContainers, 1)
 			require.Len(t, sts.Spec.Template.Spec.Containers, 1)
 
-			assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-ops-manager:@sha256:MONGODB_INIT_APPDB", sts.Spec.Template.Spec.InitContainers[0].Image)
+			assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-ops-manager:@sha256:MONGODB_INIT_APPDB", sts.Spec.Template.Spec.InitContainers[0].Image)
 			assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER", sts.Spec.Template.Spec.Containers[0].Image)
 		})
 	}
@@ -518,7 +518,7 @@ func TestOpsManagerReconcileContainerImages(t *testing.T) {
 	require.Len(t, appDBSts.Spec.Template.Spec.InitContainers, 1)
 	require.Len(t, appDBSts.Spec.Template.Spec.Containers, 3)
 
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-appdb@sha256:INIT_APPDB_SHA", appDBSts.Spec.Template.Spec.InitContainers[0].Image)
+	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-appdb@sha256:INIT_APPDB_SHA", appDBSts.Spec.Template.Spec.InitContainers[0].Image)
 	assert.Equal(t, "quay.io/mongodb/mongodb-agent@sha256:AGENT_SHA", appDBSts.Spec.Template.Spec.Containers[0].Image)
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA", appDBSts.Spec.Template.Spec.Containers[1].Image)
 	// Version from the mapping file (agent version + operator version)

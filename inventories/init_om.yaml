@@ -1,5 +1,5 @@
 vars:
-  quay_registry: quay.io/mongodb/mongodb-enterprise-init-ops-manager
+  quay_registry: quay.io/mongodb/mongodb-kubernetes-init-ops-manager
   s3_bucket: s3://enterprise-operator-dockerfiles/dockerfiles/mongodb-enterprise-init-ops-manager
 
 images:
