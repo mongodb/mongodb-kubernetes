@@ -995,6 +995,11 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
                     api_client=api_client,
                 )
 
+    def update_version_manifest(self):
+        major_version = self.get_version()[:3]
+        tester = self.get_om_tester()
+        tester.api_update_version_manifest(major_version=major_version)
+
     def is_appdb_multi_cluster(self):
         return self["spec"].get("applicationDatabase", {}).get("topology", "") == "MultiCluster"
 

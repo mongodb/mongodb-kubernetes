@@ -64,6 +64,12 @@ def test_ops_manager_reaches_running_phase(ops_manager: MongoDBOpsManager):
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
 
+# Since this is running OM in local mode, and OM6 is EOL, the latest mongodb versions are not available, unless we manually update the version manifest
+@mark.e2e_om_localmode
+def test_update_om_version_manifest(ops_manager: MongoDBOpsManager):
+    ops_manager.update_version_manifest()
+
+
 @mark.e2e_om_localmode
 def test_replica_set_reaches_running_phase(replica_set: MongoDB):
     replica_set.update()

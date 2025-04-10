@@ -43,6 +43,7 @@ def replica_set(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_versi
 class TestOpsManagerCreation:
     def test_ops_manager_ready(self, ops_manager: MongoDBOpsManager):
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1000)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1000)
 
     def test_volume_mounts(self, ops_manager: MongoDBOpsManager):
         statefulset = ops_manager.read_statefulset()
@@ -74,6 +75,10 @@ class TestOpsManagerCreation:
 
     def test_add_mongodb_distros(self, ops_manager: MongoDBOpsManager, custom_mdb_version: str):
         ops_manager.download_mongodb_binaries(custom_mdb_version)
+
+    # Since this is running OM in local mode, and OM6 is EOL, the latest mongodb versions are not available, unless we manually update the version manifest
+    def test_update_om_version_manifest(self, ops_manager: MongoDBOpsManager):
+        ops_manager.update_version_manifest()
 
     def test_replica_set_reaches_running_phase(self, replica_set: MongoDB):
         # note that the Replica Set may sometimes still get to Failed error
