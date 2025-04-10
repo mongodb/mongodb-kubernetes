@@ -5,7 +5,7 @@ vars:
 images:
 - name: database
   vars:
-    context: docker/mongodb-enterprise-database
+    context: docker/mongodb-kubernetes-database
   platform: linux/amd64
 
   stages:

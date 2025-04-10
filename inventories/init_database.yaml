@@ -6,7 +6,7 @@ images:
 - name: init-database
   vars:
     context: .
-    template_context: docker/mongodb-enterprise-init-database
+    template_context: docker/mongodb-kubernetes-init-database
   platform: linux/amd64
 
   stages:

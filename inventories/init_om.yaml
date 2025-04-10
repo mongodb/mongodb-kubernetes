@@ -5,7 +5,7 @@ vars:
 images:
 - name: init-ops-manager
   vars:
-    context: docker/mongodb-enterprise-init-ops-manager
+    context: docker/mongodb-kubernetes-init-ops-manager
   platform: linux/amd64
 
   stages:
