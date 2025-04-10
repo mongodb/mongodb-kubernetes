@@ -269,4 +269,7 @@ dump_namespace() {
 
     # shellcheck disable=SC2046
     kubectl describe $(kubectl get crd -o name | grep mongodb.com) > "logs/${prefix}z_mongodb_crds.log"
+
+    kubectl describe nodes > "logs/${prefix}z_nodes_detailed.log" || true
+
 }
