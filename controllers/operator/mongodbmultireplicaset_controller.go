@@ -457,7 +457,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      apiKeySecretName,
 				Namespace: mrs.Namespace,
-				Labels:    mongoDBMultiLabels(mrs.Name, mrs.Namespace),
+				Labels:    mrs.GetOwnerLabels(),
 			},
 			Data: secretByte,
 		}
@@ -499,7 +499,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			CurrentAgentAuthMechanism(currentAgentAuthMode),
 			CertificateHash(certHash),
 			InternalClusterHash(internalCertHash),
-			WithLabels(mongoDBMultiLabels(mrs.Name, mrs.Namespace)),
+			WithLabels(mrs.GetOwnerLabels()),
 			WithAdditionalMongodConfig(mrs.Spec.GetAdditionalMongodConfig()),
 			WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
 			WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
@@ -793,16 +793,7 @@ func getReplicaSetProcessIdsFromReplicaSets(replicaSetName string, deployment om
 	return processIds
 }
 
-func mongoDBMultiLabels(name, namespace string) map[string]string {
-	return map[string]string{
-		"controller":          "mongodb-enterprise-operator",
-		"mongodbmulticluster": fmt.Sprintf("%s-%s", namespace, name),
-	}
-}
-
 func getSRVService(mrs *mdbmultiv1.MongoDBMultiCluster) corev1.Service {
-	svcLabels := mongoDBMultiLabels(mrs.Name, mrs.Namespace)
-
 	additionalConfig := mrs.Spec.GetAdditionalMongodConfig()
 	port := additionalConfig.GetPortOrDefault()
 
@@ -810,7 +801,7 @@ func getSRVService(mrs *mdbmultiv1.MongoDBMultiCluster) corev1.Service {
 		SetName(fmt.Sprintf("%s-svc", mrs.Name)).
 		SetNamespace(mrs.Namespace).
 		SetSelector(mconstruct.PodLabel(mrs.Name)).
-		SetLabels(svcLabels).
+		SetLabels(mrs.GetOwnerLabels()).
 		SetPublishNotReadyAddresses(true).
 		AddPort(&corev1.ServicePort{Port: port, Name: "mongodb"}).
 		AddPort(&corev1.ServicePort{Port: create.GetNonEphemeralBackupPort(port), Name: "backup", TargetPort: intstr.IntOrString{IntVal: create.GetNonEphemeralBackupPort(port)}}).
@@ -848,14 +839,13 @@ func getExternalService(mrs *mdbmultiv1.MongoDBMultiCluster, clusterName string,
 
 func getService(mrs *mdbmultiv1.MongoDBMultiCluster, clusterName string, podNum int) corev1.Service {
 	svcLabels := map[string]string{
-		"statefulset.kubernetes.io/pod-name": dns.GetMultiPodName(mrs.Name, mrs.ClusterNum(clusterName), podNum),
-		"controller":                         "mongodb-enterprise-operator",
-		"mongodbmulticluster":                fmt.Sprintf("%s-%s", mrs.Namespace, mrs.Name),
+		appsv1.StatefulSetPodNameLabel: dns.GetMultiPodName(mrs.Name, mrs.ClusterNum(clusterName), podNum),
 	}
+	svcLabels = merge.StringToStringMap(svcLabels, mrs.GetOwnerLabels())
 
 	labelSelectors := map[string]string{
-		"statefulset.kubernetes.io/pod-name": dns.GetMultiPodName(mrs.Name, mrs.ClusterNum(clusterName), podNum),
-		"controller":                         "mongodb-enterprise-operator",
+		appsv1.StatefulSetPodNameLabel: dns.GetMultiPodName(mrs.Name, mrs.ClusterNum(clusterName), podNum),
+		util.OperatorLabelName:         util.OperatorName,
 	}
 
 	additionalConfig := mrs.Spec.GetAdditionalMongodConfig()
@@ -914,7 +904,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(ctx context.Context,
 		// ensure Headless service
 		headlessServiceName := mrs.MultiHeadlessServiceName(mrs.ClusterNum(e.ClusterName))
 		nameSpacedName := kube.ObjectKey(mrs.Namespace, headlessServiceName)
-		headlessService := create.BuildService(nameSpacedName, nil, ptr.To(headlessServiceName), nil, mrs.Spec.AdditionalMongodConfig.GetPortOrDefault(), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+		headlessService := create.BuildService(nameSpacedName, mrs, ptr.To(headlessServiceName), nil, mrs.Spec.AdditionalMongodConfig.GetPortOrDefault(), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
 		if err := ensureHeadlessService(ctx, client, headlessService, e.ClusterName); err != nil {
 			return err
 		}
@@ -1012,7 +1002,7 @@ func getHostnameOverrideConfigMap(mrs mdbmultiv1.MongoDBMultiCluster, clusterNum
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-hostname-override", mrs.Name),
 			Namespace: mrs.Namespace,
-			Labels:    mongoDBMultiLabels(mrs.Name, mrs.Namespace),
+			Labels:    mrs.GetOwnerLabels(),
 		},
 		Data: data,
 	}
@@ -1246,13 +1236,13 @@ func (r *ReconcileMongoDbMultiReplicaSet) deleteClusterResources(ctx context.Con
 	// cleanup resources in the namespace as the MongoDBMultiCluster with the corresponding label.
 	cleanupOptions := mdb.MongodbCleanUpOptions{
 		Namespace: mrs.Namespace,
-		Labels:    mongoDBMultiLabels(mrs.Name, mrs.Namespace),
+		Labels:    mrs.GetOwnerLabels(),
 	}
 
 	if err := c.DeleteAllOf(ctx, &corev1.Service{}, &cleanupOptions); err != nil {
 		errs = multierror.Append(errs, err)
 	} else {
-		log.Infof("Removed Serivces associated with %s/%s", mrs.Namespace, mrs.Name)
+		log.Infof("Removed Services associated with %s/%s", mrs.Namespace, mrs.Name)
 	}
 
 	if err := c.DeleteAllOf(ctx, &appsv1.StatefulSet{}, &cleanupOptions); err != nil {

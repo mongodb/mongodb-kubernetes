@@ -15,10 +15,8 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	corev1 "k8s.io/api/core/v1"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
+	"github.com/10gen/ops-manager-kubernetes/api/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
 const stateKey = "state"
@@ -29,6 +27,7 @@ const stateKey = "state"
 type StateStore[S any] struct {
 	namespace    string
 	resourceName string
+	ownerLabels  map[string]string
 	client       kubernetesClient.Client
 
 	data map[string]string
@@ -37,10 +36,12 @@ type StateStore[S any] struct {
 // NewStateStore constructs a new instance of the StateStore.
 // It is intended to be instantiated with each execution of the Reconcile method and therefore it is not
 // designed to be thread safe.
-func NewStateStore[S any](namespace string, resourceName string, client kubernetesClient.Client) *StateStore[S] {
+// - ownerName is used in the config map label to identify the owner of the config map. For AppDB it is the Ops Manager resource name
+func NewStateStore[S any](owner v1.ResourceOwner, client kubernetesClient.Client) *StateStore[S] {
 	return &StateStore[S]{
-		namespace:    namespace,
-		resourceName: resourceName,
+		namespace:    owner.GetNamespace(),
+		resourceName: owner.GetName(),
+		ownerLabels:  owner.GetOwnerLabels(),
 		client:       client,
 		data:         map[string]string{},
 	}
@@ -59,10 +60,7 @@ func (s *StateStore[S]) read(ctx context.Context) error {
 func (s *StateStore[S]) write(ctx context.Context, log *zap.SugaredLogger) error {
 	dataCM := configmap.Builder().
 		SetName(s.getStateConfigMapName()).
-		SetLabels(map[string]string{
-			construct.ControllerLabelName:   util.OperatorName,
-			mdbv1.LabelMongoDBResourceOwner: s.resourceName,
-		}).
+		SetLabels(s.ownerLabels).
 		SetNamespace(s.namespace).
 		SetData(s.data).
 		Build()

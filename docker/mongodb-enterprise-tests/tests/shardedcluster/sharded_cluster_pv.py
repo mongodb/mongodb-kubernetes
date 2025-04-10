@@ -149,7 +149,7 @@ class TestShardedClusterDeletion:
     def test_sharded_cluster_doesnt_exist(self, sc: MongoDB, cluster_member_clients):
         def sts_are_deleted() -> bool:
             for cluster_member_client in cluster_member_clients:
-                sts = cluster_member_client.list_namespaced_stateful_set(sc.namespace)
+                sts = cluster_member_client.list_namespaced_stateful_sets(sc.namespace)
                 if len(sts.items) != 0:
                     return False
 

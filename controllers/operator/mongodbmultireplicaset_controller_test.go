@@ -32,7 +32,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status/pvc"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
@@ -542,8 +541,8 @@ func TestHeadlessServiceCreation(t *testing.T) {
 		assert.NoError(t, err)
 
 		expectedMap := map[string]string{
-			"app":                         mrs.MultiHeadlessServiceName(mrs.ClusterNum(item.ClusterName)),
-			construct.ControllerLabelName: util.OperatorName,
+			"app":                  mrs.MultiHeadlessServiceName(mrs.ClusterNum(item.ClusterName)),
+			util.OperatorLabelName: util.OperatorName,
 		}
 		assert.Equal(t, expectedMap, svc.Spec.Selector)
 	}
@@ -615,8 +614,7 @@ func TestResourceDeletion(t *testing.T) {
 			svcList := corev1.ServiceList{}
 			err := c.List(ctx, &svcList)
 			assert.NoError(t, err)
-			// temple-0-svc is leftover and not deleted since it does not contain the label: mongodbmulticluster -> my-namespace-temple
-			assert.Len(t, svcList.Items, 1)
+			assert.Empty(t, svcList.Items)
 		})
 
 		t.Run("Configmaps in each member cluster have been removed", func(t *testing.T) {
@@ -664,7 +662,7 @@ func TestGroupSecret_IsCopied_ToEveryMemberCluster(t *testing.T) {
 			s := corev1.Secret{}
 			err := c.Get(ctx, kube.ObjectKey(mrs.Namespace, fmt.Sprintf("%s-group-secret", om.TestGroupID)), &s)
 			assert.NoError(t, err)
-			assert.Equal(t, mongoDBMultiLabels(mrs.Name, mrs.Namespace), s.Labels)
+			assert.Equal(t, mrs.GetOwnerLabels(), s.Labels)
 		})
 	}
 }
