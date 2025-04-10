@@ -12,7 +12,7 @@ images:
   stages:
   - name: init-database-build-context
     task_type: docker_build
-    dockerfile: docker/mongodb-enterprise-init-database/Dockerfile.builder
+    dockerfile: docker/mongodb-kubernetes-init-database/Dockerfile.builder
     buildargs:
       mongodb_tools_url_ubi: $(inputs.params.mongodb_tools_url_ubi)
     output:
