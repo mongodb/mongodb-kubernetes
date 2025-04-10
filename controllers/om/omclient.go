@@ -1,11 +1,14 @@
 package om
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -57,6 +60,9 @@ type Connection interface {
 	UpdateProject(project *Project) (*Project, error)
 
 	ReadAgentVersion() (AgentsVersionsResponse, error)
+
+	GetPreferredHostnames(agentApiKey string) ([]PreferredHostname, error)
+	AddPreferredHostname(agentApiKey string, value string, isRegexp bool) error
 
 	backup.GroupConfigReader
 	backup.GroupConfigUpdater
@@ -929,6 +935,49 @@ func (oc *HTTPOmConnection) ReadAgentVersion() (AgentsVersionsResponse, error) {
 	return *agentsVersions, nil
 }
 
+type PreferredHostname struct {
+	Regexp   bool   `json:"regexp"`
+	EndsWith bool   `json:"endsWith"`
+	Id       string `json:"id"`
+	Value    string `json:"value"`
+}
+
+type GroupInfoResponse struct {
+	PreferredHostnames []PreferredHostname `json:"preferredHostnames"`
+}
+
+// GetPreferredHostnames will call the info endpoint with the agent API key.
+// We extract only the preferred hostnames from the response.
+func (oc *HTTPOmConnection) GetPreferredHostnames(agentApiKey string) ([]PreferredHostname, error) {
+	infoPath := fmt.Sprintf("/group/v2/info/%s", oc.GroupID())
+	body, err := oc.getWithAgentAuth(infoPath, agentApiKey)
+	if err != nil {
+		return nil, err
+	}
+
+	groupInfo := &GroupInfoResponse{}
+	if err := json.Unmarshal(body, groupInfo); err != nil {
+		return nil, err
+	}
+
+	return groupInfo.PreferredHostnames, nil
+}
+
+// AddPreferredHostname will add a new preferred hostname.
+// This does not check for duplicates. That needs to be checked in the consumer of this method.
+// Here we also use the agent API key, so we need to configure basic auth.
+// isRegex is true if the preferred hostnames is a regex, and false if it is "endsWith".
+// We pass only "isRegex" to eliminate edge cases where both are set to the same value.
+func (oc *HTTPOmConnection) AddPreferredHostname(agentApiKey string, value string, isRegexp bool) error {
+	path := fmt.Sprintf("/group/v2/addPreferredHostname/%s?value=%s&isRegexp=%s&isEndsWith=%s",
+		oc.GroupID(), value, strconv.FormatBool(isRegexp), strconv.FormatBool(!isRegexp))
+	_, err := oc.getWithAgentAuth(path, agentApiKey)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 //********************************** Private methods *******************************************************************
 
 func (oc *HTTPOmConnection) get(path string) ([]byte, error) {
@@ -959,11 +1008,19 @@ func (oc *HTTPOmConnection) httpVerb(method, path string, v interface{}) ([]byte
 	}
 
 	response, header, err := client.Request(method, oc.BaseURL(), path, v)
-	if header != nil {
-		oc.context.Version = versionutil.OpsManagerVersion{
-			VersionString: versionutil.GetVersionFromOpsManagerApiHeader(header.Get("X-MongoDB-Service-Version")),
-		}
+	oc.setVersionFromHeader(header)
+
+	return response, err
+}
+
+func (oc *HTTPOmConnection) getWithAgentAuth(path string, agentApiKey string) ([]byte, error) {
+	client, err := oc.getHTTPClient()
+	if err != nil {
+		return nil, err
 	}
+
+	response, header, err := client.RequestWithAgentAuth("GET", oc.BaseURL(), path, oc.getAgentAuthorization(agentApiKey), nil)
+	oc.setVersionFromHeader(header)
 
 	return response, err
 }
@@ -996,4 +1053,19 @@ func (oc *HTTPOmConnection) getHTTPClient() (*api.Client, error) {
 	})
 
 	return oc.client, err
+}
+
+// getAgentAuthorization generates the basic authorization header
+func (oc *HTTPOmConnection) getAgentAuthorization(agentApiKey string) string {
+	credentials := oc.GroupID() + ":" + agentApiKey
+	encodedCredentials := base64.StdEncoding.EncodeToString([]byte(credentials))
+	return "Basic " + encodedCredentials
+}
+
+func (oc *HTTPOmConnection) setVersionFromHeader(header http.Header) {
+	if header != nil {
+		oc.context.Version = versionutil.OpsManagerVersion{
+			VersionString: versionutil.GetVersionFromOpsManagerApiHeader(header.Get("X-MongoDB-Service-Version")),
+		}
+	}
 }

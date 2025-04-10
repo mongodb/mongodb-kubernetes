@@ -462,7 +462,21 @@ def get_custom_om_version():
 def default_operator(
     namespace: str,
     operator_installation_config: Dict[str, str],
+    central_cluster_name: str,
+    multi_cluster_operator_installation_config: Dict[str, str],
+    central_cluster_client: client.ApiClient,
+    member_cluster_clients: List[MultiClusterClient],
+    member_cluster_names: List[str],
 ) -> Operator:
+    if is_multi_cluster():
+        return get_multi_cluster_operator(
+            namespace,
+            central_cluster_name,
+            multi_cluster_operator_installation_config,
+            central_cluster_client,
+            member_cluster_clients,
+            member_cluster_names,
+        )
     return get_default_operator(namespace, operator_installation_config)
 
 
@@ -1379,12 +1393,23 @@ def update_coredns_hosts(
     host_mappings: list[tuple[str, str]],
     cluster_name: Optional[str] = None,
     api_client: Optional[kubernetes.client.ApiClient] = None,
+    additional_rules: list[str] = None,
 ):
     """Updates kube-system/coredns config map with given host_mappings."""
 
-    indent = " " * 7
-    mapping_string = "\n".join([f"{indent}{host_mapping[0]} {host_mapping[1]}" for host_mapping in host_mappings])
-    config_data = {"Corefile": coredns_config("interconnected", mapping_string)}
+    mapping_indent = " " * 7
+    mapping_string = "\n".join(
+        [f"{mapping_indent}{host_mapping[0]} {host_mapping[1]}" for host_mapping in host_mappings]
+    )
+
+    additional_rules_string = None
+    if additional_rules is not None:
+        additional_rules_indent = " " * 4
+        additional_rules_string = "\n" + "\n".join(
+            [f"{additional_rules_indent}{additional_rule}" for additional_rule in additional_rules]
+        )
+
+    config_data = {"Corefile": coredns_config("interconnected", mapping_string, additional_rules_string)}
 
     if cluster_name is None:
         cluster_name = LEGACY_CENTRAL_CLUSTER_NAME
@@ -1393,7 +1418,7 @@ def update_coredns_hosts(
     update_configmap("kube-system", "coredns", config_data, api_client=api_client)
 
 
-def coredns_config(tld: str, mappings: str):
+def coredns_config(tld: str, mappings: str, additional_rules: str = None):
     """Returns coredns config map data with mappings inserted."""
     return f"""
 .:53 {{
@@ -1415,7 +1440,7 @@ def coredns_config(tld: str, mappings: str):
     loop
     reload
     loadbalance
-    debug
+    debug{additional_rules or ""}
     hosts /etc/coredns/customdomains.db   {tld} {{
 {mappings}
        ttl 10
@@ -1433,6 +1458,7 @@ def create_appdb_certs(
     cluster_index_with_members: list[tuple[int, int]] = None,
     cert_prefix="appdb",
     clusterwide: bool = False,
+    additional_domains: Optional[List[str]] = None,
 ) -> str:
     if cluster_index_with_members is None:
         cluster_index_with_members = [(0, 1), (1, 2)]
@@ -1452,9 +1478,17 @@ def create_appdb_certs(
             service_fqdns=service_fqdns,
             namespace=namespace,
             clusterwide=clusterwide,
+            additional_domains=additional_domains,
         )
     else:
-        create_mongodb_tls_certs(issuer, namespace, appdb_name, appdb_cert_name, clusterwide=clusterwide)
+        create_mongodb_tls_certs(
+            issuer,
+            namespace,
+            appdb_name,
+            appdb_cert_name,
+            clusterwide=clusterwide,
+            additional_domains=additional_domains,
+        )
 
     return cert_prefix
 

@@ -102,51 +102,117 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         tester.assert_group_exists()
         return tester.api_get_hosts()["results"]
 
-    def assert_appdb_monitoring_group_was_created(self):
+    def get_appdb_preferred_hostnames(self):
         tester = self.get_om_tester(self.app_db_name())
-        tester.assert_group_exists()
-        hosts = tester.api_get_hosts()["results"]
+        return tester.api_get_preferred_hostnames()
 
-        appdb_resource = self.get_appdb_resource()
-        resource_name = appdb_resource["metadata"]["name"]
-        service_name = f"{resource_name}-svc"
-        namespace = appdb_resource["metadata"]["namespace"]
+    def assert_appdb_preferred_hostnames_are_added(self):
+        def appdb_preferred_hostnames_are_added():
+            expected_hostnames = self.get_appdb_hostnames_for_monitoring()
+            preferred_hostnames = self.get_appdb_preferred_hostnames()
 
-        appdb_hostnames = []
-        if self.is_appdb_multi_cluster():
-            for (
-                _,
-                hostname,
-            ) in self.get_appdb_hostnames_for_monitoring_in_member_clusters():
-                appdb_hostnames.append(hostname)
-        else:
-            for index in range(appdb_resource["spec"]["members"]):
-                appdb_hostnames.append(f"{service_name}.{namespace}.svc.cluster.local")
-                appdb_hostnames.append(f"{resource_name}-{index}.{service_name}.{namespace}.svc.cluster.local")
+            if len(preferred_hostnames) != len(expected_hostnames):
+                return False
 
-        def agents_have_registered() -> bool:
-            monitoring_agents = tester.api_read_monitoring_agents()
-            expected_number_of_agents_in_standby = (
-                len([agent for agent in monitoring_agents if agent["stateName"] == "STANDBY"])
-                == self.get_appdb_members_count() - 1
-            )
-            expected_number_of_agents_are_active = (
-                len([agent for agent in monitoring_agents if agent["stateName"] == "ACTIVE"]) == 1
-            )
-            return expected_number_of_agents_in_standby and expected_number_of_agents_are_active
-
-        KubernetesTester.wait_until(agents_have_registered, timeout=-1, sleep_time=5)
-
-        def agent_have_registered_hostnames() -> bool:
-            registered_automation_agents = tester.api_read_automation_agents()
-            assert len(registered_automation_agents) == 0
-            registered_agents = tester.api_read_monitoring_agents()
-            for ra in registered_agents:
-                if ra["hostname"] not in appdb_hostnames:
+            for hostname in preferred_hostnames:
+                if hostname["value"] not in expected_hostnames:
                     return False
             return True
 
-        KubernetesTester.wait_until(agent_have_registered_hostnames, timeout=600, sleep_time=5)
+        KubernetesTester.wait_until(appdb_preferred_hostnames_are_added, timeout=120, sleep_time=5)
+
+    def assert_appdb_hostnames_are_correct(self):
+        def appdb_hostnames_are_correct():
+            expected_hostnames = self.get_appdb_hostnames_for_monitoring()
+            hosts = self.get_appdb_hosts()
+
+            if len(hosts) != len(expected_hostnames):
+                return False
+
+            for host in hosts:
+                if host["hostname"] not in expected_hostnames:
+                    return False
+            return True
+
+        KubernetesTester.wait_until(appdb_hostnames_are_correct, timeout=300, sleep_time=10)
+
+    def assert_appdb_monitoring_group_was_created(self):
+        tester = self.get_om_tester(self.app_db_name())
+        tester.assert_group_exists()
+
+        appdb_hostnames = self.get_appdb_hostnames_for_monitoring()
+
+        def monitoring_agents_have_registered() -> bool:
+            monitoring_agents = tester.api_read_monitoring_agents()
+            appdb_monitoring_agents = [a for a in monitoring_agents if a["hostname"] in appdb_hostnames]
+            expected_number_of_agents = len(appdb_monitoring_agents) == self.get_appdb_members_count()
+
+            expected_number_of_agents_in_standby = (
+                len([agent for agent in appdb_monitoring_agents if agent["stateName"] == "STANDBY"])
+                == self.get_appdb_members_count() - 1
+            )
+            expected_number_of_agents_are_active = (
+                len([agent for agent in appdb_monitoring_agents if agent["stateName"] == "ACTIVE"]) == 1
+            )
+
+            return (
+                expected_number_of_agents
+                and expected_number_of_agents_in_standby
+                and expected_number_of_agents_are_active
+            )
+
+        KubernetesTester.wait_until(monitoring_agents_have_registered, timeout=600, sleep_time=5)
+
+        def no_automation_agents_have_registered() -> bool:
+            automation_agents = tester.api_read_automation_agents()
+            appdb_automation_agents = [a for a in automation_agents if a["hostname"] in appdb_hostnames]
+            return len(appdb_automation_agents) == 0
+
+        KubernetesTester.wait_until(no_automation_agents_have_registered, timeout=600, sleep_time=5)
+
+    def assert_monitoring_data_exists(
+        self, database_name: str = "admin", period: str = "P1DT12H", timeout: int = 120, all_hosts: bool = True
+    ):
+        """
+        Asserts the existence of monitoring measurements in this Ops Manager instance.
+        """
+        appdb_hosts = self.get_appdb_hosts()
+        host_ids = [host["id"] for host in appdb_hosts]
+        project_id = [host["groupId"] for host in appdb_hosts][0]
+        tester = self.get_om_tester()
+
+        def agent_is_showing_metrics():
+            for host_id in host_ids:
+                measurements = tester.api_read_monitoring_measurements(
+                    host_id,
+                    database_name=database_name,
+                    project_id=project_id,
+                    period=period,
+                )
+                if measurements is None and all_hosts:
+                    return False
+                elif measurements is None and not all_hosts:
+                    continue
+
+                found = False
+                for measurement in measurements:
+                    if len(measurement["dataPoints"]) > 0:
+                        found = True
+                        break
+
+                if all_hosts and not found:
+                    return False
+                elif not all_hosts and found:
+                    return True
+
+            if all_hosts:
+                return True
+            return False
+
+        KubernetesTester.wait_until(
+            agent_is_showing_metrics,
+            timeout=timeout,
+        )
 
     def get_appdb_resource(self) -> MongoDB:
         mdb = MongoDB(name=self.app_db_name(), namespace=self.namespace)
@@ -378,47 +444,42 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         return service_names_per_cluster
 
-    def get_appdb_hostnames_for_monitoring_in_member_clusters(
-        self,
-    ) -> list[tuple[str, str]]:
-        """Returns list of tuples (cluster_name, headless fqdn) ordered by cluster index.
-        Headless fqdn returned is equivalent to executing hostname -f on a pod.
-        Hostnames are generated according to member count in spec.applicationDatabase.clusterSpecList.
-        Clusters are ordered by cluster indexes in -cluster-mapping config map.
+    def get_appdb_hostnames_for_monitoring(self) -> list[str]:
         """
-        hostnames_per_cluster = []
-        for (
-            cluster_index,
-            cluster_spec_item,
-        ) in self.get_appdb_indexed_cluster_spec_items():
-            cluster_name = cluster_spec_item["clusterName"]
-            pod_names = multi_cluster_pod_names(
-                self.app_db_name(), [(cluster_index, int(cluster_spec_item["members"]))]
-            )
-            hostnames_per_cluster.extend(
-                [
-                    (
-                        cluster_name,
-                        f"{pod_name}.{self.app_db_sts_name(cluster_name)}-svc.{self.namespace}.svc.cluster.local",
-                    )
-                    for pod_name in pod_names
-                ]
-            )
-            # Some Automation Agent's version tend to ignore the "overrideLocalHost" parameter. That's why
-            # we need to append all items in both formats (respecting and not respecting it)
-            hostnames_per_cluster.extend(
-                [
-                    (
-                        cluster_name,
-                        f"{pod_name}-svc.{self.namespace}.svc.cluster.local",
-                    )
-                    for pod_name in pod_names
-                ]
-            )
+        Returns list of hostnames for appdb members.
+        In case of multicluster appdb, hostnames are generated from the pod service fqdn.
+        In case of single cluster, the hostnames use the headless service.
+        """
+        hostnames = []
+        appdb_resource = self.get_appdb_resource()
+        external_domain = appdb_resource["spec"].get("externalAccess", {}).get("externalDomain")
+        if self.is_appdb_multi_cluster():
+            for cluster_index, cluster_spec_item in self.get_appdb_indexed_cluster_spec_items():
+                pod_names = multi_cluster_pod_names(
+                    self.app_db_name(), [(cluster_index, int(cluster_spec_item["members"]))]
+                )
 
-        return hostnames_per_cluster
+                cluster_external_domain = cluster_spec_item.get("externalAccess", {}).get(
+                    "externalDomain", external_domain
+                )
+                if cluster_external_domain is not None:
+                    hostnames.extend([f"{pod_name}.{cluster_external_domain}" for pod_name in pod_names])
+                else:
+                    hostnames.extend([f"{pod_name}-svc.{self.namespace}.svc.cluster.local" for pod_name in pod_names])
+        else:
+            resource_name = appdb_resource["metadata"]["name"]
+            service_name = f"{resource_name}-svc"
+            namespace = appdb_resource["metadata"]["namespace"]
 
-    def get_appdb_indexed_cluster_spec_items(self) -> list[tuple[int, dict[str, str]]]:
+            for index in range(appdb_resource["spec"]["members"]):
+                if external_domain is not None:
+                    hostnames.append(f"{resource_name}-{index}.{external_domain}")
+                else:
+                    hostnames.append(f"{resource_name}-{index}.{service_name}.{namespace}.svc.cluster.local")
+
+        return hostnames
+
+    def get_appdb_indexed_cluster_spec_items(self) -> list[tuple[int, dict[str, any]]]:
         """Returns ordered list (by cluster index) of tuples (cluster index, clusterSpecItem) from spec.applicationDatabase.clusterSpecList.
         Cluster indexes are read from -cluster-mapping config map.
         """
@@ -646,6 +707,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         api_client: Optional[kubernetes.client.ApiClient] = None,
     ) -> OMTester:
         """Returns the instance of OMTester helping to check the state of Ops Manager deployed in Kubernetes."""
+        agent_api_key = self.agent_api_key(api_client)
         api_key_secret = read_secret(
             KubernetesTester.get_namespace(),
             self.api_key_secret(KubernetesTester.get_namespace(), api_client=api_client),
@@ -659,6 +721,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
                 api_key_secret["user"],
                 api_key_secret["publicApiKey"],
                 project_name=project_name,
+                agent_api_key=agent_api_key,
             )
         else:
             om_context = OMContext(
@@ -666,6 +729,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
                 api_key_secret["publicKey"],
                 api_key_secret["privateKey"],
                 project_name=project_name,
+                agent_api_key=agent_api_key,
             )
         return OMTester(om_context)
 
@@ -772,6 +836,8 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         return "MongoDBOpsManager| status:".format(self.get_status())
 
     def get_appdb_members_count(self) -> int:
+        if self.is_appdb_multi_cluster():
+            return sum(i[1] for i in self.get_appdb_member_cluster_indexes_with_member_count())
         return self["spec"]["applicationDatabase"]["members"]
 
     def get_appdb_connection_url_secret_name(self):
@@ -823,6 +889,21 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
                 return "{}-{}-admin-key".format(self.namespace, self.name)
 
         return old_secret_name
+
+    def agent_api_key(self, api_client: Optional[kubernetes.client.ApiClient] = None) -> str:
+        secret_name = None
+        member_cluster = self.pick_one_appdb_member_cluster_name()
+        appdb_sts = self.read_appdb_statefulset(member_cluster_name=member_cluster)
+
+        for volume in appdb_sts.spec.template.spec.volumes:
+            if volume.name == "agent-api-key":
+                secret_name = volume.secret.secret_name
+                break
+
+        if secret_name == None:
+            return None
+
+        return read_secret(self.namespace, secret_name, get_member_cluster_api_client(member_cluster))["agentApiKey"]
 
     def om_sts_name(self, member_cluster_name: Optional[str] = None) -> str:
         if is_member_cluster(member_cluster_name):

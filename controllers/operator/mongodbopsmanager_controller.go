@@ -902,6 +902,11 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulsetInMemberCluster(ctx co
 		vaultConfig = r.VaultClient.VaultConfig
 	}
 
+	debugPort, err := opsManager.Spec.DebugPort()
+	if err != nil {
+		log.Debugf("Error while retrieving debug port for Ops Manager: %s", err)
+	}
+
 	clusterSpecItem := reconcilerHelper.getClusterSpecOMItem(memberCluster.Name)
 	sts, err := construct.OpsManagerStatefulSet(ctx, r.SecretClient, opsManager, memberCluster, log,
 		construct.WithInitOpsManagerImage(initOpsManagerImage),
@@ -911,12 +916,13 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulsetInMemberCluster(ctx co
 		construct.WithKmipConfig(ctx, opsManager, memberCluster.Client, log),
 		construct.WithStsOverride(clusterSpecItem.GetStatefulSetSpecOverride()),
 		construct.WithReplicas(reconcilerHelper.OpsManagerMembersForMemberCluster(memberCluster)),
+		construct.WithDebugPort(debugPort),
 	)
 	if err != nil {
 		return workflow.Failed(xerrors.Errorf("error building OpsManager stateful set: %w", err))
 	}
 
-	if err := create.OpsManagerInKubernetes(ctx, memberCluster.Client, opsManager, sts, log); err != nil {
+	if err := create.OpsManagerInKubernetes(ctx, memberCluster, opsManager, sts, log); err != nil {
 		return workflow.Failed(err)
 	}
 

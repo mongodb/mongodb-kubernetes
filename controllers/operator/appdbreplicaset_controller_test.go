@@ -15,11 +15,13 @@ import (
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
@@ -28,6 +30,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/scalers"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
@@ -38,6 +41,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/secret"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/pkg/agentVersionManagement"
+	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -351,7 +355,7 @@ func TestEnsureAppDbAgentApiKey(t *testing.T) {
 	require.NoError(t, err)
 
 	omConnectionFactory.GetConnection().(*om.MockedOmConnection).AgentAPIKey = "my-api-key"
-	err = reconciler.ensureAppDbAgentApiKey(ctx, opsManager, omConnectionFactory.GetConnection(), omConnectionFactory.GetConnection().GroupID(), zap.S())
+	_, err = reconciler.ensureAppDbAgentApiKey(ctx, opsManager, omConnectionFactory.GetConnection(), omConnectionFactory.GetConnection().GroupID(), zap.S())
 	assert.NoError(t, err)
 
 	secretName := agents.ApiKeySecretName(omConnectionFactory.GetConnection().GroupID())
@@ -407,8 +411,15 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 	assert.Equal(t, om.TestGroupID, podVars.ProjectID)
 	assert.Equal(t, "publicApiKey", podVars.User)
 
-	hosts, _ := omConnectionFactory.GetConnection().GetHosts()
-	assert.Len(t, hosts.Results, 5, "the AppDB hosts should have been added")
+	expectedHostnames := []string{
+		"test-om-db-0.test-om-db-svc.my-namespace.svc.cluster.local",
+		"test-om-db-1.test-om-db-svc.my-namespace.svc.cluster.local",
+		"test-om-db-2.test-om-db-svc.my-namespace.svc.cluster.local",
+		"test-om-db-3.test-om-db-svc.my-namespace.svc.cluster.local",
+		"test-om-db-4.test-om-db-svc.my-namespace.svc.cluster.local",
+	}
+
+	assertExpectedHostnamesAndPreferred(t, omConnectionFactory.GetConnection().(*om.MockedOmConnection), expectedHostnames)
 
 	appDbSts, err = construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, v1.OnDeleteStatefulSetStrategyType, zap.S())
 	assert.NoError(t, err)
@@ -494,6 +505,561 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 		assert.Equal(t, 2, foundImages)
 		assert.Equal(t, 2, len(appDbSts.Spec.Template.Spec.Containers))
 	})
+}
+
+func TestTryConfigureMonitoringInOpsManagerWithExternalDomains(t *testing.T) {
+	ctx := context.Background()
+	opsManager := DefaultOpsManagerBuilder().
+		SetAppDbExternalAccess(mdb.ExternalAccessConfiguration{
+			ExternalDomain: ptr.To("custom.domain"),
+		}).Build()
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
+	appdbScaler := scalers.GetAppDBScaler(opsManager, multicluster.LegacyCentralClusterName, 0, nil)
+	reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
+	require.NoError(t, err)
+
+	// attempt configuring monitoring when there is no api key secret
+	podVars, err := reconciler.tryConfigureMonitoringInOpsManager(ctx, opsManager, "password", zap.S())
+	assert.NoError(t, err)
+
+	assert.Empty(t, podVars.ProjectID)
+	assert.Empty(t, podVars.User)
+
+	opsManager.Spec.AppDB.Members = 5
+	appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, v1.OnDeleteStatefulSetStrategyType, zap.S())
+	assert.NoError(t, err)
+
+	assert.Nil(t, findVolumeByName(appDbSts.Spec.Template.Spec.Volumes, construct.AgentAPIKeyVolumeName))
+
+	_ = kubeClient.Update(ctx, &appDbSts)
+
+	data := map[string]string{
+		util.OmPublicApiKey: "publicApiKey",
+		util.OmPrivateKey:   "privateApiKey",
+	}
+	APIKeySecretName, err := opsManager.APIKeySecretName(ctx, secrets.SecretClient{KubeClient: kubeClient}, "")
+	assert.NoError(t, err)
+
+	apiKeySecret := secret.Builder().
+		SetNamespace(operatorNamespace()).
+		SetName(APIKeySecretName).
+		SetStringMapToData(data).
+		Build()
+
+	err = reconciler.client.CreateSecret(ctx, apiKeySecret)
+	assert.NoError(t, err)
+
+	// once the secret exists, monitoring should be fully configured
+	podVars, err = reconciler.tryConfigureMonitoringInOpsManager(ctx, opsManager, "password", zap.S())
+	assert.NoError(t, err)
+
+	assert.Equal(t, om.TestGroupID, podVars.ProjectID)
+	assert.Equal(t, "publicApiKey", podVars.User)
+
+	expectedHostnames := []string{
+		"test-om-db-0.custom.domain",
+		"test-om-db-1.custom.domain",
+		"test-om-db-2.custom.domain",
+		"test-om-db-3.custom.domain",
+		"test-om-db-4.custom.domain",
+	}
+
+	assertExpectedHostnamesAndPreferred(t, omConnectionFactory.GetConnection().(*om.MockedOmConnection), expectedHostnames)
+
+	appDbSts, err = construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, v1.OnDeleteStatefulSetStrategyType, zap.S())
+	assert.NoError(t, err)
+
+	assert.NotNil(t, findVolumeByName(appDbSts.Spec.Template.Spec.Volumes, construct.AgentAPIKeyVolumeName))
+}
+
+func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
+	tests := map[string]struct {
+		members                int
+		externalAccess         *mdb.ExternalAccessConfiguration
+		additionalMongodConfig *mdb.AdditionalMongodConfig
+		result                 map[int]corev1.Service
+	}{
+		"empty external access configured for one pod": {
+			members:        1,
+			externalAccess: &mdb.ExternalAccessConfiguration{},
+			result: map[int]corev1.Service{
+				0: {
+					ObjectMeta: metav1.ObjectMeta{
+						Name:            "test-om-db-0-svc-external",
+						Namespace:       "my-namespace",
+						ResourceVersion: "1",
+						Labels: map[string]string{
+							construct.ControllerLabelName:        util.OperatorName,
+							"statefulset.kubernetes.io/pod-name": "test-om-db-0",
+						},
+					},
+					Spec: corev1.ServiceSpec{
+						Type:                     "LoadBalancer",
+						PublishNotReadyAddresses: true,
+						Ports: []corev1.ServicePort{
+							{
+								Name: "mongodb",
+								Port: 27017,
+							},
+						},
+						Selector: map[string]string{
+							construct.ControllerLabelName:        util.OperatorName,
+							"statefulset.kubernetes.io/pod-name": "test-om-db-0",
+						},
+					},
+				},
+			},
+		},
+		"external access configured for two pods": {
+			members: 2,
+			externalAccess: &mdb.ExternalAccessConfiguration{
+				ExternalService: mdb.ExternalServiceConfiguration{
+					SpecWrapper: &common.ServiceSpecWrapper{
+						Spec: corev1.ServiceSpec{
+							Type: "LoadBalancer",
+							Ports: []corev1.ServicePort{
+								{
+									Name: "mongodb",
+									Port: 27017,
+								},
+								{
+									Name: "backup",
+									Port: 27018,
+								},
+								{
+									Name: "testing2",
+									Port: 27019,
+								},
+							},
+						},
+					},
+				},
+			},
+			result: map[int]corev1.Service{
+				0: {
+					ObjectMeta: metav1.ObjectMeta{
+						Name:            "test-om-db-0-svc-external",
+						Namespace:       "my-namespace",
+						ResourceVersion: "1",
+						Labels: map[string]string{
+							construct.ControllerLabelName:        util.OperatorName,
+							"statefulset.kubernetes.io/pod-name": "test-om-db-0",
+						},
+					},
+					Spec: corev1.ServiceSpec{
+						Type:                     "LoadBalancer",
+						PublishNotReadyAddresses: true,
+						Ports: []corev1.ServicePort{
+							{
+								Name: "mongodb",
+								Port: 27017,
+							},
+							{
+								Name: "backup",
+								Port: 27018,
+							},
+							{
+								Name: "testing2",
+								Port: 27019,
+							},
+						},
+						Selector: map[string]string{
+							construct.ControllerLabelName:        util.OperatorName,
+							"statefulset.kubernetes.io/pod-name": "test-om-db-0",
+						},
+					},
+				},
+				1: {
+					ObjectMeta: metav1.ObjectMeta{
+						Name:            "test-om-db-1-svc-external",
+						Namespace:       "my-namespace",
+						ResourceVersion: "1",
+						Labels: map[string]string{
+							construct.ControllerLabelName:        util.OperatorName,
+							"statefulset.kubernetes.io/pod-name": "test-om-db-1",
+						},
+					},
+					Spec: corev1.ServiceSpec{
+						Type:                     "LoadBalancer",
+						PublishNotReadyAddresses: true,
+						Ports: []corev1.ServicePort{
+							{
+								Name: "mongodb",
+								Port: 27017,
+							},
+							{
+								Name: "backup",
+								Port: 27018,
+							},
+							{
+								Name: "testing2",
+								Port: 27019,
+							},
+						},
+						Selector: map[string]string{
+							construct.ControllerLabelName:        util.OperatorName,
+							"statefulset.kubernetes.io/pod-name": "test-om-db-1",
+						},
+					},
+				},
+			},
+		},
+		"external domain configured for single pod in first cluster": {
+			members: 1,
+			externalAccess: &mdb.ExternalAccessConfiguration{
+				ExternalDomain: ptr.To("some.domain"),
+			},
+			result: map[int]corev1.Service{
+				0: {
+					ObjectMeta: metav1.ObjectMeta{
+						Name:            "test-om-db-0-svc-external",
+						Namespace:       "my-namespace",
+						ResourceVersion: "1",
+						Labels: map[string]string{
+							construct.ControllerLabelName:        util.OperatorName,
+							"statefulset.kubernetes.io/pod-name": "test-om-db-0",
+						},
+					},
+					Spec: corev1.ServiceSpec{
+						Type:                     "LoadBalancer",
+						PublishNotReadyAddresses: true,
+						Ports: []corev1.ServicePort{
+							{
+								Name: "mongodb",
+								Port: 27017,
+							},
+						},
+						Selector: map[string]string{
+							construct.ControllerLabelName:        util.OperatorName,
+							"statefulset.kubernetes.io/pod-name": "test-om-db-0",
+						},
+					},
+				},
+			},
+		},
+		"non default port set in additional mongod config": {
+			members:                1,
+			externalAccess:         &mdb.ExternalAccessConfiguration{},
+			additionalMongodConfig: mdb.NewAdditionalMongodConfig("net.port", 27027),
+			result: map[int]corev1.Service{
+				0: {
+					ObjectMeta: metav1.ObjectMeta{
+						Name:            "test-om-db-0-svc-external",
+						Namespace:       "my-namespace",
+						ResourceVersion: "1",
+						Labels: map[string]string{
+							construct.ControllerLabelName:        util.OperatorName,
+							"statefulset.kubernetes.io/pod-name": "test-om-db-0",
+						},
+					},
+					Spec: corev1.ServiceSpec{
+						Type:                     "LoadBalancer",
+						PublishNotReadyAddresses: true,
+						Ports: []corev1.ServicePort{
+							{
+								Name: "mongodb",
+								Port: 27027,
+							},
+						},
+						Selector: map[string]string{
+							construct.ControllerLabelName:        util.OperatorName,
+							"statefulset.kubernetes.io/pod-name": "test-om-db-0",
+						},
+					},
+				},
+			},
+		},
+		"external service of NodePort type set in first cluster": {
+			members: 1,
+			externalAccess: &mdb.ExternalAccessConfiguration{
+				ExternalService: mdb.ExternalServiceConfiguration{
+					SpecWrapper: &common.ServiceSpecWrapper{
+						Spec: corev1.ServiceSpec{
+							Type: "NodePort",
+							Ports: []corev1.ServicePort{
+								{
+									Name:     "mongodb",
+									Port:     27017,
+									NodePort: 30003,
+								},
+							},
+						},
+					},
+				},
+			},
+			result: map[int]corev1.Service{
+				0: {
+					ObjectMeta: metav1.ObjectMeta{
+						Name:            "test-om-db-0-svc-external",
+						Namespace:       "my-namespace",
+						ResourceVersion: "1",
+						Labels: map[string]string{
+							construct.ControllerLabelName:        util.OperatorName,
+							"statefulset.kubernetes.io/pod-name": "test-om-db-0",
+						},
+					},
+					Spec: corev1.ServiceSpec{
+						Type:                     "NodePort",
+						PublishNotReadyAddresses: true,
+						Ports: []corev1.ServicePort{
+							{
+								Name:     "mongodb",
+								Port:     27017,
+								NodePort: 30003,
+							},
+						},
+						Selector: map[string]string{
+							construct.ControllerLabelName:        util.OperatorName,
+							"statefulset.kubernetes.io/pod-name": "test-om-db-0",
+						},
+					},
+				},
+			},
+		},
+		"service with annotations with placeholders": {
+			members: 2,
+			externalAccess: &mdb.ExternalAccessConfiguration{
+				ExternalService: mdb.ExternalServiceConfiguration{
+					Annotations: map[string]string{
+						create.PlaceholderPodIndex:            "{podIndex}",
+						create.PlaceholderNamespace:           "{namespace}",
+						create.PlaceholderResourceName:        "{resourceName}",
+						create.PlaceholderPodName:             "{podName}",
+						create.PlaceholderStatefulSetName:     "{statefulSetName}",
+						create.PlaceholderExternalServiceName: "{externalServiceName}",
+						create.PlaceholderMongodProcessDomain: "{mongodProcessDomain}",
+						create.PlaceholderMongodProcessFQDN:   "{mongodProcessFQDN}",
+					},
+					SpecWrapper: &common.ServiceSpecWrapper{
+						Spec: corev1.ServiceSpec{
+							Type: "LoadBalancer",
+							Ports: []corev1.ServicePort{
+								{
+									Name: "mongodb",
+									Port: 27017,
+								},
+							},
+						},
+					},
+				},
+			},
+			result: map[int]corev1.Service{
+				0: {
+					ObjectMeta: metav1.ObjectMeta{
+						Name:            "test-om-db-0-svc-external",
+						Namespace:       "my-namespace",
+						ResourceVersion: "1",
+						Labels: map[string]string{
+							construct.ControllerLabelName:        util.OperatorName,
+							"statefulset.kubernetes.io/pod-name": "test-om-db-0",
+						},
+						Annotations: map[string]string{
+							create.PlaceholderPodIndex:            "0",
+							create.PlaceholderNamespace:           "my-namespace",
+							create.PlaceholderResourceName:        "test-om-db",
+							create.PlaceholderStatefulSetName:     "test-om-db",
+							create.PlaceholderPodName:             "test-om-db-0",
+							create.PlaceholderExternalServiceName: "test-om-db-0-svc-external",
+							create.PlaceholderMongodProcessDomain: "test-om-db-svc.my-namespace.svc.cluster.local",
+							create.PlaceholderMongodProcessFQDN:   "test-om-db-0.test-om-db-svc.my-namespace.svc.cluster.local",
+						},
+					},
+					Spec: corev1.ServiceSpec{
+						Type:                     "LoadBalancer",
+						PublishNotReadyAddresses: true,
+						Ports: []corev1.ServicePort{
+							{
+								Name: "mongodb",
+								Port: 27017,
+							},
+						},
+						Selector: map[string]string{
+							construct.ControllerLabelName:        util.OperatorName,
+							"statefulset.kubernetes.io/pod-name": "test-om-db-0",
+						},
+					},
+				},
+				1: {
+					ObjectMeta: metav1.ObjectMeta{
+						Name:            "test-om-db-1-svc-external",
+						Namespace:       "my-namespace",
+						ResourceVersion: "1",
+						Labels: map[string]string{
+							construct.ControllerLabelName:        util.OperatorName,
+							"statefulset.kubernetes.io/pod-name": "test-om-db-1",
+						},
+						Annotations: map[string]string{
+							create.PlaceholderPodIndex:            "1",
+							create.PlaceholderNamespace:           "my-namespace",
+							create.PlaceholderResourceName:        "test-om-db",
+							create.PlaceholderStatefulSetName:     "test-om-db",
+							create.PlaceholderPodName:             "test-om-db-1",
+							create.PlaceholderExternalServiceName: "test-om-db-1-svc-external",
+							create.PlaceholderMongodProcessDomain: "test-om-db-svc.my-namespace.svc.cluster.local",
+							create.PlaceholderMongodProcessFQDN:   "test-om-db-1.test-om-db-svc.my-namespace.svc.cluster.local",
+						},
+					},
+					Spec: corev1.ServiceSpec{
+						Type:                     "LoadBalancer",
+						PublishNotReadyAddresses: true,
+						Ports: []corev1.ServicePort{
+							{
+								Name: "mongodb",
+								Port: 27017,
+							},
+						},
+						Selector: map[string]string{
+							construct.ControllerLabelName:        util.OperatorName,
+							"statefulset.kubernetes.io/pod-name": "test-om-db-1",
+						},
+					},
+				},
+			},
+		},
+		"service with annotations with placeholders and external domain": {
+			members: 2,
+			externalAccess: &mdb.ExternalAccessConfiguration{
+				ExternalDomain: ptr.To("custom.domain"),
+				ExternalService: mdb.ExternalServiceConfiguration{
+					Annotations: map[string]string{
+						create.PlaceholderPodIndex:            "{podIndex}",
+						create.PlaceholderNamespace:           "{namespace}",
+						create.PlaceholderResourceName:        "{resourceName}",
+						create.PlaceholderPodName:             "{podName}",
+						create.PlaceholderStatefulSetName:     "{statefulSetName}",
+						create.PlaceholderExternalServiceName: "{externalServiceName}",
+						create.PlaceholderMongodProcessDomain: "{mongodProcessDomain}",
+						create.PlaceholderMongodProcessFQDN:   "{mongodProcessFQDN}",
+					},
+					SpecWrapper: &common.ServiceSpecWrapper{
+						Spec: corev1.ServiceSpec{
+							Type: "LoadBalancer",
+							Ports: []corev1.ServicePort{
+								{
+									Name: "mongodb",
+									Port: 27017,
+								},
+							},
+						},
+					},
+				},
+			},
+			result: map[int]corev1.Service{
+				0: {
+					ObjectMeta: metav1.ObjectMeta{
+						Name:            "test-om-db-0-svc-external",
+						Namespace:       "my-namespace",
+						ResourceVersion: "1",
+						Labels: map[string]string{
+							construct.ControllerLabelName:        util.OperatorName,
+							"statefulset.kubernetes.io/pod-name": "test-om-db-0",
+						},
+						Annotations: map[string]string{
+							create.PlaceholderPodIndex:            "0",
+							create.PlaceholderNamespace:           "my-namespace",
+							create.PlaceholderResourceName:        "test-om-db",
+							create.PlaceholderStatefulSetName:     "test-om-db",
+							create.PlaceholderPodName:             "test-om-db-0",
+							create.PlaceholderExternalServiceName: "test-om-db-0-svc-external",
+							create.PlaceholderMongodProcessDomain: "custom.domain",
+							create.PlaceholderMongodProcessFQDN:   "test-om-db-0.custom.domain",
+						},
+					},
+					Spec: corev1.ServiceSpec{
+						Type:                     "LoadBalancer",
+						PublishNotReadyAddresses: true,
+						Ports: []corev1.ServicePort{
+							{
+								Name: "mongodb",
+								Port: 27017,
+							},
+						},
+						Selector: map[string]string{
+							construct.ControllerLabelName:        util.OperatorName,
+							"statefulset.kubernetes.io/pod-name": "test-om-db-0",
+						},
+					},
+				},
+				1: {
+					ObjectMeta: metav1.ObjectMeta{
+						Name:            "test-om-db-1-svc-external",
+						Namespace:       "my-namespace",
+						ResourceVersion: "1",
+						Labels: map[string]string{
+							construct.ControllerLabelName:        util.OperatorName,
+							"statefulset.kubernetes.io/pod-name": "test-om-db-1",
+						},
+						Annotations: map[string]string{
+							create.PlaceholderPodIndex:            "1",
+							create.PlaceholderNamespace:           "my-namespace",
+							create.PlaceholderResourceName:        "test-om-db",
+							create.PlaceholderStatefulSetName:     "test-om-db",
+							create.PlaceholderPodName:             "test-om-db-1",
+							create.PlaceholderExternalServiceName: "test-om-db-1-svc-external",
+							create.PlaceholderMongodProcessDomain: "custom.domain",
+							create.PlaceholderMongodProcessFQDN:   "test-om-db-1.custom.domain",
+						},
+					},
+					Spec: corev1.ServiceSpec{
+						Type:                     "LoadBalancer",
+						PublishNotReadyAddresses: true,
+						Ports: []corev1.ServicePort{
+							{
+								Name: "mongodb",
+								Port: 27017,
+							},
+						},
+						Selector: map[string]string{
+							construct.ControllerLabelName:        util.OperatorName,
+							"statefulset.kubernetes.io/pod-name": "test-om-db-1",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			opsManagerBuilder := DefaultOpsManagerBuilder().
+				SetAppDbExternalAccess(*test.externalAccess).
+				SetAppDbMembers(test.members).
+				SetAdditionalMongodbConfig(test.additionalMongodConfig)
+
+			opsManager := opsManagerBuilder.Build()
+
+			kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
+			reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
+			require.NoError(t, err)
+
+			err = createOpsManagerUserPasswordSecret(ctx, kubeClient, opsManager, opsManagerUserPassword)
+			assert.NoError(t, err)
+			reconcileResult, err := reconciler.ReconcileAppDB(ctx, opsManager)
+			require.NoError(t, err)
+
+			assert.Equal(t, time.Duration(10000000000), reconcileResult.RequeueAfter)
+
+			for podIdx := 0; podIdx < opsManager.Spec.AppDB.Members; podIdx++ {
+				svcName := dns.GetExternalServiceName(opsManager.Spec.AppDB.GetName(), podIdx)
+				svcNamespace := opsManager.Namespace
+
+				svcList := corev1.ServiceList{}
+				err = kubeClient.List(ctx, &svcList)
+				assert.NoError(t, err)
+
+				actualSvc := corev1.Service{}
+
+				err = kubeClient.Get(ctx, kube.ObjectKey(svcNamespace, svcName), &actualSvc)
+				assert.NoError(t, err)
+
+				expectedSvc := test.result[podIdx]
+				assert.Equal(t, expectedSvc, actualSvc)
+			}
+		})
+	}
 }
 
 func findVolumeByName(volumes []corev1.Volume, name string) *corev1.Volume {

@@ -5084,6 +5084,30 @@ spec:
                   credentials:
                     description: Name of the Secret holding credentials information
                     type: string
+                  externalAccess:
+                    description: ExternalAccessConfiguration provides external access
+                      configuration.
+                    properties:
+                      externalDomain:
+                        description: An external domain that is used for exposing
+                          MongoDB to the outside world.
+                        type: string
+                      externalService:
+                        description: Provides a way to override the default (NodePort)
+                          Service
+                        properties:
+                          annotations:
+                            additionalProperties:
+                              type: string
+                            description: A map of annotations that shall be added
+                              to the externally available Service.
+                            type: object
+                          spec:
+                            description: A wrapper for the Service spec object.
+                            type: object
+                            x-kubernetes-preserve-unknown-fields: true
+                        type: object
+                    type: object
                   featureCompatibilityVersion:
                     type: string
                   memberConfig:
@@ -6159,8 +6183,6 @@ spec:
                 description: |-
                   OpsManagerURL specified the URL with which the operator and AppDB monitoring agent should access Ops Manager instance (or instances).
                   When not set, the operator is using FQDN of Ops Manager's headless service `{name}-svc.{namespace}.svc.cluster.local` to connect to the instance. If that URL cannot be used, then URL in this field should be provided for the operator to connect to Ops Manager instances.
-                  It defaults (and if not set) to SingleCluster. If MultiCluster specified,
-                  then clusterSpecList field is mandatory and at least one member cluster has to be specified.
                 type: string
               replicas:
                 minimum: 1

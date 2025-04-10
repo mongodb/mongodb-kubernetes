@@ -71,8 +71,17 @@ tasks:
           image_name: ops-manager
 
   - name: gke_multi_cluster_snippets
+    tags: [ "code_snippets" ]
     commands:
       - func: gke_multi_cluster_snippets
+      - func: sample_commit_output
+
+  - name: gke_multi_cluster_no_mesh_snippets
+    tags: [ "code_snippets" ]
+    commands:
+      - func: gke_multi_cluster_no_mesh_snippets
+      - func: sample_commit_output
+
 ## Below are only e2e runs for .evergreen.yml ##
 
   - name: e2e_multiple_cluster_failures
@@ -700,6 +709,11 @@ tasks:
       - func: "e2e_test"
 
   # E2E tests for Ops Manager (sorted alphabetically):
+  - name: e2e_om_appdb_external_connectivity
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_om_appdb_flags_and_config
     tags: [ "patch-run" ]
     commands:
@@ -1129,6 +1143,11 @@ tasks:
       - func: e2e_test
 
   - name: e2e_multi_cluster_om_clusterwide_operator_not_in_mesh_networking
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_om_appdb_no_mesh
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test

@@ -58,6 +58,11 @@ func (b *OpsManagerBuilder) SetAppDbConnectivity(connectivitySpec mdbv1.MongoDBC
 	return b
 }
 
+func (b *OpsManagerBuilder) SetAppDbExternalAccess(externalAccessConfiguration mdbv1.ExternalAccessConfiguration) *OpsManagerBuilder {
+	b.om.Spec.AppDB.ExternalAccessConfiguration = &externalAccessConfiguration
+	return b
+}
+
 func (b *OpsManagerBuilder) SetAppDBTLSConfig(config mdbv1.TLSConfig) *OpsManagerBuilder {
 	if b.om.Spec.AppDB.Security == nil {
 		b.om.Spec.AppDB.Security = &mdbv1.Security{}

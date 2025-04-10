@@ -40,7 +40,7 @@ autopep8==1.5.7
 flake8-isort==4.0.0
 mypy==1.14.1
 types-freezegun==0.1.4
-types-PyYAML==6.0.2
+types-PyYAML==6.0.12.20250402
 types-pytz==2021.1.0
 types-python-dateutil==0.1.4
 pipupgrade==1.12.0

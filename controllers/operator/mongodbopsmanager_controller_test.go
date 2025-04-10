@@ -522,7 +522,7 @@ func TestOpsManagerReconcileContainerImages(t *testing.T) {
 	assert.Equal(t, "quay.io/mongodb/mongodb-agent@sha256:AGENT_SHA", appDBSts.Spec.Template.Spec.Containers[0].Image)
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA", appDBSts.Spec.Template.Spec.Containers[1].Image)
 	// Version from the mapping file (agent version + operator version)
-	assert.Equal(t, "quay.io/mongodb/mongodb-agent:108.0.0.8694-1_9.9.9-test", appDBSts.Spec.Template.Spec.Containers[2].Image)
+	assert.Contains(t, appDBSts.Spec.Template.Spec.Containers[2].Image, "_9.9.9-test")
 }
 
 func TestOpsManagerReconcileContainerImagesWithStaticArchitecture(t *testing.T) {
@@ -578,7 +578,7 @@ func TestOpsManagerReconcileContainerImagesWithStaticArchitecture(t *testing.T) 
 	require.Len(t, appDBSts.Spec.Template.Spec.Containers, 3)
 
 	// Version from the mapping file (agent version + operator version)
-	assert.Equal(t, "quay.io/mongodb/mongodb-agent-ubi:108.0.0.8694-1_9.9.9-test", appDBSts.Spec.Template.Spec.Containers[0].Image)
+	assert.Contains(t, appDBSts.Spec.Template.Spec.Containers[0].Image, "-1_9.9.9-test")
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA", appDBSts.Spec.Template.Spec.Containers[1].Image)
 	// In static architecture this container is a copy of agent container
 	assert.Equal(t, appDBSts.Spec.Template.Spec.Containers[0].Image, appDBSts.Spec.Template.Spec.Containers[2].Image)

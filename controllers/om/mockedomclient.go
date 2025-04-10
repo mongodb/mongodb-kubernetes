@@ -82,6 +82,7 @@ type MockedOmConnection struct {
 	AgentAuthMechanism      string
 	SnapshotSchedules       map[string]*backup.SnapshotSchedule
 	Hostnames               []string
+	PreferredHostnames      []PreferredHostname
 
 	agentVersion        string
 	agentMinimumVersion string
@@ -801,6 +802,12 @@ func (oc *MockedOmConnection) AddHosts(hostnames []string) {
 	}
 }
 
+// this is internal method only for testing, used by kubernetes mocked client
+func (oc *MockedOmConnection) ClearHosts() {
+	oc.agentHostnameMap = map[string]struct{}{}
+	oc.hostResults = &host.Result{}
+}
+
 func (oc *MockedOmConnection) EnableBackup(resourceName string, resourceType backup.MongoDbResourceType, uuidStr string) {
 	if resourceType == backup.ReplicaSetType {
 		config := backup.Config{ClusterId: uuidStr, Status: backup.Started}
@@ -897,6 +904,33 @@ func (oc *MockedOmConnection) OpsManagerVersion() versionutil.OpsManagerVersion 
 		return oc.context.Version
 	}
 	return versionutil.OpsManagerVersion{VersionString: "7.0.0"}
+}
+
+func (oc *MockedOmConnection) GetPreferredHostnames(agentApiKey string) ([]PreferredHostname, error) {
+	if agentApiKey != oc.AgentAPIKey {
+		return nil, apierror.New(xerrors.Errorf("Unauthorized"))
+	}
+
+	return oc.PreferredHostnames, nil
+}
+
+func (oc *MockedOmConnection) AddPreferredHostname(agentApiKey string, value string, isRegexp bool) error {
+	if agentApiKey != oc.AgentAPIKey {
+		return apierror.New(xerrors.Errorf("Unauthorized"))
+	}
+
+	for _, hostname := range oc.PreferredHostnames {
+		if hostname.Regexp == isRegexp && hostname.Value == value {
+			return nil
+		}
+	}
+	oc.PreferredHostnames = append(oc.PreferredHostnames, PreferredHostname{
+		Regexp:   isRegexp,
+		EndsWith: !isRegexp,
+		Value:    value,
+	})
+
+	return nil
 }
 
 // updateAutoAuthMechanism simulates the changes made by Ops Manager and the agents in deciding which

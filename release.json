@@ -33,54 +33,15 @@
     "ops-manager": {
       "ssdlc_name": "MongoDB Enterprise Kubernetes Operator Ops Manager",
       "versions": [
-        "6.0.0",
-        "6.0.1",
-        "6.0.2",
-        "6.0.3",
-        "6.0.4",
-        "6.0.5",
-        "6.0.6",
-        "6.0.7",
-        "6.0.8",
-        "6.0.9",
-        "6.0.10",
-        "6.0.11",
-        "6.0.12",
-        "6.0.13",
-        "6.0.14",
-        "6.0.15",
-        "6.0.16",
-        "6.0.17",
-        "6.0.18",
-        "6.0.19",
-        "6.0.20",
-        "6.0.21",
-        "6.0.22",
-        "6.0.23",
-        "6.0.24",
         "6.0.25",
         "6.0.26",
         "6.0.27",
-        "7.0.0",
-        "7.0.1",
-        "7.0.2",
-        "7.0.3",
-        "7.0.4",
-        "7.0.6",
-        "7.0.7",
-        "7.0.8",
-        "7.0.9",
-        "7.0.10",
-        "7.0.11",
         "7.0.12",
         "7.0.13",
         "7.0.14",
-        "8.0.0",
-        "8.0.1",
-        "8.0.2",
-        "8.0.3",
         "8.0.4",
-        "8.0.5"
+        "8.0.5",
+        "8.0.6"
       ],
       "variants": [
         "ubi"
@@ -148,63 +109,19 @@
       ],
       "opsManagerMapping": {
         "Description": "These are the agents from which we start supporting static containers.",
-        "cloud_manager": "13.31.0.9376-1",
+        "cloud_manager": "13.32.0.9397-1",
         "cloud_manager_tools": "100.11.0",
         "ops_manager": {
-          "8.0.0": {
-            "agent_version": "108.0.0.8694-1",
+          "6.0.25": {
+            "agent_version": "12.0.33.7866-1",
             "tools_version": "100.10.0"
-          },
-          "6.0.0": {
-            "agent_version": "12.0.32.7857-1",
-            "tools_version": "100.9.5"
-          },
-          "6.0.23": {
-            "agent_version": "12.0.32.7857-1",
-            "tools_version": "100.9.5"
           },
           "6.0.26": {
             "agent_version": "12.0.34.7888-1",
             "tools_version": "100.10.0"
           },
-          "7.0.0": {
-            "agent_version": "107.0.4.8567-1",
-            "tools_version": "100.9.4"
-          },
-          "7.0.4": {
-            "agent_version": "107.0.4.8567-1",
-            "tools_version": "100.9.4"
-          },
-          "7.0.6": {
-            "agent_version": "107.0.6.8587-1",
-            "tools_version": "100.9.4"
-          },
-          "7.0.7": {
-            "agent_version": "107.0.7.8596-1",
-            "tools_version": "100.9.4"
-          },
-          "7.0.8": {
-            "agent_version": "107.0.8.8615-1",
-            "tools_version": "100.9.5"
-          },
-          "6.0.24": {
-            "agent_version": "12.0.32.7857-1",
-            "tools_version": "100.9.5"
-          },
-          "7.0.9": {
-            "agent_version": "107.0.9.8621-1",
-            "tools_version": "100.9.5"
-          },
-          "7.0.10": {
-            "agent_version": "107.0.10.8627-1",
-            "tools_version": "100.9.5"
-          },
-          "6.0.25": {
-            "agent_version": "12.0.33.7866-1",
-            "tools_version": "100.10.0"
-          },
-          "7.0.11": {
-            "agent_version": "107.0.11.8645-1",
+          "6.0.27": {
+            "agent_version": "12.0.35.7911-1",
             "tools_version": "100.10.0"
           },
           "7.0.12": {
@@ -215,24 +132,8 @@
             "agent_version": "107.0.13.8702-1",
             "tools_version": "100.10.0"
           },
-          "8.0.1": {
-            "agent_version": "108.0.1.8718-1",
-            "tools_version": "100.10.0"
-          },
-          "8.0.2": {
-            "agent_version": "108.0.2.8729-1",
-            "tools_version": "100.10.0"
-          },
-          "8.0.3": {
-            "agent_version": "108.0.3.8758-1",
-            "tools_version": "100.10.0"
-          },
           "7.0.14": {
             "agent_version": "107.0.13.8702-1",
-            "tools_version": "100.10.0"
-          },
-          "6.0.27": {
-            "agent_version": "12.0.35.7911-1",
             "tools_version": "100.10.0"
           },
           "8.0.4": {
@@ -241,6 +142,10 @@
           },
           "8.0.5": {
             "agent_version": "108.0.4.8770-1",
+            "tools_version": "100.11.0"
+          },
+          "8.0.6": {
+            "agent_version": "108.0.6.8796-1",
             "tools_version": "100.11.0"
           }
         }

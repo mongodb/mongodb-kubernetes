@@ -33,6 +33,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	mekoService "github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/placeholders"
 	enterprisests "github.com/10gen/ops-manager-kubernetes/pkg/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -254,7 +255,7 @@ func createExternalServices(ctx context.Context, client kubernetesClient.Client,
 	}
 	externalService.Annotations = merge.StringToStringMap(externalService.Annotations, mdb.Spec.ExternalAccessConfiguration.ExternalService.Annotations)
 
-	placeholderReplacer := GetSingleClusterMongoDBPlaceholderReplacer(mdb.Name, set.Name, mdb.Namespace, mdb.ServiceName(), &mdb.Spec, podNum)
+	placeholderReplacer := GetSingleClusterMongoDBPlaceholderReplacer(mdb.Name, set.Name, mdb.Namespace, mdb.ServiceName(), mdb.Spec.GetExternalDomain(), mdb.Spec.GetClusterDomain(), podNum, mdb.GetResourceType())
 	if processedAnnotations, replacedFlag, err := placeholderReplacer.ProcessMap(externalService.Annotations); err != nil {
 		return xerrors.Errorf("failed to process annotations in service %s: %w", externalService.Name, err)
 	} else if replacedFlag {
@@ -284,7 +285,7 @@ const (
 	PlaceholderClusterIndex        = "clusterIndex"
 )
 
-func GetSingleClusterMongoDBPlaceholderReplacer(resourceName string, statefulSetName string, namespace string, serviceName string, dbSpec mdbv1.DbSpec, podIdx int) *placeholders.Replacer {
+func GetSingleClusterMongoDBPlaceholderReplacer(resourceName string, statefulSetName string, namespace string, serviceName string, externalDomain *string, clusterDomain string, podIdx int, resourceType mdbv1.ResourceType) *placeholders.Replacer {
 	podName := dns.GetPodName(statefulSetName, podIdx)
 	placeholderValues := map[string]string{
 		PlaceholderPodIndex:            fmt.Sprintf("%d", podIdx),
@@ -295,17 +296,17 @@ func GetSingleClusterMongoDBPlaceholderReplacer(resourceName string, statefulSet
 		PlaceholderExternalServiceName: dns.GetExternalServiceName(statefulSetName, podIdx),
 	}
 
-	if dbSpec.GetResourceType() == mdbv1.ShardedCluster {
-		placeholderValues[PlaceholderMongosProcessDomain] = dns.GetServiceFQDN(serviceName, namespace, dbSpec.GetClusterDomain())
-		placeholderValues[PlaceholderMongosProcessFQDN] = dns.GetPodFQDN(podName, serviceName, namespace, dbSpec.GetClusterDomain(), dbSpec.GetExternalDomain())
-		if dbSpec.GetExternalDomain() != nil {
-			placeholderValues[PlaceholderMongosProcessDomain] = *dbSpec.GetExternalDomain()
+	if resourceType == mdbv1.ShardedCluster {
+		placeholderValues[PlaceholderMongosProcessDomain] = dns.GetServiceFQDN(serviceName, namespace, clusterDomain)
+		placeholderValues[PlaceholderMongosProcessFQDN] = dns.GetPodFQDN(podName, serviceName, namespace, clusterDomain, externalDomain)
+		if externalDomain != nil {
+			placeholderValues[PlaceholderMongosProcessDomain] = *externalDomain
 		}
 	} else {
-		placeholderValues[PlaceholderMongodProcessDomain] = dns.GetServiceFQDN(serviceName, namespace, dbSpec.GetClusterDomain())
-		placeholderValues[PlaceholderMongodProcessFQDN] = dns.GetPodFQDN(podName, serviceName, namespace, dbSpec.GetClusterDomain(), dbSpec.GetExternalDomain())
-		if dbSpec.GetExternalDomain() != nil {
-			placeholderValues[PlaceholderMongodProcessDomain] = *dbSpec.GetExternalDomain()
+		placeholderValues[PlaceholderMongodProcessDomain] = dns.GetServiceFQDN(serviceName, namespace, clusterDomain)
+		placeholderValues[PlaceholderMongodProcessFQDN] = dns.GetPodFQDN(podName, serviceName, namespace, clusterDomain, externalDomain)
+		if externalDomain != nil {
+			placeholderValues[PlaceholderMongodProcessDomain] = *externalDomain
 		}
 	}
 
@@ -392,8 +393,8 @@ func BackupDaemonInKubernetes(ctx context.Context, client kubernetesClient.Clien
 
 // OpsManagerInKubernetes creates all of the required Kubernetes resources for Ops Manager.
 // It creates the StatefulSet and all required services.
-func OpsManagerInKubernetes(ctx context.Context, client kubernetesClient.Client, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet, log *zap.SugaredLogger) error {
-	set, err := enterprisests.CreateOrUpdateStatefulset(ctx, client, opsManager.Namespace, log, &sts)
+func OpsManagerInKubernetes(ctx context.Context, memberCluster multicluster.MemberCluster, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet, log *zap.SugaredLogger) error {
+	set, err := enterprisests.CreateOrUpdateStatefulset(ctx, memberCluster.Client, opsManager.Namespace, log, &sts)
 	if err != nil {
 		return err
 	}
@@ -410,36 +411,30 @@ func OpsManagerInKubernetes(ctx context.Context, client kubernetesClient.Client,
 		}
 	}
 
-	err = mekoService.CreateOrUpdateService(ctx, client, internalService)
-	if err != nil {
+	if err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, internalService); err != nil {
 		return err
 	}
 
 	namespacedName = kube.ObjectKey(opsManager.Namespace, opsManager.ExternalSvcName())
-	var externalService *corev1.Service = nil
-	if opsManager.Spec.MongoDBOpsManagerExternalConnectivity != nil {
-		svc := BuildService(namespacedName, opsManager, &set.Spec.ServiceName, nil, port, *opsManager.Spec.MongoDBOpsManagerExternalConnectivity)
-		externalService = &svc
-	} else {
-		if err := mekoService.DeleteServiceIfItExists(ctx, client, namespacedName); err != nil {
-			return err
-		}
-	}
+	if externalConnectivity := opsManager.GetExternalConnectivityConfigurationForMemberCluster(memberCluster.Name); externalConnectivity != nil {
+		svc := BuildService(namespacedName, opsManager, &set.Spec.ServiceName, nil, port, *externalConnectivity)
 
-	// Need to create queryable backup service
-	if opsManager.Spec.Backup.Enabled {
-		if opsManager.Spec.MongoDBOpsManagerExternalConnectivity != nil {
-			if err := addQueryableBackupPortToService(opsManager, externalService, externalConnectivityPortName); err != nil {
+		// Need to create queryable backup service
+		if opsManager.Spec.Backup.Enabled {
+			if err := addQueryableBackupPortToService(opsManager, &svc, externalConnectivityPortName); err != nil {
 				return err
 			}
 		}
-	}
 
-	if externalService != nil {
-		if err := mekoService.CreateOrUpdateService(ctx, client, *externalService); err != nil {
+		if err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil {
+			return err
+		}
+	} else {
+		if err := mekoService.DeleteServiceIfItExists(ctx, memberCluster.Client, namespacedName); err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
 

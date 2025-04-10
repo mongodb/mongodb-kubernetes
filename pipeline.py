@@ -1181,22 +1181,6 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
     # We only need [latest agents (for each OM major version and for CM) x patch ID] for patches
     else:
         agent_versions_to_build = gather_latest_agent_versions(release)
-        # On top of the latest agent versions, we need these two custom ones we use in some tests for EVG patches
-        # The earliest version supporting Static Containers for OM, used in some upgrade tests
-        OM_STATIC_SUPPORT_VERSION = "6.0.23"
-        # Custom OM6 version from which we upgrade
-        OM6_UPGRADE_VERSION = "6.0.0"
-        for custom_version in [OM_STATIC_SUPPORT_VERSION, OM6_UPGRADE_VERSION]:
-            agent_versions_to_build.append(
-                (
-                    release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"][custom_version][
-                        "agent_version"
-                    ],
-                    release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"][custom_version][
-                        "tools_version"
-                    ],
-                )
-            )
 
     logger.info(f"Building Agent versions: {agent_versions_to_build} for Operator versions: {operator_version}")
 

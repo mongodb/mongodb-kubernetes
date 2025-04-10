@@ -204,6 +204,7 @@ func collectDeploymentsSnapshot(ctx context.Context, operatorClusterMgr manager.
 	now := time.Now()
 	events = append(events, getMdbEvents(ctx, operatorClusterClient, operatorUUID, mongodbImage, databaseNonStaticImage, now)...)
 	events = append(events, addMultiEvents(ctx, operatorClusterClient, operatorUUID, mongodbImage, databaseNonStaticImage, now)...)
+	// No need to pass databaseNonStaticImage because it is for sure not enterprise image
 	events = append(events, addOmEvents(ctx, operatorClusterClient, operatorUUID, mongodbImage, now)...)
 	events = append(events, addCommunityEvents(ctx, operatorClusterClient, operatorUUID, mongodbImage, now)...)
 	return events
@@ -230,11 +231,13 @@ func getMdbEvents(ctx context.Context, operatorClusterClient kubeclient.Client, 
 				IsMultiCluster:           item.Spec.IsMultiCluster(),
 				Type:                     string(item.Spec.GetResourceType()),
 				IsRunningEnterpriseImage: images.IsEnterpriseImage(imageURL),
+				ExternalDomains:          getExternalDomainProperty(item),
 			}
 
 			if numberOfClustersUsed > 0 {
 				properties.DatabaseClusters = ptr.To(numberOfClustersUsed)
 			}
+
 			if event := createEvent(properties, now, Deployments); event != nil {
 				events = append(events, *event)
 			}
@@ -266,7 +269,9 @@ func addMultiEvents(ctx context.Context, operatorClusterClient kubeclient.Client
 			IsMultiCluster:           true,
 			Type:                     string(item.Spec.GetResourceType()),
 			IsRunningEnterpriseImage: images.IsEnterpriseImage(imageURL),
+			ExternalDomains:          getExternalDomainPropertyForMongoDBMulti(item),
 		}
+
 		if event := createEvent(properties, now, Deployments); event != nil {
 			events = append(events, *event)
 		}
@@ -293,13 +298,17 @@ func addOmEvents(ctx context.Context, operatorClusterClient kubeclient.Client, o
 				IsMultiCluster:           item.Spec.IsMultiCluster(),
 				Type:                     "OpsManager",
 				IsRunningEnterpriseImage: images.IsEnterpriseImage(mongodbImage),
+				ExternalDomains:          getExternalDomainPropertyForOpsManager(item),
 			}
+
 			if omClusters > 0 {
 				properties.OmClusters = ptr.To(omClusters)
 			}
+
 			if appDBClusters > 0 {
 				properties.AppDBClusters = ptr.To(appDBClusters)
 			}
+
 			if event := createEvent(properties, now, Deployments); event != nil {
 				events = append(events, *event)
 			}
@@ -427,4 +436,75 @@ func getClusterProperties(ctx context.Context, memberClusterMap map[string]Confi
 	}
 
 	return allClusterDetails
+}
+
+const (
+	ExternalDomainMixed           = "Mixed"
+	ExternalDomainClusterSpecific = "ClusterSpecific"
+	ExternalDomainUniform         = "Uniform"
+	ExternalDomainNone            = "None"
+)
+
+func getExternalDomainProperty(mdb mdbv1.MongoDB) string {
+	isUniformExternalDomainSpecified := mdb.Spec.GetExternalDomain() != nil
+
+	isClusterSpecificExternalDomainSpecified := isExternalDomainSpecifiedInAnyShardedClusterSpec(mdb)
+
+	return mapExternalDomainConfigurationToEnum(isUniformExternalDomainSpecified, isClusterSpecificExternalDomainSpecified)
+}
+
+func getExternalDomainPropertyForMongoDBMulti(mdb mdbmultiv1.MongoDBMultiCluster) string {
+	isUniformExternalDomainSpecified := mdb.Spec.GetExternalDomain() != nil
+
+	isClusterSpecificExternalDomainSpecified := isExternalDomainSpecifiedInClusterSpecList(mdb.Spec.ClusterSpecList)
+
+	return mapExternalDomainConfigurationToEnum(isUniformExternalDomainSpecified, isClusterSpecificExternalDomainSpecified)
+}
+
+func getExternalDomainPropertyForOpsManager(om omv1.MongoDBOpsManager) string {
+	isUniformExternalDomainSpecified := om.Spec.AppDB.GetExternalDomain() != nil
+
+	isClusterSpecificExternalDomainSpecified := isExternalDomainSpecifiedInClusterSpecList(om.Spec.AppDB.ClusterSpecList)
+
+	return mapExternalDomainConfigurationToEnum(isUniformExternalDomainSpecified, isClusterSpecificExternalDomainSpecified)
+}
+
+func mapExternalDomainConfigurationToEnum(isUniformExternalDomainSpecified bool, isClusterSpecificExternalDomainSpecified bool) string {
+	if isUniformExternalDomainSpecified && isClusterSpecificExternalDomainSpecified {
+		return ExternalDomainMixed
+	}
+
+	if isClusterSpecificExternalDomainSpecified {
+		return ExternalDomainClusterSpecific
+	}
+
+	if isUniformExternalDomainSpecified {
+		return ExternalDomainUniform
+	}
+
+	return ExternalDomainNone
+}
+
+func isExternalDomainSpecifiedInAnyShardedClusterSpec(mdb mdbv1.MongoDB) bool {
+	isExternalDomainSpecifiedForShard := isExternalDomainSpecifiedInShardedClusterSpec(mdb.Spec.ShardSpec)
+	isExternalDomainSpecifiedForMongos := isExternalDomainSpecifiedInShardedClusterSpec(mdb.Spec.MongosSpec)
+	isExternalDomainSpecifiedForConfigSrv := isExternalDomainSpecifiedInShardedClusterSpec(mdb.Spec.ConfigSrvSpec)
+
+	return isExternalDomainSpecifiedForShard || isExternalDomainSpecifiedForMongos || isExternalDomainSpecifiedForConfigSrv
+}
+
+func isExternalDomainSpecifiedInShardedClusterSpec(shardedSpec *mdbv1.ShardedClusterComponentSpec) bool {
+	if shardedSpec == nil {
+		return false
+	}
+
+	return isExternalDomainSpecifiedInClusterSpecList(shardedSpec.ClusterSpecList)
+}
+
+func isExternalDomainSpecifiedInClusterSpecList(clusterSpecList mdbv1.ClusterSpecList) bool {
+	if len(clusterSpecList) == 0 {
+		return false
+	}
+
+	return clusterSpecList.IsExternalDomainSpecifiedInClusterSpecList()
 }

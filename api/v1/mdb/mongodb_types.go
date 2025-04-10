@@ -1576,23 +1576,31 @@ func (m *MongodbCleanUpOptions) ApplyToDeleteAllOf(opts *client.DeleteAllOfOptio
 	opts.LabelSelector = labels.SelectorFromValidatedSet(m.Labels)
 }
 
-func (m *ClusterSpecList) GetExternalAccessConfigurationForMemberCluster(clusterName string) *ExternalAccessConfiguration {
-	var externalAccessConfiguration *ExternalAccessConfiguration
-	for _, csl := range *m {
+func (m ClusterSpecList) GetExternalAccessConfigurationForMemberCluster(clusterName string) *ExternalAccessConfiguration {
+	for _, csl := range m {
 		if csl.ClusterName == clusterName {
-			externalAccessConfiguration = csl.ExternalAccessConfiguration
-			break
+			return csl.ExternalAccessConfiguration
 		}
 	}
 
-	return externalAccessConfiguration
+	return nil
 }
 
-func (m *ClusterSpecList) GetExternalDomainForMemberCluster(clusterName string) *string {
-	var externalDomain *string
+func (m ClusterSpecList) GetExternalDomainForMemberCluster(clusterName string) *string {
 	if cfg := m.GetExternalAccessConfigurationForMemberCluster(clusterName); cfg != nil {
-		externalDomain = cfg.ExternalDomain
+		return cfg.ExternalDomain
 	}
 
-	return externalDomain
+	return nil
+}
+
+func (m ClusterSpecList) IsExternalDomainSpecifiedInClusterSpecList() bool {
+	for _, item := range m {
+		externalAccess := item.ExternalAccessConfiguration
+		if externalAccess != nil && externalAccess.ExternalDomain != nil {
+			return true
+		}
+	}
+
+	return false
 }

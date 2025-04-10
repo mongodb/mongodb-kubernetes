@@ -45,6 +45,11 @@ type AppDBSpec struct {
 	ResourceType mdbv1.ResourceType `json:"type,omitempty"`
 
 	Connectivity *mdbv1.MongoDBConnectivity `json:"connectivity,omitempty"`
+
+	// ExternalAccessConfiguration provides external access configuration.
+	// +optional
+	ExternalAccessConfiguration *mdbv1.ExternalAccessConfiguration `json:"externalAccess,omitempty"`
+
 	// AdditionalMongodConfig are additional configurations that can be passed to
 	// each data-bearing mongod at runtime. Uses the same structure as the mongod
 	// configuration file:
@@ -123,10 +128,6 @@ func (m *AppDBSpec) ObjectKey() client.ObjectKey {
 
 // GetConnectionSpec returns nil because no connection spec for appDB is implemented for the watcher setup
 func (m *AppDBSpec) GetConnectionSpec() *mdbv1.ConnectionSpec {
-	return nil
-}
-
-func (m *AppDBSpec) GetExternalDomain() *string {
 	return nil
 }
 
@@ -561,4 +562,49 @@ func (m *AppDBSpec) HeadlessServiceNameForCluster(memberClusterNum int) string {
 
 func GetAppDBCaPemPath() string {
 	return util.AppDBMmsCaFileDirInContainer + "ca-pem"
+}
+
+func (m *AppDBSpec) GetPodName(clusterIdx int, podIdx int) string {
+	if m.IsMultiCluster() {
+		return dns.GetMultiPodName(m.Name(), clusterIdx, podIdx)
+	}
+	return dns.GetPodName(m.Name(), podIdx)
+}
+
+func (m *AppDBSpec) GetExternalServiceName(clusterIdx int, podIdx int) string {
+	if m.IsMultiCluster() {
+		return dns.GetMultiExternalServiceName(m.GetName(), clusterIdx, podIdx)
+	}
+	return dns.GetExternalServiceName(m.Name(), podIdx)
+}
+
+func (m *AppDBSpec) GetExternalAccessConfiguration() *mdbv1.ExternalAccessConfiguration {
+	return m.ExternalAccessConfiguration
+}
+
+func (m *AppDBSpec) GetExternalDomain() *string {
+	if m.ExternalAccessConfiguration != nil {
+		return m.ExternalAccessConfiguration.ExternalDomain
+	}
+	return nil
+}
+
+func (m *AppDBSpec) GetExternalAccessConfigurationForMemberCluster(clusterName string) *mdbv1.ExternalAccessConfiguration {
+	for _, csl := range m.ClusterSpecList {
+		if csl.ClusterName == clusterName && csl.ExternalAccessConfiguration != nil {
+			return csl.ExternalAccessConfiguration
+		}
+	}
+
+	return m.ExternalAccessConfiguration
+}
+
+func (m *AppDBSpec) GetExternalDomainForMemberCluster(clusterName string) *string {
+	if cfg := m.GetExternalAccessConfigurationForMemberCluster(clusterName); cfg != nil {
+		if externalDomain := cfg.ExternalDomain; externalDomain != nil {
+			return externalDomain
+		}
+	}
+
+	return m.GetExternalDomain()
 }

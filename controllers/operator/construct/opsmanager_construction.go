@@ -67,6 +67,7 @@ type OpsManagerStatefulSetOptions struct {
 	VaultConfig                  vault.VaultConfiguration
 	Labels                       map[string]string
 	kmip                         *KmipConfiguration
+	DebugPort                    int32
 	// backup daemon only
 	HeadDbPersistenceConfig *common.PersistenceConfig
 	Annotations             map[string]string
@@ -165,6 +166,12 @@ func WithStsOverride(stsOverride *appsv1.StatefulSetSpec) func(opts *OpsManagerS
 			finalSpec := merge.StatefulSetSpecs(*opts.StatefulSetSpecOverride, *stsOverride)
 			opts.StatefulSetSpecOverride = &finalSpec
 		}
+	}
+}
+
+func WithDebugPort(port int32) func(opts *OpsManagerStatefulSetOptions) {
+	return func(opts *OpsManagerStatefulSetOptions) {
+		opts.DebugPort = port
 	}
 }
 
@@ -465,7 +472,7 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 				podtemplatespec.WithContainerByIndex(0,
 					container.Apply(
 						container.WithResourceRequirements(defaultOpsManagerResourceRequirements()),
-						container.WithPorts(buildOpsManagerContainerPorts(opts.HTTPSCertSecretName)),
+						container.WithPorts(buildOpsManagerContainerPorts(opts.HTTPSCertSecretName, opts.DebugPort)),
 						container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.OpsManagerPullPolicy))), // nolint:forbidigo
 						container.WithImage(opts.OpsManagerImage),
 						container.WithEnvs(opts.EnvVars...),
@@ -621,7 +628,14 @@ func defaultOpsManagerResourceRequirements() corev1.ResourceRequirements {
 	}
 }
 
-func buildOpsManagerContainerPorts(httpsCertSecretName string) []corev1.ContainerPort {
+func buildOpsManagerContainerPorts(httpsCertSecretName string, debugPort int32) []corev1.ContainerPort {
+	if debugPort > 0 {
+		return []corev1.ContainerPort{
+			{ContainerPort: getOpsManagerContainerPort(httpsCertSecretName), Name: "default"},
+			{ContainerPort: debugPort, Name: "debug"}, // debug
+		}
+	}
+
 	return []corev1.ContainerPort{{ContainerPort: getOpsManagerContainerPort(httpsCertSecretName)}}
 }
 

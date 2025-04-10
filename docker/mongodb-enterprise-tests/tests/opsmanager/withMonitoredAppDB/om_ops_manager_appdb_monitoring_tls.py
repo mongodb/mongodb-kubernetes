@@ -4,7 +4,6 @@ from typing import Optional
 import pymongo
 from kubetester import create_or_update_secret
 from kubetester.certs import create_ops_manager_tls_certs
-from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
@@ -58,21 +57,18 @@ def ops_manager(
 def test_om_created(ops_manager: MongoDBOpsManager):
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
+    ops_manager.assert_appdb_preferred_hostnames_are_added()
+    ops_manager.assert_appdb_hostnames_are_correct()
 
 
 @mark.e2e_om_appdb_monitoring_tls
 def test_appdb_group_is_monitored(ops_manager: MongoDBOpsManager):
     ops_manager.assert_appdb_monitoring_group_was_created()
-    monitoring_metrics_are_being_sent = build_monitoring_agent_test_func(ops_manager)
-    KubernetesTester.wait_until(monitoring_metrics_are_being_sent, timeout=120)
+    ops_manager.assert_monitoring_data_exists()
 
 
 @mark.e2e_om_appdb_monitoring_tls
 def test_appdb_password_can_be_changed(ops_manager: MongoDBOpsManager):
-    # get measurements for the last minute, they should just work, as monitoring
-    # is supposed to be working now.
-    build_monitoring_agent_test_func(ops_manager, period="PT60S")()
-
     # Change the Secret containing the password
     data = {"password": "Hello-World!-new"}
     create_or_update_secret(
@@ -82,8 +78,10 @@ def test_appdb_password_can_be_changed(ops_manager: MongoDBOpsManager):
     )
 
     # We know that Ops Manager will detect the changes and be restarted
-    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=800)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Pending, timeout=120)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
+    ops_manager.om_status().assert_reaches_phase(Phase.Pending, timeout=120)
+    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=800)
 
 
 @mark.e2e_om_appdb_monitoring_tls
@@ -98,56 +96,4 @@ def test_new_database_is_monitored_after_restart(ops_manager: MongoDBOpsManager)
 
     # We want to retrieve measurements from "new_database" which will indicate
     # that the monitoring agents are working with the new credentials.
-    KubernetesTester.wait_until(
-        build_monitoring_agent_test_func(ops_manager, database_name=database_name, period="PT100M"),
-        timeout=120,
-    )
-
-
-# @mark.e2e_om_appdb_monitoring_tls
-# def test_enable_tls_on_appdb(ops_manager: MongoDBOpsManager):
-#     ops_manager.load()
-#     ops_manager["spec"]["applicationDatabase"]["security"] = {
-#         "tls": {"ca": "issuer-ca", "secretRef": {"name": "certs-for-appdb"}}
-#     }
-#     ops_manager.update()
-#
-#     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
-
-
-# @mark.e2e_om_appdb_monitoring_tls
-# def test_monitoring_metrics_are_gathered(ops_manager: MongoDBOpsManager):
-#     one_monitoring_agent_is_showing_metrics = build_monitoring_agent_test_func(
-#         ops_manager
-#     )
-#
-#     # some monitoring metrics should be reported within a few minutes
-#     KubernetesTester.wait_until(one_monitoring_agent_is_showing_metrics, timeout=120)
-#
-
-
-def build_monitoring_agent_test_func(
-    ops_manager: MongoDBOpsManager,
-    database_name: str = "admin",
-    period: str = "P1DT12H",
-):
-    """
-    Returns a function that will check for existance of monitoring
-    measurements in this Ops Manager instance.
-    """
-    appdb_hosts = ops_manager.get_appdb_hosts()
-    host_ids = [host["id"] for host in appdb_hosts]
-    project_id = [host["groupId"] for host in appdb_hosts][0]
-    tester = ops_manager.get_om_tester()
-
-    def one_monitoring_agent_is_showing_metrics():
-        for host_id in host_ids:
-            measurements = tester.api_read_monitoring_measurements(
-                host_id,
-                database_name=database_name,
-                project_id=project_id,
-                period=period,
-            )
-            return measurements is not None and len(measurements) > 0
-
-    return one_monitoring_agent_is_showing_metrics
+    ops_manager.assert_monitoring_data_exists(database_name=database_name, timeout=1200, all_hosts=False)

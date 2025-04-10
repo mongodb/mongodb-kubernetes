@@ -11,7 +11,7 @@ variables:
 
   - &ops_manager_70_latest 7.0.14 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_80_latest 8.0.5 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_80_latest 8.0.6 # The order/index is important, since these are anchors. Please do not change
 
   # The dependency unification between static and non-static is intentional here.
   # Even though some images are exclusive, in EVG they all are built once and in parallel.
@@ -179,6 +179,11 @@ parameters:
     value: "true"
     description: set this to false if you would like to keep the clusters created during code snippets tests
 
+  - key: code_snippets_reset
+    value: "false"
+    description: set this to true if you would like to delete the resources created in the code snippet tests, but keep the clusters
+
+
 # Triggered manually or by PCT.
 patch_aliases:
   - alias: "periodic_builds"
@@ -195,7 +200,7 @@ patch_aliases:
     task: ".*"
   - alias: "release"
     variant_tags: [ "release" ]
-    task_tags: [ "image_release", "image_preflight", "openshift_bundles" ]
+    task_tags: [ "image_release", "image_preflight", "openshift_bundles", "code_snippets" ]
   - alias: "smoke_test_release"
     variant_tags: [ "e2e_smoke_release_test_suite" ]
     task_tags: [ "patch-run" ]
@@ -224,7 +229,7 @@ github_checks_aliases:
 git_tag_aliases:
   - git_tag: "^(\\d+\\.)?(\\d+\\.)?(\\d+)$"
     variant_tags: [ "release" ]
-    task_tags: [ "image_release", "image_preflight", "openshift_bundles" ]
+    task_tags: [ "image_release", "image_preflight", "openshift_bundles", "code_snippets" ]
 
 # TODO: MCK: have this part of e2e.sh and its expansions
 tasks:
@@ -581,9 +586,6 @@ tasks:
       - func: upload_openshift_bundle
         vars:
           # mongoDbOperator expansion is added in update_evergreen_expansions func from release.json
-          bundle_file_name: "operator-community-${mongodbOperator}.tgz"
-      - func: upload_openshift_bundle
-        vars:
           bundle_file_name: "operator-certified-${mongodbOperator}.tgz"
 
   - name: run_conditionally_prepare_and_upload_openshift_bundles
@@ -611,10 +613,12 @@ task_groups:
       - unit_tests_python
       - sbom_tests
 
-  - name: gke_code_snippets
+  - name: gke_code_snippets_task_group
     <<: *setup_and_teardown_group_gke_code_snippets
+    max_hosts: -1
     tasks:
       - gke_multi_cluster_snippets
+      - gke_multi_cluster_no_mesh_snippets
 
   # Task group for deploying mongodbcommunity resources and testing the (former) MCO
   - name: e2e_mdb_community_task_group
@@ -909,7 +913,9 @@ task_groups:
       - e2e_multi_cluster_appdb_disaster_recovery
       - e2e_multi_cluster_appdb_disaster_recovery_force_reconfigure
       - e2e_multi_cluster_om_networking_clusterwide
+      - e2e_multi_cluster_om_appdb_no_mesh
       # Reused OM tests with AppDB Multi-Cluster topology
+      - e2e_operator_upgrade_appdb_tls
       - e2e_om_appdb_flags_and_config
       - e2e_om_appdb_upgrade
       - e2e_om_appdb_monitoring_tls
@@ -961,6 +967,7 @@ task_groups:
       - e2e_multi_cluster_appdb_disaster_recovery
       - e2e_multi_cluster_appdb_disaster_recovery_force_reconfigure
       - e2e_multi_cluster_om_networking_clusterwide
+      - e2e_multi_cluster_om_appdb_no_mesh
       # Reused OM tests with AppDB Multi-Cluster topology
       - e2e_om_appdb_flags_and_config
       - e2e_om_appdb_upgrade
@@ -1016,6 +1023,7 @@ task_groups:
     <<: *setup_group
     <<: *setup_and_teardown_task
     tasks:
+      - e2e_om_appdb_external_connectivity
       - e2e_om_appdb_flags_and_config
       - e2e_om_appdb_monitoring_tls
       - e2e_om_appdb_multi_change
@@ -1060,6 +1068,7 @@ task_groups:
     <<: *setup_group
     <<: *setup_and_teardown_task
     tasks:
+      - e2e_om_appdb_external_connectivity
       - e2e_om_appdb_flags_and_config
       - e2e_om_appdb_monitoring_tls
       - e2e_om_appdb_multi_change
@@ -1808,10 +1817,11 @@ buildvariants:
     run_on:
       - ubuntu2204-small
     tasks:
-      - name: gke_code_snippets
+      - name: gke_code_snippets_task_group
 
   - name: prerelease_gke_code_snippets
     display_name: prerelease_gke_code_snippets
+    tags: [ "release" ]
     allowed_requesters: ["patch", "github_tag"]
     depends_on:
       - variant: release_images
@@ -1820,7 +1830,7 @@ buildvariants:
     run_on:
       - ubuntu2204-small
     tasks:
-      - name: gke_code_snippets
+      - name: gke_code_snippets_task_group
 
   - name: private_gke_code_snippets
     display_name: private_gke_code_snippets
@@ -1829,7 +1839,7 @@ buildvariants:
       - ubuntu2204-small
     <<: *base_om8_dependency
     tasks:
-      - name: gke_code_snippets
+      - name: gke_code_snippets_task_group
 
   ### Build variants for manual patch only
 

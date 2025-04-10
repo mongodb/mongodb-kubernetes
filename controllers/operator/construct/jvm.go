@@ -71,11 +71,30 @@ func buildJvmParamsEnvVars(m omv1.MongoDBOpsManagerSpec, containerName string, t
 	mmsJvmEnvVar.Value = buildJvmEnvVar(m.JVMParams, memParams)
 	backupJvmEnvVar.Value = buildJvmEnvVar(m.Backup.JVMParams, memParams)
 
+	// If a debug port is set, add the JVM debug agent to the JVM parameters
+	if debugPort := getDebugPort(omContainer.Ports); debugPort > 0 {
+		mmsJvmEnvVar.Value += fmt.Sprintf(" -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=%d", debugPort)
+	}
+
 	// Debug port reports the status of the AppDB, this can be used to determine if the Backup Daemon is in a good state.
 	// this exposes a /health endpoint which returns {"sync_db":"OK","backup_db":"OK","mms_db":"OK"}
 	// https://github.com/10gen/mms/blob/8c4047d67e157672051d37e340305d89ad20964a/server/src/main/com/xgen/svc/brs/grid/Daemon.java#L926
 	backupJvmEnvVar.Value += fmt.Sprintf(" -DDAEMON.DEBUG.PORT=%d", backupDaemonHealthPort)
 	return []corev1.EnvVar{mmsJvmEnvVar, backupJvmEnvVar}, nil
+}
+
+func getDebugPort(ports []corev1.ContainerPort) int32 {
+	if len(ports) == 0 {
+		return 0
+	}
+
+	for _, p := range ports {
+		if p.Name == "debug" {
+			return p.ContainerPort
+		}
+	}
+
+	return 0
 }
 
 // getPercentOfQuantityAsInt returns the percentage of a given quantity as an int.

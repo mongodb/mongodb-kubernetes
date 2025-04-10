@@ -10,6 +10,7 @@ find public/architectures -name "test.sh" -exec sh -c '
   run_cleanup "teardown.sh"
   rm -rf istio*
   rm -rf certs
+  rm -rf secrets
 
   popd
   ' sh {} \;

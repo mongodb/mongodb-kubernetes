@@ -2,14 +2,17 @@ from typing import List
 
 import kubernetes
 import pytest
-from kubetester import wait_until
+from kubetester import try_load, wait_until
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.operator import Operator
+from tests import test_logger
 from tests.multicluster.conftest import cluster_spec_list
+
+logger = test_logger.get_test_logger(__name__)
 
 
 @pytest.fixture(scope="module")
@@ -20,10 +23,10 @@ def mongodb_multi(
     custom_mdb_version: str,
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", namespace)
-    resource.set_version(custom_mdb_version)
 
-    # TODO: incorporate this into the base class.
-    resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
+    if try_load(resource):
+        return resource
+
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
 
     return resource.update()
@@ -47,30 +50,19 @@ def test_automation_config_has_been_updated(mongodb_multi: MongoDBMulti):
 
 
 @pytest.mark.e2e_multi_cluster_replica_set_deletion
-def test_delete_mongodb_multi(
-    mongodb_multi: MongoDBMulti,
-):
-    mongodb_multi.load()
-
-    # TODO: uncomment when change is merged.
-    # mongodb_multi.delete()
-
-    body = kubernetes.client.V1DeleteOptions()
-    mongodb_multi.api.delete_namespaced_custom_object(
-        mongodb_multi.group,
-        mongodb_multi.version,
-        mongodb_multi.namespace,
-        mongodb_multi.plural,
-        mongodb_multi.name,
-        body=body,
-    )
+def test_delete_mongodb_multi(mongodb_multi: MongoDBMulti):
+    mongodb_multi.delete()
 
     def wait_for_deleted() -> bool:
         try:
             mongodb_multi.load()
             return False
-        except kubernetes.client.ApiException:
-            return True
+        except kubernetes.client.ApiException as e:
+            if e.status == 404:
+                return True
+            else:
+                logger.error(e)
+                return False
 
     wait_until(wait_for_deleted, timeout=60)
 
@@ -83,7 +75,7 @@ def test_deployment_has_been_removed_from_automation_config():
             tester.assert_empty()
             return True
         except AssertionError as e:
-            print(e)
+            logger.error(e)
             return False
 
     wait_until(wait_until_automation_config_is_clean, timeout=60)
@@ -98,7 +90,7 @@ def test_kubernetes_resources_have_been_cleaned_up(
             mongodb_multi.read_services(member_cluster_clients)
             return False
         except kubernetes.client.ApiException as e:
-            print(e)
+            logger.error(e)
             return True
 
     def wait_until_statefulsets_are_removed() -> bool:
@@ -106,7 +98,7 @@ def test_kubernetes_resources_have_been_cleaned_up(
             mongodb_multi.read_statefulsets(member_cluster_clients)
             return False
         except kubernetes.client.ApiException as e:
-            print(e)
+            logger.error(e)
             return True
 
     def wait_until_configmaps_are_removed() -> bool:
@@ -114,7 +106,7 @@ def test_kubernetes_resources_have_been_cleaned_up(
             mongodb_multi.read_configmaps(member_cluster_clients)
             return False
         except kubernetes.client.ApiException as e:
-            print(e)
+            logger.error(e)
             return True
 
     wait_until(wait_until_secrets_are_removed, timeout=60)

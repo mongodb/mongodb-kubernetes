@@ -86,6 +86,11 @@ func (in *AppDBSpec) DeepCopyInto(out *AppDBSpec) {
 		*out = new(mdb.MongoDBConnectivity)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.ExternalAccessConfiguration != nil {
+		in, out := &in.ExternalAccessConfiguration, &out.ExternalAccessConfiguration
+		*out = new(mdb.ExternalAccessConfiguration)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.AdditionalMongodConfig != nil {
 		in, out := &in.AdditionalMongodConfig, &out.AdditionalMongodConfig
 		*out = (*in).DeepCopy()
@@ -769,7 +774,11 @@ func (in *S3Config) DeepCopyInto(out *S3Config) {
 		*out = new(MongoDBUserRef)
 		**out = **in
 	}
-	out.S3SecretRef = in.S3SecretRef
+	if in.S3SecretRef != nil {
+		in, out := &in.S3SecretRef, &out.S3SecretRef
+		*out = new(SecretRef)
+		**out = **in
+	}
 	if in.AssignmentLabels != nil {
 		in, out := &in.AssignmentLabels, &out.AssignmentLabels
 		*out = make([]string, len(*in))

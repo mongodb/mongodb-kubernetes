@@ -1443,6 +1443,13 @@ func getFakeMultiClusterMapWithClusters(clusters []string, omConnectionFactory *
 	return getFakeMultiClusterMapWithConfiguredInterceptor(clusters, omConnectionFactory, true, true)
 }
 
+// getAppDBFakeMultiClusterMapWithClusters is used for appdb multi cluster tests
+// In AppDB we manually add the hosts in OM by calling the /hosts endpoint.
+// Here we set `addOMHosts` to false so that we can test what hostnames the operator adds.
+func getAppDBFakeMultiClusterMapWithClusters(clusters []string, omConnectionFactory *om.CachedOMConnectionFactory) map[string]client.Client {
+	return getFakeMultiClusterMapWithConfiguredInterceptor(clusters, omConnectionFactory, true, false)
+}
+
 func getFakeMultiClusterMapWithConfiguredInterceptor(clusters []string, omConnectionFactory *om.CachedOMConnectionFactory, markStsAsReady bool, addOMHosts bool) map[string]client.Client {
 	clientMap := make(map[string]client.Client)
 

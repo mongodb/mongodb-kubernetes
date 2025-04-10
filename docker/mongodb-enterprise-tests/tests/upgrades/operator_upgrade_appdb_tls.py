@@ -5,11 +5,18 @@ from kubetester.mongodb import Phase
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
-from tests.conftest import create_appdb_certs
+from tests.conftest import (
+    create_appdb_certs,
+    install_official_operator,
+    is_multi_cluster,
+)
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 APPDB_NAME = "om-appdb-upgrade-tls-db"
 
 CERT_PREFIX = "prefix"
+
+# TODO: this test runs in the cloudqa variant but still creates OM. We might want to move that to OM variant instead
 
 
 def appdb_name(namespace: str) -> str:
@@ -24,37 +31,82 @@ def appdb_certs_secret(namespace: str, issuer: str):
     return create_appdb_certs(namespace, issuer, APPDB_NAME, cert_prefix=CERT_PREFIX)
 
 
+# This deployment uses TLS for appdb, which means that monitoring won't work due to missing hostnames in the TLS certs
+# This is to test that the operator upgrade will fix monitoring
 @fixture(scope="module")
-def ops_manager(
+def ops_manager_tls(
     namespace, issuer_ca_configmap: str, appdb_certs_secret: str, custom_version: str, custom_appdb_version: str
 ) -> MongoDBOpsManager:
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_appdb_upgrade_tls.yaml"), namespace=namespace
     )
     resource["spec"]["applicationDatabase"]["security"]["certsSecretPrefix"] = CERT_PREFIX
-    # TODO: this test runs in the cloudqa variant but still creates OM. We might want to move that to OM variant instead
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
 
-    return resource.create()
+    if is_multi_cluster():
+        enable_multi_cluster_deployment(resource, om_cluster_spec_list=[1, 0, 0])
+
+    return resource
+
+
+# This deployment does not use TLS for appdb, therefore monitoring will work
+# This is to test that the operator migrates monitoring seamlessly
+@fixture(scope="module")
+def ops_manager_non_tls(
+    namespace, issuer_ca_configmap: str, custom_version: str, custom_appdb_version: str
+) -> MongoDBOpsManager:
+    resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
+        yaml_fixture("om_ops_manager_appdb_upgrade_tls.yaml"), namespace=namespace, name="om-appdb-upgrade"
+    )
+    resource["spec"]["applicationDatabase"]["security"] = None
+    resource.set_version(custom_version)
+    resource.set_appdb_version(custom_appdb_version)
+
+    if is_multi_cluster():
+        enable_multi_cluster_deployment(resource, om_cluster_spec_list=[1, 0, 0])
+
+    return resource
 
 
 @mark.e2e_operator_upgrade_appdb_tls
-def test_install_latest_official_operator(official_operator: Operator):
-    official_operator.assert_is_running()
+def test_install_latest_official_operator(
+    namespace: str,
+    managed_security_context,
+    operator_installation_config,
+    central_cluster_name,
+    central_cluster_client,
+    member_cluster_clients,
+    member_cluster_names,
+):
+    operator = install_official_operator(
+        namespace,
+        managed_security_context,
+        operator_installation_config,
+        central_cluster_name,
+        central_cluster_client,
+        member_cluster_clients,
+        member_cluster_names,
+        "1.32.0",  # latest operator version before fixing the appdb hostnames
+    )
+    operator.assert_is_running()
 
 
 @mark.e2e_operator_upgrade_appdb_tls
-def test_create_om(ops_manager: MongoDBOpsManager):
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
+def test_create_om_tls(ops_manager_tls: MongoDBOpsManager):
+    ops_manager_tls.update()
+    ops_manager_tls.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
+    ops_manager_tls.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+    ops_manager_tls.get_om_tester().assert_healthiness()
 
-    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=600)
 
-
-@skip_if_local
 @mark.e2e_operator_upgrade_appdb_tls
-def test_om_is_ok(ops_manager: MongoDBOpsManager):
-    ops_manager.get_om_tester().assert_healthiness()
+def test_create_om_non_tls(ops_manager_non_tls: MongoDBOpsManager):
+    ops_manager_non_tls.update()
+    ops_manager_non_tls.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
+    ops_manager_non_tls.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+    ops_manager_non_tls.get_om_tester().assert_healthiness()
+    ops_manager_non_tls.assert_monitoring_data_exists()
 
 
 @mark.e2e_operator_upgrade_appdb_tls
@@ -63,26 +115,49 @@ def test_upgrade_operator(default_operator: Operator):
 
 
 @mark.e2e_operator_upgrade_appdb_tls
-def test_om_ok(ops_manager: MongoDBOpsManager):
-    # status phases are updated gradually - we need to check for each of them (otherwise "check(Running) for OM"
-    # will return True right away
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=800)
-    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=500)
-
-    ops_manager.get_om_tester().assert_healthiness()
+def test_om_tls_ok(ops_manager_tls: MongoDBOpsManager):
+    ops_manager_tls.load()
+    ops_manager_tls.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
+    ops_manager_tls.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+    ops_manager_tls.get_om_tester().assert_healthiness()
 
 
 @mark.e2e_operator_upgrade_appdb_tls
-def test_using_official_images(
-    namespace: str,
-):
+def test_om_non_tls_ok(ops_manager_non_tls: MongoDBOpsManager):
+    ops_manager_non_tls.load()
+    ops_manager_non_tls.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
+    ops_manager_non_tls.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+    ops_manager_non_tls.get_om_tester().assert_healthiness()
+
+
+@mark.e2e_operator_upgrade_appdb_tls
+def test_appdb_tls_hostnames(ops_manager_tls: MongoDBOpsManager):
+    ops_manager_tls.load()
+    ops_manager_tls.assert_appdb_preferred_hostnames_are_added()
+    ops_manager_tls.assert_appdb_hostnames_are_correct()
+    ops_manager_tls.assert_appdb_monitoring_group_was_created()
+    ops_manager_tls.assert_monitoring_data_exists()
+
+
+@mark.e2e_operator_upgrade_appdb_tls
+def test_appdb_non_tls_hostnames(ops_manager_non_tls: MongoDBOpsManager):
+    ops_manager_non_tls.load()
+    ops_manager_non_tls.assert_appdb_preferred_hostnames_are_added()
+    ops_manager_non_tls.assert_appdb_hostnames_are_correct()
+    ops_manager_non_tls.assert_appdb_monitoring_group_was_created()
+    ops_manager_non_tls.assert_monitoring_data_exists()
+
+
+@mark.e2e_operator_upgrade_appdb_tls
+def test_using_official_images(namespace: str, ops_manager_tls: MongoDBOpsManager):
     """
     This test ensures that after upgrading from 1.x to 1.20 that our operator automatically replaces the old appdb
     image with the official on
     """
     # -> old quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:5.0.14-ent
     # -> new  quay.io/mongodb/mongodb-enterprise-server:5.0.14-ubi8
-    sts = get_statefulset(namespace, APPDB_NAME)
+    ops_manager_tls.load()
+    sts = ops_manager_tls.read_appdb_statefulset()
     found_official_image = any(
         [
             "quay.io/mongodb/mongodb-enterprise-server" in container.image

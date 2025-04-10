@@ -38,6 +38,7 @@ func init() {
 
 const (
 	queryableBackupConfigPath  string = "brs.queryable.proxyPort"
+	debuggingPortConfigPath    string = "mms.k8s.debuggingPort"
 	queryableBackupDefaultPort int32  = 25999
 )
 
@@ -168,8 +169,6 @@ type MongoDBOpsManagerSpec struct {
 
 	// OpsManagerURL specified the URL with which the operator and AppDB monitoring agent should access Ops Manager instance (or instances).
 	// When not set, the operator is using FQDN of Ops Manager's headless service `{name}-svc.{namespace}.svc.cluster.local` to connect to the instance. If that URL cannot be used, then URL in this field should be provided for the operator to connect to Ops Manager instances.
-	// It defaults (and if not set) to SingleCluster. If MultiCluster specified,
-	// then clusterSpecList field is mandatory and at least one member cluster has to be specified.
 	// +optional
 	OpsManagerURL string `json:"opsManagerURL,omitempty"`
 }
@@ -660,6 +659,17 @@ func (ms MongoDBOpsManagerSpec) BackupDaemonSvcPort() (int32, error) {
 	return queryableBackupDefaultPort, nil
 }
 
+func (ms MongoDBOpsManagerSpec) DebugPort() (int32, error) {
+	if port, ok := ms.Configuration[debuggingPortConfigPath]; ok {
+		val, err := strconv.ParseInt(port, 10, 32)
+		if err != nil {
+			return 0, fmt.Errorf("failed to parse debugging port %s: %w", port, err)
+		}
+		return int32(val), nil
+	}
+	return 0, nil
+}
+
 func (om *MongoDBOpsManager) AddConfigIfDoesntExist(key, value string) bool {
 	if om.Spec.Configuration == nil {
 		om.Spec.Configuration = make(map[string]string)
@@ -1030,6 +1040,16 @@ func (om *MongoDBOpsManager) GetMemberClusterBackupAssignmentLabels(memberCluste
 
 func (om *MongoDBOpsManager) ClusterMappingConfigMapName() string {
 	return om.Name + "-cluster-mapping"
+}
+
+func (om *MongoDBOpsManager) GetExternalConnectivityConfigurationForMemberCluster(clusterName string) *MongoDBOpsManagerServiceDefinition {
+	for _, csl := range om.Spec.ClusterSpecList {
+		if csl.ClusterName == clusterName && csl.MongoDBOpsManagerExternalConnectivity != nil {
+			return csl.MongoDBOpsManagerExternalConnectivity
+		}
+	}
+
+	return om.Spec.MongoDBOpsManagerExternalConnectivity
 }
 
 // newBackup returns an empty backup object

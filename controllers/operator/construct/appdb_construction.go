@@ -373,8 +373,10 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		podSpec = appDb.PodSpec.PodTemplateWrapper.PodTemplate.DeepCopy()
 	}
 
+	externalDomain := appDb.GetExternalDomainForMemberCluster(scaler.MemberClusterName())
+
 	if ShouldEnableMonitoring(podVars) {
-		monitoringModification = addMonitoringContainer(*appDb, *podVars, opts, log)
+		monitoringModification = addMonitoringContainer(*appDb, *podVars, opts, externalDomain, log)
 	} else {
 		// Otherwise, let's remove for now every podTemplateSpec related to monitoring
 		// We will apply them when enabling monitoring
@@ -387,9 +389,8 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	automationAgentCommand := construct.AutomationAgentCommand(true, opsManager.Spec.AppDB.GetAgentLogLevel(), opsManager.Spec.AppDB.GetAgentLogFile(), opsManager.Spec.AppDB.GetAgentMaxLogFileDurationHours())
 	idx := len(automationAgentCommand) - 1
 	automationAgentCommand[idx] += appDb.AutomationAgent.StartupParameters.ToCommandLineArgs()
-	if opsManager.Spec.AppDB.IsMultiCluster() {
-		automationAgentCommand[idx] += fmt.Sprintf(" -overrideLocalHost=$(hostname)-svc.${POD_NAMESPACE}.svc.%s", appDb.GetClusterDomain())
-	}
+
+	automationAgentCommand[idx] += overrideLocalHostFlag(appDb, externalDomain)
 
 	acVersionConfigMapVolume := statefulset.CreateVolumeFromConfigMap("automation-config-goal-version", opsManager.Spec.AppDB.AutomationConfigConfigMapName())
 	acVersionMount := corev1.VolumeMount{
@@ -488,7 +489,7 @@ func getVolumeMountIndexByName(mounts []corev1.VolumeMount, name string) int {
 // addMonitoringContainer returns a podtemplatespec modification that adds the monitoring container to the AppDB Statefulset.
 // Note that this replicates some code from the functions that do this for the base AppDB Statefulset. After many iterations
 // this was deemed to be an acceptable compromise to make code clearer and more maintainable.
-func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts AppDBStatefulSetOptions, log *zap.SugaredLogger) podtemplatespec.Modification {
+func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts AppDBStatefulSetOptions, externalDomain *string, log *zap.SugaredLogger) podtemplatespec.Modification {
 	var monitoringAcVolume corev1.Volume
 	var monitoringACFunc podtemplatespec.Modification
 
@@ -556,9 +557,7 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 
 	command += startupParams.ToCommandLineArgs()
 
-	if appDB.IsMultiCluster() {
-		command += fmt.Sprintf(" -overrideLocalHost=$(hostname)-svc.${POD_NAMESPACE}.svc.%s", appDB.GetClusterDomain())
-	}
+	command += overrideLocalHostFlag(&appDB, externalDomain)
 
 	monitoringCommand := []string{"/bin/bash", "-c", command}
 
@@ -648,4 +647,16 @@ func appdbContainerEnv(appDbSpec om.AppDBSpec) []corev1.EnvVar {
 		},
 	}
 	return envVars
+}
+
+// Configure the -overrideLocalHost parameter which controls how the automation agent instances identify themselves. For multi-cluster deployments:
+//   - With externalDomain: Use {hostname}.{externalDomain} format for cross-cluster discovery via external DNS
+//   - Without externalDomain: Use Kubernetes internal DNS format with cluster domain suffix for in-cluster networking
+func overrideLocalHostFlag(appDbSpec *om.AppDBSpec, externalDomain *string) string {
+	if externalDomain != nil {
+		return fmt.Sprintf(" -overrideLocalHost=$(hostname).%s", *externalDomain)
+	} else if appDbSpec.IsMultiCluster() {
+		return fmt.Sprintf(" -overrideLocalHost=$(hostname)-svc.${POD_NAMESPACE}.svc.%s", appDbSpec.GetClusterDomain())
+	}
+	return ""
 }
