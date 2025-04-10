@@ -1,6 +1,6 @@
 vars:
   quay_registry: quay.io/mongodb/mongodb-kubernetes-init-appdb
-  s3_bucket: s3://enterprise-operator-dockerfiles/dockerfiles/mongodb-enterprise-init-appdb
+  s3_bucket: s3://enterprise-operator-dockerfiles/dockerfiles/mongodb-kubernetes-init-appdb
 
 images:
 - name: init-appdb
@@ -16,7 +16,7 @@ images:
     buildargs:
       mongodb_tools_url_ubi: $(inputs.params.mongodb_tools_url_ubi)
     output:
-    - registry: $(inputs.params.registry)/mongodb-enterprise-init-appdb-context
+    - registry: $(inputs.params.registry)/mongodb-kubernetes-init-appdb-context
       tag: $(inputs.params.version_id)
 
   - name: init-appdb-template-ubi
@@ -33,27 +33,27 @@ images:
     tags: ["ubi"]
     buildargs:
       version: $(inputs.params.version)
-      imagebase: $(inputs.params.registry)/mongodb-enterprise-init-appdb-context:$(inputs.params.version_id)
+      imagebase: $(inputs.params.registry)/mongodb-kubernetes-init-appdb-context:$(inputs.params.version_id)
     dockerfile: $(stages['init-appdb-template-ubi'].outputs[0].dockerfile)
     output:
-    - registry: $(inputs.params.registry)/mongodb-enterprise-init-appdb-ubi
+    - registry: $(inputs.params.registry)/mongodb-kubernetes-init-appdb-ubi
       tag: $(inputs.params.version_id)
 
   - name: master-latest
     task_type: tag_image
     tags: [ "master" ]
     source:
-      registry: $(inputs.params.registry)/mongodb-enterprise-init-appdb-ubi
+      registry: $(inputs.params.registry)/mongodb-kubernetes-init-appdb-ubi
       tag: $(inputs.params.version_id)
     destination:
-      - registry: $(inputs.params.registry)/mongodb-enterprise-init-appdb-ubi
+      - registry: $(inputs.params.registry)/mongodb-kubernetes-init-appdb-ubi
         tag: latest
 
   - name: init-appdb-release-context
     task_type: tag_image
     tags: ["release"]
     source:
-      registry: $(inputs.params.registry)/mongodb-enterprise-init-appdb-context
+      registry: $(inputs.params.registry)/mongodb-kubernetes-init-appdb-context
       tag: $(inputs.params.version_id)
     destination:
     - registry: $(inputs.params.quay_registry)
