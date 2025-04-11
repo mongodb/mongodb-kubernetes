@@ -268,11 +268,12 @@ run_multi_cluster_kube_config_creator() {
     "--member-cluster-namespace" "${NAMESPACE}"
     "--central-cluster-namespace" "${NAMESPACE}"
     "--service-account" "mongodb-enterprise-operator-multi-cluster"
+    "--image-pull-secrets=image-registries-secret"
   )
 
   # This is used to skip the database roles when the context configures clusters so that the operator cluster is also used as one of the member clusters.
   # In case of this overlap we cannot install those roles here as otherwise multi-cluster cli tool
-  if [[ ! "${MEMBER_CLUSTERS}" == *"${CLUSTER_NAME}"* ]]; then
+  if [[ ! "${MEMBER_CLUSTERS}" == *"${CLUSTER_NAME}"* || ${OVERRIDE_INSTALL_ROLES:-"false"} == "true" ]]; then
     >&2 echo "WARNING: When running e2e tests for multicluster locally, installing database roles by cli tool might cause failures when installing the operator in e2e test."
     params+=("--install-database-roles")
   fi

@@ -402,7 +402,7 @@ prepare-local-e2e: reset-mco
 
 # prepares the local environment to run a local operator as well as installs the helm chart to enable running the operator and reconcile resources without the need to run an e2e test
 prepare-local-with-helm: reset-mco
-	DEPLOY_OPERATOR=true scripts/dev/prepare_local_e2e_run.sh
+	DEPLOY_OPERATOR=true OVERRIDE_INSTALL_ROLES=true scripts/dev/prepare_local_e2e_run.sh
 
 prepare-operator-configmap: # prepares the local environment to run a local operator
 	source scripts/dev/set_env_context.sh && source scripts/funcs/printing && source scripts/funcs/operator_deployment && prepare_operator_config_map "$(kubectl config current-context)"
