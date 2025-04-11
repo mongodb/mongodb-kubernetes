@@ -130,7 +130,7 @@ class OMTester(object):
         while retry > 0:
             try:
                 span = trace.get_current_span()
-                span.set_attribute(key="meko_pit_retries", value=retry)
+                span.set_attribute(key="mck.pit_retries", value=retry)
                 self.api_create_restore_job_pit(cluster_id, pit_milliseconds)
                 return
             except Exception as e:
@@ -164,7 +164,7 @@ class OMTester(object):
             if len([s for s in snapshots if s["complete"]]) >= expected_count:
                 print(f"Snapshots are ready, project: {self.context.group_name}, time: {time.time() - start_time} sec")
                 span = trace.get_current_span()
-                span.set_attribute(key="meko_snapshot_time", value=time.time() - start_time)
+                span.set_attribute(key="mck.snapshot_time", value=time.time() - start_time)
                 return
             time.sleep(3)
             timeout -= 3
@@ -371,7 +371,7 @@ class OMTester(object):
 
         pattern = re.compile(r"/[a-f0-9]{24}")
         sanitized_path = pattern.sub("/{id}", path)
-        span.set_attribute(key=f"meko.om.request.resource", value=sanitized_path)
+        span.set_attribute(key=f"mck.om.request.resource", value=sanitized_path)
 
         def om_request():
             try:
@@ -388,8 +388,8 @@ class OMTester(object):
                 print("failed connecting to om")
                 raise e
 
-            span.set_attribute(key=f"meko.om.request.duration", value=time.time() - start_time)
-            span.set_attribute(key=f"meko.om.request.fullpath", value=path)
+            span.set_attribute(key=f"mck.om.request.duration", value=time.time() - start_time)
+            span.set_attribute(key=f"mck.om.request.fullpath", value=path)
 
             if response.status_code >= 300:
                 raise Exception(
@@ -404,11 +404,11 @@ class OMTester(object):
         while retry_count >= 0:
             try:
                 resp = om_request()
-                span.set_attribute(key=f"meko.om.request.retries", value=retries - retry_count)
+                span.set_attribute(key=f"mck.om.request.retries", value=retries - retry_count)
                 return resp
             except Exception as e:
                 print(f"Encountered exception: {e} on retry number {retries-retry_count}")
-                span.set_attribute(key=f"meko.om.request.exception", value=str(e))
+                span.set_attribute(key=f"mck.om.request.exception", value=str(e))
                 last_exception = e
                 time.sleep(1)
                 retry_count -= 1

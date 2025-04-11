@@ -41,13 +41,13 @@ def run_command_with_retries(command, retries=6, base_delay=10):
     :raises subprocess.CalledProcessError: If the command fails after retries.
     """
     span = trace.get_current_span()
-    span.set_attribute(f"meko.command.command", command)
+    span.set_attribute(f"mck.command.command", command)
     for attempt in range(retries):
         try:
             result = subprocess.run(command, capture_output=True, text=True, check=True)
-            span.set_attribute(f"meko.command.retries", attempt)
-            span.set_attribute(f"meko.command.failure", False)
-            span.set_attribute(f"meko.command.result", result.stdout)
+            span.set_attribute(f"mck.command.retries", attempt)
+            span.set_attribute(f"mck.command.failure", False)
+            span.set_attribute(f"mck.command.result", result.stdout)
             return result
         except subprocess.CalledProcessError as e:
             logger.error(f"Attempt {attempt + 1} failed: {e.stderr}")
@@ -59,11 +59,11 @@ def run_command_with_retries(command, retries=6, base_delay=10):
                     time.sleep(delay)
                 else:
                     logger.error(f"All {retries} attempts failed for command: {command}")
-                    span.set_attribute(f"meko.command.failure", "no_retries")
+                    span.set_attribute(f"mck.command.failure", "no_retries")
                     raise
             else:
                 logger.error(f"Non-retryable error occurred: {e.stderr}")
-                span.set_attribute(f"meko.command.failure", e.stderr)
+                span.set_attribute(f"mck.command.failure", e.stderr)
                 raise
 
 
@@ -209,8 +209,8 @@ def sign_image(repository: str, tag: str) -> None:
 
     end_time = time.time()
     duration = end_time - start_time
-    span.set_attribute(f"meko.signing.duration", duration)
-    span.set_attribute(f"meko.signing.repository", repository)
+    span.set_attribute(f"mck.signing.duration", duration)
+    span.set_attribute(f"mck.signing.repository", repository)
     logger.debug("Signing successful")
 
 
@@ -250,6 +250,6 @@ def verify_signature(repository: str, tag: str) -> bool:
 
     end_time = time.time()
     duration = end_time - start_time
-    span.set_attribute(f"meko.verification.duration", duration)
-    span.set_attribute(f"meko.verification.repository", repository),
+    span.set_attribute(f"mck.verification.duration", duration)
+    span.set_attribute(f"mck.verification.repository", repository),
     logger.debug("Successful verification")

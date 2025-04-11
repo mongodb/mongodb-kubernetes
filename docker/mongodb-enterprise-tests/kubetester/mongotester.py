@@ -557,17 +557,17 @@ class BackgroundHealthChecker(threading.Thread):
         caller_function = caller_info.function  # Optional: Get the function name
 
         span = trace.get_current_span()
-        span.set_attribute("meko_version_change_connection_failures", allowed_failures)
-        span.set_attribute("meko_caller_file", caller_file)
-        span.set_attribute("meko_caller_function", caller_function)
-        span.set_attribute("meko_health_check_failed", True)
+        span.set_attribute("mck.version_change_connection_failures", allowed_failures)
+        span.set_attribute("mck.caller_file", caller_file)
+        span.set_attribute("mck.caller_function", caller_function)
+        span.set_attribute("mck.health_check_failed", True)
 
         try:
             assert self.max_consecutive_failure <= allowed_failures
             assert self.number_of_runs > 0
         except AssertionError as e:
-            span.set_attribute("meko_health_check_failed", True)
-            span.set_attribute("meko_failure_reason", str(e))
+            span.set_attribute("mck.health_check_failed", True)
+            span.set_attribute("mck.failure_reason", str(e))
             raise
 
 
