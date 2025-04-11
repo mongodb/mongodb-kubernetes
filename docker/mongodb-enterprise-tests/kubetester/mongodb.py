@@ -132,10 +132,10 @@ class MongoDB(CustomObject, MongoDBCommon):
 
         end_time = time.time()
         span = trace.get_current_span()
-        span.set_attribute("meko_resource", self.__class__.__name__)
-        span.set_attribute("meko_action", "assert_phase")
-        span.set_attribute("meko_desired_phase", phase.name)
-        span.set_attribute("meko_time_needed", end_time - start_time)
+        span.set_attribute("mck.resource", self.__class__.__name__)
+        span.set_attribute("mck.action", "assert_phase")
+        span.set_attribute("mck.desired_phase", phase.name)
+        span.set_attribute("mck.time_needed", end_time - start_time)
         logger.debug(
             f"Reaching phase {phase.name} for resource {self.__class__.__name__} took {end_time - start_time}s"
         )
