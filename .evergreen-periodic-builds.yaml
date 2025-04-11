@@ -138,10 +138,6 @@ tasks:
         vars:
           image_name: mongodb-kubernetes-operator-version-upgrade-post-start-hook-daily
 
-  - name: periodic_build_appdb_database
-    commands:
-      - func: build_and_push_appdb_database
-
 task_groups:
   - name: periodic_build_task_group
     max_hosts: -1
@@ -158,7 +154,6 @@ task_groups:
       - periodic_build_ops_manager_8
       - periodic_build_database
       - periodic_build_community_operator
-      - periodic_build_appdb_database
       - periodic_build_sbom_cli
       - periodic_build_agent
       - periodic_build_agent_1
