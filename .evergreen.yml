@@ -1356,6 +1356,8 @@ buildvariants:
       - name: e2e_operator_race_with_telemetry_task_group
 
   - name: e2e_smoke
+    # TODO: CLOUDP-310820 - After 1.0.0 release we need re-enabled this
+    disable: true
     display_name: e2e_smoke
     tags: [ "e2e_test_suite" ]
     run_on:
@@ -1367,6 +1369,8 @@ buildvariants:
       - name: e2e_smoke_task_group
 
   - name: e2e_static_smoke
+    # TODO: CLOUDP-310820 - After 1.0.0 release we need re-enabled this
+    disable: true
     display_name: e2e_static_smoke
     tags: [ "e2e_test_suite" ]
     run_on:
