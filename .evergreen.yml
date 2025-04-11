@@ -1641,8 +1641,6 @@ buildvariants:
         variant: init_test_run
       - name: build_agent_images_ubi
         variant: init_test_run
-      - name: release_agents_on_ecr_conditional
-        variant: init_release_agents_on_ecr
     run_on:
       - ubuntu2204-small
     tasks:
