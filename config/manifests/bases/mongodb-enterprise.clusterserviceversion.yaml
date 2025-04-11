@@ -6,7 +6,7 @@ metadata:
     capabilities: Deep Insights
     categories: Database
     certified: "true"
-    containerImage: quay.io/mongodb/mongodb-enterprise-operator-ubi:1.32.0
+    containerImage: quay.io/mongodb/mongodb-enterprise-operator-ubi:1.0.0
     createdAt: ""
     description: The MongoDB Enterprise Kubernetes Operator enables easy deploys of
       MongoDB into Kubernetes clusters, using our management, monitoring and backup
@@ -443,5 +443,5 @@ spec:
   maturity: stable
   provider:
     name: MongoDB, Inc
-  replaces: mongodb-enterprise.v1.31.0
+  replaces: mongodb-enterprise.v1.32.0
   version: 0.0.0
