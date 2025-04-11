@@ -624,7 +624,6 @@ def args_for_daily_image(image_name: str) -> Dict[str, str]:
     This includes the quay_registry and ospid corresponding to RedHat's project id.
     """
     image_configs = [
-        image_config("appdb"),
         image_config("database"),
         image_config("init-appdb"),
         image_config("agent"),
