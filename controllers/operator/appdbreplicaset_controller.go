@@ -55,6 +55,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
+	"github.com/10gen/ops-manager-kubernetes/pkg/agentVersionManagement"
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/images"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
@@ -587,7 +588,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	} else {
 		// instead of using a hard-coded monitoring version, we use the "newest" one based on the release.json.
 		// This ensures we need to care less about CVEs compared to the prior older hardcoded versions.
-		legacyMonitoringAgentVersion, err := r.getAgentVersion(nil, opsManager.Spec.Version, true, log)
+		legacyMonitoringAgentVersion, err := r.getLegacyMonitoringAgentVersion(ctx, opsManager, log)
 		if err != nil {
 			return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error reading monitoring agent version: %w", err)), log, appDbStatusOption)
 		}
@@ -730,6 +731,22 @@ func (r *ReconcileAppDbReplicaSet) getNameOfFirstMemberCluster() string {
 		}
 	}
 	return firstMemberClusterName
+}
+
+// getLegacyMonitoringAgentVersion partially duplicates the functionality in (r *ReconcileCommonController).getAgentVersion to avoid
+// changing the signature of the general function that is used in static container setups as this method only considers the non-static
+// OpsManager. This should also make it easier to remove when switching to one architecture for containers.
+func (r *ReconcileAppDbReplicaSet) getLegacyMonitoringAgentVersion(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (string, error) {
+	m, err := agentVersionManagement.GetAgentVersionManager()
+	if err != nil || m == nil {
+		return "", xerrors.Errorf("not able to init agentVersionManager: %w", err)
+	}
+	if agentVersion, err := m.GetAgentVersion(nil, opsManager.Spec.Version, true); err != nil {
+		log.Errorf("Failed to get the agent version from the Agent Version manager: %s", err)
+		return "", xerrors.Errorf("Failed to get the agent version from the Agent Version manager: %w", err)
+	} else {
+		return agentVersion, nil
+	}
 }
 
 func (r *ReconcileAppDbReplicaSet) deployAutomationConfigAndWaitForAgentsReachGoalState(ctx context.Context, log *zap.SugaredLogger, opsManager *omv1.MongoDBOpsManager, allStatefulSetsExist bool, appdbOpts construct.AppDBStatefulSetOptions) workflow.Status {

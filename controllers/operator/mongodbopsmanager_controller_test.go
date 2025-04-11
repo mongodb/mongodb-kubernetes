@@ -522,8 +522,7 @@ func TestOpsManagerReconcileContainerImages(t *testing.T) {
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-appdb@sha256:INIT_APPDB_SHA", appDBSts.Spec.Template.Spec.InitContainers[0].Image)
 	assert.Equal(t, "quay.io/mongodb/mongodb-agent@sha256:AGENT_SHA", appDBSts.Spec.Template.Spec.Containers[0].Image)
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA", appDBSts.Spec.Template.Spec.Containers[1].Image)
-	// Version from the mapping file (agent version + operator version)
-	assert.Contains(t, appDBSts.Spec.Template.Spec.Containers[2].Image, "_9.9.9-test")
+	assert.NotContains(t, appDBSts.Spec.Template.Spec.Containers[2].Image, util.OperatorVersion)
 }
 
 func TestOpsManagerReconcileContainerImagesWithStaticArchitecture(t *testing.T) {
