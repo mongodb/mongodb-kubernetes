@@ -1407,11 +1407,15 @@ func (r *OpsManagerReconciler) prepareOpsManager(ctx context.Context, opsManager
 	if opsManager.IsTLSEnabled() {
 		log.Debug("TLS is enabled, creating the first user with the mms-ca.crt")
 		opsManagerCA := opsManager.Spec.GetOpsManagerCA()
-		cm, err := r.client.GetConfigMap(ctx, kube.ObjectKey(opsManager.Namespace, opsManagerCA))
-		if err != nil {
-			return workflow.Failed(xerrors.Errorf("failed to retrieve om ca certificate to create the initial user: %w", err)).WithRetry(30), nil
+		if opsManagerCA == "" {
+			log.Info("Custom CA was not provided, will use host root CA")
+		} else {
+			cm, err := r.client.GetConfigMap(ctx, kube.ObjectKey(opsManager.Namespace, opsManagerCA))
+			if err != nil {
+				return workflow.Failed(xerrors.Errorf("failed to retrieve om ca certificate to create the initial user: %w", err)).WithRetry(30), nil
+			}
+			ca = ptr.To(cm.Data["mms-ca.crt"])
 		}
-		ca = ptr.To(cm.Data["mms-ca.crt"])
 	}
 
 	APISecretName, status := r.getOpsManagerAPIKeySecretName(ctx, opsManager)

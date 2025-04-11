@@ -269,6 +269,21 @@ func TestOpsManagerReconcilerPrepareOpsManagerWithTLS(t *testing.T) {
 	assert.Equal(t, workflow.OK(), reconcileStatus)
 }
 
+func TestOpsManagerReconcilePrepareOpsManagerWithTLSHostCA(t *testing.T) {
+	ctx := context.Background()
+	testOm := DefaultOpsManagerBuilder().SetTLSConfig(omv1.MongoDBOpsManagerTLS{
+		SecretRef: omv1.TLSSecretRef{
+			Name: "om-tls-secret",
+		},
+	}).Build()
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	reconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory)
+	reconcileStatus, _ := reconciler.prepareOpsManager(ctx, testOm, testOm.CentralURL(), zap.S())
+
+	assert.Equal(t, workflow.OK(), reconcileStatus)
+}
+
 func addOmCACm(ctx context.Context, t *testing.T, testOm *omv1.MongoDBOpsManager, reconciler *OpsManagerReconciler) {
 	cm := configmap.Builder().
 		SetName(testOm.Spec.GetOpsManagerCA()).
