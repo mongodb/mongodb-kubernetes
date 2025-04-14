@@ -213,6 +213,26 @@ func TestMongoDBConnectionURLExternalDomainWithAuth(t *testing.T) {
 		cnx)
 }
 
+func TestMongoDBConnectionURLMultiClusterSharded(t *testing.T) {
+	sc := NewDefaultMultiShardedClusterBuilder().SetName("sharDB").Build()
+	cb := &MongoDBConnectionStringBuilder{
+		MongoDB: *sc,
+		hostnames: []string{
+			"sharDB-mongos-0-0-svc.testNS.svc.cluster.local",
+			"sharDB-mongos-0-1-svc.testNS.svc.cluster.local",
+			"sharDB-mongos-1-0-svc.testNS.svc.cluster.local",
+			"sharDB-mongos-1-1-svc.testNS.svc.cluster.local",
+			"sharDB-mongos-1-2-svc.testNS.svc.cluster.local",
+		},
+	}
+
+	cs := cb.BuildConnectionString("", "", connectionstring.SchemeMongoDB, nil)
+	assert.Equal(t, "mongodb://sharDB-mongos-0-0-svc.testNS.svc.cluster.local,"+
+		"sharDB-mongos-0-1-svc.testNS.svc.cluster.local,"+
+		"sharDB-mongos-1-0-svc.testNS.svc.cluster.local,sharDB-mongos-1-1-svc.testNS.svc.cluster.local,"+
+		"sharDB-mongos-1-2-svc.testNS.svc.cluster.local/?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000", cs)
+}
+
 func TestMongoDB_AddWarningIfNotExists(t *testing.T) {
 	resource := &MongoDB{}
 	resource.AddWarningIfNotExists("my test warning")

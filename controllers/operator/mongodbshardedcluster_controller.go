@@ -655,9 +655,51 @@ type ShardedClusterReconcileHelper struct {
 	deploymentState *ShardedClusterDeploymentState
 
 	stateStore *StateStore[ShardedClusterDeploymentState]
+
+	// This parameter helps us decide whether write operations should be conducted in the constructor.
+	readOnly bool
 }
 
-func NewShardedClusterReconcilerHelper(ctx context.Context, reconciler *ReconcileCommonController, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, omConnectionFactory om.ConnectionFactory, log *zap.SugaredLogger) (*ShardedClusterReconcileHelper, error) {
+func NewReadOnlyClusterReconcilerHelper(
+	ctx context.Context,
+	reconciler *ReconcileCommonController,
+	sc *mdbv1.MongoDB,
+	globalMemberClustersMap map[string]client.Client,
+	log *zap.SugaredLogger,
+) (*ShardedClusterReconcileHelper, error) {
+	return newShardedClusterReconcilerHelper(ctx, reconciler, nil, "", "", false,
+		sc, globalMemberClustersMap, nil, log, true)
+}
+
+func NewShardedClusterReconcilerHelper(
+	ctx context.Context,
+	reconciler *ReconcileCommonController,
+	imageUrls images.ImageUrls,
+	initDatabaseNonStaticImageVersion,
+	databaseNonStaticImageVersion string,
+	forceEnterprise bool,
+	sc *mdbv1.MongoDB,
+	globalMemberClustersMap map[string]client.Client,
+	omConnectionFactory om.ConnectionFactory,
+	log *zap.SugaredLogger,
+) (*ShardedClusterReconcileHelper, error) {
+	return newShardedClusterReconcilerHelper(ctx, reconciler, imageUrls, initDatabaseNonStaticImageVersion,
+		databaseNonStaticImageVersion, forceEnterprise, sc, globalMemberClustersMap, omConnectionFactory, log, false)
+}
+
+func newShardedClusterReconcilerHelper(
+	ctx context.Context,
+	reconciler *ReconcileCommonController,
+	imageUrls images.ImageUrls,
+	initDatabaseNonStaticImageVersion,
+	databaseNonStaticImageVersion string,
+	forceEnterprise bool,
+	sc *mdbv1.MongoDB,
+	globalMemberClustersMap map[string]client.Client,
+	omConnectionFactory om.ConnectionFactory,
+	log *zap.SugaredLogger,
+	readOnly bool,
+) (*ShardedClusterReconcileHelper, error) {
 	// It's a workaround for single cluster topology to add there __default cluster.
 	// With the multi-cluster sharded refactor, we went so far with the multi-cluster first approach so we have very few places with conditional single/multi logic.
 	// Therefore, some parts of the reconciler logic uses that globalMemberClusterMap even in single-cluster mode (look for usages of createShardsMemberClusterLists) and expect
@@ -673,6 +715,8 @@ func NewShardedClusterReconcilerHelper(ctx context.Context, reconciler *Reconcil
 
 		initDatabaseNonStaticImageVersion: initDatabaseNonStaticImageVersion,
 		databaseNonStaticImageVersion:     databaseNonStaticImageVersion,
+
+		readOnly: readOnly,
 	}
 
 	helper.sc = sc
@@ -688,12 +732,13 @@ func NewShardedClusterReconcilerHelper(ctx context.Context, reconciler *Reconcil
 	if err := helper.initializeMemberClusters(globalMemberClustersMap, log); err != nil {
 		return nil, xerrors.Errorf("failed to initialize sharded cluster controller: %w", err)
 	}
-
-	if err := helper.stateStore.WriteState(ctx, helper.deploymentState, log); err != nil {
-		return nil, err
+	if !readOnly {
+		if err := helper.stateStore.WriteState(ctx, helper.deploymentState, log); err != nil {
+			return nil, err
+		}
 	}
 
-	if helper.deploymentState.Status != nil {
+	if helper.deploymentState.Status != nil && !readOnly {
 		// If we have the status in the deployment state, we make sure that status in the CR is the same.
 		// Status in the deployment state takes precedence. E.g. in case of restoring CR from yaml/git, the user-facing Status field will be restored
 		// from the deployment state.
@@ -719,7 +764,8 @@ func blockScalingBothWays(desiredReplicasScalers []interfaces.MultiClusterReplic
 	for _, mcScaler := range desiredReplicasScalers {
 		desired := mcScaler.TargetReplicas()
 		current := mcScaler.CurrentReplicas()
-		logMessage := fmt.Sprintf("Component=%s, Cluster=%s, Current=%d, Desired=%d;", mcScaler.ScalerDescription(), mcScaler.MemberClusterName(), current, desired)
+		logMessage := fmt.Sprintf("Component=%s, Cluster=%s, Current=%d, Desired=%d;",
+			mcScaler.ScalerDescription(), mcScaler.MemberClusterName(), current, desired)
 		if desired > current {
 			scalingUp = true
 			scalingUpLogs = append(scalingUpLogs, logMessage)
@@ -2136,6 +2182,12 @@ func (r *ShardedClusterReconcileHelper) getAllMongosHostnamesAndPodNames(desired
 		mongosPodNames = append(mongosPodNames, podNames...)
 	}
 	return mongosHostnames, mongosPodNames
+}
+
+func (r *ShardedClusterReconcileHelper) GetAllMongosHostnames() []string {
+	hostnames, _ := r.getAllMongosHostnamesAndPodNames(true)
+
+	return hostnames
 }
 
 func (r *ShardedClusterReconcileHelper) createDesiredMongosProcesses(certificateFilePath string) []om.Process {
