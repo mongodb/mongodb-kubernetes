@@ -95,9 +95,10 @@ get-kubeconfig() {
 }
 
 recreate-kind-clusters() {
+  DELETE_KIND_NETWORK=${DELETE_KIND_NETWORK:-"false"}
   echo "Recreating kind clusters on ${EVG_HOST_NAME} (${host_url})..."
   # shellcheck disable=SC2088
-  ssh -T "${host_url}" "cd ~/ops-manager-kubernetes; scripts/dev/recreate_kind_clusters.sh"
+  ssh -T "${host_url}" "cd ~/ops-manager-kubernetes; DELETE_KIND_NETWORK=${DELETE_KIND_NETWORK} scripts/dev/recreate_kind_clusters.sh"
   echo "Copying kubeconfig to ${kubeconfig_path}"
   get-kubeconfig
 }
@@ -170,6 +171,7 @@ COMMANDS:
   sync                                  rsync of project directory
   recreate-kind-clusters                executes scripts/dev/recreate_kind_clusters.sh and executes get-kubeconfig
   recreate-kind-cluster test-cluster    executes scripts/dev/recreate_kind_cluster.sh test-cluster and executes get-kubeconfig
+  remote-prepare-local-e2e-run          executes prepare-local-e2e on the remote evg host
   get-kubeconfig                        copies remote kubeconfig locally to ~/.operator-dev/evg-host.kubeconfig
   tunnel [args]                         creates ssh session with tunneling to all API servers
   ssh [args]                            creates ssh session passing optional arguments to ssh
