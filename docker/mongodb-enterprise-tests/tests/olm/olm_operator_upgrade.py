@@ -60,13 +60,13 @@ def test_upgrade_operator_only(namespace: str, version_id: str):
 
     subscription.update()
 
-    wait_for_operator_ready(namespace, f"mongodb-enterprise.v{latest_released_operator_version}")
+    wait_for_operator_ready(namespace, f"mongodb-kubernetes.v{latest_released_operator_version}")
 
     subscription.load()
     subscription["spec"]["channel"] = "fast"  # fast channel contains operator build from the current branch
     subscription.update()
 
-    wait_for_operator_ready(namespace, f"mongodb-enterprise.v{incremented_operator_version}")
+    wait_for_operator_ready(namespace, f"mongodb-kubernetes.v{incremented_operator_version}")
 
 
 @pytest.mark.e2e_olm_operator_upgrade

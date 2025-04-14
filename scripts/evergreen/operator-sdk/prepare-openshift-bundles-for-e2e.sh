@@ -109,7 +109,7 @@ schema: olm.channel
 package: mongodb-enterprise
 name: stable
 entries:
-  - name: mongodb-enterprise.v${latest_bundle_version}" >> "${catalog_dir}"/operator.yaml
+  - name: mongodb-kubernetes.v${latest_bundle_version}" >> "${catalog_dir}"/operator.yaml
 
   echo "Adding current version channel as FAST to ${catalog_dir}/operator.yaml"
   echo "---

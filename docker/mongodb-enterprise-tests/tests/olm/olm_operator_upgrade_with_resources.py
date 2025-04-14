@@ -100,7 +100,7 @@ def test_install_stable_operator_version(
     subscription: CustomObject,
 ):
     subscription.update()
-    wait_for_operator_ready(namespace, f"mongodb-enterprise.v{current_operator_version}")
+    wait_for_operator_ready(namespace, f"mongodb-kubernetes.v{current_operator_version}")
 
 
 # install resources on the latest released version of the operator
@@ -368,7 +368,7 @@ def test_operator_upgrade_to_fast(
 
     run_periodically(update_subscription, timeout=100, msg="Subscription to be updated")
 
-    wait_for_operator_ready(namespace, f"mongodb-enterprise.v{incremented_operator_version}")
+    wait_for_operator_ready(namespace, f"mongodb-kubernetes.v{incremented_operator_version}")
 
 
 @pytest.mark.e2e_olm_operator_upgrade_with_resources
