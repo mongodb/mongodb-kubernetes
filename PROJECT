@@ -1,6 +1,6 @@
 domain: mongodb.com
 layout: go.kubebuilder.io/v3
-projectName: mongodb-enterprise
+projectName: mongodb-kubernetes
 repo: github.com/10gen/ops-manager-kubernetes
 resources:
 - api:

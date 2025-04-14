@@ -88,22 +88,37 @@ def update_helm_charts(operator_version, release):
 
 
 def update_cluster_service_version(operator_version):
-    old_operator_version = get_value_in_yaml_file(
-        "config/manifests/bases/mongodb-enterprise.clusterserviceversion.yaml", "metadata.annotations.containerImage"
-    ).split(":")[-1]
+    container_image_value = get_value_in_yaml_file(
+        "config/manifests/bases/mongodb-kubernetes.clusterserviceversion.yaml",
+        "metadata.annotations.containerImage",
+    )
+
+    image_parts = container_image_value.split(":")
+    old_operator_version = image_parts[-1]
+    image_repo = ":".join(image_parts[:-1])
 
     if old_operator_version != operator_version:
+        olm_package_name = "mongodb-kubernetes"
+        # TODO: CLOUDP-310820 - After 1.0.0 release we need to clean this up: remove this condition
+        if operator_version == "1.0.0":
+            # MCK version 1.0.0 is a special case, where we need to
+            # set the olm_package_name to "mongodb-enterprise" because
+            # this is the version which provides a migration path
+            # from the old mongodb-enterprise operator (MEKO)
+            # to the new mongodb-kubernetes (MCK).
+            olm_package_name = "mongodb-enterprise"
+
         set_value_in_yaml_file(
-            "config/manifests/bases/mongodb-enterprise.clusterserviceversion.yaml",
+            "config/manifests/bases/mongodb-kubernetes.clusterserviceversion.yaml",
             "spec.replaces",
-            f"mongodb-enterprise.v{old_operator_version}",
+            f"{olm_package_name}.v{old_operator_version}",
             preserve_quotes=True,
         )
 
     set_value_in_yaml_file(
-        "config/manifests/bases/mongodb-enterprise.clusterserviceversion.yaml",
+        "config/manifests/bases/mongodb-kubernetes.clusterserviceversion.yaml",
         "metadata.annotations.containerImage",
-        f"quay.io/mongodb/mongodb-enterprise-operator-ubi:{operator_version}",
+        f"{image_repo}:{operator_version}",
         preserve_quotes=True,
     )
 
