@@ -1539,28 +1539,8 @@ func newSecurity() *Security {
 
 // BuildConnectionString returns a string with a connection string for this resource.
 func (m *MongoDB) BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
-	name := m.Name
-	if m.Spec.ResourceType == ShardedCluster {
-		name = m.MongosRsName()
-	}
-	builder := connectionstring.Builder().
-		SetName(name).
-		SetNamespace(m.Namespace).
-		SetUsername(username).
-		SetPassword(password).
-		SetReplicas(m.Spec.Replicas()).
-		SetService(m.ServiceName()).
-		SetPort(m.Spec.GetAdditionalMongodConfig().GetPortOrDefault()).
-		SetVersion(m.Spec.GetMongoDBVersion()).
-		SetAuthenticationModes(m.Spec.GetSecurityAuthenticationModes()).
-		SetClusterDomain(m.Spec.GetClusterDomain()).
-		SetExternalDomain(m.Spec.GetExternalDomain()).
-		SetIsReplicaSet(m.Spec.ResourceType == ReplicaSet).
-		SetIsTLSEnabled(m.Spec.IsSecurityTLSConfigEnabled()).
-		SetConnectionParams(connectionParams).
-		SetScheme(scheme)
-
-	return builder.Build()
+	builder := NewMongoDBConnectionStringBuilder(*m, nil)
+	return builder.BuildConnectionString(username, password, scheme, connectionParams)
 }
 
 func (m *MongoDB) GetAuthenticationModes() []string {
@@ -1587,6 +1567,50 @@ func (m *MongoDbSpec) GetTopology() string {
 
 func (m *MongoDbSpec) IsMultiCluster() bool {
 	return m.GetTopology() == ClusterTopologyMultiCluster
+}
+
+type MongoDBConnectionStringBuilder struct {
+	MongoDB
+	hostnames []string
+}
+
+// NewMongoDBConnectionStringBuilder creates a new instance of MongoDBConnectionStringBuilder.
+// Parameters:
+//   - mdb: The MongoDB resource object containing the configuration and metadata for the MongoDB instance.
+//   - hostnames: A slice of strings representing the hostnames to be included in the connection string,
+//     if this parameter is passed then no other hostnames will be generated or used.
+func NewMongoDBConnectionStringBuilder(mdb MongoDB, hostnames []string) *MongoDBConnectionStringBuilder {
+	return &MongoDBConnectionStringBuilder{
+		MongoDB:   mdb,
+		hostnames: hostnames,
+	}
+}
+
+func (m *MongoDBConnectionStringBuilder) BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
+	name := m.Name
+	if m.Spec.ResourceType == ShardedCluster {
+		name = m.MongosRsName()
+	}
+
+	builder := connectionstring.Builder().
+		SetName(name).
+		SetNamespace(m.Namespace).
+		SetUsername(username).
+		SetPassword(password).
+		SetReplicas(m.Spec.Replicas()).
+		SetService(m.ServiceName()).
+		SetPort(m.Spec.GetAdditionalMongodConfig().GetPortOrDefault()).
+		SetVersion(m.Spec.GetMongoDBVersion()).
+		SetAuthenticationModes(m.Spec.GetSecurityAuthenticationModes()).
+		SetClusterDomain(m.Spec.GetClusterDomain()).
+		SetExternalDomain(m.Spec.GetExternalDomain()).
+		SetIsReplicaSet(m.Spec.ResourceType == ReplicaSet).
+		SetIsTLSEnabled(m.Spec.IsSecurityTLSConfigEnabled()).
+		SetConnectionParams(connectionParams).
+		SetScheme(scheme).
+		SetHostnames(m.hostnames)
+
+	return builder.Build()
 }
 
 // MongodbCleanUpOptions implements the required interface to be passed

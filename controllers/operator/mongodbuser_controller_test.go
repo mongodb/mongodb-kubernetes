@@ -6,10 +6,12 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -22,6 +24,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
+	"github.com/10gen/ops-manager-kubernetes/pkg/test"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 )
@@ -400,6 +403,66 @@ func TestFinalizerIsAdded_WhenUserIsCreated(t *testing.T) {
 	_ = client.Get(ctx, kube.ObjectKey(user.Namespace, user.Name), user)
 
 	assert.Contains(t, user.GetFinalizers(), util.Finalizer)
+}
+
+func TestUserReconciler_SavesConnectionStringForMultiShardedCluster(t *testing.T) {
+	// Define the details of the member clusters for the sharded cluster setup
+	memberClusters := test.NewMemberClusters(
+		test.MemberClusterDetails{
+			ClusterName:           "member-cluster-1",
+			ShardMap:              []int{2, 3},
+			NumberOfConfigServers: 2,
+			NumberOfMongoses:      2,
+		},
+		test.MemberClusterDetails{
+			ClusterName:           "member-cluster-2",
+			ShardMap:              []int{2, 3},
+			NumberOfConfigServers: 1,
+			NumberOfMongoses:      1,
+		},
+	)
+
+	ctx := context.Background()
+
+	// Create a sharded cluster with the specified member clusters
+	cluster := test.DefaultClusterBuilder().
+		WithMultiClusterSetup(memberClusters).
+		Build()
+
+	user := DefaultMongoDBUserBuilder().
+		SetMongoDBResourceName(cluster.Name).
+		Build()
+
+	fakeClient := mock.NewEmptyFakeClientBuilder().
+		WithObjects(cluster).
+		WithObjects(mock.GetDefaultResources()...).
+		WithObjects(user).
+		Build()
+
+	kubeClient := kubernetesClient.NewClient(fakeClient)
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(memberClusters.ClusterNames, omConnectionFactory, true, true)
+
+	reconciler := newMongoDBUserReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, memberClusterMap)
+
+	_ = kubeClient.Create(ctx, cluster)
+
+	createUserControllerConfigMap(ctx, kubeClient)
+	createPasswordSecret(ctx, kubeClient, user.Spec.PasswordSecretKeyRef, "password")
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	require.NoError(t, err)
+
+	secret := &corev1.Secret{}
+	err = kubeClient.Get(ctx, kube.ObjectKey(user.Namespace, user.GetConnectionStringSecretName()), secret)
+	require.NoError(t, err)
+
+	// Validate connection string contains expected values
+	connectionString := string(secret.Data["connectionString.standard"])
+	expectedConnectionString := "mongodb://slaney-mongos-0-0-svc.my-namespace.svc.cluster.local," +
+		"slaney-mongos-0-1-svc.my-namespace.svc.cluster.local,slaney-mongos-1-0-svc.my-namespace.svc.cluster.local" +
+		"/?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000"
+	assert.Equal(t, expectedConnectionString, connectionString)
 }
 
 func TestFinalizerIsRemoved_WhenUserIsDeleted(t *testing.T) {

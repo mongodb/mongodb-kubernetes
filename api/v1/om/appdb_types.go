@@ -520,7 +520,7 @@ func (m *AppDBSpec) BuildConnectionURL(username, password string, scheme connect
 
 	if m.IsMultiCluster() {
 		builder.SetReplicas(len(multiClusterHostnames))
-		builder.SetMultiClusterHosts(multiClusterHostnames)
+		builder.SetHostnames(multiClusterHostnames)
 	}
 
 	return builder.Build()
