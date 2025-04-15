@@ -108,8 +108,8 @@ func (c *clusterChecks) checkPerPodServices(ctx context.Context, statefulSetName
 		require.NoError(c.t, err, "clusterName: %s", c.clusterName)
 
 		assert.Equal(c.t, map[string]string{
-			"controller":                         "mongodb-enterprise-operator",
-			"statefulset.kubernetes.io/pod-name": fmt.Sprintf("%s-%d", statefulSetName, podIdx),
+			util.OperatorLabelName:         util.OperatorName,
+			appsv1.StatefulSetPodNameLabel: fmt.Sprintf("%s-%d", statefulSetName, podIdx),
 		},
 			svc.Spec.Selector)
 	}
@@ -131,8 +131,8 @@ func (c *clusterChecks) checkExternalServices(ctx context.Context, statefulSetNa
 		err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, serviceName), &svc)
 		require.NoError(c.t, err, "clusterName: %s", c.clusterName)
 		assert.Subset(c.t, svc.Spec.Selector, map[string]string{
-			"controller":                         "mongodb-enterprise-operator",
-			"statefulset.kubernetes.io/pod-name": fmt.Sprintf("%s-%d", statefulSetName, podIdx),
+			util.OperatorLabelName:         util.OperatorName,
+			appsv1.StatefulSetPodNameLabel: fmt.Sprintf("%s-%d", statefulSetName, podIdx),
 		})
 	}
 }
@@ -154,8 +154,8 @@ func (c *clusterChecks) checkInternalServices(ctx context.Context, statefulSetNa
 	require.NoError(c.t, err, "clusterName: %s", c.clusterName)
 
 	assert.Equal(c.t, map[string]string{
-		"controller": "mongodb-enterprise-operator",
-		"app":        serviceName,
+		util.OperatorLabelName: util.OperatorName,
+		"app":                  serviceName,
 	},
 		svc.Spec.Selector)
 }

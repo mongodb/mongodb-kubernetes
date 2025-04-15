@@ -1220,50 +1220,12 @@ func (r *ReconcileMongoDbMultiReplicaSet) deleteManagedResources(ctx context.Con
 	}
 
 	for _, item := range clusterSpecList {
-		c := r.memberClusterClientsMap[item.ClusterName]
-		if err := r.deleteClusterResources(ctx, c, mrs, log); err != nil {
-			errs = multierror.Append(errs, xerrors.Errorf("failed deleting dependant resources in cluster %s: %w", item.ClusterName, err))
+		clusterName := item.ClusterName
+		clusterClient := r.memberClusterClientsMap[clusterName]
+		if err := r.deleteClusterResources(ctx, clusterClient, clusterName, &mrs, log); err != nil {
+			errs = multierror.Append(errs, xerrors.Errorf("failed deleting dependant resources in cluster %s: %w", clusterName, err))
 		}
 	}
-
-	return errs
-}
-
-// deleteClusterResources removes all resources that are associated with the given MongoDBMultiCluster resource in a given cluster.
-func (r *ReconcileMongoDbMultiReplicaSet) deleteClusterResources(ctx context.Context, c kubernetesClient.Client, mrs mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger) error {
-	var errs error
-
-	// cleanup resources in the namespace as the MongoDBMultiCluster with the corresponding label.
-	cleanupOptions := mdb.MongodbCleanUpOptions{
-		Namespace: mrs.Namespace,
-		Labels:    mrs.GetOwnerLabels(),
-	}
-
-	if err := c.DeleteAllOf(ctx, &corev1.Service{}, &cleanupOptions); err != nil {
-		errs = multierror.Append(errs, err)
-	} else {
-		log.Infof("Removed Services associated with %s/%s", mrs.Namespace, mrs.Name)
-	}
-
-	if err := c.DeleteAllOf(ctx, &appsv1.StatefulSet{}, &cleanupOptions); err != nil {
-		errs = multierror.Append(errs, err)
-	} else {
-		log.Infof("Removed StatefulSets associated with %s/%s", mrs.Namespace, mrs.Name)
-	}
-
-	if err := c.DeleteAllOf(ctx, &corev1.ConfigMap{}, &cleanupOptions); err != nil {
-		errs = multierror.Append(errs, err)
-	} else {
-		log.Infof("Removed ConfigMaps associated with %s/%s", mrs.Namespace, mrs.Name)
-	}
-
-	if err := c.DeleteAllOf(ctx, &corev1.Secret{}, &cleanupOptions); err != nil {
-		errs = multierror.Append(errs, err)
-	} else {
-		log.Infof("Removed Secrets associated with %s/%s", mrs.Namespace, mrs.Name)
-	}
-
-	r.resourceWatcher.RemoveDependentWatchedResources(kube.ObjectKey(mrs.Namespace, mrs.Name))
 
 	return errs
 }

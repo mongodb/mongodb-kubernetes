@@ -33,7 +33,6 @@ import (
 
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1557,9 +1556,10 @@ func (r *ShardedClusterReconcileHelper) OnDelete(ctx context.Context, obj runtim
 	}
 
 	for _, item := range getHealthyMemberClusters(r.allMemberClusters) {
-		c := item.Client
-		if err := r.deleteClusterResources(ctx, c, sc, log); err != nil {
-			errs = multierror.Append(errs, xerrors.Errorf("failed deleting dependant resources in cluster %s: %w", item.Name, err))
+		clusterClient := item.Client
+		clusterName := item.Name
+		if err := r.commonController.deleteClusterResources(ctx, clusterClient, clusterName, sc, log); err != nil {
+			errs = multierror.Append(errs, xerrors.Errorf("failed deleting dependant resources in cluster %s: %w", clusterName, err))
 		}
 	}
 
@@ -1630,39 +1630,6 @@ func logDiffOfProcessNames(acProcesses []string, healthyProcesses []string, log 
 	if diff := cmp.Diff(acProcesses, healthyProcesses); diff != "" {
 		log.Debugf("difference of AC processes vs healthy processes: %s\n AC processes: %v, healthy processes: %v", diff, acProcesses, healthyProcesses)
 	}
-}
-
-func (r *ShardedClusterReconcileHelper) deleteClusterResources(ctx context.Context, c kubernetesClient.Client, sc *mdbv1.MongoDB, log *zap.SugaredLogger) error {
-	var errs error
-
-	// cleanup resources in the namespace as the MongoDB with the corresponding label.
-	cleanupOptions := mdbv1.MongodbCleanUpOptions{
-		Namespace: sc.Namespace,
-		Labels:    sc.GetOwnerLabels(),
-	}
-
-	objectKey := sc.ObjectKey()
-	if err := c.DeleteAllOf(ctx, &corev1.Service{}, &cleanupOptions); err != nil {
-		errs = multierror.Append(errs, err)
-	} else {
-		log.Infof("Removed Services associated with %s", objectKey)
-	}
-
-	if err := c.DeleteAllOf(ctx, &appsv1.StatefulSet{}, &cleanupOptions); err != nil {
-		errs = multierror.Append(errs, err)
-	} else {
-		log.Infof("Removed StatefulSets associated with %s", objectKey)
-	}
-
-	if err := c.DeleteAllOf(ctx, &corev1.ConfigMap{}, &cleanupOptions); err != nil {
-		errs = multierror.Append(errs, err)
-	} else {
-		log.Infof("Removed ConfigMaps associated with %s", objectKey)
-	}
-
-	r.commonController.resourceWatcher.RemoveDependentWatchedResources(objectKey)
-
-	return errs
 }
 
 func AddShardedClusterController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, memberClustersMap map[string]cluster.Cluster) error {
