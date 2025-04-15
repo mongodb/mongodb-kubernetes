@@ -97,7 +97,7 @@ func NewReconcileCommonController(ctx context.Context, client client.Client) *Re
 	}
 }
 
-func ensureRoles(roles []mdbv1.MongoDbRole, conn om.Connection, log *zap.SugaredLogger) workflow.Status {
+func ensureRoles(roles []mdbv1.MongoDBRole, conn om.Connection, log *zap.SugaredLogger) workflow.Status {
 	d, err := conn.ReadDeployment()
 	if err != nil {
 		return workflow.Failed(err)

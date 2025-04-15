@@ -270,7 +270,7 @@ func isValidCIDR(cidr string) bool {
 	return err == nil
 }
 
-func roleIsCorrectlyConfigured(role MongoDbRole, mdbVersion string) v1.ValidationResult {
+func roleIsCorrectlyConfigured(role MongoDBRole, mdbVersion string) v1.ValidationResult {
 	// Extensive validation of the roles attribute
 
 	if role.Role == "" {

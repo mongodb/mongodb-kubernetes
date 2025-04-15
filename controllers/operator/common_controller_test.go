@@ -267,7 +267,7 @@ func TestReadSubjectNoCertificate(t *testing.T) {
 
 func TestDontSendNilPrivileges(t *testing.T) {
 	ctx := context.Background()
-	customRole := mdbv1.MongoDbRole{
+	customRole := mdbv1.MongoDBRole{
 		Role:                       "foo",
 		AuthenticationRestrictions: []mdbv1.AuthenticationRestriction{},
 		Db:                         "admin",
@@ -277,14 +277,14 @@ func TestDontSendNilPrivileges(t *testing.T) {
 		}},
 	}
 	assert.Nil(t, customRole.Privileges)
-	rs := DefaultReplicaSetBuilder().SetRoles([]mdbv1.MongoDbRole{customRole}).Build()
+	rs := DefaultReplicaSetBuilder().SetRoles([]mdbv1.MongoDBRole{customRole}).Build()
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
 	controller := NewReconcileCommonController(ctx, kubeClient)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 	ensureRoles(rs.Spec.Security.Roles, mockOm, &zap.SugaredLogger{})
 	ac, err := mockOm.ReadAutomationConfig()
 	assert.NoError(t, err)
-	roles, ok := ac.Deployment["roles"].([]mdbv1.MongoDbRole)
+	roles, ok := ac.Deployment["roles"].([]mdbv1.MongoDBRole)
 	assert.True(t, ok)
 	assert.NotNil(t, roles[0].Privileges)
 }

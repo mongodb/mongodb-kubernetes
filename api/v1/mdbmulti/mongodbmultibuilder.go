@@ -46,7 +46,7 @@ func DefaultMultiReplicaSetBuilder() *MultiReplicaSetBuilder {
 				Authentication: &mdbv1.Authentication{
 					Modes: []mdbv1.AuthMode{},
 				},
-				Roles: []mdbv1.MongoDbRole{},
+				Roles: []mdbv1.MongoDBRole{},
 			},
 			DuplicateServiceObjects: util.BooleanRef(false),
 		},
