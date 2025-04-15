@@ -113,11 +113,11 @@ operator:
 
 ## Database
 database:
-  name: mongodb-enterprise-database-ubi
+  name: mongodb-kubernetes-database-ubi
   version: 1.0.0
 
 initDatabase:
-  name: mongodb-enterprise-init-database-ubi
+  name: mongodb-kubernetes-init-database-ubi
   version: 1.0.0
 
 ## Ops Manager
@@ -125,21 +125,17 @@ opsManager:
   name: mongodb-enterprise-ops-manager-ubi
 
 initOpsManager:
-  name: mongodb-enterprise-init-ops-manager-ubi
+  name: mongodb-kubernetes-init-ops-manager-ubi
   version: 1.0.0
 
 ## Application Database
 initAppDb:
-  name: mongodb-enterprise-init-appdb-ubi
+  name: mongodb-kubernetes-init-appdb-ubi
   version: 1.0.0
 
 agent:
   name: mongodb-agent-ubi
   version: 108.0.2.8729-1
-
-mongodbLegacyAppDb:
-  name: mongodb-enterprise-appdb-database-ubi
-  repo: quay.io/mongodb
 
 # This is only used by the MongoDBCommunity resource reconciler - START
 versionUpgradeHook:

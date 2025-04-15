@@ -337,7 +337,7 @@ func TestOpsManagerPodTemplate_SecurityContext(t *testing.T) {
 	podSpecTemplate := omSts.Spec.Template
 	spec := podSpecTemplate.Spec
 	assert.Len(t, spec.InitContainers, 1)
-	assert.Equal(t, spec.InitContainers[0].Name, "mongodb-enterprise-init-ops-manager")
+	assert.Equal(t, spec.InitContainers[0].Name, "mongodb-kubernetes-init-ops-manager")
 	assert.NotNil(t, spec.SecurityContext)
 	assert.Equal(t, util.Int64Ref(util.FsGroup), spec.SecurityContext.FSGroup)
 

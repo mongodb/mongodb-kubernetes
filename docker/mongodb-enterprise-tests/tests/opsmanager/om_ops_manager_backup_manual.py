@@ -315,8 +315,8 @@ class TestBackupForMongodb:
         ]
         resource["spec"]["podSpec"]["podTemplate"]["spec"]["initContainers"] = [
             {
-                "name": "mongodb-enterprise-init-database",
-                "image": "268558157000.dkr.ecr.us-east-1.amazonaws.com/rodrigo/ubuntu/mongodb-enterprise-init-database:latest-fixed-probe",
+                "name": "mongodb-kubernetes-init-database",
+                "image": "268558157000.dkr.ecr.us-east-1.amazonaws.com/rodrigo/ubuntu/mongodb-kubernetes-init-database:latest-fixed-probe",
             }
         ]
 
@@ -347,8 +347,8 @@ class TestBackupForMongodb:
 
         resource["spec"]["podSpec"]["podTemplate"]["spec"]["initContainers"] = [
             {
-                "name": "mongodb-enterprise-init-database",
-                "image": "268558157000.dkr.ecr.us-east-1.amazonaws.com/rodrigo/ubuntu/mongodb-enterprise-init-database:non-fixed-probe",
+                "name": "mongodb-kubernetes-init-database",
+                "image": "268558157000.dkr.ecr.us-east-1.amazonaws.com/rodrigo/ubuntu/mongodb-kubernetes-init-database:non-fixed-probe",
             }
         ]
 

@@ -640,7 +640,7 @@ functions:
           make test-race
     - command: gotest.parse_files
       params:
-        files: [ "src/github.com/10gen/ops-manager-kubernetes/*.suite", "src/github.com/10gen/ops-manager-kubernetes/public/tools/multicluster/*.suite", "src/github.com/10gen/ops-manager-kubernetes/docker/mongodb-enterprise-init-ops-manager/mmsconfiguration/*.suite" ]
+        files: [ "src/github.com/10gen/ops-manager-kubernetes/*.suite", "src/github.com/10gen/ops-manager-kubernetes/public/tools/multicluster/*.suite", "src/github.com/10gen/ops-manager-kubernetes/docker/mongodb-kubernetes-init-ops-manager/mmsconfiguration/*.suite" ]
 
   test_python_unit:
     - command: shell.exec

@@ -1,4 +1,4 @@
-module github.com/10gen/ops-manager-kubernetes/docker/mongodb-enterprise-init-ops-manager
+module github.com/10gen/ops-manager-kubernetes/docker/mongodb-kubernetes-init-ops-manager
 
 go 1.24.0
 

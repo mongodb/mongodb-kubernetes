@@ -1,24 +1,24 @@
 vars:
-  quay_registry: quay.io/mongodb/mongodb-enterprise-init-database
-  s3_bucket: s3://enterprise-operator-dockerfiles/dockerfiles/mongodb-enterprise-init-database
+  quay_registry: quay.io/mongodb/mongodb-kubernetes-init-database
+  s3_bucket: s3://enterprise-operator-dockerfiles/dockerfiles/mongodb-kubernetes-init-database
 
 images:
 - name: init-database
   vars:
     context: .
-    template_context: docker/mongodb-enterprise-init-database
+    template_context: docker/mongodb-kubernetes-init-database
   platform: linux/amd64
 
   stages:
   - name: init-database-build-context
     task_type: docker_build
-    dockerfile: docker/mongodb-enterprise-init-database/Dockerfile.builder
+    dockerfile: docker/mongodb-kubernetes-init-database/Dockerfile.builder
     buildargs:
       mongodb_tools_url_ubi: $(inputs.params.mongodb_tools_url_ubi)
     output:
-      - registry: $(inputs.params.registry)/mongodb-enterprise-init-database-context
+      - registry: $(inputs.params.registry)/mongodb-kubernetes-init-database-context
         tag: $(inputs.params.version_id)
-      - registry: $(inputs.params.registry)/mongodb-enterprise-init-database-context
+      - registry: $(inputs.params.registry)/mongodb-kubernetes-init-database-context
         tag: $(inputs.params.version)
 
   - name: init-database-template-ubi
@@ -34,32 +34,32 @@ images:
     task_type: docker_build
     tags: ["ubi"]
     buildargs:
-      imagebase: $(inputs.params.registry)/mongodb-enterprise-init-database-context:$(inputs.params.version_id)
+      imagebase: $(inputs.params.registry)/mongodb-kubernetes-init-database-context:$(inputs.params.version_id)
       version: $(inputs.params.version)
     dockerfile: $(stages['init-database-template-ubi'].outputs[0].dockerfile)
     inputs:
       - is_appdb
     output:
-      - registry: $(inputs.params.registry)/mongodb-enterprise-init-database-ubi
+      - registry: $(inputs.params.registry)/mongodb-kubernetes-init-database-ubi
         tag: $(inputs.params.version_id)
-      - registry: $(inputs.params.registry)/mongodb-enterprise-init-database-ubi
+      - registry: $(inputs.params.registry)/mongodb-kubernetes-init-database-ubi
         tag: $(inputs.params.version)
 
   - name: master-latest
     task_type: tag_image
     tags: ["master"]
     source:
-      registry: $(inputs.params.registry)/mongodb-enterprise-init-database-ubi
+      registry: $(inputs.params.registry)/mongodb-kubernetes-init-database-ubi
       tag: $(inputs.params.version_id)
     destination:
-      - registry: $(inputs.params.registry)/mongodb-enterprise-init-database-ubi
+      - registry: $(inputs.params.registry)/mongodb-kubernetes-init-database-ubi
         tag: latest
 
   - name: init-database-release-context
     task_type: tag_image
     tags: ["release"]
     source:
-      registry: $(inputs.params.registry)/mongodb-enterprise-init-database-context
+      registry: $(inputs.params.registry)/mongodb-kubernetes-init-database-context
       tag: $(inputs.params.version_id)
     destination:
     - registry: $(inputs.params.quay_registry)

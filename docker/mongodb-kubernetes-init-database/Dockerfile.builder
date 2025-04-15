@@ -14,9 +14,9 @@ COPY --from=readiness_builder /version-upgrade-hook /data/version-upgrade-hook
 
 ADD ${mongodb_tools_url_ubi} /data/mongodb_tools_ubi.tgz
 
-COPY ./docker/mongodb-enterprise-init-database/content/probe.sh /data/probe.sh
+COPY ./docker/mongodb-kubernetes-init-database/content/probe.sh /data/probe.sh
 
-COPY ./docker/mongodb-enterprise-init-database/content/agent-launcher-lib.sh /data/scripts/
-COPY ./docker/mongodb-enterprise-init-database/content/agent-launcher.sh /data/scripts/
+COPY ./docker/mongodb-kubernetes-init-database/content/agent-launcher-lib.sh /data/scripts/
+COPY ./docker/mongodb-kubernetes-init-database/content/agent-launcher.sh /data/scripts/
 
-COPY ./docker/mongodb-enterprise-init-database/content/LICENSE /data/licenses/
+COPY ./docker/mongodb-kubernetes-init-database/content/LICENSE /data/licenses/
