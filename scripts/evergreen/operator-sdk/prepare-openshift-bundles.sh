@@ -58,7 +58,7 @@ if [[ "${DIGEST_PINNING_ENABLED:-"true"}" == "true" ]]; then
   fi
 fi
 
-certified_bundle_file="./bundle/operator-certified-${VERSION}.tgz"
+certified_bundle_file="./bundle/mck-operator-certified-${VERSION}.tgz"
 echo "Generating certified bundle"
 tar -czvf "${certified_bundle_file}" "./bundle/${VERSION}"
 

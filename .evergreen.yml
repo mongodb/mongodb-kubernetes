@@ -586,7 +586,7 @@ tasks:
       - func: upload_openshift_bundle
         vars:
           # mongoDbOperator expansion is added in update_evergreen_expansions func from release.json
-          bundle_file_name: "operator-certified-${mongodbOperator}.tgz"
+          bundle_file_name: "mck-operator-certified-${mongodbOperator}.tgz"
 
   - name: run_conditionally_prepare_and_upload_openshift_bundles
     tags: [ "openshift_bundles" ]
