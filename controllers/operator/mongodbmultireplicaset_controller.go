@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
 	"reflect"
 	"sort"
 
@@ -360,7 +361,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileMemberResources(ctx context.C
 		}
 	}
 	// Ensure custom roles are created in OM
-	if status := ensureRoles(ctx, mrs.GetSecurity().Roles, mrs.GetSecurity().CustomRoleRefs, r.client, conn, log); !status.IsOK() {
+	if status := r.ensureRoles(ctx, mrs.GetSecurity().Roles, mrs.GetSecurity().CustomRoleRefs, conn, kube.ObjectKeyFromApiObject(mrs), log); !status.IsOK() {
 		return status
 	}
 
@@ -1109,6 +1110,12 @@ func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imag
 
 	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.Secret{},
 		&watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: reconciler.resourceWatcher}))
+	if err != nil {
+		return err
+	}
+
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &rolev1.MongoDBCustomRole{},
+		&watch.ResourcesHandler{ResourceType: watch.MongoDBCustomRole, ResourceWatcher: reconciler.resourceWatcher}))
 	if err != nil {
 		return err
 	}

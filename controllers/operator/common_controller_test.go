@@ -281,7 +281,7 @@ func TestDontSendNilPrivileges(t *testing.T) {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
 	controller := NewReconcileCommonController(ctx, kubeClient)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
-	ensureRoles(ctx, rs.Spec.Security.Roles, rs.Spec.Security.CustomRoleRefs, kubeClient, mockOm, &zap.SugaredLogger{})
+	controller.ensureRoles(ctx, rs.Spec.Security.Roles, rs.Spec.Security.CustomRoleRefs, mockOm, kube.ObjectKeyFromApiObject(rs), &zap.SugaredLogger{})
 	ac, err := mockOm.ReadAutomationConfig()
 	assert.NoError(t, err)
 	roles, ok := ac.Deployment["roles"].([]mdbv1.MongoDBRole)

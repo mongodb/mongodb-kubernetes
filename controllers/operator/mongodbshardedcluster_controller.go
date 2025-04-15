@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
 	"slices"
 	"sort"
 	"strings"
@@ -1073,7 +1074,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		}
 	}
 
-	if workflowStatus := ensureRoles(ctx, sc.Spec.GetSecurity().Roles, sc.GetSecurity().CustomRoleRefs, r.commonController.client, conn, log); !workflowStatus.IsOK() {
+	if workflowStatus := r.commonController.ensureRoles(ctx, sc.Spec.GetSecurity().Roles, sc.GetSecurity().CustomRoleRefs, conn, kube.ObjectKeyFromApiObject(sc), log); !workflowStatus.IsOK() {
 		return workflowStatus
 	}
 
@@ -1675,6 +1676,13 @@ func AddShardedClusterController(ctx context.Context, mgr manager.Manager, image
 			zap.S().Errorf("Failed to watch for vault secret changes: %w", err)
 		}
 	}
+
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &rolev1.MongoDBCustomRole{},
+		&watch.ResourcesHandler{ResourceType: watch.MongoDBCustomRole, ResourceWatcher: reconciler.resourceWatcher}))
+	if err != nil {
+		return err
+	}
+
 	zap.S().Infof("Registered controller %s", util.MongoDbShardedClusterController)
 
 	return nil

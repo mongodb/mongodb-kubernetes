@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -21,6 +22,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
 	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
@@ -216,7 +218,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	}
 
 	sts := construct.DatabaseStatefulSet(*rs, rsConfig, log)
-	if status := ensureRoles(ctx, rs.Spec.GetSecurity().Roles, rs.Spec.GetSecurity().CustomRoleRefs, r.client, conn, log); !status.IsOK() {
+	if status := r.ensureRoles(ctx, rs.Spec.GetSecurity().Roles, rs.Spec.GetSecurity().CustomRoleRefs, conn, kube.ObjectKeyFromApiObject(rs), log); !status.IsOK() {
 		return r.updateStatus(ctx, rs, status, log)
 	}
 
@@ -382,6 +384,12 @@ func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls
 
 	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.Secret{},
 		&watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: reconciler.resourceWatcher}))
+	if err != nil {
+		return err
+	}
+
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &rolev1.MongoDBCustomRole{},
+		&watch.ResourcesHandler{ResourceType: watch.MongoDBCustomRole, ResourceWatcher: reconciler.resourceWatcher}))
 	if err != nil {
 		return err
 	}

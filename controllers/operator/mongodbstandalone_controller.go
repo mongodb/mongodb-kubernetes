@@ -3,6 +3,8 @@ package operator
 import (
 	"context"
 	"fmt"
+	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -81,6 +83,12 @@ func AddStandaloneController(ctx context.Context, mgr manager.Manager, imageUrls
 
 	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.Secret{},
 		&watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: reconciler.resourceWatcher}))
+	if err != nil {
+		return err
+	}
+
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &rolev1.MongoDBCustomRole{},
+		&watch.ResourcesHandler{ResourceType: watch.MongoDBCustomRole, ResourceWatcher: reconciler.resourceWatcher}))
 	if err != nil {
 		return err
 	}
@@ -202,7 +210,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(ctx, s, status, log)
 	}
 
-	if status := ensureRoles(ctx, s.Spec.GetSecurity().Roles, s.GetSecurity().CustomRoleRefs, r.client, conn, log); !status.IsOK() {
+	if status := r.ensureRoles(ctx, s.Spec.GetSecurity().Roles, s.GetSecurity().CustomRoleRefs, conn, kube.ObjectKeyFromApiObject(s), log); !status.IsOK() {
 		return r.updateStatus(ctx, s, status, log)
 	}
 

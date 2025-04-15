@@ -98,11 +98,13 @@ func NewReconcileCommonController(ctx context.Context, client client.Client) *Re
 	}
 }
 
-func ensureRoles(ctx context.Context, roles []mdbv1.MongoDBRole, roleRefs []mdbv1.MongoDBCustomRoleRef, client kubernetesClient.Client, conn om.Connection, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileCommonController) ensureRoles(ctx context.Context, roles []mdbv1.MongoDBRole, roleRefs []mdbv1.MongoDBCustomRoleRef, conn om.Connection, mongodbResourceNsName types.NamespacedName, log *zap.SugaredLogger) workflow.Status {
 	mergedRoles := roles
 	for _, ref := range roleRefs {
+		r.resourceWatcher.AddWatchedResourceIfNotAdded(ref.Name, ref.Namespace, watch.MongoDBCustomRole, mongodbResourceNsName)
+
 		customRole := &rolev1.MongoDBCustomRole{}
-		err := client.Get(ctx, kube.ObjectKey(ref.Namespace, ref.Name), customRole)
+		err := r.client.Get(ctx, kube.ObjectKey(ref.Namespace, ref.Name), customRole)
 		if err != nil {
 			return workflow.Failed(xerrors.Errorf("Failed to retrieve MongoDBCustomRole '%s' in namespace '%s': %w", ref.Name, ref.Namespace, err))
 		}
