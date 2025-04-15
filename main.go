@@ -59,6 +59,7 @@ const (
 	mongoDBOpsManagerCRDPlural   = "opsmanagers"
 	mongoDBMultiClusterCRDPlural = "mongodbmulticluster"
 	mongoDBCommunityCRDPlural    = "mongodbcommunity"
+	mongoDBCustomRoleCRDPlural   = "mongodbcustomroles"
 )
 
 var (
@@ -104,7 +105,12 @@ func main() {
 	// TODO MCK: consider not making mongoDBCommunityCRDPlural part of the default list
 	// what happens if we watch this, but its not installed?
 	if len(crds) == 0 {
-		crds = crdsToWatch{mongoDBCRDPlural, mongoDBUserCRDPlural, mongoDBOpsManagerCRDPlural, mongoDBCommunityCRDPlural}
+		crds = crdsToWatch{
+			mongoDBCRDPlural,
+			mongoDBUserCRDPlural,
+			mongoDBOpsManagerCRDPlural,
+			mongoDBCommunityCRDPlural,
+			mongoDBCustomRoleCRDPlural}
 	}
 
 	ctx := context.Background()

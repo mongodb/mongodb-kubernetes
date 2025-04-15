@@ -1531,6 +1531,17 @@ spec:
                     type: object
                   certsSecretPrefix:
                     type: string
+                  customRoleRefs:
+                    items:
+                      properties:
+                        name:
+                          type: string
+                        namespace:
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
                   roles:
                     items:
                       properties:

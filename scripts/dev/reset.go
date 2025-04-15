@@ -297,6 +297,7 @@ func resetNamespace(ctx context.Context, contextName string, namespace string, d
 			"mongodbmulticluster.mongodb.com",
 			"mongodbusers.mongodb.com",
 			"opsmanagers.mongodb.com",
+			"mongodbcustomroles.mongodb.com",
 		}
 		deleteCRDs(ctx, dynamicClient, crdNames, collectError)
 	}
