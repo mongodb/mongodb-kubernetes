@@ -1,4 +1,4 @@
-apiVersion: mongodb.mongodb.com/v1
+apiVersion: mongodb.com/v1
 kind: MongoDBCustomRole
 metadata:
   labels:

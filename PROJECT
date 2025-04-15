@@ -3,7 +3,6 @@
 # and allow the plugins properly work.
 # More info: https://book.kubebuilder.io/reference/project-config.html
 domain: mongodb.com
-layout: go.kubebuilder.io/v3
 projectName: mongodb-kubernetes
 repo: github.com/mongodb/mongodb-kubernetes
 layout:
@@ -11,8 +10,6 @@ layout:
 plugins:
   manifests.sdk.operatorframework.io/v2: {}
   scorecard.sdk.operatorframework.io/v2: {}
-projectName: mongodb-enterprise
-repo: github.com/10gen/ops-manager-kubernetes
 resources:
 - api:
     crdVersion: v1
