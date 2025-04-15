@@ -1267,7 +1267,7 @@ func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
 func appDBStatefulSetLabelsAndServiceName(omResourceName string) (map[string]string, string) {
 	appDbName := fmt.Sprintf("%s-db", omResourceName)
 	serviceName := fmt.Sprintf("%s-svc", appDbName)
-	labels := map[string]string{"app": serviceName, "controller": "mongodb-enterprise-operator", "pod-anti-affinity": appDbName}
+	labels := map[string]string{"app": serviceName, util.OperatorLabelName: util.OperatorName, "pod-anti-affinity": appDbName}
 	return labels, serviceName
 }
 

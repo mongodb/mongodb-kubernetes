@@ -45,7 +45,6 @@ var (
 	internalConnectivityPortName = "internal-connectivity-port"
 	backupPortName               = "backup-port"
 	appLabelKey                  = "app"
-	podNameLabelKey              = "statefulset.kubernetes.io/pod-name"
 )
 
 // DatabaseInKubernetes creates (updates if it exists) the StatefulSet with its Service.
@@ -496,8 +495,8 @@ func BuildService(namespacedName types.NamespacedName, owner v1.ObjectOwner, app
 	}
 
 	if podLabel != nil {
-		svcLabels[podNameLabelKey] = *podLabel
-		selectorLabels[podNameLabelKey] = *podLabel
+		svcLabels[appsv1.StatefulSetPodNameLabel] = *podLabel
+		selectorLabels[appsv1.StatefulSetPodNameLabel] = *podLabel
 	}
 
 	svcBuilder := service.Builder().

@@ -13,7 +13,6 @@ import (
 	"syscall"
 
 	"github.com/blang/semver"
-	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
@@ -35,7 +34,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
@@ -2133,54 +2131,20 @@ func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj interface{}, lo
 	// delete the OpsManager resources from each of the member cluster. We need to delete the
 	// resource explicitly in case of multi-cluster because we can't set owner reference cross cluster
 	for _, memberCluster := range helper.getHealthyMemberClusters() {
-		if err := r.deleteClusterResources(ctx, memberCluster, opsManager, log); err != nil {
-			log.Warnf("Failed to delete OpsManager %s resources in cluster %s: %s", opsManager.ObjectKey(), memberCluster.Name, err)
+		if err := r.deleteClusterResources(ctx, memberCluster.Client, memberCluster.Name, opsManager, log); err != nil {
+			log.Warnf("Failed to delete dependant OpsManager resources in cluster %s: %s", memberCluster.Name, err)
 		}
 	}
 
 	// delete the AppDB resources from each of the member cluster. We need to delete the
 	// resource explicitly in case of multi-cluster because we can't set owner reference cross cluster
 	for _, memberCluster := range appDbReconciler.GetHealthyMemberClusters() {
-		if err := r.deleteClusterResources(ctx, memberCluster, opsManager, log); err != nil {
-			log.Warnf("Failed to delete AppDB %s resources in cluster %s: %s", opsManager.ObjectKey(), memberCluster.Name, err.Error())
+		if err := r.deleteClusterResources(ctx, memberCluster.Client, memberCluster.Name, opsManager, log); err != nil {
+			log.Warnf("Failed to delete dependant AppDB resources in cluster %s: %s", memberCluster.Name, err.Error())
 		}
 	}
 
 	log.Info("Cleaned up Ops Manager related resources.")
-}
-
-func (r *OpsManagerReconciler) deleteClusterResources(ctx context.Context, memberCluster multicluster.MemberCluster, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) error {
-	var errs error
-
-	// cleanup resources in the namespace as the MongoDB with the corresponding label.
-	cleanupOptions := mdbv1.MongodbCleanUpOptions{
-		Namespace: opsManager.Namespace,
-		Labels:    opsManager.GetOwnerLabels(),
-	}
-
-	c := memberCluster.Client
-	objectKey := opsManager.ObjectKey()
-	if err := c.DeleteAllOf(ctx, &corev1.Service{}, &cleanupOptions); err != nil {
-		errs = multierror.Append(errs, err)
-	} else {
-		log.Infof("Removed Services associated with %s in cluster %s", opsManager, memberCluster.Name)
-	}
-
-	if err := c.DeleteAllOf(ctx, &appsv1.StatefulSet{}, &cleanupOptions); err != nil {
-		errs = multierror.Append(errs, err)
-	} else {
-		log.Infof("Removed StatefulSets associated with %s in cluster %s", objectKey, memberCluster.Name)
-	}
-
-	if err := c.DeleteAllOf(ctx, &corev1.ConfigMap{}, &cleanupOptions); err != nil {
-		errs = multierror.Append(errs, err)
-	} else {
-		log.Infof("Removed ConfigMaps associated with %s in cluster %s", objectKey, memberCluster.Name)
-	}
-
-	r.resourceWatcher.RemoveDependentWatchedResources(objectKey)
-
-	return errs
 }
 
 func (r *OpsManagerReconciler) createNewAppDBReconciler(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
