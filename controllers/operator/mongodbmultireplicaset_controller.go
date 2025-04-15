@@ -360,7 +360,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileMemberResources(ctx context.C
 		}
 	}
 	// Ensure custom roles are created in OM
-	if status := ensureRoles(mrs.GetSecurity().Roles, conn, log); !status.IsOK() {
+	if status := ensureRoles(ctx, mrs.GetSecurity().Roles, mrs.GetSecurity().CustomRoleRefs, r.client, conn, log); !status.IsOK() {
 		return status
 	}
 

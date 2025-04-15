@@ -23,6 +23,7 @@ import (
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
@@ -97,26 +98,37 @@ func NewReconcileCommonController(ctx context.Context, client client.Client) *Re
 	}
 }
 
-func ensureRoles(roles []mdbv1.MongoDBRole, conn om.Connection, log *zap.SugaredLogger) workflow.Status {
+func ensureRoles(ctx context.Context, roles []mdbv1.MongoDBRole, roleRefs []mdbv1.MongoDBCustomRoleRef, client kubernetesClient.Client, conn om.Connection, log *zap.SugaredLogger) workflow.Status {
+	mergedRoles := roles
+	for _, ref := range roleRefs {
+		customRole := &rolev1.MongoDBCustomRole{}
+		err := client.Get(ctx, kube.ObjectKey(ref.Namespace, ref.Name), customRole)
+		if err != nil {
+			return workflow.Failed(xerrors.Errorf("Failed to retrieve MongoDBCustomRole '%s' in namespace '%s': %w", ref.Name, ref.Namespace, err))
+		}
+
+		mergedRoles = append(mergedRoles, customRole.Spec.MongoDBRole)
+	}
+
 	d, err := conn.ReadDeployment()
 	if err != nil {
 		return workflow.Failed(err)
 	}
 	dRoles := d.GetRoles()
-	if reflect.DeepEqual(dRoles, roles) {
+	if reflect.DeepEqual(dRoles, mergedRoles) {
 		return workflow.OK()
 	}
 	// HELP-20798: the agent deals correctly with a null value for
 	// privileges only when creating a role, not when updating
 	// we work around it by explicitly passing empty array
-	for i, role := range roles {
+	for i, role := range mergedRoles {
 		if role.Privileges == nil {
-			roles[i].Privileges = []mdbv1.Privilege{}
+			mergedRoles[i].Privileges = []mdbv1.Privilege{}
 		}
 	}
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
-			d.SetRoles(roles)
+			d.SetRoles(mergedRoles)
 			return nil
 		},
 		log,

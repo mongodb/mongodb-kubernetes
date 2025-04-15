@@ -1073,7 +1073,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		}
 	}
 
-	if workflowStatus := ensureRoles(sc.Spec.GetSecurity().Roles, conn, log); !workflowStatus.IsOK() {
+	if workflowStatus := ensureRoles(ctx, sc.Spec.GetSecurity().Roles, sc.GetSecurity().CustomRoleRefs, r.commonController.client, conn, log); !workflowStatus.IsOK() {
 		return workflowStatus
 	}
 

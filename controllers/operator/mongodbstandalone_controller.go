@@ -202,7 +202,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(ctx, s, status, log)
 	}
 
-	if status := ensureRoles(s.Spec.GetSecurity().Roles, conn, log); !status.IsOK() {
+	if status := ensureRoles(ctx, s.Spec.GetSecurity().Roles, s.GetSecurity().CustomRoleRefs, r.client, conn, log); !status.IsOK() {
 		return r.updateStatus(ctx, s, status, log)
 	}
 

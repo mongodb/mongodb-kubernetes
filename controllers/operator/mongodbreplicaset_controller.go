@@ -216,7 +216,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	}
 
 	sts := construct.DatabaseStatefulSet(*rs, rsConfig, log)
-	if status := ensureRoles(rs.Spec.GetSecurity().Roles, conn, log); !status.IsOK() {
+	if status := ensureRoles(ctx, rs.Spec.GetSecurity().Roles, rs.Spec.GetSecurity().CustomRoleRefs, r.client, conn, log); !status.IsOK() {
 		return r.updateStatus(ctx, rs, status, log)
 	}
 
