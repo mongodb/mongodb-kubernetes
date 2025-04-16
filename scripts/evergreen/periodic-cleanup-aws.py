@@ -11,6 +11,7 @@ REPOSITORIES_NAMES = [
     "dev/mongodb-enterprise-database-ubi",
     "dev/mongodb-enterprise-init-database-ubi",
     "dev/mongodb-enterprise-init-ops-manager-ubi",
+    "dev/mongodb-enterprise-ops-manager-ubi",
     "dev/mongodb-enterprise-operator-ubi",
 ]
 REGISTRY_ID = "268558157000"
