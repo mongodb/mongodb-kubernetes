@@ -1,15 +1,15 @@
-Nodes in cluster gke_scratch-kubernetes-team_europe-central2-a_k8s-mdb-0-67d0389d75b70a0007e5894a
-NAME                                                  STATUS   ROLES    AGE   VERSION
-gke-k8s-mdb-0-67d0389d75-default-pool-bd2d7e42-99mr   Ready    <none>   30s   v1.31.5-gke.1233000
-gke-k8s-mdb-0-67d0389d75-default-pool-bd2d7e42-d3ql   Ready    <none>   30s   v1.31.5-gke.1233000
-gke-k8s-mdb-0-67d0389d75-default-pool-bd2d7e42-stxx   Ready    <none>   29s   v1.31.5-gke.1233000
+Nodes in cluster gke_scratch-kubernetes-team_europe-central2-a_k8s-mdb-0-67fe4f0f66210300074eadb4-16376
+NAME                                                  STATUS   ROLES    AGE    VERSION
+gke-k8s-mdb-0-67fe4f0f66-default-pool-365dcfbb-cwrz   Ready    <none>   102s   v1.31.6-gke.1020000
+gke-k8s-mdb-0-67fe4f0f66-default-pool-365dcfbb-jh9m   Ready    <none>   103s   v1.31.6-gke.1020000
+gke-k8s-mdb-0-67fe4f0f66-default-pool-365dcfbb-n16x   Ready    <none>   103s   v1.31.6-gke.1020000
 
-Nodes in cluster gke_scratch-kubernetes-team_europe-central2-b_k8s-mdb-1-67d0389d75b70a0007e5894a
+Nodes in cluster gke_scratch-kubernetes-team_europe-central2-b_k8s-mdb-1-67fe4f0f66210300074eadb4-16376
 NAME                                                  STATUS   ROLES    AGE   VERSION
-gke-k8s-mdb-1-67d0389d75-default-pool-c4129558-10n1   Ready    <none>   76s   v1.31.5-gke.1233000
-gke-k8s-mdb-1-67d0389d75-default-pool-c4129558-gdrg   Ready    <none>   76s   v1.31.5-gke.1233000
-gke-k8s-mdb-1-67d0389d75-default-pool-c4129558-jbgt   Ready    <none>   76s   v1.31.5-gke.1233000
+gke-k8s-mdb-1-67fe4f0f66-default-pool-bf6da4b0-0qd4   Ready    <none>   34s   v1.31.6-gke.1020000
+gke-k8s-mdb-1-67fe4f0f66-default-pool-bf6da4b0-t3xw   Ready    <none>   34s   v1.31.6-gke.1020000
+gke-k8s-mdb-1-67fe4f0f66-default-pool-bf6da4b0-z3w9   Ready    <none>   34s   v1.31.6-gke.1020000
 
-Nodes in cluster gke_scratch-kubernetes-team_europe-central2-c_k8s-mdb-2-67d0389d75b70a0007e5894a
+Nodes in cluster gke_scratch-kubernetes-team_europe-central2-c_k8s-mdb-2-67fe4f0f66210300074eadb4-16376
 NAME                                                  STATUS   ROLES    AGE   VERSION
-gke-k8s-mdb-2-67d0389d75-default-pool-0f8822ab-f617   Ready    <none>   56s   v1.31.5-gke.1233000
+gke-k8s-mdb-2-67fe4f0f66-default-pool-420e8218-ctc5   Ready    <none>   62s   v1.31.6-gke.1020000
