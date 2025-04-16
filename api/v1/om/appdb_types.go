@@ -126,6 +126,13 @@ func (m *AppDBSpec) ObjectKey() client.ObjectKey {
 	return kube.ObjectKey(m.Namespace, m.OpsManagerName)
 }
 
+func (m *AppDBSpec) GetOwnerLabels() map[string]string {
+	return map[string]string{
+		util.OperatorLabelName: util.OperatorName,
+		LabelResourceOwner:     m.OpsManagerName,
+	}
+}
+
 // GetConnectionSpec returns nil because no connection spec for appDB is implemented for the watcher setup
 func (m *AppDBSpec) GetConnectionSpec() *mdbv1.ConnectionSpec {
 	return nil
@@ -512,7 +519,7 @@ func (m *AppDBSpec) BuildConnectionURL(username, password string, scheme connect
 
 	if m.IsMultiCluster() {
 		builder.SetReplicas(len(multiClusterHostnames))
-		builder.SetMultiClusterHosts(multiClusterHostnames)
+		builder.SetHostnames(multiClusterHostnames)
 	}
 
 	return builder.Build()

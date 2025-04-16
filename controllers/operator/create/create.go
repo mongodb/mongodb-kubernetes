@@ -44,7 +44,6 @@ var (
 	internalConnectivityPortName = "internal-connectivity-port"
 	backupPortName               = "backup-port"
 	appLabelKey                  = "app"
-	podNameLabelKey              = "statefulset.kubernetes.io/pod-name"
 )
 
 // DatabaseInKubernetes creates (updates if it exists) the StatefulSet with its Service.
@@ -56,6 +55,11 @@ func DatabaseInKubernetes(ctx context.Context, client kubernetesClient.Client, m
 		return err
 	}
 
+	// For mc-sharded, we create external services in the ShardedClusterReconcileHelper.reconcileServices method.
+	if mdb.Spec.IsMultiCluster() && mdb.IsShardedCluster() {
+		return nil
+	}
+
 	namespacedName := kube.ObjectKey(mdb.Namespace, set.Spec.ServiceName)
 	internalService := BuildService(namespacedName, &mdb, &set.Spec.ServiceName, nil, opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
 
@@ -65,8 +69,8 @@ func DatabaseInKubernetes(ctx context.Context, client kubernetesClient.Client, m
 		//nolint:gosec // suppressing integer overflow warning for int32(prom.GetPort())
 		internalService.Spec.Ports = append(internalService.Spec.Ports, corev1.ServicePort{Port: int32(prom.GetPort()), Name: "prometheus"})
 	}
-	err = mekoService.CreateOrUpdateService(ctx, client, internalService)
-	if err != nil {
+
+	if err := mekoService.CreateOrUpdateService(ctx, client, internalService); err != nil {
 		return err
 	}
 
@@ -76,11 +80,8 @@ func DatabaseInKubernetes(ctx context.Context, client kubernetesClient.Client, m
 			if err := mekoService.DeleteServiceIfItExists(ctx, client, namespacedName); err != nil {
 				return err
 			}
-			continue
-		}
-
-		if mdb.Spec.ExternalAccessConfiguration != nil {
-			if err = createExternalServices(ctx, client, mdb, opts, namespacedName, set, podNum, log); err != nil {
+		} else {
+			if err := createExternalServices(ctx, client, mdb, opts, namespacedName, set, podNum, log); err != nil {
 				return err
 			}
 		}
@@ -237,6 +238,7 @@ func createExternalServices(ctx context.Context, client kubernetesClient.Client,
 	if mdb.IsShardedCluster() && !opts.IsMongos() {
 		return nil
 	}
+	// TODO: we should not use OpsManager specific type `omv1.MongoDBOpsManagerServiceDefinition`
 	externalService := BuildService(namespacedName, &mdb, &set.Spec.ServiceName, ptr.To(dns.GetPodName(set.Name, podNum)), opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeLoadBalancer})
 
 	if mdb.Spec.DbCommonSpec.GetExternalDomain() != nil {
@@ -479,34 +481,28 @@ func addQueryableBackupPortToService(opsManager *omv1.MongoDBOpsManager, service
 //
 // When appLabel is specified, then the selector is targeting all pods (round-robin service). Usable for e.g. OpsManager service.
 // When podLabel is specified, then the selector is targeting only a single pod. Used for external services or multi-cluster services.
-func BuildService(namespacedName types.NamespacedName, owner v1.CustomResourceReadWriter, appLabel *string, podLabel *string, port int32, mongoServiceDefinition omv1.MongoDBOpsManagerServiceDefinition) corev1.Service {
-	labels := map[string]string{
-		construct.ControllerLabelName: util.OperatorName,
-	}
+func BuildService(namespacedName types.NamespacedName, owner v1.ObjectOwner, appLabel *string, podLabel *string, port int32, mongoServiceDefinition omv1.MongoDBOpsManagerServiceDefinition) corev1.Service {
+	svcLabels := owner.GetOwnerLabels()
 
 	selectorLabels := map[string]string{
-		construct.ControllerLabelName: util.OperatorName,
+		util.OperatorLabelName: util.OperatorName,
 	}
 
 	if appLabel != nil {
-		labels[appLabelKey] = *appLabel
+		svcLabels[appLabelKey] = *appLabel
 		selectorLabels[appLabelKey] = *appLabel
 	}
 
 	if podLabel != nil {
-		labels[podNameLabelKey] = *podLabel
-		selectorLabels[podNameLabelKey] = *podLabel
-	}
-
-	if _, ok := owner.(*mdbv1.MongoDB); ok {
-		labels[mdbv1.LabelMongoDBResourceOwner] = owner.GetName()
+		svcLabels[appsv1.StatefulSetPodNameLabel] = *podLabel
+		selectorLabels[appsv1.StatefulSetPodNameLabel] = *podLabel
 	}
 
 	svcBuilder := service.Builder().
 		SetNamespace(namespacedName.Namespace).
 		SetName(namespacedName.Name).
 		SetOwnerReferences(kube.BaseOwnerReference(owner)).
-		SetLabels(labels).
+		SetLabels(svcLabels).
 		SetSelector(selectorLabels).
 		SetServiceType(mongoServiceDefinition.Type).
 		SetPublishNotReadyAddresses(true)

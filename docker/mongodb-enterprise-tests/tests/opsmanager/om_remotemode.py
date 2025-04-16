@@ -150,6 +150,13 @@ def test_ops_manager_reaches_running_phase(ops_manager: MongoDBOpsManager):
     time.sleep(60)
 
 
+# Since OM6 is EOL, the latest mongodb versions are not available, unless we manually update the version manifest
+# The version manifest is technically updated automatically by OM in remote mode, but this is faster.
+@mark.e2e_om_remotemode
+def test_update_om_version_manifest(ops_manager: MongoDBOpsManager):
+    ops_manager.update_version_manifest()
+
+
 @mark.e2e_om_remotemode
 def test_replica_sets_reaches_running_phase(replica_set: MongoDB, replica_set_ent: MongoDB):
     """Doing this in parallel for faster success"""

@@ -29,11 +29,17 @@ class MultiClusterClient:
     def read_namespaced_stateful_set(self, name: str, namespace: str):
         return self.apps_v1_api().read_namespaced_stateful_set(name, namespace)
 
-    def list_namespaced_stateful_set(self, namespace: str):
+    def list_namespaced_stateful_sets(self, namespace: str):
         return self.apps_v1_api().list_namespaced_stateful_set(namespace)
+
+    def list_namespaced_services(self, namespace: str):
+        return self.core_v1_api().list_namespaced_service(namespace)
 
     def read_namespaced_service(self, name: str, namespace: str):
         return self.core_v1_api().read_namespaced_service(name, namespace)
+
+    def list_namespaced_config_maps(self, namespace: str):
+        return self.core_v1_api().list_namespaced_config_map(namespace)
 
     def read_namespaced_config_map(self, name: str, namespace: str):
         return self.core_v1_api().read_namespaced_config_map(name, namespace)

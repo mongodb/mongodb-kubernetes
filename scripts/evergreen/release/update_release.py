@@ -19,6 +19,63 @@ def get_latest_om_versions_from_evergreen_yml():
     return data["variables"][0], data["variables"][1]
 
 
+def trim_versions(versions_list, number_of_versions=3):
+    """
+    Keep only the latest number_of_versions versions per major version in a versions list.
+    Returns a sorted list with trimmed versions.
+    """
+    major_version_groups = defaultdict(list)
+    for v in versions_list:
+        try:
+            major_version = v.split(".")[0]
+            major_version_groups[major_version].append(v)
+        except (IndexError, AttributeError):
+            # Keep versions that don't follow the expected format
+            # In MEKO we didn't follow semver
+            continue
+
+    trimmed_versions = []
+    for major_version, versions in major_version_groups.items():
+        versions.sort(key=lambda x: version.parse(x), reverse=True)
+        latest_versions = versions[:number_of_versions]
+        trimmed_versions.extend(latest_versions)
+
+    # Sort the final list in ascending order
+    trimmed_versions.sort(key=lambda x: version.parse(x))
+    return trimmed_versions
+
+
+def trim_supported_image_versions(release: dict, image_types: list):
+    """
+    Trim the versions list for specified image types to keep only
+    the latest 3 versions per major version.
+    """
+    for image_type in image_types:
+        if image_type in release["supportedImages"]:
+            original_versions = release["supportedImages"][image_type]["versions"]
+            trimmed_versions = trim_versions(original_versions, 3)
+            release["supportedImages"][image_type]["versions"] = trimmed_versions
+
+
+def trim_ops_manager_mapping(release: dict):
+    """
+    Keep only the latest 3 versions per major version in opsManagerMapping.ops_manager.
+    """
+    if (
+        "mongodb-agent" in release["supportedImages"]
+        and "opsManagerMapping" in release["supportedImages"]["mongodb-agent"]
+    ):
+        ops_manager_mapping = release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"]
+
+        all_versions = ops_manager_mapping.keys()
+
+        trimmed_versions = trim_versions(all_versions, 3)
+
+        trimmed_mapping = {v: ops_manager_mapping[v] for v in trimmed_versions}
+
+        release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"] = trimmed_mapping
+
+
 def update_release_json():
     # Define a custom constructor to preserve the anchors in the YAML file
     release = os.path.join(os.getcwd(), "release.json")
@@ -28,8 +85,10 @@ def update_release_json():
     # Trim ops_manager_mapping to keep only the latest 3 versions
     trim_ops_manager_mapping(data)
 
-    # Trim ops-manager versions to keep only the latest 3 versions per major
-    trim_ops_manager_versions(data)
+    # Trim init and operator images to keep only the latest 3 versions per major
+    trim_supported_image_versions(
+        data, ["operator", "init-ops-manager", "init-database", "init-appdb", "database", "ops-manager"]
+    )
 
     # PCT already bumps the release.json, such that the last element contains the newest version, since they are sorted
     newest_om_version = data["supportedImages"]["ops-manager"]["versions"][-1]
@@ -46,59 +105,6 @@ def update_release_json():
             indent=2,
         )
         f.write("\n")
-
-
-def trim_ops_manager_mapping(release: dict):
-    """
-    Keep only the latest 3 versions per major version in opsManagerMapping.ops_manager.
-    """
-    if (
-        "mongodb-agent" in release["supportedImages"]
-        and "opsManagerMapping" in release["supportedImages"]["mongodb-agent"]
-    ):
-        ops_manager_mapping = release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"]
-
-        major_version_groups = defaultdict(list)
-        for v in ops_manager_mapping.keys():
-            major_version = v.split(".")[0]
-            major_version_groups[major_version].append(v)
-
-        trimmed_mapping = {}
-
-        for major_version, versions in major_version_groups.items():
-            versions.sort(key=lambda x: version.parse(x), reverse=True)
-            latest_versions = versions[:3]
-
-            for v in latest_versions:
-                trimmed_mapping[v] = ops_manager_mapping[v]
-
-        trimmed_mapping = dict(sorted(trimmed_mapping.items(), key=lambda x: version.parse(x[0])))
-
-        release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"] = trimmed_mapping
-
-
-def trim_ops_manager_versions(release: dict):
-    """
-    Keep only the latest 3 versions per major version in supportedImages.ops-manager.versions.
-    """
-    if "ops-manager" in release["supportedImages"] and "versions" in release["supportedImages"]["ops-manager"]:
-        versions = release["supportedImages"]["ops-manager"]["versions"]
-
-        major_version_groups = defaultdict(list)
-        for v in versions:
-            major_version = v.split(".")[0]
-            major_version_groups[major_version].append(v)
-
-        trimmed_versions = []
-
-        for major_version, versions in major_version_groups.items():
-            versions.sort(key=lambda x: version.parse(x), reverse=True)
-            latest_versions = versions[:3]
-            trimmed_versions.extend(latest_versions)
-
-        # Sort the final list in ascending order
-        trimmed_versions.sort(key=lambda x: version.parse(x))
-        release["supportedImages"]["ops-manager"]["versions"] = trimmed_versions
 
 
 def update_operator_related_versions(release: dict, version: str):

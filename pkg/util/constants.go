@@ -75,6 +75,7 @@ const (
 	EnvVarSSLTrustedMMSServerCertificate = "SSL_TRUSTED_MMS_SERVER_CERTIFICATE"
 
 	// Pod/StatefulSet specific constants
+	OperatorLabelName              = "controller"
 	OperatorName                   = "mongodb-enterprise-operator"
 	MultiClusterOperatorName       = "mongodb-enterprise-operator-multi-cluster"
 	OpsManagerContainerName        = "mongodb-ops-manager"

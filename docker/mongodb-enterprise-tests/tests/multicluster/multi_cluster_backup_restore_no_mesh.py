@@ -656,8 +656,16 @@ class TestBackupForMongodb:
         project_one.create_restore_job_pit(pit_millis)
 
     @mark.e2e_multi_cluster_backup_restore_no_mesh
+    def test_mdb_ready(self, mongodb_multi_one: MongoDBMulti):
+        # Note: that we are not waiting for the restore jobs to get finished as PIT restore jobs get FINISHED status
+        # right away.
+        # But the agent might still do work on the cluster, so we need to wait for that to happen.
+        mongodb_multi_one.assert_reaches_phase(Phase.Pending)
+        mongodb_multi_one.assert_reaches_phase(Phase.Running)
+
+    @mark.e2e_multi_cluster_backup_restore_no_mesh
     def test_data_got_restored(self, mongodb_multi_one_collection):
-        assert_data_got_restored(TEST_DATA, mongodb_multi_one_collection)
+        assert_data_got_restored(TEST_DATA, mongodb_multi_one_collection, timeout=900)
 
 
 def time_to_millis(date_time) -> int:

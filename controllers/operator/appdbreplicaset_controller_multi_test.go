@@ -15,6 +15,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -22,7 +23,6 @@ import (
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/host"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
 	enterprisepem "github.com/10gen/ops-manager-kubernetes/controllers/operator/pem"
@@ -1226,8 +1226,9 @@ func TestAppDBMultiClusterServiceCreation_WithExternalName(t *testing.T) {
 							Namespace:       "my-namespace",
 							ResourceVersion: "1",
 							Labels: map[string]string{
-								construct.ControllerLabelName:        util.OperatorName,
-								"statefulset.kubernetes.io/pod-name": "test-om-db-0-0",
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-0-0",
+								omv1.LabelResourceOwner:        "test-om",
 							},
 						},
 						Spec: corev1.ServiceSpec{
@@ -1240,8 +1241,8 @@ func TestAppDBMultiClusterServiceCreation_WithExternalName(t *testing.T) {
 								},
 							},
 							Selector: map[string]string{
-								construct.ControllerLabelName:        util.OperatorName,
-								"statefulset.kubernetes.io/pod-name": "test-om-db-0-0",
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-0-0",
 							},
 						},
 					},
@@ -1286,8 +1287,9 @@ func TestAppDBMultiClusterServiceCreation_WithExternalName(t *testing.T) {
 							Namespace:       "my-namespace",
 							ResourceVersion: "1",
 							Labels: map[string]string{
-								construct.ControllerLabelName:        util.OperatorName,
-								"statefulset.kubernetes.io/pod-name": "test-om-db-0-0",
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-0-0",
+								omv1.LabelResourceOwner:        "test-om",
 							},
 						},
 						Spec: corev1.ServiceSpec{
@@ -1308,8 +1310,8 @@ func TestAppDBMultiClusterServiceCreation_WithExternalName(t *testing.T) {
 								},
 							},
 							Selector: map[string]string{
-								construct.ControllerLabelName:        util.OperatorName,
-								"statefulset.kubernetes.io/pod-name": "test-om-db-0-0",
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-0-0",
 							},
 						},
 					},
@@ -1319,8 +1321,9 @@ func TestAppDBMultiClusterServiceCreation_WithExternalName(t *testing.T) {
 							Namespace:       "my-namespace",
 							ResourceVersion: "1",
 							Labels: map[string]string{
-								construct.ControllerLabelName:        util.OperatorName,
-								"statefulset.kubernetes.io/pod-name": "test-om-db-0-1",
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-0-1",
+								omv1.LabelResourceOwner:        "test-om",
 							},
 						},
 						Spec: corev1.ServiceSpec{
@@ -1341,8 +1344,8 @@ func TestAppDBMultiClusterServiceCreation_WithExternalName(t *testing.T) {
 								},
 							},
 							Selector: map[string]string{
-								construct.ControllerLabelName:        util.OperatorName,
-								"statefulset.kubernetes.io/pod-name": "test-om-db-0-1",
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-0-1",
 							},
 						},
 					},
@@ -1367,8 +1370,9 @@ func TestAppDBMultiClusterServiceCreation_WithExternalName(t *testing.T) {
 							Namespace:       "my-namespace",
 							ResourceVersion: "1",
 							Labels: map[string]string{
-								construct.ControllerLabelName:        util.OperatorName,
-								"statefulset.kubernetes.io/pod-name": "test-om-db-0-0",
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-0-0",
+								omv1.LabelResourceOwner:        "test-om",
 							},
 						},
 						Spec: corev1.ServiceSpec{
@@ -1381,8 +1385,8 @@ func TestAppDBMultiClusterServiceCreation_WithExternalName(t *testing.T) {
 								},
 							},
 							Selector: map[string]string{
-								construct.ControllerLabelName:        util.OperatorName,
-								"statefulset.kubernetes.io/pod-name": "test-om-db-0-0",
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-0-0",
 							},
 						},
 					},
@@ -1406,8 +1410,9 @@ func TestAppDBMultiClusterServiceCreation_WithExternalName(t *testing.T) {
 							Namespace:       "my-namespace",
 							ResourceVersion: "1",
 							Labels: map[string]string{
-								construct.ControllerLabelName:        util.OperatorName,
-								"statefulset.kubernetes.io/pod-name": "test-om-db-0-0",
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-0-0",
+								omv1.LabelResourceOwner:        "test-om",
 							},
 						},
 						Spec: corev1.ServiceSpec{
@@ -1420,8 +1425,8 @@ func TestAppDBMultiClusterServiceCreation_WithExternalName(t *testing.T) {
 								},
 							},
 							Selector: map[string]string{
-								construct.ControllerLabelName:        util.OperatorName,
-								"statefulset.kubernetes.io/pod-name": "test-om-db-0-0",
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-0-0",
 							},
 						},
 					},
@@ -1459,8 +1464,9 @@ func TestAppDBMultiClusterServiceCreation_WithExternalName(t *testing.T) {
 							Namespace:       "my-namespace",
 							ResourceVersion: "1",
 							Labels: map[string]string{
-								construct.ControllerLabelName:        util.OperatorName,
-								"statefulset.kubernetes.io/pod-name": "test-om-db-0-0",
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-0-0",
+								omv1.LabelResourceOwner:        "test-om",
 							},
 						},
 						Spec: corev1.ServiceSpec{
@@ -1474,8 +1480,8 @@ func TestAppDBMultiClusterServiceCreation_WithExternalName(t *testing.T) {
 								},
 							},
 							Selector: map[string]string{
-								construct.ControllerLabelName:        util.OperatorName,
-								"statefulset.kubernetes.io/pod-name": "test-om-db-0-0",
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-0-0",
 							},
 						},
 					},
@@ -1563,8 +1569,9 @@ func TestAppDBMultiClusterServiceCreation_WithExternalName(t *testing.T) {
 							Namespace:       "my-namespace",
 							ResourceVersion: "1",
 							Labels: map[string]string{
-								construct.ControllerLabelName:        util.OperatorName,
-								"statefulset.kubernetes.io/pod-name": "test-om-db-0-0",
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-0-0",
+								omv1.LabelResourceOwner:        "test-om",
 							},
 							Annotations: map[string]string{
 								"test-annotation":                     "test-placeholder-0",
@@ -1590,8 +1597,8 @@ func TestAppDBMultiClusterServiceCreation_WithExternalName(t *testing.T) {
 								},
 							},
 							Selector: map[string]string{
-								construct.ControllerLabelName:        util.OperatorName,
-								"statefulset.kubernetes.io/pod-name": "test-om-db-0-0",
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-0-0",
 							},
 						},
 					},
@@ -1601,8 +1608,9 @@ func TestAppDBMultiClusterServiceCreation_WithExternalName(t *testing.T) {
 							Namespace:       "my-namespace",
 							ResourceVersion: "1",
 							Labels: map[string]string{
-								construct.ControllerLabelName:        util.OperatorName,
-								"statefulset.kubernetes.io/pod-name": "test-om-db-0-1",
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-0-1",
+								omv1.LabelResourceOwner:        "test-om",
 							},
 							Annotations: map[string]string{
 								"test-annotation":                     "test-placeholder-1",
@@ -1628,8 +1636,8 @@ func TestAppDBMultiClusterServiceCreation_WithExternalName(t *testing.T) {
 								},
 							},
 							Selector: map[string]string{
-								construct.ControllerLabelName:        util.OperatorName,
-								"statefulset.kubernetes.io/pod-name": "test-om-db-0-1",
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-0-1",
 							},
 						},
 					},
@@ -1641,8 +1649,9 @@ func TestAppDBMultiClusterServiceCreation_WithExternalName(t *testing.T) {
 							Namespace:       "my-namespace",
 							ResourceVersion: "1",
 							Labels: map[string]string{
-								construct.ControllerLabelName:        util.OperatorName,
-								"statefulset.kubernetes.io/pod-name": "test-om-db-1-0",
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-1-0",
+								omv1.LabelResourceOwner:        "test-om",
 							},
 							Annotations: map[string]string{
 								"test-annotation":                     "test-placeholder-0",
@@ -1668,8 +1677,8 @@ func TestAppDBMultiClusterServiceCreation_WithExternalName(t *testing.T) {
 								},
 							},
 							Selector: map[string]string{
-								construct.ControllerLabelName:        util.OperatorName,
-								"statefulset.kubernetes.io/pod-name": "test-om-db-1-0",
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-1-0",
 							},
 						},
 					},
@@ -1679,8 +1688,9 @@ func TestAppDBMultiClusterServiceCreation_WithExternalName(t *testing.T) {
 							Namespace:       "my-namespace",
 							ResourceVersion: "1",
 							Labels: map[string]string{
-								construct.ControllerLabelName:        util.OperatorName,
-								"statefulset.kubernetes.io/pod-name": "test-om-db-1-1",
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-1-1",
+								omv1.LabelResourceOwner:        "test-om",
 							},
 							Annotations: map[string]string{
 								"test-annotation":                     "test-placeholder-1",
@@ -1706,8 +1716,8 @@ func TestAppDBMultiClusterServiceCreation_WithExternalName(t *testing.T) {
 								},
 							},
 							Selector: map[string]string{
-								construct.ControllerLabelName:        util.OperatorName,
-								"statefulset.kubernetes.io/pod-name": "test-om-db-1-1",
+								util.OperatorLabelName:         util.OperatorName,
+								appsv1.StatefulSetPodNameLabel: "test-om-db-1-1",
 							},
 						},
 					},

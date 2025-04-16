@@ -44,36 +44,36 @@ spec:
               volumeMounts:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases
-            - name: setting-up-rhel-mongodb-6-0-16
+            - name: setting-up-rhel-mongodb-6-0-21
               image: curlimages/curl:latest
               command:
                 - curl
                 - -L
-                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel80-6.0.16.tgz
+                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel8-6.0.21.tgz
                 - -o
-                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel80-6.0.16.tgz
+                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel8-6.0.21.tgz
               volumeMounts:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases
-            - name: setting-up-rhel-mongodb-7-0-2
+            - name: setting-up-rhel-mongodb-7-0
               image: curlimages/curl:latest
               command:
                 - curl
                 - -L
-                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel80-7.0.2.tgz
+                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel8-7.0.18.tgz
                 - -o
-                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel80-7.0.2.tgz
+                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel8-7.0.18.tgz
               volumeMounts:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases
-            - name: setting-up-rhel-mongodb-8-0-0
+            - name: setting-up-rhel-mongodb-8-0
               image: curlimages/curl:latest
               command:
                 - curl
                 - -L
-                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel8-8.0.0.tgz
+                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel8-8.0.6.tgz
                 - -o
-                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel8-8.0.0.tgz
+                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel8-8.0.6.tgz
               volumeMounts:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases

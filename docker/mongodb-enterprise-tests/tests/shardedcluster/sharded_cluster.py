@@ -74,8 +74,8 @@ class TestShardedClusterCreation:
 
     def test_mongod_sharded_cluster_service(self, sc: MongoDB):
         for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
-            if sc.shard_members_in_cluster(cluster_member_client.cluster_name) > 0:
-                svc_name = sc.shard_service_name()
+            for shard_idx in range(sc.shard_members_in_cluster(cluster_member_client.cluster_name)):
+                svc_name = sc.shard_service_name(shard_idx, cluster_member_client.cluster_index)
                 svc = cluster_member_client.read_namespaced_service(svc_name, sc.namespace)
                 assert svc
 
@@ -178,7 +178,7 @@ class TestShardedClusterDeletion:
     def test_sharded_cluster_doesnt_exist(self, sc: MongoDB, cluster_member_clients):
         def sts_are_deleted() -> bool:
             for cluster_member_client in cluster_member_clients:
-                sts = cluster_member_client.list_namespaced_stateful_set(sc.namespace)
+                sts = cluster_member_client.list_namespaced_stateful_sets(sc.namespace)
                 if len(sts.items) != 0:
                     return False
 
@@ -189,13 +189,14 @@ class TestShardedClusterDeletion:
     def test_service_does_not_exist(self, sc: MongoDB, cluster_member_clients):
         def svc_are_deleted() -> bool:
             for cluster_member_client in cluster_member_clients:
-                try:
-                    cluster_member_client.read_namespaced_service(sc.shard_service_name(), sc.namespace)
-                    return False
-                except kubernetes.client.ApiException as e:
-                    if e.status != 404:
+                for shard_idx in range(sc.shard_members_in_cluster(cluster_member_client.cluster_name)):
+                    svc_name = sc.shard_service_name(shard_idx, cluster_member_client.cluster_index)
+                    try:
+                        cluster_member_client.read_namespaced_service(svc_name, sc.namespace)
                         return False
-
+                    except kubernetes.client.ApiException as e:
+                        if e.status != 404:
+                            return False
             return True
 
         run_periodically(svc_are_deleted, timeout=60)

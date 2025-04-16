@@ -42,6 +42,8 @@ dump_all() {
     kubectl config use-context "${original_context}" &> /dev/null
 
     kubectl -n "kube-system" get configmap coredns -o yaml > "logs/${prefix}coredns.yaml"
+
+    kubectl events --all-namespaces > "logs/${prefix}kube_events.json"
 }
 
 dump_objects() {
@@ -304,4 +306,6 @@ dump_namespace() {
     kubectl get crd -o name
     # shellcheck disable=SC2046
     kubectl describe $(kubectl get crd -o name | grep mongodb) > "logs/${prefix}z_mongodb_crds.log"
+
+    kubectl describe nodes > "logs/${prefix}z_nodes_detailed.log" || true
 }

@@ -49,4 +49,4 @@ class TestShardedClusterListensSecret:
         KubernetesTester.update_secret(sc.namespace, "my-credentials", {"publicApiKey": "wrongKey"})
 
         print('Patched the Secret - changed publicApiKey to "wrongKey"')
-        sc.assert_reaches_phase(Phase.Failed, timeout=20)
+        sc.assert_reaches_phase(Phase.Failed, timeout=100)

@@ -775,6 +775,8 @@ tasks:
 
   - name: e2e_om_ops_manager_backup_sharded_cluster
     tags: [ "patch-run" ]
+    run_on:
+      - ubuntu2404-xlarge
     commands:
       - func: "e2e_test"
 
@@ -1015,6 +1017,11 @@ tasks:
       - func: e2e_test
 
   - name: e2e_multi_cluster_appdb
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_appdb_cleanup
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
