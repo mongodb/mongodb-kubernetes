@@ -14,18 +14,17 @@ from kubetester.kubetester import (
     run_periodically,
     skip_if_local,
 )
-from kubetester.mongodb import Phase, get_pods
+from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture
 from tests import test_logger
-from tests.conftest import is_multi_cluster
+from tests.conftest import get_member_cluster_clients, is_multi_cluster
 from tests.opsmanager.om_appdb_scram import OM_USER_NAME
 from tests.opsmanager.om_ops_manager_backup import (
     OPLOG_RS_NAME,
     S3_SECRET_NAME,
     create_aws_secret,
     create_s3_bucket,
-    new_om_data_store,
 )
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
@@ -442,11 +441,11 @@ class TestOpsManagerRemoved:
         ops_manager.read_gen_key_secret()
 
     def test_om_sts_removed(self, ops_manager: MongoDBOpsManager):
-        for member_cluster_name in ops_manager.get_om_member_cluster_names():
+        for member_cluster in get_member_cluster_clients():
             with pytest.raises(ApiException):
-                ops_manager.read_statefulset(member_cluster_name=member_cluster_name)
+                ops_manager.read_statefulset(member_cluster_name=member_cluster.cluster_name)
 
     def test_om_appdb_removed(self, ops_manager: MongoDBOpsManager):
-        for member_cluster_name in ops_manager.get_appdb_member_cluster_names():
+        for member_cluster in get_member_cluster_clients():
             with pytest.raises(ApiException):
-                ops_manager.read_appdb_statefulset(member_cluster_name=member_cluster_name)
+                ops_manager.read_appdb_statefulset(member_cluster_name=member_cluster.cluster_name)

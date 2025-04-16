@@ -469,7 +469,7 @@ func buildMemberEntityClusterRole() rbacv1.ClusterRole {
 	})
 
 	rules = append(rules, rbacv1.PolicyRule{
-		Verbs: []string{"get"},
+		Verbs:     []string{"get"},
 		Resources: []string{"nodes"},
 		APIGroups: []string{""},
 	})
@@ -496,7 +496,7 @@ func buildMemberEntityClusterRole() rbacv1.ClusterRole {
 func buildClusterRoleTelemetry() rbacv1.ClusterRole {
 	var rules []rbacv1.PolicyRule
 	rules = append(rules, rbacv1.PolicyRule{
-		Verbs: []string{"list"},
+		Verbs:     []string{"list"},
 		Resources: []string{"nodes"},
 		APIGroups: []string{""},
 	})
@@ -547,7 +547,7 @@ func buildRoleBinding(role rbacv1.Role, serviceAccount string, serviceAccountNam
 func buildClusterRoleBinding(clusterRole rbacv1.ClusterRole, serviceAccountName, serviceAccountNamespace, clusterRoleBindingName string) rbacv1.ClusterRoleBinding {
 	return rbacv1.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: clusterRoleBindingName,
+			Name:   clusterRoleBindingName,
 			Labels: multiClusterLabels(),
 		},
 		Subjects: []rbacv1.Subject{

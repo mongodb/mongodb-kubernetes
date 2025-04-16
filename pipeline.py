@@ -374,10 +374,10 @@ def sonar_build_image(
 ):
     """Calls sonar to build `image_name` with arguments defined in `args`."""
     span = trace.get_current_span()
-    span.set_attribute("meko.image_name", image_name)
-    span.set_attribute("meko.inventory", inventory)
+    span.set_attribute("mck.image_name", image_name)
+    span.set_attribute("mck.inventory", inventory)
     if args:
-        span.set_attribute("meko.build_args", str(args))
+        span.set_attribute("mck.build_args", str(args))
 
     build_options = {
         # Will continue building an image if it finds an error. See next comment.
@@ -418,7 +418,7 @@ def produce_sbom(build_configuration, args):
 
     try:
         image_tag = args["release_version"]
-        span.set_attribute("meko.release_version", image_tag)
+        span.set_attribute("mck.release_version", image_tag)
     except KeyError:
         logger.error(f"Could not find image tag. Args: {args}, BuildConfiguration: {build_configuration}")
         logger.error(f"Skipping SBOM generation")
@@ -890,7 +890,7 @@ def sign_image_in_repositories(args: Dict[str, str], arch: str = None):
     if arch:
         tag = f"{tag}-{arch}"
 
-    span.set_attribute("meko.tag", tag)
+    span.set_attribute("mck.tag", tag)
 
     sign_image(repository, tag)
     verify_signature(repository, tag)

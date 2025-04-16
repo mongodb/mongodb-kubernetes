@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/blang/semver"
+	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
@@ -743,6 +744,46 @@ func (r *ReconcileCommonController) getAgentVersion(conn om.Connection, omVersio
 		log.Debugf("Using Operator version: %s", currentOperatorVersion)
 		return agentVersion + "_" + currentOperatorVersion, nil
 	}
+}
+
+// deleteClusterResources removes all resources that are associated with the given resource owner in a given cluster.
+func (r *ReconcileCommonController) deleteClusterResources(ctx context.Context, client kubernetesClient.Client, clusterName string, resourceOwner v1.ObjectOwner, log *zap.SugaredLogger) error {
+	objectKey := resourceOwner.ObjectKey()
+
+	// cleanup resources in the namespace as the MongoDB with the corresponding label.
+	cleanupOptions := mdbv1.MongodbCleanUpOptions{
+		Namespace: resourceOwner.GetNamespace(),
+		Labels:    resourceOwner.GetOwnerLabels(),
+	}
+
+	var errs error
+	if err := client.DeleteAllOf(ctx, &corev1.Service{}, &cleanupOptions); err != nil {
+		errs = multierror.Append(errs, err)
+	} else {
+		log.Infof("Removed Services associated with %s in cluster %s", objectKey, clusterName)
+	}
+
+	if err := client.DeleteAllOf(ctx, &appsv1.StatefulSet{}, &cleanupOptions); err != nil {
+		errs = multierror.Append(errs, err)
+	} else {
+		log.Infof("Removed StatefulSets associated with %s in cluster %s", objectKey, clusterName)
+	}
+
+	if err := client.DeleteAllOf(ctx, &corev1.ConfigMap{}, &cleanupOptions); err != nil {
+		errs = multierror.Append(errs, err)
+	} else {
+		log.Infof("Removed ConfigMaps associated with %s in cluster %s", objectKey, clusterName)
+	}
+
+	if err := client.DeleteAllOf(ctx, &corev1.Secret{}, &cleanupOptions); err != nil {
+		errs = multierror.Append(errs, err)
+	} else {
+		log.Infof("Removed Secrets associated with %s in cluster %s", objectKey, clusterName)
+	}
+
+	r.resourceWatcher.RemoveDependentWatchedResources(objectKey)
+
+	return errs
 }
 
 // isPrometheusSupported checks if Prometheus integration can be enabled.

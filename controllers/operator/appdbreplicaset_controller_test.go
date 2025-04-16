@@ -19,7 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	v1 "k8s.io/api/apps/v1"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -154,15 +154,18 @@ func TestPublishAutomationConfigCreate(t *testing.T) {
 	kubeClient := mock.NewEmptyFakeClientWithInterceptor(omConnectionFactory)
 	reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
 	require.NoError(t, err)
+
+	memberCluster := multicluster.GetLegacyCentralMemberCluster(opsManager.Spec.Replicas, 0, reconciler.client, reconciler.SecretClient)
 	automationConfig, err := buildAutomationConfigForAppDb(ctx, builder, kubeClient, omConnectionFactory.GetConnectionFunc, automation, zap.S())
 	assert.NoError(t, err)
-	version, err := reconciler.publishAutomationConfig(ctx, opsManager, automationConfig, appdb.AutomationConfigSecretName(), multicluster.LegacyCentralClusterName)
+
+	version, err := reconciler.publishAutomationConfig(ctx, opsManager, automationConfig, appdb.AutomationConfigSecretName(), memberCluster.SecretClient)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, version)
 
 	monitoringAutomationConfig, err := buildAutomationConfigForAppDb(ctx, builder, kubeClient, omConnectionFactory.GetConnectionFunc, monitoring, zap.S())
 	assert.NoError(t, err)
-	version, err = reconciler.publishAutomationConfig(ctx, opsManager, monitoringAutomationConfig, appdb.MonitoringAutomationConfigSecretName(), multicluster.LegacyCentralClusterName)
+	version, err = reconciler.publishAutomationConfig(ctx, opsManager, monitoringAutomationConfig, appdb.MonitoringAutomationConfigSecretName(), memberCluster.SecretClient)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, version)
 
@@ -381,7 +384,7 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 	assert.Empty(t, podVars.User)
 
 	opsManager.Spec.AppDB.Members = 5
-	appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, v1.OnDeleteStatefulSetStrategyType, zap.S())
+	appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, zap.S())
 	assert.NoError(t, err)
 
 	assert.Nil(t, findVolumeByName(appDbSts.Spec.Template.Spec.Volumes, construct.AgentAPIKeyVolumeName))
@@ -421,7 +424,7 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 
 	assertExpectedHostnamesAndPreferred(t, omConnectionFactory.GetConnection().(*om.MockedOmConnection), expectedHostnames)
 
-	appDbSts, err = construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, v1.OnDeleteStatefulSetStrategyType, zap.S())
+	appDbSts, err = construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, zap.S())
 	assert.NoError(t, err)
 
 	assert.NotNil(t, findVolumeByName(appDbSts.Spec.Template.Spec.Volumes, construct.AgentAPIKeyVolumeName))
@@ -456,7 +459,7 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 
 	t.Run("do not override images while activating monitoring", func(t *testing.T) {
 		podVars := env.PodEnvVars{ProjectID: "something"}
-		appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, v1.OnDeleteStatefulSetStrategyType, zap.S())
+		appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, zap.S())
 		assert.NoError(t, err)
 		assert.NotNil(t, appDbSts)
 
@@ -482,7 +485,7 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 
 	t.Run("do not override images, but remove monitoring if not activated", func(t *testing.T) {
 		podVars := env.PodEnvVars{}
-		appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, v1.OnDeleteStatefulSetStrategyType, zap.S())
+		appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, zap.S())
 		assert.NoError(t, err)
 		assert.NotNil(t, appDbSts)
 
@@ -526,7 +529,7 @@ func TestTryConfigureMonitoringInOpsManagerWithExternalDomains(t *testing.T) {
 	assert.Empty(t, podVars.User)
 
 	opsManager.Spec.AppDB.Members = 5
-	appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, v1.OnDeleteStatefulSetStrategyType, zap.S())
+	appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, zap.S())
 	assert.NoError(t, err)
 
 	assert.Nil(t, findVolumeByName(appDbSts.Spec.Template.Spec.Volumes, construct.AgentAPIKeyVolumeName))
@@ -566,7 +569,7 @@ func TestTryConfigureMonitoringInOpsManagerWithExternalDomains(t *testing.T) {
 
 	assertExpectedHostnamesAndPreferred(t, omConnectionFactory.GetConnection().(*om.MockedOmConnection), expectedHostnames)
 
-	appDbSts, err = construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, v1.OnDeleteStatefulSetStrategyType, zap.S())
+	appDbSts, err = construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, zap.S())
 	assert.NoError(t, err)
 
 	assert.NotNil(t, findVolumeByName(appDbSts.Spec.Template.Spec.Volumes, construct.AgentAPIKeyVolumeName))
@@ -589,8 +592,9 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						Namespace:       "my-namespace",
 						ResourceVersion: "1",
 						Labels: map[string]string{
-							construct.ControllerLabelName:        util.OperatorName,
-							"statefulset.kubernetes.io/pod-name": "test-om-db-0",
+							util.OperatorLabelName:         util.OperatorName,
+							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
+							omv1.LabelResourceOwner:        "test-om",
 						},
 					},
 					Spec: corev1.ServiceSpec{
@@ -603,8 +607,8 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 							},
 						},
 						Selector: map[string]string{
-							construct.ControllerLabelName:        util.OperatorName,
-							"statefulset.kubernetes.io/pod-name": "test-om-db-0",
+							util.OperatorLabelName:         util.OperatorName,
+							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 						},
 					},
 				},
@@ -642,8 +646,9 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						Namespace:       "my-namespace",
 						ResourceVersion: "1",
 						Labels: map[string]string{
-							construct.ControllerLabelName:        util.OperatorName,
-							"statefulset.kubernetes.io/pod-name": "test-om-db-0",
+							util.OperatorLabelName:         util.OperatorName,
+							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
+							omv1.LabelResourceOwner:        "test-om",
 						},
 					},
 					Spec: corev1.ServiceSpec{
@@ -664,8 +669,8 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 							},
 						},
 						Selector: map[string]string{
-							construct.ControllerLabelName:        util.OperatorName,
-							"statefulset.kubernetes.io/pod-name": "test-om-db-0",
+							util.OperatorLabelName:         util.OperatorName,
+							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 						},
 					},
 				},
@@ -675,8 +680,9 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						Namespace:       "my-namespace",
 						ResourceVersion: "1",
 						Labels: map[string]string{
-							construct.ControllerLabelName:        util.OperatorName,
-							"statefulset.kubernetes.io/pod-name": "test-om-db-1",
+							util.OperatorLabelName:         util.OperatorName,
+							appsv1.StatefulSetPodNameLabel: "test-om-db-1",
+							omv1.LabelResourceOwner:        "test-om",
 						},
 					},
 					Spec: corev1.ServiceSpec{
@@ -697,8 +703,8 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 							},
 						},
 						Selector: map[string]string{
-							construct.ControllerLabelName:        util.OperatorName,
-							"statefulset.kubernetes.io/pod-name": "test-om-db-1",
+							util.OperatorLabelName:         util.OperatorName,
+							appsv1.StatefulSetPodNameLabel: "test-om-db-1",
 						},
 					},
 				},
@@ -716,8 +722,9 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						Namespace:       "my-namespace",
 						ResourceVersion: "1",
 						Labels: map[string]string{
-							construct.ControllerLabelName:        util.OperatorName,
-							"statefulset.kubernetes.io/pod-name": "test-om-db-0",
+							util.OperatorLabelName:         util.OperatorName,
+							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
+							omv1.LabelResourceOwner:        "test-om",
 						},
 					},
 					Spec: corev1.ServiceSpec{
@@ -730,8 +737,8 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 							},
 						},
 						Selector: map[string]string{
-							construct.ControllerLabelName:        util.OperatorName,
-							"statefulset.kubernetes.io/pod-name": "test-om-db-0",
+							util.OperatorLabelName:         util.OperatorName,
+							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 						},
 					},
 				},
@@ -748,8 +755,9 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						Namespace:       "my-namespace",
 						ResourceVersion: "1",
 						Labels: map[string]string{
-							construct.ControllerLabelName:        util.OperatorName,
-							"statefulset.kubernetes.io/pod-name": "test-om-db-0",
+							util.OperatorLabelName:         util.OperatorName,
+							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
+							omv1.LabelResourceOwner:        "test-om",
 						},
 					},
 					Spec: corev1.ServiceSpec{
@@ -762,8 +770,8 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 							},
 						},
 						Selector: map[string]string{
-							construct.ControllerLabelName:        util.OperatorName,
-							"statefulset.kubernetes.io/pod-name": "test-om-db-0",
+							util.OperatorLabelName:         util.OperatorName,
+							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 						},
 					},
 				},
@@ -794,8 +802,9 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						Namespace:       "my-namespace",
 						ResourceVersion: "1",
 						Labels: map[string]string{
-							construct.ControllerLabelName:        util.OperatorName,
-							"statefulset.kubernetes.io/pod-name": "test-om-db-0",
+							util.OperatorLabelName:         util.OperatorName,
+							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
+							omv1.LabelResourceOwner:        "test-om",
 						},
 					},
 					Spec: corev1.ServiceSpec{
@@ -809,8 +818,8 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 							},
 						},
 						Selector: map[string]string{
-							construct.ControllerLabelName:        util.OperatorName,
-							"statefulset.kubernetes.io/pod-name": "test-om-db-0",
+							util.OperatorLabelName:         util.OperatorName,
+							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 						},
 					},
 				},
@@ -850,8 +859,9 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						Namespace:       "my-namespace",
 						ResourceVersion: "1",
 						Labels: map[string]string{
-							construct.ControllerLabelName:        util.OperatorName,
-							"statefulset.kubernetes.io/pod-name": "test-om-db-0",
+							util.OperatorLabelName:         util.OperatorName,
+							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
+							omv1.LabelResourceOwner:        "test-om",
 						},
 						Annotations: map[string]string{
 							create.PlaceholderPodIndex:            "0",
@@ -874,8 +884,8 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 							},
 						},
 						Selector: map[string]string{
-							construct.ControllerLabelName:        util.OperatorName,
-							"statefulset.kubernetes.io/pod-name": "test-om-db-0",
+							util.OperatorLabelName:         util.OperatorName,
+							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 						},
 					},
 				},
@@ -885,8 +895,9 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						Namespace:       "my-namespace",
 						ResourceVersion: "1",
 						Labels: map[string]string{
-							construct.ControllerLabelName:        util.OperatorName,
-							"statefulset.kubernetes.io/pod-name": "test-om-db-1",
+							util.OperatorLabelName:         util.OperatorName,
+							appsv1.StatefulSetPodNameLabel: "test-om-db-1",
+							omv1.LabelResourceOwner:        "test-om",
 						},
 						Annotations: map[string]string{
 							create.PlaceholderPodIndex:            "1",
@@ -909,8 +920,8 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 							},
 						},
 						Selector: map[string]string{
-							construct.ControllerLabelName:        util.OperatorName,
-							"statefulset.kubernetes.io/pod-name": "test-om-db-1",
+							util.OperatorLabelName:         util.OperatorName,
+							appsv1.StatefulSetPodNameLabel: "test-om-db-1",
 						},
 					},
 				},
@@ -951,8 +962,9 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						Namespace:       "my-namespace",
 						ResourceVersion: "1",
 						Labels: map[string]string{
-							construct.ControllerLabelName:        util.OperatorName,
-							"statefulset.kubernetes.io/pod-name": "test-om-db-0",
+							util.OperatorLabelName:         util.OperatorName,
+							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
+							omv1.LabelResourceOwner:        "test-om",
 						},
 						Annotations: map[string]string{
 							create.PlaceholderPodIndex:            "0",
@@ -975,8 +987,8 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 							},
 						},
 						Selector: map[string]string{
-							construct.ControllerLabelName:        util.OperatorName,
-							"statefulset.kubernetes.io/pod-name": "test-om-db-0",
+							util.OperatorLabelName:         util.OperatorName,
+							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 						},
 					},
 				},
@@ -986,8 +998,9 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						Namespace:       "my-namespace",
 						ResourceVersion: "1",
 						Labels: map[string]string{
-							construct.ControllerLabelName:        util.OperatorName,
-							"statefulset.kubernetes.io/pod-name": "test-om-db-1",
+							util.OperatorLabelName:         util.OperatorName,
+							appsv1.StatefulSetPodNameLabel: "test-om-db-1",
+							omv1.LabelResourceOwner:        "test-om",
 						},
 						Annotations: map[string]string{
 							create.PlaceholderPodIndex:            "1",
@@ -1010,8 +1023,8 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 							},
 						},
 						Selector: map[string]string{
-							construct.ControllerLabelName:        util.OperatorName,
-							"statefulset.kubernetes.io/pod-name": "test-om-db-1",
+							util.OperatorLabelName:         util.OperatorName,
+							appsv1.StatefulSetPodNameLabel: "test-om-db-1",
 						},
 					},
 				},
@@ -1146,7 +1159,7 @@ func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
 		assert.NoError(t, err)
 		reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
 		require.NoError(t, err)
-		reconciler.client = kubeClient
+		memberCluster := multicluster.GetLegacyCentralMemberCluster(opsManager.Spec.Replicas, 0, reconciler.client, reconciler.SecretClient)
 
 		// create a pre-existing automation config based on the resource provided.
 		// if the automation is not there, we will always want to reconcile. Otherwise, we may not reconcile
@@ -1154,7 +1167,8 @@ func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
 		if createAutomationConfig {
 			ac, err := reconciler.buildAppDbAutomationConfig(ctx, opsManager, automation, UnusedPrometheusConfiguration, multicluster.LegacyCentralClusterName, zap.S())
 			assert.NoError(t, err)
-			_, err = reconciler.publishAutomationConfig(ctx, opsManager, ac, opsManager.Spec.AppDB.AutomationConfigSecretName(), multicluster.LegacyCentralClusterName)
+
+			_, err = reconciler.publishAutomationConfig(ctx, opsManager, ac, opsManager.Spec.AppDB.AutomationConfigSecretName(), memberCluster.SecretClient)
 			assert.NoError(t, err)
 		}
 		return reconciler
@@ -1253,7 +1267,7 @@ func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
 func appDBStatefulSetLabelsAndServiceName(omResourceName string) (map[string]string, string) {
 	appDbName := fmt.Sprintf("%s-db", omResourceName)
 	serviceName := fmt.Sprintf("%s-svc", appDbName)
-	labels := map[string]string{"app": serviceName, "controller": "mongodb-enterprise-operator", "pod-anti-affinity": appDbName}
+	labels := map[string]string{"app": serviceName, util.OperatorLabelName: util.OperatorName, "pod-anti-affinity": appDbName}
 	return labels, serviceName
 }
 

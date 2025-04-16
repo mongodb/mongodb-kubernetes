@@ -53,7 +53,6 @@ import (
 	mcoConstruct "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/controllers/construct"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/annotations"
-	kubernetesClient "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/configmap"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/service"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/merge"
@@ -309,8 +308,9 @@ func (r *ShardedClusterReconcileHelper) getMongosClusterSpecList() mdbv1.Cluster
 	} else {
 		return mdbv1.ClusterSpecList{
 			{
-				ClusterName: multicluster.LegacyCentralClusterName,
-				Members:     spec.MongosCount,
+				ClusterName:                 multicluster.LegacyCentralClusterName,
+				Members:                     spec.MongosCount,
+				ExternalAccessConfiguration: spec.ExternalAccessConfiguration,
 			},
 		}
 	}
@@ -653,9 +653,51 @@ type ShardedClusterReconcileHelper struct {
 	deploymentState *ShardedClusterDeploymentState
 
 	stateStore *StateStore[ShardedClusterDeploymentState]
+
+	// This parameter helps us decide whether write operations should be conducted in the constructor.
+	readOnly bool
 }
 
-func NewShardedClusterReconcilerHelper(ctx context.Context, reconciler *ReconcileCommonController, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, omConnectionFactory om.ConnectionFactory, log *zap.SugaredLogger) (*ShardedClusterReconcileHelper, error) {
+func NewReadOnlyClusterReconcilerHelper(
+	ctx context.Context,
+	reconciler *ReconcileCommonController,
+	sc *mdbv1.MongoDB,
+	globalMemberClustersMap map[string]client.Client,
+	log *zap.SugaredLogger,
+) (*ShardedClusterReconcileHelper, error) {
+	return newShardedClusterReconcilerHelper(ctx, reconciler, nil, "", "", false,
+		sc, globalMemberClustersMap, nil, log, true)
+}
+
+func NewShardedClusterReconcilerHelper(
+	ctx context.Context,
+	reconciler *ReconcileCommonController,
+	imageUrls images.ImageUrls,
+	initDatabaseNonStaticImageVersion,
+	databaseNonStaticImageVersion string,
+	forceEnterprise bool,
+	sc *mdbv1.MongoDB,
+	globalMemberClustersMap map[string]client.Client,
+	omConnectionFactory om.ConnectionFactory,
+	log *zap.SugaredLogger,
+) (*ShardedClusterReconcileHelper, error) {
+	return newShardedClusterReconcilerHelper(ctx, reconciler, imageUrls, initDatabaseNonStaticImageVersion,
+		databaseNonStaticImageVersion, forceEnterprise, sc, globalMemberClustersMap, omConnectionFactory, log, false)
+}
+
+func newShardedClusterReconcilerHelper(
+	ctx context.Context,
+	reconciler *ReconcileCommonController,
+	imageUrls images.ImageUrls,
+	initDatabaseNonStaticImageVersion,
+	databaseNonStaticImageVersion string,
+	forceEnterprise bool,
+	sc *mdbv1.MongoDB,
+	globalMemberClustersMap map[string]client.Client,
+	omConnectionFactory om.ConnectionFactory,
+	log *zap.SugaredLogger,
+	readOnly bool,
+) (*ShardedClusterReconcileHelper, error) {
 	// It's a workaround for single cluster topology to add there __default cluster.
 	// With the multi-cluster sharded refactor, we went so far with the multi-cluster first approach so we have very few places with conditional single/multi logic.
 	// Therefore, some parts of the reconciler logic uses that globalMemberClusterMap even in single-cluster mode (look for usages of createShardsMemberClusterLists) and expect
@@ -671,6 +713,8 @@ func NewShardedClusterReconcilerHelper(ctx context.Context, reconciler *Reconcil
 
 		initDatabaseNonStaticImageVersion: initDatabaseNonStaticImageVersion,
 		databaseNonStaticImageVersion:     databaseNonStaticImageVersion,
+
+		readOnly: readOnly,
 	}
 
 	helper.sc = sc
@@ -686,12 +730,13 @@ func NewShardedClusterReconcilerHelper(ctx context.Context, reconciler *Reconcil
 	if err := helper.initializeMemberClusters(globalMemberClustersMap, log); err != nil {
 		return nil, xerrors.Errorf("failed to initialize sharded cluster controller: %w", err)
 	}
-
-	if err := helper.stateStore.WriteState(ctx, helper.deploymentState, log); err != nil {
-		return nil, err
+	if !readOnly {
+		if err := helper.stateStore.WriteState(ctx, helper.deploymentState, log); err != nil {
+			return nil, err
+		}
 	}
 
-	if helper.deploymentState.Status != nil {
+	if helper.deploymentState.Status != nil && !readOnly {
 		// If we have the status in the deployment state, we make sure that status in the CR is the same.
 		// Status in the deployment state takes precedence. E.g. in case of restoring CR from yaml/git, the user-facing Status field will be restored
 		// from the deployment state.
@@ -717,7 +762,8 @@ func blockScalingBothWays(desiredReplicasScalers []interfaces.MultiClusterReplic
 	for _, mcScaler := range desiredReplicasScalers {
 		desired := mcScaler.TargetReplicas()
 		current := mcScaler.CurrentReplicas()
-		logMessage := fmt.Sprintf("Component=%s, Cluster=%s, Current=%d, Desired=%d;", mcScaler.ScalerDescription(), mcScaler.MemberClusterName(), current, desired)
+		logMessage := fmt.Sprintf("Component=%s, Cluster=%s, Current=%d, Desired=%d;",
+			mcScaler.ScalerDescription(), mcScaler.MemberClusterName(), current, desired)
 		if desired > current {
 			scalingUp = true
 			scalingUpLogs = append(scalingUpLogs, logMessage)
@@ -741,7 +787,7 @@ func blockScalingBothWays(desiredReplicasScalers []interfaces.MultiClusterReplic
 func (r *ShardedClusterReconcileHelper) initializeStateStore(ctx context.Context, reconciler *ReconcileCommonController, sc *mdbv1.MongoDB, log *zap.SugaredLogger) error {
 	r.deploymentState = NewShardedClusterDeploymentState()
 
-	r.stateStore = NewStateStore[ShardedClusterDeploymentState](sc.GetNamespace(), sc.Name, reconciler.client)
+	r.stateStore = NewStateStore[ShardedClusterDeploymentState](sc, reconciler.client)
 	if state, err := r.stateStore.ReadState(ctx); err != nil {
 		if errors.IsNotFound(err) {
 			// If the deployment state config map is missing, then it might be either:
@@ -1509,9 +1555,10 @@ func (r *ShardedClusterReconcileHelper) OnDelete(ctx context.Context, obj runtim
 	}
 
 	for _, item := range getHealthyMemberClusters(r.allMemberClusters) {
-		c := item.Client
-		if err := r.deleteClusterResources(ctx, c, sc, log); err != nil {
-			errs = multierror.Append(errs, xerrors.Errorf("failed deleting dependant resources in cluster %s: %w", item.Name, err))
+		clusterClient := item.Client
+		clusterName := item.Name
+		if err := r.commonController.deleteClusterResources(ctx, clusterClient, clusterName, sc, log); err != nil {
+			errs = multierror.Append(errs, xerrors.Errorf("failed deleting dependant resources in cluster %s: %w", clusterName, err))
 		}
 	}
 
@@ -1582,38 +1629,6 @@ func logDiffOfProcessNames(acProcesses []string, healthyProcesses []string, log 
 	if diff := cmp.Diff(acProcesses, healthyProcesses); diff != "" {
 		log.Debugf("difference of AC processes vs healthy processes: %s\n AC processes: %v, healthy processes: %v", diff, acProcesses, healthyProcesses)
 	}
-}
-
-func (r *ShardedClusterReconcileHelper) deleteClusterResources(ctx context.Context, c kubernetesClient.Client, sc *mdbv1.MongoDB, log *zap.SugaredLogger) error {
-	var errs error
-
-	// cleanup resources in the namespace as the MongoDB with the corresponding label.
-	cleanupOptions := mdbv1.MongodbCleanUpOptions{
-		Namespace: sc.Namespace,
-		Labels:    mongoDBLabels(sc.Name),
-	}
-
-	if err := c.DeleteAllOf(ctx, &corev1.Service{}, &cleanupOptions); err != nil {
-		errs = multierror.Append(errs, err)
-	} else {
-		log.Infof("Removed Serivces associated with %s/%s", sc.Namespace, sc.Name)
-	}
-
-	if err := c.DeleteAllOf(ctx, &appsv1.StatefulSet{}, &cleanupOptions); err != nil {
-		errs = multierror.Append(errs, err)
-	} else {
-		log.Infof("Removed StatefulSets associated with %s/%s", sc.Namespace, sc.Name)
-	}
-
-	if err := c.DeleteAllOf(ctx, &corev1.ConfigMap{}, &cleanupOptions); err != nil {
-		errs = multierror.Append(errs, err)
-	} else {
-		log.Infof("Removed ConfigMaps associated with %s/%s", sc.Namespace, sc.Name)
-	}
-
-	r.commonController.resourceWatcher.RemoveDependentWatchedResources(sc.ObjectKey())
-
-	return errs
 }
 
 func AddShardedClusterController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, memberClustersMap map[string]cluster.Cluster) error {
@@ -2135,6 +2150,12 @@ func (r *ShardedClusterReconcileHelper) getAllMongosHostnamesAndPodNames(desired
 	return mongosHostnames, mongosPodNames
 }
 
+func (r *ShardedClusterReconcileHelper) GetAllMongosHostnames() []string {
+	hostnames, _ := r.getAllMongosHostnamesAndPodNames(true)
+
+	return hostnames
+}
+
 func (r *ShardedClusterReconcileHelper) createDesiredMongosProcesses(certificateFilePath string) []om.Process {
 	var processes []om.Process
 	for _, memberCluster := range r.mongosMemberClusters {
@@ -2445,7 +2466,7 @@ func (r *ShardedClusterReconcileHelper) createHostnameOverrideConfigMap() corev1
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-hostname-override", r.sc.Name),
 			Namespace: r.sc.Namespace,
-			Labels:    mongoDBLabels(r.sc.Name),
+			Labels:    r.sc.GetOwnerLabels(),
 		},
 		Data: data,
 	}
@@ -2563,7 +2584,7 @@ func (r *ShardedClusterReconcileHelper) reconcileConfigServerServices(ctx contex
 				podNum,
 				portOrDefault)
 			if err != nil {
-				return xerrors.Errorf("failed to create an external service %s in cluster: %s, err: %w", dns.GetMultiExternalServiceName(r.sc.ConfigSrvServiceName(), memberCluster.Index, podNum), memberCluster.Name, err)
+				return xerrors.Errorf("failed to build an external service %s in cluster: %s, err: %w", dns.GetMultiExternalServiceName(r.sc.ConfigSrvServiceName(), memberCluster.Index, podNum), memberCluster.Name, err)
 			}
 			if err = mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
@@ -2579,7 +2600,7 @@ func (r *ShardedClusterReconcileHelper) reconcileConfigServerServices(ctx contex
 			_ = append(allServices, &svc)
 		}
 	}
-	if err := createHeadlessServiceForStatefulSet(ctx, r.sc.ConfigRsName(), portOrDefault, r.sc.Namespace, memberCluster); err != nil {
+	if err := r.createHeadlessServiceForStatefulSet(ctx, r.sc.ConfigRsName(), portOrDefault, memberCluster); err != nil {
 		return err
 	}
 	return nil
@@ -2604,7 +2625,7 @@ func (r *ShardedClusterReconcileHelper) reconcileShardServices(ctx context.Conte
 				podNum,
 				portOrDefault)
 			if err != nil {
-				return xerrors.Errorf("failed to create an external service %s in cluster: %s, err: %w", dns.GetMultiExternalServiceName(r.sc.ShardRsName(shardIdx), memberCluster.Index, podNum), memberCluster.Name, err)
+				return xerrors.Errorf("failed to build an external service %s in cluster: %s, err: %w", dns.GetMultiExternalServiceName(r.sc.ShardRsName(shardIdx), memberCluster.Index, podNum), memberCluster.Name, err)
 			}
 			if err = mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
@@ -2622,7 +2643,7 @@ func (r *ShardedClusterReconcileHelper) reconcileShardServices(ctx context.Conte
 		}
 	}
 
-	if err := createHeadlessServiceForStatefulSet(ctx, r.sc.ShardRsName(shardIdx), portOrDefault, r.sc.Namespace, memberCluster); err != nil {
+	if err := r.createHeadlessServiceForStatefulSet(ctx, r.sc.ShardRsName(shardIdx), portOrDefault, memberCluster); err != nil {
 		return err
 	}
 	return nil
@@ -2645,7 +2666,7 @@ func (r *ShardedClusterReconcileHelper) reconcileMongosServices(ctx context.Cont
 				podNum,
 				portOrDefault)
 			if err != nil {
-				return xerrors.Errorf("failed to create an external service %s in cluster: %s, err: %w", dns.GetMultiExternalServiceName(r.sc.MongosRsName(), memberCluster.Index, podNum), memberCluster.Name, err)
+				return xerrors.Errorf("failed to build an external service %s in cluster: %s, err: %w", dns.GetMultiExternalServiceName(r.sc.MongosRsName(), memberCluster.Index, podNum), memberCluster.Name, err)
 			}
 			if err = mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
@@ -2662,19 +2683,23 @@ func (r *ShardedClusterReconcileHelper) reconcileMongosServices(ctx context.Cont
 			_ = append(allServices, &svc)
 		}
 
-		if err := createHeadlessServiceForStatefulSet(ctx, r.sc.MongosRsName(), portOrDefault, r.sc.Namespace, memberCluster); err != nil {
+		if err := r.createHeadlessServiceForStatefulSet(ctx, r.sc.MongosRsName(), portOrDefault, memberCluster); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func createHeadlessServiceForStatefulSet(ctx context.Context, stsName string, port int32, namespace string, memberCluster multicluster.MemberCluster) error {
+func (r *ShardedClusterReconcileHelper) createHeadlessServiceForStatefulSet(ctx context.Context, stsName string, port int32, memberCluster multicluster.MemberCluster) error {
+	// If the cluster is legacy (single cluster), we don't create headless services
+	if memberCluster.Legacy {
+		return nil
+	}
+
 	headlessServiceName := dns.GetMultiHeadlessServiceName(stsName, memberCluster.Index)
-	nameSpacedName := kube.ObjectKey(namespace, headlessServiceName)
-	headlessService := create.BuildService(nameSpacedName, nil, ptr.To(headlessServiceName), nil, port, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
-	err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, headlessService)
-	if err != nil && !errors.IsAlreadyExists(err) {
+	nameSpacedName := kube.ObjectKey(r.sc.Namespace, headlessServiceName)
+	headlessService := create.BuildService(nameSpacedName, r.sc, ptr.To(headlessServiceName), nil, port, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	if err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, headlessService); err != nil && !errors.IsAlreadyExists(err) {
 		return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", headlessService.Name, memberCluster.Name, err)
 	}
 	return nil
@@ -2684,6 +2709,10 @@ func (r *ShardedClusterReconcileHelper) getPodExternalService(memberCluster mult
 	svc := r.getPodService(statefulSetName, memberCluster, podNum, port)
 	svc.Name = dns.GetMultiExternalServiceName(statefulSetName, memberCluster.Index, podNum)
 	svc.Spec.Type = corev1.ServiceTypeLoadBalancer
+
+	if externalAccessConfiguration.ExternalService.SpecWrapper != nil {
+		svc.Spec = merge.ServiceSpec(svc.Spec, externalAccessConfiguration.ExternalService.SpecWrapper.Spec)
+	}
 
 	if externalAccessConfiguration.ExternalService.Annotations != nil {
 		svc.Annotations = merge.StringToStringMap(svc.Annotations, externalAccessConfiguration.ExternalService.Annotations)
@@ -2793,14 +2822,13 @@ func (r *ShardedClusterReconcileHelper) shouldContinueScalingOneByOne() bool {
 
 func (r *ShardedClusterReconcileHelper) getPodService(stsName string, memberCluster multicluster.MemberCluster, podNum int, port int32) corev1.Service {
 	svcLabels := map[string]string{
-		"statefulset.kubernetes.io/pod-name": dns.GetMultiPodName(stsName, memberCluster.Index, podNum),
-		"controller":                         "mongodb-enterprise-operator",
-		mdbv1.LabelMongoDBResourceOwner:      r.sc.Name,
+		appsv1.StatefulSetPodNameLabel: dns.GetMultiPodName(stsName, memberCluster.Index, podNum),
 	}
+	svcLabels = merge.StringToStringMap(svcLabels, r.sc.GetOwnerLabels())
 
 	labelSelectors := map[string]string{
-		"statefulset.kubernetes.io/pod-name": dns.GetMultiPodName(stsName, memberCluster.Index, podNum),
-		"controller":                         "mongodb-enterprise-operator",
+		appsv1.StatefulSetPodNameLabel: dns.GetMultiPodName(stsName, memberCluster.Index, podNum),
+		util.OperatorLabelName:         util.OperatorName,
 	}
 
 	svc := service.Builder().
@@ -2819,14 +2847,7 @@ func (r *ShardedClusterReconcileHelper) getPodService(stsName string, memberClus
 }
 
 func (r *ShardedClusterReconcileHelper) statefulsetLabels() map[string]string {
-	return merge.StringToStringMap(r.sc.Labels, mongoDBLabels(r.sc.Name))
-}
-
-func mongoDBLabels(name string) map[string]string {
-	return map[string]string{
-		construct.ControllerLabelName:   util.OperatorName,
-		mdbv1.LabelMongoDBResourceOwner: name,
-	}
+	return merge.StringToStringMap(r.sc.Labels, r.sc.GetOwnerLabels())
 }
 
 func (r *ShardedClusterReconcileHelper) ShardsMemberClustersMap() map[int][]multicluster.MemberCluster {

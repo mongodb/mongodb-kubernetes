@@ -310,19 +310,29 @@ class TestBackupForMongodb:
 
         return mdb_latest.tester(service_names=service_names)
 
+    @fixture(scope="class")
+    def mdb_prev_tester(self, mdb_prev: MongoDB) -> MongoTester:
+        service_names = get_mongos_service_names(mdb_prev)
+
+        return mdb_prev.tester(service_names=service_names)
+
     def test_mdbs_created(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
         mdb_latest.assert_reaches_phase(Phase.Running, timeout=1200)
         mdb_prev.assert_reaches_phase(Phase.Running, timeout=1200)
 
-    def test_mdbs_enable_backup(self, mdb_latest: MongoDB, mdb_prev: MongoDB, mdb_latest_tester: MongoTester):
+    def test_mdbs_enable_backup(
+        self, mdb_latest: MongoDB, mdb_prev: MongoDB, mdb_latest_tester: MongoTester, mdb_prev_tester: MongoTester
+    ):
         def until_shards_are_here():
-            shards = mdb_latest_tester.client.admin.command("listShards")
-            if len(shards["shards"]) == 2:
+            shards_latest = mdb_latest_tester.client.admin.command("listShards")
+            shards_prev = mdb_prev_tester.client.admin.command("listShards")
+            if len(shards_latest["shards"]) == 2 and len(shards_prev["shards"]) == 2:
                 return True
             else:
-                print(f"shards are not configured yet: {shards}")
+                print(f"shards are not configured yet: latest: {shards_latest} / prev: {shards_prev}")
+            return False
 
-        wait_until(until_shards_are_here, 500)
+        wait_until(until_shards_are_here, 600)
 
         # we need to sleep here to give OM some time to recognize the shards.
         # otherwise, if you start a backup during a topology change will lead the backup to be aborted.

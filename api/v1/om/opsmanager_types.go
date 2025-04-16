@@ -40,6 +40,8 @@ const (
 	queryableBackupConfigPath  string = "brs.queryable.proxyPort"
 	debuggingPortConfigPath    string = "mms.k8s.debuggingPort"
 	queryableBackupDefaultPort int32  = 25999
+
+	LabelResourceOwner = "mongodb.com/v1.mongodbOpsManagerResourceOwner"
 )
 
 // The MongoDBOpsManager resource allows you to deploy Ops Manager within your Kubernetes cluster
@@ -338,6 +340,13 @@ func (om *MongoDBOpsManager) ObjectKey() client.ObjectKey {
 
 func (om *MongoDBOpsManager) AppDBStatefulSetObjectKey(memberClusterNum int) client.ObjectKey {
 	return kube.ObjectKey(om.Namespace, om.Spec.AppDB.NameForCluster(memberClusterNum))
+}
+
+func (om *MongoDBOpsManager) GetOwnerLabels() map[string]string {
+	return map[string]string{
+		util.OperatorLabelName: util.OperatorName,
+		LabelResourceOwner:     om.Name,
+	}
 }
 
 // MongoDBOpsManagerServiceDefinition struct that defines the mechanism by which this Ops Manager resource

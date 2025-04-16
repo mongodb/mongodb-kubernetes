@@ -49,7 +49,7 @@ type builder struct {
 	isReplicaSet        bool
 	isTLSEnabled        bool
 
-	multiClusterHosts []string
+	hostnames []string
 
 	scheme           Scheme
 	connectionParams map[string]string
@@ -120,8 +120,8 @@ func (b *builder) SetIsTLSEnabled(isTLSEnabled bool) *builder {
 	return b
 }
 
-func (b *builder) SetMultiClusterHosts(multiClusterHosts []string) *builder {
-	b.multiClusterHosts = multiClusterHosts
+func (b *builder) SetHostnames(hostnames []string) *builder {
+	b.hostnames = hostnames
 	return b
 }
 
@@ -153,8 +153,8 @@ func (b *builder) Build() string {
 	} else {
 		uri = fmt.Sprintf("mongodb://%s", userAuth)
 		var hostnames []string
-		if len(b.multiClusterHosts) > 0 {
-			hostnames = b.multiClusterHosts
+		if len(b.hostnames) > 0 {
+			hostnames = b.hostnames
 		} else {
 			hostnames, _ = dns.GetDNSNames(b.name, b.service, b.namespace, b.clusterDomain, b.replicas, b.externalDomain)
 			for i, h := range hostnames {

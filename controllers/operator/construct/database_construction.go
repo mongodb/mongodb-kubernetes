@@ -48,7 +48,6 @@ const (
 	databaseLivenessProbeCommand  = "/opt/scripts/probe.sh"
 	databaseReadinessProbeCommand = "/opt/scripts/readinessprobe"
 
-	ControllerLabelName       = "controller"
 	InitDatabaseContainerName = "mongodb-enterprise-init-database"
 
 	// Database environment variable names
@@ -410,7 +409,7 @@ func buildVaultDatabaseSecretsToInject(mdb databaseStatefulSetSource, opts Datab
 func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource, podTemplateSpecFunc podtemplatespec.Modification, opts DatabaseStatefulSetOptions, log *zap.SugaredLogger) statefulset.Modification {
 	podLabels := map[string]string{
 		appLabelKey:             opts.ServiceName,
-		ControllerLabelName:     util.OperatorName,
+		util.OperatorLabelName:  util.OperatorName,
 		PodAntiAffinityLabelKey: opts.Name,
 	}
 

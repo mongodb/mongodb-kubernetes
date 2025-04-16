@@ -89,11 +89,15 @@ func removeContainerByName(containers []corev1.Container, name string) []corev1.
 func appDbLabels(opsManager *om.MongoDBOpsManager, memberClusterNum int) statefulset.Modification {
 	podLabels := map[string]string{
 		appLabelKey:             opsManager.Spec.AppDB.HeadlessServiceSelectorAppLabel(memberClusterNum),
-		ControllerLabelName:     util.OperatorName,
+		util.OperatorLabelName:  util.OperatorName,
 		PodAntiAffinityLabelKey: opsManager.Spec.AppDB.NameForCluster(memberClusterNum),
 	}
+
+	stsLabels := opsManager.Labels
+	stsLabels = merge.StringToStringMap(stsLabels, opsManager.GetOwnerLabels())
+
 	return statefulset.Apply(
-		statefulset.WithLabels(opsManager.Labels),
+		statefulset.WithLabels(stsLabels),
 		statefulset.WithMatchLabels(podLabels),
 		statefulset.WithPodSpecTemplate(
 			podtemplatespec.Apply(

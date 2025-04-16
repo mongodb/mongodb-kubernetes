@@ -23,10 +23,10 @@ export KUBE_ENVIRONMENT_NAME=multi
 export CLUSTER_NAME="kind-e2e-cluster-1"
 export MEMBER_CLUSTERS="kind-e2e-cluster-1 kind-e2e-cluster-2 kind-e2e-cluster-3"
 export CENTRAL_CLUSTER=kind-e2e-cluster-1
+export TEST_POD_CLUSTER=kind-e2e-cluster-1
 export test_pod_cluster=kind-e2e-cluster-1
 export ops_manager_version="${CUSTOM_OM_VERSION}"
 export MDB_DEFAULT_ARCHITECTURE=static
-export CUSTOM_APPDB_VERSION="7.0.2-ubi9-20241112T085558Z"
 
 # clear cloud-qa settings
 export OM_ORGID=""
