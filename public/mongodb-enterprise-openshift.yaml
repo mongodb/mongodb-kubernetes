@@ -267,7 +267,7 @@ spec:
       serviceAccountName: mongodb-enterprise-operator
       containers:
         - name: mongodb-enterprise-operator
-          image: "quay.io/mongodb/mongodb-enterprise-operator-ubi:1.32.0"
+          image: "quay.io/mongodb/mongodb-enterprise-operator-ubi:1.33.0"
           imagePullPolicy: Always
           args:
             - -watch-resource=mongodb
@@ -311,21 +311,21 @@ spec:
             - name: INIT_DATABASE_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-enterprise-init-database-ubi
             - name: INIT_DATABASE_VERSION
-              value: 1.32.0
+              value: 1.33.0
             - name: DATABASE_VERSION
-              value: 1.32.0
+              value: 1.33.0
             # Ops Manager
             - name: OPS_MANAGER_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-enterprise-ops-manager-ubi
             - name: INIT_OPS_MANAGER_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-enterprise-init-ops-manager-ubi
             - name: INIT_OPS_MANAGER_VERSION
-              value: 1.32.0
+              value: 1.33.0
             # AppDB
             - name: INIT_APPDB_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-enterprise-init-appdb-ubi
             - name: INIT_APPDB_VERSION
-              value: 1.32.0
+              value: 1.33.0
             - name: OPS_MANAGER_IMAGE_PULL_POLICY
               value: Always
             - name: AGENT_IMAGE
@@ -342,80 +342,80 @@ spec:
               value: 'true'
             - name: MDB_MAX_CONCURRENT_RECONCILES
               value: "1"
-            - name: RELATED_IMAGE_MONGODB_ENTERPRISE_DATABASE_IMAGE_1_32_0
-              value: "quay.io/mongodb/mongodb-enterprise-database-ubi:1.32.0"
-            - name: RELATED_IMAGE_INIT_DATABASE_IMAGE_REPOSITORY_1_32_0
-              value: "quay.io/mongodb/mongodb-enterprise-init-database-ubi:1.32.0"
-            - name: RELATED_IMAGE_INIT_OPS_MANAGER_IMAGE_REPOSITORY_1_32_0
-              value: "quay.io/mongodb/mongodb-enterprise-init-ops-manager-ubi:1.32.0"
-            - name: RELATED_IMAGE_INIT_APPDB_IMAGE_REPOSITORY_1_32_0
-              value: "quay.io/mongodb/mongodb-enterprise-init-appdb-ubi:1.32.0"
+            - name: RELATED_IMAGE_MONGODB_ENTERPRISE_DATABASE_IMAGE_1_33_0
+              value: "quay.io/mongodb/mongodb-enterprise-database-ubi:1.33.0"
+            - name: RELATED_IMAGE_INIT_DATABASE_IMAGE_REPOSITORY_1_33_0
+              value: "quay.io/mongodb/mongodb-enterprise-init-database-ubi:1.33.0"
+            - name: RELATED_IMAGE_INIT_OPS_MANAGER_IMAGE_REPOSITORY_1_33_0
+              value: "quay.io/mongodb/mongodb-enterprise-init-ops-manager-ubi:1.33.0"
+            - name: RELATED_IMAGE_INIT_APPDB_IMAGE_REPOSITORY_1_33_0
+              value: "quay.io/mongodb/mongodb-enterprise-init-appdb-ubi:1.33.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_13_8702_1
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.13.8702-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_13_8702_1_1_30_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.13.8702-1_1.30.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_13_8702_1_1_31_0
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.13.8702-1_1.31.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_13_8702_1_1_32_0
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.13.8702-1_1.32.0"
+            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_13_8702_1_1_33_0
+              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.13.8702-1_1.33.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_15_8741_1
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.15.8741-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_15_8741_1_1_30_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.15.8741-1_1.30.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_15_8741_1_1_31_0
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.15.8741-1_1.31.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_15_8741_1_1_32_0
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.15.8741-1_1.32.0"
+            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_15_8741_1_1_33_0
+              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.15.8741-1_1.33.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_2_8729_1
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.2.8729-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_4_8770_1
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.4.8770-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_108_0_4_8770_1_1_30_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:108.0.4.8770-1_1.30.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_4_8770_1_1_31_0
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.4.8770-1_1.31.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_4_8770_1_1_32_0
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.4.8770-1_1.32.0"
+            - name: RELATED_IMAGE_AGENT_IMAGE_108_0_4_8770_1_1_33_0
+              value: "quay.io/mongodb/mongodb-agent-ubi:108.0.4.8770-1_1.33.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_6_8796_1
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.6.8796-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_108_0_6_8796_1_1_30_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:108.0.6.8796-1_1.30.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_6_8796_1_1_31_0
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.6.8796-1_1.31.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_6_8796_1_1_32_0
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.6.8796-1_1.32.0"
+            - name: RELATED_IMAGE_AGENT_IMAGE_108_0_6_8796_1_1_33_0
+              value: "quay.io/mongodb/mongodb-agent-ubi:108.0.6.8796-1_1.33.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_33_7866_1
               value: "quay.io/mongodb/mongodb-agent-ubi:12.0.33.7866-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_12_0_33_7866_1_1_30_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:12.0.33.7866-1_1.30.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_33_7866_1_1_31_0
               value: "quay.io/mongodb/mongodb-agent-ubi:12.0.33.7866-1_1.31.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_33_7866_1_1_32_0
               value: "quay.io/mongodb/mongodb-agent-ubi:12.0.33.7866-1_1.32.0"
+            - name: RELATED_IMAGE_AGENT_IMAGE_12_0_33_7866_1_1_33_0
+              value: "quay.io/mongodb/mongodb-agent-ubi:12.0.33.7866-1_1.33.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_34_7888_1
               value: "quay.io/mongodb/mongodb-agent-ubi:12.0.34.7888-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_12_0_34_7888_1_1_30_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:12.0.34.7888-1_1.30.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_34_7888_1_1_31_0
               value: "quay.io/mongodb/mongodb-agent-ubi:12.0.34.7888-1_1.31.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_34_7888_1_1_32_0
               value: "quay.io/mongodb/mongodb-agent-ubi:12.0.34.7888-1_1.32.0"
+            - name: RELATED_IMAGE_AGENT_IMAGE_12_0_34_7888_1_1_33_0
+              value: "quay.io/mongodb/mongodb-agent-ubi:12.0.34.7888-1_1.33.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_35_7911_1
               value: "quay.io/mongodb/mongodb-agent-ubi:12.0.35.7911-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_12_0_35_7911_1_1_30_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:12.0.35.7911-1_1.30.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_35_7911_1_1_31_0
               value: "quay.io/mongodb/mongodb-agent-ubi:12.0.35.7911-1_1.31.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_35_7911_1_1_32_0
               value: "quay.io/mongodb/mongodb-agent-ubi:12.0.35.7911-1_1.32.0"
+            - name: RELATED_IMAGE_AGENT_IMAGE_12_0_35_7911_1_1_33_0
+              value: "quay.io/mongodb/mongodb-agent-ubi:12.0.35.7911-1_1.33.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_13_32_0_9397_1
               value: "quay.io/mongodb/mongodb-agent-ubi:13.32.0.9397-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_13_32_0_9397_1_1_30_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:13.32.0.9397-1_1.30.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_13_32_0_9397_1_1_31_0
               value: "quay.io/mongodb/mongodb-agent-ubi:13.32.0.9397-1_1.31.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_13_32_0_9397_1_1_32_0
               value: "quay.io/mongodb/mongodb-agent-ubi:13.32.0.9397-1_1.32.0"
+            - name: RELATED_IMAGE_AGENT_IMAGE_13_32_0_9397_1_1_33_0
+              value: "quay.io/mongodb/mongodb-agent-ubi:13.32.0.9397-1_1.33.0"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_6_0_25
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:6.0.25"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_6_0_26
