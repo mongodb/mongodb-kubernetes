@@ -25,7 +25,7 @@ from tests.olm.olm_test_commons import (
 
 @pytest.mark.e2e_olm_operator_upgrade
 def test_upgrade_operator_only(namespace: str, version_id: str):
-    latest_released_operator_version = get_latest_released_operator_version()
+    latest_released_operator_version = get_latest_released_operator_version("mongodb-kubernetes")
     current_operator_version = get_current_operator_version()
     incremented_operator_version = increment_patch_version(current_operator_version)
 
@@ -37,7 +37,7 @@ def test_upgrade_operator_only(namespace: str, version_id: str):
 
     static_value = get_default_architecture()
     subscription = get_subscription_custom_object(
-        "mongodb-enterprise-operator",
+        "mongodb-kubernetes",
         namespace,
         {
             "channel": "stable",  # stable channel contains latest released operator in RedHat's certified repository
@@ -60,13 +60,13 @@ def test_upgrade_operator_only(namespace: str, version_id: str):
 
     subscription.update()
 
-    wait_for_operator_ready(namespace, f"mongodb-kubernetes.v{latest_released_operator_version}")
+    wait_for_operator_ready(namespace, "mongodb-kubernetes", f"mongodb-kubernetes.v{latest_released_operator_version}")
 
     subscription.load()
     subscription["spec"]["channel"] = "fast"  # fast channel contains operator build from the current branch
     subscription.update()
 
-    wait_for_operator_ready(namespace, f"mongodb-kubernetes.v{incremented_operator_version}")
+    wait_for_operator_ready(namespace, "mongodb-kubernetes", f"mongodb-kubernetes.v{incremented_operator_version}")
 
 
 @pytest.mark.e2e_olm_operator_upgrade

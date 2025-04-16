@@ -1162,6 +1162,7 @@ task_groups:
     tasks:
       - e2e_olm_operator_upgrade
       - e2e_olm_operator_upgrade_with_resources
+      - e2e_olm_meko_operator_upgrade_with_resources
     <<: *teardown_group
 
 buildvariants:

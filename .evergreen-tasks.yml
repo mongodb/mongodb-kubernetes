@@ -205,6 +205,11 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_olm_meko_operator_upgrade_with_resources
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_om_ops_manager_backup_delete_sts_and_log_rotation
     tags: [ "patch-run" ]
     commands:

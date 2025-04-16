@@ -11,11 +11,7 @@ from kubetester.awss3client import AwsS3Client
 from kubetester.certs import create_sharded_cluster_certs
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import (
-    get_default_architecture,
-    is_default_architecture_static,
-    run_periodically,
-)
+from kubetester.kubetester import get_default_architecture, run_periodically
 from kubetester.mongodb import Phase
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.opsmanager import MongoDBOpsManager
@@ -34,14 +30,14 @@ from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_
 
 # See docs how to run this locally: https://wiki.corp.mongodb.com/display/MMS/E2E+Tests+Notes#E2ETestsNotes-OLMtests
 
-# This test performs operator upgrade of the operator while having OM and MongoDB resources deployed.
+# This test performs operator migration from the latest MEKO to MCK while having OM and MongoDB resources deployed.
 # It performs the following actions:
-#  - deploy latest released operator using OLM
+#  - deploy latest released MEKO operator using OLM
 #  - deploy OM
 #  - deploy backup-required MongoDB: oplog, s3, blockstore
 #  - deploy TLS-enabled sharded MongoDB
 #  - check everything is running
-#  - upgrade the operator to the version built from the current branch
+#  - upgrade the operator to the MCK version built from the current branch
 #  - wait for resources to be rolling-updated due to updated stateful sets by the new operator
 #  - check everything is running and connectable
 
@@ -62,9 +58,14 @@ def catalog_source(namespace: str, version_id: str):
 
 @fixture
 def subscription(namespace: str, catalog_source: CustomObject):
+    """
+    Create subscription for the operator. The subscription is first created
+    with the latest released version of MEKO operator.
+    Later in the test, it will be updated to MCK.
+    """
     static_value = get_default_architecture()
     return get_subscription_custom_object(
-        "mongodb-kubernetes",
+        "mongodb-enterprise-operator",
         namespace,
         {
             "channel": "stable",  # stable channel contains latest released operator in RedHat's certified repository
@@ -87,20 +88,22 @@ def subscription(namespace: str, catalog_source: CustomObject):
 
 
 @fixture
-def current_operator_version():
-    return get_latest_released_operator_version("mongodb-kubernetes")
+def latest_released_meko_version():
+    return get_latest_released_operator_version("mongodb-enterprise")
 
 
-@pytest.mark.e2e_olm_operator_upgrade_with_resources
-def test_install_stable_operator_version(
+@pytest.mark.e2e_olm_meko_operator_upgrade_with_resources
+def test_meko_install_stable_operator_version(
     namespace: str,
     version_id: str,
-    current_operator_version: str,
+    latest_released_meko_version: str,
     catalog_source: CustomObject,
     subscription: CustomObject,
 ):
     subscription.update()
-    wait_for_operator_ready(namespace, "mongodb-kubernetes", f"mongodb-kubernetes.v{current_operator_version}")
+    wait_for_operator_ready(
+        namespace, "mongodb-enterprise-operator", f"mongodb-enterprise.v{latest_released_meko_version}"
+    )
 
 
 # install resources on the latest released version of the operator
@@ -122,7 +125,7 @@ def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
     yield from create_s3_bucket(aws_s3_client, "test-bucket-s3")
 
 
-@pytest.mark.e2e_olm_operator_upgrade_with_resources
+@pytest.mark.e2e_olm_meko_operator_upgrade_with_resources
 def test_create_om(
     ops_manager: MongoDBOpsManager,
     s3_bucket: str,
@@ -156,7 +159,7 @@ def wait_for_om_healthy_response(ops_manager: MongoDBOpsManager):
     )
 
 
-@pytest.mark.e2e_olm_operator_upgrade_with_resources
+@pytest.mark.e2e_olm_meko_operator_upgrade_with_resources
 def test_om_connectivity(ops_manager: MongoDBOpsManager):
     ops_manager.om_status().assert_reaches_phase(Phase.Running)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
@@ -277,7 +280,7 @@ def create_secret_and_user(
     return resource.update()
 
 
-@pytest.mark.e2e_olm_operator_upgrade_with_resources
+@pytest.mark.e2e_olm_meko_operator_upgrade_with_resources
 def test_resources_created(
     oplog_replica_set: MongoDB,
     s3_replica_set: MongoDB,
@@ -293,7 +296,7 @@ def test_resources_created(
     mdb_sharded.assert_reaches_phase(Phase.Running)
 
 
-@pytest.mark.e2e_olm_operator_upgrade_with_resources
+@pytest.mark.e2e_olm_meko_operator_upgrade_with_resources
 def test_set_backup_users(
     ops_manager: MongoDBOpsManager,
     oplog_user: MongoDBUser,
@@ -309,7 +312,7 @@ def test_set_backup_users(
     assert ops_manager.backup_status().get_message() is None
 
 
-@pytest.mark.e2e_olm_operator_upgrade_with_resources
+@pytest.mark.e2e_olm_meko_operator_upgrade_with_resources
 def test_om_connectivity_with_backup(
     ops_manager: MongoDBOpsManager,
     oplog_replica_set: MongoDB,
@@ -322,7 +325,7 @@ def test_om_connectivity_with_backup(
     ops_manager.backup_status().assert_reaches_phase(Phase.Running)
 
 
-@pytest.mark.e2e_olm_operator_upgrade_with_resources
+@pytest.mark.e2e_olm_meko_operator_upgrade_with_resources
 def test_resources_in_running_state_before_upgrade(
     ops_manager: MongoDBOpsManager,
     oplog_replica_set: MongoDB,
@@ -342,8 +345,8 @@ def test_resources_in_running_state_before_upgrade(
 # upgrade the operator
 
 
-@pytest.mark.e2e_olm_operator_upgrade_with_resources
-def test_operator_upgrade_to_fast(
+@pytest.mark.e2e_olm_meko_operator_upgrade_with_resources
+def test_meko_operator_upgrade_to_mck(
     namespace: str,
     version_id: str,
     catalog_source: CustomObject,
@@ -357,7 +360,11 @@ def test_operator_upgrade_to_fast(
     def update_subscription() -> bool:
         try:
             subscription.load()
-            subscription["spec"]["channel"] = "fast"  # fast channel contains operator build from the current branch
+            # Update MEKO subscription to MCK
+            subscription["spec"]["name"] = "mongodb-kubernetes"
+            # Migration channel contains operator build from the current branch,
+            # with an upgrade path from the latest MEKO release.
+            subscription["spec"]["channel"] = "migration"
             subscription.update()
             return True
         except kubernetes.client.ApiException as e:
@@ -368,10 +375,12 @@ def test_operator_upgrade_to_fast(
 
     run_periodically(update_subscription, timeout=100, msg="Subscription to be updated")
 
-    wait_for_operator_ready(namespace, "mongodb-kubernetes", f"mongodb-kubernetes.v{incremented_operator_version}")
+    wait_for_operator_ready(
+        namespace, "mongodb-enterprise-operator", f"mongodb-kubernetes.v{incremented_operator_version}"
+    )
 
 
-@pytest.mark.e2e_olm_operator_upgrade_with_resources
+@pytest.mark.e2e_olm_meko_operator_upgrade_with_resources
 def test_one_resources_not_in_running_state(ops_manager: MongoDBOpsManager, mdb_sharded: MongoDB):
     # Wait for the first resource to become reconciling after operator upgrade.
     # Only then wait for all to not get a false positive when all resources are ready,
@@ -379,7 +388,7 @@ def test_one_resources_not_in_running_state(ops_manager: MongoDBOpsManager, mdb_
     ops_manager.om_status().assert_reaches_phase(Phase.Pending, timeout=600)
 
 
-@pytest.mark.e2e_olm_operator_upgrade_with_resources
+@pytest.mark.e2e_olm_meko_operator_upgrade_with_resources
 def test_resources_in_running_state_after_upgrade(
     ops_manager: MongoDBOpsManager,
     oplog_replica_set: MongoDB,
@@ -396,7 +405,7 @@ def test_resources_in_running_state_after_upgrade(
     mdb_sharded.assert_reaches_phase(Phase.Running, timeout=600)
 
 
-@pytest.mark.e2e_olm_operator_upgrade_with_resources
+@pytest.mark.e2e_olm_meko_operator_upgrade_with_resources
 def test_resources_connectivity_after_upgrade(
     ca_path: str,
     ops_manager: MongoDBOpsManager,
