@@ -217,11 +217,13 @@ test_catalog_image="${base_repo_url}/mongodb-kubernetes-test-catalog:${current_i
 certified_repo_cloned="$(clone_git_repo_into_temp ${certified_operators_repo})"
 
 # TODO: CLOUDP-310820 - After 1.0.0 release we need to clean this up: always run it.
-if [[ "${current_operator_version_from_release_json}" != "1.0.0" ]]; then
-  mck_latest_released_operator_version="$(find_the_latest_certified_operator "${certified_repo_cloned}" "${mck_package_name}")"
-else
+if [[ "${current_operator_version_from_release_json}" =~ ^0\. ]]; then
+  # Version is < 1.0.0 (0.y.z)
   mck_latest_released_operator_version=""
-  echo "Skipping MCK bundle lookup as we haven't published MCK 1.0.0 yet"
+  echo "Skipping MCK bundle lookup as we haven't published MCK 1.0.0 yet (${current_operator_version_from_release_json} is < 1.0.0)"
+else
+  # Version is >= 1.0.0
+  mck_latest_released_operator_version="$(find_the_latest_certified_operator "${certified_repo_cloned}" "${mck_package_name}")"
 fi
 meko_latest_released_operator_version="$(find_the_latest_certified_operator "${certified_repo_cloned}" "${meko_package_name}")"
 
