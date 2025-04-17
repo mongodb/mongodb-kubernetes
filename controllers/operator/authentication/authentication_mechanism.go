@@ -33,6 +33,7 @@ const (
 	ScramSha1   MechanismName = "SCRAM-SHA-1"
 	MongoDBX509 MechanismName = "MONGODB-X509"
 	LDAPPlain   MechanismName = "PLAIN"
+	MongoDBOIDC MechanismName = "MONGODB-OIDC"
 
 	// MongoDBCR is an umbrella term for SCRAM-SHA-1 and MONGODB-CR for legacy reasons, once MONGODB-CR
 	// is enabled, users can auth with SCRAM-SHA-1 credentials
@@ -101,6 +102,8 @@ func convertToMechanism(mechanismModeInCR string, ac *om.AutomationConfig) Mecha
 		return MongoDBCRMechanism
 	case util.SCRAMSHA256:
 		return ScramSha256Mechanism
+	case util.OIDC:
+		return MongoDBOIDCMechanism
 	case util.SCRAM:
 		// if we have already configured authentication, and it has been set to MONGODB-CR/SCRAM-SHA-1
 		// we can not transition. This needs to be done in the UI

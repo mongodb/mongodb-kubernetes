@@ -16,6 +16,7 @@ type AuthResource interface {
 	GetNamespace() string
 	GetSecurity() *mdbv1.Security
 	IsLDAPEnabled() bool
+	IsOIDCEnabled() bool
 	GetLDAP(password, caContents string) *ldap.Ldap
 }
 
@@ -51,6 +52,8 @@ type Options struct {
 	// Ldap is the LDAP configuration that will be passed to the Automation Config.
 	// Only required if LDAP is configured as an authentication mechanism
 	Ldap *ldap.Ldap
+
+	OIDCProviderConfigs []oidc.ProviderConfig
 
 	AutoUser string
 
