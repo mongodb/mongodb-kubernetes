@@ -478,11 +478,19 @@ class TestBackupForMongodb:
         project_one.wait_until_backup_snapshots_are_ready(expected_count=1)
 
     @mark.e2e_multi_cluster_backup_restore
+    def test_mongodb_multi_one_running_state(self, mongodb_multi_one: MongoDBMulti):
+        mongodb_multi_one.assert_reaches_phase(Phase.Running, ignore_errors=True, timeout=1200)
+
+    @mark.e2e_multi_cluster_backup_restore
     def test_change_mdb_data(self, mongodb_multi_one_collection):
         now_millis = time_to_millis(datetime.datetime.now())
         print("\nCurrent time (millis): {}".format(now_millis))
         time.sleep(30)
         mongodb_multi_one_collection.insert_one({"foo": "bar"})
+
+    @mark.e2e_multi_cluster_backup_restore
+    def test_mongodb_multi_one_running_state(self, mongodb_multi_one: MongoDBMulti):
+        mongodb_multi_one.assert_reaches_phase(Phase.Running, ignore_errors=True, timeout=1200)
 
     @mark.e2e_multi_cluster_backup_restore
     def test_pit_restore(self, project_one: OMTester):
@@ -494,6 +502,14 @@ class TestBackupForMongodb:
         print("Restoring back to the moment 15 seconds ago (millis): {}".format(pit_millis))
 
         project_one.create_restore_job_pit(pit_millis)
+
+    @mark.e2e_multi_cluster_backup_restore
+    def test_mdb_ready(self, mongodb_multi_one: MongoDBMulti):
+        # Note: that we are not waiting for the restore jobs to get finished as PIT restore jobs get FINISHED status
+        # right away.
+        # But the agent might still do work on the cluster, so we need to wait for that to happen.
+        mongodb_multi_one.assert_reaches_phase(Phase.Pending, timeout=1200)
+        mongodb_multi_one.assert_reaches_phase(Phase.Running, timeout=1200)
 
     @mark.e2e_multi_cluster_backup_restore
     def test_data_got_restored(self, mongodb_multi_one_collection):
