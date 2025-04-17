@@ -2,8 +2,6 @@
 
 set -Eeou pipefail
 
-set -x
-
 ###
 ## This script automatically retriggers failed tasks from Evergreen based on the `version_id` passed in from Evergreen.
 ##
@@ -37,8 +35,16 @@ fi
 EVERGREEN_API="https://evergreen.mongodb.com/api"
 MAX_RETRIES="${EVERGREEN_MAX_RETRIES:-3}"
 
+# Define build variants to exclude
+# We ignore openshift because they only run one test at a time.
+# Evergreen makes them dependant on each other, meaning if one gets restarted the whole suite gets restarted.
+EXCLUDE_VARIANTS=("unit_tests" "run_pre_commit" "e2e_mdb_openshift_ubi_cloudqa" "e2e_openshift_static_mdb_ubi_cloudqa")
+EXCLUDE_JQ_FILTER=$(printf '.build_variant != "%s" and ' "${EXCLUDE_VARIANTS[@]}" | sed 's/ and $//')
+
 # shellcheck disable=SC2207
-BUILD_IDS=($(curl -s -H "Api-User: ${EVERGREEN_USER}" -H "Api-Key: ${EVERGREEN_API_KEY}" ${EVERGREEN_API}/rest/v2/versions/"${VERSION}" | jq -r '.build_variants_status[] | select(.build_variant != "unit_tests" and .build_variant != "run_pre_commit") | .build_id'))
+BUILD_IDS=($(curl -s -H "Api-User: ${EVERGREEN_USER}" -H "Api-Key: ${EVERGREEN_API_KEY}" \
+            ${EVERGREEN_API}/rest/v2/versions/"${VERSION}" | \
+            jq -r ".build_variants_status[] | select(${EXCLUDE_JQ_FILTER}) | .build_id"))
 
 for BUILD_ID in "${BUILD_IDS[@]}"; do
   echo "Finding failed tasks in BUILD ID: ${BUILD_ID}"

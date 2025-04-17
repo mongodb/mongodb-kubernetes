@@ -52,9 +52,9 @@
       "ssdlc_name": "MongoDB Enterprise Kubernetes Operator",
       "versions": [
         "0.1.0",
-        "1.30.0",
         "1.31.0",
-        "1.32.0"
+        "1.32.0",
+        "1.33.0"
       ],
       "variants": [
         "ubi"
@@ -143,9 +143,9 @@
       "ssdlc_name": "MongoDB Enterprise Kubernetes Operator Init Ops Manager",
       "versions": [
         "0.1.0",
-        "1.30.0",
         "1.31.0",
-        "1.32.0"
+        "1.32.0",
+        "1.33.0"
       ],
       "variants": [
         "ubi"
@@ -156,9 +156,9 @@
       "ssdlc_name": "MongoDB Enterprise Kubernetes Operator Init Database",
       "versions": [
         "0.1.0",
-        "1.30.0",
         "1.31.0",
-        "1.32.0"
+        "1.32.0",
+        "1.33.0"
       ],
       "variants": [
         "ubi"
@@ -169,9 +169,9 @@
       "ssdlc_name": "MongoDB Enterprise Kubernetes Operator Init AppDB",
       "versions": [
         "0.1.0",
-        "1.30.0",
         "1.31.0",
-        "1.32.0"
+        "1.32.0",
+        "1.33.0"
       ],
       "variants": [
         "ubi"
@@ -182,9 +182,9 @@
       "ssdlc_name": "MongoDB Enterprise Kubernetes Operator Database",
       "versions": [
         "0.1.0",
-        "1.30.0",
         "1.31.0",
-        "1.32.0"
+        "1.32.0",
+        "1.33.0"
       ],
       "variants": [
         "ubi"

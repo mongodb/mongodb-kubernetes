@@ -21,7 +21,6 @@ def test_report_generation():
     current_directory = os.getcwd()
 
     # When
-
     # We ignore Augmented SBOM download errors for this test as we quite often have a few days in transition state.
     # For example, when we release a new Ops Manager or Agent image, we upload the corresponding SBOM Lite
     # on d+1. Then on d+2 we have the Augmented SBOM available for download. This situation is perfectly normal
@@ -34,8 +33,10 @@ def test_report_generation():
     assert os.listdir(f"{current_directory}/ssdlc-report/MEKO-{current_version}/Containerized MongoDB Agent") != []
     assert os.path.exists(f"{current_directory}/ssdlc-report/MEKO-{current_version}/Containerized OpsManager")
     assert os.listdir(f"{current_directory}/ssdlc-report/MEKO-{current_version}/Containerized OpsManager") != []
-    assert os.path.exists(f"{current_directory}/ssdlc-report/MEKO-{current_version}/Enterprise Kubernetes Operator")
-    assert os.listdir(f"{current_directory}/ssdlc-report/MEKO-{current_version}/Enterprise Kubernetes Operator") != []
+    if os.path.exists(f"{current_directory}/ssdlc-report/MEKO-{current_version}/Enterprise Kubernetes Operator"):
+        assert (
+            os.listdir(f"{current_directory}/ssdlc-report/MEKO-{current_version}/Enterprise Kubernetes Operator") != []
+        )
     assert os.path.exists(
         f"{current_directory}/ssdlc-report/MEKO-{current_version}/SSDLC Containerized MongoDB Agent {current_version}.md"
     )

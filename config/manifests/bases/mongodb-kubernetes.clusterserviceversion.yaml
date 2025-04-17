@@ -20,7 +20,7 @@ metadata:
     features.operators.openshift.io/token-auth-gcp: "false"
     repository: https://github.com/mongodb/mongodb-enterprise-kubernetes
     support: support@mongodb.com
-  name: mongodb-kubernetes.v0.0.0
+  name: mongodb-enterprise.v0.0.0
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
