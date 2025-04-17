@@ -1,5 +1,0 @@
-push:
-  branches:
-    - master
-  paths-ignore:
-    - 'docs/**'

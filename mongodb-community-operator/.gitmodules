@@ -1,3 +1,0 @@
-[submodule "helm-charts"]
-	path = mongodb-community-operator/helm-charts
-	url = git@github.com:mongodb/helm-charts.git
