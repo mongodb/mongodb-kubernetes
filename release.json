@@ -142,10 +142,10 @@
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "ssdlc_name": "MongoDB Enterprise Kubernetes Operator Init Ops Manager",
       "versions": [
+        "0.1.0",
         "1.31.0",
         "1.32.0",
-        "1.33.0",
-        "0.1.0"
+        "1.33.0"
       ],
       "variants": [
         "ubi"
