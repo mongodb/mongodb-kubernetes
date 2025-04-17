@@ -344,7 +344,7 @@ func (om *MongoDBOpsManager) AppDBStatefulSetObjectKey(memberClusterNum int) cli
 
 func (om *MongoDBOpsManager) GetOwnerLabels() map[string]string {
 	return map[string]string{
-		util.OperatorLabelName: util.OperatorName,
+		util.OperatorLabelName: util.LegacyOperatorName,
 		LabelResourceOwner:     om.Name,
 	}
 }
