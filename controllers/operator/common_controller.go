@@ -536,6 +536,10 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 		authOpts.Ldap = ar.GetLDAP(bindUserPassword, caContents)
 	}
 
+	if ar.IsOIDCEnabled() {
+		authOpts.OIDCProviderConfigs = authentication.MapOIDCProviderConfigs(ar.GetSecurity().Authentication.OIDCProviderConfigs)
+	}
+
 	log.Debugf("Using authentication options %+v", authentication.Redact(authOpts))
 
 	agentSecretSelector := ar.GetSecurity().AgentClientCertificateSecretName(ar.GetName())
