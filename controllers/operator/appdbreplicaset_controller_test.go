@@ -23,7 +23,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
@@ -513,7 +513,7 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 func TestTryConfigureMonitoringInOpsManagerWithExternalDomains(t *testing.T) {
 	ctx := context.Background()
 	opsManager := DefaultOpsManagerBuilder().
-		SetAppDbExternalAccess(mdb.ExternalAccessConfiguration{
+		SetAppDbExternalAccess(mdbv1.ExternalAccessConfiguration{
 			ExternalDomain: ptr.To("custom.domain"),
 		}).Build()
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
@@ -578,13 +578,13 @@ func TestTryConfigureMonitoringInOpsManagerWithExternalDomains(t *testing.T) {
 func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 	tests := map[string]struct {
 		members                int
-		externalAccess         *mdb.ExternalAccessConfiguration
-		additionalMongodConfig *mdb.AdditionalMongodConfig
+		externalAccess         *mdbv1.ExternalAccessConfiguration
+		additionalMongodConfig *mdbv1.AdditionalMongodConfig
 		result                 map[int]corev1.Service
 	}{
 		"empty external access configured for one pod": {
 			members:        1,
-			externalAccess: &mdb.ExternalAccessConfiguration{},
+			externalAccess: &mdbv1.ExternalAccessConfiguration{},
 			result: map[int]corev1.Service{
 				0: {
 					ObjectMeta: metav1.ObjectMeta{
@@ -616,8 +616,8 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 		},
 		"external access configured for two pods": {
 			members: 2,
-			externalAccess: &mdb.ExternalAccessConfiguration{
-				ExternalService: mdb.ExternalServiceConfiguration{
+			externalAccess: &mdbv1.ExternalAccessConfiguration{
+				ExternalService: mdbv1.ExternalServiceConfiguration{
 					SpecWrapper: &common.ServiceSpecWrapper{
 						Spec: corev1.ServiceSpec{
 							Type: "LoadBalancer",
@@ -712,7 +712,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 		},
 		"external domain configured for single pod in first cluster": {
 			members: 1,
-			externalAccess: &mdb.ExternalAccessConfiguration{
+			externalAccess: &mdbv1.ExternalAccessConfiguration{
 				ExternalDomain: ptr.To("some.domain"),
 			},
 			result: map[int]corev1.Service{
@@ -746,8 +746,8 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 		},
 		"non default port set in additional mongod config": {
 			members:                1,
-			externalAccess:         &mdb.ExternalAccessConfiguration{},
-			additionalMongodConfig: mdb.NewAdditionalMongodConfig("net.port", 27027),
+			externalAccess:         &mdbv1.ExternalAccessConfiguration{},
+			additionalMongodConfig: mdbv1.NewAdditionalMongodConfig("net.port", 27027),
 			result: map[int]corev1.Service{
 				0: {
 					ObjectMeta: metav1.ObjectMeta{
@@ -779,8 +779,8 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 		},
 		"external service of NodePort type set in first cluster": {
 			members: 1,
-			externalAccess: &mdb.ExternalAccessConfiguration{
-				ExternalService: mdb.ExternalServiceConfiguration{
+			externalAccess: &mdbv1.ExternalAccessConfiguration{
+				ExternalService: mdbv1.ExternalServiceConfiguration{
 					SpecWrapper: &common.ServiceSpecWrapper{
 						Spec: corev1.ServiceSpec{
 							Type: "NodePort",
@@ -827,8 +827,8 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 		},
 		"service with annotations with placeholders": {
 			members: 2,
-			externalAccess: &mdb.ExternalAccessConfiguration{
-				ExternalService: mdb.ExternalServiceConfiguration{
+			externalAccess: &mdbv1.ExternalAccessConfiguration{
+				ExternalService: mdbv1.ExternalServiceConfiguration{
 					Annotations: map[string]string{
 						create.PlaceholderPodIndex:            "{podIndex}",
 						create.PlaceholderNamespace:           "{namespace}",
@@ -929,9 +929,9 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 		},
 		"service with annotations with placeholders and external domain": {
 			members: 2,
-			externalAccess: &mdb.ExternalAccessConfiguration{
+			externalAccess: &mdbv1.ExternalAccessConfiguration{
 				ExternalDomain: ptr.To("custom.domain"),
-				ExternalService: mdb.ExternalServiceConfiguration{
+				ExternalService: mdbv1.ExternalServiceConfiguration{
 					Annotations: map[string]string{
 						create.PlaceholderPodIndex:            "{podIndex}",
 						create.PlaceholderNamespace:           "{namespace}",
@@ -1139,7 +1139,7 @@ func TestAppDbPortIsConfigurable_WithAdditionalMongoConfig(t *testing.T) {
 	opsManager := DefaultOpsManagerBuilder().
 		SetBackup(omv1.MongoDBOpsManagerBackup{Enabled: false}).
 		SetAppDbMembers(1).
-		SetAdditionalMongodbConfig(mdb.NewAdditionalMongodConfig("net.port", 30000)).
+		SetAdditionalMongodbConfig(mdbv1.NewAdditionalMongodConfig("net.port", 30000)).
 		Build()
 	omConnectionFactory := om.NewCachedOMConnectionFactory(om.NewEmptyMockedOmConnection)
 	omReconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", opsManager, nil, omConnectionFactory)

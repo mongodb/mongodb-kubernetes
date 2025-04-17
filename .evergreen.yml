@@ -1055,7 +1055,6 @@ task_groups:
       - e2e_om_ops_manager_https_enabled_internet_mode
       - e2e_om_ops_manager_https_enabled_prefix
       - e2e_om_ops_manager_scale
-      - e2e_om_ops_manager_upgrade
       - e2e_om_validation_webhook
       - e2e_om_ops_manager_secure_config
       - e2e_om_update_before_reconciliation
@@ -1092,7 +1091,6 @@ task_groups:
       - e2e_om_ops_manager_backup_kmip
       - e2e_om_ops_manager_pod_spec
       - e2e_om_ops_manager_scale
-      - e2e_om_ops_manager_upgrade
       - e2e_om_validation_webhook
       - e2e_om_ops_manager_secure_config
       - e2e_om_update_before_reconciliation
@@ -1135,6 +1133,15 @@ task_groups:
     <<: *setup_and_teardown_task
     tasks:
       - e2e_om_ops_manager_prometheus
+    <<: *teardown_group
+
+  # Tests features only supported on OM70 and OM80, its only upgrade test as we test upgrading from 6 to 7 or 7 to 8
+  - name: e2e_ops_manager_upgrade_only_task_group
+    max_hosts: -1
+    <<: *setup_group
+    <<: *setup_and_teardown_task
+    tasks:
+      - e2e_om_ops_manager_upgrade
     <<: *teardown_group
 
   # Tests features only supported on OM60
@@ -1317,6 +1324,7 @@ buildvariants:
       - name: e2e_ops_manager_kind_only_task_group
       - name: e2e_ops_manager_kind_5_0_only_task_group
       - name: e2e_ops_manager_kind_6_0_only_task_group
+      - name: e2e_ops_manager_upgrade_only_task_group
 
   - name: e2e_static_om70_kind_ubi
     display_name: e2e_static_om70_kind_ubi
@@ -1327,6 +1335,7 @@ buildvariants:
     tasks:
       - name: e2e_static_ops_manager_kind_only_task_group
       - name: e2e_static_ops_manager_kind_6_0_only_task_group
+      - name: e2e_ops_manager_upgrade_only_task_group
 
   - name: e2e_om80_kind_ubi
     display_name: e2e_om80_kind_ubi
@@ -1338,6 +1347,7 @@ buildvariants:
       - name: e2e_ops_manager_kind_only_task_group
       - name: e2e_ops_manager_kind_5_0_only_task_group
       - name: e2e_ops_manager_kind_6_0_only_task_group
+      - name: e2e_ops_manager_upgrade_only_task_group
 
   - name: e2e_static_om80_kind_ubi
     display_name: e2e_static_om80_kind_ubi
@@ -1348,6 +1358,7 @@ buildvariants:
     tasks:
       - name: e2e_static_ops_manager_kind_only_task_group
       - name: e2e_static_ops_manager_kind_6_0_only_task_group
+      - name: e2e_ops_manager_upgrade_only_task_group
 
   - name: e2e_operator_race_ubi_with_telemetry
     display_name: e2e_operator_race_ubi_with_telemetry

@@ -317,6 +317,20 @@ func addOmEvents(ctx context.Context, operatorClusterClient kubeclient.Client, o
 	return events
 }
 
+func createEvent(properties any, now time.Time, eventType EventType) *Event {
+	convertedProperties, err := maputil.StructToMap(properties)
+	if err != nil {
+		Logger.Debugf("failed to parse %s properties: %v", eventType, err)
+		return nil
+	}
+
+	return &Event{
+		Timestamp:  now,
+		Source:     eventType,
+		Properties: convertedProperties,
+	}
+}
+
 func addCommunityEvents(ctx context.Context, operatorClusterClient kubeclient.Client, operatorUUID, mongodbImage string, now time.Time) []Event {
 	var events []Event
 	communityList := &mcov1.MongoDBCommunityList{}
@@ -339,20 +353,6 @@ func addCommunityEvents(ctx context.Context, operatorClusterClient kubeclient.Cl
 		}
 	}
 	return events
-}
-
-func createEvent(properties any, now time.Time, eventType EventType) *Event {
-	convertedProperties, err := maputil.StructToMap(properties)
-	if err != nil {
-		Logger.Debugf("failed to parse %s properties: %v", eventType, err)
-		return nil
-	}
-
-	return &Event{
-		Timestamp:  now,
-		Source:     eventType,
-		Properties: convertedProperties,
-	}
 }
 
 func getMaxNumberOfClustersSCIsDeployedOn(item mdbv1.MongoDB) int {
