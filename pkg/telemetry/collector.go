@@ -84,7 +84,7 @@ type snapshotCollector func(ctx context.Context, memberClusterMap map[string]Con
 func RunTelemetry(ctx context.Context, mongodbImage, databaseNonStaticImage, namespace string, operatorClusterMgr manager.Manager, clusterMap map[string]cluster.Cluster, atlasClient *Client, configuredOperatorEnv util.OperatorEnvironment) {
 	Logger.Debug("sending telemetry!")
 
-	intervalStr := envvar.GetEnvOrDefault(CollectionFrequency, DefaultCollectionFrequencyStr)
+	intervalStr := envvar.GetEnvOrDefault(CollectionFrequency, DefaultCollectionFrequencyStr) // nolint:forbidigo
 	duration, err := time.ParseDuration(intervalStr)
 	if err != nil || duration < time.Minute {
 		Logger.Warn("Failed converting %s to a duration or value is too small (minimum is one minute), using default 1h", CollectionFrequency)
@@ -370,7 +370,7 @@ func getMaxNumberOfClustersSCIsDeployedOn(item mdbv1.MongoDB) int {
 }
 
 func ReadBoolWithTrueAsDefault(envVarName string) bool {
-	envVar := envvar.GetEnvOrDefault(envVarName, "true")
+	envVar := envvar.GetEnvOrDefault(envVarName, "true") // nolint:forbidigo
 	return strings.TrimSpace(strings.ToLower(envVar)) == "true"
 }
 
