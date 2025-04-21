@@ -1,0 +1,32 @@
+{% if builder %}
+FROM --platform=$TARGETPLATFORM {{builder_image}} AS builder
+
+{% else %}
+FROM --platform=$TARGETPLATFORM {{base_image}}
+{% endif %}
+
+{% block packages -%}
+{% endblock -%}
+
+ENV GO111MODULE=on
+ENV GOPATH ""
+
+WORKDIR /workspace
+COPY go.mod go.sum ./
+RUN go mod download
+
+ADD . .
+
+# build the binary
+{% block build_binary -%}
+{% endblock -%}
+
+# build and second stage image if necessary
+{% block build_second_stage -%}
+{% endblock -%}
+
+{% block command -%}
+{% endblock -%}
+
+{% block install_helm -%}
+{% endblock -%}
