@@ -26,7 +26,7 @@ def trim_versions(versions_list, number_of_versions=3, always_keep=None):
     Returns a sorted list with trimmed versions.
     """
 
-    # TODO: mck test release
+    # TODO: CLOUDP-310820 - After 1.0.0 we need to remove this condition
     if always_keep is None:
         always_keep = ["0.1.0"]
 
