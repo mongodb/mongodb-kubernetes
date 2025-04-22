@@ -10,8 +10,6 @@ import kubernetes
 import requests
 from kubernetes import client
 from kubernetes.client import ApiextensionsV1Api
-from opentelemetry.trace import NonRecordingSpan
-
 from kubetester import (
     create_or_update_configmap,
     get_deployments,
@@ -35,6 +33,7 @@ from kubetester.kubetester import running_locally
 from kubetester.mongodb_multi import MultiClusterClient
 from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
+from opentelemetry.trace import NonRecordingSpan
 from pymongo.errors import ServerSelectionTimeoutError
 from pytest import fixture
 from tests import test_logger
