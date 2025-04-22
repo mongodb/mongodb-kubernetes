@@ -205,7 +205,7 @@ type MemberCluster struct {
 const LegacyCentralClusterName = "__default"
 
 // GetLegacyCentralMemberCluster returns a legacy central member cluster for unit tests.
-// Such member cluster is created in the reconcile loop in SingleCluster topology
+// Such member cluster is created in the reconcile loop in SingleCluster topology.
 // in order to simulate multi-cluster deployment on one member cluster that has legacy naming conventions enabled.
 func GetLegacyCentralMemberCluster(replicas int, index int, client kubernetesClient.Client, secretClient secrets.SecretClient) MemberCluster {
 	return MemberCluster{
