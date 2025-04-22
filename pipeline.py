@@ -643,10 +643,10 @@ def args_for_daily_image(image_name: str) -> Dict[str, str]:
     """
     image_configs = [
         image_config("database"),
-        image_config("init-appdb"),
+        image_config("init-appdb", ubi_suffix=""),
         image_config("agent", name_prefix="mongodb-enterprise-"),
-        image_config("init-database"),
-        image_config("init-ops-manager"),
+        image_config("init-database", ubi_suffix=""),
+        image_config("init-ops-manager", ubi_suffix=""),
         image_config("operator"),
         image_config("ops-manager", name_prefix="mongodb-enterprise-"),
         image_config("mongodb-agent", name_prefix="", ubi_suffix="-ubi", base_suffix="-ubi"),
@@ -1314,7 +1314,7 @@ def _build_agent_operator(
     # We could rely on input params (quay_registry or registry), but it makes templating more complex in the inventory
     non_quay_registry = os.environ.get("REGISTRY", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
     base_init_database_repo = QUAY_REGISTRY_URL if use_quay else non_quay_registry
-    init_database_image = f"{base_init_database_repo}/mongodb-kubernetes-init-database-ubi:{operator_version}"
+    init_database_image = f"{base_init_database_repo}/mongodb-kubernetes-init-database:{operator_version}"
 
     tasks_queue.put(
         executor.submit(
