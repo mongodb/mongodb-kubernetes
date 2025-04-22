@@ -82,7 +82,6 @@ local-config.json
 .idea
 vendor
 __pycache__
-Dockerfile
 Dockerfile_python_formatting
 logs/*
 testbin/bin

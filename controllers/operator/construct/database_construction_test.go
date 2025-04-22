@@ -11,12 +11,12 @@ import (
 	"go.uber.org/zap"
 	"k8s.io/utils/ptr"
 
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	corev1 "k8s.io/api/core/v1"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
+	kubernetesClient "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
@@ -30,7 +30,7 @@ func init() {
 }
 
 func Test_buildDatabaseInitContainer(t *testing.T) {
-	modification := buildDatabaseInitContainer("quay.io/mongodb/mongodb-enterprise-init-database:latest")
+	modification := buildDatabaseInitContainer("quay.io/mongodb/mongodb-kubernetes-init-database:latest")
 	container := &corev1.Container{}
 	modification(container)
 	expectedVolumeMounts := []corev1.VolumeMount{{
@@ -40,7 +40,7 @@ func Test_buildDatabaseInitContainer(t *testing.T) {
 	}}
 	expectedContainer := &corev1.Container{
 		Name:         InitDatabaseContainerName,
-		Image:        "quay.io/mongodb/mongodb-enterprise-init-database:latest",
+		Image:        "quay.io/mongodb/mongodb-kubernetes-init-database:latest",
 		VolumeMounts: expectedVolumeMounts,
 		SecurityContext: &corev1.SecurityContext{
 			ReadOnlyRootFilesystem:   ptr.To(true),

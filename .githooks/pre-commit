@@ -16,6 +16,12 @@ fi
 
 mkdir -p "$(go env GOPATH)/bin"
 
+function update_mco_tests() {
+  echo "Regenerating MCO evergreen tests configuration"
+  python scripts/evergreen/e2e/mco/create_mco_tests.py > .evergreen-mco.yml
+  git add .evergreen-mco.yml
+}
+
 # Generates a yaml file to install the operator from the helm sources.
 function generate_standalone_yaml() {
   HELM_OPTS=$@
@@ -112,6 +118,8 @@ function pre_commit() {
   generate_standalone_yaml
   # Run black on python files that have changed
   python_formatting
+  # Generate MCO evergreen tests
+  update_mco_tests
 
   source scripts/evergreen/lint_code.sh
 
@@ -180,4 +188,6 @@ elif [[ "${cmd}" == "pre-commit" ]]; then
   pre_commit
 elif [[ "${cmd}" == "shellcheck" ]]; then
   start_shellcheck
+elif [[ "${cmd}" == "lint" ]]; then
+  source scripts/evergreen/lint_code.sh
 fi

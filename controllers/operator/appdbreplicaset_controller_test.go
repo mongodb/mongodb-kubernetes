@@ -19,12 +19,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
-
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -40,6 +34,12 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
+	mdbcv1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1/common"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	kubernetesClient "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/secret"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/pkg/agentVersionManagement"
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
@@ -436,7 +436,7 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 	opsManager := builder.Build()
 	appdbScaler := scalers.GetAppDBScaler(opsManager, multicluster.LegacyCentralClusterName, 0, nil)
 
-	opsManager.Spec.AppDB.PodSpec.PodTemplateWrapper = mdbv1.PodTemplateSpecWrapper{
+	opsManager.Spec.AppDB.PodSpec.PodTemplateWrapper = common.PodTemplateSpecWrapper{
 		PodTemplate: &corev1.PodTemplateSpec{
 			Spec: corev1.PodSpec{
 				Containers: []corev1.Container{
@@ -618,7 +618,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 			members: 2,
 			externalAccess: &mdbv1.ExternalAccessConfiguration{
 				ExternalService: mdbv1.ExternalServiceConfiguration{
-					SpecWrapper: &mdbv1.ServiceSpecWrapper{
+					SpecWrapper: &common.ServiceSpecWrapper{
 						Spec: corev1.ServiceSpec{
 							Type: "LoadBalancer",
 							Ports: []corev1.ServicePort{
@@ -781,7 +781,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 			members: 1,
 			externalAccess: &mdbv1.ExternalAccessConfiguration{
 				ExternalService: mdbv1.ExternalServiceConfiguration{
-					SpecWrapper: &mdbv1.ServiceSpecWrapper{
+					SpecWrapper: &common.ServiceSpecWrapper{
 						Spec: corev1.ServiceSpec{
 							Type: "NodePort",
 							Ports: []corev1.ServicePort{
@@ -839,7 +839,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						create.PlaceholderMongodProcessDomain: "{mongodProcessDomain}",
 						create.PlaceholderMongodProcessFQDN:   "{mongodProcessFQDN}",
 					},
-					SpecWrapper: &mdbv1.ServiceSpecWrapper{
+					SpecWrapper: &common.ServiceSpecWrapper{
 						Spec: corev1.ServiceSpec{
 							Type: "LoadBalancer",
 							Ports: []corev1.ServicePort{
@@ -942,7 +942,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						create.PlaceholderMongodProcessDomain: "{mongodProcessDomain}",
 						create.PlaceholderMongodProcessFQDN:   "{mongodProcessFQDN}",
 					},
-					SpecWrapper: &mdbv1.ServiceSpecWrapper{
+					SpecWrapper: &common.ServiceSpecWrapper{
 						Spec: corev1.ServiceSpec{
 							Type: "LoadBalancer",
 							Ports: []corev1.ServicePort{

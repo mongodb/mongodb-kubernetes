@@ -2,13 +2,16 @@ package watch
 
 import (
 	"context"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/contains"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/contains"
 )
 
 // ResourceWatcher implements handler.EventHandler and is used to trigger reconciliation when

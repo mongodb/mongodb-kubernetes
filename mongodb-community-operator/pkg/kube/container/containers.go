@@ -4,10 +4,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/envvar"
-
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/lifecycle"
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/lifecycle"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/envvar"
 )
 
 type Modification func(*corev1.Container)

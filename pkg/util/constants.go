@@ -82,7 +82,7 @@ const (
 	BackupDaemonContainerName      = "mongodb-backup-daemon"
 	DatabaseContainerName          = "mongodb-enterprise-database"
 	AgentContainerName             = "mongodb-agent"
-	InitOpsManagerContainerName    = "mongodb-enterprise-init-ops-manager"
+	InitOpsManagerContainerName    = "mongodb-kubernetes-init-ops-manager"
 	PvcNameData                    = "data"
 	PvcMountPathData               = "/data"
 	PvcNameJournal                 = "journal"
@@ -183,6 +183,7 @@ const (
 	CurrentNamespace                 = "NAMESPACE"
 	WatchNamespace                   = "WATCH_NAMESPACE"
 	OpsManagerMonitorAppDB           = "OPS_MANAGER_MONITOR_APPDB"
+	MongodbCommunityAgentImageEnv    = "MDB_COMMUNITY_AGENT_IMAGE"
 
 	MdbWebhookRegisterConfigurationEnv = "MDB_WEBHOOK_REGISTER_CONFIGURATION"
 	MdbWebhookPortEnv                  = "MDB_WEBHOOK_PORT"

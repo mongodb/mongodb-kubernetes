@@ -93,3 +93,10 @@ export OLM_VERSION=v0.31.0
 
 # Python version we use locally and in CI
 export PYTHON_VERSION=3.13
+
+
+## MCO
+export MDB_COMMUNITY_IMAGE=mongodb-community-server
+export MDB_COMMUNITY_REPO_URL=quay.io/mongodb
+export MDB_COMMUNITY_AGENT_IMAGE=${AGENT_IMAGE}
+export MDB_COMMUNITY_IMAGE_TYPE=ubi8

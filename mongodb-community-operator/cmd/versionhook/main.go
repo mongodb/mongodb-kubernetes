@@ -9,12 +9,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/agent"
 	"go.uber.org/zap"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/agent"
 )
 
 const (
@@ -69,7 +71,7 @@ func main() {
 		// If the Pod needs to be killed, we'll wait until the Pod
 		// is killed by Kubernetes, bringing the new container image
 		// into play.
-		var quit = make(chan struct{})
+		quit := make(chan struct{})
 		logger.Info("Pod killed itself, waiting...")
 		<-quit
 	} else {
@@ -118,7 +120,6 @@ func waitForAgentHealthStatus() (agent.Health, error) {
 		}
 	}
 	return agent.Health{}, fmt.Errorf("agent health status not ready after waiting %s", pollingDuration.String())
-
 }
 
 // getAgentHealthStatus returns an instance of agent.Health read
@@ -128,7 +129,11 @@ func getAgentHealthStatus() (agent.Health, error) {
 	if err != nil {
 		return agent.Health{}, err
 	}
-	defer f.Close()
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			zap.S().Warnf("Failed to close agent health file: %v", closeErr)
+		}
+	}()
 
 	h, err := readAgentHealthStatus(f)
 	if err != nil {

@@ -5,8 +5,8 @@
 /vendor/
 public/tools/multicluster/vendor
 docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator
-docker/mongodb-enterprise-database/content/mongodb-mms-automation-agent-version.properties
-docker/mongodb-enterprise-database/content/readinessprobe
+docker/mongodb-kubernetes-database/content/mongodb-mms-automation-agent-version.properties
+docker/mongodb-kubernetes-database/content/readinessprobe
 docker/mongodb-enterprise-ops-manager/scripts/mmsconfiguration
 docker/mongodb-enterprise-tests/public
 
@@ -18,7 +18,6 @@ cache
 **/__pycache__
 **/myenv
 **/venv*/
-**/env*/
 *.bak
 **/pytest_cache/
 tmp/*
@@ -46,10 +45,10 @@ public/architectures/**/secrets/*
 docker/mongodb-enterprise-appdb/content/readinessprobe
 ops-manager-kubernetes
 docker/mongodb-enterprise-operator/Dockerfile
-docker/mongodb-enterprise-database/Dockerfile
+docker/mongodb-kubernetes-database/Dockerfile
 docker/mongodb-enterprise-ops-manager/Dockerfile
-docker/mongodb-enterprise-init-database/Dockerfile
-docker/mongodb-enterprise-init-ops-manager/Dockerfile
+docker/mongodb-kubernetes-init-database/Dockerfile
+docker/mongodb-kubernetes-init-ops-manager/Dockerfile
 docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator.tar
 docker/mongodb-enterprise-tests/helm_chart/
 docker/mongodb-enterprise-tests/public/

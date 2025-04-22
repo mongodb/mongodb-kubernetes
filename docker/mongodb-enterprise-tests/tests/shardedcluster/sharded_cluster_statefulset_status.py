@@ -13,8 +13,8 @@ from tests.shardedcluster.conftest import (
 )
 
 """
-This test checks the 'status.resourcesNotReady' element during sharded cluster reconciliation. It's expected to 
-be populated with the information about current StatefulSet pending in the following order: config server, shard 0, 
+This test checks the 'status.resourcesNotReady' element during sharded cluster reconciliation. It's expected to
+be populated with the information about current StatefulSet pending in the following order: config server, shard 0,
 shard 1, mongos.
 """
 

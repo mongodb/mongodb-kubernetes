@@ -8,10 +8,10 @@ import (
 	"k8s.io/apimachinery/pkg/version"
 	"k8s.io/client-go/discovery"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/envvar"
-
 	corev1 "k8s.io/api/core/v1"
 	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/envvar"
 )
 
 const (

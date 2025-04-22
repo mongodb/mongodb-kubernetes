@@ -146,6 +146,7 @@ reset_namespace() {
   set +e
 
   helm uninstall --kube-context="${context}" mongodb-enterprise-operator || true &
+  helm uninstall --kube-context="${context}" mongodb-community-operator || true &
   helm uninstall --kube-context="${context}" mongodb-enterprise-operator-multi-cluster || true &
 
   # Cleans the namespace. Note, that fine-grained cleanup is performed instead of just deleting the namespace as it takes

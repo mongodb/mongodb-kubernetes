@@ -24,7 +24,7 @@ DEFAULT_APPDB_USER_NAME = "mongodb-ops-manager"
 
 """
 This test checks the backup if no separate S3 Metadata database is created and AppDB is used for this.
-Note, that it doesn't check for mongodb backup as it's done in 'e2e_om_ops_manager_backup_restore'" 
+Note, that it doesn't check for mongodb backup as it's done in 'e2e_om_ops_manager_backup_restore'"
 """
 
 

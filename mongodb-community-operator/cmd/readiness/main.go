@@ -8,16 +8,15 @@ import (
 	"os"
 	"time"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/readiness/config"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/readiness/headless"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/readiness/health"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
-
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
-	"go.uber.org/zap"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/readiness/config"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/readiness/headless"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/readiness/health"
 )
 
 const (

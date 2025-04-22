@@ -64,7 +64,7 @@ def catalog_source(namespace: str, version_id: str):
 def subscription(namespace: str, catalog_source: CustomObject):
     static_value = get_default_architecture()
     return get_subscription_custom_object(
-        "mongodb-enterprise-operator",
+        "mongodb-kubernetes",
         namespace,
         {
             "channel": "stable",  # stable channel contains latest released operator in RedHat's certified repository
@@ -88,7 +88,7 @@ def subscription(namespace: str, catalog_source: CustomObject):
 
 @fixture
 def current_operator_version():
-    return get_latest_released_operator_version()
+    return get_latest_released_operator_version("mongodb-kubernetes")
 
 
 @pytest.mark.e2e_olm_operator_upgrade_with_resources
@@ -100,7 +100,7 @@ def test_install_stable_operator_version(
     subscription: CustomObject,
 ):
     subscription.update()
-    wait_for_operator_ready(namespace, f"mongodb-enterprise.v{current_operator_version}")
+    wait_for_operator_ready(namespace, "mongodb-kubernetes", f"mongodb-kubernetes.v{current_operator_version}")
 
 
 # install resources on the latest released version of the operator
@@ -368,7 +368,7 @@ def test_operator_upgrade_to_fast(
 
     run_periodically(update_subscription, timeout=100, msg="Subscription to be updated")
 
-    wait_for_operator_ready(namespace, f"mongodb-enterprise.v{incremented_operator_version}")
+    wait_for_operator_ready(namespace, "mongodb-kubernetes", f"mongodb-kubernetes.v{incremented_operator_version}")
 
 
 @pytest.mark.e2e_olm_operator_upgrade_with_resources

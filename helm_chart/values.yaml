@@ -20,7 +20,7 @@ operator:
   deployment_name: mongodb-enterprise-operator
 
   # Version of mongodb-enterprise-operator
-  version: 1.33.0
+  version: 0.1.0
 
   # The Custom Resources that will be watched by the Operator. Needs to be changed if only some of the CRDs are installed
   watchedResources:
@@ -113,33 +113,38 @@ operator:
 
 ## Database
 database:
-  name: mongodb-enterprise-database-ubi
-  version: 1.33.0
+  name: mongodb-kubernetes-database-ubi
+  version: 0.1.0
 
 initDatabase:
-  name: mongodb-enterprise-init-database-ubi
-  version: 1.33.0
+  name: mongodb-kubernetes-init-database-ubi
+  version: 0.1.0
 
 ## Ops Manager
 opsManager:
   name: mongodb-enterprise-ops-manager-ubi
 
 initOpsManager:
-  name: mongodb-enterprise-init-ops-manager-ubi
-  version: 1.33.0
+  name: mongodb-kubernetes-init-ops-manager-ubi
+  version: 0.1.0
 
 ## Application Database
 initAppDb:
-  name: mongodb-enterprise-init-appdb-ubi
-  version: 1.33.0
+  name: mongodb-kubernetes-init-appdb-ubi
+  version: 0.1.0
 
 agent:
   name: mongodb-agent-ubi
   version: 108.0.2.8729-1
 
-mongodbLegacyAppDb:
-  name: mongodb-enterprise-appdb-database-ubi
-  repo: quay.io/mongodb
+# This is only used by the MongoDBCommunity resource reconciler - START
+versionUpgradeHook:
+  name: mongodb-kubernetes-operator-version-upgrade-post-start-hook
+  version: 1.0.9
+readinessProbe:
+  name: mongodb-kubernetes-readinessprobe
+  version: 1.0.22
+# This is only used by the MongoDBCommunity resource reconciler - END
 
 # This is used by AppDB and by static containers to determine the image that the operator uses for databases.
 mongodb:
@@ -162,6 +167,11 @@ registry:
   appDb: quay.io/mongodb
   agent: quay.io/mongodb
 
+# This is only used by the MongoDBCommunity resource reconciler - START
+  versionUpgradeHook: quay.io/mongodb
+  readinessProbe: quay.io/mongodb
+# This is only used by the MongoDBCommunity resource reconciler - END
+
 multiCluster:
   # Specify if we want to deploy the operator in multi-cluster mode
   clusters: []
@@ -171,3 +181,33 @@ multiCluster:
 # Set this to false to disable subresource utilization
 # It might be required on some versions of Openshift
 subresourceEnabled: true
+
+# Resources only for the MongoDBCommunity resource reconciler
+community:
+  mongodb:
+    repo: quay.io/mongodb
+    # change this if you want to use a different mongoDB image
+    name: mongodb-community-server
+    imageType: ubi8
+  agent:
+    name: mongodb-agent-ubi
+    version: 108.0.2.8729-1
+  registry:
+    agent: quay.io/mongodb
+  name: mongodb-database
+  resource:
+    name: mongodb-replica-set
+    version: 4.4.0
+    members: 3
+    tls:
+      # when tls.enabled == true and tls.useCertManager == true then Cert Manager's Issuer and Certificate resources will be created
+      enabled: false
+      # Installs Cert-Manager in this cluster.
+      useX509: false
+      sampleX509User: false
+      useCertManager: true
+      certificateKeySecretRef: tls-certificate
+      caCertificateSecretRef: tls-ca-key-pair
+      certManager:
+        certDuration: 8760h   # 365 days
+        renewCertBefore: 720h   # 30 days

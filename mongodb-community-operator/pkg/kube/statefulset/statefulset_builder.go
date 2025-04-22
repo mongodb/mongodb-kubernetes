@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"github.com/hashicorp/go-multierror"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -145,7 +146,7 @@ func (s Builder) buildPodTemplateSpec() (corev1.PodTemplateSpec, error) {
 		for _, volumeMount := range volumeMounts {
 			if prevMount, seen := existingVolumeMounts[volumeMount.MountPath]; seen {
 				// Volume with the same path already mounted
-				errs = multierror.Append(errs, fmt.Errorf("Volume %v already mounted as %v", volumeMount, prevMount))
+				errs = multierror.Append(errs, fmt.Errorf("volume %v already mounted as %v", volumeMount, prevMount))
 				continue
 			}
 			podTemplateSpec.Spec.Containers[idx].VolumeMounts = append(podTemplateSpec.Spec.Containers[idx].VolumeMounts, volumeMount)
@@ -191,7 +192,7 @@ func (s Builder) Build() (appsv1.StatefulSet, error) {
 		return appsv1.StatefulSet{}, err
 	}
 
-	replicas := int32(s.replicas)
+	replicas := int32(s.replicas) //nolint:gosec
 
 	ownerReference := make([]metav1.OwnerReference, len(s.ownerReference))
 	copy(ownerReference, s.ownerReference)
