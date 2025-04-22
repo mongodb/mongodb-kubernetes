@@ -10,6 +10,8 @@ import kubernetes
 import requests
 from kubernetes import client
 from kubernetes.client import ApiextensionsV1Api
+from opentelemetry.trace import NonRecordingSpan
+
 from kubetester import (
     create_or_update_configmap,
     get_deployments,
@@ -1556,6 +1558,8 @@ class EnhancedOpenTelemetryPlugin(OpenTelemetryPlugin):
         report: TestReport,
     ) -> None:
         current_span = trace.get_current_span()
+        if isinstance(current_span, NonRecordingSpan):
+            return
         prefixed_attributes = EnhancedOpenTelemetryPlugin._prefix_attributes(current_span.attributes)
         prefixed_attributes["mck.pytest.error_details"] = str(report.longrepr)
         current_span.set_attributes(prefixed_attributes)
