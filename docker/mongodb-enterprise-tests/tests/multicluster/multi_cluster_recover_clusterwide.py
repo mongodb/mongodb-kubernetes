@@ -355,5 +355,4 @@ def test_mongodb_multi_nsb_recovers_removing_cluster(mongodb_multi_b: MongoDBMul
     mongodb_multi_b["metadata"]["annotations"]["failedClusters"] = None
     mongodb_multi_b["spec"]["clusterSpecList"].pop()
     mongodb_multi_b.update()
-@
     mongodb_multi_b.assert_reaches_phase(Phase.Running, timeout=1500)

@@ -221,9 +221,7 @@ class TestReplicaSetCreation(KubernetesTester):
     def test_security_context_operator(self, operator_installation_config: Dict[str, str]):
         # todo there should be a better way to find the pods for deployment
         response = self.corev1.list_namespaced_pod(self.namespace)
-        operator_pod = [pod for pod in response.items if pod.metadata.name.startswith(f"{OPERATOR_NAME}-")][
-            0
-        ]
+        operator_pod = [pod for pod in response.items if pod.metadata.name.startswith(f"{OPERATOR_NAME}-")][0]
         security_context = operator_pod.spec.security_context
         if operator_installation_config["managedSecurityContext"] == "false":
             assert security_context.run_as_user == 2000
