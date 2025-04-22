@@ -22,7 +22,7 @@ from tests.opsmanager.om_ops_manager_backup import (
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 """
-The test checks the backup for MongoDB 4.0 and 4.2, checks that snapshots are built and PIT restore and 
+The test checks the backup for MongoDB 4.0 and 4.2, checks that snapshots are built and PIT restore and
 restore from snapshot are working.
 """
 

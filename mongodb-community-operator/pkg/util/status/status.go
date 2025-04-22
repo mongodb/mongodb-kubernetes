@@ -3,10 +3,10 @@ package status
 import (
 	"context"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
 )
 
 type Option interface {

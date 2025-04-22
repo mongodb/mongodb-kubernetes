@@ -89,6 +89,11 @@ tasks:
     commands:
       - func: e2e_test
 
+  - name: e2e_community_and_meko_replicaset_scale
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
   - name: e2e_standalone_custom_podspec
     tags: [ "patch-run" ]
     commands:
@@ -181,6 +186,8 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_olm_operator_upgrade
+    # TODO: CLOUDP-310820 - After 1.0.0 release we need re-enable this
+    disable: true
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
@@ -192,6 +199,13 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_olm_operator_upgrade_with_resources
+    # TODO: CLOUDP-310820 - After 1.0.0 release we need re-enable this
+    disable: true
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_olm_meko_operator_upgrade_with_resources
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
@@ -208,6 +222,11 @@ tasks:
 
   - name: e2e_replica_set_liveness_probe
     tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_community_replicaset_scale
+    tags: ["patch-run"]
     commands:
       - func: "e2e_test"
 

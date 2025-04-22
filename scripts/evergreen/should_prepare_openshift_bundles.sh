@@ -21,7 +21,7 @@ check_file_exists() {
 }
 
 version=$(jq -r .mongodbOperator <release.json)
-certified_bundle="https://operator-e2e-bundles.s3.amazonaws.com/bundles/operator-certified-${version}.tgz"
+certified_bundle="https://operator-e2e-bundles.s3.amazonaws.com/bundles/mck-operator-certified-${version}.tgz"
 
 if ! check_file_exists "${certified_bundle}"; then
   echo "Certified bundle file does not exist in S3: ${certified_bundle}"

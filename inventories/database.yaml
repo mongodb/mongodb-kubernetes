@@ -1,11 +1,11 @@
 vars:
-  quay_registry: quay.io/mongodb/mongodb-enterprise-database
+  quay_registry: quay.io/mongodb/mongodb-kubernetes-database
   s3_bucket: s3://enterprise-operator-dockerfiles/dockerfiles/mongodb-enterprise-database
 
 images:
 - name: database
   vars:
-    context: docker/mongodb-enterprise-database
+    context: docker/mongodb-kubernetes-database
   platform: linux/amd64
 
   stages:

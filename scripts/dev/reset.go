@@ -292,6 +292,7 @@ func resetNamespace(ctx context.Context, contextName string, namespace string, d
 	if deleteCRD {
 		crdNames := []string{
 			"mongodb.mongodb.com",
+			"mongodbcommunity.mongodbcommunity.mongodb.com",
 			"mongodbmulti.mongodb.com",
 			"mongodbmulticluster.mongodb.com",
 			"mongodbusers.mongodb.com",

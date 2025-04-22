@@ -3,14 +3,14 @@ package scram
 import (
 	"testing"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/authtypes"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/constants"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/authentication/authtypes"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/constants"
 )
 
 func TestScramAutomationConfig(t *testing.T) {
-
 	// Case 1: Both SHA-256 and SHA-1
 	auth := automationconfig.Auth{}
 	opts := authtypes.Options{

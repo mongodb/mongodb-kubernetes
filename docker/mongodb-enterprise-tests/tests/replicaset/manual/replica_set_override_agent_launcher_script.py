@@ -11,7 +11,7 @@ from pytest import fixture
 #
 # It's for quick iteration on changes to agent-launcher.sh.
 # It's deploying a replica set with 1 member with the local copy of agent-launcher.sh and agent-launcher-lib.sh scripts
-# from docker/mongodb-enterprise-init-database/content.
+# from docker/mongodb-kubernetes-init-database/content.
 # Scripts are injected (mounted) into their standard location in init image and scripts from init-database image are overwritten.
 #
 # Thanks to this, it is possible to quickly iterate on the script without the need to build and push init-database image.
@@ -58,10 +58,10 @@ def replica_set(ops_manager: str, namespace: str, custom_mdb_version: str) -> Mo
 
 
 def test_replica_set(replica_set: MongoDB):
-    with open("../mongodb-enterprise-init-database/content/agent-launcher.sh", "rb") as f:
+    with open("../mongodb-kubernetes-init-database/content/agent-launcher.sh", "rb") as f:
         agent_launcher = base64.b64encode(f.read()).decode("utf-8")
 
-    with open("../mongodb-enterprise-init-database/content/agent-launcher-lib.sh", "rb") as f:
+    with open("../mongodb-kubernetes-init-database/content/agent-launcher-lib.sh", "rb") as f:
         agent_launcher_lib = base64.b64encode(f.read()).decode("utf-8")
 
     command = f"""

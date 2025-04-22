@@ -4,20 +4,18 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/podtemplatespec"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/resourcerequirements"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/envvar"
-
-	corev1 "k8s.io/api/core/v1"
-
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/probes"
-
-	mdbv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-
 	"github.com/stretchr/testify/assert"
+
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/container"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/probes"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/resourcerequirements"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/envvar"
 )
 
 func newTestReplicaSet() mdbv1.MongoDBCommunity {

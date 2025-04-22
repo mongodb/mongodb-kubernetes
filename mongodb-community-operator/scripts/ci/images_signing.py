@@ -84,9 +84,7 @@ def get_image_digest(image_name: str) -> Optional[str]:
     digest_command.append(f"{transport_protocol}{image_name}")
 
     try:
-        result = subprocess.run(
-            digest_command, capture_output=True, text=True, check=True
-        )
+        result = subprocess.run(digest_command, capture_output=True, text=True, check=True)
         digest = result.stdout.strip()
         return digest
     except subprocess.CalledProcessError as e:
@@ -94,9 +92,7 @@ def get_image_digest(image_name: str) -> Optional[str]:
         sys.exit(1)
 
 
-def build_cosign_docker_command(
-    additional_args: List[str], cosign_command: List[str]
-) -> List[str]:
+def build_cosign_docker_command(additional_args: List[str], cosign_command: List[str]) -> List[str]:
     """
     Common logic to build a cosign command with the garasign cosign image provided by DevProd.
     :param additional_args: additional arguments passed to the docker container, e.g mounted volume or env
@@ -112,9 +108,7 @@ def build_cosign_docker_command(
         "--rm",
         f"--volume={home_dir}/.docker/config.json:/root/.docker/config.json:ro",
     ]
-    return (
-        base_command + additional_args + [SIGNING_IMAGE_URI, "cosign"] + cosign_command
-    )
+    return base_command + additional_args + [SIGNING_IMAGE_URI, "cosign"] + cosign_command
 
 
 def sign_image(repository: str, tag: str) -> None:

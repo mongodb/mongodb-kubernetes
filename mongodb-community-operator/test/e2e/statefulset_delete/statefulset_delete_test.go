@@ -6,10 +6,10 @@ import (
 	"os"
 	"testing"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-	e2eutil "github.com/mongodb/mongodb-kubernetes-operator/test/e2e"
-	"github.com/mongodb/mongodb-kubernetes-operator/test/e2e/mongodbtests"
-	"github.com/mongodb/mongodb-kubernetes-operator/test/e2e/setup"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
+	e2eutil "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e/mongodbtests"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e/setup"
 )
 
 func TestMain(m *testing.M) {

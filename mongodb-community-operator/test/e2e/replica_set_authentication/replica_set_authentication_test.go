@@ -6,13 +6,13 @@ import (
 	"os"
 	"testing"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-	. "github.com/mongodb/mongodb-kubernetes-operator/test/e2e/util/mongotester"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
-	e2eutil "github.com/mongodb/mongodb-kubernetes-operator/test/e2e"
-	"github.com/mongodb/mongodb-kubernetes-operator/test/e2e/mongodbtests"
-	"github.com/mongodb/mongodb-kubernetes-operator/test/e2e/setup"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
+	e2eutil "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e/mongodbtests"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e/setup"
+	. "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e/util/mongotester"
 )
 
 func TestMain(m *testing.M) {
@@ -52,12 +52,14 @@ func withoutSha256() func(*authOptions) {
 		opts.sha256 = false
 	}
 }
+
 func withLabeledSha256() func(*authOptions) {
 	return func(opts *authOptions) {
 		opts.sha256 = true
 		opts.useLabelForSha256 = true
 	}
 }
+
 func withSha1() func(*authOptions) {
 	return func(opts *authOptions) {
 		opts.sha1 = true
@@ -67,7 +69,6 @@ func withSha1() func(*authOptions) {
 // testConfigAuthentication run the tests using the auth options to update mdb and then checks that the resources are correctly configured
 func testConfigAuthentication(ctx context.Context, mdb mdbv1.MongoDBCommunity, user mdbv1.MongoDBUser, pw string, allOptions ...func(*authOptions)) func(t *testing.T) {
 	return func(t *testing.T) {
-
 		pickedOpts := authOptions{
 			sha256: true,
 		}

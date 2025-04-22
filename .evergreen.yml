@@ -4,6 +4,7 @@ exec_timeout_secs: 7200
 include:
   - filename: .evergreen-functions.yml
   - filename: .evergreen-tasks.yml
+  - filename: .evergreen-mco.yml
 
 variables:
   - &ops_manager_60_latest 6.0.27 # The order/index is important, since these are anchors. Please do not change
@@ -52,6 +53,21 @@ variables:
       - name: build_init_appdb_images_ubi
         variant: init_test_run
       - name: build_agent_images_ubi
+        variant: init_test_run
+
+  - &community_dependency
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
+      - name: build_readiness_probe_image
+        variant: init_test_run
+      - name: build_upgrade_hook_image
+        variant: init_test_run
+      - name: build_mco_test_image
         variant: init_test_run
 
   - &setup_group
@@ -198,6 +214,8 @@ github_pr_aliases:
     task_tags: [ "unit_tests" ]
   - variant_tags: [ "e2e_test_suite" ]
     task_tags: [ "patch-run" ]
+  - variant_tags: [ "e2e_mco_test_suite" ]
+    task: ".*"
   - variant_tags: [ "auto_bump" ]
     task_tags: [ "patch-run" ]
 
@@ -213,8 +231,8 @@ git_tag_aliases:
     variant_tags: [ "release" ]
     task_tags: [ "image_release", "image_preflight", "openshift_bundles", "code_snippets" ]
 
+# TODO: MCK: have this part of e2e.sh and its expansions
 tasks:
-
   - name: unit_tests_golang
     tags: [ "unit_tests" ]
     commands:
@@ -394,6 +412,14 @@ tasks:
         vars:
           image_name: test
 
+  - name: build_mco_test_image
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: mco-test
+
   - name: build_operator_ubi
     commands:
       - func: clone
@@ -450,6 +476,24 @@ tasks:
       - func: pipeline
         vars:
           image_name: database
+          skip_tags: ubuntu,release
+
+  - name: build_readiness_probe_image
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: readiness-probe
+          skip_tags: ubuntu,release
+
+  - name: build_upgrade_hook_image
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: upgrade-hook
           skip_tags: ubuntu,release
 
   - name: prepare_aws
@@ -542,7 +586,7 @@ tasks:
       - func: upload_openshift_bundle
         vars:
           # mongoDbOperator expansion is added in update_evergreen_expansions func from release.json
-          bundle_file_name: "operator-certified-${mongodbOperator}.tgz"
+          bundle_file_name: "mck-operator-certified-${mongodbOperator}.tgz"
 
   - name: run_conditionally_prepare_and_upload_openshift_bundles
     tags: [ "openshift_bundles" ]
@@ -575,6 +619,14 @@ task_groups:
     tasks:
       - gke_multi_cluster_snippets
       - gke_multi_cluster_no_mesh_snippets
+
+  # Task group for deploying mongodbcommunity resources and testing the (former) MCO
+  - name: e2e_mdb_community_task_group
+    max_hosts: -1
+    <<: *setup_group
+    <<: *setup_and_teardown_task
+    tasks:
+      - e2e_community_replicaset_scale
 
   # This is the task group that contains all the tests run in the e2e_mdb_kind_ubuntu_cloudqa build variant
   - name: e2e_mdb_kind_cloudqa_task_group
@@ -692,6 +744,7 @@ task_groups:
       - e2e_replica_set_migration
       - e2e_replica_set_pv_resize
       - e2e_sharded_cluster_pv_resize
+      - e2e_community_and_meko_replicaset_scale
     <<: *teardown_group
 
   # this task group contains just a one task, which is smoke testing whether the operator
@@ -1116,6 +1169,7 @@ task_groups:
     tasks:
       - e2e_olm_operator_upgrade
       - e2e_olm_operator_upgrade_with_resources
+      - e2e_olm_meko_operator_upgrade_with_resources
     <<: *teardown_group
 
 buildvariants:
@@ -1138,6 +1192,16 @@ buildvariants:
   # where <cluster> is any of kind|openshift
   # where <distro> is any of ubuntu|ubi
   # where <om_version> denotes the OM version tested (e.g. om50, om60, cloudqa) - used only for MDB tests
+
+  ## MongoDBCommunity build variant
+  - name: e2e_mdb_community
+    display_name: e2e_mdb_community
+    tags: [ "e2e_test_suite"]
+    run_on:
+      - ubuntu2204-large
+    <<: *community_dependency
+    tasks:
+      - name: e2e_mdb_community_task_group
 
   ## MongoDB build variants
   - name: e2e_mdb_kind_ubi_cloudqa
@@ -1306,6 +1370,8 @@ buildvariants:
       - name: e2e_operator_race_with_telemetry_task_group
 
   - name: e2e_smoke
+    # TODO: CLOUDP-310820 - After 1.0.0 release we need re-enabled this
+    disable: true
     display_name: e2e_smoke
     tags: [ "e2e_test_suite" ]
     run_on:
@@ -1317,6 +1383,8 @@ buildvariants:
       - name: e2e_smoke_task_group
 
   - name: e2e_static_smoke
+    # TODO: CLOUDP-310820 - After 1.0.0 release we need re-enabled this
+    disable: true
     display_name: e2e_static_smoke
     tags: [ "e2e_test_suite" ]
     run_on:
@@ -1493,6 +1561,14 @@ buildvariants:
     tasks:
       - name: e2e_kind_olm_group
 
+    # This variants runs the tests from MCO with the MEKO operator binary
+  - name: e2e_mco_tests
+    display_name: "e2e_mco_tests"
+    tags: [ "e2e_mco_test_suite"]
+    <<: *community_dependency
+    run_on:
+      - ubuntu2004-large
+
   ## Manual (patch) E2E tests not run for every PR and commit
 
   - name: e2e_operator_perf
@@ -1535,11 +1611,14 @@ buildvariants:
     tasks:
       - name: build_operator_ubi
       - name: build_test_image
+      - name: build_mco_test_image
       - name: build_init_appdb_images_ubi
       - name: build_init_om_images_ubi
       - name: build_init_database_image_ubi
       - name: build_database_image_ubi
       - name: build_agent_images_ubi
+      - name: build_readiness_probe_image
+      - name: build_upgrade_hook_image
       - name: prepare_aws
 
   - name: init_release_agents_on_ecr
@@ -1580,8 +1659,6 @@ buildvariants:
         variant: init_test_run
       - name: build_agent_images_ubi
         variant: init_test_run
-      - name: release_agents_on_ecr_conditional
-        variant: init_release_agents_on_ecr
     run_on:
       - ubuntu2204-small
     tasks:

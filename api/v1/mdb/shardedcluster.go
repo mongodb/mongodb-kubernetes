@@ -3,9 +3,8 @@ package mdb
 import (
 	"fmt"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
-
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1/common"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/automationconfig"
 )
 
 // ShardedClusterSpec is the spec consisting of configuration specific for sharded cluster only.
@@ -68,7 +67,7 @@ type ShardOverride struct {
 	MemberConfig []automationconfig.MemberOptions `json:"memberConfig,omitempty"`
 	// Statefulset override for this particular shard.
 	// +optional
-	StatefulSetConfiguration *mdbcv1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	StatefulSetConfiguration *common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 }
 
 func (s *ShardedClusterComponentSpec) GetAdditionalMongodConfig() *AdditionalMongodConfig {

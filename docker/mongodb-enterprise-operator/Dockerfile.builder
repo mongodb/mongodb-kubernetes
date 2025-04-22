@@ -11,6 +11,7 @@ ARG log_automation_config_diff
 ARG use_race
 
 COPY go.sum go.mod /go/src/github.com/10gen/ops-manager-kubernetes/
+
 WORKDIR /go/src/github.com/10gen/ops-manager-kubernetes
 RUN go mod download
 

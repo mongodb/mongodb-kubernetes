@@ -5,13 +5,15 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 	"github.com/stretchr/testify/assert"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/secret"
 )
 
 func TestEnsureSecret(t *testing.T) {
@@ -21,7 +23,6 @@ func TestEnsureSecret(t *testing.T) {
 	assert.NoError(t, err)
 
 	t.Run("When the secret exists, but does not have the correct key, it is created correctly", func(t *testing.T) {
-
 		s := secret.Builder().
 			SetName(secretNsName.Name).
 			SetNamespace(secretNsName.Namespace).
@@ -37,7 +38,6 @@ func TestEnsureSecret(t *testing.T) {
 		assert.NoError(t, err)
 
 		assert.Contains(t, acSecret.Data, ConfigKey, "The secret of the given name should have been updated with the config.")
-
 	})
 
 	t.Run("test LogRotate marshal and unmarshal", func(t *testing.T) {
@@ -104,7 +104,6 @@ func TestEnsureSecret(t *testing.T) {
 	})
 
 	t.Run("When the existing Automation Config is different the Automation Config Changes", func(t *testing.T) {
-
 		oldAc, err := newAutomationConfig()
 		assert.NoError(t, err)
 		existingSecret, err := newAutomationConfigSecret(oldAc, secretNsName)
@@ -118,10 +117,9 @@ func TestEnsureSecret(t *testing.T) {
 		res, err := EnsureSecret(ctx, secretGetUpdateCreator, secretNsName, []metav1.OwnerReference{}, newAc)
 		assert.NoError(t, err)
 		assert.Equal(t, newAc, res)
-
 	})
-
 }
+
 func newAutomationConfig() (AutomationConfig, error) {
 	return NewBuilder().Build()
 }
@@ -141,7 +139,6 @@ func newAutomationConfigSecret(ac AutomationConfig, nsName types.NamespacedName)
 		SetNamespace(nsName.Namespace).
 		SetField(ConfigKey, string(acBytes)).
 		Build(), nil
-
 }
 
 type mockSecretGetUpdateCreator struct {

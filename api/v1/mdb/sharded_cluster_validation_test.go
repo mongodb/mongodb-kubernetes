@@ -9,12 +9,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/utils/ptr"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
-
-	v1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1/common"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 )
 
@@ -235,7 +234,7 @@ func TestValidClusterSpecLists(t *testing.T) {
 
 func TestNoIgnoredFieldUsed(t *testing.T) {
 	podSpecWithTemplate := &MongoDbPodSpec{
-		PodTemplateWrapper: PodTemplateSpecWrapper{PodTemplate: &corev1.PodTemplateSpec{
+		PodTemplateWrapper: common.PodTemplateSpecWrapper{PodTemplate: &corev1.PodTemplateSpec{
 			Spec: corev1.PodSpec{},
 		}},
 	}
@@ -262,7 +261,7 @@ func TestNoIgnoredFieldUsed(t *testing.T) {
 			shardOverrides: []ShardOverride{
 				{ShardNames: []string{"foo-0"}, MemberConfig: defaultMemberConfig},
 				{ShardNames: []string{"foo-1"}, Members: ptr.To(2)},
-				{ShardNames: []string{"foo-2"}, StatefulSetConfiguration: &v1.StatefulSetConfiguration{}},
+				{ShardNames: []string{"foo-2"}, StatefulSetConfiguration: &common.StatefulSetConfiguration{}},
 			},
 			expectWarning:    false,
 			expectedWarnings: []status.Warning{},
@@ -334,7 +333,7 @@ func TestNoIgnoredFieldUsed(t *testing.T) {
 			shardOverrides: []ShardOverride{
 				{ShardNames: []string{"foo-0"}, MemberConfig: defaultMemberConfig},
 				{ShardNames: []string{"foo-1"}, Members: ptr.To(2)},
-				{ShardNames: []string{"foo-2"}, StatefulSetConfiguration: &v1.StatefulSetConfiguration{}},
+				{ShardNames: []string{"foo-2"}, StatefulSetConfiguration: &common.StatefulSetConfiguration{}},
 				{
 					ShardNames: []string{"foo-3"},
 					PodSpec:    podSpecWithTemplate,
@@ -401,7 +400,7 @@ func TestNoIgnoredFieldUsed(t *testing.T) {
 
 func TestPodSpecTemplatesWarnings(t *testing.T) {
 	sc := NewDefaultMultiShardedClusterBuilder().Build()
-	mongoPodSpec := &MongoDbPodSpec{PodTemplateWrapper: PodTemplateSpecWrapper{PodTemplate: &corev1.PodTemplateSpec{}}}
+	mongoPodSpec := &MongoDbPodSpec{PodTemplateWrapper: common.PodTemplateSpecWrapper{PodTemplate: &corev1.PodTemplateSpec{}}}
 	sc.Spec.ShardSpec.ClusterSpecList[0].PodSpec = mongoPodSpec
 	sc.Spec.ConfigSrvSpec.ClusterSpecList[0].PodSpec = mongoPodSpec
 	sc.Spec.MongosSpec.ClusterSpecList[0].PodSpec = mongoPodSpec
