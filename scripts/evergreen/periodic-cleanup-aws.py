@@ -12,7 +12,7 @@ REPOSITORIES_NAMES = [
     "dev/mongodb-kubernetes-init-database",
     "dev/mongodb-kubernetes-init-ops-manager",
     "dev/mongodb-enterprise-ops-manager-ubi",
-    "dev/mongodb-enterprise-operator-ubi",
+    "dev/mongodb-kubernetes",
 ]
 REGISTRY_ID = "268558157000"
 REGION = "us-east-1"

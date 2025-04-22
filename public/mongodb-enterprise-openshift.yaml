@@ -276,7 +276,7 @@ spec:
       serviceAccountName: mongodb-enterprise-operator
       containers:
         - name: mongodb-enterprise-operator
-          image: "quay.io/mongodb/mongodb-enterprise-operator-ubi:0.1.0"
+          image: "quay.io/mongodb/mongodb-kubernetes:0.1.0"
           imagePullPolicy: Always
           args:
             - -watch-resource=mongodb
