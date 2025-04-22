@@ -5,7 +5,7 @@ FROM ${init_database_image} as init_database
 
 FROM public.ecr.aws/docker/library/golang:1.24 as dependency_downloader
 
-WORKDIR /go/src/github.com/10gen/ops-manager-kubernetes/
+WORKDIR /go/src/github.com/mongodb/mongodb-kubernetes/
 
 COPY go.mod go.sum ./
 
@@ -13,7 +13,7 @@ RUN go mod download
 
 FROM public.ecr.aws/docker/library/golang:1.24 as readiness_builder
 
-WORKDIR /go/src/github.com/10gen/ops-manager-kubernetes/
+WORKDIR /go/src/github.com/mongodb/mongodb-kubernetes/
 
 COPY --from=dependency_downloader /go/pkg /go/pkg
 COPY go.mod go.sum ./

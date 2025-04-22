@@ -10,11 +10,11 @@ ARG release_version
 ARG log_automation_config_diff
 ARG use_race
 
-COPY go.sum go.mod /go/src/github.com/10gen/ops-manager-kubernetes/
-WORKDIR /go/src/github.com/10gen/ops-manager-kubernetes
+COPY go.sum go.mod /go/src/github.com/mongodb/mongodb-kubernetes/
+WORKDIR /go/src/github.com/mongodb/mongodb-kubernetes
 RUN go mod download
 
-COPY . /go/src/github.com/10gen/ops-manager-kubernetes
+COPY . /go/src/github.com/mongodb/mongodb-kubernetes
 
 RUN go version
 RUN git version
