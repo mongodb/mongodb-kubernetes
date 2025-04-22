@@ -5,7 +5,7 @@
 This is a Kubernetes Operator (https://coreos.com/operators/) to work
 with Ops Manager and Kubernetes clusters. It allows you to easily add new
 MongoDB deployments (standalones, replica sets, sharded clusters) to your Kubernetes cluster, configure them (modify, scale up/down, remove) and to manage them from your
-Ops Manager installation. This provides the combined power of Kubernetes (native scheduling of applications to nodes, scaling, fault tolerance etc) with Ops Manager capabilities (monitoring, backup, upgrades etc)
+Ops Manager installation. This provides the combined power of Kubernetes (native scheduling of applications to nodes, scaling, fault tolerance etc) with Ops Manager capabilities (monitoring, backup, upgrades etc).
 
 ## Development
 
