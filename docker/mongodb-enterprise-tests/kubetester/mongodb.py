@@ -152,7 +152,12 @@ class MongoDB(CustomObject, MongoDBCommon):
         happens during the time we call this method. If there is not a lot of work, then the phase can already finished
         transitioning during the modification call before calling this method.
         """
-        return self.wait_for(lambda s: s.get_status_phase() != phase, timeout, should_raise=True)
+        start_time = time.time()
+        self.wait_for(lambda s: s.get_status_phase() != phase, timeout, should_raise=True)
+        end_time = time.time()
+        logger.debug(
+            f"Abandonning phase {phase.name} for resource {self.__class__.__name__} took {end_time - start_time}s"
+        )
 
     def assert_backup_reaches_status(self, expected_status: str, timeout: int = 600):
         def reaches_backup_status(mdb: MongoDB) -> bool:

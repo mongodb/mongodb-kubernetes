@@ -26,6 +26,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/generate"
 	e2eutil "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e"
 	waite2e "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e/util/wait"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
 type HelmArg struct {
@@ -36,7 +37,7 @@ type HelmArg struct {
 const (
 	performCleanupEnv                   = "PERFORM_CLEANUP"
 	CommunityHelmChartAndDeploymentName = "mongodb-community-operator"
-	MCKHelmChartAndDeploymentName       = "mongodb-mck-operator"
+	MCKHelmChartAndDeploymentName       = util.OperatorName
 )
 
 func Setup(ctx context.Context, t *testing.T) *e2eutil.TestContext {

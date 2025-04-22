@@ -485,7 +485,7 @@ func BuildService(namespacedName types.NamespacedName, owner v1.ObjectOwner, app
 	svcLabels := owner.GetOwnerLabels()
 
 	selectorLabels := map[string]string{
-		util.OperatorLabelName: util.OperatorName,
+		util.OperatorLabelName: util.LegacyOperatorName,
 	}
 
 	if appLabel != nil {
