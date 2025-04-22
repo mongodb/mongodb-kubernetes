@@ -248,7 +248,7 @@ func getNextIndex(m map[string]int) int {
 
 var memberClusterMapMutex sync.Mutex
 
-// IsMemberClusterMapInitializedForMultiCluster checks if global member cluster map
+// IsMemberClusterMapInitializedForMultiCluster checks if global member cluster map.
 // is properly initialized for multi-cluster workloads. The assumption is that if the map
 // contains only __default cluster, that means it's not configured for multi-cluster.
 func IsMemberClusterMapInitializedForMultiCluster(memberClusterMap map[string]client.Client) bool {
