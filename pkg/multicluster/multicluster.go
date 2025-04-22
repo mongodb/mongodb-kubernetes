@@ -195,7 +195,7 @@ type MemberCluster struct {
 	Active bool
 	// Healthy marks if we have connection to the cluster.
 	Healthy bool
-	// Legacy if set to true, marks this cluster to use the old naming conventions (without the cluster index)
+	// Legacy if set to true, marks this cluster to use the old naming conventions (without the cluster index).
 	Legacy bool
 }
 
