@@ -6,7 +6,7 @@ from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
-from tests.conftest import is_multi_cluster
+from tests.conftest import OPERATOR_NAME, is_multi_cluster
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 
@@ -57,7 +57,7 @@ def test_authentication_is_owned_by_opsmanager(replica_set: MongoDB):
     authentication changes from Ops Manager UI.
     """
     fc = replica_set.get_om_tester().get_feature_controls()
-    assert fc["externalManagementSystem"]["name"] == "mongodb-enterprise-operator"
+    assert fc["externalManagementSystem"]["name"] == OPERATOR_NAME
 
     assert len(fc["policies"]) == 2
     policies = [p["policy"] for p in fc["policies"]]
@@ -82,7 +82,7 @@ def test_authentication_disabled_is_owned_by_operator(replica_set: MongoDB):
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
     fc = replica_set.get_om_tester().get_feature_controls()
-    assert fc["externalManagementSystem"]["name"] == "mongodb-enterprise-operator"
+    assert fc["externalManagementSystem"]["name"] == OPERATOR_NAME
 
     policies = sorted(fc["policies"], key=lambda policy: policy["policy"])
     assert len(fc["policies"]) == 3
@@ -109,7 +109,7 @@ def test_authentication_enabled_is_owned_by_operator(replica_set: MongoDB):
 
     fc = replica_set.get_om_tester().get_feature_controls()
 
-    assert fc["externalManagementSystem"]["name"] == "mongodb-enterprise-operator"
+    assert fc["externalManagementSystem"]["name"] == OPERATOR_NAME
 
     assert len(fc["policies"]) == 3
     # sort the policies to have pre-determined order
@@ -138,7 +138,7 @@ def test_authentication_disabled_owned_by_opsmanager(replica_set: MongoDB):
 
     fc = replica_set.get_om_tester().get_feature_controls()
 
-    assert fc["externalManagementSystem"]["name"] == "mongodb-enterprise-operator"
+    assert fc["externalManagementSystem"]["name"] == OPERATOR_NAME
 
     # sort the policies to have pre-determined order
     policies = sorted(fc["policies"], key=lambda policy: policy["policy"])
@@ -176,5 +176,5 @@ def test_feature_controls_cleared_on_replica_set_deletion(replica_set: MongoDB):
     fc = replica_set.get_om_tester().get_feature_controls()
 
     # after deleting the replicaset the policies in the feature control are removed
-    assert fc["externalManagementSystem"]["name"] == "mongodb-enterprise-operator"
+    assert fc["externalManagementSystem"]["name"] == OPERATOR_NAME
     assert len(fc["policies"]) == 0

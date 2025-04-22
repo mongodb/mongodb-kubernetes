@@ -31,10 +31,10 @@ function generate_standalone_yaml() {
   mkdir -p "${charttmpdir}"
 
   FILES=(
-    "${charttmpdir}/enterprise-operator/templates/operator-roles.yaml"
-    "${charttmpdir}/enterprise-operator/templates/database-roles.yaml"
-    "${charttmpdir}/enterprise-operator/templates/operator-sa.yaml"
-    "${charttmpdir}/enterprise-operator/templates/operator.yaml"
+    "${charttmpdir}/kubernetes-operator/templates/operator-roles.yaml"
+    "${charttmpdir}/kubernetes-operator/templates/database-roles.yaml"
+    "${charttmpdir}/kubernetes-operator/templates/operator-sa.yaml"
+    "${charttmpdir}/kubernetes-operator/templates/operator.yaml"
   )
 
   # generate normal public example
@@ -53,9 +53,9 @@ function generate_standalone_yaml() {
     --set operator.webhook.registerConfiguration=false --set operator.webhook.installClusterRole=false ${HELM_OPTS[@]}
 
   # update kustomize files for OLM bundle with files generated for openshift
-  cp "${charttmpdir}/enterprise-operator/templates/operator.yaml" config/manager/manager.yaml
-  cp "${charttmpdir}/enterprise-operator/templates/database-roles.yaml" config/rbac/database-roles.yaml
-  cp "${charttmpdir}/enterprise-operator/templates/operator-roles.yaml" config/rbac/operator-roles.yaml
+  cp "${charttmpdir}/kubernetes-operator/templates/operator.yaml" config/manager/manager.yaml
+  cp "${charttmpdir}/kubernetes-operator/templates/database-roles.yaml" config/rbac/database-roles.yaml
+  cp "${charttmpdir}/kubernetes-operator/templates/operator-roles.yaml" config/rbac/operator-roles.yaml
 
   # generate multi-cluster public example
   rm -rf "${charttmpdir:?}/*"

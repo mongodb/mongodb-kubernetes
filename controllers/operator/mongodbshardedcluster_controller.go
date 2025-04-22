@@ -2828,7 +2828,7 @@ func (r *ShardedClusterReconcileHelper) getPodService(stsName string, memberClus
 
 	labelSelectors := map[string]string{
 		appsv1.StatefulSetPodNameLabel: dns.GetMultiPodName(stsName, memberCluster.Index, podNum),
-		util.OperatorLabelName:         util.OperatorName,
+		util.OperatorLabelName:         util.LegacyOperatorName,
 	}
 
 	svc := service.Builder().

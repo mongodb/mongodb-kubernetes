@@ -297,6 +297,8 @@ func ValidateCertificates(ctx context.Context, secretGetter secret.Getter, name,
 					return fmt.Sprintf("The Secret %s containing certificates is not valid. Entries must contain a certificate and a private key.", name), false
 				}
 			}
+		} else {
+			return err.Error(), false
 		}
 		return "", true
 	}
