@@ -26,7 +26,12 @@ from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 from kubernetes.stream import stream
 from kubetester.crypto import wait_for_certs_to_be_issued
+from opentelemetry import trace
 from requests.auth import HTTPBasicAuth, HTTPDigestAuth
+from tests import test_logger
+
+TRACER = trace.get_tracer("evergreen-agent")
+logger = test_logger.get_test_logger(__name__)
 
 SSL_CA_CERT = "/var/run/secrets/kubernetes.io/serviceaccount/..data/ca.crt"
 EXTERNALLY_MANAGED_TAG = "EXTERNALLY_MANAGED_BY_KUBERNETES"
@@ -182,12 +187,17 @@ class KubernetesTester(object):
         return {k: b64decode(v).decode("utf-8") for (k, v) in data.items()}
 
     @classmethod
-    def read_configmap(cls, namespace: str, name: str, api_client: Optional[client.ApiClient] = None) -> Dict[str, str]:
+    def read_configmap(
+        cls, namespace: str, name: str, api_client: Optional[client.ApiClient] = None, with_metadata=False
+    ) -> Dict[str, str]:
         corev1 = cls.clients("corev1")
         if api_client is not None:
             corev1 = client.CoreV1Api(api_client=api_client)
 
-        return corev1.read_namespaced_config_map(name, namespace).data
+        cm = corev1.read_namespaced_config_map(name, namespace)
+        if with_metadata:
+            return cm
+        return cm.data
 
     @classmethod
     def read_pod(cls, namespace: str, name: str) -> Dict[str, str]:
@@ -947,6 +957,16 @@ class KubernetesTester(object):
         return response.json()
 
     @staticmethod
+    def get_automation_status(group_id=None, group_name=None):
+        if group_id is None:
+            group_id = KubernetesTester.get_om_group_id(group_name=group_name)
+
+        url = build_automation_status_endpoint(KubernetesTester.get_om_base_url(), group_id)
+        response = KubernetesTester.om_request("get", url)
+
+        return response.json()
+
+    @staticmethod
     def get_monitoring_config(group_id=None):
         if group_id is None:
             group_id = KubernetesTester.get_om_group_id()
@@ -1542,6 +1562,10 @@ def build_om_groups_in_org_by_name_endpoint(base_url: string, org_id: string, na
 
 def build_automation_config_endpoint(base_url, group_id):
     return "{}/api/public/v1.0/groups/{}/automationConfig".format(base_url, group_id)
+
+
+def build_automation_status_endpoint(base_url, group_id):
+    return "{}/api/public/v1.0/groups/{}/automationStatus".format(base_url, group_id)
 
 
 def build_monitoring_config_endpoint(base_url, group_id):

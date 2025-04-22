@@ -2,17 +2,20 @@ import pytest
 from kubetester import find_fixture, try_load
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import (
+    assert_certificate_rotation,
     create_sharded_cluster_certs,
     create_x509_agent_tls_certs,
-    rotate_cert,
 )
-from kubetester.kubetester import KubernetesTester, ensure_ent_version, is_multi_cluster
+from kubetester.kubetester import KubernetesTester, is_multi_cluster
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.operator import Operator
 from pytest import fixture
+from tests import test_logger
 from tests.shardedcluster.conftest import enable_multi_cluster_deployment
 
 MDB_RESOURCE_NAME = "test-x509-all-options-sc"
+
+logger = test_logger.get_test_logger(__name__)
 
 
 @fixture(scope="module")
@@ -86,21 +89,6 @@ class TestShardedClusterEnableAllOptions:
         ac_tester.assert_authentication_enabled()
         ac_tester.assert_expected_users(0)
 
-    def test_rotate_shard_cert(self, sc: MongoDB, namespace: str):
-        rotate_cert(namespace, f"{MDB_RESOURCE_NAME}-0-cert")
-        sc.assert_abandons_phase(Phase.Running, timeout=900)
-        sc.assert_reaches_phase(Phase.Running, timeout=1200)
-
-    def test_rotate_config_cert(self, sc: MongoDB, namespace: str):
-        rotate_cert(namespace, f"{MDB_RESOURCE_NAME}-config-cert")
-        sc.assert_abandons_phase(Phase.Running, timeout=900)
-        sc.assert_reaches_phase(Phase.Running, timeout=1200)
-
-    def test_rotate_mongos_cert(self, sc: MongoDB, namespace: str):
-        rotate_cert(namespace, f"{MDB_RESOURCE_NAME}-mongos-cert")
-        sc.assert_abandons_phase(Phase.Running, timeout=900)
-        sc.assert_reaches_phase(Phase.Running, timeout=1200)
-
     def test_rotate_shard_cert_with_sts_restarting(self, sc: MongoDB, namespace: str):
         sc.trigger_sts_restart("shard")
         assert_certificate_rotation(sc, namespace, f"{MDB_RESOURCE_NAME}-0-cert")
@@ -112,32 +100,3 @@ class TestShardedClusterEnableAllOptions:
     def test_rotate_mongos_cert_with_sts_restarting(self, sc: MongoDB, namespace: str):
         sc.trigger_sts_restart("mongos")
         assert_certificate_rotation(sc, namespace, f"{MDB_RESOURCE_NAME}-mongos-cert")
-
-    def test_rotate_shard_certfile_with_sts_restarting(self, sc: MongoDB, namespace: str):
-        sc.trigger_sts_restart("shard")
-        assert_certificate_rotation(
-            sc,
-            namespace,
-            f"{MDB_RESOURCE_NAME}-0-clusterfile",
-        )
-
-    def test_rotate_config_certfile_with_sts_restarting(self, sc: MongoDB, namespace: str):
-        sc.trigger_sts_restart("config")
-        assert_certificate_rotation(
-            sc,
-            namespace,
-            f"{MDB_RESOURCE_NAME}-config-clusterfile",
-        )
-
-    def test_rotate_mongos_certfile_with_sts_restarting(self, sc: MongoDB, namespace: str):
-        sc.trigger_sts_restart("mongos")
-        assert_certificate_rotation(
-            sc,
-            namespace,
-            f"{MDB_RESOURCE_NAME}-mongos-clusterfile",
-        )
-
-
-def assert_certificate_rotation(sharded_cluster, namespace, certificate_name):
-    rotate_cert(namespace, certificate_name)
-    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1200)

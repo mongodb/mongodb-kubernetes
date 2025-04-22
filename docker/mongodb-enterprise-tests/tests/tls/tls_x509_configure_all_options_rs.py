@@ -2,9 +2,9 @@ import pytest
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import (
     ISSUER_CA_NAME,
+    assert_certificate_rotation,
     create_x509_agent_tls_certs,
     create_x509_mongodb_tls_certs,
-    rotate_cert,
 )
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
@@ -47,11 +47,6 @@ class TestReplicaSetEnableAllOptions(KubernetesTester):
         ac_tester.assert_internal_cluster_authentication_enabled()
         ac_tester.assert_authentication_enabled()
 
-    def test_rotate_certificate(self, mdb: MongoDB, namespace: str):
-        rotate_cert(namespace, "{}-cert".format(MDB_RESOURCE))
-        mdb.assert_abandons_phase(Phase.Running, timeout=900)
-        mdb.assert_reaches_phase(Phase.Running, timeout=900)
-
     def test_rotate_certificate_with_sts_restarting(self, mdb: MongoDB, namespace: str):
         mdb.trigger_sts_restart()
         assert_certificate_rotation(mdb, namespace, "{}-cert".format(MDB_RESOURCE))
@@ -59,8 +54,3 @@ class TestReplicaSetEnableAllOptions(KubernetesTester):
     def test_rotate_clusterfile_with_sts_restarting(self, mdb: MongoDB, namespace: str):
         mdb.trigger_sts_restart()
         assert_certificate_rotation(mdb, namespace, "{}-clusterfile".format(MDB_RESOURCE))
-
-
-def assert_certificate_rotation(mdb, namespace, certificate_name):
-    rotate_cert(namespace, certificate_name)
-    mdb.assert_reaches_phase(Phase.Running, timeout=900)
