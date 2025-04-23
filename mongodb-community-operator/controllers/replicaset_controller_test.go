@@ -35,8 +35,8 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/probes"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/resourcerequirements"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/secret"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/constants"
+	"github.com/10gen/ops-manager-kubernetes/pkg/statefulset"
 )
 
 const (

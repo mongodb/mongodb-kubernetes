@@ -68,7 +68,7 @@ func newMongoDBUserReconciler(ctx context.Context, kubeClient client.Client, omF
 
 func (r *MongoDBUserReconciler) getUser(ctx context.Context, request reconcile.Request, log *zap.SugaredLogger) (*userv1.MongoDBUser, error) {
 	user := &userv1.MongoDBUser{}
-	if _, err := r.getResource(ctx, request, user, log); err != nil {
+	if _, err := r.GetResource(ctx, request, user, log); err != nil {
 		return nil, err
 	}
 

@@ -1,7 +1,6 @@
 package statefulset
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,12 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-const (
-	TestNamespace = "test-ns"
-	TestName      = "test-name"
-)
-
-func TestGetContainerIndexByName(t *testing.T) {
+func TestGetContainerIndexByName_MCO(t *testing.T) {
 	containers := []corev1.Container{
 		{
 			Name: "container-0",
@@ -54,7 +48,7 @@ func TestGetContainerIndexByName(t *testing.T) {
 	assert.Equal(t, -1, idx)
 }
 
-func TestAddVolumeAndMount(t *testing.T) {
+func TestAddVolumeAndMount_MCO(t *testing.T) {
 	var stsBuilder *Builder
 	var sts appsv1.StatefulSet
 	var err error
@@ -105,7 +99,7 @@ func TestAddVolumeAndMount(t *testing.T) {
 	assert.NotNil(t, sts.Spec.Template.Spec.Volumes[1].Secret, "volume should have been configured from a secret source")
 }
 
-func TestAddVolumeClaimTemplates(t *testing.T) {
+func TestMCOAddVolumeClaimTemplates(t *testing.T) {
 	claim := corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "claim-0",
@@ -123,7 +117,7 @@ func TestAddVolumeClaimTemplates(t *testing.T) {
 	assert.Equal(t, sts.Spec.Template.Spec.Containers[0].VolumeMounts[0].Name, "mount-0")
 }
 
-func TestBuildStructImmutable(t *testing.T) {
+func TestBuildStructImmutable_MCO(t *testing.T) {
 	labels := map[string]string{"label_1": "a", "label_2": "b"}
 
 	stsBuilder := defaultStatefulSetBuilder().SetLabels(labels)
@@ -142,24 +136,7 @@ func TestBuildStructImmutable(t *testing.T) {
 	assert.Len(t, sts.Labels, 1)
 }
 
-func defaultStatefulSetBuilder() *Builder {
-	return NewBuilder().
-		SetName(TestName).
-		SetNamespace(TestNamespace).
-		SetServiceName(fmt.Sprintf("%s-svc", TestName)).
-		SetLabels(map[string]string{}).
-		SetUpdateStrategy(appsv1.RollingUpdateStatefulSetStrategyType)
-}
-
-func podTemplateWithContainers(containers []corev1.Container) corev1.PodTemplateSpec {
-	return corev1.PodTemplateSpec{
-		Spec: corev1.PodSpec{
-			Containers: containers,
-		},
-	}
-}
-
-func TestBuildStatefulSet_SortedEnvVariables(t *testing.T) {
+func TestBuildStatefulSet_SortedEnvVariables_MCO(t *testing.T) {
 	podTemplateSpec := podTemplateWithContainers([]corev1.Container{{Name: "container-name"}})
 	podTemplateSpec.Spec.Containers[0].Env = []corev1.EnvVar{
 		{Name: "one", Value: "X"},
