@@ -321,7 +321,7 @@ spec:
               value: Always
             # Database
             - name: MONGODB_ENTERPRISE_DATABASE_IMAGE
-              value: quay.io/mongodb/mongodb-kubernetes-database-ubi
+              value: quay.io/mongodb/mongodb-kubernetes-database
             - name: INIT_DATABASE_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-kubernetes-init-database
             - name: INIT_DATABASE_VERSION
