@@ -2,9 +2,9 @@ import pytest
 from kubetester import find_fixture, try_load
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import (
-    assert_certificate_rotation,
     create_sharded_cluster_certs,
     create_x509_agent_tls_certs,
+    rotate_and_assert_certificates,
 )
 from kubetester.kubetester import KubernetesTester, is_multi_cluster
 from kubetester.mongodb import MongoDB, Phase
@@ -91,12 +91,12 @@ class TestShardedClusterEnableAllOptions:
 
     def test_rotate_shard_cert_with_sts_restarting(self, sc: MongoDB, namespace: str):
         sc.trigger_sts_restart("shard")
-        assert_certificate_rotation(sc, namespace, f"{MDB_RESOURCE_NAME}-0-cert")
+        rotate_and_assert_certificates(sc, namespace, f"{MDB_RESOURCE_NAME}-0-cert")
 
     def test_rotate_config_cert_with_sts_restarting(self, sc: MongoDB, namespace: str):
         sc.trigger_sts_restart("config")
-        assert_certificate_rotation(sc, namespace, f"{MDB_RESOURCE_NAME}-config-cert")
+        rotate_and_assert_certificates(sc, namespace, f"{MDB_RESOURCE_NAME}-config-cert")
 
     def test_rotate_mongos_cert_with_sts_restarting(self, sc: MongoDB, namespace: str):
         sc.trigger_sts_restart("mongos")
-        assert_certificate_rotation(sc, namespace, f"{MDB_RESOURCE_NAME}-mongos-cert")
+        rotate_and_assert_certificates(sc, namespace, f"{MDB_RESOURCE_NAME}-mongos-cert")

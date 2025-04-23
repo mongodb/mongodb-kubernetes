@@ -896,7 +896,7 @@ def yield_existing_csrs(csr_names: List[str], timeout: int = 300) -> Generator[s
 
 
 @TRACER.start_as_current_span("assert_certificate_rotation")
-def assert_certificate_rotation(mdb, namespace, certificate_name):
+def rotate_and_assert_certificates(mdb, namespace, certificate_name):
     """
     Verifies certificate rotation completes successfully.
 
