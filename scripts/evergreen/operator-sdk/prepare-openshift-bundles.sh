@@ -8,7 +8,7 @@ source scripts/dev/set_env_context.sh
 RELEASE_JSON_PATH=${RELEASE_JSON_PATH:-"release.json"}
 VERSION=${VERSION:-$(jq -r .mongodbOperator < "${RELEASE_JSON_PATH}")}
 BUILD_DOCKER_IMAGES=${BUILD_DOCKER_IMAGES:-"false"}
-OPERATOR_IMAGE=${OPERATOR_IMAGE:-"quay.io/mongodb/mongodb-enterprise-operator-ubi:${VERSION}"}
+OPERATOR_IMAGE=${OPERATOR_IMAGE:-"quay.io/mongodb/mongodb-kubernetes:${VERSION}"}
 DOCKER_PLATFORM=${DOCKER_PLATFORM:-"linux/amd64"}
 
 mkdir -p bundle

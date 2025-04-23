@@ -16,7 +16,7 @@ operator:
   name: mongodb-kubernetes-operator
 
   # Name of the operator image
-  operator_image_name: mongodb-enterprise-operator-ubi
+  operator_image_name: mongodb-kubernetes
 
   # Name of the deployment of the operator pod
   deployment_name: mongodb-kubernetes-operator
@@ -115,11 +115,11 @@ operator:
 
 ## Database
 database:
-  name: mongodb-kubernetes-database-ubi
+  name: mongodb-kubernetes-database
   version: 0.1.0
 
 initDatabase:
-  name: mongodb-kubernetes-init-database-ubi
+  name: mongodb-kubernetes-init-database
   version: 0.1.0
 
 ## Ops Manager
@@ -127,12 +127,12 @@ opsManager:
   name: mongodb-enterprise-ops-manager-ubi
 
 initOpsManager:
-  name: mongodb-kubernetes-init-ops-manager-ubi
+  name: mongodb-kubernetes-init-ops-manager
   version: 0.1.0
 
 ## Application Database
 initAppDb:
-  name: mongodb-kubernetes-init-appdb-ubi
+  name: mongodb-kubernetes-init-appdb
   version: 0.1.0
 
 agent:

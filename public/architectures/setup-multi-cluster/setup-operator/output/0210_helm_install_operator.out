@@ -26,7 +26,7 @@ agent:
   name: mongodb-agent-ubi
   version: 108.0.2.8729-1
 database:
-  name: mongodb-enterprise-database-ubi
+  name: mongodb-kubernetes-database
   version: 1.33.0
 dummy: value
 initAppDb:
@@ -66,7 +66,7 @@ operator:
   name: mongodb-enterprise-operator-multi-cluster
   namespace: mongodb-operator
   nodeSelector: {}
-  operator_image_name: mongodb-enterprise-operator-ubi
+  operator_image_name: mongodb-kubernetes
   replicas: 1
   resources:
     limits:
@@ -224,7 +224,7 @@ spec:
         runAsUser: 2000
       containers:
         - name: mongodb-enterprise-operator-multi-cluster
-          image: "quay.io/mongodb/mongodb-enterprise-operator-ubi:1.33.0"
+          image: "quay.io/mongodb/mongodb-kubernetes:1.33.0"
           imagePullPolicy: Always
           args:
             - -watch-resource=mongodb
@@ -264,9 +264,9 @@ spec:
               value: Always
             # Database
             - name: MONGODB_ENTERPRISE_DATABASE_IMAGE
-              value: quay.io/mongodb/mongodb-kubernetes-database-ubi
+              value: quay.io/mongodb/mongodb-kubernetes-database
             - name: INIT_DATABASE_IMAGE_REPOSITORY
-              value: quay.io/mongodb/mongodb-kubernetes-init-database-ubi
+              value: quay.io/mongodb/mongodb-kubernetes-init-database
             - name: INIT_DATABASE_VERSION
               value: 1.33.0
             - name: DATABASE_VERSION
@@ -275,12 +275,12 @@ spec:
             - name: OPS_MANAGER_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-enterprise-ops-manager-ubi
             - name: INIT_OPS_MANAGER_IMAGE_REPOSITORY
-              value: quay.io/mongodb/mongodb-kubernetes-init-ops-manager-ubi
+              value: quay.io/mongodb/mongodb-kubernetes-init-ops-manager
             - name: INIT_OPS_MANAGER_VERSION
               value: 1.33.0
             # AppDB
             - name: INIT_APPDB_IMAGE_REPOSITORY
-              value: quay.io/mongodb/mongodb-kubernetes-init-appdb-ubi
+              value: quay.io/mongodb/mongodb-kubernetes-init-appdb
             - name: INIT_APPDB_VERSION
               value: 1.33.0
             - name: OPS_MANAGER_IMAGE_PULL_POLICY
