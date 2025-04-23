@@ -508,7 +508,14 @@ def build_operator_image(build_configuration: BuildConfiguration):
 
     logger.info(f"Building Operator args: {args}")
 
-    build_image_generic(build_configuration, "mongodb-kubernetes", "inventory.yaml", args)
+    image_name = "mongodb-kubernetes"
+    build_image_generic(
+        config=build_configuration,
+        image_name=image_name,
+        inventory_file="inventory.yaml",
+        extra_args=args,
+        registry_address=f"{QUAY_REGISTRY_URL}/{image_name}",
+    )
 
 
 def build_database_image(build_configuration: BuildConfiguration):
@@ -549,9 +556,7 @@ def build_operator_image_patch(build_configuration: BuildConfiguration):
 
     client = docker.from_env()
     # image that we know is where we build operator.
-    image_repo = (
-        build_configuration.base_repository + "/" + build_configuration.image_type + "/mongodb-enterprise-operator"
-    )
+    image_repo = build_configuration.base_repository + "/" + build_configuration.image_type + "/mongodb-kubernetes"
     image_tag = "latest"
     repo_tag = image_repo + ":" + image_tag
 
@@ -976,7 +981,7 @@ def build_image_generic(
         multi_arch_args_list = [extra_args or {}]
 
     version = multi_arch_args_list[0].get("version", "")  # the version is the same in multi-arch for each item
-    registry = f"{QUAY_REGISTRY_URL}/mongodb-enterprise-{image_name}" if not registry_address else registry_address
+    registry = f"{QUAY_REGISTRY_URL}/mongodb-kubernetes-{image_name}" if not registry_address else registry_address
 
     for args in multi_arch_args_list:  # in case we are building multiple architectures
         args["quay_registry"] = registry
