@@ -265,7 +265,7 @@ generate_helm_charts
 # prepare openshift bundles the same way it's built in release process from the current sources and helm charts.
 export CERTIFIED_BUNDLE_IMAGE=${current_bundle_image}
 export VERSION="${current_incremented_operator_version_from_release_json}"
-export OPERATOR_IMAGE="${OPERATOR_REGISTRY:-${REGISTRY}}/mongodb-enterprise-operator-ubi:${VERSION_ID}"
+export OPERATOR_IMAGE="${OPERATOR_REGISTRY:-${REGISTRY}}/mongodb-kubernetes:${VERSION_ID}"
 header "Preparing OpenShift bundles:"
 scripts/evergreen/operator-sdk/prepare-openshift-bundles.sh
 

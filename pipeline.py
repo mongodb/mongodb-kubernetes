@@ -647,7 +647,7 @@ def args_for_daily_image(image_name: str) -> Dict[str, str]:
         image_config("agent", name_prefix="mongodb-enterprise-"),
         image_config("init-database", ubi_suffix=""),
         image_config("init-ops-manager", ubi_suffix=""),
-        image_config("operator"),
+        image_config("mongodb-kubernetes", name_prefix="", ubi_suffix=""),
         image_config("ops-manager", name_prefix="mongodb-enterprise-"),
         image_config("mongodb-agent", name_prefix="", ubi_suffix="-ubi", base_suffix="-ubi"),
         image_config(

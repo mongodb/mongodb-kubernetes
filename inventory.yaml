@@ -52,7 +52,7 @@ images:
     buildargs:
       imagebase: $(inputs.params.registry)/operator-context:$(inputs.params.version_id)
     output:
-    - registry: $(inputs.params.registry)/mongodb-enterprise-operator-ubi
+    - registry: $(inputs.params.registry)/mongodb-kubernetes
       tag: $(inputs.params.version_id)
 
   - name: operator-ubi-race-build
@@ -61,17 +61,17 @@ images:
     buildargs:
       imagebase: $(inputs.params.registry)/operator-context:$(inputs.params.version_id)-race
     output:
-    - registry: $(inputs.params.registry)/mongodb-enterprise-operator-ubi
+    - registry: $(inputs.params.registry)/mongodb-kubernetes
       tag: $(inputs.params.version_id)-race
 
   - name: master-latest
     task_type: tag_image
     tags: [ "master" ]
     source:
-      registry: $(inputs.params.registry)/mongodb-enterprise-operator-ubi
+      registry: $(inputs.params.registry)/mongodb-kubernetes
       tag: $(inputs.params.version_id)
     destination:
-      - registry: $(inputs.params.registry)/mongodb-enterprise-operator-ubi
+      - registry: $(inputs.params.registry)/mongodb-kubernetes
         tag: latest
 
   - name: operator-context-release
