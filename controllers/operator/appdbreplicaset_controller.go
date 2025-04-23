@@ -794,7 +794,7 @@ func (r *ReconcileAppDbReplicaSet) deployAutomationConfigOnHealthyClusters(ctx c
 func getAppDBPodService(appdb omv1.AppDBSpec, clusterNum int, podNum int) corev1.Service {
 	svcLabels := map[string]string{
 		appsv1.StatefulSetPodNameLabel: appdb.GetPodName(clusterNum, podNum),
-		util.OperatorLabelName:                         util.LegacyOperatorName,
+		util.OperatorLabelName:         util.LegacyOperatorName,
 	}
 	svcLabels = merge.StringToStringMap(svcLabels, appdb.GetOwnerLabels())
 
