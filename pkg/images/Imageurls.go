@@ -138,7 +138,7 @@ func GetOfficialImage(imageUrls ImageUrls, version string, annotations map[strin
 		repoUrl = strings.TrimRight(repoUrl, "/")
 	}
 
-	assumeOldFormat := envvar.ReadBool(util.MdbAppdbAssumeOldFormat)
+	assumeOldFormat := envvar.ReadBool(util.MdbAppdbAssumeOldFormat) // nolint:forbidigo
 	if IsEnterpriseImage(imageURL) && !assumeOldFormat {
 		// 5.0.6-ent -> 5.0.6-ubi8
 		if strings.HasSuffix(version, "-ent") {
