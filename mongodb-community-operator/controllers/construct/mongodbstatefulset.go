@@ -47,12 +47,11 @@ const (
 
 	DefaultImageType = "ubi8"
 
-	versionUpgradeHookName       = "mongod-posthook"
-	ReadinessProbeContainerName  = "mongodb-agent-readinessprobe"
-	readinessProbePath           = "/opt/scripts/readinessprobe"
-	agentHealthStatusFilePathEnv = "AGENT_STATUS_FILEPATH"
-	clusterFilePath              = "/var/lib/automation/config/cluster-config.json"
-	// TODO: MCK create a new one and not just use appdb
+	versionUpgradeHookName            = "mongod-posthook"
+	ReadinessProbeContainerName       = "mongodb-agent-readinessprobe"
+	readinessProbePath                = "/opt/scripts/readinessprobe"
+	agentHealthStatusFilePathEnv      = "AGENT_STATUS_FILEPATH"
+	clusterFilePath                   = "/var/lib/automation/config/cluster-config.json"
 	mongodbDatabaseServiceAccountName = "mongodb-kubernetes-appdb"
 	agentHealthStatusFilePathValue    = "/var/log/mongodb-mms-automation/healthstatus/agent-health-status.json"
 
