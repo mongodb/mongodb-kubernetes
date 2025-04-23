@@ -14,8 +14,11 @@ from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongotester import ShardedClusterTester
 from kubetester.omtester import get_sc_cert_names
+from opentelemetry import trace
 from pytest import fixture
 from tests import test_logger
+
+TRACER = trace.get_tracer("evergreen-agent")
 
 MDB_RESOURCE = "sharded-cluster-x509-to-scram-256"
 USER_NAME = "mms-user-1"
@@ -95,11 +98,6 @@ class TestShardedClusterDisableAuthentication(KubernetesTester):
         tester = AutomationConfigTester(KubernetesTester.get_automation_config())
         tester.assert_authentication_mechanism_disabled("MONGODB-X509")
         tester.assert_authentication_disabled()
-
-
-from opentelemetry import trace
-
-TRACER = trace.get_tracer("evergreen-agent")
 
 
 @pytest.mark.e2e_sharded_cluster_x509_to_scram_transition
