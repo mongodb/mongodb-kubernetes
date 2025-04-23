@@ -508,7 +508,7 @@ def build_operator_image(build_configuration: BuildConfiguration):
 
     logger.info(f"Building Operator args: {args}")
 
-    build_image_generic(build_configuration, "operator", "inventory.yaml", args)
+    build_image_generic(build_configuration, "mongodb-kubernetes", "inventory.yaml", args)
 
 
 def build_database_image(build_configuration: BuildConfiguration):
@@ -1412,7 +1412,7 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         "init-ops-manager": build_init_om_image,
         #
         # Daily builds
-        "operator-daily": build_image_daily("operator"),
+        "operator-daily": build_image_daily("mongodb-kubernetes"),
         "appdb-daily": build_image_daily("appdb"),
         "database-daily": build_image_daily("database"),
         "init-appdb-daily": build_image_daily("init-appdb"),

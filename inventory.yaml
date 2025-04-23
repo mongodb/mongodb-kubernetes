@@ -4,7 +4,7 @@ vars:
   s3_bucket: s3://enterprise-operator-dockerfiles/dockerfiles/mongodb-enterprise-operator
 
 images:
-- name: operator
+- name: mongodb-kubernetes
   vars:
     context: .
     template_context: docker/mongodb-enterprise-operator
