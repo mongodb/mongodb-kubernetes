@@ -143,7 +143,7 @@ def test_mdb_created(some_mdb: MongoDB):
 # that everything works
 
 
-@mark.e2e_operator_upgrade_replica_set
+@mark.e2e_operator_upgrade_ops_manager
 def test_downscale_latest_official_operator(namespace: str):
     # Scale down the initial mongodb-enterprise-operator deployment to 0. This is needed as long as the
     # `official_operator` fixture installs the MEKO operator.

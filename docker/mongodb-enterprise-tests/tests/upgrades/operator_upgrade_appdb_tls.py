@@ -111,7 +111,7 @@ def test_create_om_non_tls(ops_manager_non_tls: MongoDBOpsManager):
     ops_manager_non_tls.assert_monitoring_data_exists()
 
 
-@mark.e2e_operator_upgrade_replica_set
+@mark.e2e_operator_upgrade_appdb_tls
 def test_downscale_latest_official_operator(namespace: str):
     # Scale down the initial mongodb-enterprise-operator deployment to 0. This is needed as long as the
     # `official_operator` fixture installs the MEKO operator.
