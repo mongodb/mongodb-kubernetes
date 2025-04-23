@@ -1,0 +1,9 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBSearch
+metadata:
+  name: mdbc-rs
+spec:
+  version: "1.47.0"
+  source:
+    mongodbResourceRef:
+      name: mdb-rs

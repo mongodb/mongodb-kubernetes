@@ -65,7 +65,3 @@ export ALWAYS_REMOVE_TESTING_NAMESPACE="true"
 # MCO settings
 ## whether we want to run cleanup after the run
 export PERFORM_CLEANUP=false
-
-# TODO: unify this with MEKO local operator
-## Should local runs use the local operator
-export MDB_LOCAL_OPERATOR=true
