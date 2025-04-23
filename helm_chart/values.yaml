@@ -117,7 +117,7 @@ database:
   version: 0.1.0
 
 initDatabase:
-  name: mongodb-kubernetes-init-database-ubi
+  name: mongodb-kubernetes-init-database
   version: 0.1.0
 
 ## Ops Manager
@@ -125,12 +125,12 @@ opsManager:
   name: mongodb-enterprise-ops-manager-ubi
 
 initOpsManager:
-  name: mongodb-kubernetes-init-ops-manager-ubi
+  name: mongodb-kubernetes-init-ops-manager
   version: 0.1.0
 
 ## Application Database
 initAppDb:
-  name: mongodb-kubernetes-init-appdb-ubi
+  name: mongodb-kubernetes-init-appdb
   version: 0.1.0
 
 agent:
