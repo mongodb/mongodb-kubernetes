@@ -54,7 +54,7 @@ func init() {
 
 // getReleaseJsonPath searches for a specified target directory by traversing the directory tree backwards from the current working directory
 func getReleaseJsonPath() (string, error) {
-	repositoryRootDirName := "ops-manager-kubernetes"
+	repositoryRootDirName := "mongodb-kubernetes"
 	releaseFileName := "release.json"
 
 	currentDir, err := os.Getwd()
