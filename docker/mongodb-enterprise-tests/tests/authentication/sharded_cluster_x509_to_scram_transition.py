@@ -14,9 +14,9 @@ from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongotester import ShardedClusterTester
 from kubetester.omtester import get_sc_cert_names
+from opentelemetry import trace
 from pytest import fixture
 from tests import test_logger
-from opentelemetry import trace
 
 TRACER = trace.get_tracer("evergreen-agent")
 

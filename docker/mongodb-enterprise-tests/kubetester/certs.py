@@ -13,8 +13,13 @@ import kubernetes
 from kubeobject import CustomObject
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-from kubetester import create_secret, delete_secret, random_k8s_name, \
-    read_secret, kubetester
+from kubetester import (
+    create_secret,
+    delete_secret,
+    kubetester,
+    random_k8s_name,
+    read_secret,
+)
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
