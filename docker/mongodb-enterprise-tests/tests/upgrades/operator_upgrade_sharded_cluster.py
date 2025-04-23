@@ -126,7 +126,7 @@ class TestShardedClusterDeployment:
 class TestOperatorUpgrade:
 
     def test_downscale_latest_official_operator(self, namespace: str):
-        # Scale down the initial mongodb-enterprise-operator deployment to 0. This is needed as long as the
+        # Scale down the existing operator deployment to 0. This is needed as long as the
         # `official_operator` fixture installs the MEKO operator.
         downscale_operator_deployment(deployment_name=LEGACY_OPERATOR_NAME, namespace=namespace)
 
@@ -159,7 +159,7 @@ class TestOperatorUpgrade:
 @pytest.mark.e2e_operator_upgrade_sharded_cluster
 class TestOperatorDowngrade:
     def test_downscale_default_operator(self, namespace: str):
-        # Scale down the initial mongodb-enterprise-operator deployment to 0. This is needed as long as the
+        # Scale down the existing operator deployment to 0. This is needed as long as the
         # `official_operator` fixture installs the MEKO operator.
         downscale_operator_deployment(deployment_name=OPERATOR_NAME, namespace=namespace)
 
