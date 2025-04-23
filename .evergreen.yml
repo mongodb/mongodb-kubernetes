@@ -355,7 +355,7 @@ tasks:
         params:
           include_expansions_in_env:
             - GH_TOKEN
-          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          working_dir: src/github.com/10gen/ops-manager-kubernetes
           binary: scripts/evergreen/precommit_bump.sh
 
   # Pct only triggers this variant once a new agent image is out
