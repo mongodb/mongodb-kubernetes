@@ -13,8 +13,10 @@ import kubernetes
 from kubeobject import CustomObject
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-from kubetester import create_secret, delete_secret, random_k8s_name, read_secret
+from kubetester import create_secret, delete_secret, random_k8s_name, \
+    read_secret, kubetester
 from kubetester.kubetester import KubernetesTester
+from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from opentelemetry import trace
 from tests import test_logger
@@ -904,36 +906,18 @@ def assert_certificate_rotation(mdb, namespace, certificate_name):
     rotate_cert(namespace, certificate_name, should_block_until_ready=True)
 
     # Create named function to check version and process status
-    def check_version_and_processes():
-        auto_status = KubernetesTester.get_automation_status()
-        goal_version = auto_status.get("goalVersion")
+    def check_version_increased():
 
         current_version = KubernetesTester.get_automation_config()["version"]
         version_increased = current_version > old_ac_version
 
-        logger.info(f"Checking if all processes have reached goal version: {goal_version}")
-        processes_not_ready = []
-        for process in auto_status.get("processes", []):
-            process_name = process.get("name", "unknown")
-            process_version = process.get("lastGoalVersionAchieved")
-            if process_version != goal_version:
-                logger.info(f"Process {process_name} at version {process_version}, expected {goal_version}")
-                processes_not_ready.append(process_name)
-
-        all_processes_ready = len(processes_not_ready) == 0
-        if all_processes_ready:
-            logger.info("All processes have reached the goal version")
-        else:
-            logger.info(f"{len(processes_not_ready)} processes have not yet reached the goal version")
-
-        return version_increased and all_processes_ready
+        return version_increased
 
     timeout = 600
     KubernetesTester.wait_until(
-        check_version_and_processes,
+        check_version_increased,
         timeout=timeout,
     )
-
-    from kubetester.mongodb import Phase
+    kubetester.wait_processes_ready()
 
     mdb.assert_reaches_phase(Phase.Running, timeout=1200)

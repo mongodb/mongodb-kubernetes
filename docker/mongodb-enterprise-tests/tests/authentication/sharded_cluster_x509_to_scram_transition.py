@@ -1,4 +1,7 @@
+import time
+
 import pytest
+from kubetester import kubetester
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import (
     ISSUER_CA_NAME,
@@ -12,11 +15,16 @@ from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongotester import ShardedClusterTester
 from kubetester.omtester import get_sc_cert_names
 from pytest import fixture
+from tests import test_logger
+from opentelemetry import trace
+
+TRACER = trace.get_tracer("evergreen-agent")
 
 MDB_RESOURCE = "sharded-cluster-x509-to-scram-256"
 USER_NAME = "mms-user-1"
 PASSWORD_SECRET_NAME = "mms-user-1-password"
 USER_PASSWORD = "my-password"
+logger = test_logger.get_test_logger(__name__)
 
 
 @fixture(scope="module")
@@ -76,6 +84,8 @@ def test_x509_is_still_configured():
 @pytest.mark.e2e_sharded_cluster_x509_to_scram_transition
 class TestShardedClusterDisableAuthentication(KubernetesTester):
     def test_disable_auth(self, sharded_cluster: MongoDB):
+        kubetester.wait_processes_ready()
+        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=800)
         sharded_cluster.load()
         sharded_cluster["spec"]["security"]["authentication"]["enabled"] = False
         sharded_cluster.update()
@@ -92,7 +102,11 @@ class TestShardedClusterDisableAuthentication(KubernetesTester):
 
 @pytest.mark.e2e_sharded_cluster_x509_to_scram_transition
 class TestCanEnableScramSha256:
-    def test_can_enable_scram_sha_256(self, sharded_cluster: MongoDB):
+    @TRACER.start_as_current_span("test_can_enable_scram_sha_256")
+    def test_can_enable_scram_sha_256(self, sharded_cluster: MongoDB, ca_path: str):
+        kubetester.wait_processes_ready()
+        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=800)
+
         sharded_cluster.load()
         sharded_cluster["spec"]["security"]["authentication"]["enabled"] = True
         sharded_cluster["spec"]["security"]["authentication"]["modes"] = [
@@ -100,7 +114,7 @@ class TestCanEnableScramSha256:
         ]
         sharded_cluster["spec"]["security"]["authentication"]["agents"]["mode"] = "SCRAM"
         sharded_cluster.update()
-        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1200)
+        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=800)
 
     def test_assert_connectivity(self, ca_path: str):
         ShardedClusterTester(MDB_RESOURCE, 1, ssl=True, ca_path=ca_path).assert_connectivity(attempts=25)
