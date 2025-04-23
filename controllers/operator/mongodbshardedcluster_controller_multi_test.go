@@ -24,9 +24,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
-
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -37,6 +34,9 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1/common"
+	kubernetesClient "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/configmap"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/test"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -2764,7 +2764,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 					ClusterName: memberClusterName1,
 					ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
 						ExternalService: mdbv1.ExternalServiceConfiguration{
-							SpecWrapper: &mdbv1.ServiceSpecWrapper{
+							SpecWrapper: &common.ServiceSpecWrapper{
 								Spec: corev1.ServiceSpec{
 									Type: "LoadBalancer",
 									Ports: []corev1.ServicePort{
@@ -2880,7 +2880,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 					ClusterName: memberClusterName1,
 					ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
 						ExternalService: mdbv1.ExternalServiceConfiguration{
-							SpecWrapper: &mdbv1.ServiceSpecWrapper{
+							SpecWrapper: &common.ServiceSpecWrapper{
 								Spec: corev1.ServiceSpec{
 									Type: "NodePort",
 									Ports: []corev1.ServicePort{
@@ -2902,7 +2902,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 					ClusterName: memberClusterName2,
 					ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
 						ExternalService: mdbv1.ExternalServiceConfiguration{
-							SpecWrapper: &mdbv1.ServiceSpecWrapper{
+							SpecWrapper: &common.ServiceSpecWrapper{
 								Spec: corev1.ServiceSpec{
 									Type: "NodePort",
 									Ports: []corev1.ServicePort{
@@ -2925,7 +2925,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 					ClusterName: memberClusterName3,
 					ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
 						ExternalService: mdbv1.ExternalServiceConfiguration{
-							SpecWrapper: &mdbv1.ServiceSpecWrapper{
+							SpecWrapper: &common.ServiceSpecWrapper{
 								Spec: corev1.ServiceSpec{
 									Type: "NodePort",
 									Ports: []corev1.ServicePort{
@@ -3057,7 +3057,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 								create.PlaceholderClusterName:         "{clusterName}",
 								create.PlaceholderClusterIndex:        "{clusterIndex}",
 							},
-							SpecWrapper: &mdbv1.ServiceSpecWrapper{
+							SpecWrapper: &common.ServiceSpecWrapper{
 								Spec: corev1.ServiceSpec{
 									Type: "LoadBalancer",
 									Ports: []corev1.ServicePort{
@@ -3092,7 +3092,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 								create.PlaceholderClusterName:         "{clusterName}",
 								create.PlaceholderClusterIndex:        "{clusterIndex}",
 							},
-							SpecWrapper: &mdbv1.ServiceSpecWrapper{
+							SpecWrapper: &common.ServiceSpecWrapper{
 								Spec: corev1.ServiceSpec{
 									Type: "LoadBalancer",
 									Ports: []corev1.ServicePort{
@@ -3127,7 +3127,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 								create.PlaceholderClusterName:         "{clusterName}",
 								create.PlaceholderClusterIndex:        "{clusterIndex}",
 							},
-							SpecWrapper: &mdbv1.ServiceSpecWrapper{
+							SpecWrapper: &common.ServiceSpecWrapper{
 								Spec: corev1.ServiceSpec{
 									Type: "LoadBalancer",
 									Ports: []corev1.ServicePort{

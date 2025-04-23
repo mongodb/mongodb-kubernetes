@@ -3,15 +3,16 @@ import json
 import subprocess
 import sys
 from typing import Dict, List, Set
+
+from sonar import process_image
+
 from scripts.ci.base_logger import logger
 from scripts.ci.images_signing import (
+    mongodb_artifactory_login,
     sign_image,
     verify_signature,
-    mongodb_artifactory_login,
 )
-
-from scripts.dev.dev_config import load_config, DevConfig
-from sonar.sonar import process_image
+from scripts.dev.dev_config import DevConfig, load_config
 
 # These image names must correspond to prefixes in release.json, developer configuration and inventories
 VALID_IMAGE_NAMES = {
@@ -128,9 +129,7 @@ def build_and_push_image(
     if release:
         registry = args["registry"] + "/" + args["image"]
         context_tag = args["release_version"] + "-context"
-        push_manifest(
-            config, architectures, args["image"], insecure, args["release_version"]
-        )
+        push_manifest(config, architectures, args["image"], insecure, args["release_version"])
         push_manifest(config, architectures, args["image"], insecure, context_tag)
         if sign:
             sign_and_verify(registry, args["release_version"])
@@ -251,9 +250,7 @@ def main() -> int:
 
     image_name = args.image_name
     if image_name not in VALID_IMAGE_NAMES:
-        logger.error(
-            f"Invalid image name: {image_name}. Valid options are: {VALID_IMAGE_NAMES}"
-        )
+        logger.error(f"Invalid image name: {image_name}. Valid options are: {VALID_IMAGE_NAMES}")
         return 1
 
     # Handle dev config
@@ -262,9 +259,7 @@ def main() -> int:
 
     # Warn user if trying to release E2E tests
     if args.release and image_name == "e2e":
-        logger.warning(
-            "Warning : releasing E2E test will fail because E2E image has no release version"
-        )
+        logger.warning("Warning : releasing E2E test will fail because E2E image has no release version")
 
     # Skipping release tasks by default
     if not args.release:
@@ -284,9 +279,7 @@ def main() -> int:
 
     image_args = build_image_args(config, image_name)
 
-    build_and_push_image(
-        image_name, config, image_args, arch_set, args.release, args.sign, args.insecure
-    )
+    build_and_push_image(image_name, config, image_args, arch_set, args.release, args.sign, args.insecure)
     return 0
 
 

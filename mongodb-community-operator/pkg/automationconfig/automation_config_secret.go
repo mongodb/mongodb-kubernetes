@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/secret"
 )
 
 const ConfigKey = "cluster-config.json"

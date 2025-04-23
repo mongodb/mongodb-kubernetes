@@ -5,21 +5,19 @@ import (
 	"fmt"
 	"reflect"
 
-	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/envvar"
-
-	mdbv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
-)
 
-const testDataDirEnv = "TEST_DATA_DIR"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1/common"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/secret"
+)
 
 // TestLabels should be applied to all resources created by tests.
 func TestLabels() map[string]string {
@@ -33,14 +31,6 @@ func TestAnnotations() map[string]string {
 	return map[string]string{
 		"e2e-test-annotated": "true",
 	}
-}
-
-func TestDataDir() string {
-	return envvar.GetEnvOrDefault(testDataDirEnv, "/workspace/testdata") // nolint:forbidigo
-}
-
-func TlsTestDataDir() string {
-	return fmt.Sprintf("%s/tls", TestDataDir())
 }
 
 // UpdateMongoDBResource applies the provided function to the most recent version of the MongoDB resource
@@ -111,8 +101,8 @@ func NewTestMongoDB(ctx *TestContext, name string, namespace string) (mdbv1.Mong
 					ScramCredentialsSecretName: fmt.Sprintf("%s-my-scram", name),
 				},
 			},
-			StatefulSetConfiguration: mdbv1.StatefulSetConfiguration{
-				SpecWrapper: mdbv1.StatefulSetSpecWrapper{
+			StatefulSetConfiguration: common.StatefulSetConfiguration{
+				SpecWrapper: common.StatefulSetSpecWrapper{
 					Spec: appsv1.StatefulSetSpec{
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
@@ -146,7 +136,8 @@ func NewTestMongoDB(ctx *TestContext, name string, namespace string) (mdbv1.Mong
 								},
 							},
 						},
-					}},
+					},
+				},
 			},
 		},
 	}

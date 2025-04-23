@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+script_name=$(readlink -f "${BASH_SOURCE[0]}")
+script_dir=$(dirname "${script_name}")
+
+source "${script_dir}/root-context"
+
+# TODO: MCK This variable is needed otherwise the `fetch_om_information.sh` script is called and fails the test
+export OM_EXTERNALLY_CONFIGURED="true"

@@ -7,11 +7,12 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/readiness/config"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/readiness/health"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/readiness/pod"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/readiness/secret"
 	"go.uber.org/zap"
+
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/readiness/config"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/readiness/health"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/readiness/pod"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/readiness/secret"
 )
 
 const (
@@ -37,7 +38,11 @@ func PerformCheckHeadlessMode(ctx context.Context, health health.Status, conf co
 			if err != nil {
 				return false, err
 			}
-			defer file.Close()
+			defer func() {
+				if closeErr := file.Close(); closeErr != nil {
+					zap.S().Warnf("Failed to close automation config version file: %v", closeErr)
+				}
+			}()
 
 			data, err := io.ReadAll(file)
 			if err != nil {

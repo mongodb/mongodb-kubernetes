@@ -4,13 +4,15 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/pod"
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/types"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/pod"
 )
 
 const (

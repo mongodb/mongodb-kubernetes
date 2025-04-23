@@ -13,13 +13,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/envvar"
-
 	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
+	mcov1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/envvar"
 	"github.com/10gen/ops-manager-kubernetes/pkg/images"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
@@ -206,6 +206,7 @@ func collectDeploymentsSnapshot(ctx context.Context, operatorClusterMgr manager.
 	events = append(events, addMultiEvents(ctx, operatorClusterClient, operatorUUID, mongodbImage, databaseNonStaticImage, now)...)
 	// No need to pass databaseNonStaticImage because it is for sure not enterprise image
 	events = append(events, addOmEvents(ctx, operatorClusterClient, operatorUUID, mongodbImage, now)...)
+	events = append(events, addCommunityEvents(ctx, operatorClusterClient, operatorUUID, mongodbImage, now)...)
 	return events
 }
 
@@ -330,6 +331,30 @@ func createEvent(properties any, now time.Time, eventType EventType) *Event {
 	}
 }
 
+func addCommunityEvents(ctx context.Context, operatorClusterClient kubeclient.Client, operatorUUID, mongodbImage string, now time.Time) []Event {
+	var events []Event
+	communityList := &mcov1.MongoDBCommunityList{}
+
+	if err := operatorClusterClient.List(ctx, communityList); err != nil {
+		Logger.Warnf("failed to fetch MongoDBCommunityList from Kubernetes: %v", err)
+	} else {
+		for _, item := range communityList.Items {
+			properties := DeploymentUsageSnapshotProperties{
+				DeploymentUID:            string(item.UID),
+				OperatorID:               operatorUUID,
+				Architecture:             "static", // Community operator is always static
+				IsMultiCluster:           false,    // Community operator doesn't support multi-cluster
+				Type:                     "Community",
+				IsRunningEnterpriseImage: images.IsEnterpriseImage(mongodbImage),
+			}
+			if event := createEvent(properties, now, Deployments); event != nil {
+				events = append(events, *event)
+			}
+		}
+	}
+	return events
+}
+
 func getMaxNumberOfClustersSCIsDeployedOn(item mdbv1.MongoDB) int {
 	var numberOfClustersUsed int
 	if item.Spec.ConfigSrvSpec != nil {
@@ -392,6 +417,7 @@ func collectClustersSnapshot(ctx context.Context, memberClusterMap map[string]Co
 			events = append(events, *event)
 		}
 	}
+
 	return events
 }
 

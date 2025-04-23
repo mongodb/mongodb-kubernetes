@@ -4,12 +4,12 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
-
 	"github.com/stretchr/testify/assert"
-	appsv1 "k8s.io/api/apps/v1"
 
+	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/merge"
 )
 
 func TestGetLabelSelectorRequirementByKey(t *testing.T) {
@@ -45,7 +45,6 @@ func TestGetLabelSelectorRequirementByKey(t *testing.T) {
 				key: "test-key",
 			},
 			want: &metav1.LabelSelectorRequirement{
-
 				Key: "test-key",
 			},
 		},
@@ -60,7 +59,6 @@ func TestGetLabelSelectorRequirementByKey(t *testing.T) {
 }
 
 func TestMergeSpec(t *testing.T) {
-
 	original := New(
 		WithName("original"),
 		WithServiceName("original-svc-name"),

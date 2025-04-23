@@ -6,16 +6,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
-	e2eutil "github.com/mongodb/mongodb-kubernetes-operator/test/e2e"
-	"github.com/mongodb/mongodb-kubernetes-operator/test/e2e/mongodbtests"
-	"github.com/mongodb/mongodb-kubernetes-operator/test/e2e/setup"
-	"github.com/mongodb/mongodb-kubernetes-operator/test/e2e/util/mongotester"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/controllers/construct"
+	e2eutil "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e/mongodbtests"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e/setup"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e/util/mongotester"
 )
 
 func DeployEnterpriseAndUpgradeTest(ctx context.Context, t *testing.T, versionsToBeTested []string) {
-	t.Setenv(construct.MongodbRepoUrlEnv, "docker.io/mongodb")
-	t.Setenv(construct.MongodbImageEnv, "mongodb-enterprise-server")
+	t.Setenv(construct.MongodbCommunityRepoUrlEnv, "docker.io/mongodb")
+	t.Setenv(construct.MongodbCommunityImageEnv, "mongodb-enterprise-server")
 	testCtx := setup.Setup(ctx, t)
 	defer testCtx.Teardown()
 

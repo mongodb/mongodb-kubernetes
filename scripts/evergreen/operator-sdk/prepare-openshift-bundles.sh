@@ -8,7 +8,7 @@ source scripts/dev/set_env_context.sh
 RELEASE_JSON_PATH=${RELEASE_JSON_PATH:-"release.json"}
 VERSION=${VERSION:-$(jq -r .mongodbOperator < "${RELEASE_JSON_PATH}")}
 BUILD_DOCKER_IMAGES=${BUILD_DOCKER_IMAGES:-"false"}
-OPERATOR_IMAGE=${OPERATOR_IMAGE:-"quay.io/mongodb/mongodb-enterprise-operator-ubi:${VERSION}"}
+OPERATOR_IMAGE=${OPERATOR_IMAGE:-"quay.io/mongodb/mongodb-kubernetes:${VERSION}"}
 DOCKER_PLATFORM=${DOCKER_PLATFORM:-"linux/amd64"}
 
 mkdir -p bundle
@@ -21,7 +21,7 @@ mv bundle.Dockerfile "./bundle/${VERSION}/bundle.Dockerfile"
 minimum_supported_openshift_version=$(jq -r .openshift.minimumSupportedVersion < "${RELEASE_JSON_PATH}")
 bundle_annotations_file="bundle/${VERSION}/metadata/annotations.yaml"
 bundle_dockerfile="bundle/${VERSION}/bundle.Dockerfile"
-bundle_csv_file="bundle/${VERSION}/manifests/mongodb-enterprise.clusterserviceversion.yaml"
+bundle_csv_file="bundle/${VERSION}/manifests/mongodb-kubernetes.clusterserviceversion.yaml"
 
 echo "Aligning metadata.annotations.containerImage version with deployment's image in ${bundle_csv_file}"
 operator_deployment_image=$(yq '.spec.install.spec.deployments[0].spec.template.spec.containers[0].image' < "${bundle_csv_file}")
@@ -42,11 +42,11 @@ echo "Running digest pinning for certified bundle"
 # This can fail during the release because the latest image is not available yet and will be available the next day/next daily rebuild.
 # We decided to skip digest pinning during the as it is a post-processing step and it should be fine to skip it when testing OLM during the release.
 if [[ "${DIGEST_PINNING_ENABLED:-"true"}" == "true" ]]; then
-  operator_image=$(yq ".spec.install.spec.deployments[0].spec.template.spec.containers[0].image" < ./bundle/"${VERSION}"/manifests/mongodb-enterprise.clusterserviceversion.yaml)
-  operator_annotation_image=$(yq ".metadata.annotations.containerImage" < ./bundle/"${VERSION}"/manifests/mongodb-enterprise.clusterserviceversion.yaml)
+  operator_image=$(yq ".spec.install.spec.deployments[0].spec.template.spec.containers[0].image" < ./bundle/"${VERSION}"/manifests/mongodb-kubernetes.clusterserviceversion.yaml)
+  operator_annotation_image=$(yq ".metadata.annotations.containerImage" < ./bundle/"${VERSION}"/manifests/mongodb-kubernetes.clusterserviceversion.yaml)
   if [[ "${operator_image}" != "${operator_annotation_image}" ]]; then
     echo "Inconsistent operator images in CSV (.spec.install.spec.deployments[0].spec.template.spec.containers[0].image=${operator_image}, .metadata.annotations.containerImage=${operator_annotation_image})"
-    cat ./bundle/"${VERSION}"/manifests/mongodb-enterprise.clusterserviceversion.yaml
+    cat ./bundle/"${VERSION}"/manifests/mongodb-kubernetes.clusterserviceversion.yaml
     exit 1
   fi
 
@@ -58,7 +58,7 @@ if [[ "${DIGEST_PINNING_ENABLED:-"true"}" == "true" ]]; then
   fi
 fi
 
-certified_bundle_file="./bundle/operator-certified-${VERSION}.tgz"
+certified_bundle_file="./bundle/mck-operator-certified-${VERSION}.tgz"
 echo "Generating certified bundle"
 tar -czvf "${certified_bundle_file}" "./bundle/${VERSION}"
 

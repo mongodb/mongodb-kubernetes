@@ -6,11 +6,10 @@ import (
 	"os"
 	"testing"
 
-	. "github.com/mongodb/mongodb-kubernetes-operator/test/e2e/util/mongotester"
-
-	e2eutil "github.com/mongodb/mongodb-kubernetes-operator/test/e2e"
-	"github.com/mongodb/mongodb-kubernetes-operator/test/e2e/mongodbtests"
-	"github.com/mongodb/mongodb-kubernetes-operator/test/e2e/setup"
+	e2eutil "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e/mongodbtests"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e/setup"
+	. "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e/util/mongotester"
 )
 
 func TestMain(m *testing.M) {
@@ -107,5 +106,4 @@ func TestReplicaSetWithConnectionString(t *testing.T) {
 		t.Run("Test SRV Connectivity with generated connection string secret",
 			tester.ConnectivityRejected(ctx, WithURI(mongodbtests.GetSrvConnectionStringForUser(ctx, mdb, scramUser))))
 	})
-
 }

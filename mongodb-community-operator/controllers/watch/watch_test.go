@@ -4,19 +4,16 @@ import (
 	"context"
 	"testing"
 
-	"k8s.io/apimachinery/pkg/types"
-
-	mdbv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-
 	"github.com/stretchr/testify/assert"
-
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllertest"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/util/workqueue"
 
-	"sigs.k8s.io/controller-runtime/pkg/event"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
 )
 
 func TestWatcher(t *testing.T) {

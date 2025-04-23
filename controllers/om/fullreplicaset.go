@@ -3,9 +3,8 @@ package om
 import (
 	"strconv"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
-
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/automationconfig"
 )
 
 // ReplicaSetWithProcesses is a wrapper for replica set and processes that match to it

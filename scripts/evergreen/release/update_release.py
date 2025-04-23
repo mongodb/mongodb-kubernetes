@@ -19,11 +19,17 @@ def get_latest_om_versions_from_evergreen_yml():
     return data["variables"][0], data["variables"][1]
 
 
-def trim_versions(versions_list, number_of_versions=3):
+def trim_versions(versions_list, number_of_versions=3, always_keep=None):
     """
-    Keep only the latest number_of_versions versions per major version in a versions list.
+    Keep only the latest number_of_versions versions per major version in a versions list,
+    plus any versions specified in always_keep.
     Returns a sorted list with trimmed versions.
     """
+
+    # TODO: mck test release
+    if always_keep is None:
+        always_keep = ["0.1.0"]
+
     major_version_groups = defaultdict(list)
     for v in versions_list:
         try:
@@ -31,14 +37,20 @@ def trim_versions(versions_list, number_of_versions=3):
             major_version_groups[major_version].append(v)
         except (IndexError, AttributeError):
             # Keep versions that don't follow the expected format
-            # In MEKO we didn't follow semver
             continue
 
     trimmed_versions = []
+    # Add versions that should always be kept
+    for v in always_keep:
+        if v in versions_list and v not in trimmed_versions:
+            trimmed_versions.append(v)
+
     for major_version, versions in major_version_groups.items():
         versions.sort(key=lambda x: version.parse(x), reverse=True)
         latest_versions = versions[:number_of_versions]
-        trimmed_versions.extend(latest_versions)
+        for v in latest_versions:
+            if v not in trimmed_versions:
+                trimmed_versions.append(v)
 
     # Sort the final list in ascending order
     trimmed_versions.sort(key=lambda x: version.parse(x))

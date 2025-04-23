@@ -12,9 +12,9 @@ import (
 	"github.com/hashicorp/go-retryablehttp"
 	"go.uber.org/zap"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/envvar"
-
 	atlas "go.mongodb.org/atlas/mongodbatlas"
+
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/envvar"
 )
 
 type Client struct {

@@ -23,7 +23,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 
-	mcoConstruct "github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
 	corev1 "k8s.io/api/core/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -40,6 +39,10 @@ import (
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
+	mcov1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
+	mcoController "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/controllers"
+	mcoConstruct "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/controllers/construct"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/envvar"
 	"github.com/10gen/ops-manager-kubernetes/pkg/images"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/telemetry"
@@ -55,6 +58,7 @@ const (
 	mongoDBUserCRDPlural         = "mongodbusers"
 	mongoDBOpsManagerCRDPlural   = "opsmanagers"
 	mongoDBMultiClusterCRDPlural = "mongodbmulticluster"
+	mongoDBCommunityCRDPlural    = "mongodbcommunity"
 )
 
 var (
@@ -74,8 +78,8 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(apiv1.AddToScheme(scheme))
+	utilruntime.Must(mcov1.AddToScheme(scheme))
 	utilruntime.Must(corev1.AddToScheme(scheme))
-
 	// +kubebuilder:scaffold:scheme
 
 	flag.Var(&crds, "watch-resource", "A Watch Resource specifies if the Operator should watch the given resource")
@@ -97,8 +101,10 @@ func (c *crdsToWatch) String() string {
 func main() {
 	flag.Parse()
 	// If no CRDs are specified, we set default to non-multicluster CRDs
+	// TODO MCK: consider not making mongoDBCommunityCRDPlural part of the default list
+	// what happens if we watch this, but its not installed?
 	if len(crds) == 0 {
-		crds = crdsToWatch{mongoDBCRDPlural, mongoDBUserCRDPlural, mongoDBOpsManagerCRDPlural}
+		crds = crdsToWatch{mongoDBCRDPlural, mongoDBUserCRDPlural, mongoDBOpsManagerCRDPlural, mongoDBCommunityCRDPlural}
 	}
 
 	ctx := context.Background()
@@ -236,6 +242,22 @@ func main() {
 		log.Infof("Registered CRD: %s", r)
 	}
 
+	if slices.Contains(crds, mongoDBCommunityCRDPlural) {
+		if err := setupCommunityController(
+			mgr,
+			envvar.GetEnvOrDefault(mcoConstruct.MongodbCommunityRepoUrlEnv, "quay.io/mongodb"),
+			// when running MCO resource -> mongodb-community-server
+			// when running appdb -> mongodb-enterprise-server
+			env.ReadOrPanic(mcoConstruct.MongodbCommunityImageEnv),
+			envvar.GetEnvOrDefault(mcoConstruct.MongoDBCommunityImageTypeEnv, mcoConstruct.DefaultImageType),
+			os.Getenv(util.MongodbCommunityAgentImageEnv),
+			os.Getenv(mcoConstruct.VersionUpgradeHookImageEnv),
+			os.Getenv(mcoConstruct.ReadinessProbeImageEnv),
+		); err != nil {
+			log.Fatal(err)
+		}
+	}
+
 	if telemetry.IsTelemetryActivated() {
 		log.Info("Running telemetry component!")
 		telemetryRunnable, err := telemetry.NewLeaderRunnable(mgr, memberClusterObjectsMap, currentNamespace, imageUrls[mcoConstruct.MongodbImageEnv], imageUrls[util.NonStaticDatabaseEnterpriseImage], getOperatorEnv())
@@ -286,6 +308,26 @@ func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, image
 		return err
 	}
 	return ctrl.NewWebhookManagedBy(mgr).For(&mdbmultiv1.MongoDBMultiCluster{}).Complete()
+}
+
+func setupCommunityController(
+	mgr manager.Manager,
+	mongodbRepoURL string,
+	mongodbImage string,
+	mongodbImageType string,
+	agentImage string,
+	versionUpgradeHookImage string,
+	readinessProbeImage string,
+) error {
+	return mcoController.NewReconciler(
+		mgr,
+		mongodbRepoURL, //
+		mongodbImage,   // defaults to enterprise in appdb, here should be community
+		mongodbImageType,
+		agentImage,
+		versionUpgradeHookImage,
+		readinessProbeImage,
+	).SetupWithManager(mgr)
 }
 
 // getMemberClusters retrieves the member clusters from the configmap util.MemberListConfigMapName
@@ -372,6 +414,7 @@ func initializeEnvironment() {
 		"POD_WAIT_",
 		"OPERATOR_ENV",
 		"WATCH_NAMESPACE",
+		"NAMESPACE",
 		"MANAGED_SECURITY_CONTEXT",
 		"IMAGE_PULL_SECRETS",
 		"MONGODB_ENTERPRISE_",

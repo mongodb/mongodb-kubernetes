@@ -2,11 +2,11 @@
   "mongodbToolsBundle": {
     "ubi": "mongodb-database-tools-rhel88-x86_64-100.11.0.tgz"
   },
-  "mongodbOperator": "1.33.0",
-  "initDatabaseVersion": "1.33.0",
-  "initOpsManagerVersion": "1.33.0",
-  "initAppDbVersion": "1.33.0",
-  "databaseImageVersion": "1.33.0",
+  "mongodbOperator": "0.1.0",
+  "initDatabaseVersion": "0.1.0",
+  "initOpsManagerVersion": "0.1.0",
+  "initAppDbVersion": "0.1.0",
+  "databaseImageVersion": "0.1.0",
   "agentVersion": "108.0.2.8729-1",
   "openshift": {
     "minimumSupportedVersion": "4.6"
@@ -52,6 +52,7 @@
       "Description": "We support 3 last versions, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "ssdlc_name": "MongoDB Enterprise Kubernetes Operator",
       "versions": [
+        "0.1.0",
         "1.31.0",
         "1.32.0",
         "1.33.0"
@@ -142,6 +143,7 @@
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "ssdlc_name": "MongoDB Enterprise Kubernetes Operator Init Ops Manager",
       "versions": [
+        "0.1.0",
         "1.31.0",
         "1.32.0",
         "1.33.0"
@@ -154,6 +156,7 @@
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "ssdlc_name": "MongoDB Enterprise Kubernetes Operator Init Database",
       "versions": [
+        "0.1.0",
         "1.31.0",
         "1.32.0",
         "1.33.0"
@@ -166,6 +169,7 @@
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "ssdlc_name": "MongoDB Enterprise Kubernetes Operator Init AppDB",
       "versions": [
+        "0.1.0",
         "1.31.0",
         "1.32.0",
         "1.33.0"
@@ -178,6 +182,7 @@
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "ssdlc_name": "MongoDB Enterprise Kubernetes Operator Database",
       "versions": [
+        "0.1.0",
         "1.31.0",
         "1.32.0",
         "1.33.0"

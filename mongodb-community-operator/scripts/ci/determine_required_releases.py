@@ -5,7 +5,7 @@
 
 import json
 import sys
-from typing import List, Dict
+from typing import Dict, List
 
 import requests
 
@@ -21,9 +21,7 @@ QUAY_URL_MAP: Dict[str, List[str]] = {
     "version-upgrade-hook": [
         "https://quay.io/api/v1/repository/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook"
     ],
-    "operator": [
-        "https://quay.io/api/v1/repository/mongodb/mongodb-kubernetes-operator"
-    ],
+    "operator": ["https://quay.io/api/v1/repository/mongodb/mongodb-kubernetes-operator"],
 }
 
 
@@ -72,17 +70,13 @@ def main() -> int:
 
     if image_name not in name_to_version_map:
         raise ValueError(
-            "Unknown image type [{}], valid values are [{}]".format(
-                image_name, ",".join(name_to_version_map.keys())
-            )
+            "Unknown image type [{}], valid values are [{}]".format(image_name, ",".join(name_to_version_map.keys()))
         )
 
     if image_name not in QUAY_URL_MAP:
         raise ValueError("No associated image urls for key [{}]".format(image_name))
 
-    if _all_urls_are_released(
-        QUAY_URL_MAP[image_name], name_to_version_map[image_name]
-    ):
+    if _all_urls_are_released(QUAY_URL_MAP[image_name], name_to_version_map[image_name]):
         print("released")
     else:
         print("unreleased")

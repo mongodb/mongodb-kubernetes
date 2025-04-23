@@ -473,6 +473,24 @@ def build_tests_image(build_configuration: BuildConfiguration):
     sonar_build_image(image_name, build_configuration, buildargs, "inventories/test.yaml")
 
 
+def build_mco_tests_image(build_configuration: BuildConfiguration):
+    """
+    Builds image used to run community tests.
+    """
+    image_name = "community-operator-e2e"
+
+    # TODO: MCK update
+    # TODO: MCK copy go mod to build the community image
+
+    golang_version = os.getenv("GOLANG_VERSION", "1.24")
+    if golang_version == "":
+        raise Exception("Missing PYTHON_VERSION environment variable")
+
+    buildargs = dict({"golang_version": golang_version})
+
+    sonar_build_image(image_name, build_configuration, buildargs, "inventories/mco_test.yaml")
+
+
 def build_operator_image(build_configuration: BuildConfiguration):
     """Calculates arguments required to build the operator image, and starts the build process."""
     # In evergreen, we can pass test_suffix env to publish the operator to a quay
@@ -598,7 +616,7 @@ def get_supported_variants_for_image(image: str) -> List[str]:
 
 def image_config(
     image_name: str,
-    name_prefix: str = "mongodb-enterprise-",
+    name_prefix: str = "mongodb-kubernetes-",
     s3_bucket: str = "enterprise-operator-dockerfiles",
     ubi_suffix: str = "-ubi",
     base_suffix: str = "",
@@ -625,12 +643,12 @@ def args_for_daily_image(image_name: str) -> Dict[str, str]:
     """
     image_configs = [
         image_config("database"),
-        image_config("init-appdb"),
-        image_config("agent"),
-        image_config("init-database"),
-        image_config("init-ops-manager"),
-        image_config("operator"),
-        image_config("ops-manager"),
+        image_config("init-appdb", ubi_suffix=""),
+        image_config("agent", name_prefix="mongodb-enterprise-"),
+        image_config("init-database", ubi_suffix=""),
+        image_config("init-ops-manager", ubi_suffix=""),
+        image_config("mongodb-kubernetes", name_prefix="", ubi_suffix=""),
+        image_config("ops-manager", name_prefix="mongodb-enterprise-"),
         image_config("mongodb-agent", name_prefix="", ubi_suffix="-ubi", base_suffix="-ubi"),
         image_config(
             image_name="mongodb-kubernetes-operator",
@@ -1005,6 +1023,64 @@ def build_init_appdb(build_configuration: BuildConfiguration):
     build_image_generic(build_configuration, "init-appdb", "inventories/init_appdb.yaml", args)
 
 
+def build_community_image(build_configuration: BuildConfiguration, image_type: str):
+    """
+    Builds image for community components (readiness probe, upgrade hook).
+
+    Args:
+        build_configuration: The build configuration to use
+        image_type: Type of image to build ("readiness-probe" or "upgrade-hook")
+    """
+
+    if image_type == "readiness-probe":
+        image_name = "mongodb-kubernetes-readinessprobe"
+        inventory_file = "inventories/readiness_probe.yaml"
+    elif image_type == "upgrade-hook":
+        image_name = "mongodb-kubernetes-operator-version-upgrade-post-start-hook"
+        inventory_file = "inventories/upgrade_hook.yaml"
+    else:
+        raise ValueError(f"Unsupported image type: {image_type}")
+
+    version, is_release = get_git_release_tag()
+    golang_version = os.getenv("GOLANG_VERSION", "1.24")
+    architectures = build_configuration.architecture or ["amd64", "arm64"]
+    multi_arch_args_list = []
+
+    for arch in architectures:
+        arch_args = {
+            "version": version,
+            "golang_version": golang_version,
+            "architecture": arch,
+        }
+        multi_arch_args_list.append(arch_args)
+
+    ecr_registry = os.environ.get("BASE_REPO_URL", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
+    base_repo = QUAY_REGISTRY_URL if is_release else ecr_registry
+
+    build_image_generic(
+        config=build_configuration,
+        image_name=image_name,
+        multi_arch_args_list=multi_arch_args_list,
+        inventory_file=inventory_file,
+        registry_address=f"{base_repo}/{image_name}",
+        is_multi_arch=True,
+    )
+
+
+def build_readiness_probe_image(build_configuration: BuildConfiguration):
+    """
+    Builds image used for readiness probe.
+    """
+    build_community_image(build_configuration, "readiness-probe")
+
+
+def build_upgrade_hook_image(build_configuration: BuildConfiguration):
+    """
+    Builds image used for version upgrade post-start hook.
+    """
+    build_community_image(build_configuration, "upgrade-hook")
+
+
 def build_agent_in_sonar(
     build_configuration: BuildConfiguration,
     image_version,
@@ -1238,7 +1314,7 @@ def _build_agent_operator(
     # We could rely on input params (quay_registry or registry), but it makes templating more complex in the inventory
     non_quay_registry = os.environ.get("REGISTRY", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
     base_init_database_repo = QUAY_REGISTRY_URL if use_quay else non_quay_registry
-    init_database_image = f"{base_init_database_repo}/mongodb-enterprise-init-database-ubi:{operator_version}"
+    init_database_image = f"{base_init_database_repo}/mongodb-kubernetes-init-database:{operator_version}"
 
     tasks_queue.put(
         executor.submit(
@@ -1321,6 +1397,10 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         "cli": build_CLI_SBOM,
         "test": build_tests_image,
         "operator": build_operator_image,
+        "mco-test": build_mco_tests_image,
+        # TODO: add support to build this per patch
+        "readiness-probe": build_readiness_probe_image,
+        "upgrade-hook": build_upgrade_hook_image,
         "operator-quick": build_operator_image_patch,
         "database": build_database_image,
         "agent-pct": build_agent_on_agent_bump,

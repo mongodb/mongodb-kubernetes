@@ -18,11 +18,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
-
-	mcoConstruct "github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -41,6 +36,11 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1/common"
+	mcoConstruct "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/controllers/construct"
+	kubernetesClient "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/secret"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/images"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
@@ -254,8 +254,8 @@ func TestShardedClusterReconcileContainerImages(t *testing.T) {
 	initDatabaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_2_0_0", util.InitDatabaseImageUrlEnv)
 
 	imageUrlsMock := images.ImageUrls{
-		databaseRelatedImageEnv:     "quay.io/mongodb/mongodb-enterprise-database:@sha256:MONGODB_DATABASE",
-		initDatabaseRelatedImageEnv: "quay.io/mongodb/mongodb-enterprise-init-database:@sha256:MONGODB_INIT_DATABASE",
+		databaseRelatedImageEnv:     "quay.io/mongodb/mongodb-kubernetes-database:@sha256:MONGODB_DATABASE",
+		initDatabaseRelatedImageEnv: "quay.io/mongodb/mongodb-kubernetes-init-database:@sha256:MONGODB_INIT_DATABASE",
 	}
 
 	ctx := context.Background()
@@ -279,8 +279,8 @@ func TestShardedClusterReconcileContainerImages(t *testing.T) {
 			require.Len(t, sts.Spec.Template.Spec.InitContainers, 1)
 			require.Len(t, sts.Spec.Template.Spec.Containers, 1)
 
-			assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-database:@sha256:MONGODB_INIT_DATABASE", sts.Spec.Template.Spec.InitContainers[0].Image)
-			assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-database:@sha256:MONGODB_DATABASE", sts.Spec.Template.Spec.Containers[0].Image)
+			assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-database:@sha256:MONGODB_INIT_DATABASE", sts.Spec.Template.Spec.InitContainers[0].Image)
+			assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-database:@sha256:MONGODB_DATABASE", sts.Spec.Template.Spec.Containers[0].Image)
 		})
 	}
 }
@@ -332,8 +332,8 @@ func TestReconcilePVCResizeShardedCluster(t *testing.T) {
 	ctx := context.Background()
 	// First creation
 	sc := test.DefaultClusterBuilder().SetShardCountSpec(2).SetShardCountStatus(2).Build()
-	persistence := mdbv1.Persistence{
-		SingleConfig: &mdbv1.PersistenceConfig{
+	persistence := common.Persistence{
+		SingleConfig: &common.PersistenceConfig{
 			Storage: "1Gi",
 		},
 	}

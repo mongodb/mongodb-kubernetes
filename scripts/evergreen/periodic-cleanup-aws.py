@@ -7,12 +7,12 @@ import boto3
 
 REPOSITORIES_NAMES = [
     "dev/mongodb-agent-ubi",
-    "dev/mongodb-enterprise-init-appdb-ubi",
+    "dev/mongodb-kubernetes-init-appdb",
     "dev/mongodb-enterprise-database-ubi",
-    "dev/mongodb-enterprise-init-database-ubi",
-    "dev/mongodb-enterprise-init-ops-manager-ubi",
+    "dev/mongodb-kubernetes-init-database",
+    "dev/mongodb-kubernetes-init-ops-manager",
     "dev/mongodb-enterprise-ops-manager-ubi",
-    "dev/mongodb-enterprise-operator-ubi",
+    "dev/mongodb-kubernetes",
 ]
 REGISTRY_ID = "268558157000"
 REGION = "us-east-1"

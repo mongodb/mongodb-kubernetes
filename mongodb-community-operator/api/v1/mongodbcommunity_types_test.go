@@ -2,16 +2,16 @@ package v1
 
 import (
 	"encoding/json"
-
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/authtypes"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/constants"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/authentication/authtypes"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/constants"
 )
 
 type args struct {
@@ -112,7 +112,8 @@ func TestMongoDB_MongoURI_With_Options(t *testing.T) {
 			name:      "my-rs",
 			namespace: "my-namespace",
 			additionalConnectionStringConfig: map[string]interface{}{
-				"readPreference": "primary", "replicaSet": "differentName", "tls": true, "ssl": true},
+				"readPreference": "primary", "replicaSet": "differentName", "tls": true, "ssl": true,
+			},
 			connectionString: "mongodb://my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/?replicaSet=my-rs&readPreference=primary",
 		},
 		{
@@ -120,7 +121,8 @@ func TestMongoDB_MongoURI_With_Options(t *testing.T) {
 			name:      "my-single-rs",
 			namespace: "my-single-namespace",
 			additionalConnectionStringConfig: map[string]interface{}{
-				"readPreference": "primary"},
+				"readPreference": "primary",
+			},
 			connectionString: "mongodb://my-single-rs-0.my-single-rs-svc.my-single-namespace.svc.cluster.local:27017/?replicaSet=my-single-rs&readPreference=primary",
 		},
 		{
@@ -128,7 +130,8 @@ func TestMongoDB_MongoURI_With_Options(t *testing.T) {
 			name:      "my-big-rs",
 			namespace: "my-big-namespace",
 			additionalConnectionStringConfig: map[string]interface{}{
-				"readPreference": "primary"},
+				"readPreference": "primary",
+			},
 			connectionString: "mongodb://my-big-rs-0.my-big-rs-svc.my-big-namespace.svc.cluster.local:27017,my-big-rs-1.my-big-rs-svc.my-big-namespace.svc.cluster.local:27017,my-big-rs-2.my-big-rs-svc.my-big-namespace.svc.cluster.local:27017,my-big-rs-3.my-big-rs-svc.my-big-namespace.svc.cluster.local:27017,my-big-rs-4.my-big-rs-svc.my-big-namespace.svc.cluster.local:27017/?replicaSet=my-big-rs&readPreference=primary",
 		},
 		{
@@ -136,7 +139,8 @@ func TestMongoDB_MongoURI_With_Options(t *testing.T) {
 			name:      "my-rs",
 			namespace: "my-namespace",
 			additionalConnectionStringConfig: map[string]interface{}{
-				"readPreference": "primary"},
+				"readPreference": "primary",
+			},
 			additionalMongodConfig: map[string]interface{}{
 				"net.port": 40333.,
 			},
@@ -161,13 +165,15 @@ func TestMongoDB_MongoSRVURI(t *testing.T) {
 func TestMongoDB_MongoSRVURI_With_Options(t *testing.T) {
 	mdb := newReplicaSet(2, "my-rs", "my-namespace")
 	mdb.Spec.AdditionalConnectionStringConfig.Object = map[string]interface{}{
-		"readPreference": "primary"}
+		"readPreference": "primary",
+	}
 	assert.Equal(t, mdb.MongoSRVURI(""), "mongodb+srv://my-rs-svc.my-namespace.svc.cluster.local/?replicaSet=my-rs&readPreference=primary")
 	assert.Equal(t, mdb.MongoSRVURI("my.cluster"), "mongodb+srv://my-rs-svc.my-namespace.svc.my.cluster/?replicaSet=my-rs&readPreference=primary")
 
 	mdb = newReplicaSet(2, "my-rs", "my-namespace")
 	mdb.Spec.AdditionalConnectionStringConfig.Object = map[string]interface{}{
-		"readPreference": "primary", "replicaSet": "differentName", "tls": true, "ssl": true}
+		"readPreference": "primary", "replicaSet": "differentName", "tls": true, "ssl": true,
+	}
 	assert.Equal(t, mdb.MongoSRVURI(""), "mongodb+srv://my-rs-svc.my-namespace.svc.cluster.local/?replicaSet=my-rs&readPreference=primary")
 	assert.Equal(t, mdb.MongoSRVURI("my.cluster"), "mongodb+srv://my-rs-svc.my-namespace.svc.my.cluster/?replicaSet=my-rs&readPreference=primary")
 }
@@ -287,7 +293,6 @@ func TestGetScramCredentialsSecretName(t *testing.T) {
 	for _, tt := range testusers {
 		assert.Equal(t, tt.exp, tt.in.GetScramCredentialsSecretName())
 	}
-
 }
 
 func TestGetConnectionStringSecretName(t *testing.T) {
@@ -363,7 +368,8 @@ func TestMongoDBCommunity_MongoAuthUserURI(t *testing.T) {
 		},
 		{
 			additionalConnectionStringConfig: map[string]interface{}{
-				"readPreference": "primary", "replicaSet": "differentName", "tls": true, "ssl": true},
+				"readPreference": "primary", "replicaSet": "differentName", "tls": true, "ssl": true,
+			},
 			connectionString: "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&readPreference=primary",
 		},
 		{
@@ -374,7 +380,8 @@ func TestMongoDBCommunity_MongoAuthUserURI(t *testing.T) {
 		{
 			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
 			userConnectionStringConfig: map[string]interface{}{
-				"readPreference": "primary", "replicaSet": "differentName", "tls": true, "ssl": true},
+				"readPreference": "primary", "replicaSet": "differentName", "tls": true, "ssl": true,
+			},
 			connectionString: "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&readPreference=primary",
 		},
 		{
@@ -422,7 +429,8 @@ func TestMongoDBCommunity_MongoAuthUserSRVURI(t *testing.T) {
 		},
 		{
 			additionalConnectionStringConfig: map[string]interface{}{
-				"readPreference": "primary", "replicaSet": "differentName", "tls": true, "ssl": true},
+				"readPreference": "primary", "replicaSet": "differentName", "tls": true, "ssl": true,
+			},
 			connectionString: "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&readPreference=primary",
 		},
 		{
@@ -433,7 +441,8 @@ func TestMongoDBCommunity_MongoAuthUserSRVURI(t *testing.T) {
 		{
 			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
 			userConnectionStringConfig: map[string]interface{}{
-				"readPreference": "primary", "replicaSet": "differentName", "tls": true, "ssl": true},
+				"readPreference": "primary", "replicaSet": "differentName", "tls": true, "ssl": true,
+			},
 			connectionString: "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&readPreference=primary",
 		},
 		{
@@ -613,7 +622,6 @@ func TestMongoDBCommunity_AgentCertificatePemSecretNamespacedName(t *testing.T) 
 
 	m.Spec.Security.Authentication.AgentCertificateSecret = &corev1.LocalObjectReference{Name: "agent-certs-custom"}
 	assert.Equal(t, "agent-certs-custom-pem", m.AgentCertificatePemSecretNamespacedName().Name)
-
 }
 
 func TestMongoDBCommunitySpec_GetAgentAuthMode(t *testing.T) {

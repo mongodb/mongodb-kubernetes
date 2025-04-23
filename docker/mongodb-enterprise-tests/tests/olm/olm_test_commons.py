@@ -6,6 +6,7 @@ import time
 from typing import Callable
 
 import kubetester
+import pytest
 import requests
 import yaml
 from kubeobject import CustomObject
@@ -61,17 +62,6 @@ def get_catalog_source_resource(namespace: str, image: str) -> CustomObject:
     return resource
 
 
-def get_package_manifest_resource(namespace: str, manifest_name: str = "mongodb-enterprise") -> CustomObject:
-    return CustomObject(
-        manifest_name,
-        namespace,
-        "PackageManifest",
-        "packagemanifests",
-        "packages.operators.coreos.com",
-        "v1",
-    )
-
-
 def get_subscription_custom_object(name: str, namespace: str, spec: dict[str, str]) -> CustomObject:
     resource = CustomObject(
         name,
@@ -94,7 +84,7 @@ def get_registry():
 
 
 def get_catalog_image(version: str):
-    return f"{get_registry()}/mongodb-enterprise-operator-certified-catalog:{version}"
+    return f"{get_registry()}/mongodb-kubernetes-test-catalog:{version}"
 
 
 def list_operator_pods(namespace: str, name: str) -> list[client.V1Pod]:
@@ -151,8 +141,10 @@ def get_current_operator_version() -> str:
     return get_release_json()["mongodbOperator"]
 
 
-def get_latest_released_operator_version() -> str:
-    released_operators_url = f"https://api.github.com/repos/redhat-openshift-ecosystem/certified-operators/contents/operators/mongodb-enterprise"
+def get_latest_released_operator_version(package_name: str) -> str:
+    released_operators_url = (
+        f"https://api.github.com/repos/redhat-openshift-ecosystem/certified-operators/contents/operators/{package_name}"
+    )
     response = requests.get(released_operators_url, headers={"Accept": "application/vnd.github.v3+json"})
 
     if response.status_code != 200:
@@ -181,11 +173,9 @@ def increment_patch_version(version: str):
     return ".".join([major, minor, str(int(patch) + 1)])
 
 
-def wait_for_operator_ready(namespace: str, expected_operator_version: str):
+def wait_for_operator_ready(namespace: str, name: str, expected_operator_version: str):
     def wait_for_operator_ready_fn():
-        return check_operator_pod_ready_and_with_condition_version(
-            namespace, "mongodb-enterprise-operator", expected_operator_version
-        )
+        return check_operator_pod_ready_and_with_condition_version(namespace, name, expected_operator_version)
 
     run_periodically(
         wait_for_operator_ready_fn,

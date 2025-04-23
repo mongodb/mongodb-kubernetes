@@ -3,18 +3,18 @@ package client
 import (
 	"context"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/pod"
+	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/service"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	"k8s.io/apimachinery/pkg/types"
 	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/configmap"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/pod"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/secret"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/service"
+	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/statefulset"
 )
 
 func NewClient(c k8sClient.Client) Client {

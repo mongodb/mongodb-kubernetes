@@ -13,14 +13,26 @@ import kubernetes
 from kubeobject import CustomObject
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-from kubetester import create_secret, delete_secret, random_k8s_name, read_secret
+from kubetester import (
+    create_secret,
+    delete_secret,
+    kubetester,
+    random_k8s_name,
+    read_secret,
+)
 from kubetester.kubetester import KubernetesTester
+from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
+from opentelemetry import trace
+from tests import test_logger
 from tests.vaultintegration import (
     store_secret_in_vault,
     vault_namespace_name,
     vault_sts_name,
 )
+
+TRACER = trace.get_tracer("evergreen-agent")
+logger = test_logger.get_test_logger(__name__)
 
 ISSUER_CA_NAME = "ca-issuer"
 
@@ -161,11 +173,13 @@ def generate_cert(
     return secret_name
 
 
-def rotate_cert(namespace, certificate_name):
+def rotate_cert(namespace, certificate_name, should_block_until_ready=False):
     cert = Certificate(name=certificate_name, namespace=namespace)
     cert.load()
     cert["spec"]["dnsNames"].append("foo")  # Append DNS to cert to rotate the certificate
     cert.update()
+    if should_block_until_ready:
+        cert.block_until_ready()
 
 
 def create_tls_certs(
@@ -879,3 +893,36 @@ def yield_existing_csrs(csr_names: List[str], timeout: int = 300) -> Generator[s
     raise AssertionError(
         f"Expected to find {total_csrs} csrs, but only found {seen_csrs} after {timeout} seconds. Expected csrs {csr_names}"
     )
+
+
+@TRACER.start_as_current_span("assert_certificate_rotation")
+def rotate_and_assert_certificates(mdb, namespace, certificate_name):
+    """
+    Verifies certificate rotation completes successfully.
+
+    Rotates the specified certificate and validates that:
+    1. Automation config version increases, as cert changes causes a new ac version
+    2. All MongoDB processes reach the new goal version
+    3. MongoDB instance returns/stays to Running state
+
+    """
+
+    old_ac_version = KubernetesTester.get_automation_config()["version"]
+    rotate_cert(namespace, certificate_name, should_block_until_ready=True)
+
+    # Create named function to check version and process status
+    def check_version_increased():
+
+        current_version = KubernetesTester.get_automation_config()["version"]
+        version_increased = current_version > old_ac_version
+
+        return version_increased
+
+    timeout = 600
+    KubernetesTester.wait_until(
+        check_version_increased,
+        timeout=timeout,
+    )
+    kubetester.wait_processes_ready()
+
+    mdb.assert_reaches_phase(Phase.Running, timeout=1200)
