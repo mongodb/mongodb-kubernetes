@@ -13,6 +13,7 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.constants import MONGODB_PORT
 from tests.conftest import (
+    LEGACY_OPERATOR_NAME,
     get_multi_cluster_operator,
     is_multi_cluster,
     log_deployments_info,
@@ -112,9 +113,7 @@ def test_install_replicaset(replica_set: MongoDB):
 
 @mark.e2e_meko_mck_upgrade
 def test_downscale_latest_official_operator(namespace: str):
-    deployment_name = (
-        "mongodb-enterprise-operator-multi-cluster" if is_multi_cluster() else "mongodb-enterprise-operator"
-    )
+    deployment_name = LEGACY_OPERATOR_NAME + "-multi-cluster" if is_multi_cluster() else LEGACY_OPERATOR_NAME
     # Patch to scale deployment to 0 replicas
     body = {"spec": {"replicas": 0}}
     apps_v1 = client.AppsV1Api()
