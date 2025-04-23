@@ -6,9 +6,10 @@ from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 from tests.conftest import (
+    LEGACY_OPERATOR_NAME,
     create_appdb_certs,
     install_official_operator,
-    is_multi_cluster, LEGACY_OPERATOR_NAME,
+    is_multi_cluster,
 )
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 from tests.upgrades import downscale_operator_deployment
