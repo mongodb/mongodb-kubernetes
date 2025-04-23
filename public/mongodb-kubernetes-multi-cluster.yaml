@@ -156,10 +156,13 @@ rules:
       - opsmanagers/finalizers
       - mongodbmulticluster
       - mongodbmulticluster/finalizers
+      - mongodbsearch
+      - mongodbsearch/finalizers
       - mongodb/status
       - mongodbusers/status
       - opsmanagers/status
       - mongodbmulticluster/status
+      - mongodbsearch/status
 
   - apiGroups:
       - ''
@@ -285,6 +288,8 @@ spec:
             - -watch-resource=mongodb
             - -watch-resource=opsmanagers
             - -watch-resource=mongodbusers
+            - -watch-resource=mongodbcommunity
+            - -watch-resource=mongodbsearch
             - -watch-resource=mongodbmulticluster
           command:
             - /usr/local/bin/mongodb-kubernetes-operator
@@ -376,6 +381,12 @@ spec:
             - name: MDB_COMMUNITY_IMAGE_TYPE
               value: "ubi8"
             # Community Env Vars End
+            - name: MDB_SEARCH_COMMUNITY_REPO_URL
+              value: "quay.io/mongodb"
+            - name: MDB_SEARCH_COMMUNITY_NAME
+              value: "mongodb-search-community"
+            - name: MDB_SEARCH_COMMUNITY_VERSION
+              value: "1.47.0"
       volumes:
         - name: kube-config-volume
           secret:

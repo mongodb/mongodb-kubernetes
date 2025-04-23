@@ -224,7 +224,7 @@ dump_diagnostics() {
     dump_objects mongodbusers "MongoDBUser Resources" "${namespace}"
     dump_objects opsmanagers "MongoDBOpsManager Resources" "${namespace}"
     dump_objects mongodbmulticluster "MongoDB Multi Resources" "${namespace}"
-    dump_objects mongodbcommunity "MongoDB Community Resources" "${namespace}"
+    dump_objects mongodbsearch "MongoDB Search Resources" "${namespace}"
 
     header "All namespace resources"
     kubectl get all -n "${namespace}"
