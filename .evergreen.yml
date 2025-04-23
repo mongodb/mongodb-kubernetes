@@ -231,7 +231,6 @@ git_tag_aliases:
     variant_tags: [ "release" ]
     task_tags: [ "image_release", "image_preflight", "openshift_bundles", "code_snippets" ]
 
-# TODO: MCK: have this part of e2e.sh and its expansions
 tasks:
   - name: unit_tests_golang
     tags: [ "unit_tests" ]
