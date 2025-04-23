@@ -8,9 +8,10 @@ from pytest import fixture, mark
 from tests.conftest import (
     create_appdb_certs,
     install_official_operator,
-    is_multi_cluster,
+    is_multi_cluster, LEGACY_OPERATOR_NAME,
 )
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
+from tests.upgrades import downscale_operator_deployment
 
 APPDB_NAME = "om-appdb-upgrade-tls-db"
 
@@ -107,6 +108,13 @@ def test_create_om_non_tls(ops_manager_non_tls: MongoDBOpsManager):
     ops_manager_non_tls.om_status().assert_reaches_phase(Phase.Running, timeout=900)
     ops_manager_non_tls.get_om_tester().assert_healthiness()
     ops_manager_non_tls.assert_monitoring_data_exists()
+
+
+@mark.e2e_operator_upgrade_replica_set
+def test_downscale_latest_official_operator(namespace: str):
+    # Scale down the initial mongodb-enterprise-operator deployment to 0. This is needed as long as the
+    # `official_operator` fixture installs the MEKO operator.
+    downscale_operator_deployment(deployment_name=LEGACY_OPERATOR_NAME, namespace=namespace)
 
 
 @mark.e2e_operator_upgrade_appdb_tls

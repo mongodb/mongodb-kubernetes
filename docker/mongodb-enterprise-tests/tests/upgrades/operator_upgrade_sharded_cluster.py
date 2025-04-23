@@ -1,6 +1,9 @@
 from typing import Dict
 
 import pytest
+from kubernetes import client
+from kubernetes.client import ApiException
+
 from kubetester import read_configmap
 from kubetester.certs import create_sharded_cluster_certs
 from kubetester.kubetester import fixture as yaml_fixture
@@ -11,8 +14,9 @@ from tests import test_logger
 from tests.conftest import (
     LEGACY_DEPLOYMENT_STATE_VERSION,
     install_official_operator,
-    log_deployments_info,
+    log_deployments_info, LEGACY_OPERATOR_NAME, OPERATOR_NAME,
 )
+from tests.upgrades import downscale_operator_deployment
 
 MDB_RESOURCE = "sh001-base"
 CERT_PREFIX = "prefix"
@@ -119,6 +123,12 @@ class TestShardedClusterDeployment:
 
 @pytest.mark.e2e_operator_upgrade_sharded_cluster
 class TestOperatorUpgrade:
+
+    def test_downscale_latest_official_operator(self, namespace: str):
+        # Scale down the initial mongodb-enterprise-operator deployment to 0. This is needed as long as the
+        # `official_operator` fixture installs the MEKO operator.
+        downscale_operator_deployment(deployment_name=LEGACY_OPERATOR_NAME, namespace=namespace)
+
     def test_upgrade_operator(self, default_operator: Operator, namespace: str):
         logger.info("Installing the operator built from master")
         default_operator.assert_is_running()
@@ -147,6 +157,11 @@ class TestOperatorUpgrade:
 
 @pytest.mark.e2e_operator_upgrade_sharded_cluster
 class TestOperatorDowngrade:
+    def test_downscale_default_operator(self, namespace: str):
+        # Scale down the initial mongodb-enterprise-operator deployment to 0. This is needed as long as the
+        # `official_operator` fixture installs the MEKO operator.
+        downscale_operator_deployment(deployment_name=OPERATOR_NAME, namespace=namespace)
+
     def test_downgrade_operator(
         self,
         namespace: str,
