@@ -20,6 +20,7 @@ from tests.conftest import (
     setup_log_rotate_for_agents,
 )
 from tests.multicluster.conftest import cluster_spec_list
+from tests.upgrades import downscale_operator_deployment
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -114,11 +115,7 @@ def test_install_replicaset(replica_set: MongoDB):
 @mark.e2e_meko_mck_upgrade
 def test_downscale_latest_official_operator(namespace: str):
     deployment_name = LEGACY_OPERATOR_NAME + "-multi-cluster" if is_multi_cluster() else LEGACY_OPERATOR_NAME
-    # Patch to scale deployment to 0 replicas
-    body = {"spec": {"replicas": 0}}
-    apps_v1 = client.AppsV1Api()
-    apps_v1.patch_namespaced_deployment_scale(name=deployment_name, namespace=namespace, body=body)
-    log_deployments_info(namespace)
+    downscale_operator_deployment(deployment_name, namespace)
 
 
 # Upgrade to MCK
