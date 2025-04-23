@@ -250,9 +250,9 @@ func main() {
 			// when running appdb -> mongodb-enterprise-server
 			env.ReadOrPanic(mcoConstruct.MongodbCommunityImageEnv),
 			envvar.GetEnvOrDefault(mcoConstruct.MongoDBCommunityImageTypeEnv, mcoConstruct.DefaultImageType),
-			os.Getenv(util.MongodbCommunityAgentImageEnv),
-			os.Getenv(mcoConstruct.VersionUpgradeHookImageEnv),
-			os.Getenv(mcoConstruct.ReadinessProbeImageEnv),
+			env.ReadOrPanic(util.MongodbCommunityAgentImageEnv),
+			env.ReadOrPanic(mcoConstruct.VersionUpgradeHookImageEnv),
+			env.ReadOrPanic(mcoConstruct.ReadinessProbeImageEnv),
 		); err != nil {
 			log.Fatal(err)
 		}
@@ -424,6 +424,8 @@ func initializeEnvironment() {
 		"MONGODB_",
 		"INIT_",
 		"MDB_",
+		"READINESS_PROBE_IMAGE",
+		"VERSION_UPGRADE_HOOK_IMAGE",
 	}
 
 	// Only env variables with one of these prefixes will be printed
