@@ -27,6 +27,7 @@ from kubernetes.client.rest import ApiException
 from kubernetes.stream import stream
 from kubetester.crypto import wait_for_certs_to_be_issued
 from requests.auth import HTTPBasicAuth, HTTPDigestAuth
+from tests import test_logger
 
 SSL_CA_CERT = "/var/run/secrets/kubernetes.io/serviceaccount/..data/ca.crt"
 EXTERNALLY_MANAGED_TAG = "EXTERNALLY_MANAGED_BY_KUBERNETES"
@@ -45,6 +46,11 @@ plural_map = {
     "MongoDBOpsManager": "opsmanagers",
     "MongoDBMultiCluster": "mongodbmulticluster",
 }
+
+from opentelemetry import trace
+
+TRACER = trace.get_tracer("evergreen-agent")
+logger = test_logger.get_test_logger(__name__)
 
 
 def running_locally():
@@ -947,6 +953,16 @@ class KubernetesTester(object):
         return response.json()
 
     @staticmethod
+    def get_automation_status(group_id=None, group_name=None):
+        if group_id is None:
+            group_id = KubernetesTester.get_om_group_id(group_name=group_name)
+
+        url = build_automation_status_endpoint(KubernetesTester.get_om_base_url(), group_id)
+        response = KubernetesTester.om_request("get", url)
+
+        return response.json()
+
+    @staticmethod
     def get_monitoring_config(group_id=None):
         if group_id is None:
             group_id = KubernetesTester.get_om_group_id()
@@ -1544,6 +1560,10 @@ def build_automation_config_endpoint(base_url, group_id):
     return "{}/api/public/v1.0/groups/{}/automationConfig".format(base_url, group_id)
 
 
+def build_automation_status_endpoint(base_url, group_id):
+    return "{}/api/public/v1.0/groups/{}/automationStatus".format(base_url, group_id)
+
+
 def build_monitoring_config_endpoint(base_url, group_id):
     return "{}/api/public/v1.0/groups/{}/automationConfig/monitoringAgentConfig".format(base_url, group_id)
 
@@ -1683,3 +1703,35 @@ def ensure_ent_version(mdb_version: str) -> str:
     if "-ent" not in mdb_version:
         return mdb_version + "-ent"
     return mdb_version
+
+
+@TRACER.start_as_current_span("wait_processes_ready")
+def wait_processes_ready():
+    # Get current automation status
+    def processes_are_ready():
+        auto_status = KubernetesTester.get_automation_status()
+        goal_version = auto_status.get("goalVersion")
+
+        logger.info(f"Checking if all processes have reached goal version: {goal_version}")
+        processes_not_ready = []
+        for process in auto_status.get("processes", []):
+            process_name = process.get("name", "unknown")
+            process_version = process.get("lastGoalVersionAchieved")
+            if process_version != goal_version:
+                logger.info(f"Process {process_name} at version {process_version}, expected {goal_version}")
+                processes_not_ready.append(process_name)
+
+        all_processes_ready = len(processes_not_ready) == 0
+        if all_processes_ready:
+            logger.info("All processes have reached the goal version")
+        else:
+            logger.info(f"{len(processes_not_ready)} processes have not yet reached the goal version")
+
+        return all_processes_ready
+
+    timeout = 600  # 5 minutes timeout
+    KubernetesTester.wait_until(
+        processes_are_ready,
+        timeout=timeout,
+        sleep_time=5,
+    )
