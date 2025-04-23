@@ -642,7 +642,7 @@ def args_for_daily_image(image_name: str) -> Dict[str, str]:
     This includes the quay_registry and ospid corresponding to RedHat's project id.
     """
     image_configs = [
-        image_config("database"),
+        image_config("database", ubi_suffix=""),
         image_config("init-appdb", ubi_suffix=""),
         image_config("agent", name_prefix="mongodb-enterprise-"),
         image_config("init-database", ubi_suffix=""),

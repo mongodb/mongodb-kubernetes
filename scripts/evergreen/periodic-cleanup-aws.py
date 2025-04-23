@@ -8,7 +8,7 @@ import boto3
 REPOSITORIES_NAMES = [
     "dev/mongodb-agent-ubi",
     "dev/mongodb-kubernetes-init-appdb",
-    "dev/mongodb-enterprise-database-ubi",
+    "dev/mongodb-kubernetes-database",
     "dev/mongodb-kubernetes-init-database",
     "dev/mongodb-kubernetes-init-ops-manager",
     "dev/mongodb-enterprise-ops-manager-ubi",
