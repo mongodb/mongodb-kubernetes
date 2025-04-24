@@ -120,17 +120,17 @@ func Configure(conn om.Connection, opts Options, isRecovering bool, log *zap.Sug
 
 	// once we have successfully enabled auth for the agents, we need to remove mechanisms we don't need.
 	// this ensures we don't have mechanisms enabled that have not been configured.
-	if err := removeUnusedAuthenticationMechanisms(conn, opts, log); err != nil {
+	if err := removeUnsupportedAgentMechanisms(conn, opts, log); err != nil {
 		return xerrors.Errorf("error removing unused authentication mechanisms %w", err)
 	}
 	if err := waitForReadyStateIfNeeded(); err != nil {
 		return err
 	}
 
-	// we remove any unrequired deployment auth mechanisms. This will generally be mechanisms
+	// we remove any unsupported deployment auth mechanisms. This will generally be mechanisms
 	// that we are disabling.
-	if err := removeUnrequiredDeploymentMechanisms(conn, opts, log); err != nil {
-		return xerrors.Errorf("error removing unrequired deployment mechanisms: %w", err)
+	if err := removeUnsupportedDeploymentMechanisms(conn, opts, log); err != nil {
+		return xerrors.Errorf("error removing unsupported deployment mechanisms: %w", err)
 	}
 	if err := waitForReadyStateIfNeeded(); err != nil {
 		return err
@@ -281,28 +281,22 @@ func getMechanismName(mongodbResourceMode string, ac *om.AutomationConfig) Mecha
 	panic(fmt.Sprintf("unknown mechanism name %s", mongodbResourceMode))
 }
 
-// mechanism is an interface that needs to be implemented for any Ops Manager authentication mechanism
+// Mechanism is an interface that needs to be implemented for any Ops Manager authentication mechanism
 type Mechanism interface {
-	EnableAgentAuthentication(opts Options, log *zap.SugaredLogger) error
-	DisableAgentAuthentication(log *zap.SugaredLogger) error
-	EnableDeploymentAuthentication(opts Options) error
-	DisableDeploymentAuthentication() error
+	EnableAgentAuthentication(conn om.Connection, opts Options, log *zap.SugaredLogger) error
+	DisableAgentAuthentication(conn om.Connection, log *zap.SugaredLogger) error
+	EnableDeploymentAuthentication(conn om.Connection, opts Options, log *zap.SugaredLogger) error
+	DisableDeploymentAuthentication(conn om.Connection, log *zap.SugaredLogger) error
 	// IsAgentAuthenticationConfigured should not rely on util.MergoDelete since the method is always
 	// called directly after deserializing the response from OM which should not contain the util.MergoDelete value in any field.
-	IsAgentAuthenticationConfigured() bool
-	IsDeploymentAuthenticationConfigured() bool
+	IsAgentAuthenticationConfigured(ac *om.AutomationConfig, opts Options) bool
+	IsDeploymentAuthenticationConfigured(ac *om.AutomationConfig, opts Options) bool
+	GetName() MechanismName
 }
 
-var (
-	_ Mechanism = ConnectionScramSha{}
-	_ Mechanism = AutomationConfigScramSha{}
-	_ Mechanism = ConnectionX509{}
-	_ Mechanism = &ldapAuthMechanism{}
-)
-
-// removeUnusedAuthenticationMechanisms removes authentication mechanism that were previously enabled, or were required
+// removeUnsupportedAgentMechanisms removes authentication mechanism that were previously enabled, or were required
 // as part of the transition process.
-func removeUnusedAuthenticationMechanisms(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
+func removeUnsupportedAgentMechanisms(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 	ac, err := conn.ReadAutomationConfig()
 	if err != nil {
 		return xerrors.Errorf("error reading automation config: %w", err)
@@ -310,20 +304,21 @@ func removeUnusedAuthenticationMechanisms(conn om.Connection, opts Options, log 
 
 	automationConfigAuthMechanismNames := getMechanismNames(ac, opts.Mechanisms)
 
-	unrequiredMechanisms := mechanismsToDisable(automationConfigAuthMechanismNames)
+	unsupportedMechanisms := mechanismsToDisable(automationConfigAuthMechanismNames)
 
-	log.Infow("configuring agent authentication mechanisms", "enabled", opts.AgentMechanism, "disabling", unrequiredMechanisms)
-	for _, mn := range unrequiredMechanisms {
-		m := fromName(mn, ac, conn, opts)
-		if m.IsAgentAuthenticationConfigured() {
-			log.Infof("disabling authentication mechanism %s", mn)
-			if err := m.DisableAgentAuthentication(log); err != nil {
+	log.Infow("configuring agent authentication mechanisms", "enabled", opts.AgentMechanism, "disabling", unsupportedMechanisms)
+	for _, mechanismName := range unsupportedMechanisms {
+		mechanism := fromName(mechanismName)
+		if mechanism.IsAgentAuthenticationConfigured(ac, opts) {
+			log.Infof("disabling authentication mechanism %s", mechanismName)
+			if err := mechanism.DisableAgentAuthentication(conn, log); err != nil {
 				return xerrors.Errorf("error disabling agent authentication: %w", err)
 			}
 		} else {
-			log.Infof("mechanism %s is already disabled", mn)
+			log.Infof("mechanism %s is already disabled", mechanismName)
 		}
 	}
+
 	return nil
 }
 
@@ -383,9 +378,9 @@ func ensureDeploymentsMechanismsExist(conn om.Connection, opts Options, log *zap
 	return nil
 }
 
-// removeUnrequiredDeploymentMechanisms updates the given AutomationConfig struct to enable all the given
+// removeUnsupportedDeploymentMechanisms updates the given AutomationConfig struct to enable all the given
 // authentication mechanisms.
-func removeUnrequiredDeploymentMechanisms(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
+func removeUnsupportedDeploymentMechanisms(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 	ac, err := conn.ReadAutomationConfig()
 	if err != nil {
 		return xerrors.Errorf("error reading automation config: %w", err)
@@ -395,9 +390,10 @@ func removeUnrequiredDeploymentMechanisms(conn om.Connection, opts Options, log 
 	// We need to convert this to the list of strings the automation config expects.
 	automationConfigAuthMechanismNames := getMechanismNames(ac, opts.Mechanisms)
 
-	toDisable := mechanismsToDisable(automationConfigAuthMechanismNames)
-	log.Infow("Removing unrequired deployment authentication mechanisms", "Mechanisms", toDisable)
-	if err := ensureDeploymentMechanismsAreDisabled(conn, ac, toDisable, opts, log); err != nil {
+	unsupportedMechanisms := mechanismsToDisable(automationConfigAuthMechanismNames)
+
+	log.Infow("Removing unsupported deployment authentication mechanisms", "Mechanisms", unsupportedMechanisms)
+	if err := ensureDeploymentMechanismsAreDisabled(conn, ac, unsupportedMechanisms, opts, log); err != nil {
 		return xerrors.Errorf("error ensuring deployment mechanisms are disabled: %w", err)
 	}
 
@@ -465,19 +461,20 @@ func supportedMechanisms() []MechanismName {
 
 // fromName returns an implementation of mechanism from the string value
 // used in the AutomationConfig. All supported fields are in supportedMechanisms
-func fromName(name MechanismName, ac *om.AutomationConfig, conn om.Connection, opts Options) Mechanism {
+func fromName(name MechanismName) Mechanism {
 	switch name {
 	case MongoDBCR:
-		return NewConnectionCR(conn, ac)
+		return MongoDBCRMechanism
 	case ScramSha1:
-		return NewConnectionScramSha1(conn, ac)
+		return ScramSha1Mechanism
 	case ScramSha256:
-		return NewConnectionScramSha256(conn, ac)
+		return ScramSha256Mechanism
 	case MongoDBX509:
-		return NewConnectionX509(conn, ac, opts)
+		return MongoDBX509Mechanism
 	case LDAPPlain:
-		return NewLdap(conn, ac, opts)
+		return LDAPPlainMechanism
 	}
+
 	panic(xerrors.Errorf("unknown authentication mechanism %s. Supported mechanisms are %+v", name, supportedMechanisms()))
 }
 
@@ -495,67 +492,68 @@ func mechanismsToDisable(desiredMechanisms []MechanismName) []MechanismName {
 
 // ensureAgentAuthenticationIsConfigured will configure the agent authentication settings based on the desiredAgentAuthMechanism
 func ensureAgentAuthenticationIsConfigured(conn om.Connection, opts Options, ac *om.AutomationConfig, desiredAgentAuthMechanismName MechanismName, log *zap.SugaredLogger) error {
-	m := fromName(desiredAgentAuthMechanismName, ac, conn, opts)
-	if m.IsAgentAuthenticationConfigured() {
+	m := fromName(desiredAgentAuthMechanismName)
+	if m.IsAgentAuthenticationConfigured(ac, opts) {
 		log.Infof("Agent authentication mechanism %s is already configured", desiredAgentAuthMechanismName)
 		return nil
 	}
 
 	log.Infof("Enabling %s agent authentication", desiredAgentAuthMechanismName)
-	return m.EnableAgentAuthentication(opts, log)
+	return m.EnableAgentAuthentication(conn, opts, log)
 }
 
 // ensureDeploymentMechanisms configures the given AutomationConfig to allow deployments to
 // authenticate using the specified mechanisms
 func ensureDeploymentMechanisms(conn om.Connection, ac *om.AutomationConfig, desiredDeploymentAuthMechanisms []MechanismName, opts Options, log *zap.SugaredLogger) error {
-	allRequiredDeploymentMechanismsAreConfigured := true
-	for _, mn := range desiredDeploymentAuthMechanisms {
-		if !fromName(mn, ac, conn, opts).IsDeploymentAuthenticationConfigured() {
-			allRequiredDeploymentMechanismsAreConfigured = false
+	deploymentMechanismsToEnable := make(map[MechanismName]Mechanism)
+	for _, mechanismName := range desiredDeploymentAuthMechanisms {
+		mechanism := fromName(mechanismName)
+		if !mechanism.IsDeploymentAuthenticationConfigured(ac, opts) {
+			deploymentMechanismsToEnable[mechanismName] = mechanism
 		} else {
-			log.Debugf("Deployment mechanism %s is already configured", mn)
+			log.Debugf("Deployment mechanism %s is already configured", mechanismName)
 		}
 	}
 
-	if allRequiredDeploymentMechanismsAreConfigured {
+	if len(deploymentMechanismsToEnable) == 0 {
 		log.Info("All required deployment authentication mechanisms are configured")
 		return nil
 	}
 
-	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
-		for _, mechanismName := range desiredDeploymentAuthMechanisms {
-			log.Debugf("Enabling deployment mechanism %s", mechanismName)
-			if err := fromName(mechanismName, ac, conn, opts).EnableDeploymentAuthentication(opts); err != nil {
-				return xerrors.Errorf("error enabling deployment authentication: %w", err)
-			}
+	for mechanismName, mechanism := range deploymentMechanismsToEnable {
+		log.Debugf("Enabling deployment mechanism %s", mechanismName)
+		if err := mechanism.EnableDeploymentAuthentication(conn, opts, log); err != nil {
+			return xerrors.Errorf("error enabling deployment authentication: %w", err)
 		}
-		return nil
-	}, log)
+	}
+
+	return nil
 }
 
 // ensureDeploymentMechanismsAreDisabled configures the given AutomationConfig to allow deployments to
 // authenticate using the specified mechanisms
 func ensureDeploymentMechanismsAreDisabled(conn om.Connection, ac *om.AutomationConfig, mechanismsToDisable []MechanismName, opts Options, log *zap.SugaredLogger) error {
-	allDeploymentMechanismsAreDisabled := true
-	for _, mn := range mechanismsToDisable {
-		if fromName(mn, ac, conn, opts).IsDeploymentAuthenticationConfigured() {
-			allDeploymentMechanismsAreDisabled = false
+	deploymentMechanismsToDisable := make([]Mechanism, 0)
+	for _, mechanismName := range mechanismsToDisable {
+		mechanism := fromName(mechanismName)
+		if mechanism.IsDeploymentAuthenticationConfigured(ac, opts) {
+			deploymentMechanismsToDisable = append(deploymentMechanismsToDisable, mechanism)
 		}
 	}
 
-	if allDeploymentMechanismsAreDisabled {
+	if len(deploymentMechanismsToDisable) == 0 {
 		log.Infof("Mechanisms %+v are all already disabled", mechanismsToDisable)
 		return nil
 	}
-	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
-		for _, mechanismName := range mechanismsToDisable {
-			log.Debugf("disabling deployment mechanism %s", mechanismName)
-			if err := fromName(mechanismName, ac, conn, opts).DisableDeploymentAuthentication(); err != nil {
-				return xerrors.Errorf("error disabling deployment authentication: %w", err)
-			}
+
+	for _, mechanism := range deploymentMechanismsToDisable {
+		log.Debugf("disabling deployment mechanism %s", mechanism.GetName())
+		if err := mechanism.DisableDeploymentAuthentication(conn, log); err != nil {
+			return xerrors.Errorf("error disabling deployment authentication: %w", err)
 		}
-		return nil
-	}, log)
+	}
+
+	return nil
 }
 
 // containsMechanismName returns true if there is at least one MechanismName in `slice`
