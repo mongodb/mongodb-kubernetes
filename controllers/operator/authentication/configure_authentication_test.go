@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
@@ -146,7 +147,8 @@ func TestDisableAuthentication(t *testing.T) {
 
 func TestGetCorrectAuthMechanismFromVersion(t *testing.T) {
 	conn := om.NewMockedOmConnection(om.NewDeployment())
-	ac, _ := conn.ReadAutomationConfig()
+	ac, err := conn.ReadAutomationConfig()
+	require.NoError(t, err)
 
 	mechanismNames := getMechanismNames(ac, []string{"X509"})
 
@@ -200,17 +202,29 @@ func assertAuthenticationMechanism(t *testing.T, auth *om.Auth, mechanism string
 	assert.Contains(t, auth.AutoAuthMechanisms, mechanism)
 }
 
-func assertDeploymentMechanismsConfigured(t *testing.T, authMechanism Mechanism) {
-	_ = authMechanism.EnableDeploymentAuthentication(Options{CAFilePath: util.CAFilePathInContainer})
-	assert.True(t, authMechanism.IsDeploymentAuthenticationConfigured())
+func assertDeploymentMechanismsConfigured(t *testing.T, authMechanism Mechanism, conn om.Connection, opts Options) {
+	err := authMechanism.EnableDeploymentAuthentication(conn, opts, zap.S())
+	require.NoError(t, err)
+
+	ac, err := conn.ReadAutomationConfig()
+	require.NoError(t, err)
+	assert.True(t, authMechanism.IsDeploymentAuthenticationConfigured(ac, opts))
 }
 
-func assertAgentAuthenticationDisabled(t *testing.T, authMechanism Mechanism, opts Options) {
-	_ = authMechanism.EnableAgentAuthentication(opts, zap.S())
-	assert.True(t, authMechanism.IsAgentAuthenticationConfigured())
+func assertAgentAuthenticationDisabled(t *testing.T, authMechanism Mechanism, conn om.Connection, opts Options) {
+	err := authMechanism.EnableAgentAuthentication(conn, opts, zap.S())
+	require.NoError(t, err)
 
-	_ = authMechanism.DisableAgentAuthentication(zap.S())
-	assert.False(t, authMechanism.IsAgentAuthenticationConfigured())
+	ac, err := conn.ReadAutomationConfig()
+	require.NoError(t, err)
+	assert.True(t, authMechanism.IsAgentAuthenticationConfigured(ac, opts))
+
+	err = authMechanism.DisableAgentAuthentication(conn, zap.S())
+	require.NoError(t, err)
+
+	ac, err = conn.ReadAutomationConfig()
+	require.NoError(t, err)
+	assert.False(t, authMechanism.IsAgentAuthenticationConfigured(ac, opts))
 }
 
 func noneNil(users []*om.MongoDBUser) bool {
@@ -229,10 +243,4 @@ func allNil(users []*om.MongoDBUser) bool {
 		}
 	}
 	return true
-}
-
-func createConnectionAndAutomationConfig() (om.Connection, *om.AutomationConfig) {
-	conn := om.NewMockedOmConnection(om.NewDeployment())
-	ac, _ := conn.ReadAutomationConfig()
-	return conn, ac
 }

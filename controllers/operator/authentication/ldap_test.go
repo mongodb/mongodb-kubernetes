@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
@@ -12,7 +13,7 @@ import (
 
 func TestLdapDeploymentMechanism(t *testing.T) {
 	conn := om.NewMockedOmConnection(om.NewDeployment())
-	ac, _ := conn.ReadAutomationConfig()
+
 	opts := Options{
 		Ldap: &ldap.Ldap{
 			BindMethod:    "BindMethod",
@@ -20,45 +21,45 @@ func TestLdapDeploymentMechanism(t *testing.T) {
 			Servers:       "Servers",
 		},
 	}
-	l := NewLdap(conn, ac, opts)
 
-	if err := l.EnableDeploymentAuthentication(opts); err != nil {
-		t.Fatal(err)
-	}
+	err := LDAPPlainMechanism.EnableDeploymentAuthentication(conn, opts, zap.S())
+	require.NoError(t, err)
+
+	ac, err := conn.ReadAutomationConfig()
+	require.NoError(t, err)
 	assert.Contains(t, ac.Auth.DeploymentAuthMechanisms, string(LDAPPlain))
 	assert.Equal(t, "BindQueryUser", ac.Ldap.BindQueryUser)
 	assert.Equal(t, "Servers", ac.Ldap.Servers)
 	assert.Equal(t, "BindMethod", ac.Ldap.BindMethod)
 
-	if err := l.DisableDeploymentAuthentication(); err != nil {
-		t.Fatal(err)
-	}
+	err = LDAPPlainMechanism.DisableDeploymentAuthentication(conn, zap.S())
+	require.NoError(t, err)
+
+	ac, err = conn.ReadAutomationConfig()
+	require.NoError(t, err)
 
 	assert.NotContains(t, ac.Auth.DeploymentAuthMechanisms, string(LDAPPlain))
 	assert.Nil(t, ac.Ldap)
 }
 
 func TestLdapEnableAgentAuthentication(t *testing.T) {
-	conn, ac := createConnectionAndAutomationConfig()
-	options := Options{
+	conn := om.NewMockedOmConnection(om.NewDeployment())
+	opts := Options{
 		AgentMechanism: "LDAP",
 		UserOptions: UserOptions{
-			AutomationSubject: ("mms-automation"),
+			AutomationSubject: "mms-automation",
 		},
+		AuthoritativeSet: true,
+		AutoPwd:          "LDAPPassword.",
 	}
 
-	l := NewLdap(conn, ac, options)
-
-	if err := l.EnableAgentAuthentication(Options{AuthoritativeSet: true, AutoPwd: "LDAPPassword."}, zap.S()); err != nil {
-		t.Fatal(err)
-	}
+	err := LDAPPlainMechanism.EnableAgentAuthentication(conn, opts, zap.S())
+	require.NoError(t, err)
 
 	ac, err := conn.ReadAutomationConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
-	assert.Equal(t, ac.Auth.AutoUser, options.AutomationSubject)
+	assert.Equal(t, ac.Auth.AutoUser, opts.AutomationSubject)
 	assert.Len(t, ac.Auth.AutoAuthMechanisms, 1)
 	assert.Contains(t, ac.Auth.AutoAuthMechanisms, string(LDAPPlain))
 	assert.Equal(t, "LDAPPassword.", ac.Auth.AutoPwd)
@@ -68,13 +69,13 @@ func TestLdapEnableAgentAuthentication(t *testing.T) {
 }
 
 func TestLDAP_DisableAgentAuthentication(t *testing.T) {
-	conn, ac := createConnectionAndAutomationConfig()
+	conn := om.NewMockedOmConnection(om.NewDeployment())
+
 	opts := Options{
 		AutoPwd: "LDAPPassword.",
 		UserOptions: UserOptions{
 			AutomationSubject: validSubject("automation"),
 		},
 	}
-	ldap := NewLdap(conn, ac, opts)
-	assertAgentAuthenticationDisabled(t, ldap, opts)
+	assertAgentAuthenticationDisabled(t, LDAPPlainMechanism, conn, opts)
 }
