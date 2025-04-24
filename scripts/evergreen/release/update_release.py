@@ -66,6 +66,13 @@ def trim_supported_image_versions(release: dict, image_types: list):
         if image_type in release["supportedImages"]:
             original_versions = release["supportedImages"][image_type]["versions"]
             trimmed_versions = trim_versions(original_versions, 3)
+
+            # TODO: Remove this once we don't need to use OM 7.0.12 in the OM Multicluster DR tests
+            # https://jira.mongodb.org/browse/CLOUDP-297377
+            if image_type == "ops-manager":
+                trimmed_versions.append("7.0.12")
+                trimmed_versions.sort(key=lambda x: version.parse(x))
+
             release["supportedImages"][image_type]["versions"] = trimmed_versions
 
 
