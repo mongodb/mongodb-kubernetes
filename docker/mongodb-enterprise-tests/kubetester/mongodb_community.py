@@ -38,7 +38,7 @@ class MongoDBCommunity(MongoDB, CustomObject):
             lambda s: in_desired_state(
                 current_state=self.get_status_phase(),
                 desired_state=phase,
-                # TODO: MCK we don't have "observedGeneration" in MongoDBCommunity status
+                # TODO: CLOUDP-307051 we don't have "observedGeneration" in MongoDBCommunity status
                 current_generation=1,
                 observed_generation=1,
                 current_message=self.get_status_message(),
