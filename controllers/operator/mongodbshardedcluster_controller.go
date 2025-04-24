@@ -53,6 +53,7 @@ import (
 	mcoConstruct "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/controllers/construct"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/annotations"
+	kubernetesClient "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/configmap"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/service"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/merge"
@@ -62,6 +63,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	mekoService "github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
+	"github.com/10gen/ops-manager-kubernetes/pkg/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
@@ -1201,9 +1203,9 @@ func getCertTypeForAllShardedClusterCertificates(certTypes map[string]bool) (cor
 
 // anyStatefulSetNeedsToPublishStateToOM checks to see if any stateful set
 // of the given sharded cluster needs to publish state to Ops Manager before updating Kubernetes resources
-func anyStatefulSetNeedsToPublishStateToOM(ctx context.Context, sc mdbv1.MongoDB, getter ConfigMapStatefulSetSecretGetter, lastSpec *mdbv1.MongoDbSpec, configs []func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) bool {
+func anyStatefulSetNeedsToPublishStateToOM(ctx context.Context, sc mdbv1.MongoDB, kubeClient kubernetesClient.Client, lastSpec *mdbv1.MongoDbSpec, configs []func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) bool {
 	for _, cf := range configs {
-		if publishAutomationConfigFirst(ctx, getter, sc, lastSpec, cf, log) {
+		if publishAutomationConfigFirst(ctx, kubeClient, sc, lastSpec, cf, log) {
 			return true
 		}
 	}
@@ -1392,7 +1394,7 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateShards(ctx context.Context
 				// (we have the case in readiness for empty AC to return true) we then publish AC with fully constructed processes
 				// and all agents are starting to wire things up and configure the replicaset.
 				// If we don't scale for the first time we need to wait for each individual sts as we need to scale members of the whole replica set one at a time
-				if workflowStatus := getStatefulSetStatus(ctx, s.Namespace, shardSts.Name, memberCluster.Client); !workflowStatus.IsOK() {
+				if workflowStatus := statefulset.GetStatefulSetStatus(ctx, s.Namespace, shardSts.Name, memberCluster.Client); !workflowStatus.IsOK() {
 					return workflowStatus
 				}
 			}
@@ -1430,7 +1432,7 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateConfigServers(ctx context.
 		}
 
 		if !configSrvScalingFirstTime {
-			if workflowStatus := getStatefulSetStatus(ctx, s.Namespace, r.GetConfigSrvStsName(memberCluster), memberCluster.Client); !workflowStatus.IsOK() {
+			if workflowStatus := statefulset.GetStatefulSetStatus(ctx, s.Namespace, r.GetConfigSrvStsName(memberCluster), memberCluster.Client); !workflowStatus.IsOK() {
 				return workflowStatus
 			}
 		}
@@ -1451,7 +1453,7 @@ func (r *ShardedClusterReconcileHelper) getMergedStatefulsetStatus(ctx context.C
 ) workflow.Status {
 	var mergedStatefulSetStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range getHealthyMemberClusters(memberClusters) {
-		statefulSetStatus := getStatefulSetStatus(ctx, s.Namespace, stsNameProvider(memberCluster), memberCluster.Client)
+		statefulSetStatus := statefulset.GetStatefulSetStatus(ctx, s.Namespace, stsNameProvider(memberCluster), memberCluster.Client)
 		mergedStatefulSetStatus = mergedStatefulSetStatus.Merge(statefulSetStatus)
 	}
 

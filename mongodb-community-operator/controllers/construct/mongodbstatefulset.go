@@ -17,9 +17,9 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/probes"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/resourcerequirements"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/readiness/config"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/scale"
+	"github.com/10gen/ops-manager-kubernetes/pkg/statefulset"
 )
 
 var OfficialMongodbRepoUrls = []string{"docker.io/mongodb", "quay.io/mongodb"}
