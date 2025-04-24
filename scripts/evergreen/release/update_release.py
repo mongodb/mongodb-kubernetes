@@ -99,7 +99,7 @@ def update_release_json():
 
     # Trim init and operator images to keep only the latest 3 versions per major
     trim_supported_image_versions(
-        data, ["operator", "init-ops-manager", "init-database", "init-appdb", "database", "ops-manager"]
+        data, ["mongodb-kubernetes", "init-ops-manager", "init-database", "init-appdb", "database", "ops-manager"]
     )
 
     # PCT already bumps the release.json, such that the last element contains the newest version, since they are sorted
@@ -137,7 +137,7 @@ def update_operator_related_versions(release: dict, version: str):
         release[key] = version
 
     keys_to_add_supported_versions = [
-        "operator",
+        "mongodb-kubernetes",
         "init-ops-manager",
         "init-database",
         "init-appdb",

@@ -47,7 +47,7 @@
         "ubi"
       ]
     },
-    "operator": {
+    "mongodb-kubernetes": {
       "Description": "We support 3 last versions, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "ssdlc_name": "MongoDB Enterprise Kubernetes Operator",
       "versions": [
