@@ -150,24 +150,24 @@ func TestGetCorrectAuthMechanismFromVersion(t *testing.T) {
 	ac, err := conn.ReadAutomationConfig()
 	require.NoError(t, err)
 
-	mechanismNames := getMechanismNames(ac, []string{"X509"})
+	mechanismList := convertToMechanismList([]string{"X509"}, ac)
 
-	assert.Len(t, mechanismNames, 1)
-	assert.Contains(t, mechanismNames, MechanismName("MONGODB-X509"))
+	assert.Len(t, mechanismList, 1)
+	assert.Contains(t, mechanismList, MongoDBX509Mechanism)
 
-	mechanismNames = getMechanismNames(ac, []string{"SCRAM", "X509"})
+	mechanismList = convertToMechanismList([]string{"SCRAM", "X509"}, ac)
 
-	assert.Contains(t, mechanismNames, MechanismName("SCRAM-SHA-256"))
-	assert.Contains(t, mechanismNames, MechanismName("MONGODB-X509"))
+	assert.Contains(t, mechanismList, ScramSha256Mechanism)
+	assert.Contains(t, mechanismList, MongoDBX509Mechanism)
 
 	// enable MONGODB-CR
 	ac.Auth.AutoAuthMechanism = "MONGODB-CR"
 	ac.Auth.Enable()
 
-	mechanismNames = getMechanismNames(ac, []string{"SCRAM", "X509"})
+	mechanismList = convertToMechanismList([]string{"SCRAM", "X509"}, ac)
 
-	assert.Contains(t, mechanismNames, MechanismName("MONGODB-CR"))
-	assert.Contains(t, mechanismNames, MechanismName("MONGODB-X509"))
+	assert.Contains(t, mechanismList, MongoDBCRMechanism)
+	assert.Contains(t, mechanismList, MongoDBX509Mechanism)
 }
 
 func assertAuthenticationEnabled(t *testing.T, auth *om.Auth) {

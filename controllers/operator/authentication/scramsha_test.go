@@ -49,9 +49,7 @@ func TestAgentsAuthentication(t *testing.T) {
 			assertAuthenticationEnabled(t, ac.Auth)
 			assert.Equal(t, ac.Auth.AutoUser, util.AutomationAgentName)
 			assert.Len(t, ac.Auth.AutoAuthMechanisms, 1)
-			for _, mech := range testConfig.mechanism.GetName() {
-				assert.Contains(t, ac.Auth.AutoAuthMechanisms, string(mech))
-			}
+			assert.Contains(t, ac.Auth.AutoAuthMechanisms, string(testConfig.mechanism.GetName()))
 			assert.NotEmpty(t, ac.Auth.AutoPwd)
 			assert.True(t, s.IsAgentAuthenticationConfigured(ac, opts))
 			assert.True(t, s.IsDeploymentAuthenticationConfigured(ac, opts))

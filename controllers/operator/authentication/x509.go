@@ -10,8 +10,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
-const ExternalDB = "$external"
-
 var MongoDBX509Mechanism = ConnectionX509{}
 
 type ConnectionX509 struct{}
