@@ -37,7 +37,6 @@ variables:
       - triggered_by_git_tag
       - version_id
       - workdir
-      - OVERRIDE_RELEASE_VERSION
 
 functions:
 

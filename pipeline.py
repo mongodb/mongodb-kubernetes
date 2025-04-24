@@ -264,12 +264,6 @@ def get_release() -> Dict:
 
 
 def get_git_release_tag() -> tuple[str, bool]:
-    # Check for override environment variable first
-    override_version = os.getenv("OVERRIDE_RELEASE_VERSION")
-    if override_version:
-        logger.warning(f"Using override release version: {override_version}")
-        return override_version, True
-
     release_env_var = os.getenv("triggered_by_git_tag")
 
     # that means we are in a release and only return the git_tag; otherwise we want to return the patch_id
