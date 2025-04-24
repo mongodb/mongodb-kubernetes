@@ -175,6 +175,10 @@ parameters:
     value: ""
     description: "Patch id to reuse images from other Evergreen build"
 
+  - key: OVERRIDE_RELEASE_VERSION
+    value: ""
+    description: "Overrides the release version to test releases for a specific version"
+
   - key: code_snippets_teardown
     value: "true"
     description: set this to false if you would like to keep the clusters created during code snippets tests
