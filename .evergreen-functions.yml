@@ -81,7 +81,7 @@ functions:
     - command: subprocess.exec
       type: setup
       params:
-        command: "mkdir -p src/github.com/10gen"
+        command: "mkdir -p src/github.com/mongodb"
     - command: git.get_project
       type: setup
       params:
