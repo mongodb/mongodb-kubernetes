@@ -21,11 +21,10 @@ import (
 // configuration which are merged into the `Deployment` object before sending it back to Ops Manager.
 // As of right now only support configuring LogRotate for monitoring and backup via dedicated endpoints.
 type AutomationConfig struct {
-	Auth                *Auth
-	AgentSSL            *AgentSSL
-	Deployment          Deployment
-	Ldap                *ldap.Ldap
-	OIDCProviderConfigs []oidc.ProviderConfig
+	Auth       *Auth
+	AgentSSL   *AgentSSL
+	Deployment Deployment
+	Ldap       *ldap.Ldap
 }
 
 // Apply merges the state of all concrete structs into the Deployment (map[string]interface{})
@@ -61,9 +60,6 @@ func applyInto(a AutomationConfig, into *Deployment) error {
 		(*into)["ldap"] = mergedLdap
 	}
 
-	if _, ok := a.Deployment["oidcProviderConfigs"]; ok {
-		// TODO merge lists and their contents (should we just overwrite everything?)
-	}
 	return nil
 }
 
@@ -232,6 +228,8 @@ type Auth struct {
 	NewAutoPwd string `json:"newAutoPwd,omitempty"`
 	// LdapGroupDN is required when enabling LDAP authz and agents authentication on $external
 	LdapGroupDN string `json:"autoLdapGroupDN,omitempty"`
+	// OIDCProviderConfigs is a list of OIDC provider configurations
+	OIDCProviderConfigs []oidc.ProviderConfig `json:"oidcProviderConfigs,omitempty"`
 }
 
 // IsEnabled is a convenience function to aid readability
@@ -433,20 +431,6 @@ func BuildAutomationConfigFromDeployment(deployment Deployment) (*AutomationConf
 		}
 		acLdap := &ldap.Ldap{}
 		if err := json.Unmarshal(ldapMarshalled, acLdap); err != nil {
-			return nil, err
-		}
-		finalAutomationConfig.Ldap = acLdap
-	}
-
-	oidcProviderConfigsArray, ok := deployment["oidcProviderConfigs"]
-	if ok {
-		// TODO use valid oidcProviderConfigs object
-		oidcProviderConfigsMarshalled, err := json.Marshal(oidcProviderConfigsArray)
-		if err != nil {
-			return nil, err
-		}
-		acLdap := &ldap.Ldap{}
-		if err := json.Unmarshal(oidcProviderConfigsMarshalled, acLdap); err != nil {
 			return nil, err
 		}
 		finalAutomationConfig.Ldap = acLdap

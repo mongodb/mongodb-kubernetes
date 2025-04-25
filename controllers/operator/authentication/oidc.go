@@ -36,7 +36,7 @@ func (o *oidcAuthMechanism) EnableDeploymentAuthentication(conn om.Connection, o
 			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, string(MongoDBOIDC))
 		}
 		// TODO merge configs with existing ones, and don't overwrite read only values
-		ac.OIDCProviderConfigs = opts.OIDCProviderConfigs
+		ac.Auth.OIDCProviderConfigs = opts.OIDCProviderConfigs
 
 		return nil
 	}, log)
@@ -45,7 +45,7 @@ func (o *oidcAuthMechanism) EnableDeploymentAuthentication(conn om.Connection, o
 func (o *oidcAuthMechanism) DisableDeploymentAuthentication(conn om.Connection, log *zap.SugaredLogger) error {
 	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 		ac.Auth.DeploymentAuthMechanisms = stringutil.Remove(ac.Auth.DeploymentAuthMechanisms, string(MongoDBOIDC))
-		ac.OIDCProviderConfigs = nil
+		ac.Auth.OIDCProviderConfigs = nil
 
 		return nil
 	}, log)
@@ -56,7 +56,7 @@ func (o *oidcAuthMechanism) IsAgentAuthenticationConfigured(*om.AutomationConfig
 }
 
 func (o *oidcAuthMechanism) IsDeploymentAuthenticationConfigured(ac *om.AutomationConfig, opts Options) bool {
-	return stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(MongoDBOIDC)) && oidcProviderConfigsEqual(ac.OIDCProviderConfigs, opts.OIDCProviderConfigs)
+	return stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(MongoDBOIDC)) && oidcProviderConfigsEqual(ac.Auth.OIDCProviderConfigs, opts.OIDCProviderConfigs)
 }
 
 func oidcProviderConfigsEqual(lhs []oidc.ProviderConfig, rhs []oidc.ProviderConfig) bool {
