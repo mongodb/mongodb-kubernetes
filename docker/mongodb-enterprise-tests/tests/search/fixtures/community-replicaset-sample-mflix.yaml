@@ -10,6 +10,8 @@ spec:
   security:
     authentication:
       modes: ["SCRAM"]
+  agent:
+    logLevel: DEBUG
   users:
     - name: my-user
       db: admin

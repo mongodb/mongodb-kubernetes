@@ -11,11 +11,13 @@ import (
 	"github.com/imdario/mergo"
 	"github.com/stretchr/objx"
 	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -26,6 +28,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
 
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	"github.com/mongodb/mongodb-kubernetes/controllers/search_controller"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/predicates"
@@ -52,6 +56,8 @@ const (
 
 	lastSuccessfulConfiguration = "mongodb.com/v1.lastSuccessfulConfiguration"
 	lastAppliedMongoDBVersion   = "mongodb.com/v1.lastAppliedMongoDBVersion"
+
+	mongoDbSearchIndexName = "mongodbcommunity-search-index"
 )
 
 func init() {
@@ -82,13 +88,30 @@ func NewReconciler(mgr manager.Manager, mongodbRepoUrl, mongodbImage, mongodbIma
 	}
 }
 
+func mdbcSearchIndexBuilder(rawObj k8sClient.Object) []string {
+	mdbSearch := rawObj.(*searchv1.MongoDBSearch)
+	return []string{mdbSearch.GetMongoDBResourceRef().Namespace + "/" + mdbSearch.GetMongoDBResourceRef().Name}
+}
+
+func findMdbcForSearch(ctx context.Context, rawObj k8sClient.Object) []reconcile.Request {
+	mdbSearch := rawObj.(*searchv1.MongoDBSearch)
+	return []reconcile.Request{
+		{NamespacedName: types.NamespacedName{Namespace: mdbSearch.GetMongoDBResourceRef().Namespace, Name: mdbSearch.GetMongoDBResourceRef().Name}},
+	}
+}
+
 // SetupWithManager sets up the controller with the Manager and configures the necessary watches.
-func (r *ReplicaSetReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *ReplicaSetReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &searchv1.MongoDBSearch{}, mongoDbSearchIndexName, mdbcSearchIndexBuilder); err != nil {
+		return err
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{MaxConcurrentReconciles: 3}).
 		For(&mdbv1.MongoDBCommunity{}, builder.WithPredicates(predicates.OnlyOnSpecChange())).
 		Watches(&corev1.Secret{}, r.secretWatcher).
 		Watches(&corev1.ConfigMap{}, r.configMapWatcher).
+		Watches(&searchv1.MongoDBSearch{}, handler.EnqueueRequestsFromMapFunc(findMdbcForSearch)).
 		Owns(&appsv1.StatefulSet{}).
 		Complete(r)
 }
@@ -252,7 +275,7 @@ func (r ReplicaSetReconciler) Reconcile(ctx context.Context, request reconcile.R
 		return res, nil
 	}
 
-	r.log.Infof("Successfully finished reconciliation, MongoDB.Spec: %+v, MongoDB.Status: %+v", mdb.Spec, mdb.Status)
+	r.log.Infof("Successfully finished reconciliation, MongoDBCommunity.Spec: %+v, MongoDBCommunity.Status: %+v", mdb.Spec, mdb.Status)
 	return res, err
 }
 
@@ -688,6 +711,17 @@ func (r ReplicaSetReconciler) buildAutomationConfig(ctx context.Context, mdb mdb
 		return automationconfig.AutomationConfig{}, err
 	}
 
+	var search *searchv1.MongoDBSearch
+	searchList := &searchv1.MongoDBSearchList{}
+	if err := r.client.List(ctx, searchList, &k8sClient.ListOptions{
+		FieldSelector: fields.OneTermEqualSelector(mongoDbSearchIndexName, mdb.Namespace+"/"+mdb.Name),
+	}); err != nil {
+		r.log.Debug(err)
+	}
+	if len(searchList.Items) == 1 {
+		search = &searchList.Items[0]
+	}
+
 	automationConfig, err := buildAutomationConfig(
 		mdb,
 		guessEnterprise(mdb, r.mongodbImage),
@@ -697,6 +731,7 @@ func (r ReplicaSetReconciler) buildAutomationConfig(ctx context.Context, mdb mdb
 		customRolesModification,
 		prometheusModification,
 		processPortManager.GetPortsModification(),
+		getMongodConfigSearchModification(mdb, search),
 	)
 	if err != nil {
 		return automationconfig.AutomationConfig{}, fmt.Errorf("could not create an automation config: %s", err)
@@ -735,6 +770,27 @@ func getMongodConfigModification(mdb mdbv1.MongoDBCommunity) automationconfig.Mo
 			// Mergo requires both objects to have the same type
 			// TODO: handle this error gracefully, we may need to add an error as second argument for all modification functions
 			_ = mergo.Merge(&ac.Processes[i].Args26, objx.New(mdb.Spec.AdditionalMongodConfig.Object), mergo.WithOverride)
+		}
+	}
+}
+
+// getMongodConfigModification will merge the additional configuration in the CRD
+// into the configuration set up by the operator.
+func getMongodConfigSearchModification(mdb mdbv1.MongoDBCommunity, search *searchv1.MongoDBSearch) automationconfig.Modification {
+	if search == nil || mdb.GetMongoDBVersion() < "8.0.0" {
+		return func(config *automationconfig.AutomationConfig) {
+			// do nothing
+		}
+	}
+
+	// TODO add search params only conditionally, only if search is enabled for that resource
+	searchConfigParameters := search_controller.GetMongodConfigParameters(search)
+	return func(ac *automationconfig.AutomationConfig) {
+		for i := range ac.Processes {
+			err := mergo.Merge(&ac.Processes[i].Args26, objx.New(searchConfigParameters), mergo.WithOverride)
+			if err != nil {
+				panic(err)
+			}
 		}
 	}
 }

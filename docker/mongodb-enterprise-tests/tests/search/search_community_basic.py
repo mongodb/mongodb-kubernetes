@@ -2,7 +2,7 @@ import tempfile
 
 import pymongo
 import requests
-from kubetester import create_or_update_secret, read_secret, try_load
+from kubetester import create_or_update_secret, try_load
 from kubetester.helm import process_run_and_check
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
@@ -43,7 +43,7 @@ def mdbs(namespace: str) -> MongoDBSearch:
         namespace=namespace,
     )
 
-    resource["spec"]["source"]["mongodbResourceRef"]["name"] = MDBC_RESOURCE_NAME
+    # resource["spec"]["source"]["mongodbResourceRef"]["name"] = MDBC_RESOURCE_NAME
 
     if try_load(resource):
         return resource
@@ -51,26 +51,27 @@ def mdbs(namespace: str) -> MongoDBSearch:
     return resource
 
 
-@mark.e2e_community_replicaset_search
+@mark.e2e_search_community_basic
 def test_install_operator(community_operator: Operator):
     community_operator.assert_is_running()
 
 
-@mark.e2e_community_replicaset_search
+@mark.e2e_search_community_basic
 def test_install_secret(namespace: str):
     create_or_update_secret(namespace=namespace, name="my-user-password", data={"password": USER_PASSWORD})
 
 
-@mark.e2e_community_replicaset_search
+@mark.e2e_search_community_basic
 def test_create_database_resource(mdbc: MongoDBCommunity):
     mdbc.update()
     mdbc.assert_reaches_phase(Phase.Running, timeout=300)
 
 
-@mark.e2e_community_replicaset_search
-def test_create_search_resource(mdbs: MongoDBSearch):
+@mark.e2e_search_community_basic
+def test_create_search_resource(mdbs: MongoDBSearch, mdbc: MongoDBCommunity):
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=300)
+    mdbc.assert_reaches_phase(Phase.Running, timeout=300)
 
 
 def import_sample_database(sample_url: str, connection_string: str):
@@ -84,20 +85,14 @@ def import_sample_database(sample_url: str, connection_string: str):
         process_run_and_check(mongorestore_cmd.split())
 
 
-@mark.e2e_community_replicaset_search
+@mark.e2e_search_community_basic
 def test_import_sample_database(mdbc: MongoDBCommunity):
     url = "https://atlas-education.s3.amazonaws.com/sample_mflix.archive"
 
-    connection_str_secret_data = read_secret(
-        mdbc.namespace,
-        f"{MDBC_RESOURCE_NAME}-admin-{USER_NAME}",
-    )
-
-    # import_sample_database(url, connection_str_secret_data["connectionString.standard"])
     import_sample_database(url, get_connection_string(mdbc))
 
 
-@mark.e2e_community_replicaset_search
+@mark.e2e_search_community_basic
 def test_create_search_index(mdbc: MongoDBCommunity):
     client = pymongo.MongoClient(get_connection_string(mdbc))
     try:
@@ -119,7 +114,7 @@ def test_create_search_index(mdbc: MongoDBCommunity):
         client.close()
 
 
-@mark.e2e_community_replicaset_search
+@mark.e2e_search_community_basic
 def test_test_search_query(mdbc: MongoDBCommunity):
     client = pymongo.MongoClient(get_connection_string(mdbc))
     try:
@@ -156,6 +151,4 @@ def test_test_search_query(mdbc: MongoDBCommunity):
 
 
 def get_connection_string(mdbc: MongoDBCommunity) -> str:
-    return (
-        f"mongodb://{USER_NAME}:{USER_PASSWORD}@{mdbc.name}-0.{mdbc.name}-svc.{mdbc.namespace}.svc.cluster.local:27017"
-    )
+    return f"mongodb://{USER_NAME}:{USER_PASSWORD}@{mdbc.name}-0.{mdbc.name}-svc.{mdbc.namespace}.svc.cluster.local:27017/?replicaSet={mdbc.name}"
