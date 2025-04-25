@@ -4,9 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
@@ -74,6 +73,7 @@ func TestMongoDBSearchReconcileHelper_ValidateSearchSource(t *testing.T) {
 			}
 		})
 	}
+
 }
 
 func TestMongoDBSearchReconcileHelper_ValidateSingleMongoDBSearchForSearchSource(t *testing.T) {

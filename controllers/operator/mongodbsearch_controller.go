@@ -32,7 +32,7 @@ type MongoDBSearchReconciler struct {
 	operatorSearchConfig search_controller.OperatorSearchConfig
 }
 
-func newMongoDBSearchReconciler(ctx context.Context, client kubernetesClient.Client, operatorSearchConfig search_controller.OperatorSearchConfig) *MongoDBSearchReconciler {
+func newMongoDBSearchReconciler(client client.Client, operatorSearchConfig search_controller.OperatorSearchConfig) *MongoDBSearchReconciler {
 	mdbcWatcher := watch.New()
 	return &MongoDBSearchReconciler{
 		kubeClient:           kubernetesClient.NewClient(client),
@@ -83,7 +83,7 @@ func AddMongoDBSearchController(ctx context.Context, mgr manager.Manager, operat
 		return err
 	}
 
-	r := newMongoDBSearchReconciler(ctx, kubernetesClient.NewClient(mgr.GetClient()), operatorSearchConfig)
+	r := newMongoDBSearchReconciler(kubernetesClient.NewClient(mgr.GetClient()), operatorSearchConfig)
 
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}). // nolint:forbidigo
