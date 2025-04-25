@@ -26,8 +26,7 @@ dump_all() {
     # but in some exceptional cases (e.g. clusterwide operator) there can be more than 1 namespace to print diagnostics
     # In this case the python test app may create the test namespace and add necessary labels and annotations so they
     # would be dumped for diagnostics as well
-    # TODO: MCK mco not all
-    for ns in $(kubectl get namespace --output=jsonpath={.items..metadata.name}); do
+    for ns in $(kubectl get namespace -l "evg=task" --output=jsonpath={.items..metadata.name}); do
         if kubectl get namespace "${ns}" -o jsonpath='{.metadata.annotations}' | grep -q "${task_id:?}"; then
             echo "Dumping all diagnostic information for namespace ${ns}"
             dump_namespace "${ns}" "${prefix}"
