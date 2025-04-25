@@ -843,7 +843,81 @@ spec:
                               - MONGODB-CR
                               - SCRAM-SHA-256
                               - LDAP
+                              - OIDC
                               type: string
+                            type: array
+                          oidcProviderConfigs:
+                            items:
+                              properties:
+                                audience:
+                                  description: |-
+                                    Entity that your external identity provider intends the token for.
+                                    Enter the audience value from the app you registered with external Identity Provider.
+                                  type: string
+                                authorizationMethod:
+                                  description: |-
+                                    Configure single-sign-on for human user access to Ops Manager deployments with Workforce Identity Federation.
+                                    For programmatic, application access to Ops Manager deployments use Workload Identity Federation.
+                                    Only one Workforce Identity Federation IdP can be configured per MongoDB resource
+                                  enum:
+                                  - WorkforceIdentityFederation
+                                  - WorkloadIdentityFederation
+                                  type: string
+                                authorizationType:
+                                  description: |-
+                                    Select GroupMembership to grant authorization based on IdP user group membership, or select UserID to grant
+                                    an individual user authorization.
+                                  enum:
+                                  - GroupMembership
+                                  - UserID
+                                  type: string
+                                clientId:
+                                  description: |-
+                                    Unique identifier for your registered application. Enter the clientId value from the app you
+                                    registered with an external Identity Provider.
+                                    Required when selected Workforce Identity Federation authorization method
+                                  type: string
+                                configurationName:
+                                  description: |-
+                                    TODO add proper validation
+                                    Unique label that identifies this configuration. This label is visible to your Ops Manager users and is used when
+                                    creating users and roles for authorization. It is case-sensitive and can only contain the following characters:
+                                     - alphanumeric characters (combination of a to z and 0 to 9)
+                                     - hyphens (-)
+                                     - underscores (_)
+                                  type: string
+                                groupsClaim:
+                                  description: |-
+                                    The identifier of the claim that includes the principal's IdP user group membership information.
+                                    Accept the default value unless your IdP uses a different claim, or you need a custom claim.
+                                    Required when selected GroupMembership as the authorization type, ignored otherwise
+                                  type: string
+                                issuerURI:
+                                  description: |-
+                                    TODO add URI validation
+                                    Issuer value provided by your registered IdP application. Using this URI, MongoDB finds an OpenID Provider
+                                    Configuration Document, which should be available in the /.wellknown/open-id-configuration endpoint.
+                                  type: string
+                                requestedScopes:
+                                  description: |-
+                                    Tokens that give users permission to request data from the authorization endpoint.
+                                    Only used for Workforce Identity Federation authorization method
+                                  items:
+                                    type: string
+                                  type: array
+                                userClaim:
+                                  description: |-
+                                    The identifier of the claim that includes the user principal identity.
+                                    Accept the default value unless your IdP uses a different claim.
+                                  type: string
+                              required:
+                              - audience
+                              - authorizationMethod
+                              - authorizationType
+                              - configurationName
+                              - issuerURI
+                              - userClaim
+                              type: object
                             type: array
                           requireClientTLSAuthentication:
                             description: Clients should present valid TLS certificates
