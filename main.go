@@ -23,10 +23,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 
+	localruntime "runtime"
+
 	corev1 "k8s.io/api/core/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	localruntime "runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	runtime_cluster "sigs.k8s.io/controller-runtime/pkg/cluster"
 	kubelog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -320,7 +321,7 @@ func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, image
 }
 
 func setupMongoDBSearchCRD(ctx context.Context, mgr manager.Manager) error {
-	return operator.AddMongoDBSearchController(mgr, search_controller.OperatorSearchConfig{
+	return operator.AddMongoDBSearchController(ctx, mgr, search_controller.OperatorSearchConfig{
 		SearchRepo:    env.ReadOrPanic("MDB_SEARCH_COMMUNITY_REPO_URL"),
 		SearchName:    env.ReadOrPanic("MDB_SEARCH_COMMUNITY_NAME"),
 		SearchVersion: env.ReadOrPanic("MDB_SEARCH_COMMUNITY_VERSION"),

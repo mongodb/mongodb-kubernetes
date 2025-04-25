@@ -27,6 +27,8 @@ type SearchSourceDBResource interface {
 	GetNamespace() string
 	HasSeparateDataAndLogsVolumes() bool
 	DatabaseServiceName() string
+	GetMongoDBVersion() string
+	IsSecurityTLSConfigEnabled() bool
 }
 
 func NewSearchSourceDBResourceFromMongoDBCommunity(mdbc *mdbcv1.MongoDBCommunity) SearchSourceDBResource {
@@ -59,6 +61,14 @@ func (r *mdbcSearchResource) HasSeparateDataAndLogsVolumes() bool {
 
 func (r *mdbcSearchResource) DatabaseServiceName() string {
 	return r.db.ServiceName()
+}
+
+func (r *mdbcSearchResource) GetMongoDBVersion() string {
+	return r.db.Spec.Version
+}
+
+func (r *mdbcSearchResource) IsSecurityTLSConfigEnabled() bool {
+	return r.db.Spec.Security.TLS.Enabled
 }
 
 // ReplicaSetOptions returns a set of options which will configure a ReplicaSet StatefulSet

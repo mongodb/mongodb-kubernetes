@@ -26,17 +26,18 @@ import (
 )
 
 type MongoDBSearchReconciler struct {
+	*ReconcileCommonController
 	kubeClient           client.Client
 	mdbcWatcher          *watch.ResourceWatcher
 	operatorSearchConfig search_controller.OperatorSearchConfig
 }
 
-func newMongoDBSearchReconciler(client client.Client, operatorSearchConfig search_controller.OperatorSearchConfig) *MongoDBSearchReconciler {
+func newMongoDBSearchReconciler(ctx context.Context, client kubernetesClient.Client, operatorSearchConfig search_controller.OperatorSearchConfig) *MongoDBSearchReconciler {
 	mdbcWatcher := watch.New()
 	return &MongoDBSearchReconciler{
-		kubeClient:           client,
-		mdbcWatcher:          &mdbcWatcher,
-		operatorSearchConfig: operatorSearchConfig,
+		ReconcileCommonController: NewReconcileCommonController(ctx, client),
+		mdbcWatcher:               &mdbcWatcher,
+		operatorSearchConfig:      operatorSearchConfig,
 	}
 }
 
@@ -45,9 +46,8 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 	log := zap.S().With("MongoDBSearch", request.NamespacedName)
 	log.Info("-> MongoDBSearch.Reconcile")
 
-	commonController := NewReconcileCommonController(ctx, r.kubeClient)
 	mdbSearch := &searchv1.MongoDBSearch{}
-	if _, err := commonController.GetResource(ctx, request, mdbSearch, log); err != nil {
+	if _, err := r.GetResource(ctx, request, mdbSearch, log); err != nil {
 		log.Warnf("Error getting MongoDBSearch %s", request.NamespacedName)
 		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, nil
 	}
@@ -73,8 +73,12 @@ func getSourceMongoDBForSearch(ctx context.Context, kubeClient client.Client, se
 	return construct.NewSearchSourceDBResourceFromMongoDBCommunity(mdbc), nil
 }
 
-func AddMongoDBSearchController(mgr manager.Manager, operatorSearchConfig search_controller.OperatorSearchConfig) error {
-	r := newMongoDBSearchReconciler(mgr.GetClient(), operatorSearchConfig)
+func AddMongoDBSearchController(ctx context.Context, mgr manager.Manager, operatorSearchConfig search_controller.OperatorSearchConfig) error {
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &searchv1.MongoDBSearch{}, search_controller.MongoDBSearchIndexFieldName, mdbcSearchIndexBuilder); err != nil {
+		return err
+	}
+
+	r := newMongoDBSearchReconciler(ctx, kubernetesClient.NewClient(mgr.GetClient()), operatorSearchConfig)
 
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}). // nolint:forbidigo
