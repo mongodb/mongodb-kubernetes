@@ -1,6 +1,7 @@
 apiVersion: v2
-name: enterprise-operator
-description: MongoDB Kubernetes Enterprise Operator
+name: mongodb-kubernetes
+description: MongoDB Controllers for Kubernetes translate the human knowledge of creating
+  a MongoDB instance into a scalable, repeatable, and standardized method.
 version: 0.1.0
 kubeVersion: '>=1.16-0'
 type: application
@@ -9,7 +10,7 @@ keywords:
 - database
 - nosql
 icon: https://mongodb-images-new.s3.eu-west-1.amazonaws.com/leaf-green-dark.png
-home: https://github.com/mongodb/mongodb-enterprise-kubernetes
+home: https://github.com/mongodb/mongodb-kubernetes
 maintainers:
 - name: MongoDB
   email: support@mongodb.com
