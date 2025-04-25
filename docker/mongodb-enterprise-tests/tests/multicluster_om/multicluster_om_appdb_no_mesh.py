@@ -27,7 +27,7 @@ from tests.conftest import (
     create_appdb_certs,
     get_central_cluster_client,
     get_member_cluster_clients,
-    update_coredns_hosts,
+    update_coredns_hosts, TELEMETRY_CONFIGMAP_NAME,
 )
 from tests.multicluster_appdb.conftest import (
     create_s3_bucket_blockstore,
@@ -618,8 +618,7 @@ def time_to_millis(date_time) -> int:
 
 @mark.e2e_multi_cluster_om_appdb_no_mesh
 def test_telemetry_configmap(namespace: str):
-    telemetry_configmap_name = "mongodb-enterprise-operator-telemetry"
-    config = KubernetesTester.read_configmap(namespace, telemetry_configmap_name)
+    config = KubernetesTester.read_configmap(namespace, TELEMETRY_CONFIGMAP_NAME)
 
     try:
         payload_string = config.get("lastSendPayloadDeployments")

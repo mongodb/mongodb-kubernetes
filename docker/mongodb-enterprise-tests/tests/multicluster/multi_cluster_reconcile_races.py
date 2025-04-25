@@ -16,7 +16,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 from tests.conftest import (
     get_central_cluster_client,
     get_custom_mdb_version,
-    get_member_cluster_names,
+    get_member_cluster_names, MULTI_CLUSTER_OPERATOR_NAME, TELEMETRY_CONFIGMAP_NAME,
 )
 from tests.multicluster.conftest import cluster_spec_list
 
@@ -221,7 +221,7 @@ def test_create_users(ops_manager: MongoDBOpsManager, namespace: str):
 def test_pod_logs_race(multi_cluster_operator: Operator):
     pods = multi_cluster_operator.list_operator_pods()
     pod_name = pods[0].metadata.name
-    container_name = "mongodb-enterprise-operator-multi-cluster"
+    container_name = MULTI_CLUSTER_OPERATOR_NAME
     pod_logs_str = KubernetesTester.read_pod_logs(
         multi_cluster_operator.namespace, pod_name, container_name, api_client=multi_cluster_operator.api_client
     )
@@ -243,7 +243,7 @@ def test_restart_operator_pod(ops_manager: MongoDBOpsManager, namespace: str, mu
 def test_pod_logs_race_after_restart(multi_cluster_operator: Operator):
     pods = multi_cluster_operator.list_operator_pods()
     pod_name = pods[0].metadata.name
-    container_name = "mongodb-enterprise-operator-multi-cluster"
+    container_name = MULTI_CLUSTER_OPERATOR_NAME
     pod_logs_str = KubernetesTester.read_pod_logs(
         multi_cluster_operator.namespace, pod_name, container_name, api_client=multi_cluster_operator.api_client
     )
@@ -253,8 +253,7 @@ def test_pod_logs_race_after_restart(multi_cluster_operator: Operator):
 
 @pytest.mark.e2e_om_reconcile_race_with_telemetry
 def test_telemetry_configmap(namespace: str):
-    telemetry_configmap_name = "mongodb-enterprise-operator-telemetry"
-    config = KubernetesTester.read_configmap(namespace, telemetry_configmap_name)
+    config = KubernetesTester.read_configmap(namespace, TELEMETRY_CONFIGMAP_NAME)
     for ts_key in ["lastSendTimestampClusters", "lastSendTimestampDeployments", "lastSendTimestampOperators"]:
         ts_cm = config.get(ts_key)
         assert ts_cm.isdigit()  # it should be a timestamp

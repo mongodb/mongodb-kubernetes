@@ -17,7 +17,7 @@ from tests.conftest import (
     get_multi_cluster_operator,
     is_multi_cluster,
     log_deployments_info,
-    setup_log_rotate_for_agents,
+    setup_log_rotate_for_agents, LEGACY_MULTI_CLUSTER_OPERATOR_NAME,
 )
 from tests.multicluster.conftest import cluster_spec_list
 from tests.upgrades import downscale_operator_deployment
@@ -114,7 +114,7 @@ def test_install_replicaset(replica_set: MongoDB):
 
 @mark.e2e_meko_mck_upgrade
 def test_downscale_latest_official_operator(namespace: str):
-    deployment_name = LEGACY_OPERATOR_NAME + "-multi-cluster" if is_multi_cluster() else LEGACY_OPERATOR_NAME
+    deployment_name = LEGACY_MULTI_CLUSTER_OPERATOR_NAME if is_multi_cluster() else LEGACY_OPERATOR_NAME
     downscale_operator_deployment(deployment_name, namespace)
 
 

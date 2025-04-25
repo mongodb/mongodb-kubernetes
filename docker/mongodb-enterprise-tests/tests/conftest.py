@@ -51,7 +51,6 @@ MULTI_CLUSTER_CONFIG_DIR = "/etc/multicluster"
 # AppDB monitoring is disabled by default for e2e tests.
 # If monitoring is needed use monitored_appdb_operator_installation_config / operator_with_monitored_appdb
 MONITOR_APPDB_E2E_DEFAULT = "true"
-MULTI_CLUSTER_OPERATOR_NAME = "mongodb-kubernetes-operator-multi-cluster"
 CLUSTER_HOST_MAPPING = {
     "us-central1-c_central": "https://35.232.85.244",
     "us-east1-b_member-1a": "https://35.243.222.230",
@@ -64,10 +63,13 @@ LEGACY_DEPLOYMENT_STATE_VERSION: str = "1.27.0"
 
 # Names for operator and RBAC
 OPERATOR_NAME = "mongodb-kubernetes-operator"
+MULTI_CLUSTER_OPERATOR_NAME = OPERATOR_NAME + "-multi-cluster"
 LEGACY_OPERATOR_NAME = "mongodb-enterprise-operator"
+LEGACY_MULTI_CLUSTER_OPERATOR_NAME = LEGACY_OPERATOR_NAME + "-multi-cluster"
 APPDB_SA_NAME = "mongodb-kubernetes-appdb"
 DATABASE_SA_NAME = "mongodb-kubernetes-database-pods"
 OM_SA_NAME = "mongodb-kubernetes-ops-manager"
+TELEMETRY_CONFIGMAP_NAME = LEGACY_OPERATOR_NAME + "-telemetry"
 
 logger = test_logger.get_test_logger(__name__)
 
