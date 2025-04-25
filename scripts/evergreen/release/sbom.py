@@ -37,7 +37,7 @@ from lib.base_logger import logger
 
 S3_BUCKET = "kubernetes-operators-sboms"
 SILK_BOMB_IMAGE = "artifactory.corp.mongodb.com/release-tools-container-registry-public-local/silkbomb:2.0"
-KONDUKTO_REPO = "10gen/ops-manager-kubernetes"
+KONDUKTO_REPO = "mongodb/mongodb-kubernetes"
 WORKDIR = os.getenv("workdir")
 
 
@@ -267,7 +267,7 @@ def get_kondukto_sbom_data(image_name: str, tag: str, platform_sanitized: str):
     daily_project_branch_id = f"{image_name}-daily-{tag}-{platform_sanitized}"
     release_project_branch_id = f"{image_name}-release-{tag}-{platform_sanitized}"
     if image_name.startswith("mongodb-enterprise"):
-        return daily_project_branch_id, release_project_branch_id, "10gen/ops-manager-kubernetes"
+        return daily_project_branch_id, release_project_branch_id, "mongodb/mongodb-kubernetes"
     return daily_project_branch_id, release_project_branch_id, "mongodb/mongodb-kubernetes-operator"
 
 

@@ -50,6 +50,6 @@ COPY . /tests
 COPY helm_chart /helm_chart
 COPY release.json /release.json
 # we use the public directory to automatically test resources samples
-COPY public /ops-manager-kubernetes/public
+COPY public /mongodb-kubernetes/public
 
 ADD multi-cluster-kube-config-creator_linux /usr/local/bin/multi-cluster-kube-config-creator

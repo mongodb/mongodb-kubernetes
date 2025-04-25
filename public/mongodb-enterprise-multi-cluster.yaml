@@ -1,5 +1,5 @@
 ---
-# Source: kubernetes-operator/templates/operator-roles.yaml
+# Source: mongodb-kubernetes/templates/operator-roles.yaml
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -26,7 +26,7 @@ rules:
       - update
       - delete
 ---
-# Source: kubernetes-operator/templates/operator-roles.yaml
+# Source: mongodb-kubernetes/templates/operator-roles.yaml
 # Additional ClusterRole for clusterVersionDetection
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
@@ -54,7 +54,7 @@ rules:
     verbs:
       - list
 ---
-# Source: kubernetes-operator/templates/operator-roles.yaml
+# Source: mongodb-kubernetes/templates/operator-roles.yaml
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -68,7 +68,7 @@ subjects:
     name: mongodb-kubernetes-operator-multi-cluster
     namespace: mongodb
 ---
-# Source: kubernetes-operator/templates/operator-roles.yaml
+# Source: mongodb-kubernetes/templates/operator-roles.yaml
 # ClusterRoleBinding for clusterVersionDetection
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
@@ -83,7 +83,7 @@ subjects:
     name: mongodb-kubernetes-operator-multi-cluster
     namespace: mongodb
 ---
-# Source: kubernetes-operator/templates/operator-roles.yaml
+# Source: mongodb-kubernetes/templates/operator-roles.yaml
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -173,7 +173,7 @@ rules:
       - patch
       - update
 ---
-# Source: kubernetes-operator/templates/operator-roles.yaml
+# Source: mongodb-kubernetes/templates/operator-roles.yaml
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -188,28 +188,28 @@ subjects:
     name: mongodb-kubernetes-operator-multi-cluster
     namespace: mongodb
 ---
-# Source: kubernetes-operator/templates/database-roles.yaml
+# Source: mongodb-kubernetes/templates/database-roles.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-appdb
   namespace: mongodb
 ---
-# Source: kubernetes-operator/templates/database-roles.yaml
+# Source: mongodb-kubernetes/templates/database-roles.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-database-pods
   namespace: mongodb
 ---
-# Source: kubernetes-operator/templates/database-roles.yaml
+# Source: mongodb-kubernetes/templates/database-roles.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-ops-manager
   namespace: mongodb
 ---
-# Source: kubernetes-operator/templates/database-roles.yaml
+# Source: mongodb-kubernetes/templates/database-roles.yaml
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -231,7 +231,7 @@ rules:
       - delete
       - get
 ---
-# Source: kubernetes-operator/templates/database-roles.yaml
+# Source: mongodb-kubernetes/templates/database-roles.yaml
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -246,14 +246,14 @@ subjects:
     name: mongodb-kubernetes-appdb
     namespace: mongodb
 ---
-# Source: kubernetes-operator/templates/operator-sa.yaml
+# Source: mongodb-kubernetes/templates/operator-sa.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-operator-multi-cluster
   namespace: mongodb
 ---
-# Source: kubernetes-operator/templates/operator.yaml
+# Source: mongodb-kubernetes/templates/operator.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:

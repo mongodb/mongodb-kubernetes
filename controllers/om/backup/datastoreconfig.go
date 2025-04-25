@@ -3,7 +3,7 @@ package backup
 import (
 	"fmt"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 type DataStoreConfigResponse struct {

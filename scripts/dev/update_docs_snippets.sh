@@ -2,17 +2,17 @@
 
 # script to update code snippets file from MEKO in docs repository
 # Usage:
-#   cd <ops-manager-kubernetes directory>
+#   cd <mongodb-kubernetes directory>
 #   ./scripts/dev/update_docs_snippets.sh
 #
 # To customize directories run
 #   MEKO_DIR=<path to meko repository> DOCS_DIR=<path to docs repository> ./update_docs_snippets.sh
 # Example:
-#   MEKO_DIR=~/mdb/ops-manager-kubernetes DOCS_DIR=~/mdb/docs-k8s-operator ./update_docs_snippets.sh
+#   MEKO_DIR=~/mdb/mongodb-kubernetes DOCS_DIR=~/mdb/docs-k8s-operator ./update_docs_snippets.sh
 
 set -eou pipefail
 
-MEKO_DIR=${MEKO_DIR:-"ops-manager-kubernetes"}
+MEKO_DIR=${MEKO_DIR:-"mongodb-kubernetes"}
 MEKO_BRANCH=${MEKO_BRANCH:-"om-mc-gke"}
 DOCS_DIR=${DOCS_DIR:-"docs-k8s-operator"}
 DOCS_BRANCH=${DOCS_BRANCH:-"master"}

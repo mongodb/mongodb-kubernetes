@@ -1,26 +1,26 @@
 ---
-# Source: kubernetes-operator/templates/database-roles.yaml
+# Source: mongodb-kubernetes/templates/database-roles.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-appdb
   namespace: mongodb
 ---
-# Source: kubernetes-operator/templates/database-roles.yaml
+# Source: mongodb-kubernetes/templates/database-roles.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-database-pods
   namespace: mongodb
 ---
-# Source: kubernetes-operator/templates/database-roles.yaml
+# Source: mongodb-kubernetes/templates/database-roles.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-ops-manager
   namespace: mongodb
 ---
-# Source: kubernetes-operator/templates/database-roles.yaml
+# Source: mongodb-kubernetes/templates/database-roles.yaml
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -42,7 +42,7 @@ rules:
       - delete
       - get
 ---
-# Source: kubernetes-operator/templates/database-roles.yaml
+# Source: mongodb-kubernetes/templates/database-roles.yaml
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:

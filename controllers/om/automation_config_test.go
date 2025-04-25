@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/api/equality"
 
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/ldap"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 var originalAutomationConfig = *getTestAutomationConfig()

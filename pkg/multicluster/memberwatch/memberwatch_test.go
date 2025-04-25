@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 
-	"github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	mc "github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
-	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster/failedcluster"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	mc "github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster/failedcluster"
 )
 
 func TestClusterWithMinimumNumber(t *testing.T) {
