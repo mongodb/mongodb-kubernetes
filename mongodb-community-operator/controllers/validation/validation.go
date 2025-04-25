@@ -199,7 +199,6 @@ func validateAgentCertSecret(mdb mdbv1.MongoDBCommunity, log *zap.SugaredLogger)
 func validateStatefulSet(mdb mdbv1.MongoDBCommunity) error {
 	stsReplicas := mdb.Spec.StatefulSetConfiguration.SpecWrapper.Spec.Replicas
 
-	// TODO: MCK fix all nolint:gosec
 	if stsReplicas != nil && *stsReplicas != int32(mdb.Spec.Members) { //nolint:gosec
 		return fmt.Errorf("spec.statefulset.spec.replicas has to be equal to spec.members")
 	}
