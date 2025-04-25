@@ -147,6 +147,7 @@ const (
 	MONGODBCR                         = "MONGODB-CR"
 	SCRAMSHA256                       = "SCRAM-SHA-256"
 	LDAP                              = "LDAP"
+	OIDC                              = "OIDC"
 	MinimumScramSha256MdbVersion      = "4.0.0"
 
 	// these were historically used and constituted a security issue—if set they should be changed

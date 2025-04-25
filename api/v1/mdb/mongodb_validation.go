@@ -107,7 +107,7 @@ func scramSha1AuthValidation(d DbCommonSpec) v1.ValidationResult {
 
 func ldapAuthRequiresEnterprise(d DbCommonSpec) v1.ValidationResult {
 	authSpec := d.Security.Authentication
-	if authSpec != nil && authSpec.isLDAPEnabled() && !strings.HasSuffix(d.Version, "-ent") {
+	if authSpec != nil && authSpec.IsLDAPEnabled() && !strings.HasSuffix(d.Version, "-ent") {
 		return v1.ValidationError("Cannot enable LDAP authentication with MongoDB Community Builds")
 	}
 	return v1.ValidationSuccess()
