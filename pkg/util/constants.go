@@ -79,6 +79,7 @@ const (
 	LegacyOperatorName             = "mongodb-enterprise-operator" // Still used for some selectors and labels
 	MultiClusterOperatorName       = "mongodb-kubernetes-operator-multi-cluster"
 	OperatorLabelName              = "controller"
+	OperatorLabelValue             = LegacyOperatorName
 	OpsManagerContainerName        = "mongodb-ops-manager"
 	BackupDaemonContainerName      = "mongodb-backup-daemon"
 	DatabaseContainerName          = "mongodb-enterprise-database"

@@ -128,7 +128,7 @@ func (m *AppDBSpec) ObjectKey() client.ObjectKey {
 
 func (m *AppDBSpec) GetOwnerLabels() map[string]string {
 	return map[string]string{
-		util.OperatorLabelName: util.LegacyOperatorName,
+		util.OperatorLabelName: util.OperatorLabelValue,
 		LabelResourceOwner:     m.OpsManagerName,
 	}
 }

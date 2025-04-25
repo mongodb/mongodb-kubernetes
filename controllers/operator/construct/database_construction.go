@@ -409,7 +409,7 @@ func buildVaultDatabaseSecretsToInject(mdb databaseStatefulSetSource, opts Datab
 func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource, podTemplateSpecFunc podtemplatespec.Modification, opts DatabaseStatefulSetOptions, log *zap.SugaredLogger) statefulset.Modification {
 	podLabels := map[string]string{
 		appLabelKey:             opts.ServiceName,
-		util.OperatorLabelName:  util.LegacyOperatorName,
+		util.OperatorLabelName:  util.OperatorLabelValue,
 		PodAntiAffinityLabelKey: opts.Name,
 	}
 
