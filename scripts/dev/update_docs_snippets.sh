@@ -12,7 +12,7 @@
 
 set -eou pipefail
 
-MEKO_DIR=${MEKO_DIR:-"ops-manager-kubernetes"}
+MEKO_DIR=${MEKO_DIR:-"mongodb-kubernetes"}
 MEKO_BRANCH=${MEKO_BRANCH:-"om-mc-gke"}
 DOCS_DIR=${DOCS_DIR:-"docs-k8s-operator"}
 DOCS_BRANCH=${DOCS_BRANCH:-"master"}
