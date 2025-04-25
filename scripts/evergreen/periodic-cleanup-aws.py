@@ -95,10 +95,16 @@ def get_images_with_dates(repository: str) -> List[dict]:
 
 def batch_delete_images(repository: str, images: List[dict]) -> None:
     print(f"Deleting {len(images)} images in repository {repository}")
-    digests_to_delete = [{"imageDigest": image["imageDigest"]} for image in images]
+
+    # If the image is tagged we only delete the tag, not the sha
+    images_to_delete = [
+        {"imageTag": image["imageTag"]} if image["imageTag"] else {"imageDigest": image["imageDigest"]}
+        for image in images
+    ]
+
     # batch_delete_image only support a maximum of 100 images at a time
-    for i in range(0, len(digests_to_delete), 100):
-        batch = digests_to_delete[i : i + 100]
+    for i in range(0, len(images_to_delete), 100):
+        batch = images_to_delete[i : i + 100]
         print(f"Deleting batch {i//100 + 1} with {len(batch)} images...")
         ecr_client.batch_delete_image(repositoryName=repository, registryId=REGISTRY_ID, imageIds=batch)
     print(f"Deleted images")

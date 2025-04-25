@@ -36,6 +36,7 @@
         "6.0.25",
         "6.0.26",
         "6.0.27",
+        "7.0.12",
         "7.0.13",
         "7.0.14",
         "7.0.15",
@@ -47,14 +48,11 @@
         "ubi"
       ]
     },
-    "operator": {
+    "mongodb-kubernetes": {
       "Description": "We support 3 last versions, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "ssdlc_name": "MongoDB Enterprise Kubernetes Operator",
       "versions": [
-        "0.1.0",
-        "1.31.0",
-        "1.32.0",
-        "1.33.0"
+        "0.1.0"
       ],
       "variants": [
         "ubi"
@@ -142,10 +140,7 @@
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "ssdlc_name": "MongoDB Enterprise Kubernetes Operator Init Ops Manager",
       "versions": [
-        "0.1.0",
-        "1.31.0",
-        "1.32.0",
-        "1.33.0"
+        "0.1.0"
       ],
       "variants": [
         "ubi"
@@ -155,10 +150,7 @@
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "ssdlc_name": "MongoDB Enterprise Kubernetes Operator Init Database",
       "versions": [
-        "0.1.0",
-        "1.31.0",
-        "1.32.0",
-        "1.33.0"
+        "0.1.0"
       ],
       "variants": [
         "ubi"
@@ -168,10 +160,7 @@
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "ssdlc_name": "MongoDB Enterprise Kubernetes Operator Init AppDB",
       "versions": [
-        "0.1.0",
-        "1.31.0",
-        "1.32.0",
-        "1.33.0"
+        "0.1.0"
       ],
       "variants": [
         "ubi"
@@ -181,10 +170,7 @@
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "ssdlc_name": "MongoDB Enterprise Kubernetes Operator Database",
       "versions": [
-        "0.1.0",
-        "1.31.0",
-        "1.32.0",
-        "1.33.0"
+        "0.1.0"
       ],
       "variants": [
         "ubi"

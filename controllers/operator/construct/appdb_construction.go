@@ -20,10 +20,10 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/controllers/construct"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/container"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/merge"
 	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/scale"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
+	"github.com/10gen/ops-manager-kubernetes/pkg/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
@@ -303,7 +303,7 @@ func customPersistenceConfig(om *om.MongoDBOpsManager) statefulset.Modification 
 			config = om.Spec.AppDB.PodSpec.Persistence.SingleConfig
 		}
 		// Single persistence, needs to modify the only pvc we have
-		pvcModification := pvcFunc(om.Spec.AppDB.DataVolumeName(), config, *defaultPodSpecPersistence.SingleConfig, om.Labels)
+		pvcModification := PvcFunc(om.Spec.AppDB.DataVolumeName(), config, *defaultPodSpecPersistence.SingleConfig, om.Labels)
 
 		// We already have, by default, the data volume mount,
 		// here we also create the logs and journal one, as subpath from the same volume
@@ -327,11 +327,11 @@ func customPersistenceConfig(om *om.MongoDBOpsManager) statefulset.Modification 
 	} else {
 		// Here need to modify data and logs volumes,
 		// and create the journal one (which doesn't exist in Community, where this original STS is built)
-		dataModification := pvcFunc(om.Spec.AppDB.DataVolumeName(), om.Spec.AppDB.PodSpec.Persistence.MultipleConfig.Data, *defaultPodSpecPersistence.MultipleConfig.Data, om.Labels)
-		logsModification := pvcFunc(om.Spec.AppDB.LogsVolumeName(), om.Spec.AppDB.PodSpec.Persistence.MultipleConfig.Logs, *defaultPodSpecPersistence.MultipleConfig.Logs, om.Labels)
+		dataModification := PvcFunc(om.Spec.AppDB.DataVolumeName(), om.Spec.AppDB.PodSpec.Persistence.MultipleConfig.Data, *defaultPodSpecPersistence.MultipleConfig.Data, om.Labels)
+		logsModification := PvcFunc(om.Spec.AppDB.LogsVolumeName(), om.Spec.AppDB.PodSpec.Persistence.MultipleConfig.Logs, *defaultPodSpecPersistence.MultipleConfig.Logs, om.Labels)
 
 		journalVolumeMounts := statefulset.CreateVolumeMount(util.PvcNameJournal, util.PvcMountPathJournal)
-		journalVolumeClaim := pvcFunc(util.PvcNameJournal, om.Spec.AppDB.PodSpec.Persistence.MultipleConfig.Journal, *defaultPodSpecPersistence.MultipleConfig.Journal, om.Labels)
+		journalVolumeClaim := PvcFunc(util.PvcNameJournal, om.Spec.AppDB.PodSpec.Persistence.MultipleConfig.Journal, *defaultPodSpecPersistence.MultipleConfig.Journal, om.Labels)
 
 		return statefulset.Apply(
 			statefulset.WithVolumeClaim(util.PvcMountPathLogs, journalVolumeClaim),

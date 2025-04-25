@@ -1689,6 +1689,25 @@ def install_multi_cluster_operator_cluster_scoped(
     )
 
 
+def wait_for_primary(mdb_client, timeout=500):
+    """
+    Waits until a primary node is elected before proceeding with database operations.
+    This prevents unnecessary timeouts during restore actions (they will just fail otherwise).
+    """
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        try:
+            status = mdb_client.admin.command("replSetGetStatus")
+            primary = [m for m in status["members"] if m["stateStr"] == "PRIMARY"]
+            if primary:
+                print(f"✅ Primary node detected: {primary[0]['name']}")
+                return True
+        except Exception as e:
+            print(f"⏳ Waiting for primary election... Error: {e}")
+        time.sleep(5)
+    raise Exception("❌ No primary found within timeout")
+
+
 def assert_data_got_restored(test_data, collection1, collection2=None, timeout=300):
     """The data in the db has been restored to the initial state. Note, that this happens eventually - so
     we need to loop for some time (usually takes 60 seconds max). This is different from restoring from a

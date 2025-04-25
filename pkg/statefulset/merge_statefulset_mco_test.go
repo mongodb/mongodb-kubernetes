@@ -58,7 +58,7 @@ func TestGetLabelSelectorRequirementByKey(t *testing.T) {
 	}
 }
 
-func TestMergeSpec(t *testing.T) {
+func TestMergeSpec_MCO(t *testing.T) {
 	original := New(
 		WithName("original"),
 		WithServiceName("original-svc-name"),
