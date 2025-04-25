@@ -23,11 +23,12 @@ from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 from tests.conftest import (
+    TELEMETRY_CONFIGMAP_NAME,
     assert_data_got_restored,
     create_appdb_certs,
     get_central_cluster_client,
     get_member_cluster_clients,
-    update_coredns_hosts, TELEMETRY_CONFIGMAP_NAME,
+    update_coredns_hosts,
 )
 from tests.multicluster_appdb.conftest import (
     create_s3_bucket_blockstore,

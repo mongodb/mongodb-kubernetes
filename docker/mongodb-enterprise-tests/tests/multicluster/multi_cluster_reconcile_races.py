@@ -14,9 +14,11 @@ from kubetester.mongodb_user import MongoDBUser
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
 from tests.conftest import (
+    MULTI_CLUSTER_OPERATOR_NAME,
+    TELEMETRY_CONFIGMAP_NAME,
     get_central_cluster_client,
     get_custom_mdb_version,
-    get_member_cluster_names, MULTI_CLUSTER_OPERATOR_NAME, TELEMETRY_CONFIGMAP_NAME,
+    get_member_cluster_names,
 )
 from tests.multicluster.conftest import cluster_spec_list
 

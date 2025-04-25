@@ -12,14 +12,16 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.conftest import (
     LEGACY_DEPLOYMENT_STATE_VERSION,
+    LEGACY_MULTI_CLUSTER_OPERATOR_NAME,
     LEGACY_OPERATOR_NAME,
+    MULTI_CLUSTER_OPERATOR_NAME,
     OPERATOR_NAME,
     create_appdb_certs,
     get_central_cluster_name,
     get_custom_appdb_version,
     install_official_operator,
     local_operator,
-    log_deployments_info, MULTI_CLUSTER_OPERATOR_NAME, LEGACY_MULTI_CLUSTER_OPERATOR_NAME,
+    log_deployments_info,
 )
 from tests.multicluster.conftest import cluster_spec_list
 from tests.upgrades import downscale_operator_deployment

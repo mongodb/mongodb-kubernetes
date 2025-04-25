@@ -13,11 +13,12 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.constants import MONGODB_PORT
 from tests.conftest import (
+    LEGACY_MULTI_CLUSTER_OPERATOR_NAME,
     LEGACY_OPERATOR_NAME,
     get_multi_cluster_operator,
     is_multi_cluster,
     log_deployments_info,
-    setup_log_rotate_for_agents, LEGACY_MULTI_CLUSTER_OPERATOR_NAME,
+    setup_log_rotate_for_agents,
 )
 from tests.multicluster.conftest import cluster_spec_list
 from tests.upgrades import downscale_operator_deployment
