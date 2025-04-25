@@ -19,7 +19,7 @@ from tests.conftest import (
     get_custom_appdb_version,
     install_official_operator,
     local_operator,
-    log_deployments_info,
+    log_deployments_info, MULTI_CLUSTER_OPERATOR_NAME, LEGACY_MULTI_CLUSTER_OPERATOR_NAME,
 )
 from tests.multicluster.conftest import cluster_spec_list
 from tests.upgrades import downscale_operator_deployment
@@ -249,7 +249,7 @@ class TestOperatorUpgrade:
     def test_downscale_latest_official_operator(self, namespace: str):
         # Scale down the existing operator deployment to 0. This is needed as long as the
         # `official_operator` fixture installs the MEKO operator.
-        downscale_operator_deployment(deployment_name=LEGACY_OPERATOR_NAME, namespace=namespace)
+        downscale_operator_deployment(deployment_name=LEGACY_MULTI_CLUSTER_OPERATOR_NAME, namespace=namespace)
 
     def test_install_default_operator(self, namespace: str, multi_cluster_operator: Operator):
         logger.info("Installing the operator built from master")
@@ -294,7 +294,7 @@ class TestOperatorDowngrade:
     def test_downscale_default_operator(self, namespace: str):
         # Scale down the existing operator deployment to 0. This is needed as long as the
         # `official_operator` fixture installs the MEKO operator.
-        downscale_operator_deployment(deployment_name=OPERATOR_NAME, namespace=namespace)
+        downscale_operator_deployment(deployment_name=MULTI_CLUSTER_OPERATOR_NAME, namespace=namespace)
 
     def test_install_legacy_state_official_operator(
         self,
