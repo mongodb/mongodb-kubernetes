@@ -188,14 +188,14 @@ subjects:
     name: mongodb-kubernetes-operator
     namespace: mongodb
 ---
-# Source: enterprise-operator/templates/database-roles.yaml
+# Source: mongodb-kubernetes/templates/database-roles.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-appdb
   namespace: mongodb
 ---
-# Source: enterprise-operator/templates/database-roles.yaml
+# Source: mongodb-kubernetes/templates/database-roles.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
