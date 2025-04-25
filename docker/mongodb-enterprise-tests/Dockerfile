@@ -37,6 +37,9 @@ RUN curl --fail --retry 3 -L -o "${HELM_NAME}" "https://get.helm.sh/${HELM_NAME}
     && rm "${HELM_NAME}" \
     && mv "linux-amd64/helm" "/usr/local/bin/helm"
 
+ADD https://fastdl.mongodb.org/tools/db/mongodb-database-tools-ubuntu2204-x86_64-100.12.0.tgz /tmp/mongodb-tools.tgz
+RUN tar xfz /tmp/mongodb-tools.tgz --directory /usr/local/bin/ && rm /tmp/mongodb-tools.tgz
+
 COPY --from=builder /venv /venv
 
 ENV PATH="/venv/bin:${PATH}"

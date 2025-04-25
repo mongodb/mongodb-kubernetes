@@ -752,6 +752,14 @@ If the context image supports both ARM and AMD architectures, both will be built
 """
 
 
+def should_skip_arm64():
+    """
+    Determines if arm64 builds should be skipped based on environment.
+    Returns True if running in Evergreen pipeline as a patch.
+    """
+    return is_running_in_evg_pipeline() and is_running_in_patch()
+
+
 def build_image_daily(
     image_name: str,  # corresponds to the image_name in the release.json
     min_version: str = None,
@@ -765,6 +773,11 @@ def build_image_daily(
         arch_set = set(build_configuration.architecture) if build_configuration.architecture else set()
         if arch_set == {"arm64"}:
             raise ValueError("Building for ARM64 only is not supported yet")
+
+        # Skip arm64 when running in Evergreen and on a patch
+        if should_skip_arm64():
+            logger.info("Skipping ARM64 builds as this is running in EVG pipeline as a patch")
+            return {"amd64"}
 
         # Automatic architecture detection is the default behavior if 'arch' argument isn't specified
         if arch_set == set():
@@ -1044,7 +1057,14 @@ def build_community_image(build_configuration: BuildConfiguration, image_type: s
 
     version, is_release = get_git_release_tag()
     golang_version = os.getenv("GOLANG_VERSION", "1.24")
-    architectures = build_configuration.architecture or ["amd64", "arm64"]
+
+    # Use only amd64 if we should skip arm64 builds
+    if should_skip_arm64():
+        architectures = ["amd64"]
+        logger.info("Skipping ARM64 builds for community image as this is running in EVG pipeline as a patch")
+    else:
+        architectures = build_configuration.architecture or ["amd64", "arm64"]
+
     multi_arch_args_list = []
 
     for arch in architectures:
@@ -1064,7 +1084,7 @@ def build_community_image(build_configuration: BuildConfiguration, image_type: s
         multi_arch_args_list=multi_arch_args_list,
         inventory_file=inventory_file,
         registry_address=f"{base_repo}/{image_name}",
-        is_multi_arch=True,
+        is_multi_arch=not should_skip_arm64(),
     )
 
 
@@ -1151,16 +1171,19 @@ def build_multi_arch_agent_in_sonar(
     ecr_registry = os.environ.get("REGISTRY", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
     ecr_agent_registry = ecr_registry + f"/mongodb-agent-ubi"
     quay_agent_registry = QUAY_REGISTRY_URL + f"/mongodb-agent-ubi"
-    joined_args = list()
-    for arch in [arch_arm, arch_amd]:
-        joined_args.append(args | arch)
+    joined_args = [arch_amd]
+
+    # Only include arm64 if we shouldn't skip it
+    if not should_skip_arm64():
+        joined_args.append(arch_arm)
+
     build_image_generic(
         config=build_configuration,
         image_name="mongodb-agent",
         inventory_file="inventories/agent_non_matrix.yaml",
         multi_arch_args_list=joined_args,
         registry_address=quay_agent_registry if is_release else ecr_agent_registry,
-        is_multi_arch=True,
+        is_multi_arch=not should_skip_arm64(),  # Only create multi-arch when we're building both
         is_run_in_parallel=True,
     )
 
