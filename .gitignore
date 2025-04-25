@@ -43,7 +43,7 @@ public/architectures/**/certs/*
 public/architectures/**/secrets/*
 
 docker/mongodb-enterprise-appdb/content/readinessprobe
-ops-manager-kubernetes
+mongodb-kubernetes
 docker/mongodb-enterprise-operator/Dockerfile
 docker/mongodb-kubernetes-database/Dockerfile
 docker/mongodb-enterprise-ops-manager/Dockerfile

@@ -10,7 +10,7 @@ if [ "${COMMIT_OUTPUT:-false}" = true ]; then
   git reset
   git add public/architectures/**/*.out
   git commit -m "Update code snippets outputs"
-  git remote set-url origin https://x-access-token:"${GH_TOKEN}"@github.com/10gen/ops-manager-kubernetes.git
+  git remote set-url origin https://x-access-token:"${GH_TOKEN}"@github.com/mongodb/mongodb-kubernetes.git
   git push origin "${branch}"
 else
   echo "Not pushing output files"

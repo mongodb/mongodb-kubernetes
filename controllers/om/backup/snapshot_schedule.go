@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 )
 
 // SnapshotSchedule object represents request and response body object of get and update snapshot schedule request

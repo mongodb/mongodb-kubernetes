@@ -10,7 +10,7 @@ required environment vars (can also be added to /.operator-dev/om):
     - AWS_SECRET_ACCESS_KEY
 
 run the script:
-    PYTHONPATH="<path to ops-manager-kubernetes repo>:<path to ops-manager-kubernetes repo>/docker/mongodb-enterprise-tests" python ./scripts/update_dockerfiles_in_s3.py
+    PYTHONPATH="<path to mongodb-kubernetes repo>:<path to mongodb-kubernetes repo>/docker/mongodb-enterprise-tests" python ./scripts/update_dockerfiles_in_s3.py
 """
 
 import os

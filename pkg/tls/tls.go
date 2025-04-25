@@ -1,7 +1,7 @@
 package tls
 
 import (
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
 type Mode string
