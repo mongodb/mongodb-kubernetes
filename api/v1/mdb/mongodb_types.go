@@ -807,6 +807,22 @@ func (s *Security) IsTLSEnabled() bool {
 	return s.CertificatesSecretsPrefix != ""
 }
 
+func (s *Security) IsOIDCEnabled() bool {
+	if s == nil {
+		return false
+	}
+
+	if s.Authentication == nil {
+		return false
+	}
+
+	if !s.Authentication.Enabled {
+		return false
+	}
+
+	return s.Authentication.IsOIDCEnabled()
+}
+
 // GetAgentMechanism returns the authentication mechanism that the agents will be using.
 // The agents will use X509 if it is the only mechanism specified, otherwise they will use SCRAM if specified
 // and no auth if no mechanisms exist.
@@ -1047,12 +1063,13 @@ type Ldap struct {
 }
 
 type OIDCProviderConfig struct {
-	// TODO add proper validation
+	// TODO add proper validation and test it
 	// Unique label that identifies this configuration. This label is visible to your Ops Manager users and is used when
 	// creating users and roles for authorization. It is case-sensitive and can only contain the following characters:
 	//  - alphanumeric characters (combination of a to z and 0 to 9)
 	//  - hyphens (-)
 	//  - underscores (_)
+	// +kubebuilder:validation:Pattern:"^[a-zA-Z0-9-_]+$"
 	ConfigurationName string `json:"configurationName"`
 
 	// TODO add URI validation
@@ -1278,6 +1295,10 @@ func (m *MongoDB) AddWarningIfNotExists(warning status.Warning) {
 
 func (m *MongoDB) GetStatus(...status.Option) interface{} {
 	return m.Status
+}
+
+func (m *MongoDB) GetStatusWarnings() []status.Warning {
+	return m.Status.Warnings
 }
 
 func (m *MongoDB) GetCommonStatus(...status.Option) *status.Common {

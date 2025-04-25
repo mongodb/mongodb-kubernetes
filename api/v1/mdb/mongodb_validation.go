@@ -2,6 +2,7 @@ package mdb
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -105,6 +106,146 @@ func scramSha1AuthValidation(d DbCommonSpec) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
+func oidcAuthValidators(db DbCommonSpec) []func(DbCommonSpec) v1.ValidationResult {
+	validators := make([]func(DbCommonSpec) v1.ValidationResult, 0)
+	if !db.Security.IsOIDCEnabled() {
+		return validators
+	}
+
+	authentication := db.Security.Authentication
+	validators = append(validators, oidcAuthModeValidator(authentication))
+
+	providerConfigs := authentication.OIDCProviderConfigs
+	if len(providerConfigs) == 0 {
+		return validators
+	}
+
+	validators = append(validators,
+		oidcProviderConfigsUniqueNameValidation(providerConfigs),
+		oidcProviderConfigsSingleWorkforceIdentityFederationValidation(providerConfigs),
+	)
+
+	for _, config := range providerConfigs {
+		validators = append(validators,
+			oidcProviderConfigIssuerURIValidator(config),
+			oidcProviderConfigClientIdValidator(config),
+			oidcProviderConfigRequestedScopesValidator(config),
+			oidcProviderConfigAuthorizationTypeValidator(config),
+		)
+	}
+
+	return validators
+}
+
+func oidcAuthModeValidator(authentication *Authentication) func(DbCommonSpec) v1.ValidationResult {
+	return func(spec DbCommonSpec) v1.ValidationResult {
+		// OIDC cannot be used for agent authentication so other auth mode has to enabled as well
+		if len(authentication.Modes) == 1 {
+			return v1.ValidationError("OIDC authentication cannot be used as the only authentication mechanism")
+		}
+
+		oidcProviderConfigs := authentication.OIDCProviderConfigs
+		if len(oidcProviderConfigs) == 0 {
+			return v1.ValidationError("At least one OIDC provider config needs to be specified when OIDC authentication is enabled")
+		}
+
+		return v1.ValidationSuccess()
+	}
+}
+
+func oidcProviderConfigsUniqueNameValidation(configs []OIDCProviderConfig) func(DbCommonSpec) v1.ValidationResult {
+	return func(spec DbCommonSpec) v1.ValidationResult {
+		configNames := make(map[string]bool)
+		for _, config := range configs {
+			if _, ok := configNames[config.ConfigurationName]; ok {
+				return v1.ValidationError("OIDC provider config name %s is not unique", config.ConfigurationName)
+			}
+
+			configNames[config.ConfigurationName] = true
+		}
+
+		return v1.ValidationSuccess()
+	}
+}
+
+func oidcProviderConfigsSingleWorkforceIdentityFederationValidation(configs []OIDCProviderConfig) func(DbCommonSpec) v1.ValidationResult {
+	return func(spec DbCommonSpec) v1.ValidationResult {
+		workforceIdentityFederationConfigs := make([]string, 0)
+		for _, config := range configs {
+			if config.AuthorizationMethod == OIDCAuthorizationMethodWorkforceIdentityFederation {
+				workforceIdentityFederationConfigs = append(workforceIdentityFederationConfigs, config.ConfigurationName)
+			}
+		}
+
+		if len(workforceIdentityFederationConfigs) > 1 {
+			msg := fmt.Sprintf("Only one OIDC provider config can be configured with Workforce Identity Federation. "+
+				"The following configs are configured with Workforce Identity Federation: %s", strings.Join(workforceIdentityFederationConfigs, ", "))
+			return v1.ValidationError("%s", msg)
+		}
+
+		return v1.ValidationSuccess()
+	}
+}
+
+func oidcProviderConfigIssuerURIValidator(config OIDCProviderConfig) func(DbCommonSpec) v1.ValidationResult {
+	return func(_ DbCommonSpec) v1.ValidationResult {
+		ok, url := util.IsURL(config.IssuerURI)
+		if !ok {
+			return v1.ValidationError("Invalid IssuerURI in OIDC provider config %q", config.ConfigurationName)
+		}
+
+		if url.Scheme != "https" {
+			return v1.ValidationWarning("IssuerURI in OIDC provider config %q in not secure endpoint", config.ConfigurationName)
+		}
+
+		return v1.ValidationSuccess()
+	}
+}
+
+func oidcProviderConfigClientIdValidator(config OIDCProviderConfig) func(DbCommonSpec) v1.ValidationResult {
+	return func(_ DbCommonSpec) v1.ValidationResult {
+		if config.AuthorizationMethod == OIDCAuthorizationMethodWorkforceIdentityFederation {
+			if config.ClientId == "" {
+				return v1.ValidationError("ClientId has to be specified in OIDC provider config %q with Workforce Identity Federation", config.ConfigurationName)
+			}
+		} else if config.AuthorizationMethod == OIDCAuthorizationMethodWorkloadIdentityFederation {
+			if config.ClientId != "" {
+				return v1.ValidationWarning("ClientId will be ignored in OIDC provider config %q with Workload Identity Federation", config.ConfigurationName)
+			}
+		}
+
+		return v1.ValidationSuccess()
+	}
+}
+
+func oidcProviderConfigRequestedScopesValidator(config OIDCProviderConfig) func(DbCommonSpec) v1.ValidationResult {
+	return func(_ DbCommonSpec) v1.ValidationResult {
+		if config.AuthorizationMethod == OIDCAuthorizationMethodWorkloadIdentityFederation {
+			if len(config.RequestedScopes) > 0 {
+				return v1.ValidationWarning("RequestedScopes will be ignored in OIDC provider config %q with Workload Identity Federation", config.ConfigurationName)
+			}
+		}
+
+		return v1.ValidationSuccess()
+	}
+}
+
+func oidcProviderConfigAuthorizationTypeValidator(config OIDCProviderConfig) func(DbCommonSpec) v1.ValidationResult {
+	return func(_ DbCommonSpec) v1.ValidationResult {
+		if config.AuthorizationType == OIDCAuthorizationTypeGroupMembership {
+			if config.GroupsClaim == "" {
+				return v1.ValidationError("GroupsClaim has to be specified in OIDC provider config %q when using Group Membership authorization", config.ConfigurationName)
+			}
+		} else if config.AuthorizationType == OIDCAuthorizationTypeUserID {
+			if config.GroupsClaim != "" {
+				return v1.ValidationWarning("GroupsClaim will be ignored in OIDC provider config %q when using User ID authorization", config.ConfigurationName)
+			}
+		}
+
+		return v1.ValidationSuccess()
+	}
+}
+
 func ldapAuthRequiresEnterprise(d DbCommonSpec) v1.ValidationResult {
 	authSpec := d.Security.Authentication
 	if authSpec != nil && authSpec.IsLDAPEnabled() && !strings.HasSuffix(d.Version, "-ent") {
@@ -187,8 +328,8 @@ func specWithExactlyOneSchema(d DbCommonSpec) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
-func CommonValidators() []func(d DbCommonSpec) v1.ValidationResult {
-	return []func(d DbCommonSpec) v1.ValidationResult{
+func CommonValidators(db DbCommonSpec) []func(d DbCommonSpec) v1.ValidationResult {
+	validators := []func(d DbCommonSpec) v1.ValidationResult{
 		replicaSetHorizonsRequireTLS,
 		deploymentsMustHaveTLSInX509Env,
 		deploymentsMustHaveAtLeastOneAuthModeIfAuthIsEnabled,
@@ -201,6 +342,10 @@ func CommonValidators() []func(d DbCommonSpec) v1.ValidationResult {
 		specWithExactlyOneSchema,
 		featureCompatibilityVersionValidation,
 	}
+
+	validators = append(validators, oidcAuthValidators(db)...)
+
+	return validators
 }
 
 func featureCompatibilityVersionValidation(d DbCommonSpec) v1.ValidationResult {
@@ -245,7 +390,7 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 		}
 	}
 
-	for _, validator := range CommonValidators() {
+	for _, validator := range CommonValidators(m.Spec.DbCommonSpec) {
 		res := validator(m.Spec.DbCommonSpec)
 		if res.Level > 0 {
 			validationResults = append(validationResults, res)

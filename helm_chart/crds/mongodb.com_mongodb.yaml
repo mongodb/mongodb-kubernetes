@@ -1557,7 +1557,7 @@ spec:
                               type: string
                             configurationName:
                               description: |-
-                                TODO add proper validation
+                                TODO add proper validation and test it
                                 Unique label that identifies this configuration. This label is visible to your Ops Manager users and is used when
                                 creating users and roles for authorization. It is case-sensitive and can only contain the following characters:
                                  - alphanumeric characters (combination of a to z and 0 to 9)

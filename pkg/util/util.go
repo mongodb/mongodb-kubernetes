@@ -6,6 +6,7 @@ import (
 	"encoding/gob"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -183,4 +184,10 @@ func TransformToMap[T any, K comparable, V any](objs []T, f func(obj T, idx int)
 		result[k] = v
 	}
 	return result
+}
+
+// IsURL checks if the given string is a valid URL and returns the parsed URL if valid.
+func IsURL(str string) (bool, *url.URL) {
+	u, err := url.Parse(str)
+	return err == nil && u.Scheme != "" && u.Host != "", u
 }
