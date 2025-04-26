@@ -2,6 +2,8 @@ package search_controller
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base32"
 	"fmt"
 	"strings"
 
@@ -83,12 +85,13 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Failed(err)
 	}
 
-	if err := r.ensureMongotConfig(ctx, mongotConfig); err != nil {
 	mongotConfig := createMongotConfig(r.mdbSearch, r.db)
+	configHash, err := r.ensureMongotConfig(ctx, mongotConfig)
+	if err != nil {
 		return workflow.Failed(err)
 	}
 
-	if err := r.createOrUpdateStatefulSet(ctx, log); err != nil {
+	if err := r.createOrUpdateStatefulSet(ctx, log, configHash); err != nil {
 		return workflow.Failed(err)
 	}
 
@@ -99,11 +102,11 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	return workflow.OK()
 }
 
-func (r *MongoDBSearchReconcileHelper) createOrUpdateStatefulSet(ctx context.Context, log *zap.SugaredLogger) error {
+func (r *MongoDBSearchReconcileHelper) createOrUpdateStatefulSet(ctx context.Context, log *zap.SugaredLogger, mongotConfigHash string) error {
 	stsName := r.mdbSearch.StatefulSetNamespacedName()
 	sts := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: stsName.Name, Namespace: stsName.Namespace}}
 	op, err := controllerutil.CreateOrUpdate(ctx, r.client, sts, func() error {
-		stsModification := construct.CreateSearchStatefulSetFunc(r.mdbSearch, r.db)
+		stsModification := construct.CreateSearchStatefulSetFunc(r.mdbSearch, r.db, mongotConfigHash)
 		stsModification(sts)
 		return nil
 	})
@@ -135,10 +138,10 @@ func (r *MongoDBSearchReconcileHelper) ensureSearchService(ctx context.Context, 
 	return nil
 }
 
-func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, mongotConfig mongot.Config) error {
+func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, mongotConfig mongot.Config) (string, error) {
 	configData, err := yaml.Marshal(mongotConfig)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	cmName := r.mdbSearch.MongotConfigConfigMapNamespacedName()
@@ -157,12 +160,13 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, m
 		return controllerutil.SetOwnerReference(r.mdbSearch, cm, r.client.Scheme())
 	})
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	zap.S().Debugf("Updated mongot config yaml config map: %v (%s) with the following configuration: %s", cmName, op, string(configData))
 
-	return nil
+	hashBytes := sha256.Sum256(configData)
+	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(hashBytes[:]), nil
 }
 
 func buildSearchHeadlessService(search *searchv1.MongoDBSearch) corev1.Service {

@@ -78,7 +78,7 @@ func (r *mdbcSearchResource) DatabasePort() int {
 }
 
 // ReplicaSetOptions returns a set of options which will configure a ReplicaSet StatefulSet
-func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBResource SearchSourceDBResource) statefulset.Modification {
+func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBResource SearchSourceDBResource, mongotConfigHash string) statefulset.Modification {
 	labels := map[string]string{
 		"app": mdbSearch.SearchServiceNamespacedName().Name,
 	}
@@ -135,6 +135,9 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 			podtemplatespec.Apply(
 				podSecurityContext,
 				podtemplatespec.WithPodLabels(labels),
+				podtemplatespec.WithAnnotations(map[string]string{
+					"mongotConfigHash": mongotConfigHash,
+				}),
 				podtemplatespec.WithVolumes(volumes),
 				podtemplatespec.WithServiceAccount(sourceDBResource.DatabaseServiceName()),
 				podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
