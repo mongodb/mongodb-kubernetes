@@ -27,7 +27,6 @@ import (
 
 type MongoDBSearchReconciler struct {
 	*ReconcileCommonController
-	kubeClient           client.Client
 	mdbcWatcher          *watch.ResourceWatcher
 	operatorSearchConfig search_controller.OperatorSearchConfig
 }
@@ -52,14 +51,14 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, nil
 	}
 
-	sourceResource, err := getSourceMongoDBForSearch(ctx, r.kubeClient, mdbSearch)
+	sourceResource, err := getSourceMongoDBForSearch(ctx, r.ReconcileCommonController.client, mdbSearch)
 	if err != nil {
 		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, nil
 	}
 
 	r.mdbcWatcher.Watch(ctx, sourceResource.NamespacedName(), request.NamespacedName)
 
-	reconcileHelper := search_controller.NewMongoDBSearchReconcileHelper(kubernetesClient.NewClient(r.kubeClient), mdbSearch, sourceResource, r.operatorSearchConfig)
+	reconcileHelper := search_controller.NewMongoDBSearchReconcileHelper(kubernetesClient.NewClient(r.ReconcileCommonController.client), mdbSearch, sourceResource, r.operatorSearchConfig)
 	return reconcileHelper.Reconcile(ctx, log).ReconcileResult()
 }
 
