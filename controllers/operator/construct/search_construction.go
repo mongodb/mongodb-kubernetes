@@ -2,6 +2,7 @@ package construct
 
 import (
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -150,9 +151,9 @@ func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []co
 		container.WithImage("268558157000.dkr.ecr.eu-west-1.amazonaws.com/mongot/community:bd5ac935fe03426d6080bbb34ac6df5350ba3193"),
 		container.WithImagePullPolicy(corev1.PullAlways),
 		container.WithReadinessProbe(probes.Apply(
-			probes.WithExecCommand([]string{"/bin/true"}),
-			probes.WithFailureThreshold(10),
-			probes.WithInitialDelaySeconds(5),
+			probes.WithTCPSocket("", intstr.FromInt32(mdbSearch.GetMongotPort())),
+			probes.WithInitialDelaySeconds(20),
+			probes.WithPeriodSeconds(10),
 		)),
 		container.WithResourceRequirements(*createSearchResourceRequirements(mdbSearch.Spec.ResourceRequirements)),
 		container.WithVolumeMounts(volumeMounts),
