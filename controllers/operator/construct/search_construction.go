@@ -27,6 +27,7 @@ type SearchSourceDBResource interface {
 	GetNamespace() string
 	HasSeparateDataAndLogsVolumes() bool
 	DatabaseServiceName() string
+	DatabasePort() int
 	GetMongoDBVersion() string
 	IsSecurityTLSConfigEnabled() bool
 }
@@ -69,6 +70,10 @@ func (r *mdbcSearchResource) GetMongoDBVersion() string {
 
 func (r *mdbcSearchResource) IsSecurityTLSConfigEnabled() bool {
 	return r.db.Spec.Security.TLS.Enabled
+}
+
+func (r *mdbcSearchResource) DatabasePort() int {
+	return r.db.GetMongodConfiguration().GetDBPort()
 }
 
 // ReplicaSetOptions returns a set of options which will configure a ReplicaSet StatefulSet

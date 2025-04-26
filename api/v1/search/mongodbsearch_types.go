@@ -13,6 +13,11 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 )
 
+const (
+	MongotDefaultPort        = 27027
+	MongotDefaultMetricsPort = 9946
+)
+
 func init() {
 	v1.SchemeBuilder.Register(&MongoDBSearch{}, &MongoDBSearchList{})
 }
@@ -120,4 +125,12 @@ func (s *MongoDBSearch) GetMongoDBResourceRef() userv1.MongoDBResourceRef {
 	}
 
 	return mdbResourceRef
+}
+
+func (s *MongoDBSearch) GetMongotPort() int32 {
+	return MongotDefaultPort
+}
+
+func (s *MongoDBSearch) GetMongotMetricsPort() int32 {
+	return MongotDefaultMetricsPort
 }

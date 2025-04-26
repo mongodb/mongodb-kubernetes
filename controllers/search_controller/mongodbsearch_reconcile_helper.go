@@ -83,8 +83,8 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Failed(err)
 	}
 
-	mongotConfig := createMongotConfig(r.db)
 	if err := r.ensureMongotConfig(ctx, mongotConfig); err != nil {
+	mongotConfig := createMongotConfig(r.mdbSearch, r.db)
 		return workflow.Failed(err)
 	}
 
@@ -184,22 +184,30 @@ func buildSearchHeadlessService(search *searchv1.MongoDBSearch) corev1.Service {
 	serviceBuilder.AddPort(&corev1.ServicePort{
 		Name:       "mongot",
 		Protocol:   "TCP",
-		Port:       27027,
-		TargetPort: intstr.FromInt32(27027),
+		Port:       search.GetMongotPort(),
+		TargetPort: intstr.FromInt32(search.GetMongotPort()),
 	})
 
-	// TODO prometheus port
+	serviceBuilder.AddPort(&corev1.ServicePort{
+		Name:       "metrics",
+		Protocol:   "TCP",
+		Port:       search.GetMongotMetricsPort(),
+		TargetPort: intstr.FromInt32(search.GetMongotMetricsPort()),
+	})
 
 	return serviceBuilder.Build()
 }
 
-func createMongotConfig(db construct.SearchSourceDBResource) mongot.Config {
+func createMongotConfig(search *searchv1.MongoDBSearch, db construct.SearchSourceDBResource) mongot.Config {
 	return mongot.Config{CommunityPrivatePreview: mongot.CommunityPrivatePreview{
-		MongodHostAndPort:  fmt.Sprintf("%s.%s.svc.cluster.local:27017", db.DatabaseServiceName(), db.GetNamespace()),
-		QueryServerAddress: "localhost:27027",
+		MongodHostAndPort:  fmt.Sprintf("%s.%s.svc.cluster.local:%d", db.DatabaseServiceName(), db.GetNamespace(), db.DatabasePort()),
+		QueryServerAddress: fmt.Sprintf("localhost:%d", search.GetMongotPort()),
 		KeyFilePath:        "/mongot/keyfile/keyfile",
 		DataPath:           "/mongot/data/config.yml",
-		Metrics:            mongot.Metrics{},
+		Metrics: mongot.Metrics{
+			Enabled: true,
+			Address: fmt.Sprintf("localhost:%d", search.GetMongotMetricsPort()),
+		},
 		Logging: mongot.Logging{
 			Verbosity: "DEBUG",
 		},
@@ -217,7 +225,7 @@ func GetMongodConfigParameters(search *searchv1.MongoDBSearch) map[string]interf
 
 func mongotHostAndPort(search *searchv1.MongoDBSearch) string {
 	svcName := search.SearchServiceNamespacedName()
-	return fmt.Sprintf("%s.%s.svc.cluster.local:27027", svcName.Name, svcName.Namespace)
+	return fmt.Sprintf("%s.%s.svc.cluster.local:%d", svcName.Name, svcName.Namespace, search.GetMongotPort())
 }
 
 func ValidateSearchSource(db construct.SearchSourceDBResource) error {
