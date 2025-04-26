@@ -57,8 +57,6 @@ const (
 
 	lastSuccessfulConfiguration = "mongodb.com/v1.lastSuccessfulConfiguration"
 	lastAppliedMongoDBVersion   = "mongodb.com/v1.lastAppliedMongoDBVersion"
-
-	mongoDbSearchIndexName = "mongodbcommunity-search-index"
 )
 
 func init() {
@@ -89,11 +87,6 @@ func NewReconciler(mgr manager.Manager, mongodbRepoUrl, mongodbImage, mongodbIma
 	}
 }
 
-func mdbcSearchIndexBuilder(rawObj k8sClient.Object) []string {
-	mdbSearch := rawObj.(*searchv1.MongoDBSearch)
-	return []string{mdbSearch.GetMongoDBResourceRef().Namespace + "/" + mdbSearch.GetMongoDBResourceRef().Name}
-}
-
 func findMdbcForSearch(ctx context.Context, rawObj k8sClient.Object) []reconcile.Request {
 	mdbSearch := rawObj.(*searchv1.MongoDBSearch)
 	return []reconcile.Request{
@@ -103,10 +96,6 @@ func findMdbcForSearch(ctx context.Context, rawObj k8sClient.Object) []reconcile
 
 // SetupWithManager sets up the controller with the Manager and configures the necessary watches.
 func (r *ReplicaSetReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &searchv1.MongoDBSearch{}, mongoDbSearchIndexName, mdbcSearchIndexBuilder); err != nil {
-		return err
-	}
-
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{MaxConcurrentReconciles: 3}).
 		For(&mdbv1.MongoDBCommunity{}, builder.WithPredicates(predicates.OnlyOnSpecChange())).

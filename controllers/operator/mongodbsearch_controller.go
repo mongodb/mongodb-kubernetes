@@ -73,6 +73,11 @@ func getSourceMongoDBForSearch(ctx context.Context, kubeClient client.Client, se
 	return construct.NewSearchSourceDBResourceFromMongoDBCommunity(mdbc), nil
 }
 
+func mdbcSearchIndexBuilder(rawObj client.Object) []string {
+	mdbSearch := rawObj.(*searchv1.MongoDBSearch)
+	return []string{mdbSearch.GetMongoDBResourceRef().Namespace + "/" + mdbSearch.GetMongoDBResourceRef().Name}
+}
+
 func AddMongoDBSearchController(ctx context.Context, mgr manager.Manager, operatorSearchConfig search_controller.OperatorSearchConfig) error {
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &searchv1.MongoDBSearch{}, search_controller.MongoDBSearchIndexFieldName, mdbcSearchIndexBuilder); err != nil {
 		return err
