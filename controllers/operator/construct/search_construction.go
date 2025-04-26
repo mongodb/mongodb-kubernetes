@@ -141,6 +141,12 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 				podtemplatespec.WithContainer("mongodb-search", mongodbSearchContainer(mdbSearch, volumeMounts)),
 			),
 		),
+
+		statefulset.WithCustomSpecs(mdbSearch.Spec.StatefulSetConfiguration.SpecWrapper.Spec),
+		statefulset.WithObjectMetadata(
+			mdbSearch.Spec.StatefulSetConfiguration.MetadataWrapper.Labels,
+			mdbSearch.Spec.StatefulSetConfiguration.MetadataWrapper.Annotations,
+		),
 	)
 }
 
