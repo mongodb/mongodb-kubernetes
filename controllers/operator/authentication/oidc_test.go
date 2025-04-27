@@ -15,7 +15,7 @@ func TestOIDC_EnableDeploymentAuthentication(t *testing.T) {
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 	ac, err := conn.ReadAutomationConfig()
 	require.NoError(t, err)
-	assert.Empty(t, ac.Auth.OIDCProviderConfigs)
+	assert.Empty(t, ac.OIDCProviderConfigs)
 	assert.Empty(t, ac.Auth.DeploymentAuthMechanisms)
 
 	providerConfigs := []oidc.ProviderConfig{
@@ -55,7 +55,7 @@ func TestOIDC_EnableDeploymentAuthentication(t *testing.T) {
 	ac, err = conn.ReadAutomationConfig()
 	require.NoError(t, err)
 	assert.Contains(t, ac.Auth.DeploymentAuthMechanisms, string(MongoDBOIDC))
-	assert.Equal(t, providerConfigs, ac.Auth.OIDCProviderConfigs)
+	assert.Equal(t, providerConfigs, ac.OIDCProviderConfigs)
 
 	configured = MongoDBOIDCMechanism.IsDeploymentAuthenticationConfigured(ac, opts)
 	assert.True(t, configured)
@@ -70,7 +70,7 @@ func TestOIDC_EnableDeploymentAuthentication(t *testing.T) {
 	assert.False(t, configured)
 
 	assert.NotContains(t, ac.Auth.DeploymentAuthMechanisms, string(MongoDBOIDC))
-	assert.Empty(t, ac.Auth.OIDCProviderConfigs)
+	assert.Empty(t, ac.OIDCProviderConfigs)
 }
 
 func TestOIDC_EnableAgentAuthentication(t *testing.T) {

@@ -21,10 +21,11 @@ import (
 // configuration which are merged into the `Deployment` object before sending it back to Ops Manager.
 // As of right now only support configuring LogRotate for monitoring and backup via dedicated endpoints.
 type AutomationConfig struct {
-	Auth       *Auth
-	AgentSSL   *AgentSSL
-	Deployment Deployment
-	Ldap       *ldap.Ldap
+	Auth                *Auth
+	AgentSSL            *AgentSSL
+	Deployment          Deployment
+	Ldap                *ldap.Ldap
+	OIDCProviderConfigs []oidc.ProviderConfig
 }
 
 // Apply merges the state of all concrete structs into the Deployment (map[string]interface{})
@@ -58,6 +59,21 @@ func applyInto(a AutomationConfig, into *Deployment) error {
 			return err
 		}
 		(*into)["ldap"] = mergedLdap
+	}
+
+	if _, ok := a.Deployment["oidcProviderConfigs"]; ok || len(a.OIDCProviderConfigs) > 0 {
+		// TODO: this is not merged yet, but only overridden
+		bytes, err := json.Marshal(a.OIDCProviderConfigs)
+		if err != nil {
+			return err
+		}
+
+		dst := make([]map[string]interface{}, 0)
+		err = json.Unmarshal(bytes, &dst)
+		if err != nil {
+			return err
+		}
+		(*into)["oidcProviderConfigs"] = dst
 	}
 
 	return nil
@@ -228,8 +244,6 @@ type Auth struct {
 	NewAutoPwd string `json:"newAutoPwd,omitempty"`
 	// LdapGroupDN is required when enabling LDAP authz and agents authentication on $external
 	LdapGroupDN string `json:"autoLdapGroupDN,omitempty"`
-	// OIDCProviderConfigs is a list of OIDC provider configurations
-	OIDCProviderConfigs []oidc.ProviderConfig `json:"oidcProviderConfigs,omitempty"`
 }
 
 // IsEnabled is a convenience function to aid readability
@@ -434,6 +448,19 @@ func BuildAutomationConfigFromDeployment(deployment Deployment) (*AutomationConf
 			return nil, err
 		}
 		finalAutomationConfig.Ldap = acLdap
+	}
+
+	oidcSlice, ok := deployment["oidcProviderConfigs"]
+	if ok {
+		oidcMarshalled, err := json.Marshal(oidcSlice)
+		if err != nil {
+			return nil, err
+		}
+		providerConfigs := make([]oidc.ProviderConfig, 0)
+		if err := json.Unmarshal(oidcMarshalled, &providerConfigs); err != nil {
+			return nil, err
+		}
+		finalAutomationConfig.OIDCProviderConfigs = providerConfigs
 	}
 
 	return finalAutomationConfig, nil
