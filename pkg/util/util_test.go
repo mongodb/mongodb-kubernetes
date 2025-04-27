@@ -2,6 +2,7 @@ package util
 
 import (
 	"fmt"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -195,6 +196,85 @@ func TestTransformToMap(t *testing.T) {
 	assert.Equal(t, map[string]int{"a": 0, "b": 1, "c": 2}, TransformToMap([]tmpStruct{{"a", 0}, {"b", 1}, {"c", 2}}, func(v tmpStruct, idx int) (string, int) {
 		return v.str, v.int
 	}))
+}
+
+// TestIsURL tests the IsURL function with various inputs.
+//
+//goland:noinspection HttpUrlsUsage
+func TestIsURL(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		isValid  bool
+		checkURL func(*url.URL) bool
+	}{
+		{
+			name:    "valid http URL",
+			input:   "http://example.com",
+			isValid: true,
+			checkURL: func(u *url.URL) bool {
+				return u.Scheme == "http" && u.Host == "example.com"
+			},
+		},
+		{
+			name:    "valid https URL with path",
+			input:   "https://example.com/path",
+			isValid: true,
+			checkURL: func(u *url.URL) bool {
+				return u.Scheme == "https" && u.Host == "example.com" && u.Path == "/path"
+			},
+		},
+		{
+			name:    "valid URL with port",
+			input:   "http://example.com:8080",
+			isValid: true,
+			checkURL: func(u *url.URL) bool {
+				return u.Host == "example.com:8080"
+			},
+		},
+		{
+			name:    "missing scheme",
+			input:   "example.com",
+			isValid: false,
+		},
+		{
+			name:    "missing host",
+			input:   "http://",
+			isValid: false,
+		},
+		{
+			name:    "empty string",
+			input:   "",
+			isValid: false,
+		},
+		{
+			name:    "invalid URL",
+			input:   ":invalid-url",
+			isValid: false,
+		},
+		{
+			name:    "file scheme",
+			input:   "file:///path/to/file",
+			isValid: true,
+			checkURL: func(u *url.URL) bool {
+				return u.Scheme == "file" && u.Path == "/path/to/file"
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			valid, u := IsURL(tt.input)
+			assert.Equal(t, tt.isValid, valid)
+
+			if tt.isValid {
+				assert.NotNil(t, u)
+				if tt.checkURL != nil {
+					assert.True(t, tt.checkURL(u))
+				}
+			}
+		})
+	}
 }
 
 func pair(left, right identifiable.Identifiable) []identifiable.Identifiable {

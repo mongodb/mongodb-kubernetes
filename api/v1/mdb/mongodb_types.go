@@ -1072,7 +1072,6 @@ type OIDCProviderConfig struct {
 	// +kubebuilder:validation:Pattern:"^[a-zA-Z0-9-_]+$"
 	ConfigurationName string `json:"configurationName"`
 
-	// TODO add URI validation
 	// Issuer value provided by your registered IdP application. Using this URI, MongoDB finds an OpenID Provider
 	// Configuration Document, which should be available in the /.wellknown/open-id-configuration endpoint.
 	IssuerURI string `json:"issuerURI"`
