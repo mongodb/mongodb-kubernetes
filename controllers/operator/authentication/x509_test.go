@@ -5,22 +5,25 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 func TestX509EnableAgentAuthentication(t *testing.T) {
-	conn, ac := createConnectionAndAutomationConfig()
+	conn := om.NewMockedOmConnection(om.NewDeployment())
+
 	options := Options{
 		AgentMechanism:     "X509",
 		ClientCertificates: util.RequireClientCertificates,
 		UserOptions: UserOptions{
 			AutomationSubject: validSubject("automation"),
 		},
+		AuthoritativeSet: true,
 	}
-	x := NewConnectionX509(conn, ac, options)
-	if err := x.EnableAgentAuthentication(Options{AuthoritativeSet: true}, zap.S()); err != nil {
+	if err := MongoDBX509Mechanism.EnableAgentAuthentication(conn, options, zap.S()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -43,19 +46,24 @@ func TestX509EnableAgentAuthentication(t *testing.T) {
 }
 
 func TestX509_DisableAgentAuthentication(t *testing.T) {
-	conn, ac := createConnectionAndAutomationConfig()
+	conn := om.NewMockedOmConnection(om.NewDeployment())
+
 	opts := Options{
 		UserOptions: UserOptions{
 			AutomationSubject: validSubject("automation"),
 		},
 	}
-	x509 := NewConnectionX509(conn, ac, opts)
-	assertAgentAuthenticationDisabled(t, x509, opts)
+	assertAgentAuthenticationDisabled(t, MongoDBX509Mechanism, conn, opts)
 }
 
 func TestX509_DeploymentConfigured(t *testing.T) {
-	conn, ac := createConnectionAndAutomationConfig()
-	assertDeploymentMechanismsConfigured(t, NewConnectionX509(conn, ac, Options{AgentMechanism: "SCRAM"}))
+	conn := om.NewMockedOmConnection(om.NewDeployment())
+	opts := Options{AgentMechanism: "SCRAM", CAFilePath: util.CAFilePathInContainer}
+
+	assertDeploymentMechanismsConfigured(t, MongoDBX509Mechanism, conn, opts)
+
+	ac, err := conn.ReadAutomationConfig()
+	require.NoError(t, err)
 	assert.Equal(t, ac.AgentSSL.CAFilePath, util.CAFilePathInContainer)
 }
 
