@@ -8,7 +8,6 @@ type ProviderConfig struct {
 	RequestedScopes       []string `json:"requestedScopes"`
 	UserClaim             string   `json:"userClaim"`
 	GroupsClaim           string   `json:"groupsClaim"`
-	JWKSPollSecs          int      `json:"JWKSPollSecs"` // read only
 	SupportsHumanFlows    bool     `json:"supportsHumanFlows"`
 	UseAuthorizationClaim bool     `json:"useAuthorizationClaim"`
 }
