@@ -1572,7 +1572,6 @@ spec:
                               type: string
                             issuerURI:
                               description: |-
-                                TODO add URI validation
                                 Issuer value provided by your registered IdP application. Using this URI, MongoDB finds an OpenID Provider
                                 Configuration Document, which should be available in the /.wellknown/open-id-configuration endpoint.
                               type: string
@@ -4206,7 +4205,6 @@ spec:
                               type: string
                             issuerURI:
                               description: |-
-                                TODO add URI validation
                                 Issuer value provided by your registered IdP application. Using this URI, MongoDB finds an OpenID Provider
                                 Configuration Document, which should be available in the /.wellknown/open-id-configuration endpoint.
                               type: string
@@ -5595,7 +5593,6 @@ spec:
                                   type: string
                                 issuerURI:
                                   description: |-
-                                    TODO add URI validation
                                     Issuer value provided by your registered IdP application. Using this URI, MongoDB finds an OpenID Provider
                                     Configuration Document, which should be available in the /.wellknown/open-id-configuration endpoint.
                                   type: string

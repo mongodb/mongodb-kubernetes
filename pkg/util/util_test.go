@@ -255,10 +255,7 @@ func TestIsURL(t *testing.T) {
 		{
 			name:    "file scheme",
 			input:   "file:///path/to/file",
-			isValid: true,
-			checkURL: func(u *url.URL) bool {
-				return u.Scheme == "file" && u.Path == "/path/to/file"
-			},
+			isValid: false,
 		},
 	}
 
