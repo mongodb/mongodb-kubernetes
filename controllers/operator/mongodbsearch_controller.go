@@ -21,12 +21,13 @@ import (
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/watch"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
 type MongoDBSearchReconciler struct {
-	*ReconcileCommonController
+	kubeClient           kubernetesClient.Client
 	mdbcWatcher          *watch.ResourceWatcher
 	operatorSearchConfig search_controller.OperatorSearchConfig
 }
@@ -34,9 +35,9 @@ type MongoDBSearchReconciler struct {
 func newMongoDBSearchReconciler(ctx context.Context, client kubernetesClient.Client, operatorSearchConfig search_controller.OperatorSearchConfig) *MongoDBSearchReconciler {
 	mdbcWatcher := watch.New()
 	return &MongoDBSearchReconciler{
-		ReconcileCommonController: NewReconcileCommonController(ctx, client),
-		mdbcWatcher:               &mdbcWatcher,
-		operatorSearchConfig:      operatorSearchConfig,
+		kubeClient:           kubernetesClient.NewClient(client),
+		mdbcWatcher:          &mdbcWatcher,
+		operatorSearchConfig: operatorSearchConfig,
 	}
 }
 
@@ -46,19 +47,19 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 	log.Info("-> MongoDBSearch.Reconcile")
 
 	mdbSearch := &searchv1.MongoDBSearch{}
-	if _, err := r.GetResource(ctx, request, mdbSearch, log); err != nil {
+	if _, err := commoncontroller.GetResource(ctx, r.kubeClient, request, mdbSearch, log); err != nil {
 		log.Warnf("Error getting MongoDBSearch %s", request.NamespacedName)
 		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, nil
 	}
 
-	sourceResource, err := getSourceMongoDBForSearch(ctx, r.ReconcileCommonController.client, mdbSearch)
+	sourceResource, err := getSourceMongoDBForSearch(ctx, r.kubeClient, mdbSearch)
 	if err != nil {
 		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, nil
 	}
 
 	r.mdbcWatcher.Watch(ctx, sourceResource.NamespacedName(), request.NamespacedName)
 
-	reconcileHelper := search_controller.NewMongoDBSearchReconcileHelper(kubernetesClient.NewClient(r.ReconcileCommonController.client), mdbSearch, sourceResource, r.operatorSearchConfig)
+	reconcileHelper := search_controller.NewMongoDBSearchReconcileHelper(kubernetesClient.NewClient(r.kubeClient), mdbSearch, sourceResource, r.operatorSearchConfig)
 	return reconcileHelper.Reconcile(ctx, log).ReconcileResult()
 }
 
