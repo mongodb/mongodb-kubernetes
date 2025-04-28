@@ -161,6 +161,6 @@ def test_replicaset_reconciled(replica_set: MongoDB):
 @mark.e2e_meko_mck_upgrade
 def test_uninstall_latest_official_operator(namespace: str):
     # TODO: preserve member list
-    helm_uninstall("mongodb-enterprise-operator-multi-cluster" if is_multi_cluster() else "mongodb-enterprise-operator")
+    helm_uninstall("mongodb-kubernetes-operator-multi-cluster" if is_multi_cluster() else "mongodb-enterprise-operator")
     log_deployments_info(namespace)
     # TODO: make an assertion here ? Maybe scale replicaset after upgrade

@@ -26,7 +26,7 @@ export MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH=${PROJECT_DIR}/docker/mongodb-ente
 # override for /etc/config/kubeconfig file mounted in operator's pod
 if [[ "${LOCAL_OPERATOR}" == "true" ]]; then
   # This env var is used by the local operator to load multi-cluster kubeconfig.
-  # Normally, the pod is loading it from a path that is mounted from the mongodb-enterprise-operator-multi-cluster-kubeconfig secret.
+  # Normally, the pod is loading it from a path that is mounted from the mongodb-kubernetes-operator-multi-cluster-kubeconfig secret.
   # When running locally, we use cli tool to generate that kubeconfig secret and write it to this file.
   # This way, the local operator is using kubeconfig create by cli tool the same way as it's used when running in a pod.
   export KUBE_CONFIG_PATH=~/.operator-dev/multicluster_kubeconfig

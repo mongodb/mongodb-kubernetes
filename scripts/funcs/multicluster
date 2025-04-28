@@ -267,7 +267,7 @@ run_multi_cluster_kube_config_creator() {
     "--central-cluster" "${CENTRAL_CLUSTER}"
     "--member-cluster-namespace" "${NAMESPACE}"
     "--central-cluster-namespace" "${NAMESPACE}"
-    "--service-account" "mongodb-enterprise-operator-multi-cluster"
+    "--service-account" "mongodb-kubernetes-operator-multi-cluster"
   )
 
   # This is used to skip the database roles when the context configures clusters so that the operator cluster is also used as one of the member clusters.
@@ -288,5 +288,5 @@ run_multi_cluster_kube_config_creator() {
   echo "${MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH} multicluster setup ${params[*]}"
   ${MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH} multicluster setup "${params[@]}"
 
-  kubectl get secret --context "${CENTRAL_CLUSTER}" -n "${NAMESPACE}" mongodb-enterprise-operator-multi-cluster-kubeconfig -o json | jq -rc '.data.kubeconfig' | base64 -d >"${KUBE_CONFIG_PATH}"
+  kubectl get secret --context "${CENTRAL_CLUSTER}" -n "${NAMESPACE}" mongodb-kubernetes-operator-multi-cluster-kubeconfig -o json | jq -rc '.data.kubeconfig' | base64 -d >"${KUBE_CONFIG_PATH}"
 }

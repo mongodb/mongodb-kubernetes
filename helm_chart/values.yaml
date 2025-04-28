@@ -177,7 +177,7 @@ registry:
 multiCluster:
   # Specify if we want to deploy the operator in multi-cluster mode
   clusters: []
-  kubeConfigSecretName: mongodb-enterprise-operator-multi-cluster-kubeconfig
+  kubeConfigSecretName: mongodb-kubernetes-operator-multi-cluster-kubeconfig
   performFailOver: true
   clusterClientTimeout: 10
 # Set this to false to disable subresource utilization
