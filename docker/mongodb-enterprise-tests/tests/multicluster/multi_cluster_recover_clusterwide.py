@@ -326,7 +326,7 @@ def test_recover_operator_remove_cluster(
     mdbb_ns: str,
     central_cluster_client: kubernetes.client.ApiClient,
 ):
-    return_code = run_multi_cluster_recovery_tool(member_cluster_names[:-1], namespace, namespace, True)
+    return_code = run_multi_cluster_recovery_tool(member_cluster_names[:-1], namespace, mdba_ns, True)
     assert return_code == 0
     operator = Operator(
         name=MULTI_CLUSTER_OPERATOR_NAME,
