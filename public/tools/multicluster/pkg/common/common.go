@@ -959,15 +959,15 @@ func createDatabaseRoles(ctx context.Context, client KubeClient, f Flags) error 
 func copyDatabaseRoles(ctx context.Context, src, dst KubeClient, namespace string) error {
 	appdbSA, err := src.CoreV1().ServiceAccounts(namespace).Get(ctx, AppdbServiceAccount, metav1.GetOptions{})
 	if err != nil {
-		return xerrors.Errorf("failed retrieving service account %s from source cluster: %w", AppdbServiceAccount, err)
+		return xerrors.Errorf("failed retrieving service account %s, from ns: %s from source cluster: %w", AppdbServiceAccount, namespace, err)
 	}
 	dbpodsSA, err := src.CoreV1().ServiceAccounts(namespace).Get(ctx, DatabasePodsServiceAccount, metav1.GetOptions{})
 	if err != nil {
-		return xerrors.Errorf("failed retrieving service account %s from source cluster: %w", DatabasePodsServiceAccount, err)
+		return xerrors.Errorf("failed retrieving service account %s, from ns: %s from source cluster: %w", DatabasePodsServiceAccount, namespace, err)
 	}
 	opsManagerSA, err := src.CoreV1().ServiceAccounts(namespace).Get(ctx, OpsManagerServiceAccount, metav1.GetOptions{})
 	if err != nil {
-		return xerrors.Errorf("failed retrieving service account %s from source cluster: %w", OpsManagerServiceAccount, err)
+		return xerrors.Errorf("failed retrieving service account %s, from ns: %s from source cluster: %w", OpsManagerServiceAccount, namespace, err)
 	}
 	appdbR, err := src.RbacV1().Roles(namespace).Get(ctx, AppdbRole, metav1.GetOptions{})
 	if err != nil {
