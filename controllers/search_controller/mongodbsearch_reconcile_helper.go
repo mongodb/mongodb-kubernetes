@@ -3,11 +3,15 @@ package search_controller
 import (
 	"context"
 	"fmt"
+	"strings"
 
+	"github.com/blang/semver"
 	"github.com/ghodss/yaml"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -22,6 +26,10 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/mongot"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+)
+
+const (
+	MongoDBSearchIndexFieldName = "mdbsearch-for-mongodbresourceref-index"
 )
 
 type OperatorSearchConfig struct {
@@ -62,6 +70,14 @@ func (r *MongoDBSearchReconcileHelper) Reconcile(ctx context.Context, log *zap.S
 func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.SugaredLogger) workflow.Status {
 	log = log.With("MongoDBSearch", r.mdbSearch.NamespacedName())
 	log.Infof("Reconciling MongoDBSearch")
+
+	if err := ValidateSearchSource(r.db); err != nil {
+		return workflow.Failed(err)
+	}
+
+	if err := r.ValidateSingleMongoDBSearchForSearchSource(ctx); err != nil {
+		return workflow.Failed(err)
+	}
 
 	if err := r.ensureSearchService(ctx, r.mdbSearch); err != nil {
 		return workflow.Failed(err)
@@ -125,8 +141,6 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, m
 		return err
 	}
 
-	// TODO: set configmap owner
-
 	cmName := r.mdbSearch.MongotConfigConfigMapNamespacedName()
 	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: cmName.Name, Namespace: cmName.Namespace}}
 	op, err := controllerutil.CreateOrUpdate(ctx, r.client, cm, func() error {
@@ -139,7 +153,8 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, m
 		cm.Data["config.yml"] = string(configData)
 
 		cm.ResourceVersion = resourceVersion
-		return nil
+
+		return controllerutil.SetOwnerReference(r.mdbSearch, cm, r.client.Scheme())
 	})
 	if err != nil {
 		return err
@@ -203,4 +218,38 @@ func GetMongodConfigParameters(search *searchv1.MongoDBSearch) map[string]interf
 func mongotHostAndPort(search *searchv1.MongoDBSearch) string {
 	svcName := search.SearchServiceNamespacedName()
 	return fmt.Sprintf("%s.%s.svc.cluster.local:27027", svcName.Name, svcName.Namespace)
+}
+
+func ValidateSearchSource(db construct.SearchSourceDBResource) error {
+	version, err := semver.ParseTolerant(db.GetMongoDBVersion())
+	if err != nil {
+		return xerrors.Errorf("error parsing MongoDB version '%s': %w", db.GetMongoDBVersion(), err)
+	} else if version.Major < 8 {
+		return xerrors.New("MongoDB version must be 8.0 or higher")
+	}
+
+	if db.IsSecurityTLSConfigEnabled() {
+		return xerrors.New("MongoDBSearch does not support TLS-enabled sources")
+	}
+
+	return nil
+}
+
+func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSource(ctx context.Context) error {
+	searchList := &searchv1.MongoDBSearchList{}
+	if err := r.client.List(ctx, searchList, &client.ListOptions{
+		FieldSelector: fields.OneTermEqualSelector(MongoDBSearchIndexFieldName, r.db.GetNamespace()+"/"+r.db.Name()),
+	}); err != nil {
+		return xerrors.Errorf("Error listing MongoDBSearch resources for search source '%s': %w", r.db.Name(), err)
+	}
+
+	if len(searchList.Items) > 1 {
+		resourceNames := make([]string, len(searchList.Items))
+		for i, search := range searchList.Items {
+			resourceNames[i] = search.Name
+		}
+		return xerrors.Errorf("Found multiple MongoDBSearch resources for search source '%s': %s", r.db.Name(), strings.Join(resourceNames, ", "))
+	}
+
+	return nil
 }
