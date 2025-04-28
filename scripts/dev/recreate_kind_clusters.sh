@@ -30,7 +30,7 @@ docker_run_local_registry "kind-registry" "5000"
 (scripts/dev/setup_kind_cluster.sh -n "e2e-cluster-3" -p "10.247.0.0/16" -s "10.99.0.0/16" -l "172.18.255.230-172.18.255.240" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "e2e-cluster-3") &
 (scripts/dev/setup_kind_cluster.sh -n "kind" -l "172.18.255.200-172.18.255.250" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "kind") &
 
-echo "Waiting for recreate_kind_cluster.sh to complete"
+echo "Waiting for all kind clusters to be created"
 wait
 
 # we do exports sequentially as setup_kind_cluster.sh is run in parallel and we hit kube config locks
