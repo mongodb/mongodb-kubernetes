@@ -10,9 +10,9 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/cmd/readiness/testdata"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/readiness/config"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/readiness/health"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/cmd/readiness/testdata"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/readiness/config"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/readiness/health"
 )
 
 func TestPerformCheckHeadlessMode(t *testing.T) {

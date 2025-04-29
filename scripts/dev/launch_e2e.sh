@@ -21,7 +21,7 @@ if [[ "${OPS_MANAGER_REGISTRY}" == quay.io* ]]; then
     export OPS_MANAGER_NAME=mongodb-enterprise-ops-manager-ubi
 fi
 if [[ "${DATABASE_REGISTRY}" == quay.io* ]]; then
-    export DATABASE_NAME=mongodb-enterprise-database-ubi
+    export DATABASE_NAME=mongodb-kubernetes-database
 fi
 
 [[ ${skip:-} = "true" ]] && export SKIP_EXECUTION="'true'"

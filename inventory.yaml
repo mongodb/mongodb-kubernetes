@@ -1,10 +1,10 @@
 vars:
   registry: <container-registry>
-  quay_registry: quay.io/mongodb/mongodb-enterprise-operator
-  s3_bucket: s3://enterprise-operator-dockerfiles/dockerfiles/mongodb-enterprise-operator
+  quay_registry: quay.io/mongodb/mongodb-kubernetes
+  s3_bucket: s3://enterprise-operator-dockerfiles/dockerfiles/mongodb-kubernetes
 
 images:
-- name: operator
+- name: mongodb-kubernetes
   vars:
     context: .
     template_context: docker/mongodb-enterprise-operator

@@ -12,10 +12,10 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
-	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
-	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
+	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
 
 func init() {
@@ -161,7 +161,7 @@ func (u MongoDBUser) GetConnectionStringSecretName() string {
 }
 
 // normalizeName returns a string that conforms to RFC-1123.
-// This logic is duplicated in the community operator in https://github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/blob/master/api/v1/mongodbcommunity_types.go.
+// This logic is duplicated in the community operator in https://github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/blob/master/api/v1/mongodbcommunity_types.go.
 // The logic should be reused if/when we unify the user types or observe that the logic needs to be changed for business logic reasons, to avoid modifying it
 // in separate places in the future.
 func normalizeName(name string) string {

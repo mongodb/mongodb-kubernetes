@@ -3,7 +3,7 @@ package v1
 import (
 	"fmt"
 
-	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 )
 
 type validationLevel int

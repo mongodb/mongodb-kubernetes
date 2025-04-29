@@ -9,7 +9,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 )
 
 func TestGetLabelSelectorRequirementByKey(t *testing.T) {
@@ -58,7 +58,7 @@ func TestGetLabelSelectorRequirementByKey(t *testing.T) {
 	}
 }
 
-func TestMergeSpec(t *testing.T) {
+func TestMergeSpec_MCO(t *testing.T) {
 	original := New(
 		WithName("original"),
 		WithServiceName("original-svc-name"),

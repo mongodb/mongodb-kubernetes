@@ -113,7 +113,7 @@ operator:
 
 ## Database
 database:
-  name: mongodb-kubernetes-database-ubi
+  name: mongodb-kubernetes-database
   version: 0.1.0
 
 initDatabase:

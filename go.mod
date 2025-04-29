@@ -1,6 +1,6 @@
 // try to always update patch versions with `go get -u=patch ./...`
 
-module github.com/10gen/ops-manager-kubernetes
+module github.com/mongodb/mongodb-kubernetes
 
 require (
 	github.com/blang/semver v3.5.1+incompatible

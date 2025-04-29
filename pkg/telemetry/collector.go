@@ -15,16 +15,16 @@ import (
 
 	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
-	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
-	mcov1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/envvar"
-	"github.com/10gen/ops-manager-kubernetes/pkg/images"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
+	"github.com/mongodb/mongodb-kubernetes/pkg/images"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
 )
 
 // Logger should default to the global default from zap. Running into the main function of this package
@@ -84,7 +84,7 @@ type snapshotCollector func(ctx context.Context, memberClusterMap map[string]Con
 func RunTelemetry(ctx context.Context, mongodbImage, databaseNonStaticImage, namespace string, operatorClusterMgr manager.Manager, clusterMap map[string]cluster.Cluster, atlasClient *Client, configuredOperatorEnv util.OperatorEnvironment) {
 	Logger.Debug("sending telemetry!")
 
-	intervalStr := envvar.GetEnvOrDefault(CollectionFrequency, DefaultCollectionFrequencyStr)
+	intervalStr := envvar.GetEnvOrDefault(CollectionFrequency, DefaultCollectionFrequencyStr) // nolint:forbidigo
 	duration, err := time.ParseDuration(intervalStr)
 	if err != nil || duration < time.Minute {
 		Logger.Warn("Failed converting %s to a duration or value is too small (minimum is one minute), using default 1h", CollectionFrequency)
@@ -370,7 +370,7 @@ func getMaxNumberOfClustersSCIsDeployedOn(item mdbv1.MongoDB) int {
 }
 
 func ReadBoolWithTrueAsDefault(envVarName string) bool {
-	envVar := envvar.GetEnvOrDefault(envVarName, "true")
+	envVar := envvar.GetEnvOrDefault(envVarName, "true") // nolint:forbidigo
 	return strings.TrimSpace(strings.ToLower(envVar)) == "true"
 }
 

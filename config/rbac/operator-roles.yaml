@@ -1,5 +1,5 @@
 ---
-# Source: enterprise-operator/templates/operator-roles.yaml
+# Source: mongodb-kubernetes/templates/operator-roles.yaml
 ---
 # Additional ClusterRole for clusterVersionDetection
 kind: ClusterRole
@@ -28,7 +28,7 @@ rules:
     verbs:
       - list
 ---
-# Source: enterprise-operator/templates/operator-roles.yaml
+# Source: mongodb-kubernetes/templates/operator-roles.yaml
 # ClusterRoleBinding for clusterVersionDetection
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
@@ -43,7 +43,7 @@ subjects:
     name: mongodb-enterprise-operator
     namespace: mongodb
 ---
-# Source: enterprise-operator/templates/operator-roles.yaml
+# Source: mongodb-kubernetes/templates/operator-roles.yaml
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -133,7 +133,7 @@ rules:
       - patch
       - update
 ---
-# Source: enterprise-operator/templates/operator-roles.yaml
+# Source: mongodb-kubernetes/templates/operator-roles.yaml
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:

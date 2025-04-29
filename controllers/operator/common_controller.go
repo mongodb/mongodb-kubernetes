@@ -6,8 +6,6 @@ import (
 	"encoding/pem"
 	"fmt"
 	"reflect"
-	"strings"
-	"time"
 
 	"github.com/blang/semver"
 	"github.com/hashicorp/go-multierror"
@@ -23,43 +21,37 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
-	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/authentication"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/inspect"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
-	mdbcv1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
-	kubernetesClient "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/configmap"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/container"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/secret"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/statefulset"
-	"github.com/10gen/ops-manager-kubernetes/pkg/agentVersionManagement"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	"github.com/10gen/ops-manager-kubernetes/pkg/passwordhash"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
-	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
+	"github.com/mongodb/mongodb-kubernetes/pkg/passwordhash"
+	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
+	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
 
 func automationConfigFirstMsg(resourceType string, valueToSet string) string {
 	return fmt.Sprintf("About to set `%s` to %s. automationConfig needs to be updated first", resourceType, valueToSet)
-}
-
-type patchValue struct {
-	Op    string      `json:"op"`
-	Path  string      `json:"path"`
-	Value interface{} `json:"value"`
 }
 
 // ReconcileCommonController is the "parent" controller that is included into each specific controller and allows
@@ -138,14 +130,7 @@ func ensureRoles(roles []mdbv1.MongoDbRole, conn om.Connection, log *zap.Sugared
 // updateStatus updates the status for the CR using patch operation. Note, that the resource status is mutated and
 // it's important to pass resource by pointer to all methods which invoke current 'updateStatus'.
 func (r *ReconcileCommonController) updateStatus(ctx context.Context, reconciledResource v1.CustomResourceReadWriter, st workflow.Status, log *zap.SugaredLogger, statusOptions ...status.Option) (reconcile.Result, error) {
-	mergedOptions := append(statusOptions, st.StatusOptions()...)
-	log.Debugf("Updating status: phase=%v, options=%+v", st.Phase(), mergedOptions)
-	reconciledResource.UpdateStatus(st.Phase(), mergedOptions...)
-	if err := r.patchUpdateStatus(ctx, reconciledResource, statusOptions...); err != nil {
-		log.Errorf("Error updating status to %s: %s", st.Phase(), err)
-		return reconcile.Result{}, err
-	}
-	return st.ReconcileResult()
+	return commoncontroller.UpdateStatus(ctx, r.client, reconciledResource, st, log, statusOptions...)
 }
 
 type WatcherResource interface {
@@ -200,94 +185,15 @@ func (r *ReconcileCommonController) SetupCommonWatchers(watcherResource WatcherR
 	}
 }
 
-// We fetch a fresh version in case any modifications have been made.
-// Note, that this method enforces update ONLY to the status, so the reconciliation events happening because of this
-// can be filtered out by 'controller.shouldReconcile'
-// The "jsonPatch" merge allows to update only status field
-func (r *ReconcileCommonController) patchUpdateStatus(ctx context.Context, resource v1.CustomResourceReadWriter, options ...status.Option) error {
-	payload := []patchValue{{
-		Op:   "replace",
-		Path: resource.GetStatusPath(options...),
-		// in most cases this will be "/status", but for each of the different Ops Manager components
-		// this will be different
-		Value: resource.GetStatus(options...),
-	}}
-
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-
-	patch := client.RawPatch(types.JSONPatchType, data)
-	err = r.client.Status().Patch(ctx, resource, patch)
-
-	if err != nil && apiErrors.IsInvalid(err) {
-		zap.S().Debug("The Status subresource might not exist yet, creating empty subresource")
-		if err := r.ensureStatusSubresourceExists(ctx, resource, options...); err != nil {
-			zap.S().Debug("Error from ensuring status subresource: %s", err)
-			return err
-		}
-		return r.client.Status().Patch(ctx, resource, patch)
-	}
-
-	return nil
-}
-
-type emptyPayload struct{}
-
-// ensureStatusSubresourceExists ensures that the status subresource section we are trying to write to exists.
-// if we just try and patch the full path directly, the subresource sections are not recursively created, so
-// we need to ensure that the actual object we're trying to write to exists, otherwise we will get errors.
-func (r *ReconcileCommonController) ensureStatusSubresourceExists(ctx context.Context, resource v1.CustomResourceReadWriter, options ...status.Option) error {
-	fullPath := resource.GetStatusPath(options...)
-	parts := strings.Split(fullPath, "/")
-
-	if strings.HasPrefix(fullPath, "/") {
-		parts = parts[1:]
-	}
-
-	var path []string
-	for _, part := range parts {
-		pathStr := "/" + strings.Join(path, "/")
-		path = append(path, part)
-		emptyPatchPayload := []patchValue{{
-			Op:    "add",
-			Path:  pathStr,
-			Value: emptyPayload{},
-		}}
-		data, err := json.Marshal(emptyPatchPayload)
-		if err != nil {
-			return err
-		}
-		patch := client.RawPatch(types.JSONPatchType, data)
-		if err := r.client.Status().Patch(ctx, resource, patch); err != nil && !apiErrors.IsInvalid(err) {
-			return err
-		}
-	}
-	return nil
-}
-
-// getResource populates the provided runtime.Object with some additional error handling
-func (r *ReconcileCommonController) getResource(ctx context.Context, request reconcile.Request, resource v1.CustomResourceReadWriter, log *zap.SugaredLogger) (reconcile.Result, error) {
-	err := r.client.Get(ctx, request.NamespacedName, resource)
-	if err != nil {
-		if apiErrors.IsNotFound(err) {
-			// Request object not found, could have been deleted after reconcile request.
-			// Return and don't requeue
-			log.Debugf("Object %s doesn't exist, was it deleted after reconcile request?", request.NamespacedName)
-			return reconcile.Result{}, err
-		}
-		// Error reading the object - requeue the request.
-		log.Errorf("Failed to query object %s: %s", request.NamespacedName, err)
-		return reconcile.Result{RequeueAfter: 10 * time.Second}, err
-	}
-	return reconcile.Result{}, nil
+// GetResource populates the provided runtime.Object with some additional error handling
+func (r *ReconcileCommonController) GetResource(ctx context.Context, request reconcile.Request, resource v1.CustomResourceReadWriter, log *zap.SugaredLogger) (reconcile.Result, error) {
+	return commoncontroller.GetResource(ctx, r.client, request, resource, log)
 }
 
 // prepareResourceForReconciliation finds the object being reconciled. Returns the reconcile result and any error that
 // occurred.
 func (r *ReconcileCommonController) prepareResourceForReconciliation(ctx context.Context, request reconcile.Request, resource v1.CustomResourceReadWriter, log *zap.SugaredLogger) (reconcile.Result, error) {
-	if result, err := r.getResource(ctx, request, resource, log); err != nil {
+	if result, err := r.GetResource(ctx, request, resource, log); err != nil {
 		return result, err
 	}
 
@@ -392,38 +298,6 @@ func (r *ReconcileCommonController) scaleStatefulSet(ctx context.Context, namesp
 		set.Spec.Replicas = &replicas
 		return client.UpdateStatefulSet(ctx, set)
 	}
-}
-
-// getStatefulSetStatus returns the workflow.Status based on the status of the StatefulSet.
-// If the StatefulSet is not ready the request will be retried in 3 seconds (instead of the default 10 seconds)
-// allowing to reach "ready" status sooner
-func getStatefulSetStatus(ctx context.Context, namespace, name string, client kubernetesClient.Client) workflow.Status {
-	set, err := client.GetStatefulSet(ctx, kube.ObjectKey(namespace, name))
-	i := 0
-
-	// Sometimes it is possible that the StatefulSet which has just been created
-	// returns a not found error when getting it too soon afterwards.
-	for apiErrors.IsNotFound(err) && i < 10 {
-		i++
-		zap.S().Debugf("StatefulSet was not found: %s, attempt %d", err, i)
-		time.Sleep(time.Second * 1)
-		set, err = client.GetStatefulSet(ctx, kube.ObjectKey(namespace, name))
-	}
-
-	if err != nil {
-		return workflow.Failed(err)
-	}
-
-	if statefulSetState := inspect.StatefulSet(set); !statefulSetState.IsReady() {
-		return workflow.
-			Pending("%s", statefulSetState.GetMessage()).
-			WithResourcesNotReady(statefulSetState.GetResourcesNotReadyStatus()).
-			WithRetry(3)
-	} else {
-		zap.S().Debugf("StatefulSet %s/%s is ready on check attempt #%d, state: %+v: ", namespace, name, i, statefulSetState)
-	}
-
-	return workflow.OK()
 }
 
 // validateScram ensures that the SCRAM configuration is valid for the MongoDBResource
@@ -943,17 +817,11 @@ func wasCAConfigMapMounted(ctx context.Context, configMapGetter configmap.Getter
 	return exists
 }
 
-type ConfigMapStatefulSetSecretGetter interface {
-	statefulset.Getter
-	secret.Getter
-	configmap.Getter
-}
-
 // publishAutomationConfigFirst will check if the Published State of the StatefulSet backed MongoDB Deployments
 // needs to be updated first. In the case of unmounting certs, for instance, the certs should be not
 // required anymore before we unmount them, or the automation-agent and readiness probe will never
 // reach goal state.
-func publishAutomationConfigFirst(ctx context.Context, getter ConfigMapStatefulSetSecretGetter, mdb mdbv1.MongoDB, lastSpec *mdbv1.MongoDbSpec, configFunc func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) bool {
+func publishAutomationConfigFirst(ctx context.Context, getter kubernetesClient.Client, mdb mdbv1.MongoDB, lastSpec *mdbv1.MongoDbSpec, configFunc func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) bool {
 	opts := configFunc(mdb)
 
 	namespacedName := kube.ObjectKey(mdb.Namespace, opts.GetStatefulSetName())

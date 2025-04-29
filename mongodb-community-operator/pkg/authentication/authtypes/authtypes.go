@@ -8,8 +8,8 @@ import (
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/constants"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/contains"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/contains"
 )
 
 // Options contains a set of values that can be used for more fine-grained configuration of authentication.
