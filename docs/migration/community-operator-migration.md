@@ -18,8 +18,6 @@ This guide ensures the CRDs are retained using Helm's keep annotation and transi
 
 ### 1. Upgrade to the Latest MCO Chart
 
-Ensure CRDs will not be deleted on uninstall:
-
 ```bash
 helm repo add mongodb https://mongodb.github.io/helm-charts
 helm repo update
@@ -128,7 +126,7 @@ helm uninstall mongodb-community-operator
 
 ## ✅ Final Verification
 
-1. Check CRDs still exist:
+1. Check CRDs still exist after uninstalling the MCO chart:
 
 ```bash
 kubectl get crds | grep mongodb
