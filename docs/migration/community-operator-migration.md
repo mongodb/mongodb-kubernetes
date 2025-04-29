@@ -16,7 +16,7 @@ This guide ensures the CRDs are retained using Helm's keep annotation and transi
 
 ## 🚀 Migration Steps
 
-### 1. Upgrade to the Latest MCO Chart with `keep` Annotations
+### 1. Upgrade to the Latest MCO Chart
 
 Ensure CRDs will not be deleted on uninstall:
 
@@ -26,7 +26,7 @@ helm repo update
 helm upgrade --install mongodb-community-operator mongodb/community-operator
 ```
 
-✅ Verify that CRDs have the keep annotation:
+✅ Verify that Community CRD have the keep annotation:
 
 ```bash
 kubectl get crds | grep mongodb
@@ -65,7 +65,7 @@ They are all namespaced under `community`.
 
 ### 4. Scale Down the MCO Operator Deployment
 
-Prevent the MCO reconciler from interfering with the MCK operator which we will install in a bit:
+To prevent a split-brain between the MCO and MCK operator we scale down the MCO deployment:
 
 ```bash
 kubectl scale deployment mongodb-community-operator --replicas=0
@@ -73,7 +73,7 @@ kubectl scale deployment mongodb-community-operator --replicas=0
 
 ---
 
-### 5. Install the MCK Chart
+### 5. Install the MCK Operator
 
 Deploy the new MCK Helm release with your updated values:
 
