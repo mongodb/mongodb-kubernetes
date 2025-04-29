@@ -2,7 +2,7 @@
 # Migration Guide: MongoDB Community Operator (MCO) to MongoDB Kubernetes Operator (MCK)
 
 This guide walks you through the complete process of migrating from the MongoDB Community Operator (MCO) to the MongoDB Kubernetes Operator (MCK). It ensures CRDs are preserved, services remain uninterrupted, and reconciliation is correctly handed over.
-This guide ensures the CRDs are retained using Helm's keep annotation and transitions smoothly to MCK.
+This guide ensures the CRDs are retained using Helm's keep annotation and transitions smoothly to MCK. We have a codified guide as well - [Link](https://github.com/mongodb/mongodb-kubernetes/blob/f0050b8942545701e8cb9e42d54d14f0cb58ee6a/mongodb-community-operator/test/e2e/replica_set_operator_upgrade/replica_set_operator_upgrade_test.go#L28).
 
 ---
 
