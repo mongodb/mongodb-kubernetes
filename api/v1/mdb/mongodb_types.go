@@ -934,6 +934,8 @@ type Authentication struct {
 	// +optional
 	Ldap *Ldap `json:"ldap,omitempty"`
 
+	// Configuration for OIDC providers
+	// +optional
 	OIDCProviderConfigs []OIDCProviderConfig `json:"oidcProviderConfigs,omitempty"`
 
 	// Agents contains authentication configuration properties for the agents
@@ -1063,54 +1065,59 @@ type Ldap struct {
 }
 
 type OIDCProviderConfig struct {
-	// TODO add proper validation and test it
 	// Unique label that identifies this configuration. This label is visible to your Ops Manager users and is used when
 	// creating users and roles for authorization. It is case-sensitive and can only contain the following characters:
 	//  - alphanumeric characters (combination of a to z and 0 to 9)
 	//  - hyphens (-)
 	//  - underscores (_)
-	// +kubebuilder:validation:Pattern:"^[a-zA-Z0-9-_]+$"
+	// +kubebuilder:validation:Pattern="^[a-zA-Z0-9-_]+$"
+	// +kubebuilder:validation:Required
 	ConfigurationName string `json:"configurationName"`
 
 	// Issuer value provided by your registered IdP application. Using this URI, MongoDB finds an OpenID Provider
 	// Configuration Document, which should be available in the /.wellknown/open-id-configuration endpoint.
+	// +kubebuilder:validation:Required
 	IssuerURI string `json:"issuerURI"`
 
 	// Entity that your external identity provider intends the token for.
 	// Enter the audience value from the app you registered with external Identity Provider.
+	// +kubebuilder:validation:Required
 	Audience string `json:"audience"`
 
 	// Select GroupMembership to grant authorization based on IdP user group membership, or select UserID to grant
 	// an individual user authorization.
+	// +kubebuilder:validation:Required
 	AuthorizationType OIDCAuthorizationType `json:"authorizationType"`
 
 	// The identifier of the claim that includes the user principal identity.
 	// Accept the default value unless your IdP uses a different claim.
-	// +default:value:sub
+	// +kubebuilder:default=sub
+	// +kubebuilder:validation:Required
 	UserClaim string `json:"userClaim"`
 
 	// The identifier of the claim that includes the principal's IdP user group membership information.
 	// Accept the default value unless your IdP uses a different claim, or you need a custom claim.
 	// Required when selected GroupMembership as the authorization type, ignored otherwise
-	// +default:value:groups
-	// +optional
-	GroupsClaim string `json:"groupsClaim"`
+	// +kubebuilder:default=groups
+	// +kubebuilder:validation:Optional
+	GroupsClaim string `json:"groupsClaim,omitempty"`
 
 	// Configure single-sign-on for human user access to Ops Manager deployments with Workforce Identity Federation.
 	// For programmatic, application access to Ops Manager deployments use Workload Identity Federation.
 	// Only one Workforce Identity Federation IdP can be configured per MongoDB resource
+	// +kubebuilder:validation:Required
 	AuthorizationMethod OIDCAuthorizationMethod `json:"authorizationMethod"`
 
 	// Unique identifier for your registered application. Enter the clientId value from the app you
 	// registered with an external Identity Provider.
 	// Required when selected Workforce Identity Federation authorization method
-	// +optional
-	ClientId string `json:"clientId"`
+	// +kubebuilder:validation:Optional
+	ClientId string `json:"clientId,omitempty"`
 
 	// Tokens that give users permission to request data from the authorization endpoint.
 	// Only used for Workforce Identity Federation authorization method
-	// +optional
-	RequestedScopes []string `json:"requestedScopes"`
+	// +kubebuilder:validation:Optional
+	RequestedScopes []string `json:"requestedScopes,omitempty"`
 }
 
 // +kubebuilder:validation:Enum=GroupMembership;UserID
