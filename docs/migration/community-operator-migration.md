@@ -10,7 +10,7 @@ This guide ensures the CRDs are retained using Helm's keep annotation and transi
 
 - Kubernetes cluster access with admin permissions.
 - Helm installed and configured.
-- MCO must be upgraded to a version that includes CRD keep annotations (`"helm.sh/resource-policy": keep`).
+- Upgrade your MCO Helm chart to at least version `0.13.0` before proceeding, as this version introduced the critical CRD keep annotations (`"helm.sh/resource-policy": keep`).
 
 ---
 
@@ -40,9 +40,10 @@ helm.sh/resource-policy: keep
 
 ---
 
-### 2. Update Environment Variables
+### 2. Environment Variables
+**Note:** If you're using Helm (as recommended in this guide), these environment variables will be automatically set through the `values.yaml` configuration described in step 3. Manual environment variable updates are only needed for non-Helm deployments.
 
-Rename environment variables to match MCK expectations:
+The MongoDB Kubernetes Operator (MCK) uses different environment variables than the MongoDB Community Operator (MCO):
 
 | MCO Variable                | MCK Variable                     |
 |----------------------------|----------------------------------|
@@ -51,8 +52,6 @@ Rename environment variables to match MCK expectations:
 | `MONGODB_IMAGE`            | `MDB_COMMUNITY_IMAGE`           |
 | `AGENT_IMAGE`              | `MDB_COMMUNITY_AGENT_IMAGE`     |
 
-These variables must be updated in your Helm values file to have templating set them in the operator
-as environment variables.
 
 ---
 
@@ -136,7 +135,6 @@ kubectl get crds | grep mongodb
 ```
 
 2. Ensure MCK logs show successful reconciliation.
-3. Optionally clean up any leftover unused RBACs.
 
 ---
 
