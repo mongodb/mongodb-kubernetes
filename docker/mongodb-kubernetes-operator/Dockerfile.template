@@ -24,13 +24,13 @@ LABEL name="MongoDB Kubernetes Operator" \
 {% endblock %}
 
 
-COPY --from=base /data/mongodb-enterprise-operator /usr/local/bin/mongodb-enterprise-operator
+COPY --from=base /data/mongodb-enterprise-operator /usr/local/bin/mongodb-kubernetes-operator
 COPY --from=base /data/om_version_mapping.json /usr/local/om_version_mapping.json
 COPY --from=base /data/licenses /licenses/
 
 USER 2000
 
-ENTRYPOINT exec /usr/local/bin/mongodb-enterprise-operator
+ENTRYPOINT exec /usr/local/bin/mongodb-kubernetes-operator
 
 {% block healthcheck %}
 {% endblock %}
