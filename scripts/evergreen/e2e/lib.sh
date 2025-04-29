@@ -27,12 +27,12 @@ generate_random_namespace() {
 # checkout_latest_official_branch peforms the checkout of the last release (or the specified one)
 checkout_latest_official_branch() {
     # If the version of the Operator to upgrade from not specified then we assume it's the latest
-    last_git_tag=$(curl -s https://api.github.com/repos/mongodb/mongodb-enterprise-kubernetes/releases/latest | jq --raw-output ".tag_name")
+    last_git_tag=$(curl -s https://api.github.com/repos/mongodb/mongodb-kubernetes/releases/latest | jq --raw-output ".tag_name")
     GIT_TAG="${OPERATOR_VERSION_UPGRADE_FROM:-"latest"}"
     [[ ${GIT_TAG} == "latest" ]] && export GIT_TAG=${last_git_tag}
 
     # Cloning the public repo first to install Operator from there
-    git clone https://github.com/mongodb/mongodb-enterprise-kubernetes
+    git clone https://github.com/mongodb/mongodb-kubernetes
     cd mongodb-enterprise-kubernetes || exit 1
     git checkout "${GIT_TAG}"
 }

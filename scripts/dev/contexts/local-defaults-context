@@ -45,7 +45,7 @@ export AGENT_IMAGE="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-age
 
 # these are needed to deploy OM
 export INIT_APPDB_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-kubernetes-init-appdb"
-export OPS_MANAGER_IMAGE_REPOSITORY="${QUAY_REGISTRY}/mongodb-enterprise-ops-manager-ubi"
+export OPS_MANAGER_IMAGE_REPOSITORY="${QUAY_REGISTRY}/mongodb-kubernetes-ops-manager-ubi"
 export INIT_OPS_MANAGER_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-kubernetes-init-ops-manager"
 
 

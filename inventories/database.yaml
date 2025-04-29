@@ -13,7 +13,7 @@ images:
     task_type: docker_build
     dockerfile: Dockerfile.builder
     output:
-    - registry: $(inputs.params.registry)/mongodb-enterprise-database-context
+    - registry: $(inputs.params.registry)/mongodb-kubernetes-database-context
       tag: $(inputs.params.version_id)
 
   - name: init-appdb-template-ubi
@@ -30,7 +30,7 @@ images:
     dockerfile: $(stages['init-appdb-template-ubi'].outputs[0].dockerfile)
     tags: ["ubi"]
     buildargs:
-      imagebase: $(inputs.params.registry)/mongodb-enterprise-database-context:$(inputs.params.version_id)
+      imagebase: $(inputs.params.registry)/mongodb-kubernetes-database-context:$(inputs.params.version_id)
     output:
     - registry: $(inputs.params.registry)/mongodb-kubernetes-database
       tag: $(inputs.params.version_id)
@@ -49,7 +49,7 @@ images:
     task_type: tag_image
     tags: ["release"]
     source:
-      registry: $(inputs.params.registry)/mongodb-enterprise-database-context
+      registry: $(inputs.params.registry)/mongodb-kubernetes-database-context
       tag: $(inputs.params.version_id)
     destination:
     - registry: $(inputs.params.quay_registry)

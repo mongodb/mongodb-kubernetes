@@ -168,7 +168,7 @@ def verify_signature(repository: str, tag: str) -> bool:
     logger.debug(f"Verifying signature of {image}")
     public_key_url = os.environ.get(
         "SIGNING_PUBLIC_KEY_URL",
-        "https://cosign.mongodb.com/mongodb-enterprise-kubernetes-operator.pem",
+        "https://cosign.mongodb.com/mongodb-kubernetes-operator.pem",
     )
     r = requests.get(public_key_url)
     # Ensure the request was successful

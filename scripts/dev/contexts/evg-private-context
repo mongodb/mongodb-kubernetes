@@ -45,13 +45,13 @@ export INIT_DATABASE_REGISTRY=${INIT_IMAGES_REGISTRY:-"${QUAY_REGISTRY}"}
 export DATABASE_REGISTRY=${INIT_IMAGES_REGISTRY:-"${QUAY_REGISTRY}"}
 export OPS_MANAGER_REGISTRY=${QUAY_REGISTRY}
 export APPDB_REGISTRY=${QUAY_REGISTRY}
-export MONGODB_ENTERPRISE_DATABASE_IMAGE="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-database"
+export MONGODB_ENTERPRISE_DATABASE_IMAGE="${INIT_IMAGES_REGISTRY}/mongodb-kubernetes-database"
 export INIT_DATABASE_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-kubernetes-init-database"
 export MDB_AGENT_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-agent-ubi"
 
 # these are needed to deploy OM
 export INIT_APPDB_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-kubernetes-init-appdb"
-export OPS_MANAGER_IMAGE_REPOSITORY="${QUAY_REGISTRY}/mongodb-enterprise-ops-manager-ubi"
+export OPS_MANAGER_IMAGE_REPOSITORY="${QUAY_REGISTRY}/mongodb-kubernetes-ops-manager-ubi"
 export INIT_OPS_MANAGER_IMAGE_REPOSITORY=${INIT_IMAGES_REGISTRY}/mongodb-kubernetes-init-ops-manager
 
 export CLUSTER_TYPE="kind"
@@ -103,7 +103,7 @@ export DELETE_KIND_NETWORK="true"
 
 # MCO
 # shellcheck disable=SC2154
-export OPERATOR_IMAGE="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-operator:${version_id}"
+export OPERATOR_IMAGE="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-operator:${version_id}"
 export MCO_TEST_IMAGE="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-community-tests:${version_id}"
 export READINESS_PROBE_IMAGE="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-readinessprobe:${version_id}"
 export VERSION_UPGRADE_HOOK_IMAGE="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-operator-version-upgrade-post-start-hook:${version_id}"

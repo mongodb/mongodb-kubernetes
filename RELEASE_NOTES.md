@@ -1,4 +1,4 @@
-[//]: # (Consider renaming or removing the header for next release, otherwise it appears as duplicate in the published release, e.g: https://github.com/mongodb/mongodb-enterprise-kubernetes/releases/tag/1.22.0 )
+[//]: # (Consider renaming or removing the header for next release, otherwise it appears as duplicate in the published release, e.g: https://github.com/mongodb/mongodb-kubernetes/releases/tag/1.22.0 )
 <!-- Next Release -->
 
 # MongoDB Enterprise Kubernetes Operator 1.33.0
@@ -62,7 +62,7 @@
 
 * **MongoDB**: fixes and improvements to Multi-Cluster Sharded Cluster deployments (Public Preview)
 * **MongoDB**: `spec.shardOverrides` field, which was added in 1.28.0 as part of Multi-Cluster Sharded Cluster Public Preview is now fully supported for single-cluster topologies and is the recommended way of customizing settings for specific shards.
-* **MongoDB**: `spec.shardSpecificPodSpec` was deprecated. The recommended way of customizing specific shard settings is to use `spec.shardOverrides` for both Single and Multi Cluster topology. An example of how to migrate the settings to spec.shardOverrides is available [here](https://github.com/mongodb/mongodb-enterprise-kubernetes/blob/master/samples/sharded_multicluster/shardSpecificPodSpec_migration.yaml).
+* **MongoDB**: `spec.shardSpecificPodSpec` was deprecated. The recommended way of customizing specific shard settings is to use `spec.shardOverrides` for both Single and Multi Cluster topology. An example of how to migrate the settings to spec.shardOverrides is available [here](https://github.com/mongodb/mongodb-kubernetes/blob/master/samples/sharded_multicluster/shardSpecificPodSpec_migration.yaml).
 
 ## Bug Fixes
 * **MongoDB**: Fixed placeholder name for `mongos` in Single Cluster Sharded with External Domain set. Previously it was called `mongodProcessDomain` and `mongodProcessFQDN` now they're called `mongosProcessDomain` and `mongosProcessFQDN`.
@@ -110,7 +110,7 @@
   * When upgrading mongoDB version the operator sets the FCV to the prior version we are upgrading from. This allows to
   have sanity checks before setting the fcv to the upgraded version. More information can be found [here](https://www.mongodb.com/docs/kubernetes-operator/current/reference/k8s-operator-specification/#mongodb-setting-spec.featureCompatibilityVersion).
   * To keep the prior behaviour to always use the mongoDB version as FCV; set `spec.featureCompatibilityVersion: "AlwaysMatchVersion"`
-* Docker images are now built with `ubi9` as the base image with the exception of [mongodb-enterprise-database-ubi](quay.io/mongodb/mongodb-enterprise-database-ubi) which is still based on `ubi8` to support `MongoDB` workloads < 6.0.4. The `ubi8` image is only in use for the default non-static architecture.
+* Docker images are now built with `ubi9` as the base image with the exception of [mongodb-enterprise-database-ubi](quay.io/mongodb/mongodb-kubernetes-database-ubi) which is still based on `ubi8` to support `MongoDB` workloads < 6.0.4. The `ubi8` image is only in use for the default non-static architecture.
 For a full `ubi9` setup, the [Static Containers](https://www.mongodb.com/docs/kubernetes-operator/upcoming/tutorial/plan-k8s-op-container-images/#static-containers--public-preview-) architecture should be used instead.
 * **OpsManager**: Introduced support for Ops Manager 8.0.0
 * **MongoDB**, **MongoDBMulti**: support for MongoDB 8.0.0
@@ -236,8 +236,8 @@ actually defined in `spec.externalAccess.externalDomain` or `spec.clusterSpecLis
 
 ## Improvements
 
-**Kubectl plugin**: The released plugin binaries are now signed, the signatures are published with the [release assets](https://github.com/mongodb/mongodb-enterprise-kubernetes/releases). Our public key is available at [this address](https://cosign.mongodb.com/mongodb-enterprise-kubernetes-operator.pem). They are also notarized for MacOS.
-**Released Images signed**: All container images published for the enterprise operator are cryptographically signed. This is visible on our Quay registry, and can be verified using our public key. It is available at [this address](https://cosign.mongodb.com/mongodb-enterprise-kubernetes-operator.pem).
+**Kubectl plugin**: The released plugin binaries are now signed, the signatures are published with the [release assets](https://github.com/mongodb/mongodb-kubernetes/releases). Our public key is available at [this address](https://cosign.mongodb.com/mongodb-kubernetes-operator.pem). They are also notarized for MacOS.
+**Released Images signed**: All container images published for the enterprise operator are cryptographically signed. This is visible on our Quay registry, and can be verified using our public key. It is available at [this address](https://cosign.mongodb.com/mongodb-kubernetes-operator.pem).
 
 
 # MongoDB Enterprise Kubernetes Operator 1.24.0
@@ -252,10 +252,10 @@ actually defined in `spec.externalAccess.externalDomain` or `spec.clusterSpecLis
 ## Warnings and Breaking Changes
 
 * Starting from 1.23 component image version numbers will be aligned to the MongoDB Enterprise Operator release tag. This allows clear identification of all images related to a specific version of the Operator. This affects the following images:
-  * `quay.io/mongodb/mongodb-enterprise-database-ubi`
-  * `quay.io/mongodb/mongodb-enterprise-init-database-ubi`
-  * `quay.io/mongodb/mongodb-enterprise-init-appdb-ubi`
-  * `quay.io/mongodb/mongodb-enterprise-init-ops-manager-ubi`
+  * `quay.io/mongodb/mongodb-kubernetes-database-ubi`
+  * `quay.io/mongodb/mongodb-kubernetes-init-database-ubi`
+  * `quay.io/mongodb/mongodb-kubernetes-init-appdb-ubi`
+  * `quay.io/mongodb/mongodb-kubernetes-init-ops-manager-ubi`
 * Removed `spec.exposedExternally` in favor of `spec.externalAccess` from the MongoDB Customer Resource. `spec.exposedExternally` was deprecated in operator version 1.19.
 
 ## Bug Fixes
@@ -314,7 +314,7 @@ None
 
 # MongoDB Enterprise Kubernetes Operator 1.21.0
 ## Breaking changes
-* The environment variable to track the operator namespace has been renamed from [CURRENT_NAMESPACE](https://github.com/mongodb/mongodb-enterprise-kubernetes/blob/master/mongodb-enterprise.yaml#L244) to `NAMESPACE`. If you set this variable manually via YAML files, you should update this environment variable name while upgrading the operator deployment.
+* The environment variable to track the operator namespace has been renamed from [CURRENT_NAMESPACE](https://github.com/mongodb/mongodb-kubernetes/blob/master/mongodb-kubernetes.yaml#L244) to `NAMESPACE`. If you set this variable manually via YAML files, you should update this environment variable name while upgrading the operator deployment.
 
 ## Bug fixes
 * Fixes a bug where passing the labels via statefulset override mechanism would not lead to an override on the actual statefulset.
@@ -377,7 +377,7 @@ Fixes a bug where the operator container image was referencing to the deprecated
 * Added support for votes, priority and tags by introducing the `spec.applicationDatabase.memberConfig.votes`, `spec.applicationDatabase.memberConfig.priority`
 and `spec.applicationDatabase.memberConfig.tags` field.
 * Introduced automatic change of the AppDB's image version suffix `-ent` to `-ubi8`.
-  * This enables migration of AppDB images from the legacy repository (`quay.io/mongodb/mongodb-enterprise-appdb-database-ubi`) to the new official one (`quay.io/mongodb/mongodb-enterprise-server`) without changing the version in MongoDBOpsManager's `applicationDatabase.version` field.
+  * This enables migration of AppDB images from the legacy repository (`quay.io/mongodb/mongodb-kubernetes-appdb-database-ubi`) to the new official one (`quay.io/mongodb/mongodb-kubernetes-server`) without changing the version in MongoDBOpsManager's `applicationDatabase.version` field.
   * The change will result a rolling update of AppDB replica set pods to the new, official images (referenced in Helm Chart in `values.mongodb.name` field), which are functionally equivalent to the previous ones (the same MongoDB version).
   * Suffix change occurs under specific circumstances:
     * Helm setting for appdb image: `mongodb.name` will now default to `mongodb-enterprise-server`.
@@ -386,7 +386,7 @@ and `spec.applicationDatabase.memberConfig.tags` field.
       Operator will replace the suffix `-ent` with the value set in the environment variable
       `MDB_IMAGE_TYPE`, which defaults to `-ubi8`.
       For instance, the operator will migrate:
-      * `quay.io/mongodb/mongodb-enterprise-server:4.2.11-ent` to `quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8`.
+      * `quay.io/mongodb/mongodb-kubernetes-server:4.2.11-ent` to `quay.io/mongodb/mongodb-kubernetes-server:4.2.11-ubi8`.
       * `MDB_IMAGE_TYPE=ubuntu2024 quay.io/mongodb/mongodb-enterprise-server:4.2.11-ent` to `quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubuntu2024`.
       * The operator will do the automatic migration of suffixes only for images
         that reference the name `mongodb-enterprise-server`.

@@ -120,7 +120,7 @@ def get_supported_images(release: Dict) -> dict[str, SupportedImage]:
 
 def convert_to_image_names(supported_images: Dict[str, SupportedImage]):
     for supported_image in supported_images:
-        supported_images[supported_image].image_pull_spec = f"quay.io/mongodb/mongodb-enterprise-{supported_image}-ubi"
+        supported_images[supported_image].image_pull_spec = f"quay.io/mongodb/mongodb-kubernetes-{supported_image}-ubi"
         supported_images[supported_image].name = f"mongodb-enterprise-{supported_image}-ubi"
     return supported_images
 

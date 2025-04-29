@@ -39,7 +39,7 @@ function generate_standalone_yaml() {
 
   # generate normal public example
   helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" ${HELM_OPTS[@]}
-  cat "${FILES[@]}" >public/mongodb-enterprise.yaml
+  cat "${FILES[@]}" >public/mongodb-kubernetes.yaml
   cat "helm_chart/crds/"* >public/crds.yaml
 
   # generate openshift public example
