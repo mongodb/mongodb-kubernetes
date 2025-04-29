@@ -3,12 +3,12 @@ FROM ${imagebase} as base
 
 FROM {{ base_image }}
 
-LABEL name="MongoDB Enterprise Ops Manager Init" \
+LABEL name="MongoDB Kubernetes Ops Manager Init" \
       maintainer="support@mongodb.com" \
       vendor="MongoDB" \
       version="mongodb-enterprise-init-ops-manager-{{version}}" \
       release="1" \
-      summary="MongoDB Enterprise Ops Manager Init Image" \
+      summary="MongoDB Kubernetes Ops Manager Init Image" \
       description="Startup Scripts for MongoDB Enterprise Ops Manager"
 
 

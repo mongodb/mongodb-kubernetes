@@ -17,7 +17,7 @@ images:
 
   - name: operator-context-dockerfile
     task_type: docker_build
-    dockerfile: docker/mongodb-enterprise-operator/Dockerfile.builder
+    dockerfile: docker/mongodb-kubernetes-operator/Dockerfile.builder
     buildargs:
       release_version: $(inputs.params.version)
       log_automation_config_diff: $(inputs.params.log_automation_config_diff)
@@ -28,7 +28,7 @@ images:
 
   - name: operator-race-context-dockerfile
     task_type: docker_build
-    dockerfile: docker/mongodb-enterprise-operator/Dockerfile.builder
+    dockerfile: docker/mongodb-kubernetes-operator/Dockerfile.builder
     buildargs:
       release_version: $(inputs.params.version)
       log_automation_config_diff: $(inputs.params.log_automation_config_diff)
