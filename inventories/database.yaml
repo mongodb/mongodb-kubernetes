@@ -16,10 +16,8 @@ images:
     - registry: $(inputs.params.registry)/mongodb-enterprise-database-context
       tag: $(inputs.params.version_id)
 
-  - name: init-appdb-template-ubi
+  - name: init-appdb-template
     task_type: dockerfile_template
-    distro: ubi
-    tags: ["ubi"]
     inputs:
     - version
     output:
@@ -27,8 +25,7 @@ images:
 
   - name: database-build-ubi
     task_type: docker_build
-    dockerfile: $(stages['init-appdb-template-ubi'].outputs[0].dockerfile)
-    tags: ["ubi"]
+    dockerfile: $(stages['init-appdb-template'].outputs[0].dockerfile)
     buildargs:
       imagebase: $(inputs.params.registry)/mongodb-enterprise-database-context:$(inputs.params.version_id)
     output:
@@ -55,9 +52,8 @@ images:
     - registry: $(inputs.params.quay_registry)
       tag: $(inputs.params.version)-context
 
-  - name: database-template-ubi
+  - name: database-template
     task_type: dockerfile_template
-    distro: ubi
     tags: ["release"]
     inputs:
     - version

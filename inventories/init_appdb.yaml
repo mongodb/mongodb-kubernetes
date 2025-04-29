@@ -19,22 +19,20 @@ images:
     - registry: $(inputs.params.registry)/mongodb-kubernetes-init-appdb-context
       tag: $(inputs.params.version_id)
 
-  - name: init-appdb-template-ubi
+  - name: init-appdb-template
     task_type: dockerfile_template
     template_file_extension: ubi_minimal
-    tags: ["ubi"]
     inputs:
     - is_appdb
     output:
     - dockerfile: $(functions.tempfile)
 
-  - name: init-appdb-build-ubi
+  - name: init-appdb-build
     task_type: docker_build
-    tags: ["ubi"]
     buildargs:
       version: $(inputs.params.version)
       imagebase: $(inputs.params.registry)/mongodb-kubernetes-init-appdb-context:$(inputs.params.version_id)
-    dockerfile: $(stages['init-appdb-template-ubi'].outputs[0].dockerfile)
+    dockerfile: $(stages['init-appdb-template'].outputs[0].dockerfile)
     output:
     - registry: $(inputs.params.registry)/mongodb-kubernetes-init-appdb
       tag: $(inputs.params.version_id)
@@ -59,7 +57,7 @@ images:
     - registry: $(inputs.params.quay_registry)
       tag: $(inputs.params.version)-context
 
-  - name: init-appdb-template-ubi
+  - name: init-appdb-template-release
     task_type: dockerfile_template
     template_file_extension: ubi_minimal
     tags: ["release"]

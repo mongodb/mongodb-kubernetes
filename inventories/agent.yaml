@@ -33,7 +33,7 @@ images:
       - registry: $(inputs.params.quay_registry)
         tag: $(inputs.params.version)-context
 
-  - name: mongodb-agent-build-ubi
+  - name: mongodb-agent-build
     task_type: docker_build
     buildargs:
       imagebase: $(inputs.params.registry)/mongodb-agent-ubi:$(inputs.params.version)-context
@@ -53,8 +53,8 @@ images:
       - registry: $(inputs.params.registry)/mongodb-agent-ubi
         tag: $(inputs.params.agent_version)_latest
 
-  - name: mongodb-agent-template-ubi
+  - name: mongodb-agent-template
     task_type: dockerfile_template
     tags: ["release"]
     output:
-    - dockerfile: $(inputs.params.s3_bucket)/$(inputs.params.version)/ubi/Dockerfile
+    - dockerfile: $(inputs.params.s3_bucket)/$(inputs.params.version)/Dockerfile
