@@ -26,7 +26,10 @@ from tests.olm.olm_test_commons import (
     increment_patch_version,
     wait_for_operator_ready,
 )
+from tests.conftest import OPERATOR_NAME, LEGACY_OPERATOR_NAME
 from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_bucket
+from tests.upgrades import downscale_operator_deployment
+
 
 # See docs how to run this locally: https://wiki.corp.mongodb.com/display/MMS/E2E+Tests+Notes#E2ETestsNotes-OLMtests
 
@@ -344,6 +347,12 @@ def test_resources_in_running_state_before_upgrade(
 
 # upgrade the operator
 
+@pytest.mark.e2e_olm_meko_operator_upgrade_with_resources
+def test_downscale_meko(namespace: str):
+    # Scale down the existing operator deployment to 0. This is needed as long as the
+    # `official_operator` fixture installs the MEKO operator.
+    downscale_operator_deployment(deployment_name=LEGACY_OPERATOR_NAME, namespace=namespace)
+
 
 @pytest.mark.e2e_olm_meko_operator_upgrade_with_resources
 def test_meko_operator_upgrade_to_mck(
@@ -376,7 +385,7 @@ def test_meko_operator_upgrade_to_mck(
     run_periodically(update_subscription, timeout=100, msg="Subscription to be updated")
 
     wait_for_operator_ready(
-        namespace, "mongodb-enterprise-operator", f"mongodb-kubernetes.v{incremented_operator_version}"
+        namespace, OPERATOR_NAME, f"mongodb-kubernetes.v{incremented_operator_version}"
     )
 
 
