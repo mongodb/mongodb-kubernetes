@@ -61,22 +61,64 @@ func applyInto(a AutomationConfig, into *Deployment) error {
 		(*into)["ldap"] = mergedLdap
 	}
 
-	if _, ok := a.Deployment["oidcProviderConfigs"]; ok || len(a.OIDCProviderConfigs) > 0 {
-		// TODO: this is not merged yet, but only overridden
-		bytes, err := json.Marshal(a.OIDCProviderConfigs)
-		if err != nil {
-			return err
+	if len(a.OIDCProviderConfigs) > 0 {
+		deploymentConfigs := make([]map[string]any, 0)
+		if configs, ok := a.Deployment["oidcProviderConfigs"]; ok {
+			configsSlice := cast.ToSlice(configs)
+			for _, config := range configsSlice {
+				deploymentConfigs = append(deploymentConfigs, config.(map[string]any))
+			}
 		}
 
-		dst := make([]map[string]interface{}, 0)
-		err = json.Unmarshal(bytes, &dst)
-		if err != nil {
-			return err
+		result := make([]map[string]any, 0)
+		for _, config := range a.OIDCProviderConfigs {
+			deploymentConfig := findOrCreateEmptyDeploymentConfig(deploymentConfigs, config.AuthNamePrefix)
+
+			deploymentConfig["authNamePrefix"] = config.AuthNamePrefix
+			deploymentConfig["audience"] = config.Audience
+			deploymentConfig["issuerUri"] = config.IssuerUri
+			deploymentConfig["userClaim"] = config.UserClaim
+			deploymentConfig["supportsHumanFlows"] = config.SupportsHumanFlows
+			deploymentConfig["useAuthorizationClaim"] = config.UseAuthorizationClaim
+
+			if config.ClientId == util.MergoDelete {
+				delete(deploymentConfig, "clientId")
+			} else {
+				deploymentConfig["clientId"] = config.ClientId
+			}
+
+			if len(config.RequestedScopes) == 0 {
+				delete(deploymentConfig, "requestedScopes")
+			} else {
+				deploymentConfig["requestedScopes"] = config.RequestedScopes
+			}
+
+			if config.GroupsClaim == util.MergoDelete {
+				delete(deploymentConfig, "groupsClaim")
+			} else {
+				deploymentConfig["groupsClaim"] = config.GroupsClaim
+			}
+
+			result = append(result, deploymentConfig)
 		}
-		(*into)["oidcProviderConfigs"] = dst
+
+		(*into)["oidcProviderConfigs"] = result
+	} else {
+		// Clear oidcProviderConfigs if no configs are provided
+		delete(*into, "oidcProviderConfigs")
 	}
 
 	return nil
+}
+
+func findOrCreateEmptyDeploymentConfig(deploymentConfigs []map[string]any, configName string) map[string]any {
+	for _, deploymentConfig := range deploymentConfigs {
+		if configName == deploymentConfig["authNamePrefix"] {
+			return deploymentConfig
+		}
+	}
+
+	return make(map[string]any)
 }
 
 // EqualsWithoutDeployment returns true if two AutomationConfig objects are meaningful equal by following the following conditions:
@@ -450,9 +492,9 @@ func BuildAutomationConfigFromDeployment(deployment Deployment) (*AutomationConf
 		finalAutomationConfig.Ldap = acLdap
 	}
 
-	oidcSlice, ok := deployment["oidcProviderConfigs"]
+	oidcConfigsArray, ok := deployment["oidcProviderConfigs"]
 	if ok {
-		oidcMarshalled, err := json.Marshal(oidcSlice)
+		oidcMarshalled, err := json.Marshal(oidcConfigsArray)
 		if err != nil {
 			return nil, err
 		}

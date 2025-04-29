@@ -11,6 +11,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/oidc"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
@@ -35,7 +36,6 @@ func (o *oidcAuthMechanism) EnableDeploymentAuthentication(conn om.Connection, o
 		if !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(MongoDBOIDC)) {
 			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, string(MongoDBOIDC))
 		}
-		// TODO merge configs with existing ones, and don't overwrite read only values
 		ac.OIDCProviderConfigs = opts.OIDCProviderConfigs
 
 		return nil
@@ -120,14 +120,24 @@ func MapOIDCProviderConfigs(oidcProviderConfigs []mdbv1.OIDCProviderConfig) []oi
 
 	result := make([]oidc.ProviderConfig, len(oidcProviderConfigs))
 	for i, providerConfig := range oidcProviderConfigs {
+		clientId := providerConfig.ClientId
+		if clientId == "" {
+			clientId = util.MergoDelete
+		}
+
+		groupsClaim := providerConfig.GroupsClaim
+		if groupsClaim == "" {
+			groupsClaim = util.MergoDelete
+		}
+
 		result[i] = oidc.ProviderConfig{
 			AuthNamePrefix:        providerConfig.ConfigurationName,
 			Audience:              providerConfig.Audience,
 			IssuerUri:             providerConfig.IssuerURI,
-			ClientId:              providerConfig.ClientId,
+			ClientId:              clientId,
 			RequestedScopes:       providerConfig.RequestedScopes,
 			UserClaim:             providerConfig.UserClaim,
-			GroupsClaim:           providerConfig.GroupsClaim,
+			GroupsClaim:           groupsClaim,
 			SupportsHumanFlows:    mapToSupportHumanFlows(providerConfig.AuthorizationMethod),
 			UseAuthorizationClaim: mapToUseAuthorizationClaim(providerConfig.AuthorizationType),
 		}
