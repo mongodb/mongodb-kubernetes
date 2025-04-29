@@ -286,7 +286,6 @@ func validatePemSecret(secret corev1.Secret, key string, additionalDomains []str
 func ValidateCertificates(ctx context.Context, secretGetter secret.Getter, name, namespace string, log *zap.SugaredLogger) error {
 	validateCertificates := func() (string, bool) {
 		byteData, err := secret.ReadByteData(ctx, secretGetter, kube.ObjectKey(namespace, name))
-		// TODO: do we need a else block here ? It seems that we look for the secret with the wrong client
 		if err == nil {
 			// Validate that the secret contains the keys, if it contains the certs.
 			for key, value := range byteData {

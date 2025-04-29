@@ -26,7 +26,6 @@ from tests.upgrades import downscale_operator_deployment
 logger = test_logger.get_test_logger(__name__)
 
 RS_NAME = "my-replica-set"
-USER_PASSWORD = "/qwerty@!#:"
 CERT_PREFIX = "prefix"
 
 
@@ -53,15 +52,6 @@ def replica_set(
         resource.set_version(custom_mdb_version)
         resource["spec"]["persistent"] = False
         resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [1, 1, 1])
-
-        additional_mongod_config = {
-            "systemLog": {"logAppend": True, "verbosity": 4},
-            "operationProfiling": {"mode": "slowOp"},
-            "net": {"port": MONGODB_PORT},
-        }
-
-        resource["spec"]["additionalMongodConfig"] = additional_mongod_config
-        setup_log_rotate_for_agents(resource)
 
         if try_load(resource):
             return resource
@@ -160,7 +150,5 @@ def test_replicaset_reconciled(replica_set: MongoDB):
 
 @mark.e2e_meko_mck_upgrade
 def test_uninstall_latest_official_operator(namespace: str):
-    # TODO: preserve member list
     helm_uninstall("mongodb-enterprise-operator-multi-cluster" if is_multi_cluster() else "mongodb-enterprise-operator")
     log_deployments_info(namespace)
-    # TODO: make an assertion here ? Maybe scale replicaset after upgrade
