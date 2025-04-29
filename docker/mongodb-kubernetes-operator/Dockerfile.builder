@@ -25,14 +25,14 @@ RUN mkdir /build && \
         CGO_ENABLED=1 go build -o /build/mongodb-enterprise-operator \
         -buildvcs=false \
         -race \
-        -ldflags=" -X github.com/10gen/ops-manager-kubernetes/pkg/util.OperatorVersion=${release_version} \
-        -X github.com/10gen/ops-manager-kubernetes/pkg/util.LogAutomationConfigDiff=${log_automation_config_diff}"; \
+        -ldflags=" -X github.com/mongodb/mongodb-kubernetes/pkg/util.OperatorVersion=${release_version} \
+        -X github.com/mongodb/mongodb-kubernetes/pkg/util.LogAutomationConfigDiff=${log_automation_config_diff}"; \
     else \
         echo "Building without race detector" && \
         CGO_ENABLED=0 go build -o /build/mongodb-enterprise-operator \
         -buildvcs=false \
-        -ldflags="-s -w -X github.com/10gen/ops-manager-kubernetes/pkg/util.OperatorVersion=${release_version} \
-        -X github.com/10gen/ops-manager-kubernetes/pkg/util.LogAutomationConfigDiff=${log_automation_config_diff}"; \
+        -ldflags="-s -w -X github.com/mongodb/mongodb-kubernetes/pkg/util.OperatorVersion=${release_version} \
+        -X github.com/mongodb/mongodb-kubernetes/pkg/util.LogAutomationConfigDiff=${log_automation_config_diff}"; \
     fi
 
 

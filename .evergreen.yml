@@ -220,7 +220,7 @@ github_pr_aliases:
     task_tags: [ "patch-run" ]
 
 # Allows to see evergreen checks in GitHub commits
-# https://github.com/10gen/ops-manager-kubernetes/commits/master/
+# https://github.com/mongodb/mongodb-kubernetes/commits/master/
 github_checks_aliases:
   - variant: ".*"
     task: ".*"
@@ -231,7 +231,6 @@ git_tag_aliases:
     variant_tags: [ "release" ]
     task_tags: [ "image_release", "image_preflight", "openshift_bundles", "code_snippets" ]
 
-# TODO: MCK: have this part of e2e.sh and its expansions
 tasks:
   - name: unit_tests_golang
     tags: [ "unit_tests" ]
@@ -355,7 +354,7 @@ tasks:
         params:
           include_expansions_in_env:
             - GH_TOKEN
-          working_dir: src/github.com/10gen/ops-manager-kubernetes
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
           binary: scripts/evergreen/precommit_bump.sh
 
   # Pct only triggers this variant once a new agent image is out

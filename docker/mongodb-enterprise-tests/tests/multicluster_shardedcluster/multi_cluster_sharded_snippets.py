@@ -31,9 +31,9 @@ def get_project_directory() -> str:
     return project_dir
 
 
-# To be able to access the snippets file from here, we added "COPY public /ops-manager-kubernetes/public" when building
+# To be able to access the snippets file from here, we added "COPY public /mongodb-kubernetes/public" when building
 # the mongodb-test container
-# Then we set the env variable PROJECT_DIR to /ops-manager-kubernetes
+# Then we set the env variable PROJECT_DIR to /mongodb-kubernetes
 # The test will also work locally if the variable is set correctly
 def get_sharded_resources(namespace: str) -> List[MongoDB]:
     resources = []

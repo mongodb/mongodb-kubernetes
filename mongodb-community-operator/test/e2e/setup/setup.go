@@ -19,13 +19,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/helm"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/secret"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/envvar"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/generate"
-	e2eutil "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e"
-	waite2e "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e/util/wait"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/helm"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/generate"
+	e2eutil "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e"
+	waite2e "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/util/wait"
 )
 
 type HelmArg struct {
@@ -405,25 +405,20 @@ func UninstallCommunityOperatorViaHelm(ctx context.Context, t *testing.T, namesp
 // ScaleOperatorDeployment scales the operator deployment to the specified number of replicas
 // and waits for all replicas to become ready.
 func ScaleOperatorDeployment(ctx context.Context, t *testing.T, namespace, deploymentName string, replicas int32) error {
-	cmd := exec.CommandContext(ctx, "kubectl", "scale", "deployment", deploymentName, fmt.Sprintf("--replicas=%d", replicas), "--namespace", namespace) //nolint:gosec
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Logf("Failed to scale deployment: %s", string(output))
-		return err
-	}
-	t.Logf("Scaling deployment %s to %d replicas: %s", deploymentName, replicas, string(output))
-
-	// Get the deployment object
 	var dep appsv1.Deployment
 	if err := e2eutil.TestClient.Get(ctx, types.NamespacedName{
 		Name:      deploymentName,
 		Namespace: namespace,
 	}, &dep); err != nil {
-		return fmt.Errorf("failed to get deployment after scaling: %s", err)
+		return fmt.Errorf("failed to get deployment: %s", err)
 	}
 
-	// Update the replicas spec to match what we're expecting
+	// Update replicas
+	t.Logf("Scaling deployment %s to %d replicas", deploymentName, replicas)
 	dep.Spec.Replicas = &replicas
+	if err := e2eutil.TestClient.Update(ctx, &dep); err != nil {
+		return fmt.Errorf("failed to update deployment replicas: %s", err)
+	}
 
 	// Wait for the deployment to reach the desired ready replicas
 	if err := wait.PollUntilContextTimeout(ctx, time.Second*2, time.Minute*2, true, hasDeploymentRequiredReplicas(&dep)); err != nil {

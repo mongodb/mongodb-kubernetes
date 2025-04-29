@@ -14,7 +14,7 @@ import (
 
 	atlas "go.mongodb.org/atlas/mongodbatlas"
 
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/envvar"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
 )
 
 type Client struct {

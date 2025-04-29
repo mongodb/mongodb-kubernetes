@@ -106,6 +106,7 @@ class OMTester(object):
             os.environ["OM_USER"] = self.context.user
         if self.context.base_url:
             os.environ["OM_HOST"] = self.context.base_url
+        self.latest_backup_completion_time = None
 
     def ensure_group_id(self):
         if self.context.project_id is None:
@@ -123,6 +124,12 @@ class OMTester(object):
             snapshot_id = snapshots[-1]["id"]
 
         return self.api_create_restore_job_from_snapshot(cluster_id, snapshot_id)["id"]
+
+    def set_latest_backup_completion_time(self, timestamp):
+        self.latest_backup_completion_time = timestamp
+
+    def get_latest_backup_completion_time(self):
+        return self.latest_backup_completion_time or 0
 
     def create_restore_job_pit(self, pit_milliseconds: int, retry: int = 120):
         """creates a restore job to restore the mongodb cluster to some version specified by the parameter."""
@@ -165,6 +172,13 @@ class OMTester(object):
                 print(f"Snapshots are ready, project: {self.context.group_name}, time: {time.time() - start_time} sec")
                 span = trace.get_current_span()
                 span.set_attribute(key="mck.snapshot_time", value=time.time() - start_time)
+                completed_snapshots = [s for s in snapshots if s.get("complete", False)]
+                latest_snapshot = max(completed_snapshots, key=lambda s: s["created"]["date"])
+                snapshot_timestamp = latest_snapshot["created"]["date"]
+                print(f"Current Backup Snapshots: {snapshots}")
+                self.set_latest_backup_completion_time(
+                    time_to_millis(datetime.fromisoformat(snapshot_timestamp.replace("Z", "")))
+                )
                 return
             time.sleep(3)
             timeout -= 3
@@ -804,3 +818,10 @@ def should_include_tag(version: Optional[Dict[str, str]]) -> bool:
         return semver.compare(version_string, feature_controls_enabled_version) < 0
 
     return True
+
+
+def time_to_millis(date_time) -> int:
+    """https://stackoverflow.com/a/11111177/614239"""
+    epoch = datetime.utcfromtimestamp(0)
+    pit_millis = (date_time - epoch).total_seconds() * 1000
+    return pit_millis

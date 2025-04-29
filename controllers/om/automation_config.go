@@ -7,10 +7,10 @@ import (
 	"github.com/spf13/cast"
 	"k8s.io/apimachinery/pkg/api/equality"
 
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/ldap"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/generate"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/generate"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
 // AutomationConfig maintains the raw map in the Deployment field

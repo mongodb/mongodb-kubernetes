@@ -478,13 +478,9 @@ def build_mco_tests_image(build_configuration: BuildConfiguration):
     Builds image used to run community tests.
     """
     image_name = "community-operator-e2e"
-
-    # TODO: MCK update
-    # TODO: MCK copy go mod to build the community image
-
     golang_version = os.getenv("GOLANG_VERSION", "1.24")
     if golang_version == "":
-        raise Exception("Missing PYTHON_VERSION environment variable")
+        raise Exception("Missing GOLANG_VERSION environment variable")
 
     buildargs = dict({"golang_version": golang_version})
 
@@ -1235,7 +1231,7 @@ def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
 
     if build_configuration.all_agents:
         # We need to release [all agents x latest operator] on operator releases to make e2e tests work
-        # This was changed previously in https://github.com/10gen/ops-manager-kubernetes/pull/3960
+        # This was changed previously in https://github.com/mongodb/mongodb-kubernetes/pull/3960
         agent_versions_to_build = gather_all_supported_agent_versions(release)
     else:
         # we only need to release the latest images, we don't need to re-push old images, as we don't clean them up anymore.
