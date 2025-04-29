@@ -204,10 +204,10 @@ deploy-and-configure-operator: deploy-operator configure-operator
 
 cert:
 	@ openssl req  -nodes -new -x509  -keyout ca-tls.key -out ca-tls.crt -extensions v3_ca -days 3650
-	@ mv ca-tls.key ca-tls.crt docker/mongodb-enterprise-tests/tests/opsmanager/fixtures/
-	@ cat docker/mongodb-enterprise-tests/tests/opsmanager/fixtures/ca-tls.crt \
-	docker/mongodb-enterprise-tests/tests/opsmanager/fixtures/mongodb-download.crt \
-	> docker/mongodb-enterprise-tests/tests/opsmanager/fixtures/ca-tls-full-chain.crt
+	@ mv ca-tls.key ca-tls.crt docker/mongodb-kubernetes-tests/tests/opsmanager/fixtures/
+	@ cat docker/mongodb-kubernetes-tests/tests/opsmanager/fixtures/ca-tls.crt \
+	docker/mongodb-kubernetes-tests/tests/opsmanager/fixtures/mongodb-download.crt \
+	> docker/mongodb-kubernetes-tests/tests/opsmanager/fixtures/ca-tls-full-chain.crt
 
 .PHONY: recreate-e2e-multicluster-kind
 recreate-e2e-multicluster-kind:
@@ -280,11 +280,11 @@ golang-tests-race:
 sbom-tests:
 	@ scripts/evergreen/run_python.sh -m pytest generate_ssdlc_report_test.py
 
-# e2e tests are also in python and we will need to ignore them as they are in the docker/mongodb-enterprise-tests folder
-# additionally, we have one lib which we want to test which is in the =docker/mongodb-enterprise-tests folder.
+# e2e tests are also in python and we will need to ignore them as they are in the docker/mongodb-kubernetes-tests folder
+# additionally, we have one lib which we want to test which is in the =docker/mongodb-kubernetes-tests folder.
 python-tests:
-	@ scripts/evergreen/run_python.sh -m pytest docker/mongodb-enterprise-tests/kubeobject
-	@ scripts/evergreen/run_python.sh -m pytest --ignore=docker/mongodb-enterprise-tests
+	@ scripts/evergreen/run_python.sh -m pytest docker/mongodb-kubernetes-tests/kubeobject
+	@ scripts/evergreen/run_python.sh -m pytest --ignore=docker/mongodb-kubernetes-tests
 
 generate-ssdlc-report:
 	@ scripts/evergreen/run_python.sh generate_ssdlc_report.py

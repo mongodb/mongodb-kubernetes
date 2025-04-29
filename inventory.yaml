@@ -7,7 +7,7 @@ images:
 - name: mongodb-kubernetes
   vars:
     context: .
-    template_context: docker/mongodb-enterprise-operator
+    template_context: docker/mongodb-kubernetes-operator
   platform: linux/amd64
   inputs:
   - version
