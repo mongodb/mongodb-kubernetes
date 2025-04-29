@@ -81,6 +81,10 @@ Deploy the new MCK Helm release with your updated values:
 helm install mongodb-kubernetes-operator mongodb/enterprise-operator -f values.yaml
 ```
 
+⚠️ Warning: Ensure the MCK chart is installed with a different release name than the prior community operator chart. By default, the new MCK chart uses a different `operator.name`, which differs from the community operator.
+If you've modified the community operator's name/release name, ensure the MCK's `operator.name` value is different
+to avoid RBAC conflicts, since service accounts, roles, and other resources are based on this name.
+
 ---
 
 ### 6. Let MCK Reconcile the Existing Resources
