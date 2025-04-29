@@ -18,10 +18,9 @@ images:
     - registry: $(inputs.params.registry)/ops-manager-context
       tag: $(inputs.params.version_id)
 
-  - name: ops-manager-template-ubi
+  - name: ops-manager-template
     task_type: dockerfile_template
     template_file_extension: ubi
-    tags: ["ubi"]
     inputs:
     - om_download_url
     - version
@@ -32,8 +31,7 @@ images:
 
   - name: ops-manager-build
     task_type: docker_build
-    dockerfile: $(stages['ops-manager-template-ubi'].outputs[0].dockerfile)
-    tags: ["ubi"]
+    dockerfile: $(stages['ops-manager-template'].outputs[0].dockerfile)
     buildargs:
       imagebase: $(inputs.params.registry)/ops-manager-context:$(inputs.params.version_id)
     output:
@@ -44,7 +42,7 @@ images:
   - name: ops-manager-template
     task_type: dockerfile_template
     template_file_extension: ubi
-    tags: ["ubi", "release"]
+    tags: ["release"]
     inputs:
     - om_download_url
     - version

@@ -13,7 +13,6 @@ images:
       - name: readiness-probe-build-context
         task_type: docker_build
         dockerfile: docker/mongodb-kubernetes-readinessprobe/Dockerfile.builder
-        tags: ["ubi"]
         buildargs:
           GOLANG_VERSION: $(inputs.params.golang_version)
           TARGETOS: linux
@@ -40,7 +39,6 @@ images:
 
       - name: readiness-probe-build
         task_type: docker_build
-        tags: ["ubi"]
         buildargs:
           imagebase: $(inputs.params.registry)/mongodb-kubernetes-readinessprobe:$(inputs.params.version_id)-context-$(inputs.params.architecture)
           version: $(inputs.params.version)

@@ -3,7 +3,7 @@ vars:
   quay_registry: quay.io/mongodb/<image-name-quay>
   s3_bucket_http: https://enterprise-operator-dockerfiles.s3.amazonaws.com/dockerfiles/<image-name-bucket>
   ecr_registry_ubi: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/<image-name-ecr>
-  # ubi suffix is "-ubi" by default, but it's empty for mongodb-kubernetes-operator, readiness and versionhook images
+  # suffix is empty for mongodb-kubernetes-operator, readiness and versionhook images
   ubi_suffix: "-ubi"
   base_suffix: ""
   architecture_suffix: ""
@@ -15,12 +15,11 @@ images:
       context: .
     platform: linux/$(inputs.params.platform)
     stages:
-      - name: build-ubi
+      - name: build
         task_type: docker_build
-        tags: ["ubi"]
         inputs:
           - build_id
-        dockerfile: $(inputs.params.s3_bucket_http)/$(inputs.params.release_version)/ubi/Dockerfile
+        dockerfile: $(inputs.params.s3_bucket_http)/$(inputs.params.release_version)/Dockerfile
         buildargs:
           imagebase: $(inputs.params.quay_registry)$(inputs.params.base_suffix):$(inputs.params.release_version)-context$(inputs.params.architecture_suffix)
           # This is required for correctly labeling the agent image and is not used

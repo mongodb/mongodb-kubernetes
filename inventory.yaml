@@ -37,27 +37,26 @@ images:
     - registry: $(inputs.params.registry)/operator-context
       tag: $(inputs.params.version_id)-race
 
-  - name: operator-template-ubi
+  - name: operator-template
     task_type: dockerfile_template
-    distro: ubi
     inputs:
     - version
     - debug
     output:
     - dockerfile: $(functions.tempfile)
 
-  - name: operator-ubi-build
+  - name: operator-build
     task_type: docker_build
-    dockerfile: $(stages['operator-template-ubi'].outputs[0].dockerfile)
+    dockerfile: $(stages['operator-template'].outputs[0].dockerfile)
     buildargs:
       imagebase: $(inputs.params.registry)/operator-context:$(inputs.params.version_id)
     output:
     - registry: $(inputs.params.registry)/mongodb-kubernetes
       tag: $(inputs.params.version_id)
 
-  - name: operator-ubi-race-build
+  - name: operator-race-build
     task_type: docker_build
-    dockerfile: $(stages['operator-template-ubi'].outputs[0].dockerfile)
+    dockerfile: $(stages['operator-template'].outputs[0].dockerfile)
     buildargs:
       imagebase: $(inputs.params.registry)/operator-context:$(inputs.params.version_id)-race
     output:
@@ -84,11 +83,10 @@ images:
     - registry: $(inputs.params.quay_registry)
       tag: $(inputs.params.version)-context
 
-  - name: operator-template-ubi
+  - name: operator-template
     task_type: dockerfile_template
     tags: ["release"]
-    distro: ubi
     inputs:
     - version
     output:
-    - dockerfile: $(inputs.params.s3_bucket)/$(inputs.params.version)/ubi/Dockerfile
+    - dockerfile: $(inputs.params.s3_bucket)/$(inputs.params.version)/Dockerfile

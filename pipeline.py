@@ -410,7 +410,7 @@ def produce_sbom(build_configuration, args):
         return
 
     try:
-        image_pull_spec = args["quay_registry"] + args.get("ubi_suffix", "")
+        image_pull_spec = args["quay_registry"]
     except KeyError:
         logger.error(f"Could not find image pull spec. Args: {args}, BuildConfiguration: {build_configuration}")
         logger.error(f"Skipping SBOM generation")
@@ -618,7 +618,6 @@ def image_config(
     image_name: str,
     name_prefix: str = "mongodb-kubernetes-",
     s3_bucket: str = "enterprise-operator-dockerfiles",
-    ubi_suffix: str = "-ubi",
     base_suffix: str = "",
 ) -> Tuple[str, Dict[str, str]]:
     """Generates configuration for an image suitable to be passed
@@ -629,7 +628,6 @@ def image_config(
         "quay_registry": "{}/{}{}".format(QUAY_REGISTRY_URL, name_prefix, image_name),
         "ecr_registry_ubi": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/{}{}".format(name_prefix, image_name),
         "s3_bucket_http": "https://{}.s3.amazonaws.com/dockerfiles/{}{}".format(s3_bucket, name_prefix, image_name),
-        "ubi_suffix": ubi_suffix,
         "base_suffix": base_suffix,
     }
 
@@ -643,30 +641,23 @@ def args_for_daily_image(image_name: str) -> Dict[str, str]:
     """
     image_configs = [
         image_config("database"),
-        image_config("init-appdb", ubi_suffix=""),
+        image_config("init-appdb"),
+        image_config("init-database"),
+        image_config("init-ops-manager"),
+        image_config("mongodb-kubernetes"),
         image_config("agent", name_prefix="mongodb-enterprise-"),
-        image_config("init-database", ubi_suffix=""),
-        image_config("init-ops-manager", ubi_suffix=""),
-        image_config("mongodb-kubernetes", name_prefix="", ubi_suffix=""),
-        image_config("ops-manager", name_prefix="mongodb-enterprise-"),
-        image_config("mongodb-agent", name_prefix="", ubi_suffix="-ubi", base_suffix="-ubi"),
+        image_config("ops-manager", name_prefix="mongodb-enterprise-", base_suffix="-ubi"),
+        image_config("mongodb-agent", name_prefix="", base_suffix="-ubi"),
         image_config(
-            image_name="mongodb-kubernetes-operator",
-            name_prefix="",
-            s3_bucket="enterprise-operator-dockerfiles",
-            # community ubi image does not have a suffix in its name
-            ubi_suffix="",
-        ),
-        image_config(
-            image_name="mongodb-kubernetes-readinessprobe",
-            ubi_suffix="",
-            name_prefix="",
+            image_name="operator",
             s3_bucket="enterprise-operator-dockerfiles",
         ),
         image_config(
-            image_name="mongodb-kubernetes-operator-version-upgrade-post-start-hook",
-            ubi_suffix="",
-            name_prefix="",
+            image_name="readinessprobe",
+            s3_bucket="enterprise-operator-dockerfiles",
+        ),
+        image_config(
+            image_name="operator-version-upgrade-post-start-hook",
             s3_bucket="enterprise-operator-dockerfiles",
         ),
     ]
@@ -768,7 +759,7 @@ def build_image_daily(
         # Automatic architecture detection is the default behavior if 'arch' argument isn't specified
         if arch_set == set():
             if check_multi_arch(
-                image=args["quay_registry"] + args["ubi_suffix"] + ":" + args["release_version"],
+                image=args["quay_registry"] + ":" + args["release_version"],
                 suffix="-context",
             ):
                 arch_set = {"amd64", "arm64"}
@@ -784,7 +775,7 @@ def build_image_daily(
         tags = [args["release_version"], args["release_version"] + "-b" + args["build_id"]]
         for registry in registries:
             for tag in tags:
-                create_and_push_manifest(registry + args["ubi_suffix"], tag)
+                create_and_push_manifest(registry, tag)
 
     def sign_image_concurrently(executor, args, futures, arch=None):
         v = args["release_version"]
@@ -885,7 +876,7 @@ def build_image_daily(
 @TRACER.start_as_current_span("sign_image_in_repositories")
 def sign_image_in_repositories(args: Dict[str, str], arch: str = None):
     span = trace.get_current_span()
-    repository = args["quay_registry"] + args["ubi_suffix"]
+    repository = args["quay_registry"]
     tag = args["release_version"]
     if arch:
         tag = f"{tag}-{arch}"
