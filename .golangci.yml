@@ -42,10 +42,10 @@ linters:
           pkg: os
           msg: "Modifying environment variables is prohibited."
         - pattern: env\.(Read.*?|EnsureVar)
-          pkg: github.com/10gen/ops-manager-kubernetes/pkg/util/env
+          pkg: github.com/mongodb/mongodb-kubernetes/pkg/util/env
           msg: "Using this env package here is prohibited. Please work with environment variables in the main package."
         - p: envvar\.(Read.*?|MergeWithOverride|GetEnvOrDefault)
-          pkg: github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/envvar
+          pkg: github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar
           msg: "Using this envvar package here is prohibited. Please work with environment variables in the main package."
       # Rules with the `pkg` depend on it
       analyze-types: true
@@ -110,7 +110,7 @@ formatters:
       sections:
         - standard # Standard section: captures all standard packages.
         - default # Default section: contains all imports that could not be matched to another section type.
-        - prefix(github.com/10gen/ops-manager-kubernetes) # Custom section: groups all imports with the specified Prefix.
+        - prefix(github.com/mongodb/mongodb-kubernetes) # Custom section: groups all imports with the specified Prefix.
         - blank # Blank section: contains all blank imports. This section is not present unless explicitly enabled.
         - dot # Dot section: contains all dot imports. This section is not present unless explicitly enabled.
         - alias # Alias section: contains all alias imports. This section is not present unless explicitly enabled.
@@ -118,6 +118,6 @@ formatters:
     gofumpt:
       # Module path which contains the source code being formatted.
       # Default: ""
-      module-path: github.com/10gen/ops-manager-kubernetes
+      module-path: github.com/mongodb/mongodb-kubernetes
   exclusions:
     generated: lax

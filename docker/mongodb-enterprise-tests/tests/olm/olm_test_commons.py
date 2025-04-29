@@ -128,7 +128,7 @@ def get_release_json_path() -> str:
             return release_json_path
         else:
             raise Exception(
-                "release.json file not found, ensure it's copied into test pod or $PROJECT_DIR ({os.environ['PROJECT_DIR']}) is set to ops-manager-kubernetes dir"
+                "release.json file not found, ensure it's copied into test pod or $PROJECT_DIR ({os.environ['PROJECT_DIR']}) is set to mongodb-kubernetes dir"
             )
 
 

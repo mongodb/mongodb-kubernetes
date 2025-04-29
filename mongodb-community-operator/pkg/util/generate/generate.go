@@ -8,7 +8,7 @@ import (
 	"hash"
 	"unicode"
 
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/authentication/scramcredentials"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/scramcredentials"
 )
 
 // final key must be between 6 and at most 1024 characters

@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cast"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
 // ReadMapValueAsInterface traverses the nested maps inside the 'm' map following the 'keys' path and returns the last element

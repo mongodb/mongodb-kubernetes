@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/10gen/ops-manager-kubernetes/multi/pkg/common"
+	"github.com/mongodb/mongodb-kubernetes/multi/pkg/common"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"

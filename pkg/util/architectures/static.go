@@ -5,7 +5,7 @@ import (
 
 	"k8s.io/utils/env"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 type DefaultArchitecture string

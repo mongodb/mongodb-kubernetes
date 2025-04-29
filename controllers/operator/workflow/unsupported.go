@@ -1,7 +1,7 @@
 package workflow
 
 import (
-	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 )
 
 // unsupportedStatus indicates that the subresource is not supported by the current Operator

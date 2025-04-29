@@ -17,7 +17,7 @@ $ pytest -m e2e_replica_set
 ===================================================================== test session starts ===========================================================
 platform linux -- Python 3.6.8, pytest-4.3.1, py-1.8.0, pluggy-0.9.0 -- /home/rvalin/.virtualenvs/operator-tests/bin/python
 cachedir: .pytest_cache
-rootdir: /home/rvalin/workspace/go/src/github.com/10gen/ops-manager-kubernetes/docker/mongodb-enterprise-tests, inifile: pytest.ini
+rootdir: /home/rvalin/workspace/go/src/github.com/mongodb/mongodb-kubernetes/docker/mongodb-enterprise-tests, inifile: pytest.ini
 collected 168 items / 131 deselected / 37 selected
 tests/replicaset/replica_set.py::TestReplicaSetCreation::test_replica_set_sts_exists PASSED                                                    [  2%]
 tests/replicaset/replica_set.py::TestReplicaSetCreation::test_sts_creation PASSED                                                              [  5%]
@@ -67,7 +67,7 @@ have done this, you can proceed to complete the Python installation.
 
 ### Installing Python and Dependencies ###
 
-Run `scripts/dev/install.sh` or `scripts/dev/recreate_python_venv.sh` to install necessary tools and create python virtualenv. 
+Run `scripts/dev/install.sh` or `scripts/dev/recreate_python_venv.sh` to install necessary tools and create python virtualenv.
 
 * After the first run, when coming back to the project it should be
 required to `activate` your virtual environment once again.
@@ -161,7 +161,7 @@ $ pytest -m e2e_my_new_feature
 ========================================== test session starts ===========================================
 platform linux -- Python 3.6.8, pytest-4.3.1, py-1.8.0, pluggy-0.9.0 -- /home/rvalin/.virtualenvs/operator-tests/bin/python
 cachedir: .pytest_cache
-rootdir: /home/rvalin/workspace/go/src/github.com/10gen/ops-manager-kubernetes/docker/mongodb-enterprise-tests, inifile: pytest.ini
+rootdir: /home/rvalin/workspace/go/src/github.com/mongodb/mongodb-kubernetes/docker/mongodb-enterprise-tests, inifile: pytest.ini
 collected 170 items / 169 deselected / 1 selected
 tests/mixed/sample_test.py::TestMyNewFeatureShouldPass::test_something_about_my_new_object PASSED  [100%]
 =============================== 1 passed, 169 deselected in 40.62 seconds ================================

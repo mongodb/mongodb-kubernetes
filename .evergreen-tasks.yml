@@ -16,7 +16,7 @@ tasks:
       - func: setup_preflight
       - func: preflight_image
         vars:
-          image_name: operator
+          image_name: mongodb-kubernetes
       - func: preflight_image
         vars:
           image_name: init-appdb

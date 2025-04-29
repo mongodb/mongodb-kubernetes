@@ -6,7 +6,7 @@ import (
 
 	"k8s.io/utils/ptr"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 func TestCalculateFeatureCompatibilityVersion(t *testing.T) {
