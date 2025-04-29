@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"k8s.io/apimachinery/pkg/types"
 	"os"
 	"strings"
 	"sync"
@@ -287,6 +288,36 @@ func resetNamespace(ctx context.Context, contextName string, namespace string, d
 	// Delete PVCs
 	err = kubeClient.CoreV1().PersistentVolumeClaims(namespace).DeleteCollection(ctx, deleteOptionsNoGrace, v1.ListOptions{})
 	collectError(err, "failed to delete PVCs")
+
+	// Remove finalizers on MongoDBCustomRoles
+	customRoleGVR := schema.GroupVersionResource{
+		Group:    "mongodb.com",
+		Version:  "v1",
+		Resource: "mongodbcustomroles",
+	}
+	list, err := dynamicClient.Resource(customRoleGVR).List(ctx, v1.ListOptions{})
+	collectError(err, "failed to list custom roles")
+	if err == nil {
+		for _, customRole := range list.Items {
+			_, err := dynamicClient.Resource(customRoleGVR).Namespace(namespace).Patch(ctx, customRole.GetName(), types.MergePatchType, []byte(`{"metadata":{"finalizers":null}}`), v1.PatchOptions{})
+			collectError(err, fmt.Sprintf("failed to patch custom role %s", customRole.GetName()))
+		}
+	}
+
+	// Remove finalizers on MongoDBUsers
+	userGVR := schema.GroupVersionResource{
+		Group:    "mongodb.com",
+		Version:  "v1",
+		Resource: "mongodbusers",
+	}
+	list, err = dynamicClient.Resource(userGVR).List(ctx, v1.ListOptions{})
+	collectError(err, "failed to list mongodb users")
+	if err == nil {
+		for _, customRole := range list.Items {
+			_, err := dynamicClient.Resource(userGVR).Namespace(namespace).Patch(ctx, customRole.GetName(), types.MergePatchType, []byte(`{"metadata":{"finalizers":null}}`), v1.PatchOptions{})
+			collectError(err, fmt.Sprintf("failed to patch custom role %s", customRole.GetName()))
+		}
+	}
 
 	// Delete CRDs if specified
 	if deleteCRD {
