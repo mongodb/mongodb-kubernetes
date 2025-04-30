@@ -11,6 +11,12 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
+var (
+	MongoDBCRMechanism   = getMechanismByName(MongoDBCR)
+	ScramSha1Mechanism   = getMechanismByName(ScramSha1)
+	ScramSha256Mechanism = getMechanismByName(ScramSha256)
+)
+
 func TestAgentsAuthentication(t *testing.T) {
 	type TestConfig struct {
 		mechanism Mechanism

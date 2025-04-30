@@ -52,9 +52,9 @@ func (m MechanismList) String() string {
 	return strings.Join(names, ", ")
 }
 
-func (m MechanismList) Contains(mechanism Mechanism) bool {
+func (m MechanismList) Contains(mechanismName MechanismName) bool {
 	for _, m := range m {
-		if m.GetName() == mechanism.GetName() {
+		if m.GetName() == mechanismName {
 			return true
 		}
 	}
@@ -64,15 +64,15 @@ func (m MechanismList) Contains(mechanism Mechanism) bool {
 
 // supportedMechanisms returns a list of all supported authentication mechanisms
 // that can be configured by the Operator
-var supportedMechanisms = []Mechanism{ScramSha256Mechanism, MongoDBCRMechanism, MongoDBX509Mechanism, LDAPPlainMechanism}
+var supportedMechanisms = []MechanismName{ScramSha256, MongoDBCR, MongoDBX509, LDAPPlain}
 
 // mechanismsToDisable returns mechanisms which need to be disabled
 // based on the currently supported authentication mechanisms and the desiredMechanisms
 func mechanismsToDisable(desiredMechanisms MechanismList) MechanismList {
 	toDisable := make([]Mechanism, 0)
-	for _, mechanism := range supportedMechanisms {
-		if !desiredMechanisms.Contains(mechanism) {
-			toDisable = append(toDisable, mechanism)
+	for _, mechanismName := range supportedMechanisms {
+		if !desiredMechanisms.Contains(mechanismName) {
+			toDisable = append(toDisable, getMechanismByName(mechanismName))
 		}
 	}
 
@@ -92,15 +92,15 @@ func convertToMechanismList(mechanismModesInCR []string, ac *om.AutomationConfig
 func convertToMechanism(mechanismModeInCR string, ac *om.AutomationConfig) Mechanism {
 	switch mechanismModeInCR {
 	case util.X509:
-		return MongoDBX509Mechanism
+		return getMechanismByName(MongoDBX509)
 	case util.LDAP:
-		return LDAPPlainMechanism
+		return getMechanismByName(LDAPPlain)
 	case util.SCRAMSHA1:
-		return ScramSha1Mechanism
+		return getMechanismByName(ScramSha1)
 	case util.MONGODBCR:
-		return MongoDBCRMechanism
+		return getMechanismByName(MongoDBCR)
 	case util.SCRAMSHA256:
-		return ScramSha256Mechanism
+		return getMechanismByName(ScramSha256)
 	case util.SCRAM:
 		// if we have already configured authentication, and it has been set to MONGODB-CR/SCRAM-SHA-1
 		// we can not transition. This needs to be done in the UI
@@ -108,11 +108,28 @@ func convertToMechanism(mechanismModeInCR string, ac *om.AutomationConfig) Mecha
 		// if no authentication has been configured, the default value for "AutoAuthMechanism" is "MONGODB-CR"
 		// even if authentication is disabled, so we need to ensure that auth has been enabled.
 		if ac.Auth.AutoAuthMechanism == string(MongoDBCR) && ac.Auth.IsEnabled() {
-			return MongoDBCRMechanism
+			return getMechanismByName(MongoDBCR)
 		}
-		return ScramSha256Mechanism
+		return getMechanismByName(ScramSha256)
 	}
 
 	// this should never be reached as validation of this string happens at the CR level
 	panic(xerrors.Errorf("unknown mechanism name %s", mechanismModeInCR))
+}
+
+func getMechanismByName(name MechanismName) Mechanism {
+	switch name {
+	case ScramSha1:
+		return &automationConfigScramSha{MechanismName: ScramSha1}
+	case ScramSha256:
+		return &automationConfigScramSha{MechanismName: ScramSha256}
+	case MongoDBCR:
+		return &automationConfigScramSha{MechanismName: MongoDBCR}
+	case MongoDBX509:
+		return &connectionX509{}
+	case LDAPPlain:
+		return &ldapAuthMechanism{}
+	}
+
+	panic(xerrors.Errorf("unknown mechanism name %s", name))
 }

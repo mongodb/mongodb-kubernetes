@@ -8,23 +8,17 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
-var (
-	MongoDBCRMechanism   Mechanism = AutomationConfigScramSha{MechanismName: MongoDBCR}
-	ScramSha1Mechanism   Mechanism = AutomationConfigScramSha{MechanismName: ScramSha1}
-	ScramSha256Mechanism Mechanism = AutomationConfigScramSha{MechanismName: ScramSha256}
-)
-
-// AutomationConfigScramSha applies all the changes required to configure SCRAM-SHA authentication
+// automationConfigScramSha applies all the changes required to configure SCRAM-SHA authentication
 // directly to an AutomationConfig struct. This implementation does not communicate with Ops Manager in any way.
-type AutomationConfigScramSha struct {
+type automationConfigScramSha struct {
 	MechanismName MechanismName
 }
 
-func (s AutomationConfigScramSha) GetName() MechanismName {
+func (s *automationConfigScramSha) GetName() MechanismName {
 	return s.MechanismName
 }
 
-func (s AutomationConfigScramSha) EnableAgentAuthentication(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
+func (s *automationConfigScramSha) EnableAgentAuthentication(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 		if err := configureScramAgentUsers(ac, opts); err != nil {
 			return err
@@ -45,21 +39,21 @@ func (s AutomationConfigScramSha) EnableAgentAuthentication(conn om.Connection, 
 	}, log)
 }
 
-func (s AutomationConfigScramSha) DisableAgentAuthentication(conn om.Connection, log *zap.SugaredLogger) error {
+func (s *automationConfigScramSha) DisableAgentAuthentication(conn om.Connection, log *zap.SugaredLogger) error {
 	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 		ac.Auth.AutoAuthMechanisms = stringutil.Remove(ac.Auth.AutoAuthMechanisms, string(s.MechanismName))
 		return nil
 	}, log)
 }
 
-func (s AutomationConfigScramSha) DisableDeploymentAuthentication(conn om.Connection, log *zap.SugaredLogger) error {
+func (s *automationConfigScramSha) DisableDeploymentAuthentication(conn om.Connection, log *zap.SugaredLogger) error {
 	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 		ac.Auth.DeploymentAuthMechanisms = stringutil.Remove(ac.Auth.DeploymentAuthMechanisms, string(s.MechanismName))
 		return nil
 	}, log)
 }
 
-func (s AutomationConfigScramSha) EnableDeploymentAuthentication(conn om.Connection, _ Options, log *zap.SugaredLogger) error {
+func (s *automationConfigScramSha) EnableDeploymentAuthentication(conn om.Connection, _ Options, log *zap.SugaredLogger) error {
 	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 		if !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(s.MechanismName)) {
 			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, string(s.MechanismName))
@@ -68,7 +62,7 @@ func (s AutomationConfigScramSha) EnableDeploymentAuthentication(conn om.Connect
 	}, log)
 }
 
-func (s AutomationConfigScramSha) IsAgentAuthenticationConfigured(ac *om.AutomationConfig, _ Options) bool {
+func (s *automationConfigScramSha) IsAgentAuthenticationConfigured(ac *om.AutomationConfig, _ Options) bool {
 	if ac.Auth.Disabled {
 		return false
 	}
@@ -88,7 +82,7 @@ func (s AutomationConfigScramSha) IsAgentAuthenticationConfigured(ac *om.Automat
 	return true
 }
 
-func (s AutomationConfigScramSha) IsDeploymentAuthenticationConfigured(ac *om.AutomationConfig, _ Options) bool {
+func (s *automationConfigScramSha) IsDeploymentAuthenticationConfigured(ac *om.AutomationConfig, _ Options) bool {
 	return stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(s.MechanismName))
 }
 

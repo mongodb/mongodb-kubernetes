@@ -12,6 +12,8 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
+var MongoDBX509Mechanism = getMechanismByName(MongoDBX509)
+
 func TestX509EnableAgentAuthentication(t *testing.T) {
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 

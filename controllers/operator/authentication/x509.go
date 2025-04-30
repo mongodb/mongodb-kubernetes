@@ -10,15 +10,13 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
-var MongoDBX509Mechanism Mechanism = ConnectionX509{}
+type connectionX509 struct{}
 
-type ConnectionX509 struct{}
-
-func (x ConnectionX509) GetName() MechanismName {
+func (x *connectionX509) GetName() MechanismName {
 	return MongoDBX509
 }
 
-func (x ConnectionX509) EnableAgentAuthentication(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
+func (x *connectionX509) EnableAgentAuthentication(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 	log.Info("Configuring x509 authentication")
 	err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 		if err := ac.EnsureKeyFileContents(); err != nil {
@@ -64,7 +62,7 @@ func (x ConnectionX509) EnableAgentAuthentication(conn om.Connection, opts Optio
 	}, log)
 }
 
-func (x ConnectionX509) DisableAgentAuthentication(conn om.Connection, log *zap.SugaredLogger) error {
+func (x *connectionX509) DisableAgentAuthentication(conn om.Connection, log *zap.SugaredLogger) error {
 	err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 		ac.AgentSSL = &om.AgentSSL{
 			AutoPEMKeyFilePath:    util.MergoDelete,
@@ -93,7 +91,7 @@ func (x ConnectionX509) DisableAgentAuthentication(conn om.Connection, log *zap.
 	}, log)
 }
 
-func (x ConnectionX509) EnableDeploymentAuthentication(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
+func (x *connectionX509) EnableDeploymentAuthentication(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 		if !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) {
 			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, string(MongoDBX509))
@@ -105,14 +103,14 @@ func (x ConnectionX509) EnableDeploymentAuthentication(conn om.Connection, opts 
 	}, log)
 }
 
-func (x ConnectionX509) DisableDeploymentAuthentication(conn om.Connection, log *zap.SugaredLogger) error {
+func (x *connectionX509) DisableDeploymentAuthentication(conn om.Connection, log *zap.SugaredLogger) error {
 	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 		ac.Auth.DeploymentAuthMechanisms = stringutil.Remove(ac.Auth.DeploymentAuthMechanisms, string(MongoDBX509))
 		return nil
 	}, log)
 }
 
-func (x ConnectionX509) IsAgentAuthenticationConfigured(ac *om.AutomationConfig, _ Options) bool {
+func (x *connectionX509) IsAgentAuthenticationConfigured(ac *om.AutomationConfig, _ Options) bool {
 	if ac.Auth.Disabled {
 		return false
 	}
@@ -132,7 +130,7 @@ func (x ConnectionX509) IsAgentAuthenticationConfigured(ac *om.AutomationConfig,
 	return true
 }
 
-func (x ConnectionX509) IsDeploymentAuthenticationConfigured(ac *om.AutomationConfig, _ Options) bool {
+func (x *connectionX509) IsDeploymentAuthenticationConfigured(ac *om.AutomationConfig, _ Options) bool {
 	return stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(MongoDBX509))
 }
 
