@@ -133,9 +133,9 @@ rules:
 - apiGroups:
   - mongodb.com
   resources:
-  - mongodbcustomrole
-  - mongodbcustomrole/finalizers
-  - mongodbcustomrole/status
+  - mongodbcustomroles
+  - mongodbcustomroles/finalizers
+  - mongodbcustomroles/status
   verbs:
   - '*'
 - apiGroups:

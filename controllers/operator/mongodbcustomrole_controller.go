@@ -36,8 +36,8 @@ type MongoDBCustomRoleReconciler struct {
 	memberClusterClientsMap map[string]kubernetesClient.Client
 }
 
-// MongoDBMultiCluster Resource
-// +kubebuilder:rbac:groups=mongodb.com,resources={mongodbcustomrole,mongodbcustomrole/status,mongodbcustomrole/finalizers},verbs=*,namespace=placeholder
+// MongoDBCustomRole Resource
+// +kubebuilder:rbac:groups=mongodb.com,resources={mongodbcustomroles,mongodbcustomroles/status,mongodbcustomroles/finalizers},verbs=*,namespace=placeholder
 
 func (r *MongoDBCustomRoleReconciler) Reconcile(ctx context.Context, request ctrl.Request) (ctrl.Result, error) {
 	log := zap.S().With("MongoDBCustomRole", request.NamespacedName)
