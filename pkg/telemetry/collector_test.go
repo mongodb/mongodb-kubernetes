@@ -20,6 +20,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	mockClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
 
@@ -44,6 +45,15 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					Spec: mdbv1.MongoDbSpec{
 						DbCommonSpec: mdbv1.DbCommonSpec{
 							ResourceType: mdbv1.ReplicaSet,
+							Security: &mdbv1.Security{
+								Authentication: &mdbv1.Authentication{
+									Enabled: true,
+									Modes:   []mdbv1.AuthMode{util.X509, util.LDAP, util.OIDC, util.SCRAM},
+									Agents: mdbv1.AgentAuthentication{
+										Mode: util.SCRAM,
+									},
+								},
+							},
 						},
 					}, ObjectMeta: metav1.ObjectMeta{
 						UID: "60c005b9-1a87-49de-b7d6-5ef9382d808f",
@@ -59,6 +69,8 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					"type":                     "ReplicaSet",
 					"IsRunningEnterpriseImage": false,
 					"externalDomains":          ExternalDomainNone,
+					"authenticationModes":      "X509,LDAP,OIDC,SCRAM",
+					"authenticationAgentMode":  util.SCRAM,
 				},
 			},
 		},
@@ -68,6 +80,15 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					Spec: mdbmulti.MongoDBMultiSpec{
 						DbCommonSpec: mdbv1.DbCommonSpec{
 							ResourceType: mdbv1.ReplicaSet,
+							Security: &mdbv1.Security{
+								Authentication: &mdbv1.Authentication{
+									Enabled: true,
+									Modes:   []mdbv1.AuthMode{util.SCRAM},
+									Agents: mdbv1.AgentAuthentication{
+										Mode: util.SCRAM,
+									},
+								},
+							},
 						},
 					}, ObjectMeta: metav1.ObjectMeta{
 						UID: "d5a53056-157a-4cda-96e9-fe48a9732990",
@@ -84,6 +105,8 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					"type":                     "ReplicaSet",
 					"IsRunningEnterpriseImage": false,
 					"externalDomains":          ExternalDomainNone,
+					"authenticationModes":      "SCRAM",
+					"authenticationAgentMode":  util.SCRAM,
 				},
 			},
 		},
@@ -197,31 +220,57 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					"deploymentUID":            "c20a7cf1-a12d-4cee-a87e-7f61aa2bd878",
 					"architecture":             string(architectures.Static),
 					"IsRunningEnterpriseImage": true,
+					"type":                     string(mdbv1.ReplicaSet),
+					"isMultiCluster":           false,
+					"externalDomains":          ExternalDomainNone,
+					"operatorID":               testOperatorUUID,
 				},
 				{
 					"deploymentUID":            "97822e48-fb51-4ba5-9993-26841b44a7a3",
 					"architecture":             string(architectures.NonStatic),
 					"IsRunningEnterpriseImage": false,
+					"type":                     string(mdbv1.ReplicaSet),
+					"isMultiCluster":           false,
+					"externalDomains":          ExternalDomainNone,
+					"operatorID":               testOperatorUUID,
 				},
 				{
 					"deploymentUID":            "71368077-ea95-4564-acd6-09ec573fdf61",
 					"architecture":             string(architectures.Static),
 					"IsRunningEnterpriseImage": true,
+					"type":                     string(mdbv1.ReplicaSet),
+					"isMultiCluster":           true,
+					"externalDomains":          ExternalDomainNone,
+					"operatorID":               testOperatorUUID,
+					"databaseClusters":         float64(0),
 				},
 				{
 					"deploymentUID":            "a8a28c8a-6226-44fc-a8cd-e66a6942ffbd",
 					"architecture":             string(architectures.NonStatic),
 					"IsRunningEnterpriseImage": false,
+					"type":                     string(mdbv1.ReplicaSet),
+					"isMultiCluster":           true,
+					"externalDomains":          ExternalDomainNone,
+					"operatorID":               testOperatorUUID,
+					"databaseClusters":         float64(0),
 				},
 				{
 					"deploymentUID":            "0d76d2c9-98cd-4a80-a565-ba038d223ed0",
 					"architecture":             string(architectures.Static),
 					"IsRunningEnterpriseImage": true,
+					"type":                     "OpsManager",
+					"isMultiCluster":           false,
+					"externalDomains":          ExternalDomainNone,
+					"operatorID":               testOperatorUUID,
 				},
 				{
 					"deploymentUID":            "399680c7-e929-44f6-8b82-9be96a5e5533",
 					"architecture":             string(architectures.NonStatic),
 					"IsRunningEnterpriseImage": true,
+					"type":                     "OpsManager",
+					"isMultiCluster":           false,
+					"externalDomains":          ExternalDomainNone,
+					"operatorID":               testOperatorUUID,
 				},
 			},
 		},
@@ -347,20 +396,35 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 			},
 			expectedEventsWithProperties: []map[string]any{
 				{
-					"deploymentUID":    "1a58636d-6c10-49c9-a9ee-7c0fe80ac80c",
-					"databaseClusters": float64(4),
-					"isMultiCluster":   true,
+					"deploymentUID":            "1a58636d-6c10-49c9-a9ee-7c0fe80ac80c",
+					"architecture":             string(architectures.Static),
+					"IsRunningEnterpriseImage": true,
+					"databaseClusters":         float64(4),
+					"isMultiCluster":           true,
+					"operatorID":               testOperatorUUID,
+					"type":                     string(mdbv1.ReplicaSet),
+					"externalDomains":          ExternalDomainNone,
 				},
 				{
-					"deploymentUID":    "a31ab7a8-e5bd-480b-afcc-ac2eec9ce348",
-					"databaseClusters": float64(3),
-					"isMultiCluster":   true,
+					"deploymentUID":            "a31ab7a8-e5bd-480b-afcc-ac2eec9ce348",
+					"architecture":             string(architectures.Static),
+					"IsRunningEnterpriseImage": true,
+					"databaseClusters":         float64(3),
+					"isMultiCluster":           true,
+					"operatorID":               testOperatorUUID,
+					"type":                     string(mdbv1.ReplicaSet),
+					"externalDomains":          ExternalDomainNone,
 				},
 				{
-					"deploymentUID":  "2b138678-4e4c-4be4-9877-16e6eaae279b",
-					"OmClusters":     float64(2),
-					"appDBClusters":  float64(3),
-					"isMultiCluster": true,
+					"deploymentUID":            "2b138678-4e4c-4be4-9877-16e6eaae279b",
+					"architecture":             string(architectures.Static),
+					"IsRunningEnterpriseImage": true,
+					"OmClusters":               float64(2),
+					"appDBClusters":            float64(3),
+					"isMultiCluster":           true,
+					"operatorID":               testOperatorUUID,
+					"type":                     "OpsManager",
+					"externalDomains":          ExternalDomainNone,
 				},
 			},
 		},
@@ -821,9 +885,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 				assert.LessOrEqual(t, beforeCallTimestamp, event.Timestamp)
 				assert.GreaterOrEqual(t, afterCallTimestamp, event.Timestamp)
 
-				for key, value := range expectedEventWithProperties {
-					assert.Equal(t, value, event.Properties[key], "failed assertion for %s property for %s deployment", key, deploymentUID)
-				}
+				assert.Equal(t, expectedEventWithProperties, event.Properties)
 			}
 		})
 	}

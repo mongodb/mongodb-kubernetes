@@ -807,22 +807,6 @@ func (s *Security) IsTLSEnabled() bool {
 	return s.CertificatesSecretsPrefix != ""
 }
 
-func (s *Security) IsOIDCEnabled() bool {
-	if s == nil {
-		return false
-	}
-
-	if s.Authentication == nil {
-		return false
-	}
-
-	if !s.Authentication.Enabled {
-		return false
-	}
-
-	return s.Authentication.IsOIDCEnabled()
-}
-
 // GetAgentMechanism returns the authentication mechanism that the agents will be using.
 // The agents will use X509 if it is the only mechanism specified, otherwise they will use SCRAM if specified
 // and no auth if no mechanisms exist.
@@ -1015,16 +999,28 @@ type AgentAuthentication struct {
 // IsX509Enabled determines if X509 is to be enabled at the project level
 // it does not necessarily mean that the agents are using X509 authentication
 func (a *Authentication) IsX509Enabled() bool {
+	if a == nil || !a.Enabled {
+		return false
+	}
+
 	return stringutil.Contains(a.GetModes(), util.X509)
 }
 
 // IsLDAPEnabled determines if LDAP is to be enabled at the project level
 func (a *Authentication) IsLDAPEnabled() bool {
+	if a == nil || !a.Enabled {
+		return false
+	}
+
 	return stringutil.Contains(a.GetModes(), util.LDAP)
 }
 
 // IsOIDCEnabled determines if OIDC is to be enabled at the project level
 func (a *Authentication) IsOIDCEnabled() bool {
+	if a == nil || !a.Enabled {
+		return false
+	}
+
 	return stringutil.Contains(a.GetModes(), util.OIDC)
 }
 
@@ -1235,6 +1231,7 @@ func (m *MongoDB) IsLDAPEnabled() bool {
 	if m.Spec.Security == nil || m.Spec.Security.Authentication == nil {
 		return false
 	}
+
 	return m.Spec.Security.Authentication.IsLDAPEnabled()
 }
 
@@ -1242,6 +1239,7 @@ func (m *MongoDB) IsOIDCEnabled() bool {
 	if m.Spec.Security == nil || m.Spec.Security.Authentication == nil {
 		return false
 	}
+
 	return m.Spec.Security.Authentication.IsOIDCEnabled()
 }
 
