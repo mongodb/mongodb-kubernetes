@@ -306,9 +306,8 @@ func TestOIDCAuthValidation(t *testing.T) {
 					},
 				},
 			},
-			expectedErrorMessage: "Invalid IssuerURI in OIDC provider config \"test-provider\"",
+			expectedErrorMessage: "Invalid IssuerURI in OIDC provider config \"test-provider\": missing URL scheme: invalid-uri",
 		},
-		// TODO fix validation, we should not return warnings immediately, only add them to the result
 		{
 			name: "Non-HTTPS issuer URI - warning",
 			auth: &Authentication{
@@ -322,7 +321,7 @@ func TestOIDCAuthValidation(t *testing.T) {
 					},
 				},
 			},
-			expectedWarning: "IssuerURI in OIDC provider config \"test-provider\" in not secure endpoint",
+			expectedWarning: "IssuerURI http://example.com in OIDC provider config \"test-provider\" in not secure endpoint",
 		},
 		{
 			name: "Workforce Identity Federation without ClientId",
