@@ -65,7 +65,7 @@ func (m MechanismList) Contains(mechanism Mechanism) bool {
 
 // supportedMechanisms returns a list of all supported authentication mechanisms
 // that can be configured by the Operator
-var supportedMechanisms = []Mechanism{ScramSha256Mechanism, MongoDBCRMechanism, MongoDBX509Mechanism, LDAPPlainMechanism}
+var supportedMechanisms = []Mechanism{ScramSha256Mechanism, MongoDBCRMechanism, MongoDBX509Mechanism, LDAPPlainMechanism, MongoDBOIDCMechanism}
 
 // mechanismsToDisable returns mechanisms which need to be disabled
 // based on the currently supported authentication mechanisms and the desiredMechanisms
