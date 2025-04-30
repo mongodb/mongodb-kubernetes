@@ -3,7 +3,6 @@ package operator
 import (
 	"context"
 	"fmt"
-	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
 	"slices"
 	"sort"
 	"strings"
@@ -31,6 +30,7 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
 	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"

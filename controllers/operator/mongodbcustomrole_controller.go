@@ -3,6 +3,21 @@ package operator
 import (
 	"context"
 	"encoding/json"
+	"time"
+
+	"go.uber.org/zap"
+	"golang.org/x/xerrors"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/cluster"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
+
+	ctrl "sigs.k8s.io/controller-runtime"
+
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
 	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
@@ -13,20 +28,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
-	"go.uber.org/zap"
-	"golang.org/x/xerrors"
-	"sigs.k8s.io/controller-runtime/pkg/cluster"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
-	"time"
-
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	ctrl "sigs.k8s.io/controller-runtime"
 )
 
 // MongoDBCustomRoleReconciler reconciles a MongoDBCustomRole object
@@ -118,7 +119,7 @@ func (r *MongoDBCustomRoleReconciler) getRole(ctx context.Context, request recon
 func (r *MongoDBCustomRoleReconciler) Delete(ctx context.Context, role *rolev1.MongoDBCustomRole, log *zap.SugaredLogger) (reconcile.Result, error) {
 	log.Info("Attempting to remove MongoDBCustomRole")
 
-	err := r.ensureNoReferences(ctx, role, log)
+	err := r.ensureNoReferences(ctx, role)
 	if err != nil {
 		return r.updateStatus(ctx, role, workflow.Failed(xerrors.Errorf("Failed to remove role: %w", err)), log)
 	}
@@ -147,7 +148,7 @@ func (r *MongoDBCustomRoleReconciler) ensureFinalizer(ctx context.Context, role 
 	return nil
 }
 
-func (r *MongoDBCustomRoleReconciler) ensureNoReferences(ctx context.Context, role *rolev1.MongoDBCustomRole, log *zap.SugaredLogger) error {
+func (r *MongoDBCustomRoleReconciler) ensureNoReferences(ctx context.Context, role *rolev1.MongoDBCustomRole) error {
 	mdbList := &mdbv1.MongoDBList{}
 	err := r.client.List(ctx, mdbList)
 	if err != nil {

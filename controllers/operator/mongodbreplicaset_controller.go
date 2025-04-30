@@ -3,7 +3,6 @@ package operator
 import (
 	"context"
 	"fmt"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -47,6 +46,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"

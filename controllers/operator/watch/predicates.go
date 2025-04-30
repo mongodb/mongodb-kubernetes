@@ -1,7 +1,6 @@
 package watch
 
 import (
-	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
 	"reflect"
 
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -11,6 +10,7 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"

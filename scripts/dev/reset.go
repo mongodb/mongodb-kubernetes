@@ -3,13 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
-	"k8s.io/apimachinery/pkg/types"
 	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"

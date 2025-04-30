@@ -1,17 +1,17 @@
 package role
 
 import (
-	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/mongodb/mongodb-kubernetes/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 )
 
 // MongoDBCustomRoleSpec defines the desired state of MongoDBCustomRole.
 type MongoDBCustomRoleSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
-	mdb.MongoDBRole `json:",inline"`
+	mdbv1.MongoDBRole `json:",inline"`
 }
 
 // MongoDBCustomRoleStatus defines the observed state of MongoDBCustomRole.
@@ -54,7 +54,7 @@ func (r *MongoDBCustomRole) GetStatus(...status.Option) interface{} {
 	return r.Status
 }
 
-func (r *MongoDBCustomRole) GetCommonStatus(options ...status.Option) *status.Common {
+func (r *MongoDBCustomRole) GetCommonStatus(...status.Option) *status.Common {
 	return &r.Status.Common
 }
 
@@ -73,6 +73,6 @@ func (r *MongoDBCustomRole) SetWarnings(warnings []status.Warning, _ ...status.O
 	r.Status.Warnings = warnings
 }
 
-func (r *MongoDBCustomRole) GetStatusPath(options ...status.Option) string {
+func (r *MongoDBCustomRole) GetStatusPath(...status.Option) string {
 	return "/status"
 }
