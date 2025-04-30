@@ -125,7 +125,7 @@ function pre_commit() {
 
   echo 'regenerating licenses.csv'
   scripts/evergreen/update_licenses.sh
-  git add licenses.csv
+  git add LICENSE-THIRD-PARTY
 
   if echo "$git_last_changed" | grep -q 'public/tools/multicluster'; then
     echo 'regenerating multicluster RBAC public example'
