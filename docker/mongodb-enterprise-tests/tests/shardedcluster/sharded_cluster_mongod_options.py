@@ -5,6 +5,7 @@ from kubetester.mongodb import MongoDB, Phase
 from kubetester.operator import Operator
 from pytest import fixture, mark
 from tests.conftest import (
+    OPERATOR_NAME,
     assert_log_rotation_backup_monitoring,
     assert_log_rotation_process,
     is_multi_cluster,
@@ -87,7 +88,7 @@ def test_sharded_cluster_mongodb_options_shards(sc: MongoDB):
 @mark.e2e_sharded_cluster_mongod_options_and_log_rotation
 def test_sharded_cluster_feature_controls(sc: MongoDB):
     fc = sc.get_om_tester().get_feature_controls()
-    assert fc["externalManagementSystem"]["name"] == "mongodb-enterprise-operator"
+    assert fc["externalManagementSystem"]["name"] == OPERATOR_NAME
 
     assert len(fc["policies"]) == 3
     # unfortunately OM uses a HashSet for policies...

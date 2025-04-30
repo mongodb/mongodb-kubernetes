@@ -612,7 +612,7 @@ func getOpsManagerHTTPSEnvVars(httpsSecretName string, certHash string) []corev1
 func defaultPodLabels(labelKey, antiAffinityKey string) map[string]string {
 	return map[string]string{
 		appLabelKey:             labelKey,
-		util.OperatorLabelName:  util.OperatorName,
+		util.OperatorLabelName:  util.OperatorLabelValue,
 		podAntiAffinityLabelKey: antiAffinityKey,
 	}
 }

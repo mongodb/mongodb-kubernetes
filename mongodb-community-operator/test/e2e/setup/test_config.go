@@ -37,7 +37,7 @@ type TestConfig struct {
 func LoadTestConfigFromEnv() TestConfig {
 	return TestConfig{
 		OperatorImage: "mongodb-kubernetes",
-		Namespace:     envvar.GetEnvOrDefault(testNamespaceEnvName, "mongodb"), // nolint:forbidigo
+		Namespace:     envvar.GetEnvOrDefault(testNamespaceEnvName, "mongodb-test"), // nolint:forbidigo
 		// The operator version is based on the versionID, which context sets either locally manually or evg per patch
 		OperatorVersion:      envvar.GetEnvOrDefault(versionIdEnv, ""),                                // nolint:forbidigo
 		CertManagerNamespace: envvar.GetEnvOrDefault(testCertManagerNamespaceEnvName, "cert-manager"), // nolint:forbidigo

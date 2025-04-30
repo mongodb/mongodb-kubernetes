@@ -26,13 +26,14 @@ from kubetester.certs import (
     create_mongodb_tls_certs,
     create_multi_cluster_mongodb_tls_certs,
 )
-from kubetester.helm import helm_install_from_chart
+from kubetester.helm import helm_install_from_chart, helm_repo_add
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
 from kubetester.kubetester import running_locally
 from kubetester.mongodb_multi import MultiClusterClient
 from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
+from opentelemetry.trace import NonRecordingSpan
 from pymongo.errors import ServerSelectionTimeoutError
 from pytest import fixture
 from tests import test_logger
@@ -50,7 +51,6 @@ MULTI_CLUSTER_CONFIG_DIR = "/etc/multicluster"
 # AppDB monitoring is disabled by default for e2e tests.
 # If monitoring is needed use monitored_appdb_operator_installation_config / operator_with_monitored_appdb
 MONITOR_APPDB_E2E_DEFAULT = "true"
-MULTI_CLUSTER_OPERATOR_NAME = "mongodb-enterprise-operator-multi-cluster"
 CLUSTER_HOST_MAPPING = {
     "us-central1-c_central": "https://35.232.85.244",
     "us-east1-b_member-1a": "https://35.243.222.230",
@@ -60,6 +60,16 @@ CLUSTER_HOST_MAPPING = {
 
 LEGACY_CENTRAL_CLUSTER_NAME: str = "__default"
 LEGACY_DEPLOYMENT_STATE_VERSION: str = "1.27.0"
+
+# Names for operator and RBAC
+OPERATOR_NAME = "mongodb-kubernetes-operator"
+MULTI_CLUSTER_OPERATOR_NAME = OPERATOR_NAME + "-multi-cluster"
+LEGACY_OPERATOR_NAME = "mongodb-enterprise-operator"
+LEGACY_MULTI_CLUSTER_OPERATOR_NAME = LEGACY_OPERATOR_NAME + "-multi-cluster"
+APPDB_SA_NAME = "mongodb-kubernetes-appdb"
+DATABASE_SA_NAME = "mongodb-kubernetes-database-pods"
+OM_SA_NAME = "mongodb-kubernetes-ops-manager"
+TELEMETRY_CONFIGMAP_NAME = LEGACY_OPERATOR_NAME + "-telemetry"
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -793,14 +803,19 @@ def _install_multi_cluster_operator(
     helm_chart_path: Optional[str] = "helm_chart",
     custom_operator_version: Optional[str] = None,
 ) -> Operator:
+    multi_cluster_operator_installation_config.update(helm_opts)
+
+    # The Operator will be installed from the following repo, so adding it first
+    helm_repo_add("mongodb", "https://mongodb.github.io/helm-charts")
+
     prepare_multi_cluster_namespaces(
         namespace,
         multi_cluster_operator_installation_config,
         member_cluster_clients,
         central_cluster_name,
         skip_central_cluster=True,
+        helm_chart_path=helm_chart_path,
     )
-    multi_cluster_operator_installation_config.update(helm_opts)
 
     operator = Operator(
         name=operator_name,
@@ -870,12 +885,13 @@ def install_official_operator(
         "managedSecurityContext": managed_security_context,
         "operator.mdbDefaultArchitecture": operator_installation_config["operator.mdbDefaultArchitecture"],
     }
-    name = "mongodb-enterprise-operator"
+
+    operator_name = "mongodb-enterprise-operator"
 
     # Note, that we don't intend to install the official Operator to standalone clusters (kops/openshift) as we want to
     # avoid damaged CRDs. But we may need to install the "openshift like" environment to Kind instead of the "ubi"
     # images are used for installing the dev Operator
-    helm_args["operator.operator_image_name"] = "{}-ubi".format(name)
+    helm_args["operator.operator_image_name"] = "{}-ubi".format(operator_name)
 
     # Note:
     # We might want in the future to install CRDs when performing upgrade/downgrade tests, the helm install only takes
@@ -902,10 +918,17 @@ def install_official_operator(
         os.environ["HELM_KUBECONTEXT"] = central_cluster_name
         # when running with the local operator, this is executed by scripts/dev/prepare_local_e2e_run.sh
         if not local_operator():
-            run_kube_config_creation_tool(member_cluster_names, namespace, namespace, member_cluster_names)
+            run_kube_config_creation_tool(
+                member_cluster_names,
+                namespace,
+                namespace,
+                member_cluster_names,
+                service_account_name=operator_name + "-multi-cluster",
+            )
+        operator_name = operator_name + "-multi-cluster"
         helm_args.update(
             {
-                "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
+                "operator.name": operator_name,
                 # override the serviceAccountName for the operator deployment
                 "operator.createOperatorServiceAccount": "false",
                 "multiCluster.clusters": operator_installation_config["multiCluster.clusters"],
@@ -923,6 +946,7 @@ def install_official_operator(
             central_cluster_name=get_central_cluster_name(),
             helm_chart_path="mongodb/enterprise-operator",
             custom_operator_version=custom_operator_version,
+            operator_name=operator_name,
         )
     else:
         # When testing the UBI image type we need to assume a few things
@@ -931,7 +955,7 @@ def install_official_operator(
             namespace=namespace,
             helm_args=helm_args,
             helm_chart_path="mongodb/enterprise-operator",
-            name=name,
+            name=operator_name,
         ).install(custom_operator_version=custom_operator_version)
 
 
@@ -1177,7 +1201,7 @@ def run_kube_config_creation_tool(
     member_namespace: str,
     member_cluster_names: List[str],
     cluster_scoped: Optional[bool] = False,
-    service_account_name: Optional[str] = "mongodb-enterprise-operator-multi-cluster",
+    service_account_name: Optional[str] = "mongodb-kubernetes-operator-multi-cluster",
 ):
     central_cluster = _read_multi_cluster_config_value("central_cluster")
     member_clusters_str = ",".join(member_clusters)
@@ -1253,6 +1277,7 @@ def run_multi_cluster_recovery_tool(
     central_namespace: str,
     member_namespace: str,
     cluster_scoped: Optional[bool] = False,
+    service_account_name: Optional[str] = "mongodb-kubernetes-operator-multi-cluster",
 ) -> int:
     central_cluster = _read_multi_cluster_config_value("central_cluster")
     member_clusters_str = ",".join(member_clusters)
@@ -1275,6 +1300,8 @@ def run_multi_cluster_recovery_tool(
         MULTI_CLUSTER_OPERATOR_NAME,
         "--source-cluster",
         member_clusters[0],
+        "--service-account",
+        service_account_name,
     ]
     if os.getenv("MULTI_CLUSTER_CREATE_SERVICE_ACCOUNT_TOKEN_SECRETS") == "true":
         args.append("--create-service-account-secrets")
@@ -1532,6 +1559,8 @@ class EnhancedOpenTelemetryPlugin(OpenTelemetryPlugin):
         report: TestReport,
     ) -> None:
         current_span = trace.get_current_span()
+        if isinstance(current_span, NonRecordingSpan):
+            return
         prefixed_attributes = EnhancedOpenTelemetryPlugin._prefix_attributes(current_span.attributes)
         prefixed_attributes["mck.pytest.error_details"] = str(report.longrepr)
         current_span.set_attributes(prefixed_attributes)

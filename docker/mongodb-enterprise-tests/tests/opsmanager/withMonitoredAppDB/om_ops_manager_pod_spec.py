@@ -14,7 +14,7 @@ from kubetester.kubetester import is_default_architecture_static
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
-from tests.conftest import is_multi_cluster
+from tests.conftest import APPDB_SA_NAME, OM_SA_NAME, is_multi_cluster
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 
@@ -81,7 +81,7 @@ class TestOpsManagerCreation:
         appdb_sts = ops_manager.read_appdb_statefulset()
         assert len(appdb_sts.spec.template.spec.containers) == 4
 
-        assert appdb_sts.spec.template.spec.service_account_name == "mongodb-enterprise-appdb"
+        assert appdb_sts.spec.template.spec.service_account_name == APPDB_SA_NAME
 
         appdb_agent_container = appdb_sts.spec.template.spec.containers[2]
         assert appdb_agent_container.name == "mongodb-agent"
@@ -117,7 +117,7 @@ class TestOpsManagerCreation:
 
     def test_om_pod_spec(self, ops_manager: MongoDBOpsManager):
         sts = ops_manager.read_statefulset()
-        assert sts.spec.template.spec.service_account_name == "mongodb-enterprise-ops-manager"
+        assert sts.spec.template.spec.service_account_name == OM_SA_NAME
 
         assert len(sts.spec.template.spec.containers) == 1
         om_container = sts.spec.template.spec.containers[0]
@@ -273,7 +273,7 @@ class TestOpsManagerCreation:
 
     def test_backup_pod_spec(self, ops_manager: MongoDBOpsManager):
         backup_sts = ops_manager.read_backup_statefulset()
-        assert backup_sts.spec.template.spec.service_account_name == "mongodb-enterprise-ops-manager"
+        assert backup_sts.spec.template.spec.service_account_name == OM_SA_NAME
 
         assert len(backup_sts.spec.template.spec.containers) == 1
         om_container = backup_sts.spec.template.spec.containers[0]

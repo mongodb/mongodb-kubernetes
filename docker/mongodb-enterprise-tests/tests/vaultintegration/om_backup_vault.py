@@ -22,17 +22,19 @@ from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 
+from ..conftest import (
+    APPDB_SA_NAME,
+    AWS_REGION,
+    DATABASE_SA_NAME,
+    OM_SA_NAME,
+    OPERATOR_NAME,
+)
 from . import assert_secret_in_vault, run_command_in_vault, store_secret_in_vault
 
-OPERATOR_NAME = "mongodb-enterprise-operator"
-APPDB_SA_NAME = "mongodb-enterprise-appdb"
-OM_SA_NAME = "mongodb-enterprise-ops-manager"
 OM_NAME = "om-basic"
 S3_RS_NAME = "my-mongodb-s3"
 S3_SECRET_NAME = "my-s3-secret"
 OPLOG_RS_NAME = "my-mongodb-oplog"
-
-DATABASE_SA_NAME = "mongodb-enterprise-database-pods"
 
 
 def certs_for_prometheus(issuer: str, namespace: str, resource_name: str) -> str:

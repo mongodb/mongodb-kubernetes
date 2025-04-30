@@ -158,7 +158,7 @@ func (m *MongoDB) GetResourceName() string {
 
 func (m *MongoDB) GetOwnerLabels() map[string]string {
 	return map[string]string{
-		util.OperatorLabelName: util.OperatorName,
+		util.OperatorLabelName: util.OperatorLabelValue,
 		LabelResourceOwner:     m.Name,
 	}
 }

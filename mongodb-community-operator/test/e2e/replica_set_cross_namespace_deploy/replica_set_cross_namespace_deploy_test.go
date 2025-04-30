@@ -70,8 +70,7 @@ func TestCrossNamespaceDeploy(t *testing.T) {
 // for the database StatefulSet in the other namespace.
 func createDatabaseServiceAccountRoleAndRoleBinding(ctx context.Context, t *testing.T, namespace string) error {
 	sa := corev1.ServiceAccount{}
-	// TODO: MCK choose a correct SA name
-	mckServiceAccountName := "mongodb-enterprise-appdb"
+	mckServiceAccountName := "mongodb-kubernetes-appdb"
 	err := e2eutil.TestClient.Get(ctx, types.NamespacedName{Name: mckServiceAccountName, Namespace: e2eutil.OperatorNamespace}, &sa)
 	if err != nil {
 		t.Fatal(err)

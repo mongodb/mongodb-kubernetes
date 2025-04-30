@@ -793,6 +793,7 @@ task_groups:
       - e2e_operator_clusterwide
       - e2e_operator_multi_namespaces
       - e2e_operator_upgrade_appdb_tls
+      - e2e_meko_mck_upgrade
     <<: *teardown_group
 
   # e2e_operator_race_with_telemetry_task_group includes the tests for testing the operator with race detector enabled
@@ -820,6 +821,7 @@ task_groups:
       - e2e_operator_clusterwide
       - e2e_operator_multi_namespaces
       - e2e_operator_upgrade_appdb_tls
+      - e2e_meko_mck_upgrade
     <<: *teardown_group
 
   - name: e2e_multi_cluster_kind_task_group
@@ -887,6 +889,7 @@ task_groups:
       - e2e_tls_sc_additional_certs
       - e2e_tls_x509_configure_all_options_sc
       - e2e_tls_x509_sc
+      - e2e_meko_mck_upgrade
 
     <<: *teardown_group
 

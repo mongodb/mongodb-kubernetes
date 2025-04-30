@@ -27,11 +27,11 @@ from kubetester.mongodb_user import MongoDBUser
 from kubetester.operator import Operator
 from pytest import fixture, mark
 
+from ..conftest import DATABASE_SA_NAME, OPERATOR_NAME
 from . import run_command_in_vault, store_secret_in_vault
 
-OPERATOR_NAME = "mongodb-enterprise-operator"
 MDB_RESOURCE = "my-replica-set"
-DATABASE_SA_NAME = "mongodb-enterprise-database-pods"
+
 USER_NAME = "my-user-1"
 PASSWORD_SECRET_NAME = "mms-user-1-password"
 USER_PASSWORD = "my-password"

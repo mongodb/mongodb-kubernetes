@@ -44,7 +44,7 @@ class Operator(object):
         helm_args: Optional[Dict] = None,
         helm_options: Optional[List[str]] = None,
         helm_chart_path: Optional[str] = "helm_chart",
-        name: Optional[str] = "mongodb-enterprise-operator",
+        name: Optional[str] = "mongodb-kubernetes-operator",
         api_client: Optional[client.api_client.ApiClient] = None,
     ):
 
@@ -83,7 +83,7 @@ class Operator(object):
     def install(self, custom_operator_version: Optional[str] = None) -> Operator:
         """Installs the Operator to Kubernetes cluster using 'helm install', waits until it's running"""
         helm_install(
-            "mongodb-enterprise-operator",
+            self.name,
             self.namespace,
             self.helm_arguments,
             helm_chart_path=self.helm_chart_path,
@@ -118,6 +118,7 @@ class Operator(object):
         client.AppsV1Api(api_client=self.api_client).delete_namespaced_deployment(self.name, self.namespace)
 
     def list_operator_pods(self) -> List[V1Pod]:
+        logger.debug(f"Listing operator pods with selector app.kubernetes.io/name={self.name}")
         pods = (
             client.CoreV1Api(api_client=self.api_client)
             .list_namespaced_pod(
@@ -146,7 +147,9 @@ class Operator(object):
         # we need to give some time for the new pod to start instead of the existing one (if any)
         time.sleep(4)
         retry_count = retries
+        logger.debug("Waiting for Operator deployment to become ready...")
         while retry_count > 0:
+            logger.debug(f"Tentative #{retries - retry_count}")
             pods = self.list_operator_pods()
             if len(pods) == 1:
                 if pods[0].status.phase == "Running" and pods[0].status.container_statuses[0].ready:
@@ -181,6 +184,14 @@ class Operator(object):
             # We need to sleep here otherwise the function returns too early and we create a race condition in tests
             time.sleep(10)
             return
+
+        webhook_services = client.CoreV1Api().list_namespaced_service(self.namespace)
+        logger.debug("Listing webhook services...")
+        for svc in webhook_services.items:
+            if "webhook" in svc.metadata.name:
+                logger.debug(
+                    f"Service: {svc.metadata.name}, ClusterIP: {svc.spec.cluster_ip}, Ports: {svc.spec.ports}, Selector: {svc.spec.selector}"
+                )
 
         logger.debug("_wait_operator_webhook_is_ready")
         validation_endpoint = "validate-mongodb-com-v1-mongodb"

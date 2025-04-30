@@ -399,5 +399,9 @@ dockerfiles:
 prepare-local-e2e: reset-mco # prepares the local environment to run a local operator
 	scripts/dev/prepare_local_e2e_run.sh
 
+prepare-local-olm-e2e:
+	DIGEST_PINNING_ENABLED=false VERSION_ID=latest scripts/evergreen/operator-sdk/prepare-openshift-bundles-for-e2e.sh
+	scripts/dev/prepare_local_e2e_olm_run.sh
+
 prepare-operator-configmap: # prepares the local environment to run a local operator
 	source scripts/dev/set_env_context.sh && source scripts/funcs/printing && source scripts/funcs/operator_deployment && prepare_operator_config_map "$(kubectl config current-context)"

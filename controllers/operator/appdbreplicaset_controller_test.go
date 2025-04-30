@@ -592,7 +592,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						Namespace:       "my-namespace",
 						ResourceVersion: "1",
 						Labels: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 							omv1.LabelResourceOwner:        "test-om",
 						},
@@ -607,7 +607,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 							},
 						},
 						Selector: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 						},
 					},
@@ -646,7 +646,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						Namespace:       "my-namespace",
 						ResourceVersion: "1",
 						Labels: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 							omv1.LabelResourceOwner:        "test-om",
 						},
@@ -669,7 +669,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 							},
 						},
 						Selector: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 						},
 					},
@@ -680,7 +680,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						Namespace:       "my-namespace",
 						ResourceVersion: "1",
 						Labels: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-1",
 							omv1.LabelResourceOwner:        "test-om",
 						},
@@ -703,7 +703,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 							},
 						},
 						Selector: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-1",
 						},
 					},
@@ -722,7 +722,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						Namespace:       "my-namespace",
 						ResourceVersion: "1",
 						Labels: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 							omv1.LabelResourceOwner:        "test-om",
 						},
@@ -737,7 +737,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 							},
 						},
 						Selector: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 						},
 					},
@@ -755,7 +755,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						Namespace:       "my-namespace",
 						ResourceVersion: "1",
 						Labels: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 							omv1.LabelResourceOwner:        "test-om",
 						},
@@ -770,7 +770,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 							},
 						},
 						Selector: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 						},
 					},
@@ -802,7 +802,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						Namespace:       "my-namespace",
 						ResourceVersion: "1",
 						Labels: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 							omv1.LabelResourceOwner:        "test-om",
 						},
@@ -818,7 +818,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 							},
 						},
 						Selector: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 						},
 					},
@@ -859,7 +859,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						Namespace:       "my-namespace",
 						ResourceVersion: "1",
 						Labels: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 							omv1.LabelResourceOwner:        "test-om",
 						},
@@ -884,7 +884,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 							},
 						},
 						Selector: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 						},
 					},
@@ -895,7 +895,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						Namespace:       "my-namespace",
 						ResourceVersion: "1",
 						Labels: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-1",
 							omv1.LabelResourceOwner:        "test-om",
 						},
@@ -920,7 +920,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 							},
 						},
 						Selector: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-1",
 						},
 					},
@@ -962,7 +962,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						Namespace:       "my-namespace",
 						ResourceVersion: "1",
 						Labels: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 							omv1.LabelResourceOwner:        "test-om",
 						},
@@ -987,7 +987,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 							},
 						},
 						Selector: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 						},
 					},
@@ -998,7 +998,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						Namespace:       "my-namespace",
 						ResourceVersion: "1",
 						Labels: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-1",
 							omv1.LabelResourceOwner:        "test-om",
 						},
@@ -1023,7 +1023,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 							},
 						},
 						Selector: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-1",
 						},
 					},
@@ -1267,7 +1267,7 @@ func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
 func appDBStatefulSetLabelsAndServiceName(omResourceName string) (map[string]string, string) {
 	appDbName := fmt.Sprintf("%s-db", omResourceName)
 	serviceName := fmt.Sprintf("%s-svc", appDbName)
-	labels := map[string]string{"app": serviceName, util.OperatorLabelName: util.OperatorName, "pod-anti-affinity": appDbName}
+	labels := map[string]string{"app": serviceName, util.OperatorLabelName: util.OperatorLabelValue, "pod-anti-affinity": appDbName}
 	return labels, serviceName
 }
 

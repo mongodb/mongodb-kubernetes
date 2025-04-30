@@ -84,7 +84,7 @@ func statefulSetAnnotations(mdbmName string, certHash string) map[string]string 
 
 func PodLabel(mdbmName string) map[string]string {
 	return map[string]string{
-		util.OperatorLabelName:            util.OperatorName,
+		util.OperatorLabelName:            util.OperatorLabelValue,
 		construct.PodAntiAffinityLabelKey: mdbmName,
 	}
 }

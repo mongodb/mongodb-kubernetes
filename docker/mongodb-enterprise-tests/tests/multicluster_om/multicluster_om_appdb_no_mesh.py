@@ -23,6 +23,7 @@ from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 from tests.conftest import (
+    TELEMETRY_CONFIGMAP_NAME,
     assert_data_got_restored,
     create_appdb_certs,
     get_central_cluster_client,
@@ -618,8 +619,7 @@ def time_to_millis(date_time) -> int:
 
 @mark.e2e_multi_cluster_om_appdb_no_mesh
 def test_telemetry_configmap(namespace: str):
-    telemetry_configmap_name = "mongodb-enterprise-operator-telemetry"
-    config = KubernetesTester.read_configmap(namespace, telemetry_configmap_name)
+    config = KubernetesTester.read_configmap(namespace, TELEMETRY_CONFIGMAP_NAME)
 
     try:
         payload_string = config.get("lastSendPayloadDeployments")

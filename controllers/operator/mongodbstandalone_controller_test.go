@@ -268,7 +268,7 @@ func TestStandaloneCustomPodSpecTemplate(t *testing.T) {
 	assert.NoError(t, err)
 
 	expectedLabels := map[string]string{
-		"app": "dublin-svc", util.OperatorLabelName: util.OperatorName,
+		"app": "dublin-svc", util.OperatorLabelName: util.OperatorLabelValue,
 		"first": "val", "pod-anti-affinity": "dublin",
 	}
 	assert.Equal(t, expectedLabels, statefulSet.Spec.Template.Labels)

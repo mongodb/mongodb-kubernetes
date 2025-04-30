@@ -2664,7 +2664,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 							Namespace:       "my-namespace",
 							ResourceVersion: "1",
 							Labels: map[string]string{
-								util.OperatorLabelName:         util.OperatorName,
+								util.OperatorLabelName:         util.OperatorLabelValue,
 								mdbv1.LabelResourceOwner:       "test-om-db",
 								appsv1.StatefulSetPodNameLabel: "test-om-db-mongos-0-0",
 							},
@@ -2684,7 +2684,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 								},
 							},
 							Selector: map[string]string{
-								util.OperatorLabelName:         util.OperatorName,
+								util.OperatorLabelName:         util.OperatorLabelValue,
 								appsv1.StatefulSetPodNameLabel: "test-om-db-mongos-0-0",
 							},
 						},
@@ -2697,7 +2697,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 							Namespace:       "my-namespace",
 							ResourceVersion: "1",
 							Labels: map[string]string{
-								util.OperatorLabelName:         util.OperatorName,
+								util.OperatorLabelName:         util.OperatorLabelValue,
 								mdbv1.LabelResourceOwner:       "test-om-db",
 								appsv1.StatefulSetPodNameLabel: "test-om-db-0-1-0",
 							},
@@ -2717,7 +2717,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 								},
 							},
 							Selector: map[string]string{
-								util.OperatorLabelName:         util.OperatorName,
+								util.OperatorLabelName:         util.OperatorLabelValue,
 								appsv1.StatefulSetPodNameLabel: "test-om-db-0-1-0",
 							},
 						},
@@ -2730,7 +2730,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 							Namespace:       "my-namespace",
 							ResourceVersion: "1",
 							Labels: map[string]string{
-								util.OperatorLabelName:         util.OperatorName,
+								util.OperatorLabelName:         util.OperatorLabelValue,
 								mdbv1.LabelResourceOwner:       "test-om-db",
 								appsv1.StatefulSetPodNameLabel: "test-om-db-config-2-0",
 							},
@@ -2750,7 +2750,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 								},
 							},
 							Selector: map[string]string{
-								util.OperatorLabelName:         util.OperatorName,
+								util.OperatorLabelName:         util.OperatorLabelValue,
 								appsv1.StatefulSetPodNameLabel: "test-om-db-config-2-0",
 							},
 						},
@@ -2809,7 +2809,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 							Namespace:       "my-namespace",
 							ResourceVersion: "1",
 							Labels: map[string]string{
-								util.OperatorLabelName:         util.OperatorName,
+								util.OperatorLabelName:         util.OperatorLabelValue,
 								mdbv1.LabelResourceOwner:       "test-om-db",
 								appsv1.StatefulSetPodNameLabel: "test-om-db-mongos-0-0",
 							},
@@ -2832,7 +2832,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 								},
 							},
 							Selector: map[string]string{
-								util.OperatorLabelName:         util.OperatorName,
+								util.OperatorLabelName:         util.OperatorLabelValue,
 								appsv1.StatefulSetPodNameLabel: "test-om-db-mongos-0-0",
 							},
 						},
@@ -2843,7 +2843,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 							Namespace:       "my-namespace",
 							ResourceVersion: "1",
 							Labels: map[string]string{
-								util.OperatorLabelName:         util.OperatorName,
+								util.OperatorLabelName:         util.OperatorLabelValue,
 								mdbv1.LabelResourceOwner:       "test-om-db",
 								appsv1.StatefulSetPodNameLabel: "test-om-db-mongos-0-1",
 							},
@@ -2866,7 +2866,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 								},
 							},
 							Selector: map[string]string{
-								util.OperatorLabelName:         util.OperatorName,
+								util.OperatorLabelName:         util.OperatorLabelValue,
 								appsv1.StatefulSetPodNameLabel: "test-om-db-mongos-0-1",
 							},
 						},
@@ -2956,7 +2956,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 							Namespace:       "my-namespace",
 							ResourceVersion: "1",
 							Labels: map[string]string{
-								util.OperatorLabelName:         util.OperatorName,
+								util.OperatorLabelName:         util.OperatorLabelValue,
 								mdbv1.LabelResourceOwner:       "test-om-db",
 								appsv1.StatefulSetPodNameLabel: "test-om-db-mongos-0-0",
 							},
@@ -2972,7 +2972,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 								},
 							},
 							Selector: map[string]string{
-								util.OperatorLabelName:         util.OperatorName,
+								util.OperatorLabelName:         util.OperatorLabelValue,
 								appsv1.StatefulSetPodNameLabel: "test-om-db-mongos-0-0",
 							},
 						},
@@ -2985,7 +2985,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 							Namespace:       "my-namespace",
 							ResourceVersion: "1",
 							Labels: map[string]string{
-								util.OperatorLabelName:         util.OperatorName,
+								util.OperatorLabelName:         util.OperatorLabelValue,
 								mdbv1.LabelResourceOwner:       "test-om-db",
 								appsv1.StatefulSetPodNameLabel: "test-om-db-0-1-0",
 							},
@@ -3001,7 +3001,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 								},
 							},
 							Selector: map[string]string{
-								util.OperatorLabelName:         util.OperatorName,
+								util.OperatorLabelName:         util.OperatorLabelValue,
 								appsv1.StatefulSetPodNameLabel: "test-om-db-0-1-0",
 							},
 						},
@@ -3014,7 +3014,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 							Namespace:       "my-namespace",
 							ResourceVersion: "1",
 							Labels: map[string]string{
-								util.OperatorLabelName:         util.OperatorName,
+								util.OperatorLabelName:         util.OperatorLabelValue,
 								mdbv1.LabelResourceOwner:       "test-om-db",
 								appsv1.StatefulSetPodNameLabel: "test-om-db-config-2-0",
 							},
@@ -3030,7 +3030,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 								},
 							},
 							Selector: map[string]string{
-								util.OperatorLabelName:         util.OperatorName,
+								util.OperatorLabelName:         util.OperatorLabelValue,
 								appsv1.StatefulSetPodNameLabel: "test-om-db-config-2-0",
 							},
 						},
@@ -3158,7 +3158,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 							Namespace:       "my-namespace",
 							ResourceVersion: "1",
 							Labels: map[string]string{
-								util.OperatorLabelName:         util.OperatorName,
+								util.OperatorLabelName:         util.OperatorLabelValue,
 								mdbv1.LabelResourceOwner:       "test-om-db",
 								appsv1.StatefulSetPodNameLabel: "test-om-db-mongos-0-0",
 							},
@@ -3186,7 +3186,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 								},
 							},
 							Selector: map[string]string{
-								util.OperatorLabelName:         util.OperatorName,
+								util.OperatorLabelName:         util.OperatorLabelValue,
 								appsv1.StatefulSetPodNameLabel: "test-om-db-mongos-0-0",
 							},
 						},
@@ -3197,7 +3197,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 							Namespace:       "my-namespace",
 							ResourceVersion: "1",
 							Labels: map[string]string{
-								util.OperatorLabelName:         util.OperatorName,
+								util.OperatorLabelName:         util.OperatorLabelValue,
 								mdbv1.LabelResourceOwner:       "test-om-db",
 								appsv1.StatefulSetPodNameLabel: "test-om-db-mongos-0-1",
 							},
@@ -3225,7 +3225,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 								},
 							},
 							Selector: map[string]string{
-								util.OperatorLabelName:         util.OperatorName,
+								util.OperatorLabelName:         util.OperatorLabelValue,
 								appsv1.StatefulSetPodNameLabel: "test-om-db-mongos-0-1",
 							},
 						},
@@ -3238,7 +3238,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 							Namespace:       "my-namespace",
 							ResourceVersion: "1",
 							Labels: map[string]string{
-								util.OperatorLabelName:         util.OperatorName,
+								util.OperatorLabelName:         util.OperatorLabelValue,
 								mdbv1.LabelResourceOwner:       "test-om-db",
 								appsv1.StatefulSetPodNameLabel: "test-om-db-0-1-0",
 							},
@@ -3266,7 +3266,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 								},
 							},
 							Selector: map[string]string{
-								util.OperatorLabelName:         util.OperatorName,
+								util.OperatorLabelName:         util.OperatorLabelValue,
 								appsv1.StatefulSetPodNameLabel: "test-om-db-0-1-0",
 							},
 						},
@@ -3277,7 +3277,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 							Namespace:       "my-namespace",
 							ResourceVersion: "1",
 							Labels: map[string]string{
-								util.OperatorLabelName:         util.OperatorName,
+								util.OperatorLabelName:         util.OperatorLabelValue,
 								mdbv1.LabelResourceOwner:       "test-om-db",
 								appsv1.StatefulSetPodNameLabel: "test-om-db-0-1-1",
 							},
@@ -3305,7 +3305,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 								},
 							},
 							Selector: map[string]string{
-								util.OperatorLabelName:         util.OperatorName,
+								util.OperatorLabelName:         util.OperatorLabelValue,
 								appsv1.StatefulSetPodNameLabel: "test-om-db-0-1-1",
 							},
 						},
@@ -3316,7 +3316,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 							Namespace:       "my-namespace",
 							ResourceVersion: "1",
 							Labels: map[string]string{
-								util.OperatorLabelName:         util.OperatorName,
+								util.OperatorLabelName:         util.OperatorLabelValue,
 								mdbv1.LabelResourceOwner:       "test-om-db",
 								appsv1.StatefulSetPodNameLabel: "test-om-db-1-1-0",
 							},
@@ -3344,7 +3344,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 								},
 							},
 							Selector: map[string]string{
-								util.OperatorLabelName:         util.OperatorName,
+								util.OperatorLabelName:         util.OperatorLabelValue,
 								appsv1.StatefulSetPodNameLabel: "test-om-db-1-1-0",
 							},
 						},
@@ -3355,7 +3355,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 							Namespace:       "my-namespace",
 							ResourceVersion: "1",
 							Labels: map[string]string{
-								util.OperatorLabelName:         util.OperatorName,
+								util.OperatorLabelName:         util.OperatorLabelValue,
 								mdbv1.LabelResourceOwner:       "test-om-db",
 								appsv1.StatefulSetPodNameLabel: "test-om-db-1-1-1",
 							},
@@ -3383,7 +3383,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 								},
 							},
 							Selector: map[string]string{
-								util.OperatorLabelName:         util.OperatorName,
+								util.OperatorLabelName:         util.OperatorLabelValue,
 								appsv1.StatefulSetPodNameLabel: "test-om-db-1-1-1",
 							},
 						},
@@ -3396,7 +3396,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 							Namespace:       "my-namespace",
 							ResourceVersion: "1",
 							Labels: map[string]string{
-								util.OperatorLabelName:         util.OperatorName,
+								util.OperatorLabelName:         util.OperatorLabelValue,
 								mdbv1.LabelResourceOwner:       "test-om-db",
 								appsv1.StatefulSetPodNameLabel: "test-om-db-config-2-0",
 							},
@@ -3424,7 +3424,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 								},
 							},
 							Selector: map[string]string{
-								util.OperatorLabelName:         util.OperatorName,
+								util.OperatorLabelName:         util.OperatorLabelValue,
 								appsv1.StatefulSetPodNameLabel: "test-om-db-config-2-0",
 							},
 						},
@@ -3435,7 +3435,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 							Namespace:       "my-namespace",
 							ResourceVersion: "1",
 							Labels: map[string]string{
-								util.OperatorLabelName:         util.OperatorName,
+								util.OperatorLabelName:         util.OperatorLabelValue,
 								mdbv1.LabelResourceOwner:       "test-om-db",
 								appsv1.StatefulSetPodNameLabel: "test-om-db-config-2-1",
 							},
@@ -3463,7 +3463,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 								},
 							},
 							Selector: map[string]string{
-								util.OperatorLabelName:         util.OperatorName,
+								util.OperatorLabelName:         util.OperatorLabelValue,
 								appsv1.StatefulSetPodNameLabel: "test-om-db-config-2-1",
 							},
 						},

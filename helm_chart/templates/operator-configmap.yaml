@@ -1,4 +1,4 @@
-{{ $ns :=  include "mongodb-enterprise-operator.namespace" .  -}}
+{{ $ns :=  include "mongodb-kubernetes-operator.namespace" .  -}}
 {{- if not (lookup "v1" "ConfigMap" $ns "mongodb-enterprise-operator-member-list") }}
 {{- if .Values.multiCluster.clusters }}
 ---
@@ -13,5 +13,10 @@ metadata:
   name: mongodb-enterprise-operator-member-list
   labels:
     multi-cluster: "true"
+  # It is safer for helm to never automatically delete the configmap when rendering. Helm is not the only owner of
+  # the config map as the multi-cluster CLI tool also installs it. For example, if the lookup condition above fails,
+  # helm would uninstall the member-list even on `upgrade --install`.
+  annotations:
+    "helm.sh/resource-policy": keep
 {{- end }}
 {{- end }}

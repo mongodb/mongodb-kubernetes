@@ -1,6 +1,6 @@
-# MongoDB Community Kubernetes Operator Architecture
+# MongoDB Kubernetes Operator Architecture
 
-The MongoDB Community Kubernetes Operator is a [Custom Resource Definition](https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/) and a [Controller](https://kubernetes.io/docs/concepts/architecture/controller/).
+The MongoDB Kubernetes Operator contains multiple [Custom Resource Definitions](https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/) and is a [Controller](https://kubernetes.io/docs/concepts/architecture/controller/).
 
 ## Table of Contents
 

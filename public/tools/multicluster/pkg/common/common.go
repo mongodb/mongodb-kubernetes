@@ -59,15 +59,19 @@ type Flags struct {
 }
 
 const (
-	KubeConfigSecretName         = "mongodb-enterprise-operator-multi-cluster-kubeconfig"
-	KubeConfigSecretKey          = "kubeconfig"
-	AppdbServiceAccount          = "mongodb-enterprise-appdb"
-	DatabasePodsServiceAccount   = "mongodb-enterprise-database-pods"
-	OpsManagerServiceAccount     = "mongodb-enterprise-ops-manager"
-	AppdbRole                    = "mongodb-enterprise-appdb"
-	AppdbRoleBinding             = "mongodb-enterprise-appdb"
-	DefaultOperatorName          = "mongodb-enterprise-operator"
-	DefaultOperatorConfigMapName = DefaultOperatorName + "-member-list"
+	// KubeConfigSecretName stays the same when upgrading to MCK, as we didn't want to require customers to rename their secret, so we kept the old one.
+	// -enterprise prefix
+	KubeConfigSecretName       = "mongodb-enterprise-operator-multi-cluster-kubeconfig"
+	KubeConfigSecretKey        = "kubeconfig"
+	AppdbServiceAccount        = "mongodb-kubernetes-appdb"
+	DatabasePodsServiceAccount = "mongodb-kubernetes-database-pods"
+	OpsManagerServiceAccount   = "mongodb-kubernetes-ops-manager"
+	AppdbRole                  = "mongodb-kubernetes-appdb"
+	AppdbRoleBinding           = "mongodb-kubernetes-appdb"
+	DefaultOperatorName        = "mongodb-kubernetes-operator"
+	// DefaultOperatorConfigMapName is the legacy configmap name which stays the same when upgrading to MCK, we didn't want to require customers to rename their configmap, so we kept the old one
+	// -enterprise prefix
+	DefaultOperatorConfigMapName = "mongodb-enterprise-operator-member-list"
 )
 
 // KubeConfigFile represents the contents of a KubeConfig file.
@@ -362,6 +366,7 @@ func createKubeConfigSecret(ctx context.Context, centralClusterClient kubernetes
 	}
 
 	if errors.IsAlreadyExists(err) {
+		fmt.Printf("Secret %s/%s already exists, updating it\n", flags.CentralClusterNamespace, kubeConfigSecret.Name)
 		_, err = centralClusterClient.CoreV1().Secrets(flags.CentralClusterNamespace).Update(ctx, &kubeConfigSecret, metav1.UpdateOptions{})
 		if err != nil {
 			return xerrors.Errorf("failed updating existing secret: %w", err)
@@ -400,7 +405,7 @@ func buildCentralEntityRole(namespace string) rbacv1.Role {
 	rules := append(getCentralRules(), getMemberRules()...)
 	return rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "mongodb-enterprise-operator-multi-role",
+			Name:      DefaultOperatorName + "-multi-role",
 			Namespace: namespace,
 			Labels:    multiClusterLabels(),
 		},
@@ -418,7 +423,7 @@ func buildCentralEntityClusterRole() rbacv1.ClusterRole {
 
 	return rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:   "mongodb-enterprise-operator-multi-cluster-role",
+			Name:   DefaultOperatorName + "-multi-cluster-role",
 			Labels: multiClusterLabels(),
 		},
 		Rules: rules,
@@ -453,7 +458,7 @@ func getMemberRules() []rbacv1.PolicyRule {
 func buildMemberEntityRole(namespace string) rbacv1.Role {
 	return rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "mongodb-enterprise-operator-multi-role",
+			Name:      DefaultOperatorName + "-multi-role",
 			Namespace: namespace,
 			Labels:    multiClusterLabels(),
 		},
@@ -486,7 +491,7 @@ func buildMemberEntityClusterRole() rbacv1.ClusterRole {
 
 	return rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:   "mongodb-enterprise-operator-multi-cluster-role",
+			Name:   DefaultOperatorName + "-multi-cluster-role",
 			Labels: multiClusterLabels(),
 		},
 		Rules: rules,
@@ -513,7 +518,7 @@ func buildClusterRoleTelemetry() rbacv1.ClusterRole {
 
 	return rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:   "mongodb-enterprise-operator-multi-cluster-role-telemetry",
+			Name:   DefaultOperatorName + "-multi-cluster-role-telemetry",
 			Labels: multiClusterLabels(),
 		},
 		Rules: rules,
@@ -524,7 +529,7 @@ func buildClusterRoleTelemetry() rbacv1.ClusterRole {
 func buildRoleBinding(role rbacv1.Role, serviceAccount string, serviceAccountNamespace string) rbacv1.RoleBinding {
 	return rbacv1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "mongodb-enterprise-operator-multi-role-binding",
+			Name:      DefaultOperatorName + "-multi-role-binding",
 			Labels:    multiClusterLabels(),
 			Namespace: role.Namespace,
 		},
@@ -576,7 +581,7 @@ func createRoles(ctx context.Context, c KubeClient, serviceAccountName, serviceA
 			return xerrors.Errorf("error creating cluster role: %w", err)
 		}
 		fmt.Printf("created clusterrole: %s\n", clusterRoleTelemetry.Name)
-		if err = createClusterRoleBinding(ctx, c, serviceAccountName, serviceAccountNamespace, "mongodb-enterprise-operator-multi-telemetry-cluster-role-binding", clusterRoleTelemetry); err != nil {
+		if err = createClusterRoleBinding(ctx, c, serviceAccountName, serviceAccountNamespace, DefaultOperatorName+"-multi-telemetry-cluster-role-binding", clusterRoleTelemetry); err != nil {
 			return err
 		}
 
@@ -629,7 +634,7 @@ func createRoles(ctx context.Context, c KubeClient, serviceAccountName, serviceA
 	}
 	fmt.Printf("created clusterrole: %s\n", clusterRole.Name)
 
-	if err = createClusterRoleBinding(ctx, c, serviceAccountName, serviceAccountNamespace, "mongodb-enterprise-operator-multi-cluster-role-binding", clusterRole); err != nil {
+	if err = createClusterRoleBinding(ctx, c, serviceAccountName, serviceAccountNamespace, DefaultOperatorName+"-multi-cluster-role-binding", clusterRole); err != nil {
 		return err
 	}
 	return nil
@@ -954,15 +959,15 @@ func createDatabaseRoles(ctx context.Context, client KubeClient, f Flags) error 
 func copyDatabaseRoles(ctx context.Context, src, dst KubeClient, namespace string) error {
 	appdbSA, err := src.CoreV1().ServiceAccounts(namespace).Get(ctx, AppdbServiceAccount, metav1.GetOptions{})
 	if err != nil {
-		return xerrors.Errorf("failed retrieving service account %s from source cluster: %w", AppdbServiceAccount, err)
+		return xerrors.Errorf("failed retrieving service account %s, from ns: %s from source cluster: %w", AppdbServiceAccount, namespace, err)
 	}
 	dbpodsSA, err := src.CoreV1().ServiceAccounts(namespace).Get(ctx, DatabasePodsServiceAccount, metav1.GetOptions{})
 	if err != nil {
-		return xerrors.Errorf("failed retrieving service account %s from source cluster: %w", DatabasePodsServiceAccount, err)
+		return xerrors.Errorf("failed retrieving service account %s, from ns: %s from source cluster: %w", DatabasePodsServiceAccount, namespace, err)
 	}
 	opsManagerSA, err := src.CoreV1().ServiceAccounts(namespace).Get(ctx, OpsManagerServiceAccount, metav1.GetOptions{})
 	if err != nil {
-		return xerrors.Errorf("failed retrieving service account %s from source cluster: %w", OpsManagerServiceAccount, err)
+		return xerrors.Errorf("failed retrieving service account %s, from ns: %s from source cluster: %w", OpsManagerServiceAccount, namespace, err)
 	}
 	appdbR, err := src.RbacV1().Roles(namespace).Get(ctx, AppdbRole, metav1.GetOptions{})
 	if err != nil {
@@ -1087,7 +1092,7 @@ func ReplaceClusterMembersConfigMap(ctx context.Context, centralClusterClient Ku
 	_, err := centralClusterClient.CoreV1().ConfigMaps(flags.CentralClusterNamespace).Create(ctx, &members, metav1.CreateOptions{})
 
 	if err != nil && !errors.IsAlreadyExists(err) {
-		return xerrors.Errorf("failed creating secret: %w", err)
+		return xerrors.Errorf("failed creating configmap %s: %w", DefaultOperatorConfigMapName, err)
 	}
 
 	if errors.IsAlreadyExists(err) {
