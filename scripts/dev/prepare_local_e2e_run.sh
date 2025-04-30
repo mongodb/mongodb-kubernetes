@@ -66,20 +66,20 @@ make install 2>&1 | prepend "make install: "
 test -f "docker/mongodb-enterprise-tests/.test_identifiers" && rm "docker/mongodb-enterprise-tests/.test_identifiers"
 scripts/dev/delete_om_projects.sh
 
-if [[ "${DEPLOY_OPERATOR:-"false"}" == "true" ]]; then
-  echo "installing operator helm chart to create the necessary sa and roles"
-  # shellcheck disable=SC2178
-  helm_values=$(get_operator_helm_values)
-  # shellcheck disable=SC2179
-  if [[ "${LOCAL_OPERATOR}" == true ]]; then
-    helm_values+=" operator.replicas=0"
+if [[ "${KUBE_ENVIRONMENT_NAME}" == "kind" ]]; then
+  if [[ "${DEPLOY_OPERATOR:-"false"}" == "true" ]]; then
+    echo "installing operator helm chart to create the necessary sa and roles"
+    # shellcheck disable=SC2178
+    helm_values=$(get_operator_helm_values)
+    # shellcheck disable=SC2179
+    if [[ "${LOCAL_OPERATOR}" == true ]]; then
+      helm_values+=" operator.replicas=0"
+    fi
+
+    # shellcheck disable=SC2128
+    helm upgrade --install mongodb-enterprise-operator helm_chart --set "$(echo "${helm_values}" | tr ' ' ',')"
   fi
 
-  # shellcheck disable=SC2128
-  helm upgrade --install mongodb-enterprise-operator helm_chart --set "$(echo "${helm_values}" | tr ' ' ',')"
-fi
-
-if [[ "${KUBE_ENVIRONMENT_NAME}" == "kind" ]]; then
   echo "patching all default sa with imagePullSecrets to ensure we can deploy without setting it for each pod"
 
   service_accounts=$(kubectl get serviceaccounts -n "${NAMESPACE}" -o jsonpath='{.items[*].metadata.name}')
