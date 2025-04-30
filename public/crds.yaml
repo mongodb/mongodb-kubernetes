@@ -2689,7 +2689,16 @@ spec:
     singular: mongodbcustomrole
   scope: Namespaced
   versions:
-  - name: v1
+  - additionalPrinterColumns:
+    - description: The current state of the MongoDB Custom Role.
+      jsonPath: .status.phase
+      name: Phase
+      type: string
+    - description: The time since the MongoDB Custom Role resource was created.
+      jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
     schema:
       openAPIV3Schema:
         description: MongoDBCustomRole is the Schema for the mongodbcustomroles API.
@@ -2771,6 +2780,61 @@ spec:
             x-kubernetes-preserve-unknown-fields: true
           status:
             description: MongoDBCustomRoleStatus defines the observed state of MongoDBCustomRole.
+            properties:
+              lastTransition:
+                type: string
+              message:
+                type: string
+              observedGeneration:
+                format: int64
+                type: integer
+              phase:
+                type: string
+              pvc:
+                items:
+                  properties:
+                    phase:
+                      type: string
+                    statefulsetName:
+                      type: string
+                  required:
+                  - phase
+                  - statefulsetName
+                  type: object
+                type: array
+              resourcesNotReady:
+                items:
+                  description: ResourceNotReady describes the dependent resource which
+                    is not ready yet
+                  properties:
+                    errors:
+                      items:
+                        properties:
+                          message:
+                            type: string
+                          reason:
+                            type: string
+                        type: object
+                      type: array
+                    kind:
+                      description: ResourceKind specifies a kind of a Kubernetes resource.
+                        Used in status of a Custom Resource
+                      type: string
+                    message:
+                      type: string
+                    name:
+                      type: string
+                  required:
+                  - kind
+                  - name
+                  type: object
+                type: array
+              warnings:
+                items:
+                  type: string
+                type: array
+            required:
+            - phase
             type: object
         type: object
     served: true
