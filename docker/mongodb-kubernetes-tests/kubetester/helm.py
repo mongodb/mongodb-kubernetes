@@ -1,3 +1,4 @@
+import glob
 import logging
 import os
 import re
@@ -120,8 +121,16 @@ def helm_repo_add(repo_name: str, url: str):
 
 def process_run_and_check(args, **kwargs):
     try:
+        logger.debug(f"subprocess.run: {args}")
         completed_process = subprocess.run(args, **kwargs)
-        completed_process.check_returncode()
+        # always print process output
+        if completed_process.stdout is not None:
+            stdout = completed_process.stdout.decode("utf-8")
+            logger.debug(f"stdout: {stdout}")
+        if completed_process.stderr is not None:
+            stderr = completed_process.stderr.decode("utf-8")
+            logger.debug(f"stderr: {stderr}")
+            completed_process.check_returncode()
     except subprocess.CalledProcessError as exc:
         if exc.stdout is not None:
             stdout = exc.stdout.decode("utf-8")
@@ -141,10 +150,17 @@ def helm_upgrade(
     helm_options: Optional[List[str]] = None,
     helm_override_path: Optional[bool] = False,
     custom_operator_version: Optional[str] = None,
+    apply_crds_first: bool = False,
 ):
     if not helm_chart_path:
         logger.warning("Helm chart path is empty, defaulting to 'helm_chart'")
         helm_chart_path = "helm_chart"
+
+    chart_dir = helm_chart_path if helm_override_path else _helm_chart_dir(helm_chart_path)
+
+    if apply_crds_first:
+        apply_crds_from_chart(chart_dir)
+
     command_args = _create_helm_args(helm_args, helm_options)
     args = [
         "helm",
@@ -154,17 +170,28 @@ def helm_upgrade(
         *command_args,
         name,
     ]
+
     if custom_operator_version:
         args.append(f"--version={custom_operator_version}")
-    if helm_override_path:
-        args.append(helm_chart_path)
-    else:
-        args.append(_helm_chart_dir(helm_chart_path))
+
+    args.append(chart_dir)
 
     command = " ".join(args)
-    logger.debug("Running helm upgrade command:")
-    logger.debug(command)
     process_run_and_check(command, check=True, capture_output=True, shell=True)
+
+
+def apply_crds_from_chart(chart_dir: str):
+    crd_files = glob.glob(os.path.join(chart_dir, "crds", "*.yaml"))
+
+    if not crd_files:
+        raise Exception(f"No CRD files found in chart directory: {chart_dir}")
+
+    logger.info(f"Found {len(crd_files)} CRD files to apply:")
+
+    for crd_file in crd_files:
+        logger.info(f"Applying CRD from file: {crd_file}")
+        args = ["kubectl", "apply", "-f", crd_file]
+        process_run_and_check(args, check=True, capture_output=True, shell=True)
 
 
 def helm_uninstall(name):

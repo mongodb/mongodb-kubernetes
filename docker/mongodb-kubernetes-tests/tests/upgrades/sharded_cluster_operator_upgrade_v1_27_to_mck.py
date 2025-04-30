@@ -12,6 +12,7 @@ from tests.conftest import (
     LEGACY_OPERATOR_NAME,
     OPERATOR_NAME,
     install_legacy_deployment_state_meko,
+    get_default_operator,
     log_deployments_info,
 )
 from tests.upgrades import downscale_operator_deployment
@@ -113,9 +114,12 @@ class TestOperatorUpgrade:
         # and replacing it with MCK
         downscale_operator_deployment(deployment_name=LEGACY_OPERATOR_NAME, namespace=namespace)
 
-    def test_upgrade_operator(self, default_operator: Operator, namespace: str):
+    def test_upgrade_operator(self, namespace: str, operator_installation_config: dict[str, str]):
+        operator = get_default_operator(
+            namespace, operator_installation_config=operator_installation_config, apply_crds_first=True
+        )
+        operator.assert_is_running()
         logger.info("Installing the operator built from master")
-        default_operator.assert_is_running()
         # Dumping deployments in logs ensures we are using the correct operator version
         log_deployments_info(namespace)
 
