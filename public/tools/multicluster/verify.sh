@@ -8,7 +8,7 @@ set -euo pipefail
 ARTIFACT=$1
 SIGNATURE="${ARTIFACT}.sig"
 
-HOSTED_SIGN_PUBKEY="https://cosign.mongodb.com/mongodb-kubernetes-operator.pem" # to complete
+HOSTED_SIGN_PUBKEY="https://cosign.mongodb.com/mongodb-enterprise-kubernetes-operator.pem" # to complete
 TMPDIR=${TMPDIR:-/tmp}
 KEY_FILE="${TMPDIR}/host-public.key"
 SIGNING_IMAGE_URI=${SIGNING_IMAGE_URI}
