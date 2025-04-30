@@ -1075,9 +1075,10 @@ func setupDatabaseRoles(ctx context.Context, clientSet map[string]KubeClient, f 
 // This will replace the existing configmap.
 // NOTE: the configmap is hardcoded to be DefaultOperatorConfigMapName
 func ReplaceClusterMembersConfigMap(ctx context.Context, centralClusterClient KubeClient, flags Flags) error {
+	configMapName := flags.OperatorName + "-member-list"
 	members := corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      DefaultOperatorConfigMapName,
+			Name:      configMapName,
 			Namespace: flags.CentralClusterNamespace,
 			Labels:    multiClusterLabels(),
 		},
@@ -1086,11 +1087,11 @@ func ReplaceClusterMembersConfigMap(ctx context.Context, centralClusterClient Ku
 
 	addToSet(flags.MemberClusters, &members)
 
-	fmt.Printf("Creating Member list Configmap %s/%s in cluster %s\n", flags.CentralClusterNamespace, DefaultOperatorConfigMapName, flags.CentralCluster)
+	fmt.Printf("Creating Member list Configmap %s/%s in cluster %s\n", flags.CentralClusterNamespace, configMapName, flags.CentralCluster)
 	_, err := centralClusterClient.CoreV1().ConfigMaps(flags.CentralClusterNamespace).Create(ctx, &members, metav1.CreateOptions{})
 
 	if err != nil && !errors.IsAlreadyExists(err) {
-		return xerrors.Errorf("failed creating configmap %s: %w", DefaultOperatorConfigMapName, err)
+		return xerrors.Errorf("failed creating configmap %s: %w", configMapName, err)
 	}
 
 	if errors.IsAlreadyExists(err) {

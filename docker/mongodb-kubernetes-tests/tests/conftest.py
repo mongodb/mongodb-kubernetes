@@ -869,6 +869,7 @@ def install_official_operator(
     member_cluster_clients: Optional[List[MultiClusterClient]],
     member_cluster_names: Optional[List[str]],
     custom_operator_version: Optional[str] = None,
+    operator_name: Optional[str] = OPERATOR_NAME,
 ) -> Operator:
     """
     Installs the Operator from the official Helm Chart.
@@ -886,8 +887,6 @@ def install_official_operator(
         "managedSecurityContext": managed_security_context,
         "operator.mdbDefaultArchitecture": operator_installation_config["operator.mdbDefaultArchitecture"],
     }
-
-    operator_name = "mongodb-enterprise-operator"
 
     # Note, that we don't intend to install the official Operator to standalone clusters (kops/openshift) as we want to
     # avoid damaged CRDs. But we may need to install the "openshift like" environment to Kind instead of the "ubi"
@@ -925,6 +924,7 @@ def install_official_operator(
                 namespace,
                 member_cluster_names,
                 service_account_name=operator_name + "-multi-cluster",
+                operator_name=operator_name,
             )
         operator_name = operator_name + "-multi-cluster"
         helm_args.update(
@@ -1203,6 +1203,7 @@ def run_kube_config_creation_tool(
     member_cluster_names: List[str],
     cluster_scoped: Optional[bool] = False,
     service_account_name: Optional[str] = "mongodb-kubernetes-operator-multi-cluster",
+    operator_name: Optional[str] = OPERATOR_NAME,
 ):
     central_cluster = _read_multi_cluster_config_value("central_cluster")
     member_clusters_str = ",".join(member_clusters)
@@ -1223,6 +1224,8 @@ def run_kube_config_creation_tool(
         central_namespace,
         "--service-account",
         service_account_name,
+        "--operator-name",
+        operator_name,
     ]
 
     if os.getenv("MULTI_CLUSTER_CREATE_SERVICE_ACCOUNT_TOKEN_SECRETS") == "true":
