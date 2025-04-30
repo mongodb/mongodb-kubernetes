@@ -843,7 +843,7 @@ func getService(mrs *mdbmultiv1.MongoDBMultiCluster, clusterName string, podNum 
 
 	labelSelectors := map[string]string{
 		appsv1.StatefulSetPodNameLabel: dns.GetMultiPodName(mrs.Name, mrs.ClusterNum(clusterName), podNum),
-		util.OperatorLabelName:         util.OperatorName,
+		util.OperatorLabelName:         util.OperatorLabelValue,
 	}
 
 	additionalConfig := mrs.Spec.GetAdditionalMongodConfig()

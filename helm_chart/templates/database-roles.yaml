@@ -1,6 +1,6 @@
 {{ if .Values.operator.createResourcesServiceAccountsAndRoles }}
 
-{{- $watchNamespace := include "mongodb-enterprise-operator.namespace" . | list }}
+{{- $watchNamespace := include "mongodb-kubernetes-operator.namespace" . | list }}
 {{- if .Values.operator.watchNamespace }}
 {{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 }}
 {{- end }}
@@ -10,13 +10,13 @@
 
 {{- $namespaceBlock := printf "namespace: %s" $namespace }}
 {{- if eq $namespace "*" }}
-{{- $namespaceBlock = include "mongodb-enterprise-operator.namespace" $ | printf "namespace: %s"  }}
+{{- $namespaceBlock = include "mongodb-kubernetes-operator.namespace" $ | printf "namespace: %s"  }}
 {{- end }}
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: mongodb-enterprise-appdb
+  name: {{ $.Values.operator.baseName }}-appdb
   {{ $namespaceBlock }}
 {{- if $.Values.registry.imagePullSecrets}}
 imagePullSecrets:
@@ -27,7 +27,7 @@ imagePullSecrets:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: mongodb-enterprise-database-pods
+  name: {{ $.Values.operator.baseName }}-database-pods
   {{ $namespaceBlock }}
 {{- if $.Values.registry.imagePullSecrets}}
 imagePullSecrets:
@@ -38,7 +38,7 @@ imagePullSecrets:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: mongodb-enterprise-ops-manager
+  name: {{ $.Values.operator.baseName }}-ops-manager
   {{ $namespaceBlock }}
 {{- if $.Values.registry.imagePullSecrets}}
 imagePullSecrets:
@@ -49,7 +49,7 @@ imagePullSecrets:
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-enterprise-appdb
+  name: {{ $.Values.operator.baseName }}-appdb
   {{ $namespaceBlock }}
 rules:
   - apiGroups:
@@ -71,15 +71,15 @@ rules:
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-enterprise-appdb
+  name: {{$.Values.operator.baseName}}-appdb
   {{ $namespaceBlock }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: mongodb-enterprise-appdb
+  name: {{$.Values.operator.baseName}}-appdb
 subjects:
   - kind: ServiceAccount
-    name: mongodb-enterprise-appdb
+    name: {{$.Values.operator.baseName}}-appdb
     {{ $namespaceBlock }}
 
 {{- end }}

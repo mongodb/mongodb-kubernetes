@@ -1,4 +1,4 @@
-{{ $ns :=  include "mongodb-enterprise-operator.namespace" .  -}}
+{{ $ns :=  include "mongodb-kubernetes-operator.namespace" .  -}}
 
 ---
 apiVersion: apps/v1

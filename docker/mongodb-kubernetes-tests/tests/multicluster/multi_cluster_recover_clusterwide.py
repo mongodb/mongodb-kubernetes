@@ -171,9 +171,9 @@ def test_delete_cluster_role_and_binding(
     member_cluster_clients: List[MultiClusterClient],
 ):
     role_names = [
-        "mongodb-enterprise-operator-multi-cluster-role",
-        "mongodb-enterprise-operator-multi-cluster",
-        "mongodb-enterprise-operator-multi-cluster-role-binding",
+        "mongodb-kubernetes-operator-multi-cluster-role",
+        "mongodb-kubernetes-operator-multi-cluster",
+        "mongodb-kubernetes-operator-multi-cluster-role-binding",
     ]
 
     for name in role_names:
@@ -326,7 +326,7 @@ def test_recover_operator_remove_cluster(
     mdbb_ns: str,
     central_cluster_client: kubernetes.client.ApiClient,
 ):
-    return_code = run_multi_cluster_recovery_tool(member_cluster_names[:-1], namespace, namespace, True)
+    return_code = run_multi_cluster_recovery_tool(member_cluster_names[:-1], namespace, mdba_ns, True)
     assert return_code == 0
     operator = Operator(
         name=MULTI_CLUSTER_OPERATOR_NAME,
@@ -355,5 +355,4 @@ def test_mongodb_multi_nsb_recovers_removing_cluster(mongodb_multi_b: MongoDBMul
     mongodb_multi_b["metadata"]["annotations"]["failedClusters"] = None
     mongodb_multi_b["spec"]["clusterSpecList"].pop()
     mongodb_multi_b.update()
-
     mongodb_multi_b.assert_reaches_phase(Phase.Running, timeout=1500)
