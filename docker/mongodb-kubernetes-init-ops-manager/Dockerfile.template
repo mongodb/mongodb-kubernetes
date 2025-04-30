@@ -6,7 +6,7 @@ FROM {{ base_image }}
 LABEL name="MongoDB Kubernetes Ops Manager Init" \
       maintainer="support@mongodb.com" \
       vendor="MongoDB" \
-      version="mongodb-enterprise-init-ops-manager-{{version}}" \
+      version="mongodb-kubernetes-init-ops-manager-{{version}}" \
       release="1" \
       summary="MongoDB Kubernetes Ops Manager Init Image" \
       description="Startup Scripts for MongoDB Enterprise Ops Manager"

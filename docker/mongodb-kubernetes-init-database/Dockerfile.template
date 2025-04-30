@@ -7,12 +7,12 @@ ARG version
 
 {%- if is_appdb %}
 LABEL name="MongoDB Kubernetes Init AppDB" \
-      version="mongodb-enterprise-init-appdb-${version}" \
+      version="mongodb-kubernetes-init-appdb-${version}" \
       summary="MongoDB Kubernetes AppDB Init Image" \
       description="Startup Scripts for MongoDB Enterprise Application Database for Ops Manager" \
 {%- else %}
 LABEL name="MongoDB Kubernetes Init Database" \
-      version="mongodb-enterprise-init-database-${version}" \
+      version="mongodb-kubernetes-init-database-${version}" \
       summary="MongoDB Kubernetes Database Init Image" \
       description="Startup Scripts for MongoDB Enterprise Database" \
 {%- endif %}
