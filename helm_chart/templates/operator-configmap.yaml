@@ -1,5 +1,5 @@
 {{ $ns :=  include "mongodb-kubernetes-operator.namespace" .  -}}
-{{- if not (lookup "v1" "ConfigMap" $ns "mongodb-enterprise-operator-member-list") }}
+{{- if not (lookup "v1" "ConfigMap" $ns "mongodb-kubernetes-operator-member-list") }}
 {{- if .Values.multiCluster.clusters }}
 ---
 apiVersion: v1
@@ -10,7 +10,7 @@ data:
   {{- end }}
 metadata:
   namespace: {{$ns}}
-  name: mongodb-enterprise-operator-member-list
+  name: mongodb-kubernetes-operator-member-list
   labels:
     multi-cluster: "true"
   # It is safer for helm to never automatically delete the configmap when rendering. Helm is not the only owner of

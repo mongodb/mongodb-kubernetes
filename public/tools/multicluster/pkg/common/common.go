@@ -61,17 +61,15 @@ type Flags struct {
 const (
 	// KubeConfigSecretName stays the same when upgrading to MCK, as we didn't want to require customers to rename their secret, so we kept the old one.
 	// -enterprise prefix
-	KubeConfigSecretName       = "mongodb-enterprise-operator-multi-cluster-kubeconfig"
-	KubeConfigSecretKey        = "kubeconfig"
-	AppdbServiceAccount        = "mongodb-kubernetes-appdb"
-	DatabasePodsServiceAccount = "mongodb-kubernetes-database-pods"
-	OpsManagerServiceAccount   = "mongodb-kubernetes-ops-manager"
-	AppdbRole                  = "mongodb-kubernetes-appdb"
-	AppdbRoleBinding           = "mongodb-kubernetes-appdb"
-	DefaultOperatorName        = "mongodb-kubernetes-operator"
-	// DefaultOperatorConfigMapName is the legacy configmap name which stays the same when upgrading to MCK, we didn't want to require customers to rename their configmap, so we kept the old one
-	// -enterprise prefix
-	DefaultOperatorConfigMapName = "mongodb-enterprise-operator-member-list"
+	KubeConfigSecretName         = "mongodb-enterprise-operator-multi-cluster-kubeconfig"
+	KubeConfigSecretKey          = "kubeconfig"
+	AppdbServiceAccount          = "mongodb-kubernetes-appdb"
+	DatabasePodsServiceAccount   = "mongodb-kubernetes-database-pods"
+	OpsManagerServiceAccount     = "mongodb-kubernetes-ops-manager"
+	AppdbRole                    = "mongodb-kubernetes-appdb"
+	AppdbRoleBinding             = "mongodb-kubernetes-appdb"
+	DefaultOperatorName          = "mongodb-kubernetes-operator"
+	DefaultOperatorConfigMapName = DefaultOperatorName + "-member-list"
 )
 
 // KubeConfigFile represents the contents of a KubeConfig file.

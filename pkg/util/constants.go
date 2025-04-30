@@ -178,7 +178,7 @@ const (
 	AutomationAgentImagePullPolicy   = "IMAGE_PULL_POLICY"
 	ImagePullSecrets                 = "IMAGE_PULL_SECRETS" //nolint
 	OmOperatorEnv                    = "OPERATOR_ENV"
-	MemberListConfigMapName          = "mongodb-enterprise-operator-member-list"
+	MemberListConfigMapName          = OperatorName + "-member-list"
 	BackupDisableWaitSecondsEnv      = "BACKUP_WAIT_SEC"
 	BackupDisableWaitRetriesEnv      = "BACKUP_WAIT_RETRIES"
 	ManagedSecurityContextEnv        = "MANAGED_SECURITY_CONTEXT"
