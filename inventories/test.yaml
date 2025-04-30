@@ -11,7 +11,15 @@ images:
     buildargs:
       PYTHON_VERSION: $(inputs.params.python_version)
     output:
-    - registry: $(inputs.params.registry)/mongodb-kubernetes-tests
-      tag: latest
-    - registry: $(inputs.params.registry)/mongodb-kubernetes-tests
+    - registry: $(inputs.params.registry)/mongodb-enterprise-tests
       tag: $(inputs.params.version_id)
+
+  - name: master-latest
+    task_type: tag_image
+    tags: [ "master" ]
+    source:
+      registry: $(inputs.params.registry)/mongodb-enterprise-tests
+      tag: $(inputs.params.version_id)
+    destination:
+      - registry: $(inputs.params.registry)/mongodb-enterprise-tests
+        tag: latest
