@@ -1,3 +1,18 @@
+The MongoDB Kubernetes Controller is dual-licensed, meaning that a different license applies depending on your use case:
+
+Apache 2.0
+To manage MongoDB Community database clusters, you can use, modify, and distribute this software under the terms of the Apache 2.0 license.
+
+Please refer to the license text below.
+
+Customer Agreement
+You may use and reproduce the software under the terms of the the Customer Agreement available at https://www.mongodb.com/customer-agreement either:
+(a) for evaluation and development purposes as described in the Customer Agreement; or
+(b) if you have purchased a Subscription (as defined in the Customer Agreement) from MongoDB, to manage MongoDB database clusters covered by your Subscription.
+
+For more details or to acquire a commercial license, visit https://www.mongodb.com/company/contact.
+
+
    Copyright 2025 MongoDB, Inc.
 
    Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,3 +26,4 @@
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+
