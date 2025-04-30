@@ -61,7 +61,7 @@ config:
           - job_name: "prometheus"
             scrape_interval: 300s
             static_configs:
-              - targets: ["mongodb-enterprise-operator.${env:NAMESPACE}.svc.cluster.local:8080"]
+              - targets: ["mongodb-kubernetes-operator.${env:NAMESPACE}.svc.cluster.local:8080"]
           - bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
             job_name: kubernetes-apiservers
             kubernetes_sd_configs:

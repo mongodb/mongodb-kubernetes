@@ -1,6 +1,6 @@
 {{ if .Values.operator.createResourcesServiceAccountsAndRoles }}
 
-{{- $watchNamespace := include "mongodb-enterprise-operator.namespace" . | list }}
+{{- $watchNamespace := include "mongodb-kubernetes-operator.namespace" . | list }}
 {{- if .Values.operator.watchNamespace }}
 {{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 }}
 {{- end }}
@@ -10,7 +10,7 @@
 
 {{- $namespaceBlock := printf "namespace: %s" $namespace }}
 {{- if eq $namespace "*" }}
-{{- $namespaceBlock = include "mongodb-enterprise-operator.namespace" $ | printf "namespace: %s"  }}
+{{- $namespaceBlock = include "mongodb-kubernetes-operator.namespace" $ | printf "namespace: %s"  }}
 {{- end }}
 ---
 apiVersion: v1

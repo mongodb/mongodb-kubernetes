@@ -3,7 +3,7 @@ apiVersion: v1
 kind: Service
 metadata:
   labels:
-    controller: mongodb-enterprise-operator
+    controller: mongodb-kubernetes-operator
   name: test-tls-base-rs-external-access-svc-external
 spec:
   ports:
@@ -13,5 +13,5 @@ spec:
       targetPort: 27017
   type: NodePort
   selector:
-    controller: mongodb-enterprise-operator
+    controller: mongodb-kubernetes-operator
     statefulset.kubernetes.io/pod-name: <mongodb-name>-0

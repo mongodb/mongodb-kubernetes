@@ -1,8 +1,8 @@
 {{ if .Values.operator.createOperatorServiceAccount }}
-{{- $watchNamespace := include "mongodb-enterprise-operator.namespace" . | list }}
+{{- $watchNamespace := include "mongodb-kubernetes-operator.namespace" . | list }}
 {{- if .Values.operator.watchNamespace }}
 {{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 }}
-{{- $watchNamespace = concat $watchNamespace (include "mongodb-enterprise-operator.namespace" . | list) | uniq }}
+{{- $watchNamespace = concat $watchNamespace (include "mongodb-kubernetes-operator.namespace" . | list) | uniq }}
 {{- end }}
 
 {{- $roleScope := "Role" -}}
@@ -15,7 +15,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: {{ .Values.operator.name }}
 {{- if eq $roleScope "Role" }}
-  namespace: {{ include "mongodb-enterprise-operator.namespace" . }}
+  namespace: {{ include "mongodb-kubernetes-operator.namespace" . }}
 {{- end }}
 rules:
   - apiGroups:
@@ -136,7 +136,7 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: {{ $.Values.operator.name }}
-    namespace: {{ include "mongodb-enterprise-operator.namespace" $ }}
+    namespace: {{ include "mongodb-kubernetes-operator.namespace" $ }}
 {{- end }}
 
 {{- end }}
@@ -144,11 +144,11 @@ subjects:
 
 {{/* This cluster role and binding is necessary to allow the operator to automatically register ValidatingWebhookConfiguration. */}}
 {{- if and .Values.operator.webhook.registerConfiguration .Values.operator.webhook.installClusterRole }}
-{{- if not (lookup "rbac.authorization.k8s.io/v1" "ClusterRole" "" "mongodb-enterprise-operator-mongodb-webhook") }}
+{{- if not (lookup "rbac.authorization.k8s.io/v1" "ClusterRole" "" "mongodb-kubernetes-operator-mongodb-webhook") }}
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-enterprise-operator-mongodb-webhook
+  name: mongodb-kubernetes-operator-mongodb-webhook
 rules:
   - apiGroups:
       - "admissionregistration.k8s.io"
@@ -176,15 +176,15 @@ rules:
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: {{ .Values.operator.name }}-{{ include "mongodb-enterprise-operator.namespace" . }}-webhook-binding
+  name: {{ .Values.operator.name }}-{{ include "mongodb-kubernetes-operator.namespace" . }}-webhook-binding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: mongodb-enterprise-operator-mongodb-webhook
+  name: mongodb-kubernetes-operator-mongodb-webhook
 subjects:
   - kind: ServiceAccount
     name: {{ .Values.operator.name }}
-    namespace: {{ include "mongodb-enterprise-operator.namespace" . }}
+    namespace: {{ include "mongodb-kubernetes-operator.namespace" . }}
 
 {{- end }}
 
@@ -228,7 +228,7 @@ rules:
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: {{ .Values.operator.name }}-{{ include "mongodb-enterprise-operator.namespace" . }}-cluster-telemetry-binding
+  name: {{ .Values.operator.name }}-{{ include "mongodb-kubernetes-operator.namespace" . }}-cluster-telemetry-binding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -236,5 +236,5 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: {{ .Values.operator.name }}
-    namespace: {{ include "mongodb-enterprise-operator.namespace" . }}
+    namespace: {{ include "mongodb-kubernetes-operator.namespace" . }}
 {{- end }}

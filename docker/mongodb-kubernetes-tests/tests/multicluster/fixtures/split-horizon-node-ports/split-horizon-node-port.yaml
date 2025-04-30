@@ -4,13 +4,13 @@ kind: Service
 metadata:
   name: my-service
   labels:
-    controller: mongodb-enterprise-operator
+    controller: mongodb-kubernetes-operator
     mongodbmulticluster: <NAMESPACE>-multi-cluster-replica-set
     statefulset.kubernetes.io/pod-name: multi-cluster-replica-set-0-0
 spec:
   type: NodePort
   selector:
-    controller: mongodb-enterprise-operator
+    controller: mongodb-kubernetes-operator
     statefulset.kubernetes.io/pod-name: multi-cluster-replica-set-0-0
   ports:
     - port: 30100

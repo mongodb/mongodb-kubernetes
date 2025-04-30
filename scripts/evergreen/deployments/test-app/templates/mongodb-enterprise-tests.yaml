@@ -29,7 +29,7 @@ subjects:
 apiVersion: v1
 kind: Pod
 metadata:
-  name: mongodb-enterprise-operator-tests
+  name: mongodb-kubernetes-operator-tests
   namespace: {{ .Values.namespace }}
   labels:
     role: operator-tests
@@ -61,7 +61,7 @@ spec:
         mountPath: /tmp/results
       - name: diagnostics
         mountPath: /tmp/diagnostics
-  - name: mongodb-enterprise-operator-tests
+  - name: mongodb-kubernetes-operator-tests
     env:
     # OTEL env vars can either be used to construct custom spans or are used by pytest opentelemetry dynamic instrumentation
     {{ if .Values.otel_trace_id }}
@@ -112,7 +112,7 @@ spec:
     - name: PYTHONWARNINGS
       value: 'ignore:yaml.YAMLLoadWarning,ignore:urllib3.InsecureRequestWarning'
     - name: POD_NAME
-      value: 'mongodb-enterprise-operator-testing-pod'
+      value: 'mongodb-kubernetes-operator-testing-pod'
     - name: VERSION_ID
       value: {{ .Values.tag }}
     - name: REGISTRY

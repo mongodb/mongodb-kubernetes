@@ -3,7 +3,7 @@
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-enterprise-operator-mongodb-webhook
+  name: mongodb-kubernetes-operator-mongodb-webhook
 rules:
   - apiGroups:
       - "admissionregistration.k8s.io"
@@ -31,7 +31,7 @@ rules:
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-enterprise-operator-cluster-telemetry
+  name: mongodb-kubernetes-operator-cluster-telemetry
 rules:
   # Non-resource URL permissions
   - nonResourceURLs:
@@ -58,14 +58,14 @@ rules:
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-enterprise-operator-mongodb-webhook-binding
+  name: mongodb-kubernetes-operator-mongodb-webhook-binding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: mongodb-enterprise-operator-mongodb-webhook
+  name: mongodb-kubernetes-operator-mongodb-webhook
 subjects:
   - kind: ServiceAccount
-    name: mongodb-enterprise-operator
+    name: mongodb-kubernetes-operator
     namespace: mongodb
 ---
 # Source: mongodb-kubernetes/templates/operator-roles.yaml
@@ -73,21 +73,21 @@ subjects:
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-enterprise-operator-mongodb-cluster-telemetry-binding
+  name: mongodb-kubernetes-operator-mongodb-cluster-telemetry-binding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: mongodb-enterprise-operator-cluster-telemetry
+  name: mongodb-kubernetes-operator-cluster-telemetry
 subjects:
   - kind: ServiceAccount
-    name: mongodb-enterprise-operator
+    name: mongodb-kubernetes-operator
     namespace: mongodb
 ---
 # Source: mongodb-kubernetes/templates/operator-roles.yaml
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-enterprise-operator
+  name: mongodb-kubernetes-operator
   namespace: mongodb
 rules:
   - apiGroups:
@@ -177,15 +177,15 @@ rules:
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-enterprise-operator
+  name: mongodb-kubernetes-operator
   namespace: mongodb
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: mongodb-enterprise-operator
+  name: mongodb-kubernetes-operator
 subjects:
   - kind: ServiceAccount
-    name: mongodb-enterprise-operator
+    name: mongodb-kubernetes-operator
     namespace: mongodb
 ---
 # Source: mongodb-kubernetes/templates/database-roles.yaml
@@ -250,32 +250,32 @@ subjects:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: mongodb-enterprise-operator
+  name: mongodb-kubernetes-operator
   namespace: mongodb
 ---
 # Source: mongodb-kubernetes/templates/operator.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: mongodb-enterprise-operator
+  name: mongodb-kubernetes-operator
   namespace: mongodb
 spec:
   replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/component: controller
-      app.kubernetes.io/name: mongodb-enterprise-operator
-      app.kubernetes.io/instance: mongodb-enterprise-operator
+      app.kubernetes.io/name: mongodb-kubernetes-operator
+      app.kubernetes.io/instance: mongodb-kubernetes-operator
   template:
     metadata:
       labels:
         app.kubernetes.io/component: controller
-        app.kubernetes.io/name: mongodb-enterprise-operator
-        app.kubernetes.io/instance: mongodb-enterprise-operator
+        app.kubernetes.io/name: mongodb-kubernetes-operator
+        app.kubernetes.io/instance: mongodb-kubernetes-operator
     spec:
-      serviceAccountName: mongodb-enterprise-operator
+      serviceAccountName: mongodb-kubernetes-operator
       containers:
-        - name: mongodb-enterprise-operator
+        - name: mongodb-kubernetes-operator
           image: "quay.io/mongodb/mongodb-kubernetes:0.1.0"
           imagePullPolicy: Always
           args:
@@ -356,7 +356,7 @@ spec:
                 fieldRef:
                   fieldPath: metadata.name
             - name: OPERATOR_NAME
-              value: mongodb-enterprise-operator
+              value: mongodb-kubernetes-operator
             # Community Env Vars Start
             - name: MDB_COMMUNITY_AGENT_IMAGE
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.2.8729-1"

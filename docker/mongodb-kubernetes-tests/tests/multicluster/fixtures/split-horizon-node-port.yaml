@@ -4,11 +4,11 @@ kind: Service
 metadata:
   name: my-service
   labels:
-    controller: mongodb-enterprise-operator
+    controller: mongodb-kubernetes-operator
 spec:
   type: NodePort
   selector:
-    controller: mongodb-enterprise-operator
+    controller: mongodb-kubernetes-operator
   ports:
     - port: 27017
       targetPort: 27017
