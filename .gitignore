@@ -7,7 +7,7 @@ public/tools/multicluster/vendor
 docker/mongodb-kubernetes-operator/content/mongodb-kubernetes-operator
 docker/mongodb-kubernetes-database/content/mongodb-mms-automation-agent-version.properties
 docker/mongodb-kubernetes-database/content/readinessprobe
-docker/mongodb-kubernetes-ops-manager/scripts/mmsconfiguration
+cdocker/mongodb-enterprise-ops-manager/scripts/mmsconfiguration
 docker/mongodb-kubernetes-tests/public
 
 my-*
