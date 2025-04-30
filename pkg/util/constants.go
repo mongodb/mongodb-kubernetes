@@ -27,6 +27,8 @@ const (
 	// MongoDbOpsManagerController name of the OpsManager controller
 	MongoDbOpsManagerController = "opsmanager-controller"
 
+	MongoDbCustomRoleController = "mongodbcustomrole-controller"
+
 	// Ops manager config map and secret variables
 	OmBaseUrl         = "baseUrl"
 	OmOrgId           = "orgId"
@@ -301,7 +303,9 @@ const (
 
 	MdbAppdbAssumeOldFormat = "MDB_APPDB_ASSUME_OLD_FORMAT"
 
-	Finalizer = "mongodb.com/v1.userRemovalFinalizer"
+	UserFinalizer = "mongodb.com/v1.userRemovalFinalizer"
+
+	RoleFinalizer = "mongodb.com/v1.customRoleRemovalFinalizer"
 )
 
 type OperatorEnvironment string

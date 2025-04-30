@@ -402,7 +402,7 @@ func TestFinalizerIsAdded_WhenUserIsCreated(t *testing.T) {
 
 	_ = client.Get(ctx, kube.ObjectKey(user.Namespace, user.Name), user)
 
-	assert.Contains(t, user.GetFinalizers(), util.Finalizer)
+	assert.Contains(t, user.GetFinalizers(), util.UserFinalizer)
 }
 
 func TestUserReconciler_SavesConnectionStringForMultiShardedCluster(t *testing.T) {
