@@ -8,13 +8,13 @@ FROM ${imagebase} as base
 FROM {{ base_image }}
 
 {% block labels %}
-LABEL name="MongoDB Enterprise Operator" \
+LABEL name="MongoDB Kubernetes Operator" \
       maintainer="support@mongodb.com" \
       vendor="MongoDB" \
       version="{{ version }}" \
       release="1" \
-      summary="MongoDB Enterprise Operator Image" \
-      description="MongoDB Enterprise Operator Image"
+      summary="MongoDB Kubernetes Operator Image" \
+      description="MongoDB Kubernetes Operator Image"
 {% endblock %}
 
 {% block packages -%}
