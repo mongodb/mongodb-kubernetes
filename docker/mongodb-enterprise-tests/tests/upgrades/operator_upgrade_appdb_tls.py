@@ -7,6 +7,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 from tests.conftest import (
     create_appdb_certs,
+    get_default_operator,
     install_official_operator,
     is_multi_cluster,
 )
@@ -110,8 +111,11 @@ def test_create_om_non_tls(ops_manager_non_tls: MongoDBOpsManager):
 
 
 @mark.e2e_operator_upgrade_appdb_tls
-def test_upgrade_operator(default_operator: Operator):
-    default_operator.assert_is_running()
+def test_upgrade_operator(namespace: str, operator_installation_config: dict[str, str]):
+    operator = get_default_operator(
+        namespace, operator_installation_config=operator_installation_config, apply_crds_first=True
+    )
+    operator.assert_is_running()
 
 
 @mark.e2e_operator_upgrade_appdb_tls

@@ -88,7 +88,7 @@ def get_version_id():
 
 
 @fixture(scope="module")
-def operator_installation_config(namespace: str) -> Dict[str, str]:
+def operator_installation_config(namespace: str) -> dict[str, str]:
     return get_operator_installation_config(namespace)
 
 
@@ -107,7 +107,7 @@ def get_operator_installation_config(namespace):
 
 
 @fixture(scope="module")
-def monitored_appdb_operator_installation_config(operator_installation_config: Dict[str, str]) -> Dict[str, str]:
+def monitored_appdb_operator_installation_config(operator_installation_config: dict[str, str]) -> dict[str, str]:
     """Returns the ConfigMap containing configuration data for the Operator to be created
     and for the AppDB to be monitored.
     Created in the single_e2e.sh"""
@@ -116,7 +116,7 @@ def monitored_appdb_operator_installation_config(operator_installation_config: D
     return config
 
 
-def get_multi_cluster_operator_installation_config(namespace: str) -> Dict[str, str]:
+def get_multi_cluster_operator_installation_config(namespace: str) -> dict[str, str]:
     """Returns the ConfigMap containing configuration data for the Operator to be created.
     Created in the single_e2e.sh"""
     config = KubernetesTester.read_configmap(
@@ -131,7 +131,7 @@ def get_multi_cluster_operator_installation_config(namespace: str) -> Dict[str, 
 @fixture(scope="module")
 def multi_cluster_operator_installation_config(
     central_cluster_client: kubernetes.client.ApiClient, namespace: str
-) -> Dict[str, str]:
+) -> dict[str, str]:
     return get_multi_cluster_operator_installation_config(namespace)
 
 
@@ -140,7 +140,7 @@ def multi_cluster_monitored_appdb_operator_installation_config(
     central_cluster_client: kubernetes.client.ApiClient,
     namespace: str,
     multi_cluster_operator_installation_config: dict[str, str],
-) -> Dict[str, str]:
+) -> dict[str, str]:
     multi_cluster_operator_installation_config["customEnvVars"] = f"OPS_MANAGER_MONITOR_APPDB=true"
     return multi_cluster_operator_installation_config
 
@@ -148,7 +148,7 @@ def multi_cluster_monitored_appdb_operator_installation_config(
 @fixture(scope="module")
 def operator_clusterwide(
     namespace: str,
-    operator_installation_config: Dict[str, str],
+    operator_installation_config: dict[str, str],
 ) -> Operator:
     return get_operator_clusterwide(namespace, operator_installation_config)
 
@@ -162,7 +162,7 @@ def get_operator_clusterwide(namespace, operator_installation_config):
 @fixture(scope="module")
 def operator_vault_secret_backend(
     namespace: str,
-    monitored_appdb_operator_installation_config: Dict[str, str],
+    monitored_appdb_operator_installation_config: dict[str, str],
 ) -> Operator:
     helm_args = monitored_appdb_operator_installation_config.copy()
     helm_args["operator.vaultSecretBackend.enabled"] = "true"
@@ -172,7 +172,7 @@ def operator_vault_secret_backend(
 @fixture(scope="module")
 def operator_vault_secret_backend_tls(
     namespace: str,
-    monitored_appdb_operator_installation_config: Dict[str, str],
+    monitored_appdb_operator_installation_config: dict[str, str],
 ) -> Operator:
     helm_args = monitored_appdb_operator_installation_config.copy()
     helm_args["operator.vaultSecretBackend.enabled"] = "true"
@@ -181,7 +181,7 @@ def operator_vault_secret_backend_tls(
 
 
 @fixture(scope="module")
-def operator_installation_config_quick_recovery(operator_installation_config: Dict[str, str]) -> Dict[str, str]:
+def operator_installation_config_quick_recovery(operator_installation_config: dict[str, str]) -> dict[str, str]:
     """
     This functions appends automatic recovery settings for CLOUDP-189433. In order to make the test runnable in
     reasonable time, we override the Recovery back off to 120 seconds. This gives enough time for the initial
@@ -461,9 +461,9 @@ def get_custom_om_version():
 @fixture(scope="module")
 def default_operator(
     namespace: str,
-    operator_installation_config: Dict[str, str],
+    operator_installation_config: dict[str, str],
     central_cluster_name: str,
-    multi_cluster_operator_installation_config: Dict[str, str],
+    multi_cluster_operator_installation_config: dict[str, str],
     central_cluster_client: client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
     member_cluster_names: List[str],
@@ -491,8 +491,7 @@ def community_operator(namespace: str) -> Operator:
 
 
 def get_default_operator(
-    namespace: str,
-    operator_installation_config: Dict[str, str],
+    namespace: str, operator_installation_config: dict[str, str], apply_crds_first: bool = False
 ) -> Operator:
     """Installs/upgrades a default Operator used by any test not interested in some custom Operator setting.
     TODO we use the helm template | kubectl apply -f process so far as Helm install/upgrade needs more refactoring in
@@ -500,7 +499,7 @@ def get_default_operator(
     operator = Operator(
         namespace=namespace,
         helm_args=operator_installation_config,
-    ).upgrade()
+    ).upgrade(apply_crds_first=apply_crds_first)
 
     return operator
 
@@ -508,7 +507,7 @@ def get_default_operator(
 @fixture(scope="module")
 def operator_with_monitored_appdb(
     namespace: str,
-    monitored_appdb_operator_installation_config: Dict[str, str],
+    monitored_appdb_operator_installation_config: dict[str, str],
 ) -> Operator:
     """Installs/upgrades a default Operator used by any test that needs the AppDB monitoring enabled."""
     return Operator(
@@ -619,7 +618,7 @@ def member_cluster_clients() -> List[MultiClusterClient]:
 def multi_cluster_operator(
     namespace: str,
     central_cluster_name: str,
-    multi_cluster_operator_installation_config: Dict[str, str],
+    multi_cluster_operator_installation_config: dict[str, str],
     central_cluster_client: client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
     member_cluster_names: List[str],
@@ -637,10 +636,11 @@ def multi_cluster_operator(
 def get_multi_cluster_operator(
     namespace: str,
     central_cluster_name: str,
-    multi_cluster_operator_installation_config: Dict[str, str],
+    multi_cluster_operator_installation_config: dict[str, str],
     central_cluster_client: client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
     member_cluster_names: List[str],
+    apply_crds_first: bool = False,
 ) -> Operator:
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
 
@@ -658,6 +658,7 @@ def get_multi_cluster_operator(
             "operator.createOperatorServiceAccount": "false",
         },
         central_cluster_name,
+        apply_crds_first=apply_crds_first,
     )
 
 
@@ -665,7 +666,7 @@ def get_multi_cluster_operator(
 def multi_cluster_operator_with_monitored_appdb(
     namespace: str,
     central_cluster_name: str,
-    multi_cluster_monitored_appdb_operator_installation_config: Dict[str, str],
+    multi_cluster_monitored_appdb_operator_installation_config: dict[str, str],
     central_cluster_client: client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
     member_cluster_names: List[str],
@@ -694,7 +695,7 @@ def multi_cluster_operator_with_monitored_appdb(
 def multi_cluster_operator_manual_remediation(
     namespace: str,
     central_cluster_name: str,
-    multi_cluster_operator_installation_config: Dict[str, str],
+    multi_cluster_operator_installation_config: dict[str, str],
     central_cluster_client: client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
     member_cluster_names: List[str],
@@ -745,7 +746,7 @@ def get_multi_cluster_operator_clustermode(namespace: str) -> Operator:
 def multi_cluster_operator_clustermode(
     namespace: str,
     central_cluster_name: str,
-    multi_cluster_operator_installation_config: Dict[str, str],
+    multi_cluster_operator_installation_config: dict[str, str],
     central_cluster_client: client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
     member_cluster_names: List[str],
@@ -758,7 +759,7 @@ def multi_cluster_operator_clustermode(
 def install_multi_cluster_operator_set_members_fn(
     namespace: str,
     central_cluster_name: str,
-    multi_cluster_operator_installation_config: Dict[str, str],
+    multi_cluster_operator_installation_config: dict[str, str],
     central_cluster_client: client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
 ) -> Callable[[List[str]], Operator]:
@@ -784,14 +785,15 @@ def install_multi_cluster_operator_set_members_fn(
 
 def _install_multi_cluster_operator(
     namespace: str,
-    multi_cluster_operator_installation_config: Dict[str, str],
+    multi_cluster_operator_installation_config: dict[str, str],
     central_cluster_client: client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
-    helm_opts: Dict[str, str],
+    helm_opts: dict[str, str],
     central_cluster_name: str,
     operator_name: Optional[str] = MULTI_CLUSTER_OPERATOR_NAME,
     helm_chart_path: Optional[str] = "helm_chart",
     custom_operator_version: Optional[str] = None,
+    apply_crds_first: bool = False,
 ) -> Operator:
     prepare_multi_cluster_namespaces(
         namespace,
@@ -808,7 +810,7 @@ def _install_multi_cluster_operator(
         helm_args=multi_cluster_operator_installation_config,
         api_client=central_cluster_client,
         helm_chart_path=helm_chart_path,
-    ).upgrade(multi_cluster=True, custom_operator_version=custom_operator_version)
+    ).upgrade(multi_cluster=True, custom_operator_version=custom_operator_version, apply_crds_first=apply_crds_first)
 
     # If we're running locally, then immediately after installing the deployment, we scale it to zero.
     # This way operator in POD is not interfering with locally running one.
@@ -826,7 +828,7 @@ def _install_multi_cluster_operator(
 def official_operator(
     namespace: str,
     managed_security_context: str,
-    operator_installation_config: Dict[str, str],
+    operator_installation_config: dict[str, str],
     central_cluster_name: str,
     central_cluster_client: client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
@@ -847,7 +849,7 @@ def official_operator(
 def install_official_operator(
     namespace: str,
     managed_security_context: str,
-    operator_installation_config: Dict[str, str],
+    operator_installation_config: dict[str, str],
     central_cluster_name: Optional[str],
     central_cluster_client: Optional[client.ApiClient],
     member_cluster_clients: Optional[List[MultiClusterClient]],
@@ -950,7 +952,7 @@ def log_deployment_and_images(deployments):
 
 # Extract container images and deployments names from the nested dict returned by kubetester
 # Handles any missing key gracefully
-def extract_container_images_and_deployments(deployments) -> (Dict[str, str], List[str]):
+def extract_container_images_and_deployments(deployments) -> (dict[str, str], List[str]):
     deployment_images = {}
     deployment_names = []
     deployments = deployments.to_dict()
@@ -1232,7 +1234,7 @@ def get_api_servers_from_kubeconfig_secret(
     return get_api_servers_from_pod_kubeconfig(kubeconfig_secret["kubeconfig"], cluster_clients)
 
 
-def get_api_servers_from_test_pod_kubeconfig(namespace: str, member_cluster_names: List[str]) -> Dict[str, str]:
+def get_api_servers_from_test_pod_kubeconfig(namespace: str, member_cluster_names: List[str]) -> dict[str, str]:
     test_pod_cluster = get_test_pod_cluster_name()
     cluster_clients = get_clients_for_clusters(member_cluster_names)
 

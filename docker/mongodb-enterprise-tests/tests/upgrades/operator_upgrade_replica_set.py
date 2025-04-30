@@ -7,6 +7,7 @@ from kubetester.mongodb import Phase
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.operator import Operator
 from pytest import fixture
+from tests.conftest import get_default_operator
 
 RS_NAME = "my-replica-set"
 USER_PASSWORD = "/qwerty@!#:"
@@ -91,8 +92,11 @@ def test_replicaset_user_created(replica_set_user: MongoDBUser):
 
 
 @pytest.mark.e2e_operator_upgrade_replica_set
-def test_upgrade_operator(default_operator: Operator):
-    default_operator.assert_is_running()
+def test_upgrade_operator(namespace: str, operator_installation_config: dict[str, str]):
+    operator = get_default_operator(
+        namespace, operator_installation_config=operator_installation_config, apply_crds_first=True
+    )
+    operator.assert_is_running()
 
 
 @pytest.mark.e2e_operator_upgrade_replica_set

@@ -9,6 +9,7 @@ from kubetester.mongotester import MongoDBBackgroundTester
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
+from tests.conftest import get_default_operator, operator_installation_config
 
 
 @fixture(scope="module")
@@ -142,8 +143,11 @@ def test_mdb_created(some_mdb: MongoDB):
 
 
 @mark.e2e_operator_upgrade_ops_manager
-def test_upgrade_operator(default_operator: Operator):
-    default_operator.assert_is_running()
+def test_upgrade_operator(namespace: str, operator_installation_config: dict[str, str]):
+    operator = get_default_operator(
+        namespace, operator_installation_config=operator_installation_config, apply_crds_first=True
+    )
+    operator.assert_is_running()
 
 
 @mark.e2e_operator_upgrade_ops_manager
