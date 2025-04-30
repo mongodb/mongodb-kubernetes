@@ -50,7 +50,7 @@
     },
     "mongodb-kubernetes": {
       "Description": "We support 3 last versions, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
-      "ssdlc_name": "MongoDB Enterprise Kubernetes Operator",
+      "ssdlc_name": "MongoDB Kubernetes Kubernetes Operator",
       "versions": [
         "0.1.0"
       ],
@@ -81,7 +81,7 @@
     },
     "mongodb-agent": {
       "Description": "Agents corresponding to OpsManager 5.x and 6.x series",
-      "ssdlc_name": "MongoDB Enterprise Kubernetes Operator MongoDB Agent",
+      "ssdlc_name": "MongoDB Kubernetes Kubernetes Operator MongoDB Agent",
       "Description for specific versions": {
         "11.0.5.6963-1": "An upgraded version for OM 5.0 we use for Operator-only deployments",
         "12.0.28.7763-1": "OM 6 basic version"
@@ -138,7 +138,7 @@
     },
     "init-ops-manager": {
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
-      "ssdlc_name": "MongoDB Enterprise Kubernetes Operator Init Ops Manager",
+      "ssdlc_name": "MongoDB Kubernetes Kubernetes Operator Init Ops Manager",
       "versions": [
         "0.1.0"
       ],
@@ -148,7 +148,7 @@
     },
     "init-database": {
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
-      "ssdlc_name": "MongoDB Enterprise Kubernetes Operator Init Database",
+      "ssdlc_name": "MongoDB Kubernetes Kubernetes Operator Init Database",
       "versions": [
         "0.1.0"
       ],
@@ -158,7 +158,7 @@
     },
     "init-appdb": {
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
-      "ssdlc_name": "MongoDB Enterprise Kubernetes Operator Init AppDB",
+      "ssdlc_name": "MongoDB Kubernetes Kubernetes Operator Init AppDB",
       "versions": [
         "0.1.0"
       ],
@@ -168,7 +168,7 @@
     },
     "database": {
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
-      "ssdlc_name": "MongoDB Enterprise Kubernetes Operator Database",
+      "ssdlc_name": "MongoDB Kubernetes Kubernetes Operator Database",
       "versions": [
         "0.1.0"
       ],

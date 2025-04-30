@@ -449,10 +449,10 @@ def build_tests_image(build_configuration: BuildConfiguration):
 
     # helm directory needs to be copied over to the tests docker context.
     helm_src = "helm_chart"
-    helm_dest = "docker/mongodb-enterprise-tests/helm_chart"
-    requirements_dest = "docker/mongodb-enterprise-tests/requirements.txt"
+    helm_dest = "docker/mongodb-kubernetes-tests/helm_chart"
+    requirements_dest = "docker/mongodb-kubernetes-tests/requirements.txt"
     public_src = "public"
-    public_dest = "docker/mongodb-enterprise-tests/public"
+    public_dest = "docker/mongodb-kubernetes-tests/public"
 
     # Remove existing directories/files if they exist
     shutil.rmtree(helm_dest, ignore_errors=True)
@@ -461,7 +461,7 @@ def build_tests_image(build_configuration: BuildConfiguration):
     # Copy directories and files (recursive copy)
     shutil.copytree(helm_src, helm_dest)
     shutil.copytree(public_src, public_dest)
-    shutil.copyfile("release.json", "docker/mongodb-enterprise-tests/release.json")
+    shutil.copyfile("release.json", "docker/mongodb-kubernetes-tests/release.json")
     shutil.copyfile("requirements.txt", requirements_dest)
 
     python_version = os.getenv("PYTHON_VERSION", "")
@@ -591,7 +591,7 @@ def build_operator_image_patch(build_configuration: BuildConfiguration):
 
     copy_into_container(
         client,
-        os.getcwd() + "/docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator",
+        os.getcwd() + "/docker/mongodb-kubernetes-operator/content/mongodb-enterprise-operator",
         container_name + ":" + operator_binary_location,
     )
 

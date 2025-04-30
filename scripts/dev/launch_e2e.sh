@@ -36,7 +36,7 @@ if [[ -n "${local:-}" ]]; then
 
     prepare_operator_config_map "${operator_context}"
 
-    pytest -m "${test}" docker/mongodb-enterprise-tests --disable-pytest-warnings
+    pytest -m "${test}" docker/mongodb-kubernetes-tests --disable-pytest-warnings
 
 else
     TASK_NAME=${test} \

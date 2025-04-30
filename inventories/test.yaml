@@ -1,7 +1,7 @@
 images:
 - name: test
   vars:
-    context: docker/mongodb-enterprise-tests
+    context: docker/mongodb-kubernetes-tests
   platform: linux/amd64
 
   stages:

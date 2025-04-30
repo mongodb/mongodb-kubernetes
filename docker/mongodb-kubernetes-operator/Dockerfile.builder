@@ -1,7 +1,7 @@
 #
 # Dockerfile for Operator.
 # to be called from git root
-# docker build . -f docker/mongodb-enterprise-operator/Dockerfile.builder
+# docker build . -f docker/mongodb-kubernetes-operator/Dockerfile.builder
 #
 
 FROM public.ecr.aws/docker/library/golang:1.24 as builder
@@ -48,4 +48,4 @@ FROM scratch
 COPY --from=builder /build/mongodb-enterprise-operator /data/
 COPY --from=builder /data/om_version_mapping.json /data/om_version_mapping.json
 
-ADD docker/mongodb-enterprise-operator/licenses /data/licenses/
+ADD docker/mongodb-kubernetes-operator/licenses /data/licenses/

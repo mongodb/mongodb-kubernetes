@@ -21,7 +21,7 @@ export TEST_POD_CLUSTER="${CLUSTER_NAME}"
 export CENTRAL_CLUSTER="${CLUSTER_NAME}"
 export MULTI_CLUSTER_CREATE_SERVICE_ACCOUNT_TOKEN_SECRETS=true
 export MULTI_CLUSTER_CONFIG_DIR=${PROJECT_DIR}/.multi_cluster_local_test_files
-export MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH=${PROJECT_DIR}/docker/mongodb-enterprise-tests/multi-cluster-kube-config-creator
+export MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH=${PROJECT_DIR}/docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator
 
 # override for /etc/config/kubeconfig file mounted in operator's pod
 if [[ "${LOCAL_OPERATOR}" == "true" ]]; then
