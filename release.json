@@ -13,7 +13,8 @@
   },
   "search": {
     "community": {
-      "version": "1.47.0"
+      "version": "bd5ac935fe03426d6080bbb34ac6df5350ba3193",
+      "version_tmp_unused_for_now": "1.47.0"
     }
   },
   "supportedImages": {

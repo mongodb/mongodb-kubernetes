@@ -113,5 +113,8 @@ export MDB_COMMUNITY_IMAGE_TYPE=ubi8
 
 MDB_SEARCH_COMMUNITY_VERSION="$(jq -r '.search.community.version' release.json)"
 export MDB_SEARCH_COMMUNITY_VERSION
+
+export MDB_SEARCH_COMMUNITY_NAME="community"
+export MDB_SEARCH_COMMUNITY_REPO_URL="268558157000.dkr.ecr.eu-west-1.amazonaws.com/mongot"
 export MDB_SEARCH_COMMUNITY_NAME="mongodb-community-search"
-export MDB_SEARCH_COMMUNITY_REPO_URL="quay.io/mongodb"
+#export MDB_SEARCH_COMMUNITY_REPO_URL="quay.io/mongodb"

@@ -382,11 +382,11 @@ spec:
               value: "ubi8"
             # Community Env Vars End
             - name: MDB_SEARCH_COMMUNITY_REPO_URL
-              value: "quay.io/mongodb"
+              value: "268558157000.dkr.ecr.eu-west-1.amazonaws.com/mongot"
             - name: MDB_SEARCH_COMMUNITY_NAME
-              value: "mongodb-search-community"
+              value: "community"
             - name: MDB_SEARCH_COMMUNITY_VERSION
-              value: "1.47.0"
+              value: "bd5ac935fe03426d6080bbb34ac6df5350ba3193"
       volumes:
         - name: kube-config-volume
           secret:
