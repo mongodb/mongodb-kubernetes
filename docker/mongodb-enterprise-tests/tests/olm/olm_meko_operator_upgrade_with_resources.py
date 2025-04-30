@@ -350,7 +350,7 @@ def test_resources_in_running_state_before_upgrade(
 @pytest.mark.e2e_olm_meko_operator_upgrade_with_resources
 def test_downscale_meko(namespace: str):
     # Scale down the existing operator deployment to 0. This is needed as long as the
-    # `official_operator` fixture installs the MEKO operator.
+    # initial OLM deployment installs the MEKO operator.
     downscale_operator_deployment(deployment_name=LEGACY_OPERATOR_NAME, namespace=namespace)
 
 
