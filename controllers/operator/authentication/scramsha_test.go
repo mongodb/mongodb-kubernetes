@@ -13,7 +13,7 @@ import (
 
 func TestAgentsAuthentication(t *testing.T) {
 	type TestConfig struct {
-		mechanism AutomationConfigScramSha
+		mechanism Mechanism
 	}
 	tests := map[string]TestConfig{
 		"SCRAM-SHA-1": {

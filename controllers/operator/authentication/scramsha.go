@@ -9,9 +9,9 @@ import (
 )
 
 var (
-	MongoDBCRMechanism   = AutomationConfigScramSha{MechanismName: MongoDBCR}
-	ScramSha1Mechanism   = AutomationConfigScramSha{MechanismName: ScramSha1}
-	ScramSha256Mechanism = AutomationConfigScramSha{MechanismName: ScramSha256}
+	MongoDBCRMechanism   Mechanism = AutomationConfigScramSha{MechanismName: MongoDBCR}
+	ScramSha1Mechanism   Mechanism = AutomationConfigScramSha{MechanismName: ScramSha1}
+	ScramSha256Mechanism Mechanism = AutomationConfigScramSha{MechanismName: ScramSha256}
 )
 
 // AutomationConfigScramSha applies all the changes required to configure SCRAM-SHA authentication

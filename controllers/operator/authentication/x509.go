@@ -10,7 +10,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
-var MongoDBX509Mechanism = ConnectionX509{}
+var MongoDBX509Mechanism Mechanism = ConnectionX509{}
 
 type ConnectionX509 struct{}
 

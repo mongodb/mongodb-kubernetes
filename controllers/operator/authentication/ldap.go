@@ -9,7 +9,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
-var LDAPPlainMechanism = &ldapAuthMechanism{}
+var LDAPPlainMechanism Mechanism = &ldapAuthMechanism{}
 
 type ldapAuthMechanism struct{}
 
