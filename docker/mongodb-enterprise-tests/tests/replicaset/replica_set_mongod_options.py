@@ -1,6 +1,7 @@
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
 from pytest import fixture, mark
+from tests.conftest import OPERATOR_NAME
 
 
 @fixture(scope="module")
@@ -31,7 +32,7 @@ def test_replica_set_mongodb_options(replica_set: MongoDB):
 @mark.e2e_replica_set_mongod_options
 def test_replica_set_feature_controls(replica_set: MongoDB):
     fc = replica_set.get_om_tester().get_feature_controls()
-    assert fc["externalManagementSystem"]["name"] == "mongodb-enterprise-operator"
+    assert fc["externalManagementSystem"]["name"] == OPERATOR_NAME
 
     assert len(fc["policies"]) == 3
     # unfortunately OM uses a HashSet for policies...
@@ -77,7 +78,7 @@ def test_replica_set_mongodb_options_were_updated(replica_set: MongoDB):
 @mark.e2e_replica_set_mongod_options
 def test_replica_set_feature_controls_were_updated(replica_set: MongoDB):
     fc = replica_set.get_om_tester().get_feature_controls()
-    assert fc["externalManagementSystem"]["name"] == "mongodb-enterprise-operator"
+    assert fc["externalManagementSystem"]["name"] == OPERATOR_NAME
     assert len(fc["policies"]) == 3
     policies = sorted(fc["policies"], key=lambda policy: policy["policy"])
     assert policies[0]["policy"] == "DISABLE_SET_MONGOD_CONFIG"

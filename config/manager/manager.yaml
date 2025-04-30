@@ -3,25 +3,25 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: mongodb-enterprise-operator
+  name: mongodb-kubernetes-operator
   namespace: mongodb
 spec:
   replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/component: controller
-      app.kubernetes.io/name: mongodb-enterprise-operator
-      app.kubernetes.io/instance: mongodb-enterprise-operator
+      app.kubernetes.io/name: mongodb-kubernetes-operator
+      app.kubernetes.io/instance: mongodb-kubernetes-operator
   template:
     metadata:
       labels:
         app.kubernetes.io/component: controller
-        app.kubernetes.io/name: mongodb-enterprise-operator
-        app.kubernetes.io/instance: mongodb-enterprise-operator
+        app.kubernetes.io/name: mongodb-kubernetes-operator
+        app.kubernetes.io/instance: mongodb-kubernetes-operator
     spec:
-      serviceAccountName: mongodb-enterprise-operator
+      serviceAccountName: mongodb-kubernetes-operator
       containers:
-        - name: mongodb-enterprise-operator
+        - name: mongodb-kubernetes-operator
           image: "quay.io/mongodb/mongodb-kubernetes:0.1.0"
           imagePullPolicy: Always
           args:
@@ -104,7 +104,7 @@ spec:
                 fieldRef:
                   fieldPath: metadata.name
             - name: OPERATOR_NAME
-              value: mongodb-enterprise-operator
+              value: mongodb-kubernetes-operator
             # Community Env Vars Start
             - name: MDB_COMMUNITY_AGENT_IMAGE
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.2.8729-1"
