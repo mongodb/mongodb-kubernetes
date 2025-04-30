@@ -33,7 +33,7 @@ import (
 
 const (
 	appDBServiceAccount    = "mongodb-enterprise-appdb"
-	InitAppDbContainerName = "mongodb-kubernetes-init-appdb"
+	InitAppDbContainerName = "mongodb-enterprise-init-appdb"
 	// AppDB environment variable names
 	InitAppdbVersionEnv          = "INIT_APPDB_VERSION"
 	podNamespaceEnv              = "POD_NAMESPACE"
