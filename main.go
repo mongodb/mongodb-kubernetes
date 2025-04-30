@@ -110,7 +110,8 @@ func main() {
 			mongoDBUserCRDPlural,
 			mongoDBOpsManagerCRDPlural,
 			mongoDBCommunityCRDPlural,
-			mongoDBCustomRoleCRDPlural}
+			mongoDBCustomRoleCRDPlural,
+		}
 	}
 
 	ctx := context.Background()
@@ -243,6 +244,11 @@ func main() {
 			log.Fatal(err)
 		}
 	}
+	if slices.Contains(crds, mongoDBCustomRoleCRDPlural) {
+		if err := setupMongoDBCustomRoleCRD(ctx, mgr, memberClusterObjectsMap); err != nil {
+			log.Fatal(err)
+		}
+	}
 
 	for _, r := range crds {
 		log.Infof("Registered CRD: %s", r)
@@ -314,6 +320,10 @@ func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, image
 		return err
 	}
 	return ctrl.NewWebhookManagedBy(mgr).For(&mdbmultiv1.MongoDBMultiCluster{}).Complete()
+}
+
+func setupMongoDBCustomRoleCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {
+	return operator.AddMongoDBCustomRoleController(ctx, mgr, memberClusterObjectsMap)
 }
 
 func setupCommunityController(

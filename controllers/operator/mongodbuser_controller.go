@@ -506,7 +506,7 @@ func (r *MongoDBUserReconciler) preDeletionCleanup(ctx context.Context, user *us
 	}
 
 	if finalizerRemoved := controllerutil.RemoveFinalizer(user, util.UserFinalizer); !finalizerRemoved {
-		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to remove finalizer: %w", err)), log)
+		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to remove finalizer")), log)
 	}
 
 	if err := r.client.Update(ctx, user); err != nil {

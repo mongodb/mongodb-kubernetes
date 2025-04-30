@@ -1,6 +1,7 @@
 package watch
 
 import (
+	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
 	"reflect"
 
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -15,6 +16,27 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
+
+func PredicatesForCustomRole() predicate.Funcs {
+	return predicate.Funcs{
+		// don't update custom roles on status changes
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldResource := e.ObjectOld.(*rolev1.MongoDBCustomRole)
+			newResource := e.ObjectNew.(*rolev1.MongoDBCustomRole)
+
+			oldSpecAnnotation := oldResource.GetAnnotations()[util.LastAchievedSpec]
+			newSpecAnnotation := newResource.GetAnnotations()[util.LastAchievedSpec]
+
+			// don't handle an update to just the previous spec annotation if they are not the same.
+			// this prevents the operator triggering reconciliations on resource that it is updating itself.
+			if !reflect.DeepEqual(oldSpecAnnotation, newSpecAnnotation) {
+				return false
+			}
+
+			return reflect.DeepEqual(oldResource.GetStatus(), newResource.GetStatus())
+		},
+	}
+}
 
 func PredicatesForUser() predicate.Funcs {
 	return predicate.Funcs{

@@ -133,6 +133,14 @@ rules:
 - apiGroups:
   - mongodb.com
   resources:
+  - mongodbcustomrole
+  - mongodbcustomrole/finalizers
+  - mongodbcustomrole/status
+  verbs:
+  - '*'
+- apiGroups:
+  - mongodb.com
+  resources:
   - mongodbmulticluster
   - mongodbmulticluster/finalizers
   - mongodbmulticluster/status
