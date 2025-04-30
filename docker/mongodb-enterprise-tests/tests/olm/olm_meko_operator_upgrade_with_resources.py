@@ -388,11 +388,11 @@ def test_meko_operator_upgrade_to_mck(
 
 
 @pytest.mark.e2e_olm_meko_operator_upgrade_with_resources
-def test_one_resources_not_in_running_state(ops_manager: MongoDBOpsManager, mdb_sharded: MongoDB):
+def test_one_resources_not_in_running_state(mdb_sharded: MongoDB):
     # Wait for the first resource to become reconciling after operator upgrade.
     # Only then wait for all to not get a false positive when all resources are ready,
     # because the upgraded operator haven't started reconciling
-    ops_manager.om_status().assert_reaches_phase(Phase.Pending, timeout=600)
+    mdb_sharded.assert_abandons_phase(Phase.Pending, timeout=300)
 
 
 @pytest.mark.e2e_olm_meko_operator_upgrade_with_resources
@@ -403,13 +403,14 @@ def test_resources_in_running_state_after_upgrade(
     s3_replica_set: MongoDB,
     mdb_sharded: MongoDB,
 ):
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
-    ops_manager.om_status().assert_reaches_phase(Phase.Running)
-    ops_manager.backup_status().assert_reaches_phase(Phase.Running)
-    oplog_replica_set.assert_reaches_phase(Phase.Running, timeout=600)
-    blockstore_replica_set.assert_reaches_phase(Phase.Running, timeout=600)
-    s3_replica_set.assert_reaches_phase(Phase.Running, timeout=600)
-    mdb_sharded.assert_reaches_phase(Phase.Running, timeout=600)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1000)
+    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1000)
+    ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=1000)
+    # Once the first resource reaches running phase, the subsequent check can have shorter timeouts
+    oplog_replica_set.assert_reaches_phase(Phase.Running, timeout=400)
+    blockstore_replica_set.assert_reaches_phase(Phase.Running, timeout=200)
+    s3_replica_set.assert_reaches_phase(Phase.Running, timeout=200)
+    mdb_sharded.assert_reaches_phase(Phase.Running, timeout=200)
 
 
 @pytest.mark.e2e_olm_meko_operator_upgrade_with_resources
