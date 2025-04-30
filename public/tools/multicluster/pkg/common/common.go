@@ -59,7 +59,7 @@ type Flags struct {
 }
 
 const (
-	// When upgrading to MCK, we didn't want to require customers to rename their secet, so we kept the old
+	// KubeConfigSecretName stays the same when upgrading to MCK, as we didn't want to require customers to rename their secret, so we kept the old one.
 	// -enterprise prefix
 	KubeConfigSecretName       = "mongodb-enterprise-operator-multi-cluster-kubeconfig"
 	KubeConfigSecretKey        = "kubeconfig"
@@ -69,7 +69,7 @@ const (
 	AppdbRole                  = "mongodb-kubernetes-appdb"
 	AppdbRoleBinding           = "mongodb-kubernetes-appdb"
 	DefaultOperatorName        = "mongodb-kubernetes-operator"
-	// When upgrading to MCK, we didn't want to require customers to rename their configmap, so we kept the old
+	// DefaultOperatorConfigMapName is the legacy configmap name which stays the same when upgrading to MCK, we didn't want to require customers to rename their configmap, so we kept the old one
 	// -enterprise prefix
 	DefaultOperatorConfigMapName = "mongodb-enterprise-operator-member-list"
 )
