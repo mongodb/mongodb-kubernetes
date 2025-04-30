@@ -54,7 +54,7 @@ def get_catalog_source_resource(namespace: str, image: str) -> CustomObject:
     resource["spec"] = {
         "image": image,
         "sourceType": "grpc",
-        "displayName": "MongoDB Enterprise Operator upgrade test",
+        "displayName": "MongoDB Kubernetes Operator upgrade test",
         "publisher": "MongoDB",
         "updateStrategy": {"registryPoll": {"interval": "5m"}},
     }

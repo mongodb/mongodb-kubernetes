@@ -101,8 +101,6 @@ func (c *crdsToWatch) String() string {
 func main() {
 	flag.Parse()
 	// If no CRDs are specified, we set default to non-multicluster CRDs
-	// TODO MCK: consider not making mongoDBCommunityCRDPlural part of the default list
-	// what happens if we watch this, but its not installed?
 	if len(crds) == 0 {
 		crds = crdsToWatch{mongoDBCRDPlural, mongoDBUserCRDPlural, mongoDBOpsManagerCRDPlural, mongoDBCommunityCRDPlural}
 	}
