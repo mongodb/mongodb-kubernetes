@@ -305,7 +305,7 @@ docker manifest push config.repo_url/image:tag
 # Sonar as an interface to docker. We decided to keep this asymmetry for now, as Sonar will be removed soon.
 
 
-def create_and_push_manifest(image: str, tag: str) -> None:
+def create_and_push_manifest(image: str, tag: str, architectures: list[str]) -> None:
     final_manifest = image + ":" + tag
 
     args = [
@@ -313,11 +313,11 @@ def create_and_push_manifest(image: str, tag: str) -> None:
         "manifest",
         "create",
         final_manifest,
-        "--amend",
-        final_manifest + "-amd64",
-        "--amend",
-        final_manifest + "-arm64",
     ]
+
+    for arch in architectures:
+        args.extend(["--amend", f"{final_manifest}-{arch}"])
+
     args_str = " ".join(args)
     logger.debug(f"creating new manifest: {args_str}")
     cp = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -752,6 +752,14 @@ If the context image supports both ARM and AMD architectures, both will be built
 """
 
 
+def should_skip_arm64():
+    """
+    Determines if arm64 builds should be skipped based on environment.
+    Returns True if running in Evergreen pipeline as a patch.
+    """
+    return is_running_in_evg_pipeline() and is_running_in_patch()
+
+
 def build_image_daily(
     image_name: str,  # corresponds to the image_name in the release.json
     min_version: str = None,
@@ -766,6 +774,10 @@ def build_image_daily(
         if arch_set == {"arm64"}:
             raise ValueError("Building for ARM64 only is not supported yet")
 
+        if should_skip_arm64():
+            logger.info("Skipping ARM64 builds as this is running in EVG pipeline as a patch")
+            return {"amd64"}
+
         # Automatic architecture detection is the default behavior if 'arch' argument isn't specified
         if arch_set == set():
             if check_multi_arch(
@@ -779,13 +791,13 @@ def build_image_daily(
 
         return arch_set
 
-    def create_and_push_manifests(args: dict):
+    def create_and_push_manifests(args: dict, architectures: list[str]):
         """Create and push manifests for all registries."""
         registries = [args["ecr_registry_ubi"], args["quay_registry"]]
         tags = [args["release_version"], args["release_version"] + "-b" + args["build_id"]]
         for registry in registries:
             for tag in tags:
-                create_and_push_manifest(registry + args["ubi_suffix"], tag)
+                create_and_push_manifest(registry + args["ubi_suffix"], tag, architectures=architectures)
 
     def sign_image_concurrently(executor, args, futures, arch=None):
         v = args["release_version"]
@@ -838,7 +850,7 @@ def build_image_daily(
                             )
                             if build_configuration.sign:
                                 sign_image_concurrently(executor, copy.deepcopy(args), futures, arch)
-                        create_and_push_manifests(args)
+                        create_and_push_manifests(args, list(arch_set))
                         for arch in arch_set:
                             args["architecture_suffix"] = f"-{arch}"
                             args["platform"] = arch
@@ -985,12 +997,13 @@ def build_image_generic(
     if is_multi_arch:
         # we only push the manifests of the context images here,
         # since daily rebuilds will push the manifests for the proper images later
-        create_and_push_manifest(registry_address, f"{version}-context")
+        architectures = [v["architecture"] for v in multi_arch_args_list]
+        create_and_push_manifest(registry_address, f"{version}-context", architectures=architectures)
         if not config.is_release_step_executed():
             # Normally daily rebuild would create and push the manifests for the non-context images.
             # But since we don't run daily rebuilds on ecr image builds, we can do that step instead here.
             # We only need to push manifests for multi-arch images.
-            create_and_push_manifest(registry_address, version)
+            create_and_push_manifest(registry_address, version, architectures=architectures)
     if config.sign and config.is_release_step_executed():
         sign_and_verify_context_image(registry, version)
     if config.is_release_step_executed() and version and QUAY_REGISTRY_URL in registry:
@@ -1044,7 +1057,14 @@ def build_community_image(build_configuration: BuildConfiguration, image_type: s
 
     version, is_release = get_git_release_tag()
     golang_version = os.getenv("GOLANG_VERSION", "1.24")
-    architectures = build_configuration.architecture or ["amd64", "arm64"]
+
+    # Use only amd64 if we should skip arm64 builds
+    if should_skip_arm64():
+        architectures = ["amd64"]
+        logger.info("Skipping ARM64 builds for community image as this is running in EVG pipeline as a patch")
+    else:
+        architectures = build_configuration.architecture or ["amd64", "arm64"]
+
     multi_arch_args_list = []
 
     for arch in architectures:
@@ -1064,7 +1084,7 @@ def build_community_image(build_configuration: BuildConfiguration, image_type: s
         multi_arch_args_list=multi_arch_args_list,
         inventory_file=inventory_file,
         registry_address=f"{base_repo}/{image_name}",
-        is_multi_arch=True,
+        is_multi_arch=True,  # We for pushing manifest anyway, even if arm64 is skipped in patches
     )
 
 
@@ -1151,16 +1171,19 @@ def build_multi_arch_agent_in_sonar(
     ecr_registry = os.environ.get("REGISTRY", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
     ecr_agent_registry = ecr_registry + f"/mongodb-agent-ubi"
     quay_agent_registry = QUAY_REGISTRY_URL + f"/mongodb-agent-ubi"
-    joined_args = list()
-    for arch in [arch_arm, arch_amd]:
-        joined_args.append(args | arch)
+    joined_args = [arch_amd]
+
+    # Only include arm64 if we shouldn't skip it
+    if not should_skip_arm64():
+        joined_args.append(arch_arm)
+
     build_image_generic(
         config=build_configuration,
         image_name="mongodb-agent",
         inventory_file="inventories/agent_non_matrix.yaml",
         multi_arch_args_list=joined_args,
         registry_address=quay_agent_registry if is_release else ecr_agent_registry,
-        is_multi_arch=True,
+        is_multi_arch=True,  # We for pushing manifest anyway, even if arm64 is skipped in patches
         is_run_in_parallel=True,
     )
 

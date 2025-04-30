@@ -631,7 +631,7 @@ class OMTester(object):
 
     def api_remove_group(self):
         controlled_features_data = {
-            "externalManagementSystem": {"name": "mongodb-enterprise-operator"},
+            "externalManagementSystem": {"name": "mongodb-kubernetes-operator"},
             "policies": [],
         }
         self.om_request(
