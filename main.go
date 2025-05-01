@@ -259,7 +259,6 @@ func main() {
 			env.ReadOrPanic(util.MongodbCommunityAgentImageEnv),
 			env.ReadOrPanic(mcoConstruct.VersionUpgradeHookImageEnv),
 			env.ReadOrPanic(mcoConstruct.ReadinessProbeImageEnv),
-			// search env vars
 		); err != nil {
 			log.Fatal(err)
 		}
