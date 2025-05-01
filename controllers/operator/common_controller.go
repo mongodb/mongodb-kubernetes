@@ -98,7 +98,7 @@ func NewReconcileCommonController(ctx context.Context, client client.Client) *Re
 	}
 }
 
-func (r *ReconcileCommonController) ensureRoles(ctx context.Context, roles []mdbv1.MongoDBRole, roleRefs []mdbv1.MongoDBCustomRoleRef, conn om.Connection, mongodbResourceNsName types.NamespacedName, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileCommonController) ensureRoles(ctx context.Context, roles []mdbv1.MongoDBRole, roleRefs []mdbv1.MongoDBRoleRef, conn om.Connection, mongodbResourceNsName types.NamespacedName, log *zap.SugaredLogger) workflow.Status {
 	mergedRoles := roles
 	for _, ref := range roleRefs {
 		r.resourceWatcher.AddWatchedResourceIfNotAdded(ref.Name, ref.Namespace, watch.MongoDBCustomRole, mongodbResourceNsName)

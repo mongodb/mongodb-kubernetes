@@ -361,7 +361,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileMemberResources(ctx context.C
 		}
 	}
 	// Ensure custom roles are created in OM
-	if status := r.ensureRoles(ctx, mrs.GetSecurity().Roles, mrs.GetSecurity().CustomRoleRefs, conn, kube.ObjectKeyFromApiObject(mrs), log); !status.IsOK() {
+	if status := r.ensureRoles(ctx, mrs.GetSecurity().Roles, mrs.GetSecurity().RoleRefs, conn, kube.ObjectKeyFromApiObject(mrs), log); !status.IsOK() {
 		return status
 	}
 

@@ -737,10 +737,10 @@ type SharedConnectionSpec struct {
 }
 
 type Security struct {
-	TLSConfig      *TLSConfig             `json:"tls,omitempty"`
-	Authentication *Authentication        `json:"authentication,omitempty"`
-	Roles          []MongoDBRole          `json:"roles,omitempty"`
-	CustomRoleRefs []MongoDBCustomRoleRef `json:"customRoleRefs,omitempty"`
+	TLSConfig      *TLSConfig       `json:"tls,omitempty"`
+	Authentication *Authentication  `json:"authentication,omitempty"`
+	Roles          []MongoDBRole    `json:"roles,omitempty"`
+	RoleRefs       []MongoDBRoleRef `json:"roleRefs,omitempty"`
 
 	// +optional
 	CertificatesSecretsPrefix string `json:"certsSecretPrefix"`
@@ -967,6 +967,7 @@ type InheritedRole struct {
 type MongoDBCustomRoleRef struct {
 	Name      string `json:"name"`
 	Namespace string `json:"namespace,omitempty"`
+type MongoDBRoleRef struct {
 }
 
 type MongoDBRole struct {

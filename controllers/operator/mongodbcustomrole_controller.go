@@ -155,8 +155,8 @@ func (r *MongoDBCustomRoleReconciler) ensureNoReferences(ctx context.Context, ro
 		return err
 	}
 	for _, m := range mdbList.Items {
-		for _, roleRef := range m.Spec.Security.CustomRoleRefs {
-			if roleRef.Name == role.Name && roleRef.Namespace == role.Namespace {
+		for _, roleRef := range m.Spec.Security.RoleRefs {
+			if roleRef.Name == role.Name {
 				return xerrors.Errorf("Resource %s is still referencing this role", m.Name)
 			}
 		}
@@ -168,8 +168,8 @@ func (r *MongoDBCustomRoleReconciler) ensureNoReferences(ctx context.Context, ro
 		return err
 	}
 	for _, m := range multiList.Items {
-		for _, roleRef := range m.Spec.Security.CustomRoleRefs {
-			if roleRef.Name == role.Name && roleRef.Namespace == role.Namespace {
+		for _, roleRef := range m.Spec.Security.RoleRefs {
+			if roleRef.Name == role.Name {
 				return xerrors.Errorf("Resource %s is still referencing this role", m.Name)
 			}
 		}

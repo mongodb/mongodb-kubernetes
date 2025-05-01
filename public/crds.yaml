@@ -1531,7 +1531,7 @@ spec:
                     type: object
                   certsSecretPrefix:
                     type: string
-                  customRoleRefs:
+                  roleRefs:
                     items:
                       properties:
                         name:
@@ -4272,7 +4272,7 @@ spec:
                     type: object
                   certsSecretPrefix:
                     type: string
-                  customRoleRefs:
+                  roleRefs:
                     items:
                       properties:
                         name:
@@ -5598,7 +5598,7 @@ spec:
                         type: object
                       certsSecretPrefix:
                         type: string
-                      customRoleRefs:
+                      roleRefs:
                         items:
                           properties:
                             name:

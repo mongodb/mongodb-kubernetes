@@ -1074,7 +1074,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		}
 	}
 
-	if workflowStatus := r.commonController.ensureRoles(ctx, sc.Spec.GetSecurity().Roles, sc.GetSecurity().CustomRoleRefs, conn, kube.ObjectKeyFromApiObject(sc), log); !workflowStatus.IsOK() {
+	if workflowStatus := r.commonController.ensureRoles(ctx, sc.Spec.GetSecurity().Roles, sc.GetSecurity().RoleRefs, conn, kube.ObjectKeyFromApiObject(sc), log); !workflowStatus.IsOK() {
 		return workflowStatus
 	}
 
