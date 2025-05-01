@@ -175,7 +175,7 @@ spec:
     {{ end }}
     - name: ops_manager_version
       value: "{{ .Values.opsManagerVersion }}"
-    image: {{ .Values.repo }}/mongodb-enterprise-tests:{{ .Values.tag }}
+    image: {{ .Values.repo }}/mongodb-kubernetes-tests:{{ .Values.tag }}
     # Options to pytest command should go in the pytest.ini file.
     command: ["pytest"]
     {{ if .Values.otel_endpoint }}

@@ -29,7 +29,7 @@ spec:
             - -watch-resource=opsmanagers
             - -watch-resource=mongodbusers
           command:
-            - /usr/local/bin/mongodb-enterprise-operator
+            - /usr/local/bin/mongodb-kubernetes-operator
           resources:
             limits:
               cpu: 1100m

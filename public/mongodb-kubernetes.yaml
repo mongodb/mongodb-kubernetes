@@ -31,7 +31,7 @@ rules:
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-kubernetes-operator-multi-cluster-cluster-telemetry
+  name: mongodb-kubernetes-operator-cluster-telemetry
 rules:
   # Non-resource URL permissions
   - nonResourceURLs:
@@ -58,14 +58,14 @@ rules:
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-kubernetes-operator-multi-cluster-mongodb-webhook-binding
+  name: mongodb-kubernetes-operator-mongodb-webhook-binding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: mongodb-kubernetes-operator-mongodb-webhook
 subjects:
   - kind: ServiceAccount
-    name: mongodb-kubernetes-operator-multi-cluster
+    name: mongodb-kubernetes-operator
     namespace: mongodb
 ---
 # Source: mongodb-kubernetes/templates/operator-roles.yaml
@@ -73,21 +73,21 @@ subjects:
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-kubernetes-operator-multi-cluster-mongodb-cluster-telemetry-binding
+  name: mongodb-kubernetes-operator-mongodb-cluster-telemetry-binding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: mongodb-kubernetes-operator-multi-cluster-cluster-telemetry
+  name: mongodb-kubernetes-operator-cluster-telemetry
 subjects:
   - kind: ServiceAccount
-    name: mongodb-kubernetes-operator-multi-cluster
+    name: mongodb-kubernetes-operator
     namespace: mongodb
 ---
 # Source: mongodb-kubernetes/templates/operator-roles.yaml
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-kubernetes-operator-multi-cluster
+  name: mongodb-kubernetes-operator
   namespace: mongodb
 rules:
   - apiGroups:
@@ -177,15 +177,15 @@ rules:
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-kubernetes-operator-multi-cluster
+  name: mongodb-kubernetes-operator
   namespace: mongodb
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: mongodb-kubernetes-operator-multi-cluster
+  name: mongodb-kubernetes-operator
 subjects:
   - kind: ServiceAccount
-    name: mongodb-kubernetes-operator-multi-cluster
+    name: mongodb-kubernetes-operator
     namespace: mongodb
 ---
 # Source: mongodb-kubernetes/templates/database-roles.yaml
@@ -250,47 +250,43 @@ subjects:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: mongodb-kubernetes-operator-multi-cluster
+  name: mongodb-kubernetes-operator
   namespace: mongodb
 ---
 # Source: mongodb-kubernetes/templates/operator.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: mongodb-kubernetes-operator-multi-cluster
+  name: mongodb-kubernetes-operator
   namespace: mongodb
 spec:
   replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/component: controller
-      app.kubernetes.io/name: mongodb-kubernetes-operator-multi-cluster
-      app.kubernetes.io/instance: mongodb-kubernetes-operator-multi-cluster
+      app.kubernetes.io/name: mongodb-kubernetes-operator
+      app.kubernetes.io/instance: mongodb-kubernetes-operator
   template:
     metadata:
       labels:
         app.kubernetes.io/component: controller
-        app.kubernetes.io/name: mongodb-kubernetes-operator-multi-cluster
-        app.kubernetes.io/instance: mongodb-kubernetes-operator-multi-cluster
+        app.kubernetes.io/name: mongodb-kubernetes-operator
+        app.kubernetes.io/instance: mongodb-kubernetes-operator
     spec:
-      serviceAccountName: mongodb-kubernetes-operator-multi-cluster
+      serviceAccountName: mongodb-kubernetes-operator
       securityContext:
         runAsNonRoot: true
         runAsUser: 2000
       containers:
-        - name: mongodb-kubernetes-operator-multi-cluster
+        - name: mongodb-kubernetes-operator
           image: "quay.io/mongodb/mongodb-kubernetes:0.1.0"
           imagePullPolicy: Always
           args:
             - -watch-resource=mongodb
             - -watch-resource=opsmanagers
             - -watch-resource=mongodbusers
-            - -watch-resource=mongodbmulticluster
           command:
-            - /usr/local/bin/mongodb-enterprise-operator
-          volumeMounts:
-            - mountPath: /etc/config/kubeconfig
-              name: kube-config-volume
+            - /usr/local/bin/mongodb-kubernetes-operator
           resources:
             limits:
               cpu: 1100m
@@ -361,7 +357,7 @@ spec:
                 fieldRef:
                   fieldPath: metadata.name
             - name: OPERATOR_NAME
-              value: mongodb-kubernetes-operator-multi-cluster
+              value: mongodb-kubernetes-operator
             # Community Env Vars Start
             - name: MDB_COMMUNITY_AGENT_IMAGE
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.2.8729-1"
@@ -376,8 +372,3 @@ spec:
             - name: MDB_COMMUNITY_IMAGE_TYPE
               value: "ubi8"
             # Community Env Vars End
-      volumes:
-        - name: kube-config-volume
-          secret:
-            defaultMode: 420
-            secretName: mongodb-enterprise-operator-multi-cluster-kubeconfig

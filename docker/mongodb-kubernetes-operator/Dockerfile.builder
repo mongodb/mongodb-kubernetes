@@ -22,14 +22,14 @@ RUN git version
 RUN mkdir /build && \
     if [ $use_race = "true" ]; then \
         echo "Building with race detector" && \
-        CGO_ENABLED=1 go build -o /build/mongodb-enterprise-operator \
+        CGO_ENABLED=1 go build -o /build/mongodb-kubernetes-operator \
         -buildvcs=false \
         -race \
         -ldflags=" -X github.com/mongodb/mongodb-kubernetes/pkg/util.OperatorVersion=${release_version} \
         -X github.com/mongodb/mongodb-kubernetes/pkg/util.LogAutomationConfigDiff=${log_automation_config_diff}"; \
     else \
         echo "Building without race detector" && \
-        CGO_ENABLED=0 go build -o /build/mongodb-enterprise-operator \
+        CGO_ENABLED=0 go build -o /build/mongodb-kubernetes-operator \
         -buildvcs=false \
         -ldflags="-s -w -X github.com/mongodb/mongodb-kubernetes/pkg/util.OperatorVersion=${release_version} \
         -X github.com/mongodb/mongodb-kubernetes/pkg/util.LogAutomationConfigDiff=${log_automation_config_diff}"; \
@@ -45,7 +45,7 @@ RUN chmod +r /data/om_version_mapping.json
 
 FROM scratch
 
-COPY --from=builder /build/mongodb-enterprise-operator /data/
+COPY --from=builder /build/mongodb-kubernetes-operator /data/
 COPY --from=builder /data/om_version_mapping.json /data/om_version_mapping.json
 
 ADD docker/mongodb-kubernetes-operator/licenses /data/licenses/

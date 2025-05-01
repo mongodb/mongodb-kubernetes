@@ -576,7 +576,7 @@ def build_operator_image_patch(build_configuration: BuildConfiguration):
         return
 
     container_name = "mongodb-enterprise-operator"
-    operator_binary_location = "/usr/local/bin/mongodb-enterprise-operator"
+    operator_binary_location = "/usr/local/bin/mongodb-kubernetes-operator"
     try:
         client.containers.get(container_name).remove()
         logger.debug(f"Removed {container_name}")
@@ -591,7 +591,7 @@ def build_operator_image_patch(build_configuration: BuildConfiguration):
 
     copy_into_container(
         client,
-        os.getcwd() + "/docker/mongodb-kubernetes-operator/content/mongodb-enterprise-operator",
+        os.getcwd() + "/docker/mongodb-kubernetes-operator/content/mongodb-kubernetes-operator",
         container_name + ":" + operator_binary_location,
     )
 
