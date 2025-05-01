@@ -856,7 +856,28 @@ def official_operator(
         central_cluster_client,
         member_cluster_clients,
         member_cluster_names,
-        None,
+    )
+
+
+@fixture(scope="module")
+def official_meko_operator(
+    namespace: str,
+    managed_security_context: str,
+    operator_installation_config: Dict[str, str],
+    central_cluster_name: str,
+    central_cluster_client: client.ApiClient,
+    member_cluster_clients: List[MultiClusterClient],
+    member_cluster_names: List[str],
+) -> Operator:
+    return install_official_operator(
+        namespace,
+        managed_security_context,
+        operator_installation_config,
+        central_cluster_name,
+        central_cluster_client,
+        member_cluster_clients,
+        member_cluster_names,
+        operator_name=LEGACY_OPERATOR_NAME,
     )
 
 
@@ -1282,6 +1303,7 @@ def run_multi_cluster_recovery_tool(
     member_namespace: str,
     cluster_scoped: Optional[bool] = False,
     service_account_name: Optional[str] = "mongodb-kubernetes-operator-multi-cluster",
+    operator_name: Optional[str] = OPERATOR_NAME,
 ) -> int:
     central_cluster = _read_multi_cluster_config_value("central_cluster")
     member_clusters_str = ",".join(member_clusters)
@@ -1306,6 +1328,8 @@ def run_multi_cluster_recovery_tool(
         member_clusters[0],
         "--service-account",
         service_account_name,
+        "--operator-name",
+        operator_name,
     ]
     if os.getenv("MULTI_CLUSTER_CREATE_SERVICE_ACCOUNT_TOKEN_SECRETS") == "true":
         args.append("--create-service-account-secrets")

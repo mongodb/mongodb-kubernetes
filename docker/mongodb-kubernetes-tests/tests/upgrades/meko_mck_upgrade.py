@@ -98,8 +98,8 @@ def replica_set(
 
 # Installs the latest officially released version of MEKO, from Quay
 @mark.e2e_meko_mck_upgrade
-def test_install_latest_official_operator(official_operator: Operator, namespace: str):
-    official_operator.assert_is_running()
+def test_install_latest_official_operator(official_meko_operator: Operator, namespace: str):
+    official_meko_operator.assert_is_running()
     # Dumping deployments in logs ensures we are using the correct operator version
     log_deployments_info(namespace)
 
@@ -141,7 +141,7 @@ def test_upgrade_operator(
             namespace=namespace,
             helm_args=operator_installation_config,
             helm_chart_path="helm_chart",
-            name="mongodb-kubernetes-operator",
+            name=OPERATOR_NAME,
         )
         operator.install()
     operator.assert_is_running()
@@ -156,7 +156,7 @@ def test_replicaset_reconciled(replica_set: MongoDB):
 
 @mark.e2e_meko_mck_upgrade
 def test_uninstall_latest_official_operator(namespace: str):
-    helm_uninstall("mongodb-enterprise-operator-multi-cluster" if is_multi_cluster() else "mongodb-enterprise-operator")
+    helm_uninstall(LEGACY_MULTI_CLUSTER_OPERATOR_NAME if is_multi_cluster() else LEGACY_OPERATOR_NAME)
     log_deployments_info(namespace)
 
 

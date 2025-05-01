@@ -22,6 +22,7 @@ from kubetester.operator import Operator
 from pytest import fixture, mark
 from tests.conftest import (
     MULTI_CLUSTER_OPERATOR_NAME,
+    OPERATOR_NAME,
     _install_multi_cluster_operator,
     run_kube_config_creation_tool,
     run_multi_cluster_recovery_tool,
@@ -97,6 +98,7 @@ def install_operator(
         member_cluster_names,
         True,
         service_account_name=MULTI_CLUSTER_OPERATOR_NAME,
+        operator_name=OPERATOR_NAME,
     )
 
     return _install_multi_cluster_operator(
@@ -218,7 +220,6 @@ def test_prepare_namespace(
 def test_copy_configmap_and_secret_across_ns(
     namespace: str,
     central_cluster_client: client.ApiClient,
-    multi_cluster_operator_installation_config: Dict[str, str],
     mdba_ns: str,
     mdbb_ns: str,
 ):
