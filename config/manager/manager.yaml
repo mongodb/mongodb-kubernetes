@@ -28,6 +28,7 @@ spec:
             - -watch-resource=mongodb
             - -watch-resource=opsmanagers
             - -watch-resource=mongodbusers
+            - -watch-resource=mongodbcustomroles
           command:
             - /usr/local/bin/mongodb-enterprise-operator
           resources:
