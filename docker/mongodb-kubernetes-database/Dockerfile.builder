@@ -3,11 +3,11 @@
 #
 ## Contents
 #
-# * licenses/mongodb-enterprise-database
+# * licenses/mongodb-kubernetes-database
 
 
 FROM scratch
 
 
 
-COPY LICENSE /data/licenses/mongodb-enterprise-database
+COPY LICENSE /data/licenses/mongodb-kubernetes-database

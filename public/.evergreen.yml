@@ -12,7 +12,7 @@ functions:
     - command: git.get_project
       type: setup
       params:
-        directory: src/github.com/mongodb/mongodb-enterprise-kubernetes
+        directory: src/github.com/mongodb/mongodb-kubernetes
 
   "install goreleaser":
     - command: shell.exec
@@ -45,7 +45,7 @@ functions:
     - command: shell.exec
       type: setup
       params:
-        working_dir: src/github.com/mongodb/mongodb-enterprise-kubernetes/tools/multicluster
+        working_dir: src/github.com/mongodb/mongodb-kubernetes/tools/multicluster
         include_expansions_in_env:
           - GRS_USERNAME
           - GRS_PASSWORD

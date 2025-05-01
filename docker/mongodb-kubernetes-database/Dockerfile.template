@@ -52,7 +52,7 @@ USER 2000
 ENTRYPOINT ["sleep infinity"]
 {% endblock %}
 
-COPY --from=base /data/licenses/mongodb-enterprise-database /licenses/mongodb-enterprise-database
+COPY --from=base /data/licenses/mongodb-kubernetes-database /licenses/mongodb-kubernetes-database
 
 {% block healthcheck %}
 {% endblock %}

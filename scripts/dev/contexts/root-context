@@ -75,7 +75,7 @@ fi
 
 export MONGODB_REPO_URL="quay.io/mongodb"
 
-export SIGNING_PUBLIC_KEY_URL="https://cosign.mongodb.com/mongodb-enterprise-kubernetes-operator.pem"
+export SIGNING_PUBLIC_KEY_URL="https://cosign.mongodb.com/mongodb-kubernetes-operator.pem"
 
 export CLUSTER_DOMAIN="cluster.local"
 

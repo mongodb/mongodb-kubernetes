@@ -57,7 +57,7 @@ spec:
             - {{ . }}
             {{- end }}
           command:
-            - /usr/local/bin/mongodb-enterprise-operator
+            - /usr/local/bin/mongodb-kubernetes-operator
           {{- end }}
           {{- if .Values.multiCluster.clusters }}
           volumeMounts:

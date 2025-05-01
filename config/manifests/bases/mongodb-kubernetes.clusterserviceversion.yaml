@@ -18,7 +18,7 @@ metadata:
     features.operators.openshift.io/token-auth-aws: "false"
     features.operators.openshift.io/token-auth-azure: "false"
     features.operators.openshift.io/token-auth-gcp: "false"
-    repository: https://github.com/mongodb/mongodb-enterprise-kubernetes
+    repository: https://github.com/mongodb/mongodb-kubernetes
     support: support@mongodb.com
   name: mongodb-kubernetes.v0.0.0
   namespace: placeholder

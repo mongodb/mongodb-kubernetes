@@ -4,7 +4,7 @@
 /pkg/client
 /vendor/
 public/tools/multicluster/vendor
-docker/mongodb-kubernetes-operator/content/mongodb-enterprise-operator
+docker/mongodb-kubernetes-operator/content/mongodb-kubernetes-operator
 docker/mongodb-kubernetes-database/content/mongodb-mms-automation-agent-version.properties
 docker/mongodb-kubernetes-database/content/readinessprobe
 docker/mongodb-enterprise-ops-manager/scripts/mmsconfiguration
@@ -49,7 +49,7 @@ docker/mongodb-kubernetes-database/Dockerfile
 docker/mongodb-enterprise-ops-manager/Dockerfile
 docker/mongodb-kubernetes-init-database/Dockerfile
 docker/mongodb-kubernetes-init-ops-manager/Dockerfile
-docker/mongodb-kubernetes-operator/content/mongodb-enterprise-operator.tar
+docker/mongodb-kubernetes-operator/content/mongodb-kubernetes-operator.tar
 docker/mongodb-kubernetes-tests/helm_chart/
 docker/mongodb-kubernetes-tests/public/
 docker/mongodb-kubernetes-tests/requirements.txt
