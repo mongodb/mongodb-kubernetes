@@ -16,7 +16,7 @@ The RBAC settings for the operator are typically creating using the CLI. In case
 You can build a minimal image containing the CLI executable using the `Dockerfile` [provided in this repo](./../../tools/multicluster/Dockerfile).
 ``` shell
 git clone https://github.com/mongodb/mongodb-kubernetes
-cd mongodb-enterprise-kubernetes/tools/multicluster
+cd mongodb-kubernetes/public/tools/multicluster
 docker build . -t "your-registry/multi-cluster-cli:latest"
 docker push "your-registry/multi-cluster-cli:latest"
 ```

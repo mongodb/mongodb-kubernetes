@@ -11,4 +11,4 @@ RUN CGO_ENABLED=0 go build -a -buildvcs=false -o /data/scripts/backup-daemon-rea
 COPY scripts/docker-entry-point.sh /data/scripts/
 COPY scripts/backup-daemon-liveness-probe.sh /data/scripts/
 
-COPY LICENSE /data/licenses/mongodb-kubernetes-ops-manager
+COPY LICENSE /data/licenses/mongodb-enterprise-ops-manager

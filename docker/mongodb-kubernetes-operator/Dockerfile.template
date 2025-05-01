@@ -24,7 +24,7 @@ LABEL name="MongoDB Kubernetes Operator" \
 {% endblock %}
 
 
-COPY --from=base /data/mongodb-enterprise-operator /usr/local/bin/mongodb-kubernetes-operator
+COPY --from=base /data/mongodb-kubernetes-operator /usr/local/bin/mongodb-kubernetes-operator
 COPY --from=base /data/om_version_mapping.json /usr/local/om_version_mapping.json
 COPY --from=base /data/licenses /licenses/
 
