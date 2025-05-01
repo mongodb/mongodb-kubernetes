@@ -321,9 +321,6 @@ func EnsureMultiClusterResources(ctx context.Context, flags Flags, clientMap map
 	}
 
 	centralClusterClient := clientMap[flags.CentralCluster]
-	if err != nil {
-		return xerrors.Errorf("failed to get central cluster clientset: %w", err)
-	}
 
 	if err := createKubeConfigSecret(ctx, centralClusterClient, kubeConfigBytes, flags); err != nil {
 		return xerrors.Errorf("failed creating KubeConfig secret: %w", err)
@@ -385,6 +382,7 @@ func getCentralRules() []rbacv1.PolicyRule {
 				"mongodbusers", "mongodbusers/status",
 				"opsmanagers", "opsmanagers/finalizers", "opsmanagers/status",
 				"mongodb", "mongodb/finalizers", "mongodb/status",
+				"mongodbcustomroles", "mongodbcustomroles/finalizers", "mongodbcustomroles/status",
 			},
 			APIGroups: []string{"mongodb.com"},
 		},
