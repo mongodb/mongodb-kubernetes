@@ -29,7 +29,7 @@ operator:
   - mongodb
   - opsmanagers
   - mongodbusers
-  - mongodbcustomroles
+  - clustermongodbroles
 
   nodeSelector: {}
 

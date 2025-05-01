@@ -8,57 +8,57 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 )
 
-// MongoDBCustomRoleSpec defines the desired state of MongoDBCustomRole.
-type MongoDBCustomRoleSpec struct {
+// ClusterMongoDBRoleSpec defines the desired state of ClusterMongoDBRole.
+type ClusterMongoDBRoleSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	mdbv1.MongoDBRole `json:",inline"`
 }
 
-// MongoDBCustomRoleStatus defines the observed state of MongoDBCustomRole.
-type MongoDBCustomRoleStatus struct {
+// ClusterMongoDBRoleStatus defines the observed state of ClusterMongoDBRole.
+type ClusterMongoDBRoleStatus struct {
 	status.Common `json:",inline"`
 	Warnings      []status.Warning `json:"warnings,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +k8s:openapi-gen=true
-// +kubebuilder:resource:scope=Cluster,shortName=mdbcr
+// +kubebuilder:resource:scope=Cluster,shortName=cmbdr
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase",description="The current state of the MongoDB Custom Role."
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="The time since the MongoDB Custom Role resource was created."
 
-// MongoDBCustomRole is the Schema for the mongodbcustomroles API.
-type MongoDBCustomRole struct {
+// ClusterMongoDBRole is the Schema for the clustermongodbroles API.
+type ClusterMongoDBRole struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec MongoDBCustomRoleSpec `json:"spec,omitempty"`
+	Spec ClusterMongoDBRoleSpec `json:"spec,omitempty"`
 	// +optional
-	Status MongoDBCustomRoleStatus `json:"status,omitempty"`
+	Status ClusterMongoDBRoleStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 
-// MongoDBCustomRoleList contains a list of MongoDBCustomRole.
-type MongoDBCustomRoleList struct {
+// ClusterMongoDBRoleList contains a list of ClusterMongoDBRole.
+type ClusterMongoDBRoleList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []MongoDBCustomRole `json:"items"`
+	Items           []ClusterMongoDBRole `json:"items"`
 }
 
 func init() {
-	v1.SchemeBuilder.Register(&MongoDBCustomRole{}, &MongoDBCustomRoleList{})
+	v1.SchemeBuilder.Register(&ClusterMongoDBRole{}, &ClusterMongoDBRoleList{})
 }
 
-func (r *MongoDBCustomRole) GetStatus(...status.Option) interface{} {
+func (r *ClusterMongoDBRole) GetStatus(...status.Option) interface{} {
 	return r.Status
 }
 
-func (r *MongoDBCustomRole) GetCommonStatus(...status.Option) *status.Common {
+func (r *ClusterMongoDBRole) GetCommonStatus(...status.Option) *status.Common {
 	return &r.Status.Common
 }
 
-func (r *MongoDBCustomRole) UpdateStatus(phase status.Phase, statusOptions ...status.Option) {
+func (r *ClusterMongoDBRole) UpdateStatus(phase status.Phase, statusOptions ...status.Option) {
 	r.Status.UpdateCommonFields(phase, r.GetGeneration(), statusOptions...)
 	if option, exists := status.GetOption(statusOptions, status.WarningsOption{}); exists {
 		r.Status.Warnings = append(r.Status.Warnings, option.(status.WarningsOption).Warnings...)
@@ -69,10 +69,10 @@ func (r *MongoDBCustomRole) UpdateStatus(phase status.Phase, statusOptions ...st
 	}
 }
 
-func (r *MongoDBCustomRole) SetWarnings(warnings []status.Warning, _ ...status.Option) {
+func (r *ClusterMongoDBRole) SetWarnings(warnings []status.Warning, _ ...status.Option) {
 	r.Status.Warnings = warnings
 }
 
-func (r *MongoDBCustomRole) GetStatusPath(...status.Option) string {
+func (r *ClusterMongoDBRole) GetStatusPath(...status.Option) string {
 	return "/status"
 }

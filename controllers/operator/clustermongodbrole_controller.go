@@ -30,18 +30,18 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
-// MongoDBCustomRoleReconciler reconciles a MongoDBCustomRole object
-type MongoDBCustomRoleReconciler struct {
+// ClusterMongoDBRoleReconciler reconciles a ClusterMongoDBRole object
+type ClusterMongoDBRoleReconciler struct {
 	*ReconcileCommonController
 	memberClusterClientsMap map[string]kubernetesClient.Client
 }
 
-// MongoDBCustomRole Resource
-// +kubebuilder:rbac:groups=mongodb.com,resources={mongodbcustomroles,mongodbcustomroles/status,mongodbcustomroles/finalizers},verbs=*,namespace=placeholder
+// ClusterMongoDBRole Resource
+// +kubebuilder:rbac:groups=mongodb.com,resources={clustermongodbroles,clustermongodbroles/status,clustermongodbroles/finalizers},verbs=*,namespace=placeholder
 
-func (r *MongoDBCustomRoleReconciler) Reconcile(ctx context.Context, request ctrl.Request) (ctrl.Result, error) {
-	log := zap.S().With("MongoDBCustomRole", request.NamespacedName)
-	log.Info("-> MongoDBCustomRole.Reconcile")
+func (r *ClusterMongoDBRoleReconciler) Reconcile(ctx context.Context, request ctrl.Request) (ctrl.Result, error) {
+	log := zap.S().With("ClusterMongoDBRole", request.NamespacedName)
+	log.Info("-> ClusterMongoDBRole.Reconcile")
 
 	role, err := r.getRole(ctx, request, log)
 	if err != nil {
@@ -49,10 +49,12 @@ func (r *MongoDBCustomRoleReconciler) Reconcile(ctx context.Context, request ctr
 		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, nil
 	}
 
-	log.Infow("MongoDBCustomRole.Spec", "spec", role.Spec)
+	// res := mdbv1.RoleIsCorrectlyConfigured(role.Spec.MongoDBRole, "8.0.6")
+
+	log.Infow("ClusterMongoDBRole.Spec", "spec", role.Spec)
 
 	if !role.DeletionTimestamp.IsZero() {
-		log.Info("MongoDBCustomRole is being deleted")
+		log.Info("ClusterMongoDBRole is being deleted")
 
 		if controllerutil.ContainsFinalizer(role, util.RoleFinalizer) {
 			return r.Delete(ctx, role, log)
@@ -72,43 +74,43 @@ func (r *MongoDBCustomRoleReconciler) Reconcile(ctx context.Context, request ctr
 		return r.updateStatus(ctx, role, workflow.Failed(err), log)
 	}
 
-	log.Infof("Finished reconciliation for MongoDBCustomRole!")
+	log.Infof("Finished reconciliation for ClusterMongoDBRole!")
 	return r.updateStatus(ctx, role, workflow.OK(), log)
 }
 
-func AddMongoDBCustomRoleController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
-	reconciler := newMongoDBCustomRoleReconciler(ctx, mgr.GetClient(), multicluster.ClustersMapToClientMap(memberClustersMap))
-	c, err := controller.New(util.MongoDbCustomRoleController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
+func AddClusterMongoDBRoleController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
+	reconciler := newClusterMongoDBRoleReconciler(ctx, mgr.GetClient(), multicluster.ClustersMapToClientMap(memberClustersMap))
+	c, err := controller.New(util.ClusterMongoDbRoleController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err
 	}
 
-	// Watch for changes to MongoDBCustomRole resources
+	// Watch for changes to ClusterMongoDBRole resources
 	// We don't need a Delete handler as there is nothing to do after removing the finalizer
-	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &rolev1.MongoDBCustomRole{}, &handler.EnqueueRequestForObject{}, watch.PredicatesForCustomRole()))
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &rolev1.ClusterMongoDBRole{}, &handler.EnqueueRequestForObject{}, watch.PredicatesForClusterRole()))
 	if err != nil {
 		return err
 	}
 
-	zap.S().Infof("Registered controller %s", util.MongoDbCustomRoleController)
+	zap.S().Infof("Registered controller %s", util.ClusterMongoDbRoleController)
 	return nil
 }
 
-func newMongoDBCustomRoleReconciler(ctx context.Context, kubeClient client.Client, memberClustersMap map[string]client.Client) *MongoDBCustomRoleReconciler {
+func newClusterMongoDBRoleReconciler(ctx context.Context, kubeClient client.Client, memberClustersMap map[string]client.Client) *ClusterMongoDBRoleReconciler {
 	clientsMap := make(map[string]kubernetesClient.Client)
 
 	for k, v := range memberClustersMap {
 		clientsMap[k] = kubernetesClient.NewClient(v)
 	}
 
-	return &MongoDBCustomRoleReconciler{
+	return &ClusterMongoDBRoleReconciler{
 		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
 		memberClusterClientsMap:   clientsMap,
 	}
 }
 
-func (r *MongoDBCustomRoleReconciler) getRole(ctx context.Context, request reconcile.Request, log *zap.SugaredLogger) (*rolev1.MongoDBCustomRole, error) {
-	role := &rolev1.MongoDBCustomRole{}
+func (r *ClusterMongoDBRoleReconciler) getRole(ctx context.Context, request reconcile.Request, log *zap.SugaredLogger) (*rolev1.ClusterMongoDBRole, error) {
+	role := &rolev1.ClusterMongoDBRole{}
 	if _, err := r.GetResource(ctx, request, role, log); err != nil {
 		return nil, err
 	}
@@ -116,8 +118,8 @@ func (r *MongoDBCustomRoleReconciler) getRole(ctx context.Context, request recon
 	return role, nil
 }
 
-func (r *MongoDBCustomRoleReconciler) Delete(ctx context.Context, role *rolev1.MongoDBCustomRole, log *zap.SugaredLogger) (reconcile.Result, error) {
-	log.Info("Attempting to remove MongoDBCustomRole")
+func (r *ClusterMongoDBRoleReconciler) Delete(ctx context.Context, role *rolev1.ClusterMongoDBRole, log *zap.SugaredLogger) (reconcile.Result, error) {
+	log.Info("Attempting to remove ClusterMongoDBRole")
 
 	err := r.ensureNoReferences(ctx, role)
 	if err != nil {
@@ -132,12 +134,12 @@ func (r *MongoDBCustomRoleReconciler) Delete(ctx context.Context, role *rolev1.M
 		return r.updateStatus(ctx, role, workflow.Failed(xerrors.Errorf("Failed to update the role with the removed finalizer: %w", err)), log)
 	}
 
-	log.Info("MongoDBCustomRole has been removed!")
+	log.Info("ClusterMongoDBRole has been removed!")
 	return r.updateStatus(ctx, role, workflow.OK(), log)
 }
 
-func (r *MongoDBCustomRoleReconciler) ensureFinalizer(ctx context.Context, role *rolev1.MongoDBCustomRole, log *zap.SugaredLogger) error {
-	log.Info("Adding finalizer to the MongoDBCustomRole resource")
+func (r *ClusterMongoDBRoleReconciler) ensureFinalizer(ctx context.Context, role *rolev1.ClusterMongoDBRole, log *zap.SugaredLogger) error {
+	log.Info("Adding finalizer to the ClusterMongoDBRole resource")
 
 	if finalizerAdded := controllerutil.AddFinalizer(role, util.RoleFinalizer); finalizerAdded {
 		if err := r.client.Update(ctx, role); err != nil {
@@ -148,7 +150,7 @@ func (r *MongoDBCustomRoleReconciler) ensureFinalizer(ctx context.Context, role 
 	return nil
 }
 
-func (r *MongoDBCustomRoleReconciler) ensureNoReferences(ctx context.Context, role *rolev1.MongoDBCustomRole) error {
+func (r *ClusterMongoDBRoleReconciler) ensureNoReferences(ctx context.Context, role *rolev1.ClusterMongoDBRole) error {
 	mdbList := &mdbv1.MongoDBList{}
 	err := r.client.List(ctx, mdbList)
 	if err != nil {
@@ -178,7 +180,7 @@ func (r *MongoDBCustomRoleReconciler) ensureNoReferences(ctx context.Context, ro
 	return nil
 }
 
-func getAnnotationsForCustomRoleResource(role *rolev1.MongoDBCustomRole) (map[string]string, error) {
+func getAnnotationsForCustomRoleResource(role *rolev1.ClusterMongoDBRole) (map[string]string, error) {
 	finalAnnotations := make(map[string]string)
 	specBytes, err := json.Marshal(role.Spec)
 	if err != nil {

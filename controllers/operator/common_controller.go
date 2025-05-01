@@ -150,19 +150,19 @@ func (r *ReconcileCommonController) getRoleRefs(ctx context.Context, roleRefs []
 		var role mdbv1.MongoDBRole
 		switch ref.Kind {
 
-		case util.MongoDBCustomRoleKind:
-			r.resourceWatcher.AddWatchedResourceIfNotAdded(ref.Name, "", watch.MongoDBCustomRole, mongodbResourceNsName)
+		case util.ClusterMongoDBRoleKind:
+			r.resourceWatcher.AddWatchedResourceIfNotAdded(ref.Name, "", watch.ClusterMongoDBRole, mongodbResourceNsName)
 
-			customRole := &rolev1.MongoDBCustomRole{}
+			customRole := &rolev1.ClusterMongoDBRole{}
 			err := r.client.Get(ctx, types.NamespacedName{Name: ref.Name}, customRole)
 			if err != nil {
-				return nil, xerrors.Errorf("Failed to retrieve MongoDBCustomRole '%s': %w", ref.Name, err)
+				return nil, xerrors.Errorf("Failed to retrieve ClusterMongoDBRole '%s': %w", ref.Name, err)
 			}
 
 			role = customRole.Spec.MongoDBRole
 
 		default:
-			return nil, xerrors.Errorf("Invalid value %s for roleRef.kind. It must be %s.", ref.Kind, util.MongoDBCustomRoleKind)
+			return nil, xerrors.Errorf("Invalid value %s for roleRef.kind. It must be %s.", ref.Kind, util.ClusterMongoDBRoleKind)
 		}
 
 		roles[idx] = role

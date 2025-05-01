@@ -44,7 +44,7 @@ resources:
   controller: true
   domain: mongodb.com
   group: mongodb
-  kind: MongoDBCustomRole
+  kind: ClusterMongoDBRole
   path: github.com/mongodb/mongodb-kubernetes/api/v1
   version: v1
 version: "3"

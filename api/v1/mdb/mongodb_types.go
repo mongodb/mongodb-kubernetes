@@ -973,7 +973,7 @@ type MongoDBRoleRef struct {
 	// +kubebuilder:validation:Required
 	Name string `json:"name"`
 
-	// +kubebuilder:validation:Enum=MongoDBCustomRole
+	// +kubebuilder:validation:Enum=ClusterMongoDBRole
 	// +kubebuilder:validation:Required
 	Kind string `json:"kind"`
 }

@@ -289,11 +289,11 @@ func resetNamespace(ctx context.Context, contextName string, namespace string, d
 	err = kubeClient.CoreV1().PersistentVolumeClaims(namespace).DeleteCollection(ctx, deleteOptionsNoGrace, v1.ListOptions{})
 	collectError(err, "failed to delete PVCs")
 
-	// Remove finalizers on MongoDBCustomRoles
+	// Remove finalizers on ClusterMongoDBRoles
 	customRoleGVR := schema.GroupVersionResource{
 		Group:    "mongodb.com",
 		Version:  "v1",
-		Resource: "mongodbcustomroles",
+		Resource: "clustermongodbroles",
 	}
 	list, err := dynamicClient.Resource(customRoleGVR).List(ctx, v1.ListOptions{})
 	collectError(err, "failed to list custom roles")
@@ -328,7 +328,7 @@ func resetNamespace(ctx context.Context, contextName string, namespace string, d
 			"mongodbmulticluster.mongodb.com",
 			"mongodbusers.mongodb.com",
 			"opsmanagers.mongodb.com",
-			"mongodbcustomroles.mongodb.com",
+			"clustermongodbroles.mongodb.com",
 		}
 		deleteCRDs(ctx, dynamicClient, crdNames, collectError)
 	}

@@ -125,17 +125,17 @@ rules:
 - apiGroups:
   - mongodb.com
   resources:
-  - mongodb
-  - mongodb/finalizers
-  - mongodb/status
+  - clustermongodbroles
+  - clustermongodbroles/finalizers
+  - clustermongodbroles/status
   verbs:
   - '*'
 - apiGroups:
   - mongodb.com
   resources:
-  - mongodbcustomroles
-  - mongodbcustomroles/finalizers
-  - mongodbcustomroles/status
+  - mongodb
+  - mongodb/finalizers
+  - mongodb/status
   verbs:
   - '*'
 - apiGroups:

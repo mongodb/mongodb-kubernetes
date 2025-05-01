@@ -4,6 +4,177 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.15.0
+  name: clustermongodbroles.mongodb.com
+spec:
+  group: mongodb.com
+  names:
+    kind: ClusterMongoDBRole
+    listKind: ClusterMongoDBRoleList
+    plural: clustermongodbroles
+    shortNames:
+    - mdbcr
+    singular: clustermongodbrole
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - description: The current state of the MongoDB Custom Role.
+      jsonPath: .status.phase
+      name: Phase
+      type: string
+    - description: The time since the MongoDB Custom Role resource was created.
+      jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
+    schema:
+      openAPIV3Schema:
+        description: ClusterMongoDBRole is the Schema for the clustermongodbroles
+          API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ClusterMongoDBRoleSpec defines the desired state of ClusterMongoDBRole.
+            properties:
+              authenticationRestrictions:
+                items:
+                  properties:
+                    clientSource:
+                      items:
+                        type: string
+                      type: array
+                    serverAddress:
+                      items:
+                        type: string
+                      type: array
+                  type: object
+                type: array
+              db:
+                type: string
+              privileges:
+                items:
+                  properties:
+                    actions:
+                      items:
+                        type: string
+                      type: array
+                    resource:
+                      properties:
+                        cluster:
+                          type: boolean
+                        collection:
+                          type: string
+                        db:
+                          type: string
+                      type: object
+                  required:
+                  - actions
+                  - resource
+                  type: object
+                type: array
+              role:
+                type: string
+              roles:
+                items:
+                  properties:
+                    db:
+                      type: string
+                    role:
+                      type: string
+                  required:
+                  - db
+                  - role
+                  type: object
+                type: array
+            required:
+            - db
+            - role
+            type: object
+            x-kubernetes-preserve-unknown-fields: true
+          status:
+            description: ClusterMongoDBRoleStatus defines the observed state of ClusterMongoDBRole.
+            properties:
+              lastTransition:
+                type: string
+              message:
+                type: string
+              observedGeneration:
+                format: int64
+                type: integer
+              phase:
+                type: string
+              pvc:
+                items:
+                  properties:
+                    phase:
+                      type: string
+                    statefulsetName:
+                      type: string
+                  required:
+                  - phase
+                  - statefulsetName
+                  type: object
+                type: array
+              resourcesNotReady:
+                items:
+                  description: ResourceNotReady describes the dependent resource which
+                    is not ready yet
+                  properties:
+                    errors:
+                      items:
+                        properties:
+                          message:
+                            type: string
+                          reason:
+                            type: string
+                        type: object
+                      type: array
+                    kind:
+                      description: ResourceKind specifies a kind of a Kubernetes resource.
+                        Used in status of a Custom Resource
+                      type: string
+                    message:
+                      type: string
+                    name:
+                      type: string
+                  required:
+                  - kind
+                  - name
+                  type: object
+                type: array
+              warnings:
+                items:
+                  type: string
+                type: array
+            required:
+            - phase
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.15.0
   name: mongodb.mongodb.com
 spec:
   group: mongodb.com
@@ -1536,7 +1707,7 @@ spec:
                       properties:
                         kind:
                           enum:
-                          - MongoDBCustomRole
+                          - ClusterMongoDBRole
                           type: string
                         name:
                           type: string
@@ -2673,176 +2844,6 @@ spec:
             type: object
         required:
         - spec
-        type: object
-    served: true
-    storage: true
-    subresources:
-      status: {}
----
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  annotations:
-    controller-gen.kubebuilder.io/version: v0.15.0
-  name: mongodbcustomroles.mongodb.com
-spec:
-  group: mongodb.com
-  names:
-    kind: MongoDBCustomRole
-    listKind: MongoDBCustomRoleList
-    plural: mongodbcustomroles
-    shortNames:
-    - mdbcr
-    singular: mongodbcustomrole
-  scope: Cluster
-  versions:
-  - additionalPrinterColumns:
-    - description: The current state of the MongoDB Custom Role.
-      jsonPath: .status.phase
-      name: Phase
-      type: string
-    - description: The time since the MongoDB Custom Role resource was created.
-      jsonPath: .metadata.creationTimestamp
-      name: Age
-      type: date
-    name: v1
-    schema:
-      openAPIV3Schema:
-        description: MongoDBCustomRole is the Schema for the mongodbcustomroles API.
-        properties:
-          apiVersion:
-            description: |-
-              APIVersion defines the versioned schema of this representation of an object.
-              Servers should convert recognized schemas to the latest internal value, and
-              may reject unrecognized values.
-              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
-            type: string
-          kind:
-            description: |-
-              Kind is a string value representing the REST resource this object represents.
-              Servers may infer this from the endpoint the client submits requests to.
-              Cannot be updated.
-              In CamelCase.
-              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
-            type: string
-          metadata:
-            type: object
-          spec:
-            description: MongoDBCustomRoleSpec defines the desired state of MongoDBCustomRole.
-            properties:
-              authenticationRestrictions:
-                items:
-                  properties:
-                    clientSource:
-                      items:
-                        type: string
-                      type: array
-                    serverAddress:
-                      items:
-                        type: string
-                      type: array
-                  type: object
-                type: array
-              db:
-                type: string
-              privileges:
-                items:
-                  properties:
-                    actions:
-                      items:
-                        type: string
-                      type: array
-                    resource:
-                      properties:
-                        cluster:
-                          type: boolean
-                        collection:
-                          type: string
-                        db:
-                          type: string
-                      type: object
-                  required:
-                  - actions
-                  - resource
-                  type: object
-                type: array
-              role:
-                type: string
-              roles:
-                items:
-                  properties:
-                    db:
-                      type: string
-                    role:
-                      type: string
-                  required:
-                  - db
-                  - role
-                  type: object
-                type: array
-            required:
-            - db
-            - role
-            type: object
-            x-kubernetes-preserve-unknown-fields: true
-          status:
-            description: MongoDBCustomRoleStatus defines the observed state of MongoDBCustomRole.
-            properties:
-              lastTransition:
-                type: string
-              message:
-                type: string
-              observedGeneration:
-                format: int64
-                type: integer
-              phase:
-                type: string
-              pvc:
-                items:
-                  properties:
-                    phase:
-                      type: string
-                    statefulsetName:
-                      type: string
-                  required:
-                  - phase
-                  - statefulsetName
-                  type: object
-                type: array
-              resourcesNotReady:
-                items:
-                  description: ResourceNotReady describes the dependent resource which
-                    is not ready yet
-                  properties:
-                    errors:
-                      items:
-                        properties:
-                          message:
-                            type: string
-                          reason:
-                            type: string
-                        type: object
-                      type: array
-                    kind:
-                      description: ResourceKind specifies a kind of a Kubernetes resource.
-                        Used in status of a Custom Resource
-                      type: string
-                    message:
-                      type: string
-                    name:
-                      type: string
-                  required:
-                  - kind
-                  - name
-                  type: object
-                type: array
-              warnings:
-                items:
-                  type: string
-                type: array
-            required:
-            - phase
-            type: object
         type: object
     served: true
     storage: true
@@ -4284,7 +4285,7 @@ spec:
                       properties:
                         kind:
                           enum:
-                          - MongoDBCustomRole
+                          - ClusterMongoDBRole
                           type: string
                         name:
                           type: string
@@ -5617,7 +5618,7 @@ spec:
                           properties:
                             kind:
                               enum:
-                              - MongoDBCustomRole
+                              - ClusterMongoDBRole
                               type: string
                             name:
                               type: string

@@ -1,10 +1,10 @@
 apiVersion: mongodb.com/v1
-kind: MongoDBCustomRole
+kind: ClusterMongoDBRole
 metadata:
   labels:
     app.kubernetes.io/name: mongodb-enterprise
     app.kubernetes.io/managed-by: kustomize
-  name: mongodbcustomrole-sample
+  name: clustermongodbrole-sample
 spec:
   role: "rootMonitor"
   db: "admin"

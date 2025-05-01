@@ -1677,8 +1677,8 @@ func AddShardedClusterController(ctx context.Context, mgr manager.Manager, image
 		}
 	}
 
-	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &rolev1.MongoDBCustomRole{},
-		&watch.ResourcesHandler{ResourceType: watch.MongoDBCustomRole, ResourceWatcher: reconciler.resourceWatcher}))
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &rolev1.ClusterMongoDBRole{},
+		&watch.ResourcesHandler{ResourceType: watch.ClusterMongoDBRole, ResourceWatcher: reconciler.resourceWatcher}))
 	if err != nil {
 		return err
 	}

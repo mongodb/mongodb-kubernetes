@@ -4,16 +4,16 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.15.0
-  name: mongodbcustomroles.mongodb.com
+  name: clustermongodbroles.mongodb.com
 spec:
   group: mongodb.com
   names:
-    kind: MongoDBCustomRole
-    listKind: MongoDBCustomRoleList
-    plural: mongodbcustomroles
+    kind: ClusterMongoDBRole
+    listKind: ClusterMongoDBRoleList
+    plural: clustermongodbroles
     shortNames:
     - mdbcr
-    singular: mongodbcustomrole
+    singular: clustermongodbrole
   scope: Cluster
   versions:
   - additionalPrinterColumns:
@@ -28,7 +28,8 @@ spec:
     name: v1
     schema:
       openAPIV3Schema:
-        description: MongoDBCustomRole is the Schema for the mongodbcustomroles API.
+        description: ClusterMongoDBRole is the Schema for the clustermongodbroles
+          API.
         properties:
           apiVersion:
             description: |-
@@ -48,7 +49,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: MongoDBCustomRoleSpec defines the desired state of MongoDBCustomRole.
+            description: ClusterMongoDBRoleSpec defines the desired state of ClusterMongoDBRole.
             properties:
               authenticationRestrictions:
                 items:
@@ -106,7 +107,7 @@ spec:
             type: object
             x-kubernetes-preserve-unknown-fields: true
           status:
-            description: MongoDBCustomRoleStatus defines the observed state of MongoDBCustomRole.
+            description: ClusterMongoDBRoleStatus defines the observed state of ClusterMongoDBRole.
             properties:
               lastTransition:
                 type: string

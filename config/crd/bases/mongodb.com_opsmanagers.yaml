@@ -858,7 +858,7 @@ spec:
                           properties:
                             kind:
                               enum:
-                              - MongoDBCustomRole
+                              - ClusterMongoDBRole
                               type: string
                             name:
                               type: string

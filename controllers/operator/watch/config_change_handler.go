@@ -20,10 +20,10 @@ import (
 type Type string
 
 const (
-	ConfigMap         Type = "ConfigMap"
-	Secret            Type = "Secret"
-	MongoDB           Type = "MongoDB"
-	MongoDBCustomRole Type = "MongoDBCustomRole"
+	ConfigMap          Type = "ConfigMap"
+	Secret             Type = "Secret"
+	MongoDB            Type = "MongoDB"
+	ClusterMongoDBRole Type = "ClusterMongoDBRole"
 )
 
 // the Object watched by controller. Includes its type and namespace+name

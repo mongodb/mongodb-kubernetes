@@ -17,12 +17,12 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
 
-func PredicatesForCustomRole() predicate.Funcs {
+func PredicatesForClusterRole() predicate.Funcs {
 	return predicate.Funcs{
 		// don't update custom roles on status changes
 		UpdateFunc: func(e event.UpdateEvent) bool {
-			oldResource := e.ObjectOld.(*rolev1.MongoDBCustomRole)
-			newResource := e.ObjectNew.(*rolev1.MongoDBCustomRole)
+			oldResource := e.ObjectOld.(*rolev1.ClusterMongoDBRole)
+			newResource := e.ObjectNew.(*rolev1.ClusterMongoDBRole)
 
 			oldSpecAnnotation := oldResource.GetAnnotations()[util.LastAchievedSpec]
 			newSpecAnnotation := newResource.GetAnnotations()[util.LastAchievedSpec]

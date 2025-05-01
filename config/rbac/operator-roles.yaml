@@ -116,13 +116,13 @@ rules:
       - opsmanagers/finalizers
       - mongodbmulticluster
       - mongodbmulticluster/finalizers
-      - mongodbcustomroles
-      - mongodbcustomroles/finalizers
+      - clustermongodbroles
+      - clustermongodbroles/finalizers
       - mongodb/status
       - mongodbusers/status
       - opsmanagers/status
       - mongodbmulticluster/status
-      - mongodbcustomroles/status
+      - clustermongodbroles/status
 
   - apiGroups:
       - ''
