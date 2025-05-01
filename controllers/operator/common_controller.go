@@ -98,18 +98,20 @@ func NewReconcileCommonController(ctx context.Context, client client.Client) *Re
 	}
 }
 
-func (r *ReconcileCommonController) ensureRoles(ctx context.Context, roles []mdbv1.MongoDBRole, roleRefs []mdbv1.MongoDBRoleRef, conn om.Connection, mongodbResourceNsName types.NamespacedName, log *zap.SugaredLogger) workflow.Status {
-	mergedRoles := roles
-	for _, ref := range roleRefs {
-		r.resourceWatcher.AddWatchedResourceIfNotAdded(ref.Name, ref.Namespace, watch.MongoDBCustomRole, mongodbResourceNsName)
+func (r *ReconcileCommonController) ensureRoles(ctx context.Context, localRoles []mdbv1.MongoDBRole, roleRefs []mdbv1.MongoDBRoleRef, conn om.Connection, mongodbResourceNsName types.NamespacedName, log *zap.SugaredLogger) workflow.Status {
+	if len(localRoles) > 0 && len(roleRefs) > 0 {
+		return workflow.Failed(xerrors.Errorf("At most one one of roles or roleRefs can be non-empty."))
+	}
 
-		customRole := &rolev1.MongoDBCustomRole{}
-		err := r.client.Get(ctx, kube.ObjectKey(ref.Namespace, ref.Name), customRole)
+	var roles []mdbv1.MongoDBRole
+	if len(roleRefs) > 0 {
+		var err error
+		roles, err = r.getRoleRefs(ctx, roleRefs, mongodbResourceNsName)
 		if err != nil {
-			return workflow.Failed(xerrors.Errorf("Failed to retrieve MongoDBCustomRole '%s' in namespace '%s': %w", ref.Name, ref.Namespace, err))
+			return workflow.Failed(err)
 		}
-
-		mergedRoles = append(mergedRoles, customRole.Spec.MongoDBRole)
+	} else if len(localRoles) > 0 {
+		roles = localRoles
 	}
 
 	d, err := conn.ReadDeployment()
@@ -117,20 +119,20 @@ func (r *ReconcileCommonController) ensureRoles(ctx context.Context, roles []mdb
 		return workflow.Failed(err)
 	}
 	dRoles := d.GetRoles()
-	if reflect.DeepEqual(dRoles, mergedRoles) {
+	if reflect.DeepEqual(dRoles, roles) {
 		return workflow.OK()
 	}
 	// HELP-20798: the agent deals correctly with a null value for
 	// privileges only when creating a role, not when updating
 	// we work around it by explicitly passing empty array
-	for i, role := range mergedRoles {
+	for i, role := range roles {
 		if role.Privileges == nil {
-			mergedRoles[i].Privileges = []mdbv1.Privilege{}
+			roles[i].Privileges = []mdbv1.Privilege{}
 		}
 	}
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
-			d.SetRoles(mergedRoles)
+			d.SetRoles(roles)
 			return nil
 		},
 		log,
@@ -139,6 +141,34 @@ func (r *ReconcileCommonController) ensureRoles(ctx context.Context, roles []mdb
 		return workflow.Failed(err)
 	}
 	return workflow.OK()
+}
+
+func (r *ReconcileCommonController) getRoleRefs(ctx context.Context, roleRefs []mdbv1.MongoDBRoleRef, mongodbResourceNsName types.NamespacedName) ([]mdbv1.MongoDBRole, error) {
+	roles := make([]mdbv1.MongoDBRole, len(roleRefs))
+
+	for idx, ref := range roleRefs {
+		var role mdbv1.MongoDBRole
+		switch ref.Kind {
+
+		case util.MongoDBCustomRoleKind:
+			r.resourceWatcher.AddWatchedResourceIfNotAdded(ref.Name, "", watch.MongoDBCustomRole, mongodbResourceNsName)
+
+			customRole := &rolev1.MongoDBCustomRole{}
+			err := r.client.Get(ctx, types.NamespacedName{Name: ref.Name}, customRole)
+			if err != nil {
+				return nil, xerrors.Errorf("Failed to retrieve MongoDBCustomRole '%s': %w", ref.Name, err)
+			}
+
+			role = customRole.Spec.MongoDBRole
+
+		default:
+			return nil, xerrors.Errorf("Invalid value %s for roleRef.kind. It must be %s.", ref.Kind, util.MongoDBCustomRoleKind)
+		}
+
+		roles[idx] = role
+	}
+
+	return roles, nil
 }
 
 // updateStatus updates the status for the CR using patch operation. Note, that the resource status is mutated and

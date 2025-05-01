@@ -27,7 +27,11 @@ const (
 	// MongoDbOpsManagerController name of the OpsManager controller
 	MongoDbOpsManagerController = "opsmanager-controller"
 
+	// MongoDBCustomRoleController name of the custom role controller
 	MongoDbCustomRoleController = "mongodbcustomrole-controller"
+
+	// Kinds
+	MongoDBCustomRoleKind = "MongoDBCustomRole"
 
 	// Ops manager config map and secret variables
 	OmBaseUrl         = "baseUrl"

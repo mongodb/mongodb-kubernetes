@@ -964,10 +964,13 @@ type InheritedRole struct {
 	Role string `json:"role"`
 }
 
-type MongoDBCustomRoleRef struct {
-	Name      string `json:"name"`
-	Namespace string `json:"namespace,omitempty"`
 type MongoDBRoleRef struct {
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+
+	// +kubebuilder:validation:Enum=MongoDBCustomRole
+	// +kubebuilder:validation:Required
+	Kind string `json:"kind"`
 }
 
 type MongoDBRole struct {

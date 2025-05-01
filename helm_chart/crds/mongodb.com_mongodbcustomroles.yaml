@@ -14,7 +14,7 @@ spec:
     shortNames:
     - mdbcr
     singular: mongodbcustomrole
-  scope: Namespaced
+  scope: Cluster
   versions:
   - additionalPrinterColumns:
     - description: The current state of the MongoDB Custom Role.

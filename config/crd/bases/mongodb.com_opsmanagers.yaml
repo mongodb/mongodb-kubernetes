@@ -856,11 +856,14 @@ spec:
                       roleRefs:
                         items:
                           properties:
+                            kind:
+                              enum:
+                              - MongoDBCustomRole
+                              type: string
                             name:
                               type: string
-                            namespace:
-                              type: string
                           required:
+                          - kind
                           - name
                           type: object
                         type: array

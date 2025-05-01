@@ -22,7 +22,7 @@ type MongoDBCustomRoleStatus struct {
 
 // +kubebuilder:object:root=true
 // +k8s:openapi-gen=true
-// +kubebuilder:resource:shortName=mdbcr
+// +kubebuilder:resource:scope=Cluster,shortName=mdbcr
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase",description="The current state of the MongoDB Custom Role."
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="The time since the MongoDB Custom Role resource was created."

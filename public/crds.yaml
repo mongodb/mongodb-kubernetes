@@ -1534,11 +1534,14 @@ spec:
                   roleRefs:
                     items:
                       properties:
+                        kind:
+                          enum:
+                          - MongoDBCustomRole
+                          type: string
                         name:
                           type: string
-                        namespace:
-                          type: string
                       required:
+                      - kind
                       - name
                       type: object
                     type: array
@@ -2687,7 +2690,7 @@ spec:
     shortNames:
     - mdbcr
     singular: mongodbcustomrole
-  scope: Namespaced
+  scope: Cluster
   versions:
   - additionalPrinterColumns:
     - description: The current state of the MongoDB Custom Role.
@@ -4275,11 +4278,14 @@ spec:
                   roleRefs:
                     items:
                       properties:
+                        kind:
+                          enum:
+                          - MongoDBCustomRole
+                          type: string
                         name:
                           type: string
-                        namespace:
-                          type: string
                       required:
+                      - kind
                       - name
                       type: object
                     type: array
@@ -5601,11 +5607,14 @@ spec:
                       roleRefs:
                         items:
                           properties:
+                            kind:
+                              enum:
+                              - MongoDBCustomRole
+                              type: string
                             name:
                               type: string
-                            namespace:
-                              type: string
                           required:
+                          - kind
                           - name
                           type: object
                         type: array
