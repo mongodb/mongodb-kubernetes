@@ -1522,6 +1522,9 @@ func EnsureSecurity(sec *Security) *Security {
 	if sec.Roles == nil {
 		sec.Roles = make([]MongoDBRole, 0)
 	}
+	if sec.RoleRefs == nil {
+		sec.RoleRefs = make([]MongoDBRoleRef, 0)
+	}
 	return sec
 }
 

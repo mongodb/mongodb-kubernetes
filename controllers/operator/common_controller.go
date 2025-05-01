@@ -110,7 +110,7 @@ func (r *ReconcileCommonController) ensureRoles(ctx context.Context, localRoles 
 		if err != nil {
 			return workflow.Failed(err)
 		}
-	} else if len(localRoles) > 0 {
+	} else {
 		roles = localRoles
 	}
 
