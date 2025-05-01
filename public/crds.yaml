@@ -1624,6 +1624,10 @@ spec:
                         type: boolean
                     type: object
                 type: object
+                x-kubernetes-validations:
+                - message: At most one of roles or roleRefs can be non-empty
+                  rule: '!(has(self.roles) && has(self.roleRefs)) || !(self.roles.size()
+                    > 0 && self.roleRefs.size() > 0)'
               service:
                 description: |-
                   DEPRECATED please use `spec.statefulSet.spec.serviceName` to provide a custom service name.
@@ -4368,6 +4372,10 @@ spec:
                         type: boolean
                     type: object
                 type: object
+                x-kubernetes-validations:
+                - message: At most one of roles or roleRefs can be non-empty
+                  rule: '!(has(self.roles) && has(self.roleRefs)) || !(self.roles.size()
+                    > 0 && self.roleRefs.size() > 0)'
               statefulSet:
                 description: |-
                   StatefulSetConfiguration provides the statefulset override for each of the cluster's statefulset
@@ -5697,6 +5705,10 @@ spec:
                             type: boolean
                         type: object
                     type: object
+                    x-kubernetes-validations:
+                    - message: At most one of roles or roleRefs can be non-empty
+                      rule: '!(has(self.roles) && has(self.roleRefs)) || !(self.roles.size()
+                        > 0 && self.roleRefs.size() > 0)'
                   service:
                     description: this is an optional service, it will get the name
                       "<rsName>-svc" in case not provided
