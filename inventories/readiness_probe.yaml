@@ -60,13 +60,3 @@ images:
         tags: ["release"]
         output:
           - dockerfile: $(inputs.params.s3_bucket)/$(inputs.params.version)/ubi/Dockerfile
-
-      - name: master-latest
-        task_type: tag_image
-        tags: [ "master" ]
-        source:
-          registry: $(inputs.params.registry)/mongodb-kubernetes-readinessprobe
-          tag: $(inputs.params.version_id)
-        destination:
-          - registry: $(inputs.params.registry)/mongodb-kubernetes-readinessprobe
-            tag: latest
