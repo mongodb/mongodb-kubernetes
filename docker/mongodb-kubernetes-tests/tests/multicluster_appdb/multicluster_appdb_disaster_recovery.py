@@ -14,7 +14,11 @@ from kubetester.kubetester import run_periodically
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
-from tests.conftest import create_appdb_certs, get_member_cluster_api_client
+from tests.conftest import (
+    MULTI_CLUSTER_MEMBER_LIST_CONFIGMAP,
+    create_appdb_certs,
+    get_member_cluster_api_client,
+)
 from tests.multicluster.conftest import cluster_spec_list
 
 FAILED_MEMBER_CLUSTER_NAME = "kind-e2e-cluster-3"
@@ -121,7 +125,7 @@ def test_remove_cluster_from_operator_member_list_to_simulate_it_is_unhealthy(
 ):
     member_list_cm = read_configmap(
         namespace,
-        "mongodb-enterprise-operator-member-list",
+        MULTI_CLUSTER_MEMBER_LIST_CONFIGMAP,
         api_client=central_cluster_client,
     )
     # this if is only for allowing re-running the test locally
@@ -132,7 +136,7 @@ def test_remove_cluster_from_operator_member_list_to_simulate_it_is_unhealthy(
     # this will trigger operators restart as it panics on changing the configmap
     update_configmap(
         namespace,
-        "mongodb-enterprise-operator-member-list",
+        MULTI_CLUSTER_MEMBER_LIST_CONFIGMAP,
         member_list_cm,
         api_client=central_cluster_client,
     )

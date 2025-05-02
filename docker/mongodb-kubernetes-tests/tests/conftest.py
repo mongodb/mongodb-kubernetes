@@ -70,6 +70,7 @@ APPDB_SA_NAME = "mongodb-kubernetes-appdb"
 DATABASE_SA_NAME = "mongodb-kubernetes-database-pods"
 OM_SA_NAME = "mongodb-kubernetes-ops-manager"
 TELEMETRY_CONFIGMAP_NAME = LEGACY_OPERATOR_NAME + "-telemetry"
+MULTI_CLUSTER_MEMBER_LIST_CONFIGMAP = LEGACY_OPERATOR_NAME + "-member-list"
 
 logger = test_logger.get_test_logger(__name__)
 
