@@ -642,6 +642,10 @@ func (d Deployment) GetRoles() []mdbv1.MongoDBRole {
 	roles := d["roles"]
 	result := make([]mdbv1.MongoDBRole, 0)
 
+	if roles == nil {
+		return result
+	}
+
 	rolesBytes, err := json.Marshal(roles)
 	if err != nil {
 		return nil
