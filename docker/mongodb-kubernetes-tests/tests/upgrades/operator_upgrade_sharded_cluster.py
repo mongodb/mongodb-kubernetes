@@ -106,6 +106,7 @@ class TestShardedClusterDeployment:
             member_cluster_clients=None,
             member_cluster_names=None,
             custom_operator_version=LEGACY_DEPLOYMENT_STATE_VERSION,
+            operator_name=LEGACY_OPERATOR_NAME,
         )
         operator.assert_is_running()
         # Dumping deployments in logs ensures we are using the correct operator version
@@ -179,6 +180,7 @@ class TestOperatorDowngrade:
             member_cluster_clients=None,
             member_cluster_names=None,
             custom_operator_version=LEGACY_DEPLOYMENT_STATE_VERSION,
+            operator_name=LEGACY_OPERATOR_NAME,
         )
         operator.assert_is_running()
         # Dumping deployments in logs ensures we are using the correct operator version

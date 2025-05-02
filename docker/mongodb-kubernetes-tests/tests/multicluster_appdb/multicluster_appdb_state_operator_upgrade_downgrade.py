@@ -2,8 +2,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 import kubernetes.client
-from kubernetes import client
-from kubetester import create_or_update_configmap, get_deployments, read_configmap
+from kubetester import read_configmap
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.operator import Operator
@@ -15,12 +14,10 @@ from tests.conftest import (
     LEGACY_MULTI_CLUSTER_OPERATOR_NAME,
     LEGACY_OPERATOR_NAME,
     MULTI_CLUSTER_OPERATOR_NAME,
-    OPERATOR_NAME,
     create_appdb_certs,
     get_central_cluster_name,
     get_custom_appdb_version,
     install_official_operator,
-    local_operator,
     log_deployments_info,
 )
 from tests.multicluster.conftest import cluster_spec_list
@@ -200,7 +197,8 @@ class TestOpsManagerCreation:
             central_cluster_client,
             member_cluster_clients,
             member_cluster_names,
-            LEGACY_DEPLOYMENT_STATE_VERSION,
+            custom_operator_version=LEGACY_DEPLOYMENT_STATE_VERSION,
+            operator_name=LEGACY_OPERATOR_NAME,
         )
         operator.assert_is_running()
         # Dumping deployments in logs ensure we are using the correct operator version
@@ -317,7 +315,8 @@ class TestOperatorDowngrade:
             central_cluster_client,
             member_cluster_clients,
             member_cluster_names,
-            LEGACY_DEPLOYMENT_STATE_VERSION,
+            custom_operator_version=LEGACY_DEPLOYMENT_STATE_VERSION,
+            operator_name=LEGACY_OPERATOR_NAME,
         )
         operator.assert_is_running()
         # Dumping deployments in logs ensure we are using the correct operator version

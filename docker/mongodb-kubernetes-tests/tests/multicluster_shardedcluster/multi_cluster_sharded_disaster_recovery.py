@@ -25,7 +25,11 @@ from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 from tests import test_logger
-from tests.conftest import get_central_cluster_client, get_member_cluster_api_client
+from tests.conftest import (
+    MULTI_CLUSTER_MEMBER_LIST_CONFIGMAP,
+    get_central_cluster_client,
+    get_member_cluster_api_client,
+)
 from tests.multicluster.conftest import cluster_spec_list
 from tests.shardedcluster.conftest import (
     enable_multi_cluster_deployment,
@@ -157,7 +161,7 @@ class TestDeployShardedClusterWithFailedCluster:
     def test_remove_cluster_from_operator_member_list_to_simulate_it_is_unhealthy(
         self, namespace, central_cluster_client: kubernetes.client.ApiClient, multi_cluster_operator: Operator
     ):
-        operator_cm_name = "mongodb-enterprise-operator-member-list"
+        operator_cm_name = MULTI_CLUSTER_MEMBER_LIST_CONFIGMAP
         logger.debug(f"Deleting cluster {FAILED_MEMBER_CLUSTER_NAME} from configmap {operator_cm_name}")
         member_list_cm = read_configmap(
             namespace,

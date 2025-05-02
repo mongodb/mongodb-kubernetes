@@ -100,8 +100,8 @@ def some_mdb_health_checker(some_mdb: MongoDB) -> MongoDBBackgroundTester:
 
 
 @mark.e2e_operator_upgrade_ops_manager
-def test_install_latest_official_operator(official_operator: Operator):
-    official_operator.assert_is_running()
+def test_install_latest_official_operator(official_meko_operator: Operator):
+    official_meko_operator.assert_is_running()
 
 
 @mark.e2e_operator_upgrade_ops_manager

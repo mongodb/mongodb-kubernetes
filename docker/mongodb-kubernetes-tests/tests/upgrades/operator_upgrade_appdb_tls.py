@@ -89,7 +89,8 @@ def test_install_latest_official_operator(
         central_cluster_client,
         member_cluster_clients,
         member_cluster_names,
-        "1.32.0",  # latest operator version before fixing the appdb hostnames
+        custom_operator_version="1.32.0",  # latest operator version before fixing the appdb hostnames
+        operator_name=LEGACY_OPERATOR_NAME,
     )
     operator.assert_is_running()
 
