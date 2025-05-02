@@ -37,7 +37,7 @@ type ClusterMongoDBRoleReconciler struct {
 }
 
 // ClusterMongoDBRole Resource
-// +kubebuilder:rbac:groups=mongodb.com,resources={clustermongodbroles,clustermongodbroles/status,clustermongodbroles/finalizers},verbs=*,namespace=placeholder
+// +kubebuilder:rbac:groups=mongodb.com,resources={clustermongodbroles,clustermongodbroles/status,clustermongodbroles/finalizers},verbs=*
 
 func (r *ClusterMongoDBRoleReconciler) Reconcile(ctx context.Context, request ctrl.Request) (ctrl.Result, error) {
 	log := zap.S().With("ClusterMongoDBRole", request.NamespacedName)
