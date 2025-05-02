@@ -285,6 +285,7 @@ spec:
             - -watch-resource=mongodb
             - -watch-resource=opsmanagers
             - -watch-resource=mongodbusers
+            - -watch-resource=mongodbcommunity
             - -watch-resource=mongodbmulticluster
           command:
             - /usr/local/bin/mongodb-kubernetes-operator
