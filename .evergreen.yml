@@ -312,6 +312,7 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
+      - func: setup_docker_sbom
       - func: pipeline
         vars:
           image_name: agent
