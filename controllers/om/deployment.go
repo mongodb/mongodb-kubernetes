@@ -639,11 +639,19 @@ func (d Deployment) SetRoles(roles []mdbv1.MongoDBRole) {
 }
 
 func (d Deployment) GetRoles() []mdbv1.MongoDBRole {
-	val, ok := d["roles"].([]mdbv1.MongoDBRole)
-	if !ok {
-		return []mdbv1.MongoDBRole{}
+	roles := d["roles"]
+	result := make([]mdbv1.MongoDBRole, 0)
+
+	rolesBytes, err := json.Marshal(roles)
+	if err != nil {
+		return nil
 	}
-	return val
+
+	if err := json.Unmarshal(rolesBytes, &result); err != nil {
+		return nil
+	}
+
+	return result
 }
 
 // GetAgentVersion returns the current version of all Agents in the deployment. It's empty until the
