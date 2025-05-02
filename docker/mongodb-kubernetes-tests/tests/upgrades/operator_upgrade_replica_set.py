@@ -82,8 +82,8 @@ def replica_set_user(replica_set: MongoDB) -> MongoDBUser:
 
 
 @mark.e2e_operator_upgrade_replica_set
-def test_install_latest_official_operator(official_operator: Operator):
-    official_operator.assert_is_running()
+def test_install_latest_official_operator(official_meko_operator: Operator):
+    official_meko_operator.assert_is_running()
 
 
 @mark.e2e_operator_upgrade_replica_set

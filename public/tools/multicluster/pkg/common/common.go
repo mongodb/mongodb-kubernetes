@@ -61,17 +61,15 @@ type Flags struct {
 const (
 	// KubeConfigSecretName stays the same when upgrading to MCK, as we didn't want to require customers to rename their secret, so we kept the old one.
 	// -enterprise prefix
-	KubeConfigSecretName       = "mongodb-enterprise-operator-multi-cluster-kubeconfig"
-	KubeConfigSecretKey        = "kubeconfig"
-	AppdbServiceAccount        = "mongodb-kubernetes-appdb"
-	DatabasePodsServiceAccount = "mongodb-kubernetes-database-pods"
-	OpsManagerServiceAccount   = "mongodb-kubernetes-ops-manager"
-	AppdbRole                  = "mongodb-kubernetes-appdb"
-	AppdbRoleBinding           = "mongodb-kubernetes-appdb"
-	DefaultOperatorName        = "mongodb-kubernetes-operator"
-	// DefaultOperatorConfigMapName is the legacy configmap name which stays the same when upgrading to MCK, we didn't want to require customers to rename their configmap, so we kept the old one
-	// -enterprise prefix
-	DefaultOperatorConfigMapName = "mongodb-enterprise-operator-member-list"
+	KubeConfigSecretName         = "mongodb-enterprise-operator-multi-cluster-kubeconfig"
+	KubeConfigSecretKey          = "kubeconfig"
+	AppdbServiceAccount          = "mongodb-kubernetes-appdb"
+	DatabasePodsServiceAccount   = "mongodb-kubernetes-database-pods"
+	OpsManagerServiceAccount     = "mongodb-kubernetes-ops-manager"
+	AppdbRole                    = "mongodb-kubernetes-appdb"
+	AppdbRoleBinding             = "mongodb-kubernetes-appdb"
+	DefaultOperatorName          = "mongodb-kubernetes-operator"
+	DefaultOperatorConfigMapName = DefaultOperatorName + "-member-list"
 )
 
 // KubeConfigFile represents the contents of a KubeConfig file.
@@ -1077,9 +1075,10 @@ func setupDatabaseRoles(ctx context.Context, clientSet map[string]KubeClient, f 
 // This will replace the existing configmap.
 // NOTE: the configmap is hardcoded to be DefaultOperatorConfigMapName
 func ReplaceClusterMembersConfigMap(ctx context.Context, centralClusterClient KubeClient, flags Flags) error {
+	configMapName := flags.OperatorName + "-member-list"
 	members := corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      DefaultOperatorConfigMapName,
+			Name:      configMapName,
 			Namespace: flags.CentralClusterNamespace,
 			Labels:    multiClusterLabels(),
 		},
@@ -1088,11 +1087,11 @@ func ReplaceClusterMembersConfigMap(ctx context.Context, centralClusterClient Ku
 
 	addToSet(flags.MemberClusters, &members)
 
-	fmt.Printf("Creating Member list Configmap %s/%s in cluster %s\n", flags.CentralClusterNamespace, DefaultOperatorConfigMapName, flags.CentralCluster)
+	fmt.Printf("Creating Member list Configmap %s/%s in cluster %s\n", flags.CentralClusterNamespace, configMapName, flags.CentralCluster)
 	_, err := centralClusterClient.CoreV1().ConfigMaps(flags.CentralClusterNamespace).Create(ctx, &members, metav1.CreateOptions{})
 
 	if err != nil && !errors.IsAlreadyExists(err) {
-		return xerrors.Errorf("failed creating configmap %s: %w", DefaultOperatorConfigMapName, err)
+		return xerrors.Errorf("failed creating configmap %s: %w", configMapName, err)
 	}
 
 	if errors.IsAlreadyExists(err) {
