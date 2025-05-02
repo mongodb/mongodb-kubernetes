@@ -49,8 +49,6 @@ func (r *ClusterMongoDBRoleReconciler) Reconcile(ctx context.Context, request ct
 		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, nil
 	}
 
-	// res := mdbv1.RoleIsCorrectlyConfigured(role.Spec.MongoDBRole, "8.0.6")
-
 	log.Infow("ClusterMongoDBRole.Spec", "spec", role.Spec)
 
 	if !role.DeletionTimestamp.IsZero() {

@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"testing"
 	"time"
 
@@ -497,7 +498,8 @@ func TestFinalizerIsRemoved_WhenUserIsDeleted(t *testing.T) {
 	assert.Nil(t, err, "there should be no error on successful reconciliation")
 	assert.Equal(t, newExpected, newResult, "there should be a successful reconciliation if the password is a valid reference")
 
-	assert.Empty(t, user.GetFinalizers())
+	err = client.Get(ctx, kube.ObjectKey(user.Namespace, user.Name), user)
+	assert.True(t, apiErrors.IsNotFound(err), "the user should not exist")
 }
 
 // BuildAuthenticationEnabledReplicaSet returns a AutomationConfig after creating a Replica Set with a set of
