@@ -1,4 +1,4 @@
-[//]: # (Consider renaming or removing the header for next release, otherwise it appears as duplicate in the published release, e.g: https://github.com/mongodb/mongodb-enterprise-kubernetes/releases/tag/1.22.0 )
+[//]: # (These are the legacy release notes for MongoDB Enterprise Kubernetes Operator. The new release notes are now part of the MCK release notes. The MCK release notes are available at RELEASE_NOTES.md)
 <!-- Next Release -->
 
 # MongoDB Enterprise Kubernetes Operator 1.33.0
