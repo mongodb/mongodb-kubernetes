@@ -29,6 +29,7 @@ operator:
   - mongodb
   - opsmanagers
   - mongodbusers
+  - mongodbcommunity
 
   nodeSelector: {}
 
