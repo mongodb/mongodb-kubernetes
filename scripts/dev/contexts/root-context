@@ -116,3 +116,8 @@ export MDB_SEARCH_COMMUNITY_VERSION
 
 export MDB_SEARCH_COMMUNITY_NAME="mongodb-search-community"
 export MDB_SEARCH_COMMUNITY_REPO_URL="quay.io/mongodb"
+
+# use RequestResponse for full audit log
+# use None to disable audit logging
+# https://kubernetes.io/docs/tasks/debug/debug-cluster/audit/#audit-policy
+export K8S_AUDIT_LOG_LEVEL="None"
