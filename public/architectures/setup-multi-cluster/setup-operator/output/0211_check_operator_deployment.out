@@ -2,8 +2,8 @@ Waiting for deployment "mongodb-enterprise-operator-multi-cluster" rollout to fi
 deployment "mongodb-enterprise-operator-multi-cluster" successfully rolled out
 Operator deployment in mongodb-operator namespace
 NAME                                        READY   UP-TO-DATE   AVAILABLE   AGE
-mongodb-enterprise-operator-multi-cluster   1/1     1            1           11s
+mongodb-enterprise-operator-multi-cluster   1/1     1            1           13s
 
 Operator pod in mongodb-operator namespace
 NAME                                                         READY   STATUS    RESTARTS   AGE
-mongodb-enterprise-operator-multi-cluster-5c9dfd5bb6-rj65g   1/1     Running   0          12s
+mongodb-enterprise-operator-multi-cluster-54846485db-889ft   1/1     Running   0          13s
