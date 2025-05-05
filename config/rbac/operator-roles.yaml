@@ -5,7 +5,7 @@
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-enterprise-operator-cluster-telemetry
+  name: mongodb-kubernetes-operator-cluster-telemetry
 rules:
   # Non-resource URL permissions
   - nonResourceURLs:
@@ -33,21 +33,21 @@ rules:
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-enterprise-operator-mongodb-cluster-telemetry-binding
+  name: mongodb-kubernetes-operator-mongodb-cluster-telemetry-binding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: mongodb-enterprise-operator-cluster-telemetry
+  name: mongodb-kubernetes-operator-cluster-telemetry
 subjects:
   - kind: ServiceAccount
-    name: mongodb-enterprise-operator
+    name: mongodb-kubernetes-operator
     namespace: mongodb
 ---
 # Source: mongodb-kubernetes/templates/operator-roles.yaml
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-enterprise-operator
+  name: mongodb-kubernetes-operator
   namespace: mongodb
 rules:
   - apiGroups:
@@ -137,13 +137,13 @@ rules:
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-enterprise-operator
+  name: mongodb-kubernetes-operator
   namespace: mongodb
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: mongodb-enterprise-operator
+  name: mongodb-kubernetes-operator
 subjects:
   - kind: ServiceAccount
-    name: mongodb-enterprise-operator
+    name: mongodb-kubernetes-operator
     namespace: mongodb

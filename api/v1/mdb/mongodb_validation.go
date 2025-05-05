@@ -2,7 +2,6 @@ package mdb
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -178,9 +177,9 @@ func oidcProviderConfigsSingleWorkforceIdentityFederationValidation(configs []OI
 		}
 
 		if len(workforceIdentityFederationConfigs) > 1 {
-			msg := fmt.Sprintf("Only one OIDC provider config can be configured with Workforce Identity Federation. "+
-				"The following configs are configured with Workforce Identity Federation: %s", strings.Join(workforceIdentityFederationConfigs, ", "))
-			return v1.ValidationError("%s", msg)
+			configsSeparatedString := strings.Join(workforceIdentityFederationConfigs, ", ")
+			return v1.ValidationError("Only one OIDC provider config can be configured with Workforce Identity Federation. "+
+				"The following configs are configured with Workforce Identity Federation: %s", configsSeparatedString)
 		}
 
 		return v1.ValidationSuccess()
@@ -189,13 +188,13 @@ func oidcProviderConfigsSingleWorkforceIdentityFederationValidation(configs []OI
 
 func oidcProviderConfigIssuerURIValidator(config OIDCProviderConfig) func(DbCommonSpec) v1.ValidationResult {
 	return func(_ DbCommonSpec) v1.ValidationResult {
-		ok, url := util.IsURL(config.IssuerURI)
-		if !ok {
-			return v1.ValidationError("Invalid IssuerURI in OIDC provider config %q", config.ConfigurationName)
+		url, err := util.ParseURL(config.IssuerURI)
+		if err != nil {
+			return v1.ValidationError("Invalid IssuerURI in OIDC provider config %q: %s", config.ConfigurationName, err.Error())
 		}
 
 		if url.Scheme != "https" {
-			return v1.ValidationWarning("IssuerURI in OIDC provider config %q in not secure endpoint", config.ConfigurationName)
+			return v1.ValidationWarning("IssuerURI %s in OIDC provider config %q in not secure endpoint", url.String(), config.ConfigurationName)
 		}
 
 		return v1.ValidationSuccess()

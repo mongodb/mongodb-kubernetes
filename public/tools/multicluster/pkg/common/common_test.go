@@ -89,7 +89,7 @@ func testFlags(t *testing.T, cleanup bool) Flags {
 		Cleanup:                     cleanup,
 		ClusterScoped:               false,
 		CreateTelemetryClusterRoles: true,
-		OperatorName:                "mongodb-enterprise-operator",
+		OperatorName:                DefaultOperatorName,
 		CreateServiceAccountSecrets: true,
 	}
 }

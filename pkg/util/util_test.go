@@ -2,10 +2,10 @@ package util
 
 import (
 	"fmt"
-	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/identifiable"
 )
@@ -198,80 +198,64 @@ func TestTransformToMap(t *testing.T) {
 	}))
 }
 
-// TestIsURL tests the IsURL function with various inputs.
+// TestIsURL tests the ParseURL function with various inputs.
 //
 //goland:noinspection HttpUrlsUsage
 func TestIsURL(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    string
-		isValid  bool
-		checkURL func(*url.URL) bool
+		name                string
+		input               string
+		expectedErrorString string
 	}{
 		{
-			name:    "valid http URL",
-			input:   "http://example.com",
-			isValid: true,
-			checkURL: func(u *url.URL) bool {
-				return u.Scheme == "http" && u.Host == "example.com"
-			},
+			name:  "valid http URL",
+			input: "http://example.com",
 		},
 		{
-			name:    "valid https URL with path",
-			input:   "https://example.com/path",
-			isValid: true,
-			checkURL: func(u *url.URL) bool {
-				return u.Scheme == "https" && u.Host == "example.com" && u.Path == "/path"
-			},
+			name:  "valid https URL with path",
+			input: "https://example.com/path",
 		},
 		{
-			name:    "valid URL with port",
-			input:   "http://example.com:8080",
-			isValid: true,
-			checkURL: func(u *url.URL) bool {
-				return u.Host == "example.com:8080"
-			},
+			name:  "valid URL with port",
+			input: "http://example.com:8080",
 		},
 		{
-			name:    "missing scheme",
-			input:   "example.com",
-			isValid: false,
+			name:                "missing scheme",
+			input:               "example.com",
+			expectedErrorString: "missing URL scheme: example.com",
 		},
 		{
-			name:    "missing host",
-			input:   "http://",
-			isValid: false,
+			name:                "missing host",
+			input:               "http://",
+			expectedErrorString: "missing URL host: http://",
 		},
 		{
-			name:    "empty string",
-			input:   "",
-			isValid: false,
+			name:                "empty string",
+			input:               "",
+			expectedErrorString: "empty URL",
 		},
 		{
-			name:    "invalid URL",
-			input:   ":invalid-url",
-			isValid: false,
+			name:                "invalid URL",
+			input:               ":invalid-url",
+			expectedErrorString: "invalid URL: parse \":invalid-url\": missing protocol scheme",
 		},
 		{
-			name:    "file scheme",
-			input:   "file:///path/to/file",
-			isValid: true,
-			checkURL: func(u *url.URL) bool {
-				return u.Scheme == "file" && u.Path == "/path/to/file"
-			},
+			name:                "file scheme",
+			input:               "file://path/to/file",
+			expectedErrorString: "invalid URL scheme (http or https): file://path/to/file",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			valid, u := IsURL(tt.input)
-			assert.Equal(t, tt.isValid, valid)
-
-			if tt.isValid {
+			u, err := ParseURL(tt.input)
+			if tt.expectedErrorString != "" {
+				require.Error(t, err)
+				assert.Equal(t, tt.expectedErrorString, err.Error())
+				assert.Nil(t, u)
+			} else {
+				assert.NoError(t, err)
 				assert.NotNil(t, u)
-				if tt.checkURL != nil {
-					assert.True(t, tt.checkURL(u))
-				}
 			}
 		})
 	}

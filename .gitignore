@@ -4,11 +4,11 @@
 /pkg/client
 /vendor/
 public/tools/multicluster/vendor
-docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator
+docker/mongodb-kubernetes-operator/content/mongodb-kubernetes-operator
 docker/mongodb-kubernetes-database/content/mongodb-mms-automation-agent-version.properties
 docker/mongodb-kubernetes-database/content/readinessprobe
 docker/mongodb-enterprise-ops-manager/scripts/mmsconfiguration
-docker/mongodb-enterprise-tests/public
+docker/mongodb-kubernetes-tests/public
 
 my-*
 .vscode
@@ -42,20 +42,20 @@ public/architectures/**/.generated
 public/architectures/**/certs/*
 public/architectures/**/secrets/*
 
-docker/mongodb-enterprise-appdb/content/readinessprobe
+docker/mongodb-kubernetes-appdb/content/readinessprobe
 mongodb-kubernetes
-docker/mongodb-enterprise-operator/Dockerfile
+docker/mongodb-kubernetes-operator/Dockerfile
 docker/mongodb-kubernetes-database/Dockerfile
 docker/mongodb-enterprise-ops-manager/Dockerfile
 docker/mongodb-kubernetes-init-database/Dockerfile
 docker/mongodb-kubernetes-init-ops-manager/Dockerfile
-docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator.tar
-docker/mongodb-enterprise-tests/helm_chart/
-docker/mongodb-enterprise-tests/public/
-docker/mongodb-enterprise-tests/requirements.txt
-docker/mongodb-enterprise-tests/.flake8
-docker/mongodb-enterprise-tests/.pylintrc
-docker/mongodb-enterprise-tests/pyproject.toml
+docker/mongodb-kubernetes-operator/content/mongodb-kubernetes-operator.tar
+docker/mongodb-kubernetes-tests/helm_chart/
+docker/mongodb-kubernetes-tests/public/
+docker/mongodb-kubernetes-tests/requirements.txt
+docker/mongodb-kubernetes-tests/.flake8
+docker/mongodb-kubernetes-tests/.pylintrc
+docker/mongodb-kubernetes-tests/pyproject.toml
 
 bundle
 
@@ -86,7 +86,7 @@ tmp
 
 licenses_full.csv
 licenses_stderr
-docker/mongodb-enterprise-tests/.test_identifiers*
+docker/mongodb-kubernetes-tests/.test_identifiers*
 
 logs-debug/
 /ssdlc-report/*

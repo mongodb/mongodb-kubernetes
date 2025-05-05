@@ -294,6 +294,32 @@ func TestOIDCAuthValidation(t *testing.T) {
 			expectedErrorMessage: "Only one OIDC provider config can be configured with Workforce Identity Federation. The following configs are configured with Workforce Identity Federation: test-provider1, test-provider2",
 		},
 		{
+			name: "Multiple Workload Identity Federation configs",
+			auth: &Authentication{
+				Enabled: true,
+				Agents:  AgentAuthentication{Mode: util.SCRAMSHA256},
+				Modes:   []AuthMode{util.OIDC, util.SCRAMSHA256},
+				OIDCProviderConfigs: []OIDCProviderConfig{
+					{
+						ConfigurationName:   "test-provider-workforce1",
+						IssuerURI:           "https://example1.com",
+						AuthorizationMethod: OIDCAuthorizationMethodWorkforceIdentityFederation,
+						ClientId:            "clientId1",
+					},
+					{
+						ConfigurationName:   "test-provider-workload2",
+						IssuerURI:           "https://example2.com",
+						AuthorizationMethod: OIDCAuthorizationMethodWorkloadIdentityFederation,
+					},
+					{
+						ConfigurationName:   "test-provider-workload3",
+						IssuerURI:           "https://example3.com",
+						AuthorizationMethod: OIDCAuthorizationMethodWorkloadIdentityFederation,
+					},
+				},
+			},
+		},
+		{
 			name: "Invalid issuer URI",
 			auth: &Authentication{
 				Enabled: true,
@@ -306,9 +332,8 @@ func TestOIDCAuthValidation(t *testing.T) {
 					},
 				},
 			},
-			expectedErrorMessage: "Invalid IssuerURI in OIDC provider config \"test-provider\"",
+			expectedErrorMessage: "Invalid IssuerURI in OIDC provider config \"test-provider\": missing URL scheme: invalid-uri",
 		},
-		// TODO fix validation, we should not return warnings immediately, only add them to the result
 		{
 			name: "Non-HTTPS issuer URI - warning",
 			auth: &Authentication{
@@ -322,7 +347,7 @@ func TestOIDCAuthValidation(t *testing.T) {
 					},
 				},
 			},
-			expectedWarning: "IssuerURI in OIDC provider config \"test-provider\" in not secure endpoint",
+			expectedWarning: "IssuerURI http://example.com in OIDC provider config \"test-provider\" in not secure endpoint",
 		},
 		{
 			name: "Workforce Identity Federation without ClientId",
