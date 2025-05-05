@@ -75,7 +75,7 @@ kubectl scale deployment mongodb-community-operator --replicas=0
 Deploy the new MCK Helm release with your updated values:
 
 ```bash
-helm install mongodb-kubernetes-operator mongodb/enterprise-operator -f values.yaml
+helm install mongodb-kubernetes-operator mongodb/mongodb-kubernetes -f values.yaml
 ```
 
 ⚠️ Warning: Ensure the MCK chart is installed with a different release name than the prior community operator chart. By default, the new MCK chart uses a different `operator.name`, which differs from the community operator.

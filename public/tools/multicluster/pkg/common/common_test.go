@@ -82,7 +82,7 @@ func testFlags(t *testing.T, cleanup bool) Flags {
 	return Flags{
 		MemberClusterApiServerUrls:  memberClusterApiServerUrls,
 		MemberClusters:              memberClusters,
-		ServiceAccount:              "mongodb-enterprise-operator-multicluster",
+		ServiceAccount:              "mongodb-kubernetes-operator-multicluster",
 		CentralCluster:              "central-cluster",
 		MemberClusterNamespace:      "member-namespace",
 		CentralClusterNamespace:     "central-namespace",
