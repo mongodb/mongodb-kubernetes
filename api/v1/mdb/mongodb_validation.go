@@ -2,7 +2,6 @@ package mdb
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -178,9 +177,9 @@ func oidcProviderConfigsSingleWorkforceIdentityFederationValidation(configs []OI
 		}
 
 		if len(workforceIdentityFederationConfigs) > 1 {
-			msg := fmt.Sprintf("Only one OIDC provider config can be configured with Workforce Identity Federation. "+
-				"The following configs are configured with Workforce Identity Federation: %s", strings.Join(workforceIdentityFederationConfigs, ", "))
-			return v1.ValidationError("%s", msg)
+			configsSeparatedString := strings.Join(workforceIdentityFederationConfigs, ", ")
+			return v1.ValidationError("Only one OIDC provider config can be configured with Workforce Identity Federation. "+
+				"The following configs are configured with Workforce Identity Federation: %s", configsSeparatedString)
 		}
 
 		return v1.ValidationSuccess()
