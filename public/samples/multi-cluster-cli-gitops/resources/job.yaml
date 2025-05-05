@@ -21,7 +21,7 @@ spec:
         - "-member-clusters=cluster1.mongokubernetes.com,cluster2.mongokubernetes.com,cluster4.mongokubernetes.com"
         - "-member-cluster-namespace=mongodb"
         - "-central-cluster-namespace=mongodb"
-        - "-operator-name=mongodb-enterprise-operator-multi-cluster"
+        - "-operator-name=mongodb-kubernetes-operator-multi-cluster"
         - "-source-cluster=cluster1.mongokubernetes.com"
         volumeMounts:
         - mountPath: /etc/config/kubeconfig
@@ -31,6 +31,6 @@ spec:
       - name: kube-config-volume
         secret:
           defaultMode: 420
-          secretName: mongodb-enterprise-operator-multi-cluster-kubeconfig
+          secretName: mongodb-kubernetes-operator-multi-cluster-kubeconfig
 
   backoffLimit: 2

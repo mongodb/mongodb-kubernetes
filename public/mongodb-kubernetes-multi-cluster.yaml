@@ -381,4 +381,4 @@ spec:
         - name: kube-config-volume
           secret:
             defaultMode: 420
-            secretName: mongodb-enterprise-operator-multi-cluster-kubeconfig
+            secretName: mongodb-kubernetes-operator-multi-cluster-kubeconfig
