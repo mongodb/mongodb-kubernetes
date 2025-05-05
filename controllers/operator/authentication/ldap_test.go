@@ -11,6 +11,8 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
 )
 
+var LDAPPlainMechanism = getMechanismByName(LDAPPlain)
+
 func TestLdapDeploymentMechanism(t *testing.T) {
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 
@@ -77,5 +79,6 @@ func TestLDAP_DisableAgentAuthentication(t *testing.T) {
 			AutomationSubject: validSubject("automation"),
 		},
 	}
+
 	assertAgentAuthenticationDisabled(t, LDAPPlainMechanism, conn, opts)
 }

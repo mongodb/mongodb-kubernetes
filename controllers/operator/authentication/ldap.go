@@ -9,8 +9,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
-var LDAPPlainMechanism = &ldapAuthMechanism{}
-
 type ldapAuthMechanism struct{}
 
 func (l *ldapAuthMechanism) GetName() MechanismName {
