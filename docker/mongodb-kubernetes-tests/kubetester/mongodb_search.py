@@ -15,7 +15,7 @@ class MongoDBSearch(MongoDB, CustomObject):
         with_defaults = {
             "plural": "mongodbsearch",
             "kind": "MongoDBSearch",
-            "group": "mongodbsearch.mongodb.com",
+            "group": "mongodb.com",
             "version": "v1",
         }
         with_defaults.update(kwargs)
