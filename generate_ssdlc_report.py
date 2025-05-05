@@ -104,10 +104,10 @@ def get_supported_images(release: Dict) -> dict[str, SupportedImage]:
         Subreport.AGENT,
     )
 
-    supported_images["mongodb-enterprise-cli"] = SupportedImage(
+    supported_images["mongodb-kubernetes-cli"] = SupportedImage(
         [release["mongodbOperator"]],
-        "mongodb-enterprise-cli",
-        "mongodb-enterprise-cli",
+        "mongodb-kubernetes-cli",
+        "mongodb-kubernetes-cli",
         "MongoDB Kubernetes Kubernetes Operator CLI",
         list(),
         ["linux/amd64", "linux/arm64", "darwin/amd64", "darwin/arm64"],
