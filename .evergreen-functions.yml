@@ -474,7 +474,7 @@ functions:
   build_and_push_appdb_database:
     - command: subprocess.exec
       params:
-        working_dir: src/github.com/mongodb/mongodb-kubernetes/docker/mongodb-enterprise-appdb-database
+        working_dir: src/github.com/mongodb/mongodb-kubernetes/docker/mongodb-kubernetes-appdb-database
         binary: ./build_and_push_appdb_database_images.sh
         add_to_path:
           - ${workdir}/bin
