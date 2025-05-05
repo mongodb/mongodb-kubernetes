@@ -101,8 +101,6 @@ func (c *crdsToWatch) String() string {
 func main() {
 	flag.Parse()
 	// If no CRDs are specified, we set default to non-multicluster CRDs
-	// TODO MCK: consider not making mongoDBCommunityCRDPlural part of the default list
-	// what happens if we watch this, but its not installed?
 	if len(crds) == 0 {
 		crds = crdsToWatch{mongoDBCRDPlural, mongoDBUserCRDPlural, mongoDBOpsManagerCRDPlural, mongoDBCommunityCRDPlural}
 	}
@@ -250,9 +248,9 @@ func main() {
 			// when running appdb -> mongodb-enterprise-server
 			env.ReadOrPanic(mcoConstruct.MongodbCommunityImageEnv),
 			envvar.GetEnvOrDefault(mcoConstruct.MongoDBCommunityImageTypeEnv, mcoConstruct.DefaultImageType),
-			os.Getenv(util.MongodbCommunityAgentImageEnv),
-			os.Getenv(mcoConstruct.VersionUpgradeHookImageEnv),
-			os.Getenv(mcoConstruct.ReadinessProbeImageEnv),
+			env.ReadOrPanic(util.MongodbCommunityAgentImageEnv),
+			env.ReadOrPanic(mcoConstruct.VersionUpgradeHookImageEnv),
+			env.ReadOrPanic(mcoConstruct.ReadinessProbeImageEnv),
 		); err != nil {
 			log.Fatal(err)
 		}
@@ -424,6 +422,8 @@ func initializeEnvironment() {
 		"MONGODB_",
 		"INIT_",
 		"MDB_",
+		"READINESS_PROBE_IMAGE",
+		"VERSION_UPGRADE_HOOK_IMAGE",
 	}
 
 	// Only env variables with one of these prefixes will be printed

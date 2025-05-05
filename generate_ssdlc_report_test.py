@@ -25,7 +25,7 @@ def test_report_generation():
     # For example, when we release a new Ops Manager or Agent image, we upload the corresponding SBOM Lite
     # on d+1. Then on d+2 we have the Augmented SBOM available for download. This situation is perfectly normal
     # but causes this test to fail. Therefore, we ignore these errors here.
-    generate_ssdlc_report.generate_ssdlc_report(True)
+    generate_ssdlc_report.generate_ssdlc_report(ignore_sbom_download_errors=True)
 
     # Then
     assert os.path.exists(f"{current_directory}/ssdlc-report/MEKO-{current_version}")

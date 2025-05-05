@@ -57,9 +57,9 @@ def main() -> int:
 
 
 def update_standalone(operator_version):
-    update_standalone_installer("public/mongodb-enterprise.yaml", operator_version),
-    update_standalone_installer("public/mongodb-enterprise-openshift.yaml", operator_version),
-    update_standalone_installer("public/mongodb-enterprise-multi-cluster.yaml", operator_version),
+    update_standalone_installer("public/mongodb-kubernetes.yaml", operator_version),
+    update_standalone_installer("public/mongodb-kubernetes-openshift.yaml", operator_version),
+    update_standalone_installer("public/mongodb-kubernetes-multi-cluster.yaml", operator_version),
 
 
 def update_helm_charts(operator_version, release):

@@ -13,7 +13,7 @@ function print_operator_env() {
 WATCH_NAMESPACE=\"${WATCH_NAMESPACE}\"
 NAMESPACE=\"${NAMESPACE}\"
 IMAGE_PULL_POLICY=\"Always\"
-MONGODB_ENTERPRISE_DATABASE_IMAGE=\"${MONGODB_ENTERPRISE_DATABASE_IMAGE:-${DATABASE_REGISTRY}/mongodb-enterprise-database${UBI_IMAGE_SUFFIX}}\"
+MONGODB_ENTERPRISE_DATABASE_IMAGE=\"${MONGODB_ENTERPRISE_DATABASE_IMAGE:-${DATABASE_REGISTRY}/mongodb-kubernetes-database${UBI_IMAGE_SUFFIX}}\"
 INIT_DATABASE_IMAGE_REPOSITORY=\"${INIT_DATABASE_REGISTRY}/mongodb-kubernetes-init-database${UBI_IMAGE_SUFFIX}\"
 INIT_DATABASE_VERSION=\"${INIT_DATABASE_VERSION}\"
 DATABASE_VERSION=\"${DATABASE_VERSION}\"
@@ -35,66 +35,67 @@ MDB_COMMUNITY_IMAGE=\"${MDB_COMMUNITY_IMAGE}\"
 MDB_COMMUNITY_REPO_URL=\"${MDB_COMMUNITY_REPO_URL}\"
 MDB_COMMUNITY_AGENT_IMAGE=\"${MDB_COMMUNITY_AGENT_IMAGE}\"
 MDB_COMMUNITY_IMAGE_TYPE=\"${MDB_COMMUNITY_IMAGE_TYPE}\"
+VERSION_UPGRADE_HOOK_IMAGE=\"${VERSION_UPGRADE_HOOK_IMAGE}\"
+READINESS_PROBE_IMAGE=\"${READINESS_PROBE_IMAGE}\"
 "
 
-if [[ "${AGENT_IMAGE:-}" != "" ]]; then
-  echo "AGENT_IMAGE=${AGENT_IMAGE}"
-else
-  echo "AGENT_IMAGE=\"quay.io/mongodb/mongodb-agent${UBI_IMAGE_SUFFIX}:${AGENT_VERSION:-}\""
-fi
+  if [[ "${AGENT_IMAGE:-}" != "" ]]; then
+    echo "AGENT_IMAGE=${AGENT_IMAGE}"
+  else
+    echo "AGENT_IMAGE=\"quay.io/mongodb/mongodb-agent${UBI_IMAGE_SUFFIX}:${AGENT_VERSION:-}\""
+  fi
 
-if [[ "${KUBECONFIG:-""}" != "" ]]; then
-  echo "KUBECONFIG=${KUBECONFIG}"
-fi
+  if [[ "${KUBECONFIG:-""}" != "" ]]; then
+    echo "KUBECONFIG=${KUBECONFIG}"
+  fi
 
-if [[ "${MDB_OPERATOR_TELEMETRY_SEND_FREQUENCY:-""}" != "" ]]; then
-  echo "MDB_OPERATOR_TELEMETRY_SEND_FREQUENCY=${MDB_OPERATOR_TELEMETRY_SEND_FREQUENCY}"
-fi
+  if [[ "${MDB_OPERATOR_TELEMETRY_SEND_FREQUENCY:-""}" != "" ]]; then
+    echo "MDB_OPERATOR_TELEMETRY_SEND_FREQUENCY=${MDB_OPERATOR_TELEMETRY_SEND_FREQUENCY}"
+  fi
 
+  if [[ "${MDB_OPERATOR_TELEMETRY_SEND_BASEURL:-""}" != "" ]]; then
+    echo "MDB_OPERATOR_TELEMETRY_SEND_BASEURL=${MDB_OPERATOR_TELEMETRY_SEND_BASEURL}"
+  fi
 
-if [[ "${MDB_OPERATOR_TELEMETRY_SEND_BASEURL:-""}" != "" ]]; then
-  echo "MDB_OPERATOR_TELEMETRY_SEND_BASEURL=${MDB_OPERATOR_TELEMETRY_SEND_BASEURL}"
-fi
+  if [[ "${MDB_AGENT_VERSION:-""}" != "" ]]; then
+    echo "MDB_AGENT_VERSION=${MDB_AGENT_VERSION}"
+  fi
 
-if [[ "${MDB_AGENT_VERSION:-""}" != "" ]]; then
-  echo "MDB_AGENT_VERSION=${MDB_AGENT_VERSION}"
-fi
+  if [[ "${MDB_AGENT_DEBUG:-""}" != "" ]]; then
+    echo "MDB_AGENT_DEBUG=${MDB_AGENT_DEBUG}"
+  fi
 
-if [[ "${MDB_AGENT_DEBUG:-""}" != "" ]]; then
-  echo "MDB_AGENT_DEBUG=${MDB_AGENT_DEBUG}"
-fi
+  if [[ "${KUBE_CONFIG_PATH:-""}" != "" ]]; then
+    echo "KUBE_CONFIG_PATH=${KUBE_CONFIG_PATH}"
+  fi
 
-if [[ "${KUBE_CONFIG_PATH:-""}" != "" ]]; then
-  echo "KUBE_CONFIG_PATH=${KUBE_CONFIG_PATH}"
-fi
+  if [[ "${PERFORM_FAILOVER:-""}" != "" ]]; then
+    echo "PERFORM_FAILOVER=${PERFORM_FAILOVER}"
+  fi
 
-if [[ "${PERFORM_FAILOVER:-""}" != "" ]]; then
-  echo "PERFORM_FAILOVER=${PERFORM_FAILOVER}"
-fi
+  if [[ "${OM_DEBUG_HTTP:-""}" != "" ]]; then
+    echo "OM_DEBUG_HTTP=${OM_DEBUG_HTTP}"
+  fi
 
-if [[ "${OM_DEBUG_HTTP:-""}" != "" ]]; then
-  echo "OM_DEBUG_HTTP=${OM_DEBUG_HTTP}"
-fi
+  if [[ "${OPS_MANAGER_MONITOR_APPDB:-""}" != "" ]]; then
+    echo "OPS_MANAGER_MONITOR_APPDB=${OPS_MANAGER_MONITOR_APPDB}"
+  fi
 
-if [[ "${OPS_MANAGER_MONITOR_APPDB:-""}" != "" ]]; then
-  echo "OPS_MANAGER_MONITOR_APPDB=${OPS_MANAGER_MONITOR_APPDB}"
-fi
+  if [[ "${OPERATOR_ENV:-""}" != "" ]]; then
+    echo "OPERATOR_ENV=${OPERATOR_ENV}"
+  fi
 
-if [[ "${OPERATOR_ENV:-""}" != "" ]]; then
-  echo "OPERATOR_ENV=${OPERATOR_ENV}"
-fi
+  if [[ "${MDB_OM_VERSION_MAPPING_PATH:-""}" != "" ]]; then
+    echo "MDB_OM_VERSION_MAPPING_PATH=${MDB_OM_VERSION_MAPPING_PATH}"
+  fi
 
-if [[ "${MDB_OM_VERSION_MAPPING_PATH:-""}" != "" ]]; then
-  echo "MDB_OM_VERSION_MAPPING_PATH=${MDB_OM_VERSION_MAPPING_PATH}"
-fi
+  if [[ "${MDB_AGENT_IMAGE_REPOSITORY:-""}" != "" ]]; then
+    echo "MDB_AGENT_IMAGE_REPOSITORY=${MDB_AGENT_IMAGE_REPOSITORY}"
+  fi
 
-if [[ "${MDB_AGENT_IMAGE_REPOSITORY:-""}" != "" ]]; then
-  echo "MDB_AGENT_IMAGE_REPOSITORY=${MDB_AGENT_IMAGE_REPOSITORY}"
-fi
-
-if [[ "${MDB_MAX_CONCURRENT_RECONCILES:-""}" != "" ]]; then
-  echo "MDB_MAX_CONCURRENT_RECONCILES=${MDB_MAX_CONCURRENT_RECONCILES}"
-fi
+  if [[ "${MDB_MAX_CONCURRENT_RECONCILES:-""}" != "" ]]; then
+    echo "MDB_MAX_CONCURRENT_RECONCILES=${MDB_MAX_CONCURRENT_RECONCILES}"
+  fi
 }
 
 print_operator_env
