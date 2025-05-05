@@ -61,7 +61,7 @@ type Flags struct {
 const (
 	// KubeConfigSecretName stays the same when upgrading to MCK, as we didn't want to require customers to rename their secret, so we kept the old one.
 	// -enterprise prefix
-	KubeConfigSecretName         = "mongodb-kubernetes-operator-multi-cluster-kubeconfig"
+	KubeConfigSecretName         = "mongodb-enterprise-operator-multi-cluster-kubeconfig"
 	KubeConfigSecretKey          = "kubeconfig"
 	AppdbServiceAccount          = "mongodb-kubernetes-appdb"
 	DatabasePodsServiceAccount   = "mongodb-kubernetes-database-pods"

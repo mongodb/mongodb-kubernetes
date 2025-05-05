@@ -31,6 +31,6 @@ spec:
       - name: kube-config-volume
         secret:
           defaultMode: 420
-          secretName: mongodb-kubernetes-operator-multi-cluster-kubeconfig
+          secretName: mongodb-enterprise-operator-multi-cluster-kubeconfig
 
   backoffLimit: 2
