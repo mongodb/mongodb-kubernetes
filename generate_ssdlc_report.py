@@ -125,6 +125,9 @@ def convert_to_image_names(supported_images: Dict[str, SupportedImage]):
                 f"quay.io/mongodb/mongodb-enterprise-{supported_image}-ubi"
             )
             supported_images[supported_image].name = f"mongodb-enterprise-{supported_image}-ubi"
+        elif supported_image == "mongodb-kubernetes":
+            supported_images[supported_image].image_pull_spec = f"quay.io/mongodb/{supported_image}"
+            supported_images[supported_image].name = supported_image
         else:
             supported_images[supported_image].image_pull_spec = f"quay.io/mongodb/mongodb-kubernetes-{supported_image}"
             supported_images[supported_image].name = f"mongodb-kubernetes-{supported_image}"
