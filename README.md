@@ -45,6 +45,6 @@ Migration from MCO and MEKO to MCK is seamless: your MongoDB deployments are not
 
 ### Deprecation and EOL for MCO and MEKO
 
-We will continue best efforts support of MCO for 6 months (until November, 2025), and versions of MEKO will remain supported according to the current [current EOL](https://www.mongodb.com/docs/kubernetes-operator/current/reference/support-lifecycle/) guidance. All future bug fixes and improvements will be released in new versions of MCK. We encourage all users to plan their migration to MCK within these timelines.
+We will continue best efforts support of MCO for 6 months (until November, 2025), and versions of MEKO will remain supported according to the current [EOL guidance](https://www.mongodb.com/docs/kubernetes-operator/current/reference/support-lifecycle/). All future bug fixes and improvements will be released in new versions of MCK. We encourage all users to plan their migration to MCK within these timelines.
 
 [![Documentation](https://img.shields.io/badge/Documentation-MongoDB-green)](https://www.mongodb.com/docs/kubernetes/current/)
