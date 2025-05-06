@@ -7,7 +7,7 @@ MongoDB is unifying its Kubernetes offerings with the introduction of MongoDB Co
 This brings MongoDB Community and Enterprise editions together under a single, unified operator, making it easier to manage, scale, and upgrade your deployments. While the first version simply brings the capabilities of both into a single Operator, future changes will build on this to more closely align how Community and Enterprise are managed in Kubernetes, to offer an even more seamless and streamlined experience. As an open-source project, it now allows for community contributions, helping drive quicker bug fixes and ongoing innovation.
 
 MCK enables easily deploying the following applications in Kubernetes:
-* MongoDB - Replica Sets, Sharded Clusters and Standalones - with authentication, TLS and many more options. 
+* MongoDB - Replica Sets, Sharded Clusters and Standalones - with authentication, TLS and many more options.
 * Ops Manager - our enterprise management, monitoring and backup platform for MongoDB. The Operator can install and manage Ops Manager in Kubernetes for you. Ops Manager can manage MongoDB instances both inside and outside Kubernetes.
 This includes running MongoDB clusters or Ops Manager across multiple Kubernetes clusters for higher resilience.
 
@@ -29,7 +29,7 @@ The Operator requires access to one of our database management tools - Ops Manag
 * MEKO End-of-Life (EOL): No change to the [current EOL](https://www.mongodb.com/docs/kubernetes-operator/current/reference/support-lifecycle/) for each individual MEKO version.
 
 ## Getting Started & Further Documentation
-* For more information on how to install and deploy the operator as well as workloads see in our official [documentation](https://www.mongodb.com/docs/kubernetes/current/).
+* For more information on how to install and deploy the operator as well as workloads, please refer to our official [documentation](https://www.mongodb.com/docs/kubernetes/current/).
 
 ## License
 
