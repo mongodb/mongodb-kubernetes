@@ -127,7 +127,7 @@ func TestRoleIsRemovedAfterRemovingReference(t *testing.T) {
 
 	// Remove reference
 	mdbrs.Spec.Security.RoleRefs = []mdb.MongoDBRoleRef{}
-	err = fakeClient.Update(ctx, mdbrs)
+	_ = fakeClient.Update(ctx, mdbrs)
 
 	// Should remove finalizer
 	_, _ = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: role.Name}})
