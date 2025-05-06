@@ -13,8 +13,8 @@
 set -eou pipefail
 
 MEKO_DIR=${MEKO_DIR:-"mongodb-kubernetes"}
-MCK_BRANCH=${MCK_BRANCH:-"om-mc-gke"}
-DOCS_DIR=${DOCS_DIR:-"docs-k8s-operator"}
+MCK_BRANCH=${MCK_BRANCH:-"release-x.x.x"}
+DOCS_DIR=${DOCS_DIR:-"docs-mck"}
 DOCS_BRANCH=${DOCS_BRANCH:-"master"}
 
 function prepare_repositories() {
