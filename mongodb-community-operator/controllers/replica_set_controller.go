@@ -788,7 +788,6 @@ func getMongodConfigSearchModification(mdb mdbv1.MongoDBCommunity, search *searc
 		}
 	}
 
-	// TODO add search params only conditionally, only if search is enabled for that resource
 	searchConfigParameters := search_controller.GetMongodConfigParameters(search)
 	return func(ac *automationconfig.AutomationConfig) {
 		for i := range ac.Processes {
