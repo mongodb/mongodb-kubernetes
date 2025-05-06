@@ -12,10 +12,12 @@ from kubetester.operator import Operator
 from tests import test_logger
 from tests.conftest import (
     LEGACY_DEPLOYMENT_STATE_VERSION,
+    LEGACY_OPERATOR_CHART,
+    LEGACY_OPERATOR_IMAGE_NAME,
     LEGACY_OPERATOR_NAME,
     OPERATOR_NAME,
     install_official_operator,
-    log_deployments_info, LEGACY_OPERATOR_CHART,
+    log_deployments_info,
 )
 from tests.upgrades import downscale_operator_deployment
 
@@ -106,8 +108,9 @@ class TestShardedClusterDeployment:
             member_cluster_clients=None,
             member_cluster_names=None,
             custom_operator_version=LEGACY_DEPLOYMENT_STATE_VERSION,
-            helm_chart_path=LEGACY_OPERATOR_CHART, # We are testing the upgrade from legacy state management, introduced in MEKO
+            helm_chart_path=LEGACY_OPERATOR_CHART,  # We are testing the upgrade from legacy state management, introduced in MEKO
             operator_name=LEGACY_OPERATOR_NAME,
+            operator_image=LEGACY_OPERATOR_IMAGE_NAME,
         )
         operator.assert_is_running()
         # Dumping deployments in logs ensures we are using the correct operator version
@@ -169,7 +172,9 @@ class TestOperatorDowngrade:
         managed_security_context: str,
         operator_installation_config: Dict[str, str],
     ):
-        logger.info(f"Downgrading the operator to version {LEGACY_DEPLOYMENT_STATE_VERSION}, from chart {LEGACY_OPERATOR_CHART}")
+        logger.info(
+            f"Downgrading the operator to version {LEGACY_DEPLOYMENT_STATE_VERSION}, from chart {LEGACY_OPERATOR_CHART}"
+        )
         operator = install_official_operator(
             namespace,
             managed_security_context,
@@ -181,6 +186,7 @@ class TestOperatorDowngrade:
             custom_operator_version=LEGACY_DEPLOYMENT_STATE_VERSION,
             helm_chart_path=LEGACY_OPERATOR_CHART,
             operator_name=LEGACY_OPERATOR_NAME,
+            operator_image=LEGACY_OPERATOR_IMAGE_NAME,
         )
         operator.assert_is_running()
         # Dumping deployments in logs ensures we are using the correct operator version

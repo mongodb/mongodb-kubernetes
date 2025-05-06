@@ -12,13 +12,15 @@ from tests import test_logger
 from tests.conftest import (
     LEGACY_DEPLOYMENT_STATE_VERSION,
     LEGACY_MULTI_CLUSTER_OPERATOR_NAME,
+    LEGACY_OPERATOR_CHART,
+    LEGACY_OPERATOR_IMAGE_NAME,
     LEGACY_OPERATOR_NAME,
     MULTI_CLUSTER_OPERATOR_NAME,
     create_appdb_certs,
     get_central_cluster_name,
     get_custom_appdb_version,
     install_official_operator,
-    log_deployments_info, LEGACY_OPERATOR_CHART,
+    log_deployments_info,
 )
 from tests.multicluster.conftest import cluster_spec_list
 from tests.upgrades import downscale_operator_deployment
@@ -198,8 +200,9 @@ class TestOpsManagerCreation:
             member_cluster_clients,
             member_cluster_names,
             custom_operator_version=LEGACY_DEPLOYMENT_STATE_VERSION,
-            helm_chart_path=LEGACY_OPERATOR_CHART, # We are testing the upgrade from legacy state management, introduced in MEKO
+            helm_chart_path=LEGACY_OPERATOR_CHART,  # We are testing the upgrade from legacy state management, introduced in MEKO
             operator_name=LEGACY_OPERATOR_NAME,
+            operator_image=LEGACY_OPERATOR_IMAGE_NAME,
         )
         operator.assert_is_running()
         # Dumping deployments in logs ensure we are using the correct operator version
@@ -305,7 +308,9 @@ class TestOperatorDowngrade:
         member_cluster_clients,
         member_cluster_names,
     ):
-        logger.info(f"Downgrading the operator to version {LEGACY_DEPLOYMENT_STATE_VERSION}, from chart {LEGACY_OPERATOR_CHART}")
+        logger.info(
+            f"Downgrading the operator to version {LEGACY_DEPLOYMENT_STATE_VERSION}, from chart {LEGACY_OPERATOR_CHART}"
+        )
         operator = install_official_operator(
             namespace,
             managed_security_context,
@@ -317,6 +322,7 @@ class TestOperatorDowngrade:
             custom_operator_version=LEGACY_DEPLOYMENT_STATE_VERSION,
             helm_chart_path=LEGACY_OPERATOR_CHART,
             operator_name=LEGACY_OPERATOR_NAME,
+            operator_image=LEGACY_OPERATOR_IMAGE_NAME,
         )
         operator.assert_is_running()
         # Dumping deployments in logs ensure we are using the correct operator version

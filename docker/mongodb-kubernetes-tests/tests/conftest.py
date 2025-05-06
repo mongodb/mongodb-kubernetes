@@ -66,6 +66,9 @@ LEGACY_OPERATOR_CHART = "mongodb/enterprise_operator"
 OFFICIAL_OPERATOR_CHART = "mongodb/mongodb-kubernetes"
 LOCAL_HELM_CHART_DIR = "helm_chart"
 
+OFFICIAL_OPERATOR_IMAGE_NAME = "mongodb-kubernetes"
+LEGACY_OPERATOR_IMAGE_NAME = "mongodb-enterprise-operator-ubi"
+
 # Names for operator and RBAC
 OPERATOR_NAME = "mongodb-kubernetes-operator"
 MULTI_CLUSTER_OPERATOR_NAME = OPERATOR_NAME + "-multi-cluster"
@@ -863,6 +866,7 @@ def official_operator(
         member_cluster_names,
         helm_chart_path=OFFICIAL_OPERATOR_CHART,
         operator_name=OPERATOR_NAME,
+        operator_image=OFFICIAL_OPERATOR_IMAGE_NAME,
     )
 
 
@@ -886,6 +890,7 @@ def official_meko_operator(
         member_cluster_names,
         helm_chart_path=LEGACY_OPERATOR_CHART,
         operator_name=LEGACY_OPERATOR_NAME,
+        operator_image=LEGACY_OPERATOR_IMAGE_NAME,
     )
 
 
@@ -900,6 +905,7 @@ def install_official_operator(
     custom_operator_version: Optional[str] = None,
     helm_chart_path: Optional[str] = OFFICIAL_OPERATOR_CHART,
     operator_name: Optional[str] = OPERATOR_NAME,
+    operator_image: Optional[str] = OFFICIAL_OPERATOR_IMAGE_NAME,
 ) -> Operator:
     """
     Installs the Operator from the official Helm Chart.
@@ -921,7 +927,7 @@ def install_official_operator(
     # Note, that we don't intend to install the official Operator to standalone clusters (kops/openshift) as we want to
     # avoid damaged CRDs. But we may need to install the "openshift like" environment to Kind instead of the "ubi"
     # images are used for installing the dev Operator
-    helm_args["operator.operator_image_name"] = "{}-ubi".format(operator_name)
+    helm_args["operator.operator_image_name"] = operator_image
 
     # Note:
     # We might want in the future to install CRDs when performing upgrade/downgrade tests, the helm install only takes
