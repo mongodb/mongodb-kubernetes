@@ -3,6 +3,7 @@ package mock
 import (
 	"context"
 	"fmt"
+	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
 	"reflect"
 
 	"go.uber.org/zap"
@@ -92,7 +93,12 @@ func NewEmptyFakeClientBuilder() *fake.ClientBuilder {
 		return nil
 	}
 
-	builder.WithStatusSubresource(&mdbv1.MongoDB{}, &mdbmulti.MongoDBMultiCluster{}, &omv1.MongoDBOpsManager{}, &user.MongoDBUser{})
+	err = rolev1.AddToScheme(s)
+	if err != nil {
+		return nil
+	}
+
+	builder.WithStatusSubresource(&mdbv1.MongoDB{}, &mdbmulti.MongoDBMultiCluster{}, &omv1.MongoDBOpsManager{}, &user.MongoDBUser{}, &rolev1.ClusterMongoDBRole{})
 
 	ot := testing.NewObjectTracker(s, scheme.Codecs.UniversalDecoder())
 	return builder.WithScheme(s).WithObjectTracker(ot)
