@@ -1,29 +1,29 @@
 #!/usr/bin/env bash
 
-# script to update code snippets file from MEKO in docs repository
+# script to update code snippets file from MCK in docs repository
 # Usage:
 #   cd <mongodb-kubernetes directory>
 #   ./scripts/dev/update_docs_snippets.sh
 #
 # To customize directories run
-#   MEKO_DIR=<path to meko repository> DOCS_DIR=<path to docs repository> ./update_docs_snippets.sh
+#   MCK_DIR=<path to MCK repository> DOCS_DIR=<path to docs repository> ./update_docs_snippets.sh
 # Example:
-#   MEKO_DIR=~/mdb/mongodb-kubernetes DOCS_DIR=~/mdb/docs-k8s-operator ./update_docs_snippets.sh
+#   MCK_DIR=~/mdb/mongodb-kubernetes DOCS_DIR=~/mdb/docs-k8s-operator ./update_docs_snippets.sh
 
 set -eou pipefail
 
-MEKO_DIR=${MEKO_DIR:-"mongodb-kubernetes"}
+MCK_DIR=${MCK_DIR:-"mongodb-kubernetes"}
 MCK_BRANCH=${MCK_BRANCH:-"release-x.x.x"}
 DOCS_DIR=${DOCS_DIR:-"docs-mck"}
 DOCS_BRANCH=${DOCS_BRANCH:-"master"}
 
 function prepare_repositories() {
-  pushd "${MEKO_DIR}"
+  pushd "${MCK_DIR}"
   git fetch
   git checkout "${MCK_BRANCH}"
 
   if [[ -n "$(git status --porcelain)" ]]; then
-    echo "${MEKO_DIR} has modified files, stashing..."
+    echo "${MCK_DIR} has modified files, stashing..."
     git stash
   fi
 
@@ -41,14 +41,14 @@ function prepare_repositories() {
   git checkout "${DOCS_BRANCH}"
   git reset --hard "origin/${DOCS_BRANCH}"
 
-  git checkout -b "meko-snippets-update-$(date "+%Y%m%d%H%M%S")"
+  git checkout -b "MCK-snippets-update-$(date "+%Y%m%d%H%M%S")"
   popd
 }
 
 function copy_files() {
   samples_dir=$1
   dst_dir="${DOCS_DIR}/source/includes/code-examples/reference-architectures/${samples_dir}"
-  src_dir="${MEKO_DIR}/public/architectures/${samples_dir}"
+  src_dir="${MCK_DIR}/public/architectures/${samples_dir}"
 
   rm -rf "${dst_dir}"
   mkdir -p "${dst_dir}"
@@ -66,7 +66,7 @@ function prepare_docs_pr() {
   fi
 
   git add "source/"
-  git commit -m "Update sample files from MEKO"
+  git commit -m "Update sample files from MCK"
   git push
   popd
 }
