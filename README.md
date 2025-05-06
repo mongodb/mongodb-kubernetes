@@ -12,21 +12,13 @@ MCK enables easily deploying the following applications in Kubernetes:
 This includes running MongoDB clusters or Ops Manager across multiple Kubernetes clusters for higher resilience.
 
 The Operator requires access to one of our database management tools - Ops Manager or Cloud Manager - to deploy MongoDB instances. You may run Ops Manager either inside or outside Kubernetes, or may use Cloud Manager (cloud.mongodb.com) instead.
+* We are using Semantic Versioning (SemVer), so any future breaking changes will only occur in new major versions of the Operator.
 
 **Acronyms**
 
 * **MCK:** MongoDB Controllers for Kubernetes
 * **MCO:** MongoDB Community Operator
 * **MEKO:** MongoDB Enterprise Kubernetes Operator
-
-**TL;DR:**
-
-* MCK: A unified MongoDB Kubernetes Operator, merging MCO and MEKO.
-* This initial release provides the combined functionality of the latest MCO and MEKO so migration is seamless: no changes are required in your current deployments.
-* No impact on current contracts or agreements.
-* We are adopting Semantic Versioning (SemVer), so any future breaking changes will only occur in new major versions of the Operator.
-* MCO End-of-Life (EOL): Support for MCO is best efforts, with no formal EOL for each version. For the last version of MCO, we will continue to offer best efforts guidance, but there will be no further releases.
-* MEKO End-of-Life (EOL): No change to the [current EOL](https://www.mongodb.com/docs/kubernetes-operator/current/reference/support-lifecycle/) for each individual MEKO version.
 
 ## Getting Started & Further Documentation
 * For more information on how to install and deploy the operator as well as workloads, please refer to our official [documentation](https://www.mongodb.com/docs/kubernetes/current/).
@@ -40,11 +32,18 @@ MCK is supported by the [MongoDB Support Team](https://support.mongodb.com/). If
 
 You can discuss this integration in our new [Community Forum](https://developer.mongodb.com/community/forums/) - please use the tag [kubernetes-operator](https://developer.mongodb.com/community/forums/tag/kubernetes-operator)
 
-## Migration
+## How does this relate to the older MongoDB Enterprise Kubernetes Operator
+* MCK: A unified MongoDB Kubernetes Operator, merging MCO and MEKO.
+* MCO End-of-Life (EOL): Support for MCO is best efforts, with no formal EOL for each version. For the last version of MCO, we will continue to offer best efforts guidance, but there will be no further releases.
+* MEKO End-of-Life (EOL): No change to the [current EOL](https://www.mongodb.com/docs/kubernetes-operator/current/reference/support-lifecycle/) for each individual MEKO version.
+* This initial release provides the combined functionality of the latest MCO and MEKO so migration is seamless: no changes are required in your current deployments.
+* No impact on current contracts or agreements.
+
+### Migration
 
 Migration from MCO and MEKO to MCK is seamless: your MongoDB deployments are not impacted by the upgrade and require no changes. Simply follow the upgrade instructions provided in the MCK documentation. See our [migration guidance](https://dochub.mongodb.org/core/migrate-to-mck).
 
-## Deprecation and EOL for MCO and MEKO
+### Deprecation and EOL for MCO and MEKO
 
 We will continue best efforts support of MCO for 6 months (until November, 2025), and versions of MEKO will remain supported according to the current [current EOL](https://www.mongodb.com/docs/kubernetes-operator/current/reference/support-lifecycle/) guidance. All future bug fixes and improvements will be released in new versions of MCK. We encourage all users to plan their migration to MCK within these timelines.
 
