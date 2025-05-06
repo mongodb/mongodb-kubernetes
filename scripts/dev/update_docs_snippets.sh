@@ -54,7 +54,7 @@ function copy_files() {
   mkdir -p "${dst_dir}"
 
   cp -r "${src_dir}/code_snippets" "${dst_dir}"
-  cp -r "${src_dir}/output" "${dst_dir}"
+  cp -r "${src_dir}/output" "${dst_dir}" || true
   cp "${src_dir}/env_variables.sh" "${dst_dir}" || true
 }
 
