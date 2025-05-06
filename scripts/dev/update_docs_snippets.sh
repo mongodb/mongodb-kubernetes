@@ -13,21 +13,21 @@
 set -eou pipefail
 
 MEKO_DIR=${MEKO_DIR:-"mongodb-kubernetes"}
-MEKO_BRANCH=${MEKO_BRANCH:-"om-mc-gke"}
+MCK_BRANCH=${MCK_BRANCH:-"om-mc-gke"}
 DOCS_DIR=${DOCS_DIR:-"docs-k8s-operator"}
 DOCS_BRANCH=${DOCS_BRANCH:-"master"}
 
 function prepare_repositories() {
   pushd "${MEKO_DIR}"
   git fetch
-  git checkout "${MEKO_BRANCH}"
+  git checkout "${MCK_BRANCH}"
 
   if [[ -n "$(git status --porcelain)" ]]; then
     echo "${MEKO_DIR} has modified files, stashing..."
     git stash
   fi
 
-  git reset --hard "origin/${MEKO_BRANCH}"
+  git reset --hard "origin/${MCK_BRANCH}"
 
   popd
 
@@ -56,7 +56,6 @@ function copy_files() {
   cp -r "${src_dir}/code_snippets" "${dst_dir}"
   cp -r "${src_dir}/output" "${dst_dir}"
   cp "${src_dir}/env_variables.sh" "${dst_dir}" || true
-  cp -r "${src_dir}/yamls" "${dst_dir}" || true
 }
 
 function prepare_docs_pr() {
