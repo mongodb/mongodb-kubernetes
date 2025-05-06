@@ -10,7 +10,7 @@ from tests.conftest import (
     LEGACY_OPERATOR_NAME,
     create_appdb_certs,
     install_official_operator,
-    is_multi_cluster,
+    is_multi_cluster, LEGACY_OPERATOR_CHART,
 )
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 from tests.upgrades import downscale_operator_deployment
@@ -91,6 +91,7 @@ def test_install_latest_official_operator(
         member_cluster_clients,
         member_cluster_names,
         custom_operator_version="1.32.0",  # latest operator version before fixing the appdb hostnames
+        helm_chart_path=LEGACY_OPERATOR_CHART, # We are testing the upgrade from version fixing appdb hostnames, introduced in MEKO
         operator_name=LEGACY_OPERATOR_NAME,
     )
     operator.assert_is_running()

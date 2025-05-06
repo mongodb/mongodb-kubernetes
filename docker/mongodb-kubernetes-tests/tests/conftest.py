@@ -62,7 +62,7 @@ LEGACY_CENTRAL_CLUSTER_NAME: str = "__default"
 LEGACY_DEPLOYMENT_STATE_VERSION: str = "1.27.0"
 
 # Helm charts
-LEGACY_OPERATOR_CHART = "mongodb/enteprise_operator"
+LEGACY_OPERATOR_CHART = "mongodb/enterprise_operator"
 OFFICIAL_OPERATOR_CHART = "mongodb/mongodb-kubernetes"
 LOCAL_HELM_CHART_DIR = "helm_chart"
 
