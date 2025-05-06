@@ -18,7 +18,7 @@ from tests.conftest import (
     get_central_cluster_name,
     get_custom_appdb_version,
     install_official_operator,
-    log_deployments_info,
+    log_deployments_info, LEGACY_OPERATOR_CHART,
 )
 from tests.multicluster.conftest import cluster_spec_list
 from tests.upgrades import downscale_operator_deployment
@@ -187,7 +187,7 @@ class TestOpsManagerCreation:
         member_cluster_names,
     ):
         logger.info(
-            f"Installing the official operator from helm charts, with version {LEGACY_DEPLOYMENT_STATE_VERSION}"
+            f"Installing the operator from chart {LEGACY_OPERATOR_CHART}, with version {LEGACY_DEPLOYMENT_STATE_VERSION}"
         )
         operator = install_official_operator(
             namespace,
@@ -198,6 +198,7 @@ class TestOpsManagerCreation:
             member_cluster_clients,
             member_cluster_names,
             custom_operator_version=LEGACY_DEPLOYMENT_STATE_VERSION,
+            helm_chart_path=LEGACY_OPERATOR_CHART, # We are testing the upgrade from legacy state management, introduced in MEKO
             operator_name=LEGACY_OPERATOR_NAME,
         )
         operator.assert_is_running()
@@ -247,8 +248,8 @@ class TestOperatorUpgrade:
     """
 
     def test_downscale_latest_official_operator(self, namespace: str):
-        # Scale down the existing operator deployment to 0. This is needed as long as the
-        # `official_operator` fixture installs the MEKO operator.
+        # Scale down the existing operator deployment to 0. This is needed as we are initially installing MEKO
+        # and replacing it with MCK
         downscale_operator_deployment(deployment_name=LEGACY_MULTI_CLUSTER_OPERATOR_NAME, namespace=namespace)
 
     def test_install_default_operator(self, namespace: str, multi_cluster_operator: Operator):
@@ -292,8 +293,6 @@ class TestOperatorDowngrade:
     """
 
     def test_downscale_default_operator(self, namespace: str):
-        # Scale down the existing operator deployment to 0. This is needed as long as the
-        # `official_operator` fixture installs the MEKO operator.
         downscale_operator_deployment(deployment_name=MULTI_CLUSTER_OPERATOR_NAME, namespace=namespace)
 
     def test_install_legacy_state_official_operator(
@@ -306,7 +305,7 @@ class TestOperatorDowngrade:
         member_cluster_clients,
         member_cluster_names,
     ):
-        logger.info(f"Downgrading the operator to version {LEGACY_DEPLOYMENT_STATE_VERSION}, from helm chart release")
+        logger.info(f"Downgrading the operator to version {LEGACY_DEPLOYMENT_STATE_VERSION}, from chart {LEGACY_OPERATOR_CHART}")
         operator = install_official_operator(
             namespace,
             managed_security_context,
@@ -316,6 +315,7 @@ class TestOperatorDowngrade:
             member_cluster_clients,
             member_cluster_names,
             custom_operator_version=LEGACY_DEPLOYMENT_STATE_VERSION,
+            helm_chart_path=LEGACY_OPERATOR_CHART,
             operator_name=LEGACY_OPERATOR_NAME,
         )
         operator.assert_is_running()

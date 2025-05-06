@@ -61,6 +61,11 @@ CLUSTER_HOST_MAPPING = {
 LEGACY_CENTRAL_CLUSTER_NAME: str = "__default"
 LEGACY_DEPLOYMENT_STATE_VERSION: str = "1.27.0"
 
+# Helm charts
+LEGACY_OPERATOR_CHART = "mongodb/enteprise_operator"
+OFFICIAL_OPERATOR_CHART = "mongodb/mongodb-kubernetes"
+LOCAL_HELM_CHART_DIR = "helm_chart"
+
 # Names for operator and RBAC
 OPERATOR_NAME = "mongodb-kubernetes-operator"
 MULTI_CLUSTER_OPERATOR_NAME = OPERATOR_NAME + "-multi-cluster"
@@ -801,7 +806,7 @@ def _install_multi_cluster_operator(
     helm_opts: Dict[str, str],
     central_cluster_name: str,
     operator_name: Optional[str] = MULTI_CLUSTER_OPERATOR_NAME,
-    helm_chart_path: Optional[str] = "helm_chart",
+    helm_chart_path: Optional[str] = LOCAL_HELM_CHART_DIR,
     custom_operator_version: Optional[str] = None,
 ) -> Operator:
     multi_cluster_operator_installation_config.update(helm_opts)
@@ -856,6 +861,8 @@ def official_operator(
         central_cluster_client,
         member_cluster_clients,
         member_cluster_names,
+        helm_chart_path=OFFICIAL_OPERATOR_CHART,
+        operator_name=OPERATOR_NAME,
     )
 
 
@@ -877,6 +884,7 @@ def official_meko_operator(
         central_cluster_client,
         member_cluster_clients,
         member_cluster_names,
+        helm_chart_path=LEGACY_OPERATOR_CHART,
         operator_name=LEGACY_OPERATOR_NAME,
     )
 
@@ -890,6 +898,7 @@ def install_official_operator(
     member_cluster_clients: Optional[List[MultiClusterClient]],
     member_cluster_names: Optional[List[str]],
     custom_operator_version: Optional[str] = None,
+    helm_chart_path: Optional[str] = OFFICIAL_OPERATOR_CHART,
     operator_name: Optional[str] = OPERATOR_NAME,
 ) -> Operator:
     """
@@ -966,7 +975,7 @@ def install_official_operator(
             member_cluster_clients,
             helm_opts=helm_args,
             central_cluster_name=get_central_cluster_name(),
-            helm_chart_path="mongodb/enterprise-operator",
+            helm_chart_path=helm_chart_path,
             custom_operator_version=custom_operator_version,
             operator_name=operator_name,
         )
@@ -976,7 +985,7 @@ def install_official_operator(
         return Operator(
             namespace=namespace,
             helm_args=helm_args,
-            helm_chart_path="mongodb/enterprise-operator",
+            helm_chart_path=helm_chart_path,
             name=operator_name,
         ).install(custom_operator_version=custom_operator_version)
 
