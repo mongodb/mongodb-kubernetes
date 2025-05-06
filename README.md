@@ -1,4 +1,10 @@
-# Mongodb Controllers for Kubernetes
+# Mongodb Controllers for Kubernetes (MCK)
+
+**What is MCK**
+
+MongoDB is unifying its Kubernetes offerings with the introduction of MongoDB Controllers for Kubernetes (MCK). This new operator is an open-source project and represents a merge of the previous MongoDB Community Operator (MCO) and the MongoDB Enterprise Kubernetes Operator (MEKO).
+
+This release brings MongoDB Community and Enterprise editions together under a single, unified operator, making it easier to manage, scale, and upgrade your deployments. While the first version simply brings the capabilities of both into a single Operator, future changes will build on this to more closely align how Community and Enterprise are managed in Kubernetes, to offer an even more seamless and streamlined experience. As an open-source project, it now allows for community contributions, helping drive quicker bug fixes and ongoing innovation.
 
 **Acronyms**
 
@@ -8,8 +14,6 @@
 
 **TL;DR:**
 
-* for more information see here: https://deploy-preview-8--docs-mck.netlify.app/
-
 * MCK: A unified MongoDB Kubernetes Operator, merging MCO and MEKO.
 * This initial release provides the combined functionality of the latest MCO and MEKO so migration is seamless: no changes are required in your current deployments.
 * No impact on current contracts or agreements.
@@ -17,11 +21,8 @@
 * MCO End-of-Life (EOL): Support for MCO is best efforts, with no formal EOL for each version. For the last version of MCO, we will continue to offer best efforts guidance, but there will be no further releases.
 * MEKO End-of-Life (EOL): No change to the [current EOL](https://www.mongodb.com/docs/kubernetes-operator/current/reference/support-lifecycle/) for each individual MEKO version.
 
-**About the First MCK Release**
-
-MongoDB is unifying its Kubernetes offerings with the introduction of MongoDB Controllers for Kubernetes (MCK). This new operator is an open-source project and represents a merge of the previous MongoDB Community Operator (MCO) and the MongoDB Enterprise Kubernetes Operator (MEKO).
-
-This release brings MongoDB Community and Enterprise editions together under a single, unified operator, making it easier to manage, scale, and upgrade your deployments. While the first version simply brings the capabilities of both into a single Operator, future changes will build on this to more closely align how Community and Enterprise are managed in Kubernetes, to offer an even more seamless and streamlined experience. As an open-source project, it now allows for community contributions, helping drive quicker bug fixes and ongoing innovation.
+**Getting Started & Further Documentation**
+* for more information on how to install and deploy the operator as well as workloads see in our official [documentation](https://www.mongodb.com/docs/kubernetes/current/).
 
 **License**
 
@@ -34,3 +35,5 @@ Migration from MCO and MEKO to MCK is seamless: your MongoDB deployments are not
 **Deprecation and EOL for MCO and MEKO**
 
 We will continue best efforts support of MCO for 6 months (until November, 2025), and versions of MEKO will remain supported according to the current [current EOL](https://www.mongodb.com/docs/kubernetes-operator/current/reference/support-lifecycle/) guidance. All future bug fixes and improvements will be released in new versions of MCK. We encourage all users to plan their migration to MCK within these timelines.
+
+[![Documentation](https://img.shields.io/badge/Documentation-MongoDB-green)](https://www.mongodb.com/docs/kubernetes/current/)
