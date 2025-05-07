@@ -191,14 +191,14 @@ func buildSearchHeadlessService(search *searchv1.MongoDBSearch) corev1.Service {
 
 	serviceBuilder.AddPort(&corev1.ServicePort{
 		Name:       "mongot",
-		Protocol:   "TCP",
+		Protocol:   corev1.ProtocolTCP,
 		Port:       search.GetMongotPort(),
 		TargetPort: intstr.FromInt32(search.GetMongotPort()),
 	})
 
 	serviceBuilder.AddPort(&corev1.ServicePort{
 		Name:       "metrics",
-		Protocol:   "TCP",
+		Protocol:   corev1.ProtocolTCP,
 		Port:       search.GetMongotMetricsPort(),
 		TargetPort: intstr.FromInt32(search.GetMongotMetricsPort()),
 	})
