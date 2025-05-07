@@ -1081,14 +1081,6 @@ func (b *ReplicaSetBuilder) SetRoles(roles []mdbv1.MongoDBRole) *ReplicaSetBuild
 	return b
 }
 
-func (b *ReplicaSetBuilder) SetRoleRefs(roleRefs []mdbv1.MongoDBRoleRef) *ReplicaSetBuilder {
-	if b.Spec.Security == nil {
-		b.Spec.Security = &mdbv1.Security{}
-	}
-	b.Spec.Security.RoleRefs = roleRefs
-	return b
-}
-
 func (b *ReplicaSetBuilder) EnableAuth() *ReplicaSetBuilder {
 	b.Spec.Security.Authentication.Enabled = true
 	return b

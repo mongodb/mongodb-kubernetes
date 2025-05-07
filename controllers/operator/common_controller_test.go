@@ -282,7 +282,7 @@ func TestFailWhenRoleAndRoleRefsAreConfigured(t *testing.T) {
 		Kind: util.ClusterMongoDBRoleKind,
 	}
 	assert.Nil(t, customRole.Privileges)
-	rs := DefaultReplicaSetBuilder().SetRoles([]mdbv1.MongoDBRole{customRole}).SetRoleRefs([]mdbv1.MongoDBRoleRef{roleRef}).Build()
+	rs := mdbv1.NewDefaultReplicaSetBuilder().SetRoles([]mdbv1.MongoDBRole{customRole}).SetRoleRefs([]mdbv1.MongoDBRoleRef{roleRef}).Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
 	controller := NewReconcileCommonController(ctx, kubeClient)
@@ -302,11 +302,13 @@ func TestFailWhenRoleAndRoleRefsAreConfigured(t *testing.T) {
 func TestRoleRefsAreAdded(t *testing.T) {
 	ctx := context.Background()
 	roleResource := DefaultClusterMongoDBRoleBuilder().Build()
-	roleRef := mdbv1.MongoDBRoleRef{
-		Name: roleResource.Name,
-		Kind: util.ClusterMongoDBRoleKind,
+	roleRefs := []mdbv1.MongoDBRoleRef{
+		{
+			Name: roleResource.Name,
+			Kind: util.ClusterMongoDBRoleKind,
+		},
 	}
-	rs := DefaultReplicaSetBuilder().SetRoleRefs([]mdbv1.MongoDBRoleRef{roleRef}).Build()
+	rs := mdbv1.NewDefaultReplicaSetBuilder().SetRoleRefs(roleRefs).Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
 	controller := NewReconcileCommonController(ctx, kubeClient)
@@ -326,12 +328,14 @@ func TestRoleRefsAreAdded(t *testing.T) {
 
 func TestErrorWhenRoleDoesNotExist(t *testing.T) {
 	ctx := context.Background()
-	roleResource := DefaultClusterMongoDBRoleBuilder().Build()
-	roleRef := mdbv1.MongoDBRoleRef{
-		Name: roleResource.Name,
-		Kind: "WrongMongoDBRoleReference",
+	roleResource := mdbv1.NewDefaultReplicaSetBuilder().Build()
+	roleRefs := []mdbv1.MongoDBRoleRef{
+		{
+			Name: roleResource.Name,
+			Kind: "WrongMongoDBRoleReference",
+		},
 	}
-	rs := DefaultReplicaSetBuilder().SetRoleRefs([]mdbv1.MongoDBRoleRef{roleRef}).Build()
+	rs := mdbv1.NewDefaultReplicaSetBuilder().SetRoleRefs(roleRefs).Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
 	controller := NewReconcileCommonController(ctx, kubeClient)
@@ -353,11 +357,13 @@ func TestErrorWhenRoleDoesNotExist(t *testing.T) {
 func TestErrorWhenRoleRefIsWrong(t *testing.T) {
 	ctx := context.Background()
 	roleResource := DefaultClusterMongoDBRoleBuilder().Build()
-	roleRef := mdbv1.MongoDBRoleRef{
-		Name: roleResource.Name,
-		Kind: util.ClusterMongoDBRoleKind,
+	roleRefs := []mdbv1.MongoDBRoleRef{
+		{
+			Name: roleResource.Name,
+			Kind: util.ClusterMongoDBRoleKind,
+		},
 	}
-	rs := DefaultReplicaSetBuilder().SetRoleRefs([]mdbv1.MongoDBRoleRef{roleRef}).Build()
+	rs := mdbv1.NewDefaultReplicaSetBuilder().SetRoleRefs(roleRefs).Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
 	controller := NewReconcileCommonController(ctx, kubeClient)

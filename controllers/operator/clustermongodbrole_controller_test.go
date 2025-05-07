@@ -2,18 +2,22 @@ package operator
 
 import (
 	"context"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
 	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
-	"github.com/stretchr/testify/assert"
-	apiErrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"testing"
 )
 
 func TestReconcileClusterMongoDBRole(t *testing.T) {
@@ -71,77 +75,70 @@ func TestRoleIsRemovedWhenNoReferences(t *testing.T) {
 func TestRoleIsNotRemovedWhenReferenced(t *testing.T) {
 	ctx := context.Background()
 	role := DefaultClusterMongoDBRoleBuilder().Build()
-	reconciler, fakeClient := defaultRoleReconciler(ctx, role)
 
-	_ = fakeClient.Create(ctx, DefaultReplicaSetBuilder().
-		SetRoleRefs([]mdb.MongoDBRoleRef{
-			{
-				Name: role.Name,
-				Kind: util.ClusterMongoDBRoleKind,
-			},
-		}).
-		SetName("my-rs").Build())
+	roleRefs := []mdb.MongoDBRoleRef{
+		{
+			Name: role.Name,
+			Kind: util.ClusterMongoDBRoleKind,
+		},
+	}
+	cases := []struct {
+		name     string
+		resource client.Object
+	}{
+		{
+			name:     "Replicaset",
+			resource: mdb.NewDefaultReplicaSetBuilder().SetRoleRefs(roleRefs).Build(),
+		},
+		{
+			name:     "Standalone",
+			resource: mdb.NewStandaloneBuilder().SetRoleRefs(roleRefs).Build(),
+		},
+		{
+			name:     "Sharded cluster",
+			resource: mdb.NewDefaultShardedClusterBuilder().SetRoleRefs(roleRefs).Build(),
+		},
+		{
+			name:     "Multi cluster sharded",
+			resource: mdb.NewDefaultMultiShardedClusterBuilder().SetRoleRefs(roleRefs).Build(),
+		},
+		{
+			name:     "Multi cluster replicaset",
+			resource: mdbmulti.DefaultMultiReplicaSetBuilder().SetRoleRefs(roleRefs).Build(),
+		},
+	}
 
-	// Add finalizer
-	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: role.Name}})
-	assert.NoError(t, err)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			role = DefaultClusterMongoDBRoleBuilder().Build()
+			reconciler, fakeClient := defaultRoleReconciler(ctx, role, c.resource)
 
-	// Delete resource, should fail since it is still referenced
-	err = fakeClient.Delete(ctx, role)
-	assert.NoError(t, err)
+			// Add finalizer
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: role.Name}})
+			assert.NoError(t, err)
 
-	// Should not remove the finalizer
-	_, _ = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: role.Name}})
+			// Delete resource, should fail since it is still referenced
+			err = fakeClient.Delete(ctx, role)
+			assert.NoError(t, err)
 
-	err = fakeClient.Get(ctx, types.NamespacedName{Name: role.Name}, role)
-	assert.NoError(t, err, "the role should still exist")
-	assert.NotEmpty(t, role.GetFinalizers(), "the finalizer should still be present")
+			// Should not remove the finalizer
+			_, _ = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: role.Name}})
+
+			err = fakeClient.Get(ctx, types.NamespacedName{Name: role.Name}, role)
+			assert.NoError(t, err, "the role should still exist")
+			assert.NotEmpty(t, role.GetFinalizers(), "the finalizer should still be present")
+		})
+	}
 }
 
-func TestRoleIsRemovedAfterRemovingReference(t *testing.T) {
-	ctx := context.Background()
-	role := DefaultClusterMongoDBRoleBuilder().Build()
-	mdbrs := DefaultReplicaSetBuilder().
-		SetRoleRefs([]mdb.MongoDBRoleRef{
-			{
-				Name: role.Name,
-				Kind: util.ClusterMongoDBRoleKind,
-			},
-		}).
-		SetName("my-rs").Build()
-	reconciler, fakeClient := defaultRoleReconciler(ctx, role)
+func defaultRoleReconciler(ctx context.Context, objects ...client.Object) (*ClusterMongoDBRoleReconciler, client.Client) {
+	kubeClient := mock.NewEmptyFakeClientBuilder().
+		WithObjects(objects...).
+		WithIndex(&mdb.MongoDB{}, ClusterMongoDBRoleIndexForMdb, findRolesForMongoDB).
+		WithIndex(&mdbmulti.MongoDBMultiCluster{}, ClusterMongoDBRoleIndexForMdbMulti, findRolesForMongoDBMultiCluster).
+		Build()
 
-	_ = fakeClient.Create(ctx, mdbrs)
-
-	// Add finalizer
-	_, _ = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: role.Name}})
-
-	// Delete resource, should fail since it is still referenced
-	_ = fakeClient.Delete(ctx, role)
-
-	// Should not remove the finalizer
-	_, _ = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: role.Name}})
-
-	err := fakeClient.Get(ctx, types.NamespacedName{Name: role.Name}, role)
-	assert.NoError(t, err, "the role should still exist")
-
-	// Remove reference
-	mdbrs.Spec.Security.RoleRefs = []mdb.MongoDBRoleRef{}
-	_ = fakeClient.Update(ctx, mdbrs)
-
-	// Should remove finalizer
-	_, _ = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: role.Name}})
-
-	// Resource should be removed
-	err = fakeClient.Get(ctx, types.NamespacedName{Name: role.Name}, role)
-	assert.True(t, apiErrors.IsNotFound(err), "the role should not exist")
-
-}
-
-func defaultRoleReconciler(ctx context.Context, role *rolev1.ClusterMongoDBRole) (*ClusterMongoDBRoleReconciler, client.Client) {
-	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(role)
-	memberClusterMap := getFakeMultiClusterMap(omConnectionFactory)
-	return newClusterMongoDBRoleReconciler(ctx, kubeClient, memberClusterMap), kubeClient
+	return newClusterMongoDBRoleReconciler(ctx, kubeClient), kubeClient
 }
 
 type ClusterMongoDBRoleBuilder struct {

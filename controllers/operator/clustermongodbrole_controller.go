@@ -7,8 +7,8 @@ import (
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
+	"k8s.io/apimachinery/pkg/fields"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -24,16 +24,18 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+)
+
+const (
+	ClusterMongoDBRoleIndexForMdb      = "mongodb.spec.security.roleRefs"
+	ClusterMongoDBRoleIndexForMdbMulti = "mdbmulticluster.spec.security.roleRefs"
 )
 
 // ClusterMongoDBRoleReconciler reconciles a ClusterMongoDBRole object
 type ClusterMongoDBRoleReconciler struct {
 	*ReconcileCommonController
-	memberClusterClientsMap map[string]kubernetesClient.Client
 }
 
 // ClusterMongoDBRole Resource
@@ -76,8 +78,8 @@ func (r *ClusterMongoDBRoleReconciler) Reconcile(ctx context.Context, request ct
 	return r.updateStatus(ctx, role, workflow.OK(), log)
 }
 
-func AddClusterMongoDBRoleController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
-	reconciler := newClusterMongoDBRoleReconciler(ctx, mgr.GetClient(), multicluster.ClustersMapToClientMap(memberClustersMap))
+func AddClusterMongoDBRoleController(ctx context.Context, mgr manager.Manager) error {
+	reconciler := newClusterMongoDBRoleReconciler(ctx, mgr.GetClient())
 	c, err := controller.New(util.ClusterMongoDbRoleController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err
@@ -90,20 +92,21 @@ func AddClusterMongoDBRoleController(ctx context.Context, mgr manager.Manager, m
 		return err
 	}
 
+	if err = mgr.GetFieldIndexer().IndexField(ctx, &mdbv1.MongoDB{}, ClusterMongoDBRoleIndexForMdb, findRolesForMongoDB); err != nil {
+		return err
+	}
+
+	if err = mgr.GetFieldIndexer().IndexField(ctx, &mdbmultiv1.MongoDBMultiCluster{}, ClusterMongoDBRoleIndexForMdbMulti, findRolesForMongoDBMultiCluster); err != nil {
+		return err
+	}
+
 	zap.S().Infof("Registered controller %s", util.ClusterMongoDbRoleController)
 	return nil
 }
 
-func newClusterMongoDBRoleReconciler(ctx context.Context, kubeClient client.Client, memberClustersMap map[string]client.Client) *ClusterMongoDBRoleReconciler {
-	clientsMap := make(map[string]kubernetesClient.Client)
-
-	for k, v := range memberClustersMap {
-		clientsMap[k] = kubernetesClient.NewClient(v)
-	}
-
+func newClusterMongoDBRoleReconciler(ctx context.Context, kubeClient client.Client) *ClusterMongoDBRoleReconciler {
 	return &ClusterMongoDBRoleReconciler{
 		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
-		memberClusterClientsMap:   clientsMap,
 	}
 }
 
@@ -150,29 +153,25 @@ func (r *ClusterMongoDBRoleReconciler) ensureFinalizer(ctx context.Context, role
 
 func (r *ClusterMongoDBRoleReconciler) ensureNoReferences(ctx context.Context, role *rolev1.ClusterMongoDBRole) error {
 	mdbList := &mdbv1.MongoDBList{}
-	err := r.client.List(ctx, mdbList)
+	listOpts := &client.ListOptions{FieldSelector: fields.OneTermEqualSelector(ClusterMongoDBRoleIndexForMdb, role.Name)}
+	err := r.client.List(ctx, mdbList, listOpts)
 	if err != nil {
 		return err
 	}
-	for _, m := range mdbList.Items {
-		for _, roleRef := range m.Spec.Security.RoleRefs {
-			if roleRef.Name == role.Name {
-				return xerrors.Errorf("Resource %s is still referencing this role", m.Name)
-			}
-		}
+
+	if len(mdbList.Items) > 0 {
+		return xerrors.Errorf("Resources are still referencing this role")
 	}
 
 	multiList := &mdbmultiv1.MongoDBMultiClusterList{}
-	err = r.client.List(ctx, multiList)
+	err = r.client.List(ctx, multiList, listOpts)
 	if err != nil {
 		return err
 	}
-	for _, m := range multiList.Items {
-		for _, roleRef := range m.Spec.Security.RoleRefs {
-			if roleRef.Name == role.Name {
-				return xerrors.Errorf("Resource %s is still referencing this role", m.Name)
-			}
-		}
+
+	if len(mdbList.Items) > 0 {
+		// TODO print which resources
+		return xerrors.Errorf("Resources are still referencing this role")
 	}
 
 	return nil
@@ -186,4 +185,26 @@ func getAnnotationsForCustomRoleResource(role *rolev1.ClusterMongoDBRole) (map[s
 	}
 	finalAnnotations[util.LastAchievedSpec] = string(specBytes)
 	return finalAnnotations, nil
+}
+
+func findRolesForMongoDB(rawObj client.Object) []string {
+	mdb := rawObj.(*mdbv1.MongoDB)
+	roles := make([]string, 0)
+	for _, roleRef := range mdb.Spec.Security.RoleRefs {
+		if roleRef.Kind == util.ClusterMongoDBRoleKind {
+			roles = append(roles, roleRef.Name)
+		}
+	}
+	return roles
+}
+
+func findRolesForMongoDBMultiCluster(rawObj client.Object) []string {
+	mdb := rawObj.(*mdbmultiv1.MongoDBMultiCluster)
+	roles := make([]string, 0)
+	for _, roleRef := range mdb.Spec.Security.RoleRefs {
+		if roleRef.Kind == util.ClusterMongoDBRoleKind {
+			roles = append(roles, roleRef.Name)
+		}
+	}
+	return roles
 }

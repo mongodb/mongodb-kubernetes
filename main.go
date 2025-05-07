@@ -243,7 +243,7 @@ func main() {
 		}
 	}
 	if slices.Contains(crds, clusterMongoDBRoleCRDPlural) {
-		if err := setupClusterMongoDBRoleCRD(ctx, mgr, memberClusterObjectsMap); err != nil {
+		if err := setupClusterMongoDBRoleCRD(ctx, mgr); err != nil {
 			log.Fatal(err)
 		}
 	}
@@ -320,8 +320,8 @@ func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, image
 	return ctrl.NewWebhookManagedBy(mgr).For(&mdbmultiv1.MongoDBMultiCluster{}).Complete()
 }
 
-func setupClusterMongoDBRoleCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {
-	return operator.AddClusterMongoDBRoleController(ctx, mgr, memberClusterObjectsMap)
+func setupClusterMongoDBRoleCRD(ctx context.Context, mgr manager.Manager) error {
+	return operator.AddClusterMongoDBRoleController(ctx, mgr)
 }
 
 func setupCommunityController(
