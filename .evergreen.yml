@@ -356,8 +356,6 @@ tasks:
   # We rely on the init_database from ecr for the agent x operator images.
   # This runs on agent releases that are not concurrent with operator releases.
   - name: release_agents_on_ecr_conditional
-    # this enables us to run this variant either manually (patch) which pct does or during an OM bump (github_pr)
-    allowed_requesters: [ "patch", "github_pr" ]
     commands:
       - func: clone
       - func: run_task_conditionally
@@ -1613,6 +1611,8 @@ buildvariants:
 
   - name: init_release_agents_on_ecr
     display_name: init_release_agents_on_ecr
+    # this enables us to run this variant either manually (patch) which pct does or during an OM bump (github_pr)
+    allowed_requesters: [ "patch", "github_pr" ]
     # We want that to run first and finish asap. Digest pinning depends on this to succeed.
     priority: 70
     run_on:
