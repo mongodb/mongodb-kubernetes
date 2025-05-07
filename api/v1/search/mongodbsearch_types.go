@@ -78,7 +78,7 @@ func (s *MongoDBSearch) GetStatus(...status.Option) interface{} {
 	return s.Status
 }
 
-func (s MongoDBSearch) GetStatusPath(...status.Option) string {
+func (s *MongoDBSearch) GetStatusPath(...status.Option) string {
 	return "/status"
 }
 
