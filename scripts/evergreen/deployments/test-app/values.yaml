@@ -41,3 +41,6 @@ mdbImageType: "ubi8"
 
 # set to "true" to set OM_DEBUG_HTTP=true for the operator
 omDebugHttp:
+
+# TODO to be removed at public preview stage of community-search
+communityPrivatePreviewPullsecretDockerconfigjson: ""

@@ -37,6 +37,8 @@ variables:
       - triggered_by_git_tag
       - version_id
       - workdir
+      # temporary secret to pull community private preview image from quay.io
+      - community_private_preview_pullsecret_dockerconfigjson
 
 functions:
 

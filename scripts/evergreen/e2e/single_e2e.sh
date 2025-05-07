@@ -121,6 +121,9 @@ deploy_test_app() {
 
     helm_params+=("--set" "opsManagerVersion=${ops_manager_version}")
 
+    # TODO to be removed at public preview stage of community-search
+    helm_params+=("--set" "communityPrivatePreviewPullsecretDockerconfigjson=${COMMUNITY_PRIVATE_PREVIEW_PULLSECRET_DOCKERCONFIGJSON}")
+
     helm template "scripts/evergreen/deployments/test-app" "${helm_params[@]}" > "${helm_template_file}" || exit 1
 
     cat "${helm_template_file}"
