@@ -342,7 +342,7 @@ func setupCommunityController(
 		agentImage,
 		versionUpgradeHookImage,
 		readinessProbeImage,
-	).SetupWithManager(ctx, mgr)
+	).SetupWithManager(mgr)
 }
 
 // getMemberClusters retrieves the member clusters from the configmap util.MemberListConfigMapName

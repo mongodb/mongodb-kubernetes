@@ -56,8 +56,6 @@ const (
 
 	lastSuccessfulConfiguration = "mongodb.com/v1.lastSuccessfulConfiguration"
 	lastAppliedMongoDBVersion   = "mongodb.com/v1.lastAppliedMongoDBVersion"
-
-	mongoDbSearchIndexName = "mongodbcommunity-search-index"
 )
 
 func init() {
@@ -88,11 +86,6 @@ func NewReconciler(mgr manager.Manager, mongodbRepoUrl, mongodbImage, mongodbIma
 	}
 }
 
-func mdbcSearchIndexBuilder(rawObj k8sClient.Object) []string {
-	mdbSearch := rawObj.(*searchv1.MongoDBSearch)
-	return []string{mdbSearch.GetMongoDBResourceRef().Namespace + "/" + mdbSearch.GetMongoDBResourceRef().Name}
-}
-
 func findMdbcForSearch(ctx context.Context, rawObj k8sClient.Object) []reconcile.Request {
 	mdbSearch := rawObj.(*searchv1.MongoDBSearch)
 	return []reconcile.Request{
@@ -101,10 +94,7 @@ func findMdbcForSearch(ctx context.Context, rawObj k8sClient.Object) []reconcile
 }
 
 // SetupWithManager sets up the controller with the Manager and configures the necessary watches.
-func (r *ReplicaSetReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &searchv1.MongoDBSearch{}, mongoDbSearchIndexName, mdbcSearchIndexBuilder); err != nil {
-		return err
-	}
+func (r *ReplicaSetReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{MaxConcurrentReconciles: 3}).
 		For(&mdbv1.MongoDBCommunity{}, builder.WithPredicates(predicates.OnlyOnSpecChange())).
@@ -736,7 +726,7 @@ func (r ReplicaSetReconciler) buildAutomationConfig(ctx context.Context, mdb mdb
 		customRolesModification,
 		prometheusModification,
 		processPortManager.GetPortsModification(),
-		getMongodConfigSearchModification(mdb, search),
+		getMongodConfigSearchModification(search),
 	)
 	if err != nil {
 		return automationconfig.AutomationConfig{}, fmt.Errorf("could not create an automation config: %s", err)
@@ -781,8 +771,8 @@ func getMongodConfigModification(mdb mdbv1.MongoDBCommunity) automationconfig.Mo
 
 // getMongodConfigModification will merge the additional configuration in the CRD
 // into the configuration set up by the operator.
-func getMongodConfigSearchModification(mdb mdbv1.MongoDBCommunity, search *searchv1.MongoDBSearch) automationconfig.Modification {
-	if search == nil || mdb.GetMongoDBVersion() < "8.0.0" {
+func getMongodConfigSearchModification(search *searchv1.MongoDBSearch) automationconfig.Modification {
+	if search == nil {
 		return func(config *automationconfig.AutomationConfig) {
 			// do nothing
 		}
