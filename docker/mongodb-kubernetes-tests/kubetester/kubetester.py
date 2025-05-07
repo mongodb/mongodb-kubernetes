@@ -303,6 +303,8 @@ class KubernetesTester(object):
                 cls.clients("corev1", api_client=api_client).patch_namespaced_persistent_volume_claim(
                     body=body, name=body["metadata"]["name"], namespace=namespace
                 )
+            else:
+                raise e
 
     @classmethod
     def delete_pvc(cls, namespace: str, name: str):
