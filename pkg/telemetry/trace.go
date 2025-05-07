@@ -16,9 +16,9 @@ var TRACER = otel.Tracer("mongodb-kubernetes-operator")
 // SetupTracing initializes OpenTelemetry tracing from environment variables
 func SetupTracing(ctx context.Context) (context.Context, error) {
 	// Get trace and span IDs from environment variables
-	traceIDHex := os.Getenv("otel_trace_id")
-	spanIDHex := os.Getenv("otel_parent_id")
-	endpoint := os.Getenv("otel_collector_endpoint")
+	traceIDHex := os.Getenv("OTEL_TRACE_ID")
+	spanIDHex := os.Getenv("OTEL_PARENT_ID")
+	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
 
 	if traceIDHex == "" || spanIDHex == "" || endpoint == "" {
 		Logger.Info("tracing environment variables missing, not configuring tracing")
@@ -49,7 +49,6 @@ func SetupTracing(ctx context.Context) (context.Context, error) {
 	exporter, err := otlptracegrpc.New(
 		context.Background(),
 		otlptracegrpc.WithEndpoint(endpoint),
-		otlptracegrpc.WithInsecure(),
 	)
 	if err != nil {
 		return ctx, err

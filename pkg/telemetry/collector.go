@@ -82,7 +82,7 @@ type snapshotCollector func(ctx context.Context, memberClusterMap map[string]Con
 
 // RunTelemetry lists the specified CRDs and sends them as events to Segment
 func RunTelemetry(ctx context.Context, mongodbImage, databaseNonStaticImage, namespace string, operatorClusterMgr manager.Manager, clusterMap map[string]cluster.Cluster, atlasClient *Client, configuredOperatorEnv util.OperatorEnvironment) {
-	Logger.Debug("sending telemetry!")
+	Logger.Debug("Collecting telemetry!")
 
 	intervalStr := envvar.GetEnvOrDefault(CollectionFrequency, DefaultCollectionFrequencyStr) // nolint:forbidigo
 	duration, err := time.ParseDuration(intervalStr)
