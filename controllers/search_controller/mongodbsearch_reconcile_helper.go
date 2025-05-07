@@ -149,13 +149,9 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, m
 	}
 
 	cmName := r.mdbSearch.MongotConfigConfigMapNamespacedName()
-	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: cmName.Name, Namespace: cmName.Namespace}}
+	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: cmName.Name, Namespace: cmName.Namespace}, Data: map[string]string{}}
 	op, err := controllerutil.CreateOrUpdate(ctx, r.client, cm, func() error {
 		resourceVersion := cm.ResourceVersion
-
-		if cm.Data == nil {
-			cm.Data = map[string]string{}
-		}
 
 		cm.Data["config.yml"] = string(configData)
 
@@ -169,8 +165,12 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, m
 
 	zap.S().Debugf("Updated mongot config yaml config map: %v (%s) with the following configuration: %s", cmName, op, string(configData))
 
-	hashBytes := sha256.Sum256(configData)
-	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(hashBytes[:]), nil
+	return hashMongotConfig(configData), nil
+}
+
+func hashMongotConfig(mongotConfigYaml []byte) string {
+	hashBytes := sha256.Sum256(mongotConfigYaml)
+	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(hashBytes[:])
 }
 
 func buildSearchHeadlessService(search *searchv1.MongoDBSearch) corev1.Service {
