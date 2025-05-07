@@ -12,7 +12,7 @@ spec:
     listKind: ClusterMongoDBRoleList
     plural: clustermongodbroles
     shortNames:
-    - cmbdr
+    - cmdbr
     singular: clustermongodbrole
   scope: Cluster
   versions:
