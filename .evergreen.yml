@@ -218,6 +218,8 @@ github_pr_aliases:
     task: ".*"
   - variant_tags: [ "auto_bump" ]
     task_tags: [ "patch-run" ]
+  - variant_tags: [ "release_agents_on_ecr" ]
+    task: ".*"
 
 # Allows to see evergreen checks in GitHub commits
 # https://github.com/mongodb/mongodb-kubernetes/commits/master/
@@ -1613,6 +1615,7 @@ buildvariants:
     display_name: init_release_agents_on_ecr
     # this enables us to run this variant either manually (patch) which pct does or during an OM bump (github_pr)
     allowed_requesters: [ "patch", "github_pr" ]
+    tags: [ "release_agents_on_ecr" ]
     # We want that to run first and finish asap. Digest pinning depends on this to succeed.
     priority: 70
     run_on:
