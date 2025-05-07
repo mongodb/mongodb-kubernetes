@@ -81,7 +81,7 @@ func (r *mdbcSearchResource) DatabasePort() int {
 }
 
 // ReplicaSetOptions returns a set of options which will configure a ReplicaSet StatefulSet
-func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBResource SearchSourceDBResource, mongotConfigHash string) statefulset.Modification {
+func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBResource SearchSourceDBResource, searchImage string, mongotConfigHash string) statefulset.Modification {
 	labels := map[string]string{
 		"app": mdbSearch.SearchServiceNamespacedName().Name,
 	}
@@ -144,7 +144,7 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 				podtemplatespec.WithVolumes(volumes),
 				podtemplatespec.WithServiceAccount(sourceDBResource.DatabaseServiceName()),
 				podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
-				podtemplatespec.WithContainer("mongodb-search", mongodbSearchContainer(mdbSearch, volumeMounts)),
+				podtemplatespec.WithContainer("mongodb-search", mongodbSearchContainer(mdbSearch, volumeMounts, searchImage)),
 			),
 		),
 	}
@@ -160,11 +160,11 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 	return statefulset.Apply(stsModifications...)
 }
 
-func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []corev1.VolumeMount) container.Modification {
+func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []corev1.VolumeMount, searchImage string) container.Modification {
 	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 	return container.Apply(
 		container.WithName("mongodb-search"),
-		container.WithImage("268558157000.dkr.ecr.eu-west-1.amazonaws.com/mongot/community:bd5ac935fe03426d6080bbb34ac6df5350ba3193"),
+		container.WithImage(searchImage),
 		container.WithImagePullPolicy(corev1.PullAlways),
 		container.WithReadinessProbe(probes.Apply(
 			probes.WithTCPSocket("", intstr.FromInt32(mdbSearch.GetMongotPort())),

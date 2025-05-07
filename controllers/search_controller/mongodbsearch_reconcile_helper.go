@@ -102,10 +102,16 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 }
 
 func (r *MongoDBSearchReconcileHelper) createOrUpdateStatefulSet(ctx context.Context, log *zap.SugaredLogger, mongotConfigHash string) error {
+	imageVersion := r.mdbSearch.Spec.Version
+	if imageVersion == "" {
+		imageVersion = r.operatorSearchConfig.SearchVersion
+	}
+	searchImage := fmt.Sprintf("%s/%s:%s", r.operatorSearchConfig.SearchRepo, r.operatorSearchConfig.SearchName, imageVersion)
+
 	stsName := r.mdbSearch.StatefulSetNamespacedName()
 	sts := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: stsName.Name, Namespace: stsName.Namespace}}
 	op, err := controllerutil.CreateOrUpdate(ctx, r.client, sts, func() error {
-		stsModification := CreateSearchStatefulSetFunc(r.mdbSearch, r.db, mongotConfigHash)
+		stsModification := CreateSearchStatefulSetFunc(r.mdbSearch, r.db, searchImage, mongotConfigHash)
 		stsModification(sts)
 		return nil
 	})
