@@ -19,6 +19,7 @@ from tests.conftest import (
     create_appdb_certs,
     get_central_cluster_name,
     get_custom_appdb_version,
+    install_legacy_deployment_state_meko,
     install_official_operator,
     log_deployments_info,
 )
@@ -188,25 +189,15 @@ class TestOpsManagerCreation:
         member_cluster_clients,
         member_cluster_names,
     ):
-        logger.info(
-            f"Installing the operator from chart {LEGACY_OPERATOR_CHART}, with version {LEGACY_DEPLOYMENT_STATE_VERSION}"
+        install_legacy_deployment_state_meko(
+            namespace=namespace,
+            managed_security_context=managed_security_context,
+            operator_installation_config=operator_installation_config,
+            central_cluster_name=central_cluster_name,
+            central_cluster_client=central_cluster_client,
+            member_cluster_clients=member_cluster_clients,
+            member_cluster_names=member_cluster_names,
         )
-        operator = install_official_operator(
-            namespace,
-            managed_security_context,
-            operator_installation_config,
-            central_cluster_name,
-            central_cluster_client,
-            member_cluster_clients,
-            member_cluster_names,
-            custom_operator_version=LEGACY_DEPLOYMENT_STATE_VERSION,
-            helm_chart_path=LEGACY_OPERATOR_CHART,  # We are testing the upgrade from legacy state management, introduced in MEKO
-            operator_name=LEGACY_OPERATOR_NAME,
-            operator_image=LEGACY_OPERATOR_IMAGE_NAME,
-        )
-        operator.assert_is_running()
-        # Dumping deployments in logs ensure we are using the correct operator version
-        log_deployments_info(namespace)
 
     def test_create_appdb_certs_secret(
         self,
@@ -308,25 +299,15 @@ class TestOperatorDowngrade:
         member_cluster_clients,
         member_cluster_names,
     ):
-        logger.info(
-            f"Downgrading the operator to version {LEGACY_DEPLOYMENT_STATE_VERSION}, from chart {LEGACY_OPERATOR_CHART}"
+        install_legacy_deployment_state_meko(
+            namespace=namespace,
+            managed_security_context=managed_security_context,
+            operator_installation_config=operator_installation_config,
+            central_cluster_name=central_cluster_name,
+            central_cluster_client=central_cluster_client,
+            member_cluster_clients=member_cluster_clients,
+            member_cluster_names=member_cluster_names,
         )
-        operator = install_official_operator(
-            namespace,
-            managed_security_context,
-            operator_installation_config,
-            central_cluster_name,
-            central_cluster_client,
-            member_cluster_clients,
-            member_cluster_names,
-            custom_operator_version=LEGACY_DEPLOYMENT_STATE_VERSION,
-            helm_chart_path=LEGACY_OPERATOR_CHART,
-            operator_name=LEGACY_OPERATOR_NAME,
-            operator_image=LEGACY_OPERATOR_IMAGE_NAME,
-        )
-        operator.assert_is_running()
-        # Dumping deployments in logs ensure we are using the correct operator version
-        log_deployments_info(namespace)
 
     def test_om_running_after_downgrade(self, ops_manager: MongoDBOpsManager):
         ops_manager.load()

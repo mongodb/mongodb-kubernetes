@@ -16,6 +16,7 @@ from tests.conftest import (
     LEGACY_OPERATOR_IMAGE_NAME,
     LEGACY_OPERATOR_NAME,
     OPERATOR_NAME,
+    install_legacy_deployment_state_meko,
     install_official_operator,
     log_deployments_info,
 )
@@ -90,31 +91,13 @@ def sharded_cluster(
 
 @pytest.mark.e2e_operator_upgrade_sharded_cluster
 class TestShardedClusterDeployment:
-    def test_install_latest_official_operator(
+    def test_install_legacy_deployment_state_meko(
         self,
         namespace: str,
         managed_security_context: str,
         operator_installation_config: Dict[str, str],
     ):
-        logger.info(
-            f"Installing the operator from chart {LEGACY_OPERATOR_CHART}, with version {LEGACY_DEPLOYMENT_STATE_VERSION}"
-        )
-        operator = install_official_operator(
-            namespace,
-            managed_security_context,
-            operator_installation_config,
-            central_cluster_name=None,  # These 4 fields apply to multi cluster operator only
-            central_cluster_client=None,
-            member_cluster_clients=None,
-            member_cluster_names=None,
-            custom_operator_version=LEGACY_DEPLOYMENT_STATE_VERSION,
-            helm_chart_path=LEGACY_OPERATOR_CHART,  # We are testing the upgrade from legacy state management, introduced in MEKO
-            operator_name=LEGACY_OPERATOR_NAME,
-            operator_image=LEGACY_OPERATOR_IMAGE_NAME,
-        )
-        operator.assert_is_running()
-        # Dumping deployments in logs ensures we are using the correct operator version
-        log_deployments_info(namespace)
+        install_legacy_deployment_state_meko(namespace, managed_security_context, operator_installation_config)
 
     def test_create_sharded_cluster(self, sharded_cluster: MongoDB):
         sharded_cluster.assert_reaches_phase(phase=Phase.Running, timeout=350)
@@ -166,31 +149,13 @@ class TestOperatorDowngrade:
     def test_downscale_default_operator(self, namespace: str):
         downscale_operator_deployment(deployment_name=OPERATOR_NAME, namespace=namespace)
 
-    def test_downgrade_operator(
+    def test_downgrade_to_legacy_deployment_state_meko(
         self,
         namespace: str,
         managed_security_context: str,
         operator_installation_config: Dict[str, str],
     ):
-        logger.info(
-            f"Downgrading the operator to version {LEGACY_DEPLOYMENT_STATE_VERSION}, from chart {LEGACY_OPERATOR_CHART}"
-        )
-        operator = install_official_operator(
-            namespace,
-            managed_security_context,
-            operator_installation_config,
-            central_cluster_name=None,  # These 4 fields apply to multi cluster operator only
-            central_cluster_client=None,
-            member_cluster_clients=None,
-            member_cluster_names=None,
-            custom_operator_version=LEGACY_DEPLOYMENT_STATE_VERSION,
-            helm_chart_path=LEGACY_OPERATOR_CHART,
-            operator_name=LEGACY_OPERATOR_NAME,
-            operator_image=LEGACY_OPERATOR_IMAGE_NAME,
-        )
-        operator.assert_is_running()
-        # Dumping deployments in logs ensures we are using the correct operator version
-        log_deployments_info(namespace)
+        install_legacy_deployment_state_meko(namespace, managed_security_context, operator_installation_config)
 
     def test_sharded_cluster_reconciled(self, sharded_cluster: MongoDB):
         sharded_cluster.assert_abandons_phase(phase=Phase.Running, timeout=200)

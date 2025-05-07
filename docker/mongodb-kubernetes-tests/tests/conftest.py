@@ -894,6 +894,38 @@ def official_meko_operator(
     )
 
 
+# In 1.27.0, we changed the way we manage the deployment state. We use this fixture to test the upgrade path from this
+# version, to ensure we do not break the state
+def install_legacy_deployment_state_meko(
+    namespace: str,
+    managed_security_context: str,
+    operator_installation_config: dict[str, str],
+    central_cluster_name=None,  # These 4 fields apply to multi cluster operator only
+    central_cluster_client=None,
+    member_cluster_clients=None,
+    member_cluster_names=None,
+):
+    logger.info(
+        f"Installing the operator from chart {LEGACY_OPERATOR_CHART}, with version {LEGACY_DEPLOYMENT_STATE_VERSION}"
+    )
+    operator = install_official_operator(
+        namespace,
+        managed_security_context,
+        operator_installation_config,
+        central_cluster_name=central_cluster_name,  # These 4 fields apply to multi cluster operator only
+        central_cluster_client=central_cluster_client,
+        member_cluster_clients=member_cluster_clients,
+        member_cluster_names=member_cluster_names,
+        custom_operator_version=LEGACY_DEPLOYMENT_STATE_VERSION,
+        helm_chart_path=LEGACY_OPERATOR_CHART,  # We are testing the upgrade from legacy state management, introduced in MEKO
+        operator_name=LEGACY_OPERATOR_NAME,
+        operator_image=LEGACY_OPERATOR_IMAGE_NAME,
+    )
+    operator.assert_is_running()
+    # Dumping deployments in logs ensures we are using the correct operator version
+    log_deployments_info(namespace)
+
+
 def install_official_operator(
     namespace: str,
     managed_security_context: str,
