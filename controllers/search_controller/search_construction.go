@@ -171,7 +171,7 @@ func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []co
 			probes.WithInitialDelaySeconds(20),
 			probes.WithPeriodSeconds(10),
 		)),
-		container.WithResourceRequirements(*createSearchResourceRequirements(mdbSearch.Spec.ResourceRequirements)),
+		container.WithResourceRequirements(createSearchResourceRequirements(mdbSearch.Spec.ResourceRequirements)),
 		container.WithVolumeMounts(volumeMounts),
 		container.WithCommand([]string{"sh"}),
 		container.WithArgs([]string{
@@ -182,16 +182,16 @@ func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []co
 	)
 }
 
-func createSearchResourceRequirements(requirements *corev1.ResourceRequirements) *corev1.ResourceRequirements {
+func createSearchResourceRequirements(requirements *corev1.ResourceRequirements) corev1.ResourceRequirements {
 	if requirements != nil {
-		return requirements
+		return *requirements
 	} else {
 		return newSearchDefaultRequirements()
 	}
 }
 
-func newSearchDefaultRequirements() *corev1.ResourceRequirements {
-	return &corev1.ResourceRequirements{
+func newSearchDefaultRequirements() corev1.ResourceRequirements {
+	return corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
 			corev1.ResourceCPU:    construct.ParseQuantityOrZero("2"),
 			corev1.ResourceMemory: construct.ParseQuantityOrZero("2G"),
