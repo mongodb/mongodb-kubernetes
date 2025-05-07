@@ -111,44 +111,33 @@ function generate_mck_catalog_metadata() {
 
   echo "Generating catalog metadata for ${mck_package_name} in ${catalog_yaml}"
 
-  # TODO: CLOUDP-310820 - After 1.0.0 release we need to clean this up: always use stable.
-  default_channel="migration"
-  if [[ -n "${latest_bundle_version}" ]]; then
-    default_channel="stable"
-  fi
-
   opm init "${mck_package_name}" \
-    --default-channel="${default_channel}" \
+    --default-channel="stable" \
     --output=yaml \
     >"${catalog_yaml}"
 
   echo "Adding current unreleased ${current_bundle_image} to the catalog"
   opm render "${current_bundle_image}" --output=yaml >>"${catalog_yaml}"
 
-  # TODO: CLOUDP-310820 - After 1.0.0 release we need to clean this up: always run it.
-  if [[ -n "${latest_bundle_version}" ]]; then
-    echo "Adding latest release ${latest_bundle_image} to the catalog"
-    opm render "${latest_bundle_image}" --output=yaml >>"${catalog_yaml}"
+  echo "Adding latest release ${latest_bundle_image} to the catalog"
+  opm render "${latest_bundle_image}" --output=yaml >>"${catalog_yaml}"
 
-    echo "Adding latest MCK release into STABLE channel to ${catalog_yaml}"
-    echo "---
+  echo "Adding latest MCK release into STABLE channel to ${catalog_yaml}"
+  echo "---
 schema: olm.channel
 package: ${mck_package_name}
 name: stable
 entries:
   - name: ${mck_package_name}.v${latest_bundle_version}" >>"${catalog_yaml}"
 
-    echo "Adding current MCK version replacing the latest MCK version into FAST channel to ${catalog_yaml}"
-    echo "---
+  echo "Adding current MCK version replacing the latest MCK version into FAST channel to ${catalog_yaml}"
+  echo "---
 schema: olm.channel
 package: ${mck_package_name}
 name: fast
 entries:
   - name: ${mck_package_name}.v${current_bundle_version}
     replaces: ${mck_package_name}.v${latest_bundle_version}" >>"${catalog_yaml}"
-  else
-    echo "Skipping addition of latest MCK release as we haven't published MCK 1.0.0 yet"
-  fi
 
   echo "Adding current MCK version replacing the latest MEKO version into MIGRATION channel to ${catalog_yaml}"
   echo "---
@@ -217,15 +206,7 @@ current_incremented_operator_version_from_release_json_with_version_id="${curren
 test_catalog_image="${base_repo_url}/mongodb-kubernetes-test-catalog:${current_incremented_operator_version_from_release_json_with_version_id}"
 certified_repo_cloned="$(clone_git_repo_into_temp ${certified_operators_repo})"
 
-# TODO: CLOUDP-310820 - After 1.0.0 release we need to clean this up: always run it.
-# if [[ "${current_operator_version_from_release_json}" =~ ^0\. ]]; then
-# Version is < 1.0.0 (0.y.z)
-mck_latest_released_operator_version=""
-echo "Skipping MCK bundle lookup as we haven't published MCK 1.0.0 yet (${current_operator_version_from_release_json} is < 1.0.0)"
-# else
-#   # Version is >= 1.0.0
-#   mck_latest_released_operator_version="$(find_the_latest_certified_operator "${certified_repo_cloned}" "${mck_package_name}")"
-# fi
+mck_latest_released_operator_version="$(find_the_latest_certified_operator "${certified_repo_cloned}" "${mck_package_name}")"
 meko_latest_released_operator_version="$(find_the_latest_certified_operator "${certified_repo_cloned}" "${meko_package_name}")"
 
 meko_latest_certified_bundle_image="${base_repo_url}/mongodb-enterprise-operator-certified-bundle:${meko_latest_released_operator_version}"
@@ -248,12 +229,7 @@ echo "DOCKER_PLATFORM: ${DOCKER_PLATFORM}"
 
 # Build latest published bundles form RedHat's certified operators repository.
 header "Building MCK bundle:"
-if [[ -n "${mck_latest_released_operator_version}" ]]; then
-  build_bundle_from_git_repo "${certified_repo_cloned}" "${mck_package_name}" "${mck_latest_released_operator_version}" "${mck_latest_certified_bundle_image}"
-else
-  # TODO: CLOUDP-310820 - After 1.0.0 release we need to clean this up: always run it.
-  echo "Skipping MCK bundle build as we haven't published MCK 1.0.0 yet"
-fi
+build_bundle_from_git_repo "${certified_repo_cloned}" "${mck_package_name}" "${mck_latest_released_operator_version}" "${mck_latest_certified_bundle_image}"
 
 header "Building MEKO bundle:"
 build_bundle_from_git_repo "${certified_repo_cloned}" "${meko_package_name}" "${meko_latest_released_operator_version}" "${meko_latest_certified_bundle_image}"
