@@ -223,9 +223,9 @@ search:
 
     # temporary repository location until we get official one in quay.io
     # TODO MCK 1.1 CLOUDP-315004
-    repo: 268558157000.dkr.ecr.eu-west-1.amazonaws.com/mongot
-    name: community
-    version: bd5ac935fe03426d6080bbb34ac6df5350ba3193
+    repo: quay.io/lsierant
+    name: watchdiff
+    version: mongot-community-bd5ac
 
 #    repo: quay.io/mongodb
 #    name: mongodb-search-community
