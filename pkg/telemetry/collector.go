@@ -18,6 +18,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
@@ -207,6 +208,7 @@ func collectDeploymentsSnapshot(ctx context.Context, operatorClusterMgr manager.
 	// No need to pass databaseNonStaticImage because it is for sure not enterprise image
 	events = append(events, addOmEvents(ctx, operatorClusterClient, operatorUUID, mongodbImage, now)...)
 	events = append(events, addCommunityEvents(ctx, operatorClusterClient, operatorUUID, mongodbImage, now)...)
+	events = append(events, addSearchEvents(ctx, operatorClusterClient, operatorUUID, now)...)
 	return events
 }
 
@@ -346,6 +348,30 @@ func addCommunityEvents(ctx context.Context, operatorClusterClient kubeclient.Cl
 				IsMultiCluster:           false,    // Community operator doesn't support multi-cluster
 				Type:                     "Community",
 				IsRunningEnterpriseImage: images.IsEnterpriseImage(mongodbImage),
+			}
+			if event := createEvent(properties, now, Deployments); event != nil {
+				events = append(events, *event)
+			}
+		}
+	}
+	return events
+}
+
+func addSearchEvents(ctx context.Context, operatorClusterClient kubeclient.Client, operatorUUID string, now time.Time) []Event {
+	var events []Event
+	searchList := &searchv1.MongoDBSearchList{}
+
+	if err := operatorClusterClient.List(ctx, searchList); err != nil {
+		Logger.Warnf("failed to fetch MongoDBSearchList from Kubernetes: %v", err)
+	} else {
+		for _, item := range searchList.Items {
+			properties := DeploymentUsageSnapshotProperties{
+				DeploymentUID:            string(item.UID),
+				OperatorID:               operatorUUID,
+				Architecture:             string(architectures.Static), // Community Search is always static
+				IsMultiCluster:           false,                        // Community Search doesn't support multi-cluster
+				Type:                     "Search",
+				IsRunningEnterpriseImage: false,
 			}
 			if event := createEvent(properties, now, Deployments); event != nil {
 				events = append(events, *event)
