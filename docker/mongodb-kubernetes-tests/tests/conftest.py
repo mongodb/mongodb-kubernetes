@@ -63,7 +63,7 @@ LEGACY_DEPLOYMENT_STATE_VERSION: str = "1.27.0"
 
 # Helm charts
 LEGACY_OPERATOR_CHART = "mongodb/enterprise-operator"
-OFFICIAL_OPERATOR_CHART = "mongodb/mongodb-kubernetes"
+MCK_HELM_CHART = "mongodb/mongodb-kubernetes"
 LOCAL_HELM_CHART_DIR = "helm_chart"
 
 OFFICIAL_OPERATOR_IMAGE_NAME = "mongodb-kubernetes"
@@ -864,7 +864,7 @@ def official_operator(
         central_cluster_client,
         member_cluster_clients,
         member_cluster_names,
-        helm_chart_path=OFFICIAL_OPERATOR_CHART,
+        helm_chart_path=MCK_HELM_CHART,
         operator_name=OPERATOR_NAME,
         operator_image=OFFICIAL_OPERATOR_IMAGE_NAME,
     )
@@ -935,7 +935,7 @@ def install_official_operator(
     member_cluster_clients: Optional[List[MultiClusterClient]],
     member_cluster_names: Optional[List[str]],
     custom_operator_version: Optional[str] = None,
-    helm_chart_path: Optional[str] = OFFICIAL_OPERATOR_CHART,
+    helm_chart_path: Optional[str] = MCK_HELM_CHART,
     operator_name: Optional[str] = OPERATOR_NAME,
     operator_image: Optional[str] = OFFICIAL_OPERATOR_IMAGE_NAME,
 ) -> Operator:
