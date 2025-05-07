@@ -11,7 +11,7 @@ For **MongoDB Enterprise Advanced**, it supports:
 * Manages MongoDB Enterprise Advanced deployments in Kubernetes.
 * Integrates with MongoDB Ops Manager or Cloud Manager for advanced monitoring, backups, and automation.
 * Supports all MongoDB topologies: replica sets, standalone, and sharded clusters.
-  For a full list of capabilities, see the [official documentation](https://www.mongodb.com/docs/kubernetes-operator/current/).
+  For a full list of capabilities, see the [official documentation](https://www.mongodb.com/docs/kubernetes/current/).
 
 For **MongoDB Community**, it supports:
 * Manages MongoDB Community Server [replica sets](https://www.mongodb.com/docs/manual/replication/)
