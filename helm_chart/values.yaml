@@ -34,9 +34,9 @@ operator:
   # OpenTelemetry configuration
   opentelemetry:
     enabled: false
-    traceID: ""
-    parentID: ""
-    collectorEndpoint: ""
+    traceID: ''
+    parentID: ''
+    collectorEndpoint: ''
 
   nodeSelector: {}
 

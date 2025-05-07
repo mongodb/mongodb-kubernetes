@@ -53,7 +53,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/webhook"
 )
 
-
 const (
 	mongoDBCRDPlural             = "mongodb"
 	mongoDBUserCRDPlural         = "mongodbusers"
@@ -486,7 +485,12 @@ func validateOperatorEnv(env util.OperatorEnvironment) bool {
 
 func init() {
 	InitGlobalLogger()
-	ctx, err := telemetry.SetupTracing(context.Background())
+	// Get trace and span IDs from environment variables
+	traceIDHex := os.Getenv("OTEL_TRACE_ID")
+	spanIDHex := os.Getenv("OTEL_PARENT_ID")
+	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+
+	ctx, err := telemetry.SetupTracing(context.Background(), traceIDHex, spanIDHex, endpoint)
 	if err != nil {
 		return
 	}
