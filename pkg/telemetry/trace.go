@@ -12,11 +12,11 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
-var TRACER = otel.Tracer("mongodb-kubernetes-operator")
+var TRACER = otel.Tracer("evergreen-agent")
 
 // SetupTracing initializes OpenTelemetry tracing from environment variables
-func SetupTracing(ctx context.Context, traceIDHex, spanIDHex, endpoint string) (context.Context, error) {
-	if traceIDHex == "" || spanIDHex == "" || endpoint == "" {
+func SetupTracing(ctx context.Context, traceIDHex, parentIDHex, endpoint string) (context.Context, error) {
+	if traceIDHex == "" || parentIDHex == "" || endpoint == "" {
 		Logger.Info("tracing environment variables missing, not configuring tracing")
 		return ctx, nil
 	}
@@ -25,7 +25,7 @@ func SetupTracing(ctx context.Context, traceIDHex, spanIDHex, endpoint string) (
 	if err != nil {
 		return ctx, err
 	}
-	spanID, err := trace.SpanIDFromHex(spanIDHex)
+	spanID, err := trace.SpanIDFromHex(parentIDHex)
 	if err != nil {
 		return ctx, err
 	}
