@@ -18,6 +18,10 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
+const (
+	MongotContainerName = "mongot"
+)
+
 // SearchSourceDBResource is an object wrapping a MongoDBCommunity object
 // Its purpose is to:
 //   - isolate and identify all the data we need to get from the CR in order to reconcile search resources
@@ -144,7 +148,7 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 				podtemplatespec.WithVolumes(volumes),
 				podtemplatespec.WithServiceAccount(sourceDBResource.DatabaseServiceName()),
 				podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
-				podtemplatespec.WithContainer("mongodb-search", mongodbSearchContainer(mdbSearch, volumeMounts, searchImage)),
+				podtemplatespec.WithContainer(MongotContainerName, mongodbSearchContainer(mdbSearch, volumeMounts, searchImage)),
 			),
 		),
 	}
@@ -163,7 +167,7 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []corev1.VolumeMount, searchImage string) container.Modification {
 	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 	return container.Apply(
-		container.WithName("mongodb-search"),
+		container.WithName(MongotContainerName),
 		container.WithImage(searchImage),
 		container.WithImagePullPolicy(corev1.PullAlways),
 		container.WithReadinessProbe(probes.Apply(
