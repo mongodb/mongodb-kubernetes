@@ -33,9 +33,8 @@ class MongoDBSearch(MongoDB, CustomObject):
             lambda s: in_desired_state(
                 current_state=self.get_status_phase(),
                 desired_state=phase,
-                # TODO: MCK we don't have "observedGeneration" in MongoDBCommunity status
-                current_generation=1,
-                observed_generation=1,
+                current_generation=self.get_generation(),
+                observed_generation=self.get_status_observed_generation(),
                 current_message=self.get_status_message(),
                 msg_regexp=msg_regexp,
                 ignore_errors=ignore_errors,
@@ -46,10 +45,10 @@ class MongoDBSearch(MongoDB, CustomObject):
 
         end_time = time.time()
         span = trace.get_current_span()
-        span.set_attribute("meko_resource", self.__class__.__name__)
-        span.set_attribute("meko_action", "assert_phase")
-        span.set_attribute("meko_desired_phase", phase.name)
-        span.set_attribute("meko_time_needed", end_time - start_time)
+        span.set_attribute("mck.resource", self.__class__.__name__)
+        span.set_attribute("mck.action", "assert_phase")
+        span.set_attribute("mck.desired_phase", phase.name)
+        span.set_attribute("mck.time_needed", end_time - start_time)
         logger.debug(
             f"Reaching phase {phase.name} for resource {self.__class__.__name__} took {end_time - start_time}s"
         )
