@@ -46,14 +46,13 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 	log.Info("-> MongoDBSearch.Reconcile")
 
 	mdbSearch := &searchv1.MongoDBSearch{}
-	if _, err := commoncontroller.GetResource(ctx, r.kubeClient, request, mdbSearch, log); err != nil {
-		log.Warnf("Error getting MongoDBSearch %s", request.NamespacedName)
-		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, nil
+	if result, err := commoncontroller.GetResource(ctx, r.kubeClient, request, mdbSearch, log); err != nil {
+		return result, err
 	}
 
 	sourceResource, err := getSourceMongoDBForSearch(ctx, r.kubeClient, mdbSearch)
 	if err != nil {
-		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, nil
+		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, err
 	}
 
 	r.mdbcWatcher.Watch(ctx, sourceResource.NamespacedName(), request.NamespacedName)
