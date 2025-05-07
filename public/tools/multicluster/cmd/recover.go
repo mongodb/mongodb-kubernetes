@@ -22,7 +22,7 @@ func init() {
 	recoverCmd.Flags().StringVar(&RecoverFlags.CentralClusterNamespace, "central-cluster-namespace", "", "The namespace the Operator will be deployed to. [required]")
 	recoverCmd.Flags().BoolVar(&RecoverFlags.Cleanup, "cleanup", false, "Delete all previously created resources except for namespaces. [optional default: false]")
 	recoverCmd.Flags().BoolVar(&RecoverFlags.ClusterScoped, "cluster-scoped", false, "Create ClusterRole and ClusterRoleBindings for member clusters. [optional default: false]")
-	recoverCmd.Flags().StringVar(&RecoverFlags.OperatorName, "operator-name", common.DefaultOperatorName, "Name used to identify the deployment of the operator. [optional, default: mongodb-enterprise-operator]")
+	recoverCmd.Flags().StringVar(&RecoverFlags.OperatorName, "operator-name", common.DefaultOperatorName, "Name used to identify the deployment of the operator. [optional, default: mongodb-kubernetes-operator]")
 	recoverCmd.Flags().BoolVar(&RecoverFlags.InstallDatabaseRoles, "install-database-roles", false, "Install the ServiceAccounts and Roles required for running database workloads in the member clusters. [optional default: false]")
 	recoverCmd.Flags().StringVar(&RecoverFlags.SourceCluster, "source-cluster", "", "The source cluster for recovery. This has to be one of the healthy member cluster that is the source of truth for new cluster configuration. [required]")
 	recoverCmd.Flags().BoolVar(&RecoverFlags.CreateServiceAccountSecrets, "create-service-account-secrets", true, "Create service account token secrets. [optional default: true]")

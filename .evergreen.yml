@@ -312,18 +312,10 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
+      - func: setup_docker_sbom
       - func: pipeline
         vars:
           image_name: agent
-
-  - name: upload_dockerfiles
-    tags: [ "image_release" ]
-    allowed_requesters: [ "patch", "github_tag" ]
-    commands:
-      - func: clone
-      - func: setup_building_host
-      - func: build-dockerfiles
-      - func: upload_dockerfiles
 
   # pct only triggers this variant once a new agent image is out
   - name: release_agent
@@ -1373,8 +1365,6 @@ buildvariants:
       - name: e2e_operator_race_with_telemetry_task_group
 
   - name: e2e_smoke
-    # TODO: CLOUDP-310820 - After 1.0.0 release we need re-enabled this
-    disable: true
     display_name: e2e_smoke
     tags: [ "e2e_test_suite" ]
     run_on:
@@ -1386,8 +1376,6 @@ buildvariants:
       - name: e2e_smoke_task_group
 
   - name: e2e_static_smoke
-    # TODO: CLOUDP-310820 - After 1.0.0 release we need re-enabled this
-    disable: true
     display_name: e2e_static_smoke
     tags: [ "e2e_test_suite" ]
     run_on:
@@ -1782,20 +1770,6 @@ buildvariants:
       - ubuntu2204-large
     tasks:
       - name: run_conditionally_prepare_and_upload_openshift_bundles
-
-  - name: upload_dockerfiles
-    display_name: upload_dockerfiles
-    tags: [ "release" ]
-    allowed_requesters: [ "patch", "github_tag" ]
-    # CLOUDP-182323 This ensures that there will be Operator Dockerfile available in S3 before
-    # syncing and uploading the bundle TAR archive.
-    depends_on:
-      - name: release_operator
-        variant: release_images
-    run_on:
-      - ubuntu2204-small
-    tasks:
-      - name: upload_dockerfiles
 
     # It will be called by pct while bumping the agent cloud manager image
   - name: release_agent
