@@ -10,17 +10,12 @@ from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 from tests import test_logger
 from tests.conftest import (
-    LEGACY_DEPLOYMENT_STATE_VERSION,
     LEGACY_MULTI_CLUSTER_OPERATOR_NAME,
-    LEGACY_OPERATOR_CHART,
-    LEGACY_OPERATOR_IMAGE_NAME,
-    LEGACY_OPERATOR_NAME,
     MULTI_CLUSTER_OPERATOR_NAME,
     create_appdb_certs,
     get_central_cluster_name,
     get_custom_appdb_version,
     install_legacy_deployment_state_meko,
-    install_official_operator,
     log_deployments_info,
 )
 from tests.multicluster.conftest import cluster_spec_list

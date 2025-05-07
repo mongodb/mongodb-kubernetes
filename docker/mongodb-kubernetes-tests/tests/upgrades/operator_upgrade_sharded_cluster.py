@@ -1,8 +1,6 @@
 from typing import Dict
 
 import pytest
-from kubernetes import client
-from kubernetes.client import ApiException
 from kubetester import read_configmap
 from kubetester.certs import create_sharded_cluster_certs
 from kubetester.kubetester import fixture as yaml_fixture
@@ -11,13 +9,9 @@ from kubetester.mongotester import ShardedClusterTester
 from kubetester.operator import Operator
 from tests import test_logger
 from tests.conftest import (
-    LEGACY_DEPLOYMENT_STATE_VERSION,
-    LEGACY_OPERATOR_CHART,
-    LEGACY_OPERATOR_IMAGE_NAME,
     LEGACY_OPERATOR_NAME,
     OPERATOR_NAME,
     install_legacy_deployment_state_meko,
-    install_official_operator,
     log_deployments_info,
 )
 from tests.upgrades import downscale_operator_deployment
