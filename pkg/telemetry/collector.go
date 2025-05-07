@@ -138,6 +138,9 @@ func RunTelemetry(ctx context.Context, mongodbImage, databaseNonStaticImage, nam
 }
 
 func collectAndSendSnapshot(ctx context.Context, eventType EventType, cf snapshotCollector, memberClusterMap map[string]ConfigClient, operatorClusterMgr manager.Manager, operatorUUID, mongodbImage, databaseNonStaticImage, namespace string, atlasClient *Client, configuredOperatorEnv util.OperatorEnvironment) {
+	_, span := TRACER.Start(ctx, "collectAndSendSnapshot")
+	defer span.End()
+
 	telemetryIsEnabled := ReadBoolWithTrueAsDefault(EventTypeMappingToEnvVar[eventType])
 	if !telemetryIsEnabled {
 		return

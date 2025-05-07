@@ -80,6 +80,14 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+    {{- if .Values.operator.opentelemetry.enabled }}
+            - name: otel_trace_id
+              value: {{ .Values.operator.opentelemetry.traceID | quote }}
+            - name: otel_parent_id
+              value: {{ .Values.operator.opentelemetry.parentID | quote }}
+            - name: otel_collector_endpoint
+              value: {{ .Values.operator.opentelemetry.collectorEndpoint | quote }}
+    {{- end }}
     {{- if .Values.operator.vaultSecretBackend }}
       {{- if .Values.operator.vaultSecretBackend.enabled }}
             - name: SECRET_BACKEND
