@@ -585,6 +585,7 @@ def get_pods(podname, qty) -> List[str]:
     return [podname.format(i) for i in range(qty)]
 
 
+TRACER.start_as_current_span("in_desired_state")
 def in_desired_state(
     current_state: Phase,
     desired_state: Phase,
