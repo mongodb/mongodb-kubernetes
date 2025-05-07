@@ -327,7 +327,7 @@ class KubernetesTester(object):
             "appsv1": client.AppsV1Api(api_client=api_client),
             "storagev1": client.StorageV1Api(api_client=api_client),
             "customv1": client.CustomObjectsApi(api_client=api_client),
-            "certificates": client.CertificatesV1beta1Api(api_client=api_client),
+            "certificates": client.CertificatesApi(api_client=api_client),
             "namespace": KubernetesTester.get_namespace(),
         }[name]
 
