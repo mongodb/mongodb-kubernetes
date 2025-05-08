@@ -2,11 +2,11 @@ package telemetry
 
 import (
 	"context"
-	"go.opentelemetry.io/otel/attribute"
 	"slices"
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/client-go/rest"
@@ -66,7 +66,6 @@ func NewLeaderRunnable(operatorMgr manager.Manager, memberClusterObjectsMap map[
 		memberClusterObjectsMap: memberClusterObjectsMap,
 		currentNamespace:        currentNamespace,
 		configuredOperatorEnv:   operatorEnv,
-
 		mongodbImage:           mongodbImage,
 		databaseNonStaticImage: databaseNonStaticImage,
 	}, nil
