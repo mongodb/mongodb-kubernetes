@@ -35,6 +35,7 @@ Install Operator 1.27 -> Deploy Sharded Cluster -> Scale Up Cluster -> Upgrade o
 If the sharded cluster resource correctly reconciles after upgrade/downgrade and scaling steps, we assume it works
 correctly.
 """
+# TODO CLOUDP-318100: this test should eventually be updated and not pinned to 1.27 anymore
 
 
 def log_state_configmap(namespace: str):

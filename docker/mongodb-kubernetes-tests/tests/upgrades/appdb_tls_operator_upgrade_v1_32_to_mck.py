@@ -21,6 +21,7 @@ APPDB_NAME = "om-appdb-upgrade-tls-db"
 
 CERT_PREFIX = "prefix"
 
+# TODO CLOUDP-318100: this test should eventually be updated and not pinned to 1.32 anymore
 # TODO: this test runs in the cloudqa variant but still creates OM. We might want to move that to OM variant instead
 
 
