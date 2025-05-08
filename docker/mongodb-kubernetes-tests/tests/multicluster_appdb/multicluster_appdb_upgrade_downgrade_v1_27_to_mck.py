@@ -42,6 +42,7 @@ At each step, we verify that the state is correct
 
 # TODO CLOUDP-318100: this test should eventually be updated and not pinned to 1.27 anymore
 
+
 def assert_cm_expected_data(
     name: str, namespace: str, expected_data: Optional[Dict], central_cluster_client: kubernetes.client.ApiClient
 ):
