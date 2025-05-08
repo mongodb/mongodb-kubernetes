@@ -180,7 +180,7 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_operator_upgrade_appdb_tls
+  - name: e2e_appdb_tls_operator_upgrade_v1_32_to_mck
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"

@@ -784,7 +784,7 @@ task_groups:
       - e2e_operator_partial_crd
       - e2e_operator_clusterwide
       - e2e_operator_multi_namespaces
-      - e2e_operator_upgrade_appdb_tls
+      - e2e_appdb_tls_operator_upgrade_v1_32_to_mck
       - e2e_meko_mck_upgrade
     <<: *teardown_group
 
@@ -812,7 +812,7 @@ task_groups:
       - e2e_operator_partial_crd
       - e2e_operator_clusterwide
       - e2e_operator_multi_namespaces
-      - e2e_operator_upgrade_appdb_tls
+      - e2e_appdb_tls_operator_upgrade_v1_32_to_mck
       - e2e_meko_mck_upgrade
     <<: *teardown_group
 
@@ -910,7 +910,7 @@ task_groups:
       - e2e_multi_cluster_om_networking_clusterwide
       - e2e_multi_cluster_om_appdb_no_mesh
       # Reused OM tests with AppDB Multi-Cluster topology
-      - e2e_operator_upgrade_appdb_tls
+      - e2e_appdb_tls_operator_upgrade_v1_32_to_mck
       - e2e_om_appdb_flags_and_config
       - e2e_om_appdb_upgrade
       - e2e_om_appdb_monitoring_tls
