@@ -299,7 +299,7 @@ func resetNamespace(ctx context.Context, contextName string, namespace string, d
 	collectError(err, "failed to list custom roles")
 	if err == nil {
 		for _, customRole := range list.Items {
-			_, err := dynamicClient.Resource(customRoleGVR).Namespace(namespace).Patch(ctx, customRole.GetName(), types.MergePatchType, []byte(`{"metadata":{"finalizers":null}}`), v1.PatchOptions{})
+			_, err := dynamicClient.Resource(customRoleGVR).Patch(ctx, customRole.GetName(), types.MergePatchType, []byte(`{"metadata":{"finalizers":null}}`), v1.PatchOptions{})
 			collectError(err, fmt.Sprintf("failed to patch custom role %s", customRole.GetName()))
 		}
 	}
