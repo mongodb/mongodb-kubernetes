@@ -972,7 +972,14 @@ def build_om_image(build_configuration: BuildConfiguration):
         "version": om_version,
         "om_download_url": om_download_url,
     }
-    build_image_generic(build_configuration, "ops-manager", "inventories/om.yaml", args)
+
+    build_image_generic(
+        config=build_configuration,
+        image_name="ops-manager",
+        inventory_file="inventories/om.yaml",
+        extra_args=args,
+        registry_address=f"{QUAY_REGISTRY_URL}/mongodb-enterprise-ops-manager",
+    )
 
 
 def build_image_generic(

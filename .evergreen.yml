@@ -11,7 +11,7 @@ variables:
 
   - &ops_manager_70_latest 7.0.15 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_80_latest 8.0.6 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_80_latest 8.0.7 # The order/index is important, since these are anchors. Please do not change
 
   # The dependency unification between static and non-static is intentional here.
   # Even though some images are exclusive, in EVG they all are built once and in parallel.
@@ -218,6 +218,8 @@ github_pr_aliases:
     task: ".*"
   - variant_tags: [ "auto_bump" ]
     task_tags: [ "patch-run" ]
+  - variant_tags: [ "release_agents_on_ecr" ]
+    task: ".*"
 
 # Allows to see evergreen checks in GitHub commits
 # https://github.com/mongodb/mongodb-kubernetes/commits/master/
@@ -356,8 +358,6 @@ tasks:
   # We rely on the init_database from ecr for the agent x operator images.
   # This runs on agent releases that are not concurrent with operator releases.
   - name: release_agents_on_ecr_conditional
-    # this enables us to run this variant either manually (patch) which pct does or during an OM bump (github_pr)
-    allowed_requesters: [ "patch", "github_pr" ]
     commands:
       - func: clone
       - func: run_task_conditionally
@@ -1613,6 +1613,9 @@ buildvariants:
 
   - name: init_release_agents_on_ecr
     display_name: init_release_agents_on_ecr
+    # this enables us to run this variant either manually (patch) which pct does or during an OM bump (github_pr)
+    allowed_requesters: [ "patch", "github_pr" ]
+    tags: [ "release_agents_on_ecr" ]
     # We want that to run first and finish asap. Digest pinning depends on this to succeed.
     priority: 70
     run_on:
