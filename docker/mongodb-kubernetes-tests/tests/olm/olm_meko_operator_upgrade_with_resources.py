@@ -16,6 +16,7 @@ from kubetester.mongodb import Phase
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture
+from tests import test_logger
 from tests.conftest import LEGACY_OPERATOR_NAME, OPERATOR_NAME
 from tests.olm.olm_test_commons import (
     get_catalog_image,
@@ -28,6 +29,8 @@ from tests.olm.olm_test_commons import (
     wait_for_operator_ready,
 )
 from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_bucket
+
+logger = test_logger.get_test_logger(__name__)
 
 # See docs how to run this locally: https://wiki.corp.mongodb.com/display/MMS/E2E+Tests+Notes#E2ETestsNotes-OLMtests
 
@@ -395,15 +398,79 @@ def uninstall_meko_operator(namespace: str, meko_subscription: CustomObject):
 
 
 @pytest.mark.e2e_olm_meko_operator_upgrade_with_resources
-def test_migrate_meko_to_mck_operator(
+def test_uninstall_meko_operator(
     namespace: str,
-    version_id: str,
-    catalog_source: CustomObject,
     meko_subscription: CustomObject,
 ):
     # Uninstall the MEKO operator
     uninstall_meko_operator(namespace, meko_subscription)
 
+    # Get a list of all statefulsets
+    api_instance = kubernetes.client.AppsV1Api()
+    statefulsets = api_instance.list_namespaced_stateful_set(namespace)
+
+    # Kill one pod from each statefulset to simulate reschedule
+    for sts in statefulsets.items:
+        sts_name = sts.metadata.name
+        logger.info(f"Processing StatefulSet {sts_name}")
+
+        # Get pods for this statefulset
+        if sts.spec.selector and sts.spec.selector.match_labels:
+            # Build label selector string from match_labels dictionary
+            selector_parts = []
+            for key, value in sts.spec.selector.match_labels.items():
+                selector_parts.append(f"{key}={value}")
+            label_selector = ",".join(selector_parts)
+
+            pods = kubernetes.client.CoreV1Api().list_namespaced_pod(namespace, label_selector=label_selector)
+
+            if pods.items:
+                # Delete the first pod
+                pod_name = pods.items[0].metadata.name
+                logger.info(f"Deleting pod {pod_name} from StatefulSet {sts_name}")
+                kubernetes.client.CoreV1Api().delete_namespaced_pod(
+                    name=pod_name, namespace=namespace, body=kubernetes.client.V1DeleteOptions()
+                )
+
+    # Wait for all statefulsets to be ready again
+    def all_statefulsets_ready():
+        for sts in api_instance.list_namespaced_stateful_set(namespace).items:
+            if sts.status.ready_replicas != sts.status.replicas:
+                return (
+                    False,
+                    f"StatefulSet {sts.metadata.name} has {sts.status.ready_replicas}/{sts.status.replicas} ready replicas",
+                )
+        return True, "All StatefulSets are ready"
+
+    run_periodically(
+        all_statefulsets_ready, timeout=600, msg=f"Waiting for all StatefulSets to be ready after pod deletion"
+    )
+
+
+@pytest.mark.e2e_olm_meko_operator_upgrade_with_resources
+def test_connectivity_after_meko_uninstall(
+    ca_path: str,
+    ops_manager: MongoDBOpsManager,
+    oplog_replica_set: MongoDB,
+    blockstore_replica_set: MongoDB,
+    s3_replica_set: MongoDB,
+    mdb_sharded: MongoDB,
+):
+    """Verify resources are still connectable after MEKO operator uninstall but before MCK operator install"""
+    wait_for_om_healthy_response(ops_manager)
+
+    oplog_replica_set.assert_connectivity()
+    blockstore_replica_set.assert_connectivity()
+    s3_replica_set.assert_connectivity()
+    mdb_sharded.assert_connectivity(ca_path=ca_path)
+
+
+@pytest.mark.e2e_olm_meko_operator_upgrade_with_resources
+def test_install_mck_operator(
+    namespace: str,
+    version_id: str,
+    catalog_source: CustomObject,
+):
     current_operator_version = get_current_operator_version()
     incremented_operator_version = increment_patch_version(current_operator_version)
 
