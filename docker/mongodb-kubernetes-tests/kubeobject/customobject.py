@@ -173,7 +173,6 @@ class CustomObject:
             else:
                 doc["metadata"]["namespace"] = namespace
 
-
         if name is None:
             name = doc["metadata"]["name"]
         else:

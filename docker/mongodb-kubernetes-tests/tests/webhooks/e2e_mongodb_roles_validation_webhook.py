@@ -209,6 +209,7 @@ def test_invalid_action(mdb: MongoDB):
     ):
         mdb.create()
 
+
 @pytest.mark.e2e_mongodb_roles_validation_webhook
 def test_roles_and_role_refs(mdb: MongoDB):
     mdb["spec"]["security"]["roles"] = [
@@ -220,7 +221,7 @@ def test_roles_and_role_refs(mdb: MongoDB):
                     "role": "root",
                     "db": "admin",
                 }
-            ]
+            ],
         }
     ]
     mdb["spec"]["security"]["roleRefs"] = [

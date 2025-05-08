@@ -5,6 +5,7 @@ from kubetester.mongodb import MongoDBCommon, Phase, in_desired_state
 
 ClusterMongoDBRoleKind = "ClusterMongoDBRole"
 
+
 class ClusterMongoDBRole(CustomObject, MongoDBCommon):
     def __init__(self, *args, **kwargs):
         with_defaults = {
