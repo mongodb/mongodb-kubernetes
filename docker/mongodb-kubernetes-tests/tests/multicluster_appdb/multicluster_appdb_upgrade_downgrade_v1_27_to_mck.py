@@ -166,7 +166,7 @@ def ops_manager(
     return resource
 
 
-@mark.e2e_multi_cluster_appdb_state_operator_upgrade_downgrade
+@mark.e2e_multi_cluster_appdb_upgrade_downgrade_v1_27_to_mck
 class TestOpsManagerCreation:
     """
     Ensure correct deployment and state of AppDB, with operator version 1.27 installed.
@@ -230,7 +230,7 @@ class TestOpsManagerCreation:
         assert_cm_expected_data(configmap_name, namespace, expected_data, central_cluster_client)
 
 
-@mark.e2e_multi_cluster_appdb_state_operator_upgrade_downgrade
+@mark.e2e_multi_cluster_appdb_upgrade_downgrade_v1_27_to_mck
 class TestOperatorUpgrade:
     """
     Upgrade the operator to latest dev version, scale AppDB, and ensure state correctness.
@@ -275,7 +275,7 @@ class TestOperatorUpgrade:
         )
 
 
-@mark.e2e_multi_cluster_appdb_state_operator_upgrade_downgrade
+@mark.e2e_multi_cluster_appdb_upgrade_downgrade_v1_27_to_mck
 class TestOperatorDowngrade:
     """
     Downgrade the Operator to 1.27, scale AppDB and ensure state correctness.

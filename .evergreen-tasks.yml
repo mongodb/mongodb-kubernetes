@@ -840,7 +840,7 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_multi_cluster_appdb_state_operator_upgrade_downgrade
+  - name: e2e_multi_cluster_appdb_upgrade_downgrade_v1_27_to_mck
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"

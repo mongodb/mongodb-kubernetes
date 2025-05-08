@@ -942,7 +942,7 @@ task_groups:
       - e2e_om_ops_manager_upgrade
       - e2e_om_update_before_reconciliation
       - e2e_om_feature_controls
-      - e2e_multi_cluster_appdb_state_operator_upgrade_downgrade
+      - e2e_multi_cluster_appdb_upgrade_downgrade_v1_27_to_mck
       - e2e_multi_cluster_sharded_disaster_recovery
     # disabled tests:
     #    - e2e_om_multiple # multi-cluster failures in EVG
@@ -995,7 +995,7 @@ task_groups:
       - e2e_om_ops_manager_backup_kmip
       - e2e_om_ops_manager_scale
       - e2e_om_ops_manager_upgrade
-      - e2e_multi_cluster_appdb_state_operator_upgrade_downgrade
+      - e2e_multi_cluster_appdb_upgrade_downgrade_v1_27_to_mck
       - e2e_om_update_before_reconciliation
       - e2e_om_feature_controls
       - e2e_multi_cluster_sharded_disaster_recovery
