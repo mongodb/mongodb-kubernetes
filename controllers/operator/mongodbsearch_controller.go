@@ -58,7 +58,7 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 	r.mdbcWatcher.Watch(ctx, sourceResource.NamespacedName(), request.NamespacedName)
 
 	reconcileHelper := search_controller.NewMongoDBSearchReconcileHelper(kubernetesClient.NewClient(r.kubeClient), mdbSearch, sourceResource, r.operatorSearchConfig)
-	
+
 	return reconcileHelper.Reconcile(ctx, log).ReconcileResult()
 }
 
