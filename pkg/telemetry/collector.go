@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"go.opentelemetry.io/otel/attribute"
 	"slices"
 	"strings"
 	"time"
@@ -83,6 +84,11 @@ type snapshotCollector func(ctx context.Context, memberClusterMap map[string]Con
 // RunTelemetry lists the specified CRDs and sends them as events to Segment
 func RunTelemetry(ctx context.Context, mongodbImage, databaseNonStaticImage, namespace string, operatorClusterMgr manager.Manager, clusterMap map[string]cluster.Cluster, atlasClient *Client, configuredOperatorEnv util.OperatorEnvironment) {
 	Logger.Debug("Collecting telemetry!")
+	_, span := TRACER.Start(ctx, "RunTelemetry")
+	span.SetAttributes(
+		attribute.String("resource.type", "telemetry-collection"),
+	)
+	defer span.End()
 
 	intervalStr := envvar.GetEnvOrDefault(CollectionFrequency, DefaultCollectionFrequencyStr) // nolint:forbidigo
 	duration, err := time.ParseDuration(intervalStr)
@@ -138,9 +144,6 @@ func RunTelemetry(ctx context.Context, mongodbImage, databaseNonStaticImage, nam
 }
 
 func collectAndSendSnapshot(ctx context.Context, eventType EventType, cf snapshotCollector, memberClusterMap map[string]ConfigClient, operatorClusterMgr manager.Manager, operatorUUID, mongodbImage, databaseNonStaticImage, namespace string, atlasClient *Client, configuredOperatorEnv util.OperatorEnvironment) {
-	_, span := TRACER.Start(ctx, "collectAndSendSnapshot")
-	defer span.End()
-
 	telemetryIsEnabled := ReadBoolWithTrueAsDefault(EventTypeMappingToEnvVar[eventType])
 	if !telemetryIsEnabled {
 		return
