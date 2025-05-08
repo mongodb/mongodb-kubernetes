@@ -230,7 +230,7 @@ def verify_signature(repository: str, tag: str) -> bool:
         # Access the content of the file
         kubernetes_operator_public_key = r.text
     else:
-        logger.error(f"Failed to retrieve the public key: Status code {r.status_code}")
+        logger.error(f"Failed to retrieve the public key from {public_key_url}: Status code {r.status_code}")
         return False
 
     public_key_var_name = "OPERATOR_PUBLIC_KEY"

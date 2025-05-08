@@ -6,6 +6,7 @@ from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 from tests.conftest import (
+    LEGACY_MULTI_CLUSTER_OPERATOR_NAME,
     LEGACY_OPERATOR_NAME,
     create_appdb_certs,
     install_official_operator,
@@ -116,7 +117,8 @@ def test_create_om_non_tls(ops_manager_non_tls: MongoDBOpsManager):
 def test_downscale_latest_official_operator(namespace: str):
     # Scale down the existing operator deployment to 0. This is needed as long as the
     # `official_operator` fixture installs the MEKO operator.
-    downscale_operator_deployment(deployment_name=LEGACY_OPERATOR_NAME, namespace=namespace)
+    deployment_name = LEGACY_MULTI_CLUSTER_OPERATOR_NAME if is_multi_cluster() else LEGACY_OPERATOR_NAME
+    downscale_operator_deployment(deployment_name=deployment_name, namespace=namespace)
 
 
 @mark.e2e_operator_upgrade_appdb_tls

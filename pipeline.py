@@ -972,7 +972,14 @@ def build_om_image(build_configuration: BuildConfiguration):
         "version": om_version,
         "om_download_url": om_download_url,
     }
-    build_image_generic(build_configuration, "ops-manager", "inventories/om.yaml", args)
+
+    build_image_generic(
+        config=build_configuration,
+        image_name="ops-manager",
+        inventory_file="inventories/om.yaml",
+        extra_args=args,
+        registry_address=f"{QUAY_REGISTRY_URL}/mongodb-enterprise-ops-manager",
+    )
 
 
 def build_image_generic(
@@ -1171,11 +1178,11 @@ def build_multi_arch_agent_in_sonar(
     ecr_registry = os.environ.get("REGISTRY", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
     ecr_agent_registry = ecr_registry + f"/mongodb-agent-ubi"
     quay_agent_registry = QUAY_REGISTRY_URL + f"/mongodb-agent-ubi"
-    joined_args = [arch_amd]
+    joined_args = [args | arch_amd]
 
     # Only include arm64 if we shouldn't skip it
     if not should_skip_arm64():
-        joined_args.append(arch_arm)
+        joined_args.append(args | arch_arm)
 
     build_image_generic(
         config=build_configuration,

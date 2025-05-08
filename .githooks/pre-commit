@@ -18,7 +18,7 @@ mkdir -p "$(go env GOPATH)/bin"
 
 function update_mco_tests() {
   echo "Regenerating MCO evergreen tests configuration"
-  python scripts/evergreen/e2e/mco/create_mco_tests.py > .evergreen-mco.yml
+  python scripts/evergreen/e2e/mco/create_mco_tests.py >.evergreen-mco.yml
   git add .evergreen-mco.yml
 }
 
@@ -156,8 +156,8 @@ run_shellcheck() {
   local file="$1"
   echo "Running shellcheck on $file"
   if ! shellcheck -x "$file" -e SC2154 -e SC1091 -e SC1090 -e SC2148 -o require-variable-braces -P "scripts"; then
-   echo "shellcheck failed on $file"
-   exit 1
+    echo "shellcheck failed on $file"
+    exit 1
   fi
 }
 

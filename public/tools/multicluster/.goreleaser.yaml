@@ -8,11 +8,11 @@ builds:
   - env:
       - CGO_ENABLED=0
     goos:
-    - linux
-    - darwin
+      - linux
+      - darwin
     goarch:
-    - amd64
-    - arm64
+      - amd64
+      - arm64
     hooks:
       # This will notarize Apple binaries and replace goreleaser bins with the notarized ones
       post:
@@ -46,7 +46,7 @@ changelog:
 release:
   prerelease: auto
   draft: true
-  name_template: "MongoDB Kubernetes Kubernetes Operator {{ .Version  }}"
+  name_template: "MongoDB Kubernetes Operator {{ .Version  }}"
 
 git:
   tag_sort: -version:creatordate

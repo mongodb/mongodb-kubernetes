@@ -17,11 +17,11 @@ func init() {
 	multiclusterCmd.AddCommand(setupCmd)
 
 	setupCmd.Flags().StringVar(&common.MemberClusters, "member-clusters", "", "Comma separated list of member clusters. [required]")
-	setupCmd.Flags().StringVar(&setupFlags.ServiceAccount, "service-account", "mongodb-enterprise-operator-multi-cluster", "Name of the service account which should be used for the Operator to communicate with the member clusters. [optional, default: mongodb-enterprise-operator-multi-cluster]")
+	setupCmd.Flags().StringVar(&setupFlags.ServiceAccount, "service-account", "mongodb-kubernetes-operator-multi-cluster", "Name of the service account which should be used for the Operator to communicate with the member clusters. [optional, default: mongodb-kubernetes-operator-multi-cluster]")
 	setupCmd.Flags().StringVar(&setupFlags.CentralCluster, "central-cluster", "", "The central cluster the operator will be deployed in. [required]")
 	setupCmd.Flags().StringVar(&setupFlags.MemberClusterNamespace, "member-cluster-namespace", "", "The namespace the member cluster resources will be deployed to. [required]")
 	setupCmd.Flags().StringVar(&setupFlags.CentralClusterNamespace, "central-cluster-namespace", "", "The namespace the Operator will be deployed to. [required]")
-	setupCmd.Flags().StringVar(&setupFlags.OperatorName, "operator-name", common.DefaultOperatorName, "Name used to identify the deployment of the operator. [optional, default: mongodb-enterprise-operator]")
+	setupCmd.Flags().StringVar(&setupFlags.OperatorName, "operator-name", common.DefaultOperatorName, "Name used to identify the deployment of the operator. [optional, default: mongodb-kubernetes-operator]")
 	setupCmd.Flags().BoolVar(&setupFlags.Cleanup, "cleanup", false, "Delete all previously created resources except for namespaces. [optional default: false]")
 	setupCmd.Flags().BoolVar(&setupFlags.ClusterScoped, "cluster-scoped", false, "Create ClusterRole and ClusterRoleBindings for member clusters. [optional default: false]")
 	setupCmd.Flags().BoolVar(&setupFlags.CreateTelemetryClusterRoles, "create-telemetry-roles", true, "Create ClusterRole and ClusterRoleBindings for member clusters for telemetry. [optional default: true]")
