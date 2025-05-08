@@ -42,10 +42,12 @@ def create_or_update_secret(
     api_client: Optional[client.ApiClient] = None,
 ) -> str:
     try:
-        create_secret(namespace, name, data, type, api_client)
+        create_secret(namespace, name, data, type, api_client, )
     except kubernetes.client.ApiException as e:
         if e.status == 409:
             update_secret(namespace, name, data, api_client)
+        else:
+            raise e
 
     return name
 
@@ -161,6 +163,8 @@ def create_or_update_service(
             update_service(
                 namespace, service_name, cluster_ip=cluster_ip, ports=ports, selector=selector, service=service
             )
+        else:
+            raise e
     return service_name
 
 
@@ -269,6 +273,8 @@ def create_or_update_namespace(
     except kubernetes.client.ApiException as e:
         if e.status == 409:
             client.CoreV1Api(api_client=api_client).patch_namespace(namespace, namespace_resource)
+        else:
+            raise e
 
 
 def delete_namespace(name: str):

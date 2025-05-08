@@ -152,6 +152,8 @@ class TestOpsManagerCreation:
                 "initial_delay_seconds": 5,
                 "_exec": None,
                 "tcp_socket": None,
+                "grpc": None,
+                "termination_grace_period_seconds": None,
             },
             "startup_probe": {
                 "http_get": {
@@ -168,6 +170,8 @@ class TestOpsManagerCreation:
                 "initial_delay_seconds": 1,
                 "_exec": None,
                 "tcp_socket": None,
+                "grpc": None,
+                "termination_grace_period_seconds": None,
             },
             "volume_mounts": [
                 {

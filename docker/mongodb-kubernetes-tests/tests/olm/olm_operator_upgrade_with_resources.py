@@ -363,8 +363,8 @@ def test_operator_upgrade_to_fast(
         except kubernetes.client.ApiException as e:
             if e.status == 409:
                 return False
-        else:
-            raise e
+            else:
+                raise e
 
     run_periodically(update_subscription, timeout=100, msg="Subscription to be updated")
 
