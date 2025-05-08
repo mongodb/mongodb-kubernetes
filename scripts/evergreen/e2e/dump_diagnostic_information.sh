@@ -8,8 +8,41 @@ set +e
 
 source scripts/funcs/printing
 
+dump_all_non_default_namespaces() {
+    echo "Gathering logs from all non-default namespaces"
+
+    local original_context
+    original_context="$(kubectl config current-context)"
+    kubectl config use-context "${1:-${original_context}}" &> /dev/null
+    prefix="${1:-${original_context}}_"
+    # shellcheck disable=SC2154
+    if [[ "${KUBE_ENVIRONMENT_NAME:-}" != "multi" ]]; then
+        prefix=""
+    fi
+
+    mkdir -p logs
+    namespaces=$(kubectl get namespace --output=jsonpath={.items..metadata.name} | tr ' ' '\n' | \
+      grep -v "default" | \
+      grep -v "kube-node-lease" | \
+      grep -v "kube-node-lease" | \
+      grep -v "kube-public" | \
+      grep -v "kube-system" | \
+      grep -v "local-path-storage" | \
+      grep -v "metallb-system"
+    )
+
+    for ns in ${namespaces}; do
+        if kubectl get namespace "${ns}" -o jsonpath='{.metadata.annotations}'; then
+            echo "Dumping all diagnostic information for namespace ${ns}"
+            dump_namespace "${ns}" "${prefix}"
+        fi
+    done
+}
+
 dump_all() {
     [[ "${MODE-}" = "dev" ]] && return
+
+    mkdir -p logs
 
     # TODO: provide a cleaner way of handling this. For now we run the same command with kubectl configured
     # with a different context.
