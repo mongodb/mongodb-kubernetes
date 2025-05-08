@@ -22,7 +22,7 @@ CERT_PREFIX = "prefix"
 logger = test_logger.get_test_logger(__name__)
 
 """
-e2e_operator_upgrade_sharded_cluster ensures the correct operation of a single cluster sharded cluster, when
+e2e_sharded_cluster_operator_upgrade_v1_27_to_mck ensures the correct operation of a single cluster sharded cluster, when
 upgrading/downgrading from/to the legacy state management (versions <= 1.27) and the current operator (from master)
 while performing scaling operations.
 It will always be pinned to version 1.27 (variable LEGACY_DEPLOYMENT_STATE_VERSION) for the initial deployment, so
@@ -84,7 +84,7 @@ def sharded_cluster(
     return resource.update()
 
 
-@pytest.mark.e2e_operator_upgrade_sharded_cluster
+@pytest.mark.e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
 class TestShardedClusterDeployment:
     def test_install_legacy_deployment_state_meko(
         self,
@@ -105,7 +105,7 @@ class TestShardedClusterDeployment:
         sharded_cluster.assert_reaches_phase(phase=Phase.Running, timeout=300)
 
 
-@pytest.mark.e2e_operator_upgrade_sharded_cluster
+@pytest.mark.e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
 class TestOperatorUpgrade:
 
     def test_downscale_latest_official_operator(self, namespace: str):
@@ -139,7 +139,7 @@ class TestOperatorUpgrade:
         log_state_configmap(namespace)
 
 
-@pytest.mark.e2e_operator_upgrade_sharded_cluster
+@pytest.mark.e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
 class TestOperatorDowngrade:
     def test_downscale_default_operator(self, namespace: str):
         downscale_operator_deployment(deployment_name=OPERATOR_NAME, namespace=namespace)

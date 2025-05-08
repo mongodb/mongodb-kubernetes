@@ -778,7 +778,7 @@ task_groups:
     <<: *setup_and_teardown_task_cloudqa
     tasks:
       - e2e_operator_upgrade_replica_set
-      - e2e_operator_upgrade_sharded_cluster
+      - e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
       - e2e_operator_upgrade_ops_manager
       - e2e_operator_proxy
       - e2e_operator_partial_crd
@@ -806,7 +806,7 @@ task_groups:
     <<: *setup_and_teardown_task_cloudqa
     tasks:
       - e2e_operator_upgrade_replica_set
-      - e2e_operator_upgrade_sharded_cluster
+      - e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
       - e2e_operator_upgrade_ops_manager
       - e2e_operator_proxy
       - e2e_operator_partial_crd

@@ -170,7 +170,7 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_operator_upgrade_sharded_cluster
+  - name: e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
