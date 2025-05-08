@@ -311,7 +311,7 @@ const (
 
 	UserFinalizer = "mongodb.com/v1.userRemovalFinalizer"
 
-	RoleFinalizer = "mongodb.com/v1.customRoleRemovalFinalizer"
+	RoleFinalizer = "mongodb.com/v1.roleRemovalFinalizer"
 )
 
 type OperatorEnvironment string
