@@ -3,6 +3,8 @@ package operator
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -160,26 +162,30 @@ func (r *ClusterMongoDBRoleReconciler) ensureFinalizer(ctx context.Context, role
 
 func (r *ClusterMongoDBRoleReconciler) ensureNoReferences(ctx context.Context, role *rolev1.ClusterMongoDBRole) error {
 	mdbList := &mdbv1.MongoDBList{}
-	listOpts := &client.ListOptions{FieldSelector: fields.OneTermEqualSelector(ClusterMongoDBRoleIndexForMdb, role.Name)}
-	err := r.client.List(ctx, mdbList, listOpts)
+	err := r.client.List(ctx, mdbList, &client.ListOptions{
+		FieldSelector: fields.OneTermEqualSelector(ClusterMongoDBRoleIndexForMdb, role.Name),
+	})
 	if err != nil {
 		return err
-	}
-
-	if len(mdbList.Items) > 0 {
-		return xerrors.Errorf("Resources are still referencing this role")
 	}
 
 	multiList := &mdbmultiv1.MongoDBMultiClusterList{}
-	listOpts = &client.ListOptions{FieldSelector: fields.OneTermEqualSelector(ClusterMongoDBRoleIndexForMdbMulti, role.Name)}
-	err = r.client.List(ctx, multiList, listOpts)
+	err = r.client.List(ctx, multiList, &client.ListOptions{
+		FieldSelector: fields.OneTermEqualSelector(ClusterMongoDBRoleIndexForMdbMulti, role.Name),
+	})
 	if err != nil {
 		return err
 	}
 
-	if len(mdbList.Items) > 0 {
-		// TODO print which resources
-		return xerrors.Errorf("Resources are still referencing this role")
+	if len(mdbList.Items) > 0 || len(multiList.Items) > 0 {
+		resources := make([]string, 0)
+		for _, mdb := range mdbList.Items {
+			resources = append(resources, fmt.Sprintf("%s/%s", mdb.Namespace, mdb.Name))
+		}
+		for _, mdbmc := range multiList.Items {
+			resources = append(resources, fmt.Sprintf("%s/%s", mdbmc.Namespace, mdbmc.Name))
+		}
+		return xerrors.Errorf("These resources are still referencing this role: %s", strings.Join(resources, ", "))
 	}
 
 	return nil
