@@ -35,6 +35,11 @@ func PredicatesForClusterRole() predicate.Funcs {
 
 			return reflect.DeepEqual(oldResource.GetStatus(), newResource.GetStatus())
 		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			// If the resource is being deleted, it means that we already removed the finalizer and ensured no resource is referencing the role
+			// Therefore we can safely ignore the deletion event, there is nothing left to do
+			return false
+		},
 	}
 }
 

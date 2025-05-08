@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -87,6 +88,7 @@ func AddClusterMongoDBRoleController(ctx context.Context, mgr manager.Manager) e
 
 	// Watch for changes to ClusterMongoDBRole resources
 	// We don't need a Delete handler as there is nothing to do after removing the finalizer
+	// To not get into an infinite reconcile loop, we ignore the delete event since the cleanup was already performed
 	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &rolev1.ClusterMongoDBRole{}, &handler.EnqueueRequestForObject{}, watch.PredicatesForClusterRole()))
 	if err != nil {
 		return err
@@ -139,6 +141,11 @@ func (r *ClusterMongoDBRoleReconciler) Delete(ctx context.Context, role *rolev1.
 	return r.updateStatus(ctx, role, workflow.OK(), log)
 }
 
+func (r *ClusterMongoDBRoleReconciler) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
+	log.Info("deleted")
+	return nil
+}
+
 func (r *ClusterMongoDBRoleReconciler) ensureFinalizer(ctx context.Context, role *rolev1.ClusterMongoDBRole, log *zap.SugaredLogger) error {
 	log.Info("Adding finalizer to the ClusterMongoDBRole resource")
 
@@ -164,6 +171,7 @@ func (r *ClusterMongoDBRoleReconciler) ensureNoReferences(ctx context.Context, r
 	}
 
 	multiList := &mdbmultiv1.MongoDBMultiClusterList{}
+	listOpts = &client.ListOptions{FieldSelector: fields.OneTermEqualSelector(ClusterMongoDBRoleIndexForMdbMulti, role.Name)}
 	err = r.client.List(ctx, multiList, listOpts)
 	if err != nil {
 		return err
