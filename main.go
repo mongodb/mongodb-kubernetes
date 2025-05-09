@@ -46,6 +46,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/pprof"
 	"github.com/mongodb/mongodb-kubernetes/pkg/telemetry"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
@@ -275,6 +276,16 @@ func main() {
 		}
 	} else {
 		log.Info("Not running telemetry component!")
+	}
+
+	pprofEnabledString := env.ReadOrDefault(util.PprofEnabledEnv, "")
+	if pprofEnabled, err := pprof.IsPprofEnabled(pprofEnabledString, getOperatorEnv()); err != nil {
+		log.Errorf("Unable to check if pprof is enabled: %s", err)
+	} else if pprofEnabled {
+		port := env.ReadIntOrDefault(util.PprofPortEnv, util.PprofDefaultPort)
+		if err := mgr.Add(pprof.NewRunnable(port, log)); err != nil {
+			log.Errorf("Unable to start pprof server: %s", err)
+		}
 	}
 
 	log.Info("Starting the Cmd.")
