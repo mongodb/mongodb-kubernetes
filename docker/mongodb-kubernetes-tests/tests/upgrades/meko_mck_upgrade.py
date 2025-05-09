@@ -24,7 +24,7 @@ from tests.conftest import (
     setup_log_rotate_for_agents,
 )
 from tests.multicluster.conftest import cluster_spec_list
-from tests.multicluster_appdb.multicluster_appdb_state_operator_upgrade_downgrade import (
+from tests.multicluster_appdb.multicluster_appdb_upgrade_downgrade_v1_27_to_mck import (
     assert_cm_expected_data,
 )
 from tests.upgrades import downscale_operator_deployment

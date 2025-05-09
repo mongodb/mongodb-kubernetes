@@ -16,6 +16,7 @@ from kubetester.mongodb import Phase
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture
+from tests import test_logger
 from tests.conftest import LEGACY_OPERATOR_NAME, OPERATOR_NAME
 from tests.olm.olm_test_commons import (
     get_catalog_image,
@@ -28,18 +29,22 @@ from tests.olm.olm_test_commons import (
     wait_for_operator_ready,
 )
 from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_bucket
-from tests.upgrades import downscale_operator_deployment
+
+logger = test_logger.get_test_logger(__name__)
 
 # See docs how to run this locally: https://wiki.corp.mongodb.com/display/MMS/E2E+Tests+Notes#E2ETestsNotes-OLMtests
 
 # This test performs operator migration from the latest MEKO to MCK while having OM and MongoDB resources deployed.
-# It performs the following actions:
+# It uses the uninstall-then-install approach since operatorhub.io and other catalogs
+# do not allow cross-package upgrades with the "replaces" directive.
+# The test performs the following actions:
 #  - deploy latest released MEKO operator using OLM
 #  - deploy OM
 #  - deploy backup-required MongoDB: oplog, s3, blockstore
 #  - deploy TLS-enabled sharded MongoDB
 #  - check everything is running
-#  - upgrade the operator to the MCK version built from the current branch
+#  - uninstall MEKO operator by deleting Subscription and ClusterServiceVersion resources
+#  - install MCK operator using OLM with a fresh subscription
 #  - wait for resources to be rolling-updated due to updated stateful sets by the new operator
 #  - check everything is running and connectable
 
@@ -59,15 +64,13 @@ def catalog_source(namespace: str, version_id: str):
 
 
 @fixture
-def subscription(namespace: str, catalog_source: CustomObject):
+def meko_subscription(namespace: str, catalog_source: CustomObject):
     """
-    Create subscription for the operator. The subscription is first created
-    with the latest released version of MEKO operator.
-    Later in the test, it will be updated to MCK.
+    Create subscription for the MEKO operator.
     """
     static_value = get_default_architecture()
     return get_subscription_custom_object(
-        "mongodb-enterprise-operator",
+        LEGACY_OPERATOR_NAME,
         namespace,
         {
             "channel": "stable",  # stable channel contains latest released operator in RedHat's certified repository
@@ -77,6 +80,33 @@ def subscription(namespace: str, catalog_source: CustomObject):
             "installPlanApproval": "Automatic",
             # In certified OpenShift bundles we have this enabled, so the operator is not defining security context (it's managed globally by OpenShift).
             # In Kind this will result in empty security contexts and problems deployments with filesystem permissions.
+            "config": {
+                "env": [
+                    {"name": "MANAGED_SECURITY_CONTEXT", "value": "false"},
+                    {"name": "OPERATOR_ENV", "value": "dev"},
+                    {"name": "MDB_DEFAULT_ARCHITECTURE", "value": static_value},
+                    {"name": "MDB_OPERATOR_TELEMETRY_SEND_ENABLED", "value": "false"},
+                ]
+            },
+        },
+    )
+
+
+def get_mck_subscription_object(namespace: str, catalog_source: CustomObject):
+    """
+    Create a subscription object for the MCK operator.
+    This is a separate function (not a fixture) so it can be called after uninstalling MEKO.
+    """
+    static_value = get_default_architecture()
+    return get_subscription_custom_object(
+        OPERATOR_NAME,
+        namespace,
+        {
+            "channel": "migration",
+            "name": "mongodb-kubernetes",
+            "source": catalog_source.name,
+            "sourceNamespace": namespace,
+            "installPlanApproval": "Automatic",
             "config": {
                 "env": [
                     {"name": "MANAGED_SECURITY_CONTEXT", "value": "false"},
@@ -100,12 +130,10 @@ def test_meko_install_stable_operator_version(
     version_id: str,
     latest_released_meko_version: str,
     catalog_source: CustomObject,
-    subscription: CustomObject,
+    meko_subscription: CustomObject,
 ):
-    subscription.update()
-    wait_for_operator_ready(
-        namespace, "mongodb-enterprise-operator", f"mongodb-enterprise.v{latest_released_meko_version}"
-    )
+    meko_subscription.update()
+    wait_for_operator_ready(namespace, LEGACY_OPERATOR_NAME, f"mongodb-enterprise.v{latest_released_meko_version}")
 
 
 # install resources on the latest released version of the operator
@@ -344,59 +372,124 @@ def test_resources_in_running_state_before_upgrade(
     mdb_sharded.assert_reaches_phase(Phase.Running)
 
 
-# upgrade the operator
+# uninstall MEKO and install MCK operator instead
+
+
+def uninstall_meko_operator(namespace: str, meko_subscription: CustomObject):
+    """Uninstall the MEKO operator by deleting Subscription and ClusterServiceVersion"""
+
+    # Load the subscription from API server
+    # so we can get CSV name from status
+    meko_subscription.load()
+    csv_name = meko_subscription["status"]["installedCSV"]
+
+    # Delete the subscription
+    meko_subscription.delete()
+
+    # Delete ClusterServiceVersion
+    api_instance = kubernetes.client.CustomObjectsApi()
+    api_instance.delete_namespaced_custom_object(
+        group="operators.coreos.com",
+        version="v1alpha1",
+        namespace=namespace,
+        plural="clusterserviceversions",
+        name=csv_name,
+    )
 
 
 @pytest.mark.e2e_olm_meko_operator_upgrade_with_resources
-def test_downscale_meko(namespace: str):
-    # Scale down the existing operator deployment to 0. This is needed as long as the
-    # initial OLM deployment installs the MEKO operator.
-    downscale_operator_deployment(deployment_name=LEGACY_OPERATOR_NAME, namespace=namespace)
+def test_uninstall_meko_operator(
+    namespace: str,
+    meko_subscription: CustomObject,
+):
+    # Uninstall the MEKO operator
+    uninstall_meko_operator(namespace, meko_subscription)
+
+    # Get a list of all statefulsets
+    api_instance = kubernetes.client.AppsV1Api()
+    statefulsets = api_instance.list_namespaced_stateful_set(namespace)
+
+    # Kill one pod from each statefulset to simulate reschedule
+    for sts in statefulsets.items:
+        sts_name = sts.metadata.name
+        logger.info(f"Processing StatefulSet {sts_name}")
+
+        # Get pods for this statefulset
+        if sts.spec.selector and sts.spec.selector.match_labels:
+            # Build label selector string from match_labels dictionary
+            selector_parts = []
+            for key, value in sts.spec.selector.match_labels.items():
+                selector_parts.append(f"{key}={value}")
+            label_selector = ",".join(selector_parts)
+
+            pods = kubernetes.client.CoreV1Api().list_namespaced_pod(namespace, label_selector=label_selector)
+
+            if pods.items:
+                # Delete the first pod
+                pod_name = pods.items[0].metadata.name
+                logger.info(f"Deleting pod {pod_name} from StatefulSet {sts_name}")
+                kubernetes.client.CoreV1Api().delete_namespaced_pod(
+                    name=pod_name, namespace=namespace, body=kubernetes.client.V1DeleteOptions()
+                )
+
+    # Wait for all statefulsets to be ready again
+    def all_statefulsets_ready():
+        for sts in api_instance.list_namespaced_stateful_set(namespace).items:
+            if sts.status.ready_replicas != sts.status.replicas:
+                return (
+                    False,
+                    f"StatefulSet {sts.metadata.name} has {sts.status.ready_replicas}/{sts.status.replicas} ready replicas",
+                )
+        return True, "All StatefulSets are ready"
+
+    run_periodically(
+        all_statefulsets_ready, timeout=600, msg=f"Waiting for all StatefulSets to be ready after pod deletion"
+    )
 
 
 @pytest.mark.e2e_olm_meko_operator_upgrade_with_resources
-def test_meko_operator_upgrade_to_mck(
+def test_connectivity_after_meko_uninstall(
+    ca_path: str,
+    ops_manager: MongoDBOpsManager,
+    oplog_replica_set: MongoDB,
+    blockstore_replica_set: MongoDB,
+    s3_replica_set: MongoDB,
+    mdb_sharded: MongoDB,
+):
+    """Verify resources are still connectable after MEKO operator uninstall but before MCK operator install"""
+    wait_for_om_healthy_response(ops_manager)
+
+    oplog_replica_set.assert_connectivity()
+    blockstore_replica_set.assert_connectivity()
+    s3_replica_set.assert_connectivity()
+    mdb_sharded.assert_connectivity(ca_path=ca_path)
+
+
+@pytest.mark.e2e_olm_meko_operator_upgrade_with_resources
+def test_install_mck_operator(
     namespace: str,
     version_id: str,
     catalog_source: CustomObject,
-    subscription: CustomObject,
 ):
     current_operator_version = get_current_operator_version()
     incremented_operator_version = increment_patch_version(current_operator_version)
 
-    # It is very likely that OLM will be doing a series of status updates during this time.
-    # It's better to employ a retry mechanism and spin here for a while before failing.
-    def update_subscription() -> bool:
-        try:
-            subscription.load()
-            # Update MEKO subscription to MCK
-            subscription["spec"]["name"] = "mongodb-kubernetes"
-            # Migration channel contains operator build from the current branch,
-            # with an upgrade path from the latest MEKO release.
-            subscription["spec"]["channel"] = "migration"
-            subscription.update()
-            return True
-        except kubernetes.client.ApiException as e:
-            if e.status == 409:
-                return False
-        else:
-            raise e
-
-    run_periodically(update_subscription, timeout=100, msg="Subscription to be updated")
+    # Create MCK subscription
+    mck_subscription = get_mck_subscription_object(namespace, catalog_source)
+    mck_subscription.update()
 
     wait_for_operator_ready(namespace, OPERATOR_NAME, f"mongodb-kubernetes.v{incremented_operator_version}")
 
 
 @pytest.mark.e2e_olm_meko_operator_upgrade_with_resources
-def test_one_resources_not_in_running_state(ops_manager: MongoDBOpsManager, mdb_sharded: MongoDB):
-    # Wait for the first resource to become reconciling after operator upgrade.
-    # Only then wait for all to not get a false positive when all resources are ready,
-    # because the upgraded operator haven't started reconciling
+def test_one_resource_not_in_running_state(ops_manager: MongoDBOpsManager):
+    # Wait for the first resource to become reconciling after operator replacement.
+    # This confirms the MCK operator has started reconciling the resources
     ops_manager.om_status().assert_reaches_phase(Phase.Pending, timeout=600)
 
 
 @pytest.mark.e2e_olm_meko_operator_upgrade_with_resources
-def test_resources_in_running_state_after_upgrade(
+def test_resources_in_running_state_after_migration(
     ops_manager: MongoDBOpsManager,
     oplog_replica_set: MongoDB,
     blockstore_replica_set: MongoDB,
@@ -414,7 +507,7 @@ def test_resources_in_running_state_after_upgrade(
 
 
 @pytest.mark.e2e_olm_meko_operator_upgrade_with_resources
-def test_resources_connectivity_after_upgrade(
+def test_resources_connectivity_after_migration(
     ca_path: str,
     ops_manager: MongoDBOpsManager,
     oplog_replica_set: MongoDB,

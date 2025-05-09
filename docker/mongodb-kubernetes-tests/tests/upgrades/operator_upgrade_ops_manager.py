@@ -100,8 +100,8 @@ def some_mdb_health_checker(some_mdb: MongoDB) -> MongoDBBackgroundTester:
 
 
 @mark.e2e_operator_upgrade_ops_manager
-def test_install_latest_official_operator(official_meko_operator: Operator):
-    official_meko_operator.assert_is_running()
+def test_install_latest_official_operator(official_operator: Operator):
+    official_operator.assert_is_running()
 
 
 @mark.e2e_operator_upgrade_ops_manager
@@ -141,13 +141,6 @@ def test_mdb_created(some_mdb: MongoDB):
 
 # This is a part 2 of the Operator upgrade test. Upgrades the Operator the latest development one and checks
 # that everything works
-
-
-@mark.e2e_operator_upgrade_ops_manager
-def test_downscale_latest_official_operator(namespace: str):
-    # Scale down the existing operator deployment to 0. This is needed as long as the
-    # `official_operator` fixture installs the MEKO operator.
-    downscale_operator_deployment(deployment_name=LEGACY_OPERATOR_NAME, namespace=namespace)
 
 
 @mark.e2e_operator_upgrade_ops_manager

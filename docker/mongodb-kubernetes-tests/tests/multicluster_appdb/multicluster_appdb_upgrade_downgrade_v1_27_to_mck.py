@@ -10,14 +10,12 @@ from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 from tests import test_logger
 from tests.conftest import (
-    LEGACY_DEPLOYMENT_STATE_VERSION,
     LEGACY_MULTI_CLUSTER_OPERATOR_NAME,
-    LEGACY_OPERATOR_NAME,
     MULTI_CLUSTER_OPERATOR_NAME,
     create_appdb_certs,
     get_central_cluster_name,
     get_custom_appdb_version,
-    install_official_operator,
+    install_legacy_deployment_state_meko,
     log_deployments_info,
 )
 from tests.multicluster.conftest import cluster_spec_list
@@ -41,6 +39,8 @@ Install Operator 1.27 -> Deploy OM/AppDB -> Upgrade operator (dev version) -> Sc
 -> Downgrade Operator to 1.27 -> Scale AppDB
 At each step, we verify that the state is correct
 """
+
+# TODO CLOUDP-318100: this test should eventually be updated and not pinned to 1.27 anymore
 
 
 def assert_cm_expected_data(
@@ -168,7 +168,7 @@ def ops_manager(
     return resource
 
 
-@mark.e2e_multi_cluster_appdb_state_operator_upgrade_downgrade
+@mark.e2e_multi_cluster_appdb_upgrade_downgrade_v1_27_to_mck
 class TestOpsManagerCreation:
     """
     Ensure correct deployment and state of AppDB, with operator version 1.27 installed.
@@ -186,23 +186,15 @@ class TestOpsManagerCreation:
         member_cluster_clients,
         member_cluster_names,
     ):
-        logger.info(
-            f"Installing the official operator from helm charts, with version {LEGACY_DEPLOYMENT_STATE_VERSION}"
+        install_legacy_deployment_state_meko(
+            namespace=namespace,
+            managed_security_context=managed_security_context,
+            operator_installation_config=operator_installation_config,
+            central_cluster_name=central_cluster_name,
+            central_cluster_client=central_cluster_client,
+            member_cluster_clients=member_cluster_clients,
+            member_cluster_names=member_cluster_names,
         )
-        operator = install_official_operator(
-            namespace,
-            managed_security_context,
-            operator_installation_config,
-            central_cluster_name,
-            central_cluster_client,
-            member_cluster_clients,
-            member_cluster_names,
-            custom_operator_version=LEGACY_DEPLOYMENT_STATE_VERSION,
-            operator_name=LEGACY_OPERATOR_NAME,
-        )
-        operator.assert_is_running()
-        # Dumping deployments in logs ensure we are using the correct operator version
-        log_deployments_info(namespace)
 
     def test_create_appdb_certs_secret(
         self,
@@ -240,15 +232,15 @@ class TestOpsManagerCreation:
         assert_cm_expected_data(configmap_name, namespace, expected_data, central_cluster_client)
 
 
-@mark.e2e_multi_cluster_appdb_state_operator_upgrade_downgrade
+@mark.e2e_multi_cluster_appdb_upgrade_downgrade_v1_27_to_mck
 class TestOperatorUpgrade:
     """
     Upgrade the operator to latest dev version, scale AppDB, and ensure state correctness.
     """
 
     def test_downscale_latest_official_operator(self, namespace: str):
-        # Scale down the existing operator deployment to 0. This is needed as long as the
-        # `official_operator` fixture installs the MEKO operator.
+        # Scale down the existing operator deployment to 0. This is needed as we are initially installing MEKO
+        # and replacing it with MCK
         downscale_operator_deployment(deployment_name=LEGACY_MULTI_CLUSTER_OPERATOR_NAME, namespace=namespace)
 
     def test_install_default_operator(self, namespace: str, multi_cluster_operator: Operator):
@@ -285,15 +277,13 @@ class TestOperatorUpgrade:
         )
 
 
-@mark.e2e_multi_cluster_appdb_state_operator_upgrade_downgrade
+@mark.e2e_multi_cluster_appdb_upgrade_downgrade_v1_27_to_mck
 class TestOperatorDowngrade:
     """
     Downgrade the Operator to 1.27, scale AppDB and ensure state correctness.
     """
 
     def test_downscale_default_operator(self, namespace: str):
-        # Scale down the existing operator deployment to 0. This is needed as long as the
-        # `official_operator` fixture installs the MEKO operator.
         downscale_operator_deployment(deployment_name=MULTI_CLUSTER_OPERATOR_NAME, namespace=namespace)
 
     def test_install_legacy_state_official_operator(
@@ -306,21 +296,15 @@ class TestOperatorDowngrade:
         member_cluster_clients,
         member_cluster_names,
     ):
-        logger.info(f"Downgrading the operator to version {LEGACY_DEPLOYMENT_STATE_VERSION}, from helm chart release")
-        operator = install_official_operator(
-            namespace,
-            managed_security_context,
-            operator_installation_config,
-            central_cluster_name,
-            central_cluster_client,
-            member_cluster_clients,
-            member_cluster_names,
-            custom_operator_version=LEGACY_DEPLOYMENT_STATE_VERSION,
-            operator_name=LEGACY_OPERATOR_NAME,
+        install_legacy_deployment_state_meko(
+            namespace=namespace,
+            managed_security_context=managed_security_context,
+            operator_installation_config=operator_installation_config,
+            central_cluster_name=central_cluster_name,
+            central_cluster_client=central_cluster_client,
+            member_cluster_clients=member_cluster_clients,
+            member_cluster_names=member_cluster_names,
         )
-        operator.assert_is_running()
-        # Dumping deployments in logs ensure we are using the correct operator version
-        log_deployments_info(namespace)
 
     def test_om_running_after_downgrade(self, ops_manager: MongoDBOpsManager):
         ops_manager.load()

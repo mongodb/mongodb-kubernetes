@@ -4,17 +4,20 @@ set -Eeou pipefail
 
 # This script prepares and publishes OpenShift bundles and catalog source for operator upgrade tests using OLM.
 # It enables testing two upgrade scenarios:
-#   1. Upgrade from the latest release of MEKO (MongoDB Enterprise Kubernetes Operator)
-#      to the current version of MCK (MongoDB Controllers for Kubernetes).
+#   1. Migration from the latest release of MEKO (MongoDB Enterprise Kubernetes Operator)
+#      to the current version of MCK (MongoDB Controllers for Kubernetes)
+#      by uninstalling MEKO and installing MCK.
 #   2. Upgrade from the latest release of MCK to the current version of MCK.
 #
 # The script builds a test catalog with:
 #   - MEKO package (mongodb-enterprise) with one channel:
 #       - stable channel: latest release of MEKO
-#   - MCK package (mongodb-kubernetes) with two channels:
+#   - MCK package (mongodb-kubernetes) with three channels:
 #       - stable channel: latest release of MCK
 #       - fast channel: current version of MCK with an upgrade path from stable
-#       - migration channel: current version of MCK with an upgrade path from stable of MEKO
+#       - migration channel: current version of MCK. This will be used to test
+#         migration from MEKO to MCK by uninstalling MEKO and installing MCK
+#         so this channel has an entry without the replaces field.
 #
 # Required env vars:
 #   - BASE_REPO_URL (or REGISTRY for EVG run)
@@ -103,7 +106,6 @@ function generate_mck_catalog_metadata() {
   current_bundle_version=$5
   current_bundle_image=$6
   meko_package_name=$7
-  meko_latest_bundle_version=$8
 
   catalog_yaml="${catalog_dir}/${mck_package_name}.yaml"
 
@@ -154,8 +156,7 @@ schema: olm.channel
 package: ${mck_package_name}
 name: migration
 entries:
-  - name: ${mck_package_name}.v${current_bundle_version}
-    replaces: ${meko_package_name}.v${meko_latest_bundle_version}" >>"${catalog_yaml}"
+  - name: ${mck_package_name}.v${current_bundle_version}" >>"${catalog_yaml}"
 }
 
 function generate_meko_catalog_metadata() {
@@ -271,7 +272,7 @@ scripts/evergreen/operator-sdk/prepare-openshift-bundles.sh
 # publish two-channel catalog source to be used in e2e test.
 header "Building and pushing the catalog:"
 catalog_dir="$(init_test_catalog "${certified_repo_cloned}")"
-generate_mck_catalog_metadata "${catalog_dir}" "${mck_package_name}" "${mck_latest_released_operator_version}" "${mck_latest_certified_bundle_image}" "${current_incremented_operator_version_from_release_json}" "${current_bundle_image}" "${meko_package_name}" "${meko_latest_released_operator_version}"
+generate_mck_catalog_metadata "${catalog_dir}" "${mck_package_name}" "${mck_latest_released_operator_version}" "${mck_latest_certified_bundle_image}" "${current_incremented_operator_version_from_release_json}" "${current_bundle_image}" "${meko_package_name}"
 generate_meko_catalog_metadata "${catalog_dir}" "${meko_package_name}" "${meko_latest_released_operator_version}" "${meko_latest_certified_bundle_image}"
 build_and_publish_test_catalog "${catalog_dir}" "${test_catalog_image}"
 
