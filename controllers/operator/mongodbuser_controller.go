@@ -481,7 +481,8 @@ func waitForReadyState(conn om.Connection, log *zap.SugaredLogger) error {
 }
 
 func externalAuthMechanismsAvailable(mechanisms []string) bool {
-	return stringutil.ContainsAny(mechanisms, util.AutomationConfigLDAPOption, util.AutomationConfigX509Option)
+	// Todo: remove magic strings
+	return stringutil.ContainsAny(mechanisms, util.AutomationConfigLDAPOption, util.AutomationConfigX509Option, "MONGODB-OIDC")
 }
 
 func getAnnotationsForUserResource(user *userv1.MongoDBUser) (map[string]string, error) {

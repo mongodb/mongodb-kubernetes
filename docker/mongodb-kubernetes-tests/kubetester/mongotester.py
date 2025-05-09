@@ -1,6 +1,7 @@
 import copy
 import inspect
 import logging
+import os
 import random
 import string
 import threading
@@ -8,11 +9,14 @@ import time
 from typing import Callable, Dict, List, Optional
 
 import pymongo
-from kubetester import kubetester
 from kubetester.kubetester import KubernetesTester
 from opentelemetry import trace
+from pycognito import Cognito
+from pymongo.auth_oidc import OIDCCallback, OIDCCallbackContext, OIDCCallbackResult
 from pymongo.errors import OperationFailure, PyMongoError, ServerSelectionTimeoutError
 from pytest import fail
+
+from kubetester import kubetester
 
 TEST_DB = "test-db"
 TEST_COLLECTION = "test-collection"
@@ -59,6 +63,18 @@ def with_ldap(ssl_certfile: Optional[str] = None, tls_ca_file: Optional[str] = N
     if ssl_certfile is not None:
         options["tlsCertificateKeyFile"] = ssl_certfile
     return options
+
+
+class MyOIDCCallback(OIDCCallback):
+    def fetch(self, context: OIDCCallbackContext) -> OIDCCallbackResult:
+        u = Cognito(
+            user_pool_id=os.getenv("cognito_user_pool_id"),
+            client_id=os.getenv("cognito_workload_federation_client_id"),
+            username=os.getenv("cognito_user_name"),
+            client_secret=os.getenv("cognito_workload_federation_client_secret"),
+        )
+        u.authenticate(password=os.getenv("cognito_user_password"))
+        return OIDCCallbackResult(access_token=u.id_token)
 
 
 class MongoTester:
@@ -275,6 +291,33 @@ class MongoTester:
             except OperationFailure:
                 if attempts <= 0:
                     fail(msg=f"unable to authenticate after {total_attempts} attempts")
+                time.sleep(5)
+
+    def assert_oidc_authentication(
+        self,
+        db: str = "admin",
+        collection: str = "myCol",
+        attempts: int = 10,
+    ):
+        assert attempts > 0
+
+        props = {"OIDC_CALLBACK": MyOIDCCallback()}
+
+        total_attempts = attempts
+        while True:
+            attempts -= 1
+            try:
+                # Initialize the MongoDB client with OIDC authentication
+                self.client = self._init_client(
+                    authMechanism="MONGODB-OIDC",
+                    authMechanismProperties=props,
+                )
+                # Perform a write operation to test authentication
+                self.client[db][collection].insert_one({"test": "oidc_auth_test"})
+                return
+            except OperationFailure as e:
+                if attempts == 0:
+                    raise RuntimeError(f"Unable to authenticate after {total_attempts} attempts: {e}")
                 time.sleep(5)
 
     def upload_random_data(
