@@ -601,13 +601,13 @@ func createRoles(ctx context.Context, c KubeClient, serviceAccountName, serviceA
 	// Create ClusterRole to access the cluster-scoped resource ClusterMongoDBRole
 	clusterRoleForMongoDBRole := buildClusterRoleMongoDBRole()
 	_, err = c.RbacV1().ClusterRoles().Create(ctx, &clusterRoleForMongoDBRole, metav1.CreateOptions{})
-	if !errors.IsAlreadyExists(err) && err != nil {
+	if err != nil {
 		if errors.IsAlreadyExists(err) {
 			if _, err := c.RbacV1().ClusterRoles().Update(ctx, &clusterRoleForMongoDBRole, metav1.UpdateOptions{}); err != nil {
 				return xerrors.Errorf("error updating role: %w", err)
 			}
 		} else {
-			return xerrors.Errorf("error creating role: %w", err)
+			return xerrors.Errorf("error creating cluster role: %w", err)
 		}
 	}
 
