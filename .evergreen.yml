@@ -882,6 +882,7 @@ task_groups:
       - e2e_tls_x509_configure_all_options_sc
       - e2e_tls_x509_sc
       - e2e_meko_mck_upgrade
+      - e2e_mongodb_custom_roles
 
     <<: *teardown_group
 
