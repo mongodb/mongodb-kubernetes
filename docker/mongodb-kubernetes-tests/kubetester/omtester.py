@@ -556,7 +556,7 @@ class OMTester(object):
         """
         database_path = ""
         if database_name is not None:
-            database_path = f"/databases/database_name"
+            database_path = f"/databases/{database_name}"
 
         return self.om_request(
             "get",
