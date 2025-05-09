@@ -29,6 +29,7 @@ spec:
             - -watch-resource=opsmanagers
             - -watch-resource=mongodbusers
             - -watch-resource=mongodbcommunity
+            - -watch-resource=clustermongodbroles
           command:
             - /usr/local/bin/mongodb-kubernetes-operator
           resources:

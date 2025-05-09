@@ -30,6 +30,7 @@ operator:
   - opsmanagers
   - mongodbusers
   - mongodbcommunity
+  - clustermongodbroles
 
   nodeSelector: {}
 

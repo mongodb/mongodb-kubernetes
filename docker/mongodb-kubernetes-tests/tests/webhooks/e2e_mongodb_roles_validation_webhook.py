@@ -8,7 +8,7 @@ from pytest import fixture
 
 
 @fixture(scope="function")
-def mdb(namespace: str, custom_mdb_version: str) -> str:
+def mdb(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("role-validation-base.yaml"), namespace=namespace)
     resource.set_version(custom_mdb_version)
     return resource
@@ -21,7 +21,7 @@ def test_wait_for_webhook(namespace: str, default_operator: Operator):
 
 # Basic testing for invalid empty values
 @pytest.mark.e2e_mongodb_roles_validation_webhook
-def test_empty_role_name(mdb: str):
+def test_empty_role_name(mdb: MongoDB):
     mdb["spec"]["security"]["roles"] = [
         {
             "role": "",
@@ -42,7 +42,7 @@ def test_empty_role_name(mdb: str):
 
 
 @pytest.mark.e2e_mongodb_roles_validation_webhook
-def test_empty_db_name(mdb: str):
+def test_empty_db_name(mdb: MongoDB):
     mdb["spec"]["security"]["roles"] = [
         {
             "role": "role",
@@ -63,7 +63,7 @@ def test_empty_db_name(mdb: str):
 
 
 @pytest.mark.e2e_mongodb_roles_validation_webhook
-def test_inherited_role_empty_name(mdb: str):
+def test_inherited_role_empty_name(mdb: MongoDB):
     mdb["spec"]["security"]["roles"] = [
         {
             "role": "role",
@@ -85,7 +85,7 @@ def test_inherited_role_empty_name(mdb: str):
 
 
 @pytest.mark.e2e_mongodb_roles_validation_webhook
-def test_inherited_role_empty_db(mdb: str):
+def test_inherited_role_empty_db(mdb: MongoDB):
     mdb["spec"]["security"]["roles"] = [
         {
             "role": "role",
@@ -108,7 +108,7 @@ def test_inherited_role_empty_db(mdb: str):
 
 # Testing for invalid authentication Restrictions
 @pytest.mark.e2e_mongodb_roles_validation_webhook
-def test_invalid_client_source(mdb: str):
+def test_invalid_client_source(mdb: MongoDB):
     mdb["spec"]["security"]["roles"] = [
         {
             "role": "role",
@@ -130,7 +130,7 @@ def test_invalid_client_source(mdb: str):
 
 
 @pytest.mark.e2e_mongodb_roles_validation_webhook
-def test_invalid_server_address(mdb: str):
+def test_invalid_server_address(mdb: MongoDB):
     mdb["spec"]["security"]["roles"] = [
         {
             "role": "role",
@@ -153,7 +153,7 @@ def test_invalid_server_address(mdb: str):
 
 # Testing for invalid privileges
 @pytest.mark.e2e_mongodb_roles_validation_webhook
-def test_invalid_cluster_and_db_collection(mdb: str):
+def test_invalid_cluster_and_db_collection(mdb: MongoDB):
     mdb["spec"]["security"]["roles"] = [
         {
             "role": "role",
@@ -174,7 +174,7 @@ def test_invalid_cluster_and_db_collection(mdb: str):
 
 
 @pytest.mark.e2e_mongodb_roles_validation_webhook
-def test_invalid_cluster_not_true(mdb: str):
+def test_invalid_cluster_not_true(mdb: MongoDB):
     mdb["spec"]["security"]["roles"] = [
         {
             "role": "role",
@@ -190,7 +190,7 @@ def test_invalid_cluster_not_true(mdb: str):
 
 
 @pytest.mark.e2e_mongodb_roles_validation_webhook
-def test_invalid_action(mdb: str):
+def test_invalid_action(mdb: MongoDB):
     mdb["spec"]["security"]["roles"] = [
         {
             "role": "role",
@@ -206,5 +206,32 @@ def test_invalid_action(mdb: str):
     with pytest.raises(
         client.rest.ApiException,
         match="Error validating role - Privilege is invalid - Actions are not valid - insertFoo is not a valid db action",
+    ):
+        mdb.create()
+
+
+@pytest.mark.e2e_mongodb_roles_validation_webhook
+def test_roles_and_role_refs(mdb: MongoDB):
+    mdb["spec"]["security"]["roles"] = [
+        {
+            "role": "role",
+            "db": "admin",
+            "roles": [
+                {
+                    "role": "root",
+                    "db": "admin",
+                }
+            ],
+        }
+    ]
+    mdb["spec"]["security"]["roleRefs"] = [
+        {
+            "name": "test-clusterrole",
+            "kind": "ClusterMongoDBRole",
+        }
+    ]
+    with pytest.raises(
+        client.rest.ApiException,
+        match="At most one of roles or roleRefs can be non-empty",
     ):
         mdb.create()

@@ -59,6 +59,7 @@ const (
 	mongoDBOpsManagerCRDPlural   = "opsmanagers"
 	mongoDBMultiClusterCRDPlural = "mongodbmulticluster"
 	mongoDBCommunityCRDPlural    = "mongodbcommunity"
+	clusterMongoDBRoleCRDPlural  = "clustermongodbroles"
 )
 
 var (
@@ -102,7 +103,13 @@ func main() {
 	flag.Parse()
 	// If no CRDs are specified, we set default to non-multicluster CRDs
 	if len(crds) == 0 {
-		crds = crdsToWatch{mongoDBCRDPlural, mongoDBUserCRDPlural, mongoDBOpsManagerCRDPlural, mongoDBCommunityCRDPlural}
+		crds = crdsToWatch{
+			mongoDBCRDPlural,
+			mongoDBUserCRDPlural,
+			mongoDBOpsManagerCRDPlural,
+			mongoDBCommunityCRDPlural,
+			clusterMongoDBRoleCRDPlural,
+		}
 	}
 
 	ctx := context.Background()
@@ -235,6 +242,11 @@ func main() {
 			log.Fatal(err)
 		}
 	}
+	if slices.Contains(crds, clusterMongoDBRoleCRDPlural) {
+		if err := setupClusterMongoDBRoleCRD(ctx, mgr); err != nil {
+			log.Fatal(err)
+		}
+	}
 
 	for _, r := range crds {
 		log.Infof("Registered CRD: %s", r)
@@ -306,6 +318,10 @@ func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, image
 		return err
 	}
 	return ctrl.NewWebhookManagedBy(mgr).For(&mdbmultiv1.MongoDBMultiCluster{}).Complete()
+}
+
+func setupClusterMongoDBRoleCRD(ctx context.Context, mgr manager.Manager) error {
+	return operator.AddClusterMongoDBRoleController(ctx, mgr)
 }
 
 func setupCommunityController(

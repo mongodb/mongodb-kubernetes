@@ -10,11 +10,38 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
+
+func PredicatesForClusterRole() predicate.Funcs {
+	return predicate.Funcs{
+		// don't update custom roles on status changes
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldResource := e.ObjectOld.(*rolev1.ClusterMongoDBRole)
+			newResource := e.ObjectNew.(*rolev1.ClusterMongoDBRole)
+
+			oldSpecAnnotation := oldResource.GetAnnotations()[util.LastAchievedSpec]
+			newSpecAnnotation := newResource.GetAnnotations()[util.LastAchievedSpec]
+
+			// don't handle an update to just the previous spec annotation if they are not the same.
+			// this prevents the operator triggering reconciliations on resource that it is updating itself.
+			if !reflect.DeepEqual(oldSpecAnnotation, newSpecAnnotation) {
+				return false
+			}
+
+			return reflect.DeepEqual(oldResource.GetStatus(), newResource.GetStatus())
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			// If the resource is being deleted, it means that we already removed the finalizer and ensured no resource is referencing the role
+			// Therefore we can safely ignore the deletion event, there is nothing left to do
+			return false
+		},
+	}
+}
 
 func PredicatesForUser() predicate.Funcs {
 	return predicate.Funcs{
