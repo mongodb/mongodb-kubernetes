@@ -132,6 +132,8 @@ func getMechanismByName(name MechanismName) Mechanism {
 		return &connectionX509{}
 	case LDAPPlain:
 		return &ldapAuthMechanism{}
+	case MongoDBOIDC:
+		return &oidcAuthMechanism{}
 	}
 
 	panic(xerrors.Errorf("unknown mechanism name %s", name))
