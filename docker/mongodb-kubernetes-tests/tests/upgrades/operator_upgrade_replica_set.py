@@ -82,8 +82,8 @@ def replica_set_user(replica_set: MongoDB) -> MongoDBUser:
 
 
 @mark.e2e_operator_upgrade_replica_set
-def test_install_latest_official_operator(official_meko_operator: Operator):
-    official_meko_operator.assert_is_running()
+def test_install_latest_official_operator(official_operator: Operator):
+    official_operator.assert_is_running()
 
 
 @mark.e2e_operator_upgrade_replica_set
@@ -94,13 +94,6 @@ def test_install_replicaset(replica_set: MongoDB):
 @mark.e2e_operator_upgrade_replica_set
 def test_replicaset_user_created(replica_set_user: MongoDBUser):
     replica_set_user.assert_reaches_phase(Phase.Updated)
-
-
-@mark.e2e_operator_upgrade_replica_set
-def test_downscale_latest_official_operator(namespace: str):
-    # Scale down the existing operator deployment to 0. This is needed as long as the
-    # `official_operator` fixture installs the MEKO operator.
-    downscale_operator_deployment(deployment_name=LEGACY_OPERATOR_NAME, namespace=namespace)
 
 
 @mark.e2e_operator_upgrade_replica_set
