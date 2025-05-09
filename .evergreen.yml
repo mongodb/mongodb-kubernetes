@@ -736,6 +736,8 @@ task_groups:
       - e2e_replica_set_pv_resize
       - e2e_sharded_cluster_pv_resize
       - e2e_community_and_meko_replicaset_scale
+      # OIDC test group
+      - e2e_replica_set_oidc
     <<: *teardown_group
 
   # this task group contains just a one task, which is smoke testing whether the operator

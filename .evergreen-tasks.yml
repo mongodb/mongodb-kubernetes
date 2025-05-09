@@ -1235,3 +1235,9 @@ tasks:
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
+
+  # OIDC tests
+  - name: e2e_replica_set_oidc
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
