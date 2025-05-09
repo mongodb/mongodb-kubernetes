@@ -176,7 +176,6 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         period: str = "P1DT12H",
         timeout: int = 600,
         all_hosts: bool = True,
-        exists: bool = True,
     ):
         """
         Asserts the existence of monitoring measurements in this Ops Manager instance.
