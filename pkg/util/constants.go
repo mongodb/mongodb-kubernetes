@@ -155,9 +155,9 @@ const (
 	MinimumScramSha256MdbVersion      = "4.0.0"
 
 	// pprof variables
-	PprofEnabledEnv  = "PPROF_ENABLED"
-	PprofPortEnv     = "PPROF_PORT"
-	PprofDefaultPort = 10081
+	OperatorPprofEnabledEnv  = "MDB_OPERATOR_PPROF_ENABLED"
+	OperatorPprofPortEnv     = "MDB_OPERATOR_PPROF_PORT"
+	OperatorPprofDefaultPort = 10081
 
 	// these were historically used and constituted a security issue—if set they should be changed
 	InvalidKeyFileContents         = "DUMMYFILE"

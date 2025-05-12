@@ -63,16 +63,16 @@ func (p *Runnable) Start(ctx context.Context) error {
 	return nil
 }
 
-// IsPprofEnabled checks if pprof is enabled based on the PPROF_ENABLED
+// IsPprofEnabled checks if pprof is enabled based on the MDB_OPERATOR_PPROF_ENABLED
 // and OPERATOR_ENV environment variables. It returns true if:
-// - PPROF_ENABLED is set to true
-// - OPERATOR_ENV is set to dev or local and PPROF_ENABLED is not set
+// - MDB_OPERATOR_PPROF_ENABLED is set to true
+// - OPERATOR_ENV is set to dev or local and MDB_OPERATOR_PPROF_ENABLED is not set
 // Otherwise, it returns false.
 func IsPprofEnabled(pprofEnabledString string, operatorEnv util.OperatorEnvironment) (bool, error) {
 	if pprofEnabledString != "" {
 		pprofEnabled, err := strconv.ParseBool(pprofEnabledString)
 		if err != nil {
-			return false, fmt.Errorf("unable to parse %s environment variable: %w", util.PprofEnabledEnv, err)
+			return false, fmt.Errorf("unable to parse %s environment variable: %w", util.OperatorPprofEnabledEnv, err)
 		}
 
 		return pprofEnabled, nil

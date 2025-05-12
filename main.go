@@ -278,11 +278,11 @@ func main() {
 		log.Info("Not running telemetry component!")
 	}
 
-	pprofEnabledString := env.ReadOrDefault(util.PprofEnabledEnv, "")
+	pprofEnabledString := env.ReadOrDefault(util.OperatorPprofEnabledEnv, "")
 	if pprofEnabled, err := pprof.IsPprofEnabled(pprofEnabledString, getOperatorEnv()); err != nil {
 		log.Errorf("Unable to check if pprof is enabled: %s", err)
 	} else if pprofEnabled {
-		port := env.ReadIntOrDefault(util.PprofPortEnv, util.PprofDefaultPort)
+		port := env.ReadIntOrDefault(util.OperatorPprofPortEnv, util.OperatorPprofDefaultPort)
 		if err := mgr.Add(pprof.NewRunnable(port, log)); err != nil {
 			log.Errorf("Unable to start pprof server: %s", err)
 		}
