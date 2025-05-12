@@ -576,8 +576,14 @@ func createRoles(ctx context.Context, c KubeClient, serviceAccountName, serviceA
 	if telemetryClusterRoles {
 		clusterRoleTelemetry := buildClusterRoleTelemetry()
 		_, err = c.RbacV1().ClusterRoles().Create(ctx, &clusterRoleTelemetry, metav1.CreateOptions{})
-		if !errors.IsAlreadyExists(err) && err != nil {
-			return xerrors.Errorf("error creating cluster role: %w", err)
+		if err != nil {
+			if errors.IsAlreadyExists(err) {
+				if _, err := c.RbacV1().ClusterRoles().Update(ctx, &clusterRoleTelemetry, metav1.UpdateOptions{}); err != nil {
+					return xerrors.Errorf("error updating role: %w", err)
+				}
+			} else {
+				return xerrors.Errorf("error creating cluster role: %w", err)
+			}
 		}
 		fmt.Printf("created clusterrole: %s\n", clusterRoleTelemetry.Name)
 		if err = createClusterRoleBinding(ctx, c, serviceAccountName, serviceAccountNamespace, DefaultOperatorName+"-multi-telemetry-cluster-role-binding", clusterRoleTelemetry); err != nil {
@@ -595,7 +601,7 @@ func createRoles(ctx context.Context, c KubeClient, serviceAccountName, serviceA
 		}
 
 		_, err = c.RbacV1().Roles(namespace).Create(ctx, &role, metav1.CreateOptions{})
-		if !errors.IsAlreadyExists(err) && err != nil {
+		if err != nil {
 			if errors.IsAlreadyExists(err) {
 				if _, err := c.RbacV1().Roles(namespace).Update(ctx, &role, metav1.UpdateOptions{}); err != nil {
 					return xerrors.Errorf("error updating role: %w", err)
@@ -642,8 +648,14 @@ func createRoles(ctx context.Context, c KubeClient, serviceAccountName, serviceA
 func createClusterRoleBinding(ctx context.Context, c KubeClient, serviceAccountName string, serviceAccountNamespace string, clusterRoleBindingName string, clusterRole rbacv1.ClusterRole) error {
 	clusterRoleBinding := buildClusterRoleBinding(clusterRole, serviceAccountName, serviceAccountNamespace, clusterRoleBindingName)
 	_, err := c.RbacV1().ClusterRoleBindings().Create(ctx, &clusterRoleBinding, metav1.CreateOptions{})
-	if !errors.IsAlreadyExists(err) && err != nil {
-		return xerrors.Errorf("error creating cluster role binding: %w", err)
+	if err != nil {
+		if errors.IsAlreadyExists(err) {
+			if _, err := c.RbacV1().ClusterRoleBindings().Update(ctx, &clusterRoleBinding, metav1.UpdateOptions{}); err != nil {
+				return xerrors.Errorf("error updating role: %w", err)
+			}
+		} else {
+			return xerrors.Errorf("error creating cluster role binding: %w", err)
+		}
 	}
 	fmt.Printf("created clusterrolebinding: %s\n", clusterRoleBinding.Name)
 	return nil

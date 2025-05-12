@@ -779,13 +779,13 @@ task_groups:
     <<: *setup_and_teardown_task_cloudqa
     tasks:
       - e2e_operator_upgrade_replica_set
-      - e2e_operator_upgrade_sharded_cluster
+      - e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
       - e2e_operator_upgrade_ops_manager
       - e2e_operator_proxy
       - e2e_operator_partial_crd
       - e2e_operator_clusterwide
       - e2e_operator_multi_namespaces
-      - e2e_operator_upgrade_appdb_tls
+      - e2e_appdb_tls_operator_upgrade_v1_32_to_mck
       - e2e_meko_mck_upgrade
     <<: *teardown_group
 
@@ -807,13 +807,13 @@ task_groups:
     <<: *setup_and_teardown_task_cloudqa
     tasks:
       - e2e_operator_upgrade_replica_set
-      - e2e_operator_upgrade_sharded_cluster
+      - e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
       - e2e_operator_upgrade_ops_manager
       - e2e_operator_proxy
       - e2e_operator_partial_crd
       - e2e_operator_clusterwide
       - e2e_operator_multi_namespaces
-      - e2e_operator_upgrade_appdb_tls
+      - e2e_appdb_tls_operator_upgrade_v1_32_to_mck
       - e2e_meko_mck_upgrade
     <<: *teardown_group
 
@@ -911,7 +911,7 @@ task_groups:
       - e2e_multi_cluster_om_networking_clusterwide
       - e2e_multi_cluster_om_appdb_no_mesh
       # Reused OM tests with AppDB Multi-Cluster topology
-      - e2e_operator_upgrade_appdb_tls
+      - e2e_appdb_tls_operator_upgrade_v1_32_to_mck
       - e2e_om_appdb_flags_and_config
       - e2e_om_appdb_upgrade
       - e2e_om_appdb_monitoring_tls
@@ -943,7 +943,7 @@ task_groups:
       - e2e_om_ops_manager_upgrade
       - e2e_om_update_before_reconciliation
       - e2e_om_feature_controls
-      - e2e_multi_cluster_appdb_state_operator_upgrade_downgrade
+      - e2e_multi_cluster_appdb_upgrade_downgrade_v1_27_to_mck
       - e2e_multi_cluster_sharded_disaster_recovery
     # disabled tests:
     #    - e2e_om_multiple # multi-cluster failures in EVG
@@ -996,7 +996,7 @@ task_groups:
       - e2e_om_ops_manager_backup_kmip
       - e2e_om_ops_manager_scale
       - e2e_om_ops_manager_upgrade
-      - e2e_multi_cluster_appdb_state_operator_upgrade_downgrade
+      - e2e_multi_cluster_appdb_upgrade_downgrade_v1_27_to_mck
       - e2e_om_update_before_reconciliation
       - e2e_om_feature_controls
       - e2e_multi_cluster_sharded_disaster_recovery
