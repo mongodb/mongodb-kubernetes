@@ -26,7 +26,6 @@ jobs:
         with:
           app-id: ${{ vars.MONGODB_KUBERNETES_APP_ID }}
           private-key: ${{ secrets.MONGODB_KUBERNETES_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
 
       - name: Checkout repository (master)
         if: ${{ github.event.inputs.commit_sha == '' }}
