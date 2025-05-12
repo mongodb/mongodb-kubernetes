@@ -60,7 +60,7 @@ To use MongoDB Search, your Kubernetes cluster needs to pull the necessary conta
 ```shell copy
 {% include "code_snippets/0200_configure_community_search_pullsecret.sh" %}
 ```
-This script creates a `docker-registry` secret in your Kubernetes namespace and associates it with the service account used for MongoDB pods.
+This script creates a `community-private-preview-pullsecret` secret in your Kubernetes namespace and associates it with the service account used for MongoDB pods.
 
 ### 5. Verify Pull Secret Configuration
 
