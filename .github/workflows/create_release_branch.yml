@@ -20,10 +20,22 @@ jobs:
   create-release-branch:
     runs-on: ubuntu-latest
     steps:
+
+      - name: Create GitHub App Token
+        uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ vars.MONGODB_KUBERNETES_APP_ID }}
+          private-key: ${{ secrets.MONGODB_KUBERNETES_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+          ref: ${{ github.head_ref }}
+          persist-credentials: false
 
       - name: Check if release branch already exists
         id: check-branch
