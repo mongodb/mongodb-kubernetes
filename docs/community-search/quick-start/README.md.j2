@@ -179,7 +179,7 @@ To test the search functionality, this step imports the `sample_mflix.movies` co
 ```shell copy
 {% include "code_snippets/0420_import_movies_mflix_database.sh" %}
 ```
-This command uses `mongoimport` from the `mongodb-tools-pod` to load data from the downloaded `sample_mflix.archive` file.
+This command uses `mongorestore` from the `mongodb-tools-pod` to load data from the downloaded `sample_mflix.archive` file.
 
 ### 15. Create Search Index
 
