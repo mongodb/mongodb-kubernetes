@@ -80,7 +80,15 @@ jobs:
           jq  --arg version "${{ github.event.inputs.version }}" '.mongodbOperator=$version' release.json > tmp_release.json
           mv tmp_release.json release.json
           git add release.json
-          git commit -S -m "Update release.json with version ${{ github.event.inputs.version }}"
-          git push origin ${{ github.event.inputs.branch_name }}
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          sign-commits: true
+          commit-message: Release version `${{ github.event.inputs.version }}`
+          title: Release version `${{ github.event.inputs.version }}`
+          signoff: false
+          delete-branch: false
+          branch: bump-${{ github.event.inputs.version }}-version
+          draft: true
