@@ -2,11 +2,11 @@
   "mongodbToolsBundle": {
     "ubi": "mongodb-database-tools-rhel88-x86_64-100.12.0.tgz"
   },
-  "mongodbOperator": "1.0.0",
-  "initDatabaseVersion": "1.0.0",
-  "initOpsManagerVersion": "1.0.0",
-  "initAppDbVersion": "1.0.0",
-  "databaseImageVersion": "1.0.0",
+  "mongodbOperator": "1.0.1",
+  "initDatabaseVersion": "1.0.1",
+  "initOpsManagerVersion": "1.0.1",
+  "initAppDbVersion": "1.0.1",
+  "databaseImageVersion": "1.0.1",
   "agentVersion": "108.0.2.8729-1",
   "openshift": {
     "minimumSupportedVersion": "4.6"
@@ -58,7 +58,8 @@
       "Description": "We support 3 last versions, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "ssdlc_name": "MongoDB Kubernetes Kubernetes Operator",
       "versions": [
-        "1.0.0"
+        "1.0.0",
+        "1.0.1"
       ],
       "variants": [
         "ubi"
@@ -146,7 +147,8 @@
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "ssdlc_name": "MongoDB Kubernetes Kubernetes Operator Init Ops Manager",
       "versions": [
-        "1.0.0"
+        "1.0.0",
+        "1.0.1"
       ],
       "variants": [
         "ubi"
@@ -156,7 +158,8 @@
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "ssdlc_name": "MongoDB Kubernetes Kubernetes Operator Init Database",
       "versions": [
-        "1.0.0"
+        "1.0.0",
+        "1.0.1"
       ],
       "variants": [
         "ubi"
@@ -166,7 +169,8 @@
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "ssdlc_name": "MongoDB Kubernetes Kubernetes Operator Init AppDB",
       "versions": [
-        "1.0.0"
+        "1.0.0",
+        "1.0.1"
       ],
       "variants": [
         "ubi"
@@ -176,7 +180,8 @@
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "ssdlc_name": "MongoDB Kubernetes Kubernetes Operator Database",
       "versions": [
-        "1.0.0"
+        "1.0.0",
+        "1.0.1"
       ],
       "variants": [
         "ubi"
