@@ -33,8 +33,7 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
-          # Make sure the value of GITHUB_TOKEN will not be persisted in repo's config
-          persist-credentials: false
+          ref: ${{ github.head_ref }}
 
       - name: Checkout repository (commit SHA))
         if: ${{ github.event.inputs.commit_sha != '' }}
@@ -43,8 +42,6 @@ jobs:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
           ref: ${{ github.event.inputs.commit_sha }}
-          # Make sure the value of GITHUB_TOKEN will not be persisted in repo's config
-          persist-credentials: false
 
       - name: Get GitHub App User ID
         id: get-user-id
