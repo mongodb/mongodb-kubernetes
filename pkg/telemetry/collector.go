@@ -371,7 +371,7 @@ func addSearchEvents(ctx context.Context, operatorClusterClient kubeclient.Clien
 				Architecture:             string(architectures.Static), // Community Search is always static
 				IsMultiCluster:           false,                        // Community Search doesn't support multi-cluster
 				Type:                     "Search",
-				IsRunningEnterpriseImage: false,
+				IsRunningEnterpriseImage: false, // Community search doesn't run enterprise
 			}
 			if event := createEvent(properties, now, Deployments); event != nil {
 				events = append(events, *event)
