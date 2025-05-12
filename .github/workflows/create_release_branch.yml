@@ -29,13 +29,20 @@ jobs:
           private-key: ${{ secrets.MONGODB_KUBERNETES_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 
-      - name: Checkout repository
+      - name: Checkout repository (master)
+        if: ${{ github.event.inputs.commit_sha == '' }}
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
-          ref: ${{ github.head_ref }}
-          persist-credentials: false
+
+      - name: Checkout repository (${{ github.event.inputs.commit_sha }})
+        if: ${{ github.event.inputs.commit_sha != '' }}
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+          ref: ${{ github.event.inputs.commit_sha }}
 
       - name: Check if release branch already exists
         id: check-branch
@@ -51,14 +58,8 @@ jobs:
         id: create-branch
         if: env.create_new_branch == 'true'
         run: |
-          echo "Release branch ${{ github.event.inputs.branch_name }} does not exist. Creating it."
-          if [ "${{ github.event.inputs.commit_sha }}" != "" ]; then
-            export "COMMIT_SHA=${{ github.event.inputs.commit_sha }}"
-          else
-            export "COMMIT_SHA=$(git rev-parse HEAD)"
-          fi
-          git checkout -b ${{ github.event.inputs.branch_name }} $COMMIT_SHA
-          git push origin ${{ github.event.inputs.branch_name }}
+          git checkout -b ${{ github.event.inputs.branch_name }}
+          git push --set-upstream origin ${{ github.event.inputs.branch_name }}
 
       - name: Replace version in release.json
         id: replace-version
