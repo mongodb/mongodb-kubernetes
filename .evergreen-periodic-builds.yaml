@@ -3,9 +3,16 @@ include:
   - filename: .evergreen-tasks.yml
 
 parameters:
+  # Deprecated: do not use pin_tag_at parameter, this was used to pin the image tag to a specific time,
+  # but resulted in overwritten image tags which causes quay to garbage collect
+  # untagged images. This caused a release image to be missing.
   - key: pin_tag_at
     value: 00:00
     description: Pin tags at this time of the day. Midnight by default.
+
+  - key: build_tag_id_prefix
+    value: release
+    description: Prefix for periodic builds for the image. This identifies a periodic build.
 
 variables:
   - &setup_group

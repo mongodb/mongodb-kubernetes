@@ -200,6 +200,9 @@ class MissingEnvironmentVariable(Exception):
     pass
 
 
+# Deprecated: do not use pin_tag_at parameter, this was used to pin the image tag to a specific time,
+# but resulted in overwritten image tags which causes quay to garbage collect
+# untagged images. This caused a release image to be missing.
 def should_pin_at() -> Optional[Tuple[str, str]]:
     """Gets the value of the pin_tag_at to tag the images with.
 
@@ -239,6 +242,11 @@ def build_id() -> str:
 
     """
 
+    try:
+        build_tag_id_prefix = os.environ["build_tag_id_prefix"]
+    except KeyError:
+        pass
+
     date = datetime.now(timezone.utc)
     try:
         created_at = os.environ["created_at"]
@@ -246,6 +254,7 @@ def build_id() -> str:
     except KeyError:
         pass
 
+    # Deprecated: do not use should_pin_at(). Use the suffix instead.
     hour, minute = should_pin_at()
     if hour and minute:
         logger.info(f"we are pinning to, hour: {hour}, minute: {minute}")
@@ -255,7 +264,7 @@ def build_id() -> str:
 
     string_time = date.strftime("%Y%m%dT%H%M%SZ")
 
-    return string_time
+    return f"{build_tag_id_prefix}-{string_time}"
 
 
 def get_release() -> Dict:

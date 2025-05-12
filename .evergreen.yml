@@ -180,9 +180,16 @@ parameters:
     value: "true"
     description: set this to false to suppress retries on failure
 
+  # Deprecated: do not use pin_tag_at parameter, this was used to pin the image tag to a specific time,
+  # but resulted in overwritten image tags which causes quay to garbage collect
+  # untagged images. This caused a release image to be missing.
   - key: pin_tag_at
     value: 10:00
     description: Pin tags at this time of the day. Midnight by default for periodic and 10 for releases.
+
+  - key: build_tag_id_prefix
+    value: release
+    description: Prefix for release builds for the image. This identifies a release build.
 
   - key: OVERRIDE_VERSION_ID
     value: ""
