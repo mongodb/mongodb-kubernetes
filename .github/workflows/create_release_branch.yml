@@ -80,7 +80,7 @@ jobs:
           jq  --arg version "${{ github.event.inputs.version }}" '.mongodbOperator=$version' release.json > tmp_release.json
           mv tmp_release.json release.json
           git add release.json
-          git commit -m "Update release.json with version ${{ github.event.inputs.version }}"
+          git commit -S -m "Update release.json with version ${{ github.event.inputs.version }}"
           git push origin ${{ github.event.inputs.branch_name }}
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
