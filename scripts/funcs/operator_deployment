@@ -40,6 +40,23 @@ get_operator_helm_values() {
     config+=("operator.telemetry.installClusterRole=${MDB_OPERATOR_TELEMETRY_INSTALL_CLUSTER_ROLE_INSTALLATION}")
   fi
 
+  # Add OpenTelemetry values if any of the environment variables are set
+  if [[ -n "${otel_trace_id:-}" || -n "${otel_parent_id:-}" || -n "${otel_collector_endpoint:-}" ]]; then
+    config+=("operator.opentelemetry.enabled=true")
+
+    if [[ -n "${otel_trace_id:-}" ]]; then
+      config+=("operator.opentelemetry.traceID=${otel_trace_id}")
+    fi
+
+    if [[ -n "${otel_parent_id:-}" ]]; then
+      config+=("operator.opentelemetry.parentID=${otel_parent_id}")
+    fi
+
+    if [[ -n "${otel_collector_endpoint:-}" ]]; then
+      config+=("operator.opentelemetry.collectorEndpoint=${otel_collector_endpoint}")
+    fi
+  fi
+
   if [[ "${MDB_OPERATOR_TELEMETRY_ENABLED:-true}" == "false" ]]; then
     config+=("operator.telemetry.enabled=false")
     config+=("operator.telemetry.collection.clusters.enabled=false")

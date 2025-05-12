@@ -114,6 +114,9 @@ response:
 
 // SendEventWithRetry sends an HTTP request with retries on transient failures.
 func (c *Client) SendEventWithRetry(ctx context.Context, body []Event) error {
+	_, span := TRACER.Start(ctx, "SendEventWithRetry")
+	defer span.End()
+
 	atlasClient := c.atlasClient
 	request, err := atlasClient.NewRequest(ctx, http.MethodPost, "api/private/unauth/telemetry/events", body)
 	if err != nil {

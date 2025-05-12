@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/client-go/rest"
@@ -65,7 +66,6 @@ func NewLeaderRunnable(operatorMgr manager.Manager, memberClusterObjectsMap map[
 		memberClusterObjectsMap: memberClusterObjectsMap,
 		currentNamespace:        currentNamespace,
 		configuredOperatorEnv:   operatorEnv,
-
 		mongodbImage:           mongodbImage,
 		databaseNonStaticImage: databaseNonStaticImage,
 	}, nil
@@ -82,7 +82,12 @@ type snapshotCollector func(ctx context.Context, memberClusterMap map[string]Con
 
 // RunTelemetry lists the specified CRDs and sends them as events to Segment
 func RunTelemetry(ctx context.Context, mongodbImage, databaseNonStaticImage, namespace string, operatorClusterMgr manager.Manager, clusterMap map[string]cluster.Cluster, atlasClient *Client, configuredOperatorEnv util.OperatorEnvironment) {
-	Logger.Debug("sending telemetry!")
+	Logger.Debug("Collecting telemetry!")
+	_, span := TRACER.Start(ctx, "RunTelemetry")
+	span.SetAttributes(
+		attribute.String("resource.type", "telemetry-collection"),
+	)
+	defer span.End()
 
 	intervalStr := envvar.GetEnvOrDefault(CollectionFrequency, DefaultCollectionFrequencyStr) // nolint:forbidigo
 	duration, err := time.ParseDuration(intervalStr)

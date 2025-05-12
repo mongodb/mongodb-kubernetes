@@ -105,7 +105,7 @@ func main() {
 		crds = crdsToWatch{mongoDBCRDPlural, mongoDBUserCRDPlural, mongoDBOpsManagerCRDPlural, mongoDBCommunityCRDPlural}
 	}
 
-	ctx := context.Background()
+	signelCtx := signals.SetupSignalHandler()
 	operator.OmUpdateChannel = make(chan event.GenericEvent)
 
 	klog.InitFlags(nil)
@@ -120,12 +120,30 @@ func main() {
 	// Namespace where the operator is installed
 	currentNamespace := env.ReadOrPanic(util.CurrentNamespace)
 
+	// Get trace and span IDs from environment variables
+	traceIDHex := os.Getenv("OTEL_TRACE_ID")
+	spanIDHex := os.Getenv("OTEL_PARENT_ID")
+	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+
 	// Get a config to talk to the apiserver
 	cfg := ctrl.GetConfigOrDie()
 
+	traceCtx, err := telemetry.SetupTracing(signelCtx, traceIDHex, spanIDHex, endpoint)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	ctxWithSpan, rootSpan := telemetry.TRACER.Start(traceCtx, "operator-root-span")
+	defer rootSpan.End()
+
 	managerOptions := ctrl.Options{
 		Scheme: scheme,
+		BaseContext: func() context.Context {
+			// Ensures every controller gets the trace- and signal-aware context
+			return ctxWithSpan
+		},
 	}
+
 
 	namespacesToWatch := operator.GetWatchedNamespace()
 	if len(namespacesToWatch) > 1 || namespacesToWatch[0] != "" {
@@ -150,7 +168,7 @@ func main() {
 		managerOptions.HealthProbeBindAddress = "127.0.0.1:8181"
 	}
 
-	webhookOptions := setupWebhook(ctx, cfg, log, slices.Contains(crds, mongoDBMultiClusterCRDPlural), currentNamespace)
+	webhookOptions := setupWebhook(traceCtx, cfg, log, slices.Contains(crds, mongoDBMultiClusterCRDPlural), currentNamespace)
 	managerOptions.WebhookServer = crWebhook.NewServer(webhookOptions)
 
 	mgr, err := ctrl.NewManager(cfg, managerOptions)
@@ -168,7 +186,7 @@ func main() {
 	memberClusterObjectsMap := make(map[string]runtime_cluster.Cluster)
 
 	if slices.Contains(crds, mongoDBMultiClusterCRDPlural) {
-		memberClustersNames, err := getMemberClusters(ctx, cfg, currentNamespace)
+		memberClustersNames, err := getMemberClusters(traceCtx, cfg, currentNamespace)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -216,22 +234,22 @@ func main() {
 
 	// Setup all Controllers
 	if slices.Contains(crds, mongoDBCRDPlural) {
-		if err := setupMongoDBCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, memberClusterObjectsMap); err != nil {
+		if err := setupMongoDBCRD(traceCtx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, memberClusterObjectsMap); err != nil {
 			log.Fatal(err)
 		}
 	}
 	if slices.Contains(crds, mongoDBOpsManagerCRDPlural) {
-		if err := setupMongoDBOpsManagerCRD(ctx, mgr, memberClusterObjectsMap, imageUrls, initAppdbVersion, initOpsManagerImageVersion); err != nil {
+		if err := setupMongoDBOpsManagerCRD(traceCtx, mgr, memberClusterObjectsMap, imageUrls, initAppdbVersion, initOpsManagerImageVersion); err != nil {
 			log.Fatal(err)
 		}
 	}
 	if slices.Contains(crds, mongoDBUserCRDPlural) {
-		if err := setupMongoDBUserCRD(ctx, mgr, memberClusterObjectsMap); err != nil {
+		if err := setupMongoDBUserCRD(traceCtx, mgr, memberClusterObjectsMap); err != nil {
 			log.Fatal(err)
 		}
 	}
 	if slices.Contains(crds, mongoDBMultiClusterCRDPlural) {
-		if err := setupMongoDBMultiClusterCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, memberClusterObjectsMap); err != nil {
+		if err := setupMongoDBMultiClusterCRD(traceCtx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, memberClusterObjectsMap); err != nil {
 			log.Fatal(err)
 		}
 	}
@@ -271,8 +289,7 @@ func main() {
 
 	log.Info("Starting the Cmd.")
 
-	// Start the Manager
-	if err := mgr.Start(signals.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(signelCtx); err != nil {
 		log.Fatal(err)
 	}
 }
