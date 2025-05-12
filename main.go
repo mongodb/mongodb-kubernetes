@@ -37,6 +37,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
@@ -321,7 +322,10 @@ func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, image
 }
 
 func setupClusterMongoDBRoleCRD(ctx context.Context, mgr manager.Manager) error {
-	return operator.AddClusterMongoDBRoleController(ctx, mgr)
+	if err := operator.AddClusterMongoDBRoleController(ctx, mgr); err != nil {
+		return err
+	}
+	return ctrl.NewWebhookManagedBy(mgr).For(&rolev1.ClusterMongoDBRole{}).Complete()
 }
 
 func setupCommunityController(

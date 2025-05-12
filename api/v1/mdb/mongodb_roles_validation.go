@@ -163,6 +163,9 @@ func validateAuthenticationRestriction(ar AuthenticationRestriction) v1.Validati
 // and returns true if the first one is greater or equal the second
 // false otherwise
 func isVersionAtLeast(mdbVersion string, expectedVersion string) (bool, error) {
+	if mdbVersion == "" {
+		return true, nil
+	}
 	currentV, err := semver.Make(mdbVersion)
 	if err != nil {
 		return false, xerrors.Errorf("error parsing mdbVersion %s with semver: %w", mdbVersion, err)

@@ -56,6 +56,10 @@ func (r *ClusterMongoDBRoleReconciler) Reconcile(ctx context.Context, request ct
 
 	log.Infow("ClusterMongoDBRole.Spec", "spec", role.Spec)
 
+	if err := role.ProcessValidationsOnReconcile(nil); err != nil {
+		return r.updateStatus(ctx, role, workflow.Invalid("%s", err.Error()), log)
+	}
+
 	if !role.DeletionTimestamp.IsZero() {
 		log.Info("ClusterMongoDBRole is being deleted")
 
