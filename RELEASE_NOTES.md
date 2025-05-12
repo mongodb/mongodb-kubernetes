@@ -1,7 +1,14 @@
 [//]: # (Consider renaming or removing the header for next release, otherwise it appears as duplicate in the published release, e.g: https://github.com/mongodb/mongodb-enterprise-kubernetes/releases/tag/1.22.0 )
 <!-- Next Release -->
+# MCK 1.0.1 Release Notes
 
-# MCK 1.0 Release Notes
+This is a patch release that addresses issue with OpenShift / OLM Operator bundle released in 1.0.0.
+
+## Bug Fixes
+* Fix missing agent images in the operator bundle in OpenShift catalog and operatorhub.io.
+
+<!-- Past Releases -->
+# MCK 1.0.0 Release Notes
 
 Exciting news for MongoDB on Kubernetes\! We're happy to announce the first release of MongoDB Controllers for Kubernetes (MCK), a unified open-source operator merging our support of MongoDB Community and Enterprise in Kubernetes.
 
