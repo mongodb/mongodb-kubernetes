@@ -11,6 +11,12 @@
   "openshift": {
     "minimumSupportedVersion": "4.6"
   },
+  "search": {
+    "community": {
+      "version": "bd5ac935fe03426d6080bbb34ac6df5350ba3193",
+      "version_tmp_unused_for_now": "1.47.0"
+    }
+  },
   "supportedImages": {
     "mongodb-kubernetes-readinessprobe": {
       "ssdlc_name": "MongoDB Community Operator Readiness Probe",

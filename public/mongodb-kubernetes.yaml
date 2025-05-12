@@ -156,10 +156,13 @@ rules:
       - opsmanagers/finalizers
       - mongodbmulticluster
       - mongodbmulticluster/finalizers
+      - mongodbsearch
+      - mongodbsearch/finalizers
       - mongodb/status
       - mongodbusers/status
       - opsmanagers/status
       - mongodbmulticluster/status
+      - mongodbsearch/status
 
   - apiGroups:
       - ''
@@ -286,6 +289,7 @@ spec:
             - -watch-resource=opsmanagers
             - -watch-resource=mongodbusers
             - -watch-resource=mongodbcommunity
+            - -watch-resource=mongodbsearch
           command:
             - /usr/local/bin/mongodb-kubernetes-operator
           resources:
@@ -373,3 +377,9 @@ spec:
             - name: MDB_COMMUNITY_IMAGE_TYPE
               value: "ubi8"
             # Community Env Vars End
+            - name: MDB_SEARCH_COMMUNITY_REPO_URL
+              value: "268558157000.dkr.ecr.eu-west-1.amazonaws.com/mongot"
+            - name: MDB_SEARCH_COMMUNITY_NAME
+              value: "community"
+            - name: MDB_SEARCH_COMMUNITY_VERSION
+              value: "bd5ac935fe03426d6080bbb34ac6df5350ba3193"
