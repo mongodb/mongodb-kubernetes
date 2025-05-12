@@ -1,0 +1,57 @@
+name: Create Release Branch Workflow
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version"
+        required: true
+        type: string
+      branch_name:
+        description: "Release branch name"
+        required: true
+        type: string
+      commit_sha:
+        description: "Optional commit SHA to start release branch from. By default, it will use the latest commit on the main branch."
+        required: false
+        type: string
+
+jobs:
+  create-release-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if release branch already exists
+        id: check-branch
+        run: |
+          if git show-ref --verify --quiet refs/heads/${{ github.event.inputs.branch_name }}; then
+            echo "Release branch ${{ github.event.inputs.branch_name }} already exists."
+            git checkout ${{ github.event.inputs.branch_name }}
+          else
+            echo "create_new_branch=true" >> $GITHUB_ENV
+          fi
+
+      - name: Create release branch
+        id: create-branch
+        if: env.create_new_branch == 'true'
+        run: |
+          echo "Release branch ${{ github.event.inputs.branch_name }} does not exist. Creating it."
+          if [ "${{ github.event.inputs.commit_sha }}" != "" ]; then
+            export "COMMIT_SHA=${{ github.event.inputs.commit_sha }}"
+          else
+            export "COMMIT_SHA=$(git rev-parse HEAD)"
+          fi
+          git checkout -b ${{ github.event.inputs.branch_name }} $COMMIT_SHA
+          git push origin ${{ github.event.inputs.branch_name }}
+
+      - name: Replace version in release.json
+        id: replace-version
+        run: |
+          jq  --arg version "${{ github.event.inputs.version }}" '.mongodbOperator=$version' release.json > tmp_release.json
+          mv tmp_release.json release.json
+          git add release.json
+          git commit -m "Update release.json with version ${{ github.event.inputs.version }}"
+          git push origin ${{ github.event.inputs.branch_name }}
