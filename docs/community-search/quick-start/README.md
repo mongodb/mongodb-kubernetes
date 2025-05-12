@@ -106,7 +106,7 @@ echo "ServiceAccount mongodb-kubernetes-database-pods has been patched: "
 
 kubectl get --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" -o yaml sa mongodb-kubernetes-database-pods
 ```
-This script creates a `docker-registry` secret in your Kubernetes namespace and associates it with the service account used for MongoDB pods.
+This script creates a `community-private-preview-pullsecret` secret in your Kubernetes namespace and associates it with the service account used for MongoDB pods.
 
 ### 5. Verify Pull Secret Configuration
 
@@ -217,7 +217,7 @@ After applying the `MongoDBCommunity` custom resource, the operator begins deplo
 ```shell copy
 echo "Waiting for MongoDBCommunity resource to reach Running phase..."
 kubectl --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" wait --for=jsonpath='{.status.phase}'=Running mdbc/mdbc-rs --timeout=400s
-echo; echo "MongoDBOpsManager resource"
+echo; echo "MongoDBCommunity resource"
 kubectl --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" get mdbc/mdbc-rs
 echo; echo "Pods running in cluster ${K8S_CLUSTER_0_CONTEXT_NAME}"
 kubectl --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" get pods
@@ -255,7 +255,7 @@ The `MongoDBSearch.spec` fields are supported:
 * `spec.statefulSet`: Optional statefulset overrides, which are applied last to the mongot's statefulset. It is possible to adjust any statefulset configuration that was create by the operator (the overrides are applied last). The type of the field is [apps/v1/StatefulSet](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.26/#statefulset-v1-apps) and both `spec.statefulSet.spec` and `spec.statefulSet.metadata` fields are supported.
 * `spec.persistence.single`: optional storage configuration for MongoDB Search persistence volume containing storing search indexes. See [here](https://www.mongodb.com/docs/kubernetes/current/reference/k8s-operator-specification/#mongodb-setting-spec.podSpec.persistence.single) for more information about storage settings. MongoDBSearch reuses the same persistence type as in other custom resources (e.g. `MongoDB`), but supports only `single` persistence field. If not set, the operator sets `spec.persistence.single.storage = 10G`.
 * `spec.resourceRequirements` - resource requests and limits for mongodb-search container. It's recommended to use this field to customize resource allocations instead of overriding it via `spec.statefulSet` overrides. If not set, the operator sets the following values (no limits, only requests):
-* ```yaml
+```yaml
 requests:
     cpu: 2
     memory: 2G
@@ -345,7 +345,7 @@ mongorestore --archive=/tmp/sample_mflix.archive --verbose=1 --drop --nsInclude 
 EOF
 )"
 ```
-This command uses `mongoimport` from the `mongodb-tools-pod` to load data from the downloaded `sample_mflix.archive` file.
+This command uses `mongorestore` from the `mongodb-tools-pod` to load data from the downloaded `sample_mflix.archive` file.
 
 ### 15. Create Search Index
 
