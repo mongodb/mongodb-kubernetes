@@ -1,6 +1,5 @@
 name: Create Release Branch Workflow
 on:
-  pull_request:
   workflow_dispatch:
     inputs:
       version:
@@ -35,6 +34,8 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
+          # Make sure the value of GITHUB_TOKEN will not be persisted in repo's config
+          persist-credentials: false
 
       - name: Checkout repository (${{ github.event.inputs.commit_sha }})
         if: ${{ github.event.inputs.commit_sha != '' }}
@@ -43,6 +44,8 @@ jobs:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
           ref: ${{ github.event.inputs.commit_sha }}
+          # Make sure the value of GITHUB_TOKEN will not be persisted in repo's config
+          persist-credentials: false
 
       - name: Check if release branch already exists
         id: check-branch
@@ -60,6 +63,8 @@ jobs:
         run: |
           git checkout -b ${{ github.event.inputs.branch_name }}
           git push --set-upstream origin ${{ github.event.inputs.branch_name }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
 
       - name: Replace version in release.json
         id: replace-version
@@ -69,3 +74,5 @@ jobs:
           git add release.json
           git commit -m "Update release.json with version ${{ github.event.inputs.version }}"
           git push origin ${{ github.event.inputs.branch_name }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
