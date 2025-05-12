@@ -187,9 +187,9 @@ parameters:
     value: 10:00
     description: Pin tags at this time of the day. Midnight by default for periodic and 10 for releases.
 
-  - key: build_tag_id_prefix
+  - key: build_tag_type
     value: release
-    description: Prefix for release builds for the image. This identifies a release build.
+    description: The build type, this is added to the image tag. Used for periodic and release builds.
 
   - key: OVERRIDE_VERSION_ID
     value: ""

@@ -243,7 +243,7 @@ def build_id() -> str:
     """
 
     try:
-        build_tag_id_prefix = os.environ["build_tag_id_prefix"]
+        build_tag_type = os.environ["build_tag_type"]
     except KeyError:
         pass
 
@@ -264,7 +264,7 @@ def build_id() -> str:
 
     string_time = date.strftime("%Y%m%dT%H%M%SZ")
 
-    return f"{build_tag_id_prefix}-{string_time}"
+    return f"{string_time}-{build_tag_type}"
 
 
 def get_release() -> Dict:

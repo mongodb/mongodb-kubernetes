@@ -29,6 +29,7 @@ variables:
       - otel_collector_endpoint
       - otel_parent_id
       - otel_trace_id
+      - build_tag_type
       - registry
       - requester
       - skip_tags
