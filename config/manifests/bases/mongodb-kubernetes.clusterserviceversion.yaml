@@ -354,7 +354,7 @@ spec:
         path: type
       version: v1
   description: |
-    MongoDB Controller for Kubernetes (MCK) is an open-source project. It represents a merge of the previous
+    MongoDB Controllers for Kubernetes (MCK) is an open-source project. It represents a merge of the previous
     MongoDB Community Operator (MCO) and MongoDB Enterprise Kubernetes Operator (MEKO).
 
     This release brings MongoDB Community and Enterprise editions together under a single, unified operator,
