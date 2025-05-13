@@ -362,7 +362,7 @@ spec:
     the capabilities of both into a single Operator, future changes will build on this to more closely align
     how Community and Enterprise are managed in Kubernetes, to offer an even more seamless and streamlined experience.
     As an open-source project, it now allows for community contributions, helping drive quicker bug fixes and ongoing innovation.
-    The MongoDB Kubernetes Operator enables easy deploys of MongoDB
+    The MongoDB Controllers for Kubernetes enable easy deploys of MongoDB
     into Kubernetes clusters, using our management, monitoring and backup
     platforms, Ops Manager and Cloud Manager.
 
