@@ -2,7 +2,6 @@
 <!-- Next Release -->
 # MCK 1.0.1 Release Notes
 
-This is a patch release that addresses issue with OpenShift / OLM Operator bundle released in 1.0.0.
 
 ## Bug Fixes
 * Fix missing agent images in the operator bundle in OpenShift catalog and operatorhub.io.
