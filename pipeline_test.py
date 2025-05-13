@@ -325,6 +325,7 @@ def test_create_and_push_manifest_push_error(mock_run):
     assert "Error pushing manifest" in str(exc_info.value)
     assert mock_run.call_count == 2  # Both create and push calls
 
+
 def test_build_id():
     from pipeline import build_id
 

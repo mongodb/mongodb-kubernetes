@@ -199,6 +199,7 @@ def is_running_in_evg_pipeline():
 class MissingEnvironmentVariable(Exception):
     pass
 
+
 def is_running_in_patch():
     is_patch = os.environ.get("is_patch")
     return is_patch is not None and is_patch.lower() == "true"
@@ -206,7 +207,7 @@ def is_running_in_patch():
 
 def build_id() -> str:
     """Returns the build id used for the image tag.
-       The build id is configurable `build_tag_type` and `version_id` in evergreen.
+    The build id is configurable `build_tag_type` and `version_id` in evergreen.
     """
 
     build_tag_type = ""
@@ -215,7 +216,6 @@ def build_id() -> str:
     except KeyError:
         pass
 
-    version_id = ""
     try:
         version_id = os.environ["version_id"]
     except KeyError:
