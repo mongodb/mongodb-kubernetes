@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"github.com/pkg/errors"
 	"slices"
 	"strings"
 	"time"
@@ -163,6 +164,13 @@ func collectOperatorSnapshot(ctx context.Context, memberClusterMap map[string]Co
 		memberClusterMap["single"] = operatorClusterMgr
 	}
 
+	// TODO: Read own deployment object or pass annotation/read env var here to distinguish installation method.
+	installationMethod, err := getOperatorInstallationMethod(ctx, uncachedClient)
+	if err != nil {
+		Logger.Error(err)
+	}
+	Logger.Infof("INSTALLATION METHOD DETECTED: %s", installationMethod)
+
 	for _, c := range memberClusterMap {
 		uncachedClient := c.GetAPIReader()
 		uid := getKubernetesClusterUUID(ctx, uncachedClient)
@@ -172,11 +180,12 @@ func collectOperatorSnapshot(ctx context.Context, memberClusterMap map[string]Co
 	slices.Sort(kubeClusterUUIDList)
 
 	operatorEvent := OperatorUsageSnapshotProperties{
-		KubernetesClusterID:  kubeClusterOperatorUUID,
-		KubernetesClusterIDs: kubeClusterUUIDList,
-		OperatorID:           operatorUUID,
-		OperatorVersion:      versionutil.StaticContainersOperatorVersion(),
-		OperatorType:         MEKO,
+		KubernetesClusterID:        kubeClusterOperatorUUID,
+		KubernetesClusterIDs:       kubeClusterUUIDList,
+		OperatorID:                 operatorUUID,
+		OperatorVersion:            versionutil.StaticContainersOperatorVersion(),
+		OperatorType:               MEKO,
+		OperatorInstallationMethod: installationMethod,
 	}
 	operatorProperties, err := maputil.StructToMap(operatorEvent)
 	if err != nil {
@@ -191,6 +200,32 @@ func collectOperatorSnapshot(ctx context.Context, memberClusterMap map[string]Co
 			Properties: operatorProperties,
 		},
 	}
+}
+
+// getOperatorInstallationMethod returns the installation of the currently installed operator
+func getOperatorInstallationMethod(ctx context.Context, uncachedClient kubeclient.Reader) (OperatorInstallationMethod, error) {
+	currentNamespace := envvar.GetEnvOrDefault(util.CurrentNamespace, "")
+	if currentNamespace == "" {
+		return Unknown, errors.New("could not read current namespace from environment. Is NAMESPACE env var missing on deployment?")
+	}
+
+	deploymentName := envvar.GetEnvOrDefault(util.DeploymentName, "")
+	if deploymentName == "" {
+		return Unknown, errors.New("could not read deployment from environment. Is MDB_OPERATOR_NAME env var missing on deployment?")
+	}
+
+	installationMethod := Unknown
+	operatorDeployment := &v1.Deployment{}
+	err := uncachedClient.Get(ctx, kubeclient.ObjectKey{Name: deploymentName, Namespace: currentNamespace}, operatorDeployment)
+	if err != nil {
+		return Unknown, errors.Wrap(err, "failed to receive operator deployment")
+	}
+
+	// Check if operator was deployed by Helm
+	if val, _ := operatorDeployment.GetLabels()["app.kubernetes.io/managed-by"]; val == "Helm" {
+		installationMethod = Helm
+	}
+	return installationMethod, nil
 }
 
 func collectDeploymentsSnapshot(ctx context.Context, operatorClusterMgr manager.Manager, operatorUUID, mongodbImage, databaseNonStaticImage string) []Event {

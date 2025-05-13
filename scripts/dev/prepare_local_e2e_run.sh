@@ -75,8 +75,10 @@ if [[ "${DEPLOY_OPERATOR:-"false"}" == "true" ]]; then
     helm_values+=" operator.replicas=0"
   fi
 
+  set -x
   # shellcheck disable=SC2128
   helm upgrade --install mongodb-enterprise-operator helm_chart --set "$(echo "${helm_values}" | tr ' ' ',')"
+  set +x
 fi
 
 if [[ "${KUBE_ENVIRONMENT_NAME}" == "kind" ]]; then

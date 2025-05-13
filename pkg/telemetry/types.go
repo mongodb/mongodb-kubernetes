@@ -7,11 +7,12 @@ import (
 
 // OperatorUsageSnapshotProperties represents the structure for tracking Kubernetes operator usage events.
 type OperatorUsageSnapshotProperties struct {
-	KubernetesClusterID  string       `json:"kubernetesClusterID"`  // Kubernetes cluster ID where the operator is running
-	KubernetesClusterIDs []string     `json:"kubernetesClusterIDs"` // Sorted Kubernetes cluster IDs the operator is managing
-	OperatorID           string       `json:"operatorID"`           // Operator UUID
-	OperatorVersion      string       `json:"operatorVersion"`      // Version of the operator
-	OperatorType         OperatorType `json:"operatorType"`         // MEKO, MCK, MCO (here meko)
+	KubernetesClusterID        string                     `json:"kubernetesClusterID"`  // Kubernetes cluster ID where the operator is running
+	KubernetesClusterIDs       []string                   `json:"kubernetesClusterIDs"` // Sorted Kubernetes cluster IDs the operator is managing
+	OperatorID                 string                     `json:"operatorID"`           // Operator UUID
+	OperatorVersion            string                     `json:"operatorVersion"`      // Version of the operator
+	OperatorType               OperatorType               `json:"operatorType"`         // MEKO, MCK, MCO (here meko)
+	OperatorInstallationMethod OperatorInstallationMethod `json:"operatorInstallationMethod"`
 }
 
 // KubernetesClusterUsageSnapshotProperties represents the structure for tracking Kubernetes cluster usage events.
@@ -47,6 +48,15 @@ const (
 	MCK  OperatorType = "MCK"
 	MCO  OperatorType = "MCO"
 	MEKO OperatorType = "MEKO"
+)
+
+type OperatorInstallationMethod string
+
+// TODO: add which versions used for Helm and OLM?
+const (
+	Unknown OperatorInstallationMethod = "Unknown"
+	OLM     OperatorInstallationMethod = "OLM"
+	Helm    OperatorInstallationMethod = "Helm"
 )
 
 type EventType string
