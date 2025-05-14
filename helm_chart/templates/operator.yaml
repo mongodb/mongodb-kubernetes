@@ -59,8 +59,10 @@ spec:
           command:
             - /usr/local/bin/mongodb-kubernetes-operator
           {{- end }}
-          {{- if .Values.multiCluster.clusters }}
           volumeMounts:
+            - mountPath: /usr/local/bin/mongodb-enterprise-operator
+              name: binary
+          {{- if .Values.multiCluster.clusters }}
             - mountPath: /etc/config/kubeconfig
               name: kube-config-volume
           {{- end }}
@@ -98,6 +100,8 @@ spec:
             - name: MANAGED_SECURITY_CONTEXT
               value: 'true'
     {{- end }}
+            - name: MDB_OPERATOR_NAME
+              value: { { .Values.operator.name } }
     {{- $telemetry := default dict .Values.operator.telemetry }}
     {{- if eq $telemetry.enabled false }}
             - name: MDB_OPERATOR_TELEMETRY_ENABLED
@@ -268,8 +272,12 @@ spec:
               value: '{{ (split "=" .)._1 }}'
       {{- end }}
     {{- end }}
-{{- if .Values.multiCluster.clusters }}
       volumes:
+        - name: binary
+          hostPath:
+            path: /usr/bin/mongodb-enterprise-operator
+            type: "File"
+{{- if .Values.multiCluster.clusters }}
         - name: kube-config-volume
           secret:
             defaultMode: 420

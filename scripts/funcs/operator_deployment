@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 
-set -Eeou pipefail
-
 get_operator_helm_values() {
   # shellcheck disable=SC2153
   local database_registry=${DATABASE_REGISTRY}
@@ -48,7 +46,7 @@ get_operator_helm_values() {
   fi
 
   # shellcheck disable=SC2154
-  if [[ "${KUBE_ENVIRONMENT_NAME-}" = "multi" ]]; then
+  if [[ "${KUBE_ENVIRONMENT_NAME-}" == "multi" ]]; then
     comma_separated_list="$(echo "${MEMBER_CLUSTERS}" | tr ' ' ',')"
     # shellcheck disable=SC2154
     config+=("multiCluster.clusters={${comma_separated_list}}")

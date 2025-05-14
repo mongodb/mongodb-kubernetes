@@ -301,6 +301,11 @@ all-tests: test python-tests
 manager: generate fmt vet
 	GOOS=linux GOARCH=amd64 go build -o docker/mongodb-kubernetes-operator/content/mongodb-kubernetes-operator main.go
 
+remote-build: manager
+	kubectl scale deployment mongodb-enterprise-operator --replicas=0
+	scp -P 22 ./docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator ubuntu@simon-baeumer-089.workstations.build.10gen.cc:/home/ubuntu/ops-manager-kubernetes/bin
+	kubectl scale deployment mongodb-enterprise-operator --replicas=1
+
 # Run against the configured Kubernetes cluster in ~/.kube/config
 run: generate fmt vet manifests
 	go run ./main.go

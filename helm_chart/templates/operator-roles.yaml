@@ -19,6 +19,13 @@ metadata:
 {{- end }}
 rules:
   - apiGroups:
+      - apps
+    resources:
+      - deployments
+    verbs:
+      - get
+      - list
+  - apiGroups:
       - ''
     resources:
       - services

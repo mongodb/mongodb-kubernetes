@@ -103,6 +103,7 @@ if [[ "${RUNNING_IN_EVG:-false}" == "true" ]]; then
   registry="268558157000.dkr.ecr.eu-west-1.amazonaws.com/docker-hub-mirrors"
 fi
 
+set -x
 if [ "${KUBE_ENVIRONMENT_NAME}" = "performance" ]; then
   echo "installing kind with more nodes with performance"
   cat <<EOF | kind create cluster --name "${cluster_name}" --kubeconfig "${kubeconfig_path}" --wait 700s --config=-
@@ -114,31 +115,43 @@ nodes:
   extraMounts:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
+  - containerPath: /usr/bin/mongodb-enterprise-operator
+    hostPath: ${HOME}/ops-manager-kubernetes/bin/mongodb-enterprise-operator
 - role: control-plane
   image: ${registry}/kindest/node:${kind_node_version}
   extraMounts:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
+  - containerPath: /usr/bin/mongodb-enterprise-operator
+    hostPath: ${HOME}/ops-manager-kubernetes/bin/mongodb-enterprise-operator
 - role: control-plane
   image: ${registry}/kindest/node:${kind_node_version}
   extraMounts:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
+  - containerPath: /usr/bin/mongodb-enterprise-operator
+    hostPath: ${HOME}/ops-manager-kubernetes/bin/mongodb-enterprise-operator
 - role: worker
   image: ${registry}/kindest/node:${kind_node_version}
   extraMounts:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
+  - containerPath: /usr/bin/mongodb-enterprise-operator
+    hostPath: ${HOME}/ops-manager-kubernetes/bin/mongodb-enterprise-operator
 - role: worker
   image: ${registry}/kindest/node:${kind_node_version}
   extraMounts:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
+  - containerPath: /usr/bin/mongodb-enterprise-operator
+    hostPath: ${HOME}/ops-manager-kubernetes/bin/mongodb-enterprise-operator
 - role: worker
   image: ${registry}/kindest/node:${kind_node_version}
   extraMounts:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
+  - containerPath: /usr/bin/mongodb-enterprise-operator
+    hostPath: ${HOME}/ops-manager-kubernetes/bin/mongodb-enterprise-operator
 networking:
   podSubnet: "${pod_network}"
   serviceSubnet: "${service_network}"
@@ -163,6 +176,8 @@ nodes:
   extraMounts:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
+  - containerPath: /usr/bin/mongodb-enterprise-operator
+    hostPath: ${HOME}/ops-manager-kubernetes/bin/mongodb-enterprise-operator
 networking:
   podSubnet: "${pod_network}"
   serviceSubnet: "${service_network}"
@@ -178,6 +193,8 @@ containerdConfigPatches:
     endpoint = ["http://${reg_name}:${reg_port}"]
 EOF
 fi
+
+set +x
 
 echo "finished installing kind"
 
