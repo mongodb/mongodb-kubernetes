@@ -282,7 +282,7 @@ spec:
         runAsUser: 2000
       containers:
         - name: mongodb-kubernetes-operator
-          image: "quay.io/mongodb/mongodb-kubernetes:1.0.0"
+          image: "quay.io/mongodb/mongodb-kubernetes:1.0.1"
           imagePullPolicy: Always
           args:
             - -watch-resource=mongodb
@@ -326,21 +326,21 @@ spec:
             - name: INIT_DATABASE_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-kubernetes-init-database
             - name: INIT_DATABASE_VERSION
-              value: 1.0.0
+              value: 1.0.1
             - name: DATABASE_VERSION
-              value: 1.0.0
+              value: 1.0.1
             # Ops Manager
             - name: OPS_MANAGER_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-enterprise-ops-manager-ubi
             - name: INIT_OPS_MANAGER_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-kubernetes-init-ops-manager
             - name: INIT_OPS_MANAGER_VERSION
-              value: 1.0.0
+              value: 1.0.1
             # AppDB
             - name: INIT_APPDB_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-kubernetes-init-appdb
             - name: INIT_APPDB_VERSION
-              value: 1.0.0
+              value: 1.0.1
             - name: OPS_MANAGER_IMAGE_PULL_POLICY
               value: Always
             - name: AGENT_IMAGE
@@ -378,8 +378,8 @@ spec:
               value: "ubi8"
             # Community Env Vars End
             - name: MDB_SEARCH_COMMUNITY_REPO_URL
-              value: "268558157000.dkr.ecr.eu-west-1.amazonaws.com/mongot"
+              value: "quay.io/mongodb"
             - name: MDB_SEARCH_COMMUNITY_NAME
-              value: "community"
+              value: "mongodb-search-community"
             - name: MDB_SEARCH_COMMUNITY_VERSION
-              value: "bd5ac935fe03426d6080bbb34ac6df5350ba3193"
+              value: "1.47.0"
