@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 
-set -Eeou pipefail
-
 ## We need to make sure this script does not fail if one of
 ## the kubectl commands fails.
 set +e
