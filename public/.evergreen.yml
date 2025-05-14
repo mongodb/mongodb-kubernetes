@@ -61,7 +61,7 @@ functions:
           <<: *go_env
           MACOS_NOTARY_KEY: ${macos_notary_keyid}
           MACOS_NOTARY_SECRET: ${macos_notary_secret}
-        # TODO: triggered_by_git_tag is not set, because we run the task manually
+          # TODO: CLOUDP-318631 triggered_by_git_tag is not set, because we run the task manually
           GORELEASER_CURRENT_TAG: ${triggered_by_git_tag}
         # shell.exec EVG Task doesn't have add_to_path, so we need to explicitly add the path export below.
         script: |
