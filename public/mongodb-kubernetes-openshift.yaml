@@ -541,11 +541,11 @@ spec:
               value: "quay.io/mongodb/mongodb-enterprise-server:8.0.0-ubi8"
             - name: RELATED_IMAGE_MONGODB_IMAGE_8_0_0_ubi9
               value: "quay.io/mongodb/mongodb-enterprise-server:8.0.0-ubi9"
-            - name: RELATED_IMAGE_MDB_SEARCH_IMAGE_bd5ac935fe03426d6080bbb34ac6df5350ba3193
-              value: "268558157000.dkr.ecr.eu-west-1.amazonaws.com/mongot/community:bd5ac935fe03426d6080bbb34ac6df5350ba3193"
+            - name: RELATED_IMAGE_MDB_SEARCH_IMAGE_1_47_0
+              value: "quay.io/mongodb/mongodb-search-community:1.47.0"
             - name: MDB_SEARCH_COMMUNITY_REPO_URL
-              value: "268558157000.dkr.ecr.eu-west-1.amazonaws.com/mongot"
+              value: "quay.io/mongodb"
             - name: MDB_SEARCH_COMMUNITY_NAME
-              value: "community"
+              value: "mongodb-search-community"
             - name: MDB_SEARCH_COMMUNITY_VERSION
-              value: "bd5ac935fe03426d6080bbb34ac6df5350ba3193"
+              value: "1.47.0"
