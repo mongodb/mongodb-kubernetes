@@ -1,15 +1,21 @@
 {
   "mongodbToolsBundle": {
-    "ubi": "mongodb-database-tools-rhel88-x86_64-100.11.0.tgz"
+    "ubi": "mongodb-database-tools-rhel88-x86_64-100.12.0.tgz"
   },
-  "mongodbOperator": "0.1.0",
-  "initDatabaseVersion": "0.1.0",
-  "initOpsManagerVersion": "0.1.0",
-  "initAppDbVersion": "0.1.0",
-  "databaseImageVersion": "0.1.0",
+  "mongodbOperator": "1.0.0",
+  "initDatabaseVersion": "1.0.0",
+  "initOpsManagerVersion": "1.0.0",
+  "initAppDbVersion": "1.0.0",
+  "databaseImageVersion": "1.0.0",
   "agentVersion": "108.0.2.8729-1",
   "openshift": {
     "minimumSupportedVersion": "4.6"
+  },
+  "search": {
+    "community": {
+      "version": "bd5ac935fe03426d6080bbb34ac6df5350ba3193",
+      "version_tmp_unused_for_now": "1.47.0"
+    }
   },
   "supportedImages": {
     "mongodb-kubernetes-readinessprobe": {
@@ -40,9 +46,9 @@
         "7.0.13",
         "7.0.14",
         "7.0.15",
-        "8.0.4",
         "8.0.5",
-        "8.0.6"
+        "8.0.6",
+        "8.0.7"
       ],
       "variants": [
         "ubi"
@@ -52,7 +58,7 @@
       "Description": "We support 3 last versions, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "ssdlc_name": "MongoDB Kubernetes Kubernetes Operator",
       "versions": [
-        "0.1.0"
+        "1.0.0"
       ],
       "variants": [
         "ubi"
@@ -91,8 +97,8 @@
       ],
       "opsManagerMapping": {
         "Description": "These are the agents from which we start supporting static containers.",
-        "cloud_manager": "13.33.0.9442-1",
-        "cloud_manager_tools": "100.11.0",
+        "cloud_manager": "13.34.0.9465-1",
+        "cloud_manager_tools": "100.12.0",
         "ops_manager": {
           "6.0.25": {
             "agent_version": "12.0.33.7866-1",
@@ -118,10 +124,6 @@
             "agent_version": "107.0.15.8741-1",
             "tools_version": "100.11.0"
           },
-          "8.0.4": {
-            "agent_version": "108.0.4.8770-1",
-            "tools_version": "100.10.0"
-          },
           "8.0.5": {
             "agent_version": "108.0.4.8770-1",
             "tools_version": "100.11.0"
@@ -129,6 +131,10 @@
           "8.0.6": {
             "agent_version": "108.0.6.8796-1",
             "tools_version": "100.11.0"
+          },
+          "8.0.7": {
+            "agent_version": "108.0.7.8810-1",
+            "tools_version": "100.12.0"
           }
         }
       },
@@ -140,7 +146,7 @@
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "ssdlc_name": "MongoDB Kubernetes Kubernetes Operator Init Ops Manager",
       "versions": [
-        "0.1.0"
+        "1.0.0"
       ],
       "variants": [
         "ubi"
@@ -150,7 +156,7 @@
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "ssdlc_name": "MongoDB Kubernetes Kubernetes Operator Init Database",
       "versions": [
-        "0.1.0"
+        "1.0.0"
       ],
       "variants": [
         "ubi"
@@ -160,7 +166,7 @@
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "ssdlc_name": "MongoDB Kubernetes Kubernetes Operator Init AppDB",
       "versions": [
-        "0.1.0"
+        "1.0.0"
       ],
       "variants": [
         "ubi"
@@ -170,7 +176,7 @@
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "ssdlc_name": "MongoDB Kubernetes Kubernetes Operator Database",
       "versions": [
-        "0.1.0"
+        "1.0.0"
       ],
       "variants": [
         "ubi"

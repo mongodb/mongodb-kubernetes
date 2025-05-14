@@ -75,7 +75,7 @@ fi
 
 export MONGODB_REPO_URL="quay.io/mongodb"
 
-export SIGNING_PUBLIC_KEY_URL="https://cosign.mongodb.com/mongodb-kubernetes-operator.pem"
+export SIGNING_PUBLIC_KEY_URL="https://cosign.mongodb.com/mongodb-enterprise-kubernetes-operator.pem"
 
 export CLUSTER_DOMAIN="cluster.local"
 
@@ -96,6 +96,7 @@ export PYTHON_VERSION=3.13
 
 
 ## MCO
+
 export MDB_COMMUNITY_IMAGE=mongodb-community-server
 export MDB_COMMUNITY_REPO_URL=quay.io/mongodb
 export MDB_COMMUNITY_AGENT_IMAGE=${AGENT_IMAGE}
@@ -103,3 +104,17 @@ export MDB_COMMUNITY_IMAGE_TYPE=ubi8
 
 export READINESS_PROBE_IMAGE="${BASE_REPO_URL}/mongodb-kubernetes-readinessprobe:${version_id}"
 export VERSION_UPGRADE_HOOK_IMAGE="${BASE_REPO_URL}/mongodb-kubernetes-operator-version-upgrade-post-start-hook:${version_id}"
+
+# Community Search
+export MDB_COMMUNITY_IMAGE=mongodb-community-server
+export MDB_COMMUNITY_REPO_URL=quay.io/mongodb
+export MDB_COMMUNITY_AGENT_IMAGE=${AGENT_IMAGE}
+export MDB_COMMUNITY_IMAGE_TYPE=ubi8
+
+MDB_SEARCH_COMMUNITY_VERSION="$(jq -r '.search.community.version' release.json)"
+export MDB_SEARCH_COMMUNITY_VERSION
+
+export MDB_SEARCH_COMMUNITY_NAME="community"
+export MDB_SEARCH_COMMUNITY_REPO_URL="268558157000.dkr.ecr.eu-west-1.amazonaws.com/mongot"
+export MDB_SEARCH_COMMUNITY_NAME="mongodb-community-search"
+#export MDB_SEARCH_COMMUNITY_REPO_URL="quay.io/mongodb"

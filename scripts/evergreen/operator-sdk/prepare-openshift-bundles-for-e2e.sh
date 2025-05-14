@@ -4,17 +4,20 @@ set -Eeou pipefail
 
 # This script prepares and publishes OpenShift bundles and catalog source for operator upgrade tests using OLM.
 # It enables testing two upgrade scenarios:
-#   1. Upgrade from the latest release of MEKO (MongoDB Enterprise Kubernetes Operator)
-#      to the current version of MCK (MongoDB Controllers for Kubernetes).
+#   1. Migration from the latest release of MEKO (MongoDB Enterprise Kubernetes Operator)
+#      to the current version of MCK (MongoDB Controllers for Kubernetes)
+#      by uninstalling MEKO and installing MCK.
 #   2. Upgrade from the latest release of MCK to the current version of MCK.
 #
 # The script builds a test catalog with:
 #   - MEKO package (mongodb-enterprise) with one channel:
 #       - stable channel: latest release of MEKO
-#   - MCK package (mongodb-kubernetes) with two channels:
+#   - MCK package (mongodb-kubernetes) with three channels:
 #       - stable channel: latest release of MCK
 #       - fast channel: current version of MCK with an upgrade path from stable
-#       - migration channel: current version of MCK with an upgrade path from stable of MEKO
+#       - migration channel: current version of MCK. This will be used to test
+#         migration from MEKO to MCK by uninstalling MEKO and installing MCK
+#         so this channel has an entry without the replaces field.
 #
 # Required env vars:
 #   - BASE_REPO_URL (or REGISTRY for EVG run)
@@ -26,7 +29,7 @@ source scripts/funcs/printing
 source scripts/dev/set_env_context.sh
 
 increment_version() {
-  IFS=. read -r major minor patch <<< "$1"
+  IFS=. read -r major minor patch <<<"$1"
   ((patch++))
   echo "${major}.${minor}.${patch}"
 }
@@ -42,7 +45,7 @@ fi
 generate_helm_charts() {
   read -ra helm_values < <(get_operator_helm_values)
   echo "Passing overrides to helm values: "
-  tr ' ' '\n' <<< "${helm_values[*]}"
+  tr ' ' '\n' <<<"${helm_values[*]}"
 
   declare -a helm_set_values=()
   for param in "${helm_values[@]}"; do
@@ -103,7 +106,6 @@ function generate_mck_catalog_metadata() {
   current_bundle_version=$5
   current_bundle_image=$6
   meko_package_name=$7
-  meko_latest_bundle_version=$8
 
   catalog_yaml="${catalog_dir}/${mck_package_name}.yaml"
 
@@ -118,15 +120,15 @@ function generate_mck_catalog_metadata() {
   opm init "${mck_package_name}" \
     --default-channel="${default_channel}" \
     --output=yaml \
-    > "${catalog_yaml}"
+    >"${catalog_yaml}"
 
   echo "Adding current unreleased ${current_bundle_image} to the catalog"
-  opm render "${current_bundle_image}" --output=yaml >> "${catalog_yaml}"
+  opm render "${current_bundle_image}" --output=yaml >>"${catalog_yaml}"
 
   # TODO: CLOUDP-310820 - After 1.0.0 release we need to clean this up: always run it.
   if [[ -n "${latest_bundle_version}" ]]; then
     echo "Adding latest release ${latest_bundle_image} to the catalog"
-    opm render "${latest_bundle_image}" --output=yaml >> "${catalog_yaml}"
+    opm render "${latest_bundle_image}" --output=yaml >>"${catalog_yaml}"
 
     echo "Adding latest MCK release into STABLE channel to ${catalog_yaml}"
     echo "---
@@ -134,7 +136,7 @@ schema: olm.channel
 package: ${mck_package_name}
 name: stable
 entries:
-  - name: ${mck_package_name}.v${latest_bundle_version}" >> "${catalog_yaml}"
+  - name: ${mck_package_name}.v${latest_bundle_version}" >>"${catalog_yaml}"
 
     echo "Adding current MCK version replacing the latest MCK version into FAST channel to ${catalog_yaml}"
     echo "---
@@ -143,7 +145,7 @@ package: ${mck_package_name}
 name: fast
 entries:
   - name: ${mck_package_name}.v${current_bundle_version}
-    replaces: ${mck_package_name}.v${latest_bundle_version}" >> "${catalog_yaml}"
+    replaces: ${mck_package_name}.v${latest_bundle_version}" >>"${catalog_yaml}"
   else
     echo "Skipping addition of latest MCK release as we haven't published MCK 1.0.0 yet"
   fi
@@ -154,8 +156,7 @@ schema: olm.channel
 package: ${mck_package_name}
 name: migration
 entries:
-  - name: ${mck_package_name}.v${current_bundle_version}
-    replaces: ${meko_package_name}.v${meko_latest_bundle_version}" >> "${catalog_yaml}"
+  - name: ${mck_package_name}.v${current_bundle_version}" >>"${catalog_yaml}"
 }
 
 function generate_meko_catalog_metadata() {
@@ -172,10 +173,10 @@ function generate_meko_catalog_metadata() {
   opm init "${meko_package_name}" \
     --default-channel="stable" \
     --output=yaml \
-    > "${catalog_yaml}"
+    >"${catalog_yaml}"
 
   echo "Adding latest release ${latest_bundle_image} to the catalog"
-  opm render "${latest_bundle_image}" --output=yaml >> "${catalog_yaml}"
+  opm render "${latest_bundle_image}" --output=yaml >>"${catalog_yaml}"
 
   echo "Adding latest MEKO release into STABLE channel to ${catalog_yaml}"
   echo "---
@@ -183,7 +184,7 @@ schema: olm.channel
 package: ${meko_package_name}
 name: stable
 entries:
-  - name: ${meko_package_name}.v${latest_bundle_version}" >> "${catalog_yaml}"
+  - name: ${meko_package_name}.v${latest_bundle_version}" >>"${catalog_yaml}"
 }
 
 function build_and_publish_test_catalog() {
@@ -210,27 +211,26 @@ mck_package_name="mongodb-kubernetes"
 meko_package_name="mongodb-enterprise"
 
 certified_operators_repo="https://github.com/redhat-openshift-ecosystem/certified-operators.git"
-current_operator_version_from_release_json=$(jq -r .mongodbOperator < release.json)
+current_operator_version_from_release_json=$(jq -r .mongodbOperator <release.json)
 current_incremented_operator_version_from_release_json=$(increment_version "${current_operator_version_from_release_json}")
 current_incremented_operator_version_from_release_json_with_version_id="${current_incremented_operator_version_from_release_json}-${VERSION_ID:-"latest"}"
 test_catalog_image="${base_repo_url}/mongodb-kubernetes-test-catalog:${current_incremented_operator_version_from_release_json_with_version_id}"
 certified_repo_cloned="$(clone_git_repo_into_temp ${certified_operators_repo})"
 
 # TODO: CLOUDP-310820 - After 1.0.0 release we need to clean this up: always run it.
-if [[ "${current_operator_version_from_release_json}" =~ ^0\. ]]; then
-  # Version is < 1.0.0 (0.y.z)
-  mck_latest_released_operator_version=""
-  echo "Skipping MCK bundle lookup as we haven't published MCK 1.0.0 yet (${current_operator_version_from_release_json} is < 1.0.0)"
-else
-  # Version is >= 1.0.0
-  mck_latest_released_operator_version="$(find_the_latest_certified_operator "${certified_repo_cloned}" "${mck_package_name}")"
-fi
+# if [[ "${current_operator_version_from_release_json}" =~ ^0\. ]]; then
+# Version is < 1.0.0 (0.y.z)
+mck_latest_released_operator_version=""
+echo "Skipping MCK bundle lookup as we haven't published MCK 1.0.0 yet (${current_operator_version_from_release_json} is < 1.0.0)"
+# else
+#   # Version is >= 1.0.0
+#   mck_latest_released_operator_version="$(find_the_latest_certified_operator "${certified_repo_cloned}" "${mck_package_name}")"
+# fi
 meko_latest_released_operator_version="$(find_the_latest_certified_operator "${certified_repo_cloned}" "${meko_package_name}")"
 
 meko_latest_certified_bundle_image="${base_repo_url}/mongodb-enterprise-operator-certified-bundle:${meko_latest_released_operator_version}"
 mck_latest_certified_bundle_image="${base_repo_url}/mongodb-kubernetes-certified-bundle:${mck_latest_released_operator_version}"
 current_bundle_image="${base_repo_url}/mongodb-kubernetes-certified-bundle:${current_incremented_operator_version_from_release_json_with_version_id}"
-
 
 header "Configuration:"
 echo "certified_operators_repo: ${certified_operators_repo}"
@@ -272,7 +272,7 @@ scripts/evergreen/operator-sdk/prepare-openshift-bundles.sh
 # publish two-channel catalog source to be used in e2e test.
 header "Building and pushing the catalog:"
 catalog_dir="$(init_test_catalog "${certified_repo_cloned}")"
-generate_mck_catalog_metadata "${catalog_dir}" "${mck_package_name}" "${mck_latest_released_operator_version}" "${mck_latest_certified_bundle_image}" "${current_incremented_operator_version_from_release_json}" "${current_bundle_image}" "${meko_package_name}" "${meko_latest_released_operator_version}"
+generate_mck_catalog_metadata "${catalog_dir}" "${mck_package_name}" "${mck_latest_released_operator_version}" "${mck_latest_certified_bundle_image}" "${current_incremented_operator_version_from_release_json}" "${current_bundle_image}" "${meko_package_name}"
 generate_meko_catalog_metadata "${catalog_dir}" "${meko_package_name}" "${meko_latest_released_operator_version}" "${meko_latest_certified_bundle_image}"
 build_and_publish_test_catalog "${catalog_dir}" "${test_catalog_image}"
 

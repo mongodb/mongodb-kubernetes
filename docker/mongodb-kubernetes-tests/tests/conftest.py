@@ -61,6 +61,14 @@ CLUSTER_HOST_MAPPING = {
 LEGACY_CENTRAL_CLUSTER_NAME: str = "__default"
 LEGACY_DEPLOYMENT_STATE_VERSION: str = "1.27.0"
 
+# Helm charts
+LEGACY_OPERATOR_CHART = "mongodb/enterprise-operator"
+MCK_HELM_CHART = "mongodb/mongodb-kubernetes"
+LOCAL_HELM_CHART_DIR = "helm_chart"
+
+OFFICIAL_OPERATOR_IMAGE_NAME = "mongodb-kubernetes"
+LEGACY_OPERATOR_IMAGE_NAME = "mongodb-enterprise-operator-ubi"
+
 # Names for operator and RBAC
 OPERATOR_NAME = "mongodb-kubernetes-operator"
 MULTI_CLUSTER_OPERATOR_NAME = OPERATOR_NAME + "-multi-cluster"
@@ -491,16 +499,6 @@ def default_operator(
     return get_default_operator(namespace, operator_installation_config)
 
 
-@fixture(scope="module")
-def community_operator(namespace: str) -> Operator:
-    helm_args = get_operator_installation_config(namespace)
-    # TODO: MCK We may want to always watch community resources by default with MCK but it implies to always have
-    #  community CRD installed. In that case we wouldn't need this custom install function, we can get rid of it
-    #  once we merge the helm charts
-    helm_args["operator.watchedResources"] = "{opsmanagers,mongodb,mongodbusers,mongodbcommunity}"
-    return get_default_operator(namespace, helm_args)
-
-
 def get_default_operator(
     namespace: str,
     operator_installation_config: Dict[str, str],
@@ -801,7 +799,7 @@ def _install_multi_cluster_operator(
     helm_opts: Dict[str, str],
     central_cluster_name: str,
     operator_name: Optional[str] = MULTI_CLUSTER_OPERATOR_NAME,
-    helm_chart_path: Optional[str] = "helm_chart",
+    helm_chart_path: Optional[str] = LOCAL_HELM_CHART_DIR,
     custom_operator_version: Optional[str] = None,
 ) -> Operator:
     multi_cluster_operator_installation_config.update(helm_opts)
@@ -856,6 +854,9 @@ def official_operator(
         central_cluster_client,
         member_cluster_clients,
         member_cluster_names,
+        helm_chart_path=MCK_HELM_CHART,
+        operator_name=OPERATOR_NAME,
+        operator_image=OFFICIAL_OPERATOR_IMAGE_NAME,
     )
 
 
@@ -877,8 +878,42 @@ def official_meko_operator(
         central_cluster_client,
         member_cluster_clients,
         member_cluster_names,
+        helm_chart_path=LEGACY_OPERATOR_CHART,
         operator_name=LEGACY_OPERATOR_NAME,
+        operator_image=LEGACY_OPERATOR_IMAGE_NAME,
     )
+
+
+# In 1.27.0, we changed the way we manage the deployment state. We use this fixture to test the upgrade path from this
+# version, to ensure we do not break the state
+def install_legacy_deployment_state_meko(
+    namespace: str,
+    managed_security_context: str,
+    operator_installation_config: dict[str, str],
+    central_cluster_name=None,  # These 4 fields apply to multi cluster operator only
+    central_cluster_client=None,
+    member_cluster_clients=None,
+    member_cluster_names=None,
+):
+    logger.info(
+        f"Installing the operator from chart {LEGACY_OPERATOR_CHART}, with version {LEGACY_DEPLOYMENT_STATE_VERSION}"
+    )
+    operator = install_official_operator(
+        namespace,
+        managed_security_context,
+        operator_installation_config,
+        central_cluster_name=central_cluster_name,  # These 4 fields apply to multi cluster operator only
+        central_cluster_client=central_cluster_client,
+        member_cluster_clients=member_cluster_clients,
+        member_cluster_names=member_cluster_names,
+        custom_operator_version=LEGACY_DEPLOYMENT_STATE_VERSION,
+        helm_chart_path=LEGACY_OPERATOR_CHART,  # We are testing the upgrade from legacy state management, introduced in MEKO
+        operator_name=LEGACY_OPERATOR_NAME,
+        operator_image=LEGACY_OPERATOR_IMAGE_NAME,
+    )
+    operator.assert_is_running()
+    # Dumping deployments in logs ensures we are using the correct operator version
+    log_deployments_info(namespace)
 
 
 def install_official_operator(
@@ -890,7 +925,9 @@ def install_official_operator(
     member_cluster_clients: Optional[List[MultiClusterClient]],
     member_cluster_names: Optional[List[str]],
     custom_operator_version: Optional[str] = None,
+    helm_chart_path: Optional[str] = MCK_HELM_CHART,
     operator_name: Optional[str] = OPERATOR_NAME,
+    operator_image: Optional[str] = OFFICIAL_OPERATOR_IMAGE_NAME,
 ) -> Operator:
     """
     Installs the Operator from the official Helm Chart.
@@ -912,7 +949,7 @@ def install_official_operator(
     # Note, that we don't intend to install the official Operator to standalone clusters (kops/openshift) as we want to
     # avoid damaged CRDs. But we may need to install the "openshift like" environment to Kind instead of the "ubi"
     # images are used for installing the dev Operator
-    helm_args["operator.operator_image_name"] = "{}-ubi".format(operator_name)
+    helm_args["operator.operator_image_name"] = operator_image
 
     # Note:
     # We might want in the future to install CRDs when performing upgrade/downgrade tests, the helm install only takes
@@ -966,7 +1003,7 @@ def install_official_operator(
             member_cluster_clients,
             helm_opts=helm_args,
             central_cluster_name=get_central_cluster_name(),
-            helm_chart_path="mongodb/enterprise-operator",
+            helm_chart_path=helm_chart_path,
             custom_operator_version=custom_operator_version,
             operator_name=operator_name,
         )
@@ -976,7 +1013,7 @@ def install_official_operator(
         return Operator(
             namespace=namespace,
             helm_args=helm_args,
-            helm_chart_path="mongodb/enterprise-operator",
+            helm_chart_path=helm_chart_path,
             name=operator_name,
         ).install(custom_operator_version=custom_operator_version)
 

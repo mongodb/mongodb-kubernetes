@@ -170,7 +170,7 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_operator_upgrade_sharded_cluster
+  - name: e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
@@ -180,7 +180,7 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_operator_upgrade_appdb_tls
+  - name: e2e_appdb_tls_operator_upgrade_v1_32_to_mck
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
@@ -840,7 +840,7 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_multi_cluster_appdb_state_operator_upgrade_downgrade
+  - name: e2e_multi_cluster_appdb_upgrade_downgrade_v1_27_to_mck
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
@@ -1235,3 +1235,8 @@ tasks:
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
+
+  - name: e2e_search_community_basic
+    tags: ["patch-run"]
+    commands:
+      - func: "e2e_test"

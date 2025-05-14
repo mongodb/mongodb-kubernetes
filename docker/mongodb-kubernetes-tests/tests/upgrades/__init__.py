@@ -41,8 +41,8 @@ def downscale_operator_deployment(deployment_name: str, namespace: str):
                 return
         except ApiException as e:
             if e.status == 404:
-                logger.warning(f"'{deployment_name}' not found while waiting for downscale")
-                return
+                logger.error(f"'{deployment_name}' not found while waiting for downscale")
+                raise
             else:
                 logger.error(f"Error while waiting for downscale: {e}")
                 raise
