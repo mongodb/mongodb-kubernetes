@@ -236,7 +236,7 @@ def generate_ssdlc_report(ignore_sbom_download_errors: bool = False):
 
     operator_version = release["mongodbOperator"]
     supported_images = get_supported_images(release)
-    report_path = os.getcwd() + "/ssdlc-report/MEKO-" + operator_version
+    report_path = os.getcwd() + "/ssdlc-report/MCK-" + operator_version
 
     try:
         if not os.path.exists(path=report_path):
