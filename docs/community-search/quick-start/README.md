@@ -225,7 +225,7 @@ kubectl --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" get pods
 
 ### 9. Create MongoDB Search Resource
 
-Once your MongoDB deployment is ready, enable Search capabilities by creating a `MongoDBSearch` custom resource, also named `mdbc-rs` to associate it with the MongoDB instance. This resource specifies the CPU and memory resource requirements for the search nodes.
+Once your MongoDB deployment is ready, enable Search capabilities by creating a `MongoDBSearch` custom resource, also named `mdbc-rs` to automatically connect it with your deployed MongoDB instance. This resource specifies the CPU and memory resource requirements for the search nodes.
 
 Note: Private preview of MongoDB Community Search comes with some limitations, and it is not suitable for production use:
 * TLS cannot be enabled in MongoDB Community deployment (MongoD communicates with MongoT with plain text).
