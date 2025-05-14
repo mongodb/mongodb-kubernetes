@@ -21,7 +21,7 @@ dump_all_non_default_namespaces() {
     fi
 
     mkdir -p logs
-    namespaces=$(kubectl get namespace --output=jsonpath={.items[*].metadata.name} | tr ' ' '\n' | \
+    namespaces=$(kubectl get namespace --output=jsonpath="{.items[*].metadata.name}" | tr ' ' '\n' | \
       grep -v "default" | \
       grep -v "kube-node-lease" | \
       grep -v "kube-node-lease" | \
