@@ -4,13 +4,14 @@ This guide provides instructions for deploying MongoDB Community Edition along w
 
 ## Prerequisites
 
+Community Search is currently in private preview, and access to the image requires a secret to pull the search container image from Quay.io. This secret is specified during the first step of the process below, and must be obtained from MongoDB when requesting access to the private preview.
+
 Before you begin, ensure you have the following tools and configurations in place:
 
 - **Kubernetes cluster**: A running Kubernetes cluster (e.g., Minikube, Kind, GKE, EKS, AKS).
 - **kubectl**: The Kubernetes command-line tool, configured to communicate with your cluster.
 - **Helm**: The package manager for Kubernetes, used here to install the MongoDB Kubernetes Operator.
-- **jq**: A command-line JSON processor, used for parsing JSON output from kubectl commands.
-- **Bash 5.1+**: All shell commands in this guide are intended to be run in Bash. Ensure you are using at least version 5.
+- **Bash 5.1+**: All shell commands in this guide are intended to be run in Bash. Scripts in this guide are automatically tested on Linux with Bash 5.1.k
 
 ## Setup Steps
 
@@ -225,7 +226,7 @@ kubectl --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" get pods
 
 ### 9. Create MongoDB Search Resource
 
-Once your MongoDB deployment is ready, enable Search capabilities by creating a `MongoDBSearch` custom resource, also named `mdbc-rs` to automatically connect it with your deployed MongoDB instance. This resource specifies the CPU and memory resource requirements for the search nodes.
+Once your MongoDB deployment is ready, enable Search capabilities by creating a `MongoDBSearch` custom resource, also named `mdbc-rs` to associate it with the MongoDB instance. This resource specifies the CPU and memory resource requirements for the search nodes.
 
 Note: Private preview of MongoDB Community Search comes with some limitations, and it is not suitable for production use:
 * TLS cannot be enabled in MongoDB Community deployment (MongoD communicates with MongoT with plain text).
