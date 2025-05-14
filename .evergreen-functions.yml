@@ -333,6 +333,14 @@ functions:
           source .generated/context.export.env
           scripts/evergreen/e2e/setup_cloud_qa.py delete
 
+  dump_diagnostic_information_from_all_namespaces:
+    - command: subprocess.exec
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        add_to_path:
+          - bin
+        binary: scripts/evergreen/e2e/dump_diagnostic_information_from_all_namespaces.sh
+
   ### Publish and release image ###
 
   # Tags and pushes an image into an external Docker registry. The source image
@@ -733,10 +741,12 @@ functions:
       params:
         include_expansions_in_env:
           - GH_TOKEN
+          - code_snippets_commit_output
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/code_snippets/sample_commit_output.sh
 
-  gke_multi_cluster_snippets:
+  # it executes a script by convention: ./scripts/code_snippets/${task_name}_test.sh
+  test_code_snippets:
     - *switch_context
     - command: shell.exec
       params:
@@ -748,19 +758,4 @@ functions:
           - code_snippets_reset
           - task_name
         script: |
-          ./scripts/code_snippets/gke_multi_cluster_test.sh
-
-
-  gke_multi_cluster_no_mesh_snippets:
-    - *switch_context
-    - command: shell.exec
-      params:
-        shell: bash
-        working_dir: src/github.com/mongodb/mongodb-kubernetes
-        include_expansions_in_env:
-          - version_id
-          - code_snippets_teardown
-          - code_snippets_reset
-          - task_name
-        script: |
-          ./scripts/code_snippets/gke_multi_cluster_no_mesh_test.sh
+          ./scripts/code_snippets/${task_name}_test.sh
