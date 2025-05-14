@@ -1862,10 +1862,27 @@ buildvariants:
 
   - name: private_kind_code_snippets
     display_name: private_kind_code_snippets
-    allowed_requesters: ["patch"]
+    tags: [ "e2e_test_suite" ]
+    allowed_requesters: ["patch", "github_pr"]
     run_on:
       - ubuntu2204-large
     <<: *base_om8_dependency
+    tasks:
+      - name: kind_code_snippets_task_group
+
+  - name: prerelease_kind_code_snippets
+    display_name: prerelease_kind_code_snippets
+    allowed_requesters: ["patch"]
+    run_on:
+      - ubuntu2204-large
+    tasks:
+      - name: kind_code_snippets_task_group
+
+  - name: public_kind_code_snippets
+    display_name: public_kind_code_snippets
+    allowed_requesters: ["patch"]
+    run_on:
+      - ubuntu2204-large
     tasks:
       - name: kind_code_snippets_task_group
 
