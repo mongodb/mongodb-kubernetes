@@ -62,7 +62,7 @@ func TestIsPprofEnabled(t *testing.T) {
 			pprofEnabledString: "false11",
 			operatorEnv:        util.OperatorEnvironmentProd,
 			expected:           false,
-			expectedErrMsg:     "unable to parse PPROF_ENABLED environment variable: strconv.ParseBool: parsing \"false11\": invalid syntax",
+			expectedErrMsg:     "unable to parse MDB_OPERATOR_PPROF_ENABLED environment variable: strconv.ParseBool: parsing \"false11\": invalid syntax",
 		},
 	}
 
