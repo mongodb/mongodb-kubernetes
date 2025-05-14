@@ -58,49 +58,6 @@ def test_install_secret(namespace: str):
 
 
 @mark.e2e_search_community_basic
-def test_install_community_private_preview_pullsecret(namespace: str):
-    import base64
-    import os
-
-    docker_config_json = os.environ.get("COMMUNITY_PRIVATE_PREVIEW_PULLSECRET_DOCKERCONFIGJSON")
-    assert (
-        docker_config_json != ""
-    ), "COMMUNITY_PRIVATE_PREVIEW_PULLSECRET_DOCKERCONFIGJSON not found in environment variables"
-
-    # Decode the base64 encoded docker config
-    try:
-        decoded_docker_config_json = base64.b64decode(docker_config_json).decode("utf-8")
-    except Exception as e:
-        logger.error(f"Failed to decode docker config: {e}")
-        raise
-
-    secret_name = "community-private-preview-pullsecret"
-
-    create_or_update_secret(
-        namespace=namespace,
-        name=secret_name,
-        data={".dockerconfigjson": decoded_docker_config_json},
-        type="kubernetes.io/dockerconfigjson",
-    )
-
-    from kubernetes import client, config
-
-    sa_name = "mongodb-kubernetes-database-pods"
-    sa = client.CoreV1Api().read_namespaced_service_account(name=sa_name, namespace=namespace)
-
-    if not sa.image_pull_secrets:
-        sa.image_pull_secrets = []
-
-    for secret in sa.image_pull_secrets:
-        if secret == secret_name:
-            break
-
-    sa.image_pull_secrets.append(client.V1LocalObjectReference(name=secret_name))
-    client.CoreV1Api().patch_namespaced_service_account(name=sa_name, namespace=namespace, body=sa)
-    logger.info(f"Updated service account {sa_name} with community-private-preview-pullsecret")
-
-
-@mark.e2e_search_community_basic
 def test_create_database_resource(mdbc: MongoDBCommunity):
     mdbc.update()
     mdbc.assert_reaches_phase(Phase.Running, timeout=1000)

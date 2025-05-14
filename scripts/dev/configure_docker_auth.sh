@@ -47,6 +47,7 @@ if [[ -f ~/.docker/config.json ]]; then
   if [[ "${RUNNING_IN_EVG:-""}" == "true" ]]; then
     # when running locally we don't need to docker login all the time - we can do it once in 11 hours (ECR tokens expire each 12 hours)
     if [[ -n "$(find ~/.docker/config.json -mmin -360 -type f)" ]] &&
+      grep "quay.io" -q ~/.docker/config.json && # TODO to be removed at public preview stage of community-search
       grep "268558157000" -q ~/.docker/config.json; then
       echo "Docker credentials are up to date - not performing the new login!"
       exit
@@ -80,5 +81,13 @@ fi
 
 aws ecr get-login-password --region "eu-west-1" | docker login --username AWS --password-stdin 268558157000.dkr.ecr.eu-west-1.amazonaws.com
 
+# log in to quay.io for the mongodb/mongodb-search-community private repo
+# TODO remove once we switch to the official repo in Public Preview
+quay_io_auth_file=$(mktemp)
+docker_configjson_tmp=$(mktemp)
+echo "${COMMUNITY_PRIVATE_PREVIEW_PULLSECRET_DOCKERCONFIGJSON}" | base64 -d > "${quay_io_auth_file}"
+jq -s '.[0] * .[1]' "${quay_io_auth_file}" ~/.docker/config.json > "${docker_configjson_tmp}"
+mv "${docker_configjson_tmp}" ~/.docker/config.json
+rm "${quay_io_auth_file}"
 
 create_image_registries_secret

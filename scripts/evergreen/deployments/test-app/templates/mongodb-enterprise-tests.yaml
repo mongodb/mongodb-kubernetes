@@ -175,10 +175,6 @@ spec:
     {{ end }}
     - name: ops_manager_version
       value: "{{ .Values.opsManagerVersion }}"
-    # TODO to be removed at public preview stage of community-search
-    - name: COMMUNITY_PRIVATE_PREVIEW_PULLSECRET_DOCKERCONFIGJSON
-      value: "{{ .Values.communityPrivatePreviewPullsecretDockerconfigjson }}"
-
     image: {{ .Values.repo }}/mongodb-kubernetes-tests:{{ .Values.tag }}
     # Options to pytest command should go in the pytest.ini file.
     command: ["pytest"]
