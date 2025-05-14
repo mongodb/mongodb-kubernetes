@@ -11,7 +11,7 @@ Before you begin, ensure you have the following tools and configurations in plac
 - **Kubernetes cluster**: A running Kubernetes cluster (e.g., Minikube, Kind, GKE, EKS, AKS).
 - **kubectl**: The Kubernetes command-line tool, configured to communicate with your cluster.
 - **Helm**: The package manager for Kubernetes, used here to install the MongoDB Kubernetes Operator.
-- **Bash 5.1+**: All shell commands in this guide are intended to be run in Bash. Scripts in this guide are automatically tested on Linux with Bash 5.1.k
+- **Bash 5.1+**: All shell commands in this guide are intended to be run in Bash. Scripts in this guide are automatically tested on Linux with Bash 5.1.
 
 ## Setup Steps
 
