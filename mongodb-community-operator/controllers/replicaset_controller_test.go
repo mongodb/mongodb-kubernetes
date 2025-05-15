@@ -687,6 +687,43 @@ func assertStatefulsetReady(ctx context.Context, t *testing.T, mgr manager.Manag
 	assert.True(t, statefulset.IsReady(sts, expectedReplicas))
 }
 
+func TestService_connectionStringSecretAnnotationsAreApplied(t *testing.T) {
+	ctx := context.Background()
+	secretAnnotations := map[string]string{
+		"tests.first-annotation":  "some-value",
+		"tests.second-annotation": "other-value",
+	}
+
+	mdb := newScramReplicaSet(mdbv1.MongoDBUser{
+		Name: "testuser",
+		PasswordSecretRef: mdbv1.SecretKeyReference{
+			Name: "password-secret-name",
+		},
+		ScramCredentialsSecretName:        "scram-credentials",
+		ConnectionStringSecretAnnotations: secretAnnotations,
+	})
+
+	mgr := client.NewManager(ctx, &mdb)
+
+	err := createUserPasswordSecret(ctx, mgr.Client, mdb, "password-secret-name", "pass")
+	assert.NoError(t, err)
+
+	r := NewReconciler(mgr, "fake-mongodbRepoUrl", "fake-mongodbImage", "ubi8", AgentImage, "fake-versionUpgradeHookImage", "fake-readinessProbeImage")
+	res, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: mdb.Namespace, Name: mdb.Name}})
+	assertReconciliationSuccessful(t, res, err)
+	assertConnectionStringSecretAnnotations(ctx, t, mgr.Client, mdb, secretAnnotations)
+}
+
+func assertConnectionStringSecretAnnotations(ctx context.Context, t *testing.T, c k8sClient.Client, mdb mdbv1.MongoDBCommunity, expectedAnnotations map[string]string) {
+	connectionStringSecret := corev1.Secret{}
+	scramUsers := mdb.GetAuthUsers()
+	require.Len(t, scramUsers, 1)
+	secretNamespacedName := types.NamespacedName{Name: scramUsers[0].ConnectionStringSecretName, Namespace: scramUsers[0].ConnectionStringSecretNamespace}
+	err := c.Get(ctx, secretNamespacedName, &connectionStringSecret)
+	require.NoError(t, err)
+	assert.Subset(t, connectionStringSecret.Annotations, expectedAnnotations)
+}
+
 func TestService_configuresPrometheusCustomPorts(t *testing.T) {
 	ctx := context.Background()
 	mdb := newTestReplicaSet()
