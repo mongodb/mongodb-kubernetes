@@ -191,7 +191,7 @@ def apply_crds_from_chart(chart_dir: str):
     for crd_file in crd_files:
         logger.info(f"Applying CRD from file: {crd_file}")
         args = ["kubectl", "apply", "-f", crd_file]
-        process_run_and_check(args, check=True, capture_output=True, shell=True)
+        process_run_and_check(" ".join(args), check=True, capture_output=True, shell=True)
 
 
 def helm_uninstall(name):
