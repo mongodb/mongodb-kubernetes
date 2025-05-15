@@ -713,7 +713,8 @@ def should_skip_arm64():
     """
     return is_running_in_evg_pipeline() and is_running_in_patch()
 
-
+# build_image_daily is always called, it is not only used for daily builds. build_image_generic calls
+# build_image_daily for the release and PR builds too.
 def build_image_daily(
     image_name: str,  # corresponds to the image_name in the release.json
     min_version: str = None,
@@ -774,6 +775,7 @@ def build_image_daily(
 
         args = args_for_daily_image(image_name)
         args["build_id"] = build_id()
+        # TODO: add span for build_id
 
         completed_versions = set()
 
@@ -1392,6 +1394,9 @@ def gather_latest_agent_versions(release: Dict) -> List[Tuple[str, str]]:
     return sorted(list(set(agent_versions_to_build)))
 
 
+# First a context image is created, a ops-manager-context:v1.33
+# Daily builds exist because to mitigate CVEs as soon as possible and overwrite existing tags.
+# Contexts are used by customers without using the operating image.
 def get_builder_function_for_image_name() -> Dict[str, Callable]:
     """Returns a dictionary of image names that can be built."""
 
@@ -1413,7 +1418,8 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         "init-database": build_init_database,
         "init-ops-manager": build_init_om_image,
         #
-        # Daily builds
+        # Daily builds re-use context images from non-daily builds. Daily builds are only executed daily,
+        # all other builds are executed on release, patches and PRs.
         "operator-daily": build_image_daily("mongodb-kubernetes"),
         "appdb-daily": build_image_daily("appdb"),
         "database-daily": build_image_daily("database"),
