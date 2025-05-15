@@ -86,6 +86,7 @@ variables:
       - func: build_multi_cluster_binary
 
   - &setup_and_teardown_group_gke_code_snippets
+    setup_task_can_fail_task: true
     setup_group:
       - func: clone
       - func: setup_gcloud_cli
@@ -93,6 +94,18 @@ variables:
       - func: download_kube_tools
       - func: build_multi_cluster_binary
     teardown_group:
+      - func: upload_code_snippets_logs
+
+  - &setup_and_teardown_group_kind_code_snippets
+    setup_task_can_fail_task: true
+    setup_group:
+      - func: clone
+      - func: cleanup_exec_environment
+      - func: download_kube_tools
+      - func: configure_docker_auth
+      - func: setup_kubernetes_environment
+    teardown_task:
+      - func: upload_e2e_logs
       - func: upload_code_snippets_logs
 
   - &setup_and_teardown_task_cloudqa
@@ -182,6 +195,10 @@ parameters:
   - key: code_snippets_reset
     value: "false"
     description: set this to true if you would like to delete the resources created in the code snippet tests, but keep the clusters
+
+  - key: code_snippets_commit_output
+    value: "false"
+    description: set this to true if you would like the pipeline to automatically push a branch with updated snippets outputs
 
 
 # Triggered manually or by PCT.
@@ -608,8 +625,14 @@ task_groups:
     <<: *setup_and_teardown_group_gke_code_snippets
     max_hosts: -1
     tasks:
-      - gke_multi_cluster_snippets
-      - gke_multi_cluster_no_mesh_snippets
+      - task_gke_multi_cluster_snippets
+      - task_gke_multi_cluster_no_mesh_snippets
+
+  - name: kind_code_snippets_task_group
+    <<: *setup_and_teardown_group_kind_code_snippets
+    max_hosts: -1
+    tasks:
+      - task_kind_community_search_snippets
 
   # Task group for deploying mongodbcommunity resources and testing the (former) MCO
   - name: e2e_mdb_community_task_group
@@ -618,6 +641,7 @@ task_groups:
     <<: *setup_and_teardown_task
     tasks:
       - e2e_community_replicaset_scale
+      - e2e_search_community_basic
 
   # This is the task group that contains all the tests run in the e2e_mdb_kind_ubuntu_cloudqa build variant
   - name: e2e_mdb_kind_cloudqa_task_group
@@ -1187,7 +1211,7 @@ buildvariants:
   # where <distro> is any of ubuntu|ubi
   # where <om_version> denotes the OM version tested (e.g. om50, om60, cloudqa) - used only for MDB tests
 
-  ## MongoDBCommunity build variant
+  # MongoDBCommunity build variant
   - name: e2e_mdb_community
     display_name: e2e_mdb_community
     tags: [ "e2e_test_suite"]
@@ -1835,6 +1859,15 @@ buildvariants:
     <<: *base_om8_dependency
     tasks:
       - name: gke_code_snippets_task_group
+
+  - name: private_kind_code_snippets
+    display_name: private_kind_code_snippets
+    allowed_requesters: ["patch"]
+    run_on:
+      - ubuntu2204-large
+    <<: *base_om8_dependency
+    tasks:
+      - name: kind_code_snippets_task_group
 
   ### Build variants for manual patch only
 

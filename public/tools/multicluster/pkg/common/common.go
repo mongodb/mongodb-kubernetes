@@ -383,6 +383,7 @@ func getCentralRules() []rbacv1.PolicyRule {
 				"mongodbusers", "mongodbusers/status",
 				"opsmanagers", "opsmanagers/finalizers", "opsmanagers/status",
 				"mongodb", "mongodb/finalizers", "mongodb/status",
+				"mongodbsearch", "mongodbsearch/finalizers", "mongodbsearch/status",
 			},
 			APIGroups: []string{"mongodb.com"},
 		},
