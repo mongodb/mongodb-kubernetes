@@ -11,8 +11,8 @@ from tests import test_logger
 from tests.conftest import (
     LEGACY_OPERATOR_NAME,
     OPERATOR_NAME,
-    install_legacy_deployment_state_meko,
     get_default_operator,
+    install_legacy_deployment_state_meko,
     log_deployments_info,
 )
 from tests.upgrades import downscale_operator_deployment

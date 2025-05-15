@@ -1,5 +1,3 @@
-from kubernetes import client
-from kubernetes.client import ApiException
 from kubetester import MongoDB
 from kubetester.certs import create_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester
@@ -7,7 +5,8 @@ from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.operator import Operator
-from pytest import fixture
+from pytest import fixture, mark
+from tests import test_logger
 from tests.conftest import get_default_operator
 
 RS_NAME = "my-replica-set"
@@ -94,7 +93,7 @@ def test_replicaset_user_created(replica_set_user: MongoDBUser):
     replica_set_user.assert_reaches_phase(Phase.Updated)
 
 
-@pytest.mark.e2e_operator_upgrade_replica_set
+@mark.e2e_operator_upgrade_replica_set
 def test_upgrade_operator(namespace: str, operator_installation_config: dict[str, str]):
     operator = get_default_operator(
         namespace, operator_installation_config=operator_installation_config, apply_crds_first=True
