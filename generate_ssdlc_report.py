@@ -9,7 +9,7 @@ At the moment, the following functionality has been implemented:
     - Replacing Release Version
 
 The script should be called manually from the project root. It will put generated files
-into "./ssdlc-report/MEKO-$release" directory.
+into "./ssdlc-report/MCK-$release" directory.
 """
 
 import enum
@@ -38,14 +38,14 @@ S3_BUCKET = "kubernetes-operators-sboms"
 class Subreport(enum.Enum):
     AGENT = ("Containerized MongoDB Agent", "scripts/ssdlc/templates/SSDLC Containerized MongoDB Agent ${VERSION}.md")
     OPERATOR = (
-        "Enterprise Kubernetes Operator",
-        "scripts/ssdlc/templates/SSDLC Containerized MongoDB Enterprise Kubernetes Operator ${VERSION}.md",
+        "MongoDB Controllers for Kubernetes",
+        "scripts/ssdlc/templates/SSDLC Containerized MongoDB Controllers for Kubernetes ${VERSION}.md",
     )
     OPS_MANAGER = (
-        "Containerized OpsManager",
+        "Containerized MongoDB Enterprise OpsManager",
         "scripts/ssdlc/templates/SSDLC Containerized MongoDB Enterprise OpsManager ${VERSION}.md",
     )
-    TESTING = ("not-used", "scripts/ssdlc/templates/SSDLC MongoDB Enterprise Operator Testing Report ${VERSION}.md")
+    TESTING = ("not-used", "scripts/ssdlc/templates/SSDLC MongoDB Controllers for Kubernetes Testing Report ${VERSION}.md")
 
     def __new__(cls, *args, **kwds):
         value = len(cls.__members__) + 1
@@ -98,7 +98,7 @@ def get_supported_images(release: Dict) -> dict[str, SupportedImage]:
         "quay.io/mongodb/mongodb-agent-ubi",
         release["supportedImages"]["mongodb-agent"]["ssdlc_name"],
         list(),
-        # Once MEKO supports both architectures, this should be re-enabled.
+        # Once MCK supports both architectures, this should be re-enabled.
         # ["linux/amd64", "linux/arm64"],
         ["linux/amd64"],
         Subreport.AGENT,
@@ -108,11 +108,12 @@ def get_supported_images(release: Dict) -> dict[str, SupportedImage]:
         [release["mongodbOperator"]],
         "mongodb-kubernetes-cli",
         "mongodb-kubernetes-cli",
-        "MongoDB Kubernetes Kubernetes Operator CLI",
+        "MongoDB Controllers for Kubernetes CLI",
         list(),
         ["linux/amd64", "linux/arm64", "darwin/amd64", "darwin/arm64"],
         Subreport.OPERATOR,
     )
+
     supported_images = filter_out_non_current_versions(release, supported_images)
     logger.debug(f"Supported images: {supported_images}")
     return supported_images

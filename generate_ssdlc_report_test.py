@@ -31,21 +31,21 @@ def test_report_generation():
     assert os.path.exists(f"{current_directory}/ssdlc-report/MCK-{current_version}")
     assert os.path.exists(f"{current_directory}/ssdlc-report/MCK-{current_version}/Containerized MongoDB Agent")
     assert os.listdir(f"{current_directory}/ssdlc-report/MCK-{current_version}/Containerized MongoDB Agent") != []
-    assert os.path.exists(f"{current_directory}/ssdlc-report/MCK-{current_version}/Containerized OpsManager")
-    assert os.listdir(f"{current_directory}/ssdlc-report/MCK-{current_version}/Containerized OpsManager") != []
-    if os.path.exists(f"{current_directory}/ssdlc-report/MCK-{current_version}/Enterprise Kubernetes Operator"):
+    assert os.path.exists(f"{current_directory}/ssdlc-report/MCK-{current_version}/Containerized MongoDB Enterprise OpsManager")
+    assert os.listdir(f"{current_directory}/ssdlc-report/MCK-{current_version}/Containerized MongoDB Enterprise OpsManager") != []
+    if os.path.exists(f"{current_directory}/ssdlc-report/MCK-{current_version}/MongoDB Controllers for Kubernetes"):
         assert (
-            os.listdir(f"{current_directory}/ssdlc-report/MCK-{current_version}/Enterprise Kubernetes Operator") != []
+            os.listdir(f"{current_directory}/ssdlc-report/MCK-{current_version}/MongoDB Controllers for Kubernetes") != []
         )
     assert os.path.exists(
         f"{current_directory}/ssdlc-report/MCK-{current_version}/SSDLC Containerized MongoDB Agent {current_version}.md"
     )
     assert os.path.exists(
-        f"{current_directory}/ssdlc-report/MCK-{current_version}/SSDLC Containerized MongoDB Enterprise Kubernetes Operator {current_version}.md"
+        f"{current_directory}/ssdlc-report/MCK-{current_version}/SSDLC Containerized MongoDB Controllers for Kubernetes {current_version}.md"
     )
     assert os.path.exists(
         f"{current_directory}/ssdlc-report/MCK-{current_version}/SSDLC Containerized MongoDB Enterprise OpsManager {current_version}.md"
     )
     assert os.path.exists(
-        f"{current_directory}/ssdlc-report/MCK-{current_version}/SSDLC MongoDB Enterprise Operator Testing Report {current_version}.md"
+        f"{current_directory}/ssdlc-report/MCK-{current_version}/SSDLC MongoDB Controllers for Kubernetes Testing Report {current_version}.md"
     )
