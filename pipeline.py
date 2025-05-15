@@ -1518,38 +1518,11 @@ def build_all_images(
         build_image(image, build_configuration)
 
 
-def calculate_images_to_build(
-    images: List[str], include: Optional[List[str]], exclude: Optional[List[str]]
-) -> Set[str]:
-    """
-    Calculates which images to build based on the `images`, `include` and `exclude` sets.
-
-    >>> calculate_images_to_build(["a", "b"], ["a"], ["b"])
-    ... ["a"]
-    """
-
-    if not include and not exclude:
-        return set(images)
-    include = set(include or [])
-    exclude = set(exclude or [])
-    images = set(images or [])
-
-    for image in include.union(exclude):
-        if image not in images:
-            raise ValueError("Image definition {} not found".format(image))
-
-    images_to_build = include.intersection(images)
-    if exclude:
-        images_to_build = images.difference(exclude)
-    return images_to_build
-
-
 def main():
     _setup_tracing()
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--include", action="append")
-    parser.add_argument("--exclude", action="append")
+    parser.add_argument("--include", required=True)
     parser.add_argument("--builder", default="docker", type=str)
     parser.add_argument("--list-images", action="store_true")
     parser.add_argument("--parallel", action="store_true", default=False)
@@ -1587,12 +1560,17 @@ def main():
     if not args.sign:
         logger.warning("--sign flag not provided, images won't be signed")
 
-    images_to_build = calculate_images_to_build(
-        list(get_builder_function_for_image_name().keys()), args.include, args.exclude
-    )
+    if args.include is None:
+        print("No images to build, --include is required.")
+        sys.exit(1)
+
+    image_to_build = args.include
+    if args.include not in get_builder_function_for_image_name():
+        print("Image {} not found".format(args.include))
+        sys.exit(1)
 
     build_all_images(
-        images_to_build,
+        image_to_build,
         args.builder,
         debug=args.debug,
         parallel=args.parallel,
