@@ -91,3 +91,6 @@ docker/mongodb-kubernetes-tests/.test_identifiers*
 logs-debug/
 /ssdlc-report/*
 .gocache/
+
+docs/**/log/*
+docs/**/test.sh.run.log
