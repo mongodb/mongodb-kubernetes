@@ -52,7 +52,7 @@ As an open-source project, MCK allows for community contributions, helping drive
 No impact on current contracts or agreements.
 
 ### Migration
-Migration from [MongoDB Community Operator](https://github.com/mongodb/mongodb-kubernetes-operator) and [MongoDB Enterprise Kubernetes Operator](https://www.mongodb.com/docs/kubernetes-operator/current/) to MCK is seamless: your MongoDB deployments are not impacted by the upgrade and require no changes. Simply follow the upgrade instructions provided in the MCK documentation. See our [migration guidance](https://dochub.mongodb.org/core/migrate-to-mck).
+Migration from [MongoDB Community Operator](https://github.com/mongodb/mongodb-kubernetes-operator) and [MongoDB Enterprise Kubernetes Operator](https://www.mongodb.com/docs/kubernetes-operator/current/) to MCK is seamless: your MongoDB deployments are not impacted by the upgrade and require no changes. Simply follow the upgrade instructions provided in the MCK documentation.
 See our detailed migration guides:
 - [Migrating from MongoDB Community Operator](docs/migration/community-operator-migration.md)
 - [Migrating from MongoDB Enterprise Kubernetes Operator](https://www.mongodb.com/docs/kubernetes/current/tutorial/migrate-to-mck/)
