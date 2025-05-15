@@ -17,8 +17,8 @@
     }
   },
   "supportedImages": {
-    "mongodb-kubernetes-readinessprobe": {
-      "ssdlc_name": "MongoDB Community Operator Readiness Probe",
+    "readinessprobe": {
+      "ssdlc_name": "MongoDB Controllers for Kubernetes Readiness Probe",
       "versions": [
         "1.0.22"
       ],
@@ -26,8 +26,8 @@
         "ubi"
       ]
     },
-    "mongodb-kubernetes-operator-version-upgrade-post-start-hook": {
-      "ssdlc_name": "MongoDB Community Operator Version Upgrade Hook",
+    "operator-version-upgrade-post-start-hook": {
+      "ssdlc_name": "MongoDB Controllers for Kubernetes Operator Version Upgrade Hook",
       "versions": [
         "1.0.9"
       ],

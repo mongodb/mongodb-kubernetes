@@ -45,7 +45,10 @@ class Subreport(enum.Enum):
         "Containerized MongoDB Enterprise OpsManager",
         "scripts/ssdlc/templates/SSDLC Containerized MongoDB Enterprise OpsManager ${VERSION}.md",
     )
-    TESTING = ("not-used", "scripts/ssdlc/templates/SSDLC MongoDB Controllers for Kubernetes Testing Report ${VERSION}.md")
+    TESTING = (
+        "not-used",
+        "scripts/ssdlc/templates/SSDLC MongoDB Controllers for Kubernetes Testing Report ${VERSION}.md",
+    )
 
     def __new__(cls, *args, **kwds):
         value = len(cls.__members__) + 1
@@ -143,10 +146,6 @@ def filter_out_unsupported_images(supported_images: Dict[str, SupportedImage]):
         del supported_images["appdb-database"]
     if "mongodb-enterprise-server" in supported_images:
         del supported_images["mongodb-enterprise-server"]
-    if "mongodb-kubernetes-operator-version-upgrade-post-start-hook" in supported_images:
-        del supported_images["mongodb-kubernetes-operator-version-upgrade-post-start-hook"]
-    if "mongodb-kubernetes-readinessprobe" in supported_images:
-        del supported_images["mongodb-kubernetes-readinessprobe"]
     if "mongodb-kubernetes-operator" in supported_images:
         del supported_images["mongodb-kubernetes-operator"]
     return supported_images
@@ -155,7 +154,11 @@ def filter_out_unsupported_images(supported_images: Dict[str, SupportedImage]):
 def filter_out_non_current_versions(release: Dict, supported_images: Dict[str, SupportedImage]):
     for supported_image_key in supported_images:
         supported_image = supported_images[supported_image_key]
-        if supported_image.subreport == Subreport.OPERATOR:
+        # For old MCO artefacts "readinessprobe" and "operator-version-upgrade-post-start-hook" we don't expect to match operator versioning scheme
+        if supported_image.subreport == Subreport.OPERATOR and supported_image_key not in [
+            "readinessprobe",
+            "operator-version-upgrade-post-start-hook",
+        ]:
             supported_image.versions = filter(lambda x: x == release["mongodbOperator"], supported_image.versions)
     return supported_images
 

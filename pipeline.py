@@ -659,15 +659,13 @@ def args_for_daily_image(image_name: str) -> Dict[str, str]:
             ubi_suffix="",
         ),
         image_config(
-            image_name="mongodb-kubernetes-readinessprobe",
+            image_name="readinessprobe",
             ubi_suffix="",
-            name_prefix="",
             s3_bucket="enterprise-operator-dockerfiles",
         ),
         image_config(
-            image_name="mongodb-kubernetes-operator-version-upgrade-post-start-hook",
+            image_name="operator-version-upgrade-post-start-hook",
             ubi_suffix="",
-            name_prefix="",
             s3_bucket="enterprise-operator-dockerfiles",
         ),
     ]
@@ -1458,11 +1456,11 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         # This only builds the agents without the operator suffix
         "mongodb-agent-daily": build_image_daily("mongodb-agent", operator_version="onlyAgents"),
         # Community images
-        "mongodb-kubernetes-readinessprobe-daily": build_image_daily(
-            "mongodb-kubernetes-readinessprobe",
+        "readinessprobe-daily": build_image_daily(
+            "readinessprobe",
         ),
-        "mongodb-kubernetes-operator-version-upgrade-post-start-hook-daily": build_image_daily(
-            "mongodb-kubernetes-operator-version-upgrade-post-start-hook",
+        "operator-version-upgrade-post-start-hook-daily": build_image_daily(
+            "operator-version-upgrade-post-start-hook",
         ),
         "mongodb-kubernetes-operator-daily": build_image_daily("mongodb-kubernetes-operator"),
     }
