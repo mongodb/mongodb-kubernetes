@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from pipeline import (
-    calculate_images_to_build,
+    get_included_images,
     gather_all_supported_agent_versions,
     gather_latest_agent_versions,
     get_versions_to_rebuild,
@@ -62,58 +62,6 @@ def test_operator_build_configuration_defaults():
         assert config.image_type == "ubi"
         assert config.base_repository == ""
         assert config.namespace == "default"
-
-
-@pytest.mark.parametrize(
-    "test_case",
-    [
-        (["a", "b", "c"], ["a"], ["b"], {"a", "c"}),
-        (["a", "b", "c"], ["a", "b"], None, {"a", "b"}),
-        (["a", "b", "c"], None, ["a"], {"b", "c"}),
-        (["a", "b", "c"], [], [], {"a", "b", "c"}),
-        (["a", "b", "c"], ["d"], None, ValueError),
-        (["a", "b", "c"], None, ["d"], ValueError),
-        ([], ["a"], ["b"], ValueError),
-        (["a", "b", "c"], None, None, {"a", "b", "c"}),
-        # Given an include, it should only return include images
-        (["cli", "ops-manager", "appdb-daily", "init-appdb"], ["cli"], [], {"cli"}),
-        # Given no include nor excludes it should return all images
-        (
-            ["cli", "ops-manager", "appdb-daily", "init-appdb"],
-            [],
-            [],
-            {"init-appdb", "appdb-daily", "ops-manager", "cli"},
-        ),
-        # Given an exclude, it should return all images except the excluded ones
-        (
-            ["cli", "ops-manager", "appdb-daily", "init-appdb"],
-            [],
-            ["init-appdb", "appdb-daily"],
-            {"ops-manager", "cli"},
-        ),
-        # Given an include and a different exclude, it should return all images except the exclusions
-        (
-            ["cli", "ops-manager", "appdb-daily", "init-appdb"],
-            ["appdb-daily"],
-            ["init-appdb"],
-            {"appdb-daily", "cli", "ops-manager"},
-        ),
-        # Given multiple includes and a different exclude, it should return all images except the exclusions
-        (
-            ["cli", "ops-manager", "appdb-daily", "init-appdb"],
-            ["cli", "appdb-daily"],
-            ["init-appdb"],
-            {"appdb-daily", "cli", "ops-manager"},
-        ),
-    ],
-)
-def test_calculate_images_to_build(test_case):
-    images, include, exclude, expected = test_case
-    if expected is ValueError:
-        with pytest.raises(ValueError):
-            calculate_images_to_build(images, include, exclude)
-    else:
-        assert calculate_images_to_build(images, include, exclude) == expected
 
 
 @pytest.mark.parametrize(
