@@ -48,7 +48,7 @@ def docker_build(
 
         client = docker_client()
         image = client.images.get(image_name)
-        logger.info("successfully build docker-image, SHA256: {}".format(image.id))
+        logger.info("successfully built docker-image, SHA256: {}".format(image.id))
 
         span = trace.get_current_span()
         span.set_attribute("mck.image.sha256", image.id)
