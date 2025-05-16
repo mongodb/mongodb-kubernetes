@@ -39,12 +39,14 @@ import (
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
+	"github.com/mongodb/mongodb-kubernetes/controllers/search_controller"
 	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	mcoController "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers"
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/pprof"
 	"github.com/mongodb/mongodb-kubernetes/pkg/telemetry"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
@@ -59,6 +61,7 @@ const (
 	mongoDBOpsManagerCRDPlural   = "opsmanagers"
 	mongoDBMultiClusterCRDPlural = "mongodbmulticluster"
 	mongoDBCommunityCRDPlural    = "mongodbcommunity"
+	mongoDBSearchCRDPlural       = "mongodbsearch"
 )
 
 var (
@@ -101,10 +104,8 @@ func (c *crdsToWatch) String() string {
 func main() {
 	flag.Parse()
 	// If no CRDs are specified, we set default to non-multicluster CRDs
-	// TODO MCK: consider not making mongoDBCommunityCRDPlural part of the default list
-	// what happens if we watch this, but its not installed?
 	if len(crds) == 0 {
-		crds = crdsToWatch{mongoDBCRDPlural, mongoDBUserCRDPlural, mongoDBOpsManagerCRDPlural, mongoDBCommunityCRDPlural}
+		crds = crdsToWatch{mongoDBCRDPlural, mongoDBUserCRDPlural, mongoDBOpsManagerCRDPlural, mongoDBCommunityCRDPlural, mongoDBSearchCRDPlural}
 	}
 
 	ctx := context.Background()
@@ -237,6 +238,11 @@ func main() {
 			log.Fatal(err)
 		}
 	}
+	if slices.Contains(crds, mongoDBSearchCRDPlural) {
+		if err := setupMongoDBSearchCRD(ctx, mgr); err != nil {
+			log.Fatal(err)
+		}
+	}
 
 	for _, r := range crds {
 		log.Infof("Registered CRD: %s", r)
@@ -244,15 +250,16 @@ func main() {
 
 	if slices.Contains(crds, mongoDBCommunityCRDPlural) {
 		if err := setupCommunityController(
+			ctx,
 			mgr,
 			envvar.GetEnvOrDefault(mcoConstruct.MongodbCommunityRepoUrlEnv, "quay.io/mongodb"),
 			// when running MCO resource -> mongodb-community-server
 			// when running appdb -> mongodb-enterprise-server
 			env.ReadOrPanic(mcoConstruct.MongodbCommunityImageEnv),
 			envvar.GetEnvOrDefault(mcoConstruct.MongoDBCommunityImageTypeEnv, mcoConstruct.DefaultImageType),
-			os.Getenv(util.MongodbCommunityAgentImageEnv),
-			os.Getenv(mcoConstruct.VersionUpgradeHookImageEnv),
-			os.Getenv(mcoConstruct.ReadinessProbeImageEnv),
+			env.ReadOrPanic(util.MongodbCommunityAgentImageEnv),
+			env.ReadOrPanic(mcoConstruct.VersionUpgradeHookImageEnv),
+			env.ReadOrPanic(mcoConstruct.ReadinessProbeImageEnv),
 		); err != nil {
 			log.Fatal(err)
 		}
@@ -269,6 +276,16 @@ func main() {
 		}
 	} else {
 		log.Info("Not running telemetry component!")
+	}
+
+	pprofEnabledString := env.ReadOrDefault(util.OperatorPprofEnabledEnv, "")
+	if pprofEnabled, err := pprof.IsPprofEnabled(pprofEnabledString, getOperatorEnv()); err != nil {
+		log.Errorf("Unable to check if pprof is enabled: %s", err)
+	} else if pprofEnabled {
+		port := env.ReadIntOrDefault(util.OperatorPprofPortEnv, util.OperatorPprofDefaultPort)
+		if err := mgr.Add(pprof.NewRunnable(port, log)); err != nil {
+			log.Errorf("Unable to start pprof server: %s", err)
+		}
 	}
 
 	log.Info("Starting the Cmd.")
@@ -310,7 +327,16 @@ func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, image
 	return ctrl.NewWebhookManagedBy(mgr).For(&mdbmultiv1.MongoDBMultiCluster{}).Complete()
 }
 
+func setupMongoDBSearchCRD(ctx context.Context, mgr manager.Manager) error {
+	return operator.AddMongoDBSearchController(ctx, mgr, search_controller.OperatorSearchConfig{
+		SearchRepo:    env.ReadOrPanic("MDB_SEARCH_COMMUNITY_REPO_URL"),
+		SearchName:    env.ReadOrPanic("MDB_SEARCH_COMMUNITY_NAME"),
+		SearchVersion: env.ReadOrPanic("MDB_SEARCH_COMMUNITY_VERSION"),
+	})
+}
+
 func setupCommunityController(
+	ctx context.Context,
 	mgr manager.Manager,
 	mongodbRepoURL string,
 	mongodbImage string,
@@ -424,6 +450,8 @@ func initializeEnvironment() {
 		"MONGODB_",
 		"INIT_",
 		"MDB_",
+		"READINESS_PROBE_IMAGE",
+		"VERSION_UPGRADE_HOOK_IMAGE",
 	}
 
 	// Only env variables with one of these prefixes will be printed

@@ -1,6 +1,0 @@
-ARG imagebase
-FROM ${imagebase} AS builder
-
-FROM {{base_image}}
-
-COPY --from=builder /version-upgrade-hook /version-upgrade-hook

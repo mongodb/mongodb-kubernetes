@@ -30,7 +30,7 @@ metadata:
   creationTimestamp: null
   labels:
     multi-cluster: "true"
-  name: mongodb-enterprise-operator-multi-role
+  name: mongodb-kubernetes-operator-multi-role
   namespace: member-namespace
 rules:
 - apiGroups:
@@ -93,12 +93,12 @@ metadata:
   creationTimestamp: null
   labels:
     multi-cluster: "true"
-  name: mongodb-enterprise-operator-multi-role-binding
+  name: mongodb-kubernetes-operator-multi-role-binding
   namespace: member-namespace
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: mongodb-enterprise-operator-multi-role
+  name: mongodb-kubernetes-operator-multi-role
 subjects:
 - kind: ServiceAccount
   name: test-service-account

@@ -449,10 +449,10 @@ def build_tests_image(build_configuration: BuildConfiguration):
 
     # helm directory needs to be copied over to the tests docker context.
     helm_src = "helm_chart"
-    helm_dest = "docker/mongodb-enterprise-tests/helm_chart"
-    requirements_dest = "docker/mongodb-enterprise-tests/requirements.txt"
+    helm_dest = "docker/mongodb-kubernetes-tests/helm_chart"
+    requirements_dest = "docker/mongodb-kubernetes-tests/requirements.txt"
     public_src = "public"
-    public_dest = "docker/mongodb-enterprise-tests/public"
+    public_dest = "docker/mongodb-kubernetes-tests/public"
 
     # Remove existing directories/files if they exist
     shutil.rmtree(helm_dest, ignore_errors=True)
@@ -461,7 +461,7 @@ def build_tests_image(build_configuration: BuildConfiguration):
     # Copy directories and files (recursive copy)
     shutil.copytree(helm_src, helm_dest)
     shutil.copytree(public_src, public_dest)
-    shutil.copyfile("release.json", "docker/mongodb-enterprise-tests/release.json")
+    shutil.copyfile("release.json", "docker/mongodb-kubernetes-tests/release.json")
     shutil.copyfile("requirements.txt", requirements_dest)
 
     python_version = os.getenv("PYTHON_VERSION", "")
@@ -576,7 +576,7 @@ def build_operator_image_patch(build_configuration: BuildConfiguration):
         return
 
     container_name = "mongodb-enterprise-operator"
-    operator_binary_location = "/usr/local/bin/mongodb-enterprise-operator"
+    operator_binary_location = "/usr/local/bin/mongodb-kubernetes-operator"
     try:
         client.containers.get(container_name).remove()
         logger.debug(f"Removed {container_name}")
@@ -591,7 +591,7 @@ def build_operator_image_patch(build_configuration: BuildConfiguration):
 
     copy_into_container(
         client,
-        os.getcwd() + "/docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator",
+        os.getcwd() + "/docker/mongodb-kubernetes-operator/content/mongodb-kubernetes-operator",
         container_name + ":" + operator_binary_location,
     )
 
@@ -972,7 +972,14 @@ def build_om_image(build_configuration: BuildConfiguration):
         "version": om_version,
         "om_download_url": om_download_url,
     }
-    build_image_generic(build_configuration, "ops-manager", "inventories/om.yaml", args)
+
+    build_image_generic(
+        config=build_configuration,
+        image_name="ops-manager",
+        inventory_file="inventories/om.yaml",
+        extra_args=args,
+        registry_address=f"{QUAY_REGISTRY_URL}/mongodb-enterprise-ops-manager",
+    )
 
 
 def build_image_generic(
@@ -1171,11 +1178,11 @@ def build_multi_arch_agent_in_sonar(
     ecr_registry = os.environ.get("REGISTRY", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
     ecr_agent_registry = ecr_registry + f"/mongodb-agent-ubi"
     quay_agent_registry = QUAY_REGISTRY_URL + f"/mongodb-agent-ubi"
-    joined_args = [arch_amd]
+    joined_args = [args | arch_amd]
 
     # Only include arm64 if we shouldn't skip it
     if not should_skip_arm64():
-        joined_args.append(arch_arm)
+        joined_args.append(args | arch_arm)
 
     build_image_generic(
         config=build_configuration,

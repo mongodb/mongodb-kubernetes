@@ -26,6 +26,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/generate"
 	e2eutil "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e"
 	waite2e "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/util/wait"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 type HelmArg struct {
@@ -36,7 +37,7 @@ type HelmArg struct {
 const (
 	performCleanupEnv                   = "PERFORM_CLEANUP"
 	CommunityHelmChartAndDeploymentName = "mongodb-community-operator"
-	MCKHelmChartAndDeploymentName       = "mongodb-mck-operator"
+	MCKHelmChartAndDeploymentName       = util.OperatorName
 )
 
 func Setup(ctx context.Context, t *testing.T) *e2eutil.TestContext {
@@ -239,6 +240,11 @@ func getMCOHelmArgs(testConfig TestConfig, watchNamespace string, resourceName s
 // DeployMCKOperator installs all resources required by the operator using helm.
 func DeployMCKOperator(ctx context.Context, t *testing.T, config TestConfig, resourceName string, withTLS bool, defaultOperator bool, additionalHelmArgs ...HelmArg) error {
 	e2eutil.OperatorNamespace = config.Namespace
+
+	if config.LocalOperator {
+		fmt.Printf("Skipping installing the operator due to %s=true\n", LocalOperatorEnvName)
+		return nil
+	}
 	fmt.Printf("Setting operator namespace to %s\n", e2eutil.OperatorNamespace)
 	watchNamespace := config.Namespace
 	if config.ClusterWide {

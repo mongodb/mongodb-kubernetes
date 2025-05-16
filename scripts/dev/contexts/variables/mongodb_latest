@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+export CUSTOM_MDB_VERSION=8.0.6
+export CUSTOM_MDB_PREV_VERSION=7.0.18
