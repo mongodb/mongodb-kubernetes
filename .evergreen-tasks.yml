@@ -85,7 +85,7 @@ tasks:
       - func: sample_commit_output
 
   - name: task_kind_community_search_snippets
-    tags: [ "patch-run" ]
+    tags: [ "code_snippets", "patch-run" ]
     commands:
       - func: test_code_snippets
       - func: sample_commit_output
