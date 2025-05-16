@@ -81,13 +81,15 @@ fi
 
 aws ecr get-login-password --region "eu-west-1" | docker login --username AWS --password-stdin 268558157000.dkr.ecr.eu-west-1.amazonaws.com
 
-# log in to quay.io for the mongodb/mongodb-search-community private repo
-# TODO remove once we switch to the official repo in Public Preview
-quay_io_auth_file=$(mktemp)
-docker_configjson_tmp=$(mktemp)
-echo "${COMMUNITY_PRIVATE_PREVIEW_PULLSECRET_DOCKERCONFIGJSON}" | base64 -d > "${quay_io_auth_file}"
-jq -s '.[0] * .[1]' "${quay_io_auth_file}" ~/.docker/config.json > "${docker_configjson_tmp}"
-mv "${docker_configjson_tmp}" ~/.docker/config.json
-rm "${quay_io_auth_file}"
+if [[ -n "${COMMUNITY_PRIVATE_PREVIEW_PULLSECRET_DOCKERCONFIGJSON:-}" ]]; then
+  # log in to quay.io for the mongodb/mongodb-search-community private repo
+  # TODO remove once we switch to the official repo in Public Preview
+  quay_io_auth_file=$(mktemp)
+  docker_configjson_tmp=$(mktemp)
+  echo "${COMMUNITY_PRIVATE_PREVIEW_PULLSECRET_DOCKERCONFIGJSON}" | base64 -d > "${quay_io_auth_file}"
+  jq -s '.[0] * .[1]' "${quay_io_auth_file}" ~/.docker/config.json > "${docker_configjson_tmp}"
+  mv "${docker_configjson_tmp}" ~/.docker/config.json
+  rm "${quay_io_auth_file}"
+fi
 
 create_image_registries_secret
