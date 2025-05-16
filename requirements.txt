@@ -10,7 +10,7 @@ chardet==3.0.4
 jsonpatch==1.33
 kubernetes==17.17.0
 pymongo==4.6.3
-pytest==7.4.3
+pytest==8.3.5
 pytest-asyncio==0.26.0
 PyYAML==6.0.2
 urllib3==1.26.19
@@ -44,5 +44,5 @@ types-PyYAML==6.0.12.20250402
 types-pytz==2021.1.0
 types-python-dateutil==0.1.4
 pipupgrade==1.12.0
-pytest-cov==6.0.0
+pytest-cov==6.1.1
 pytest-socket==0.7.0
