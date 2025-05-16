@@ -3,9 +3,8 @@ package status
 import (
 	"fmt"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/scalers/interfaces"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers/interfaces"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
 )
 
 func MembersOption(replicaSetscaler scale.ReplicaSetScaler) Option {

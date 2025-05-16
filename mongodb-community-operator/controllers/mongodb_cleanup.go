@@ -2,11 +2,13 @@ package controllers
 
 import (
 	"context"
-	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+
 	"k8s.io/apimachinery/pkg/types"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/constants"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
 )
 
 // cleanupPemSecret cleans up the old pem secret generated for the agent certificate.

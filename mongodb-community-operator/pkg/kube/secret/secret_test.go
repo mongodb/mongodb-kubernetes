@@ -5,11 +5,12 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type secretGetter struct {
@@ -84,7 +85,6 @@ func TestReadData(t *testing.T) {
 		assert.Equal(t, []byte("value1"), data["key1"])
 		assert.Equal(t, []byte("value2"), data["key2"])
 	})
-
 }
 
 func nsName(namespace, name string) types.NamespacedName {
@@ -226,11 +226,10 @@ func TestCreateOrUpdateIfNeededEqual(t *testing.T) {
 }
 
 func getDefaultSecret() corev1.Secret {
-	secret :=
-		Builder().
-			SetName("secret").
-			SetNamespace("mdb.Namespace").
-			SetStringMapToData(map[string]string{"password": "my-password"}).
-			Build()
+	secret := Builder().
+		SetName("secret").
+		SetNamespace("mdb.Namespace").
+		SetStringMapToData(map[string]string{"password": "my-password"}).
+		Build()
 	return secret
 }

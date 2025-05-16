@@ -30,7 +30,6 @@ func ReplicasThisReconciliation(replicaSetScaler ReplicaSetScaler) int {
 	}
 
 	return replicaSetScaler.CurrentReplicas() + 1
-
 }
 
 func IsStillScaling(replicaSetScaler ReplicaSetScaler) bool {

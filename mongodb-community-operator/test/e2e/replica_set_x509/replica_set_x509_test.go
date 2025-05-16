@@ -6,17 +6,18 @@ import (
 	"os"
 	"testing"
 
-	corev1 "k8s.io/api/core/v1"
+	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/types"
 
-	v1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/constants"
-	e2eutil "github.com/mongodb/mongodb-kubernetes-operator/test/e2e"
-	"github.com/mongodb/mongodb-kubernetes-operator/test/e2e/mongodbtests"
-	"github.com/mongodb/mongodb-kubernetes-operator/test/e2e/setup"
-	"github.com/mongodb/mongodb-kubernetes-operator/test/e2e/tlstests"
-	. "github.com/mongodb/mongodb-kubernetes-operator/test/e2e/util/mongotester"
-	"github.com/stretchr/testify/assert"
+	corev1 "k8s.io/api/core/v1"
+
+	v1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
+	e2eutil "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/mongodbtests"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/setup"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/tlstests"
+	. "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/util/mongotester"
 )
 
 func TestMain(m *testing.M) {
@@ -31,8 +32,8 @@ func TestReplicaSetX509(t *testing.T) {
 	ctx := context.Background()
 	resourceName := "mdb-tls"
 	helmArgs := []setup.HelmArg{
-		{Name: "resource.tls.useX509", Value: "true"},
-		{Name: "resource.tls.sampleX509User", Value: "true"},
+		{Name: "community.resource.tls.useX509", Value: "true"},
+		{Name: "community.resource.tls.sampleX509User", Value: "true"},
 	}
 	testCtx, testConfig := setup.SetupWithTLS(ctx, t, resourceName, helmArgs...)
 	defer testCtx.Teardown()
@@ -152,7 +153,6 @@ func TestReplicaSetX509(t *testing.T) {
 		t.Run("Basic tests", mongodbtests.BasicFunctionality(ctx, &mdb))
 		t.Run("Connectivity Succeeds", tester.ConnectivitySucceeds(WithURI(fmt.Sprintf("%s&tlsCAFile=%s&tlsCertificateKeyFile=%s", mongodbtests.GetConnectionStringForUser(ctx, mdb, users[0]), root, cert))))
 	})
-
 }
 
 func getValidUser() v1.MongoDBUser {

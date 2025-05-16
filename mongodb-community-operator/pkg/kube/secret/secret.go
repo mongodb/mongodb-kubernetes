@@ -6,13 +6,14 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/contains"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/contains"
 )
 
 type Getter interface {
@@ -163,7 +164,6 @@ func CopySecret(ctx context.Context, fromClient Getter, toClient GetUpdateCreato
 // Exists return whether a secret with the given namespaced name exists
 func Exists(ctx context.Context, secretGetter Getter, nsName types.NamespacedName) (bool, error) {
 	_, err := secretGetter.GetSecret(ctx, nsName)
-
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
 			return false, nil

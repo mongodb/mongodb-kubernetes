@@ -2,19 +2,20 @@ package authentication
 
 import (
 	"context"
-	mdbv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	"testing"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/authtypes"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/mocks"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/x509"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/constants"
-	"github.com/stretchr/testify/assert"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/authtypes"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/mocks"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/x509"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
 )
 
 func TestEnable(t *testing.T) {
@@ -130,7 +131,6 @@ func TestEnable(t *testing.T) {
 		assert.Equal(t, "CN=my-user,OU=organizationalunit,O=organization", auth.Users[1].Username)
 		assert.Equal(t, "CN=mms-automation-agent,OU=ENG,O=MongoDB,C=US", auth.AutoUser)
 	})
-
 }
 
 func TestGetDeletedUsers(t *testing.T) {

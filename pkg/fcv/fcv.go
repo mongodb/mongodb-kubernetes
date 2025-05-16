@@ -1,6 +1,6 @@
 package fcv
 
-import "github.com/10gen/ops-manager-kubernetes/pkg/util"
+import "github.com/mongodb/mongodb-kubernetes/pkg/util"
 
 func CalculateFeatureCompatibilityVersion(currentVersionFromCR string, fcvFromStatus string, fcvFromCR *string) string {
 	majorMinorVersionFromCR, setVersion, _ := util.MajorMinorVersion(currentVersionFromCR)

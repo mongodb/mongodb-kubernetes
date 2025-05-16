@@ -3,16 +3,16 @@ package controllers
 import (
 	"testing"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	"github.com/stretchr/testify/assert"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/stretchr/testify/assert"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 )
 
 const testVersion string = "4.2.6"
 
 func TestMongoUriOption_ApplyOption(t *testing.T) {
-
 	mdb := newReplicaSet(3, testVersion, "my-rs", "my-ns")
 
 	opt := mongoUriOption{

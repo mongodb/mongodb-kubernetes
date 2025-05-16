@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/10gen/ops-manager-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 )
 
 var jsonContents = `
