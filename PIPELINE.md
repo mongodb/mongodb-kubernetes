@@ -35,7 +35,7 @@ Default evergreen-ci expansions can be looked up [here](https://docs.devprod.pro
 
 ```
                       ┌─────────────────────────────┐
-                      │       Release Pipeline       │
+                      │       Release Pipeline      │
                       └────────────┬────────────────┘
                                    │
                                    ▼
