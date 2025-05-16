@@ -1862,7 +1862,7 @@ buildvariants:
 
   - name: private_kind_code_snippets
     display_name: private_kind_code_snippets
-    allowed_requesters: ["patch"]
+    allowed_requesters: ["patch", "github_pr"]
     run_on:
       - ubuntu2204-large
     <<: *base_om8_dependency
