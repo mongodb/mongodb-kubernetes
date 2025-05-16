@@ -48,7 +48,7 @@ const (
 	databaseLivenessProbeCommand  = "/opt/scripts/probe.sh"
 	databaseReadinessProbeCommand = "/opt/scripts/readinessprobe"
 
-	InitDatabaseContainerName = "mongodb-enterprise-init-database"
+	InitDatabaseContainerName = "mongodb-kubernetes-init-database"
 
 	// Database environment variable names
 	InitDatabaseVersionEnv = "INIT_DATABASE_VERSION"
