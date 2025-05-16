@@ -4,10 +4,10 @@ import (
 	"go.uber.org/zap"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/apierrors"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/result"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/status"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/apierrors"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/result"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/status"
 )
 
 // severity indicates the severity level

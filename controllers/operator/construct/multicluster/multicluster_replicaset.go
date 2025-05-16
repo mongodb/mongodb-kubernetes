@@ -5,13 +5,13 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/merge"
-	"github.com/10gen/ops-manager-kubernetes/pkg/handler"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 func MultiClusterReplicaSetOptions(additionalOpts ...func(options *construct.DatabaseStatefulSetOptions)) func(mdbm mdbmultiv1.MongoDBMultiCluster) construct.DatabaseStatefulSetOptions {
@@ -84,7 +84,7 @@ func statefulSetAnnotations(mdbmName string, certHash string) map[string]string 
 
 func PodLabel(mdbmName string) map[string]string {
 	return map[string]string{
-		util.OperatorLabelName:            util.OperatorName,
+		util.OperatorLabelName:            util.OperatorLabelValue,
 		construct.PodAntiAffinityLabelKey: mdbmName,
 	}
 }

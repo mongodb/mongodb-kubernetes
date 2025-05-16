@@ -5,7 +5,7 @@ set -Eeou pipefail
 get_operator_helm_values() {
   # shellcheck disable=SC2153
   local database_registry=${DATABASE_REGISTRY}
-  local database_name=${DATABASE_NAME:=mongodb-enterprise-database-ubi}
+  local database_name=${DATABASE_NAME:=mongodb-kubernetes-database}
 
   declare -a config=(
     "managedSecurityContext=${MANAGED_SECURITY_CONTEXT:-false}"
@@ -19,7 +19,7 @@ get_operator_helm_values() {
     "registry.appDb=${APPDB_REGISTRY}"
     "registry.database=${database_registry}"
     "opsManager.name=${OPS_MANAGER_NAME:=mongodb-enterprise-ops-manager-ubi}"
-    "database.name=${database_name:=mongodb-enterprise-database-ubi}"
+    "database.name=${database_name:=mongodb-kubernetes-database}"
     "operator.version=${OPERATOR_VERSION-${VERSION_ID}}"
     "initOpsManager.version=${INIT_OPS_MANAGER_VERSION:-${VERSION_ID}}"
     "initAppDb.version=${INIT_APPDB_VERSION:-${VERSION_ID}}"

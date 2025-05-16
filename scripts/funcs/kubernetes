@@ -130,8 +130,12 @@ create_image_registries_secret() {
     current_ctx=$(kubectl config current-context)
     create_pull_secret "${current_ctx}" "${NAMESPACE}" "${secret_name}" &
     for ns in ${WATCH_NAMESPACE//,/ }; do
+      if [[ "${ns}" == "${NAMESPACE}" ]]; then
+        continue
+      fi
       create_pull_secret "${current_ctx}" "${ns}" "${secret_name}" &
     done
+    wait
   fi
 }
 

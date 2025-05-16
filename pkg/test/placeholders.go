@@ -1,6 +1,6 @@
 package test
 
-import "github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
+import "github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
 
 var MultiClusterAnnotationsWithPlaceholders = map[string]string{
 	create.PlaceholderPodIndex:            "{podIndex}",

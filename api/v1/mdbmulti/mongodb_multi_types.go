@@ -10,20 +10,20 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/ldap"
-	mdbc "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
-	"github.com/10gen/ops-manager-kubernetes/pkg/fcv"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster/failedcluster"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	intp "github.com/10gen/ops-manager-kubernetes/pkg/util/int"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
+	mdbc "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
+	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster/failedcluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	intp "github.com/mongodb/mongodb-kubernetes/pkg/util/int"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
 func init() {
@@ -169,7 +169,7 @@ func (m *MongoDBMultiCluster) ObjectKey() client.ObjectKey {
 
 func (m *MongoDBMultiCluster) GetOwnerLabels() map[string]string {
 	return map[string]string{
-		util.OperatorLabelName: util.OperatorName,
+		util.OperatorLabelName: util.OperatorLabelValue,
 		LabelResourceOwner:     fmt.Sprintf("%s-%s", m.Namespace, m.Name),
 	}
 }

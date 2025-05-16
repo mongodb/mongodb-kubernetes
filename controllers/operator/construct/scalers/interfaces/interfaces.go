@@ -1,6 +1,6 @@
 package interfaces
 
-import "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/scale"
+import "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
 
 type MultiClusterReplicaSetScaler interface {
 	scale.ReplicaSetScaler

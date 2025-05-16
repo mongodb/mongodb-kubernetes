@@ -50,7 +50,7 @@ def get_supported_version_for_image_matrix_handling(
 
 
 def get_supported_operator_versions(supported_versions: int = DEFAULT_SUPPORTED_OPERATOR_VERSIONS):
-    operator_versions = list(get_release()["supportedImages"]["operator"]["versions"])
+    operator_versions = list(get_release()["supportedImages"]["mongodb-kubernetes"]["versions"])
     operator_versions.sort(key=lambda s: list(map(int, s.split("."))))
 
     if len(operator_versions) <= supported_versions:

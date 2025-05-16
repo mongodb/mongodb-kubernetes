@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 
-	"github.com/10gen/ops-manager-kubernetes/multi/cmd"
+	"github.com/mongodb/mongodb-kubernetes/multi/cmd"
 )
 
 func main() {

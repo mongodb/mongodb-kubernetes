@@ -16,20 +16,20 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
-	userv1 "github.com/10gen/ops-manager-kubernetes/api/v1/user"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1/common"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/annotations"
-	kubernetesClient "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
-	"github.com/10gen/ops-manager-kubernetes/pkg/fcv"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
+	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
 func init() {
@@ -186,7 +186,7 @@ type Logging struct {
 // ClusterSpecOMItem defines members cluster details for Ops Manager multi-cluster deployment.
 type ClusterSpecOMItem struct {
 	// ClusterName is name of the cluster where the Ops Manager Statefulset will be scheduled.
-	// The operator is using ClusterName to find API credentials in `mongodb-enterprise-operator-member-list` config map to use for this member cluster.
+	// The operator is using ClusterName to find API credentials in `mongodb-kubernetes-operator-member-list` config map to use for this member cluster.
 	// If the credentials are not found, then the member cluster is considered unreachable and ignored in the reconcile process.
 	// +kubebuilder:validation:Required
 	ClusterName string `json:"clusterName,omitempty"`
@@ -344,7 +344,7 @@ func (om *MongoDBOpsManager) AppDBStatefulSetObjectKey(memberClusterNum int) cli
 
 func (om *MongoDBOpsManager) GetOwnerLabels() map[string]string {
 	return map[string]string{
-		util.OperatorLabelName: util.OperatorName,
+		util.OperatorLabelName: util.OperatorLabelValue,
 		LabelResourceOwner:     om.Name,
 	}
 }

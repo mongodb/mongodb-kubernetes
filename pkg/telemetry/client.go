@@ -14,7 +14,7 @@ import (
 
 	atlas "go.mongodb.org/atlas/mongodbatlas"
 
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/envvar"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
 )
 
 type Client struct {
@@ -81,7 +81,7 @@ func NewClient(retryClient *retryablehttp.Client) (*Client, error) {
 		&http.Client{Transport: &retryablehttp.RoundTripper{Client: retryClient}},
 	)
 
-	if urlStr := envvar.GetEnvOrDefault(BaseUrl, ""); urlStr != "" {
+	if urlStr := envvar.GetEnvOrDefault(BaseUrl, ""); urlStr != "" { // nolint:forbidigo
 		Logger.Debugf("Using different base url configured for atlasclient: %s", urlStr)
 		parsed, err := url.Parse(urlStr)
 		if err != nil {

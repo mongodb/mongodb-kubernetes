@@ -6,11 +6,11 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/controllers/construct"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/envvar"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
 // replaceImageTagOrDigestToTag returns the image with the tag or digest replaced to a given version
@@ -138,7 +138,7 @@ func GetOfficialImage(imageUrls ImageUrls, version string, annotations map[strin
 		repoUrl = strings.TrimRight(repoUrl, "/")
 	}
 
-	assumeOldFormat := envvar.ReadBool(util.MdbAppdbAssumeOldFormat)
+	assumeOldFormat := envvar.ReadBool(util.MdbAppdbAssumeOldFormat) // nolint:forbidigo
 	if IsEnterpriseImage(imageURL) && !assumeOldFormat {
 		// 5.0.6-ent -> 5.0.6-ubi8
 		if strings.HasSuffix(version, "-ent") {

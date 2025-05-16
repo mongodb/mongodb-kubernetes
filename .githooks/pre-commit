@@ -18,7 +18,7 @@ mkdir -p "$(go env GOPATH)/bin"
 
 function update_mco_tests() {
   echo "Regenerating MCO evergreen tests configuration"
-  python scripts/evergreen/e2e/mco/create_mco_tests.py > .evergreen-mco.yml
+  python scripts/evergreen/e2e/mco/create_mco_tests.py >.evergreen-mco.yml
   git add .evergreen-mco.yml
 }
 
@@ -31,21 +31,21 @@ function generate_standalone_yaml() {
   mkdir -p "${charttmpdir}"
 
   FILES=(
-    "${charttmpdir}/enterprise-operator/templates/operator-roles.yaml"
-    "${charttmpdir}/enterprise-operator/templates/database-roles.yaml"
-    "${charttmpdir}/enterprise-operator/templates/operator-sa.yaml"
-    "${charttmpdir}/enterprise-operator/templates/operator.yaml"
+    "${charttmpdir}/mongodb-kubernetes/templates/operator-roles.yaml"
+    "${charttmpdir}/mongodb-kubernetes/templates/database-roles.yaml"
+    "${charttmpdir}/mongodb-kubernetes/templates/operator-sa.yaml"
+    "${charttmpdir}/mongodb-kubernetes/templates/operator.yaml"
   )
 
   # generate normal public example
   helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" ${HELM_OPTS[@]}
-  cat "${FILES[@]}" >public/mongodb-enterprise.yaml
+  cat "${FILES[@]}" >public/mongodb-kubernetes.yaml
   cat "helm_chart/crds/"* >public/crds.yaml
 
   # generate openshift public example
   rm -rf "${charttmpdir:?}/*"
   helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" --values helm_chart/values-openshift.yaml ${HELM_OPTS[@]}
-  cat "${FILES[@]}" >public/mongodb-enterprise-openshift.yaml
+  cat "${FILES[@]}" >public/mongodb-kubernetes-openshift.yaml
 
   # generate openshift files for kustomize used for generating OLM bundle
   rm -rf "${charttmpdir:?}/*"
@@ -53,14 +53,14 @@ function generate_standalone_yaml() {
     --set operator.webhook.registerConfiguration=false --set operator.webhook.installClusterRole=false ${HELM_OPTS[@]}
 
   # update kustomize files for OLM bundle with files generated for openshift
-  cp "${charttmpdir}/enterprise-operator/templates/operator.yaml" config/manager/manager.yaml
-  cp "${charttmpdir}/enterprise-operator/templates/database-roles.yaml" config/rbac/database-roles.yaml
-  cp "${charttmpdir}/enterprise-operator/templates/operator-roles.yaml" config/rbac/operator-roles.yaml
+  cp "${charttmpdir}/mongodb-kubernetes/templates/operator.yaml" config/manager/manager.yaml
+  cp "${charttmpdir}/mongodb-kubernetes/templates/database-roles.yaml" config/rbac/database-roles.yaml
+  cp "${charttmpdir}/mongodb-kubernetes/templates/operator-roles.yaml" config/rbac/operator-roles.yaml
 
   # generate multi-cluster public example
   rm -rf "${charttmpdir:?}/*"
   helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" --values helm_chart/values-multi-cluster.yaml ${HELM_OPTS[@]}
-  cat "${FILES[@]}" >public/mongodb-enterprise-multi-cluster.yaml
+  cat "${FILES[@]}" >public/mongodb-kubernetes-multi-cluster.yaml
 
 }
 
@@ -125,7 +125,7 @@ function pre_commit() {
 
   echo 'regenerating licenses.csv'
   scripts/evergreen/update_licenses.sh
-  git add licenses.csv
+  git add LICENSE-THIRD-PARTY
 
   if echo "$git_last_changed" | grep -q 'public/tools/multicluster'; then
     echo 'regenerating multicluster RBAC public example'
@@ -156,8 +156,8 @@ run_shellcheck() {
   local file="$1"
   echo "Running shellcheck on $file"
   if ! shellcheck -x "$file" -e SC2154 -e SC1091 -e SC1090 -e SC2148 -o require-variable-braces -P "scripts"; then
-   echo "shellcheck failed on $file"
-   exit 1
+    echo "shellcheck failed on $file"
+    exit 1
   fi
 }
 
