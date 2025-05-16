@@ -1014,7 +1014,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 	}
 
 	security := sc.Spec.Security
-	if security.Authentication != nil && security.Authentication.Enabled && security.Authentication.IsX509Enabled() && !sc.Spec.GetSecurity().IsTLSEnabled() {
+	if security.Authentication != nil && security.Authentication.IsX509Enabled() && !sc.Spec.GetSecurity().IsTLSEnabled() {
 		return workflow.Invalid("cannot have a non-tls deployment when x509 authentication is enabled")
 	}
 

@@ -32,7 +32,9 @@ type DeploymentUsageSnapshotProperties struct {
 	IsMultiCluster           bool   `json:"isMultiCluster"`
 	Type                     string `json:"type"` // RS, SC, OM, Single
 	IsRunningEnterpriseImage bool   `json:"IsRunningEnterpriseImage"`
-	ExternalDomains          string `json:"externalDomains"` // None, Uniform, ClusterSpecific, Mixed
+	ExternalDomains          string `json:"externalDomains"`                   // None, Uniform, ClusterSpecific, Mixed
+	AuthenticationModes      string `json:"authenticationModes,omitempty"`     // Deployment authentication modes, comma separated
+	AuthenticationAgentMode  string `json:"authenticationAgentMode,omitempty"` // Agent authentication mode
 }
 
 type Event struct {
