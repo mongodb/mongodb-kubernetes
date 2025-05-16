@@ -1,7 +1,7 @@
-from kubernetes.client.rest import ApiException
-from kubernetes import client
+from typing import Dict, List, Optional
 
-from typing import Optional, List, Dict
+from kubernetes import client
+from kubernetes.client.rest import ApiException
 
 
 def get_crds() -> Optional[Dict]:
@@ -91,9 +91,7 @@ def get_pod_namespaced(namespace: str, pod_name: str) -> Optional[client.V1Pod]:
     return pod
 
 
-def get_pod_log_namespaced(
-    namespace: str, pod_name: str, container_name: str
-) -> Optional[str]:
+def get_pod_log_namespaced(namespace: str, pod_name: str, container_name: str) -> Optional[str]:
     corev1 = client.CoreV1Api()
     try:
         log = corev1.read_namespaced_pod_log(

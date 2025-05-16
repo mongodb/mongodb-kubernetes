@@ -3,7 +3,7 @@ package v1
 import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 )
 
 // CustomResourceReadWriter is an interface for all Custom Resources with Status read/write capabilities

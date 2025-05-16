@@ -1,0 +1,153 @@
+{{- if and .Values.community.resource.tls.enabled .Values.community.resource.tls.useCertManager }}
+# cert-manager resources
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: tls-selfsigned-issuer
+  namespace: {{ .Values.namespace }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: tls-selfsigned-ca
+  namespace: {{ .Values.namespace }}
+spec:
+  isCA: true
+  commonName: "*.{{ .Values.community.resource.name }}-svc.{{ .Values.namespace }}.svc.cluster.local"
+  dnsNames:
+    - "*.{{ .Values.community.resource.name }}-svc.{{ .Values.namespace }}.svc.cluster.local"
+  secretName: {{ .Values.community.resource.tls.caCertificateSecretRef }}
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: tls-selfsigned-issuer
+    kind: Issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: tls-ca-issuer
+  namespace: {{ .Values.namespace }}
+spec:
+  ca:
+    secretName: {{ .Values.community.resource.tls.caCertificateSecretRef }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: cert-manager-tls-certificate
+  namespace: {{ .Values.namespace }}
+spec:
+  secretName: {{ .Values.community.resource.tls.certificateKeySecretRef }}
+  issuerRef:
+    name: tls-ca-issuer
+    kind: Issuer
+  duration: {{ .Values.community.resource.tls.certManager.certDuration | default "8760h" }}   # default to 365 days
+  renewBefore: {{ .Values.community.resource.tls.certManager.renewCertBefore | default "720h" }} # default to 30 days
+  commonName: "*.{{ .Values.community.resource.name }}-svc.{{ .Values.namespace }}.svc.cluster.local"
+  dnsNames:
+    - "*.{{ .Values.community.resource.name }}-svc.{{ .Values.namespace }}.svc.cluster.local"
+{{- if .Values.community.resource.tls.useX509 }}
+# Agent X509 certs
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: agent-certs
+  namespace: {{ .Values.namespace }}
+spec:
+  commonName: mms-automation-agent
+  dnsNames:
+    - automation
+  duration: 240h0m0s
+  issuerRef:
+    name: tls-ca-issuer
+  renewBefore: 120h0m0s
+  secretName: agent-certs
+  subject:
+    countries:
+      - US
+    localities:
+      - NY
+    organizationalUnits:
+      - a-1635241837-m5yb81lfnrz
+    organizations:
+      - cluster.local-agent
+    provinces:
+      - NY
+  usages:
+    - digital signature
+    - key encipherment
+    - client auth
+{{- end }}
+{{- if .Values.community.resource.tls.sampleX509User }}
+# Client certs
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: x509-user-cert
+  namespace: {{ .Values.namespace }}
+spec:
+  commonName: my-x509-user
+  duration: 240h0m0s
+  issuerRef:
+    name: tls-ca-issuer
+  renewBefore: 120h0m0s
+  secretName: my-x509-user-cert
+  subject:
+    organizationalUnits:
+      - organizationalunit
+    organizations:
+      - organization
+  usages:
+    - digital signature
+    - client auth
+{{- end }}
+{{- end }}
+{{- if .Values.community.createResource }}
+# mongodb resources
+---
+apiVersion: mongodbcommunity.mongodb.com/v1
+kind: MongoDBCommunity
+metadata:
+  name: {{ .Values.community.resource.name }}
+  namespace: {{ .Values.namespace }}
+spec:
+  members: {{ .Values.community.resource.members }}
+  type: ReplicaSet
+  version: {{ .Values.community.resource.version }}
+  security:
+    tls:
+      enabled: {{ .Values.community.resource.tls.enabled }}
+      {{- if .Values.community.resource.tls.enabled }}
+      certificateKeySecretRef:
+        name: {{ .Values.community.resource.tls.certificateKeySecretRef }}
+      caCertificateSecretRef:
+        name: {{ .Values.community.resource.tls.caCertificateSecretRef }}
+      {{- end }}
+    authentication:
+      {{- if .Values.community.resource.tls.useX509 }}
+      modes: ["X509"]
+      {{- else }}
+      modes: ["SCRAM"]
+      {{- end }}
+  {{- if .Values.community.resource.tls.sampleX509User }}
+  users:
+  - name: CN=my-x509-user,OU=organizationalunit,O=organization
+    db: $external
+    roles:
+      - name: clusterAdmin
+        db: admin
+      - name: userAdminAnyDatabase
+        db: admin
+      - name: readWriteAnyDatabase
+        db: admin
+  {{- else }}
+  users:
+  {{- toYaml .Values.community.resource.users | nindent 4 }}
+  {{- end}}
+{{- end }}

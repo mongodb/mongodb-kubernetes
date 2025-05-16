@@ -2,17 +2,15 @@ package replica_set_tls_rotate_delete_sts
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 
-	"fmt"
-
-	. "github.com/mongodb/mongodb-kubernetes-operator/test/e2e/util/mongotester"
-
-	e2eutil "github.com/mongodb/mongodb-kubernetes-operator/test/e2e"
-	"github.com/mongodb/mongodb-kubernetes-operator/test/e2e/mongodbtests"
-	"github.com/mongodb/mongodb-kubernetes-operator/test/e2e/setup"
-	"github.com/mongodb/mongodb-kubernetes-operator/test/e2e/tlstests"
+	e2eutil "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/mongodbtests"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/setup"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/tlstests"
+	. "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/util/mongotester"
 )
 
 func TestMain(m *testing.M) {

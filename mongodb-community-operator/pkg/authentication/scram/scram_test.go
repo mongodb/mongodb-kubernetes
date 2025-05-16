@@ -6,19 +6,20 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/authtypes"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/mocks"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/scramcredentials"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/constants"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/generate"
-	"github.com/stretchr/testify/assert"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/authtypes"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/mocks"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/scramcredentials"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/generate"
 )
 
 func init() {
@@ -222,7 +223,6 @@ func TestConfigureScram(t *testing.T) {
 		assert.True(t, secret.HasAllKeys(ps, constants.AgentPasswordKey))
 		assert.NotEmpty(t, ps.Data[constants.AgentPasswordKey])
 		assert.Equal(t, "A21Zv5agv3EKXFfM", string(ps.Data[constants.AgentPasswordKey]))
-
 	})
 
 	t.Run("Agent Keyfile Secret is used if present", func(t *testing.T) {
@@ -243,7 +243,6 @@ func TestConfigureScram(t *testing.T) {
 		assert.NoError(t, err)
 		assert.True(t, secret.HasAllKeys(ks, constants.AgentKeyfileKey))
 		assert.Equal(t, "RuPeMaIe2g0SNTTa", string(ks.Data[constants.AgentKeyfileKey]))
-
 	})
 
 	t.Run("Agent Credentials Secret should be created", func(t *testing.T) {

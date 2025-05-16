@@ -3,8 +3,8 @@ package controlledfeature
 import (
 	"sort"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
 // buildFeatureControlsByMdb builds the controlled feature by MongoDB resource

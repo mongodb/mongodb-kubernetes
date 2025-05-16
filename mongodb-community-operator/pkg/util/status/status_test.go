@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-
 	"github.com/stretchr/testify/assert"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 )
 
 type errorOption struct{}
@@ -36,7 +36,6 @@ func (r retryOption) GetResult() (reconcile.Result, error) {
 }
 
 func TestDetermineReconciliationResult(t *testing.T) {
-
 	t.Run("A single error option should result in an error return", func(t *testing.T) {
 		opts := []Option{
 			errorOption{},
@@ -84,5 +83,4 @@ func TestDetermineReconciliationResult(t *testing.T) {
 		assert.Nil(t, err)
 		assert.Equal(t, true, res.Requeue)
 	})
-
 }

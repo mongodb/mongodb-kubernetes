@@ -5,35 +5,40 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/readiness/config"
-
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/persistentvolumeclaim"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/podtemplatespec"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/probes"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/resourcerequirements"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
-	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/persistentvolumeclaim"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/probes"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/resourcerequirements"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/readiness/config"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
+	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 )
 
-var (
-	OfficialMongodbRepoUrls = []string{"docker.io/mongodb", "quay.io/mongodb"}
-)
+var OfficialMongodbRepoUrls = []string{"docker.io/mongodb", "quay.io/mongodb"}
 
 // Environment variables used to configure the MongoDB StatefulSet.
 const (
-	MongodbRepoUrlEnv          = "MONGODB_REPO_URL"
-	MongodbImageEnv            = "MONGODB_IMAGE"
-	MongoDBImageTypeEnv        = "MDB_IMAGE_TYPE"
-	AgentImageEnv              = "AGENT_IMAGE"
-	VersionUpgradeHookImageEnv = "VERSION_UPGRADE_HOOK_IMAGE"
-	ReadinessProbeImageEnv     = "READINESS_PROBE_IMAGE"
+	MongodbRepoUrlEnv   = "MONGODB_REPO_URL"
+	MongodbImageEnv     = "MONGODB_IMAGE"
+	MongoDBImageTypeEnv = "MDB_IMAGE_TYPE"
+	AgentImageEnv       = "AGENT_IMAGE"
+)
+
+// MCO only
+const (
+	VersionUpgradeHookImageEnv   = "VERSION_UPGRADE_HOOK_IMAGE"
+	ReadinessProbeImageEnv       = "READINESS_PROBE_IMAGE"
+	MongoDBCommunityImageTypeEnv = "MDB_COMMUNITY_IMAGE_TYPE"
+	MongodbCommunityImageEnv     = "MDB_COMMUNITY_IMAGE"
+	MongodbCommunityRepoUrlEnv   = "MDB_COMMUNITY_REPO_URL"
 )
 
 const (
@@ -47,7 +52,7 @@ const (
 	readinessProbePath                = "/opt/scripts/readinessprobe"
 	agentHealthStatusFilePathEnv      = "AGENT_STATUS_FILEPATH"
 	clusterFilePath                   = "/var/lib/automation/config/cluster-config.json"
-	mongodbDatabaseServiceAccountName = "mongodb-database"
+	mongodbDatabaseServiceAccountName = "mongodb-kubernetes-appdb"
 	agentHealthStatusFilePathValue    = "/var/log/mongodb-mms-automation/healthstatus/agent-health-status.json"
 
 	OfficialMongodbEnterpriseServerImageName = "mongodb-enterprise-server"
@@ -375,11 +380,20 @@ if [ -e "/hooks/version-upgrade" ]; then
 fi
 
 # wait for config and keyfile to be created by the agent
-while ! [ -f %s -a -f %s ]; do sleep 3 ; done ; sleep 2 ;
+echo "Waiting for config and keyfile files to be created by the agent..."
+while ! [ -f %s -a -f %s ]; do
+	sleep 3;
+	echo "Waiting..."
+done
+
+# sleep is important after agent issues shutdown command
+# k8s restarts the mongod container too quickly for the agent to realize mongod is down
+echo "Sleeping for 15s..."
+sleep 15
 
 # start mongod with this configuration
+echo "Starting mongod..."
 exec mongod -f %s;
-
 `, filePath, keyfileFilePath, filePath)
 
 	containerCommand := []string{

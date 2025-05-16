@@ -71,6 +71,12 @@ operator: configure-operator build-and-push-operator-image
 database: aws_login
 	@ scripts/evergreen/run_python.sh pipeline.py --include database
 
+readiness_probe: aws_login
+	@ scripts/evergreen/run_python.sh pipeline.py --include readiness-probe
+
+upgrade_hook: aws_login
+	@ scripts/evergreen/run_python.sh pipeline.py --include upgrade-hook
+
 # ensures cluster is up, cleans Kubernetes + OM, build-push-deploy operator,
 # push-deploy database, create secrets, config map, resources etc
 full: build-and-push-images
@@ -92,16 +98,29 @@ e2e: build-and-push-test-image
 	fi
 	@ scripts/dev/launch_e2e.sh
 
+mco-e2e: aws_login build-and-push-mco-test-image
+	@ if [[ -z "$(skip)" ]]; then \
+		$(MAKE) reset; \
+	fi
+	@ scripts/dev/launch_e2e.sh
+
+generate-env-file: ## generates a local-test.env for local testing
+	mkdir -p .generated
+	{ scripts/evergreen/run_python.sh mongodb-community-operator/scripts/dev/get_e2e_env_vars.py ".generated/config.json" | tee >(cut -d' ' -f2 > .generated/mco-test.env) ;} > .generated/mco-test.export.env
+	. .generated/mco-test.export.env
+
+reset-helm-leftovers: ## sometimes you didn't cleanly uninstall a helm release, this cleans the existing helm artifacts
+	@ scripts/dev/reset_helm.sh
+
 e2e-telepresence: build-and-push-test-image
 	telepresence connect --context $(test_pod_cluster); scripts/dev/launch_e2e.sh; telepresence quit
 
-# deletes and creates a kops e2e cluster
-recreate-e2e-kops:
-	@ scripts/dev/recreate_e2e_kops.sh $(imsure) $(cluster)
-
 # clean all kubernetes cluster resources and OM state
-reset:
+reset: reset-mco
 	go run scripts/dev/reset.go
+
+reset-mco: ## Cleans up e2e test env
+	kubectl delete mdbc,all,secrets -l e2e-test=true || true
 
 status:
 	@ scripts/dev/status
@@ -137,6 +156,11 @@ build-and-push-database-image: aws_login
 build-and-push-test-image: aws_login build-multi-cluster-binary
 	@ if [[ -z "$(local)" ]]; then \
 		scripts/evergreen/run_python.sh pipeline.py --include test; \
+	fi
+
+build-and-push-mco-test-image: aws_login
+	@ if [[ -z "$(local)" ]]; then \
+		scripts/evergreen/run_python.sh pipeline.py --include mco-test; \
 	fi
 
 build-multi-cluster-binary:
@@ -180,10 +204,10 @@ deploy-and-configure-operator: deploy-operator configure-operator
 
 cert:
 	@ openssl req  -nodes -new -x509  -keyout ca-tls.key -out ca-tls.crt -extensions v3_ca -days 3650
-	@ mv ca-tls.key ca-tls.crt docker/mongodb-enterprise-tests/tests/opsmanager/fixtures/
-	@ cat docker/mongodb-enterprise-tests/tests/opsmanager/fixtures/ca-tls.crt \
-	docker/mongodb-enterprise-tests/tests/opsmanager/fixtures/mongodb-download.crt \
-	> docker/mongodb-enterprise-tests/tests/opsmanager/fixtures/ca-tls-full-chain.crt
+	@ mv ca-tls.key ca-tls.crt docker/mongodb-kubernetes-tests/tests/opsmanager/fixtures/
+	@ cat docker/mongodb-kubernetes-tests/tests/opsmanager/fixtures/ca-tls.crt \
+	docker/mongodb-kubernetes-tests/tests/opsmanager/fixtures/mongodb-download.crt \
+	> docker/mongodb-kubernetes-tests/tests/opsmanager/fixtures/ca-tls-full-chain.crt
 
 .PHONY: recreate-e2e-multicluster-kind
 recreate-e2e-multicluster-kind:
@@ -232,7 +256,7 @@ BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
 BUNDLE_IMG ?= controller-bundle:$(VERSION)
 
 # Image URL to use all building/pushing image targets
-IMG ?= mongodb-enterprise-operator:latest
+IMG ?= mongodb-kubernetes-operator:latest
 # Produce CRDs that work back to Kubernetes 1.11 (no version conversion)
 CRD_OPTIONS ?= "crd"
 
@@ -256,11 +280,11 @@ golang-tests-race:
 sbom-tests:
 	@ scripts/evergreen/run_python.sh -m pytest generate_ssdlc_report_test.py
 
-# e2e tests are also in python and we will need to ignore them as they are in the docker/mongodb-enterprise-tests folder
-# additionally, we have one lib which we want to test which is in the =docker/mongodb-enterprise-tests folder.
+# e2e tests are also in python and we will need to ignore them as they are in the docker/mongodb-kubernetes-tests folder
+# additionally, we have one lib which we want to test which is in the =docker/mongodb-kubernetes-tests folder.
 python-tests:
-	@ scripts/evergreen/run_python.sh -m pytest docker/mongodb-enterprise-tests/kubeobject
-	@ scripts/evergreen/run_python.sh -m pytest --ignore=docker/mongodb-enterprise-tests
+	@ scripts/evergreen/run_python.sh -m pytest docker/mongodb-kubernetes-tests/kubeobject
+	@ scripts/evergreen/run_python.sh -m pytest --ignore=docker/mongodb-kubernetes-tests
 
 generate-ssdlc-report:
 	@ scripts/evergreen/run_python.sh generate_ssdlc_report.py
@@ -275,7 +299,7 @@ all-tests: test python-tests
 
 # Build manager binary
 manager: generate fmt vet
-	GOOS=linux GOARCH=amd64 go build -o docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator main.go
+	GOOS=linux GOARCH=amd64 go build -o docker/mongodb-kubernetes-operator/content/mongodb-kubernetes-operator main.go
 
 # Run against the configured Kubernetes cluster in ~/.kube/config
 run: generate fmt vet manifests
@@ -372,8 +396,12 @@ dockerfiles:
 	python scripts/update_supported_dockerfiles.py
 	tar -czvf ./public/dockerfiles-$(VERSION).tgz ./public/dockerfiles
 
-prepare-local-e2e: # prepares the local environment to run a local operator
+prepare-local-e2e: reset-mco # prepares the local environment to run a local operator
 	scripts/dev/prepare_local_e2e_run.sh
+
+prepare-local-olm-e2e:
+	DIGEST_PINNING_ENABLED=false VERSION_ID=latest scripts/evergreen/operator-sdk/prepare-openshift-bundles-for-e2e.sh
+	scripts/dev/prepare_local_e2e_olm_run.sh
 
 prepare-operator-configmap: # prepares the local environment to run a local operator
 	source scripts/dev/set_env_context.sh && source scripts/funcs/printing && source scripts/funcs/operator_deployment && prepare_operator_config_map "$(kubectl config current-context)"

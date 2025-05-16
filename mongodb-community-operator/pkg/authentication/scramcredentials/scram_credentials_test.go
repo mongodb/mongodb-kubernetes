@@ -14,6 +14,7 @@ func TestScramSha1SecretsMatch(t *testing.T) {
 	assertSecretsMatch(t, sha1.New, "4d9625b297999b3ca786d4a9622d04f1", 10, "kW9KbCQiCOll5Ljd44cjkQ==", "VJ8fFVHkPltibvT//mG/OWw44Hc=", "ceDRsgj9HezpZ4/vkZX8GZNNN50=")
 	assertSecretsMatch(t, sha1.New, "fd0a78e418dcef39f8c768222810b894", 10, "hhX6xsoID6FeWjXncuNgAg==", "TxgaZJ4cIn+S9EfTcc9IOEG7RGc=", "d6/qjwBs0qkPKfUAjSh5eemsySE=")
 }
+
 func TestScramSha256SecretsMatch(t *testing.T) {
 	assertSecretsMatch(t, sha256.New, "Gy4ZNMr-SYEsEpAEZv", 15000, "ajdf1E1QTsNAQdBEodB4vzQOFuvcw9K6PmouVg==", "/pBk9XBwSm9UyeQmyJ3LfogfHu9Z/XTjGmRhQDHx/4I=", "Avm8mjtMyg659LAyeD4VmuzQb5lxL5iy3dCuzfscfMc=")
 	assertSecretsMatch(t, sha256.New, "Y9SPYSJYUJB_", 15000, "Oplsu3uju+lYyX4apKb0K6xfHpmFtH99Oyk4Ow==", "oTJhml8KKZUSt9k4tg+tS6D/ygR+a2Xfo8JKjTpQoAI=", "SUfA2+SKL35u665WY5NnJJmA9L5dHu/TnWXX/0nm42Y=")

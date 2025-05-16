@@ -167,6 +167,7 @@ def test_trim_ops_manager_versions():
         "7.5.0",
         "7.4.0",
         "7.3.0",  # Latest 3 from major version 7
+        "7.0.12",
         "6.5.0",
         "6.4.0",
         "6.3.0",  # Latest 3 from major version 6
@@ -174,7 +175,7 @@ def test_trim_ops_manager_versions():
 
     trim_supported_image_versions(mock_release, ["ops-manager"])
     assert set(mock_release["supportedImages"]["ops-manager"]["versions"]) == set(expected_versions)
-    assert len(mock_release["supportedImages"]["ops-manager"]["versions"]) == 6
+    assert len(mock_release["supportedImages"]["ops-manager"]["versions"]) == 7
 
 
 def test_trim_ops_manager_versions_semver_sorting():
@@ -203,6 +204,7 @@ def test_trim_ops_manager_versions_semver_sorting():
         "6.3.0",  # Latest 3 from major version 6 (semver order)
         "6.10.0",
         "6.11.0",
+        "7.0.12",
         "7.1.0",  # Latest 3 from major version 7 (semver order)
         "7.2.0",
         "7.10.0",
@@ -229,7 +231,7 @@ def test_trim_ops_manager_versions_fewer_than_three():
     }
 
     # Expected result: Keep all versions since each major has fewer than 3
-    expected_versions = ["5.1.0", "5.2.0", "6.0.0"]
+    expected_versions = ["5.1.0", "5.2.0", "6.0.0", "7.0.12"]
 
     trim_supported_image_versions(mock_release, ["ops-manager"])
 

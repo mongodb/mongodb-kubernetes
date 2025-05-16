@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 // parseAPIError

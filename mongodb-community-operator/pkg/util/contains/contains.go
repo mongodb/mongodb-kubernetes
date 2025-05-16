@@ -3,11 +3,12 @@ package contains
 import (
 	"reflect"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/constants"
+	"k8s.io/apimachinery/pkg/types"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
 )
 
 func String(slice []string, s string) bool {

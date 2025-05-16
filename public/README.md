@@ -66,7 +66,7 @@ To use a different namespace, update the yaml files' `metadata.namespace` attrib
 `CustomResourceDefinition`s (or `CRDs`) are Kubernetes Objects which can be used to instruct the Operators to perform operations on your Kubernetes cluster. Our CRDs control MongoDB and Ops Manager deployments. They should be installed before installing the Operator.
 CRDs are defined cluster-wide, so to install them, you must have Cluster-level access. However, once the CRDs are installed, MongoDB instances can be deployed with namespace-level access only.
 
-    kubectl apply -f https://raw.githubusercontent.com/mongodb/mongodb-enterprise-kubernetes/master/crds.yaml
+    kubectl apply -f https://raw.githubusercontent.com/mongodb/mongodb-kubernetes/master/crds.yaml
 
 #### Operator Installation
 
@@ -74,7 +74,7 @@ CRDs are defined cluster-wide, so to install them, you must have Cluster-level a
 
 To install the Operator using yaml files, you may apply the config directly from github;
 
-    kubectl apply -f https://raw.githubusercontent.com/mongodb/mongodb-enterprise-kubernetes/master/mongodb-enterprise.yaml
+    kubectl apply -f https://raw.githubusercontent.com/mongodb/mongodb-kubernetes/master/mongodb-kubernetes.yaml
 
 or can clone this repo, make any edits you need, and apply it from disk:
 

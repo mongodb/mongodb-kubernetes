@@ -6,9 +6,9 @@ import (
 	"strings"
 
 	"go.uber.org/zap"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"k8s.io/client-go/kubernetes"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const mongodbAgentVersionAnnotation = "agent.mongodb.com/version"
@@ -31,7 +31,7 @@ func PatchPodAnnotation(ctx context.Context, podNamespace string, lastVersionAch
 	mdbAgentVersion := strconv.FormatInt(lastVersionAchieved, 10)
 	payload = append(payload, patchValue{
 		Op:    "add",
-		Path:  "/metadata/annotations/" + strings.Replace(mongodbAgentVersionAnnotation, "/", "~1", -1),
+		Path:  "/metadata/annotations/" + strings.ReplaceAll(mongodbAgentVersionAnnotation, "/", "~1"),
 		Value: mdbAgentVersion,
 	})
 

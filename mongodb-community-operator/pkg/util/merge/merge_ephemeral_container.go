@@ -34,7 +34,6 @@ func EphemeralContainers(defaultContainers, overrideContainers []corev1.Ephemera
 		return mergedContainers[i].Name < mergedContainers[j].Name
 	})
 	return mergedContainers
-
 }
 
 // EphemeralContainer merges two EphemeralContainers together.

@@ -1,4 +1,4 @@
-{{ $ns :=  include "mongodb-enterprise-operator.namespace" .  -}}
+{{ $ns :=  include "mongodb-kubernetes-operator.namespace" .  -}}
 
 ---
 apiVersion: apps/v1
@@ -57,7 +57,7 @@ spec:
             - {{ . }}
             {{- end }}
           command:
-            - /usr/local/bin/mongodb-enterprise-operator
+            - /usr/local/bin/mongodb-kubernetes-operator
           {{- end }}
           {{- if .Values.multiCluster.clusters }}
           volumeMounts:
@@ -207,6 +207,26 @@ spec:
             - name: MDB_MAX_CONCURRENT_RECONCILES
               value: "{{ .Values.operator.maxConcurrentReconciles }}"
     {{- end }}
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OPERATOR_NAME
+              value: {{ .Values.operator.name }}
+            # Community Env Vars Start
+            - name: MDB_COMMUNITY_AGENT_IMAGE
+              value: "{{ .Values.community.registry.agent }}/{{ .Values.community.agent.name }}:{{ .Values.community.agent.version }}"
+            - name: VERSION_UPGRADE_HOOK_IMAGE
+              value: "{{ .Values.registry.versionUpgradeHook }}/{{ .Values.versionUpgradeHook.name }}:{{ .Values.versionUpgradeHook.version }}"
+            - name: READINESS_PROBE_IMAGE
+              value: "{{ .Values.registry.readinessProbe }}/{{ .Values.readinessProbe.name }}:{{ .Values.readinessProbe.version }}"
+            - name: MDB_COMMUNITY_IMAGE
+              value: "{{ .Values.community.mongodb.name }}"
+            - name: MDB_COMMUNITY_REPO_URL
+              value: "{{ .Values.community.mongodb.repo }}"
+            - name: MDB_COMMUNITY_IMAGE_TYPE
+              value: "{{ .Values.community.mongodb.imageType }}"
+            # Community Env Vars End
     {{- if .Values.relatedImages }}
             - name: RELATED_IMAGE_{{ $mongodbEnterpriseDatabaseImageEnv }}_{{ $databaseVersion | replace "." "_" | replace "-" "_" }}
               value: "{{ .Values.registry.database }}/{{ .Values.database.name }}:{{ $databaseVersion }}"
@@ -229,6 +249,18 @@ spec:
             - name: RELATED_IMAGE_{{ $mongodbImageEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
               value: "{{ $.Values.mongodb.repo }}/{{ $.Values.mongodb.name }}:{{ $version }}"
       {{- end }}
+      {{- if .Values.search }}
+            - name: RELATED_IMAGE_MDB_SEARCH_IMAGE_{{ .Values.search.community.version | replace "." "_" | replace "-" "_" }}
+              value: "{{ .Values.search.community.repo }}/{{ .Values.search.community.name }}:{{ $.Values.search.community.version }}"
+      {{- end }}
+    {{- end }}
+    {{- if .Values.search }}
+            - name: MDB_SEARCH_COMMUNITY_REPO_URL
+              value: "{{ .Values.search.community.repo }}"
+            - name: MDB_SEARCH_COMMUNITY_NAME
+              value: "{{ .Values.search.community.name }}"
+            - name: MDB_SEARCH_COMMUNITY_VERSION
+              value: "{{ .Values.search.community.version }}"
     {{- end }}
     {{- if .Values.customEnvVars }}
       {{- range split "&" .Values.customEnvVars }}
@@ -258,5 +290,3 @@ spec:
         {{- toYaml . | nindent 8 }}
   {{- end }}
 {{- end }}
-
-

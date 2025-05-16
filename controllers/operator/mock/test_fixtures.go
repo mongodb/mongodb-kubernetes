@@ -3,7 +3,7 @@ package mock
 import (
 	"os"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 // nolint:forbidigo
@@ -11,9 +11,9 @@ func InitDefaultEnvVariables() {
 	_ = os.Setenv(util.NonStaticDatabaseEnterpriseImage, "mongodb-enterprise-database")
 	_ = os.Setenv(util.AutomationAgentImagePullPolicy, "Never")
 	_ = os.Setenv(util.OpsManagerImageUrl, "quay.io/mongodb/mongodb-enterprise-ops-manager")
-	_ = os.Setenv(util.InitOpsManagerImageUrl, "quay.io/mongodb/mongodb-enterprise-init-ops-manager")
-	_ = os.Setenv(util.InitAppdbImageUrlEnv, "quay.io/mongodb/mongodb-enterprise-init-appdb")
-	_ = os.Setenv(util.InitDatabaseImageUrlEnv, "quay.io/mongodb/mongodb-enterprise-init-database")
+	_ = os.Setenv(util.InitOpsManagerImageUrl, "quay.io/mongodb/mongodb-kubernetes-init-ops-manager")
+	_ = os.Setenv(util.InitAppdbImageUrlEnv, "quay.io/mongodb/mongodb-kubernetes-init-appdb")
+	_ = os.Setenv(util.InitDatabaseImageUrlEnv, "quay.io/mongodb/mongodb-kubernetes-init-database")
 	_ = os.Setenv(util.OpsManagerPullPolicy, "Never")
 	_ = os.Setenv(util.OmOperatorEnv, "test")
 	_ = os.Setenv(util.PodWaitSecondsEnv, "1")

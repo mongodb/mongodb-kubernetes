@@ -1,10 +1,13 @@
 package construct
 
 import (
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/readiness/config"
-	"github.com/stretchr/testify/assert"
-	corev1 "k8s.io/api/core/v1"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+
+	corev1 "k8s.io/api/core/v1"
+
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/readiness/config"
 )
 
 func TestCollectEnvVars(t *testing.T) {

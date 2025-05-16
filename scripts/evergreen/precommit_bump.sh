@@ -52,7 +52,7 @@ if [[ -z $(git diff --name-only --cached) ]]; then
 fi
 
 git commit -m "Run pre-commit hook"
-git remote set-url origin https://x-access-token:"${GH_TOKEN}"@github.com/10gen/ops-manager-kubernetes.git
+git remote set-url origin https://x-access-token:"${GH_TOKEN}"@github.com/mongodb/mongodb-kubernetes.git
 
 echo "changes detected, pushing them"
 git push origin "${ORIGINAL_BRANCH}"
