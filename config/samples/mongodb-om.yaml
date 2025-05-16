@@ -3,7 +3,7 @@ kind: MongoDBOpsManager
 metadata:
   name: ops-manager
 spec:
-  version: 6.0.3
+  version: 8.0.8
   adminCredentials: ops-manager-admin
   configuration:
     mms.fromEmailAddr: admin@thecompany.com
@@ -11,5 +11,4 @@ spec:
     type: LoadBalancer
   applicationDatabase:
     members: 3
-    podSpec:
-      cpu: 1
+    version: 8.0.8
