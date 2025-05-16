@@ -1498,26 +1498,6 @@ def build_image(image_name: str, build_configuration: BuildConfiguration):
     get_builder_function_for_image_name()[image_name](build_configuration)
 
 
-def build_all_images(
-    image: str,
-    builder: str,
-    debug: bool = False,
-    parallel: bool = False,
-    architecture: Optional[List[str]] = None,
-    sign: bool = False,
-    all_agents: bool = False,
-    parallel_factor: int = 0,
-):
-    """Builds all the images in the `images` list."""
-    build_configuration = operator_build_configuration(
-        builder, parallel, debug, architecture, sign, all_agents, parallel_factor
-    )
-    if sign:
-        mongodb_artifactory_login()
-
-    build_image(image, build_configuration)
-
-
 def main():
     _setup_tracing()
 
