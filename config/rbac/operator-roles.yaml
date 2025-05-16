@@ -1,11 +1,11 @@
 ---
-# Source: enterprise-operator/templates/operator-roles.yaml
+# Source: mongodb-kubernetes/templates/operator-roles.yaml
 ---
 # Additional ClusterRole for clusterVersionDetection
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-enterprise-operator-cluster-telemetry
+  name: mongodb-kubernetes-operator-cluster-telemetry
 rules:
   # Non-resource URL permissions
   - nonResourceURLs:
@@ -28,26 +28,26 @@ rules:
     verbs:
       - list
 ---
-# Source: enterprise-operator/templates/operator-roles.yaml
+# Source: mongodb-kubernetes/templates/operator-roles.yaml
 # ClusterRoleBinding for clusterVersionDetection
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-enterprise-operator-mongodb-cluster-telemetry-binding
+  name: mongodb-kubernetes-operator-mongodb-cluster-telemetry-binding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: mongodb-enterprise-operator-cluster-telemetry
+  name: mongodb-kubernetes-operator-cluster-telemetry
 subjects:
   - kind: ServiceAccount
-    name: mongodb-enterprise-operator
+    name: mongodb-kubernetes-operator
     namespace: mongodb
 ---
-# Source: enterprise-operator/templates/operator-roles.yaml
+# Source: mongodb-kubernetes/templates/operator-roles.yaml
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-enterprise-operator
+  name: mongodb-kubernetes-operator
   namespace: mongodb
 rules:
   - apiGroups:
@@ -116,10 +116,13 @@ rules:
       - opsmanagers/finalizers
       - mongodbmulticluster
       - mongodbmulticluster/finalizers
+      - mongodbsearch
+      - mongodbsearch/finalizers
       - mongodb/status
       - mongodbusers/status
       - opsmanagers/status
       - mongodbmulticluster/status
+      - mongodbsearch/status
 
   - apiGroups:
       - ''
@@ -133,17 +136,17 @@ rules:
       - patch
       - update
 ---
-# Source: enterprise-operator/templates/operator-roles.yaml
+# Source: mongodb-kubernetes/templates/operator-roles.yaml
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-enterprise-operator
+  name: mongodb-kubernetes-operator
   namespace: mongodb
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: mongodb-enterprise-operator
+  name: mongodb-kubernetes-operator
 subjects:
   - kind: ServiceAccount
-    name: mongodb-enterprise-operator
+    name: mongodb-kubernetes-operator
     namespace: mongodb

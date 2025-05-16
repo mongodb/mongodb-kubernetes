@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/10gen/ops-manager-kubernetes/multi/pkg/common"
+	"github.com/mongodb/mongodb-kubernetes/multi/pkg/common"
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/apps/v1"
 	v12 "k8s.io/api/core/v1"

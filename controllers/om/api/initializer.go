@@ -9,7 +9,7 @@ import (
 	"github.com/blang/semver"
 	"golang.org/x/xerrors"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
 )
 
 // This is a separate om functionality needed for OM controller

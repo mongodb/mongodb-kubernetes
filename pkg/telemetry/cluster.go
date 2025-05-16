@@ -11,7 +11,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/envvar"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
 )
 
 const (
@@ -137,7 +137,7 @@ func detectKubernetesFlavour(ctx context.Context, uncachedClient kubeclient.Read
 // We are using a non-cached client to ensure we are properly timing out in case we don't have the
 // necessary RBACs.
 func getKubernetesClusterUUID(ctx context.Context, uncachedClient kubeclient.Reader) string {
-	timeoutLengthStr := envvar.GetEnvOrDefault(KubeTimeout, "5m")
+	timeoutLengthStr := envvar.GetEnvOrDefault(KubeTimeout, "5m") // nolint:forbidigo
 	duration, err := time.ParseDuration(timeoutLengthStr)
 	if err != nil {
 		Logger.Warnf("Failed converting %s to a duration, using default 5m", KubeTimeout)

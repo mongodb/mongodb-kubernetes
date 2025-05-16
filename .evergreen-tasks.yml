@@ -16,7 +16,7 @@ tasks:
       - func: setup_preflight
       - func: preflight_image
         vars:
-          image_name: operator
+          image_name: mongodb-kubernetes
       - func: preflight_image
         vars:
           image_name: init-appdb
@@ -70,16 +70,24 @@ tasks:
         vars:
           image_name: ops-manager
 
-  - name: gke_multi_cluster_snippets
+# Code snippets tasks
+# Each task is selected by convention by running scripts/code_snippets/${task_name}_test.sh
+  - name: task_gke_multi_cluster_snippets
     tags: [ "code_snippets" ]
     commands:
-      - func: gke_multi_cluster_snippets
+      - func: test_code_snippets
       - func: sample_commit_output
 
-  - name: gke_multi_cluster_no_mesh_snippets
+  - name: task_gke_multi_cluster_no_mesh_snippets
     tags: [ "code_snippets" ]
     commands:
-      - func: gke_multi_cluster_no_mesh_snippets
+      - func: test_code_snippets
+      - func: sample_commit_output
+
+  - name: task_kind_community_search_snippets
+    tags: [ "code_snippets", "patch-run" ]
+    commands:
+      - func: test_code_snippets
       - func: sample_commit_output
 
 ## Below are only e2e runs for .evergreen.yml ##
@@ -170,7 +178,7 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_operator_upgrade_sharded_cluster
+  - name: e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
@@ -180,14 +188,17 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_operator_upgrade_appdb_tls
+  - name: e2e_appdb_tls_operator_upgrade_v1_32_to_mck
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_meko_mck_upgrade
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
   - name: e2e_olm_operator_upgrade
-    # TODO: CLOUDP-310820 - After 1.0.0 release we need re-enable this
-    disable: true
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
@@ -199,8 +210,6 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_olm_operator_upgrade_with_resources
-    # TODO: CLOUDP-310820 - After 1.0.0 release we need re-enable this
-    disable: true
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
@@ -835,7 +844,7 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_multi_cluster_appdb_state_operator_upgrade_downgrade
+  - name: e2e_multi_cluster_appdb_upgrade_downgrade_v1_27_to_mck
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
@@ -1230,3 +1239,8 @@ tasks:
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
+
+  - name: e2e_search_community_basic
+    tags: ["patch-run"]
+    commands:
+      - func: "e2e_test"

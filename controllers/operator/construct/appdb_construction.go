@@ -11,28 +11,28 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/api/v1/om"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/scalers/interfaces"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1/common"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/controllers/construct"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/container"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/statefulset"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/merge"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/scale"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
-	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers/interfaces"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
 
 const (
-	appDBServiceAccount    = "mongodb-enterprise-appdb"
+	appDBServiceAccount    = "mongodb-kubernetes-appdb"
 	InitAppDbContainerName = "mongodb-enterprise-init-appdb"
 	// AppDB environment variable names
 	InitAppdbVersionEnv          = "INIT_APPDB_VERSION"
@@ -89,7 +89,7 @@ func removeContainerByName(containers []corev1.Container, name string) []corev1.
 func appDbLabels(opsManager *om.MongoDBOpsManager, memberClusterNum int) statefulset.Modification {
 	podLabels := map[string]string{
 		appLabelKey:             opsManager.Spec.AppDB.HeadlessServiceSelectorAppLabel(memberClusterNum),
-		util.OperatorLabelName:  util.OperatorName,
+		util.OperatorLabelName:  util.OperatorLabelValue,
 		PodAntiAffinityLabelKey: opsManager.Spec.AppDB.NameForCluster(memberClusterNum),
 	}
 
@@ -303,7 +303,7 @@ func customPersistenceConfig(om *om.MongoDBOpsManager) statefulset.Modification 
 			config = om.Spec.AppDB.PodSpec.Persistence.SingleConfig
 		}
 		// Single persistence, needs to modify the only pvc we have
-		pvcModification := pvcFunc(om.Spec.AppDB.DataVolumeName(), config, *defaultPodSpecPersistence.SingleConfig, om.Labels)
+		pvcModification := PvcFunc(om.Spec.AppDB.DataVolumeName(), config, *defaultPodSpecPersistence.SingleConfig, om.Labels)
 
 		// We already have, by default, the data volume mount,
 		// here we also create the logs and journal one, as subpath from the same volume
@@ -327,11 +327,11 @@ func customPersistenceConfig(om *om.MongoDBOpsManager) statefulset.Modification 
 	} else {
 		// Here need to modify data and logs volumes,
 		// and create the journal one (which doesn't exist in Community, where this original STS is built)
-		dataModification := pvcFunc(om.Spec.AppDB.DataVolumeName(), om.Spec.AppDB.PodSpec.Persistence.MultipleConfig.Data, *defaultPodSpecPersistence.MultipleConfig.Data, om.Labels)
-		logsModification := pvcFunc(om.Spec.AppDB.LogsVolumeName(), om.Spec.AppDB.PodSpec.Persistence.MultipleConfig.Logs, *defaultPodSpecPersistence.MultipleConfig.Logs, om.Labels)
+		dataModification := PvcFunc(om.Spec.AppDB.DataVolumeName(), om.Spec.AppDB.PodSpec.Persistence.MultipleConfig.Data, *defaultPodSpecPersistence.MultipleConfig.Data, om.Labels)
+		logsModification := PvcFunc(om.Spec.AppDB.LogsVolumeName(), om.Spec.AppDB.PodSpec.Persistence.MultipleConfig.Logs, *defaultPodSpecPersistence.MultipleConfig.Logs, om.Labels)
 
 		journalVolumeMounts := statefulset.CreateVolumeMount(util.PvcNameJournal, util.PvcMountPathJournal)
-		journalVolumeClaim := pvcFunc(util.PvcNameJournal, om.Spec.AppDB.PodSpec.Persistence.MultipleConfig.Journal, *defaultPodSpecPersistence.MultipleConfig.Journal, om.Labels)
+		journalVolumeClaim := PvcFunc(util.PvcNameJournal, om.Spec.AppDB.PodSpec.Persistence.MultipleConfig.Journal, *defaultPodSpecPersistence.MultipleConfig.Journal, om.Labels)
 
 		return statefulset.Apply(
 			statefulset.WithVolumeClaim(util.PvcMountPathLogs, journalVolumeClaim),

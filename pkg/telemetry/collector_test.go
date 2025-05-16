@@ -14,13 +14,14 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
-	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
-	mcov1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
-	mockClient "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	mockClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
 
 const (
@@ -940,6 +941,82 @@ func TestAddCommunityEvents(t *testing.T) {
 			events := addCommunityEvents(context.Background(), mc, operatorUUID, tc.mongodbImage, now)
 
 			assert.Empty(t, events, "Should return empty slice for empty community list")
+		})
+	}
+}
+
+func TestAddSearchEvents(t *testing.T) {
+	operatorUUID := "test-operator-uuid"
+
+	now := time.Now()
+
+	testCases := []struct {
+		name      string
+		resources searchv1.MongoDBSearchList
+		events    []DeploymentUsageSnapshotProperties
+	}{
+		{
+			name: "With resources",
+			resources: searchv1.MongoDBSearchList{
+				Items: []searchv1.MongoDBSearch{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							UID:  types.UID("search-1"),
+							Name: "test-search-1",
+						},
+					},
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							UID:  types.UID("search-2"),
+							Name: "test-search-2",
+						},
+					},
+				},
+			},
+			events: []DeploymentUsageSnapshotProperties{
+				{
+					DeploymentUID:            "search-1",
+					OperatorID:               operatorUUID,
+					Architecture:             string(architectures.Static),
+					IsMultiCluster:           false,
+					Type:                     "Search",
+					IsRunningEnterpriseImage: false,
+				},
+				{
+					DeploymentUID:            "search-2",
+					OperatorID:               operatorUUID,
+					Architecture:             string(architectures.Static),
+					IsMultiCluster:           false,
+					Type:                     "Search",
+					IsRunningEnterpriseImage: false,
+				},
+			},
+		},
+		{
+			name:      "With no resources",
+			resources: searchv1.MongoDBSearchList{},
+			events:    []DeploymentUsageSnapshotProperties{},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mc := &MockClient{
+				MockList: func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+					if l, ok := list.(*searchv1.MongoDBSearchList); ok {
+						*l = tc.resources
+					}
+					return nil
+				},
+			}
+
+			events := addSearchEvents(context.Background(), mc, operatorUUID, now)
+			expectedEvents := make([]Event, len(tc.events))
+			for i, event := range tc.events {
+				expectedEvents[i] = *createEvent(event, now, Deployments)
+			}
+
+			assert.ElementsMatch(t, expectedEvents, events, "Should return the expected events")
 		})
 	}
 }

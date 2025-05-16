@@ -5,7 +5,7 @@ set -Eeou pipefail
 # shellcheck disable=SC2038
 # shellcheck disable=SC2016
 # TODO: MCK once we merge folder we need to update this
-find . -name go.mod -not -path "./docker/mongodb-enterprise-tests/*" -exec dirname "{}" \+ | xargs -L 1 /bin/bash -c '
+find . -name go.mod -not -path "./docker/mongodb-kubernetes-tests/*" -exec dirname "{}" \+ | xargs -L 1 /bin/bash -c '
 cd "$0"
 echo "testing $0"
 rm -f result.suite

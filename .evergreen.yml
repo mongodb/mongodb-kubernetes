@@ -11,7 +11,7 @@ variables:
 
   - &ops_manager_70_latest 7.0.15 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_80_latest 8.0.6 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_80_latest 8.0.7 # The order/index is important, since these are anchors. Please do not change
 
   # The dependency unification between static and non-static is intentional here.
   # Even though some images are exclusive, in EVG they all are built once and in parallel.
@@ -86,6 +86,7 @@ variables:
       - func: build_multi_cluster_binary
 
   - &setup_and_teardown_group_gke_code_snippets
+    setup_task_can_fail_task: true
     setup_group:
       - func: clone
       - func: setup_gcloud_cli
@@ -93,6 +94,18 @@ variables:
       - func: download_kube_tools
       - func: build_multi_cluster_binary
     teardown_group:
+      - func: upload_code_snippets_logs
+
+  - &setup_and_teardown_group_kind_code_snippets
+    setup_task_can_fail_task: true
+    setup_group:
+      - func: clone
+      - func: cleanup_exec_environment
+      - func: download_kube_tools
+      - func: configure_docker_auth
+      - func: setup_kubernetes_environment
+    teardown_task:
+      - func: upload_e2e_logs
       - func: upload_code_snippets_logs
 
   - &setup_and_teardown_task_cloudqa
@@ -183,6 +196,10 @@ parameters:
     value: "false"
     description: set this to true if you would like to delete the resources created in the code snippet tests, but keep the clusters
 
+  - key: code_snippets_commit_output
+    value: "false"
+    description: set this to true if you would like the pipeline to automatically push a branch with updated snippets outputs
+
 
 # Triggered manually or by PCT.
 patch_aliases:
@@ -218,9 +235,11 @@ github_pr_aliases:
     task: ".*"
   - variant_tags: [ "auto_bump" ]
     task_tags: [ "patch-run" ]
+  - variant_tags: [ "release_agents_on_ecr" ]
+    task: ".*"
 
 # Allows to see evergreen checks in GitHub commits
-# https://github.com/10gen/ops-manager-kubernetes/commits/master/
+# https://github.com/mongodb/mongodb-kubernetes/commits/master/
 github_checks_aliases:
   - variant: ".*"
     task: ".*"
@@ -231,7 +250,6 @@ git_tag_aliases:
     variant_tags: [ "release" ]
     task_tags: [ "image_release", "image_preflight", "openshift_bundles", "code_snippets" ]
 
-# TODO: MCK: have this part of e2e.sh and its expansions
 tasks:
   - name: unit_tests_golang
     tags: [ "unit_tests" ]
@@ -313,18 +331,10 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
+      - func: setup_docker_sbom
       - func: pipeline
         vars:
           image_name: agent
-
-  - name: upload_dockerfiles
-    tags: [ "image_release" ]
-    allowed_requesters: [ "patch", "github_tag" ]
-    commands:
-      - func: clone
-      - func: setup_building_host
-      - func: build-dockerfiles
-      - func: upload_dockerfiles
 
   # pct only triggers this variant once a new agent image is out
   - name: release_agent
@@ -355,7 +365,7 @@ tasks:
         params:
           include_expansions_in_env:
             - GH_TOKEN
-          working_dir: src/github.com/10gen/ops-manager-kubernetes
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
           binary: scripts/evergreen/precommit_bump.sh
 
   # Pct only triggers this variant once a new agent image is out
@@ -365,8 +375,6 @@ tasks:
   # We rely on the init_database from ecr for the agent x operator images.
   # This runs on agent releases that are not concurrent with operator releases.
   - name: release_agents_on_ecr_conditional
-    # this enables us to run this variant either manually (patch) which pct does or during an OM bump (github_pr)
-    allowed_requesters: [ "patch", "github_pr" ]
     commands:
       - func: clone
       - func: run_task_conditionally
@@ -617,8 +625,14 @@ task_groups:
     <<: *setup_and_teardown_group_gke_code_snippets
     max_hosts: -1
     tasks:
-      - gke_multi_cluster_snippets
-      - gke_multi_cluster_no_mesh_snippets
+      - task_gke_multi_cluster_snippets
+      - task_gke_multi_cluster_no_mesh_snippets
+
+  - name: kind_code_snippets_task_group
+    <<: *setup_and_teardown_group_kind_code_snippets
+    max_hosts: -1
+    tasks:
+      - task_kind_community_search_snippets
 
   # Task group for deploying mongodbcommunity resources and testing the (former) MCO
   - name: e2e_mdb_community_task_group
@@ -627,6 +641,7 @@ task_groups:
     <<: *setup_and_teardown_task
     tasks:
       - e2e_community_replicaset_scale
+      - e2e_search_community_basic
 
   # This is the task group that contains all the tests run in the e2e_mdb_kind_ubuntu_cloudqa build variant
   - name: e2e_mdb_kind_cloudqa_task_group
@@ -787,13 +802,14 @@ task_groups:
     <<: *setup_and_teardown_task_cloudqa
     tasks:
       - e2e_operator_upgrade_replica_set
-      - e2e_operator_upgrade_sharded_cluster
+      - e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
       - e2e_operator_upgrade_ops_manager
       - e2e_operator_proxy
       - e2e_operator_partial_crd
       - e2e_operator_clusterwide
       - e2e_operator_multi_namespaces
-      - e2e_operator_upgrade_appdb_tls
+      - e2e_appdb_tls_operator_upgrade_v1_32_to_mck
+      - e2e_meko_mck_upgrade
     <<: *teardown_group
 
   # e2e_operator_race_with_telemetry_task_group includes the tests for testing the operator with race detector enabled
@@ -814,13 +830,14 @@ task_groups:
     <<: *setup_and_teardown_task_cloudqa
     tasks:
       - e2e_operator_upgrade_replica_set
-      - e2e_operator_upgrade_sharded_cluster
+      - e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
       - e2e_operator_upgrade_ops_manager
       - e2e_operator_proxy
       - e2e_operator_partial_crd
       - e2e_operator_clusterwide
       - e2e_operator_multi_namespaces
-      - e2e_operator_upgrade_appdb_tls
+      - e2e_appdb_tls_operator_upgrade_v1_32_to_mck
+      - e2e_meko_mck_upgrade
     <<: *teardown_group
 
   - name: e2e_multi_cluster_kind_task_group
@@ -888,6 +905,7 @@ task_groups:
       - e2e_tls_sc_additional_certs
       - e2e_tls_x509_configure_all_options_sc
       - e2e_tls_x509_sc
+      - e2e_meko_mck_upgrade
 
     <<: *teardown_group
 
@@ -916,7 +934,7 @@ task_groups:
       - e2e_multi_cluster_om_networking_clusterwide
       - e2e_multi_cluster_om_appdb_no_mesh
       # Reused OM tests with AppDB Multi-Cluster topology
-      - e2e_operator_upgrade_appdb_tls
+      - e2e_appdb_tls_operator_upgrade_v1_32_to_mck
       - e2e_om_appdb_flags_and_config
       - e2e_om_appdb_upgrade
       - e2e_om_appdb_monitoring_tls
@@ -948,7 +966,7 @@ task_groups:
       - e2e_om_ops_manager_upgrade
       - e2e_om_update_before_reconciliation
       - e2e_om_feature_controls
-      - e2e_multi_cluster_appdb_state_operator_upgrade_downgrade
+      - e2e_multi_cluster_appdb_upgrade_downgrade_v1_27_to_mck
       - e2e_multi_cluster_sharded_disaster_recovery
     # disabled tests:
     #    - e2e_om_multiple # multi-cluster failures in EVG
@@ -1001,7 +1019,7 @@ task_groups:
       - e2e_om_ops_manager_backup_kmip
       - e2e_om_ops_manager_scale
       - e2e_om_ops_manager_upgrade
-      - e2e_multi_cluster_appdb_state_operator_upgrade_downgrade
+      - e2e_multi_cluster_appdb_upgrade_downgrade_v1_27_to_mck
       - e2e_om_update_before_reconciliation
       - e2e_om_feature_controls
       - e2e_multi_cluster_sharded_disaster_recovery
@@ -1193,7 +1211,7 @@ buildvariants:
   # where <distro> is any of ubuntu|ubi
   # where <om_version> denotes the OM version tested (e.g. om50, om60, cloudqa) - used only for MDB tests
 
-  ## MongoDBCommunity build variant
+  # MongoDBCommunity build variant
   - name: e2e_mdb_community
     display_name: e2e_mdb_community
     tags: [ "e2e_test_suite"]
@@ -1370,8 +1388,6 @@ buildvariants:
       - name: e2e_operator_race_with_telemetry_task_group
 
   - name: e2e_smoke
-    # TODO: CLOUDP-310820 - After 1.0.0 release we need re-enabled this
-    disable: true
     display_name: e2e_smoke
     tags: [ "e2e_test_suite" ]
     run_on:
@@ -1383,8 +1399,6 @@ buildvariants:
       - name: e2e_smoke_task_group
 
   - name: e2e_static_smoke
-    # TODO: CLOUDP-310820 - After 1.0.0 release we need re-enabled this
-    disable: true
     display_name: e2e_static_smoke
     tags: [ "e2e_test_suite" ]
     run_on:
@@ -1623,6 +1637,9 @@ buildvariants:
 
   - name: init_release_agents_on_ecr
     display_name: init_release_agents_on_ecr
+    # this enables us to run this variant either manually (patch) which pct does or during an OM bump (github_pr)
+    allowed_requesters: [ "patch", "github_pr" ]
+    tags: [ "release_agents_on_ecr" ]
     # We want that to run first and finish asap. Digest pinning depends on this to succeed.
     priority: 70
     run_on:
@@ -1780,20 +1797,6 @@ buildvariants:
     tasks:
       - name: run_conditionally_prepare_and_upload_openshift_bundles
 
-  - name: upload_dockerfiles
-    display_name: upload_dockerfiles
-    tags: [ "release" ]
-    allowed_requesters: [ "patch", "github_tag" ]
-    # CLOUDP-182323 This ensures that there will be Operator Dockerfile available in S3 before
-    # syncing and uploading the bundle TAR archive.
-    depends_on:
-      - name: release_operator
-        variant: release_images
-    run_on:
-      - ubuntu2204-small
-    tasks:
-      - name: upload_dockerfiles
-
     # It will be called by pct while bumping the agent cloud manager image
   - name: release_agent
     display_name: (Static Containers) Release Agent matrix
@@ -1856,6 +1859,15 @@ buildvariants:
     <<: *base_om8_dependency
     tasks:
       - name: gke_code_snippets_task_group
+
+  - name: private_kind_code_snippets
+    display_name: private_kind_code_snippets
+    allowed_requesters: ["patch"]
+    run_on:
+      - ubuntu2204-large
+    <<: *base_om8_dependency
+    tasks:
+      - name: kind_code_snippets_task_group
 
   ### Build variants for manual patch only
 
