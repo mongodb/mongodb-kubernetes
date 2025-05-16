@@ -277,16 +277,16 @@ func validateMongoDBResource(mdb *mdbv1.MongoDB, conn om.Connection) workflow.St
 }
 
 func ensureSupportedOpsManagerVersion(conn om.Connection) workflow.Status {
-	omVersionString := conn.OpsManagerVersion()
-	if !omVersionString.IsCloudManager() {
-		omVersion, err := omVersionString.Semver()
-		if err != nil {
-			return workflow.Failed(xerrors.Errorf("Failed when trying to parse Ops Manager version"))
-		}
-		if omVersion.LT(semver.MustParse(oldestSupportedOpsManagerVersion)) {
-			return workflow.Unsupported("This MongoDB ReplicaSet is managed by Ops Manager version %s, which is not supported by this version of the operator. Please upgrade it to a version >=%s", omVersion, oldestSupportedOpsManagerVersion)
-		}
-	}
+	//omVersionString := conn.OpsManagerVersion()
+	//if !omVersionString.IsCloudManager() {
+	//	omVersion, err := omVersionString.Semver()
+	//	if err != nil {
+	//		return workflow.Failed(xerrors.Errorf("Failed when trying to parse Ops Manager version"))
+	//	}
+	//	if omVersion.LT(semver.MustParse(oldestSupportedOpsManagerVersion)) {
+	//		return workflow.Unsupported("This MongoDB ReplicaSet is managed by Ops Manager version %s, which is not supported by this version of the operator. Please upgrade it to a version >=%s", omVersion, oldestSupportedOpsManagerVersion)
+	//	}
+	//}
 	return workflow.OK()
 }
 
