@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strconv"
 
-	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 )
 
 var MemberConfigErrorMessage = "there must be at least as many entries in MemberConfig as specified in the 'members' field"

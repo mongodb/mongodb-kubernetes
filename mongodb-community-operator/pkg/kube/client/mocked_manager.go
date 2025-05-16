@@ -3,7 +3,6 @@ package client
 import (
 	"context"
 	"net/http"
-	"sigs.k8s.io/controller-runtime/pkg/config"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -12,11 +11,13 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
-	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+
+	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // MockedManager exists to unit test the reconciliation loops and wrap the mocked client
@@ -133,7 +134,7 @@ func (m *MockedManager) GetLogger() logr.Logger {
 }
 
 func (m *MockedManager) GetControllerOptions() config.Controller {
-	var duration = time.Duration(0)
+	duration := time.Duration(0)
 	return config.Controller{
 		CacheSyncTimeout: duration,
 	}

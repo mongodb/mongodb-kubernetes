@@ -52,7 +52,7 @@ configure() {
 
   sync
 
-  ssh -T -q "${host_url}" "cd ~/ops-manager-kubernetes; scripts/dev/switch_context.sh root-context; scripts/dev/setup_evg_host.sh ${arch}"
+  ssh -T -q "${host_url}" "cd ~/mongodb-kubernetes; scripts/dev/switch_context.sh root-context; scripts/dev/setup_evg_host.sh ${arch}"
 }
 
 sync() {
@@ -62,7 +62,7 @@ sync() {
   --include-from=.rsyncinclude \
   --exclude-from=.gitignore \
   --exclude-from=.rsyncignore \
-  ./ "${host_url}:/home/ubuntu/ops-manager-kubernetes/"
+  ./ "${host_url}:/home/ubuntu/mongodb-kubernetes/"
 
   rsync --verbose --no-links --recursive --prune-empty-dirs --archive --compress --human-readable \
     --max-size=1000000 \
@@ -81,7 +81,7 @@ remote-prepare-local-e2e-run() {
   rsync --verbose --no-links --recursive --prune-empty-dirs --archive --compress --human-readable \
     --max-size=1000000 \
     -e ssh \
-    "${host_url}:/home/ubuntu/ops-manager-kubernetes/.multi_cluster_local_test_files" \
+    "${host_url}:/home/ubuntu/mongodb-kubernetes/.multi_cluster_local_test_files" \
     ./ &
   scp "${host_url}:/home/ubuntu/.operator-dev/multicluster_kubeconfig" "${KUBE_CONFIG_PATH}" &
 
@@ -98,7 +98,7 @@ recreate-kind-clusters() {
   DELETE_KIND_NETWORK=${DELETE_KIND_NETWORK:-"false"}
   echo "Recreating kind clusters on ${EVG_HOST_NAME} (${host_url})..."
   # shellcheck disable=SC2088
-  ssh -T "${host_url}" "cd ~/ops-manager-kubernetes; DELETE_KIND_NETWORK=${DELETE_KIND_NETWORK} scripts/dev/recreate_kind_clusters.sh"
+  ssh -T "${host_url}" "cd ~/mongodb-kubernetes; DELETE_KIND_NETWORK=${DELETE_KIND_NETWORK} scripts/dev/recreate_kind_clusters.sh"
   echo "Copying kubeconfig to ${kubeconfig_path}"
   get-kubeconfig
 }
@@ -108,7 +108,7 @@ recreate-kind-cluster() {
   cluster_name=$1
   echo "Recreating kind cluster ${cluster_name} on ${EVG_HOST_NAME} (${host_url})..."
   # shellcheck disable=SC2088
-  ssh -T "${host_url}" "cd ~/ops-manager-kubernetes; scripts/dev/recreate_kind_cluster.sh ${cluster_name}"
+  ssh -T "${host_url}" "cd ~/mongodb-kubernetes; scripts/dev/recreate_kind_cluster.sh ${cluster_name}"
   echo "Copying kubeconfig to ${kubeconfig_path}"
   get-kubeconfig
 }
@@ -152,7 +152,7 @@ cmd() {
     shift 1
   fi
 
-  cmd="cd ~/ops-manager-kubernetes; $*"
+  cmd="cd ~/mongodb-kubernetes; $*"
   ssh -T -q "${host_url}" "${cmd}"
 }
 

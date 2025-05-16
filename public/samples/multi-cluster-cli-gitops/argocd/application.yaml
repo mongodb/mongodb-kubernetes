@@ -10,7 +10,7 @@ metadata:
 spec:
   project: my-project
   source:
-    repoURL: https://github.com/mongodb/mongodb-enterprise-kubernetes
+    repoURL: https://github.com/mongodb/mongodb-kubernetes
     targetRevision: "fix/ubi-8-repo-names"
     path: samples/multi-cluster-cli-gitops
   destination:

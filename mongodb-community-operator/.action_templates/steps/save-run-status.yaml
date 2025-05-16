@@ -1,3 +1,0 @@
-- name: Save run status
-  if: always()
-  run: echo "::set-output name=last_run_status::${{ steps.e2e_test.outcome }}" > last_run_status

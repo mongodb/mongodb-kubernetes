@@ -108,7 +108,7 @@ deploy_test_app() {
     fi
 
     if [[ -n "${PROJECT_DIR:-}" ]]; then
-        helm_params+=("--set" "projectDir=/ops-manager-kubernetes")
+        helm_params+=("--set" "projectDir=/mongodb-kubernetes")
     fi
 
     if [[ "${LOCAL_OPERATOR}" == true ]]; then

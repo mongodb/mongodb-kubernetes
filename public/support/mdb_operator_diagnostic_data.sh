@@ -67,11 +67,11 @@ contains "--om" "$@" && collect_om=1
 if [ ${collect_om} == 1 ]; then
   if [[ $3 == "--om" ]]; then
     operator_namespace="${1}"
-    operator_name="mongodb-enterprise-operator"
+    operator_name="mongodb-kubernetes-operator"
     om_resource_name="${2}"
   elif [[ $4 == "--om" ]]; then
     operator_namespace="${3}"
-    operator_name="mongodb-enterprise-operator"
+    operator_name="mongodb-kubernetes-operator"
     om_resource_name="${2}"
   elif [[ $5 == "--om" ]]; then
     operator_namespace="${3}"
@@ -79,7 +79,7 @@ if [ ${collect_om} == 1 ]; then
     om_resource_name="${2}"
   fi
 else
-  operator_name="${4:-mongodb-enterprise-operator}"
+  operator_name="${4:-mongodb-kubernetes-operator}"
   operator_namespace="${3:-$1}"
 fi
 

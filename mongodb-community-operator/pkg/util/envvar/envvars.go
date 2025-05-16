@@ -30,7 +30,7 @@ func MergeWithOverride(existing, desired []corev1.EnvVar) []corev1.EnvVar {
 }
 
 func GetEnvOrDefault(envVar, defaultValue string) string {
-	if val, ok := os.LookupEnv(envVar); ok {
+	if val, ok := os.LookupEnv(envVar); ok { //nolint:forbidigo
 		return val
 	}
 	return defaultValue

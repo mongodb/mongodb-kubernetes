@@ -6,20 +6,22 @@ import (
 	"regexp"
 	"strings"
 
-	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/stretchr/objx"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/authtypes"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/constants"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
-	"github.com/stretchr/objx"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/authtypes"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
 )
 
 type Type string
@@ -43,7 +45,7 @@ const (
 
 // SCRAM-SHA-256 and SCRAM-SHA-1 are the supported auth modes.
 const (
-	defaultMode AuthMode = "SCRAM-SHA-256"
+	defaultMode AuthMode = Scram256AuthMode
 )
 
 const (
@@ -99,7 +101,7 @@ type MongoDBCommunitySpec struct {
 	Users []MongoDBUser `json:"users"`
 
 	// +optional
-	StatefulSetConfiguration StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	StatefulSetConfiguration common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 
 	// AgentConfiguration sets options for the MongoDB automation agent
 	// +optional
@@ -346,23 +348,16 @@ type OverrideProcess struct {
 	LogRotate *automationconfig.CrdLogRotate `json:"logRotate,omitempty"`
 }
 
-// StatefulSetConfiguration holds the optional custom StatefulSet
-// that should be merged into the operator created one.
-type StatefulSetConfiguration struct {
-	// +kubebuilder:pruning:PreserveUnknownFields
-	SpecWrapper StatefulSetSpecWrapper `json:"spec"`
-	// +optional
-	MetadataWrapper StatefulSetMetadataWrapper `json:"metadata"`
-}
-
 type LogLevel string
 
 const (
-	LogLevelDebug LogLevel = "DEBUG"
-	LogLevelInfo  LogLevel = "INFO"
-	LogLevelWarn  LogLevel = "WARN"
-	LogLevelError LogLevel = "ERROR"
-	LogLevelFatal LogLevel = "FATAL"
+	LogLevelDebug    LogLevel = "DEBUG"
+	LogLevelInfo     LogLevel = "INFO"
+	LogLevelWarn     LogLevel = "WARN"
+	LogLevelError    LogLevel = "ERROR"
+	LogLevelFatal    LogLevel = "FATAL"
+	X509AuthMode              = "X509"
+	Scram256AuthMode          = "SCRAM-SHA-256"
 )
 
 type AgentConfiguration struct {
@@ -381,44 +376,6 @@ type AgentConfiguration struct {
 	// +optional
 	// SystemLog configures system log of mongod
 	SystemLog *automationconfig.SystemLog `json:"systemLog,omitempty"`
-}
-
-// StatefulSetSpecWrapper is a wrapper around StatefulSetSpec with a custom implementation
-// of MarshalJSON and UnmarshalJSON which delegate to the underlying Spec to avoid CRD pollution.
-
-type StatefulSetSpecWrapper struct {
-	Spec appsv1.StatefulSetSpec `json:"-"`
-}
-
-// MarshalJSON defers JSON encoding to the wrapped map
-func (m *StatefulSetSpecWrapper) MarshalJSON() ([]byte, error) {
-	return json.Marshal(m.Spec)
-}
-
-// UnmarshalJSON will decode the data into the wrapped map
-func (m *StatefulSetSpecWrapper) UnmarshalJSON(data []byte) error {
-	return json.Unmarshal(data, &m.Spec)
-}
-
-func (m *StatefulSetSpecWrapper) DeepCopy() *StatefulSetSpecWrapper {
-	return &StatefulSetSpecWrapper{
-		Spec: m.Spec,
-	}
-}
-
-// StatefulSetMetadataWrapper is a wrapper around Labels and Annotations
-type StatefulSetMetadataWrapper struct {
-	// +optional
-	Labels map[string]string `json:"labels,omitempty"`
-	// +optional
-	Annotations map[string]string `json:"annotations,omitempty"`
-}
-
-func (m *StatefulSetMetadataWrapper) DeepCopy() *StatefulSetMetadataWrapper {
-	return &StatefulSetMetadataWrapper{
-		Labels:      m.Labels,
-		Annotations: m.Annotations,
-	}
 }
 
 // MongodConfiguration holds the optional mongod configuration
@@ -658,11 +615,11 @@ func IsAuthPresent(authModes []AuthMode, auth string) bool {
 // same authentication mode.
 func ConvertAuthModeToAuthMechanism(authModeLabel AuthMode) string {
 	switch authModeLabel {
-	case "SCRAM", "SCRAM-SHA-256":
+	case "SCRAM", Scram256AuthMode:
 		return constants.Sha256
 	case "SCRAM-SHA-1":
 		return constants.Sha1
-	case "X509":
+	case X509AuthMode:
 		return constants.X509
 	default:
 		return ""
@@ -774,7 +731,6 @@ func (m *MongoDBCommunity) GetAuthUsers() []authtypes.User {
 	for i, u := range m.Spec.Users {
 		roles := make([]authtypes.Role, len(u.Roles))
 		for j, r := range u.Roles {
-
 			roles[j] = authtypes.Role{
 				Name:     r.Name,
 				Database: r.DB,
@@ -846,20 +802,20 @@ func (m *MongoDBCommunitySpec) GetAgentAuthMode() AuthMode {
 	}
 
 	if len(m.Security.Authentication.Modes) == 0 {
-		return "SCRAM-SHA-256"
+		return Scram256AuthMode
 	} else if len(m.Security.Authentication.Modes) == 1 {
 		return m.Security.Authentication.Modes[0]
 	} else if len(m.Security.Authentication.Modes) == 2 {
-		if (IsAuthPresent(m.Security.Authentication.Modes, "SCRAM") || IsAuthPresent(m.Security.Authentication.Modes, "SCRAM-SHA-256")) &&
+		if (IsAuthPresent(m.Security.Authentication.Modes, "SCRAM") || IsAuthPresent(m.Security.Authentication.Modes, Scram256AuthMode)) &&
 			IsAuthPresent(m.Security.Authentication.Modes, "SCRAM-SHA-1") {
-			return "SCRAM-SHA-256"
+			return Scram256AuthMode
 		}
 	}
 	return ""
 }
 
 func (m *MongoDBCommunitySpec) IsAgentX509() bool {
-	return m.GetAgentAuthMode() == "X509"
+	return m.GetAgentAuthMode() == X509AuthMode
 }
 
 // IsStillScaling returns true if this resource is currently scaling,

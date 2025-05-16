@@ -6,10 +6,10 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/service"
-
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/service"
 )
 
 func DeleteServiceIfItExists(ctx context.Context, getterDeleter service.GetDeleter, serviceName types.NamespacedName) error {

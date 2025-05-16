@@ -9,7 +9,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 )
 
 // Deleter cleans up any state required upon deletion of a resource.

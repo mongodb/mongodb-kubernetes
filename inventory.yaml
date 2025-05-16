@@ -1,13 +1,13 @@
 vars:
   registry: <container-registry>
-  quay_registry: quay.io/mongodb/mongodb-enterprise-operator
-  s3_bucket: s3://enterprise-operator-dockerfiles/dockerfiles/mongodb-enterprise-operator
+  quay_registry: quay.io/mongodb/mongodb-kubernetes
+  s3_bucket: s3://enterprise-operator-dockerfiles/dockerfiles/mongodb-kubernetes
 
 images:
-- name: operator
+- name: mongodb-kubernetes
   vars:
     context: .
-    template_context: docker/mongodb-enterprise-operator
+    template_context: docker/mongodb-kubernetes-operator
   platform: linux/amd64
   inputs:
   - version
@@ -17,7 +17,7 @@ images:
 
   - name: operator-context-dockerfile
     task_type: docker_build
-    dockerfile: docker/mongodb-enterprise-operator/Dockerfile.builder
+    dockerfile: docker/mongodb-kubernetes-operator/Dockerfile.builder
     buildargs:
       release_version: $(inputs.params.version)
       log_automation_config_diff: $(inputs.params.log_automation_config_diff)
@@ -28,7 +28,7 @@ images:
 
   - name: operator-race-context-dockerfile
     task_type: docker_build
-    dockerfile: docker/mongodb-enterprise-operator/Dockerfile.builder
+    dockerfile: docker/mongodb-kubernetes-operator/Dockerfile.builder
     buildargs:
       release_version: $(inputs.params.version)
       log_automation_config_diff: $(inputs.params.log_automation_config_diff)
@@ -52,7 +52,7 @@ images:
     buildargs:
       imagebase: $(inputs.params.registry)/operator-context:$(inputs.params.version_id)
     output:
-    - registry: $(inputs.params.registry)/mongodb-enterprise-operator-ubi
+    - registry: $(inputs.params.registry)/mongodb-kubernetes
       tag: $(inputs.params.version_id)
 
   - name: operator-ubi-race-build
@@ -61,17 +61,17 @@ images:
     buildargs:
       imagebase: $(inputs.params.registry)/operator-context:$(inputs.params.version_id)-race
     output:
-    - registry: $(inputs.params.registry)/mongodb-enterprise-operator-ubi
+    - registry: $(inputs.params.registry)/mongodb-kubernetes
       tag: $(inputs.params.version_id)-race
 
   - name: master-latest
     task_type: tag_image
     tags: [ "master" ]
     source:
-      registry: $(inputs.params.registry)/mongodb-enterprise-operator-ubi
+      registry: $(inputs.params.registry)/mongodb-kubernetes
       tag: $(inputs.params.version_id)
     destination:
-      - registry: $(inputs.params.registry)/mongodb-enterprise-operator-ubi
+      - registry: $(inputs.params.registry)/mongodb-kubernetes
         tag: latest
 
   - name: operator-context-release

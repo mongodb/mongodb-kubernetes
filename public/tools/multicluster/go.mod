@@ -1,4 +1,4 @@
-module github.com/10gen/ops-manager-kubernetes/multi
+module github.com/mongodb/mongodb-kubernetes/multi
 
 go 1.24.0
 

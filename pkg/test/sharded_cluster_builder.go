@@ -4,10 +4,11 @@ import (
 	v12 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 const SCBuilderDefaultName = "slaney"
@@ -214,7 +215,7 @@ func (b *ClusterBuilder) SetShardSpecificPodSpecTemplate(specs []v12.PodTemplate
 	mongoDBPodSpec := make([]mdb.MongoDbPodSpec, len(specs))
 
 	for n, e := range specs {
-		mongoDBPodSpec[n] = mdb.MongoDbPodSpec{PodTemplateWrapper: mdb.PodTemplateSpecWrapper{
+		mongoDBPodSpec[n] = mdb.MongoDbPodSpec{PodTemplateWrapper: common.PodTemplateSpecWrapper{
 			PodTemplate: &e,
 		}}
 	}

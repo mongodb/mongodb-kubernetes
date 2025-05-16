@@ -13,7 +13,7 @@ import (
 	"github.com/blang/semver"
 	"go.uber.org/zap"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
 // ************** This is a file containing any general "algorithmic" or "util" functions used by other packages

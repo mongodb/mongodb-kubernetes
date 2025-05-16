@@ -4,7 +4,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 )
 
 // TODO must replace all [Standalone|Replicaset|Cluster]Builder classes in 'operator' package
@@ -70,7 +71,7 @@ func (b *MongoDBBuilder) ExposedExternally(specOverride *corev1.ServiceSpec, ann
 	b.mdb.Spec.ExternalAccessConfiguration = &ExternalAccessConfiguration{}
 	b.mdb.Spec.ExternalAccessConfiguration.ExternalDomain = externalDomain
 	if specOverride != nil {
-		b.mdb.Spec.ExternalAccessConfiguration.ExternalService.SpecWrapper = &ServiceSpecWrapper{Spec: *specOverride}
+		b.mdb.Spec.ExternalAccessConfiguration.ExternalService.SpecWrapper = &common.ServiceSpecWrapper{Spec: *specOverride}
 	}
 	if len(annotationsOverride) > 0 {
 		b.mdb.Spec.ExternalAccessConfiguration.ExternalService.Annotations = annotationsOverride

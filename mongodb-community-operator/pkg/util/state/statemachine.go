@@ -88,7 +88,6 @@ func NewStateMachine(saver SaveLoader, nsName types.NamespacedName, logger *zap.
 // Reconcile will reconcile the currently active State. This method should be called
 // from the controllers.
 func (m *Machine) Reconcile() (reconcile.Result, error) {
-
 	if err := m.determineState(); err != nil {
 		m.logger.Errorf("error initializing starting state: %s", err)
 		return reconcile.Result{}, err

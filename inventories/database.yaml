@@ -1,11 +1,11 @@
 vars:
-  quay_registry: quay.io/mongodb/mongodb-enterprise-database
-  s3_bucket: s3://enterprise-operator-dockerfiles/dockerfiles/mongodb-enterprise-database
+  quay_registry: quay.io/mongodb/mongodb-kubernetes-database
+  s3_bucket: s3://enterprise-operator-dockerfiles/dockerfiles/mongodb-kubernetes-database
 
 images:
 - name: database
   vars:
-    context: docker/mongodb-enterprise-database
+    context: docker/mongodb-kubernetes-database
   platform: linux/amd64
 
   stages:
@@ -13,7 +13,7 @@ images:
     task_type: docker_build
     dockerfile: Dockerfile.builder
     output:
-    - registry: $(inputs.params.registry)/mongodb-enterprise-database-context
+    - registry: $(inputs.params.registry)/mongodb-kubernetes-database-context
       tag: $(inputs.params.version_id)
 
   - name: init-appdb-template-ubi
@@ -30,26 +30,26 @@ images:
     dockerfile: $(stages['init-appdb-template-ubi'].outputs[0].dockerfile)
     tags: ["ubi"]
     buildargs:
-      imagebase: $(inputs.params.registry)/mongodb-enterprise-database-context:$(inputs.params.version_id)
+      imagebase: $(inputs.params.registry)/mongodb-kubernetes-database-context:$(inputs.params.version_id)
     output:
-    - registry: $(inputs.params.registry)/mongodb-enterprise-database-ubi
+    - registry: $(inputs.params.registry)/mongodb-kubernetes-database
       tag: $(inputs.params.version_id)
 
   - name: master-latest
     task_type: tag_image
     tags: ["master"]
     source:
-      registry: $(inputs.params.registry)/mongodb-enterprise-database-ubi
+      registry: $(inputs.params.registry)/mongodb-kubernetes-database
       tag: $(inputs.params.version_id)
     destination:
-      - registry: $(inputs.params.registry)/mongodb-enterprise-database-ubi
+      - registry: $(inputs.params.registry)/mongodb-kubernetes-database
         tag: latest
 
   - name: database-release-context
     task_type: tag_image
     tags: ["release"]
     source:
-      registry: $(inputs.params.registry)/mongodb-enterprise-database-context
+      registry: $(inputs.params.registry)/mongodb-kubernetes-database-context
       tag: $(inputs.params.version_id)
     destination:
     - registry: $(inputs.params.quay_registry)

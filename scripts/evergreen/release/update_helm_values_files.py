@@ -18,6 +18,7 @@ from helm_files_handler import (
     update_all_helm_values_files,
     update_standalone_installer,
 )
+from packaging.version import Version
 
 RELEASE_JSON_TO_HELM_KEY = {
     "mongodbOperator": "operator",
@@ -56,9 +57,9 @@ def main() -> int:
 
 
 def update_standalone(operator_version):
-    update_standalone_installer("public/mongodb-enterprise.yaml", operator_version),
-    update_standalone_installer("public/mongodb-enterprise-openshift.yaml", operator_version),
-    update_standalone_installer("public/mongodb-enterprise-multi-cluster.yaml", operator_version),
+    update_standalone_installer("public/mongodb-kubernetes.yaml", operator_version),
+    update_standalone_installer("public/mongodb-kubernetes-openshift.yaml", operator_version),
+    update_standalone_installer("public/mongodb-kubernetes-multi-cluster.yaml", operator_version),
 
 
 def update_helm_charts(operator_version, release):
@@ -81,24 +82,33 @@ def update_helm_charts(operator_version, release):
     set_value_in_yaml_file("helm_chart/values.yaml", "operator.version", operator_version)
     set_value_in_yaml_file("helm_chart/Chart.yaml", "version", operator_version)
 
+    set_value_in_yaml_file(
+        "helm_chart/values.yaml", "search.community.version", release["search"]["community"]["version"]
+    )
+
 
 def update_cluster_service_version(operator_version):
-    old_operator_version = get_value_in_yaml_file(
-        "config/manifests/bases/mongodb-enterprise.clusterserviceversion.yaml", "metadata.annotations.containerImage"
-    ).split(":")[-1]
+    container_image_value = get_value_in_yaml_file(
+        "config/manifests/bases/mongodb-kubernetes.clusterserviceversion.yaml",
+        "metadata.annotations.containerImage",
+    )
+
+    image_parts = container_image_value.split(":")
+    old_operator_version = image_parts[-1]
+    image_repo = ":".join(image_parts[:-1])
 
     if old_operator_version != operator_version:
         set_value_in_yaml_file(
-            "config/manifests/bases/mongodb-enterprise.clusterserviceversion.yaml",
+            "config/manifests/bases/mongodb-kubernetes.clusterserviceversion.yaml",
             "spec.replaces",
-            f"mongodb-enterprise.v{old_operator_version}",
+            f"mongodb-kubernetes.v{old_operator_version}",
             preserve_quotes=True,
         )
 
     set_value_in_yaml_file(
-        "config/manifests/bases/mongodb-enterprise.clusterserviceversion.yaml",
+        "config/manifests/bases/mongodb-kubernetes.clusterserviceversion.yaml",
         "metadata.annotations.containerImage",
-        f"quay.io/mongodb/mongodb-enterprise-operator-ubi:{operator_version}",
+        f"{image_repo}:{operator_version}",
         preserve_quotes=True,
     )
 

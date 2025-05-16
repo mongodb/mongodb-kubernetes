@@ -8,7 +8,7 @@ import (
 	"hash"
 	"unicode"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/scramcredentials"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/scramcredentials"
 )
 
 // final key must be between 6 and at most 1024 characters
@@ -62,7 +62,6 @@ func Salts() ([]byte, []byte, error) {
 func salt(hashConstructor func() hash.Hash) ([]byte, error) {
 	saltSize := hashConstructor().Size() - scramcredentials.RFC5802MandatedSaltSize
 	salt, err := RandomFixedLengthStringOfSize(20)
-
 	if err != nil {
 		return nil, err
 	}
