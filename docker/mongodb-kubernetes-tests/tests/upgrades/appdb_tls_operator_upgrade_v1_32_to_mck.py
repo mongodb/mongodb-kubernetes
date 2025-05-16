@@ -10,7 +10,10 @@ from tests.conftest import (
     LEGACY_OPERATOR_CHART,
     LEGACY_OPERATOR_IMAGE_NAME,
     LEGACY_OPERATOR_NAME,
+    MULTI_CLUSTER_OPERATOR_NAME,
     create_appdb_certs,
+    get_default_operator,
+    get_multi_cluster_operator,
     install_official_operator,
     is_multi_cluster,
 )
@@ -127,8 +130,30 @@ def test_downscale_latest_official_operator(namespace: str):
 
 
 @mark.e2e_appdb_tls_operator_upgrade_v1_32_to_mck
-def test_upgrade_operator(default_operator: Operator):
-    default_operator.assert_is_running()
+def test_upgrade_operator(
+    namespace: str,
+    central_cluster_name: str,
+    multi_cluster_operator_installation_config: dict[str, str],
+    operator_installation_config: dict[str, str],
+    central_cluster_client,
+    member_cluster_clients,
+    member_cluster_names,
+):
+    if is_multi_cluster():
+        operator = get_multi_cluster_operator(
+            namespace,
+            central_cluster_name,
+            multi_cluster_operator_installation_config,
+            central_cluster_client,
+            member_cluster_clients,
+            member_cluster_names,
+            apply_crds_first=True,
+        )
+    else:
+        operator = get_default_operator(
+            namespace, operator_installation_config=operator_installation_config, apply_crds_first=True
+        )
+    operator.assert_is_running()
 
 
 @mark.e2e_appdb_tls_operator_upgrade_v1_32_to_mck
