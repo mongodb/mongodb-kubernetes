@@ -57,7 +57,7 @@ configure() {
 
 sync() {
   rsync --verbose --archive --compress --human-readable --recursive --progress \
-  --delete --delete-excluded --max-size=1000000 --prune-empty-dirs \
+  --delete --max-size=1000000 --prune-empty-dirs \
   -e ssh \
   --include-from=.rsyncinclude \
   --exclude-from=.gitignore \
@@ -115,6 +115,7 @@ recreate-kind-cluster() {
 
 tunnel() {
   shift 1
+  get-kubeconfig
   # shellcheck disable=SC2016
   api_servers=$(yq '.contexts[].context.cluster as $cluster | .clusters[] | select(.name == $cluster).cluster.server' < "${kubeconfig_path}" | sed 's/https:\/\///g')
   echo "Extracted the following API server urls from ${kubeconfig_path}: ${api_servers}"
