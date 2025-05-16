@@ -1498,31 +1498,11 @@ def build_image(image_name: str, build_configuration: BuildConfiguration):
     get_builder_function_for_image_name()[image_name](build_configuration)
 
 
-def build_all_images(
-    images: Iterable[str],
-    builder: str,
-    debug: bool = False,
-    parallel: bool = False,
-    architecture: Optional[List[str]] = None,
-    sign: bool = False,
-    all_agents: bool = False,
-    parallel_factor: int = 0,
-):
-    """Builds all the images in the `images` list."""
-    build_configuration = operator_build_configuration(
-        builder, parallel, debug, architecture, sign, all_agents, parallel_factor
-    )
-    if sign:
-        mongodb_artifactory_login()
-    for image in images:
-        build_image(image, build_configuration)
-
-
 def main():
     _setup_tracing()
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--include", required=True)
+    parser.add_argument("--image", required=True)
     parser.add_argument("--builder", default="docker", type=str)
     parser.add_argument("--list-images", action="store_true")
     parser.add_argument("--parallel", action="store_true", default=False)
@@ -1560,18 +1540,15 @@ def main():
     if not args.sign:
         logger.warning("--sign flag not provided, images won't be signed")
 
-    if args.include is None:
-        print("No images to build, --include is required.")
+    if args.image not in get_builder_function_for_image_name():
+        print("Image {} not found".format(args.image))
         sys.exit(1)
 
-    image_to_build = args.include
-    if args.include not in get_builder_function_for_image_name():
-        print("Image {} not found".format(args.include))
-        sys.exit(1)
+    if args.sign:
+        mongodb_artifactory_login()
 
-    build_all_images(
-        image_to_build,
-        args.builder,
+    build_configuration = operator_build_configuration(
+        builder=args.builder,
         debug=args.debug,
         parallel=args.parallel,
         architecture=args.arch,
@@ -1579,6 +1556,8 @@ def main():
         all_agents=args.all_agents,
         parallel_factor=args.parallel_factor,
     )
+
+    build_image(args.image, build_configuration)
 
 
 if __name__ == "__main__":

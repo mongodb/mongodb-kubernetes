@@ -513,7 +513,7 @@ functions:
         shell: bash
         <<: *e2e_include_expansions_in_env
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/evergreen/run_python.sh pipeline.py --include ${image_name} --parallel --sign
+        binary: scripts/evergreen/run_python.sh pipeline.py --image ${image_name} --parallel --sign
 
   teardown_cloud_qa_all:
     - *switch_context

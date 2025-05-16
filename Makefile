@@ -69,13 +69,13 @@ operator: configure-operator build-and-push-operator-image
 
 # build-push, (todo) restart database
 database: aws_login
-	@ scripts/evergreen/run_python.sh pipeline.py --include database
+	@ scripts/evergreen/run_python.sh pipeline.py --image database
 
 readiness_probe: aws_login
-	@ scripts/evergreen/run_python.sh pipeline.py --include readiness-probe
+	@ scripts/evergreen/run_python.sh pipeline.py --image readiness-probe
 
 upgrade_hook: aws_login
-	@ scripts/evergreen/run_python.sh pipeline.py --include upgrade-hook
+	@ scripts/evergreen/run_python.sh pipeline.py --image upgrade-hook
 
 # ensures cluster is up, cleans Kubernetes + OM, build-push-deploy operator,
 # push-deploy database, create secrets, config map, resources etc
@@ -84,7 +84,7 @@ full: build-and-push-images
 
 # build-push appdb image
 appdb: aws_login
-	@ scripts/evergreen/run_python.sh pipeline.py --include appdb
+	@ scripts/evergreen/run_python.sh pipeline.py --image appdb
 
 # runs the e2e test: make e2e test=e2e_sharded_cluster_pv. The Operator is redeployed before the test, the namespace is cleaned.
 # The e2e test image is built and pushed together with all main ones (operator, database, init containers)
@@ -148,19 +148,19 @@ aws_cleanup:
 	@ scripts/evergreen/prepare_aws.sh
 
 build-and-push-operator-image: aws_login
-	@ scripts/evergreen/run_python.sh pipeline.py --include operator-quick
+	@ scripts/evergreen/run_python.sh pipeline.py --image operator-quick
 
 build-and-push-database-image: aws_login
 	@ scripts/dev/build_push_database_image
 
 build-and-push-test-image: aws_login build-multi-cluster-binary
 	@ if [[ -z "$(local)" ]]; then \
-		scripts/evergreen/run_python.sh pipeline.py --include test; \
+		scripts/evergreen/run_python.sh pipeline.py --image test; \
 	fi
 
 build-and-push-mco-test-image: aws_login
 	@ if [[ -z "$(local)" ]]; then \
-		scripts/evergreen/run_python.sh pipeline.py --include mco-test; \
+		scripts/evergreen/run_python.sh pipeline.py --image mco-test; \
 	fi
 
 build-multi-cluster-binary:
@@ -175,27 +175,27 @@ build-and-push-images: build-and-push-operator-image appdb-init-image om-init-im
 build-and-push-init-images: appdb-init-image om-init-image database-init-image
 
 database-init-image:
-	@ scripts/evergreen/run_python.sh pipeline.py --include init-database
+	@ scripts/evergreen/run_python.sh pipeline.py --image init-database
 
 appdb-init-image:
-	@ scripts/evergreen/run_python.sh pipeline.py --include init-appdb
+	@ scripts/evergreen/run_python.sh pipeline.py --image init-appdb
 
 # Not setting a parallel-factor will default to 0 which will lead to using all CPUs, that can cause docker to die.
 # Here we are defaulting to 6, a higher value might work for you.
 agent-image:
-	@ scripts/evergreen/run_python.sh pipeline.py --include agent --all-agents --parallel --parallel-factor 6
+	@ scripts/evergreen/run_python.sh pipeline.py --image agent --all-agents --parallel --parallel-factor 6
 
 agent-image-slow:
-	@ scripts/evergreen/run_python.sh pipeline.py --include agent --parallel-factor 1
+	@ scripts/evergreen/run_python.sh pipeline.py --image agent --parallel-factor 1
 
 operator-image:
-	@ scripts/evergreen/run_python.sh pipeline.py --include operator
+	@ scripts/evergreen/run_python.sh pipeline.py --image operator
 
 om-init-image:
-	@ scripts/evergreen/run_python.sh pipeline.py --include init-ops-manager
+	@ scripts/evergreen/run_python.sh pipeline.py --image init-ops-manager
 
 om-image:
-	@ scripts/evergreen/run_python.sh pipeline.py --include ops-manager
+	@ scripts/evergreen/run_python.sh pipeline.py --image ops-manager
 
 configure-operator:
 	@ scripts/dev/configure_operator.sh
