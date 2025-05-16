@@ -2,11 +2,11 @@
   "mongodbToolsBundle": {
     "ubi": "mongodb-database-tools-rhel88-x86_64-100.12.0.tgz"
   },
-  "mongodbOperator": "1.0.1",
-  "initDatabaseVersion": "1.0.1",
-  "initOpsManagerVersion": "1.0.1",
-  "initAppDbVersion": "1.0.1",
-  "databaseImageVersion": "1.0.1",
+  "mongodbOperator": "1.1.0",
+  "initDatabaseVersion": "1.0.0",
+  "initOpsManagerVersion": "1.0.0",
+  "initAppDbVersion": "1.0.0",
+  "databaseImageVersion": "1.0.0",
   "agentVersion": "108.0.2.8729-1",
   "openshift": {
     "minimumSupportedVersion": "4.6"
