@@ -3,7 +3,7 @@ from ipaddress import IPv4Address
 from typing import Any, List
 
 import kubernetes
-from _pytest.fixtures import fixture
+import pytest
 from kubetester import MongoDB, read_configmap
 from kubetester.mongodb_multi import MultiClusterClient
 from kubetester.operator import Operator
@@ -22,7 +22,7 @@ from tests.conftest import (
 from tests.multicluster.conftest import cluster_spec_list
 
 
-@fixture(scope="module")
+@pytest.fixture(scope="module")
 def operator(namespace: str) -> Operator:
     if is_multi_cluster():
         return get_multi_cluster_operator(

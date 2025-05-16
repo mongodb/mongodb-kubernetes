@@ -37,6 +37,8 @@ variables:
       - triggered_by_git_tag
       - version_id
       - workdir
+      # temporary secret to pull community private preview image from quay.io
+      - community_private_preview_pullsecret_dockerconfigjson
 
 functions:
 
@@ -331,6 +333,14 @@ functions:
           source .generated/context.export.env
           scripts/evergreen/e2e/setup_cloud_qa.py delete
 
+  dump_diagnostic_information_from_all_namespaces:
+    - command: subprocess.exec
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        add_to_path:
+          - bin
+        binary: scripts/evergreen/e2e/dump_diagnostic_information_from_all_namespaces.sh
+
   ### Publish and release image ###
 
   # Tags and pushes an image into an external Docker registry. The source image
@@ -392,17 +402,6 @@ functions:
         script: |
           echo "Enabling QEMU building for Docker"
           docker run --rm --privileged 268558157000.dkr.ecr.eu-west-1.amazonaws.com/docker-hub-mirrors/multiarch/qemu-user-static --reset -p yes
-
-  upload_dockerfiles:
-    - command: s3.put
-      params:
-        aws_key: ${enterprise_aws_access_key_id}
-        aws_secret: ${enterprise_aws_secret_access_key}
-        local_file: src/github.com/mongodb/mongodb-kubernetes/public/dockerfiles-${triggered_by_git_tag}.tgz
-        remote_file: bundles/dockerfiles-${triggered_by_git_tag}.tgz
-        bucket: operator-e2e-bundles
-        permissions: public-read
-        content_type: application/x-binary
 
   # upload_e2e_logs has the responsibility of dumping as much information as
   # possible into the S3 bucket that corresponds to this ${version}. The
@@ -742,10 +741,12 @@ functions:
       params:
         include_expansions_in_env:
           - GH_TOKEN
+          - code_snippets_commit_output
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/code_snippets/sample_commit_output.sh
 
-  gke_multi_cluster_snippets:
+  # it executes a script by convention: ./scripts/code_snippets/${task_name}_test.sh
+  test_code_snippets:
     - *switch_context
     - command: shell.exec
       params:
@@ -757,19 +758,4 @@ functions:
           - code_snippets_reset
           - task_name
         script: |
-          ./scripts/code_snippets/gke_multi_cluster_test.sh
-
-
-  gke_multi_cluster_no_mesh_snippets:
-    - *switch_context
-    - command: shell.exec
-      params:
-        shell: bash
-        working_dir: src/github.com/mongodb/mongodb-kubernetes
-        include_expansions_in_env:
-          - version_id
-          - code_snippets_teardown
-          - code_snippets_reset
-          - task_name
-        script: |
-          ./scripts/code_snippets/gke_multi_cluster_no_mesh_test.sh
+          ./scripts/code_snippets/${task_name}_test.sh

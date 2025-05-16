@@ -45,7 +45,7 @@ functions:
     - command: shell.exec
       type: setup
       params:
-        working_dir: src/github.com/mongodb/mongodb-kubernetes/tools/multicluster
+        working_dir: src/github.com/mongodb/mongodb-kubernetes/public/tools/multicluster
         include_expansions_in_env:
           - GRS_USERNAME
           - GRS_PASSWORD
@@ -61,6 +61,7 @@ functions:
           <<: *go_env
           MACOS_NOTARY_KEY: ${macos_notary_keyid}
           MACOS_NOTARY_SECRET: ${macos_notary_secret}
+          # TODO: CLOUDP-318631 triggered_by_git_tag is not set, because we run the task manually
           GORELEASER_CURRENT_TAG: ${triggered_by_git_tag}
         # shell.exec EVG Task doesn't have add_to_path, so we need to explicitly add the path export below.
         script: |
@@ -68,7 +69,7 @@ functions:
 
           export PATH=$GOROOT/bin:$PATH
           export GITHUB_TOKEN=${generated_token}
-          ${workdir}/goreleaser release --rm-dist
+          ${workdir}/goreleaser release --clean
 
 tasks:
   - name: package_goreleaser

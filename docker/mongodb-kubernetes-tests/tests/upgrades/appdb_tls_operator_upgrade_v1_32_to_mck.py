@@ -6,6 +6,9 @@ from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 from tests.conftest import (
+    LEGACY_MULTI_CLUSTER_OPERATOR_NAME,
+    LEGACY_OPERATOR_CHART,
+    LEGACY_OPERATOR_IMAGE_NAME,
     LEGACY_OPERATOR_NAME,
     create_appdb_certs,
     install_official_operator,
@@ -18,6 +21,7 @@ APPDB_NAME = "om-appdb-upgrade-tls-db"
 
 CERT_PREFIX = "prefix"
 
+# TODO CLOUDP-318100: this test should eventually be updated and not pinned to 1.32 anymore
 # TODO: this test runs in the cloudqa variant but still creates OM. We might want to move that to OM variant instead
 
 
@@ -71,7 +75,7 @@ def ops_manager_non_tls(
     return resource
 
 
-@mark.e2e_operator_upgrade_appdb_tls
+@mark.e2e_appdb_tls_operator_upgrade_v1_32_to_mck
 def test_install_latest_official_operator(
     namespace: str,
     managed_security_context,
@@ -90,12 +94,14 @@ def test_install_latest_official_operator(
         member_cluster_clients,
         member_cluster_names,
         custom_operator_version="1.32.0",  # latest operator version before fixing the appdb hostnames
+        helm_chart_path=LEGACY_OPERATOR_CHART,  # We are testing the upgrade from version fixing appdb hostnames, introduced in MEKO
         operator_name=LEGACY_OPERATOR_NAME,
+        operator_image=LEGACY_OPERATOR_IMAGE_NAME,
     )
     operator.assert_is_running()
 
 
-@mark.e2e_operator_upgrade_appdb_tls
+@mark.e2e_appdb_tls_operator_upgrade_v1_32_to_mck
 def test_create_om_tls(ops_manager_tls: MongoDBOpsManager):
     ops_manager_tls.update()
     ops_manager_tls.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
@@ -103,7 +109,7 @@ def test_create_om_tls(ops_manager_tls: MongoDBOpsManager):
     ops_manager_tls.get_om_tester().assert_healthiness()
 
 
-@mark.e2e_operator_upgrade_appdb_tls
+@mark.e2e_appdb_tls_operator_upgrade_v1_32_to_mck
 def test_create_om_non_tls(ops_manager_non_tls: MongoDBOpsManager):
     ops_manager_non_tls.update()
     ops_manager_non_tls.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
@@ -112,19 +118,20 @@ def test_create_om_non_tls(ops_manager_non_tls: MongoDBOpsManager):
     ops_manager_non_tls.assert_monitoring_data_exists()
 
 
-@mark.e2e_operator_upgrade_appdb_tls
+@mark.e2e_appdb_tls_operator_upgrade_v1_32_to_mck
 def test_downscale_latest_official_operator(namespace: str):
     # Scale down the existing operator deployment to 0. This is needed as long as the
     # `official_operator` fixture installs the MEKO operator.
-    downscale_operator_deployment(deployment_name=LEGACY_OPERATOR_NAME, namespace=namespace)
+    deployment_name = LEGACY_MULTI_CLUSTER_OPERATOR_NAME if is_multi_cluster() else LEGACY_OPERATOR_NAME
+    downscale_operator_deployment(deployment_name=deployment_name, namespace=namespace)
 
 
-@mark.e2e_operator_upgrade_appdb_tls
+@mark.e2e_appdb_tls_operator_upgrade_v1_32_to_mck
 def test_upgrade_operator(default_operator: Operator):
     default_operator.assert_is_running()
 
 
-@mark.e2e_operator_upgrade_appdb_tls
+@mark.e2e_appdb_tls_operator_upgrade_v1_32_to_mck
 def test_om_tls_ok(ops_manager_tls: MongoDBOpsManager):
     ops_manager_tls.load()
     ops_manager_tls.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
@@ -132,7 +139,7 @@ def test_om_tls_ok(ops_manager_tls: MongoDBOpsManager):
     ops_manager_tls.get_om_tester().assert_healthiness()
 
 
-@mark.e2e_operator_upgrade_appdb_tls
+@mark.e2e_appdb_tls_operator_upgrade_v1_32_to_mck
 def test_om_non_tls_ok(ops_manager_non_tls: MongoDBOpsManager):
     ops_manager_non_tls.load()
     ops_manager_non_tls.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
@@ -140,7 +147,7 @@ def test_om_non_tls_ok(ops_manager_non_tls: MongoDBOpsManager):
     ops_manager_non_tls.get_om_tester().assert_healthiness()
 
 
-@mark.e2e_operator_upgrade_appdb_tls
+@mark.e2e_appdb_tls_operator_upgrade_v1_32_to_mck
 def test_appdb_tls_hostnames(ops_manager_tls: MongoDBOpsManager):
     ops_manager_tls.load()
     ops_manager_tls.assert_appdb_preferred_hostnames_are_added()
@@ -149,7 +156,7 @@ def test_appdb_tls_hostnames(ops_manager_tls: MongoDBOpsManager):
     ops_manager_tls.assert_monitoring_data_exists()
 
 
-@mark.e2e_operator_upgrade_appdb_tls
+@mark.e2e_appdb_tls_operator_upgrade_v1_32_to_mck
 def test_appdb_non_tls_hostnames(ops_manager_non_tls: MongoDBOpsManager):
     ops_manager_non_tls.load()
     ops_manager_non_tls.assert_appdb_preferred_hostnames_are_added()
@@ -158,7 +165,7 @@ def test_appdb_non_tls_hostnames(ops_manager_non_tls: MongoDBOpsManager):
     ops_manager_non_tls.assert_monitoring_data_exists()
 
 
-@mark.e2e_operator_upgrade_appdb_tls
+@mark.e2e_appdb_tls_operator_upgrade_v1_32_to_mck
 def test_using_official_images(namespace: str, ops_manager_tls: MongoDBOpsManager):
     """
     This test ensures that after upgrading from 1.x to 1.20 that our operator automatically replaces the old appdb
