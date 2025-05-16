@@ -1394,9 +1394,6 @@ def gather_latest_agent_versions(release: Dict) -> List[Tuple[str, str]]:
     return sorted(list(set(agent_versions_to_build)))
 
 
-# First a context image is created, a ops-manager-context:v1.33
-# Daily builds exist because to mitigate CVEs as soon as possible and overwrite existing tags.
-# Contexts are used by customers without using the operating image.
 def get_builder_function_for_image_name() -> Dict[str, Callable]:
     """Returns a dictionary of image names that can be built."""
 
@@ -1418,8 +1415,7 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         "init-database": build_init_database,
         "init-ops-manager": build_init_om_image,
         #
-        # Daily builds re-use context images from non-daily builds. Daily builds are only executed daily,
-        # all other builds are executed on release, patches and PRs.
+        # Daily builds
         "operator-daily": build_image_daily("mongodb-kubernetes"),
         "appdb-daily": build_image_daily("appdb"),
         "database-daily": build_image_daily("database"),
