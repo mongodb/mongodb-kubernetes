@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/10gen/ops-manager-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 )
 
 func TestCalculateProcessStateMap(t *testing.T) {

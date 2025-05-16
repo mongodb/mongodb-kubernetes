@@ -10,7 +10,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/configmap"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
 )
 
 func TestChangingName_CreatesNewObject(t *testing.T) {

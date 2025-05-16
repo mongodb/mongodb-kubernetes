@@ -40,19 +40,19 @@ images:
     inputs:
       - is_appdb
     output:
-      - registry: $(inputs.params.registry)/mongodb-kubernetes-init-database-ubi
+      - registry: $(inputs.params.registry)/mongodb-kubernetes-init-database
         tag: $(inputs.params.version_id)
-      - registry: $(inputs.params.registry)/mongodb-kubernetes-init-database-ubi
+      - registry: $(inputs.params.registry)/mongodb-kubernetes-init-database
         tag: $(inputs.params.version)
 
   - name: master-latest
     task_type: tag_image
     tags: ["master"]
     source:
-      registry: $(inputs.params.registry)/mongodb-kubernetes-init-database-ubi
+      registry: $(inputs.params.registry)/mongodb-kubernetes-init-database
       tag: $(inputs.params.version_id)
     destination:
-      - registry: $(inputs.params.registry)/mongodb-kubernetes-init-database-ubi
+      - registry: $(inputs.params.registry)/mongodb-kubernetes-init-database
         tag: latest
 
   - name: init-database-release-context

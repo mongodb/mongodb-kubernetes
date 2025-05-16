@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/objx"
 	"go.uber.org/zap"
 
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/authentication/scramcredentials"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/scramcredentials"
 )
 
 const (

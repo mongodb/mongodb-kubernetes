@@ -6,8 +6,8 @@ import (
 	"os"
 	"testing"
 
-	e2eutil "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e/replica_set_enterprise_upgrade"
+	e2eutil "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/replica_set_enterprise_upgrade"
 )
 
 var versionsForUpgrades = []string{"5.0.15", "6.0.5"}

@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/identifiable"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/identifiable"
 )
 
 func TestCompareVersions(t *testing.T) {

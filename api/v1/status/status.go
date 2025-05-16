@@ -3,9 +3,9 @@ package status
 import (
 	"reflect"
 
-	"github.com/10gen/ops-manager-kubernetes/api/v1/status/pvc"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/timeutil"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/status/pvc"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/timeutil"
 )
 
 type Writer interface {

@@ -10,8 +10,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/statefulset"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 )
 
 const (
@@ -62,14 +61,14 @@ func TestGetContainerIndexByName(t *testing.T) {
 }
 
 func TestAddVolumeAndMount(t *testing.T) {
-	var stsBuilder *statefulset.Builder
+	var stsBuilder *Builder
 	var sts appsv1.StatefulSet
 	var err error
-	vmd := statefulset.VolumeMountData{
+	vmd := VolumeMountData{
 		MountPath: "mount-path",
 		Name:      "mount-name",
 		ReadOnly:  true,
-		Volume:    statefulset.CreateVolumeFromConfigMap("mount-name", "config-map"),
+		Volume:    CreateVolumeFromConfigMap("mount-name", "config-map"),
 	}
 
 	stsBuilder = defaultStatefulSetBuilder().SetPodTemplateSpec(podTemplateWithContainers([]corev1.Container{{Name: "container-name"}})).AddVolumeAndMount(vmd, "container-name")
@@ -92,11 +91,11 @@ func TestAddVolumeAndMount(t *testing.T) {
 
 	assert.NoError(t, err, "volume should successfully mount when the container exists")
 
-	secretVmd := statefulset.VolumeMountData{
+	secretVmd := VolumeMountData{
 		MountPath: "mount-path-secret",
 		Name:      "mount-name-secret",
 		ReadOnly:  true,
-		Volume:    statefulset.CreateVolumeFromSecret("mount-name-secret", "secret"),
+		Volume:    CreateVolumeFromSecret("mount-name-secret", "secret"),
 	}
 
 	// add a 2nd container to previously defined stsBuilder
@@ -151,8 +150,8 @@ func TestBuildStructImmutable(t *testing.T) {
 	assert.Equal(t, *sts.Spec.Replicas, int32(2))
 }
 
-func defaultStatefulSetBuilder() *statefulset.Builder {
-	return statefulset.NewBuilder().
+func defaultStatefulSetBuilder() *Builder {
+	return NewBuilder().
 		SetName(TestName).
 		SetNamespace(TestNamespace).
 		SetServiceName(fmt.Sprintf("%s-svc", TestName)).
@@ -464,7 +463,7 @@ func TestMergeSpec(t *testing.T) {
 	t.Run("Volume Claims are added", func(t *testing.T) {
 		sts, err := defaultStatefulSetBuilder().
 			SetPodTemplateSpec(getDefaultPodSpec()).
-			AddVolumeAndMount(statefulset.VolumeMountData{
+			AddVolumeAndMount(VolumeMountData{
 				MountPath: "path",
 				Name:      "vol-0",
 				ReadOnly:  false,
@@ -475,7 +474,7 @@ func TestMergeSpec(t *testing.T) {
 		assert.NoError(t, err)
 		customSts, err := defaultStatefulSetBuilder().
 			SetPodTemplateSpec(getDefaultPodSpec()).
-			AddVolumeAndMount(statefulset.VolumeMountData{
+			AddVolumeAndMount(VolumeMountData{
 				MountPath: "path-1",
 				Name:      "vol-1",
 				ReadOnly:  false,
@@ -483,7 +482,7 @@ func TestMergeSpec(t *testing.T) {
 					Name: "vol-1",
 				},
 			}, "container-0").
-			AddVolumeAndMount(statefulset.VolumeMountData{
+			AddVolumeAndMount(VolumeMountData{
 				MountPath: "path-2",
 				Name:      "vol-2",
 				ReadOnly:  false,

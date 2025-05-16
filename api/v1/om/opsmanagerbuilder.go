@@ -5,11 +5,11 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	userv1 "github.com/10gen/ops-manager-kubernetes/api/v1/user"
-	mdbc "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1/common"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
+	mdbc "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 )
 
 type OpsManagerBuilder struct {

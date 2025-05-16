@@ -27,6 +27,9 @@ const (
 	// MongoDbOpsManagerController name of the OpsManager controller
 	MongoDbOpsManagerController = "opsmanager-controller"
 
+	// MongoDbSearchController name of the MongoDBSearch controller
+	MongoDbSearchController = "mongodbsearch-controller"
+
 	// Ops manager config map and secret variables
 	OmBaseUrl         = "baseUrl"
 	OmOrgId           = "orgId"
@@ -75,9 +78,11 @@ const (
 	EnvVarSSLTrustedMMSServerCertificate = "SSL_TRUSTED_MMS_SERVER_CERTIFICATE"
 
 	// Pod/StatefulSet specific constants
+	OperatorName                   = "mongodb-kubernetes-operator"
+	LegacyOperatorName             = "mongodb-enterprise-operator" // Still used for some selectors and labels
+	MultiClusterOperatorName       = "mongodb-kubernetes-operator-multi-cluster"
 	OperatorLabelName              = "controller"
-	OperatorName                   = "mongodb-enterprise-operator"
-	MultiClusterOperatorName       = "mongodb-enterprise-operator-multi-cluster"
+	OperatorLabelValue             = LegacyOperatorName
 	OpsManagerContainerName        = "mongodb-ops-manager"
 	BackupDaemonContainerName      = "mongodb-backup-daemon"
 	DatabaseContainerName          = "mongodb-enterprise-database"
@@ -126,8 +131,8 @@ const (
 	FsGroup   = 2000
 
 	// Service accounts
-	OpsManagerServiceAccount = "mongodb-enterprise-ops-manager"
-	MongoDBServiceAccount    = "mongodb-enterprise-database-pods"
+	OpsManagerServiceAccount = "mongodb-kubernetes-ops-manager"
+	MongoDBServiceAccount    = "mongodb-kubernetes-database-pods"
 
 	// Authentication
 	AgentSecretName                   = "agent-certs"
@@ -148,6 +153,11 @@ const (
 	SCRAMSHA256                       = "SCRAM-SHA-256"
 	LDAP                              = "LDAP"
 	MinimumScramSha256MdbVersion      = "4.0.0"
+
+	// pprof variables
+	OperatorPprofEnabledEnv  = "MDB_OPERATOR_PPROF_ENABLED"
+	OperatorPprofPortEnv     = "MDB_OPERATOR_PPROF_PORT"
+	OperatorPprofDefaultPort = 10081
 
 	// these were historically used and constituted a security issue—if set they should be changed
 	InvalidKeyFileContents         = "DUMMYFILE"
@@ -176,7 +186,7 @@ const (
 	AutomationAgentImagePullPolicy   = "IMAGE_PULL_POLICY"
 	ImagePullSecrets                 = "IMAGE_PULL_SECRETS" //nolint
 	OmOperatorEnv                    = "OPERATOR_ENV"
-	MemberListConfigMapName          = "mongodb-enterprise-operator-member-list"
+	MemberListConfigMapName          = OperatorName + "-member-list"
 	BackupDisableWaitSecondsEnv      = "BACKUP_WAIT_SEC"
 	BackupDisableWaitRetriesEnv      = "BACKUP_WAIT_RETRIES"
 	ManagedSecurityContextEnv        = "MANAGED_SECURITY_CONTEXT"

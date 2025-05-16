@@ -1,8 +1,8 @@
 # Build compilable stuff
 
 FROM public.ecr.aws/docker/library/golang:1.24 as readiness_builder
-COPY . /go/src/github.com/10gen/ops-manager-kubernetes
-WORKDIR /go/src/github.com/10gen/ops-manager-kubernetes
+COPY . /go/src/github.com/mongodb/mongodb-kubernetes
+WORKDIR /go/src/github.com/mongodb/mongodb-kubernetes
 RUN CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -o /readinessprobe ./mongodb-community-operator/cmd/readiness/main.go
 RUN CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -o /version-upgrade-hook ./mongodb-community-operator/cmd/versionhook/main.go
 

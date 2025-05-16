@@ -8,10 +8,10 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/lifecycle"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/probes"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/resourcerequirements"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/envvar"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/lifecycle"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/probes"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/resourcerequirements"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
 )
 
 func TestContainer(t *testing.T) {

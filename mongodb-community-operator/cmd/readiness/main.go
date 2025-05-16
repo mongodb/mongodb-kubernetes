@@ -14,9 +14,9 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/readiness/config"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/readiness/headless"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/readiness/health"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/readiness/config"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/readiness/headless"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/readiness/health"
 )
 
 const (
@@ -92,7 +92,7 @@ func isOnWaitingStep(health health.Status) bool {
 }
 
 // findCurrentStep returns the step which the Agent is working now.
-// The algorithm (described in https://github.com/10gen/ops-manager-kubernetes/pull/401#discussion_r333071555):
+// The algorithm (described in https://github.com/mongodb/mongodb-kubernetes/pull/401#discussion_r333071555):
 //   - Obtain the latest plan (the last one in the plans array)
 //   - Find the last step, which has Started not nil and Completed nil. The Steps are processed as a tree in a BFS fashion.
 //     The last element is very likely to be the Step the Agent is performing at the moment. There are some chances that

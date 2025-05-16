@@ -6,8 +6,8 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1/common"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 )
 
 // buildStorageRequirements returns a corev1.ResourceList definition for storage requirements.

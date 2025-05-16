@@ -2,7 +2,7 @@ from unittest import mock
 
 from scripts.evergreen.release.agent_matrix import get_supported_operator_versions
 
-empty_release = {"supportedImages": {"operator": {"versions": []}}}
+empty_release = {"supportedImages": {"mongodb-kubernetes": {"versions": []}}}
 
 
 @mock.patch("scripts.evergreen.release.agent_matrix.get_release", return_value=empty_release)
@@ -11,7 +11,7 @@ def test_get_supported_operator_versions_empty(_):
     assert len(supported_versions) == 0
 
 
-single_release = {"supportedImages": {"operator": {"versions": ["1.30.0"]}}}
+single_release = {"supportedImages": {"mongodb-kubernetes": {"versions": ["1.30.0"]}}}
 
 
 @mock.patch("scripts.evergreen.release.agent_matrix.get_release", return_value=single_release)
@@ -21,7 +21,7 @@ def test_get_supported_operator_versions_single_release(_):
     assert supported_versions[0] == "1.30.0"
 
 
-three_releases_not_ordered = {"supportedImages": {"operator": {"versions": ["1.30.0", "1.28.0", "2.0.2"]}}}
+three_releases_not_ordered = {"supportedImages": {"mongodb-kubernetes": {"versions": ["1.30.0", "1.28.0", "2.0.2"]}}}
 
 
 @mock.patch("scripts.evergreen.release.agent_matrix.get_release", return_value=three_releases_not_ordered)
@@ -33,7 +33,7 @@ def test_get_supported_operator_versions_three_releases_not_ordered(_):
 
 many_releases_not_ordered = {
     "supportedImages": {
-        "operator": {
+        "mongodb-kubernetes": {
             "versions": [
                 "1.32.0",
                 "1.25.0",

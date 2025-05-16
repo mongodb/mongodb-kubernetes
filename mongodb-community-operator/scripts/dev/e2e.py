@@ -97,8 +97,6 @@ def create_test_pod(args: argparse.Namespace, namespace: str) -> None:
                             "name": "BASE_REPO_URL",
                             "value": f"{os.getenv('BASE_REPO_URL')}",
                         },
-                        # TODO: MCK: when running locally - let's default to /dev and not our own image unless specified
-                        # TODO: MCK: change this to be per patch and not hard coded
                         {
                             "name": "MDB_COMMUNITY_AGENT_IMAGE",
                             "value": f"{os.getenv('MDB_COMMUNITY_AGENT_IMAGE')}",
@@ -107,12 +105,10 @@ def create_test_pod(args: argparse.Namespace, namespace: str) -> None:
                             "name": "WATCH_NAMESPACE",
                             "value": namespace,
                         },
-                        # TODO: MCK: change this to be per patch and not hard coded
                         {
                             "name": "VERSION_UPGRADE_HOOK_IMAGE",
                             "value": f"{os.getenv('VERSION_UPGRADE_HOOK_IMAGE')}",
                         },
-                        # TODO: MCK: change this to be per patch and not hard coded
                         {
                             "name": "READINESS_PROBE_IMAGE",
                             "value": f"{os.getenv('READINESS_PROBE_IMAGE')}",
@@ -246,7 +242,6 @@ def prepare_and_run_test(args: argparse.Namespace, namespace: str) -> None:
 def main() -> int:
     args = parse_args()
 
-    # TODO: MCK
     try:
         config.load_kube_config()
     except Exception:

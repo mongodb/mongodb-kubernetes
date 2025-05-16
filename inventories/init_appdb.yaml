@@ -36,17 +36,17 @@ images:
       imagebase: $(inputs.params.registry)/mongodb-kubernetes-init-appdb-context:$(inputs.params.version_id)
     dockerfile: $(stages['init-appdb-template-ubi'].outputs[0].dockerfile)
     output:
-    - registry: $(inputs.params.registry)/mongodb-kubernetes-init-appdb-ubi
+    - registry: $(inputs.params.registry)/mongodb-kubernetes-init-appdb
       tag: $(inputs.params.version_id)
 
   - name: master-latest
     task_type: tag_image
     tags: [ "master" ]
     source:
-      registry: $(inputs.params.registry)/mongodb-kubernetes-init-appdb-ubi
+      registry: $(inputs.params.registry)/mongodb-kubernetes-init-appdb
       tag: $(inputs.params.version_id)
     destination:
-      - registry: $(inputs.params.registry)/mongodb-kubernetes-init-appdb-ubi
+      - registry: $(inputs.params.registry)/mongodb-kubernetes-init-appdb
         tag: latest
 
   - name: init-appdb-release-context

@@ -1,7 +1,7 @@
 images:
 - name: test
   vars:
-    context: docker/mongodb-enterprise-tests
+    context: docker/mongodb-kubernetes-tests
   platform: linux/amd64
 
   stages:
@@ -11,7 +11,7 @@ images:
     buildargs:
       PYTHON_VERSION: $(inputs.params.python_version)
     output:
-    - registry: $(inputs.params.registry)/mongodb-enterprise-tests
+    - registry: $(inputs.params.registry)/mongodb-kubernetes-tests
       tag: latest
-    - registry: $(inputs.params.registry)/mongodb-enterprise-tests
+    - registry: $(inputs.params.registry)/mongodb-kubernetes-tests
       tag: $(inputs.params.version_id)

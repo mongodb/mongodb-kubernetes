@@ -19,16 +19,11 @@ def get_latest_om_versions_from_evergreen_yml():
     return data["variables"][0], data["variables"][1]
 
 
-def trim_versions(versions_list, number_of_versions=3, always_keep=None):
+def trim_versions(versions_list, number_of_versions=3):
     """
-    Keep only the latest number_of_versions versions per major version in a versions list,
-    plus any versions specified in always_keep.
+    Keep only the latest number_of_versions versions per major version in a versions list.
     Returns a sorted list with trimmed versions.
     """
-
-    # TODO: mck test release
-    if always_keep is None:
-        always_keep = ["0.1.0"]
 
     major_version_groups = defaultdict(list)
     for v in versions_list:
@@ -40,10 +35,6 @@ def trim_versions(versions_list, number_of_versions=3, always_keep=None):
             continue
 
     trimmed_versions = []
-    # Add versions that should always be kept
-    for v in always_keep:
-        if v in versions_list and v not in trimmed_versions:
-            trimmed_versions.append(v)
 
     for major_version, versions in major_version_groups.items():
         versions.sort(key=lambda x: version.parse(x), reverse=True)
@@ -66,6 +57,13 @@ def trim_supported_image_versions(release: dict, image_types: list):
         if image_type in release["supportedImages"]:
             original_versions = release["supportedImages"][image_type]["versions"]
             trimmed_versions = trim_versions(original_versions, 3)
+
+            # TODO: Remove this once we don't need to use OM 7.0.12 in the OM Multicluster DR tests
+            # https://jira.mongodb.org/browse/CLOUDP-297377
+            if image_type == "ops-manager":
+                trimmed_versions.append("7.0.12")
+                trimmed_versions.sort(key=lambda x: version.parse(x))
+
             release["supportedImages"][image_type]["versions"] = trimmed_versions
 
 
@@ -99,7 +97,7 @@ def update_release_json():
 
     # Trim init and operator images to keep only the latest 3 versions per major
     trim_supported_image_versions(
-        data, ["operator", "init-ops-manager", "init-database", "init-appdb", "database", "ops-manager"]
+        data, ["mongodb-kubernetes", "init-ops-manager", "init-database", "init-appdb", "database", "ops-manager"]
     )
 
     # PCT already bumps the release.json, such that the last element contains the newest version, since they are sorted
@@ -137,7 +135,7 @@ def update_operator_related_versions(release: dict, version: str):
         release[key] = version
 
     keys_to_add_supported_versions = [
-        "operator",
+        "mongodb-kubernetes",
         "init-ops-manager",
         "init-database",
         "init-appdb",

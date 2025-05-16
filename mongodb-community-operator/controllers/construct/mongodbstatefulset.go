@@ -10,16 +10,16 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/container"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/persistentvolumeclaim"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/probes"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/resourcerequirements"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/statefulset"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/readiness/config"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/scale"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/persistentvolumeclaim"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/probes"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/resourcerequirements"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/readiness/config"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
+	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 )
 
 var OfficialMongodbRepoUrls = []string{"docker.io/mongodb", "quay.io/mongodb"}
@@ -47,13 +47,12 @@ const (
 
 	DefaultImageType = "ubi8"
 
-	versionUpgradeHookName       = "mongod-posthook"
-	ReadinessProbeContainerName  = "mongodb-agent-readinessprobe"
-	readinessProbePath           = "/opt/scripts/readinessprobe"
-	agentHealthStatusFilePathEnv = "AGENT_STATUS_FILEPATH"
-	clusterFilePath              = "/var/lib/automation/config/cluster-config.json"
-	// TODO: MCK create a new one and not just use appdb
-	mongodbDatabaseServiceAccountName = "mongodb-enterprise-appdb"
+	versionUpgradeHookName            = "mongod-posthook"
+	ReadinessProbeContainerName       = "mongodb-agent-readinessprobe"
+	readinessProbePath                = "/opt/scripts/readinessprobe"
+	agentHealthStatusFilePathEnv      = "AGENT_STATUS_FILEPATH"
+	clusterFilePath                   = "/var/lib/automation/config/cluster-config.json"
+	mongodbDatabaseServiceAccountName = "mongodb-kubernetes-appdb"
 	agentHealthStatusFilePathValue    = "/var/log/mongodb-mms-automation/healthstatus/agent-health-status.json"
 
 	OfficialMongodbEnterpriseServerImageName = "mongodb-enterprise-server"
@@ -381,11 +380,20 @@ if [ -e "/hooks/version-upgrade" ]; then
 fi
 
 # wait for config and keyfile to be created by the agent
-while ! [ -f %s -a -f %s ]; do sleep 3 ; done ; sleep 2 ;
+echo "Waiting for config and keyfile files to be created by the agent..."
+while ! [ -f %s -a -f %s ]; do
+	sleep 3;
+	echo "Waiting..."
+done
+
+# sleep is important after agent issues shutdown command
+# k8s restarts the mongod container too quickly for the agent to realize mongod is down
+echo "Sleeping for 15s..."
+sleep 15
 
 # start mongod with this configuration
+echo "Starting mongod..."
 exec mongod -f %s;
-
 `, filePath, keyfileFilePath, filePath)
 
 	containerCommand := []string{

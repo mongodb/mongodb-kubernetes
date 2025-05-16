@@ -11,11 +11,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/generate"
-	e2eutil "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e/mongodbtests"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e/setup"
-	. "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/test/e2e/util/mongotester"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/generate"
+	e2eutil "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/mongodbtests"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/setup"
+	. "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/util/mongotester"
 )
 
 func TestMain(m *testing.M) {
@@ -70,8 +70,7 @@ func TestCrossNamespaceDeploy(t *testing.T) {
 // for the database StatefulSet in the other namespace.
 func createDatabaseServiceAccountRoleAndRoleBinding(ctx context.Context, t *testing.T, namespace string) error {
 	sa := corev1.ServiceAccount{}
-	// TODO: MCK choose a correct SA name
-	mckServiceAccountName := "mongodb-enterprise-appdb"
+	mckServiceAccountName := "mongodb-kubernetes-appdb"
 	err := e2eutil.TestClient.Get(ctx, types.NamespacedName{Name: mckServiceAccountName, Namespace: e2eutil.OperatorNamespace}, &sa)
 	if err != nil {
 		t.Fatal(err)

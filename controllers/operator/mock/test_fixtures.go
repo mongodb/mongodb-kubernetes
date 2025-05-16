@@ -3,7 +3,7 @@ package mock
 import (
 	"os"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 // nolint:forbidigo

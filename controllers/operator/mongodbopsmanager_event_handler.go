@@ -8,7 +8,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 )
 
 // MongoDBOpsManagerEventHandler extends handler.EnqueueRequestForObject (from controller-runtime)

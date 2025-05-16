@@ -7,7 +7,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/readiness/config"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/readiness/config"
 )
 
 func TestCollectEnvVars(t *testing.T) {

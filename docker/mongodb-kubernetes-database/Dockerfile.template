@@ -5,10 +5,10 @@ FROM {{ base_image }}
 
 {% block labels %}
 
-LABEL name="MongoDB Enterprise Database" \
+LABEL name="MongoDB Kubernetes Database" \
       version="{{ version }}" \
-      summary="MongoDB Enterprise Database Image" \
-      description="MongoDB Enterprise Database Image" \
+      summary="MongoDB Kubernetes Database Image" \
+      description="MongoDB Kubernetes Database Image" \
       vendor="MongoDB" \
       release="1" \
       maintainer="support@mongodb.com"
@@ -52,7 +52,7 @@ USER 2000
 ENTRYPOINT ["sleep infinity"]
 {% endblock %}
 
-COPY --from=base /data/licenses/mongodb-enterprise-database /licenses/mongodb-enterprise-database
+COPY --from=base /data/licenses/mongodb-kubernetes-database /licenses/mongodb-kubernetes-database
 
 {% block healthcheck %}
 {% endblock %}

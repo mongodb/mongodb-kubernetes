@@ -8,7 +8,7 @@ import (
 	"github.com/blang/semver"
 	"k8s.io/utils/ptr"
 
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/versions"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/versions"
 )
 
 type Topology string

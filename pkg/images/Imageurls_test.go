@@ -6,9 +6,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/controllers/construct"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
 
 func TestReplaceImageTagOrDigestToTag(t *testing.T) {
@@ -56,13 +56,13 @@ func TestContainerImage(t *testing.T) {
 	// env var has input already as digest, there is no related image with this input, so we use input instead of digest
 	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-appdb:1.2.3", ContainerImage(imageUrls, util.InitAppdbImageUrlEnv, "1.2.3"))
 
-	t.Setenv(util.OpsManagerImageUrl, "quay.io:3000/mongodb/ops-manager-kubernetes")
+	t.Setenv(util.OpsManagerImageUrl, "quay.io:3000/mongodb/mongodb-kubernetes")
 	imageUrls = LoadImageUrlsFromEnv()
-	assert.Equal(t, "quay.io:3000/mongodb/ops-manager-kubernetes:1.2.3", ContainerImage(imageUrls, util.OpsManagerImageUrl, "1.2.3"))
+	assert.Equal(t, "quay.io:3000/mongodb/mongodb-kubernetes:1.2.3", ContainerImage(imageUrls, util.OpsManagerImageUrl, "1.2.3"))
 
-	t.Setenv(util.OpsManagerImageUrl, "localhost/mongodb/ops-manager-kubernetes")
+	t.Setenv(util.OpsManagerImageUrl, "localhost/mongodb/mongodb-kubernetes")
 	imageUrls = LoadImageUrlsFromEnv()
-	assert.Equal(t, "localhost/mongodb/ops-manager-kubernetes:1.2.3", ContainerImage(imageUrls, util.OpsManagerImageUrl, "1.2.3"))
+	assert.Equal(t, "localhost/mongodb/mongodb-kubernetes:1.2.3", ContainerImage(imageUrls, util.OpsManagerImageUrl, "1.2.3"))
 
 	t.Setenv(util.OpsManagerImageUrl, "mongodb")
 	imageUrls = LoadImageUrlsFromEnv()

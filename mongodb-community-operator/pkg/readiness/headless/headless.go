@@ -9,10 +9,10 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/readiness/config"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/readiness/health"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/readiness/pod"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/readiness/secret"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/readiness/config"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/readiness/health"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/readiness/pod"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/readiness/secret"
 )
 
 const (

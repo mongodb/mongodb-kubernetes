@@ -11,7 +11,7 @@ webhooks:
     clientConfig:
       caBundle: Cg==
       service:
-        name: mongodb-enterprise-operator
+        name: mongodb-kubernetes-operator
         namespace: placeholder
         path: /validate-mongodb-com-v1-mongodb
     rules:
@@ -34,7 +34,7 @@ webhooks:
     clientConfig:
       caBundle: Cg==
       service:
-        name: mongodb-enterprise-operator
+        name: mongodb-kubernetes-operator
         namespace: placeholder
         path: /validate-mongodb-com-v1-mongodbmulticluster
     rules:
@@ -57,7 +57,7 @@ webhooks:
     clientConfig:
       caBundle: Cg==
       service:
-        name: mongodb-enterprise-operator
+        name: mongodb-kubernetes-operator
         namespace: placeholder
         path: /validate-mongodb-com-v1-mongodbopsmanager
     rules:

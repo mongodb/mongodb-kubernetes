@@ -18,12 +18,12 @@ const (
 	commentPrefix            = "#"
 	propOverwriteFmt         = "%s=\"${%s} %s\""
 	backupDaemon             = "BACKUP_DAEMON"
-	// keep in sync with AppDBConnectionStringPath constant from "github.com/10gen/ops-manager-kubernetes/controllers/operator/construct" package.
+	// keep in sync with AppDBConnectionStringPath constant from "github.com/mongodb/mongodb-kubernetes/controllers/operator/construct" package.
 	// currently we cannot reference code from outside of docker/mongodb-kubernetes-init-ops-manager
 	// because this folder is set as the docker build context (configured in inventories/init_om.yaml)
 	appDbConnectionStringPath     = "/mongodb-ops-manager/.mongodb-mms-connection-string"
 	appDbConnectionStringFilePath = appDbConnectionStringPath + "/connectionString"
-	// keep in sync with MmsMongoUri constant from github.com/10gen/ops-manager-kubernetes/pkg/util
+	// keep in sync with MmsMongoUri constant from github.com/mongodb/mongodb-kubernetes/pkg/util
 	appDbUriKey = "mongo.mongoUri"
 )
 

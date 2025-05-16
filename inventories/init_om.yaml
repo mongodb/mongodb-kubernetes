@@ -32,17 +32,17 @@ images:
     buildargs:
       imagebase: $(inputs.params.registry)/mongodb-kubernetes-init-ops-manager-context:$(inputs.params.version_id)
     output:
-    - registry: $(inputs.params.registry)/mongodb-kubernetes-init-ops-manager-ubi
+    - registry: $(inputs.params.registry)/mongodb-kubernetes-init-ops-manager
       tag: $(inputs.params.version_id)
 
   - name: master-latest
     task_type: tag_image
     tags: ["master"]
     source:
-      registry: $(inputs.params.registry)/mongodb-kubernetes-init-ops-manager-ubi
+      registry: $(inputs.params.registry)/mongodb-kubernetes-init-ops-manager
       tag: $(inputs.params.version_id)
     destination:
-      - registry: $(inputs.params.registry)/mongodb-kubernetes-init-ops-manager-ubi
+      - registry: $(inputs.params.registry)/mongodb-kubernetes-init-ops-manager
         tag: latest
 
   - name: init-ops-manager-release-context

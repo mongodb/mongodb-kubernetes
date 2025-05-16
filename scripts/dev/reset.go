@@ -16,7 +16,7 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
 type DynamicResource struct {
@@ -297,6 +297,7 @@ func resetNamespace(ctx context.Context, contextName string, namespace string, d
 			"mongodbmulticluster.mongodb.com",
 			"mongodbusers.mongodb.com",
 			"opsmanagers.mongodb.com",
+			"mongodbsearch.mongodb.com",
 		}
 		deleteCRDs(ctx, dynamicClient, crdNames, collectError)
 	}

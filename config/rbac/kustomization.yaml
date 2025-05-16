@@ -11,6 +11,6 @@ patchesJson6902:
       version: v1
       group: rbac.authorization.k8s.io
       kind: RoleBinding
-      name: mongodb-enterprise-appdb
+      name: mongodb-kubernetes-appdb
     path: database-roles-patch-namespace.yaml
 

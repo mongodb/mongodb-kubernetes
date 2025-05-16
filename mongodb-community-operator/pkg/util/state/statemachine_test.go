@@ -11,7 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/result"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/result"
 )
 
 func init() {

@@ -17,10 +17,10 @@ import (
 
 	restclient "k8s.io/client-go/rest"
 
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
-	kubernetesClient "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
-	intp "github.com/10gen/ops-manager-kubernetes/pkg/util/int"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	intp "github.com/mongodb/mongodb-kubernetes/pkg/util/int"
 )
 
 const (

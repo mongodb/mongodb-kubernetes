@@ -10,7 +10,7 @@ refer to [Kubernetes Enterprise Operator Release Guide](https://wiki.corp.mongod
 ## Project Tasks
 
 - [ ] Update any finished ticket's `Fix Version` to this version.
-- [ ] Prepare release notes in [public repo](https://github.com/mongodb/mongodb-enterprise-kubernetes/releases/new).
+- [ ] Prepare release notes in [public repo](https://github.com/mongodb/mongodb-kubernetes/releases/new).
 - [ ] Prepare release notes in [DOCSP](https://jira.mongodb.org/secure/CreateIssueDetails!init.jspa?pid=14181&issuetype=3&summary=[MEKO]%20Kubernetes%20Enterprise%20Operator%20x.y.z%20Release%20Notes).
 
 ## Versioning

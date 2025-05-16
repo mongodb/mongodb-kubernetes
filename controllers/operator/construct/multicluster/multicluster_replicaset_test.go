@@ -12,13 +12,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1/common"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
 
 func init() {
@@ -97,7 +97,7 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 		expectedMatchLabels := singleClusterOverride.SpecWrapper.Spec.Selector.MatchLabels
 		expectedMatchLabels["app"] = ""
 		expectedMatchLabels["pod-anti-affinity"] = mdbm.Name
-		expectedMatchLabels[util.OperatorLabelName] = util.OperatorName
+		expectedMatchLabels[util.OperatorLabelName] = util.OperatorLabelValue
 
 		assert.Equal(t, singleClusterOverride.SpecWrapper.Spec.Replicas, sts.Spec.Replicas)
 		assert.Equal(t, expectedMatchLabels, sts.Spec.Selector.MatchLabels)

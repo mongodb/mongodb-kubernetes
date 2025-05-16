@@ -12,10 +12,10 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
-	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
-	kubernetesClient "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/kube/configmap"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 )
 
 const stateKey = "state"

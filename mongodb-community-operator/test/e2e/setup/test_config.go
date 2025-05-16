@@ -1,8 +1,8 @@
 package setup
 
 import (
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/controllers/construct"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/envvar"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
 )
 
 const (
@@ -36,8 +36,8 @@ type TestConfig struct {
 
 func LoadTestConfigFromEnv() TestConfig {
 	return TestConfig{
-		OperatorImage: "mongodb-enterprise-operator-ubi",
-		Namespace:     envvar.GetEnvOrDefault(testNamespaceEnvName, "mongodb"), // nolint:forbidigo
+		OperatorImage: "mongodb-kubernetes",
+		Namespace:     envvar.GetEnvOrDefault(testNamespaceEnvName, "mongodb-test"), // nolint:forbidigo
 		// The operator version is based on the versionID, which context sets either locally manually or evg per patch
 		OperatorVersion:      envvar.GetEnvOrDefault(versionIdEnv, ""),                                // nolint:forbidigo
 		CertManagerNamespace: envvar.GetEnvOrDefault(testCertManagerNamespaceEnvName, "cert-manager"), // nolint:forbidigo

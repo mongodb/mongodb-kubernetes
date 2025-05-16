@@ -15,7 +15,7 @@ import (
 	v2 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/envvar"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
 )
 
 const (
@@ -114,7 +114,7 @@ func createInitialConfigmap(namespace string) (string, *corev1.ConfigMap) {
 // isTimestampOlderThanConfiguredFrequency is used to get the timestamp from the ConfigMap and check whether it's time to
 // send the data to atlas.
 func isTimestampOlderThanConfiguredFrequency(ctx context.Context, k8sClient kubeclient.Client, namespace string, OperatorConfigMapTelemetryConfigMapName string, et EventType) (bool, error) {
-	durationStr := envvar.GetEnvOrDefault(SendFrequency, DefaultSendFrequencyStr)
+	durationStr := envvar.GetEnvOrDefault(SendFrequency, DefaultSendFrequencyStr) // nolint:forbidigo
 	duration, err := time.ParseDuration(durationStr)
 	if err != nil || duration < 10*time.Minute {
 		Logger.Warn("Failed to parse or given durationString: %s too low (min: 10 minutes), defaulting to one week", durationStr)

@@ -15,16 +15,17 @@ import (
 
 	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
-	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
-	mcov1 "github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/10gen/ops-manager-kubernetes/mongodb-community-operator/pkg/util/envvar"
-	"github.com/10gen/ops-manager-kubernetes/pkg/images"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
+	"github.com/mongodb/mongodb-kubernetes/pkg/images"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
 )
 
 // Logger should default to the global default from zap. Running into the main function of this package
@@ -84,7 +85,7 @@ type snapshotCollector func(ctx context.Context, memberClusterMap map[string]Con
 func RunTelemetry(ctx context.Context, mongodbImage, databaseNonStaticImage, namespace string, operatorClusterMgr manager.Manager, clusterMap map[string]cluster.Cluster, atlasClient *Client, configuredOperatorEnv util.OperatorEnvironment) {
 	Logger.Debug("sending telemetry!")
 
-	intervalStr := envvar.GetEnvOrDefault(CollectionFrequency, DefaultCollectionFrequencyStr)
+	intervalStr := envvar.GetEnvOrDefault(CollectionFrequency, DefaultCollectionFrequencyStr) // nolint:forbidigo
 	duration, err := time.ParseDuration(intervalStr)
 	if err != nil || duration < time.Minute {
 		Logger.Warn("Failed converting %s to a duration or value is too small (minimum is one minute), using default 1h", CollectionFrequency)
@@ -207,6 +208,7 @@ func collectDeploymentsSnapshot(ctx context.Context, operatorClusterMgr manager.
 	// No need to pass databaseNonStaticImage because it is for sure not enterprise image
 	events = append(events, addOmEvents(ctx, operatorClusterClient, operatorUUID, mongodbImage, now)...)
 	events = append(events, addCommunityEvents(ctx, operatorClusterClient, operatorUUID, mongodbImage, now)...)
+	events = append(events, addSearchEvents(ctx, operatorClusterClient, operatorUUID, now)...)
 	return events
 }
 
@@ -355,6 +357,30 @@ func addCommunityEvents(ctx context.Context, operatorClusterClient kubeclient.Cl
 	return events
 }
 
+func addSearchEvents(ctx context.Context, operatorClusterClient kubeclient.Client, operatorUUID string, now time.Time) []Event {
+	var events []Event
+	searchList := &searchv1.MongoDBSearchList{}
+
+	if err := operatorClusterClient.List(ctx, searchList); err != nil {
+		Logger.Warnf("failed to fetch MongoDBSearchList from Kubernetes: %v", err)
+	} else {
+		for _, item := range searchList.Items {
+			properties := DeploymentUsageSnapshotProperties{
+				DeploymentUID:            string(item.UID),
+				OperatorID:               operatorUUID,
+				Architecture:             string(architectures.Static), // Community Search is always static
+				IsMultiCluster:           false,                        // Community Search doesn't support multi-cluster
+				Type:                     "Search",
+				IsRunningEnterpriseImage: false, // Community search doesn't run enterprise
+			}
+			if event := createEvent(properties, now, Deployments); event != nil {
+				events = append(events, *event)
+			}
+		}
+	}
+	return events
+}
+
 func getMaxNumberOfClustersSCIsDeployedOn(item mdbv1.MongoDB) int {
 	var numberOfClustersUsed int
 	if item.Spec.ConfigSrvSpec != nil {
@@ -370,7 +396,7 @@ func getMaxNumberOfClustersSCIsDeployedOn(item mdbv1.MongoDB) int {
 }
 
 func ReadBoolWithTrueAsDefault(envVarName string) bool {
-	envVar := envvar.GetEnvOrDefault(envVarName, "true")
+	envVar := envvar.GetEnvOrDefault(envVarName, "true") // nolint:forbidigo
 	return strings.TrimSpace(strings.ToLower(envVar)) == "true"
 }
 

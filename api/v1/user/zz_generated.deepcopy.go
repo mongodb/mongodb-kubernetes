@@ -21,7 +21,7 @@ limitations under the License.
 package user
 
 import (
-	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 )
 

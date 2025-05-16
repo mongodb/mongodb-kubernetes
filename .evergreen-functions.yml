@@ -37,6 +37,8 @@ variables:
       - triggered_by_git_tag
       - version_id
       - workdir
+      # temporary secret to pull community private preview image from quay.io
+      - community_private_preview_pullsecret_dockerconfigjson
 
 functions:
 
@@ -47,7 +49,7 @@ functions:
     type: setup
     params:
       shell: bash
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
       <<: *e2e_include_expansions_in_env
       script: |
         echo "Initializing context files"
@@ -60,7 +62,7 @@ functions:
     type: setup
     params:
       shell: bash
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
       <<: *e2e_include_expansions_in_env
       add_to_path:
         - ${workdir}/bin
@@ -74,18 +76,18 @@ functions:
     command: subprocess.exec
     type: setup
     params:
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
       command: scripts/dev/recreate_python_venv.sh
 
   "clone":
     - command: subprocess.exec
       type: setup
       params:
-        command: "mkdir -p src/github.com/10gen"
+        command: "mkdir -p src/github.com/mongodb"
     - command: git.get_project
       type: setup
       params:
-        directory: src/github.com/10gen/ops-manager-kubernetes
+        directory: src/github.com/mongodb/mongodb-kubernetes
     - command: subprocess.exec
       type: setup
       params:
@@ -100,21 +102,21 @@ functions:
     command: subprocess.exec
     type: setup
     params:
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
       binary: scripts/evergreen/setup_kubectl.sh
 
   setup_jq: &setup_jq
     command: subprocess.exec
     type: setup
     params:
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
       binary: scripts/evergreen/setup_jq.sh
 
   setup_shellcheck:
     command: subprocess.exec
     type: setup
     params:
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
       add_to_path:
         - ${workdir}/bin
       binary: scripts/evergreen/setup_shellcheck.sh
@@ -123,7 +125,7 @@ functions:
     command: subprocess.exec
     type: setup
     params:
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
       add_to_path:
         - ${workdir}/bin
       binary: scripts/evergreen/setup_aws.sh
@@ -132,7 +134,7 @@ functions:
     command: subprocess.exec
     type: setup
     params:
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
       include_expansions_in_env:
         - GCP_SERVICE_ACCOUNT_JSON_FOR_SNIPPETS_TESTS
       add_to_path:
@@ -143,7 +145,7 @@ functions:
     command: subprocess.exec
     type: setup
     params:
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
       add_to_path:
         - ${workdir}/google-cloud-sdk/bin
       binary: scripts/evergreen/setup_mongosh.sh
@@ -153,7 +155,7 @@ functions:
     command: subprocess.exec
     type: setup
     params:
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
       add_to_path:
         - ${workdir}/bin
       binary: scripts/evergreen/setup_kind.sh
@@ -162,14 +164,14 @@ functions:
     command: subprocess.exec
     type: setup
     params:
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
       binary: scripts/evergreen/configure-docker-datadir.sh
 
   setup_preflight:
     - command: subprocess.exec
       type: setup
       params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         add_to_path:
           - ${workdir}/bin
         binary: scripts/evergreen/setup_preflight.sh
@@ -178,14 +180,14 @@ functions:
     - command: subprocess.exec
       type: setup
       params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         add_to_path:
           - ${workdir}/bin
         command: scripts/evergreen/setup_yq.sh
     - command: subprocess.exec
       type: setup
       params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         add_to_path:
           - ${workdir}/bin
         command: scripts/evergreen/setup_prepare_openshift_bundles.sh
@@ -194,7 +196,7 @@ functions:
     - command: subprocess.exec
       type: setup
       params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         add_to_path:
           - ${workdir}/bin
         command: scripts/evergreen/operator-sdk/install-olm.sh
@@ -203,7 +205,7 @@ functions:
     - command: subprocess.exec
       type: setup
       params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         add_to_path:
           - ${workdir}/bin
         command: scripts/evergreen/operator-sdk/prepare-openshift-bundles-for-e2e.sh
@@ -212,7 +214,7 @@ functions:
     - command: subprocess.exec
       type: setup
       params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/evergreen/setup_docker_sbom.sh
 
   # Logs into all used registries
@@ -220,7 +222,7 @@ functions:
     command: subprocess.exec
     type: setup
     params:
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
       add_to_path:
         - ${workdir}/bin
       binary: scripts/dev/configure_docker_auth.sh
@@ -229,7 +231,7 @@ functions:
     - command: subprocess.exec
       type: setup
       params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         add_to_path:
           - ${workdir}/bin
         command: scripts/evergreen/setup_yq.sh
@@ -239,7 +241,7 @@ functions:
         add_to_path:
           - ${workdir}/bin
           - ${workdir}/venv/bin
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/evergreen/check_precommit.sh
 
   # Configures docker authentication to ECR and RH registries.
@@ -272,7 +274,7 @@ functions:
       type: setup
       params:
         shell: bash
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: |
           scripts/evergreen/teardown_kubernetes_environment.sh
 
@@ -281,7 +283,7 @@ functions:
     command: subprocess.exec
     type: setup
     params:
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
       add_to_path:
         - ${workdir}/bin
       binary: scripts/evergreen/setup_kubernetes_environment.sh
@@ -298,7 +300,7 @@ functions:
     - command: shell.exec
       type: setup
       params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: |
           rm -rf logs
 
@@ -314,7 +316,7 @@ functions:
       type: setup
       params:
         shell: bash
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: |
           source .generated/context.export.env
           scripts/evergreen/e2e/setup_cloud_qa.py create
@@ -326,10 +328,18 @@ functions:
       type: setup
       params:
         shell: bash
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: |
           source .generated/context.export.env
           scripts/evergreen/e2e/setup_cloud_qa.py delete
+
+  dump_diagnostic_information_from_all_namespaces:
+    - command: subprocess.exec
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        add_to_path:
+          - bin
+        binary: scripts/evergreen/e2e/dump_diagnostic_information_from_all_namespaces.sh
 
   ### Publish and release image ###
 
@@ -342,7 +352,7 @@ functions:
     - command: subprocess.exec
       type: system
       params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         add_to_path:
           - ${workdir}/bin
         include_expansions_in_env:
@@ -361,7 +371,7 @@ functions:
     command: subprocess.exec
     type: setup
     params:
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
       add_to_path:
         - ${workdir}/bin
       command: scripts/evergreen/prepare_aws.sh
@@ -372,12 +382,12 @@ functions:
       params:
         add_to_path:
           - ${workdir}/bin
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/evergreen/run_python.sh scripts/update_supported_dockerfiles.py
     - command: subprocess.exec
       type: setup
       params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         include_expansions_in_env:
           - triggered_by_git_tag
         # if you ever change the target folder structure, the same needs to be reflected in PCT
@@ -388,21 +398,10 @@ functions:
       type: setup
       params:
         shell: bash
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: |
           echo "Enabling QEMU building for Docker"
           docker run --rm --privileged 268558157000.dkr.ecr.eu-west-1.amazonaws.com/docker-hub-mirrors/multiarch/qemu-user-static --reset -p yes
-
-  upload_dockerfiles:
-    - command: s3.put
-      params:
-        aws_key: ${enterprise_aws_access_key_id}
-        aws_secret: ${enterprise_aws_secret_access_key}
-        local_file: src/github.com/10gen/ops-manager-kubernetes/public/dockerfiles-${triggered_by_git_tag}.tgz
-        remote_file: bundles/dockerfiles-${triggered_by_git_tag}.tgz
-        bucket: operator-e2e-bundles
-        permissions: public-read
-        content_type: application/x-binary
 
   # upload_e2e_logs has the responsibility of dumping as much information as
   # possible into the S3 bucket that corresponds to this ${version}. The
@@ -415,14 +414,14 @@ functions:
         aws_key: ${enterprise_aws_access_key_id}
         aws_secret: ${enterprise_aws_secret_access_key}
         local_files_include_filter:
-          - src/github.com/10gen/ops-manager-kubernetes/logs/*
+          - src/github.com/mongodb/mongodb-kubernetes/logs/*
         remote_file: logs/${task_id}/${execution}/
         bucket: operator-e2e-artifacts
         permissions: public-read
         content_type: text/plain
     - command: attach.xunit_results
       params:
-        file: "src/github.com/10gen/ops-manager-kubernetes/logs/myreport.xml"
+        file: "src/github.com/mongodb/mongodb-kubernetes/logs/myreport.xml"
 
   upload_e2e_logs_gotest:
     - command: s3.put
@@ -430,14 +429,14 @@ functions:
         aws_key: ${enterprise_aws_access_key_id}
         aws_secret: ${enterprise_aws_secret_access_key}
         local_files_include_filter:
-          - src/github.com/10gen/ops-manager-kubernetes/logs/*
+          - src/github.com/mongodb/mongodb-kubernetes/logs/*
         remote_file: logs/${task_id}/${execution}/
         bucket: operator-e2e-artifacts
         permissions: public-read
         content_type: text/plain
     - command: gotest.parse_files
       params:
-        files: [ "src/github.com/10gen/ops-manager-kubernetes/logs/*.suite" ]
+        files: [ "src/github.com/mongodb/mongodb-kubernetes/logs/*.suite" ]
 
   upload_code_snippets_logs:
     - command: s3.put
@@ -445,8 +444,8 @@ functions:
         aws_key: ${enterprise_aws_access_key_id}
         aws_secret: ${enterprise_aws_secret_access_key}
         local_files_include_filter:
-          - src/github.com/10gen/ops-manager-kubernetes/public/architectures/**/*.log
-          - src/github.com/10gen/ops-manager-kubernetes/public/architectures/**/*.out
+          - src/github.com/mongodb/mongodb-kubernetes/public/architectures/**/*.log
+          - src/github.com/mongodb/mongodb-kubernetes/public/architectures/**/*.out
         remote_file: logs/${task_id}/${execution}/
         bucket: operator-e2e-artifacts
         permissions: public-read
@@ -456,7 +455,7 @@ functions:
     - *switch_context
     - command: subprocess.exec
       params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         add_to_path:
           - ${workdir}/bin
         include_expansions_in_env:
@@ -468,13 +467,13 @@ functions:
     - command: subprocess.exec
       type: setup
       params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/evergreen/build_multi_cluster_kubeconfig_creator.sh
 
   build_and_push_appdb_database:
     - command: subprocess.exec
       params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes/docker/mongodb-enterprise-appdb-database
+        working_dir: src/github.com/mongodb/mongodb-kubernetes/docker/mongodb-kubernetes-appdb-database
         binary: ./build_and_push_appdb_database_images.sh
         add_to_path:
           - ${workdir}/bin
@@ -513,7 +512,7 @@ functions:
       params:
         shell: bash
         <<: *e2e_include_expansions_in_env
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/evergreen/run_python.sh pipeline.py --include ${image_name} --parallel --sign
 
   teardown_cloud_qa_all:
@@ -522,7 +521,7 @@ functions:
       type: setup
       params:
         shell: bash
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: |
           source .generated/context.export.env
           scripts/evergreen/run_python.sh scripts/evergreen/e2e/setup_cloud_qa.py delete_all
@@ -532,13 +531,13 @@ functions:
   update_evergreen_expansions:
     - command: subprocess.exec
       params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         add_to_path:
           - ${workdir}/bin
         command: "scripts/evergreen/generate_evergreen_expansions.sh"
     - command: expansions.update
       params:
-        file: "src/github.com/10gen/ops-manager-kubernetes/evergreen_expansions.yaml"
+        file: "src/github.com/mongodb/mongodb-kubernetes/evergreen_expansions.yaml"
 
   # Uploads openshift bundle specified by bundle_file_name argument.
   upload_openshift_bundle:
@@ -546,7 +545,7 @@ functions:
       params:
         aws_key: ${enterprise_aws_access_key_id}
         aws_secret: ${enterprise_aws_secret_access_key}
-        local_file: src/github.com/10gen/ops-manager-kubernetes/bundle/${bundle_file_name}
+        local_file: src/github.com/mongodb/mongodb-kubernetes/bundle/${bundle_file_name}
         remote_file: bundles/${bundle_file_name}
         bucket: operator-e2e-bundles
         permissions: public-read
@@ -556,7 +555,7 @@ functions:
     - command: subprocess.exec
       type: setup
       params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         add_to_path:
           - ${workdir}/bin
         command: scripts/evergreen/operator-sdk/prepare-openshift-bundles.sh
@@ -568,7 +567,7 @@ functions:
     - *prepare_aws
     - command: subprocess.exec
       params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         add_to_path:
           - ${workdir}/bin
         # Below script deletes agent images created for an Evergreen patch older than 1 day
@@ -595,7 +594,7 @@ functions:
     - command: subprocess.exec
       type: test
       params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         include_expansions_in_env:
           - otel_parent_id
           - branch_name
@@ -612,7 +611,7 @@ functions:
     - command: subprocess.exec
       type: test
       params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         include_expansions_in_env:
           - otel_parent_id
           - branch_name
@@ -634,20 +633,20 @@ functions:
       type: test
       params:
         shell: bash
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: |
           source .generated/context.export.env
           make test-race
     - command: gotest.parse_files
       params:
-        files: [ "src/github.com/10gen/ops-manager-kubernetes/*.suite", "src/github.com/10gen/ops-manager-kubernetes/public/tools/multicluster/*.suite", "src/github.com/10gen/ops-manager-kubernetes/docker/mongodb-kubernetes-init-ops-manager/mmsconfiguration/*.suite" ]
+        files: [ "src/github.com/mongodb/mongodb-kubernetes/*.suite", "src/github.com/mongodb/mongodb-kubernetes/public/tools/multicluster/*.suite", "src/github.com/mongodb/mongodb-kubernetes/docker/mongodb-kubernetes-init-ops-manager/mmsconfiguration/*.suite" ]
 
   test_python_unit:
     - command: shell.exec
       type: test
       params:
         shell: bash
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: |
           source .generated/context.export.env
           make python-tests
@@ -657,7 +656,7 @@ functions:
       type: test
       params:
         shell: bash
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: |
           source .generated/context.export.env
           make sbom-tests
@@ -668,7 +667,7 @@ functions:
       type: setup
       params:
         shell: bash
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: |
           source .generated/context.export.env
           scripts/evergreen/run_python.sh scripts/evergreen/e2e/performance/create_variants.py ${variant} ${size}> evergreen_tasks.json
@@ -686,7 +685,7 @@ functions:
       type: test
       params:
         shell: bash
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         include_expansions_in_env:
           - EVERGREEN_API_KEY
           - EVERGREEN_USER
@@ -716,7 +715,7 @@ functions:
     - command: shell.exec
       params:
         shell: bash
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: |
           if ${condition_script}; then
             echo "Adding ${task} task to ${variant} variant"
@@ -742,34 +741,21 @@ functions:
       params:
         include_expansions_in_env:
           - GH_TOKEN
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+          - code_snippets_commit_output
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/code_snippets/sample_commit_output.sh
 
-  gke_multi_cluster_snippets:
+  # it executes a script by convention: ./scripts/code_snippets/${task_name}_test.sh
+  test_code_snippets:
     - *switch_context
     - command: shell.exec
       params:
         shell: bash
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         include_expansions_in_env:
           - version_id
           - code_snippets_teardown
           - code_snippets_reset
           - task_name
         script: |
-          ./scripts/code_snippets/gke_multi_cluster_test.sh
-
-
-  gke_multi_cluster_no_mesh_snippets:
-    - *switch_context
-    - command: shell.exec
-      params:
-        shell: bash
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
-        include_expansions_in_env:
-          - version_id
-          - code_snippets_teardown
-          - code_snippets_reset
-          - task_name
-        script: |
-          ./scripts/code_snippets/gke_multi_cluster_no_mesh_test.sh
+          ./scripts/code_snippets/${task_name}_test.sh
