@@ -19,7 +19,7 @@ github.com/gogo/protobuf,v1.3.2,https://github.com/gogo/protobuf/blob/v1.3.2/LIC
 github.com/golang/groupcache/lru,v0.0.0-20210331224755-41bb18bfe9da,https://github.com/golang/groupcache/blob/41bb18bfe9da/LICENSE,Apache-2.0
 github.com/golang/protobuf,v1.5.4,https://github.com/golang/protobuf/blob/v1.5.4/LICENSE,BSD-3-Clause
 github.com/google/gnostic-models,v0.6.8,https://github.com/google/gnostic-models/blob/v0.6.8/LICENSE,Apache-2.0
-github.com/google/go-cmp/cmp,v0.6.0,https://github.com/google/go-cmp/blob/v0.6.0/LICENSE,BSD-3-Clause
+github.com/google/go-cmp/cmp,v0.7.0,https://github.com/google/go-cmp/blob/v0.7.0/LICENSE,BSD-3-Clause
 github.com/google/go-querystring/query,v1.1.0,https://github.com/google/go-querystring/blob/v1.1.0/LICENSE,BSD-3-Clause
 github.com/google/gofuzz,v1.2.0,https://github.com/google/gofuzz/blob/v1.2.0/LICENSE,Apache-2.0
 github.com/google/uuid,v1.6.0,https://github.com/google/uuid/blob/v1.6.0/LICENSE,BSD-3-Clause
