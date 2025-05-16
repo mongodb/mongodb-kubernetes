@@ -6,9 +6,9 @@ import (
 	"strings"
 
 	"github.com/blang/semver"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/versions"
-
 	"k8s.io/utils/ptr"
+
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/versions"
 )
 
 type Topology string
@@ -195,13 +195,13 @@ func (b *Builder) SetAuth(auth Auth) *Builder {
 	return b
 }
 
-func (b *Builder) SetReplicaSetId(id *string) *Builder {
-	b.replicaSetId = id
+func (b *Builder) SetSettings(settings map[string]interface{}) *Builder {
+	b.settings = settings
 	return b
 }
 
-func (b *Builder) SetSettings(settings map[string]interface{}) *Builder {
-	b.settings = settings
+func (b *Builder) SetReplicaSetId(id *string) *Builder {
+	b.replicaSetId = id
 	return b
 }
 
@@ -270,7 +270,6 @@ func (b *Builder) Build() (AutomationConfig, error) {
 
 	if b.fcv != "" {
 		_, err := semver.Make(fmt.Sprintf("%s.0", b.fcv))
-
 		if err != nil {
 			return AutomationConfig{}, fmt.Errorf("invalid feature compatibility version: %s", err)
 		}

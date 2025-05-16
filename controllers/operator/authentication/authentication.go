@@ -8,10 +8,10 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/ldap"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 // AuthResource is an interface that a resources that can have authentication enabled should implement.

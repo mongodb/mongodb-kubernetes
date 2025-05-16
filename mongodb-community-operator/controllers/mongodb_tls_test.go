@@ -5,22 +5,21 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
-
-	corev1 "k8s.io/api/core/v1"
-
-	appsv1 "k8s.io/api/apps/v1"
+	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/types"
-	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/x509"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
-	kubeClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
-	"github.com/stretchr/testify/assert"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
+
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/x509"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	kubeClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
 )
 
 func TestStatefulSetIsCorrectlyConfiguredWithTLS(t *testing.T) {
@@ -272,7 +271,7 @@ func TestStatefulSetIsCorrectlyConfiguredWithTLSAfterChangingExistingVolumes(t *
 	// updating sts tls-ca volume directly to simulate changing of underlying volume's secret
 	for i := range sts.Spec.Template.Spec.Volumes {
 		if sts.Spec.Template.Spec.Volumes[i].Name == "tls-ca" {
-			sts.Spec.Template.Spec.Volumes[i].VolumeSource.Secret.SecretName = changedTLSCAVolumeSecretName
+			sts.Spec.Template.Spec.Volumes[i].Secret.SecretName = changedTLSCAVolumeSecretName
 		}
 	}
 
@@ -514,19 +513,23 @@ func TestTLSConfigReferencesToCACertAreValidated(t *testing.T) {
 	tests := map[string]args{
 		"Success if reference to CA cert provided via secret": {
 			caConfigMap: &corev1.LocalObjectReference{
-				Name: "certificateKeySecret"},
+				Name: "certificateKeySecret",
+			},
 			caCertificateSecret: nil,
 		},
 		"Success if reference to CA cert provided via config map": {
 			caConfigMap: nil,
 			caCertificateSecret: &corev1.LocalObjectReference{
-				Name: "caConfigMap"},
+				Name: "caConfigMap",
+			},
 		},
 		"Succes if reference to CA cert provided both via secret and configMap": {
 			caConfigMap: &corev1.LocalObjectReference{
-				Name: "certificateKeySecret"},
+				Name: "certificateKeySecret",
+			},
 			caCertificateSecret: &corev1.LocalObjectReference{
-				Name: "caConfigMap"},
+				Name: "caConfigMap",
+			},
 		},
 		"Failure if reference to CA cert is missing": {
 			caConfigMap:         nil,
@@ -554,7 +557,6 @@ func TestTLSConfigReferencesToCACertAreValidated(t *testing.T) {
 			}
 		})
 	}
-
 }
 
 func createTLSConfigMap(ctx context.Context, c k8sClient.Client, mdb mdbv1.MongoDBCommunity) error {

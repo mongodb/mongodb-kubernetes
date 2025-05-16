@@ -9,22 +9,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/authtypes"
-
+	"github.com/stretchr/testify/assert"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
-	"github.com/mongodb/mongodb-kubernetes-operator/test/e2e/util/wait"
-
-	mdbv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
-	e2eutil "github.com/mongodb/mongodb-kubernetes-operator/test/e2e"
-	"github.com/stretchr/testify/assert"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
+
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/authtypes"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
+	e2eutil "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/util/wait"
 )
 
 // SkipTestIfLocal skips tests locally which tests connectivity to mongodb pods
@@ -124,7 +123,6 @@ func StatefulSetHasOwnerReference(ctx context.Context, mdb *mdbv1.MongoDBCommuni
 		stsNamespacedName := types.NamespacedName{Name: mdb.Name, Namespace: mdb.Namespace}
 		sts := appsv1.StatefulSet{}
 		err := e2eutil.TestClient.Get(ctx, stsNamespacedName, &sts)
-
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -248,6 +246,7 @@ func HasExpectedPersistentVolumes(ctx context.Context, volumes []corev1.Persiste
 		}
 	}
 }
+
 func HasExpectedMetadata(ctx context.Context, mdb *mdbv1.MongoDBCommunity, expectedLabels map[string]string, expectedAnnotations map[string]string) func(t *testing.T) {
 	return func(t *testing.T) {
 		namespace := mdb.Namespace
@@ -544,7 +543,7 @@ func DeletePod(ctx context.Context, mdb *mdbv1.MongoDBCommunity, podNum int) fun
 			t.Fatal(err)
 		}
 
-		t.Logf("pod %s/%s deleted", pod.ObjectMeta.Namespace, pod.ObjectMeta.Name)
+		t.Logf("pod %s/%s deleted", pod.Namespace, pod.Name)
 	}
 }
 
@@ -561,7 +560,7 @@ func DeleteStatefulSet(ctx context.Context, mdb *mdbv1.MongoDBCommunity) func(*t
 			t.Fatal(err)
 		}
 
-		t.Logf("StatefulSet %s/%s deleted", sts.ObjectMeta.Namespace, sts.ObjectMeta.Name)
+		t.Logf("StatefulSet %s/%s deleted", sts.Namespace, sts.Name)
 	}
 }
 
@@ -748,7 +747,6 @@ func StatefulSetMessageIsReceived(mdb *mdbv1.MongoDBCommunity, testCtx *e2eutil.
 		if err != nil {
 			t.Fatal(err)
 		}
-
 	}
 }
 
@@ -775,7 +773,6 @@ func RemoveLastUserFromMongoDBCommunity(ctx context.Context, mdb *mdbv1.MongoDBC
 		err := e2eutil.UpdateMongoDBResource(ctx, mdb, func(db *mdbv1.MongoDBCommunity) {
 			db.Spec.Users = db.Spec.Users[:len(db.Spec.Users)-1]
 		})
-
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -787,7 +784,6 @@ func EditConnectionStringSecretNameOfLastUser(ctx context.Context, mdb *mdbv1.Mo
 		err := e2eutil.UpdateMongoDBResource(ctx, mdb, func(db *mdbv1.MongoDBCommunity) {
 			db.Spec.Users[len(db.Spec.Users)-1].ConnectionStringSecretName = newSecretName
 		})
-
 		if err != nil {
 			t.Fatal(err)
 		}

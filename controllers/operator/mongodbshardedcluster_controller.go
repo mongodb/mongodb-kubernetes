@@ -24,51 +24,52 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/service"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
-
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-	mcoConstruct "github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
-	mdbstatus "github.com/10gen/ops-manager-kubernetes/api/v1/status"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/deployment"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/host"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/replicaset"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connection"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/scalers"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/scalers/interfaces"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/controlledfeature"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
-	enterprisepem "github.com/10gen/ops-manager-kubernetes/controllers/operator/pem"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/recovery"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
-	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
-	"github.com/10gen/ops-manager-kubernetes/pkg/images"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	mekoService "github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
-	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
-	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
-	"github.com/10gen/ops-manager-kubernetes/pkg/vault/vaultwatcher"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/replicaset"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers/interfaces"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
+	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/recovery"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
+	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/service"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
+	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
+	"github.com/mongodb/mongodb-kubernetes/pkg/images"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	mekoService "github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
+	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
+	"github.com/mongodb/mongodb-kubernetes/pkg/vault/vaultwatcher"
 )
 
 // ReconcileMongoDbShardedCluster is the reconciler for the sharded cluster
@@ -370,7 +371,7 @@ func (r *ShardedClusterReconcileHelper) prepareDesiredShardsConfiguration() map[
 	return shardComponentSpecs
 }
 
-func getShardTopLevelOverrides(spec *mdbv1.MongoDbSpec, shardIdx int) (*mdbv1.Persistence, *corev1.PodTemplateSpec) {
+func getShardTopLevelOverrides(spec *mdbv1.MongoDbSpec, shardIdx int) (*common.Persistence, *corev1.PodTemplateSpec) {
 	topLevelPodSpecOverride, topLevelPersistenceOverride := extractOverridesFromPodSpec(spec.ShardPodSpec)
 
 	// specific shard level sts and persistence override
@@ -390,7 +391,7 @@ func getShardTopLevelOverrides(spec *mdbv1.MongoDbSpec, shardIdx int) (*mdbv1.Pe
 	return topLevelPersistenceOverride, topLevelPodSpecOverride
 }
 
-func mergeOverrideClusterSpecList(shardOverride mdbv1.ShardOverride, defaultShardConfiguration *mdbv1.ShardedClusterComponentSpec, topLevelPodSpecOverride *corev1.PodTemplateSpec, topLevelPersistenceOverride *mdbv1.Persistence) *mdbv1.ShardedClusterComponentSpec {
+func mergeOverrideClusterSpecList(shardOverride mdbv1.ShardOverride, defaultShardConfiguration *mdbv1.ShardedClusterComponentSpec, topLevelPodSpecOverride *corev1.PodTemplateSpec, topLevelPersistenceOverride *common.Persistence) *mdbv1.ShardedClusterComponentSpec {
 	finalShardConfiguration := defaultShardConfiguration.DeepCopy()
 	// We override here all elements of ClusterSpecList, but statefulset overrides if provided here
 	// will be merged on top of previous sts overrides.
@@ -403,7 +404,7 @@ func mergeOverrideClusterSpecList(shardOverride mdbv1.ShardOverride, defaultShar
 		// We need to propagate top level specs, from e.g ShardPodSpec or ShardSpecificPodSpec, and apply a merge
 		if foundIdx == -1 {
 			if shardOverrideClusterSpecItem.StatefulSetConfiguration == nil {
-				shardOverrideClusterSpecItem.StatefulSetConfiguration = &mdbcv1.StatefulSetConfiguration{}
+				shardOverrideClusterSpecItem.StatefulSetConfiguration = &common.StatefulSetConfiguration{}
 			}
 			// We only need to perform a merge if there is a top level override, otherwise we keep an empty sts configuration
 			if topLevelPodSpecOverride != nil {
@@ -488,7 +489,7 @@ func expandShardOverrides(initialOverrides []mdbv1.ShardOverride) []mdbv1.ShardO
 	return expandedShardOverrides
 }
 
-func processShardOverride(spec *mdbv1.MongoDbSpec, shardOverride mdbv1.ShardOverride, defaultShardConfiguration *mdbv1.ShardedClusterComponentSpec, topLevelPodSpecOverride *corev1.PodTemplateSpec, topLevelPersistenceOverride *mdbv1.Persistence) *mdbv1.ShardedClusterComponentSpec {
+func processShardOverride(spec *mdbv1.MongoDbSpec, shardOverride mdbv1.ShardOverride, defaultShardConfiguration *mdbv1.ShardedClusterComponentSpec, topLevelPodSpecOverride *corev1.PodTemplateSpec, topLevelPersistenceOverride *common.Persistence) *mdbv1.ShardedClusterComponentSpec {
 	if shardOverride.Agent != nil {
 		defaultShardConfiguration.Agent = *shardOverride.Agent
 	}
@@ -517,7 +518,7 @@ func processShardOverride(spec *mdbv1.MongoDbSpec, shardOverride mdbv1.ShardOver
 		for idx := range defaultShardConfiguration.ClusterSpecList {
 			// Handle case where defaultShardConfiguration.ClusterSpecList[idx].StatefulSetConfiguration is nil
 			if defaultShardConfiguration.ClusterSpecList[idx].StatefulSetConfiguration == nil {
-				defaultShardConfiguration.ClusterSpecList[idx].StatefulSetConfiguration = &mdbcv1.StatefulSetConfiguration{}
+				defaultShardConfiguration.ClusterSpecList[idx].StatefulSetConfiguration = &common.StatefulSetConfiguration{}
 			}
 			defaultShardConfiguration.ClusterSpecList[idx].StatefulSetConfiguration.SpecWrapper.Spec = merge.StatefulSetSpecs(defaultShardConfiguration.ClusterSpecList[idx].StatefulSetConfiguration.SpecWrapper.Spec, shardOverride.StatefulSetConfiguration.SpecWrapper.Spec)
 		}
@@ -532,9 +533,9 @@ func processShardOverride(spec *mdbv1.MongoDbSpec, shardOverride mdbv1.ShardOver
 	}
 }
 
-func extractOverridesFromPodSpec(podSpec *mdbv1.MongoDbPodSpec) (*corev1.PodTemplateSpec, *mdbv1.Persistence) {
+func extractOverridesFromPodSpec(podSpec *mdbv1.MongoDbPodSpec) (*corev1.PodTemplateSpec, *common.Persistence) {
 	var podTemplateOverride *corev1.PodTemplateSpec
-	var persistenceOverride *mdbv1.Persistence
+	var persistenceOverride *common.Persistence
 	if podSpec != nil {
 		if podSpec.PodTemplateWrapper.PodTemplate != nil {
 			podTemplateOverride = podSpec.PodTemplateWrapper.PodTemplate
@@ -585,7 +586,7 @@ func (r *ShardedClusterReconcileHelper) prepareDesiredConfigServerConfiguration(
 func processClusterSpecList(
 	clusterSpecList []mdbv1.ClusterSpecItem,
 	topLevelPodSpecOverride *corev1.PodTemplateSpec,
-	topLevelPersistenceOverride *mdbv1.Persistence,
+	topLevelPersistenceOverride *common.Persistence,
 ) []mdbv1.ClusterSpecItem {
 	for i := range clusterSpecList {
 		// we will store final sts overrides for each cluster in clusterSpecItem.StatefulSetOverride
@@ -593,7 +594,7 @@ func processClusterSpecList(
 		// in case higher level overrides are empty, we just use whatever is specified in clusterSpecItem (maybe nothing as well)
 		if topLevelPodSpecOverride != nil {
 			if clusterSpecList[i].StatefulSetConfiguration == nil {
-				clusterSpecList[i].StatefulSetConfiguration = &mdbcv1.StatefulSetConfiguration{}
+				clusterSpecList[i].StatefulSetConfiguration = &common.StatefulSetConfiguration{}
 			}
 			clusterSpecList[i].StatefulSetConfiguration.SpecWrapper.Spec.Template = merge.PodTemplateSpecs(*topLevelPodSpecOverride.DeepCopy(), clusterSpecList[i].StatefulSetConfiguration.SpecWrapper.Spec.Template)
 		}
@@ -1202,9 +1203,9 @@ func getCertTypeForAllShardedClusterCertificates(certTypes map[string]bool) (cor
 
 // anyStatefulSetNeedsToPublishStateToOM checks to see if any stateful set
 // of the given sharded cluster needs to publish state to Ops Manager before updating Kubernetes resources
-func anyStatefulSetNeedsToPublishStateToOM(ctx context.Context, sc mdbv1.MongoDB, getter ConfigMapStatefulSetSecretGetter, lastSpec *mdbv1.MongoDbSpec, configs []func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) bool {
+func anyStatefulSetNeedsToPublishStateToOM(ctx context.Context, sc mdbv1.MongoDB, kubeClient kubernetesClient.Client, lastSpec *mdbv1.MongoDbSpec, configs []func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) bool {
 	for _, cf := range configs {
-		if publishAutomationConfigFirst(ctx, getter, sc, lastSpec, cf, log) {
+		if publishAutomationConfigFirst(ctx, kubeClient, sc, lastSpec, cf, log) {
 			return true
 		}
 	}
@@ -1393,7 +1394,7 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateShards(ctx context.Context
 				// (we have the case in readiness for empty AC to return true) we then publish AC with fully constructed processes
 				// and all agents are starting to wire things up and configure the replicaset.
 				// If we don't scale for the first time we need to wait for each individual sts as we need to scale members of the whole replica set one at a time
-				if workflowStatus := getStatefulSetStatus(ctx, s.Namespace, shardSts.Name, memberCluster.Client); !workflowStatus.IsOK() {
+				if workflowStatus := statefulset.GetStatefulSetStatus(ctx, s.Namespace, shardSts.Name, memberCluster.Client); !workflowStatus.IsOK() {
 					return workflowStatus
 				}
 			}
@@ -1431,7 +1432,7 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateConfigServers(ctx context.
 		}
 
 		if !configSrvScalingFirstTime {
-			if workflowStatus := getStatefulSetStatus(ctx, s.Namespace, r.GetConfigSrvStsName(memberCluster), memberCluster.Client); !workflowStatus.IsOK() {
+			if workflowStatus := statefulset.GetStatefulSetStatus(ctx, s.Namespace, r.GetConfigSrvStsName(memberCluster), memberCluster.Client); !workflowStatus.IsOK() {
 				return workflowStatus
 			}
 		}
@@ -1452,7 +1453,7 @@ func (r *ShardedClusterReconcileHelper) getMergedStatefulsetStatus(ctx context.C
 ) workflow.Status {
 	var mergedStatefulSetStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range getHealthyMemberClusters(memberClusters) {
-		statefulSetStatus := getStatefulSetStatus(ctx, s.Namespace, stsNameProvider(memberCluster), memberCluster.Client)
+		statefulSetStatus := statefulset.GetStatefulSetStatus(ctx, s.Namespace, stsNameProvider(memberCluster), memberCluster.Client)
 		mergedStatefulSetStatus = mergedStatefulSetStatus.Merge(statefulSetStatus)
 	}
 
@@ -2829,7 +2830,7 @@ func (r *ShardedClusterReconcileHelper) getPodService(stsName string, memberClus
 
 	labelSelectors := map[string]string{
 		appsv1.StatefulSetPodNameLabel: dns.GetMultiPodName(stsName, memberCluster.Index, podNum),
-		util.OperatorLabelName:         util.OperatorName,
+		util.OperatorLabelName:         util.OperatorLabelValue,
 	}
 
 	svc := service.Builder().

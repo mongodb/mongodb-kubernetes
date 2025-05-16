@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/10gen/ops-manager-kubernetes/multi/pkg/common"
+	"github.com/mongodb/mongodb-kubernetes/multi/pkg/common"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
@@ -16,13 +16,13 @@ func init() {
 	multiclusterCmd.AddCommand(recoverCmd)
 
 	recoverCmd.Flags().StringVar(&common.MemberClusters, "member-clusters", "", "Comma separated list of member clusters. [required]")
-	recoverCmd.Flags().StringVar(&RecoverFlags.ServiceAccount, "service-account", "mongodb-enterprise-operator-multi-cluster", "Name of the service account which should be used for the Operator to communicate with the member clusters. [optional, default: mongodb-enterprise-operator-multi-cluster]")
+	recoverCmd.Flags().StringVar(&RecoverFlags.ServiceAccount, "service-account", "mongodb-kubernetes-operator-multi-cluster", "Name of the service account which should be used for the Operator to communicate with the member clusters. [optional, default: mongodb-kubernetes-operator-multi-cluster]")
 	recoverCmd.Flags().StringVar(&RecoverFlags.CentralCluster, "central-cluster", "", "The central cluster the operator will be deployed in. [required]")
 	recoverCmd.Flags().StringVar(&RecoverFlags.MemberClusterNamespace, "member-cluster-namespace", "", "The namespace the member cluster resources will be deployed to. [required]")
 	recoverCmd.Flags().StringVar(&RecoverFlags.CentralClusterNamespace, "central-cluster-namespace", "", "The namespace the Operator will be deployed to. [required]")
 	recoverCmd.Flags().BoolVar(&RecoverFlags.Cleanup, "cleanup", false, "Delete all previously created resources except for namespaces. [optional default: false]")
 	recoverCmd.Flags().BoolVar(&RecoverFlags.ClusterScoped, "cluster-scoped", false, "Create ClusterRole and ClusterRoleBindings for member clusters. [optional default: false]")
-	recoverCmd.Flags().StringVar(&RecoverFlags.OperatorName, "operator-name", common.DefaultOperatorName, "Name used to identify the deployment of the operator. [optional, default: mongodb-enterprise-operator]")
+	recoverCmd.Flags().StringVar(&RecoverFlags.OperatorName, "operator-name", common.DefaultOperatorName, "Name used to identify the deployment of the operator. [optional, default: mongodb-kubernetes-operator]")
 	recoverCmd.Flags().BoolVar(&RecoverFlags.InstallDatabaseRoles, "install-database-roles", false, "Install the ServiceAccounts and Roles required for running database workloads in the member clusters. [optional default: false]")
 	recoverCmd.Flags().StringVar(&RecoverFlags.SourceCluster, "source-cluster", "", "The source cluster for recovery. This has to be one of the healthy member cluster that is the source of truth for new cluster configuration. [required]")
 	recoverCmd.Flags().BoolVar(&RecoverFlags.CreateServiceAccountSecrets, "create-service-account-secrets", true, "Create service account token secrets. [optional default: true]")
@@ -38,7 +38,7 @@ resources to a new healthy topology.
 
 Example:
 
-kubectl-mongodb multicluster recover --central-cluster="operator-cluster" --member-clusters="cluster-1,cluster-3,cluster-4" --member-cluster-namespace="mongodb-fresh" --central-cluster-namespace="mongodb" --operator-name=mongodb-enterprise-operator-multi-cluster --source-cluster="cluster-1"
+kubectl-mongodb multicluster recover --central-cluster="operator-cluster" --member-clusters="cluster-1,cluster-3,cluster-4" --member-cluster-namespace="mongodb-fresh" --central-cluster-namespace="mongodb" --operator-name=mongodb-kubernetes-operator-multi-cluster --source-cluster="cluster-1"
 
 `,
 	Run: func(cmd *cobra.Command, args []string) {

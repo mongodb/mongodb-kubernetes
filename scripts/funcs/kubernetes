@@ -130,8 +130,12 @@ create_image_registries_secret() {
     current_ctx=$(kubectl config current-context)
     create_pull_secret "${current_ctx}" "${NAMESPACE}" "${secret_name}" &
     for ns in ${WATCH_NAMESPACE//,/ }; do
+      if [[ "${ns}" == "${NAMESPACE}" ]]; then
+        continue
+      fi
       create_pull_secret "${current_ctx}" "${ns}" "${secret_name}" &
     done
+    wait
   fi
 }
 
@@ -146,6 +150,7 @@ reset_namespace() {
   set +e
 
   helm uninstall --kube-context="${context}" mongodb-enterprise-operator || true &
+  helm uninstall --kube-context="${context}" mongodb-community-operator || true &
   helm uninstall --kube-context="${context}" mongodb-enterprise-operator-multi-cluster || true &
 
   # Cleans the namespace. Note, that fine-grained cleanup is performed instead of just deleting the namespace as it takes

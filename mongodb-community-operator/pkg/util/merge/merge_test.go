@@ -4,13 +4,13 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/probes"
-
+	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/api/resource"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
-	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/probes"
 )
 
 func TestMergeStringSlices(t *testing.T) {
@@ -381,7 +381,6 @@ func TestMergeContainer(t *testing.T) {
 				assert.Equal(t, "original-sub-path-expr-1", vm1.SubPathExpr)
 			})
 		})
-
 	})
 }
 
@@ -409,7 +408,6 @@ func TestMergeContainerPort(t *testing.T) {
 		assert.Equal(t, override.ContainerPort, mergedPort.ContainerPort)
 		assert.Equal(t, override.HostIP, mergedPort.HostIP)
 		assert.Equal(t, override.ContainerPort, mergedPort.ContainerPort)
-
 	})
 
 	t.Run("No Override Fields", func(t *testing.T) {
@@ -466,7 +464,6 @@ func TestMergeVolumeMount(t *testing.T) {
 }
 
 func TestContainerPortSlicesByName(t *testing.T) {
-
 	original := []corev1.ContainerPort{
 		{
 			Name:          "original-port-0",
@@ -547,7 +544,6 @@ func TestContainerPortSlicesByName(t *testing.T) {
 		assert.Equal(t, "1.2.3.6", merged[3].HostIP, "The HostIP should have been overridden")
 		assert.Equal(t, corev1.ProtocolTCP, merged[3].Protocol, "The Protocol should remain unchanged")
 	})
-
 }
 
 func TestMergeSecurityContext(t *testing.T) {

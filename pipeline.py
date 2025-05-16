@@ -305,7 +305,7 @@ docker manifest push config.repo_url/image:tag
 # Sonar as an interface to docker. We decided to keep this asymmetry for now, as Sonar will be removed soon.
 
 
-def create_and_push_manifest(image: str, tag: str) -> None:
+def create_and_push_manifest(image: str, tag: str, architectures: list[str]) -> None:
     final_manifest = image + ":" + tag
 
     args = [
@@ -313,11 +313,11 @@ def create_and_push_manifest(image: str, tag: str) -> None:
         "manifest",
         "create",
         final_manifest,
-        "--amend",
-        final_manifest + "-amd64",
-        "--amend",
-        final_manifest + "-arm64",
     ]
+
+    for arch in architectures:
+        args.extend(["--amend", f"{final_manifest}-{arch}"])
+
     args_str = " ".join(args)
     logger.debug(f"creating new manifest: {args_str}")
     cp = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -449,10 +449,10 @@ def build_tests_image(build_configuration: BuildConfiguration):
 
     # helm directory needs to be copied over to the tests docker context.
     helm_src = "helm_chart"
-    helm_dest = "docker/mongodb-enterprise-tests/helm_chart"
-    requirements_dest = "docker/mongodb-enterprise-tests/requirements.txt"
+    helm_dest = "docker/mongodb-kubernetes-tests/helm_chart"
+    requirements_dest = "docker/mongodb-kubernetes-tests/requirements.txt"
     public_src = "public"
-    public_dest = "docker/mongodb-enterprise-tests/public"
+    public_dest = "docker/mongodb-kubernetes-tests/public"
 
     # Remove existing directories/files if they exist
     shutil.rmtree(helm_dest, ignore_errors=True)
@@ -461,7 +461,7 @@ def build_tests_image(build_configuration: BuildConfiguration):
     # Copy directories and files (recursive copy)
     shutil.copytree(helm_src, helm_dest)
     shutil.copytree(public_src, public_dest)
-    shutil.copyfile("release.json", "docker/mongodb-enterprise-tests/release.json")
+    shutil.copyfile("release.json", "docker/mongodb-kubernetes-tests/release.json")
     shutil.copyfile("requirements.txt", requirements_dest)
 
     python_version = os.getenv("PYTHON_VERSION", "")
@@ -471,6 +471,20 @@ def build_tests_image(build_configuration: BuildConfiguration):
     buildargs = dict({"python_version": python_version})
 
     sonar_build_image(image_name, build_configuration, buildargs, "inventories/test.yaml")
+
+
+def build_mco_tests_image(build_configuration: BuildConfiguration):
+    """
+    Builds image used to run community tests.
+    """
+    image_name = "community-operator-e2e"
+    golang_version = os.getenv("GOLANG_VERSION", "1.24")
+    if golang_version == "":
+        raise Exception("Missing GOLANG_VERSION environment variable")
+
+    buildargs = dict({"golang_version": golang_version})
+
+    sonar_build_image(image_name, build_configuration, buildargs, "inventories/mco_test.yaml")
 
 
 def build_operator_image(build_configuration: BuildConfiguration):
@@ -490,7 +504,14 @@ def build_operator_image(build_configuration: BuildConfiguration):
 
     logger.info(f"Building Operator args: {args}")
 
-    build_image_generic(build_configuration, "operator", "inventory.yaml", args)
+    image_name = "mongodb-kubernetes"
+    build_image_generic(
+        config=build_configuration,
+        image_name=image_name,
+        inventory_file="inventory.yaml",
+        extra_args=args,
+        registry_address=f"{QUAY_REGISTRY_URL}/{image_name}",
+    )
 
 
 def build_database_image(build_configuration: BuildConfiguration):
@@ -531,9 +552,7 @@ def build_operator_image_patch(build_configuration: BuildConfiguration):
 
     client = docker.from_env()
     # image that we know is where we build operator.
-    image_repo = (
-        build_configuration.base_repository + "/" + build_configuration.image_type + "/mongodb-enterprise-operator"
-    )
+    image_repo = build_configuration.base_repository + "/" + build_configuration.image_type + "/mongodb-kubernetes"
     image_tag = "latest"
     repo_tag = image_repo + ":" + image_tag
 
@@ -557,7 +576,7 @@ def build_operator_image_patch(build_configuration: BuildConfiguration):
         return
 
     container_name = "mongodb-enterprise-operator"
-    operator_binary_location = "/usr/local/bin/mongodb-enterprise-operator"
+    operator_binary_location = "/usr/local/bin/mongodb-kubernetes-operator"
     try:
         client.containers.get(container_name).remove()
         logger.debug(f"Removed {container_name}")
@@ -572,7 +591,7 @@ def build_operator_image_patch(build_configuration: BuildConfiguration):
 
     copy_into_container(
         client,
-        os.getcwd() + "/docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator",
+        os.getcwd() + "/docker/mongodb-kubernetes-operator/content/mongodb-kubernetes-operator",
         container_name + ":" + operator_binary_location,
     )
 
@@ -598,7 +617,7 @@ def get_supported_variants_for_image(image: str) -> List[str]:
 
 def image_config(
     image_name: str,
-    name_prefix: str = "mongodb-enterprise-",
+    name_prefix: str = "mongodb-kubernetes-",
     s3_bucket: str = "enterprise-operator-dockerfiles",
     ubi_suffix: str = "-ubi",
     base_suffix: str = "",
@@ -624,13 +643,13 @@ def args_for_daily_image(image_name: str) -> Dict[str, str]:
     This includes the quay_registry and ospid corresponding to RedHat's project id.
     """
     image_configs = [
-        image_config("database"),
-        image_config("init-appdb"),
-        image_config("agent"),
-        image_config("init-database"),
-        image_config("init-ops-manager"),
-        image_config("operator"),
-        image_config("ops-manager"),
+        image_config("database", ubi_suffix=""),
+        image_config("init-appdb", ubi_suffix=""),
+        image_config("agent", name_prefix="mongodb-enterprise-"),
+        image_config("init-database", ubi_suffix=""),
+        image_config("init-ops-manager", ubi_suffix=""),
+        image_config("mongodb-kubernetes", name_prefix="", ubi_suffix=""),
+        image_config("ops-manager", name_prefix="mongodb-enterprise-"),
         image_config("mongodb-agent", name_prefix="", ubi_suffix="-ubi", base_suffix="-ubi"),
         image_config(
             image_name="mongodb-kubernetes-operator",
@@ -733,6 +752,14 @@ If the context image supports both ARM and AMD architectures, both will be built
 """
 
 
+def should_skip_arm64():
+    """
+    Determines if arm64 builds should be skipped based on environment.
+    Returns True if running in Evergreen pipeline as a patch.
+    """
+    return is_running_in_evg_pipeline() and is_running_in_patch()
+
+
 def build_image_daily(
     image_name: str,  # corresponds to the image_name in the release.json
     min_version: str = None,
@@ -747,6 +774,10 @@ def build_image_daily(
         if arch_set == {"arm64"}:
             raise ValueError("Building for ARM64 only is not supported yet")
 
+        if should_skip_arm64():
+            logger.info("Skipping ARM64 builds as this is running in EVG pipeline as a patch")
+            return {"amd64"}
+
         # Automatic architecture detection is the default behavior if 'arch' argument isn't specified
         if arch_set == set():
             if check_multi_arch(
@@ -760,13 +791,13 @@ def build_image_daily(
 
         return arch_set
 
-    def create_and_push_manifests(args: dict):
+    def create_and_push_manifests(args: dict, architectures: list[str]):
         """Create and push manifests for all registries."""
         registries = [args["ecr_registry_ubi"], args["quay_registry"]]
         tags = [args["release_version"], args["release_version"] + "-b" + args["build_id"]]
         for registry in registries:
             for tag in tags:
-                create_and_push_manifest(registry + args["ubi_suffix"], tag)
+                create_and_push_manifest(registry + args["ubi_suffix"], tag, architectures=architectures)
 
     def sign_image_concurrently(executor, args, futures, arch=None):
         v = args["release_version"]
@@ -819,7 +850,7 @@ def build_image_daily(
                             )
                             if build_configuration.sign:
                                 sign_image_concurrently(executor, copy.deepcopy(args), futures, arch)
-                        create_and_push_manifests(args)
+                        create_and_push_manifests(args, list(arch_set))
                         for arch in arch_set:
                             args["architecture_suffix"] = f"-{arch}"
                             args["platform"] = arch
@@ -941,7 +972,14 @@ def build_om_image(build_configuration: BuildConfiguration):
         "version": om_version,
         "om_download_url": om_download_url,
     }
-    build_image_generic(build_configuration, "ops-manager", "inventories/om.yaml", args)
+
+    build_image_generic(
+        config=build_configuration,
+        image_name="ops-manager",
+        inventory_file="inventories/om.yaml",
+        extra_args=args,
+        registry_address=f"{QUAY_REGISTRY_URL}/mongodb-enterprise-ops-manager",
+    )
 
 
 def build_image_generic(
@@ -958,7 +996,7 @@ def build_image_generic(
         multi_arch_args_list = [extra_args or {}]
 
     version = multi_arch_args_list[0].get("version", "")  # the version is the same in multi-arch for each item
-    registry = f"{QUAY_REGISTRY_URL}/mongodb-enterprise-{image_name}" if not registry_address else registry_address
+    registry = f"{QUAY_REGISTRY_URL}/mongodb-kubernetes-{image_name}" if not registry_address else registry_address
 
     for args in multi_arch_args_list:  # in case we are building multiple architectures
         args["quay_registry"] = registry
@@ -966,12 +1004,13 @@ def build_image_generic(
     if is_multi_arch:
         # we only push the manifests of the context images here,
         # since daily rebuilds will push the manifests for the proper images later
-        create_and_push_manifest(registry_address, f"{version}-context")
+        architectures = [v["architecture"] for v in multi_arch_args_list]
+        create_and_push_manifest(registry_address, f"{version}-context", architectures=architectures)
         if not config.is_release_step_executed():
             # Normally daily rebuild would create and push the manifests for the non-context images.
             # But since we don't run daily rebuilds on ecr image builds, we can do that step instead here.
             # We only need to push manifests for multi-arch images.
-            create_and_push_manifest(registry_address, version)
+            create_and_push_manifest(registry_address, version, architectures=architectures)
     if config.sign and config.is_release_step_executed():
         sign_and_verify_context_image(registry, version)
     if config.is_release_step_executed() and version and QUAY_REGISTRY_URL in registry:
@@ -1003,6 +1042,71 @@ def build_init_appdb(build_configuration: BuildConfiguration):
     mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
     args = {"version": version, "is_appdb": True, "mongodb_tools_url_ubi": mongodb_tools_url_ubi}
     build_image_generic(build_configuration, "init-appdb", "inventories/init_appdb.yaml", args)
+
+
+def build_community_image(build_configuration: BuildConfiguration, image_type: str):
+    """
+    Builds image for community components (readiness probe, upgrade hook).
+
+    Args:
+        build_configuration: The build configuration to use
+        image_type: Type of image to build ("readiness-probe" or "upgrade-hook")
+    """
+
+    if image_type == "readiness-probe":
+        image_name = "mongodb-kubernetes-readinessprobe"
+        inventory_file = "inventories/readiness_probe.yaml"
+    elif image_type == "upgrade-hook":
+        image_name = "mongodb-kubernetes-operator-version-upgrade-post-start-hook"
+        inventory_file = "inventories/upgrade_hook.yaml"
+    else:
+        raise ValueError(f"Unsupported image type: {image_type}")
+
+    version, is_release = get_git_release_tag()
+    golang_version = os.getenv("GOLANG_VERSION", "1.24")
+
+    # Use only amd64 if we should skip arm64 builds
+    if should_skip_arm64():
+        architectures = ["amd64"]
+        logger.info("Skipping ARM64 builds for community image as this is running in EVG pipeline as a patch")
+    else:
+        architectures = build_configuration.architecture or ["amd64", "arm64"]
+
+    multi_arch_args_list = []
+
+    for arch in architectures:
+        arch_args = {
+            "version": version,
+            "golang_version": golang_version,
+            "architecture": arch,
+        }
+        multi_arch_args_list.append(arch_args)
+
+    ecr_registry = os.environ.get("BASE_REPO_URL", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
+    base_repo = QUAY_REGISTRY_URL if is_release else ecr_registry
+
+    build_image_generic(
+        config=build_configuration,
+        image_name=image_name,
+        multi_arch_args_list=multi_arch_args_list,
+        inventory_file=inventory_file,
+        registry_address=f"{base_repo}/{image_name}",
+        is_multi_arch=True,  # We for pushing manifest anyway, even if arm64 is skipped in patches
+    )
+
+
+def build_readiness_probe_image(build_configuration: BuildConfiguration):
+    """
+    Builds image used for readiness probe.
+    """
+    build_community_image(build_configuration, "readiness-probe")
+
+
+def build_upgrade_hook_image(build_configuration: BuildConfiguration):
+    """
+    Builds image used for version upgrade post-start hook.
+    """
+    build_community_image(build_configuration, "upgrade-hook")
 
 
 def build_agent_in_sonar(
@@ -1074,16 +1178,19 @@ def build_multi_arch_agent_in_sonar(
     ecr_registry = os.environ.get("REGISTRY", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
     ecr_agent_registry = ecr_registry + f"/mongodb-agent-ubi"
     quay_agent_registry = QUAY_REGISTRY_URL + f"/mongodb-agent-ubi"
-    joined_args = list()
-    for arch in [arch_arm, arch_amd]:
-        joined_args.append(args | arch)
+    joined_args = [args | arch_amd]
+
+    # Only include arm64 if we shouldn't skip it
+    if not should_skip_arm64():
+        joined_args.append(args | arch_arm)
+
     build_image_generic(
         config=build_configuration,
         image_name="mongodb-agent",
         inventory_file="inventories/agent_non_matrix.yaml",
         multi_arch_args_list=joined_args,
         registry_address=quay_agent_registry if is_release else ecr_agent_registry,
-        is_multi_arch=True,
+        is_multi_arch=True,  # We for pushing manifest anyway, even if arm64 is skipped in patches
         is_run_in_parallel=True,
     )
 
@@ -1154,7 +1261,7 @@ def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
 
     if build_configuration.all_agents:
         # We need to release [all agents x latest operator] on operator releases to make e2e tests work
-        # This was changed previously in https://github.com/10gen/ops-manager-kubernetes/pull/3960
+        # This was changed previously in https://github.com/mongodb/mongodb-kubernetes/pull/3960
         agent_versions_to_build = gather_all_supported_agent_versions(release)
     else:
         # we only need to release the latest images, we don't need to re-push old images, as we don't clean them up anymore.
@@ -1238,7 +1345,7 @@ def _build_agent_operator(
     # We could rely on input params (quay_registry or registry), but it makes templating more complex in the inventory
     non_quay_registry = os.environ.get("REGISTRY", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
     base_init_database_repo = QUAY_REGISTRY_URL if use_quay else non_quay_registry
-    init_database_image = f"{base_init_database_repo}/mongodb-enterprise-init-database-ubi:{operator_version}"
+    init_database_image = f"{base_init_database_repo}/mongodb-kubernetes-init-database:{operator_version}"
 
     tasks_queue.put(
         executor.submit(
@@ -1321,6 +1428,10 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         "cli": build_CLI_SBOM,
         "test": build_tests_image,
         "operator": build_operator_image,
+        "mco-test": build_mco_tests_image,
+        # TODO: add support to build this per patch
+        "readiness-probe": build_readiness_probe_image,
+        "upgrade-hook": build_upgrade_hook_image,
         "operator-quick": build_operator_image_patch,
         "database": build_database_image,
         "agent-pct": build_agent_on_agent_bump,
@@ -1332,7 +1443,7 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         "init-ops-manager": build_init_om_image,
         #
         # Daily builds
-        "operator-daily": build_image_daily("operator"),
+        "operator-daily": build_image_daily("mongodb-kubernetes"),
         "appdb-daily": build_image_daily("appdb"),
         "database-daily": build_image_daily("database"),
         "init-appdb-daily": build_image_daily("init-appdb"),

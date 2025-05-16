@@ -5,7 +5,7 @@ FROM ${init_database_image} as init_database
 
 FROM public.ecr.aws/docker/library/golang:1.24 as dependency_downloader
 
-WORKDIR /go/src/github.com/10gen/ops-manager-kubernetes/
+WORKDIR /go/src/github.com/mongodb/mongodb-kubernetes/
 
 COPY go.mod go.sum ./
 
@@ -13,13 +13,13 @@ RUN go mod download
 
 FROM public.ecr.aws/docker/library/golang:1.24 as readiness_builder
 
-WORKDIR /go/src/github.com/10gen/ops-manager-kubernetes/
+WORKDIR /go/src/github.com/mongodb/mongodb-kubernetes/
 
 COPY --from=dependency_downloader /go/pkg /go/pkg
-COPY go.mod go.sum ./
+COPY . /go/src/github.com/mongodb/mongodb-kubernetes
 
-RUN CGO_ENABLED=0 go build -o /readinessprobe github.com/mongodb/mongodb-kubernetes-operator/cmd/readiness
-RUN CGO_ENABLED=0 go build -o /version-upgrade-hook github.com/mongodb/mongodb-kubernetes-operator/cmd/versionhook
+RUN CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -o /readinessprobe ./mongodb-community-operator/cmd/readiness/main.go
+RUN CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -o /version-upgrade-hook ./mongodb-community-operator/cmd/versionhook/main.go
 
 FROM scratch
 ARG mongodb_tools_url_ubi

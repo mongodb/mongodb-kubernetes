@@ -13,19 +13,19 @@ import (
 	"time"
 
 	"github.com/stretchr/objx"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-
-	mdbv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
-	e2eutil "github.com/mongodb/mongodb-kubernetes-operator/test/e2e"
 	"github.com/stretchr/testify/assert"
 	"go.mongodb.org/mongo-driver/bson"
-	corev1 "k8s.io/api/core/v1"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
+
+	corev1 "k8s.io/api/core/v1"
+
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	e2eutil "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e"
 )
 
 type Tester struct {
@@ -232,7 +232,6 @@ func (m *Tester) hasAdminParameter(key string, expectedValue interface{}, tries 
 }
 
 func (m *Tester) connectivityCheck(shouldSucceed bool, opts ...OptionApplier) func(t *testing.T) {
-
 	clientOpts := make([]*options.ClientOptions, 0)
 	for _, optApplier := range opts {
 		clientOpts = optApplier.ApplyOption(clientOpts...)
@@ -240,7 +239,6 @@ func (m *Tester) connectivityCheck(shouldSucceed bool, opts ...OptionApplier) fu
 
 	connectivityOpts := defaults()
 	return func(t *testing.T) {
-
 		// We can optionally skip connectivity tests locally
 		if testing.Short() {
 			t.Skip()
@@ -273,7 +271,6 @@ func (m *Tester) connectivityCheck(shouldSucceed bool, opts ...OptionApplier) fu
 			}
 			return true, nil
 		})
-
 		if err != nil {
 			t.Fatal(fmt.Errorf("error during connectivity check: %s", err))
 		}
@@ -326,7 +323,6 @@ func (m *Tester) EnsureMongodConfig(selector string, expected interface{}) func(
 		})
 
 		assert.NoError(t, err)
-
 	}
 }
 
@@ -384,14 +380,14 @@ func (m *Tester) StartBackgroundConnectivityTest(t *testing.T, interval time.Dur
 
 // ensureClient establishes a mongo client connection applying any addition
 // client options on top of what were provided at construction.
-func (t *Tester) ensureClient(ctx context.Context, opts ...*options.ClientOptions) error {
-	allOpts := t.clientOpts
+func (m *Tester) ensureClient(ctx context.Context, opts ...*options.ClientOptions) error {
+	allOpts := m.clientOpts
 	allOpts = append(allOpts, opts...)
 	mongoClient, err := mongo.Connect(ctx, allOpts...)
 	if err != nil {
 		return err
 	}
-	t.mongoClient = mongoClient
+	m.mongoClient = mongoClient
 	return nil
 }
 
@@ -564,7 +560,6 @@ func getClientTLSConfig(ctx context.Context, mdb mdbv1.MongoDBCommunity) (*tls.C
 	return &tls.Config{ //nolint
 		RootCAs: caPool,
 	}, nil
-
 }
 
 // GetAgentCert reads the agent key certificate

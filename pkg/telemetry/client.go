@@ -12,9 +12,9 @@ import (
 	"github.com/hashicorp/go-retryablehttp"
 	"go.uber.org/zap"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/envvar"
-
 	atlas "go.mongodb.org/atlas/mongodbatlas"
+
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
 )
 
 type Client struct {
@@ -81,7 +81,7 @@ func NewClient(retryClient *retryablehttp.Client) (*Client, error) {
 		&http.Client{Transport: &retryablehttp.RoundTripper{Client: retryClient}},
 	)
 
-	if urlStr := envvar.GetEnvOrDefault(BaseUrl, ""); urlStr != "" {
+	if urlStr := envvar.GetEnvOrDefault(BaseUrl, ""); urlStr != "" { // nolint:forbidigo
 		Logger.Debugf("Using different base url configured for atlasclient: %s", urlStr)
 		parsed, err := url.Parse(urlStr)
 		if err != nil {

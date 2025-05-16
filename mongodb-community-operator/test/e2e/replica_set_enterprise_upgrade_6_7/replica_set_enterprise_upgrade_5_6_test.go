@@ -6,13 +6,11 @@ import (
 	"os"
 	"testing"
 
-	e2eutil "github.com/mongodb/mongodb-kubernetes-operator/test/e2e"
-	"github.com/mongodb/mongodb-kubernetes-operator/test/e2e/replica_set_enterprise_upgrade"
+	e2eutil "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/replica_set_enterprise_upgrade"
 )
 
-var (
-	versionsForUpgrades = []string{"6.0.5", "7.0.2"}
-)
+var versionsForUpgrades = []string{"6.0.5", "7.0.2"}
 
 func TestMain(m *testing.M) {
 	code, err := e2eutil.RunTest(m)

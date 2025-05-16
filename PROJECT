@@ -1,7 +1,7 @@
 domain: mongodb.com
 layout: go.kubebuilder.io/v3
-projectName: mongodb-enterprise
-repo: github.com/10gen/ops-manager-kubernetes
+projectName: mongodb-kubernetes
+repo: github.com/mongodb/mongodb-kubernetes
 resources:
 - api:
     crdVersion: v1
@@ -10,7 +10,7 @@ resources:
   domain: mongodb.com
   group: mongodb
   kind: MongoDB
-  path: github.com/10gen/ops-manager-kubernetes/api/v1
+  path: github.com/mongodb/mongodb-kubernetes/api/v1
   version: v1
 - api:
     crdVersion: v1
@@ -19,7 +19,7 @@ resources:
   domain: mongodb.com
   group: mongodb
   kind: MongoDBOpsManager
-  path: github.com/10gen/ops-manager-kubernetes/api/v1
+  path: github.com/mongodb/mongodb-kubernetes/api/v1
   version: v1
 - api:
     crdVersion: v1
@@ -28,7 +28,7 @@ resources:
   domain: mongodb.com
   group: mongodb
   kind: MongoDBUser
-  path: github.com/10gen/ops-manager-kubernetes/api/v1
+  path: github.com/mongodb/mongodb-kubernetes/api/v1
   version: v1
 version: "3"
 plugins:

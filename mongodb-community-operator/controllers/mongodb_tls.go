@@ -6,22 +6,18 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/constants"
-
-	"github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
-
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
-
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
-
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/podtemplatespec"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
-
-	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
+	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 )
 
 const (
@@ -33,6 +29,7 @@ const (
 	tlsSecretKeyName             = "tls.key"
 	tlsSecretPemName             = "tls.pem"
 	automationAgentPemMountPath  = "/var/lib/mongodb-mms-automation/agent-certs"
+	X509Auth                     = "X509"
 )
 
 // validateTLSConfig will check that the configured ConfigMap and Secret exist and that they have the correct fields.
@@ -45,7 +42,6 @@ func (r *ReplicaSetReconciler) validateTLSConfig(ctx context.Context, mdb mdbv1.
 
 	// Ensure CA cert is configured
 	_, err := getCaCrt(ctx, r.client, r.client, mdb)
-
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
 			r.log.Warnf("CA resource not found: %s", err)
@@ -228,7 +224,7 @@ func ensureTLSSecret(ctx context.Context, getUpdateCreator secret.GetUpdateCreat
 }
 
 func ensureAgentCertSecret(ctx context.Context, getUpdateCreator secret.GetUpdateCreator, mdb mdbv1.MongoDBCommunity) error {
-	if mdb.Spec.GetAgentAuthMode() != "X509" {
+	if mdb.Spec.GetAgentAuthMode() != X509Auth {
 		return nil
 	}
 
@@ -361,7 +357,7 @@ func buildTLSPrometheus(mdb mdbv1.MongoDBCommunity) podtemplatespec.Modification
 }
 
 func buildAgentX509(mdb mdbv1.MongoDBCommunity) podtemplatespec.Modification {
-	if mdb.Spec.GetAgentAuthMode() != "X509" {
+	if mdb.Spec.GetAgentAuthMode() != X509Auth {
 		return podtemplatespec.Apply(
 			podtemplatespec.RemoveVolume(constants.AgentPemFile),
 			podtemplatespec.RemoveVolumeMount(construct.AgentName, constants.AgentPemFile),
@@ -375,5 +371,4 @@ func buildAgentX509(mdb mdbv1.MongoDBCommunity) podtemplatespec.Modification {
 		podtemplatespec.WithVolume(agentCertVolume),
 		podtemplatespec.WithVolumeMounts(construct.AgentName, agentCertVolumeMount),
 	)
-
 }

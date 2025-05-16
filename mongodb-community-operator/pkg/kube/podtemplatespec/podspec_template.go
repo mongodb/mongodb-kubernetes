@@ -1,11 +1,12 @@
 package podtemplatespec
 
 import (
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/envvar"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 )
 
 type Modification func(*corev1.PodTemplateSpec)
@@ -99,7 +100,7 @@ func WithPodLabels(labels map[string]string) Modification {
 		labels = map[string]string{}
 	}
 	return func(podTemplateSpec *corev1.PodTemplateSpec) {
-		podTemplateSpec.ObjectMeta.Labels = labels
+		podTemplateSpec.Labels = labels
 	}
 }
 
@@ -210,17 +211,16 @@ func WithTopologyKey(topologyKey string, idx int) Modification {
 // WithAffinity updates the name, antiAffinityLabelKey and weight of the PodTemplateSpec's Affinity
 func WithAffinity(stsName, antiAffinityLabelKey string, weight int) Modification {
 	return func(podTemplateSpec *corev1.PodTemplateSpec) {
-		podTemplateSpec.Spec.Affinity =
-			&corev1.Affinity{
-				PodAntiAffinity: &corev1.PodAntiAffinity{
-					PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{{
-						Weight: int32(weight),
-						PodAffinityTerm: corev1.PodAffinityTerm{
-							LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{antiAffinityLabelKey: stsName}},
-						},
-					}},
-				},
-			}
+		podTemplateSpec.Spec.Affinity = &corev1.Affinity{
+			PodAntiAffinity: &corev1.PodAntiAffinity{
+				PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{{
+					Weight: int32(weight), //nolint:gosec
+					PodAffinityTerm: corev1.PodAffinityTerm{
+						LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{antiAffinityLabelKey: stsName}},
+					},
+				}},
+			},
+		}
 	}
 }
 

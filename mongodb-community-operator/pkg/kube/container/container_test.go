@@ -4,14 +4,14 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/envvar"
-
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/resourcerequirements"
-
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/lifecycle"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/probes"
 	"github.com/stretchr/testify/assert"
+
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/lifecycle"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/probes"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/resourcerequirements"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
 )
 
 func TestContainer(t *testing.T) {
@@ -218,7 +218,6 @@ func TestWithVolumeMounts(t *testing.T) {
 		assert.Equal(t, fmt.Sprintf("mount-path-%d", i), v.MountPath, "Volumes should be sorted but were not!")
 		assert.Equal(t, fmt.Sprintf("sub-path-%d", i), v.SubPath, "Volumes should be sorted but were not!")
 	}
-
 }
 
 func boolRef(b bool) *bool {

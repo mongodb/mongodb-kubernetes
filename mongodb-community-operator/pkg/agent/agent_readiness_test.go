@@ -5,13 +5,15 @@ import (
 	"os"
 	"testing"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 )
 
 func init() {

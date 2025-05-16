@@ -1,6 +1,10 @@
 package probes
 
-import corev1 "k8s.io/api/core/v1"
+import (
+	"k8s.io/apimachinery/pkg/util/intstr"
+
+	corev1 "k8s.io/api/core/v1"
+)
 
 type Modification func(*corev1.Probe)
 
@@ -22,37 +26,49 @@ func New(funcs ...Modification) corev1.Probe {
 
 func WithExecCommand(cmd []string) Modification {
 	return func(probe *corev1.Probe) {
-		if probe.ProbeHandler.Exec == nil {
-			probe.ProbeHandler.Exec = &corev1.ExecAction{}
+		if probe.Exec == nil {
+			probe.Exec = &corev1.ExecAction{}
 		}
-		probe.ProbeHandler.Exec.Command = cmd
+		probe.Exec.Command = cmd
 	}
 }
 
-func WithFailureThreshold(failureThreshold int) Modification {
+func WithTCPSocket(host string, port intstr.IntOrString) Modification {
 	return func(probe *corev1.Probe) {
-		probe.FailureThreshold = int32(failureThreshold)
+		probe.TCPSocket = &corev1.TCPSocketAction{
+			Host: host,
+			Port: port,
+		}
 	}
 }
 
-func WithInitialDelaySeconds(initialDelaySeconds int) Modification {
+func WithFailureThreshold(failureThreshold int32) Modification {
 	return func(probe *corev1.Probe) {
-		probe.InitialDelaySeconds = int32(initialDelaySeconds)
+		probe.FailureThreshold = failureThreshold
 	}
 }
-func WithSuccessThreshold(successThreshold int) Modification {
+
+func WithInitialDelaySeconds(initialDelaySeconds int32) Modification {
 	return func(probe *corev1.Probe) {
-		probe.SuccessThreshold = int32(successThreshold)
+		probe.InitialDelaySeconds = initialDelaySeconds
 	}
 }
-func WithPeriodSeconds(periodSeconds int) Modification {
+
+func WithSuccessThreshold(successThreshold int32) Modification {
 	return func(probe *corev1.Probe) {
-		probe.PeriodSeconds = int32(periodSeconds)
+		probe.SuccessThreshold = successThreshold
 	}
 }
-func WithTimeoutSeconds(timeoutSeconds int) Modification {
+
+func WithPeriodSeconds(periodSeconds int32) Modification {
 	return func(probe *corev1.Probe) {
-		probe.TimeoutSeconds = int32(timeoutSeconds)
+		probe.PeriodSeconds = periodSeconds
+	}
+}
+
+func WithTimeoutSeconds(timeoutSeconds int32) Modification {
+	return func(probe *corev1.Probe) {
+		probe.TimeoutSeconds = timeoutSeconds
 	}
 }
 

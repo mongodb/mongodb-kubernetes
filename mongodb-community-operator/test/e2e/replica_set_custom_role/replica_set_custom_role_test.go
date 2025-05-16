@@ -6,12 +6,11 @@ import (
 	"os"
 	"testing"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-	. "github.com/mongodb/mongodb-kubernetes-operator/test/e2e/util/mongotester"
-
-	e2eutil "github.com/mongodb/mongodb-kubernetes-operator/test/e2e"
-	"github.com/mongodb/mongodb-kubernetes-operator/test/e2e/mongodbtests"
-	"github.com/mongodb/mongodb-kubernetes-operator/test/e2e/setup"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	e2eutil "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/mongodbtests"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/setup"
+	. "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/util/mongotester"
 )
 
 func TestMain(m *testing.M) {
@@ -107,5 +106,4 @@ func TestReplicaSetCustomRole(t *testing.T) {
 	roles := mdbv1.ConvertCustomRolesToAutomationConfigCustomRole(mdb.Spec.Security.Roles)
 	t.Run("AutomationConfig has the correct custom role", mongodbtests.AutomationConfigHasTheExpectedCustomRoles(ctx, &mdb, roles))
 	t.Run("Custom Role was created ", tester.VerifyRoles(roles, 1))
-
 }

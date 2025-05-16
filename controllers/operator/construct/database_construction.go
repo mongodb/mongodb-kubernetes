@@ -10,28 +10,28 @@ import (
 	"go.uber.org/zap"
 	"k8s.io/utils/ptr"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/persistentvolumeclaim"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/podtemplatespec"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/probes"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
-
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
-	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/persistentvolumeclaim"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/probes"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
+	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
 
 const (
@@ -409,7 +409,7 @@ func buildVaultDatabaseSecretsToInject(mdb databaseStatefulSetSource, opts Datab
 func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource, podTemplateSpecFunc podtemplatespec.Modification, opts DatabaseStatefulSetOptions, log *zap.SugaredLogger) statefulset.Modification {
 	podLabels := map[string]string{
 		appLabelKey:             opts.ServiceName,
-		util.OperatorLabelName:  util.OperatorName,
+		util.OperatorLabelName:  util.OperatorLabelValue,
 		PodAntiAffinityLabelKey: opts.Name,
 	}
 
@@ -537,7 +537,7 @@ func buildPersistentVolumeClaimsFuncs(opts DatabaseStatefulSetOptions) (map[stri
 	if podSpec.Persistence == nil ||
 		(podSpec.Persistence.SingleConfig == nil && podSpec.Persistence.MultipleConfig == nil) ||
 		podSpec.Persistence.SingleConfig != nil {
-		var config *mdbv1.PersistenceConfig
+		var config *common.PersistenceConfig
 		if podSpec.Persistence != nil && podSpec.Persistence.SingleConfig != nil {
 			config = podSpec.Persistence.SingleConfig
 		}

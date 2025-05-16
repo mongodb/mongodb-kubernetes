@@ -4,14 +4,15 @@ import (
 	"context"
 	"fmt"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/authtypes"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/authtypes"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
 )
 
 type MockSecretGetUpdateCreateDeleter struct {
@@ -106,7 +107,6 @@ func BuildX509MongoDBUser(name string) authtypes.User {
 			},
 		},
 	}
-
 }
 
 func BuildScramMongoDBUser(name string) authtypes.User {
@@ -136,5 +136,4 @@ func BuildScramMongoDBUser(name string) authtypes.User {
 		PasswordSecretName:         fmt.Sprintf("%s-password-secret", name),
 		ScramCredentialsSecretName: fmt.Sprintf("%s-scram", name),
 	}
-
 }

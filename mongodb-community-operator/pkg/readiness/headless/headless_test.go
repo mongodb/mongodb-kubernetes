@@ -4,14 +4,15 @@ import (
 	"context"
 	"testing"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/cmd/readiness/testdata"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/readiness/config"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/readiness/health"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/cmd/readiness/testdata"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/readiness/config"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/readiness/health"
 )
 
 func TestPerformCheckHeadlessMode(t *testing.T) {

@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 
+	"k8s.io/apimachinery/pkg/types"
+
 	corev1 "k8s.io/api/core/v1"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
-
-	"k8s.io/apimachinery/pkg/types"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
 )
 
 const (
@@ -71,7 +71,7 @@ func getPrometheusModification(ctx context.Context, getUpdateCreator secret.GetU
 func prometheusPort(mdb mdbv1.MongoDBCommunity) *corev1.ServicePort {
 	if mdb.Spec.Prometheus != nil {
 		return &corev1.ServicePort{
-			Port: int32(mdb.Spec.Prometheus.GetPort()),
+			Port: int32(mdb.Spec.Prometheus.GetPort()), //nolint:gosec
 			Name: "prometheus",
 		}
 	}

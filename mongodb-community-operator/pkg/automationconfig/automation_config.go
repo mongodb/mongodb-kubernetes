@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/scramcredentials"
 	"github.com/spf13/cast"
 	"github.com/stretchr/objx"
 	"go.uber.org/zap"
+
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/scramcredentials"
 )
 
 const (
@@ -509,5 +510,4 @@ func ConfigureAgentConfiguration(systemLog *SystemLog, logRotate *CrdLogRotate, 
 		p.SetLogRotate(logRotate)
 		p.SetAuditLogRotate(auditLR)
 	}
-
 }

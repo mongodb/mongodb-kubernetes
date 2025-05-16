@@ -6,11 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/result"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/result"
 )
 
 func init() {
@@ -159,7 +160,6 @@ func TestIfStateFails_ItIsRunAgain(t *testing.T) {
 	})
 
 	t.Run("When the state passes, the next one will run", func(t *testing.T) {
-
 		// the state will now succeed
 		s.states["FailsState"] = newAlwaysCompletingState(fails.Name)
 
@@ -277,7 +277,6 @@ func TestBranchingPath(t *testing.T) {
 	s.AddDirectTransition(right1, right2)
 
 	t.Run("Left Path", func(t *testing.T) {
-
 		_, _ = s.Reconcile()
 		_, _ = s.Reconcile()
 		_, _ = s.Reconcile()
@@ -329,7 +328,6 @@ func TestDetermineStartingState_ReadsFromLoader(t *testing.T) {
 		assert.Error(t, err)
 		assert.Nil(t, s.currentState)
 	})
-
 }
 
 // newAlwaysCompletingState returns a State that will always succeed.

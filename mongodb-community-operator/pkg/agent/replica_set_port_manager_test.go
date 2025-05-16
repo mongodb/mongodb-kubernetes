@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 )
 
 func TestReplicaSetPortManagerCalculateExpectedPorts(t *testing.T) {
@@ -209,5 +210,4 @@ func TestReplicaSetPortManagerCalculateExpectedPorts(t *testing.T) {
 			assert.Equal(t, tc.expectedOutput, actualOutput)
 		})
 	}
-
 }

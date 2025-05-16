@@ -24,6 +24,7 @@ def trim_versions(versions_list, number_of_versions=3):
     Keep only the latest number_of_versions versions per major version in a versions list.
     Returns a sorted list with trimmed versions.
     """
+
     major_version_groups = defaultdict(list)
     for v in versions_list:
         try:
@@ -31,14 +32,16 @@ def trim_versions(versions_list, number_of_versions=3):
             major_version_groups[major_version].append(v)
         except (IndexError, AttributeError):
             # Keep versions that don't follow the expected format
-            # In MEKO we didn't follow semver
             continue
 
     trimmed_versions = []
+
     for major_version, versions in major_version_groups.items():
         versions.sort(key=lambda x: version.parse(x), reverse=True)
         latest_versions = versions[:number_of_versions]
-        trimmed_versions.extend(latest_versions)
+        for v in latest_versions:
+            if v not in trimmed_versions:
+                trimmed_versions.append(v)
 
     # Sort the final list in ascending order
     trimmed_versions.sort(key=lambda x: version.parse(x))
@@ -54,6 +57,13 @@ def trim_supported_image_versions(release: dict, image_types: list):
         if image_type in release["supportedImages"]:
             original_versions = release["supportedImages"][image_type]["versions"]
             trimmed_versions = trim_versions(original_versions, 3)
+
+            # TODO: Remove this once we don't need to use OM 7.0.12 in the OM Multicluster DR tests
+            # https://jira.mongodb.org/browse/CLOUDP-297377
+            if image_type == "ops-manager":
+                trimmed_versions.append("7.0.12")
+                trimmed_versions.sort(key=lambda x: version.parse(x))
+
             release["supportedImages"][image_type]["versions"] = trimmed_versions
 
 
@@ -87,7 +97,7 @@ def update_release_json():
 
     # Trim init and operator images to keep only the latest 3 versions per major
     trim_supported_image_versions(
-        data, ["operator", "init-ops-manager", "init-database", "init-appdb", "database", "ops-manager"]
+        data, ["mongodb-kubernetes", "init-ops-manager", "init-database", "init-appdb", "database", "ops-manager"]
     )
 
     # PCT already bumps the release.json, such that the last element contains the newest version, since they are sorted
@@ -125,7 +135,7 @@ def update_operator_related_versions(release: dict, version: str):
         release[key] = version
 
     keys_to_add_supported_versions = [
-        "operator",
+        "mongodb-kubernetes",
         "init-ops-manager",
         "init-database",
         "init-appdb",

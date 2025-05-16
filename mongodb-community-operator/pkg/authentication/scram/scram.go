@@ -6,16 +6,16 @@ import (
 	"fmt"
 
 	"go.uber.org/zap"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/authtypes"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/scramcredentials"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/constants"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/generate"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/authtypes"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/scramcredentials"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/generate"
 )
 
 const (
@@ -78,7 +78,6 @@ func ensureAgent(ctx context.Context, auth *automationconfig.Auth, secretGetUpda
 // ensureScramCredentials will ensure that the ScramSha1 & ScramSha256 credentials exist and are stored in the credentials
 // secret corresponding to user of the given MongoDB deployment.
 func ensureScramCredentials(ctx context.Context, getUpdateCreator secret.GetUpdateCreator, user authtypes.User, mdbNamespacedName types.NamespacedName, ownerRef []metav1.OwnerReference) (scramcredentials.ScramCreds, scramcredentials.ScramCreds, error) {
-
 	password, err := secret.ReadKey(ctx, getUpdateCreator, user.PasswordSecretKey, types.NamespacedName{Name: user.PasswordSecretName, Namespace: mdbNamespacedName.Namespace})
 	if err != nil {
 		// if the password is deleted, that's fine we can read from the stored credentials that were previously generated

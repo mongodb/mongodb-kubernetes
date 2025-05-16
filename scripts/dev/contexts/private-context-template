@@ -96,3 +96,6 @@ export e2e_cloud_qa_user_owner="${OM_USER}"
 export e2e_cloud_qa_orgid_owner_static_2="${OM_ORGID}"
 export e2e_cloud_qa_apikey_owner_static_2="${OM_API_KEY}"
 export e2e_cloud_qa_user_owner_static_2="${OM_USER}"
+
+# TODO to be removed at public preview stage of community-search
+export COMMUNITY_PRIVATE_PREVIEW_PULLSECRET_DOCKERCONFIGJSON="<dockerconfigjson secret>"

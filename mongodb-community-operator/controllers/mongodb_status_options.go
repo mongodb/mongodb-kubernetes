@@ -1,13 +1,13 @@
 package controllers
 
 import (
-	mdbv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/apierrors"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/result"
 	"go.uber.org/zap"
-
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/status"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/apierrors"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/result"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/status"
 )
 
 // severity indicates the severity level

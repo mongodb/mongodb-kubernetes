@@ -1,6 +1,6 @@
 """SBOM manipulation library
 
-This file contains all necessary functions for manipulating SBOMs for MCO and MEKO. The intention is to run
+This file contains all necessary functions for manipulating SBOMs for MCK. The intention is to run
 generate_sbom and generate_sbom_for_cli on a daily basis per each shipped image and the CLI.
 
 The SSDLC reporting doesn't strictly require to follow the daily rebuild flow. However, triggering it is part of the
@@ -37,7 +37,7 @@ from lib.base_logger import logger
 
 S3_BUCKET = "kubernetes-operators-sboms"
 SILK_BOMB_IMAGE = "artifactory.corp.mongodb.com/release-tools-container-registry-public-local/silkbomb:2.0"
-KONDUKTO_REPO = "10gen/ops-manager-kubernetes"
+KONDUKTO_REPO = "mongodb/mongodb-kubernetes"
 WORKDIR = os.getenv("workdir")
 
 
@@ -229,15 +229,17 @@ def generate_sbom_for_cli(cli_version: str = "1.25.0", platform: str = "linux/am
         with tempfile.TemporaryDirectory() as directory:
             sbom_lite_file_name = f"kubectl-mongodb-{cli_version}-{platform_sanitized}.json"
             sbom_augmented_file_name = f"kubectl-mongodb-{cli_version}-{platform_sanitized}-augmented.json"
-            product_name = "mongodb-enterprise-cli"
-            kondukto_project_repo = "mongodb/mongodb-enterprise-kubernetes"
+            product_name = "mongodb-kubernetes-cli"
+            kondukto_project_repo = "mongodb/mongodb-kubernetes"
             kondukto_branch_id = f"{product_name}-release-{cli_version}-{platform_sanitized}"
             s3_release_sbom_lite_path = f"sboms/release/lite/{product_name}/{cli_version}/{platform_sanitized}"
             s3_release_sbom_augmented_path = (
                 f"sboms/release/augmented/{product_name}/{cli_version}/{platform_sanitized}"
             )
             binary_file_name = f"kubectl-mongodb_{cli_version}_{platform_sanitized_with_underscores}.tar.gz"
-            download_binary_url = f"https://github.com/mongodb/mongodb-enterprise-kubernetes/releases/download/{cli_version}/{binary_file_name}"
+            download_binary_url = (
+                f"https://github.com/mongodb/mongodb-kubernetes/releases/download/{cli_version}/{binary_file_name}"
+            )
             unpacked_binary_file_name = "kubectl-mongodb"
 
             if not s3_path_exists(s3_release_sbom_augmented_path):
@@ -266,9 +268,7 @@ def generate_sbom_for_cli(cli_version: str = "1.25.0", platform: str = "linux/am
 def get_kondukto_sbom_data(image_name: str, tag: str, platform_sanitized: str):
     daily_project_branch_id = f"{image_name}-daily-{tag}-{platform_sanitized}"
     release_project_branch_id = f"{image_name}-release-{tag}-{platform_sanitized}"
-    if image_name.startswith("mongodb-enterprise"):
-        return daily_project_branch_id, release_project_branch_id, "10gen/ops-manager-kubernetes"
-    return daily_project_branch_id, release_project_branch_id, "mongodb/mongodb-kubernetes-operator"
+    return daily_project_branch_id, release_project_branch_id, "mongodb/mongodb-kubernetes"
 
 
 def s3_path_exists(s3_path):

@@ -21,7 +21,6 @@ func TestAgentFlagIsCorrectlyCreated(t *testing.T) {
 	envVar := StartupParametersToAgentFlag(parameters...)
 	assert.Equal(t, "AGENT_FLAGS", envVar.Name)
 	assert.Equal(t, " -Key1 Value1 -Key2 Value2", envVar.Value)
-
 }
 
 func TestAgentFlagEmptyParameters(t *testing.T) {
@@ -30,5 +29,4 @@ func TestAgentFlagEmptyParameters(t *testing.T) {
 	envVar := StartupParametersToAgentFlag(parameters...)
 	assert.Equal(t, "AGENT_FLAGS", envVar.Name)
 	assert.Equal(t, "", envVar.Value)
-
 }

@@ -1,30 +1,30 @@
 ---
-# Source: enterprise-operator/templates/database-roles.yaml
+# Source: mongodb-kubernetes/templates/database-roles.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: mongodb-enterprise-appdb
+  name: mongodb-kubernetes-appdb
   namespace: mongodb
 ---
-# Source: enterprise-operator/templates/database-roles.yaml
+# Source: mongodb-kubernetes/templates/database-roles.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: mongodb-enterprise-database-pods
+  name: mongodb-kubernetes-database-pods
   namespace: mongodb
 ---
-# Source: enterprise-operator/templates/database-roles.yaml
+# Source: mongodb-kubernetes/templates/database-roles.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: mongodb-enterprise-ops-manager
+  name: mongodb-kubernetes-ops-manager
   namespace: mongodb
 ---
-# Source: enterprise-operator/templates/database-roles.yaml
+# Source: mongodb-kubernetes/templates/database-roles.yaml
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-enterprise-appdb
+  name: mongodb-kubernetes-appdb
   namespace: mongodb
 rules:
   - apiGroups:
@@ -42,17 +42,17 @@ rules:
       - delete
       - get
 ---
-# Source: enterprise-operator/templates/database-roles.yaml
+# Source: mongodb-kubernetes/templates/database-roles.yaml
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-enterprise-appdb
+  name: mongodb-kubernetes-appdb
   namespace: mongodb
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: mongodb-enterprise-appdb
+  name: mongodb-kubernetes-appdb
 subjects:
   - kind: ServiceAccount
-    name: mongodb-enterprise-appdb
+    name: mongodb-kubernetes-appdb
     namespace: mongodb

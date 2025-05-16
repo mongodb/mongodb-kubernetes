@@ -6,11 +6,12 @@ import (
 	"os"
 	"testing"
 
-	e2eutil "github.com/mongodb/mongodb-kubernetes-operator/test/e2e"
-	"github.com/mongodb/mongodb-kubernetes-operator/test/e2e/mongodbtests"
-	"github.com/mongodb/mongodb-kubernetes-operator/test/e2e/setup"
-	"github.com/mongodb/mongodb-kubernetes-operator/test/e2e/util/mongotester"
 	"github.com/stretchr/testify/assert"
+
+	e2eutil "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/mongodbtests"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/setup"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/util/mongotester"
 )
 
 func TestMain(m *testing.M) {
@@ -22,7 +23,6 @@ func TestMain(m *testing.M) {
 }
 
 func Test(t *testing.T) {
-
 }
 
 func TestReplicaSetArbiter(t *testing.T) {

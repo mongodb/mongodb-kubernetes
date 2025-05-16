@@ -6,17 +6,17 @@ import (
 	"os"
 	"testing"
 
-	v1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes-operator/test/e2e/mongodbtests"
-	. "github.com/mongodb/mongodb-kubernetes-operator/test/e2e/util/mongotester"
 	"github.com/stretchr/testify/assert"
-
-	e2eutil "github.com/mongodb/mongodb-kubernetes-operator/test/e2e"
-	"github.com/mongodb/mongodb-kubernetes-operator/test/e2e/setup"
-	corev1 "k8s.io/api/core/v1"
-
 	"k8s.io/apimachinery/pkg/api/resource"
+
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	v1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	e2eutil "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/mongodbtests"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/setup"
+	. "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/test/e2e/util/mongotester"
 )
 
 func TestMain(m *testing.M) {

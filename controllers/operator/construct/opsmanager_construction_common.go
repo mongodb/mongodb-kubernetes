@@ -1,9 +1,9 @@
 package construct
 
 import (
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
-
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 )
 
 const (

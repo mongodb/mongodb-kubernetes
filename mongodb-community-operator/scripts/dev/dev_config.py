@@ -1,8 +1,9 @@
 from __future__ import annotations
-from typing import Dict, Optional, List
-from enum import Enum
+
 import json
 import os
+from enum import Enum
+from typing import Dict, List, Optional
 
 CONFIG_PATH = "~/.community-operator-dev/config.json"
 FULL_CONFIG_PATH = os.path.expanduser(CONFIG_PATH)
@@ -52,6 +53,10 @@ class DevConfig:
         return self._config["repo_url"]
 
     @property
+    def shared_repo_url(self) -> str:
+        return self._config["shared_repo_url"]
+
+    @property
     def s3_bucket(self) -> str:
         return self._config["s3_bucket"]
 
@@ -77,9 +82,7 @@ class DevConfig:
 
     @property
     def version_upgrade_hook_image_dev(self) -> str:
-        return self._get_dev_image(
-            "version_upgrade_hook_image_dev", "version_upgrade_hook_image"
-        )
+        return self._get_dev_image("version_upgrade_hook_image_dev", "version_upgrade_hook_image")
 
     @property
     def readiness_probe_image(self) -> str:
@@ -122,7 +125,7 @@ class DevConfig:
 
     @property
     def local_operator(self) -> str:
-        return self._config["mdb_local_operator"]
+        return self._config["local_operator"]
 
     @property
     def kube_config(self) -> str:
@@ -148,17 +151,16 @@ class DevConfig:
         return self._config[image]
 
 
-def load_config(
-    config_file_path: Optional[str] = None, distro: Distro = Distro.UBI
-) -> DevConfig:
+def load_config(config_file_path: Optional[str] = None, distro: Distro = Distro.UBI, namespace: str = "") -> DevConfig:
     if config_file_path is None:
         config_file_path = get_config_path()
 
     try:
         with open(config_file_path, "r") as f:
-            return DevConfig(json.loads(f.read()), distro=distro)
+            cfg = json.loads(f.read())
+            if namespace:
+                cfg["namespace"] = namespace
+            return DevConfig(cfg, distro=distro)
     except FileNotFoundError:
-        print(
-            f"No DevConfig found. Please ensure that the configuration file exists at '{config_file_path}'"
-        )
+        print(f"No DevConfig found. Please ensure that the configuration file exists at '{config_file_path}'")
         raise

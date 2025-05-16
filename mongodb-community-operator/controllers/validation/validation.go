@@ -7,9 +7,9 @@ import (
 
 	"go.uber.org/zap"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/authtypes"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/constants"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/authtypes"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
 )
 
 // ValidateInitialSpec checks if the resource's initial Spec is valid.
@@ -177,10 +177,10 @@ func validateAuthModeSpec(mdb mdbv1.MongoDBCommunity, log *zap.SugaredLogger) er
 
 	agentMode := mdb.Spec.GetAgentAuthMode()
 	if agentMode == "" && len(allModes) > 1 {
-		return fmt.Errorf("If spec.security.authentication.modes contains different authentication modes, the agent mode must be specified ")
+		return fmt.Errorf("if spec.security.authentication.modes contains different authentication modes, the agent mode must be specified ")
 	}
 	if _, present := mapMechanisms[mdbv1.ConvertAuthModeToAuthMechanism(agentMode)]; !present {
-		return fmt.Errorf("Agent authentication mode: %s must be part of the spec.security.authentication.modes", agentMode)
+		return fmt.Errorf("agent authentication mode: %s must be part of the spec.security.authentication.modes", agentMode)
 	}
 
 	return nil
@@ -199,7 +199,7 @@ func validateAgentCertSecret(mdb mdbv1.MongoDBCommunity, log *zap.SugaredLogger)
 func validateStatefulSet(mdb mdbv1.MongoDBCommunity) error {
 	stsReplicas := mdb.Spec.StatefulSetConfiguration.SpecWrapper.Spec.Replicas
 
-	if stsReplicas != nil && *stsReplicas != int32(mdb.Spec.Members) {
+	if stsReplicas != nil && *stsReplicas != int32(mdb.Spec.Members) { //nolint:gosec
 		return fmt.Errorf("spec.statefulset.spec.replicas has to be equal to spec.members")
 	}
 

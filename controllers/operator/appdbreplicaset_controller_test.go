@@ -19,33 +19,33 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
-
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/scalers"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
-	"github.com/10gen/ops-manager-kubernetes/pkg/agentVersionManagement"
-	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
+	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
 func init() {
@@ -54,7 +54,7 @@ func init() {
 
 // getReleaseJsonPath searches for a specified target directory by traversing the directory tree backwards from the current working directory
 func getReleaseJsonPath() (string, error) {
-	repositoryRootDirName := "ops-manager-kubernetes"
+	repositoryRootDirName := "mongodb-kubernetes"
 	releaseFileName := "release.json"
 
 	currentDir, err := os.Getwd()
@@ -436,7 +436,7 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 	opsManager := builder.Build()
 	appdbScaler := scalers.GetAppDBScaler(opsManager, multicluster.LegacyCentralClusterName, 0, nil)
 
-	opsManager.Spec.AppDB.PodSpec.PodTemplateWrapper = mdbv1.PodTemplateSpecWrapper{
+	opsManager.Spec.AppDB.PodSpec.PodTemplateWrapper = common.PodTemplateSpecWrapper{
 		PodTemplate: &corev1.PodTemplateSpec{
 			Spec: corev1.PodSpec{
 				Containers: []corev1.Container{
@@ -592,7 +592,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						Namespace:       "my-namespace",
 						ResourceVersion: "1",
 						Labels: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 							omv1.LabelResourceOwner:        "test-om",
 						},
@@ -607,7 +607,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 							},
 						},
 						Selector: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 						},
 					},
@@ -618,7 +618,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 			members: 2,
 			externalAccess: &mdbv1.ExternalAccessConfiguration{
 				ExternalService: mdbv1.ExternalServiceConfiguration{
-					SpecWrapper: &mdbv1.ServiceSpecWrapper{
+					SpecWrapper: &common.ServiceSpecWrapper{
 						Spec: corev1.ServiceSpec{
 							Type: "LoadBalancer",
 							Ports: []corev1.ServicePort{
@@ -646,7 +646,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						Namespace:       "my-namespace",
 						ResourceVersion: "1",
 						Labels: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 							omv1.LabelResourceOwner:        "test-om",
 						},
@@ -669,7 +669,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 							},
 						},
 						Selector: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 						},
 					},
@@ -680,7 +680,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						Namespace:       "my-namespace",
 						ResourceVersion: "1",
 						Labels: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-1",
 							omv1.LabelResourceOwner:        "test-om",
 						},
@@ -703,7 +703,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 							},
 						},
 						Selector: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-1",
 						},
 					},
@@ -722,7 +722,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						Namespace:       "my-namespace",
 						ResourceVersion: "1",
 						Labels: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 							omv1.LabelResourceOwner:        "test-om",
 						},
@@ -737,7 +737,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 							},
 						},
 						Selector: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 						},
 					},
@@ -755,7 +755,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						Namespace:       "my-namespace",
 						ResourceVersion: "1",
 						Labels: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 							omv1.LabelResourceOwner:        "test-om",
 						},
@@ -770,7 +770,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 							},
 						},
 						Selector: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 						},
 					},
@@ -781,7 +781,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 			members: 1,
 			externalAccess: &mdbv1.ExternalAccessConfiguration{
 				ExternalService: mdbv1.ExternalServiceConfiguration{
-					SpecWrapper: &mdbv1.ServiceSpecWrapper{
+					SpecWrapper: &common.ServiceSpecWrapper{
 						Spec: corev1.ServiceSpec{
 							Type: "NodePort",
 							Ports: []corev1.ServicePort{
@@ -802,7 +802,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						Namespace:       "my-namespace",
 						ResourceVersion: "1",
 						Labels: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 							omv1.LabelResourceOwner:        "test-om",
 						},
@@ -818,7 +818,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 							},
 						},
 						Selector: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 						},
 					},
@@ -839,7 +839,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						create.PlaceholderMongodProcessDomain: "{mongodProcessDomain}",
 						create.PlaceholderMongodProcessFQDN:   "{mongodProcessFQDN}",
 					},
-					SpecWrapper: &mdbv1.ServiceSpecWrapper{
+					SpecWrapper: &common.ServiceSpecWrapper{
 						Spec: corev1.ServiceSpec{
 							Type: "LoadBalancer",
 							Ports: []corev1.ServicePort{
@@ -859,7 +859,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						Namespace:       "my-namespace",
 						ResourceVersion: "1",
 						Labels: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 							omv1.LabelResourceOwner:        "test-om",
 						},
@@ -884,7 +884,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 							},
 						},
 						Selector: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 						},
 					},
@@ -895,7 +895,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						Namespace:       "my-namespace",
 						ResourceVersion: "1",
 						Labels: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-1",
 							omv1.LabelResourceOwner:        "test-om",
 						},
@@ -920,7 +920,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 							},
 						},
 						Selector: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-1",
 						},
 					},
@@ -942,7 +942,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						create.PlaceholderMongodProcessDomain: "{mongodProcessDomain}",
 						create.PlaceholderMongodProcessFQDN:   "{mongodProcessFQDN}",
 					},
-					SpecWrapper: &mdbv1.ServiceSpecWrapper{
+					SpecWrapper: &common.ServiceSpecWrapper{
 						Spec: corev1.ServiceSpec{
 							Type: "LoadBalancer",
 							Ports: []corev1.ServicePort{
@@ -962,7 +962,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						Namespace:       "my-namespace",
 						ResourceVersion: "1",
 						Labels: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 							omv1.LabelResourceOwner:        "test-om",
 						},
@@ -987,7 +987,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 							},
 						},
 						Selector: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-0",
 						},
 					},
@@ -998,7 +998,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						Namespace:       "my-namespace",
 						ResourceVersion: "1",
 						Labels: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-1",
 							omv1.LabelResourceOwner:        "test-om",
 						},
@@ -1023,7 +1023,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 							},
 						},
 						Selector: map[string]string{
-							util.OperatorLabelName:         util.OperatorName,
+							util.OperatorLabelName:         util.OperatorLabelValue,
 							appsv1.StatefulSetPodNameLabel: "test-om-db-1",
 						},
 					},
@@ -1267,7 +1267,7 @@ func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
 func appDBStatefulSetLabelsAndServiceName(omResourceName string) (map[string]string, string) {
 	appDbName := fmt.Sprintf("%s-db", omResourceName)
 	serviceName := fmt.Sprintf("%s-svc", appDbName)
-	labels := map[string]string{"app": serviceName, util.OperatorLabelName: util.OperatorName, "pod-anti-affinity": appDbName}
+	labels := map[string]string{"app": serviceName, util.OperatorLabelName: util.OperatorLabelValue, "pod-anti-affinity": appDbName}
 	return labels, serviceName
 }
 

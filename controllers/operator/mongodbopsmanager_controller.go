@@ -26,46 +26,46 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/constants"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
-
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
-	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
-	mdbstatus "github.com/10gen/ops-manager-kubernetes/api/v1/status"
-	"github.com/10gen/ops-manager-kubernetes/api/v1/user"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/api"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
-	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
-	"github.com/10gen/ops-manager-kubernetes/pkg/images"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/identifiable"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
-	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
-	"github.com/10gen/ops-manager-kubernetes/pkg/vault/vaultwatcher"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/user"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/api"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
+	"github.com/mongodb/mongodb-kubernetes/pkg/images"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/identifiable"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
+	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
+	"github.com/mongodb/mongodb-kubernetes/pkg/vault/vaultwatcher"
 )
 
 var OmUpdateChannel chan event.GenericEvent
@@ -682,7 +682,7 @@ func (r *OpsManagerReconciler) reconcileOpsManager(ctx context.Context, reconcil
 	// wait for all statefulsets to become ready
 	var statefulSetStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range reconcilerHelper.getHealthyMemberClusters() {
-		status := getStatefulSetStatus(ctx, opsManager.Namespace, reconcilerHelper.OpsManagerStatefulSetNameForMemberCluster(memberCluster), memberCluster.Client)
+		status := statefulset.GetStatefulSetStatus(ctx, opsManager.Namespace, reconcilerHelper.OpsManagerStatefulSetNameForMemberCluster(memberCluster), memberCluster.Client)
 		statefulSetStatus = statefulSetStatus.Merge(status)
 	}
 	if !statefulSetStatus.IsOK() {
@@ -834,7 +834,7 @@ func (r *OpsManagerReconciler) reconcileBackupDaemon(ctx context.Context, reconc
 
 	// wait for all statefulsets to become ready
 	for _, memberCluster := range reconcilerHelper.getHealthyMemberClusters() {
-		if status := getStatefulSetStatus(ctx, opsManager.Namespace, reconcilerHelper.BackupDaemonStatefulSetNameForMemberCluster(memberCluster), memberCluster.Client); !status.IsOK() {
+		if status := statefulset.GetStatefulSetStatus(ctx, opsManager.Namespace, reconcilerHelper.BackupDaemonStatefulSetNameForMemberCluster(memberCluster), memberCluster.Client); !status.IsOK() {
 			return status
 		}
 	}
@@ -848,7 +848,7 @@ func (r *OpsManagerReconciler) reconcileBackupDaemon(ctx context.Context, reconc
 
 // readOpsManagerResource reads Ops Manager Custom resource into pointer provided
 func (r *OpsManagerReconciler) readOpsManagerResource(ctx context.Context, request reconcile.Request, ref *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (reconcile.Result, error) {
-	if result, err := r.getResource(ctx, request, ref, log); err != nil {
+	if result, err := r.GetResource(ctx, request, ref, log); err != nil {
 		return result, err
 	}
 	// Reset warnings so that they are not stale, will populate accurate warnings in reconciliation
