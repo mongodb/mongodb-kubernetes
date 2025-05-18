@@ -83,14 +83,14 @@ func mechanismsToDisable(desiredMechanisms MechanismList) MechanismList {
 func convertToMechanismList(mechanismModesInCR []string, ac *om.AutomationConfig) MechanismList {
 	result := make([]Mechanism, len(mechanismModesInCR))
 	for i, mechanismModeInCR := range mechanismModesInCR {
-		result[i] = convertToMechanism(mechanismModeInCR, ac)
+		result[i] = convertToMechanismOrPanic(mechanismModeInCR, ac)
 	}
 
 	return result
 }
 
-// convertToMechanism returns an implementation of mechanism from the CR value
-func convertToMechanism(mechanismModeInCR string, ac *om.AutomationConfig) Mechanism {
+// convertToMechanismOrPanic returns an implementation of mechanism from the CR value or panics if the value is not valid
+func convertToMechanismOrPanic(mechanismModeInCR string, ac *om.AutomationConfig) Mechanism {
 	switch mechanismModeInCR {
 	case util.X509:
 		return getMechanismByName(MongoDBX509)

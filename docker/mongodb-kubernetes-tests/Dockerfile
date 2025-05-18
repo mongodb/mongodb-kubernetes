@@ -37,6 +37,16 @@ RUN curl --fail --retry 3 -L -o "${HELM_NAME}" "https://get.helm.sh/${HELM_NAME}
     && rm "${HELM_NAME}" \
     && mv "linux-amd64/helm" "/usr/local/bin/helm"
 
+ADD https://fastdl.mongodb.org/tools/db/mongodb-database-tools-ubuntu2204-x86_64-100.12.0.tgz /tmp/mongodb-tools.tgz
+RUN mkdir -p /tmp/mongodb-tools && \
+    tar xfz /tmp/mongodb-tools.tgz -C /tmp/mongodb-tools && \
+    cp /tmp/mongodb-tools/*/bin/* /usr/local/bin/ && \
+    rm -rf /tmp/mongodb-tools /tmp/mongodb-tools.tgz
+
+RUN curl -LO "https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl" \
+    && chmod +x ./kubectl \
+    && mv ./kubectl /usr/local/bin/kubectl
+
 COPY --from=builder /venv /venv
 
 ENV PATH="/venv/bin:${PATH}"
