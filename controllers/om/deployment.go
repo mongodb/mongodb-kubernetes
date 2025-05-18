@@ -639,15 +639,19 @@ func (d Deployment) SetRoles(roles []mdbv1.MongoDbRole) {
 }
 
 func (d Deployment) GetRoles() []mdbv1.MongoDbRole {
-	result := make([]mdbv1.MongoDbRole, 0)
-
-	rolesBytes, err := json.Marshal(d["roles"])
-	if err != nil {
-		return nil
+	roles, ok := d["roles"]
+	if !ok || roles == nil {
+		return []mdbv1.MongoDbRole{}
 	}
 
+	rolesBytes, err := json.Marshal(roles)
+	if err != nil {
+		return []mdbv1.MongoDbRole{}
+	}
+
+	var result []mdbv1.MongoDbRole
 	if err := json.Unmarshal(rolesBytes, &result); err != nil {
-		return nil
+		return []mdbv1.MongoDbRole{}
 	}
 
 	return result
