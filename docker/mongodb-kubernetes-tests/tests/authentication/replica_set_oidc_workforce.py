@@ -1,3 +1,4 @@
+import kubetester.oidc as oidc
 import pytest
 from kubetester import try_load, wait_until
 from kubetester.automation_config_tester import AutomationConfigTester
@@ -17,6 +18,14 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
     if try_load(resource):
         return resource
 
+    oidc_provider_configs = resource.get_oidc_provider_configs()
+
+    oidc_provider_configs[0]["clientId"] = oidc.get_cognito_workload_client_id()
+    oidc_provider_configs[0]["audience"] = oidc.get_cognito_workload_client_id()
+    oidc_provider_configs[0]["issuerURI"] = oidc.get_cognito_workload_url()
+
+    resource.set_oidc_provider_configs(oidc_provider_configs)
+
     resource.set_version(ensure_ent_version(custom_mdb_version))
 
     return resource.update()
@@ -28,6 +37,8 @@ def oidc_user(namespace) -> MongoDBUser:
     if try_load(resource):
         return resource
 
+    resource["spec"]["username"] = f"OIDC-test-user/{oidc.get_cognito_workload_user_id()}"
+    resource
     return resource.update()
 
 
@@ -48,26 +59,26 @@ class TestCreateOIDCReplicaset(KubernetesTester):
 
         expected_oidc_configs = [
             {
-                "audience": "<filled-in-test>",
-                "issuerUri": "<filled-in-test>",
-                "clientId": "<filled-in-test>",
+                "audience": oidc.get_cognito_workload_client_id(),
+                "issuerUri": oidc.get_cognito_workload_url(),
+                "clientId": oidc.get_cognito_workload_client_id(),
                 "userClaim": "sub",
                 "groupsClaim": "cognito:groups",
                 "JWKSPollSecs": 0,
-                "authNamePrefix": "OIDC-test-user",
-                "supportsHumanFlows": "true",
-                "useAuthorizationClaim": "true"
+                "authNamePrefix": "OIDC-test-group",
+                "supportsHumanFlows": True,
+                "useAuthorizationClaim": True
             },
             {
-                "audience": "<filled-in-test>",
-                "issuerUri": "<filled-in-test>",
-                "clientId": "<filled-in-test>",
+                "audience": "dummy-audience",
+                "issuerUri": "https://valid-issuer.example.com",
+                "clientId": "dummy-client-id",
                 "userClaim": "sub",
-                "groupsClaim": "",
+                "groupsClaim": "groups",
                 "JWKSPollSecs": 0,
-                "authNamePrefix": "OIDC-test",
-                "supportsHumanFlows": "false",
-                "useAuthorizationClaim": "false"
+                "authNamePrefix": "OIDC-test-user",
+                "supportsHumanFlows": False,
+                "useAuthorizationClaim": False
             }
         ]
 

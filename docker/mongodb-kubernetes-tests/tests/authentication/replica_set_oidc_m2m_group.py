@@ -1,8 +1,8 @@
+import kubetester.oidc as oidc
 import pytest
-from kubetester import try_load, wait_until
+from kubetester import try_load, wait_until, find_fixture
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
-from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongotester import ReplicaSetTester
 from pytest import fixture
@@ -12,9 +12,16 @@ MDB_RESOURCE = "oidc-replica-set"
 
 @fixture(scope="module")
 def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
-    resource = MongoDB.from_yaml(load_fixture("oidc/replica-set.yaml"), namespace=namespace)
+    resource = MongoDB.from_yaml(find_fixture("oidc/replica-set.yaml"), namespace=namespace)
     if try_load(resource):
         return resource
+
+    oidc_provider_configs = resource.get_oidc_provider_configs()
+    oidc_provider_configs[0]["clientId"] = oidc.get_cognito_workload_client_id()
+    oidc_provider_configs[0]["audience"] = oidc.get_cognito_workload_client_id()
+    oidc_provider_configs[0]["issuerURI"] = oidc.get_cognito_workload_url()
+
+    resource.set_oidc_provider_configs(oidc_provider_configs)
 
     resource.set_version(ensure_ent_version(custom_mdb_version))
 
@@ -41,77 +48,73 @@ class TestCreateOIDCReplicaset(KubernetesTester):
 
 
 @pytest.mark.e2e_replica_set_oidc
-class TestAddNewOIDCProvider(KubernetesTester):
-    def test_add_oidc_provider_and_user(self, replica_set: MongoDB):
+class TestAddNewOIDCProviderAndRole(KubernetesTester):
+    def test_add_oidc_provider_and_role(self, replica_set: MongoDB):
         replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
         replica_set.load()
-        replica_set["spec"]["security"]["authentication"]["oidcProviderConfigs"] = [
-            {
+
+        new_oidc_provider_config = {
                 "audience": "dummy-audience",
-                "issuerURI": "<filled-in-test>",
+            "issuerURI": "https://valid-issuer.example.com",
                 "requestedScopes": [],
                 "userClaim": "sub",
-                "groupsClaim": "cognito:groups",
+            "groupsClaim": "group",
                 "authorizationMethod": "WorkloadIdentityFederation",
                 "authorizationType": "GroupMembership",
                 "configurationName": "dummy-oidc-config",
             }
-        ]
 
-        replica_set["spec"]["security"]["roles"] = [
-            {
+        new_role = {
                 "role": "dummy-oidc-config/test",
                 "db": "admin",
                 "roles": [{"role": "readWriteAnyDatabase", "db": "admin"}],
             }
-        ]
+
+        replica_set.append_oidc_provider_config(new_oidc_provider_config)
+        replica_set.append_role(new_role)
+
         replica_set.update()
 
-        def config_updated() -> bool:
+        def config_and_roles_preserved() -> bool:
             tester = replica_set.get_automation_config_tester()
             try:
-                # Todo: add automation config update checks once the tests are working
+
                 tester.assert_authentication_mechanism_enabled("MONGODB-OIDC", active_auth_mechanism=False)
                 tester.assert_authentication_enabled(2)
                 tester.assert_expected_users(0)
-                # assert (config["oidcProviderConfigs"] == expectedConfig)
+                tester.assert_has_expected_number_of_roles(expected_roles=2)
+
+                expected_oidc_configs = [
+                    {
+                        "audience": oidc.get_cognito_workload_client_id(),
+                        "issuerUri": oidc.get_cognito_workload_url(),
+                        "clientId": oidc.get_cognito_workload_client_id(),
+                        "userClaim": "sub",
+                        "groupsClaim": "cognito:groups",
+                        "JWKSPollSecs": 0,
+                        "authNamePrefix": "OIDC-test",
+                        "supportsHumanFlows": False,
+                        "useAuthorizationClaim": True
+                    },
+                    {
+                        "audience": "dummy-audience",
+                        "issuerUri": "https://valid-issuer.example.com",
+                        "userClaim": "sub",
+                        "groupsClaim": "group",
+                        "JWKSPollSecs": 0,
+                        "authNamePrefix": "dummy-oidc-config",
+                        "supportsHumanFlows": False,
+                        "useAuthorizationClaim": True
+                    }
+                ]
+
+                tester.assert_oidc_configuration(expected_oidc_configs)
                 return True
             except AssertionError:
                 return False
 
-        wait_until(config_updated, timeout=300, sleep=5)
-
-        replica_set.assert_reaches_phase(Phase.Running, timeout=400)
-
-
-@pytest.mark.e2e_replica_set_oidc
-class TestRoleChanges(KubernetesTester):
-    def test_update_role(self, replica_set: MongoDB):
-        replica_set.load()
-        replica_set["spec"]["security"]["roles"] = [
-            {
-                "role": "dummy-oidc-config/test",
-                "db": "admin",
-                "roles": [
-                    {"role": "readWriteAnyDatabase", "db": "admin"},
-                    {"role": "clusterMonitor", "db": "admin"},
-                ],
-            }
-        ]
-        replica_set.update()
-
-        def config_updated() -> bool:
-            tester = replica_set.get_automation_config_tester()
-            try:
-                # Todo: add automation config update checks once the tests are working
-                tester.assert_authentication_mechanism_enabled("MONGODB-OIDC", active_auth_mechanism=False)
-                tester.assert_authentication_enabled(2)
-                return True
-            except AssertionError:
-                return False
-
-        wait_until(config_updated, timeout=300, sleep=5)
+        wait_until(config_and_roles_preserved, timeout=300, sleep=5)
 
         replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 

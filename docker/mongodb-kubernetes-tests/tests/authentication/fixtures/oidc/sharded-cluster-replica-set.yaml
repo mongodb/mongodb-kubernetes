@@ -32,17 +32,18 @@ spec:
           requestedScopes: [ ]
           userClaim: "sub"
           groupsClaim: "cognito:groups"
-          authorizationMethod: "WorkforceIdentityFederation"
+          authorizationMethod: "WorkloadIdentityFederation"
           authorizationType: "GroupMembership"
-          configurationName: "OIDC-test-user"
-        - audience: "<filled-in-test>"
-          clientId: "<filled-in-test>"
-          issuerURI: "<filled-in-test>"
+          configurationName: "OIDC-test"
+        - audience: "test-audience"
+          clientId: "test-client-id"
+          issuerURI: "https://valid-issuer.example.com"
           requestedScopes: [ ]
           userClaim: "sub"
-          authorizationMethod: "WorkloadIdentityFederation"
+          authorizationMethod: "WorkforceIdentityFederation"
           authorizationType: "UserID"
-          configurationName: "OIDC-test"
+          configurationName: "OIDC-test-user"
+
     roles:
       - role: "OIDC-test/test"
         db: "admin"

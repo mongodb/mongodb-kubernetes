@@ -320,6 +320,26 @@ class MongoTester:
                     raise RuntimeError(f"Unable to authenticate after {total_attempts} attempts: {e}")
                 time.sleep(5)
 
+    def assert_oidc_authentication_fails(
+        self,
+        db: str = "admin",
+        collection: str = "myCol",
+        attempts: int = 10
+    ):
+        assert attempts > 0
+        total_attempts = attempts
+        while True:
+            attempts -= 1
+            try:
+                if attempts <= 0:
+                    fail(msg=f"was able to authenticate with OIDC after {total_attempts} attempts")
+
+                self.assert_oidc_authentication(db, collection, 1)
+                time.sleep(5)
+            except RuntimeError:
+                return
+
+
     def upload_random_data(
         self,
         count: int,

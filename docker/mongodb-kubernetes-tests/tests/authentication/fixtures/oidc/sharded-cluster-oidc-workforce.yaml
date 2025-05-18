@@ -26,11 +26,11 @@ spec:
         - SCRAM
         - OIDC
       oidcProviderConfigs:
-        - audience: "<filled-in-test>"
-          clientId: "<filled-in-test>"
-          issuerURI: "<filled-in-test>"
+        - audience: "workforce-audience"
+          clientId: "workforce-client-id"
+          issuerURI: "https://workforce-issuer.example.com"
           requestedScopes: [ ]
           userClaim: "sub"
-          authorizationMethod: "WorkloadIdentityFederation"
+          authorizationMethod: "WorkforceIdentityFederation"
           authorizationType: "UserID"
           configurationName: "OIDC-test-user"
