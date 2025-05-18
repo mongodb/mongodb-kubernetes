@@ -1,6 +1,6 @@
 import kubetester.oidc as oidc
 import pytest
-from kubetester import try_load, wait_until, find_fixture
+from kubetester import find_fixture, try_load, wait_until
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.mongodb import MongoDB, Phase

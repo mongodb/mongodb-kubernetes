@@ -1,6 +1,6 @@
 import kubetester.oidc as oidc
 import pytest
-from kubetester import try_load, wait_until, find_fixture
+from kubetester import find_fixture, try_load, wait_until
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as load_fixture
@@ -59,19 +59,19 @@ class TestCreateOIDCShardedCluster(KubernetesTester):
                 "JWKSPollSecs": 0,
                 "authNamePrefix": "OIDC-test",
                 "supportsHumanFlows": False,
-                "useAuthorizationClaim": True
+                "useAuthorizationClaim": True,
             },
             {
                 "audience": "test-audience",
                 "issuerUri": "https://valid-issuer.example.com",
                 "clientId": "test-client-id",
                 "userClaim": "sub",
-                'groupsClaim': 'groups',  # Todo might be is a security bug.
+                "groupsClaim": "groups",  # Todo might be is a security bug.
                 "JWKSPollSecs": 0,
                 "authNamePrefix": "OIDC-test-user",
                 "supportsHumanFlows": True,
-                "useAuthorizationClaim": False
-            }
+                "useAuthorizationClaim": False,
+            },
         ]
         tester.assert_oidc_configuration(expected_oidc_configs)
 
@@ -125,7 +125,7 @@ class TestAddNewOIDCProviderAndRole(KubernetesTester):
                         "JWKSPollSecs": 0,
                         "authNamePrefix": "OIDC-test",
                         "supportsHumanFlows": False,
-                        "useAuthorizationClaim": True
+                        "useAuthorizationClaim": True,
                     },
                     {
                         "audience": "test-audience",
@@ -136,7 +136,7 @@ class TestAddNewOIDCProviderAndRole(KubernetesTester):
                         "JWKSPollSecs": 0,
                         "authNamePrefix": "OIDC-test-user",
                         "supportsHumanFlows": True,
-                        "useAuthorizationClaim": False
+                        "useAuthorizationClaim": False,
                     },
                     {
                         "audience": "dummy-audience",
@@ -146,8 +146,8 @@ class TestAddNewOIDCProviderAndRole(KubernetesTester):
                         "JWKSPollSecs": 0,
                         "authNamePrefix": "dummy-oidc-config",
                         "supportsHumanFlows": False,
-                        "useAuthorizationClaim": True
-                    }
+                        "useAuthorizationClaim": True,
+                    },
                 ]
 
                 tester.assert_oidc_configuration(expected_oidc_configs)

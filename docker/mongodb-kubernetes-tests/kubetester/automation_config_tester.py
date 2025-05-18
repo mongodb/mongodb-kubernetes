@@ -102,8 +102,9 @@ class AutomationConfigTester:
 
     def assert_oidc_configuration(self, oidc_config: Optional[Dict] = None):
         actual_configs = self.automation_config["oidcProviderConfigs"]
-        assert len(actual_configs) == len(oidc_config), \
-            f"Expected {len(oidc_config)} OIDC configs, but got {len(actual_configs)}"
+        assert len(actual_configs) == len(
+            oidc_config
+        ), f"Expected {len(oidc_config)} OIDC configs, but got {len(actual_configs)}"
 
         for expected, actual in zip(oidc_config, actual_configs):
             assert expected == actual, f"Expected OIDC config: {expected}, but got: {actual}"

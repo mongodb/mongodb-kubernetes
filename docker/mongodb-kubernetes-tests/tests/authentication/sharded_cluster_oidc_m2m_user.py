@@ -1,6 +1,6 @@
 import kubetester.oidc as oidc
 import pytest
-from kubetester import try_load, find_fixture
+from kubetester import find_fixture, try_load
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as load_fixture
@@ -75,7 +75,7 @@ class TestCreateOIDCShardedCluster(KubernetesTester):
                 "JWKSPollSecs": 0,
                 "authNamePrefix": "OIDC-test",
                 "supportsHumanFlows": False,
-                "useAuthorizationClaim": True
+                "useAuthorizationClaim": True,
             },
             {
                 "audience": "test-audience",
@@ -86,7 +86,7 @@ class TestCreateOIDCShardedCluster(KubernetesTester):
                 "JWKSPollSecs": 0,
                 "authNamePrefix": "OIDC-test-user",
                 "supportsHumanFlows": True,
-                "useAuthorizationClaim": False
-            }
+                "useAuthorizationClaim": False,
+            },
         ]
         tester.assert_oidc_configuration(expected_oidc_configs)

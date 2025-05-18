@@ -1,6 +1,6 @@
 import kubetester.oidc as oidc
 import pytest
-from kubetester import try_load, wait_until, find_fixture
+from kubetester import find_fixture, try_load, wait_until
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.mongodb import MongoDB, Phase
@@ -55,21 +55,21 @@ class TestAddNewOIDCProviderAndRole(KubernetesTester):
         replica_set.load()
 
         new_oidc_provider_config = {
-                "audience": "dummy-audience",
+            "audience": "dummy-audience",
             "issuerURI": "https://valid-issuer.example.com",
-                "requestedScopes": [],
-                "userClaim": "sub",
+            "requestedScopes": [],
+            "userClaim": "sub",
             "groupsClaim": "group",
-                "authorizationMethod": "WorkloadIdentityFederation",
-                "authorizationType": "GroupMembership",
-                "configurationName": "dummy-oidc-config",
-            }
+            "authorizationMethod": "WorkloadIdentityFederation",
+            "authorizationType": "GroupMembership",
+            "configurationName": "dummy-oidc-config",
+        }
 
         new_role = {
-                "role": "dummy-oidc-config/test",
-                "db": "admin",
-                "roles": [{"role": "readWriteAnyDatabase", "db": "admin"}],
-            }
+            "role": "dummy-oidc-config/test",
+            "db": "admin",
+            "roles": [{"role": "readWriteAnyDatabase", "db": "admin"}],
+        }
 
         replica_set.append_oidc_provider_config(new_oidc_provider_config)
         replica_set.append_role(new_role)
@@ -95,7 +95,7 @@ class TestAddNewOIDCProviderAndRole(KubernetesTester):
                         "JWKSPollSecs": 0,
                         "authNamePrefix": "OIDC-test",
                         "supportsHumanFlows": False,
-                        "useAuthorizationClaim": True
+                        "useAuthorizationClaim": True,
                     },
                     {
                         "audience": "dummy-audience",
@@ -105,8 +105,8 @@ class TestAddNewOIDCProviderAndRole(KubernetesTester):
                         "JWKSPollSecs": 0,
                         "authNamePrefix": "dummy-oidc-config",
                         "supportsHumanFlows": False,
-                        "useAuthorizationClaim": True
-                    }
+                        "useAuthorizationClaim": True,
+                    },
                 ]
 
                 tester.assert_oidc_configuration(expected_oidc_configs)

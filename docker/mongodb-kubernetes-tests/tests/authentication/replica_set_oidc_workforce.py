@@ -67,7 +67,7 @@ class TestCreateOIDCReplicaset(KubernetesTester):
                 "JWKSPollSecs": 0,
                 "authNamePrefix": "OIDC-test-group",
                 "supportsHumanFlows": True,
-                "useAuthorizationClaim": True
+                "useAuthorizationClaim": True,
             },
             {
                 "audience": "dummy-audience",
@@ -78,8 +78,8 @@ class TestCreateOIDCReplicaset(KubernetesTester):
                 "JWKSPollSecs": 0,
                 "authNamePrefix": "OIDC-test-user",
                 "supportsHumanFlows": False,
-                "useAuthorizationClaim": False
-            }
+                "useAuthorizationClaim": False,
+            },
         ]
 
         tester.assert_oidc_configuration(expected_oidc_configs)
