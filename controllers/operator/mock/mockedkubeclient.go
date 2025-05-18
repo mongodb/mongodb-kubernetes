@@ -23,8 +23,10 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
@@ -92,7 +94,17 @@ func NewEmptyFakeClientBuilder() *fake.ClientBuilder {
 		return nil
 	}
 
-	builder.WithStatusSubresource(&mdbv1.MongoDB{}, &mdbmulti.MongoDBMultiCluster{}, &omv1.MongoDBOpsManager{}, &user.MongoDBUser{})
+	err = searchv1.AddToScheme(s)
+	if err != nil {
+		return nil
+	}
+
+	err = mdbcv1.AddToScheme(s)
+	if err != nil {
+		return nil
+	}
+
+	builder.WithStatusSubresource(&mdbv1.MongoDB{}, &mdbmulti.MongoDBMultiCluster{}, &omv1.MongoDBOpsManager{}, &user.MongoDBUser{}, &searchv1.MongoDBSearch{}, &mdbcv1.MongoDBCommunity{})
 
 	ot := testing.NewObjectTracker(s, scheme.Codecs.UniversalDecoder())
 	return builder.WithScheme(s).WithObjectTracker(ot)
