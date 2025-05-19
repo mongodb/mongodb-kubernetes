@@ -1,7 +1,26 @@
 [//]: # (Consider renaming or removing the header for next release, otherwise it appears as duplicate in the published release, e.g: https://github.com/mongodb/mongodb-enterprise-kubernetes/releases/tag/1.22.0 )
 <!-- Next Release -->
 
-# MCK 1.0 Release Notes
+# MCK 1.1.0 Release Notes
+
+## New Features
+
+* **MongoDBSearch (Community Private Preview)**: Added support for deploying MongoDB Search (Community Private Preview Edition) that enables full-text and vector search capabilities for MongoDBCommunity deployments.
+  * Added new MongoDB CRD which is watched by default by the operator.
+    * For more information please see: [docs/community-search/quick-start/README.md](docs/community-search/quick-start/README.md)
+  * Private Preview phase comes with some limitations:
+    * minimum MongoDB Community version: 8.0.
+    * TLS must be disabled in MongoDB (communication between mongot and mongod is in plaintext for now).
+
+<!-- Past Releases -->
+# MCK 1.0.1 Release Notes
+
+
+## Bug Fixes
+* Fix missing agent images in the operator bundle in OpenShift catalog and operatorhub.io.
+* **MongoDBCommunity** resource was missing from watched list in Helm Charts
+
+# MCK 1.0.0 Release Notes
 
 Exciting news for MongoDB on Kubernetes\! We're happy to announce the first release of MongoDB Controllers for Kubernetes (MCK), a unified open-source operator merging our support of MongoDB Community and Enterprise in Kubernetes.
 

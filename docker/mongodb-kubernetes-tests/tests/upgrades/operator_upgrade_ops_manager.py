@@ -9,8 +9,7 @@ from kubetester.mongotester import MongoDBBackgroundTester
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
-from tests.conftest import LEGACY_OPERATOR_NAME
-from tests.upgrades import downscale_operator_deployment
+from tests.conftest import get_default_operator, operator_installation_config
 
 
 @fixture(scope="module")
@@ -100,8 +99,8 @@ def some_mdb_health_checker(some_mdb: MongoDB) -> MongoDBBackgroundTester:
 
 
 @mark.e2e_operator_upgrade_ops_manager
-def test_install_latest_official_operator(official_meko_operator: Operator):
-    official_meko_operator.assert_is_running()
+def test_install_latest_official_operator(official_operator: Operator):
+    official_operator.assert_is_running()
 
 
 @mark.e2e_operator_upgrade_ops_manager
@@ -144,15 +143,11 @@ def test_mdb_created(some_mdb: MongoDB):
 
 
 @mark.e2e_operator_upgrade_ops_manager
-def test_downscale_latest_official_operator(namespace: str):
-    # Scale down the existing operator deployment to 0. This is needed as long as the
-    # `official_operator` fixture installs the MEKO operator.
-    downscale_operator_deployment(deployment_name=LEGACY_OPERATOR_NAME, namespace=namespace)
-
-
-@mark.e2e_operator_upgrade_ops_manager
-def test_upgrade_operator(default_operator: Operator):
-    default_operator.assert_is_running()
+def test_upgrade_operator(namespace: str, operator_installation_config: dict[str, str]):
+    operator = get_default_operator(
+        namespace, operator_installation_config=operator_installation_config, apply_crds_first=True
+    )
+    operator.assert_is_running()
 
 
 @mark.e2e_operator_upgrade_ops_manager

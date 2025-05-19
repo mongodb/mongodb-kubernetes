@@ -61,6 +61,14 @@ CLUSTER_HOST_MAPPING = {
 LEGACY_CENTRAL_CLUSTER_NAME: str = "__default"
 LEGACY_DEPLOYMENT_STATE_VERSION: str = "1.27.0"
 
+# Helm charts
+LEGACY_OPERATOR_CHART = "mongodb/enterprise-operator"
+MCK_HELM_CHART = "mongodb/mongodb-kubernetes"
+LOCAL_HELM_CHART_DIR = "helm_chart"
+
+OFFICIAL_OPERATOR_IMAGE_NAME = "mongodb-kubernetes"
+LEGACY_OPERATOR_IMAGE_NAME = "mongodb-enterprise-operator-ubi"
+
 # Names for operator and RBAC
 OPERATOR_NAME = "mongodb-kubernetes-operator"
 MULTI_CLUSTER_OPERATOR_NAME = OPERATOR_NAME + "-multi-cluster"
@@ -99,7 +107,7 @@ def get_version_id():
 
 
 @fixture(scope="module")
-def operator_installation_config(namespace: str) -> Dict[str, str]:
+def operator_installation_config(namespace: str) -> dict[str, str]:
     return get_operator_installation_config(namespace)
 
 
@@ -118,7 +126,7 @@ def get_operator_installation_config(namespace):
 
 
 @fixture(scope="module")
-def monitored_appdb_operator_installation_config(operator_installation_config: Dict[str, str]) -> Dict[str, str]:
+def monitored_appdb_operator_installation_config(operator_installation_config: dict[str, str]) -> dict[str, str]:
     """Returns the ConfigMap containing configuration data for the Operator to be created
     and for the AppDB to be monitored.
     Created in the single_e2e.sh"""
@@ -127,7 +135,7 @@ def monitored_appdb_operator_installation_config(operator_installation_config: D
     return config
 
 
-def get_multi_cluster_operator_installation_config(namespace: str) -> Dict[str, str]:
+def get_multi_cluster_operator_installation_config(namespace: str) -> dict[str, str]:
     """Returns the ConfigMap containing configuration data for the Operator to be created.
     Created in the single_e2e.sh"""
     config = KubernetesTester.read_configmap(
@@ -142,7 +150,7 @@ def get_multi_cluster_operator_installation_config(namespace: str) -> Dict[str, 
 @fixture(scope="module")
 def multi_cluster_operator_installation_config(
     central_cluster_client: kubernetes.client.ApiClient, namespace: str
-) -> Dict[str, str]:
+) -> dict[str, str]:
     return get_multi_cluster_operator_installation_config(namespace)
 
 
@@ -151,7 +159,7 @@ def multi_cluster_monitored_appdb_operator_installation_config(
     central_cluster_client: kubernetes.client.ApiClient,
     namespace: str,
     multi_cluster_operator_installation_config: dict[str, str],
-) -> Dict[str, str]:
+) -> dict[str, str]:
     multi_cluster_operator_installation_config["customEnvVars"] = f"OPS_MANAGER_MONITOR_APPDB=true"
     return multi_cluster_operator_installation_config
 
@@ -159,7 +167,7 @@ def multi_cluster_monitored_appdb_operator_installation_config(
 @fixture(scope="module")
 def operator_clusterwide(
     namespace: str,
-    operator_installation_config: Dict[str, str],
+    operator_installation_config: dict[str, str],
 ) -> Operator:
     return get_operator_clusterwide(namespace, operator_installation_config)
 
@@ -173,7 +181,7 @@ def get_operator_clusterwide(namespace, operator_installation_config):
 @fixture(scope="module")
 def operator_vault_secret_backend(
     namespace: str,
-    monitored_appdb_operator_installation_config: Dict[str, str],
+    monitored_appdb_operator_installation_config: dict[str, str],
 ) -> Operator:
     helm_args = monitored_appdb_operator_installation_config.copy()
     helm_args["operator.vaultSecretBackend.enabled"] = "true"
@@ -183,7 +191,7 @@ def operator_vault_secret_backend(
 @fixture(scope="module")
 def operator_vault_secret_backend_tls(
     namespace: str,
-    monitored_appdb_operator_installation_config: Dict[str, str],
+    monitored_appdb_operator_installation_config: dict[str, str],
 ) -> Operator:
     helm_args = monitored_appdb_operator_installation_config.copy()
     helm_args["operator.vaultSecretBackend.enabled"] = "true"
@@ -192,7 +200,7 @@ def operator_vault_secret_backend_tls(
 
 
 @fixture(scope="module")
-def operator_installation_config_quick_recovery(operator_installation_config: Dict[str, str]) -> Dict[str, str]:
+def operator_installation_config_quick_recovery(operator_installation_config: dict[str, str]) -> dict[str, str]:
     """
     This functions appends automatic recovery settings for CLOUDP-189433. In order to make the test runnable in
     reasonable time, we override the Recovery back off to 120 seconds. This gives enough time for the initial
@@ -472,9 +480,9 @@ def get_custom_om_version():
 @fixture(scope="module")
 def default_operator(
     namespace: str,
-    operator_installation_config: Dict[str, str],
+    operator_installation_config: dict[str, str],
     central_cluster_name: str,
-    multi_cluster_operator_installation_config: Dict[str, str],
+    multi_cluster_operator_installation_config: dict[str, str],
     central_cluster_client: client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
     member_cluster_names: List[str],
@@ -491,19 +499,8 @@ def default_operator(
     return get_default_operator(namespace, operator_installation_config)
 
 
-@fixture(scope="module")
-def community_operator(namespace: str) -> Operator:
-    helm_args = get_operator_installation_config(namespace)
-    # TODO: MCK We may want to always watch community resources by default with MCK but it implies to always have
-    #  community CRD installed. In that case we wouldn't need this custom install function, we can get rid of it
-    #  once we merge the helm charts
-    helm_args["operator.watchedResources"] = "{opsmanagers,mongodb,mongodbusers,mongodbcommunity}"
-    return get_default_operator(namespace, helm_args)
-
-
 def get_default_operator(
-    namespace: str,
-    operator_installation_config: Dict[str, str],
+    namespace: str, operator_installation_config: dict[str, str], apply_crds_first: bool = False
 ) -> Operator:
     """Installs/upgrades a default Operator used by any test not interested in some custom Operator setting.
     TODO we use the helm template | kubectl apply -f process so far as Helm install/upgrade needs more refactoring in
@@ -511,7 +508,7 @@ def get_default_operator(
     operator = Operator(
         namespace=namespace,
         helm_args=operator_installation_config,
-    ).upgrade()
+    ).upgrade(apply_crds_first=apply_crds_first)
 
     return operator
 
@@ -519,7 +516,7 @@ def get_default_operator(
 @fixture(scope="module")
 def operator_with_monitored_appdb(
     namespace: str,
-    monitored_appdb_operator_installation_config: Dict[str, str],
+    monitored_appdb_operator_installation_config: dict[str, str],
 ) -> Operator:
     """Installs/upgrades a default Operator used by any test that needs the AppDB monitoring enabled."""
     return Operator(
@@ -630,7 +627,7 @@ def member_cluster_clients() -> List[MultiClusterClient]:
 def multi_cluster_operator(
     namespace: str,
     central_cluster_name: str,
-    multi_cluster_operator_installation_config: Dict[str, str],
+    multi_cluster_operator_installation_config: dict[str, str],
     central_cluster_client: client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
     member_cluster_names: List[str],
@@ -648,10 +645,11 @@ def multi_cluster_operator(
 def get_multi_cluster_operator(
     namespace: str,
     central_cluster_name: str,
-    multi_cluster_operator_installation_config: Dict[str, str],
+    multi_cluster_operator_installation_config: dict[str, str],
     central_cluster_client: client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
     member_cluster_names: List[str],
+    apply_crds_first: bool = False,
 ) -> Operator:
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
 
@@ -669,6 +667,7 @@ def get_multi_cluster_operator(
             "operator.createOperatorServiceAccount": "false",
         },
         central_cluster_name,
+        apply_crds_first=apply_crds_first,
     )
 
 
@@ -676,7 +675,7 @@ def get_multi_cluster_operator(
 def multi_cluster_operator_with_monitored_appdb(
     namespace: str,
     central_cluster_name: str,
-    multi_cluster_monitored_appdb_operator_installation_config: Dict[str, str],
+    multi_cluster_monitored_appdb_operator_installation_config: dict[str, str],
     central_cluster_client: client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
     member_cluster_names: List[str],
@@ -705,7 +704,7 @@ def multi_cluster_operator_with_monitored_appdb(
 def multi_cluster_operator_manual_remediation(
     namespace: str,
     central_cluster_name: str,
-    multi_cluster_operator_installation_config: Dict[str, str],
+    multi_cluster_operator_installation_config: dict[str, str],
     central_cluster_client: client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
     member_cluster_names: List[str],
@@ -756,7 +755,7 @@ def get_multi_cluster_operator_clustermode(namespace: str) -> Operator:
 def multi_cluster_operator_clustermode(
     namespace: str,
     central_cluster_name: str,
-    multi_cluster_operator_installation_config: Dict[str, str],
+    multi_cluster_operator_installation_config: dict[str, str],
     central_cluster_client: client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
     member_cluster_names: List[str],
@@ -769,7 +768,7 @@ def multi_cluster_operator_clustermode(
 def install_multi_cluster_operator_set_members_fn(
     namespace: str,
     central_cluster_name: str,
-    multi_cluster_operator_installation_config: Dict[str, str],
+    multi_cluster_operator_installation_config: dict[str, str],
     central_cluster_client: client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
 ) -> Callable[[List[str]], Operator]:
@@ -795,14 +794,15 @@ def install_multi_cluster_operator_set_members_fn(
 
 def _install_multi_cluster_operator(
     namespace: str,
-    multi_cluster_operator_installation_config: Dict[str, str],
+    multi_cluster_operator_installation_config: dict[str, str],
     central_cluster_client: client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
-    helm_opts: Dict[str, str],
+    helm_opts: dict[str, str],
     central_cluster_name: str,
     operator_name: Optional[str] = MULTI_CLUSTER_OPERATOR_NAME,
-    helm_chart_path: Optional[str] = "helm_chart",
+    helm_chart_path: Optional[str] = LOCAL_HELM_CHART_DIR,
     custom_operator_version: Optional[str] = None,
+    apply_crds_first: bool = False,
 ) -> Operator:
     multi_cluster_operator_installation_config.update(helm_opts)
 
@@ -824,7 +824,7 @@ def _install_multi_cluster_operator(
         helm_args=multi_cluster_operator_installation_config,
         api_client=central_cluster_client,
         helm_chart_path=helm_chart_path,
-    ).upgrade(multi_cluster=True, custom_operator_version=custom_operator_version)
+    ).upgrade(multi_cluster=True, custom_operator_version=custom_operator_version, apply_crds_first=apply_crds_first)
 
     # If we're running locally, then immediately after installing the deployment, we scale it to zero.
     # This way operator in POD is not interfering with locally running one.
@@ -842,7 +842,7 @@ def _install_multi_cluster_operator(
 def official_operator(
     namespace: str,
     managed_security_context: str,
-    operator_installation_config: Dict[str, str],
+    operator_installation_config: dict[str, str],
     central_cluster_name: str,
     central_cluster_client: client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
@@ -856,6 +856,9 @@ def official_operator(
         central_cluster_client,
         member_cluster_clients,
         member_cluster_names,
+        helm_chart_path=MCK_HELM_CHART,
+        operator_name=OPERATOR_NAME,
+        operator_image=OFFICIAL_OPERATOR_IMAGE_NAME,
     )
 
 
@@ -877,20 +880,56 @@ def official_meko_operator(
         central_cluster_client,
         member_cluster_clients,
         member_cluster_names,
+        helm_chart_path=LEGACY_OPERATOR_CHART,
         operator_name=LEGACY_OPERATOR_NAME,
+        operator_image=LEGACY_OPERATOR_IMAGE_NAME,
     )
+
+
+# In 1.27.0, we changed the way we manage the deployment state. We use this fixture to test the upgrade path from this
+# version, to ensure we do not break the state
+def install_legacy_deployment_state_meko(
+    namespace: str,
+    managed_security_context: str,
+    operator_installation_config: dict[str, str],
+    central_cluster_name=None,  # These 4 fields apply to multi cluster operator only
+    central_cluster_client=None,
+    member_cluster_clients=None,
+    member_cluster_names=None,
+):
+    logger.info(
+        f"Installing the operator from chart {LEGACY_OPERATOR_CHART}, with version {LEGACY_DEPLOYMENT_STATE_VERSION}"
+    )
+    operator = install_official_operator(
+        namespace,
+        managed_security_context,
+        operator_installation_config,
+        central_cluster_name=central_cluster_name,  # These 4 fields apply to multi cluster operator only
+        central_cluster_client=central_cluster_client,
+        member_cluster_clients=member_cluster_clients,
+        member_cluster_names=member_cluster_names,
+        custom_operator_version=LEGACY_DEPLOYMENT_STATE_VERSION,
+        helm_chart_path=LEGACY_OPERATOR_CHART,  # We are testing the upgrade from legacy state management, introduced in MEKO
+        operator_name=LEGACY_OPERATOR_NAME,
+        operator_image=LEGACY_OPERATOR_IMAGE_NAME,
+    )
+    operator.assert_is_running()
+    # Dumping deployments in logs ensures we are using the correct operator version
+    log_deployments_info(namespace)
 
 
 def install_official_operator(
     namespace: str,
     managed_security_context: str,
-    operator_installation_config: Dict[str, str],
+    operator_installation_config: dict[str, str],
     central_cluster_name: Optional[str],
     central_cluster_client: Optional[client.ApiClient],
     member_cluster_clients: Optional[List[MultiClusterClient]],
     member_cluster_names: Optional[List[str]],
     custom_operator_version: Optional[str] = None,
+    helm_chart_path: Optional[str] = MCK_HELM_CHART,
     operator_name: Optional[str] = OPERATOR_NAME,
+    operator_image: Optional[str] = OFFICIAL_OPERATOR_IMAGE_NAME,
 ) -> Operator:
     """
     Installs the Operator from the official Helm Chart.
@@ -912,7 +951,7 @@ def install_official_operator(
     # Note, that we don't intend to install the official Operator to standalone clusters (kops/openshift) as we want to
     # avoid damaged CRDs. But we may need to install the "openshift like" environment to Kind instead of the "ubi"
     # images are used for installing the dev Operator
-    helm_args["operator.operator_image_name"] = "{}-ubi".format(operator_name)
+    helm_args["operator.operator_image_name"] = operator_image
 
     # Note:
     # We might want in the future to install CRDs when performing upgrade/downgrade tests, the helm install only takes
@@ -966,7 +1005,7 @@ def install_official_operator(
             member_cluster_clients,
             helm_opts=helm_args,
             central_cluster_name=get_central_cluster_name(),
-            helm_chart_path="mongodb/enterprise-operator",
+            helm_chart_path=helm_chart_path,
             custom_operator_version=custom_operator_version,
             operator_name=operator_name,
         )
@@ -976,7 +1015,7 @@ def install_official_operator(
         return Operator(
             namespace=namespace,
             helm_args=helm_args,
-            helm_chart_path="mongodb/enterprise-operator",
+            helm_chart_path=helm_chart_path,
             name=operator_name,
         ).install(custom_operator_version=custom_operator_version)
 
@@ -996,7 +1035,7 @@ def log_deployment_and_images(deployments):
 
 # Extract container images and deployments names from the nested dict returned by kubetester
 # Handles any missing key gracefully
-def extract_container_images_and_deployments(deployments) -> (Dict[str, str], List[str]):
+def extract_container_images_and_deployments(deployments) -> (dict[str, str], List[str]):
     deployment_images = {}
     deployment_names = []
     deployments = deployments.to_dict()
@@ -1281,7 +1320,7 @@ def get_api_servers_from_kubeconfig_secret(
     return get_api_servers_from_pod_kubeconfig(kubeconfig_secret["kubeconfig"], cluster_clients)
 
 
-def get_api_servers_from_test_pod_kubeconfig(namespace: str, member_cluster_names: List[str]) -> Dict[str, str]:
+def get_api_servers_from_test_pod_kubeconfig(namespace: str, member_cluster_names: List[str]) -> dict[str, str]:
     test_pod_cluster = get_test_pod_cluster_name()
     cluster_clients = get_clients_for_clusters(member_cluster_names)
 

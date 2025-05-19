@@ -82,6 +82,10 @@ def update_helm_charts(operator_version, release):
     set_value_in_yaml_file("helm_chart/values.yaml", "operator.version", operator_version)
     set_value_in_yaml_file("helm_chart/Chart.yaml", "version", operator_version)
 
+    set_value_in_yaml_file(
+        "helm_chart/values.yaml", "search.community.version", release["search"]["community"]["version"]
+    )
+
 
 def update_cluster_service_version(operator_version):
     container_image_value = get_value_in_yaml_file(
@@ -94,23 +98,10 @@ def update_cluster_service_version(operator_version):
     image_repo = ":".join(image_parts[:-1])
 
     if old_operator_version != operator_version:
-        olm_package_name = "mongodb-kubernetes"
-        # TODO: CLOUDP-310820 - After 1.0.0 release we need to clean this up: remove this condition
-        if Version(operator_version) <= Version("1.0.0"):
-            # MCK version 1.0.0 is a special case, where we need to
-            # set the olm_package_name to "mongodb-enterprise" because
-            # this is the version which provides a migration path
-            # from the old mongodb-enterprise operator (MEKO)
-            # to the new mongodb-kubernetes (MCK).
-            olm_package_name = "mongodb-enterprise"
-            # This is the latest MEKO version we are going to release.
-            # We hardcode it for now. Later this whole condition will be removed.
-            old_operator_version = "1.33.0"
-
         set_value_in_yaml_file(
             "config/manifests/bases/mongodb-kubernetes.clusterserviceversion.yaml",
             "spec.replaces",
-            f"{olm_package_name}.v{old_operator_version}",
+            f"mongodb-kubernetes.v{old_operator_version}",
             preserve_quotes=True,
         )
 

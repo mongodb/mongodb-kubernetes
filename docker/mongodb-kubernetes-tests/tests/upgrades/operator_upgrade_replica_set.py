@@ -1,5 +1,3 @@
-from kubernetes import client
-from kubernetes.client import ApiException
 from kubetester import MongoDB
 from kubetester.certs import create_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester
@@ -9,8 +7,7 @@ from kubetester.mongodb_user import MongoDBUser
 from kubetester.operator import Operator
 from pytest import fixture, mark
 from tests import test_logger
-from tests.conftest import LEGACY_OPERATOR_NAME, log_deployments_info
-from tests.upgrades import downscale_operator_deployment
+from tests.conftest import get_default_operator
 
 RS_NAME = "my-replica-set"
 USER_PASSWORD = "/qwerty@!#:"
@@ -82,8 +79,8 @@ def replica_set_user(replica_set: MongoDB) -> MongoDBUser:
 
 
 @mark.e2e_operator_upgrade_replica_set
-def test_install_latest_official_operator(official_meko_operator: Operator):
-    official_meko_operator.assert_is_running()
+def test_install_latest_official_operator(official_operator: Operator):
+    official_operator.assert_is_running()
 
 
 @mark.e2e_operator_upgrade_replica_set
@@ -97,15 +94,11 @@ def test_replicaset_user_created(replica_set_user: MongoDBUser):
 
 
 @mark.e2e_operator_upgrade_replica_set
-def test_downscale_latest_official_operator(namespace: str):
-    # Scale down the existing operator deployment to 0. This is needed as long as the
-    # `official_operator` fixture installs the MEKO operator.
-    downscale_operator_deployment(deployment_name=LEGACY_OPERATOR_NAME, namespace=namespace)
-
-
-@mark.e2e_operator_upgrade_replica_set
-def test_upgrade_operator(default_operator: Operator):
-    default_operator.assert_is_running()
+def test_upgrade_operator(namespace: str, operator_installation_config: dict[str, str]):
+    operator = get_default_operator(
+        namespace, operator_installation_config=operator_installation_config, apply_crds_first=True
+    )
+    operator.assert_is_running()
 
 
 @mark.e2e_operator_upgrade_replica_set

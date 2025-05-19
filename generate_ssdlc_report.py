@@ -9,7 +9,7 @@ At the moment, the following functionality has been implemented:
     - Replacing Release Version
 
 The script should be called manually from the project root. It will put generated files
-into "./ssdlc-report/MEKO-$release" directory.
+into "./ssdlc-report/MCK-$release" directory.
 """
 
 import enum
@@ -38,14 +38,17 @@ S3_BUCKET = "kubernetes-operators-sboms"
 class Subreport(enum.Enum):
     AGENT = ("Containerized MongoDB Agent", "scripts/ssdlc/templates/SSDLC Containerized MongoDB Agent ${VERSION}.md")
     OPERATOR = (
-        "Enterprise Kubernetes Operator",
-        "scripts/ssdlc/templates/SSDLC Containerized MongoDB Enterprise Kubernetes Operator ${VERSION}.md",
+        "MongoDB Controllers for Kubernetes",
+        "scripts/ssdlc/templates/SSDLC Containerized MongoDB Controllers for Kubernetes ${VERSION}.md",
     )
     OPS_MANAGER = (
-        "Containerized OpsManager",
+        "Containerized MongoDB Enterprise OpsManager",
         "scripts/ssdlc/templates/SSDLC Containerized MongoDB Enterprise OpsManager ${VERSION}.md",
     )
-    TESTING = ("not-used", "scripts/ssdlc/templates/SSDLC MongoDB Enterprise Operator Testing Report ${VERSION}.md")
+    TESTING = (
+        "not-used",
+        "scripts/ssdlc/templates/SSDLC MongoDB Controllers for Kubernetes Testing Report ${VERSION}.md",
+    )
 
     def __new__(cls, *args, **kwds):
         value = len(cls.__members__) + 1
@@ -98,7 +101,7 @@ def get_supported_images(release: Dict) -> dict[str, SupportedImage]:
         "quay.io/mongodb/mongodb-agent-ubi",
         release["supportedImages"]["mongodb-agent"]["ssdlc_name"],
         list(),
-        # Once MEKO supports both architectures, this should be re-enabled.
+        # Once MCK supports both architectures, this should be re-enabled.
         # ["linux/amd64", "linux/arm64"],
         ["linux/amd64"],
         Subreport.AGENT,
@@ -108,11 +111,12 @@ def get_supported_images(release: Dict) -> dict[str, SupportedImage]:
         [release["mongodbOperator"]],
         "mongodb-kubernetes-cli",
         "mongodb-kubernetes-cli",
-        "MongoDB Kubernetes Kubernetes Operator CLI",
+        "MongoDB Controllers for Kubernetes CLI",
         list(),
         ["linux/amd64", "linux/arm64", "darwin/amd64", "darwin/arm64"],
         Subreport.OPERATOR,
     )
+
     supported_images = filter_out_non_current_versions(release, supported_images)
     logger.debug(f"Supported images: {supported_images}")
     return supported_images
@@ -142,10 +146,6 @@ def filter_out_unsupported_images(supported_images: Dict[str, SupportedImage]):
         del supported_images["appdb-database"]
     if "mongodb-enterprise-server" in supported_images:
         del supported_images["mongodb-enterprise-server"]
-    if "mongodb-kubernetes-operator-version-upgrade-post-start-hook" in supported_images:
-        del supported_images["mongodb-kubernetes-operator-version-upgrade-post-start-hook"]
-    if "mongodb-kubernetes-readinessprobe" in supported_images:
-        del supported_images["mongodb-kubernetes-readinessprobe"]
     if "mongodb-kubernetes-operator" in supported_images:
         del supported_images["mongodb-kubernetes-operator"]
     return supported_images
@@ -154,7 +154,11 @@ def filter_out_unsupported_images(supported_images: Dict[str, SupportedImage]):
 def filter_out_non_current_versions(release: Dict, supported_images: Dict[str, SupportedImage]):
     for supported_image_key in supported_images:
         supported_image = supported_images[supported_image_key]
-        if supported_image.subreport == Subreport.OPERATOR:
+        # For old MCO artefacts "readinessprobe" and "operator-version-upgrade-post-start-hook" we don't expect to match operator versioning scheme
+        if supported_image.subreport == Subreport.OPERATOR and supported_image_key not in [
+            "readinessprobe",
+            "operator-version-upgrade-post-start-hook",
+        ]:
             supported_image.versions = filter(lambda x: x == release["mongodbOperator"], supported_image.versions)
     return supported_images
 
@@ -236,7 +240,7 @@ def generate_ssdlc_report(ignore_sbom_download_errors: bool = False):
 
     operator_version = release["mongodbOperator"]
     supported_images = get_supported_images(release)
-    report_path = os.getcwd() + "/ssdlc-report/MEKO-" + operator_version
+    report_path = os.getcwd() + "/ssdlc-report/MCK-" + operator_version
 
     try:
         if not os.path.exists(path=report_path):

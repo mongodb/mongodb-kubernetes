@@ -27,6 +27,9 @@ const (
 	// MongoDbOpsManagerController name of the OpsManager controller
 	MongoDbOpsManagerController = "opsmanager-controller"
 
+	// MongoDbSearchController name of the MongoDBSearch controller
+	MongoDbSearchController = "mongodbsearch-controller"
+
 	// Ops manager config map and secret variables
 	OmBaseUrl         = "baseUrl"
 	OmOrgId           = "orgId"
@@ -150,6 +153,11 @@ const (
 	SCRAMSHA256                       = "SCRAM-SHA-256"
 	LDAP                              = "LDAP"
 	MinimumScramSha256MdbVersion      = "4.0.0"
+
+	// pprof variables
+	OperatorPprofEnabledEnv  = "MDB_OPERATOR_PPROF_ENABLED"
+	OperatorPprofPortEnv     = "MDB_OPERATOR_PPROF_PORT"
+	OperatorPprofDefaultPort = 10081
 
 	// these were historically used and constituted a security issue—if set they should be changed
 	InvalidKeyFileContents         = "DUMMYFILE"
