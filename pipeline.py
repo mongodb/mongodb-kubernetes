@@ -264,6 +264,7 @@ def get_release() -> Dict:
 
 
 def get_git_release_tag() -> tuple[str, bool]:
+    """Returns the git tag of the current run on releases, on non-release returns the patch id."""
     release_env_var = os.getenv("triggered_by_git_tag")
 
     # that means we are in a release and only return the git_tag; otherwise we want to return the patch_id
@@ -290,22 +291,19 @@ def copy_into_container(client, src, dst):
         container.put_archive(os.path.dirname(dst), fd.read())
 
 
-"""
-Generates docker manifests by running the following commands:
-1. Clear existing manifests
-docker manifest rm config.repo_url/image:tag
-2. Create the manifest
-docker manifest create config.repo_url/image:tag --amend config.repo_url/image:tag-amd64 --amend config.repo_url/image:tag-arm64
-3. Push the manifest
-docker manifest push config.repo_url/image:tag
-"""
+def create_and_push_manifest(image: str, tag: str, architectures: list[str]) -> None:
+    """
+    Generates docker manifests by running the following commands:
+    1. Clear existing manifests
+    docker manifest rm config.repo_url/image:tag
+    2. Create the manifest
+    docker manifest create config.repo_url/image:tag --amend config.repo_url/image:tag-amd64 --amend config.repo_url/image:tag-arm64
+    3. Push the manifest
+    docker manifest push config.repo_url/image:tag
 
-
-# This method calls docker directly on the command line, this is different from the rest of the code which uses
-# Sonar as an interface to docker. We decided to keep this asymmetry for now, as Sonar will be removed soon.
-
-
-def create_and_push_manifest(image: str, tag: str) -> None:
+    This method calls docker directly on the command line, this is different from the rest of the code which uses
+    Sonar as an interface to docker. We decided to keep this asymmetry for now, as Sonar will be removed soon.
+    """
     final_manifest = image + ":" + tag
 
     args = [
@@ -313,11 +311,11 @@ def create_and_push_manifest(image: str, tag: str) -> None:
         "manifest",
         "create",
         final_manifest,
-        "--amend",
-        final_manifest + "-amd64",
-        "--amend",
-        final_manifest + "-arm64",
     ]
+
+    for arch in architectures:
+        args.extend(["--amend", f"{final_manifest}-{arch}"])
+
     args_str = " ".join(args)
     logger.debug(f"creating new manifest: {args_str}")
     cp = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -343,14 +341,12 @@ def try_get_platform_data(client, image):
         return None
 
 
-"""
-Checks if a docker image supports AMD and ARM platforms by inspecting the registry data.
-
-:param str image: The image name and tag
-"""
-
-
 def check_multi_arch(image: str, suffix: str) -> bool:
+    """
+    Checks if a docker image supports AMD and ARM platforms by inspecting the registry data.
+
+    :param str image: The image name and tag
+    """
     client = docker.from_env()
     platforms = ["linux/amd64", "linux/arm64"]
 
@@ -449,10 +445,10 @@ def build_tests_image(build_configuration: BuildConfiguration):
 
     # helm directory needs to be copied over to the tests docker context.
     helm_src = "helm_chart"
-    helm_dest = "docker/mongodb-enterprise-tests/helm_chart"
-    requirements_dest = "docker/mongodb-enterprise-tests/requirements.txt"
+    helm_dest = "docker/mongodb-kubernetes-tests/helm_chart"
+    requirements_dest = "docker/mongodb-kubernetes-tests/requirements.txt"
     public_src = "public"
-    public_dest = "docker/mongodb-enterprise-tests/public"
+    public_dest = "docker/mongodb-kubernetes-tests/public"
 
     # Remove existing directories/files if they exist
     shutil.rmtree(helm_dest, ignore_errors=True)
@@ -461,7 +457,7 @@ def build_tests_image(build_configuration: BuildConfiguration):
     # Copy directories and files (recursive copy)
     shutil.copytree(helm_src, helm_dest)
     shutil.copytree(public_src, public_dest)
-    shutil.copyfile("release.json", "docker/mongodb-enterprise-tests/release.json")
+    shutil.copyfile("release.json", "docker/mongodb-kubernetes-tests/release.json")
     shutil.copyfile("requirements.txt", requirements_dest)
 
     python_version = os.getenv("PYTHON_VERSION", "")
@@ -576,7 +572,7 @@ def build_operator_image_patch(build_configuration: BuildConfiguration):
         return
 
     container_name = "mongodb-enterprise-operator"
-    operator_binary_location = "/usr/local/bin/mongodb-enterprise-operator"
+    operator_binary_location = "/usr/local/bin/mongodb-kubernetes-operator"
     try:
         client.containers.get(container_name).remove()
         logger.debug(f"Removed {container_name}")
@@ -591,7 +587,7 @@ def build_operator_image_patch(build_configuration: BuildConfiguration):
 
     copy_into_container(
         client,
-        os.getcwd() + "/docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator",
+        os.getcwd() + "/docker/mongodb-kubernetes-operator/content/mongodb-kubernetes-operator",
         container_name + ":" + operator_binary_location,
     )
 
@@ -659,15 +655,13 @@ def args_for_daily_image(image_name: str) -> Dict[str, str]:
             ubi_suffix="",
         ),
         image_config(
-            image_name="mongodb-kubernetes-readinessprobe",
+            image_name="readinessprobe",
             ubi_suffix="",
-            name_prefix="",
             s3_bucket="enterprise-operator-dockerfiles",
         ),
         image_config(
-            image_name="mongodb-kubernetes-operator-version-upgrade-post-start-hook",
+            image_name="operator-version-upgrade-post-start-hook",
             ubi_suffix="",
-            name_prefix="",
             s3_bucket="enterprise-operator-dockerfiles",
         ),
     ]
@@ -741,15 +735,12 @@ class TracedThreadPoolExecutor(ThreadPoolExecutor):
             return super().submit(lambda: fn(*args, **kwargs))
 
 
-"""
-Starts the daily build process for an image. This function works for all images we support, for community and
-enterprise operator. The list of supported image_name is defined in get_builder_function_for_image_name.
-Builds an image for each version listed in ./release.json
-The registry used to pull base image and output the daily build is configured in the image_config function, it is passed
-as an argument to the inventories/daily.yaml file.
-
-If the context image supports both ARM and AMD architectures, both will be built.
-"""
+def should_skip_arm64():
+    """
+    Determines if arm64 builds should be skipped based on environment.
+    Returns True if running in Evergreen pipeline as a patch.
+    """
+    return is_running_in_evg_pipeline() and is_running_in_patch()
 
 
 def build_image_daily(
@@ -758,13 +749,25 @@ def build_image_daily(
     max_version: str = None,
     operator_version: str = None,
 ):
-    """Builds a daily image."""
+    """
+    Starts the daily build process for an image. This function works for all images we support, for community and
+    enterprise operator. The list of supported image_name is defined in get_builder_function_for_image_name.
+    Builds an image for each version listed in ./release.json
+    The registry used to pull base image and output the daily build is configured in the image_config function, it is passed
+    as an argument to the inventories/daily.yaml file.
+
+    If the context image supports both ARM and AMD architectures, both will be built.
+    """
 
     def get_architectures_set(build_configuration, args):
         """Determine the set of architectures to build for"""
         arch_set = set(build_configuration.architecture) if build_configuration.architecture else set()
         if arch_set == {"arm64"}:
             raise ValueError("Building for ARM64 only is not supported yet")
+
+        if should_skip_arm64():
+            logger.info("Skipping ARM64 builds as this is running in EVG pipeline as a patch")
+            return {"amd64"}
 
         # Automatic architecture detection is the default behavior if 'arch' argument isn't specified
         if arch_set == set():
@@ -779,13 +782,13 @@ def build_image_daily(
 
         return arch_set
 
-    def create_and_push_manifests(args: dict):
+    def create_and_push_manifests(args: dict, architectures: list[str]):
         """Create and push manifests for all registries."""
         registries = [args["ecr_registry_ubi"], args["quay_registry"]]
         tags = [args["release_version"], args["release_version"] + "-b" + args["build_id"]]
         for registry in registries:
             for tag in tags:
-                create_and_push_manifest(registry + args["ubi_suffix"], tag)
+                create_and_push_manifest(registry + args["ubi_suffix"], tag, architectures=architectures)
 
     def sign_image_concurrently(executor, args, futures, arch=None):
         v = args["release_version"]
@@ -838,7 +841,7 @@ def build_image_daily(
                             )
                             if build_configuration.sign:
                                 sign_image_concurrently(executor, copy.deepcopy(args), futures, arch)
-                        create_and_push_manifests(args)
+                        create_and_push_manifests(args, list(arch_set))
                         for arch in arch_set:
                             args["architecture_suffix"] = f"-{arch}"
                             args["platform"] = arch
@@ -960,7 +963,14 @@ def build_om_image(build_configuration: BuildConfiguration):
         "version": om_version,
         "om_download_url": om_download_url,
     }
-    build_image_generic(build_configuration, "ops-manager", "inventories/om.yaml", args)
+
+    build_image_generic(
+        config=build_configuration,
+        image_name="ops-manager",
+        inventory_file="inventories/om.yaml",
+        extra_args=args,
+        registry_address=f"{QUAY_REGISTRY_URL}/mongodb-enterprise-ops-manager",
+    )
 
 
 def build_image_generic(
@@ -973,6 +983,11 @@ def build_image_generic(
     multi_arch_args_list: list = None,
     is_run_in_parallel: bool = False,
 ):
+    """Build image generic builds context images and is used for triggering release. During releases
+    it signs and verifies the context image.
+    The release process uses the daily images build process.
+    """
+
     if not multi_arch_args_list:
         multi_arch_args_list = [extra_args or {}]
 
@@ -985,14 +1000,19 @@ def build_image_generic(
     if is_multi_arch:
         # we only push the manifests of the context images here,
         # since daily rebuilds will push the manifests for the proper images later
-        create_and_push_manifest(registry_address, f"{version}-context")
+        architectures = [v["architecture"] for v in multi_arch_args_list]
+        create_and_push_manifest(registry_address, f"{version}-context", architectures=architectures)
         if not config.is_release_step_executed():
             # Normally daily rebuild would create and push the manifests for the non-context images.
             # But since we don't run daily rebuilds on ecr image builds, we can do that step instead here.
             # We only need to push manifests for multi-arch images.
-            create_and_push_manifest(registry_address, version)
+            create_and_push_manifest(registry_address, version, architectures=architectures)
+
+    # Sign and verify the context image if on releases if requied.
     if config.sign and config.is_release_step_executed():
         sign_and_verify_context_image(registry, version)
+
+    # Release step. Release images via the daily image process.
     if config.is_release_step_executed() and version and QUAY_REGISTRY_URL in registry:
         logger.info(
             f"finished building context images, releasing them now via daily builds process for"
@@ -1044,7 +1064,14 @@ def build_community_image(build_configuration: BuildConfiguration, image_type: s
 
     version, is_release = get_git_release_tag()
     golang_version = os.getenv("GOLANG_VERSION", "1.24")
-    architectures = build_configuration.architecture or ["amd64", "arm64"]
+
+    # Use only amd64 if we should skip arm64 builds
+    if should_skip_arm64():
+        architectures = ["amd64"]
+        logger.info("Skipping ARM64 builds for community image as this is running in EVG pipeline as a patch")
+    else:
+        architectures = build_configuration.architecture or ["amd64", "arm64"]
+
     multi_arch_args_list = []
 
     for arch in architectures:
@@ -1064,7 +1091,7 @@ def build_community_image(build_configuration: BuildConfiguration, image_type: s
         multi_arch_args_list=multi_arch_args_list,
         inventory_file=inventory_file,
         registry_address=f"{base_repo}/{image_name}",
-        is_multi_arch=True,
+        is_multi_arch=True,  # We for pushing manifest anyway, even if arm64 is skipped in patches
     )
 
 
@@ -1151,16 +1178,19 @@ def build_multi_arch_agent_in_sonar(
     ecr_registry = os.environ.get("REGISTRY", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
     ecr_agent_registry = ecr_registry + f"/mongodb-agent-ubi"
     quay_agent_registry = QUAY_REGISTRY_URL + f"/mongodb-agent-ubi"
-    joined_args = list()
-    for arch in [arch_arm, arch_amd]:
-        joined_args.append(args | arch)
+    joined_args = [args | arch_amd]
+
+    # Only include arm64 if we shouldn't skip it
+    if not should_skip_arm64():
+        joined_args.append(args | arch_arm)
+
     build_image_generic(
         config=build_configuration,
         image_name="mongodb-agent",
         inventory_file="inventories/agent_non_matrix.yaml",
         multi_arch_args_list=joined_args,
         registry_address=quay_agent_registry if is_release else ecr_agent_registry,
-        is_multi_arch=True,
+        is_multi_arch=True,  # We for pushing manifest anyway, even if arm64 is skipped in patches
         is_run_in_parallel=True,
     )
 
@@ -1428,11 +1458,11 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         # This only builds the agents without the operator suffix
         "mongodb-agent-daily": build_image_daily("mongodb-agent", operator_version="onlyAgents"),
         # Community images
-        "mongodb-kubernetes-readinessprobe-daily": build_image_daily(
-            "mongodb-kubernetes-readinessprobe",
+        "readinessprobe-daily": build_image_daily(
+            "readinessprobe",
         ),
-        "mongodb-kubernetes-operator-version-upgrade-post-start-hook-daily": build_image_daily(
-            "mongodb-kubernetes-operator-version-upgrade-post-start-hook",
+        "operator-version-upgrade-post-start-hook-daily": build_image_daily(
+            "operator-version-upgrade-post-start-hook",
         ),
         "mongodb-kubernetes-operator-daily": build_image_daily("mongodb-kubernetes-operator"),
     }
@@ -1516,11 +1546,12 @@ def calculate_images_to_build(
 
 def main():
     _setup_tracing()
+    _setup_tracing()
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--include", action="append")
-    parser.add_argument("--exclude", action="append")
-    parser.add_argument("--builder", default="docker", type=str)
+    parser.add_argument("--include", action="append", help="list of images to include")
+    parser.add_argument("--exclude", action="append", help="list of images to exclude")
+    parser.add_argument("--builder", default="docker", type=str, help="docker or podman")
     parser.add_argument("--list-images", action="store_true")
     parser.add_argument("--parallel", action="store_true", default=False)
     parser.add_argument("--debug", action="store_true", default=False)

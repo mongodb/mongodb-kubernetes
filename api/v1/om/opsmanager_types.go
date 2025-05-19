@@ -186,7 +186,7 @@ type Logging struct {
 // ClusterSpecOMItem defines members cluster details for Ops Manager multi-cluster deployment.
 type ClusterSpecOMItem struct {
 	// ClusterName is name of the cluster where the Ops Manager Statefulset will be scheduled.
-	// The operator is using ClusterName to find API credentials in `mongodb-enterprise-operator-member-list` config map to use for this member cluster.
+	// The operator is using ClusterName to find API credentials in `mongodb-kubernetes-operator-member-list` config map to use for this member cluster.
 	// If the credentials are not found, then the member cluster is considered unreachable and ignored in the reconcile process.
 	// +kubebuilder:validation:Required
 	ClusterName string `json:"clusterName,omitempty"`
@@ -344,7 +344,7 @@ func (om *MongoDBOpsManager) AppDBStatefulSetObjectKey(memberClusterNum int) cli
 
 func (om *MongoDBOpsManager) GetOwnerLabels() map[string]string {
 	return map[string]string{
-		util.OperatorLabelName: util.OperatorName,
+		util.OperatorLabelName: util.OperatorLabelValue,
 		LabelResourceOwner:     om.Name,
 	}
 }

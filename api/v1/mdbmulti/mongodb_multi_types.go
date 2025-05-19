@@ -175,7 +175,7 @@ func (m *MongoDBMultiCluster) ObjectKey() client.ObjectKey {
 
 func (m *MongoDBMultiCluster) GetOwnerLabels() map[string]string {
 	return map[string]string{
-		util.OperatorLabelName: util.OperatorName,
+		util.OperatorLabelName: util.OperatorLabelValue,
 		LabelResourceOwner:     fmt.Sprintf("%s-%s", m.Namespace, m.Name),
 	}
 }

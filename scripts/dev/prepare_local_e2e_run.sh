@@ -53,8 +53,8 @@ scripts/evergreen/e2e/configure_operator.sh 2>&1 | prepend "configure_operator: 
 echo "Preparing operator config map"
 prepare_operator_config_map "$(kubectl config current-context)" 2>&1 | prepend "prepare_operator_config_map: "
 
-rm -rf docker/mongodb-enterprise-tests/helm_chart
-cp -rf helm_chart docker/mongodb-enterprise-tests/helm_chart
+rm -rf docker/mongodb-kubernetes-tests/helm_chart
+cp -rf helm_chart docker/mongodb-kubernetes-tests/helm_chart
 
 # shellcheck disable=SC2154
 if [[ "${KUBE_ENVIRONMENT_NAME}" == "multi" ]]; then
@@ -63,7 +63,7 @@ if [[ "${KUBE_ENVIRONMENT_NAME}" == "multi" ]]; then
 fi
 
 make install 2>&1 | prepend "make install: "
-test -f "docker/mongodb-enterprise-tests/.test_identifiers" && rm "docker/mongodb-enterprise-tests/.test_identifiers"
+test -f "docker/mongodb-kubernetes-tests/.test_identifiers" && rm "docker/mongodb-kubernetes-tests/.test_identifiers"
 scripts/dev/delete_om_projects.sh
 
 if [[ "${DEPLOY_OPERATOR:-"false"}" == "true" ]]; then
@@ -76,7 +76,7 @@ if [[ "${DEPLOY_OPERATOR:-"false"}" == "true" ]]; then
   fi
 
   # shellcheck disable=SC2128
-  helm upgrade --install mongodb-enterprise-operator helm_chart --set "$(echo "${helm_values}" | tr ' ' ',')"
+  helm upgrade --install mongodb-kubernetes-operator helm_chart --set "$(echo "${helm_values}" | tr ' ' ',')"
 fi
 
 if [[ "${KUBE_ENVIRONMENT_NAME}" == "kind" ]]; then

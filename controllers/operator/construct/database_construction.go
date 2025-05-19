@@ -48,7 +48,7 @@ const (
 	databaseLivenessProbeCommand  = "/opt/scripts/probe.sh"
 	databaseReadinessProbeCommand = "/opt/scripts/readinessprobe"
 
-	InitDatabaseContainerName = "mongodb-enterprise-init-database"
+	InitDatabaseContainerName = "mongodb-kubernetes-init-database"
 
 	// Database environment variable names
 	InitDatabaseVersionEnv = "INIT_DATABASE_VERSION"
@@ -409,7 +409,7 @@ func buildVaultDatabaseSecretsToInject(mdb databaseStatefulSetSource, opts Datab
 func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource, podTemplateSpecFunc podtemplatespec.Modification, opts DatabaseStatefulSetOptions, log *zap.SugaredLogger) statefulset.Modification {
 	podLabels := map[string]string{
 		appLabelKey:             opts.ServiceName,
-		util.OperatorLabelName:  util.OperatorName,
+		util.OperatorLabelName:  util.OperatorLabelValue,
 		PodAntiAffinityLabelKey: opts.Name,
 	}
 

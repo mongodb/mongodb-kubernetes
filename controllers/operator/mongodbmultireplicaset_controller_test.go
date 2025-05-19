@@ -542,7 +542,7 @@ func TestHeadlessServiceCreation(t *testing.T) {
 
 		expectedMap := map[string]string{
 			"app":                  mrs.MultiHeadlessServiceName(mrs.ClusterNum(item.ClusterName)),
-			util.OperatorLabelName: util.OperatorName,
+			util.OperatorLabelName: util.OperatorLabelValue,
 		}
 		assert.Equal(t, expectedMap, svc.Spec.Selector)
 	}

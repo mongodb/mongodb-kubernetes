@@ -75,6 +75,36 @@ def test_operator_build_configuration_defaults():
         (["a", "b", "c"], None, ["d"], ValueError),
         ([], ["a"], ["b"], ValueError),
         (["a", "b", "c"], None, None, {"a", "b", "c"}),
+        # Given an include, it should only return include images
+        (["cli", "ops-manager", "appdb-daily", "init-appdb"], ["cli"], [], {"cli"}),
+        # Given no include nor excludes it should return all images
+        (
+            ["cli", "ops-manager", "appdb-daily", "init-appdb"],
+            [],
+            [],
+            {"init-appdb", "appdb-daily", "ops-manager", "cli"},
+        ),
+        # Given an exclude, it should return all images except the excluded ones
+        (
+            ["cli", "ops-manager", "appdb-daily", "init-appdb"],
+            [],
+            ["init-appdb", "appdb-daily"],
+            {"ops-manager", "cli"},
+        ),
+        # Given an include and a different exclude, it should return all images except the exclusions
+        (
+            ["cli", "ops-manager", "appdb-daily", "init-appdb"],
+            ["appdb-daily"],
+            ["init-appdb"],
+            {"appdb-daily", "cli", "ops-manager"},
+        ),
+        # Given multiple includes and a different exclude, it should return all images except the exclusions
+        (
+            ["cli", "ops-manager", "appdb-daily", "init-appdb"],
+            ["cli", "appdb-daily"],
+            ["init-appdb"],
+            {"appdb-daily", "cli", "ops-manager"},
+        ),
     ],
 )
 def test_calculate_images_to_build(test_case):
@@ -225,3 +255,102 @@ class TestRunCommandWithRetries(unittest.TestCase):
 
         self.assertEqual(mock_run.call_count, 3)
         self.assertEqual(mock_sleep.call_count, 2)
+
+
+@patch("subprocess.run")
+def test_create_and_push_manifest_success(mock_run):
+    """Test successful creation and pushing of manifest with multiple architectures."""
+    # Setup mock to return success for both calls
+    mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout=b"", stderr=b"")
+
+    image = "test/image"
+    tag = "1.0.0"
+    architectures = ["amd64", "arm64"]
+
+    from pipeline import create_and_push_manifest
+
+    create_and_push_manifest(image, tag, architectures)
+
+    assert mock_run.call_count == 2
+
+    # Verify first call - create manifest
+    create_call_args = mock_run.call_args_list[0][0][0]
+    assert create_call_args == [
+        "docker",
+        "manifest",
+        "create",
+        "test/image:1.0.0",
+        "--amend",
+        "test/image:1.0.0-amd64",
+        "--amend",
+        "test/image:1.0.0-arm64",
+    ]
+
+    # Verify second call - push manifest
+    push_call_args = mock_run.call_args_list[1][0][0]
+    assert push_call_args == ["docker", "manifest", "push", f"{image}:{tag}"]
+
+
+@patch("subprocess.run")
+def test_create_and_push_manifest_single_arch(mock_run):
+    """Test manifest creation with a single architecture."""
+    # Setup mock to return success for both calls
+    mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout=b"", stderr=b"")
+
+    image = "test/image"
+    tag = "1.0.0"
+    architectures = ["amd64"]
+
+    from pipeline import create_and_push_manifest
+
+    create_and_push_manifest(image, tag, architectures)
+
+    # Verify first call - create manifest (should only include one architecture)
+    create_call_args = mock_run.call_args_list[0][0][0]
+    assert " ".join(create_call_args) == f"docker manifest create {image}:{tag} --amend {image}:{tag}-amd64"
+
+
+@patch("subprocess.run")
+def test_create_and_push_manifest_create_error(mock_run):
+    """Test error handling when manifest creation fails."""
+    # Setup mock to return error for create call
+    mock_run.return_value = subprocess.CompletedProcess(
+        args=[], returncode=1, stdout=b"", stderr=b"Error creating manifest"
+    )
+
+    image = "test/image"
+    tag = "1.0.0"
+    architectures = ["amd64", "arm64"]
+
+    from pipeline import create_and_push_manifest
+
+    # Verify exception is raised with the stderr content
+    with pytest.raises(Exception) as exc_info:
+        create_and_push_manifest(image, tag, architectures)
+
+    assert "Error creating manifest" in str(exc_info.value)
+    assert mock_run.call_count == 1  # Only the create call, not the push call
+
+
+@patch("subprocess.run")
+def test_create_and_push_manifest_push_error(mock_run):
+    """Test error handling when manifest push fails."""
+    # Setup mock to return success for create but error for push
+    mock_run.side_effect = [
+        subprocess.CompletedProcess(args=[], returncode=0, stdout=b"", stderr=b""),  # create success
+        subprocess.CompletedProcess(args=[], returncode=1, stdout=b"", stderr=b"Error pushing manifest"),  # push error
+    ]
+
+    # Call function with test parameters
+    image = "test/image"
+    tag = "1.0.0"
+    architectures = ["amd64", "arm64"]
+
+    from pipeline import create_and_push_manifest
+
+    # Verify exception is raised with the stderr content
+    with pytest.raises(Exception) as exc_info:
+        create_and_push_manifest(image, tag, architectures)
+
+    assert "Error pushing manifest" in str(exc_info.value)
+    assert mock_run.call_count == 2  # Both create and push calls

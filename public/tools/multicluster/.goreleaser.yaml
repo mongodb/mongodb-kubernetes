@@ -8,11 +8,11 @@ builds:
   - env:
       - CGO_ENABLED=0
     goos:
-    - linux
-    - darwin
+      - linux
+      - darwin
     goarch:
-    - amd64
-    - arm64
+      - amd64
+      - arm64
     hooks:
       # This will notarize Apple binaries and replace goreleaser bins with the notarized ones
       post:
@@ -28,7 +28,7 @@ builds:
             - ARTIFACTORY_USERNAME=mongodb-enterprise-kubernetes-operator
             - ARTIFACTORY_PASSWORD={{ .Env.ARTIFACTORY_PASSWORD }}
         - cmd: ./verify.sh {{ .Path }} && echo "VERIFIED OK"
-        
+
 archives:
   - format: tar.gz
     name_template: "kubectl-mongodb_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
@@ -46,7 +46,7 @@ changelog:
 release:
   prerelease: auto
   draft: true
-  name_template: "MongoDB Enterprise Kubernetes Operator {{ .Version  }}"
+  name_template: "MongoDB Kubernetes Operator {{ .Version  }}"
 
 git:
   tag_sort: -version:creatordate

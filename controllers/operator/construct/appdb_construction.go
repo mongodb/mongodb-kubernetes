@@ -32,8 +32,8 @@ import (
 )
 
 const (
-	appDBServiceAccount    = "mongodb-enterprise-appdb"
-	InitAppDbContainerName = "mongodb-enterprise-init-appdb"
+	appDBServiceAccount    = "mongodb-kubernetes-appdb"
+	InitAppDbContainerName = "mongodb-kubernetes-init-appdb"
 	// AppDB environment variable names
 	InitAppdbVersionEnv          = "INIT_APPDB_VERSION"
 	podNamespaceEnv              = "POD_NAMESPACE"
@@ -89,7 +89,7 @@ func removeContainerByName(containers []corev1.Container, name string) []corev1.
 func appDbLabels(opsManager *om.MongoDBOpsManager, memberClusterNum int) statefulset.Modification {
 	podLabels := map[string]string{
 		appLabelKey:             opsManager.Spec.AppDB.HeadlessServiceSelectorAppLabel(memberClusterNum),
-		util.OperatorLabelName:  util.OperatorName,
+		util.OperatorLabelName:  util.OperatorLabelValue,
 		PodAntiAffinityLabelKey: opsManager.Spec.AppDB.NameForCluster(memberClusterNum),
 	}
 
