@@ -264,6 +264,7 @@ def get_release() -> Dict:
 
 
 def get_git_release_tag() -> tuple[str, bool]:
+    """Returns the git tag of the current run on releases, on non-release returns the patch id."""
     release_env_var = os.getenv("triggered_by_git_tag")
 
     # that means we are in a release and only return the git_tag; otherwise we want to return the patch_id
@@ -290,22 +291,19 @@ def copy_into_container(client, src, dst):
         container.put_archive(os.path.dirname(dst), fd.read())
 
 
-"""
-Generates docker manifests by running the following commands:
-1. Clear existing manifests
-docker manifest rm config.repo_url/image:tag
-2. Create the manifest
-docker manifest create config.repo_url/image:tag --amend config.repo_url/image:tag-amd64 --amend config.repo_url/image:tag-arm64
-3. Push the manifest
-docker manifest push config.repo_url/image:tag
-"""
-
-
-# This method calls docker directly on the command line, this is different from the rest of the code which uses
-# Sonar as an interface to docker. We decided to keep this asymmetry for now, as Sonar will be removed soon.
-
-
 def create_and_push_manifest(image: str, tag: str, architectures: list[str]) -> None:
+    """
+    Generates docker manifests by running the following commands:
+    1. Clear existing manifests
+    docker manifest rm config.repo_url/image:tag
+    2. Create the manifest
+    docker manifest create config.repo_url/image:tag --amend config.repo_url/image:tag-amd64 --amend config.repo_url/image:tag-arm64
+    3. Push the manifest
+    docker manifest push config.repo_url/image:tag
+
+    This method calls docker directly on the command line, this is different from the rest of the code which uses
+    Sonar as an interface to docker. We decided to keep this asymmetry for now, as Sonar will be removed soon.
+    """
     final_manifest = image + ":" + tag
 
     args = [
@@ -343,14 +341,12 @@ def try_get_platform_data(client, image):
         return None
 
 
-"""
-Checks if a docker image supports AMD and ARM platforms by inspecting the registry data.
-
-:param str image: The image name and tag
-"""
-
-
 def check_multi_arch(image: str, suffix: str) -> bool:
+    """
+    Checks if a docker image supports AMD and ARM platforms by inspecting the registry data.
+
+    :param str image: The image name and tag
+    """
     client = docker.from_env()
     platforms = ["linux/amd64", "linux/arm64"]
 
@@ -659,15 +655,13 @@ def args_for_daily_image(image_name: str) -> Dict[str, str]:
             ubi_suffix="",
         ),
         image_config(
-            image_name="mongodb-kubernetes-readinessprobe",
+            image_name="readinessprobe",
             ubi_suffix="",
-            name_prefix="",
             s3_bucket="enterprise-operator-dockerfiles",
         ),
         image_config(
-            image_name="mongodb-kubernetes-operator-version-upgrade-post-start-hook",
+            image_name="operator-version-upgrade-post-start-hook",
             ubi_suffix="",
-            name_prefix="",
             s3_bucket="enterprise-operator-dockerfiles",
         ),
     ]
@@ -741,17 +735,6 @@ class TracedThreadPoolExecutor(ThreadPoolExecutor):
             return super().submit(lambda: fn(*args, **kwargs))
 
 
-"""
-Starts the daily build process for an image. This function works for all images we support, for community and
-enterprise operator. The list of supported image_name is defined in get_builder_function_for_image_name.
-Builds an image for each version listed in ./release.json
-The registry used to pull base image and output the daily build is configured in the image_config function, it is passed
-as an argument to the inventories/daily.yaml file.
-
-If the context image supports both ARM and AMD architectures, both will be built.
-"""
-
-
 def should_skip_arm64():
     """
     Determines if arm64 builds should be skipped based on environment.
@@ -766,7 +749,15 @@ def build_image_daily(
     max_version: str = None,
     operator_version: str = None,
 ):
-    """Builds a daily image."""
+    """
+    Starts the daily build process for an image. This function works for all images we support, for community and
+    enterprise operator. The list of supported image_name is defined in get_builder_function_for_image_name.
+    Builds an image for each version listed in ./release.json
+    The registry used to pull base image and output the daily build is configured in the image_config function, it is passed
+    as an argument to the inventories/daily.yaml file.
+
+    If the context image supports both ARM and AMD architectures, both will be built.
+    """
 
     def get_architectures_set(build_configuration, args):
         """Determine the set of architectures to build for"""
@@ -992,6 +983,11 @@ def build_image_generic(
     multi_arch_args_list: list = None,
     is_run_in_parallel: bool = False,
 ):
+    """Build image generic builds context images and is used for triggering release. During releases
+    it signs and verifies the context image.
+    The release process uses the daily images build process.
+    """
+
     if not multi_arch_args_list:
         multi_arch_args_list = [extra_args or {}]
 
@@ -1011,8 +1007,12 @@ def build_image_generic(
             # But since we don't run daily rebuilds on ecr image builds, we can do that step instead here.
             # We only need to push manifests for multi-arch images.
             create_and_push_manifest(registry_address, version, architectures=architectures)
+
+    # Sign and verify the context image if on releases if requied.
     if config.sign and config.is_release_step_executed():
         sign_and_verify_context_image(registry, version)
+
+    # Release step. Release images via the daily image process.
     if config.is_release_step_executed() and version and QUAY_REGISTRY_URL in registry:
         logger.info(
             f"finished building context images, releasing them now via daily builds process for"
@@ -1458,11 +1458,11 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         # This only builds the agents without the operator suffix
         "mongodb-agent-daily": build_image_daily("mongodb-agent", operator_version="onlyAgents"),
         # Community images
-        "mongodb-kubernetes-readinessprobe-daily": build_image_daily(
-            "mongodb-kubernetes-readinessprobe",
+        "readinessprobe-daily": build_image_daily(
+            "readinessprobe",
         ),
-        "mongodb-kubernetes-operator-version-upgrade-post-start-hook-daily": build_image_daily(
-            "mongodb-kubernetes-operator-version-upgrade-post-start-hook",
+        "operator-version-upgrade-post-start-hook-daily": build_image_daily(
+            "operator-version-upgrade-post-start-hook",
         ),
         "mongodb-kubernetes-operator-daily": build_image_daily("mongodb-kubernetes-operator"),
     }
@@ -1546,11 +1546,12 @@ def calculate_images_to_build(
 
 def main():
     _setup_tracing()
+    _setup_tracing()
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--include", action="append")
-    parser.add_argument("--exclude", action="append")
-    parser.add_argument("--builder", default="docker", type=str)
+    parser.add_argument("--include", action="append", help="list of images to include")
+    parser.add_argument("--exclude", action="append", help="list of images to exclude")
+    parser.add_argument("--builder", default="docker", type=str, help="docker or podman")
     parser.add_argument("--list-images", action="store_true")
     parser.add_argument("--parallel", action="store_true", default=False)
     parser.add_argument("--debug", action="store_true", default=False)

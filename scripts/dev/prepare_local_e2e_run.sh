@@ -76,7 +76,7 @@ if [[ "${DEPLOY_OPERATOR:-"false"}" == "true" ]]; then
   fi
 
   # shellcheck disable=SC2128
-  helm upgrade --install mongodb-enterprise-operator helm_chart --set "$(echo "${helm_values}" | tr ' ' ',')"
+  helm upgrade --install mongodb-kubernetes-operator helm_chart --set "$(echo "${helm_values}" | tr ' ' ',')"
 fi
 
 if [[ "${KUBE_ENVIRONMENT_NAME}" == "kind" ]]; then
