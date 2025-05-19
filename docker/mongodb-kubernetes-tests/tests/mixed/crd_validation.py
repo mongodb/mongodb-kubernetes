@@ -38,6 +38,7 @@ def test_mongodbmulti_crd_is_valid(crd_api: ApiextensionsV1Api):
     resource = crd_api.read_custom_resource_definition("mongodbmulticluster.mongodb.com")
     assert crd_has_expected_conditions(resource)
 
+
 @mark.e2e_crd_validation
 def test_clustermongodbrole_crd_is_valid(crd_api: ApiextensionsV1Api):
     resource = crd_api.read_custom_resource_definition("clustermongodbrole.mongodb.com")
