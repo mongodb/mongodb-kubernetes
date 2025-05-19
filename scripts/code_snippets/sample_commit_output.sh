@@ -9,6 +9,7 @@ if [ "${COMMIT_OUTPUT:-false}" = true ]; then
   git checkout -b "${branch}"
   git reset
   git add public/architectures/**/*.out
+  git add docs/**/output/*.out
   git commit -m "Update code snippets outputs"
   git remote set-url origin https://x-access-token:"${GH_TOKEN}"@github.com/mongodb/mongodb-kubernetes.git
   git push origin "${branch}"

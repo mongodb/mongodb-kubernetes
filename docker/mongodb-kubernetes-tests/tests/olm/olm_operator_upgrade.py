@@ -2,11 +2,9 @@ import pytest
 from kubernetes.client.rest import ApiException
 from kubetester import MongoDB, read_service, wait_for_webhook
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import (
-    get_default_architecture,
-    is_default_architecture_static,
-)
+from kubetester.kubetester import get_default_architecture
 from kubetester.opsmanager import MongoDBOpsManager
+from tests.conftest import OPERATOR_NAME
 from tests.olm.olm_test_commons import (
     get_catalog_image,
     get_catalog_source_resource,
@@ -37,11 +35,11 @@ def test_upgrade_operator_only(namespace: str, version_id: str):
 
     static_value = get_default_architecture()
     subscription = get_subscription_custom_object(
-        "mongodb-kubernetes",
+        OPERATOR_NAME,
         namespace,
         {
             "channel": "stable",  # stable channel contains latest released operator in RedHat's certified repository
-            "name": "mongodb-enterprise",
+            "name": "mongodb-kubernetes",
             "source": catalog_source_resource.name,
             "sourceNamespace": namespace,
             "installPlanApproval": "Automatic",
@@ -60,13 +58,13 @@ def test_upgrade_operator_only(namespace: str, version_id: str):
 
     subscription.update()
 
-    wait_for_operator_ready(namespace, "mongodb-kubernetes", f"mongodb-kubernetes.v{latest_released_operator_version}")
+    wait_for_operator_ready(namespace, OPERATOR_NAME, f"mongodb-kubernetes.v{latest_released_operator_version}")
 
     subscription.load()
     subscription["spec"]["channel"] = "fast"  # fast channel contains operator build from the current branch
     subscription.update()
 
-    wait_for_operator_ready(namespace, "mongodb-kubernetes", f"mongodb-kubernetes.v{incremented_operator_version}")
+    wait_for_operator_ready(namespace, OPERATOR_NAME, f"mongodb-kubernetes.v{incremented_operator_version}")
 
 
 @pytest.mark.e2e_olm_operator_upgrade
@@ -80,7 +78,7 @@ def test_operator_webhook_is_deleted_and_not_installed_anymore(namespace: str):
 
 @pytest.mark.e2e_olm_operator_upgrade
 def test_wait_for_webhook(namespace: str):
-    wait_for_webhook(namespace=namespace, service_name="mongodb-enterprise-operator-service")
+    wait_for_webhook(namespace=namespace, service_name="mongodb-kubernetes-operator-service")
 
 
 @pytest.mark.e2e_olm_operator_upgrade
