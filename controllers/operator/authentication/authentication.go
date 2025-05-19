@@ -263,7 +263,7 @@ func enableAgentAuthentication(conn om.Connection, opts Options, log *zap.Sugare
 	}
 
 	// we then configure the agent authentication for that type
-	mechanism := convertToMechanism(opts.AgentMechanism, ac)
+	mechanism := convertToMechanismOrPanic(opts.AgentMechanism, ac)
 	if err := ensureAgentAuthenticationIsConfigured(conn, opts, ac, mechanism, log); err != nil {
 		return xerrors.Errorf("error ensuring agent authentication is configured: %w", err)
 	}
@@ -322,7 +322,7 @@ func removeUnsupportedDeploymentMechanisms(conn om.Connection, opts Options, log
 	automationConfigAuthMechanisms := convertToMechanismList(opts.Mechanisms, ac)
 
 	unsupportedMechanisms := mechanismsToDisable(automationConfigAuthMechanisms)
-
+  
 	log.Infow("Removing unsupported deployment authentication mechanisms", "Mechanisms", unsupportedMechanisms)
 	if err := ensureDeploymentMechanismsAreDisabled(conn, ac, unsupportedMechanisms, opts, log); err != nil {
 		return xerrors.Errorf("error ensuring deployment mechanisms are disabled: %w", err)
@@ -339,7 +339,7 @@ func addOrRemoveAgentClientCertificate(conn om.Connection, opts Options, log *za
 	// If x509 is not enabled but still Client Certificates are, this automation config update
 	// will add the required configuration.
 	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
-		if convertToMechanism(opts.AgentMechanism, ac).GetName() == MongoDBX509 {
+		if convertToMechanismOrPanic(opts.AgentMechanism, ac).GetName() == MongoDBX509 {
 			// If TLS client authentication is managed by x509, we won't disable or enable it
 			// in here.
 			return nil

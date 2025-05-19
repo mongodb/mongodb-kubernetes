@@ -2,7 +2,7 @@ requests==2.32.3
 click==8.0.4
 docker==7.1.0
 Jinja2==3.1.6
-ruamel.yaml==0.18.6
+ruamel.yaml==0.18.10
 dnspython>=2.6.1
 MarkupSafe==2.0.1
 semver==2.13.0
@@ -10,14 +10,14 @@ chardet==3.0.4
 jsonpatch==1.33
 kubernetes==17.17.0
 pymongo==4.6.3
-pytest==7.4.3
-pytest-asyncio==0.14.0
+pytest==8.3.5
+pytest-asyncio==0.26.0
 PyYAML==6.0.2
 urllib3==1.26.19
 cryptography==44.0.1
 python-dateutil==2.9.0
 python-ldap==3.4.4
-GitPython==3.1.43
+GitPython==3.1.44
 setuptools>=71.0.3 # not directly required, pinned by Snyk to avoid a vulnerability
 opentelemetry-api
 opentelemetry-sdk
@@ -29,7 +29,7 @@ flake8
 isort==5.12.0
 shrub.py==3.6.0
 pytest-mock==3.14.0
-wrapt==1.16.0
+wrapt==1.17.2
 botocore==1.35.29
 boto3==1.35.29
 
@@ -44,5 +44,5 @@ types-PyYAML==6.0.12.20250402
 types-pytz==2021.1.0
 types-python-dateutil==0.1.4
 pipupgrade==1.12.0
-pytest-cov==6.0.0
+pytest-cov==6.1.1
 pytest-socket==0.7.0
