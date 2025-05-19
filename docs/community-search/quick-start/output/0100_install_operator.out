@@ -1,6 +1,6 @@
 Release "mongodb-kubernetes" does not exist. Installing it now.
 NAME: mongodb-kubernetes
-LAST DEPLOYED: Sat May 10 11:44:37 2025
+LAST DEPLOYED: Mon May 19 16:31:19 2025
 NAMESPACE: mongodb
 STATUS: deployed
 REVISION: 1
@@ -10,13 +10,13 @@ agent:
   version: 108.0.2.8729-1
 database:
   name: mongodb-kubernetes-database
-  version: 681da7cd38e00c0007d35c5d
+  version: 682b58f51f472c000714c5f7
 initAppDb:
-  version: 681da7cd38e00c0007d35c5d
+  version: 682b58f51f472c000714c5f7
 initDatabase:
-  version: 681da7cd38e00c0007d35c5d
+  version: 682b58f51f472c000714c5f7
 initOpsManager:
-  version: 681da7cd38e00c0007d35c5d
+  version: 682b58f51f472c000714c5f7
 managedSecurityContext: false
 mongodb:
   imageType: ubi9
@@ -30,7 +30,7 @@ operator:
       frequency: 1m
     send:
       enabled: false
-  version: 681da7cd38e00c0007d35c5d
+  version: 682b58f51f472c000714c5f7
 opsManager:
   name: mongodb-enterprise-ops-manager-ubi
 registry:
@@ -75,16 +75,16 @@ community:
     version: 4.4.0
 database:
   name: mongodb-kubernetes-database
-  version: 681da7cd38e00c0007d35c5d
+  version: 682b58f51f472c000714c5f7
 initAppDb:
   name: mongodb-kubernetes-init-appdb
-  version: 681da7cd38e00c0007d35c5d
+  version: 682b58f51f472c000714c5f7
 initDatabase:
   name: mongodb-kubernetes-init-database
-  version: 681da7cd38e00c0007d35c5d
+  version: 682b58f51f472c000714c5f7
 initOpsManager:
   name: mongodb-kubernetes-init-ops-manager
-  version: 681da7cd38e00c0007d35c5d
+  version: 682b58f51f472c000714c5f7
 managedSecurityContext: false
 mongodb:
   appdbAssumeOldFormat: false
@@ -131,7 +131,7 @@ operator:
   vaultSecretBackend:
     enabled: false
     tlsSecretRef: ""
-  version: 681da7cd38e00c0007d35c5d
+  version: 682b58f51f472c000714c5f7
   watchedResources:
   - mongodb
   - opsmanagers
@@ -161,9 +161,9 @@ registry:
   versionUpgradeHook: quay.io/mongodb
 search:
   community:
-    name: watchdiff
-    repo: quay.io/lsierant
-    version: mongot-community-bd5ac
+    name: mongodb-search-community
+    repo: quay.io/mongodb
+    version: 1.47.0
 subresourceEnabled: true
 versionUpgradeHook:
   name: mongodb-kubernetes-operator-version-upgrade-post-start-hook
@@ -465,7 +465,7 @@ spec:
         - name: image-registries-secret
       containers:
         - name: mongodb-kubernetes-operator
-          image: "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes:681da7cd38e00c0007d35c5d"
+          image: "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes:682b58f51f472c000714c5f7"
           imagePullPolicy: Always
           args:
             - -watch-resource=mongodb
@@ -511,21 +511,21 @@ spec:
             - name: INIT_DATABASE_IMAGE_REPOSITORY
               value: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-database
             - name: INIT_DATABASE_VERSION
-              value: 681da7cd38e00c0007d35c5d
+              value: 682b58f51f472c000714c5f7
             - name: DATABASE_VERSION
-              value: 681da7cd38e00c0007d35c5d
+              value: 682b58f51f472c000714c5f7
             # Ops Manager
             - name: OPS_MANAGER_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-enterprise-ops-manager-ubi
             - name: INIT_OPS_MANAGER_IMAGE_REPOSITORY
               value: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-ops-manager
             - name: INIT_OPS_MANAGER_VERSION
-              value: 681da7cd38e00c0007d35c5d
+              value: 682b58f51f472c000714c5f7
             # AppDB
             - name: INIT_APPDB_IMAGE_REPOSITORY
               value: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-appdb
             - name: INIT_APPDB_VERSION
-              value: 681da7cd38e00c0007d35c5d
+              value: 682b58f51f472c000714c5f7
             - name: OPS_MANAGER_IMAGE_PULL_POLICY
               value: Always
             - name: AGENT_IMAGE
@@ -565,9 +565,9 @@ spec:
               value: "ubi8"
             # Community Env Vars End
             - name: MDB_SEARCH_COMMUNITY_REPO_URL
-              value: "quay.io/lsierant"
+              value: "quay.io/mongodb"
             - name: MDB_SEARCH_COMMUNITY_NAME
-              value: "watchdiff"
+              value: "mongodb-search-community"
             - name: MDB_SEARCH_COMMUNITY_VERSION
-              value: "mongot-community-bd5ac"
+              value: "1.47.0"
 
