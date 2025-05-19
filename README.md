@@ -1,5 +1,4 @@
 [![Documentation](https://img.shields.io/badge/Documentation-MongoDB-green)](https://www.mongodb.com/docs/kubernetes/current/)
-![Latest Release](https://img.shields.io/github/v/release/mongodb/mongodb-kubernetes)
 
 # Mongodb Controllers for Kubernetes (MCK)
 
