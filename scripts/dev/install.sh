@@ -18,7 +18,6 @@ elif [ "$(uname)" = "Linux" ] ; then # Ubuntu only
 
   kops_version="$(curl -s https://api.github.com/repos/kubernetes/kops/releases/latest | grep tag_name | cut -d '"' -f 4)"
   curl -Lo kops "https://github.com/kubernetes/kops/releases/download/${kops_version}/kops-linux-amd64"
-  echo "hi"
   chmod +x kops
   mv kops "${GOBIN}"  || true
 
