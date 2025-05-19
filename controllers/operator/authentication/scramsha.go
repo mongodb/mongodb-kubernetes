@@ -8,101 +8,66 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
-func NewConnectionScramSha256(conn om.Connection, ac *om.AutomationConfig) ConnectionScramSha {
-	return ConnectionScramSha{
-		Conn: conn,
-		AutomationConfigScramSha: AutomationConfigScramSha{
-			automationConfig: ac,
-			mechanismName:    ScramSha256,
-		},
-	}
-}
-
-func NewConnectionCR(conn om.Connection, ac *om.AutomationConfig) ConnectionScramSha {
-	return ConnectionScramSha{
-		Conn: conn,
-		AutomationConfigScramSha: AutomationConfigScramSha{
-			automationConfig: ac,
-			mechanismName:    MongoDBCR,
-		},
-	}
-}
-
-func NewConnectionScramSha1(conn om.Connection, ac *om.AutomationConfig) ConnectionScramSha {
-	return ConnectionScramSha{
-		Conn: conn,
-		AutomationConfigScramSha: AutomationConfigScramSha{
-			automationConfig: ac,
-			mechanismName:    ScramSha1,
-		},
-	}
-}
-
-func NewAutomationConfigScramSha1(ac *om.AutomationConfig) AutomationConfigScramSha {
-	return AutomationConfigScramSha{
-		automationConfig: ac,
-		mechanismName:    MongoDBCR,
-	}
-}
-
-func NewAutomationConfigScramSha256(ac *om.AutomationConfig) AutomationConfigScramSha {
-	return AutomationConfigScramSha{
-		automationConfig: ac,
-		mechanismName:    ScramSha256,
-	}
-}
-
-// AutomationConfigScramSha applies all the changes required to configure SCRAM-SHA authentication
+// automationConfigScramSha applies all the changes required to configure SCRAM-SHA authentication
 // directly to an AutomationConfig struct. This implementation does not communicate with Ops Manager in any way.
-type AutomationConfigScramSha struct {
-	mechanismName    MechanismName
-	automationConfig *om.AutomationConfig
+type automationConfigScramSha struct {
+	MechanismName MechanismName
 }
 
-func (s AutomationConfigScramSha) EnableAgentAuthentication(opts Options, log *zap.SugaredLogger) error {
-	if err := configureScramAgentUsers(s.automationConfig, opts); err != nil {
-		return err
-	}
-	if err := s.automationConfig.EnsureKeyFileContents(); err != nil {
-		return err
-	}
-
-	auth := s.automationConfig.Auth
-	auth.Disabled = false
-	auth.AuthoritativeSet = opts.AuthoritativeSet
-	auth.KeyFile = util.AutomationAgentKeyFilePathInContainer
-	auth.KeyFileWindows = util.AutomationAgentWindowsKeyFilePath
-
-	// We can only have a single agent authentication mechanism specified at a given time
-	auth.AutoAuthMechanisms = []string{string(s.mechanismName)}
-	return nil
+func (s *automationConfigScramSha) GetName() MechanismName {
+	return s.MechanismName
 }
 
-func (s AutomationConfigScramSha) DisableAgentAuthentication(log *zap.SugaredLogger) error {
-	s.automationConfig.Auth.AutoAuthMechanisms = stringutil.Remove(s.automationConfig.Auth.AutoAuthMechanisms, string(s.mechanismName))
-	return nil
+func (s *automationConfigScramSha) EnableAgentAuthentication(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
+	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		if err := configureScramAgentUsers(ac, opts); err != nil {
+			return err
+		}
+		if err := ac.EnsureKeyFileContents(); err != nil {
+			return err
+		}
+
+		auth := ac.Auth
+		auth.Disabled = false
+		auth.AuthoritativeSet = opts.AuthoritativeSet
+		auth.KeyFile = util.AutomationAgentKeyFilePathInContainer
+		auth.KeyFileWindows = util.AutomationAgentWindowsKeyFilePath
+
+		// We can only have a single agent authentication mechanism specified at a given time
+		auth.AutoAuthMechanisms = []string{string(s.MechanismName)}
+		return nil
+	}, log)
 }
 
-func (s AutomationConfigScramSha) DisableDeploymentAuthentication() error {
-	s.automationConfig.Auth.DeploymentAuthMechanisms = stringutil.Remove(s.automationConfig.Auth.DeploymentAuthMechanisms, string(s.mechanismName))
-	return nil
+func (s *automationConfigScramSha) DisableAgentAuthentication(conn om.Connection, log *zap.SugaredLogger) error {
+	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		ac.Auth.AutoAuthMechanisms = stringutil.Remove(ac.Auth.AutoAuthMechanisms, string(s.MechanismName))
+		return nil
+	}, log)
 }
 
-func (s AutomationConfigScramSha) EnableDeploymentAuthentication(Options) error {
-	auth := s.automationConfig.Auth
-	if !stringutil.Contains(auth.DeploymentAuthMechanisms, string(s.mechanismName)) {
-		auth.DeploymentAuthMechanisms = append(auth.DeploymentAuthMechanisms, string(s.mechanismName))
-	}
-	return nil
+func (s *automationConfigScramSha) DisableDeploymentAuthentication(conn om.Connection, log *zap.SugaredLogger) error {
+	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		ac.Auth.DeploymentAuthMechanisms = stringutil.Remove(ac.Auth.DeploymentAuthMechanisms, string(s.MechanismName))
+		return nil
+	}, log)
 }
 
-func (s AutomationConfigScramSha) IsAgentAuthenticationConfigured() bool {
-	ac := s.automationConfig
+func (s *automationConfigScramSha) EnableDeploymentAuthentication(conn om.Connection, _ Options, log *zap.SugaredLogger) error {
+	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		if !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(s.MechanismName)) {
+			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, string(s.MechanismName))
+		}
+		return nil
+	}, log)
+}
+
+func (s *automationConfigScramSha) IsAgentAuthenticationConfigured(ac *om.AutomationConfig, _ Options) bool {
 	if ac.Auth.Disabled {
 		return false
 	}
 
-	if !stringutil.Contains(ac.Auth.AutoAuthMechanisms, string(s.mechanismName)) {
+	if !stringutil.Contains(ac.Auth.AutoAuthMechanisms, string(s.MechanismName)) {
 		return false
 	}
 
@@ -117,29 +82,8 @@ func (s AutomationConfigScramSha) IsAgentAuthenticationConfigured() bool {
 	return true
 }
 
-func (s AutomationConfigScramSha) IsDeploymentAuthenticationConfigured() bool {
-	return stringutil.Contains(s.automationConfig.Auth.DeploymentAuthMechanisms, string(s.mechanismName))
-}
-
-// ConnectionScramSha is a wrapper around AutomationConfigScramSha which pulls the AutomationConfig
-// from Ops Manager and sends back the AutomationConfig which has been configured for to enabled SCRAM-SHA
-type ConnectionScramSha struct {
-	AutomationConfigScramSha
-	Conn om.Connection
-}
-
-func (s ConnectionScramSha) EnableAgentAuthentication(opts Options, log *zap.SugaredLogger) error {
-	return s.Conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
-		s.automationConfig = ac
-		return s.AutomationConfigScramSha.EnableAgentAuthentication(opts, log)
-	}, log)
-}
-
-func (s ConnectionScramSha) DisableAgentAuthentication(log *zap.SugaredLogger) error {
-	return s.Conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
-		s.automationConfig = ac
-		return s.AutomationConfigScramSha.DisableAgentAuthentication(log)
-	}, log)
+func (s *automationConfigScramSha) IsDeploymentAuthenticationConfigured(ac *om.AutomationConfig, _ Options) bool {
+	return stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(s.MechanismName))
 }
 
 // configureScramAgentUsers makes sure that the given automation config always has the correct SCRAM-SHA users

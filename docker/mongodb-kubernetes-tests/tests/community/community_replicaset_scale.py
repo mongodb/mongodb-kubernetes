@@ -19,12 +19,12 @@ def mdbc(namespace: str) -> MongoDBCommunity:
     if try_load(resource):
         return resource
 
-    return resource.update()
+    return resource
 
 
 @mark.e2e_community_replicaset_scale
-def test_install_operator(community_operator: Operator):
-    community_operator.assert_is_running()
+def test_install_operator(default_operator: Operator):
+    default_operator.assert_is_running()
 
 
 @mark.e2e_community_replicaset_scale
@@ -34,14 +34,14 @@ def test_install_secret(namespace: str):
 
 @mark.e2e_community_replicaset_scale
 def test_replicaset_running(mdbc: MongoDBCommunity):
+    mdbc.update()
     mdbc.assert_reaches_phase(Phase.Running, timeout=300)
 
 
 @mark.e2e_community_replicaset_scale
 def test_replicaset_scale_up(mdbc: MongoDBCommunity):
-    rs = mdbc.load()
-    rs["spec"]["members"] = 5
-    rs.update()
+    mdbc["spec"]["members"] = 5
+    mdbc.update()
     # TODO: MCK As we don't have "observedGeneration" in MongoDBCommunity status, we could be checking the status too early.
     # We always need to check for abandoning phase first
     mdbc.assert_abandons_phase(Phase.Running, timeout=60)

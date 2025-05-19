@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+script_name=$(readlink -f "${BASH_SOURCE[0]}")
+script_dir=$(dirname "${script_name}")
+
+source "${script_dir}/root-context"
+source "${script_dir}/variables/om70"
+
+export DATABASE_REGISTRY="${QUAY_REGISTRY}"
+export APPDB_REGISTRY="${QUAY_REGISTRY}"
+export INIT_OPS_MANAGER_REGISTRY="${QUAY_REGISTRY}"
+export OPS_MANAGER_REGISTRY="${QUAY_REGISTRY}"
+export OPERATOR_REGISTRY="${QUAY_REGISTRY}"
+export INIT_IMAGES_REGISTRY="${QUAY_REGISTRY}"
+export INIT_APPDB_REGISTRY="${QUAY_REGISTRY}"
+export INIT_DATABASE_REGISTRY="${QUAY_REGISTRY}"
+# Since we're sourcing this as an initial step, the jq might not be there. That's why we need bash magic here.
+OPERATOR_VERSION="$(grep -o '"mongodbOperator": "[^"]*' release.json | grep -o '[^"]*$')"
+export OPERATOR_VERSION
+INIT_DATABASE_VERSION="$(grep -o '"initDatabaseVersion": "[^"]*' release.json | grep -o '[^"]*$')"
+export INIT_DATABASE_VERSION
+INIT_APPDB_VERSION="$(grep -o '"initAppDbVersion": "[^"]*' release.json | grep -o '[^"]*$')"
+export INIT_APPDB_VERSION
+INIT_OPS_MANAGER_VERSION="$(grep -o '"initOpsManagerVersion": "[^"]*' release.json | grep -o '[^"]*$')"
+export INIT_OPS_MANAGER_VERSION
+DATABASE_VERSION="$(grep -o '"databaseImageVersion": "[^"]*' release.json | grep -o '[^"]*$')"
+export DATABASE_VERSION

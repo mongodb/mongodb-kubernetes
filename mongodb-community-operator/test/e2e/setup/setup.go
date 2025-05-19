@@ -240,6 +240,11 @@ func getMCOHelmArgs(testConfig TestConfig, watchNamespace string, resourceName s
 // DeployMCKOperator installs all resources required by the operator using helm.
 func DeployMCKOperator(ctx context.Context, t *testing.T, config TestConfig, resourceName string, withTLS bool, defaultOperator bool, additionalHelmArgs ...HelmArg) error {
 	e2eutil.OperatorNamespace = config.Namespace
+
+	if config.LocalOperator {
+		fmt.Printf("Skipping installing the operator due to %s=true\n", LocalOperatorEnvName)
+		return nil
+	}
 	fmt.Printf("Setting operator namespace to %s\n", e2eutil.OperatorNamespace)
 	watchNamespace := config.Namespace
 	if config.ClusterWide {

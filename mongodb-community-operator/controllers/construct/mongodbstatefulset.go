@@ -380,11 +380,20 @@ if [ -e "/hooks/version-upgrade" ]; then
 fi
 
 # wait for config and keyfile to be created by the agent
-while ! [ -f %s -a -f %s ]; do sleep 3 ; done ; sleep 2 ;
+echo "Waiting for config and keyfile files to be created by the agent..."
+while ! [ -f %s -a -f %s ]; do
+	sleep 3;
+	echo "Waiting..."
+done
+
+# sleep is important after agent issues shutdown command
+# k8s restarts the mongod container too quickly for the agent to realize mongod is down
+echo "Sleeping for 15s..."
+sleep 15
 
 # start mongod with this configuration
+echo "Starting mongod..."
 exec mongod -f %s;
-
 `, filePath, keyfileFilePath, filePath)
 
 	containerCommand := []string{

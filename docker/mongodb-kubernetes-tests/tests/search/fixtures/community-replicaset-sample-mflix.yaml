@@ -1,0 +1,48 @@
+---
+apiVersion: mongodbcommunity.mongodb.com/v1
+kind: MongoDBCommunity
+metadata:
+  name: mdbc-rs
+spec:
+  members: 3
+  type: ReplicaSet
+  version: "8.0.5"
+  security:
+    authentication:
+      modes: ["SCRAM"]
+  agent:
+    logLevel: DEBUG
+  users:
+    - name: my-user
+      db: admin
+      passwordSecretRef: # a reference to the secret that will be used to generate the user's password
+        name: my-user-password
+      roles:
+        - name: clusterAdmin
+          db: admin
+        - name: userAdminAnyDatabase
+          db: admin
+        - name: readWrite
+          db: sample_mflix
+      scramCredentialsSecretName: my-scram
+  statefulSet:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: mongod
+              resources:
+                limits:
+                  cpu: "3"
+                  memory: 5Gi
+                requests:
+                  cpu: "2"
+                  memory: 5Gi
+            - name: mongodb-agent
+              resources:
+                limits:
+                  cpu: "3"
+                  memory: 5Gi
+                requests:
+                  cpu: "2"
+                  memory: 5Gi

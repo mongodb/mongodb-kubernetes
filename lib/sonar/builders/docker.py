@@ -47,7 +47,13 @@ def docker_build(
         )
 
         client = docker_client()
-        return client.images.get(image_name)
+        image = client.images.get(image_name)
+        logger.info("successfully built docker-image, SHA256: {}".format(image.id))
+
+        span = trace.get_current_span()
+        span.set_attribute("mck.image.sha256", image.id)
+
+        return image
     except docker.errors.APIError as e:
         raise SonarAPIError from e
 

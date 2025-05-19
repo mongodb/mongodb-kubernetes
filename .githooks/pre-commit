@@ -163,7 +163,7 @@ run_shellcheck() {
 
 start_shellcheck() {
   files_1=$(find scripts -type f -name "*.sh")
-  files_2=$(find scripts/dev/contexts -type f)
+  files_2=$(find scripts/dev/contexts -type f | grep -v private-context)
   files_3=$(find scripts/funcs -type f)
   files_4=$(find public/architectures -type f -name "*.sh")
   files=$(echo -e "$files_1\n$files_2\n$files_3\n$files_4")

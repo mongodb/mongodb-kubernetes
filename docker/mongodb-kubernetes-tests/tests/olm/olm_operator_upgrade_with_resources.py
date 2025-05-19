@@ -11,15 +11,12 @@ from kubetester.awss3client import AwsS3Client
 from kubetester.certs import create_sharded_cluster_certs
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import (
-    get_default_architecture,
-    is_default_architecture_static,
-    run_periodically,
-)
+from kubetester.kubetester import get_default_architecture, run_periodically
 from kubetester.mongodb import Phase
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture
+from tests.conftest import OPERATOR_NAME
 from tests.olm.olm_test_commons import (
     get_catalog_image,
     get_catalog_source_resource,
@@ -64,11 +61,11 @@ def catalog_source(namespace: str, version_id: str):
 def subscription(namespace: str, catalog_source: CustomObject):
     static_value = get_default_architecture()
     return get_subscription_custom_object(
-        "mongodb-kubernetes",
+        OPERATOR_NAME,
         namespace,
         {
             "channel": "stable",  # stable channel contains latest released operator in RedHat's certified repository
-            "name": "mongodb-enterprise",
+            "name": "mongodb-kubernetes",
             "source": catalog_source.name,
             "sourceNamespace": namespace,
             "installPlanApproval": "Automatic",
@@ -100,7 +97,7 @@ def test_install_stable_operator_version(
     subscription: CustomObject,
 ):
     subscription.update()
-    wait_for_operator_ready(namespace, "mongodb-kubernetes", f"mongodb-kubernetes.v{current_operator_version}")
+    wait_for_operator_ready(namespace, OPERATOR_NAME, f"mongodb-kubernetes.v{current_operator_version}")
 
 
 # install resources on the latest released version of the operator
@@ -368,7 +365,7 @@ def test_operator_upgrade_to_fast(
 
     run_periodically(update_subscription, timeout=100, msg="Subscription to be updated")
 
-    wait_for_operator_ready(namespace, "mongodb-kubernetes", f"mongodb-kubernetes.v{incremented_operator_version}")
+    wait_for_operator_ready(namespace, OPERATOR_NAME, f"mongodb-kubernetes.v{incremented_operator_version}")
 
 
 @pytest.mark.e2e_olm_operator_upgrade_with_resources

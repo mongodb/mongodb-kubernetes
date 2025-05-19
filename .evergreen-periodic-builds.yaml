@@ -103,6 +103,7 @@ tasks:
         vars:
           image_name: mongodb-agent-1-daily
 
+  #TODO should we still build the community operator?
   - name: periodic_build_community_operator
     commands:
       - func: enable_QEMU
@@ -114,13 +115,13 @@ tasks:
     commands:
       - func: pipeline
         vars:
-          image_name: mongodb-kubernetes-readinessprobe-daily
+          image_name: readinessprobe-daily
 
   - name: periodic_build_version_upgrade_post_start_hook
     commands:
       - func: pipeline
         vars:
-          image_name: mongodb-kubernetes-operator-version-upgrade-post-start-hook-daily
+          image_name: operator-version-upgrade-post-start-hook-daily
 
 task_groups:
   - name: periodic_build_task_group

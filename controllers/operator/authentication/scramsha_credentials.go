@@ -16,6 +16,8 @@ import (
 )
 
 const (
+	ExternalDB = "$external"
+
 	clientKeyInput = "Client Key" // specified in RFC 5802
 	serverKeyInput = "Server Key" // specified in RFC 5802
 
@@ -23,15 +25,42 @@ const (
 	scramSha1Iterations   = 10000
 	scramSha256Iterations = 15000
 
-	RFC5802MandatedSaltSize = 4
+	rfc5802MandatedSaltSize = 4
 )
+
+// ConfigureScramCredentials creates both SCRAM-SHA-1 and SCRAM-SHA-256 credentials. This ensures
+// that changes to the authentication settings on the MongoDB resources won't leave MongoDBUsers without
+// the correct credentials.
+func ConfigureScramCredentials(user *om.MongoDBUser, password string) error {
+	scram256Salt, err := generateSalt(sha256.New)
+	if err != nil {
+		return xerrors.Errorf("error generating scramSha256 salt: %w", err)
+	}
+
+	scram1Salt, err := generateSalt(sha1.New)
+	if err != nil {
+		return xerrors.Errorf("error generating scramSha1 salt: %w", err)
+	}
+
+	scram256Creds, err := computeScramShaCreds(user.Username, password, scram256Salt, ScramSha256)
+	if err != nil {
+		return xerrors.Errorf("error generating scramSha256 creds: %w", err)
+	}
+	scram1Creds, err := computeScramShaCreds(user.Username, password, scram1Salt, MongoDBCR)
+	if err != nil {
+		return xerrors.Errorf("error generating scramSha1Creds: %w", err)
+	}
+	user.ScramSha256Creds = scram256Creds
+	user.ScramSha1Creds = scram1Creds
+	return nil
+}
 
 // The code in this file is largely adapted from the Automation Agent codebase.
 // https://github.com/10gen/mms-automation/blob/c108e0319cc05c0d8719ceea91a0424a016db583/go_planner/src/com.tengen/cm/crypto/scram.go
 
-// ComputeScramShaCreds takes a plain text password and a specified mechanism name and generates
+// computeScramShaCreds takes a plain text password and a specified mechanism name and generates
 // the ScramShaCreds which will be embedded into a MongoDBUser.
-func ComputeScramShaCreds(username, password string, salt []byte, name MechanismName) (*om.ScramShaCreds, error) {
+func computeScramShaCreds(username, password string, salt []byte, name MechanismName) (*om.ScramShaCreds, error) {
 	var hashConstructor func() hash.Hash
 	iterations := 0
 	if name == ScramSha256 {
@@ -52,10 +81,10 @@ func ComputeScramShaCreds(username, password string, salt []byte, name Mechanism
 	return computeScramCredentials(hashConstructor, iterations, base64EncodedSalt, password)
 }
 
-// GenerateSalt will create a salt for use with ComputeScramShaCreds based on the given hashConstructor.
+// generateSalt will create a salt for use with computeScramShaCreds based on the given hashConstructor.
 // sha1.New should be used for MONGODB-CR/SCRAM-SHA-1 and sha256.New should be used for SCRAM-SHA-256
-func GenerateSalt(hashConstructor func() hash.Hash) ([]byte, error) {
-	saltSize := hashConstructor().Size() - RFC5802MandatedSaltSize
+func generateSalt(hashConstructor func() hash.Hash) ([]byte, error) {
+	saltSize := hashConstructor().Size() - rfc5802MandatedSaltSize
 	salt, err := generate.RandomFixedLengthStringOfSize(saltSize)
 	if err != nil {
 		return nil, err
@@ -81,8 +110,8 @@ func hmacIteration(hashConstructor func() hash.Hash, input, salt []byte, iterati
 
 	// incorrect salt size will pass validation, but the credentials will be invalid. i.e. it will not
 	// be possible to auth with the password provided to create the credentials.
-	if len(salt) != hashSize-RFC5802MandatedSaltSize {
-		return nil, xerrors.Errorf("salt should have a size of %v bytes, but instead has a size of %v bytes", hashSize-RFC5802MandatedSaltSize, len(salt))
+	if len(salt) != hashSize-rfc5802MandatedSaltSize {
+		return nil, xerrors.Errorf("salt should have a size of %v bytes, but instead has a size of %v bytes", hashSize-rfc5802MandatedSaltSize, len(salt))
 	}
 
 	startKey := append(salt, 0, 0, 0, 1)

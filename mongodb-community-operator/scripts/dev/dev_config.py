@@ -125,7 +125,7 @@ class DevConfig:
 
     @property
     def local_operator(self) -> str:
-        return self._config["mdb_local_operator"]
+        return self._config["local_operator"]
 
     @property
     def kube_config(self) -> str:

@@ -40,12 +40,14 @@ import (
 	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
+	"github.com/mongodb/mongodb-kubernetes/controllers/search_controller"
 	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	mcoController "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers"
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/pprof"
 	"github.com/mongodb/mongodb-kubernetes/pkg/telemetry"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
@@ -60,6 +62,7 @@ const (
 	mongoDBOpsManagerCRDPlural   = "opsmanagers"
 	mongoDBMultiClusterCRDPlural = "mongodbmulticluster"
 	mongoDBCommunityCRDPlural    = "mongodbcommunity"
+	mongoDBSearchCRDPlural       = "mongodbsearch"
 	clusterMongoDBRoleCRDPlural  = "clustermongodbroles"
 )
 
@@ -109,6 +112,7 @@ func main() {
 			mongoDBUserCRDPlural,
 			mongoDBOpsManagerCRDPlural,
 			mongoDBCommunityCRDPlural,
+			mongoDBSearchCRDPlural,
 			clusterMongoDBRoleCRDPlural,
 		}
 	}
@@ -243,6 +247,11 @@ func main() {
 			log.Fatal(err)
 		}
 	}
+	if slices.Contains(crds, mongoDBSearchCRDPlural) {
+		if err := setupMongoDBSearchCRD(ctx, mgr); err != nil {
+			log.Fatal(err)
+		}
+	}
 	if slices.Contains(crds, clusterMongoDBRoleCRDPlural) {
 		if err := setupClusterMongoDBRoleCRD(ctx, mgr); err != nil {
 			log.Fatal(err)
@@ -255,6 +264,7 @@ func main() {
 
 	if slices.Contains(crds, mongoDBCommunityCRDPlural) {
 		if err := setupCommunityController(
+			ctx,
 			mgr,
 			envvar.GetEnvOrDefault(mcoConstruct.MongodbCommunityRepoUrlEnv, "quay.io/mongodb"),
 			// when running MCO resource -> mongodb-community-server
@@ -280,6 +290,16 @@ func main() {
 		}
 	} else {
 		log.Info("Not running telemetry component!")
+	}
+
+	pprofEnabledString := env.ReadOrDefault(util.OperatorPprofEnabledEnv, "")
+	if pprofEnabled, err := pprof.IsPprofEnabled(pprofEnabledString, getOperatorEnv()); err != nil {
+		log.Errorf("Unable to check if pprof is enabled: %s", err)
+	} else if pprofEnabled {
+		port := env.ReadIntOrDefault(util.OperatorPprofPortEnv, util.OperatorPprofDefaultPort)
+		if err := mgr.Add(pprof.NewRunnable(port, log)); err != nil {
+			log.Errorf("Unable to start pprof server: %s", err)
+		}
 	}
 
 	log.Info("Starting the Cmd.")
@@ -321,6 +341,14 @@ func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, image
 	return ctrl.NewWebhookManagedBy(mgr).For(&mdbmultiv1.MongoDBMultiCluster{}).Complete()
 }
 
+func setupMongoDBSearchCRD(ctx context.Context, mgr manager.Manager) error {
+	return operator.AddMongoDBSearchController(ctx, mgr, search_controller.OperatorSearchConfig{
+		SearchRepo:    env.ReadOrPanic("MDB_SEARCH_COMMUNITY_REPO_URL"),
+		SearchName:    env.ReadOrPanic("MDB_SEARCH_COMMUNITY_NAME"),
+		SearchVersion: env.ReadOrPanic("MDB_SEARCH_COMMUNITY_VERSION"),
+	})
+}
+
 func setupClusterMongoDBRoleCRD(ctx context.Context, mgr manager.Manager) error {
 	if err := operator.AddClusterMongoDBRoleController(ctx, mgr); err != nil {
 		return err
@@ -329,6 +357,7 @@ func setupClusterMongoDBRoleCRD(ctx context.Context, mgr manager.Manager) error 
 }
 
 func setupCommunityController(
+	ctx context.Context,
 	mgr manager.Manager,
 	mongodbRepoURL string,
 	mongodbImage string,

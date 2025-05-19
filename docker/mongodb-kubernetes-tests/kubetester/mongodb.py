@@ -29,6 +29,7 @@ from .mongotester import (
 )
 
 logger = test_logger.get_test_logger(__name__)
+TRACER = trace.get_tracer("evergreen-agent")
 
 
 class Phase(Enum):
@@ -41,6 +42,8 @@ class Phase(Enum):
 
 
 class MongoDBCommon:
+    TRACER.start_as_current_span("wait_for")
+
     def wait_for(self, fn, timeout=None, should_raise=True):
         if timeout is None:
             timeout = 600
@@ -582,6 +585,9 @@ class MongoDB(CustomObject, MongoDBCommon):
 
 def get_pods(podname, qty) -> List[str]:
     return [podname.format(i) for i in range(qty)]
+
+
+TRACER.start_as_current_span("in_desired_state")
 
 
 def in_desired_state(

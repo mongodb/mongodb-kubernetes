@@ -1,4 +1,4 @@
-SSDLC Compliance Report: MongoDB Enterprise Operator ${VERSION}
+SSDLC Compliance Report: MongoDB Controllers for Kubernetes ${VERSION}
 =================================================================
 
 - Release Creators: ${AUTHOR}
@@ -8,7 +8,7 @@ Overview:
 
 - **Product and Release Name**
 
-  - MongoDB Enterprise Operator ${VERSION}, ${DATE}.
+  - MongoDB Controllers for Kubernetes ${VERSION}, ${DATE}.
   - Release Type: ${RELEASE_TYPE}
 
 - **Process Document**
