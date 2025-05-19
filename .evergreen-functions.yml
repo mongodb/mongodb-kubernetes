@@ -1,6 +1,13 @@
 variables:
   - &e2e_include_expansions_in_env
     include_expansions_in_env:
+      - cognito_user_pool_id
+      - cognito_workload_federation_client_id
+      - cognito_user_name
+      - cognito_workload_federation_client_secret
+      - cognito_user_password
+      - cognito_workload_url
+      - cognito_workload_user_id
       - ARTIFACTORY_PASSWORD
       - ARTIFACTORY_USERNAME
       - GRS_PASSWORD
