@@ -42,6 +42,7 @@ from tests.shardedcluster.conftest import read_deployment_state
 logger = test_logger.get_test_logger(__name__)
 TRACER = trace.get_tracer("evergreen-agent")
 
+
 class MongoDBOpsManager(CustomObject, MongoDBCommon):
     def __init__(self, *args, **kwargs):
         with_defaults = {
@@ -171,6 +172,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         KubernetesTester.wait_until(no_automation_agents_have_registered, timeout=600, sleep_time=5)
 
     TRACER.start_as_current_span("assert_monitoring_data_exists")
+
     def assert_monitoring_data_exists(
         self, database_name: str = "admin", period: str = "P1DT12H", timeout: int = 120, all_hosts: bool = True
     ):
@@ -591,6 +593,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         return next(filter(lambda c: c.name == "mongodb-backup-daemon", backup_daemon_pod.status.container_statuses))
 
     TRACER.start_as_current_span("wait_until_backup_pods_become_ready")
+
     def wait_until_backup_pods_become_ready(self, timeout=300):
         def backup_daemons_are_ready():
             try:
