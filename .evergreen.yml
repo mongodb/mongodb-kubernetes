@@ -1862,6 +1862,7 @@ buildvariants:
 
   - name: private_kind_code_snippets
     display_name: private_kind_code_snippets
+    tags: [ "e2e_test_suite" ]
     allowed_requesters: ["patch", "github_pr"]
     run_on:
       - ubuntu2204-large
