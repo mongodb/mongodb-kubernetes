@@ -18,7 +18,11 @@ dump_logs() {
   echo
   fi
 }
-trap dump_logs EXIT
+
+function on_exit() {
+  scripts/evergreen/e2e/dump_diagnostic_information_from_all_namespaces.sh
+}
+trap on_exit EXIT
 
 test_dir="./docs/search/01-search-community-deploy"
 source "${test_dir}/env_variables.sh"
