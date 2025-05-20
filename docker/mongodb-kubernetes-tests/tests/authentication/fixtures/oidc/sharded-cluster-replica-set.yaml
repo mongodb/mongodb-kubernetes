@@ -9,7 +9,7 @@ spec:
   mongodsPerShardCount: 3
   mongosCount: 2
   configServerCount: 3
-  version: 4.4.0-ent
+  version: 7.0.5-ent
 
   opsManager:
     configMapRef:

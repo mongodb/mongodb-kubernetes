@@ -23,7 +23,6 @@ def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
     oidc_provider_configs[0]["audience"] = oidc.get_cognito_workload_client_id()
 
     resource.set_oidc_provider_configs(oidc_provider_configs)
-    resource.set_version(ensure_ent_version(custom_mdb_version))
 
     if try_load(resource):
         return resource

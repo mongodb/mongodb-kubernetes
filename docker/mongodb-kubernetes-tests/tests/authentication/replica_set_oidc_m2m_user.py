@@ -25,8 +25,6 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
 
     resource.set_oidc_provider_configs(oidc_provider_configs)
 
-    resource.set_version(ensure_ent_version(custom_mdb_version))
-
     return resource.update()
 
 
