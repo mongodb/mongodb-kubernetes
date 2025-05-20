@@ -323,7 +323,7 @@ func removeUnsupportedDeploymentMechanisms(conn om.Connection, opts Options, log
 	automationConfigAuthMechanisms := convertToMechanismList(opts.Mechanisms, ac)
 
 	unsupportedMechanisms := mechanismsToDisable(automationConfigAuthMechanisms)
-  
+
 	log.Infow("Removing unsupported deployment authentication mechanisms", "Mechanisms", unsupportedMechanisms)
 	if err := ensureDeploymentMechanismsAreDisabled(conn, ac, unsupportedMechanisms, opts, log); err != nil {
 		return xerrors.Errorf("error ensuring deployment mechanisms are disabled: %w", err)
