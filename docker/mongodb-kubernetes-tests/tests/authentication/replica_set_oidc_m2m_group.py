@@ -26,7 +26,7 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
     return resource.update()
 
 
-@pytest.mark.e2e_replica_set_oidc
+@pytest.mark.e2e_replica_set_oidc_m2m_group
 class TestCreateOIDCReplicaset(KubernetesTester):
 
     def test_create_replicaset(self, replica_set: MongoDB):
@@ -45,7 +45,7 @@ class TestCreateOIDCReplicaset(KubernetesTester):
         tester.assert_authoritative_set(True)
 
 
-@pytest.mark.e2e_replica_set_oidc
+@pytest.mark.e2e_replica_set_oidc_m2m_group
 class TestAddNewOIDCProviderAndRole(KubernetesTester):
     def test_add_oidc_provider_and_role(self, replica_set: MongoDB):
         replica_set.assert_reaches_phase(Phase.Running, timeout=400)
@@ -117,7 +117,7 @@ class TestAddNewOIDCProviderAndRole(KubernetesTester):
         replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 
-@pytest.mark.e2e_replica_set_oidc
+@pytest.mark.e2e_replica_set_oidc_m2m_group
 class TestOIDCRemoval(KubernetesTester):
     def test_remove_oidc_provider_and_user(self, replica_set: MongoDB):
         replica_set.assert_reaches_phase(Phase.Running, timeout=400)

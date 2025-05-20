@@ -36,11 +36,11 @@ def oidc_user(namespace) -> MongoDBUser:
         return resource
 
     resource["spec"]["username"] = f"OIDC-test-user/{oidc.get_cognito_workload_user_id()}"
-    resource
+
     return resource.update()
 
 
-@pytest.mark.e2e_replica_set_oidc
+@pytest.mark.e2e_replica_set_oidc_workforce
 class TestCreateOIDCReplicaset(KubernetesTester):
 
     def test_create_replicaset(self, replica_set: MongoDB):
