@@ -736,6 +736,7 @@ type SharedConnectionSpec struct {
 	CloudManagerConfig *PrivateCloudConfig `json:"cloudManager,omitempty"`
 }
 
+// +kubebuilder:validation:XValidation:rule="!(has(self.roles) && has(self.roleRefs)) || !(self.roles.size() > 0 && self.roleRefs.size() > 0)",message="At most one of roles or roleRefs can be non-empty"
 type Security struct {
 	TLSConfig      *TLSConfig      `json:"tls,omitempty"`
 	Authentication *Authentication `json:"authentication,omitempty"`

@@ -73,3 +73,26 @@ webhooks:
     failurePolicy: Ignore
     sideEffects: None
     timeoutSeconds: 5
+
+  - name: validate-clustermongodbroles.mongodb.com
+    admissionReviewVersions:
+      - v1
+    clientConfig:
+      caBundle: Cg==
+      service:
+        name: mongodb-kubernetes-operator
+        namespace: placeholder
+        path: /validate-mongodb-com-v1-clustermongodbrole
+    rules:
+      - apiGroups:
+          - mongodb.com
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - clustermongodbroles
+    failurePolicy: Ignore
+    sideEffects: None
+    timeoutSeconds: 5
