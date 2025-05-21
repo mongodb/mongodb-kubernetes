@@ -60,7 +60,7 @@ func init() {
 	gob.Register(tls.Prefer)
 	gob.Register(tls.Allow)
 	gob.Register(tls.Disabled)
-	gob.Register([]mdbv1.MongoDbRole{})
+	gob.Register([]mdbv1.MongoDBRole{})
 	gob.Register([]automationconfig.MemberOptions{})
 }
 
@@ -634,7 +634,7 @@ func (d Deployment) GetNumberOfExcessProcesses(resourceName string) int {
 	return excessProcesses
 }
 
-func (d Deployment) SetRoles(roles []mdbv1.MongoDbRole) {
+func (d Deployment) SetRoles(roles []mdbv1.MongoDBRole) {
 	d["roles"] = roles
 }
 
