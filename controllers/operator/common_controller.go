@@ -23,6 +23,7 @@ import (
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
@@ -97,7 +98,22 @@ func NewReconcileCommonController(ctx context.Context, client client.Client) *Re
 	}
 }
 
-func ensureRoles(roles []mdbv1.MongoDbRole, conn om.Connection, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileCommonController) ensureRoles(ctx context.Context, localRoles []mdbv1.MongoDBRole, roleRefs []mdbv1.MongoDBRoleRef, conn om.Connection, mongodbResourceNsName types.NamespacedName, log *zap.SugaredLogger) workflow.Status {
+	if len(localRoles) > 0 && len(roleRefs) > 0 {
+		return workflow.Failed(xerrors.Errorf("At most one one of roles or roleRefs can be non-empty."))
+	}
+
+	var roles []mdbv1.MongoDBRole
+	if len(roleRefs) > 0 {
+		var err error
+		roles, err = r.getRoleRefs(ctx, roleRefs, mongodbResourceNsName)
+		if err != nil {
+			return workflow.Failed(err)
+		}
+	} else {
+		roles = localRoles
+	}
+
 	d, err := conn.ReadDeployment()
 	if err != nil {
 		return workflow.Failed(err)
@@ -125,6 +141,34 @@ func ensureRoles(roles []mdbv1.MongoDbRole, conn om.Connection, log *zap.Sugared
 		return workflow.Failed(err)
 	}
 	return workflow.OK()
+}
+
+func (r *ReconcileCommonController) getRoleRefs(ctx context.Context, roleRefs []mdbv1.MongoDBRoleRef, mongodbResourceNsName types.NamespacedName) ([]mdbv1.MongoDBRole, error) {
+	roles := make([]mdbv1.MongoDBRole, len(roleRefs))
+
+	for idx, ref := range roleRefs {
+		var role mdbv1.MongoDBRole
+		switch ref.Kind {
+
+		case util.ClusterMongoDBRoleKind:
+			r.resourceWatcher.AddWatchedResourceIfNotAdded(ref.Name, "", watch.ClusterMongoDBRole, mongodbResourceNsName)
+
+			customRole := &rolev1.ClusterMongoDBRole{}
+			err := r.client.Get(ctx, types.NamespacedName{Name: ref.Name}, customRole)
+			if err != nil {
+				return nil, xerrors.Errorf("Failed to retrieve ClusterMongoDBRole '%s': %w", ref.Name, err)
+			}
+
+			role = customRole.Spec.MongoDBRole
+
+		default:
+			return nil, xerrors.Errorf("Invalid value %s for roleRef.kind. It must be %s.", ref.Kind, util.ClusterMongoDBRoleKind)
+		}
+
+		roles[idx] = role
+	}
+
+	return roles, nil
 }
 
 // updateStatus updates the status for the CR using patch operation. Note, that the resource status is mutated and

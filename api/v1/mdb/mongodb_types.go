@@ -739,7 +739,12 @@ type SharedConnectionSpec struct {
 type Security struct {
 	TLSConfig      *TLSConfig      `json:"tls,omitempty"`
 	Authentication *Authentication `json:"authentication,omitempty"`
-	Roles          []MongoDbRole   `json:"roles,omitempty"`
+
+	// +optional
+	Roles []MongoDBRole `json:"roles,omitempty"`
+
+	// +optional
+	RoleRefs []MongoDBRoleRef `json:"roleRefs,omitempty"`
 
 	// +optional
 	CertificatesSecretsPrefix string `json:"certsSecretPrefix"`
@@ -963,7 +968,16 @@ type InheritedRole struct {
 	Role string `json:"role"`
 }
 
-type MongoDbRole struct {
+type MongoDBRoleRef struct {
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+
+	// +kubebuilder:validation:Enum=ClusterMongoDBRole
+	// +kubebuilder:validation:Required
+	Kind string `json:"kind"`
+}
+
+type MongoDBRole struct {
 	Role                       string                      `json:"role"`
 	AuthenticationRestrictions []AuthenticationRestriction `json:"authenticationRestrictions,omitempty"`
 	Db                         string                      `json:"db"`
@@ -1505,7 +1519,10 @@ func EnsureSecurity(sec *Security) *Security {
 		sec.TLSConfig = &TLSConfig{}
 	}
 	if sec.Roles == nil {
-		sec.Roles = make([]MongoDbRole, 0)
+		sec.Roles = make([]MongoDBRole, 0)
+	}
+	if sec.RoleRefs == nil {
+		sec.RoleRefs = make([]MongoDBRoleRef, 0)
 	}
 	return sec
 }
