@@ -86,6 +86,10 @@ func (s *automationConfigScramSha) IsDeploymentAuthenticationConfigured(ac *om.A
 	return stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(s.MechanismName))
 }
 
+func (s *automationConfigScramSha) IsDeploymentAuthenticationEnabled(ac *om.AutomationConfig) bool {
+	return s.IsDeploymentAuthenticationConfigured(ac, Options{})
+}
+
 // configureScramAgentUsers makes sure that the given automation config always has the correct SCRAM-SHA users
 func configureScramAgentUsers(ac *om.AutomationConfig, authOpts Options) error {
 	agentPassword, err := ac.EnsurePassword()
