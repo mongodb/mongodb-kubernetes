@@ -764,6 +764,9 @@ task_groups:
       - e2e_replica_set_oidc_m2m_group
       - e2e_replica_set_oidc_m2m_user
       - e2e_replica_set_oidc_workforce
+      - e2e_sharded_cluster_oidc_m2m_group
+      - e2e_sharded_cluster_oidc_m2m_user
+      - e2e_sharded_cluster_oidc_workforce
     <<: *teardown_group
 
   # this task group contains just a one task, which is smoke testing whether the operator

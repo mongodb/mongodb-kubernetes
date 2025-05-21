@@ -28,7 +28,7 @@ def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
     return resource.update()
 
 
-@pytest.mark.e2e_sharded_cluster_oidc_m2m
+@pytest.mark.e2e_sharded_cluster_oidc_m2m_group
 class TestCreateOIDCShardedCluster(KubernetesTester):
 
     def test_create_sharded_cluster(self, sharded_cluster: MongoDB):
@@ -75,7 +75,7 @@ class TestCreateOIDCShardedCluster(KubernetesTester):
         tester.assert_oidc_configuration(expected_oidc_configs)
 
 
-@pytest.mark.e2e_sharded_cluster_oidc_m2m
+@pytest.mark.e2e_sharded_cluster_oidc_m2m_group
 class TestAddNewOIDCProviderAndRole(KubernetesTester):
     def test_add_oidc_provider_and_user(self, sharded_cluster: MongoDB):
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=400)
@@ -159,7 +159,7 @@ class TestAddNewOIDCProviderAndRole(KubernetesTester):
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=400)
 
 
-@pytest.mark.e2e_sharded_cluster_oidc_m2m
+@pytest.mark.e2e_sharded_cluster_oidc_m2m_group
 class TestOIDCRemoval(KubernetesTester):
     def test_remove_oidc_provider_and_user(self, sharded_cluster: MongoDB):
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=400)
