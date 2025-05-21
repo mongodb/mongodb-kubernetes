@@ -1,0 +1,10 @@
+apiVersion: mongodb.com/v1
+kind: ClusterMongoDBRole
+metadata:
+  name: test-customrole
+spec:
+  role: ""
+  db: ""
+  roles: []
+  privileges: []
+  authenticationRestrictions: []
