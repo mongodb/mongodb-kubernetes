@@ -2,8 +2,9 @@ import kubetester.oidc as oidc
 import pytest
 from kubetester import find_fixture, try_load
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.kubetester import KubernetesTester, ensure_ent_version, is_multi_cluster
+from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as load_fixture
+from kubetester.kubetester import is_multi_cluster
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.mongotester import ShardedClusterTester
