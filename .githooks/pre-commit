@@ -120,9 +120,9 @@ function regenerate_public_rbac_multi_cluster() {
 }
 
 function update_licenses() {
-    echo 'regenerating licenses.csv'
+    echo 'regenerating licenses'
     time scripts/evergreen/update_licenses.sh 2>&1 | prepend "update_licenses"
-    git add licenses.csv
+    git add LICENSE-THIRD-PARTY
 }
 
 function check_erroneous_kubebuilder_annotations() {
