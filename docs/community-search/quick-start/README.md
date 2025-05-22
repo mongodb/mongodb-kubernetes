@@ -53,11 +53,7 @@ First, add the MongoDB Helm repository. This repository contains the Helm chart 
 ```shell copy
 helm repo add mongodb https://mongodb.github.io/helm-charts
 helm repo update mongodb
-if [[ "${OPERATOR_HELM_CHART}" != "helm_chart" ]]; then helm search repo "${OPERATOR_HELM_CHART}"; fi;
-```
-After adding the repository, update your local Helm chart repository cache:
-```shell
-helm repo update
+helm search repo mongodb/mongodb-kubernetes
 ```
 
 ### 3. Install MongoDB Kubernetes Operator
