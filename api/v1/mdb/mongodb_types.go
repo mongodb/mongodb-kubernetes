@@ -807,13 +807,6 @@ func (s *Security) IsTLSEnabled() bool {
 	return s.CertificatesSecretsPrefix != ""
 }
 
-func (s *Security) IsOIDCEnabled() bool {
-	if s == nil || s.Authentication == nil || !s.Authentication.Enabled {
-		return false
-	}
-	return s.Authentication.IsOIDCEnabled()
-}
-
 // GetAgentMechanism returns the authentication mechanism that the agents will be using.
 // The agents will use X509 if it is the only mechanism specified, otherwise they will use SCRAM if specified
 // and no auth if no mechanisms exist.
