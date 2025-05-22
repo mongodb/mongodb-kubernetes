@@ -324,7 +324,7 @@ func removeUnsupportedDeploymentMechanisms(conn om.Connection, opts Options, log
 	unsupportedMechanisms := mechanismsToDisable(automationConfigAuthMechanisms)
   
 	log.Infow("Removing unsupported deployment authentication mechanisms", "Mechanisms", unsupportedMechanisms)
-	if err := ensureDeploymentMechanismsAreDisabled(conn, ac, unsupportedMechanisms, opts, log); err != nil {
+	if err := ensureDeploymentMechanismsAreDisabled(conn, ac, unsupportedMechanisms, log); err != nil {
 		return xerrors.Errorf("error ensuring deployment mechanisms are disabled: %w", err)
 	}
 
@@ -401,10 +401,10 @@ func ensureDeploymentMechanisms(conn om.Connection, ac *om.AutomationConfig, mec
 
 // ensureDeploymentMechanismsAreDisabled configures the given AutomationConfig to allow deployments to
 // authenticate using the specified mechanisms
-func ensureDeploymentMechanismsAreDisabled(conn om.Connection, ac *om.AutomationConfig, mechanismsToDisable MechanismList, opts Options, log *zap.SugaredLogger) error {
+func ensureDeploymentMechanismsAreDisabled(conn om.Connection, ac *om.AutomationConfig, mechanismsToDisable MechanismList, log *zap.SugaredLogger) error {
 	deploymentMechanismsToDisable := make([]Mechanism, 0)
 	for _, mechanism := range mechanismsToDisable {
-		if mechanism.IsDeploymentAuthenticationConfigured(ac, opts) {
+		if mechanism.IsDeploymentAuthenticationEnabled(ac) {
 			deploymentMechanismsToDisable = append(deploymentMechanismsToDisable, mechanism)
 		}
 	}

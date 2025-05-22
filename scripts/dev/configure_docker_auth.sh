@@ -44,7 +44,7 @@ remove_element() {
 check_docker_daemon_is_running
 
 if [[ -f ~/.docker/config.json ]]; then
-  if [[ "${RUNNING_IN_EVG:-""}" == "true" ]]; then
+  if [[ "${RUNNING_IN_EVG:-"false"}" != "true" ]]; then
     # when running locally we don't need to docker login all the time - we can do it once in 11 hours (ECR tokens expire each 12 hours)
     if [[ -n "$(find ~/.docker/config.json -mmin -360 -type f)" ]] &&
       grep "quay.io" -q ~/.docker/config.json && # TODO to be removed at public preview stage of community-search
