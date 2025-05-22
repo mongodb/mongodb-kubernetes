@@ -6,6 +6,7 @@ import (
 	"encoding/gob"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -183,4 +184,30 @@ func TransformToMap[T any, K comparable, V any](objs []T, f func(obj T, idx int)
 		result[k] = v
 	}
 	return result
+}
+
+// ParseURL checks if the given string is a valid URL and returns the parsed URL if valid.
+func ParseURL(str string) (*url.URL, error) {
+	if strings.TrimSpace(str) == "" {
+		return nil, fmt.Errorf("empty URL")
+	}
+
+	u, err := url.Parse(str)
+	if err != nil {
+		return nil, fmt.Errorf("invalid URL: %w", err)
+	}
+
+	if u.Scheme == "" {
+		return nil, fmt.Errorf("missing URL scheme: %s", str)
+	}
+
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return nil, fmt.Errorf("invalid URL scheme (http or https): %s", str)
+	}
+
+	if u.Host == "" {
+		return nil, fmt.Errorf("missing URL host: %s", str)
+	}
+
+	return u, nil
 }

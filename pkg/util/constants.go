@@ -152,6 +152,7 @@ const (
 	MONGODBCR                         = "MONGODB-CR"
 	SCRAMSHA256                       = "SCRAM-SHA-256"
 	LDAP                              = "LDAP"
+	OIDC                              = "OIDC"
 	MinimumScramSha256MdbVersion      = "4.0.0"
 
 	// pprof variables

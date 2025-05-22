@@ -23,7 +23,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster/failedcluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	intp "github.com/mongodb/mongodb-kubernetes/pkg/util/int"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
 func init() {
@@ -123,7 +122,14 @@ func (m *MongoDBMultiCluster) IsLDAPEnabled() bool {
 	if m.Spec.Security == nil || m.Spec.Security.Authentication == nil {
 		return false
 	}
-	return stringutil.Contains(m.Spec.GetSecurityAuthenticationModes(), util.LDAP)
+	return m.Spec.Security.Authentication.IsLDAPEnabled()
+}
+
+func (m *MongoDBMultiCluster) IsOIDCEnabled() bool {
+	if m.Spec.Security == nil || m.Spec.Security.Authentication == nil {
+		return false
+	}
+	return m.Spec.Security.Authentication.IsOIDCEnabled()
 }
 
 func (m *MongoDBMultiCluster) GetLDAP(password, caContents string) *ldap.Ldap {
