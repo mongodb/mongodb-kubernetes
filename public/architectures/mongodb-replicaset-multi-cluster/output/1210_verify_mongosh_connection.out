@@ -5,11 +5,11 @@
   },
   ok: 1,
   '$clusterTime': {
-    clusterTime: Timestamp({ t: 1746457240, i: 1 }),
+    clusterTime: Timestamp({ t: 1747925179, i: 1 }),
     signature: {
-      hash: Binary.createFromBase64('IFOldZ02HfaOPxzUn/GwNd85LfE=', 0),
-      keyId: Long('7500976669532880902')
+      hash: Binary.createFromBase64('T1ZP+QUFgBXayfOsRI6XFdEmjKI=', 0),
+      keyId: Long('7507281432415305733')
     }
   },
-  operationTime: Timestamp({ t: 1746457240, i: 1 })
+  operationTime: Timestamp({ t: 1747925179, i: 1 })
 }
