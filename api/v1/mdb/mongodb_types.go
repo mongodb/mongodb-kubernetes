@@ -808,6 +808,11 @@ func (s *Security) IsTLSEnabled() bool {
 }
 
 func (s *Security) IsOIDCEnabled() bool {
+	if s == nil || s.Authentication == nil || !s.Authentication.Enabled {
+		return false
+	}
+	return s.Authentication.IsOIDCEnabled()
+}
 	if s == nil {
 		return false
 	}
