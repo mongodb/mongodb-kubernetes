@@ -16,7 +16,7 @@ MDB_RESOURCE = "oidc-sharded-cluster-replica-set"
 
 @fixture(scope="module")
 def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
-    resource = MongoDB.from_yaml(find_fixture("oidc/sharded-cluster-replica-set.yaml"), namespace=namespace)
+    resource = MongoDB.from_yaml(find_fixture("oidc/sharded-cluster-m2m-user.yaml"), namespace=namespace)
 
     oidc_provider_configs = resource.get_oidc_provider_configs()
 
@@ -42,7 +42,6 @@ def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
 
 @fixture(scope="module")
 def oidc_user(namespace) -> MongoDBUser:
-    """Creates a password secret and then the user referencing it"""
     resource = MongoDBUser.from_yaml(load_fixture("oidc/oidc-user.yaml"), namespace=namespace)
 
     resource["spec"]["username"] = f"OIDC-test-user/{oidc.get_cognito_workload_user_id()}"
@@ -68,12 +67,10 @@ class TestCreateOIDCShardedCluster(KubernetesTester):
 
         tester.assert_authentication_mechanism_enabled("MONGODB-OIDC", active_auth_mechanism=False)
         tester.assert_authentication_enabled(2)
-        tester.assert_oidc_providers_size(2)  # Expect 2 providers as shown in the YAML
+        tester.assert_oidc_providers_size(1)
         tester.assert_expected_users(1)
-        tester.assert_has_expected_number_of_roles(expected_roles=1)  # Role from YAML: "OIDC-test/test"
         tester.assert_authoritative_set(True)
 
-        # Check OIDC configuration - both providers
         expected_oidc_configs = [
             {
                 "audience": oidc.get_cognito_workload_client_id(),
@@ -85,17 +82,6 @@ class TestCreateOIDCShardedCluster(KubernetesTester):
                 "authNamePrefix": "OIDC-test",
                 "supportsHumanFlows": False,
                 "useAuthorizationClaim": True,
-            },
-            {
-                "audience": "test-audience",
-                "issuerUri": "https://valid-issuer.example.com",
-                "clientId": "test-client-id",
-                "groupsClaim": "groups",
-                "userClaim": "sub",
-                "JWKSPollSecs": 0,
-                "authNamePrefix": "OIDC-test-user",
-                "supportsHumanFlows": True,
-                "useAuthorizationClaim": False,
             },
         ]
         tester.assert_oidc_configuration(expected_oidc_configs)

@@ -26,6 +26,7 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
     return resource.update()
 
 
+# Tests that one Workload Group membership works as expected.
 @pytest.mark.e2e_replica_set_oidc_m2m_group
 class TestCreateOIDCReplicaset(KubernetesTester):
 
@@ -45,6 +46,7 @@ class TestCreateOIDCReplicaset(KubernetesTester):
         tester.assert_authoritative_set(True)
 
 
+# Adds a second workload group membership and associated role; automation config is verified
 @pytest.mark.e2e_replica_set_oidc_m2m_group
 class TestAddNewOIDCProviderAndRole(KubernetesTester):
     def test_add_oidc_provider_and_role(self, replica_set: MongoDB):
@@ -117,6 +119,7 @@ class TestAddNewOIDCProviderAndRole(KubernetesTester):
         replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 
+# Tests the removal of all oidc configs and roles
 @pytest.mark.e2e_replica_set_oidc_m2m_group
 class TestOIDCRemoval(KubernetesTester):
     def test_remove_oidc_provider_and_user(self, replica_set: MongoDB):
