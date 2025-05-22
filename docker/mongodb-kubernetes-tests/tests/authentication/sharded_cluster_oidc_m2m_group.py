@@ -2,11 +2,12 @@ import kubetester.oidc as oidc
 import pytest
 from kubetester import find_fixture, try_load, wait_until
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.kubetester import KubernetesTester, ensure_ent_version
+from kubetester.kubetester import KubernetesTester, ensure_ent_version, is_multi_cluster, skip_if_multi_cluster
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongotester import ShardedClusterTester
 from pytest import fixture
+from tests.shardedcluster.conftest import enable_multi_cluster_deployment
 
 MDB_RESOURCE = "oidc-sharded-cluster-replica-set"
 
@@ -24,6 +25,14 @@ def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
     oidc_provider_configs[0]["issuerURI"] = oidc.get_cognito_workload_url()
 
     resource.set_oidc_provider_configs(oidc_provider_configs)
+
+    if is_multi_cluster():
+        enable_multi_cluster_deployment(
+            resource=resource,
+            shard_members_array=[1, 1, 1],
+            mongos_members_array=[1, 1, None],
+            configsrv_members_array=[1, 1, 1],
+        )
 
     return resource.update()
 
@@ -75,6 +84,7 @@ class TestCreateOIDCShardedCluster(KubernetesTester):
         tester.assert_oidc_configuration(expected_oidc_configs)
 
 
+@skip_if_multi_cluster()
 @pytest.mark.e2e_sharded_cluster_oidc_m2m_group
 class TestAddNewOIDCProviderAndRole(KubernetesTester):
     def test_add_oidc_provider_and_user(self, sharded_cluster: MongoDB):
@@ -159,6 +169,7 @@ class TestAddNewOIDCProviderAndRole(KubernetesTester):
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=400)
 
 
+@skip_if_multi_cluster
 @pytest.mark.e2e_sharded_cluster_oidc_m2m_group
 class TestOIDCRemoval(KubernetesTester):
     def test_remove_oidc_provider_and_user(self, sharded_cluster: MongoDB):
