@@ -37,7 +37,7 @@ spec:
           configurationName: "OIDC-test"
         - audience: "test-audience"
           clientId: "test-client-id"
-          issuerURI: "https://valid-issuer.example.com"
+          issuerURI: "https://valid-issuer-1.example.com"
           requestedScopes: [ ]
           userClaim: "sub"
           authorizationMethod: "WorkforceIdentityFederation"

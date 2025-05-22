@@ -84,7 +84,7 @@ class TestAddNewOIDCProviderAndRole(KubernetesTester):
 
         new_oidc_provider_config = {
             "audience": "dummy-audience",
-            "issuerURI": "https://valid-issuer.example.com",
+            "issuerURI": "https://valid-issuer-2.example.com",
             "requestedScopes": [],
             "userClaim": "sub",
             "groupsClaim": "group",
@@ -128,7 +128,7 @@ class TestAddNewOIDCProviderAndRole(KubernetesTester):
                     },
                     {
                         "audience": "test-audience",
-                        "issuerUri": "https://valid-issuer.example.com",
+                        "issuerUri": "https://valid-issuer-1.example.com",
                         "clientId": "test-client-id",
                         "userClaim": "sub",
                         "groupsClaim": "groups",
@@ -139,7 +139,7 @@ class TestAddNewOIDCProviderAndRole(KubernetesTester):
                     },
                     {
                         "audience": "dummy-audience",
-                        "issuerUri": "https://valid-issuer.example.com",
+                        "issuerUri": "https://valid-issuer-2.example.com",
                         "userClaim": "sub",
                         "groupsClaim": "group",
                         "JWKSPollSecs": 0,
