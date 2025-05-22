@@ -14,7 +14,7 @@ TEST_DATABASE = "myDB"
 
 @fixture(scope="module")
 def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
-    resource = MongoDB.from_yaml(find_fixture("oidc/replica-set-user-id.yaml"), namespace=namespace)
+    resource = MongoDB.from_yaml(find_fixture("oidc/replica-set-m2m-user.yaml"), namespace=namespace)
     if try_load(resource):
         return resource
 
@@ -39,6 +39,7 @@ def oidc_user(namespace) -> MongoDBUser:
     return resource.update()
 
 
+# Tests that one Workload Group membership works as expected.
 @pytest.mark.e2e_replica_set_oidc_m2m_user
 class TestCreateOIDCReplicaset(KubernetesTester):
 
@@ -87,6 +88,7 @@ class TestNewUserAdditionToReplicaSet(KubernetesTester):
         wait_until(assert_expected_users, timeout=300, sleep=5)
 
 
+# Tests that database level roles are correctly applied to the user
 @pytest.mark.e2e_replica_set_oidc_m2m_user
 class TestRestrictedAccessToReplicaSet(KubernetesTester):
     def test_update_oidc_user(self, replica_set: MongoDB, oidc_user: MongoDBUser, namespace: str):

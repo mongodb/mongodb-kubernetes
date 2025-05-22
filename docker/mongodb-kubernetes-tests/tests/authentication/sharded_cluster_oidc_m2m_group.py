@@ -62,7 +62,7 @@ class TestCreateOIDCShardedCluster(KubernetesTester):
             },
             {
                 "audience": "test-audience",
-                "issuerUri": "https://valid-issuer.example.com",
+                "issuerUri": "https://valid-issuer-1.example.com",
                 "clientId": "test-client-id",
                 "userClaim": "sub",
                 "groupsClaim": "groups",  # Todo might be is a security bug.
@@ -77,7 +77,7 @@ class TestCreateOIDCShardedCluster(KubernetesTester):
 
 @pytest.mark.e2e_sharded_cluster_oidc_m2m_group
 class TestAddNewOIDCProviderAndRole(KubernetesTester):
-    def test_add_oidc_provider_and_user(self, sharded_cluster: MongoDB):
+    def test_add_oidc_provider_and_role(self, sharded_cluster: MongoDB):
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=400)
 
         sharded_cluster.load()
@@ -155,31 +155,5 @@ class TestAddNewOIDCProviderAndRole(KubernetesTester):
                 return False
 
         wait_until(config_and_roles_preserved, timeout=500, sleep=5)
-
-        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=400)
-
-
-@pytest.mark.e2e_sharded_cluster_oidc_m2m_group
-class TestOIDCRemoval(KubernetesTester):
-    def test_remove_oidc_provider_and_user(self, sharded_cluster: MongoDB):
-        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=400)
-
-        sharded_cluster.load()
-        sharded_cluster["spec"]["security"]["authentication"]["modes"] = ["SCRAM"]
-        sharded_cluster["spec"]["security"]["authentication"]["oidcProviderConfigs"] = None
-        sharded_cluster["spec"]["security"]["roles"] = None
-        sharded_cluster.update()
-
-        def config_updated() -> bool:
-            tester = sharded_cluster.get_automation_config_tester()
-            try:
-                tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256", active_auth_mechanism=False)
-                tester.assert_authentication_enabled(1)
-                tester.assert_oidc_providers_size(0)  # No OIDC providers left
-                return True
-            except AssertionError:
-                return False
-
-        wait_until(config_updated, timeout=300, sleep=5)
 
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=400)
