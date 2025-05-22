@@ -145,7 +145,7 @@ def test_remove_ldap_settings(replica_set: MongoDB):
     replica_set.update()
 
     def wait_for_ac_pushed() -> bool:
-        ac = replica_set.get_automation_config_tester().automation_config
+        ac = replica_set.get_automation_config_tester()
         try:
             ac.assert_authentication_mechanism_disabled(LDAP_AUTHENTICATION_MECHANISM, active_auth_mechanism=False)
             return True
