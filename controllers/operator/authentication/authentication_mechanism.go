@@ -21,6 +21,7 @@ type Mechanism interface {
 	// called directly after deserializing the response from OM which should not contain the util.MergoDelete value in any field.
 	IsAgentAuthenticationConfigured(ac *om.AutomationConfig, opts Options) bool
 	IsDeploymentAuthenticationConfigured(ac *om.AutomationConfig, opts Options) bool
+	IsDeploymentAuthenticationEnabled(ac *om.AutomationConfig) bool
 	GetName() MechanismName
 }
 
