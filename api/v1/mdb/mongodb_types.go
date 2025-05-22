@@ -808,15 +808,7 @@ func (s *Security) IsTLSEnabled() bool {
 }
 
 func (s *Security) IsOIDCEnabled() bool {
-	if s == nil {
-		return false
-	}
-
-	if s.Authentication == nil {
-		return false
-	}
-
-	if !s.Authentication.Enabled {
+	if s == nil || s.Authentication == nil || !s.Authentication.Enabled {
 		return false
 	}
 

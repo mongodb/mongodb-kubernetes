@@ -19,8 +19,8 @@ from kubetester.kubetester import (
 )
 from kubetester.omtester import OMContext, OMTester
 from opentelemetry import trace
-
 from tests import test_logger
+
 from .mongotester import (
     MongoTester,
     ReplicaSetTester,

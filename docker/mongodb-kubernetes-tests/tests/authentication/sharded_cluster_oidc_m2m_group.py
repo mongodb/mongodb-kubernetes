@@ -24,12 +24,11 @@ def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
     oidc_provider_configs[0]["issuerURI"] = oidc.get_cognito_workload_url()
 
     resource.set_oidc_provider_configs(oidc_provider_configs)
-    resource.set_version(ensure_ent_version(custom_mdb_version))
 
     return resource.update()
 
 
-@pytest.mark.e2e_sharded_cluster_oidc_m2m
+@pytest.mark.e2e_sharded_cluster_oidc_m2m_group
 class TestCreateOIDCShardedCluster(KubernetesTester):
 
     def test_create_sharded_cluster(self, sharded_cluster: MongoDB):
@@ -76,7 +75,7 @@ class TestCreateOIDCShardedCluster(KubernetesTester):
         tester.assert_oidc_configuration(expected_oidc_configs)
 
 
-@pytest.mark.e2e_sharded_cluster_oidc_m2m
+@pytest.mark.e2e_sharded_cluster_oidc_m2m_group
 class TestAddNewOIDCProviderAndRole(KubernetesTester):
     def test_add_oidc_provider_and_user(self, sharded_cluster: MongoDB):
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=400)
@@ -85,7 +84,7 @@ class TestAddNewOIDCProviderAndRole(KubernetesTester):
 
         new_oidc_provider_config = {
             "audience": "dummy-audience",
-            "issuerURI": "https://valid-issuer.example.com",
+            "issuerURI": "https://valid-issuer-2.example.com",
             "requestedScopes": [],
             "userClaim": "sub",
             "groupsClaim": "group",
@@ -129,7 +128,7 @@ class TestAddNewOIDCProviderAndRole(KubernetesTester):
                     },
                     {
                         "audience": "test-audience",
-                        "issuerUri": "https://valid-issuer.example.com",
+                        "issuerUri": "https://valid-issuer-1.example.com",
                         "clientId": "test-client-id",
                         "userClaim": "sub",
                         "groupsClaim": "groups",
@@ -140,7 +139,7 @@ class TestAddNewOIDCProviderAndRole(KubernetesTester):
                     },
                     {
                         "audience": "dummy-audience",
-                        "issuerUri": "https://valid-issuer.example.com",
+                        "issuerUri": "https://valid-issuer-2.example.com",
                         "userClaim": "sub",
                         "groupsClaim": "group",
                         "JWKSPollSecs": 0,
@@ -160,7 +159,7 @@ class TestAddNewOIDCProviderAndRole(KubernetesTester):
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=400)
 
 
-@pytest.mark.e2e_sharded_cluster_oidc_m2m
+@pytest.mark.e2e_sharded_cluster_oidc_m2m_group
 class TestOIDCRemoval(KubernetesTester):
     def test_remove_oidc_provider_and_user(self, sharded_cluster: MongoDB):
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=400)

@@ -25,14 +25,11 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
 
     resource.set_oidc_provider_configs(oidc_provider_configs)
 
-    resource.set_version(ensure_ent_version(custom_mdb_version))
-
     return resource.update()
 
 
 @fixture(scope="module")
 def oidc_user(namespace) -> MongoDBUser:
-    """Creates a password secret and then the user referencing it"""
     resource = MongoDBUser.from_yaml(find_fixture("oidc/oidc-user.yaml"), namespace=namespace)
     if try_load(resource):
         return resource
@@ -42,7 +39,7 @@ def oidc_user(namespace) -> MongoDBUser:
     return resource.update()
 
 
-@pytest.mark.e2e_replica_set_oidc
+@pytest.mark.e2e_replica_set_oidc_m2m_user
 class TestCreateOIDCReplicaset(KubernetesTester):
 
     def test_create_replicaset(self, replica_set: MongoDB):
@@ -64,6 +61,7 @@ class TestCreateOIDCReplicaset(KubernetesTester):
         tester.assert_authoritative_set(True)
 
 
+@pytest.mark.e2e_replica_set_oidc_m2m_user
 class TestNewUserAdditionToReplicaSet(KubernetesTester):
     def test_add_oidc_user(self, replica_set: MongoDB, namespace: str):
         replica_set.assert_reaches_phase(Phase.Running, timeout=400)
@@ -89,7 +87,7 @@ class TestNewUserAdditionToReplicaSet(KubernetesTester):
         wait_until(assert_expected_users, timeout=300, sleep=5)
 
 
-@pytest.mark.e2e_replica_set_oidc
+@pytest.mark.e2e_replica_set_oidc_m2m_user
 class TestRestrictedAccessToReplicaSet(KubernetesTester):
     def test_update_oidc_user(self, replica_set: MongoDB, oidc_user: MongoDBUser, namespace: str):
         oidc_user.load()

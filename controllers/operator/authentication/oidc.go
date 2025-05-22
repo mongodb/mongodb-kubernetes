@@ -56,7 +56,11 @@ func (o *oidcAuthMechanism) IsAgentAuthenticationConfigured(*om.AutomationConfig
 }
 
 func (o *oidcAuthMechanism) IsDeploymentAuthenticationConfigured(ac *om.AutomationConfig, opts Options) bool {
-	return stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(MongoDBOIDC)) && oidcProviderConfigsEqual(ac.OIDCProviderConfigs, opts.OIDCProviderConfigs)
+	return o.IsDeploymentAuthenticationEnabled(ac) && oidcProviderConfigsEqual(ac.OIDCProviderConfigs, opts.OIDCProviderConfigs)
+}
+
+func (o *oidcAuthMechanism) IsDeploymentAuthenticationEnabled(ac *om.AutomationConfig) bool {
+	return stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(MongoDBOIDC))
 }
 
 func oidcProviderConfigsEqual(lhs []oidc.ProviderConfig, rhs []oidc.ProviderConfig) bool {

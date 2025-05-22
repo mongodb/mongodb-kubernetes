@@ -26,8 +26,6 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
 
     resource.set_oidc_provider_configs(oidc_provider_configs)
 
-    resource.set_version(ensure_ent_version(custom_mdb_version))
-
     return resource.update()
 
 
@@ -38,11 +36,11 @@ def oidc_user(namespace) -> MongoDBUser:
         return resource
 
     resource["spec"]["username"] = f"OIDC-test-user/{oidc.get_cognito_workload_user_id()}"
-    resource
+
     return resource.update()
 
 
-@pytest.mark.e2e_replica_set_oidc
+@pytest.mark.e2e_replica_set_oidc_workforce
 class TestCreateOIDCReplicaset(KubernetesTester):
 
     def test_create_replicaset(self, replica_set: MongoDB):

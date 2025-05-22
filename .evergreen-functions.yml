@@ -424,7 +424,8 @@ functions:
           - src/github.com/mongodb/mongodb-kubernetes/logs/*
         remote_file: logs/${task_id}/${execution}/
         bucket: operator-e2e-artifacts
-        permissions: public-read
+        permissions: private
+        visibility: signed
         content_type: text/plain
     - command: attach.xunit_results
       params:
@@ -439,7 +440,8 @@ functions:
           - src/github.com/mongodb/mongodb-kubernetes/logs/*
         remote_file: logs/${task_id}/${execution}/
         bucket: operator-e2e-artifacts
-        permissions: public-read
+        permissions: private
+        visibility: signed
         content_type: text/plain
     - command: gotest.parse_files
       params:
@@ -455,7 +457,8 @@ functions:
           - src/github.com/mongodb/mongodb-kubernetes/public/architectures/**/*.out
         remote_file: logs/${task_id}/${execution}/
         bucket: operator-e2e-artifacts
-        permissions: public-read
+        permissions: private
+        visibility: signed
         content_type: text/plain
 
   preflight_image:
