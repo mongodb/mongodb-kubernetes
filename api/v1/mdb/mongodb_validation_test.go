@@ -473,6 +473,7 @@ func TestOIDCAuthValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			rs := NewReplicaSetBuilder().
 				SetSecurityTLSEnabled().
+				SetVersion("8.0.5-ent").
 				Build()
 
 			rs.Spec.CloudManagerConfig = &PrivateCloudConfig{
