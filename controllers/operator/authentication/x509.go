@@ -131,11 +131,11 @@ func (x *connectionX509) IsAgentAuthenticationConfigured(ac *om.AutomationConfig
 }
 
 func (x *connectionX509) IsDeploymentAuthenticationConfigured(ac *om.AutomationConfig, _ Options) bool {
-	return stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(MongoDBX509))
+	return x.IsDeploymentAuthenticationEnabled(ac)
 }
 
 func (x *connectionX509) IsDeploymentAuthenticationEnabled(ac *om.AutomationConfig) bool {
-	return x.IsAgentAuthenticationConfigured(ac, Options{})
+	return stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(MongoDBX509))
 }
 
 // isValidX509Subject checks the subject contains CommonName, Country and Organizational Unit, Location and State.
