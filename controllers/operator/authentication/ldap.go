@@ -116,7 +116,7 @@ func (l *ldapAuthMechanism) IsAgentAuthenticationConfigured(ac *om.AutomationCon
 }
 
 func (l *ldapAuthMechanism) IsDeploymentAuthenticationConfigured(ac *om.AutomationConfig, opts Options) bool {
-	return stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(LDAPPlain)) && ldapObjectsEqual(ac.Ldap, opts.Ldap)
+	return l.IsDeploymentAuthenticationEnabled(ac) && ldapObjectsEqual(ac.Ldap, opts.Ldap)
 }
 
 func (l *ldapAuthMechanism) IsDeploymentAuthenticationEnabled(ac *om.AutomationConfig) bool {
