@@ -28,6 +28,10 @@ dump_all_non_default_namespaces() {
       grep -v "kube-public" | \
       grep -v "kube-system" | \
       grep -v "local-path-storage" | \
+      grep -v "gmp-" | \
+      grep -v "gke-managed" | \
+      grep -v "local-path-storage" | \
+      grep -v "local-path-storage" | \
       grep -v "metallb-system"
     )
 

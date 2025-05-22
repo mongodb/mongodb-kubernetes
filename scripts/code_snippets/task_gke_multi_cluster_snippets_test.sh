@@ -19,7 +19,13 @@ function cleanup() {
     echo "Not deleting anything"
   fi
 }
-trap cleanup EXIT
+
+function on_exit() {
+  scripts/evergreen/e2e/dump_diagnostic_information_from_all_namespaces.sh
+  cleanup
+}
+
+trap on_exit EXIT
 
 source public/architectures/setup-multi-cluster/setup-gke/env_variables.sh
 ./public/architectures/setup-multi-cluster/setup-gke/test.sh
