@@ -587,7 +587,6 @@ tasks:
       - func: clone
       - func: setup_aws
       - func: configure_docker_auth
-      - func: quay_login
       - func: setup_prepare_openshift_bundles
       - func: prepare_openshift_bundles
       - func: update_evergreen_expansions
