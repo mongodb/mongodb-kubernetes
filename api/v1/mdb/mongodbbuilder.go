@@ -146,6 +146,22 @@ func (b *MongoDBBuilder) SetSecurityTLSEnabled() *MongoDBBuilder {
 	return b
 }
 
+func (b *MongoDBBuilder) SetRoles(roles []MongoDBRole) *MongoDBBuilder {
+	if b.mdb.Spec.Security == nil {
+		b.mdb.Spec.Security = &Security{}
+	}
+	b.mdb.Spec.Security.Roles = roles
+	return b
+}
+
+func (b *MongoDBBuilder) SetRoleRefs(roleRefs []MongoDBRoleRef) *MongoDBBuilder {
+	if b.mdb.Spec.Security == nil {
+		b.mdb.Spec.Security = &Security{}
+	}
+	b.mdb.Spec.Security.RoleRefs = roleRefs
+	return b
+}
+
 func (b *MongoDBBuilder) SetLabels(labels map[string]string) *MongoDBBuilder {
 	b.mdb.Labels = labels
 	return b

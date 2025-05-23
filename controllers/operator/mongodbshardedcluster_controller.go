@@ -30,6 +30,7 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
 	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
@@ -1073,7 +1074,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		}
 	}
 
-	if workflowStatus := ensureRoles(sc.Spec.GetSecurity().Roles, conn, log); !workflowStatus.IsOK() {
+	if workflowStatus := r.commonController.ensureRoles(ctx, sc.Spec.GetSecurity().Roles, sc.GetSecurity().RoleRefs, conn, kube.ObjectKeyFromApiObject(sc), log); !workflowStatus.IsOK() {
 		return workflowStatus
 	}
 
@@ -1675,6 +1676,13 @@ func AddShardedClusterController(ctx context.Context, mgr manager.Manager, image
 			zap.S().Errorf("Failed to watch for vault secret changes: %w", err)
 		}
 	}
+
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &rolev1.ClusterMongoDBRole{},
+		&watch.ResourcesHandler{ResourceType: watch.ClusterMongoDBRole, ResourceWatcher: reconciler.resourceWatcher}))
+	if err != nil {
+		return err
+	}
+
 	zap.S().Infof("Registered controller %s", util.MongoDbShardedClusterController)
 
 	return nil
