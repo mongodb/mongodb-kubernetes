@@ -1,5 +1,6 @@
 import kubernetes
 import kubetester.oidc as oidc
+import pytest
 from kubetester import find_fixture, try_load, wait_until
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
@@ -32,13 +33,12 @@ def mongodb_multi(
 
     resource.set_oidc_provider_configs(oidc_provider_configs)
 
-    resource.set_version(ensure_ent_version(custom_mdb_version))
-
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 
     return resource.update()
 
 
+@pytest.mark.e2e_multi_cluster_oidc
 class TestOIDCMultiCluster(KubernetesTester):
     def test_deploy_operator(self, multi_cluster_operator: Operator):
         multi_cluster_operator.assert_is_running()
