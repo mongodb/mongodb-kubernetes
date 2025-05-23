@@ -31,6 +31,7 @@ def test_stateful_set_spec_updated(replica_set, namespace):
         {
             "name": "mongodb-enterprise-database",
             "resources": {
+                "claims": None,
                 "limits": {
                     "cpu": "2",
                 },
