@@ -1,0 +1,31 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: oidc-replica-set
+spec:
+  type: ReplicaSet
+  members: 3
+  version: 8.0.5-ent
+
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+
+  security:
+    authentication:
+      agents:
+        mode: SCRAM
+      enabled: true
+      modes:
+        - SCRAM
+        - OIDC
+      oidcProviderConfigs:
+        - audience: "example-audience"
+          issuerURI: "https://example-issuer.com"
+          requestedScopes: [ ]
+          userClaim: "sub"
+          groupsClaim: "cognito:groups"
+          authorizationMethod: "WorkforceIdentityFederation"
+          authorizationType: "GroupMembership"
+          configurationName: "OIDC-test"

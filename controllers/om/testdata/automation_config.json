@@ -320,5 +320,51 @@
     "clientCertificateMode": "OPTIONAL"
   },
   "version": null,
-  "sharding": []
+  "sharding": [],
+  "oidcProviderConfigs": [
+    {
+      "audience": "aud",
+      "issuerUri": "https://provider.okta.com",
+      "clientId": "oktaClientId",
+      "requestedScopes": [
+        "openid"
+      ],
+      "userClaim": "sub",
+      "JWKSPollSecs": 360,
+      "authNamePrefix": "OIDC_WORKFORCE_USERID",
+      "supportsHumanFlows": true,
+      "useAuthorizationClaim": false,
+      "additionalField": [
+        "example.com"
+      ]
+    },
+    {
+      "audience": "aud",
+      "issuerUri": "https://provider.okta.com",
+      "requestedScopes": [
+        "openid"
+      ],
+      "userClaim": "sub",
+      "JWKSPollSecs": 360,
+      "authNamePrefix": "OIDC_WORKLOAD_USERID",
+      "supportsHumanFlows": false,
+      "useAuthorizationClaim": false,
+      "additionalField": [
+        "example.com"
+      ]
+    },
+    {
+      "audience": "aud",
+      "issuerUri": "https://provider.okta.com",
+      "userClaim": "sub",
+      "groupsClaim": "groups",
+      "JWKSPollSecs": 360,
+      "authNamePrefix": "OIDC_WORKLOAD_GROUP_MEMBERSHIP",
+      "supportsHumanFlows": false,
+      "useAuthorizationClaim": true,
+      "additionalField": [
+        "example.com"
+      ]
+    }
+  ]
 }

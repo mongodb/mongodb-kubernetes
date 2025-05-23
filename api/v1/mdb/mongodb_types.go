@@ -811,6 +811,7 @@ func (s *Security) IsOIDCEnabled() bool {
 	if s == nil || s.Authentication == nil || !s.Authentication.Enabled {
 		return false
 	}
+
 	return s.Authentication.IsOIDCEnabled()
 }
 
