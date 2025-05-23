@@ -234,6 +234,7 @@ func getMdbEvents(ctx context.Context, operatorClusterClient kubeclient.Client, 
 				Type:                     string(item.Spec.GetResourceType()),
 				IsRunningEnterpriseImage: images.IsEnterpriseImage(imageURL),
 				ExternalDomains:          getExternalDomainProperty(item),
+				CustomRoles:              getCustomRoles(item.Spec.Security),
 			}
 
 			if numberOfClustersUsed > 0 {
@@ -272,6 +273,7 @@ func addMultiEvents(ctx context.Context, operatorClusterClient kubeclient.Client
 			Type:                     string(item.Spec.GetResourceType()),
 			IsRunningEnterpriseImage: images.IsEnterpriseImage(imageURL),
 			ExternalDomains:          getExternalDomainPropertyForMongoDBMulti(item),
+			CustomRoles:              getCustomRoles(item.Spec.Security),
 		}
 
 		if event := createEvent(properties, now, Deployments); event != nil {
@@ -533,4 +535,26 @@ func isExternalDomainSpecifiedInClusterSpecList(clusterSpecList mdbv1.ClusterSpe
 	}
 
 	return clusterSpecList.IsExternalDomainSpecifiedInClusterSpecList()
+}
+
+const (
+	CustomRoleNone       = "None"
+	CustomRoleEmbedded   = "Embedded"
+	CustomRoleReferenced = "Referenced"
+)
+
+func getCustomRoles(security *mdbv1.Security) string {
+	if security == nil {
+		return CustomRoleNone
+	}
+
+	if len(security.Roles) > 0 {
+		return CustomRoleEmbedded
+	}
+
+	if len(security.RoleRefs) > 0 {
+		return CustomRoleReferenced
+	}
+
+	return CustomRoleNone
 }
