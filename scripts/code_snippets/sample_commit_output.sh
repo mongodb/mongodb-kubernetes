@@ -3,7 +3,7 @@
 set -Eeou pipefail
 source scripts/dev/set_env_context.sh
 
-if [ "${COMMIT_OUTPUT:-false}" = true ]; then
+if [[ "${CODE_SNIPPETS_COMMIT_OUTPUT:-"false"}" == "true" ]]; then
   echo "Pushing output files"
   branch="meko-snippets-update-$(date "+%Y%m%d%H%M%S")"
   git checkout -b "${branch}"
