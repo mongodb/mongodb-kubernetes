@@ -70,6 +70,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					"type":                     "ReplicaSet",
 					"IsRunningEnterpriseImage": false,
 					"externalDomains":          ExternalDomainNone,
+					"customRoles":              CustomRoleNone,
 					"authenticationModeLDAP":   true,
 					"authenticationModeOIDC":   true,
 					"authenticationModeSCRAM":  true,
@@ -109,6 +110,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					"type":                     "ReplicaSet",
 					"IsRunningEnterpriseImage": false,
 					"externalDomains":          ExternalDomainNone,
+					"customRoles":              CustomRoleNone,
 					"authenticationModeSCRAM":  true,
 					"authenticationAgentMode":  util.SCRAM,
 				},
@@ -918,6 +920,139 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					"IsRunningEnterpriseImage": true,
 					"operatorID":               testOperatorUUID,
 					"type":                     "OpsManager",
+				},
+			},
+		},
+		"custom roles test": {
+			objects: []client.Object{
+				&mdbv1.MongoDB{
+					Spec: mdbv1.MongoDbSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ResourceType: mdbv1.ReplicaSet,
+							Security:     &mdbv1.Security{},
+						},
+					}, ObjectMeta: metav1.ObjectMeta{
+						UID:  "be4bacfc-fb41-4e29-b7d1-712460ed908c",
+						Name: "test-rs-no-roles",
+					},
+				},
+				&mdbv1.MongoDB{
+					Spec: mdbv1.MongoDbSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ResourceType: mdbv1.ReplicaSet,
+							Security: &mdbv1.Security{
+								Roles: []mdbv1.MongoDBRole{
+									{
+										Role: "test-role1",
+										Db:   "admin",
+										Privileges: []mdbv1.Privilege{
+											{
+												Actions: []string{"action1", "action2"},
+											},
+										},
+									},
+								},
+							},
+						},
+					}, ObjectMeta: metav1.ObjectMeta{
+						UID:  "c20a7cf1-a12d-4cee-a87e-7f61aa2bd878",
+						Name: "test-rs-embedded-roles",
+					},
+				},
+				&mdbv1.MongoDB{
+					Spec: mdbv1.MongoDbSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ResourceType: mdbv1.ReplicaSet,
+							Security: &mdbv1.Security{
+								RoleRefs: []mdbv1.MongoDBRoleRef{
+									{
+										Name: "test-role",
+										Kind: "ClusterMongoDBRole",
+									},
+								},
+							},
+						},
+					}, ObjectMeta: metav1.ObjectMeta{
+						UID:  "97822e48-fb51-4ba5-9993-26841b44a7a3",
+						Name: "test-rs-ref-roles",
+					},
+				},
+				&mdbmulti.MongoDBMultiCluster{
+					Spec: mdbmulti.MongoDBMultiSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ResourceType: mdbv1.ReplicaSet,
+						},
+					}, ObjectMeta: metav1.ObjectMeta{
+						UID:  "17e352f7-dcd1-4bfa-bc12-a2f4e637477b",
+						Name: "test-mrs-no-roles",
+					},
+				},
+				&mdbmulti.MongoDBMultiCluster{
+					Spec: mdbmulti.MongoDBMultiSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ResourceType: mdbv1.ReplicaSet,
+							Security: &mdbv1.Security{
+								Roles: []mdbv1.MongoDBRole{
+									{
+										Role: "test-role1",
+										Db:   "admin",
+										Privileges: []mdbv1.Privilege{
+											{
+												Actions: []string{"action1", "action2"},
+											},
+										},
+									},
+								},
+							},
+						},
+					}, ObjectMeta: metav1.ObjectMeta{
+						UID:  "71368077-ea95-4564-acd6-09ec573fdf61",
+						Name: "test-mrs-embedded-roles",
+					},
+				},
+				&mdbmulti.MongoDBMultiCluster{
+					Spec: mdbmulti.MongoDBMultiSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ResourceType: mdbv1.ReplicaSet,
+							Security: &mdbv1.Security{
+								RoleRefs: []mdbv1.MongoDBRoleRef{
+									{
+										Name: "test-role",
+										Kind: "ClusterMongoDBRole",
+									},
+								},
+							},
+						},
+					}, ObjectMeta: metav1.ObjectMeta{
+						UID:  "a8a28c8a-6226-44fc-a8cd-e66a6942ffbd",
+						Name: "test-mrs-ref-roles",
+					},
+				},
+			},
+			expectedEventsWithProperties: []map[string]any{
+				{
+					"deploymentUID": "be4bacfc-fb41-4e29-b7d1-712460ed908c",
+					"customRoles":   CustomRoleNone,
+				},
+				{
+					"deploymentUID": "c20a7cf1-a12d-4cee-a87e-7f61aa2bd878",
+					"customRoles":   CustomRoleEmbedded,
+				},
+				{
+					"deploymentUID": "97822e48-fb51-4ba5-9993-26841b44a7a3",
+					"customRoles":   CustomRoleReferenced,
+				},
+				{
+					"deploymentUID": "17e352f7-dcd1-4bfa-bc12-a2f4e637477b",
+					"customRoles":   CustomRoleNone,
+				},
+				{
+					"deploymentUID": "71368077-ea95-4564-acd6-09ec573fdf61",
+					"customRoles":   CustomRoleEmbedded,
+				},
+				{
+					"deploymentUID": "a8a28c8a-6226-44fc-a8cd-e66a6942ffbd",
+					"customRoles":   CustomRoleReferenced,
 				},
 			},
 		},
