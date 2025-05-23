@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"os"
 	"runtime/debug"
 	"slices"
@@ -27,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	corev1 "k8s.io/api/core/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -136,22 +136,22 @@ func main() {
 	cfg := ctrl.GetConfigOrDie()
 
 	log.Debugf("Setting up tracing with ID: %s, Parent ID: %s, Endpoint: %s", traceIDHex, spanIDHex, endpoint)
-	traceCtx, tp, err := telemetry.SetupTracing(signalCtx, traceIDHex, spanIDHex, endpoint)
+	traceCtxWithParentSpan, tp, err := telemetry.SetupTracingFromParent(signalCtx, traceIDHex, spanIDHex, endpoint)
 	if err != nil {
-		log.Warnf("Failed to setup tracing: %v", err)
+		log.Warnf("Failed to setup opentelemetry tracing: %v", err)
 		// Continue without tracing instead of failing
-		traceCtx = signalCtx
+		traceCtxWithParentSpan = signalCtx
 	} else {
 		defer func() {
 			if tp != nil {
 				shutdownTracerProvider(signalCtx, tp)
 			} else {
-				log.Warn("No tracer provider created, tracing will be disabled")
+				log.Warn("No tracer provider created, opentelemetry tracing will be disabled")
 			}
 		}()
 	}
 
-	ctxWithSpan, operatorSpan := startRootSpan(currentNamespace, spanIDHex, traceCtx)
+	ctxWithSpan, operatorSpan := startRootSpan(currentNamespace, spanIDHex, traceCtxWithParentSpan)
 	defer operatorSpan.End()
 
 	managerOptions := ctrl.Options{

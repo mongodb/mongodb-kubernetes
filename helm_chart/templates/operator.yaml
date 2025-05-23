@@ -80,13 +80,13 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
-    {{- if .Values.operator.opentelemetry.enabled }}
+    {{- if default false .Values.operator.opentelemetry.tracing.enabled }}
             - name: OTEL_TRACE_ID
-              value: {{ .Values.operator.opentelemetry.traceID | quote }}
+              value: {{ .Values.operator.opentelemetry.tracing.traceID | quote }}
             - name: OTEL_PARENT_ID
-              value: {{ .Values.operator.opentelemetry.parentID | quote }}
+              value: {{ .Values.operator.opentelemetry.tracing.parentID | quote }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
-              value: {{ .Values.operator.opentelemetry.collectorEndpoint | quote }}
+              value: {{ .Values.operator.opentelemetry.tracing.collectorEndpoint | quote }}
     {{- end }}
     {{- if .Values.operator.vaultSecretBackend }}
       {{- if .Values.operator.vaultSecretBackend.enabled }}

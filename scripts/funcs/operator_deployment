@@ -42,18 +42,18 @@ get_operator_helm_values() {
 
   # Add OpenTelemetry values if any of the environment variables are set
   if [[ -n "${otel_trace_id:-}" || -n "${otel_parent_id:-}" || -n "${otel_collector_endpoint:-}" ]]; then
-    config+=("operator.opentelemetry.enabled=true")
+    config+=("operator.opentelemetry.tracing.enabled=true")
 
     if [[ -n "${otel_trace_id:-}" ]]; then
-      config+=("operator.opentelemetry.traceID=${otel_trace_id}")
+      config+=("operator.opentelemetry.tracing.traceID=${otel_trace_id}")
     fi
 
     if [[ -n "${otel_parent_id:-}" ]]; then
-      config+=("operator.opentelemetry.parentID=${otel_parent_id}")
+      config+=("operator.opentelemetry.tracing.parentID=${otel_parent_id}")
     fi
 
     if [[ -n "${otel_collector_endpoint:-}" ]]; then
-      config+=("operator.opentelemetry.collectorEndpoint=${otel_collector_endpoint}")
+      config+=("operator.opentelemetry.tracing.collectorEndpoint=${otel_collector_endpoint}")
     fi
   fi
 
