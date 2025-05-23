@@ -1231,7 +1231,6 @@ func (m *MongoDB) IsLDAPEnabled() bool {
 	if m.Spec.Security == nil || m.Spec.Security.Authentication == nil {
 		return false
 	}
-
 	return m.Spec.Security.Authentication.IsLDAPEnabled()
 }
 
@@ -1239,7 +1238,6 @@ func (m *MongoDB) IsOIDCEnabled() bool {
 	if m.Spec.Security == nil || m.Spec.Security.Authentication == nil {
 		return false
 	}
-
 	return m.Spec.Security.Authentication.IsOIDCEnabled()
 }
 
