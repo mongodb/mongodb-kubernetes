@@ -234,6 +234,8 @@ func getMdbEvents(ctx context.Context, operatorClusterClient kubeclient.Client, 
 				Type:                     string(item.Spec.GetResourceType()),
 				IsRunningEnterpriseImage: images.IsEnterpriseImage(imageURL),
 				ExternalDomains:          getExternalDomainProperty(item),
+				AuthenticationModes:      getAuthenticationModes(item.Spec.Security),
+				AuthenticationAgentMode:  getAuthenticationAgentMode(item.Spec.Security),
 			}
 
 			if numberOfClustersUsed > 0 {
@@ -272,6 +274,8 @@ func addMultiEvents(ctx context.Context, operatorClusterClient kubeclient.Client
 			Type:                     string(item.Spec.GetResourceType()),
 			IsRunningEnterpriseImage: images.IsEnterpriseImage(imageURL),
 			ExternalDomains:          getExternalDomainPropertyForMongoDBMulti(item),
+			AuthenticationModes:      getAuthenticationModes(item.Spec.Security),
+			AuthenticationAgentMode:  getAuthenticationAgentMode(item.Spec.Security),
 		}
 
 		if event := createEvent(properties, now, Deployments); event != nil {
@@ -533,4 +537,28 @@ func isExternalDomainSpecifiedInClusterSpecList(clusterSpecList mdbv1.ClusterSpe
 	}
 
 	return clusterSpecList.IsExternalDomainSpecifiedInClusterSpecList()
+}
+
+func getAuthenticationModes(security *mdbv1.Security) string {
+	if security == nil || security.Authentication == nil {
+		return ""
+	}
+
+	if !security.Authentication.Enabled {
+		return ""
+	}
+
+	return strings.Join(security.Authentication.GetModes(), ",")
+}
+
+func getAuthenticationAgentMode(security *mdbv1.Security) string {
+	if security == nil || security.Authentication == nil {
+		return ""
+	}
+
+	if !security.Authentication.Enabled {
+		return ""
+	}
+
+	return security.Authentication.Agents.Mode
 }
