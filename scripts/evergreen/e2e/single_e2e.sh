@@ -53,6 +53,13 @@ deploy_test_app() {
         "--set" "mdbDefaultArchitecture=${MDB_DEFAULT_ARCHITECTURE:-'non-static'}"
         "--set" "mdbImageType=${MDB_IMAGE_TYPE:-'ubi8'}"
         "--set" "clusterDomain=${CLUSTER_DOMAIN:-'cluster.local'}"
+        "--set" "cognito_user_pool_id=${cognito_user_pool_id}"
+        "--set" "cognito_workload_federation_client_id=${cognito_workload_federation_client_id}"
+        "--set" "cognito_user_name=${cognito_user_name}"
+        "--set" "cognito_workload_federation_client_secret=${cognito_workload_federation_client_secret}"
+        "--set" "cognito_user_password=${cognito_user_password}"
+        "--set" "cognito_workload_url=${cognito_workload_url}"
+        "--set" "cognito_workload_user_id=${cognito_workload_user_id}"
     )
 
     # shellcheck disable=SC2154

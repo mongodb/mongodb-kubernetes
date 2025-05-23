@@ -175,6 +175,20 @@ spec:
     {{ end }}
     - name: ops_manager_version
       value: "{{ .Values.opsManagerVersion }}"
+    - name: cognito_user_pool_id
+      value: {{ .Values.cognito_user_pool_id }}
+    - name: cognito_workload_federation_client_id
+      value: {{ .Values.cognito_workload_federation_client_id }}
+    - name: cognito_user_name
+      value: {{ .Values.cognito_user_name }}
+    - name: cognito_workload_federation_client_secret
+      value: {{ .Values.cognito_workload_federation_client_secret }}
+    - name: cognito_user_password
+      value: {{ .Values.cognito_user_password }}
+    - name: cognito_workload_url
+      value: {{ .Values.cognito_workload_url }}
+    - name: cognito_workload_user_id
+      value: {{ .Values.cognito_workload_user_id }}
     image: {{ .Values.repo }}/mongodb-kubernetes-tests:{{ .Values.tag }}
     # Options to pytest command should go in the pytest.ini file.
     command: ["pytest"]

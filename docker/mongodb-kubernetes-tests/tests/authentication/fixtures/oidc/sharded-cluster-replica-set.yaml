@@ -1,0 +1,52 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: oidc-sharded-cluster-replica-set
+spec:
+  type: ShardedCluster
+  shardCount: 2
+  mongodsPerShardCount: 3
+  mongosCount: 2
+  configServerCount: 3
+  version: 7.0.5-ent
+
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+
+  persistent: true
+  security:
+    authentication:
+      agents:
+        mode: SCRAM
+      enabled: true
+      modes:
+        - SCRAM
+        - OIDC
+      oidcProviderConfigs:
+        - audience: "<filled-in-test>"
+          clientId: "<filled-in-test>"
+          issuerURI: "<filled-in-test>"
+          requestedScopes: [ ]
+          userClaim: "sub"
+          groupsClaim: "cognito:groups"
+          authorizationMethod: "WorkloadIdentityFederation"
+          authorizationType: "GroupMembership"
+          configurationName: "OIDC-test"
+        - audience: "test-audience"
+          clientId: "test-client-id"
+          issuerURI: "https://valid-issuer-1.example.com"
+          requestedScopes: [ ]
+          userClaim: "sub"
+          authorizationMethod: "WorkforceIdentityFederation"
+          authorizationType: "UserID"
+          configurationName: "OIDC-test-user"
+
+    roles:
+      - role: "OIDC-test/test"
+        db: "admin"
+        roles:
+          - role: "readWriteAnyDatabase"
+            db: "admin"
