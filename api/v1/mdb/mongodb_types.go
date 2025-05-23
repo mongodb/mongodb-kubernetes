@@ -57,6 +57,12 @@ const (
 	ClusterTopologySingleCluster = "SingleCluster"
 	ClusterTopologyMultiCluster  = "MultiCluster"
 
+	OIDCAuthorizationTypeGroupMembership = "GroupMembership"
+	OIDCAuthorizationTypeUserID          = "UserID"
+
+	OIDCAuthorizationMethodWorkforceIdentityFederation = "WorkforceIdentityFederation"
+	OIDCAuthorizationMethodWorkloadIdentityFederation  = "WorkloadIdentityFederation"
+
 	LabelResourceOwner = "mongodb.com/v1.mongodbResourceOwner"
 )
 
@@ -801,6 +807,13 @@ func (s *Security) IsTLSEnabled() bool {
 	return s.CertificatesSecretsPrefix != ""
 }
 
+func (s *Security) IsOIDCEnabled() bool {
+	if s == nil || s.Authentication == nil || !s.Authentication.Enabled {
+		return false
+	}
+	return s.Authentication.IsOIDCEnabled()
+}
+
 // GetAgentMechanism returns the authentication mechanism that the agents will be using.
 // The agents will use X509 if it is the only mechanism specified, otherwise they will use SCRAM if specified
 // and no auth if no mechanisms exist.
@@ -878,7 +891,7 @@ func (s Security) RequiresClientTLSAuthentication() bool {
 		return false
 	}
 
-	if len(s.Authentication.Modes) == 1 && IsAuthPresent(s.Authentication.Modes, util.X509) {
+	if len(s.Authentication.Modes) == 1 && s.Authentication.IsX509Enabled() {
 		return true
 	}
 
@@ -912,6 +925,10 @@ type Authentication struct {
 	// +optional
 	Ldap *Ldap `json:"ldap,omitempty"`
 
+	// Configuration for OIDC providers
+	// +optional
+	OIDCProviderConfigs []OIDCProviderConfig `json:"oidcProviderConfigs,omitempty"`
+
 	// Agents contains authentication configuration properties for the agents
 	// +optional
 	Agents AgentAuthentication `json:"agents,omitempty"`
@@ -920,7 +937,7 @@ type Authentication struct {
 	RequiresClientTLSAuthentication bool `json:"requireClientTLSAuthentication,omitempty"`
 }
 
-// +kubebuilder:validation:Enum=X509;SCRAM;SCRAM-SHA-1;MONGODB-CR;SCRAM-SHA-256;LDAP
+// +kubebuilder:validation:Enum=X509;SCRAM;SCRAM-SHA-1;MONGODB-CR;SCRAM-SHA-256;LDAP;OIDC
 type AuthMode string
 
 func ConvertAuthModesToStrings(authModes []AuthMode) []string {
@@ -993,8 +1010,13 @@ func (a *Authentication) IsX509Enabled() bool {
 }
 
 // IsLDAPEnabled determines if LDAP is to be enabled at the project level
-func (a *Authentication) isLDAPEnabled() bool {
+func (a *Authentication) IsLDAPEnabled() bool {
 	return stringutil.Contains(a.GetModes(), util.LDAP)
+}
+
+// IsOIDCEnabled determines if OIDC is to be enabled at the project level
+func (a *Authentication) IsOIDCEnabled() bool {
+	return stringutil.Contains(a.GetModes(), util.OIDC)
 }
 
 // GetModes returns the modes of the Authentication instance of an empty
@@ -1032,6 +1054,68 @@ type Ldap struct {
 	// +optional
 	UserCacheInvalidationInterval int `json:"userCacheInvalidationInterval"`
 }
+
+type OIDCProviderConfig struct {
+	// Unique label that identifies this configuration. This label is visible to your Ops Manager users and is used when
+	// creating users and roles for authorization. It is case-sensitive and can only contain the following characters:
+	//  - alphanumeric characters (combination of a to z and 0 to 9)
+	//  - hyphens (-)
+	//  - underscores (_)
+	// +kubebuilder:validation:Pattern="^[a-zA-Z0-9-_]+$"
+	// +kubebuilder:validation:Required
+	ConfigurationName string `json:"configurationName"`
+
+	// Issuer value provided by your registered IdP application. Using this URI, MongoDB finds an OpenID Provider
+	// Configuration Document, which should be available in the /.wellknown/open-id-configuration endpoint.
+	// +kubebuilder:validation:Required
+	IssuerURI string `json:"issuerURI"`
+
+	// Entity that your external identity provider intends the token for.
+	// Enter the audience value from the app you registered with external Identity Provider.
+	// +kubebuilder:validation:Required
+	Audience string `json:"audience"`
+
+	// Select GroupMembership to grant authorization based on IdP user group membership, or select UserID to grant
+	// an individual user authorization.
+	// +kubebuilder:validation:Required
+	AuthorizationType OIDCAuthorizationType `json:"authorizationType"`
+
+	// The identifier of the claim that includes the user principal identity.
+	// Accept the default value unless your IdP uses a different claim.
+	// +kubebuilder:default=sub
+	// +kubebuilder:validation:Required
+	UserClaim string `json:"userClaim"`
+
+	// The identifier of the claim that includes the principal's IdP user group membership information.
+	// Accept the default value unless your IdP uses a different claim, or you need a custom claim.
+	// Required when selected GroupMembership as the authorization type, ignored otherwise
+	// +kubebuilder:default=groups
+	// +kubebuilder:validation:Optional
+	GroupsClaim string `json:"groupsClaim,omitempty"`
+
+	// Configure single-sign-on for human user access to Ops Manager deployments with Workforce Identity Federation.
+	// For programmatic, application access to Ops Manager deployments use Workload Identity Federation.
+	// Only one Workforce Identity Federation IdP can be configured per MongoDB resource
+	// +kubebuilder:validation:Required
+	AuthorizationMethod OIDCAuthorizationMethod `json:"authorizationMethod"`
+
+	// Unique identifier for your registered application. Enter the clientId value from the app you
+	// registered with an external Identity Provider.
+	// Required when selected Workforce Identity Federation authorization method
+	// +kubebuilder:validation:Optional
+	ClientId string `json:"clientId,omitempty"`
+
+	// Tokens that give users permission to request data from the authorization endpoint.
+	// Only used for Workforce Identity Federation authorization method
+	// +kubebuilder:validation:Optional
+	RequestedScopes []string `json:"requestedScopes,omitempty"`
+}
+
+// +kubebuilder:validation:Enum=GroupMembership;UserID
+type OIDCAuthorizationType string
+
+// +kubebuilder:validation:Enum=WorkforceIdentityFederation;WorkloadIdentityFederation
+type OIDCAuthorizationMethod string
 
 type SecretRef struct {
 	// +kubebuilder:validation:Required
@@ -1142,7 +1226,14 @@ func (m *MongoDB) IsLDAPEnabled() bool {
 	if m.Spec.Security == nil || m.Spec.Security.Authentication == nil {
 		return false
 	}
-	return IsAuthPresent(m.Spec.Security.Authentication.Modes, util.LDAP)
+	return m.Spec.Security.Authentication.IsLDAPEnabled()
+}
+
+func (m *MongoDB) IsOIDCEnabled() bool {
+	if m.Spec.Security == nil || m.Spec.Security.Authentication == nil {
+		return false
+	}
+	return m.Spec.Security.Authentication.IsOIDCEnabled()
 }
 
 func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Option) {
@@ -1201,6 +1292,10 @@ func (m *MongoDB) AddWarningIfNotExists(warning status.Warning) {
 
 func (m *MongoDB) GetStatus(...status.Option) interface{} {
 	return m.Status
+}
+
+func (m *MongoDB) GetStatusWarnings() []status.Warning {
+	return m.Status.Warnings
 }
 
 func (m *MongoDB) GetCommonStatus(...status.Option) *status.Common {
