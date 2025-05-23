@@ -482,7 +482,7 @@ def build_mco_tests_image(build_configuration: BuildConfiguration):
 
     sonar_build_image(image_name, build_configuration, buildargs, "inventories/mco_test.yaml")
 
-
+TRACER.start_as_current_span("build_operator_image")
 def build_operator_image(build_configuration: BuildConfiguration):
     """Calculates arguments required to build the operator image, and starts the build process."""
     # In evergreen, we can pass test_suffix env to publish the operator to a quay
@@ -491,22 +491,41 @@ def build_operator_image(build_configuration: BuildConfiguration):
     log_automation_config_diff = os.environ.get("LOG_AUTOMATION_CONFIG_DIFF", "false")
     version, _ = get_git_release_tag()
 
-    args = {
-        "version": version,
-        "log_automation_config_diff": log_automation_config_diff,
-        "test_suffix": test_suffix,
-        "debug": build_configuration.debug,
-    }
+    # Use only amd64 if we should skip arm64 builds
+    if should_skip_arm64():
+        architectures = ["amd64"]
+        logger.info("Skipping ARM64 builds for operator image as this is running in EVG pipeline as a patch")
+    else:
+        architectures = build_configuration.architecture or ["amd64", "arm64"]
 
-    logger.info(f"Building Operator args: {args}")
+
+    multi_arch_args_list = []
+
+    for arch in architectures:
+        arch_args = {
+            "version": version,
+            "log_automation_config_diff": log_automation_config_diff,
+            "test_suffix": test_suffix,
+            "debug": build_configuration.debug,
+            "architecture": arch
+        }
+        multi_arch_args_list.append(arch_args)
+
+    logger.info(f"Building Operator args: {multi_arch_args_list}")
 
     image_name = "mongodb-kubernetes"
+
+    current_span = trace.get_current_span()
+    current_span.set_attribute("mck.image_name", image_name)
+    current_span.set_attribute("mck.architecture", architectures)
+
     build_image_generic(
         config=build_configuration,
         image_name=image_name,
         inventory_file="inventory.yaml",
-        extra_args=args,
         registry_address=f"{QUAY_REGISTRY_URL}/{image_name}",
+        multi_arch_args_list=multi_arch_args_list,
+        is_multi_arch=True
     )
 
 
