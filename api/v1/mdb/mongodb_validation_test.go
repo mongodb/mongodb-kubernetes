@@ -621,12 +621,7 @@ func TestOIDCProviderConfigUniqueIssuerURIValidation(t *testing.T) {
 
 			result := validationFunc(dbSpec)
 
-			if tt.expectedResult.Level == 0 {
-				assert.Equal(t, v1.ValidationSuccess().Level, result.Level)
-			} else {
-				assert.Equal(t, tt.expectedResult.Level, result.Level)
-				assert.Equal(t, tt.expectedResult.Msg, result.Msg)
-			}
+			assert.Equal(t, tt.expectedResult, result)
 		})
 	}
 }
