@@ -67,11 +67,11 @@ class TestCreateOIDCShardedCluster(KubernetesTester):
                 "issuerUri": oidc.get_cognito_workload_url(),
                 "clientId": oidc.get_cognito_workload_client_id(),
                 "userClaim": "sub",
-                "groupsClaim": "cognito:groups",
+                "groupsClaim": "groups",
                 "JWKSPollSecs": 0,
-                "authNamePrefix": "OIDC-test",
+                "authNamePrefix": "OIDC-test-user",
                 "supportsHumanFlows": False,
-                "useAuthorizationClaim": True,
+                "useAuthorizationClaim": False,
             },
         ]
         tester.assert_oidc_configuration(expected_oidc_configs)
