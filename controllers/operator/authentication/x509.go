@@ -131,6 +131,10 @@ func (x *connectionX509) IsAgentAuthenticationConfigured(ac *om.AutomationConfig
 }
 
 func (x *connectionX509) IsDeploymentAuthenticationConfigured(ac *om.AutomationConfig, _ Options) bool {
+	return x.IsDeploymentAuthenticationEnabled(ac)
+}
+
+func (x *connectionX509) IsDeploymentAuthenticationEnabled(ac *om.AutomationConfig) bool {
 	return stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(MongoDBX509))
 }
 
