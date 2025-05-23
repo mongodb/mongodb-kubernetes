@@ -50,7 +50,7 @@ def generate_csr(namespace: str, host: str, servicename: str):
 
 
 def get_pem_certificate(name: str) -> Optional[str]:
-    body = client.CertificatesV1beta1Api().read_certificate_signing_request_status(name)
+    body = client.CertificatesV1Api().read_certificate_signing_request_status(name)
     if body.status.certificate is None:
         return None
     return base64.b64decode(body.status.certificate)

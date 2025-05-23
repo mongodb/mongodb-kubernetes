@@ -325,7 +325,7 @@ class KubernetesTester(object):
             "appsv1": client.AppsV1Api(api_client=api_client),
             "storagev1": client.StorageV1Api(api_client=api_client),
             "customv1": client.CustomObjectsApi(api_client=api_client),
-            "certificates": client.CertificatesV1beta1Api(api_client=api_client),
+            "certificates": client.CertificatesV1Api(api_client=api_client),
             "namespace": KubernetesTester.get_namespace(),
         }[name]
 
@@ -807,7 +807,7 @@ class KubernetesTester(object):
         self.client = client
         self.corev1 = client.CoreV1Api()
         self.appsv1 = client.AppsV1Api()
-        self.certificates = client.CertificatesV1beta1Api()
+        self.certificates = client.CertificatesV1Api()
         self.customv1 = client.CustomObjectsApi()
         self.namespace = KubernetesTester.get_namespace()
         self.name = None
@@ -1224,19 +1224,19 @@ class KubernetesTester(object):
         if namespace is None:
             namespace = self.namespace
 
-        csr_body = client.V1beta1CertificateSigningRequest(
+        csr_body = client.V1CertificateSigningRequest(
             metadata=client.V1ObjectMeta(name=csr_name, namespace=namespace),
-            spec=client.V1beta1CertificateSigningRequestSpec(
+            spec=client.V1CertificateSigningRequestSpec(
                 groups=["system:authenticated"],
                 usages=["digital signature", "key encipherment", "client auth"],
                 request=encoded_request,
             ),
         )
 
-        client.CertificatesV1beta1Api().create_certificate_signing_request(csr_body)
+        client.CertificatesV1Api().create_certificate_signing_request(csr_body)
         self.approve_certificate(csr_name)
         wait_for_certs_to_be_issued([csr_name])
-        csr = client.CertificatesV1beta1Api().read_certificate_signing_request(csr_name)
+        csr = client.CertificatesV1Api().read_certificate_signing_request(csr_name)
         certificate = b64decode(csr.status.certificate)
 
         tmp = tempfile.NamedTemporaryFile()
@@ -1383,7 +1383,7 @@ class KubernetesTester(object):
         Return all of the subject alternative names for a given Kubernetes
         certificate signing request.
         """
-        csr = client.CertificatesV1beta1Api().read_certificate_signing_request_status(csr_name)
+        csr = client.CertificatesV1Api().read_certificate_signing_request_status(csr_name)
         base64_csr_request = csr.spec.request
         csr_pem_string = b64decode(base64_csr_request)
         csr = x509.load_pem_x509_csr(csr_pem_string, default_backend())
