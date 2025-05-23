@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/attribute"
 	"k8s.io/apimachinery/pkg/types"
 
 	corev1 "k8s.io/api/core/v1"
@@ -82,6 +83,13 @@ func updateConfigMapWithNewUUID(ctx context.Context, k8sClient kubeclient.Client
 
 // Creates a new ConfigMap with a generated UUID
 func createNewConfigMap(ctx context.Context, k8sClient kubeclient.Client, namespace string) string {
+	_, span := TRACER.Start(ctx, "createNewConfigMap")
+	span.SetAttributes(
+		attribute.String("mck.resource.type", "telemetry-collection"),
+		attribute.String("mck.k8s.namespace", namespace),
+	)
+	defer span.End()
+
 	newUUID, newConfigMap := createInitialConfigmap(namespace)
 	if err := k8sClient.Create(ctx, newConfigMap); err != nil {
 		Logger.Debugf("Failed to create ConfigMap %s: %s", OperatorConfigMapTelemetryConfigMapName, err)
