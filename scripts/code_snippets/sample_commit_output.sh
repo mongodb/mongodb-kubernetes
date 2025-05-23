@@ -5,7 +5,7 @@ source scripts/dev/set_env_context.sh
 
 if [ "${COMMIT_OUTPUT:-false}" = true ]; then
   echo "Pushing output files"
-  branch="meko-snippets-update-$(date "+%Y%m%d%H%M%S")"
+  branch="mck-snippets-update-$(date "+%Y%m%d%H%M%S")"
   git checkout -b "${branch}"
   git reset
   git add public/architectures/**/*.out
