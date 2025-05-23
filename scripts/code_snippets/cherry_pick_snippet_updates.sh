@@ -7,8 +7,8 @@ if [[ -z "${release_branch}" ]]; then
   echo "Usage: $0 <release-branch>"
   exit 1
 fi
-current_date=$(date "+%Y%m%d")
-branch_pattern="origin/meko-snippets-update-${current_date}*"
+current_date=$(date "+%Y%m%d")s
+branch_pattern="origin/mck-snippets-update-${current_date}*"
 new_branch_name="mck-snippets-update-cherry-picked-${current_date}-$(date "+%H%M%S")"
 
 echo "Fetching from origin..."
