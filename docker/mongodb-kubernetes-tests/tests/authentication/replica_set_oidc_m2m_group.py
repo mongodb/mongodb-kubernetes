@@ -75,6 +75,7 @@ class TestAddNewOIDCProviderAndRole(KubernetesTester):
         replica_set.append_role(new_role)
 
         replica_set.update()
+        replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
         def config_and_roles_preserved() -> bool:
             tester = replica_set.get_automation_config_tester()
@@ -116,7 +117,6 @@ class TestAddNewOIDCProviderAndRole(KubernetesTester):
 
         wait_until(config_and_roles_preserved, timeout=300, sleep=5)
 
-        replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 
 # Tests the removal of all oidc configs and roles
@@ -129,7 +129,9 @@ class TestOIDCRemoval(KubernetesTester):
         replica_set["spec"]["security"]["authentication"]["modes"] = ["SCRAM"]
         replica_set["spec"]["security"]["authentication"]["oidcProviderConfigs"] = None
         replica_set["spec"]["security"]["roles"] = None
+
         replica_set.update()
+        replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
         def config_updated() -> bool:
             tester = replica_set.get_automation_config_tester()
@@ -141,5 +143,3 @@ class TestOIDCRemoval(KubernetesTester):
                 return False
 
         wait_until(config_updated, timeout=300, sleep=5)
-
-        replica_set.assert_reaches_phase(Phase.Running, timeout=400)

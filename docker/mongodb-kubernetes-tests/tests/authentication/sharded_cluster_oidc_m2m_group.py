@@ -103,6 +103,7 @@ class TestAddNewOIDCProviderAndRole(KubernetesTester):
         sharded_cluster.append_role(new_role)
 
         sharded_cluster.update()
+        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=400)
 
         def config_and_roles_preserved() -> bool:
             tester = sharded_cluster.get_automation_config_tester()
@@ -155,5 +156,3 @@ class TestAddNewOIDCProviderAndRole(KubernetesTester):
                 return False
 
         wait_until(config_and_roles_preserved, timeout=500, sleep=5)
-
-        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=400)
