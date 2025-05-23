@@ -83,6 +83,10 @@ func (s *automationConfigScramSha) IsAgentAuthenticationConfigured(ac *om.Automa
 }
 
 func (s *automationConfigScramSha) IsDeploymentAuthenticationConfigured(ac *om.AutomationConfig, _ Options) bool {
+	return s.IsDeploymentAuthenticationEnabled(ac)
+}
+
+func (s *automationConfigScramSha) IsDeploymentAuthenticationEnabled(ac *om.AutomationConfig) bool {
 	return stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(s.MechanismName))
 }
 
