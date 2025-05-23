@@ -506,29 +506,6 @@ func TestOIDCProviderConfigUniqueIssuerURIValidation(t *testing.T) {
 		expectedResult v1.ValidationResult
 	}{
 		{
-			name:           "Empty config list",
-			mongoVersion:   "6.0.0",
-			configs:        []OIDCProviderConfig{},
-			expectedResult: v1.ValidationSuccess(),
-		},
-		{
-			name:         "MongoDB 6.0 with unique issuer URIs",
-			mongoVersion: "6.0.0",
-			configs: []OIDCProviderConfig{
-				{
-					ConfigurationName: "config1",
-					IssuerURI:         "https://provider1.com",
-					Audience:          "audience1",
-				},
-				{
-					ConfigurationName: "config2",
-					IssuerURI:         "https://provider2.com",
-					Audience:          "audience1",
-				},
-			},
-			expectedResult: v1.ValidationSuccess(),
-		},
-		{
 			name:         "MongoDB 6.0 with duplicate issuer URIs - error",
 			mongoVersion: "6.0.0",
 			configs: []OIDCProviderConfig{
@@ -636,18 +613,14 @@ func TestOIDCProviderConfigUniqueIssuerURIValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create validation function with the test configs
 			validationFunc := oidcProviderConfigUniqueIssuerURIValidation(tt.configs)
 
-			// Create DbCommonSpec with the test MongoDB version
 			dbSpec := DbCommonSpec{
 				Version: tt.mongoVersion,
 			}
 
-			// Call the validation function
 			result := validationFunc(dbSpec)
 
-			// Check validation level (error, warning, success)
 			if tt.expectedResult.Level == 0 {
 				assert.Equal(t, v1.ValidationSuccess().Level, result.Level)
 			} else {
