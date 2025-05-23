@@ -97,6 +97,18 @@ class AutomationConfigTester:
     def assert_sharding_size(self, expected_size: int):
         assert len(self.automation_config["sharding"]) == expected_size
 
+    def assert_oidc_providers_size(self, expected_size: int):
+        assert len(self.automation_config["oidcProviderConfigs"]) == expected_size
+
+    def assert_oidc_configuration(self, oidc_config: Optional[Dict] = None):
+        actual_configs = self.automation_config["oidcProviderConfigs"]
+        assert len(actual_configs) == len(
+            oidc_config
+        ), f"Expected {len(oidc_config)} OIDC configs, but got {len(actual_configs)}"
+
+        for expected, actual in zip(oidc_config, actual_configs):
+            assert expected == actual, f"Expected OIDC config: {expected}, but got: {actual}"
+
     def assert_empty(self):
         self.assert_processes_size(0)
         self.assert_replica_sets_size(0)
