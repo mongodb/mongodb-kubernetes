@@ -32,7 +32,7 @@ resources:
   version: v1
 - api:
     crdVersion: v1
-    namespaced: true
+    namespaced: false
   controller: true
   domain: mongodb.com
   group: mongodb
