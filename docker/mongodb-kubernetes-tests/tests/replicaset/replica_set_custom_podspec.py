@@ -47,6 +47,7 @@ def test_stateful_set_spec_updated(replica_set, namespace):
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": True,
+                    "recursive_read_only": None,
                 },
                 {
                     "name": "test-volume",
@@ -55,6 +56,7 @@ def test_stateful_set_spec_updated(replica_set, namespace):
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
+                    "recursive_read_only": None,
                 },
                 {
                     "name": "agent-api-key",
@@ -63,6 +65,7 @@ def test_stateful_set_spec_updated(replica_set, namespace):
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
+                    "recursive_read_only": None,
                 },
                 {
                     "name": "data",
@@ -71,6 +74,7 @@ def test_stateful_set_spec_updated(replica_set, namespace):
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
+                    "recursive_read_only": None,
                 },
                 {
                     "name": "data",
@@ -79,6 +83,7 @@ def test_stateful_set_spec_updated(replica_set, namespace):
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
+                    "recursive_read_only": None,
                 },
                 {
                     "name": "data",
@@ -87,6 +92,7 @@ def test_stateful_set_spec_updated(replica_set, namespace):
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
+                    "recursive_read_only": None,
                 },
                 {
                     "name": "agent",
@@ -95,6 +101,7 @@ def test_stateful_set_spec_updated(replica_set, namespace):
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
+                    "recursive_read_only": None,
                 },
                 {
                     "name": "agent",
@@ -103,6 +110,7 @@ def test_stateful_set_spec_updated(replica_set, namespace):
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
+                    "recursive_read_only": None,
                 },
                 {
                     "name": "agent",
@@ -111,6 +119,7 @@ def test_stateful_set_spec_updated(replica_set, namespace):
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
+                    "recursive_read_only": None,
                 },
             ],
         },
@@ -125,6 +134,7 @@ def test_stateful_set_spec_updated(replica_set, namespace):
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
+                    "recursive_read_only": None,
                 }
             ],
             "command": ["/bin/sh"],
