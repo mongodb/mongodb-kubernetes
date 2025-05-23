@@ -32,6 +32,13 @@ operator:
   - mongodbcommunity
   - mongodbsearch
 
+  # OpenTelemetry configuration
+  opentelemetry:
+    enabled: false
+    traceID: ''
+    parentID: ''
+    collectorEndpoint: ''
+
   nodeSelector: {}
 
   tolerations: []

@@ -42,11 +42,10 @@ EOF
 
 delete_operator() {
     local ns="$1"
-    local name=${OPERATOR_NAME:=mongodb-enterprise-operator}
+    local name=${OPERATOR_NAME:=mongodb-kubernetes-operator}
 
     title "Removing the Operator deployment ${name}"
-    ! kubectl --namespace "${ns}" get deployments | grep -q "${name}" \
-        || kubectl delete deployment "${name}" -n "${ns}" || true
+    kubectl delete deployment "${name}" -n "${ns}" --wait=true --timeout=10s|| true
 }
 
 # wait_for_operator waits for the Operator to start
@@ -149,9 +148,8 @@ reset_namespace() {
 
   set +e
 
-  helm uninstall --kube-context="${context}" mongodb-enterprise-operator || true &
-  helm uninstall --kube-context="${context}" mongodb-community-operator || true &
-  helm uninstall --kube-context="${context}" mongodb-enterprise-operator-multi-cluster || true &
+  helm uninstall --kube-context="${context}" mongodb-kubernetes-operator || true &
+  helm uninstall --kube-context="${context}" mongodb-kubernetes-operator-multi-cluster || true &
 
   # Cleans the namespace. Note, that fine-grained cleanup is performed instead of just deleting the namespace as it takes
   # considerably less time
@@ -169,7 +167,7 @@ reset_namespace() {
   # a while to delete it.
   should_wait="false"
   # shellcheck disable=SC2153
-  if [[ ${CURRENT_VARIANT_CONTEXT} == e2e_mdb_openshift_ubi_cloudqa || ${CURRENT_VARIANT_CONTEXT} == e2e_openshift_static_mdb_ubi_cloudqa ]]; then
+  if [[ ${KUBE_ENVIRONMENT_NAME} == "openshift" ]]; then
     should_wait="true"
     echo "Removing the test namespace ${namespace}, should_wait=${should_wait}"
     kubectl --context "${context}" delete "namespace/${namespace}" --wait="${should_wait}" || true

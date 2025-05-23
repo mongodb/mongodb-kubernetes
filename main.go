@@ -4,14 +4,18 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"os"
 	"runtime/debug"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-logr/zapr"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -108,7 +112,7 @@ func main() {
 		crds = crdsToWatch{mongoDBCRDPlural, mongoDBUserCRDPlural, mongoDBOpsManagerCRDPlural, mongoDBCommunityCRDPlural, mongoDBSearchCRDPlural}
 	}
 
-	ctx := context.Background()
+	signalCtx := signals.SetupSignalHandler()
 	operator.OmUpdateChannel = make(chan event.GenericEvent)
 
 	klog.InitFlags(nil)
@@ -123,11 +127,39 @@ func main() {
 	// Namespace where the operator is installed
 	currentNamespace := env.ReadOrPanic(util.CurrentNamespace)
 
+	// Get trace and span IDs from environment variables
+	traceIDHex := os.Getenv("OTEL_TRACE_ID")
+	spanIDHex := os.Getenv("OTEL_PARENT_ID")
+	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+
 	// Get a config to talk to the apiserver
 	cfg := ctrl.GetConfigOrDie()
 
+	log.Debugf("Setting up tracing with ID: %s, Parent ID: %s, Endpoint: %s", traceIDHex, spanIDHex, endpoint)
+	traceCtx, tp, err := telemetry.SetupTracing(signalCtx, traceIDHex, spanIDHex, endpoint)
+	if err != nil {
+		log.Warnf("Failed to setup tracing: %v", err)
+		// Continue without tracing instead of failing
+		traceCtx = signalCtx
+	} else {
+		defer func() {
+			if tp != nil {
+				shutdownTracerProvider(signalCtx, tp)
+			} else {
+				log.Warn("No tracer provider created, tracing will be disabled")
+			}
+		}()
+	}
+
+	ctxWithSpan, operatorSpan := startRootSpan(currentNamespace, spanIDHex, traceCtx)
+	defer operatorSpan.End()
+
 	managerOptions := ctrl.Options{
 		Scheme: scheme,
+		BaseContext: func() context.Context {
+			// Ensures every controller gets the trace- and signal-aware context
+			return ctxWithSpan
+		},
 	}
 
 	namespacesToWatch := operator.GetWatchedNamespace()
@@ -153,7 +185,7 @@ func main() {
 		managerOptions.HealthProbeBindAddress = "127.0.0.1:8181"
 	}
 
-	webhookOptions := setupWebhook(ctx, cfg, log, slices.Contains(crds, mongoDBMultiClusterCRDPlural), currentNamespace)
+	webhookOptions := setupWebhook(ctxWithSpan, cfg, log, slices.Contains(crds, mongoDBMultiClusterCRDPlural), currentNamespace)
 	managerOptions.WebhookServer = crWebhook.NewServer(webhookOptions)
 
 	mgr, err := ctrl.NewManager(cfg, managerOptions)
@@ -171,7 +203,7 @@ func main() {
 	memberClusterObjectsMap := make(map[string]runtime_cluster.Cluster)
 
 	if slices.Contains(crds, mongoDBMultiClusterCRDPlural) {
-		memberClustersNames, err := getMemberClusters(ctx, cfg, currentNamespace)
+		memberClustersNames, err := getMemberClusters(ctxWithSpan, cfg, currentNamespace)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -219,27 +251,27 @@ func main() {
 
 	// Setup all Controllers
 	if slices.Contains(crds, mongoDBCRDPlural) {
-		if err := setupMongoDBCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, memberClusterObjectsMap); err != nil {
+		if err := setupMongoDBCRD(ctxWithSpan, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, memberClusterObjectsMap); err != nil {
 			log.Fatal(err)
 		}
 	}
 	if slices.Contains(crds, mongoDBOpsManagerCRDPlural) {
-		if err := setupMongoDBOpsManagerCRD(ctx, mgr, memberClusterObjectsMap, imageUrls, initAppdbVersion, initOpsManagerImageVersion); err != nil {
+		if err := setupMongoDBOpsManagerCRD(ctxWithSpan, mgr, memberClusterObjectsMap, imageUrls, initAppdbVersion, initOpsManagerImageVersion); err != nil {
 			log.Fatal(err)
 		}
 	}
 	if slices.Contains(crds, mongoDBUserCRDPlural) {
-		if err := setupMongoDBUserCRD(ctx, mgr, memberClusterObjectsMap); err != nil {
+		if err := setupMongoDBUserCRD(ctxWithSpan, mgr, memberClusterObjectsMap); err != nil {
 			log.Fatal(err)
 		}
 	}
 	if slices.Contains(crds, mongoDBMultiClusterCRDPlural) {
-		if err := setupMongoDBMultiClusterCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, memberClusterObjectsMap); err != nil {
+		if err := setupMongoDBMultiClusterCRD(ctxWithSpan, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, memberClusterObjectsMap); err != nil {
 			log.Fatal(err)
 		}
 	}
 	if slices.Contains(crds, mongoDBSearchCRDPlural) {
-		if err := setupMongoDBSearchCRD(ctx, mgr); err != nil {
+		if err := setupMongoDBSearchCRD(ctxWithSpan, mgr); err != nil {
 			log.Fatal(err)
 		}
 	}
@@ -250,7 +282,7 @@ func main() {
 
 	if slices.Contains(crds, mongoDBCommunityCRDPlural) {
 		if err := setupCommunityController(
-			ctx,
+			ctxWithSpan,
 			mgr,
 			envvar.GetEnvOrDefault(mcoConstruct.MongodbCommunityRepoUrlEnv, "quay.io/mongodb"),
 			// when running MCO resource -> mongodb-community-server
@@ -290,9 +322,35 @@ func main() {
 
 	log.Info("Starting the Cmd.")
 
-	// Start the Manager
-	if err := mgr.Start(signals.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(signalCtx); err != nil {
 		log.Fatal(err)
+	}
+}
+
+func startRootSpan(currentNamespace string, spanIDHex string, traceCtx context.Context) (context.Context, trace.Span) {
+	opts := []trace.SpanStartOption{
+		trace.WithAttributes(
+			attribute.String("component", "operator"),
+			attribute.String("namespace", currentNamespace),
+			attribute.String("service.name", "mongodb-kubernetes-operator"),
+			// let's ensure that the root span follows the given parent span
+			attribute.String("trace.parent_id", spanIDHex),
+		),
+	}
+
+	ctxWithSpan, operatorSpan := telemetry.TRACER.Start(traceCtx, "MONGODB_OPERATOR_ROOT", opts...)
+	log.Debugf("Started root operator span with ID: %s in trace %s", operatorSpan.SpanContext().SpanID().String(), operatorSpan.SpanContext().TraceID().String())
+	return ctxWithSpan, operatorSpan
+}
+
+func shutdownTracerProvider(signalCtx context.Context, tp *sdktrace.TracerProvider) {
+	shutdownCtx, cancel := context.WithTimeout(signalCtx, 5*time.Second)
+	defer cancel()
+
+	if err := tp.Shutdown(shutdownCtx); err != nil {
+		log.Errorf("Error shutting down tracer provider: %v", err)
+	} else {
+		log.Debug("Tracer provider successfully shut down")
 	}
 }
 
