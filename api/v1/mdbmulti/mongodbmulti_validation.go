@@ -53,7 +53,7 @@ func (m *MongoDBMultiCluster) RunValidations(old *MongoDBMultiCluster) []v1.Vali
 
 	var validationResults []v1.ValidationResult
 
-	for _, validator := range mdbv1.CommonValidators() {
+	for _, validator := range mdbv1.CommonValidators(m.Spec.DbCommonSpec) {
 		res := validator(m.Spec.DbCommonSpec)
 		if res.Level > 0 {
 			validationResults = append(validationResults, res)
