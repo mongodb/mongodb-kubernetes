@@ -140,6 +140,7 @@ const (
 	AutomationConfigLDAPOption        = "PLAIN"
 	AutomationConfigScramSha256Option = "SCRAM-SHA-256"
 	AutomationConfigScramSha1Option   = "MONGODB-CR"
+	AutomationConfigOIDCOption        = "MONGODB-OIDC"
 	AutomationAgentUserName           = "mms-automation-agent"
 	RequireClientCertificates         = "REQUIRE"
 	OptionalClientCertficates         = "OPTIONAL"
