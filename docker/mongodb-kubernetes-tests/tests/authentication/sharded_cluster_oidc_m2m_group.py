@@ -45,7 +45,7 @@ class TestCreateOIDCShardedCluster(KubernetesTester):
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=800)
 
     def test_assert_connectivity(self, sharded_cluster: MongoDB):
-        tester = ShardedClusterTester(MDB_RESOURCE, 2)
+        tester = ShardedClusterTester(resource_name=MDB_RESOURCE, mongos_count=2, multi_cluster=is_multi_cluster())
         tester.assert_oidc_authentication()
 
     def test_ops_manager_state_updated_correctly(self, sharded_cluster: MongoDB):
