@@ -33,5 +33,5 @@ spec:
           requestedScopes: [ ]
           userClaim: "sub"
           authorizationMethod: "WorkloadIdentityFederation"
-          authorizationType: "UserAuthentication"
+          authorizationType: "UserID"
           configurationName: "OIDC-test-user"
