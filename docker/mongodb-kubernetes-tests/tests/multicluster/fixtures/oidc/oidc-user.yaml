@@ -1,0 +1,13 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDBUser
+metadata:
+  name: oidc-user-0
+spec:
+  username: "<filled-in-test>"
+  db: "$external"
+  mongodbResourceRef:
+    name: oidc-multi-replica-set
+  roles:
+    - db: "admin"
+      name: "readWriteAnyDatabase"

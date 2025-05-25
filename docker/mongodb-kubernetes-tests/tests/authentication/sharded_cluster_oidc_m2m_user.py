@@ -9,7 +9,10 @@ from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.mongotester import ShardedClusterTester
 from pytest import fixture
-from tests.shardedcluster.conftest import enable_multi_cluster_deployment
+from tests.shardedcluster.conftest import (
+    enable_multi_cluster_deployment,
+    get_mongos_service_names,
+)
 
 MDB_RESOURCE = "oidc-sharded-cluster-replica-set"
 
@@ -59,7 +62,10 @@ class TestCreateOIDCShardedCluster(KubernetesTester):
         oidc_user.assert_reaches_phase(Phase.Updated, timeout=400)
 
     def test_assert_connectivity(self, sharded_cluster: MongoDB):
-        tester = ShardedClusterTester(mdb_resource_name=MDB_RESOURCE, mongos_count=2, multi_cluster=is_multi_cluster())
+        service_names = None
+        if is_multi_cluster():
+            service_names = get_mongos_service_names(sharded_cluster)
+        tester = sharded_cluster.tester(service_names=service_names)
         tester.assert_oidc_authentication()
 
     def test_ops_manager_state_updated_correctly(self, sharded_cluster: MongoDB):

@@ -21,7 +21,7 @@ def mongodb_multi(
     member_cluster_names,
     custom_mdb_version: str,
 ) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(yaml_fixture("oidc/mongodb-multi.yaml"), MDB_RESOURCE, namespace)
+    resource = MongoDBMulti.from_yaml(yaml_fixture("oidc/mongodb-multi-m2m-group.yaml"), MDB_RESOURCE, namespace)
     if try_load(resource):
         return resource
 
@@ -38,7 +38,7 @@ def mongodb_multi(
     return resource.update()
 
 
-@pytest.mark.e2e_multi_cluster_oidc
+@pytest.mark.e2e_multi_cluster_oidc_m2m_group
 class TestOIDCMultiCluster(KubernetesTester):
     def test_deploy_operator(self, multi_cluster_operator: Operator):
         multi_cluster_operator.assert_is_running()
