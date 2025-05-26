@@ -1,7 +1,7 @@
-MongoDB Enterprise Kubernetes Operator Security Testing Summary
+MongoDB Controllers for Kubernetes Security Testing Summary
 ==
 
-This document lists specific instances of security-relevant testing that is being performed for the MongoDB Enterprise Kubernetes Operator. All parts of the MongoDB Enterprise Kubernetes source code are subject to unit and end-to-end testing on every change made to the project, including the specific instances listed below. Additionally, smoke tests (end-to-end) are performed every time we release a new tagged version of Docker images used by the operator.
+This document lists specific instances of security-relevant testing that is being performed for the MongoDB Controllers for Kubernetes. All parts of the MongoDB Controllers for Kubernetes source code are subject to unit and end-to-end testing on every change made to the project, including the specific instances listed below. Additionally, smoke tests (end-to-end) are performed every time we release a new tagged version of Docker images used by the operator.
 
 Authentication End-to-End Tests
 ===
@@ -26,4 +26,4 @@ All the end-to-end tests that we run for the MongoDB functionality using dynamic
 Data encryption End-to-End Tests
 ===
 
-The enterprise operator supports configuring Automatic Queryable Encryption with KMIP. Our end-to-end tests cover the configuration of MongoDB resources to connect to a KMIP server and encrypt data and related backups.
+The MongoDB Controllers for Kubernetes supports configuring Automatic Queryable Encryption with KMIP. Our end-to-end tests cover the configuration of MongoDB resources to connect to a KMIP server and encrypt data and related backups.
