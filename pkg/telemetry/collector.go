@@ -539,16 +539,16 @@ func isExternalDomainSpecifiedInClusterSpecList(clusterSpecList mdbv1.ClusterSpe
 	return clusterSpecList.IsExternalDomainSpecifiedInClusterSpecList()
 }
 
-func getAuthenticationModes(security *mdbv1.Security) string {
+func getAuthenticationModes(security *mdbv1.Security) []string {
 	if security == nil || security.Authentication == nil {
-		return ""
+		return nil
 	}
 
 	if !security.Authentication.Enabled {
-		return ""
+		return nil
 	}
 
-	return strings.Join(security.Authentication.GetModes(), ",")
+	return security.Authentication.GetModes()
 }
 
 func getAuthenticationAgentMode(security *mdbv1.Security) string {

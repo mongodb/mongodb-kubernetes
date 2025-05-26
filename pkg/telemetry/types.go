@@ -1,8 +1,11 @@
 package telemetry
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
 // OperatorUsageSnapshotProperties represents the structure for tracking Kubernetes operator usage events.
@@ -23,18 +26,36 @@ type KubernetesClusterUsageSnapshotProperties struct {
 
 // DeploymentUsageSnapshotProperties represents the structure for tracking Deployment events.
 type DeploymentUsageSnapshotProperties struct {
-	DatabaseClusters         *int   `json:"databaseClusters,omitempty"` // pointers allow us to not send that value if it's not set.
-	AppDBClusters            *int   `json:"appDBClusters,omitempty"`
-	OmClusters               *int   `json:"OmClusters,omitempty"`
-	DeploymentUID            string `json:"deploymentUID"`
-	OperatorID               string `json:"operatorID"`
-	Architecture             string `json:"architecture"`
-	IsMultiCluster           bool   `json:"isMultiCluster"`
-	Type                     string `json:"type"` // RS, SC, OM, Single
-	IsRunningEnterpriseImage bool   `json:"IsRunningEnterpriseImage"`
-	ExternalDomains          string `json:"externalDomains"`                   // None, Uniform, ClusterSpecific, Mixed
-	AuthenticationModes      string `json:"authenticationModes,omitempty"`     // Deployment authentication modes, comma separated
-	AuthenticationAgentMode  string `json:"authenticationAgentMode,omitempty"` // Agent authentication mode
+	DatabaseClusters         *int     `json:"databaseClusters,omitempty"` // pointers allow us to not send that value if it's not set.
+	AppDBClusters            *int     `json:"appDBClusters,omitempty"`
+	OmClusters               *int     `json:"OmClusters,omitempty"`
+	DeploymentUID            string   `json:"deploymentUID"`
+	OperatorID               string   `json:"operatorID"`
+	Architecture             string   `json:"architecture"`
+	IsMultiCluster           bool     `json:"isMultiCluster"`
+	Type                     string   `json:"type"` // RS, SC, OM, Single
+	IsRunningEnterpriseImage bool     `json:"IsRunningEnterpriseImage"`
+	ExternalDomains          string   `json:"externalDomains"`                   // None, Uniform, ClusterSpecific, Mixed
+	AuthenticationAgentMode  string   `json:"authenticationAgentMode,omitempty"` // Agent authentication mode
+	AuthenticationModes      []string `json:"-"`                                 // Deployment authentication modes
+}
+
+type FakeDeploymentUsageSnapshotProperties DeploymentUsageSnapshotProperties
+
+func (u DeploymentUsageSnapshotProperties) MarshalJSON() ([]byte, error) {
+	// FakeDeploymentUsageSnapshotProperties is used to avoid infinite recursion - maputil.StructToMap will call MarshalJSON
+	properties, err := maputil.StructToMap(FakeDeploymentUsageSnapshotProperties(u))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse properties: %w", err)
+	}
+
+	if len(u.AuthenticationModes) > 0 {
+		for _, value := range u.AuthenticationModes {
+			properties["authenticationMode"+value] = true
+		}
+	}
+
+	return json.Marshal(properties)
 }
 
 type Event struct {
