@@ -118,7 +118,6 @@ class TestAddNewOIDCProviderAndRole(KubernetesTester):
         wait_until(config_and_roles_preserved, timeout=300, sleep=5)
 
 
-
 # Tests the removal of all oidc configs and roles
 @pytest.mark.e2e_replica_set_oidc_m2m_group
 class TestOIDCRemoval(KubernetesTester):
