@@ -181,6 +181,7 @@ class TestOpsManagerCreation:
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": True,
+                    "recursive_read_only": None,
                 },
                 {
                     "name": "mongodb-uri",
@@ -189,6 +190,7 @@ class TestOpsManagerCreation:
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": True,
+                    "recursive_read_only": None,
                 },
                 {
                     "name": "test-volume",
@@ -197,6 +199,7 @@ class TestOpsManagerCreation:
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
+                    "recursive_read_only": None,
                 },
                 {
                     "name": "data",
@@ -205,6 +208,7 @@ class TestOpsManagerCreation:
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
+                    "recursive_read_only": None,
                 },
                 {
                     "name": "data",
@@ -213,6 +217,7 @@ class TestOpsManagerCreation:
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
+                    "recursive_read_only": None,
                 },
                 {
                     "name": "data",
@@ -221,6 +226,7 @@ class TestOpsManagerCreation:
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
+                    "recursive_read_only": None,
                 },
                 {
                     "name": "data",
@@ -229,6 +235,7 @@ class TestOpsManagerCreation:
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
+                    "recursive_read_only": None,
                 },
                 {
                     "name": "data",
@@ -237,6 +244,7 @@ class TestOpsManagerCreation:
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
+                    "recursive_read_only": None,
                 },
                 {
                     "name": "data",
@@ -245,6 +253,7 @@ class TestOpsManagerCreation:
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
+                    "recursive_read_only": None,
                 },
             ],
         }
