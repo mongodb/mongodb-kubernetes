@@ -1090,7 +1090,6 @@ type OIDCProviderConfig struct {
 	// The identifier of the claim that includes the principal's IdP user group membership information.
 	// Accept the default value unless your IdP uses a different claim, or you need a custom claim.
 	// Required when selected GroupMembership as the authorization type, ignored otherwise
-	// +kubebuilder:default=groups
 	// +kubebuilder:validation:Optional
 	GroupsClaim string `json:"groupsClaim,omitempty"`
 

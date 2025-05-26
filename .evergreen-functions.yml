@@ -167,13 +167,6 @@ functions:
         - ${workdir}/bin
       binary: scripts/evergreen/setup_kind.sh
 
-  setup_docker_datadir: &setup_docker_datadir
-    command: subprocess.exec
-    type: setup
-    params:
-      working_dir: src/github.com/mongodb/mongodb-kubernetes
-      binary: scripts/evergreen/configure-docker-datadir.sh
-
   setup_preflight:
     - command: subprocess.exec
       type: setup
@@ -234,6 +227,15 @@ functions:
         - ${workdir}/bin
       binary: scripts/dev/configure_docker_auth.sh
 
+  setup_evg_host: &setup_evg_host
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+      binary: scripts/dev/setup_evg_host.sh
+
   lint_repo:
     - command: subprocess.exec
       type: setup
@@ -256,7 +258,7 @@ functions:
     - *switch_context
     - *setup_aws
     - *configure_docker_auth
-    - *setup_docker_datadir
+    - *setup_evg_host
     - *python_venv
 
   prune_docker_resources:
