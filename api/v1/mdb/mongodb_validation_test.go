@@ -497,3 +497,131 @@ func TestOIDCAuthValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestOIDCProviderConfigUniqueIssuerURIValidation(t *testing.T) {
+	tests := []struct {
+		name           string
+		mongoVersion   string
+		configs        []OIDCProviderConfig
+		expectedResult v1.ValidationResult
+	}{
+		{
+			name:         "MongoDB 6.0 with duplicate issuer URIs - error",
+			mongoVersion: "6.0.0",
+			configs: []OIDCProviderConfig{
+				{
+					ConfigurationName: "config1",
+					IssuerURI:         "https://provider.com",
+					Audience:          "audience1",
+				},
+				{
+					ConfigurationName: "config2",
+					IssuerURI:         "https://provider.com",
+					Audience:          "audience2",
+				},
+			},
+			expectedResult: v1.ValidationError("OIDC provider configs %q and %q have duplicate IssuerURI: %s",
+				"config1", "config2", "https://provider.com"),
+		},
+		{
+			name:         "MongoDB 7.0 with unique issuer+audience combinations",
+			mongoVersion: "7.0.0",
+			configs: []OIDCProviderConfig{
+				{
+					ConfigurationName: "config1",
+					IssuerURI:         "https://provider.com",
+					Audience:          "audience1",
+				},
+				{
+					ConfigurationName: "config2",
+					IssuerURI:         "https://provider.com",
+					Audience:          "audience2",
+				},
+			},
+			expectedResult: v1.ValidationSuccess(),
+		},
+		{
+			name:         "MongoDB 7.0 with duplicate issuer+audience combinations - warning",
+			mongoVersion: "7.0.0",
+			configs: []OIDCProviderConfig{
+				{
+					ConfigurationName: "config1",
+					IssuerURI:         "https://provider.com",
+					Audience:          "audience1",
+				},
+				{
+					ConfigurationName: "config2",
+					IssuerURI:         "https://provider.com",
+					Audience:          "audience1",
+				},
+			},
+			expectedResult: v1.ValidationWarning("OIDC provider configs %q and %q have duplicate IssuerURI and Audience combination",
+				"config1", "config2"),
+		},
+		{
+			name:         "MongoDB 7.3 with unique issuer+audience combinations",
+			mongoVersion: "7.3.0",
+			configs: []OIDCProviderConfig{
+				{
+					ConfigurationName: "config1",
+					IssuerURI:         "https://provider.com",
+					Audience:          "audience1",
+				},
+				{
+					ConfigurationName: "config2",
+					IssuerURI:         "https://provider.com",
+					Audience:          "audience2",
+				},
+			},
+			expectedResult: v1.ValidationSuccess(),
+		},
+		{
+			name:         "MongoDB 8.0 with unique issuer+audience combinations",
+			mongoVersion: "8.0.0",
+			configs: []OIDCProviderConfig{
+				{
+					ConfigurationName: "config1",
+					IssuerURI:         "https://provider.com",
+					Audience:          "audience1",
+				},
+				{
+					ConfigurationName: "config2",
+					IssuerURI:         "https://provider.com",
+					Audience:          "audience2",
+				},
+			},
+			expectedResult: v1.ValidationSuccess(),
+		},
+		{
+			name:         "MongoDB enterprise version with -ent suffix",
+			mongoVersion: "7.0.0-ent",
+			configs: []OIDCProviderConfig{
+				{
+					ConfigurationName: "config1",
+					IssuerURI:         "https://provider.com",
+					Audience:          "audience1",
+				},
+				{
+					ConfigurationName: "config2",
+					IssuerURI:         "https://provider.com",
+					Audience:          "audience2",
+				},
+			},
+			expectedResult: v1.ValidationSuccess(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validationFunc := oidcProviderConfigUniqueIssuerURIValidation(tt.configs)
+
+			dbSpec := DbCommonSpec{
+				Version: tt.mongoVersion,
+			}
+
+			result := validationFunc(dbSpec)
+
+			assert.Equal(t, tt.expectedResult, result)
+		})
+	}
+}
