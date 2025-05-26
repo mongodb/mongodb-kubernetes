@@ -113,6 +113,7 @@ func oidcAuthValidators(db DbCommonSpec) []func(DbCommonSpec) v1.ValidationResul
 
 	authentication := db.Security.Authentication
 	validators = append(validators, oidcAuthModeValidator(authentication))
+	validators = append(validators, oidcAuthRequiresEnterprise)
 
 	providerConfigs := authentication.OIDCProviderConfigs
 	if len(providerConfigs) == 0 {
@@ -122,6 +123,7 @@ func oidcAuthValidators(db DbCommonSpec) []func(DbCommonSpec) v1.ValidationResul
 	validators = append(validators,
 		oidcProviderConfigsUniqueNameValidation(providerConfigs),
 		oidcProviderConfigsSingleWorkforceIdentityFederationValidation(providerConfigs),
+		oidcProviderConfigUniqueIssuerURIValidation(providerConfigs),
 	)
 
 	for _, config := range providerConfigs {
@@ -130,11 +132,56 @@ func oidcAuthValidators(db DbCommonSpec) []func(DbCommonSpec) v1.ValidationResul
 			oidcProviderConfigClientIdValidator(config),
 			oidcProviderConfigRequestedScopesValidator(config),
 			oidcProviderConfigAuthorizationTypeValidator(config),
-			oidcAuthRequiresEnterprise,
 		)
 	}
 
 	return validators
+}
+
+// oidcProviderConfigUniqueIssuerURIValidation is based on the documentation here:
+// https://www.mongodb.com/docs/manual/reference/parameters/#oidcidentityproviders-fields
+func oidcProviderConfigUniqueIssuerURIValidation(configs []OIDCProviderConfig) func(DbCommonSpec) v1.ValidationResult {
+	return func(d DbCommonSpec) v1.ValidationResult {
+		if len(configs) == 0 {
+			return v1.ValidationSuccess()
+		}
+
+		// Check if version supports duplicate issuers (7.0, 7.3, or 8.0+)
+		versionParts := strings.Split(strings.TrimSuffix(d.Version, "-ent"), ".")
+		supportsMultipleIssuers := false
+		if len(versionParts) >= 2 {
+			major := versionParts[0]
+			minor := versionParts[1]
+			if major == "8" || (major == "7" && (minor == "0" || minor == "3")) {
+				supportsMultipleIssuers = true
+			}
+		}
+
+		if supportsMultipleIssuers {
+			// Track issuer+audience combinations
+			issuerAudienceCombos := make(map[string]string)
+			for _, config := range configs {
+				comboKey := config.IssuerURI + ":" + config.Audience
+				if previousConfig, exists := issuerAudienceCombos[comboKey]; exists {
+					return v1.ValidationWarning("OIDC provider configs %q and %q have duplicate IssuerURI and Audience combination",
+						previousConfig, config.ConfigurationName)
+				}
+				issuerAudienceCombos[comboKey] = config.ConfigurationName
+			}
+		} else {
+			// For older versions, require unique issuers
+			uris := make(map[string]string)
+			for _, config := range configs {
+				if previousConfig, exists := uris[config.IssuerURI]; exists {
+					return v1.ValidationError("OIDC provider configs %q and %q have duplicate IssuerURI: %s",
+						previousConfig, config.ConfigurationName, config.IssuerURI)
+				}
+				uris[config.IssuerURI] = config.ConfigurationName
+			}
+		}
+
+		return v1.ValidationSuccess()
+	}
 }
 
 func oidcAuthModeValidator(authentication *Authentication) func(DbCommonSpec) v1.ValidationResult {
