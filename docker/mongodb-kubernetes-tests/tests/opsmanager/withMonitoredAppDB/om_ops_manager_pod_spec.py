@@ -272,6 +272,7 @@ class TestOpsManagerCreation:
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": True,
+                    "recursive_read_only": None,
                 },
             )
 
