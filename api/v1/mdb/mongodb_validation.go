@@ -113,6 +113,7 @@ func oidcAuthValidators(db DbCommonSpec) []func(DbCommonSpec) v1.ValidationResul
 
 	authentication := db.Security.Authentication
 	validators = append(validators, oidcAuthModeValidator(authentication))
+	validators = append(validators, oidcAuthRequiresEnterprise)
 
 	providerConfigs := authentication.OIDCProviderConfigs
 	if len(providerConfigs) == 0 {
@@ -131,7 +132,6 @@ func oidcAuthValidators(db DbCommonSpec) []func(DbCommonSpec) v1.ValidationResul
 			oidcProviderConfigClientIdValidator(config),
 			oidcProviderConfigRequestedScopesValidator(config),
 			oidcProviderConfigAuthorizationTypeValidator(config),
-			oidcAuthRequiresEnterprise,
 		)
 	}
 
