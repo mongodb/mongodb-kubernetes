@@ -65,7 +65,7 @@ class TestCreateOIDCShardedCluster(KubernetesTester):
                 "issuerUri": "https://valid-issuer-1.example.com",
                 "clientId": "test-client-id",
                 "userClaim": "sub",
-                "groupsClaim": "groups",  # Todo might be is a security bug.
+                "groupsClaim": "",
                 "JWKSPollSecs": 0,
                 "authNamePrefix": "OIDC-test-user",
                 "supportsHumanFlows": True,
@@ -132,7 +132,7 @@ class TestAddNewOIDCProviderAndRole(KubernetesTester):
                         "issuerUri": "https://valid-issuer-1.example.com",
                         "clientId": "test-client-id",
                         "userClaim": "sub",
-                        "groupsClaim": "groups",
+                        "groupsClaim": "",
                         "JWKSPollSecs": 0,
                         "authNamePrefix": "OIDC-test-user",
                         "supportsHumanFlows": True,
