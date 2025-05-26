@@ -804,8 +804,8 @@ def create_x509_agent_tls_certs(issuer: str, namespace: str, name: str, secret_b
 
 def approve_certificate(name: str) -> None:
     """Approves the CertificateSigningRequest with the provided name"""
-    body = client.CertificatesV1beta1Api().read_certificate_signing_request_status(name)
-    conditions = client.V1beta1CertificateSigningRequestCondition(
+    body = client.CertificatesV1Api().read_certificate_signing_request_status(name)
+    conditions = client.V1CertificateSigningRequestCondition(
         last_update_time=datetime.now(timezone.utc).astimezone(),
         message="This certificate was approved by E2E testing framework",
         reason="E2ETestingFramework",
@@ -813,7 +813,7 @@ def approve_certificate(name: str) -> None:
     )
 
     body.status.conditions = [conditions]
-    client.CertificatesV1beta1Api().replace_certificate_signing_request_approval(name, body)
+    client.CertificatesV1Api().replace_certificate_signing_request_approval(name, body)
 
 
 def create_x509_user_cert(issuer: str, namespace: str, path: str):
@@ -876,7 +876,7 @@ def yield_existing_csrs(csr_names: List[str], timeout: int = 300) -> Generator[s
     while len(csr_names) > 0 and time.time() < stop_time:
         csr = random.choice(csr_names)
         try:
-            client.CertificatesV1beta1Api().read_certificate_signing_request_status(csr)
+            client.CertificatesV1Api().read_certificate_signing_request_status(csr)
         except ApiException:
             time.sleep(3)
             continue
