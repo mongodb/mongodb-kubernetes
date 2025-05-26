@@ -126,6 +126,9 @@ func (r *ClusterMongoDBRoleReconciler) getRole(ctx context.Context, request reco
 	return role, nil
 }
 
+// Delete handles the deletion of the ClusterMongoDBRole resource.
+// It ensures that no MongoDB or MongoDBMultiCluster resources are referencing this role.
+// If there are references, it returns an error. If there are no references, it removes the finalizer from the role.
 func (r *ClusterMongoDBRoleReconciler) Delete(ctx context.Context, role *rolev1.ClusterMongoDBRole, log *zap.SugaredLogger) (reconcile.Result, error) {
 	log.Info("Attempting to remove ClusterMongoDBRole")
 
@@ -158,6 +161,10 @@ func (r *ClusterMongoDBRoleReconciler) ensureFinalizer(ctx context.Context, role
 	return nil
 }
 
+// ensureNoReferences checks if the ClusterMongoDBRole is referenced by any MongoDB or MongoDBMultiCluster resources.
+// If it is referenced, it returns an error indicating that the role cannot be deleted.
+// If it is not referenced, it returns nil.
+// This method uses the indexes set up in the AddClusterMongoDBRoleController function to find the resources that reference the role.
 func (r *ClusterMongoDBRoleReconciler) ensureNoReferences(ctx context.Context, role *rolev1.ClusterMongoDBRole) error {
 	mdbList := &mdbv1.MongoDBList{}
 	err := r.client.List(ctx, mdbList, &client.ListOptions{
@@ -199,9 +206,19 @@ func getAnnotationsForCustomRoleResource(role *rolev1.ClusterMongoDBRole) (map[s
 	return finalAnnotations, nil
 }
 
+// findRolesForMongoDB finds the roles referenced from MongoDB resources
+// This is used to index the MongoDB resources by the ClusterMongoDBRole they reference.
 func findRolesForMongoDB(rawObj client.Object) []string {
-	mdb := rawObj.(*mdbv1.MongoDB)
+	mdb, ok := rawObj.(*mdbv1.MongoDB)
+	if !ok {
+		return nil
+	}
+
 	roles := make([]string, 0)
+	if mdb.Spec.Security == nil {
+		return roles
+	}
+
 	for _, roleRef := range mdb.Spec.Security.RoleRefs {
 		if roleRef.Kind == util.ClusterMongoDBRoleKind {
 			roles = append(roles, roleRef.Name)
@@ -210,9 +227,19 @@ func findRolesForMongoDB(rawObj client.Object) []string {
 	return roles
 }
 
+// findRolesForMongoDBMultiCluster finds the roles referenced from MongoDBMultiCluster resources
+// This is used to index the MongoDBMultiCluster resources by the ClusterMongoDBRole they reference.
 func findRolesForMongoDBMultiCluster(rawObj client.Object) []string {
-	mdb := rawObj.(*mdbmultiv1.MongoDBMultiCluster)
+	mdb, ok := rawObj.(*mdbmultiv1.MongoDBMultiCluster)
+	if !ok {
+		return nil
+	}
+
 	roles := make([]string, 0)
+	if mdb.Spec.Security == nil {
+		return roles
+	}
+
 	for _, roleRef := range mdb.Spec.Security.RoleRefs {
 		if roleRef.Kind == util.ClusterMongoDBRoleKind {
 			roles = append(roles, roleRef.Name)
