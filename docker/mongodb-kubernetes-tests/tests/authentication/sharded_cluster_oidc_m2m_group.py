@@ -111,8 +111,8 @@ class TestAddNewOIDCProviderAndRole(KubernetesTester):
                 tester.assert_authentication_mechanism_enabled("MONGODB-OIDC", active_auth_mechanism=False)
                 tester.assert_authentication_enabled(2)
                 tester.assert_expected_users(0)
-                tester.assert_has_expected_number_of_roles(expected_roles=2)  # Now 2 roles
-                tester.assert_oidc_providers_size(3)  # Now 3 providers
+                tester.assert_has_expected_number_of_roles(expected_roles=2)
+                tester.assert_oidc_providers_size(3)
 
                 # Updated configuration check with all 3 providers
                 expected_oidc_configs = [
@@ -132,7 +132,7 @@ class TestAddNewOIDCProviderAndRole(KubernetesTester):
                         "issuerUri": "https://valid-issuer-1.example.com",
                         "clientId": "test-client-id",
                         "userClaim": "sub",
-                        "groupsClaim": "",
+                        "groupsClaim": "groups",
                         "JWKSPollSecs": 0,
                         "authNamePrefix": "OIDC-test-user",
                         "supportsHumanFlows": True,
