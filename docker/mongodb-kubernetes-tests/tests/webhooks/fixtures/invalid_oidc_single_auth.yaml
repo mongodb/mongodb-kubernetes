@@ -1,0 +1,29 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: oidc-replica-set
+spec:
+  type: ReplicaSet
+  members: 3
+  version: 8.0.5-ent
+
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+
+  security:
+    authentication:
+      enabled: true
+      modes:
+        - OIDC
+      oidcProviderConfigs:
+        - audience: "example-audience"
+          clientId: "example-client-id"
+          issuerURI: "https://example-issuer.com"
+          requestedScopes: [ ]
+          userClaim: "sub"
+          groupsClaim: "cognito:groups"
+          authorizationMethod: "WorkloadIdentityFederation"
+          authorizationType: "GroupMembership"
+          configurationName: "OIDC-test"
