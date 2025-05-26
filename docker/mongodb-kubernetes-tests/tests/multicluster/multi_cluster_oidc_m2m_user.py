@@ -41,7 +41,7 @@ def mongodb_multi(
 
 @fixture(scope="module")
 def oidc_user(namespace) -> MongoDBUser:
-    resource = MongoDBUser.from_yaml(yaml_fixture("oidc/oidc-user.yaml"), namespace=namespace)
+    resource = MongoDBUser.from_yaml(yaml_fixture("oidc/oidc-user-multi.yaml"), namespace=namespace)
 
     resource["spec"]["username"] = f"OIDC-test-user/{oidc.get_cognito_workload_user_id()}"
     resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE

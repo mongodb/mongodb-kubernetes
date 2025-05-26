@@ -2,7 +2,7 @@
 apiVersion: mongodb.com/v1
 kind: MongoDBUser
 metadata:
-  name: oidc-user-0
+  name: oidc-user-1
 spec:
   username: "<filled-in-test>"
   db: "$external"
