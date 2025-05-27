@@ -1,6 +1,5 @@
 import os
 
-
 # Note: The project uses AWS Cognito in the mongodb-mms-testing AWS account to facilitate OIDC authentication testing.
 # This setup includes:
 
@@ -13,6 +12,7 @@ import os
 # are stored in Evergreen and fetched from there during test execution.
 
 # A session explaining the setup can be found here: http://go/k8s-oidc-session
+
 
 def get_cognito_workload_client_id() -> str:
     return os.getenv("cognito_workload_federation_client_id", "")
