@@ -128,13 +128,20 @@ func (r *ClusterMongoDBRoleReconciler) getRole(ctx context.Context, request reco
 
 // Delete handles the deletion of the ClusterMongoDBRole resource.
 // It ensures that no MongoDB or MongoDBMultiCluster resources are referencing this role.
-// If there are references, it returns an error. If there are no references, it removes the finalizer from the role.
+// If there are references, it moves the resource in a Pending phase with an appropriate message.
+// If there are no references, it removes the finalizer from the role.
 func (r *ClusterMongoDBRoleReconciler) Delete(ctx context.Context, role *rolev1.ClusterMongoDBRole, log *zap.SugaredLogger) (reconcile.Result, error) {
 	log.Info("Attempting to remove ClusterMongoDBRole")
 
-	err := r.ensureNoReferences(ctx, role)
+	resources, err := r.getDependentResources(ctx, role)
 	if err != nil {
-		return r.updateStatus(ctx, role, workflow.Failed(xerrors.Errorf("Failed to remove role: %w", err)), log)
+		return r.updateStatus(ctx, role, workflow.Failed(xerrors.Errorf("Failed to lookup dependent deployments: %s", err)), log)
+	} else if len(resources) > 0 {
+		return r.updateStatus(
+			ctx,
+			role,
+			workflow.Pending("%s", fmt.Sprintf("Role deletion blocked, it is still referenced by: %s", strings.Join(resources, ","))),
+			log)
 	}
 
 	if finalizerRemoved := controllerutil.RemoveFinalizer(role, util.RoleFinalizer); !finalizerRemoved {
@@ -161,17 +168,17 @@ func (r *ClusterMongoDBRoleReconciler) ensureFinalizer(ctx context.Context, role
 	return nil
 }
 
-// ensureNoReferences checks if the ClusterMongoDBRole is referenced by any MongoDB or MongoDBMultiCluster resources.
-// If it is referenced, it returns an error indicating that the role cannot be deleted.
+// getDependentResources checks if the ClusterMongoDBRole is referenced by any MongoDB or MongoDBMultiCluster resources.
+// If it is referenced, it returns the list of resources by namespaced name
 // If it is not referenced, it returns nil.
 // This method uses the indexes set up in the AddClusterMongoDBRoleController function to find the resources that reference the role.
-func (r *ClusterMongoDBRoleReconciler) ensureNoReferences(ctx context.Context, role *rolev1.ClusterMongoDBRole) error {
+func (r *ClusterMongoDBRoleReconciler) getDependentResources(ctx context.Context, role *rolev1.ClusterMongoDBRole) ([]string, error) {
 	mdbList := &mdbv1.MongoDBList{}
 	err := r.client.List(ctx, mdbList, &client.ListOptions{
 		FieldSelector: fields.OneTermEqualSelector(ClusterMongoDBRoleIndexForMdb, role.Name),
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	multiList := &mdbmultiv1.MongoDBMultiClusterList{}
@@ -179,7 +186,7 @@ func (r *ClusterMongoDBRoleReconciler) ensureNoReferences(ctx context.Context, r
 		FieldSelector: fields.OneTermEqualSelector(ClusterMongoDBRoleIndexForMdbMulti, role.Name),
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if len(mdbList.Items) > 0 || len(multiList.Items) > 0 {
@@ -190,10 +197,10 @@ func (r *ClusterMongoDBRoleReconciler) ensureNoReferences(ctx context.Context, r
 		for _, mdbmc := range multiList.Items {
 			resources = append(resources, fmt.Sprintf("%s/%s", mdbmc.Namespace, mdbmc.Name))
 		}
-		return xerrors.Errorf("These resources are still referencing this role: %s", strings.Join(resources, ", "))
+		return resources, nil
 	}
 
-	return nil
+	return nil, nil
 }
 
 func getAnnotationsForCustomRoleResource(role *rolev1.ClusterMongoDBRole) (map[string]string, error) {

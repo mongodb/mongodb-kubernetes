@@ -211,7 +211,7 @@ def test_attempt_delete_role(mongodb_role: ClusterMongoDBRole):
     mongodb_role.delete()
 
     # Resource should still exist since Sharded cluster and MCRS are still referencing it
-    mongodb_role.assert_reaches_phase(Phase.Failed, timeout=400)
+    mongodb_role.assert_reaches_phase(Phase.Pending, timeout=400)
 
     assert mongodb_role["metadata"]["finalizers"][0] == "mongodb.com/v1.roleRemovalFinalizer"
     assert mongodb_role["metadata"]["deletionTimestamp"] is not None
