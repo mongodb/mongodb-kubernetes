@@ -139,7 +139,7 @@ def mc_replica_set(namespace: str, mongodb_role: ClusterMongoDBRole, third_proje
 
 @mark.e2e_mongodb_custom_roles
 def test_create_mongodb_role(mongodb_role: ClusterMongoDBRole):
-    mongodb_role.assert_reaches_phase(Phase.Updated)
+    mongodb_role.assert_reaches_phase(Phase.Ready)
 
 
 @mark.e2e_mongodb_custom_roles
@@ -206,7 +206,7 @@ def test_removing_role_from_replica_set(replica_set: MongoDB):
 
 @mark.e2e_mongodb_custom_roles
 def test_attempt_delete_role(mongodb_role: ClusterMongoDBRole):
-    mongodb_role.assert_reaches_phase(Phase.Updated)
+    mongodb_role.assert_reaches_phase(Phase.Ready)
 
     mongodb_role.delete()
 

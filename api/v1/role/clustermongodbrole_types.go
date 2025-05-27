@@ -65,7 +65,7 @@ func (r *ClusterMongoDBRole) UpdateStatus(phase status.Phase, statusOptions ...s
 	}
 
 	if phase == status.PhaseRunning {
-		r.Status.Phase = status.PhaseUpdated
+		r.Status.Phase = status.PhaseReady
 	}
 }
 
