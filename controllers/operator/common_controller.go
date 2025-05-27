@@ -168,6 +168,10 @@ func (r *ReconcileCommonController) getRoleRefs(ctx context.Context, roleRefs []
 				return nil, xerrors.Errorf("Failed to retrieve ClusterMongoDBRole '%s': %w", ref.Name, err)
 			}
 
+			if customRole.Status.Phase == status.PhaseFailed {
+				return nil, xerrors.Errorf("ClusterMongoDBRole '%s' is in a failed state, cannot use it as a role reference", ref.Name)
+			}
+
 			role = customRole.Spec.MongoDBRole
 
 		default:
