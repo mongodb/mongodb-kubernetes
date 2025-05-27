@@ -1,12 +1,17 @@
 package telemetry
 
 import (
-	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
+
+// FlatProperties is a helper interface that makes sure telemetry properties are convertable to unnested, flat map
+// with basic types (no arrays or structs allowed). This is a requirement from Segment telemetry subsystem we use
+type FlatProperties interface {
+	ConvertToFlatMap() (map[string]any, error)
+}
 
 // OperatorUsageSnapshotProperties represents the structure for tracking Kubernetes operator usage events.
 type OperatorUsageSnapshotProperties struct {
@@ -17,11 +22,19 @@ type OperatorUsageSnapshotProperties struct {
 	OperatorType         OperatorType `json:"operatorType"`         // MEKO, MCK, MCO (here meko)
 }
 
+func (p OperatorUsageSnapshotProperties) ConvertToFlatMap() (map[string]any, error) {
+	return maputil.StructToMap(p)
+}
+
 // KubernetesClusterUsageSnapshotProperties represents the structure for tracking Kubernetes cluster usage events.
 type KubernetesClusterUsageSnapshotProperties struct {
 	KubernetesClusterID  string `json:"kubernetesClusterID"` // Kubernetes cluster ID where the operator is running
 	KubernetesAPIVersion string `json:"kubernetesAPIVersion"`
 	KubernetesFlavour    string `json:"kubernetesFlavour"`
+}
+
+func (p KubernetesClusterUsageSnapshotProperties) ConvertToFlatMap() (map[string]any, error) {
+	return maputil.StructToMap(p)
 }
 
 // DeploymentUsageSnapshotProperties represents the structure for tracking Deployment events.
@@ -42,7 +55,7 @@ type DeploymentUsageSnapshotProperties struct {
 
 type FakeDeploymentUsageSnapshotProperties DeploymentUsageSnapshotProperties
 
-func (u DeploymentUsageSnapshotProperties) MarshalJSON() ([]byte, error) {
+func (u DeploymentUsageSnapshotProperties) ConvertToFlatMap() (map[string]any, error) {
 	// FakeDeploymentUsageSnapshotProperties is used to avoid infinite recursion - maputil.StructToMap will call MarshalJSON
 	properties, err := maputil.StructToMap(FakeDeploymentUsageSnapshotProperties(u))
 	if err != nil {
@@ -55,7 +68,7 @@ func (u DeploymentUsageSnapshotProperties) MarshalJSON() ([]byte, error) {
 		}
 	}
 
-	return json.Marshal(properties)
+	return properties, nil
 }
 
 type Event struct {
