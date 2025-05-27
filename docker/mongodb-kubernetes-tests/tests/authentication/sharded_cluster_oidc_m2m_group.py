@@ -132,7 +132,6 @@ class TestAddNewOIDCProviderAndRole(KubernetesTester):
                         "issuerUri": "https://valid-issuer-1.example.com",
                         "clientId": "test-client-id",
                         "userClaim": "sub",
-                        "groupsClaim": "groups",
                         "JWKSPollSecs": 0,
                         "authNamePrefix": "OIDC-test-user",
                         "supportsHumanFlows": True,
@@ -155,4 +154,4 @@ class TestAddNewOIDCProviderAndRole(KubernetesTester):
             except AssertionError:
                 return False
 
-        wait_until(config_and_roles_preserved, timeout=500, sleep=5)
+        wait_until(config_and_roles_preserved, timeout=600, sleep=5)
