@@ -177,7 +177,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 	// cannot have a non-tls deployment in an x509 environment
 	// TODO move to webhook validations
 	security := s.Spec.Security
-	if security.Authentication != nil && security.Authentication.Enabled && security.Authentication.IsX509Enabled() && !s.Spec.GetSecurity().IsTLSEnabled() {
+	if security.Authentication.IsX509Enabled() && !security.IsTLSEnabled() {
 		return r.updateStatus(ctx, s, workflow.Invalid("cannot have a non-tls deployment when x509 authentication is enabled"), log)
 	}
 
