@@ -1,6 +1,21 @@
 [//]: # (Consider renaming or removing the header for next release, otherwise it appears as duplicate in the published release, e.g: https://github.com/mongodb/mongodb-enterprise-kubernetes/releases/tag/1.22.0 )
 <!-- Next Release -->
 
+# MCK 1.2.0 Release Notes
+
+## New Features
+
+* **MongoDB**, **MongoDBMulti**: Added support for OpenID Connect (OIDC) user authentication.
+  * OIDC authentication can be configured with `spec.security.authentication.modes=OIDC` and `spec.security.authentication.oidcProviderConfigs` settings.
+  * Minimum MongoDB version requirements:
+    * `7.0.0`, `8.0.0` #TODO: are these proper versions?
+    * Only supported with MongoDB Enterprise image
+  * For more information please see:
+    * API reference [MongoDB Security Authentication Reference API](https://www.mongodb.com/docs/kubernetes/current/reference/k8s-operator-specification/#mongodb-setting-spec.security.authentication.modes)
+    * [Authentication and Authorization with OIDC/OAuth 2.0](https://www.mongodb.com/docs/manual/core/oidc/security-oidc/)
+
+<!-- Past Releases -->
+
 # MCK 1.1.0 Release Notes
 
 ## New Features
@@ -12,9 +27,7 @@
     * minimum MongoDB Community version: 8.0.
     * TLS must be disabled in MongoDB (communication between mongot and mongod is in plaintext for now).
 
-<!-- Past Releases -->
 # MCK 1.0.1 Release Notes
-
 
 ## Bug Fixes
 * Fix missing agent images in the operator bundle in OpenShift catalog and operatorhub.io.
