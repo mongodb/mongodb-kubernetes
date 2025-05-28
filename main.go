@@ -37,6 +37,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/search_controller"
@@ -62,6 +63,7 @@ const (
 	mongoDBMultiClusterCRDPlural = "mongodbmulticluster"
 	mongoDBCommunityCRDPlural    = "mongodbcommunity"
 	mongoDBSearchCRDPlural       = "mongodbsearch"
+	clusterMongoDBRoleCRDPlural  = "clustermongodbroles"
 )
 
 var (
@@ -105,7 +107,14 @@ func main() {
 	flag.Parse()
 	// If no CRDs are specified, we set default to non-multicluster CRDs
 	if len(crds) == 0 {
-		crds = crdsToWatch{mongoDBCRDPlural, mongoDBUserCRDPlural, mongoDBOpsManagerCRDPlural, mongoDBCommunityCRDPlural, mongoDBSearchCRDPlural}
+		crds = crdsToWatch{
+			mongoDBCRDPlural,
+			mongoDBUserCRDPlural,
+			mongoDBOpsManagerCRDPlural,
+			mongoDBCommunityCRDPlural,
+			mongoDBSearchCRDPlural,
+			clusterMongoDBRoleCRDPlural,
+		}
 	}
 
 	ctx := context.Background()
@@ -243,6 +252,11 @@ func main() {
 			log.Fatal(err)
 		}
 	}
+	if slices.Contains(crds, clusterMongoDBRoleCRDPlural) {
+		if err := setupClusterMongoDBRoleCRD(ctx, mgr); err != nil {
+			log.Fatal(err)
+		}
+	}
 
 	for _, r := range crds {
 		log.Infof("Registered CRD: %s", r)
@@ -333,6 +347,13 @@ func setupMongoDBSearchCRD(ctx context.Context, mgr manager.Manager) error {
 		SearchName:    env.ReadOrPanic("MDB_SEARCH_COMMUNITY_NAME"),
 		SearchVersion: env.ReadOrPanic("MDB_SEARCH_COMMUNITY_VERSION"),
 	})
+}
+
+func setupClusterMongoDBRoleCRD(ctx context.Context, mgr manager.Manager) error {
+	if err := operator.AddClusterMongoDBRoleController(ctx, mgr); err != nil {
+		return err
+	}
+	return ctrl.NewWebhookManagedBy(mgr).For(&rolev1.ClusterMongoDBRole{}).Complete()
 }
 
 func setupCommunityController(

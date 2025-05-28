@@ -1020,7 +1020,7 @@ func DefaultReplicaSetBuilder() *ReplicaSetBuilder {
 			Security: &mdbv1.Security{
 				TLSConfig:      &mdbv1.TLSConfig{},
 				Authentication: &mdbv1.Authentication{},
-				Roles:          []mdbv1.MongoDbRole{},
+				Roles:          []mdbv1.MongoDBRole{},
 			},
 		},
 		Members: 3,
@@ -1073,7 +1073,7 @@ func (b *ReplicaSetBuilder) SetAuthentication(auth *mdbv1.Authentication) *Repli
 	return b
 }
 
-func (b *ReplicaSetBuilder) SetRoles(roles []mdbv1.MongoDbRole) *ReplicaSetBuilder {
+func (b *ReplicaSetBuilder) SetRoles(roles []mdbv1.MongoDBRole) *ReplicaSetBuilder {
 	if b.Spec.Security == nil {
 		b.Spec.Security = &mdbv1.Security{}
 	}

@@ -76,12 +76,14 @@ func GetWebhookConfig(serviceLocation types.NamespacedName) admissionv1.Validati
 
 	// need to make variables as one can't take the address of a constant
 	scope := admissionv1.NamespacedScope
+	clusterScope := admissionv1.ClusterScope
 	sideEffects := admissionv1.SideEffectClassNone
 	failurePolicy := admissionv1.Ignore
 	var port int32 = 443
 	dbPath := "/validate-mongodb-com-v1-mongodb"
 	dbmultiPath := "/validate-mongodb-com-v1-mongodbmulticluster"
 	omPath := "/validate-mongodb-com-v1-mongodbopsmanager"
+	clusterrolePath := "/validate-mongodb-com-v1-clustermongodbrole"
 	return admissionv1.ValidatingWebhookConfiguration{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "mdbpolicy.mongodb.com",
@@ -171,6 +173,37 @@ func GetWebhookConfig(serviceLocation types.NamespacedName) admissionv1.Validati
 							APIVersions: []string{"*"},
 							Resources:   []string{"opsmanagers"},
 							Scope:       &scope,
+						},
+					},
+				},
+				AdmissionReviewVersions: []string{"v1"},
+				SideEffects:             &sideEffects,
+				FailurePolicy:           &failurePolicy,
+			},
+			{
+				Name: "clustermdbrolepolicy.mongodb.com",
+				ClientConfig: admissionv1.WebhookClientConfig{
+					Service: &admissionv1.ServiceReference{
+						Name:      serviceLocation.Name,
+						Namespace: serviceLocation.Namespace,
+						Path:      &clusterrolePath,
+						// NOTE: port isn't supported in k8s 1.11 and lower. It works in
+						// 1.15 but I am unsure about the intervening versions.
+						Port: &port,
+					},
+					CABundle: caBytes,
+				},
+				Rules: []admissionv1.RuleWithOperations{
+					{
+						Operations: []admissionv1.OperationType{
+							admissionv1.Create,
+							admissionv1.Update,
+						},
+						Rule: admissionv1.Rule{
+							APIGroups:   []string{"mongodb.com"},
+							APIVersions: []string{"*"},
+							Resources:   []string{"clustermongodbroles"},
+							Scope:       &clusterScope,
 						},
 					},
 				},

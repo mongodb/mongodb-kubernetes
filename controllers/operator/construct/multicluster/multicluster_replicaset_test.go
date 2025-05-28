@@ -44,7 +44,7 @@ func getMultiClusterMongoDB() mdbmulti.MongoDBMultiCluster {
 				Authentication: &mdb.Authentication{
 					Modes: []mdb.AuthMode{},
 				},
-				Roles: []mdb.MongoDbRole{},
+				Roles: []mdb.MongoDBRole{},
 			},
 		},
 		ClusterSpecList: mdb.ClusterSpecList{

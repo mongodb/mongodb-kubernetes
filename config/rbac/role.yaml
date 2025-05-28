@@ -42,6 +42,14 @@ rules:
   - get
   - list
 - apiGroups:
+  - mongodb.com
+  resources:
+  - clustermongodbroles
+  - clustermongodbroles/finalizers
+  - clustermongodbroles/status
+  verbs:
+  - '*'
+- apiGroups:
   - mongodbcommunity.mongodb.com
   resources:
   - mongodbcommunity
