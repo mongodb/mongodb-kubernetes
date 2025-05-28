@@ -81,7 +81,16 @@ func sortOIDCPProviderConfigs(configs []oidc.ProviderConfig) []oidc.ProviderConf
 	})
 }
 
-func oidcProviderConfigEqual(l oidc.ProviderConfig, r oidc.ProviderConfig) bool {
+func oidcProviderConfigEqual(l, r oidc.ProviderConfig) bool {
+	return l.AuthNamePrefix == r.AuthNamePrefix &&
+		l.Audience == r.Audience &&
+		l.IssuerUri == r.IssuerUri &&
+		slices.Equal(l.RequestedScopes, r.RequestedScopes) &&
+		l.UserClaim == r.UserClaim &&
+		l.GroupsClaim == r.GroupsClaim &&
+		l.SupportsHumanFlows == r.SupportsHumanFlows &&
+		l.UseAuthorizationClaim == r.UseAuthorizationClaim
+}
 	if l.AuthNamePrefix != r.AuthNamePrefix {
 		return false
 	}
