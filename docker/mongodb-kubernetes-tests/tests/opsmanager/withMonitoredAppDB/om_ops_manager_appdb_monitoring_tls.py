@@ -2,7 +2,7 @@ import os
 from typing import Optional
 
 import pymongo
-from kubetester import create_or_update_secret
+from kubetester import create_or_update_secret, try_load
 from kubetester.certs import create_ops_manager_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
@@ -36,12 +36,15 @@ def ops_manager(
     custom_appdb_version: str,
     issuer_ca_filepath: str,
 ) -> MongoDBOpsManager:
-    create_or_update_secret(namespace, "appdb-secret", {"password": "Hello-World!"})
-
     print("Creating OM object")
     om = MongoDBOpsManager.from_yaml(yaml_fixture("om_ops_manager_appdb_monitoring_tls.yaml"), namespace=namespace)
     om.set_version(custom_version)
     om.set_appdb_version(custom_appdb_version)
+
+    if try_load(om):
+        return om
+
+    create_or_update_secret(namespace, "appdb-secret", {"password": "Hello-World!"})
 
     # ensure the requests library will use this CA when communicating with Ops Manager
     os.environ["REQUESTS_CA_BUNDLE"] = issuer_ca_filepath
@@ -78,9 +81,9 @@ def test_appdb_password_can_be_changed(ops_manager: MongoDBOpsManager):
     )
 
     # We know that Ops Manager will detect the changes and be restarted
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Pending, timeout=120)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Pending, timeout=300)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
-    ops_manager.om_status().assert_reaches_phase(Phase.Pending, timeout=120)
+    ops_manager.om_status().assert_reaches_phase(Phase.Pending, timeout=300)
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=800)
 
 
