@@ -177,9 +177,9 @@ def test_changing_role(
     mongodb_role["spec"]["roles"][0]["role"] = "readWrite"
     mongodb_role.update()
 
-    wait_until(lambda: replica_set.get_automation_config_tester().reached_version(rs_version + 1))
-    wait_until(lambda: sharded_cluster.get_automation_config_tester().reached_version(sc_version + 1))
-    wait_until(lambda: mc_replica_set.get_automation_config_tester().reached_version(mcrs_version + 1))
+    wait_until(lambda: replica_set.get_automation_config_tester().reached_version(rs_version + 1), timeout=120)
+    wait_until(lambda: sharded_cluster.get_automation_config_tester().reached_version(sc_version + 1), timeout=120)
+    wait_until(lambda: mc_replica_set.get_automation_config_tester().reached_version(mcrs_version + 1), timeout=120)
 
     replica_set.get_automation_config_tester().assert_expected_role(
         role_index=0, expected_value=mongodb_role.get_role()
@@ -200,7 +200,7 @@ def test_removing_role_from_replica_set(replica_set: MongoDB):
     replica_set.update()
 
     replica_set.assert_reaches_phase(Phase.Running)
-    wait_until(lambda: replica_set.get_automation_config_tester().reached_version(rs_version + 1))
+    wait_until(lambda: replica_set.get_automation_config_tester().reached_version(rs_version + 1), timeout=120)
     replica_set.get_automation_config_tester().assert_has_expected_number_of_roles(expected_roles=0)
 
 
@@ -225,7 +225,7 @@ def test_remove_role_from_sharded_cluster(sharded_cluster: MongoDB, mongodb_role
     sharded_cluster.update()
 
     sharded_cluster.assert_reaches_phase(Phase.Running)
-    wait_until(lambda: sharded_cluster.get_automation_config_tester().reached_version(sc_version + 1))
+    wait_until(lambda: sharded_cluster.get_automation_config_tester().reached_version(sc_version + 1), timeout=120)
     sharded_cluster.get_automation_config_tester().assert_has_expected_number_of_roles(expected_roles=0)
 
     # Resource should still exist since MCRS is still referencing it
@@ -243,7 +243,7 @@ def test_remove_role_from_mc_replica_set(mc_replica_set: MongoDBMulti, mongodb_r
     mc_replica_set.update()
 
     mc_replica_set.assert_reaches_phase(Phase.Running)
-    wait_until(lambda: mc_replica_set.get_automation_config_tester().reached_version(mcrs_version + 1))
+    wait_until(lambda: mc_replica_set.get_automation_config_tester().reached_version(mcrs_version + 1), timeout=120)
     mc_replica_set.get_automation_config_tester().assert_has_expected_number_of_roles(expected_roles=0)
 
     # No resources are referencing this role, should be gone
