@@ -62,10 +62,8 @@ func (u DeploymentUsageSnapshotProperties) ConvertToFlatMap() (map[string]any, e
 		return nil, fmt.Errorf("failed to parse properties: %w", err)
 	}
 
-	if len(u.AuthenticationModes) > 0 {
-		for _, value := range u.AuthenticationModes {
-			properties["authenticationMode"+value] = true
-		}
+	for _, value := range u.AuthenticationModes {
+		properties["authenticationMode"+value] = true
 	}
 
 	return properties, nil
