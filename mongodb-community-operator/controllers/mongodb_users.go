@@ -74,6 +74,7 @@ func (r ReplicaSetReconciler) updateConnectionStringSecrets(ctx context.Context,
 		connectionStringSecret := secret.Builder().
 			SetName(secretName).
 			SetNamespace(secretNamespace).
+			SetAnnotations(user.ConnectionStringSecretAnnotations).
 			SetField("connectionString.standard", mdb.MongoAuthUserURI(user, pwd, clusterDomain)).
 			SetField("connectionString.standardSrv", mdb.MongoAuthUserSRVURI(user, pwd, clusterDomain)).
 			SetField("username", user.Username).
