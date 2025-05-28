@@ -91,40 +91,6 @@ func oidcProviderConfigEqual(l, r oidc.ProviderConfig) bool {
 		l.SupportsHumanFlows == r.SupportsHumanFlows &&
 		l.UseAuthorizationClaim == r.UseAuthorizationClaim
 }
-	if l.AuthNamePrefix != r.AuthNamePrefix {
-		return false
-	}
-
-	if l.Audience != r.Audience {
-		return false
-	}
-
-	if l.IssuerUri != r.IssuerUri {
-		return false
-	}
-
-	if !slices.Equal(l.RequestedScopes, r.RequestedScopes) {
-		return false
-	}
-
-	if l.UserClaim != r.UserClaim {
-		return false
-	}
-
-	if l.GroupsClaim != r.GroupsClaim {
-		return false
-	}
-
-	if l.SupportsHumanFlows != r.SupportsHumanFlows {
-		return false
-	}
-
-	if l.UseAuthorizationClaim != r.UseAuthorizationClaim {
-		return false
-	}
-
-	return true
-}
 
 func MapOIDCProviderConfigs(oidcProviderConfigs []mdbv1.OIDCProviderConfig) []oidc.ProviderConfig {
 	if len(oidcProviderConfigs) == 0 {
