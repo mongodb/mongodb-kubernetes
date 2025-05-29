@@ -1091,7 +1091,7 @@ type OIDCProviderConfig struct {
 	// Accept the default value unless your IdP uses a different claim, or you need a custom claim.
 	// Required when selected GroupMembership as the authorization type, ignored otherwise
 	// +kubebuilder:validation:Optional
-	GroupsClaim string `json:"groupsClaim,omitempty"`
+	GroupsClaim *string `json:"groupsClaim"`
 
 	// Configure single-sign-on for human user access to Ops Manager deployments with Workforce Identity Federation.
 	// For programmatic, application access to Ops Manager deployments use Workload Identity Federation.
@@ -1103,7 +1103,7 @@ type OIDCProviderConfig struct {
 	// registered with an external Identity Provider.
 	// Required when selected Workforce Identity Federation authorization method
 	// +kubebuilder:validation:Optional
-	ClientId string `json:"clientId,omitempty"`
+	ClientId *string `json:"clientId"`
 
 	// Tokens that give users permission to request data from the authorization endpoint.
 	// Only used for Workforce Identity Federation authorization method

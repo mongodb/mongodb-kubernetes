@@ -11,7 +11,6 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/oidc"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
@@ -97,24 +96,14 @@ func MapOIDCProviderConfigs(oidcProviderConfigs []mdbv1.OIDCProviderConfig) []oi
 
 	result := make([]oidc.ProviderConfig, len(oidcProviderConfigs))
 	for i, providerConfig := range oidcProviderConfigs {
-		clientId := providerConfig.ClientId
-		if clientId == "" {
-			clientId = util.MergoDelete
-		}
-
-		groupsClaim := providerConfig.GroupsClaim
-		if groupsClaim == "" {
-			groupsClaim = util.MergoDelete
-		}
-
 		result[i] = oidc.ProviderConfig{
 			AuthNamePrefix:        providerConfig.ConfigurationName,
 			Audience:              providerConfig.Audience,
 			IssuerUri:             providerConfig.IssuerURI,
-			ClientId:              clientId,
+			ClientId:              providerConfig.ClientId,
 			RequestedScopes:       providerConfig.RequestedScopes,
 			UserClaim:             providerConfig.UserClaim,
-			GroupsClaim:           groupsClaim,
+			GroupsClaim:           providerConfig.GroupsClaim,
 			SupportsHumanFlows:    mapToSupportHumanFlows(providerConfig.AuthorizationMethod),
 			UseAuthorizationClaim: mapToUseAuthorizationClaim(providerConfig.AuthorizationType),
 		}

@@ -62,47 +62,7 @@ func applyInto(a AutomationConfig, into *Deployment) error {
 	}
 
 	if len(a.OIDCProviderConfigs) > 0 {
-		deploymentConfigs := make([]map[string]any, 0)
-		if configs, ok := a.Deployment["oidcProviderConfigs"]; ok {
-			configsSlice := cast.ToSlice(configs)
-			for _, config := range configsSlice {
-				deploymentConfigs = append(deploymentConfigs, config.(map[string]any))
-			}
-		}
-
-		result := make([]map[string]any, 0)
-		for _, config := range a.OIDCProviderConfigs {
-			deploymentConfig := findOrCreateEmptyDeploymentConfig(deploymentConfigs, config.AuthNamePrefix)
-
-			deploymentConfig["authNamePrefix"] = config.AuthNamePrefix
-			deploymentConfig["audience"] = config.Audience
-			deploymentConfig["issuerUri"] = config.IssuerUri
-			deploymentConfig["userClaim"] = config.UserClaim
-			deploymentConfig["supportsHumanFlows"] = config.SupportsHumanFlows
-			deploymentConfig["useAuthorizationClaim"] = config.UseAuthorizationClaim
-
-			if config.ClientId == util.MergoDelete {
-				delete(deploymentConfig, "clientId")
-			} else {
-				deploymentConfig["clientId"] = config.ClientId
-			}
-
-			if len(config.RequestedScopes) == 0 {
-				delete(deploymentConfig, "requestedScopes")
-			} else {
-				deploymentConfig["requestedScopes"] = config.RequestedScopes
-			}
-
-			if config.GroupsClaim == util.MergoDelete {
-				delete(deploymentConfig, "groupsClaim")
-			} else {
-				deploymentConfig["groupsClaim"] = config.GroupsClaim
-			}
-
-			result = append(result, deploymentConfig)
-		}
-
-		(*into)["oidcProviderConfigs"] = result
+		updateOIDCProviderConfigs(a, into)
 	} else {
 		// Clear oidcProviderConfigs if no configs are provided
 		delete(*into, "oidcProviderConfigs")
@@ -111,14 +71,53 @@ func applyInto(a AutomationConfig, into *Deployment) error {
 	return nil
 }
 
-func findOrCreateEmptyDeploymentConfig(deploymentConfigs []map[string]any, configName string) map[string]any {
-	for _, deploymentConfig := range deploymentConfigs {
-		if configName == deploymentConfig["authNamePrefix"] {
-			return deploymentConfig
+func updateOIDCProviderConfigs(a AutomationConfig, into *Deployment) {
+	deploymentConfigs := make(map[string]map[string]any)
+	if configs, ok := a.Deployment["oidcProviderConfigs"]; ok {
+		configsSliceAny := cast.ToSlice(configs)
+		for _, configAny := range configsSliceAny {
+			config := configAny.(map[string]any)
+			configName := config["authNamePrefix"].(string)
+			deploymentConfigs[configName] = config
 		}
 	}
 
-	return make(map[string]any)
+	result := make([]map[string]any, 0)
+	for _, config := range a.OIDCProviderConfigs {
+		deploymentConfig, ok := deploymentConfigs[config.AuthNamePrefix]
+		if !ok {
+			deploymentConfig = make(map[string]any)
+		}
+
+		deploymentConfig["authNamePrefix"] = config.AuthNamePrefix
+		deploymentConfig["audience"] = config.Audience
+		deploymentConfig["issuerUri"] = config.IssuerUri
+		deploymentConfig["userClaim"] = config.UserClaim
+		deploymentConfig["supportsHumanFlows"] = config.SupportsHumanFlows
+		deploymentConfig["useAuthorizationClaim"] = config.UseAuthorizationClaim
+
+		if config.ClientId == nil {
+			delete(deploymentConfig, "clientId")
+		} else {
+			deploymentConfig["clientId"] = config.ClientId
+		}
+
+		if len(config.RequestedScopes) == 0 {
+			delete(deploymentConfig, "requestedScopes")
+		} else {
+			deploymentConfig["requestedScopes"] = config.RequestedScopes
+		}
+
+		if config.GroupsClaim == nil {
+			delete(deploymentConfig, "groupsClaim")
+		} else {
+			deploymentConfig["groupsClaim"] = config.GroupsClaim
+		}
+
+		result = append(result, deploymentConfig)
+	}
+
+	(*into)["oidcProviderConfigs"] = result
 }
 
 // EqualsWithoutDeployment returns true if two AutomationConfig objects are meaningful equal by following the following conditions:
