@@ -11,6 +11,8 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/oidc"
 )
 
+var mongoDBOIDCMechanism = getMechanismByName(MongoDBOIDC)
+
 func TestOIDC_EnableDeploymentAuthentication(t *testing.T) {
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 	ac, err := conn.ReadAutomationConfig()
@@ -46,10 +48,10 @@ func TestOIDC_EnableDeploymentAuthentication(t *testing.T) {
 		OIDCProviderConfigs: providerConfigs,
 	}
 
-	configured := MongoDBOIDCMechanism.IsDeploymentAuthenticationConfigured(ac, opts)
+	configured := mongoDBOIDCMechanism.IsDeploymentAuthenticationConfigured(ac, opts)
 	assert.False(t, configured)
 
-	err = MongoDBOIDCMechanism.EnableDeploymentAuthentication(conn, opts, zap.S())
+	err = mongoDBOIDCMechanism.EnableDeploymentAuthentication(conn, opts, zap.S())
 	require.NoError(t, err)
 
 	ac, err = conn.ReadAutomationConfig()
@@ -57,16 +59,16 @@ func TestOIDC_EnableDeploymentAuthentication(t *testing.T) {
 	assert.Contains(t, ac.Auth.DeploymentAuthMechanisms, string(MongoDBOIDC))
 	assert.Equal(t, providerConfigs, ac.OIDCProviderConfigs)
 
-	configured = MongoDBOIDCMechanism.IsDeploymentAuthenticationConfigured(ac, opts)
+	configured = mongoDBOIDCMechanism.IsDeploymentAuthenticationConfigured(ac, opts)
 	assert.True(t, configured)
 
-	err = MongoDBOIDCMechanism.DisableDeploymentAuthentication(conn, zap.S())
+	err = mongoDBOIDCMechanism.DisableDeploymentAuthentication(conn, zap.S())
 	require.NoError(t, err)
 
 	ac, err = conn.ReadAutomationConfig()
 	require.NoError(t, err)
 
-	configured = MongoDBOIDCMechanism.IsDeploymentAuthenticationConfigured(ac, opts)
+	configured = mongoDBOIDCMechanism.IsDeploymentAuthenticationConfigured(ac, opts)
 	assert.False(t, configured)
 
 	assert.NotContains(t, ac.Auth.DeploymentAuthMechanisms, string(MongoDBOIDC))
@@ -82,12 +84,12 @@ func TestOIDC_EnableAgentAuthentication(t *testing.T) {
 	ac, err := conn.ReadAutomationConfig()
 	require.NoError(t, err)
 
-	configured := MongoDBOIDCMechanism.IsAgentAuthenticationConfigured(ac, opts)
+	configured := mongoDBOIDCMechanism.IsAgentAuthenticationConfigured(ac, opts)
 	assert.False(t, configured)
 
-	err = MongoDBOIDCMechanism.EnableAgentAuthentication(conn, opts, zap.S())
+	err = mongoDBOIDCMechanism.EnableAgentAuthentication(conn, opts, zap.S())
 	require.Error(t, err)
 
-	err = MongoDBOIDCMechanism.DisableAgentAuthentication(conn, zap.S())
+	err = mongoDBOIDCMechanism.DisableAgentAuthentication(conn, zap.S())
 	require.Error(t, err)
 }

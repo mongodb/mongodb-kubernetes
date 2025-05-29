@@ -15,8 +15,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
-var MongoDBOIDCMechanism = &oidcAuthMechanism{}
-
 type oidcAuthMechanism struct{}
 
 func (o *oidcAuthMechanism) GetName() MechanismName {
