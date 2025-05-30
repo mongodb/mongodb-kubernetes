@@ -1575,6 +1575,8 @@ spec:
                               description: |-
                                 Issuer value provided by your registered IdP application. Using this URI, MongoDB finds an OpenID Provider
                                 Configuration Document, which should be available in the /.wellknown/open-id-configuration endpoint.
+                                For MongoDB 7.0, 7.3, and 8.0+, the combination of issuerURI and audience must be unique across OIDC provider configurations.
+                                For other MongoDB versions, the issuerURI itself must be unique.
                               type: string
                             requestedScopes:
                               description: |-
@@ -4210,6 +4212,8 @@ spec:
                               description: |-
                                 Issuer value provided by your registered IdP application. Using this URI, MongoDB finds an OpenID Provider
                                 Configuration Document, which should be available in the /.wellknown/open-id-configuration endpoint.
+                                For MongoDB 7.0, 7.3, and 8.0+, the combination of issuerURI and audience must be unique across OIDC provider configurations.
+                                For other MongoDB versions, the issuerURI itself must be unique.
                               type: string
                             requestedScopes:
                               description: |-
@@ -7566,6 +7570,13 @@ spec:
                       nullable: true
                       type: object
                       x-kubernetes-preserve-unknown-fields: true
+                    connectionStringSecretAnnotations:
+                      additionalProperties:
+                        type: string
+                      description: ConnectionStringSecretAnnotations is the annotations
+                        of the secret object created by the operator which exposes
+                        the connection strings for the user.
+                      type: object
                     connectionStringSecretName:
                       description: |-
                         ConnectionStringSecretName is the name of the secret object created by the operator which exposes the connection strings for the user.
