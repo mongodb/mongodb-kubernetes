@@ -112,3 +112,11 @@ export VERSION_UPGRADE_HOOK_IMAGE="268558157000.dkr.ecr.us-east-1.amazonaws.com/
 
 # TODO to be removed at public preview stage of community-search
 export COMMUNITY_PRIVATE_PREVIEW_PULLSECRET_DOCKERCONFIGJSON="${community_private_preview_pullsecret_dockerconfigjson}"
+
+export cognito_user_pool_id="${cognito_user_pool_id}"
+export cognito_workload_federation_client_id="${cognito_workload_federation_client_id}"
+export cognito_user_name="${cognito_user_name}"
+export cognito_workload_federation_client_secret="${cognito_workload_federation_client_secret}"
+export cognito_user_password="${cognito_user_password}"
+export cognito_workload_url="${cognito_workload_url}"
+export cognito_workload_user_id="${cognito_workload_user_id}"
