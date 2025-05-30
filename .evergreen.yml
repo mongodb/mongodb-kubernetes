@@ -911,6 +911,10 @@ task_groups:
       - e2e_tls_x509_configure_all_options_sc
       - e2e_tls_x509_sc
       - e2e_meko_mck_upgrade
+      - e2e_sharded_cluster_oidc_m2m_group
+      - e2e_sharded_cluster_oidc_m2m_user
+      - e2e_multi_cluster_oidc_m2m_group
+      - e2e_multi_cluster_oidc_m2m_user
 
     <<: *teardown_group
 
