@@ -153,12 +153,12 @@ func TestGetCorrectAuthMechanismFromVersion(t *testing.T) {
 	mechanismList := convertToMechanismList([]string{"X509"}, ac)
 
 	assert.Len(t, mechanismList, 1)
-	assert.Contains(t, mechanismList, MongoDBX509Mechanism)
+	assert.Contains(t, mechanismList, mongoDBX509Mechanism)
 
 	mechanismList = convertToMechanismList([]string{"SCRAM", "X509"}, ac)
 
-	assert.Contains(t, mechanismList, ScramSha256Mechanism)
-	assert.Contains(t, mechanismList, MongoDBX509Mechanism)
+	assert.Contains(t, mechanismList, scramSha256Mechanism)
+	assert.Contains(t, mechanismList, mongoDBX509Mechanism)
 
 	// enable MONGODB-CR
 	ac.Auth.AutoAuthMechanism = "MONGODB-CR"
@@ -166,8 +166,8 @@ func TestGetCorrectAuthMechanismFromVersion(t *testing.T) {
 
 	mechanismList = convertToMechanismList([]string{"SCRAM", "X509"}, ac)
 
-	assert.Contains(t, mechanismList, MongoDBCRMechanism)
-	assert.Contains(t, mechanismList, MongoDBX509Mechanism)
+	assert.Contains(t, mechanismList, mongoDBCRMechanism)
+	assert.Contains(t, mechanismList, mongoDBX509Mechanism)
 }
 
 func assertAuthenticationEnabled(t *testing.T, auth *om.Auth) {
