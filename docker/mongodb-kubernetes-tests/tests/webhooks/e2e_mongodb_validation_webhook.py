@@ -79,8 +79,8 @@ class TestWebhookValidation(KubernetesTester):
             exception_reason="'spec.members' must be specified if type of MongoDB is ReplicaSet",
         )
 
-    def test_oidc_auth_with_mongodb_community(self):
-        resource = yaml.safe_load(open(yaml_fixture("invalid_oidc_mongodb_community.yaml")))
+    def test_oidc_auth_with_mongodb_non_enterprise(self):
+        resource = yaml.safe_load(open(yaml_fixture("invalid_oidc_mongodb_non_enterprise.yaml")))
         self.create_custom_resource_from_object(
             self.get_namespace(),
             resource,

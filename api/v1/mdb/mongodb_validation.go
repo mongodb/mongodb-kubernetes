@@ -54,7 +54,7 @@ func deploymentsMustHaveTLSInX509Env(d DbCommonSpec) v1.ValidationResult {
 	if authSpec == nil {
 		return v1.ValidationSuccess()
 	}
-	if authSpec.Enabled && authSpec.IsX509Enabled() && !d.GetSecurity().IsTLSEnabled() {
+	if authSpec.IsX509Enabled() && !d.GetSecurity().IsTLSEnabled() {
 		return v1.ValidationError("Cannot have a non-tls deployment when x509 authentication is enabled")
 	}
 	return v1.ValidationSuccess()
@@ -107,11 +107,15 @@ func scramSha1AuthValidation(d DbCommonSpec) v1.ValidationResult {
 
 func oidcAuthValidators(db DbCommonSpec) []func(DbCommonSpec) v1.ValidationResult {
 	validators := make([]func(DbCommonSpec) v1.ValidationResult, 0)
-	if !db.Security.IsOIDCEnabled() {
+	if db.Security == nil || db.Security.Authentication == nil {
 		return validators
 	}
 
 	authentication := db.Security.Authentication
+	if !authentication.IsOIDCEnabled() {
+		return validators
+	}
+
 	validators = append(validators, oidcAuthModeValidator(authentication))
 	validators = append(validators, oidcAuthRequiresEnterprise)
 
@@ -294,16 +298,14 @@ func oidcProviderConfigAuthorizationTypeValidator(config OIDCProviderConfig) fun
 }
 
 func oidcAuthRequiresEnterprise(d DbCommonSpec) v1.ValidationResult {
-	authSpec := d.Security.Authentication
-	if authSpec != nil && authSpec.IsOIDCEnabled() && !strings.HasSuffix(d.Version, "-ent") {
+	if d.Security.Authentication.IsOIDCEnabled() && !strings.HasSuffix(d.Version, "-ent") {
 		return v1.ValidationError("Cannot enable OIDC authentication with MongoDB Community Builds")
 	}
 	return v1.ValidationSuccess()
 }
 
 func ldapAuthRequiresEnterprise(d DbCommonSpec) v1.ValidationResult {
-	authSpec := d.Security.Authentication
-	if authSpec != nil && authSpec.IsLDAPEnabled() && !strings.HasSuffix(d.Version, "-ent") {
+	if d.Security.Authentication.IsLDAPEnabled() && !strings.HasSuffix(d.Version, "-ent") {
 		return v1.ValidationError("Cannot enable LDAP authentication with MongoDB Community Builds")
 	}
 	return v1.ValidationSuccess()
