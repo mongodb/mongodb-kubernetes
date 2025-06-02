@@ -25,6 +25,9 @@ const (
 
 	// PhaseUnsupported means a resource is not supported by the current Operator version
 	PhaseUnsupported Phase = "Unsupported"
+
+	// PhaseReady means a MongoDBRole resource is ready to be used
+	PhaseReady Phase = "Ready"
 )
 
 type Updater interface {

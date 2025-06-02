@@ -16,7 +16,7 @@ header() {
 # Pipe output to it, e.g. <command> | prepend "job prefix: "
 prepend() {
   prefix=$1
-  awk -v prefix="${prefix}" '{printf "%s: %s\n", prefix, $0}'
+  awk -v prefix="${prefix}" '{printf "%s: %s\n", prefix, $0; fflush()}'
 }
 
 export RED='\033[0;31m'

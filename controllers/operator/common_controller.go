@@ -98,6 +98,9 @@ func NewReconcileCommonController(ctx context.Context, client client.Client) *Re
 	}
 }
 
+// ensureRoles will first check if both roles and roleRefs are populated. If both are, it will return an error, which is inline with the webhook validation rules.
+// Otherwise, if roles is populated, then it will extract the list of roles and check if they are already set in Ops Manager. If they are not, it will update the roles in Ops Manager.
+// If roleRefs is populated, it will extract the list of roles from the referenced resources and check if they are already set in Ops Manager. If they are not, it will update the roles in Ops Manager.
 func (r *ReconcileCommonController) ensureRoles(ctx context.Context, localRoles []mdbv1.MongoDBRole, roleRefs []mdbv1.MongoDBRoleRef, conn om.Connection, mongodbResourceNsName types.NamespacedName, log *zap.SugaredLogger) workflow.Status {
 	if len(localRoles) > 0 && len(roleRefs) > 0 {
 		return workflow.Failed(xerrors.Errorf("At most one one of roles or roleRefs can be non-empty."))
@@ -130,6 +133,8 @@ func (r *ReconcileCommonController) ensureRoles(ctx context.Context, localRoles 
 			roles[i].Privileges = []mdbv1.Privilege{}
 		}
 	}
+
+	log.Infof("Roles have been changed. Updating deployment in Ops Manager.")
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			d.SetRoles(roles)
@@ -143,6 +148,10 @@ func (r *ReconcileCommonController) ensureRoles(ctx context.Context, localRoles 
 	return workflow.OK()
 }
 
+// getRoleRefs retrieves the roles from the referenced resources. It will return an error if any of the referenced resources are not found.
+// It will also add the referenced resources to the resource watcher, so that they are watched for changes.
+// The referenced resources are expected to be of kind ClusterMongoDBRole.
+// This implementation is prepared for a future namespaced variant of ClusterMongoDBRole.
 func (r *ReconcileCommonController) getRoleRefs(ctx context.Context, roleRefs []mdbv1.MongoDBRoleRef, mongodbResourceNsName types.NamespacedName) ([]mdbv1.MongoDBRole, error) {
 	roles := make([]mdbv1.MongoDBRole, len(roleRefs))
 
@@ -157,6 +166,10 @@ func (r *ReconcileCommonController) getRoleRefs(ctx context.Context, roleRefs []
 			err := r.client.Get(ctx, types.NamespacedName{Name: ref.Name}, customRole)
 			if err != nil {
 				return nil, xerrors.Errorf("Failed to retrieve ClusterMongoDBRole '%s': %w", ref.Name, err)
+			}
+
+			if customRole.Status.Phase == status.PhaseFailed {
+				return nil, xerrors.Errorf("ClusterMongoDBRole '%s' is in a failed state, cannot use it as a role reference", ref.Name)
 			}
 
 			role = customRole.Spec.MongoDBRole

@@ -288,7 +288,7 @@ func TestFailWhenRoleAndRoleRefsAreConfigured(t *testing.T) {
 	controller := NewReconcileCommonController(ctx, kubeClient)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 
-	result := controller.ensureRoles(ctx, rs.Spec.Security.Roles, rs.Spec.Security.RoleRefs, mockOm, kube.ObjectKeyFromApiObject(rs), &zap.SugaredLogger{})
+	result := controller.ensureRoles(ctx, rs.Spec.Security.Roles, rs.Spec.Security.RoleRefs, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
 	assert.False(t, result.IsOK())
 	assert.Equal(t, status.PhaseFailed, result.Phase())
 
@@ -316,7 +316,7 @@ func TestRoleRefsAreAdded(t *testing.T) {
 
 	_ = kubeClient.Create(ctx, roleResource)
 
-	controller.ensureRoles(ctx, rs.Spec.Security.Roles, rs.Spec.Security.RoleRefs, mockOm, kube.ObjectKeyFromApiObject(rs), &zap.SugaredLogger{})
+	controller.ensureRoles(ctx, rs.Spec.Security.Roles, rs.Spec.Security.RoleRefs, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
 
 	ac, err := mockOm.ReadAutomationConfig()
 	assert.NoError(t, err)
@@ -343,7 +343,7 @@ func TestErrorWhenRoleDoesNotExist(t *testing.T) {
 
 	_ = kubeClient.Create(ctx, roleResource)
 
-	result := controller.ensureRoles(ctx, rs.Spec.Security.Roles, rs.Spec.Security.RoleRefs, mockOm, kube.ObjectKeyFromApiObject(rs), &zap.SugaredLogger{})
+	result := controller.ensureRoles(ctx, rs.Spec.Security.Roles, rs.Spec.Security.RoleRefs, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
 	assert.False(t, result.IsOK())
 	assert.Equal(t, status.PhaseFailed, result.Phase())
 
@@ -369,7 +369,7 @@ func TestErrorWhenRoleRefIsWrong(t *testing.T) {
 	controller := NewReconcileCommonController(ctx, kubeClient)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 
-	result := controller.ensureRoles(ctx, rs.Spec.Security.Roles, rs.Spec.Security.RoleRefs, mockOm, kube.ObjectKeyFromApiObject(rs), &zap.SugaredLogger{})
+	result := controller.ensureRoles(ctx, rs.Spec.Security.Roles, rs.Spec.Security.RoleRefs, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
 	assert.False(t, result.IsOK())
 	assert.Equal(t, status.PhaseFailed, result.Phase())
 
@@ -396,7 +396,7 @@ func TestDontSendNilPrivileges(t *testing.T) {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
 	controller := NewReconcileCommonController(ctx, kubeClient)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
-	controller.ensureRoles(ctx, rs.Spec.Security.Roles, rs.Spec.Security.RoleRefs, mockOm, kube.ObjectKeyFromApiObject(rs), &zap.SugaredLogger{})
+	controller.ensureRoles(ctx, rs.Spec.Security.Roles, rs.Spec.Security.RoleRefs, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
 	ac, err := mockOm.ReadAutomationConfig()
 	assert.NoError(t, err)
 	roles, ok := ac.Deployment["roles"].([]mdbv1.MongoDBRole)

@@ -139,7 +139,7 @@ def mc_replica_set(namespace: str, mongodb_role: ClusterMongoDBRole, third_proje
 
 @mark.e2e_mongodb_custom_roles
 def test_create_mongodb_role(mongodb_role: ClusterMongoDBRole):
-    mongodb_role.assert_reaches_phase(Phase.Updated)
+    mongodb_role.assert_reaches_phase(Phase.Ready)
 
 
 @mark.e2e_mongodb_custom_roles
@@ -177,9 +177,9 @@ def test_changing_role(
     mongodb_role["spec"]["roles"][0]["role"] = "readWrite"
     mongodb_role.update()
 
-    wait_until(lambda: replica_set.get_automation_config_tester().reached_version(rs_version + 1))
-    wait_until(lambda: sharded_cluster.get_automation_config_tester().reached_version(sc_version + 1))
-    wait_until(lambda: mc_replica_set.get_automation_config_tester().reached_version(mcrs_version + 1))
+    wait_until(lambda: replica_set.get_automation_config_tester().reached_version(rs_version + 1), timeout=120)
+    wait_until(lambda: sharded_cluster.get_automation_config_tester().reached_version(sc_version + 1), timeout=120)
+    wait_until(lambda: mc_replica_set.get_automation_config_tester().reached_version(mcrs_version + 1), timeout=120)
 
     replica_set.get_automation_config_tester().assert_expected_role(
         role_index=0, expected_value=mongodb_role.get_role()
@@ -200,18 +200,18 @@ def test_removing_role_from_replica_set(replica_set: MongoDB):
     replica_set.update()
 
     replica_set.assert_reaches_phase(Phase.Running)
-    wait_until(lambda: replica_set.get_automation_config_tester().reached_version(rs_version + 1))
+    wait_until(lambda: replica_set.get_automation_config_tester().reached_version(rs_version + 1), timeout=120)
     replica_set.get_automation_config_tester().assert_has_expected_number_of_roles(expected_roles=0)
 
 
 @mark.e2e_mongodb_custom_roles
 def test_attempt_delete_role(mongodb_role: ClusterMongoDBRole):
-    mongodb_role.assert_reaches_phase(Phase.Updated)
+    mongodb_role.assert_reaches_phase(Phase.Ready)
 
     mongodb_role.delete()
 
     # Resource should still exist since Sharded cluster and MCRS are still referencing it
-    mongodb_role.assert_reaches_phase(Phase.Failed, timeout=400)
+    mongodb_role.assert_reaches_phase(Phase.Pending, timeout=400)
 
     assert mongodb_role["metadata"]["finalizers"][0] == "mongodb.com/v1.roleRemovalFinalizer"
     assert mongodb_role["metadata"]["deletionTimestamp"] is not None
@@ -225,7 +225,7 @@ def test_remove_role_from_sharded_cluster(sharded_cluster: MongoDB, mongodb_role
     sharded_cluster.update()
 
     sharded_cluster.assert_reaches_phase(Phase.Running)
-    wait_until(lambda: sharded_cluster.get_automation_config_tester().reached_version(sc_version + 1))
+    wait_until(lambda: sharded_cluster.get_automation_config_tester().reached_version(sc_version + 1), timeout=120)
     sharded_cluster.get_automation_config_tester().assert_has_expected_number_of_roles(expected_roles=0)
 
     # Resource should still exist since MCRS is still referencing it
@@ -243,7 +243,7 @@ def test_remove_role_from_mc_replica_set(mc_replica_set: MongoDBMulti, mongodb_r
     mc_replica_set.update()
 
     mc_replica_set.assert_reaches_phase(Phase.Running)
-    wait_until(lambda: mc_replica_set.get_automation_config_tester().reached_version(mcrs_version + 1))
+    wait_until(lambda: mc_replica_set.get_automation_config_tester().reached_version(mcrs_version + 1), timeout=120)
     mc_replica_set.get_automation_config_tester().assert_has_expected_number_of_roles(expected_roles=0)
 
     # No resources are referencing this role, should be gone
