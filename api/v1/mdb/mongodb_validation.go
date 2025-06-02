@@ -256,11 +256,11 @@ func oidcProviderConfigIssuerURIValidator(config OIDCProviderConfig) func(DbComm
 func oidcProviderConfigClientIdValidator(config OIDCProviderConfig) func(DbCommonSpec) v1.ValidationResult {
 	return func(_ DbCommonSpec) v1.ValidationResult {
 		if config.AuthorizationMethod == OIDCAuthorizationMethodWorkforceIdentityFederation {
-			if config.ClientId == "" {
+			if config.ClientId == nil || *config.ClientId == "" {
 				return v1.ValidationError("ClientId has to be specified in OIDC provider config %q with Workforce Identity Federation", config.ConfigurationName)
 			}
 		} else if config.AuthorizationMethod == OIDCAuthorizationMethodWorkloadIdentityFederation {
-			if config.ClientId != "" {
+			if config.ClientId != nil {
 				return v1.ValidationWarning("ClientId will be ignored in OIDC provider config %q with Workload Identity Federation", config.ConfigurationName)
 			}
 		}
@@ -284,11 +284,11 @@ func oidcProviderConfigRequestedScopesValidator(config OIDCProviderConfig) func(
 func oidcProviderConfigAuthorizationTypeValidator(config OIDCProviderConfig) func(DbCommonSpec) v1.ValidationResult {
 	return func(_ DbCommonSpec) v1.ValidationResult {
 		if config.AuthorizationType == OIDCAuthorizationTypeGroupMembership {
-			if config.GroupsClaim == "" {
+			if config.GroupsClaim == nil || *config.GroupsClaim == "" {
 				return v1.ValidationError("GroupsClaim has to be specified in OIDC provider config %q when using Group Membership authorization", config.ConfigurationName)
 			}
 		} else if config.AuthorizationType == OIDCAuthorizationTypeUserID {
-			if config.GroupsClaim != "" {
+			if config.GroupsClaim != nil {
 				return v1.ValidationWarning("GroupsClaim will be ignored in OIDC provider config %q when using User ID authorization", config.ConfigurationName)
 			}
 		}
@@ -298,16 +298,14 @@ func oidcProviderConfigAuthorizationTypeValidator(config OIDCProviderConfig) fun
 }
 
 func oidcAuthRequiresEnterprise(d DbCommonSpec) v1.ValidationResult {
-	authSpec := d.Security.Authentication
-	if authSpec != nil && authSpec.IsOIDCEnabled() && !strings.HasSuffix(d.Version, "-ent") {
+	if d.Security.Authentication.IsOIDCEnabled() && !strings.HasSuffix(d.Version, "-ent") {
 		return v1.ValidationError("Cannot enable OIDC authentication with MongoDB Community Builds")
 	}
 	return v1.ValidationSuccess()
 }
 
 func ldapAuthRequiresEnterprise(d DbCommonSpec) v1.ValidationResult {
-	authSpec := d.Security.Authentication
-	if authSpec != nil && authSpec.IsLDAPEnabled() && !strings.HasSuffix(d.Version, "-ent") {
+	if d.Security.Authentication.IsLDAPEnabled() && !strings.HasSuffix(d.Version, "-ent") {
 		return v1.ValidationError("Cannot enable LDAP authentication with MongoDB Community Builds")
 	}
 	return v1.ValidationSuccess()
