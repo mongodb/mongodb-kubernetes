@@ -44,6 +44,7 @@ images:
 
   - name: operator-template-ubi
     task_type: dockerfile_template
+    tags: ["final_dockerfile"]
     distro: ubi
     inputs:
     - version

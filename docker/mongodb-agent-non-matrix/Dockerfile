@@ -1,5 +1,14 @@
-ARG imagebase
-FROM ${imagebase} as base
+FROM scratch AS base
+
+ARG agent_version
+ARG agent_distro
+ARG tools_version
+ARG tools_distro
+
+ADD https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod/mongodb-mms-automation-agent-${agent_version}.${agent_distro}.tar.gz /data/mongodb-agent.tar.gz
+ADD https://downloads.mongodb.org/tools/db/mongodb-database-tools-${tools_distro}-${tools_version}.tgz /data/mongodb-tools.tgz
+
+COPY ./docker/mongodb-kubernetes-init-database/content/LICENSE /data/LICENSE
 
 FROM registry.access.redhat.com/ubi9/ubi-minimal
 
