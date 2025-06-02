@@ -16,13 +16,13 @@
   * The reference documentation for this resource can be found here: **TODO** (link to documentation)
   * For more information please see: **TODO** (link to documentation)
 * **MongoDB**, **MongoDBMulti**: Added support for OpenID Connect (OIDC) user authentication.
-    * OIDC authentication can be configured with `spec.security.authentication.modes=OIDC` and `spec.security.authentication.oidcProviderConfigs` settings.
-    * Minimum MongoDB version requirements:
-        * `7.0.0`, `8.0.0` #TODO: are these proper versions?
-        * Only supported with MongoDB Enterprise image
-    * For more information please see:
-        * API reference [MongoDB Security Authentication Reference API](https://www.mongodb.com/docs/kubernetes/current/reference/k8s-operator-specification/#mongodb-setting-spec.security.authentication.modes)
-        * [Authentication and Authorization with OIDC/OAuth 2.0](https://www.mongodb.com/docs/manual/core/oidc/security-oidc/)
+  * OIDC authentication can be configured with `spec.security.authentication.modes=OIDC` and `spec.security.authentication.oidcProviderConfigs` settings.
+  * Minimum MongoDB version requirements:
+    * `7.0.0`, `8.0.0`
+    * Only supported with MongoDB Enterprise image
+  * For more information please see:
+    * API reference [MongoDB Security Authentication Reference API](https://www.mongodb.com/docs/kubernetes/current/reference/k8s-operator-specification/#mongodb-setting-spec.security.authentication.modes)
+    * [Authentication and Authorization with OIDC/OAuth 2.0](https://www.mongodb.com/docs/manual/core/oidc/security-oidc/)
 
 <!-- Past Releases -->
 
