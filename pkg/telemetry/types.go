@@ -32,7 +32,8 @@ type DeploymentUsageSnapshotProperties struct {
 	IsMultiCluster           bool   `json:"isMultiCluster"`
 	Type                     string `json:"type"` // RS, SC, OM, Single
 	IsRunningEnterpriseImage bool   `json:"IsRunningEnterpriseImage"`
-	ExternalDomains          string `json:"externalDomains"` // None, Uniform, ClusterSpecific, Mixed
+	ExternalDomains          string `json:"externalDomains"`       // None, Uniform, ClusterSpecific, Mixed
+	CustomRoles              string `json:"customRoles,omitempty"` // Custom roles used
 }
 
 type Event struct {
