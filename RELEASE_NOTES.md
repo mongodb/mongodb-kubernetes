@@ -21,7 +21,7 @@
     * `7.0.0`, `8.0.0`
     * Only supported with MongoDB Enterprise image
   * For more information please see:
-    * API reference [MongoDB Security Authentication Reference API](https://www.mongodb.com/docs/kubernetes/current/reference/k8s-operator-specification/#mongodb-setting-spec.security.authentication.modes)
+    * [Authentication Settings](https://www.mongodb.com/docs/kubernetes/current/reference/k8s-operator-specification/#mongodb-setting-spec.security.authentication.modes)
     * [Authentication and Authorization with OIDC/OAuth 2.0](https://www.mongodb.com/docs/manual/core/oidc/security-oidc/)
 
 <!-- Past Releases -->
