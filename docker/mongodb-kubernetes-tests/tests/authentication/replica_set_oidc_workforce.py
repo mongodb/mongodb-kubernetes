@@ -72,7 +72,6 @@ class TestCreateOIDCReplicaset(KubernetesTester):
                 "issuerUri": "https://valid-issuer.example.com",
                 "clientId": "dummy-client-id",
                 "userClaim": "sub",
-                "groupsClaim": "",
                 "JWKSPollSecs": 0,
                 "authNamePrefix": "OIDC-test-user",
                 "supportsHumanFlows": False,
