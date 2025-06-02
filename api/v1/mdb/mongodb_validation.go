@@ -298,16 +298,14 @@ func oidcProviderConfigAuthorizationTypeValidator(config OIDCProviderConfig) fun
 }
 
 func oidcAuthRequiresEnterprise(d DbCommonSpec) v1.ValidationResult {
-	authSpec := d.Security.Authentication
-	if authSpec != nil && authSpec.IsOIDCEnabled() && !strings.HasSuffix(d.Version, "-ent") {
+	if d.Security.Authentication.IsOIDCEnabled() && !strings.HasSuffix(d.Version, "-ent") {
 		return v1.ValidationError("Cannot enable OIDC authentication with MongoDB Community Builds")
 	}
 	return v1.ValidationSuccess()
 }
 
 func ldapAuthRequiresEnterprise(d DbCommonSpec) v1.ValidationResult {
-	authSpec := d.Security.Authentication
-	if authSpec != nil && authSpec.IsLDAPEnabled() && !strings.HasSuffix(d.Version, "-ent") {
+	if d.Security.Authentication.IsLDAPEnabled() && !strings.HasSuffix(d.Version, "-ent") {
 		return v1.ValidationError("Cannot enable LDAP authentication with MongoDB Community Builds")
 	}
 	return v1.ValidationSuccess()

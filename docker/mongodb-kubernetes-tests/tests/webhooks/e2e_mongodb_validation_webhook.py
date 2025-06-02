@@ -84,7 +84,7 @@ class TestWebhookValidation(KubernetesTester):
         self.create_custom_resource_from_object(
             self.get_namespace(),
             resource,
-            exception_reason="Cannot enable OIDC authentication with MongoDB non-enterprise builds",
+            exception_reason="Cannot enable OIDC authentication with MongoDB Community Builds",
         )
 
     def test_oidc_auth_with_single_method(self):
