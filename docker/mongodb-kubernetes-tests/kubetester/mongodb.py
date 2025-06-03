@@ -404,6 +404,41 @@ class MongoDB(CustomObject, MongoDBCommon):
         except KeyError:
             return {}
 
+    def get_oidc_provider_configs(self) -> Optional[Dict]:
+        try:
+            return self["spec"]["security"]["authentication"]["oidcProviderConfigs"]
+        except KeyError:
+            return {}
+
+    def set_oidc_provider_configs(self, oidc_provider_configs: Dict):
+        self["spec"]["security"]["authentication"]["oidcProviderConfigs"] = oidc_provider_configs
+        return self
+
+    def append_oidc_provider_config(self, new_config: Dict):
+        if "oidcProviderConfigs" not in self["spec"]["security"]["authentication"]:
+            self["spec"]["security"]["authentication"]["oidcProviderConfigs"] = []
+
+        oidc_configs = self["spec"]["security"]["authentication"]["oidcProviderConfigs"]
+
+        oidc_configs.append(new_config)
+
+        self["spec"]["security"]["authentication"]["oidcProviderConfigs"] = oidc_configs
+
+        return self
+
+    def get_roles(self) -> Optional[Dict]:
+        try:
+            return self["spec"]["security"]["roles"]
+        except KeyError:
+            return {}
+
+    def append_role(self, new_role: Dict):
+        if "roles" not in self["spec"]["security"]:
+            self["spec"]["security"]["roles"] = []
+        self["spec"]["security"]["roles"].append(new_role)
+
+        return self
+
     def get_authentication_modes(self) -> Optional[Dict]:
         try:
             return self.get_authentication()["modes"]
