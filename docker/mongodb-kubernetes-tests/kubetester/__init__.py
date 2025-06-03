@@ -150,7 +150,6 @@ def create_or_update_service(
     selector=None,
     service: Optional[client.V1Service] = None,
 ) -> str:
-    print("Logging inside create_or_update_service")
     try:
         create_service(namespace, service_name, cluster_ip=cluster_ip, ports=ports, selector=selector, service=service)
     except kubernetes.client.ApiException as e:

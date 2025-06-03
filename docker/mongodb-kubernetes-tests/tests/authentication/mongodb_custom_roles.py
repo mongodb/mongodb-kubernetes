@@ -1,8 +1,5 @@
 from kubetester import (
-    create_or_update_configmap,
     find_fixture,
-    random_k8s_name,
-    read_configmap,
     try_load,
     wait_until,
 )
@@ -13,69 +10,20 @@ from pytest import fixture, mark
 from tests.multicluster.conftest import cluster_spec_list
 
 
-@fixture(scope="module")
-def project_name_prefix(namespace: str) -> str:
-    return random_k8s_name(f"{namespace}-project-")
-
-
-@fixture(scope="module")
-def first_project(namespace: str, project_name_prefix: str) -> str:
-    cm = read_configmap(namespace=namespace, name="my-project")
-    project_name = f"{project_name_prefix}-first"
-    return create_or_update_configmap(
-        namespace=namespace,
-        name=project_name,
-        data={
-            "baseUrl": cm["baseUrl"],
-            "projectName": project_name,
-            "orgId": cm["orgId"],
-        },
-    )
-
-
-@fixture(scope="module")
-def second_project(namespace: str, project_name_prefix: str) -> str:
-    cm = read_configmap(namespace=namespace, name="my-project")
-    project_name = f"{project_name_prefix}-second"
-    return create_or_update_configmap(
-        namespace=namespace,
-        name=project_name,
-        data={
-            "baseUrl": cm["baseUrl"],
-            "projectName": project_name,
-            "orgId": cm["orgId"],
-        },
-    )
-
-
-@fixture(scope="module")
-def third_project(namespace: str, project_name_prefix: str) -> str:
-    cm = read_configmap(namespace=namespace, name="my-project")
-    project_name = f"{project_name_prefix}-third"
-    return create_or_update_configmap(
-        namespace=namespace,
-        name=project_name,
-        data={
-            "baseUrl": cm["baseUrl"],
-            "projectName": project_name,
-            "orgId": cm["orgId"],
-        },
-    )
-
-
-@fixture(scope="module")
+@fixture(scope="function")
 def mongodb_role():
     resource = ClusterMongoDBRole.from_yaml(find_fixture("cluster-mongodb-role.yaml"), cluster_scoped=True)
 
     if try_load(resource):
         return resource
 
-    return resource.update()
+    return resource
 
 
-@fixture(scope="module")
-def replica_set(namespace: str, mongodb_role: ClusterMongoDBRole, first_project: str) -> MongoDB:
+@fixture(scope="function")
+def replica_set(namespace: str, mongodb_role: ClusterMongoDBRole) -> MongoDB:
     resource = MongoDB.from_yaml(find_fixture("replica-set-scram.yaml"), namespace=namespace)
+    resource.configure(None)
 
     if try_load(resource):
         return resource
@@ -87,14 +35,14 @@ def replica_set(namespace: str, mongodb_role: ClusterMongoDBRole, first_project:
             "kind": ClusterMongoDBRoleKind,
         }
     ]
-    resource["spec"]["opsManager"]["configMapRef"]["name"] = first_project
 
     return resource
 
 
-@fixture(scope="module")
-def sharded_cluster(namespace: str, mongodb_role: ClusterMongoDBRole, second_project: str) -> MongoDB:
+@fixture(scope="function")
+def sharded_cluster(namespace: str, mongodb_role: ClusterMongoDBRole) -> MongoDB:
     resource = MongoDB.from_yaml(find_fixture("sharded-cluster-scram-sha-1.yaml"), namespace=namespace)
+    resource.configure(None)
 
     if try_load(resource):
         return resource
@@ -109,14 +57,14 @@ def sharded_cluster(namespace: str, mongodb_role: ClusterMongoDBRole, second_pro
             "kind": ClusterMongoDBRoleKind,
         }
     ]
-    resource["spec"]["opsManager"]["configMapRef"]["name"] = second_project
 
     return resource
 
 
-@fixture(scope="module")
-def mc_replica_set(namespace: str, mongodb_role: ClusterMongoDBRole, third_project: str) -> MongoDBMulti:
+@fixture(scope="function")
+def mc_replica_set(namespace: str, mongodb_role: ClusterMongoDBRole) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(find_fixture("mongodb-multi.yaml"), namespace=namespace)
+    resource.configure(None)
 
     if try_load(resource):
         return resource
@@ -129,7 +77,6 @@ def mc_replica_set(namespace: str, mongodb_role: ClusterMongoDBRole, third_proje
             }
         ]
     }
-    resource["spec"]["opsManager"]["configMapRef"]["name"] = third_project
     resource["spec"]["clusterSpecList"] = cluster_spec_list(["kind-e2e-cluster-1"], [1])
 
     return resource
@@ -139,6 +86,8 @@ def mc_replica_set(namespace: str, mongodb_role: ClusterMongoDBRole, third_proje
 def test_create_resources(
     mongodb_role: ClusterMongoDBRole, replica_set: MongoDB, sharded_cluster: MongoDB, mc_replica_set: MongoDBMulti
 ):
+    mongodb_role.update()
+
     replica_set.update()
     sharded_cluster.update()
     mc_replica_set.update()
@@ -180,6 +129,11 @@ def test_changing_role(
     wait_until(lambda: sharded_cluster.get_automation_config_tester().reached_version(sc_version + 1), timeout=120)
     wait_until(lambda: mc_replica_set.get_automation_config_tester().reached_version(mcrs_version + 1), timeout=120)
 
+
+@mark.e2e_mongodb_custom_roles
+def test_roles_after_change(
+    replica_set: MongoDB, sharded_cluster: MongoDB, mc_replica_set: MongoDBMulti, mongodb_role: ClusterMongoDBRole
+):
     replica_set.get_automation_config_tester().assert_expected_role(
         role_index=0, expected_value=mongodb_role.get_role()
     )
@@ -209,7 +163,9 @@ def test_deleting_role_does_not_remove_access(
         phase=Phase.Failed, msg_regexp=f"ClusterMongoDBRole '{mongodb_role.get_name()}' not found"
     )
 
-    # The role should still exist in the automation config
+
+@mark.e2e_mongodb_custom_roles
+def test_roles_still_exist_in_ac(replica_set: MongoDB, sharded_cluster: MongoDB, mc_replica_set: MongoDBMulti):
     replica_set.get_automation_config_tester().assert_has_expected_number_of_roles(expected_roles=1)
     sharded_cluster.get_automation_config_tester().assert_has_expected_number_of_roles(expected_roles=1)
     mc_replica_set.get_automation_config_tester().assert_has_expected_number_of_roles(expected_roles=1)
@@ -229,6 +185,9 @@ def test_removing_role_from_resources(replica_set: MongoDB, sharded_cluster: Mon
     wait_until(lambda: sharded_cluster.get_automation_config_tester().reached_version(sc_version + 1), timeout=120)
     wait_until(lambda: mc_replica_set.get_automation_config_tester().reached_version(mcrs_version + 1), timeout=120)
 
+
+@mark.e2e_mongodb_custom_roles
+def test_expected_number_of_roles(sharded_cluster: MongoDB, mc_replica_set: MongoDBMulti):
     sharded_cluster.get_automation_config_tester().assert_has_expected_number_of_roles(expected_roles=0)
     mc_replica_set.get_automation_config_tester().assert_has_expected_number_of_roles(expected_roles=0)
 

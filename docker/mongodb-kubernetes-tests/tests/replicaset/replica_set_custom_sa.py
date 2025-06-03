@@ -18,7 +18,8 @@ def replica_set(namespace: str, custom_mdb_version: str, create_custom_sa: str) 
     resource["spec"]["podSpec"] = {"podTemplate": {"spec": {"serviceAccountName": "test-sa"}}}
     resource["spec"]["statefulSet"] = {"spec": {"serviceName": "rs-svc"}}
     resource.set_version(custom_mdb_version)
-    yield resource.create()
+    resource.create()
+    return resource
     # teardown, delete the custom service-account
     delete_service_account(namespace=namespace, name="test-sa")
 

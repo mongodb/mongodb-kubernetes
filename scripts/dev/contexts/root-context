@@ -90,6 +90,7 @@ export READINESS_PROBE_IMAGE="${READINESS_PROBE_REGISTRY}/mongodb-kubernetes-rea
 export VERSION_UPGRADE_HOOK_IMAGE="${VERSION_UPGRADE_HOOK_REGISTRY}/mongodb-kubernetes-operator-version-upgrade-post-start-hook:${VERSION_UPGRADE_HOOK_VERSION}"
 
 export KUBE_ENVIRONMENT_NAME=kind
+export CLUSTER_TYPE=kind
 
 # when using EVG ec2 instance, we copy kubeconfig locally and use it
 if [[ "${EVG_HOST_NAME:-}" != "" ]]; then

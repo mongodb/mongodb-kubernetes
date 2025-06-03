@@ -52,7 +52,7 @@ def ops_manager(
 def replicaset0(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str):
     """The First replicaset to be created before Ops Manager is configured with HTTPS."""
     resource = MongoDB.from_yaml(_fixture("replica-set.yaml"), name="replicaset0", namespace=namespace).configure(
-        ops_manager, "replicaset0"
+        ops_manager
     )
 
     resource.set_version(custom_mdb_version)
@@ -65,7 +65,7 @@ def replicaset0(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_versi
 def replicaset1(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str):
     """Second replicaset to be created when Ops Manager was restarted with HTTPS."""
     resource = MongoDB.from_yaml(_fixture("replica-set.yaml"), name="replicaset1", namespace=namespace).configure(
-        ops_manager, "replicaset1"
+        ops_manager
     )
 
     # NOTE: If running a test using a version different from 6.0.5 for OM6 means we will need to

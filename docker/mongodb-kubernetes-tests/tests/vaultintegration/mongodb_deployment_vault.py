@@ -125,29 +125,14 @@ def clusterfile_certs(vault_namespace: str, vault_name: str, namespace: str, iss
 
 
 @fixture(scope="module")
-def sharded_cluster_configmap(namespace: str) -> str:
-    cm = KubernetesTester.read_configmap(namespace, "my-project")
-    epoch_time = int(time.time())
-    project_name = "sharded-" + str(epoch_time) + "-" + uuid.uuid4().hex[0:10]
-    data = {
-        "baseUrl": cm["baseUrl"],
-        "projectName": project_name,
-        "orgId": cm["orgId"],
-    }
-    create_configmap(namespace=namespace, name=project_name, data=data)
-    return project_name
-
-
-@fixture(scope="module")
 def sharded_cluster(
     namespace: str,
-    sharded_cluster_configmap: str,
     issuer: str,
     vault_namespace: str,
     vault_name: str,
 ) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("sharded-cluster.yaml"), namespace=namespace)
-    resource["spec"]["cloudManager"]["configMapRef"]["name"] = sharded_cluster_configmap
+    resource.configure(None)
 
     # Password stored in Prometheus
     store_secret_in_vault(

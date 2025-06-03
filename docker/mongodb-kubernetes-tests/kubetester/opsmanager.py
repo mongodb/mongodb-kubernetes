@@ -12,6 +12,7 @@ from kubeobject import CustomObject
 from kubernetes.client.rest import ApiException
 from kubetester import (
     create_configmap,
+    create_or_update_configmap,
     create_or_update_secret,
     read_secret,
 )
@@ -684,29 +685,25 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         mongodb_name: str,
         project_name: str,
         namespace=None,
+        ca_config_map_name: Optional[str] = None,
         api_client: Optional[kubernetes.client.ApiClient] = None,
     ) -> str:
         """Creates the configmap containing the information needed to connect to OM"""
-        config_map_name = f"{mongodb_name}-config"
-        data = {
-            "baseUrl": self.om_status().get_url(),
-            "projectName": project_name,
-            "orgId": "",
-        }
+        config_map_name = f"{mongodb_name}-project-config"
 
         # the namespace can be different from OM one if the MongoDB is created in a separate namespace
         if namespace is None:
             namespace = self.namespace
 
-        try:
-            create_configmap(namespace, config_map_name, data, api_client=api_client)
-        except ApiException as e:
-            if e.status != 409:
-                raise
+        data = {
+            "baseUrl": self.om_status().get_url(),
+            "projectName": f"{namespace}-{project_name}",
+            "orgId": "",
+        }
+        if ca_config_map_name is not None:
+            data["sslMMSCAConfigMap"] = ca_config_map_name
 
-            # If the ConfigMap already exist, it will be updated with
-            # an updated status_url()
-            KubernetesTester.update_configmap(namespace, config_map_name, data)
+        create_or_update_configmap(namespace, config_map_name, data, api_client=api_client)
 
         return config_map_name
 

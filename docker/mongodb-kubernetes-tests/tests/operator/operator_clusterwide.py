@@ -66,7 +66,7 @@ def mdb(ops_manager: MongoDBOpsManager, mdb_namespace: str, namespace: str, cust
             namespace=mdb_namespace,
             name="my-replica-set",
         )
-        .configure(ops_manager, "development")
+        .configure(ops_manager)
         .set_version(custom_mdb_prev_version)
     )
 
