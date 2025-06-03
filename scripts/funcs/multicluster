@@ -268,7 +268,7 @@ run_multi_cluster_kube_config_creator() {
     params+=("--install-database-roles")
   fi
 
-  if [[ "${OPERATOR_CLUSTER_SCOPED}" == "true" ]]; then
+  if [[ "${OPERATOR_CLUSTER_SCOPED:-"false"}" == "true" ]]; then
     params+=("--cluster-scoped")
   fi
   if [[ "${MULTI_CLUSTER_CREATE_SERVICE_ACCOUNT_TOKEN_SECRETS}" == "true" ]]; then

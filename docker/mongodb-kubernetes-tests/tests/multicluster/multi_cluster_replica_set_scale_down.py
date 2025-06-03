@@ -96,8 +96,8 @@ def test_statefulsets_have_been_created_correctly(
 
 
 @pytest.mark.e2e_multi_cluster_replica_set_scale_down
-def test_ops_manager_has_been_updated_correctly_before_scaling():
-    ac = AutomationConfigTester()
+def test_ops_manager_has_been_updated_correctly_before_scaling(mongodb_multi: MongoDBMulti):
+    ac = mongodb_multi.get_automation_config_tester()
     ac.assert_processes_size(5)
 
 
@@ -133,8 +133,8 @@ def test_statefulsets_have_been_scaled_down_correctly(
 
 
 @pytest.mark.e2e_multi_cluster_replica_set_scale_down
-def test_ops_manager_has_been_updated_correctly_after_scaling():
-    ac = AutomationConfigTester()
+def test_ops_manager_has_been_updated_correctly_after_scaling(mongodb_multi: MongoDBMulti):
+    ac = mongodb_multi.get_automation_config_tester()
     ac.assert_processes_size(3)
 
 

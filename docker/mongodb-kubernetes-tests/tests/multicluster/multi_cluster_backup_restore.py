@@ -37,7 +37,6 @@ TEST_DATA = {"_id": "unique_id", "name": "John", "address": "Highway 37", "age":
 
 MONGODB_PORT = 30000
 
-
 HEAD_PATH = "/head/"
 OPLOG_RS_NAME = "my-mongodb-oplog"
 BLOCKSTORE_RS_NAME = "my-mongodb-blockstore"
@@ -65,18 +64,6 @@ def ops_manager_certs(
         ],
         api_client=central_cluster_client,
     )
-
-
-def create_project_config_map(om: MongoDBOpsManager, mdb_name, project_name, client, custom_ca):
-    name = f"{mdb_name}-config"
-    data = {
-        "baseUrl": om.om_status().get_url(),
-        "projectName": project_name,
-        "sslMMSCAConfigMap": custom_ca,
-        "orgId": "",
-    }
-
-    create_or_update_configmap(om.namespace, name, data, client)
 
 
 def new_om_data_store(
@@ -139,23 +126,19 @@ def oplog_replica_set(
         name=OPLOG_RS_NAME,
     )
 
-    create_project_config_map(
-        om=ops_manager,
-        project_name="development",
-        mdb_name=OPLOG_RS_NAME,
-        client=central_cluster_client,
-        custom_ca=multi_cluster_issuer_ca_configmap,
+    resource.configure(
+        ops_manager,
+        api_client=central_cluster_client,
     )
-
-    resource.configure(ops_manager, "development")
 
     resource["spec"]["opsManager"]["configMapRef"]["name"] = OPLOG_RS_NAME + "-config"
     resource.set_version(custom_mdb_version)
 
     resource["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
 
-    resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    yield resource.update()
+    resource.update()
+
+    return resource
 
 
 @fixture(scope="module")
@@ -171,20 +154,15 @@ def blockstore_replica_set(
         namespace=namespace,
         name=BLOCKSTORE_RS_NAME,
     )
-
-    create_project_config_map(
-        om=ops_manager,
-        project_name="blockstore",
-        mdb_name=BLOCKSTORE_RS_NAME,
-        client=central_cluster_client,
-        custom_ca=multi_cluster_issuer_ca_configmap,
+    resource.configure(
+        ops_manager,
+        api_client=central_cluster_client,
     )
 
-    resource.configure(ops_manager, "blockstore")
-
     resource.set_version(custom_mdb_version)
-    resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    yield resource.update()
+    resource.update()
+
+    return resource
 
 
 @fixture(scope="module")
@@ -208,7 +186,9 @@ def blockstore_user(
     )
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    yield resource.update()
+    resource.update()
+
+    return resource
 
 
 @fixture(scope="module")
@@ -238,7 +218,8 @@ def oplog_user(
     )
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    yield resource.update()
+    resource.update()
+    return resource
 
 
 @mark.e2e_multi_cluster_backup_restore
@@ -377,7 +358,6 @@ class TestBackupForMongodb:
 
     @fixture(scope="function")
     def mongodb_multi_one_collection(self, mdb_client):
-
         # Ensure primary is available before proceeding
         wait_for_primary(mdb_client)
 
@@ -399,7 +379,10 @@ class TestBackupForMongodb:
             "multi-replica-set-one",
             namespace,
             # the project configmap should be created in the central cluster.
-        ).configure(ops_manager, f"{namespace}-project-one", api_client=central_cluster_client)
+        ).configure(
+            ops_manager,
+            api_client=central_cluster_client,
+        )
 
         resource.set_version(ensure_ent_version(custom_mdb_version))
         resource["spec"]["clusterSpecList"] = [
@@ -412,20 +395,6 @@ class TestBackupForMongodb:
         resource["spec"].update({"additionalMongodConfig": {"net": {"port": MONGODB_PORT}}})
 
         resource.configure_backup(mode="enabled")
-        resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-
-        data = KubernetesTester.read_configmap(
-            namespace, "multi-replica-set-one-config", api_client=central_cluster_client
-        )
-        KubernetesTester.delete_configmap(namespace, "multi-replica-set-one-config", api_client=central_cluster_client)
-        data["baseUrl"] = base_url
-        data["sslMMSCAConfigMap"] = multi_cluster_issuer_ca_configmap
-        create_or_update_configmap(
-            namespace,
-            "multi-replica-set-one-config",
-            data,
-            api_client=central_cluster_client,
-        )
 
         return resource.update()
 

@@ -7,38 +7,42 @@ from pytest import fixture, mark
 
 @fixture(scope="class")
 def replica_set(namespace, custom_mdb_version: str):
-    resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), namespace=namespace)
+    resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), namespace=namespace, name="replica-set")
+    resource.configure(None, "replica-set")
     resource.set_version(custom_mdb_version)
-    yield resource.create()
-
-    resource.delete()
+    resource.create()
+    return resource
 
 
 @fixture(scope="class")
 def replica_set_single(namespace, custom_mdb_version: str):
-    resource = MongoDB.from_yaml(yaml_fixture("replica-set-single.yaml"), namespace=namespace)
+    resource = MongoDB.from_yaml(
+        yaml_fixture("replica-set-single.yaml"), namespace=namespace, name="replica-set-single"
+    )
+    resource.configure(None, "replica-set")
     resource.set_version(custom_mdb_version)
-    yield resource.create()
-
-    resource.delete()
+    resource.create()
+    return resource
 
 
 @fixture(scope="class")
 def sharded_cluster(namespace, custom_mdb_version: str):
-    resource = MongoDB.from_yaml(yaml_fixture("sharded-cluster.yaml"), namespace=namespace)
+    resource = MongoDB.from_yaml(yaml_fixture("sharded-cluster.yaml"), namespace=namespace, name="sharded-cluster")
+    resource.configure(None, "sharded-cluster")
     resource.set_version(custom_mdb_version)
-    yield resource.create()
-
-    resource.delete()
+    resource.create()
+    return resource
 
 
 @fixture(scope="class")
 def sharded_cluster_single(namespace, custom_mdb_version: str):
-    resource = MongoDB.from_yaml(yaml_fixture("sharded-cluster-single.yaml"), namespace=namespace)
+    resource = MongoDB.from_yaml(
+        yaml_fixture("sharded-cluster-single.yaml"), namespace=namespace, name="sharded-cluster-single"
+    )
+    resource.configure(None, "sharded-cluster")
     resource.set_version(custom_mdb_version)
-    yield resource.create()
-
-    resource.delete()
+    resource.create()
+    return resource
 
 
 @mark.e2e_multiple_cluster_failures
