@@ -4,16 +4,17 @@ import kubernetes
 from kubetester import try_load
 from kubetester.certs import (
     SetPropertiesMultiCluster,
-    create_multi_cluster_tls_certs,
     generate_cert,
     get_agent_x509_subject,
     get_mongodb_x509_subject,
 )
+from kubetester.certs_mongodb_multi import create_multi_cluster_tls_certs
 from kubetester.kubetester import fixture as _fixture
 from kubetester.kubetester import skip_if_local
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.mongotester import with_tls
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import (
     get_central_cluster_client,

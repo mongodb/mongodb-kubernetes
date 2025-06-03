@@ -4,8 +4,9 @@ from kubetester import find_fixture, try_load, wait_until
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as load_fixture
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.mongotester import ShardedClusterTester
+from kubetester.phase import Phase
 from pytest import fixture
 
 MDB_RESOURCE = "oidc-sharded-cluster-replica-set"

@@ -2,7 +2,6 @@ import kubernetes
 import pytest
 from kubeobject import CustomObject
 from kubetester import (
-    MongoDB,
     create_or_update_secret,
     get_default_storage_class,
     try_load,
@@ -12,9 +11,10 @@ from kubetester.certs import create_sharded_cluster_certs
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import get_default_architecture, run_periodically
-from kubetester.mongodb import Phase
+from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pytest import fixture
 from tests import test_logger
 from tests.conftest import LEGACY_OPERATOR_NAME, OPERATOR_NAME

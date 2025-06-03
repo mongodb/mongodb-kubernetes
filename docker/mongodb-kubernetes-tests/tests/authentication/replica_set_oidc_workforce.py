@@ -4,9 +4,10 @@ from kubetester import try_load, wait_until
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as load_fixture
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.mongotester import ReplicaSetTester
+from kubetester.phase import Phase
 from pytest import fixture
 
 MDB_RESOURCE = "oidc-replica-set"

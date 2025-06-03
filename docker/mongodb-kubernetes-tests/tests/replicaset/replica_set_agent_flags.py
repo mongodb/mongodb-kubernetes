@@ -7,7 +7,8 @@ from kubetester import (
     read_configmap,
 )
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.pod_logs import (
     assert_log_types_in_structured_json_pod_log,

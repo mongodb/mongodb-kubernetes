@@ -1,7 +1,8 @@
 import kubernetes
 from kubetester import try_load, wait_until
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import OPERATOR_NAME
 

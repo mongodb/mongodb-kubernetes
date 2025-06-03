@@ -1,14 +1,15 @@
 from typing import Optional
 
-from kubetester import MongoDB, create_or_update_configmap
+from kubetester import create_or_update_configmap
 from kubetester.certs import create_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import Phase
+from kubetester.mongodb import MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pytest import fixture, mark
+from tests.common.cert.cert_issuer import create_appdb_certs
 from tests.conftest import (
-    create_appdb_certs,
     get_member_cluster_api_client,
     is_multi_cluster,
 )

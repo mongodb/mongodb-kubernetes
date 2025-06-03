@@ -7,8 +7,9 @@ from kubetester.certs import (
     rotate_and_assert_certificates,
 )
 from kubetester.kubetester import KubernetesTester, is_multi_cluster
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 from pytest import fixture
 from tests import test_logger
 from tests.shardedcluster.conftest import enable_multi_cluster_deployment

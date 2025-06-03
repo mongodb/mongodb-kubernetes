@@ -2,12 +2,11 @@ import kubernetes
 from kubetester import read_secret, try_load
 from kubetester.awss3client import AwsS3Client
 from kubetester.certs import create_ops_manager_tls_certs
-from kubetester.mongodb import Phase
-from kubetester.mongodb_multi import MultiClusterClient
+from kubetester.multicluster_client import MultiClusterClient
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import (
-    create_appdb_certs,
     create_issuer_ca_configmap,
     get_central_cluster_client,
     get_central_cluster_name,
@@ -67,6 +66,8 @@ def ops_manager_certs(multi_cluster_clusterissuer: str):
 
 @fixture(scope="module")
 def appdb_certs(multi_cluster_clusterissuer: str):
+    from tests.common.cert.cert_issuer import create_appdb_certs
+
     return create_appdb_certs(
         OM_NAMESPACE,
         multi_cluster_clusterissuer,

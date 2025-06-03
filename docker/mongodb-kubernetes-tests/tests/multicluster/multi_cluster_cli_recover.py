@@ -2,11 +2,12 @@ from typing import Callable, List
 
 import kubernetes
 import pytest
-from kubetester.certs import create_multi_cluster_mongodb_tls_certs
+from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import Phase
-from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
+from kubetester.mongodb_multi import MongoDBMulti
+from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 from tests.conftest import (
     MULTI_CLUSTER_OPERATOR_NAME,
     run_kube_config_creation_tool,
