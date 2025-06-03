@@ -264,6 +264,7 @@ func enableAgentAuthentication(conn om.Connection, opts Options, log *zap.Sugare
 
 	// we then configure the agent authentication for that type
 	mechanism := convertToMechanismOrPanic(opts.AgentMechanism, ac)
+
 	if err := ensureAgentAuthenticationIsConfigured(conn, opts, ac, mechanism, log); err != nil {
 		return xerrors.Errorf("error ensuring agent authentication is configured: %w", err)
 	}
