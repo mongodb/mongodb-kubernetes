@@ -174,7 +174,11 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     TRACER.start_as_current_span("assert_monitoring_data_exists")
 
     def assert_monitoring_data_exists(
-        self, database_name: str = "admin", period: str = "P1DT12H", timeout: int = 120, all_hosts: bool = True
+        self,
+        database_name: Optional[str] = None,
+        period: str = "P1DT12H",
+        timeout: int = 600,
+        all_hosts: bool = True,
     ):
         """
         Asserts the existence of monitoring measurements in this Ops Manager instance.
@@ -186,7 +190,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         def agent_is_showing_metrics():
             for host_id in host_ids:
-                measurements = tester.api_read_monitoring_measurements(
+                measurements = tester.api_read_measurements(
                     host_id,
                     database_name=database_name,
                     project_id=project_id,
