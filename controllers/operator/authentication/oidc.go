@@ -11,11 +11,8 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/oidc"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
-
-var MongoDBOIDCMechanism = &oidcAuthMechanism{}
 
 type oidcAuthMechanism struct{}
 
@@ -81,40 +78,15 @@ func sortOIDCPProviderConfigs(configs []oidc.ProviderConfig) []oidc.ProviderConf
 	})
 }
 
-func oidcProviderConfigEqual(l oidc.ProviderConfig, r oidc.ProviderConfig) bool {
-	if l.AuthNamePrefix != r.AuthNamePrefix {
-		return false
-	}
-
-	if l.Audience != r.Audience {
-		return false
-	}
-
-	if l.IssuerUri != r.IssuerUri {
-		return false
-	}
-
-	if !slices.Equal(l.RequestedScopes, r.RequestedScopes) {
-		return false
-	}
-
-	if l.UserClaim != r.UserClaim {
-		return false
-	}
-
-	if l.GroupsClaim != r.GroupsClaim {
-		return false
-	}
-
-	if l.SupportsHumanFlows != r.SupportsHumanFlows {
-		return false
-	}
-
-	if l.UseAuthorizationClaim != r.UseAuthorizationClaim {
-		return false
-	}
-
-	return true
+func oidcProviderConfigEqual(l, r oidc.ProviderConfig) bool {
+	return l.AuthNamePrefix == r.AuthNamePrefix &&
+		l.Audience == r.Audience &&
+		l.IssuerUri == r.IssuerUri &&
+		slices.Equal(l.RequestedScopes, r.RequestedScopes) &&
+		l.UserClaim == r.UserClaim &&
+		l.GroupsClaim == r.GroupsClaim &&
+		l.SupportsHumanFlows == r.SupportsHumanFlows &&
+		l.UseAuthorizationClaim == r.UseAuthorizationClaim
 }
 
 func MapOIDCProviderConfigs(oidcProviderConfigs []mdbv1.OIDCProviderConfig) []oidc.ProviderConfig {
@@ -124,24 +96,14 @@ func MapOIDCProviderConfigs(oidcProviderConfigs []mdbv1.OIDCProviderConfig) []oi
 
 	result := make([]oidc.ProviderConfig, len(oidcProviderConfigs))
 	for i, providerConfig := range oidcProviderConfigs {
-		clientId := providerConfig.ClientId
-		if clientId == "" {
-			clientId = util.MergoDelete
-		}
-
-		groupsClaim := providerConfig.GroupsClaim
-		if groupsClaim == "" {
-			groupsClaim = util.MergoDelete
-		}
-
 		result[i] = oidc.ProviderConfig{
 			AuthNamePrefix:        providerConfig.ConfigurationName,
 			Audience:              providerConfig.Audience,
 			IssuerUri:             providerConfig.IssuerURI,
-			ClientId:              clientId,
+			ClientId:              providerConfig.ClientId,
 			RequestedScopes:       providerConfig.RequestedScopes,
 			UserClaim:             providerConfig.UserClaim,
-			GroupsClaim:           groupsClaim,
+			GroupsClaim:           providerConfig.GroupsClaim,
 			SupportsHumanFlows:    mapToSupportHumanFlows(providerConfig.AuthorizationMethod),
 			UseAuthorizationClaim: mapToUseAuthorizationClaim(providerConfig.AuthorizationType),
 		}

@@ -81,7 +81,6 @@ class TestCreateOIDCShardedCluster(KubernetesTester):
                 "issuerUri": "https://valid-issuer-1.example.com",
                 "clientId": "test-client-id",
                 "userClaim": "sub",
-                "groupsClaim": "",
                 "JWKSPollSecs": 0,
                 "authNamePrefix": "OIDC-test-user",
                 "supportsHumanFlows": True,

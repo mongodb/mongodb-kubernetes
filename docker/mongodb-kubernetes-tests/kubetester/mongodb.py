@@ -19,8 +19,8 @@ from kubetester.kubetester import (
 )
 from kubetester.omtester import OMContext, OMTester
 from opentelemetry import trace
-from tests import test_logger
 
+from tests import test_logger
 from .mongotester import (
     MongoTester,
     ReplicaSetTester,
@@ -435,12 +435,7 @@ class MongoDB(CustomObject, MongoDBCommon):
     def append_role(self, new_role: Dict):
         if "roles" not in self["spec"]["security"]:
             self["spec"]["security"]["roles"] = []
-
-        roles = self["spec"]["security"]["roles"]
-
-        roles.append(new_role)
-
-        self["spec"]["security"]["roles"] = roles
+        self["spec"]["security"]["roles"].append(new_role)
 
         return self
 

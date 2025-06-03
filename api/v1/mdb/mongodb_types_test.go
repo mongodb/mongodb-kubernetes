@@ -84,9 +84,19 @@ func TestGetAuthenticationIsEnabledMethods(t *testing.T) {
 			expectedOIDC:   false,
 		},
 		{
+			name: "Empty authentication mode list",
+			authentication: &Authentication{
+				Enabled: true,
+			},
+			expectedX509: false,
+			expectedLDAP: false,
+			expectedOIDC: false,
+		},
+		{
 			name: "Authentication with x509 only",
 			authentication: &Authentication{
-				Modes: []AuthMode{util.X509},
+				Enabled: true,
+				Modes:   []AuthMode{util.X509},
 			},
 			expectedX509: true,
 			expectedLDAP: false,
@@ -95,7 +105,8 @@ func TestGetAuthenticationIsEnabledMethods(t *testing.T) {
 		{
 			name: "Authentication with LDAP only",
 			authentication: &Authentication{
-				Modes: []AuthMode{util.LDAP},
+				Enabled: true,
+				Modes:   []AuthMode{util.LDAP},
 			},
 			expectedX509: false,
 			expectedLDAP: true,
@@ -104,7 +115,8 @@ func TestGetAuthenticationIsEnabledMethods(t *testing.T) {
 		{
 			name: "Authentication with OIDC only",
 			authentication: &Authentication{
-				Modes: []AuthMode{util.OIDC},
+				Enabled: true,
+				Modes:   []AuthMode{util.OIDC},
 			},
 			expectedX509: false,
 			expectedLDAP: false,
@@ -113,7 +125,8 @@ func TestGetAuthenticationIsEnabledMethods(t *testing.T) {
 		{
 			name: "Authentication with multiple modes",
 			authentication: &Authentication{
-				Modes: []AuthMode{util.X509, util.LDAP, util.OIDC, util.SCRAM},
+				Enabled: true,
+				Modes:   []AuthMode{util.X509, util.LDAP, util.OIDC, util.SCRAM},
 			},
 			expectedX509: true,
 			expectedLDAP: true,
