@@ -90,7 +90,7 @@ def get_replica_set(ops_manager, namespace: str, idx: int) -> MongoDB:
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name=name,
-    ).configure(ops_manager, name, api_client=get_central_cluster_client())
+    ).configure(ops_manager, api_client=get_central_cluster_client())
     resource.set_version(get_custom_mdb_version())
 
     try_load(resource)
@@ -104,7 +104,7 @@ def get_mdbmc(ops_manager, namespace: str, idx: int, om_external_base_url: str) 
         yaml_fixture("mongodb-multi-cluster.yaml"),
         namespace=namespace,
         name=name,
-    ).configure(ops_manager, name, api_client=central_client)
+    ).configure(ops_manager, api_client=central_client)
     resource.set_version(ensure_ent_version(get_custom_mdb_version()))
     resource.api = kubernetes.client.CustomObjectsApi(central_client)
     resource["spec"]["clusterSpecList"] = cluster_spec_list(get_member_cluster_names(), [1, 1, 1])
@@ -126,9 +126,8 @@ def get_sharded(ops_manager, namespace: str, idx: int) -> MongoDB:
         yaml_fixture("sharded-cluster-single.yaml"),
         namespace=namespace,
         name=name,
-    ).configure(ops_manager, name, api_client=get_central_cluster_client())
+    ).configure(ops_manager, api_client=get_central_cluster_client())
     resource.set_version(get_custom_mdb_version())
-
     try_load(resource)
     return resource
 
@@ -139,7 +138,7 @@ def get_standalone(ops_manager, namespace: str, idx: int) -> MongoDB:
         yaml_fixture("standalone.yaml"),
         namespace=namespace,
         name=name,
-    ).configure(ops_manager, name, api_client=get_central_cluster_client())
+    ).configure(ops_manager, api_client=get_central_cluster_client())
     try_load(resource)
     return resource
 

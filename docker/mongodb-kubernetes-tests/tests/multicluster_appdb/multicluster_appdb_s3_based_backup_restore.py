@@ -32,18 +32,6 @@ def appdb_member_cluster_names() -> list[str]:
     return ["kind-e2e-cluster-2", "kind-e2e-cluster-3"]
 
 
-def create_project_config_map(om: MongoDBOpsManager, mdb_name, project_name, client, custom_ca):
-    name = f"{mdb_name}-config"
-    data = {
-        "baseUrl": om.om_status().get_url(),
-        "projectName": project_name,
-        "sslMMSCAConfigMap": custom_ca,
-        "orgId": "",
-    }
-
-    create_or_update_configmap(om.namespace, name, data, client)
-
-
 @fixture(scope="module")
 def multi_cluster_s3_replica_set(
     ops_manager,
@@ -52,14 +40,13 @@ def multi_cluster_s3_replica_set(
     appdb_member_cluster_names: list[str],
     custom_mdb_version: str,
 ) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(
-        yaml_fixture("mongodb-multi-cluster.yaml"), "multi-replica-set", namespace
-    ).configure(ops_manager, "s3metadata", api_client=central_cluster_client)
+    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi-cluster.yaml"), "multi-replica-set", namespace)
+    resource.configure(ops_manager, api_client=central_cluster_client)
 
     resource["spec"]["clusterSpecList"] = cluster_spec_list(appdb_member_cluster_names, [1, 2])
     resource.set_version(ensure_ent_version(custom_mdb_version))
-    resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    yield resource.update()
+    resource.update()
+    return resource
 
 
 @fixture(scope="module")
@@ -188,7 +175,7 @@ class TestBackupForMongodb:
             "multi-replica-set-one",
             namespace,
             # the project configmap should be created in the central cluster.
-        ).configure(ops_manager, f"{namespace}-project-one", api_client=central_cluster_client)
+        ).configure(ops_manager, api_client=central_cluster_client)
 
         resource["spec"]["clusterSpecList"] = cluster_spec_list(appdb_member_cluster_names, [1, 2])
 
@@ -197,7 +184,6 @@ class TestBackupForMongodb:
         resource.set_version(ensure_ent_version(custom_mdb_version))
 
         resource.configure_backup(mode="enabled")
-        resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 
         return resource.update()
 

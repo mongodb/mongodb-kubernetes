@@ -115,9 +115,10 @@ def replica_set(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_versi
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
-    ).configure(ops_manager, "my-replica-set")
+    ).configure(ops_manager)
     resource.set_version(custom_mdb_version)
-    yield resource.create()
+    resource.create()
+    return resource
 
 
 @fixture(scope="module")
@@ -126,9 +127,10 @@ def replica_set_ent(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_v
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name="the-replica-set-ent",
-    ).configure(ops_manager, "my-other-replica-set")
+    ).configure(ops_manager)
     resource.set_version(ensure_ent_version(custom_mdb_version))
-    yield resource.create()
+    resource.create()
+    return resource
 
 
 @mark.e2e_om_remotemode

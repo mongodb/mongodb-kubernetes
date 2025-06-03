@@ -33,7 +33,7 @@ def replica_set(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_versi
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name="mdb",
-    ).configure(ops_manager, "mdb")
+    ).configure(ops_manager)
     resource.set_version(custom_mdb_version)
 
     try_load(resource)

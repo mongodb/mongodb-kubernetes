@@ -1,15 +1,11 @@
-from typing import Dict, Optional
+from typing import Dict
 
 import pytest
-from kubeobject import CustomObject
-from kubernetes import client
-from kubetester import create_or_update_configmap, read_configmap
-from kubetester.certs import create_sharded_cluster_certs
-from kubetester.kubetester import ensure_nested_objects
+from kubetester import read_configmap, try_load
+from kubetester.certs import create_mongodb_tls_certs, create_sharded_cluster_certs
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
-from kubetester.mongotester import ShardedClusterTester
-from kubetester.operator import Operator
+from kubetester.mongotester import ReplicaSetTester, ShardedClusterTester
 from kubetester.phase import Phase
 from tests import test_logger
 from tests.conftest import (
@@ -22,6 +18,7 @@ from tests.constants import LEGACY_OPERATOR_NAME, OPERATOR_NAME
 from tests.upgrades import downscale_operator_deployment
 
 MDB_RESOURCE = "sh001-base"
+MDB_RS_RESOURCE = "rs"
 CERT_PREFIX = "prefix"
 
 logger = test_logger.get_test_logger(__name__)
@@ -40,6 +37,8 @@ Install Operator 1.27 -> Deploy Sharded Cluster -> Scale Up Cluster -> Upgrade o
 If the sharded cluster resource correctly reconciles after upgrade/downgrade and scaling steps, we assume it works
 correctly.
 """
+
+
 # TODO CLOUDP-318100: this test should eventually be updated and not pinned to 1.27 anymore
 
 
@@ -67,7 +66,7 @@ def server_certs(issuer: str, namespace: str) -> str:
     )
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def sharded_cluster(
     issuer_ca_configmap: str,
     namespace: str,
@@ -78,7 +77,11 @@ def sharded_cluster(
         yaml_fixture("sharded-cluster.yaml"),
         namespace=namespace,
         name=MDB_RESOURCE,
-    )
+    ).configure(om=None)
+
+    if try_load(resource):
+        return resource
+
     resource.set_version(custom_mdb_version)
     resource["spec"]["mongodsPerShardCount"] = 2
     resource["spec"]["configServerCount"] = 2
@@ -86,7 +89,34 @@ def sharded_cluster(
     resource["spec"]["persistent"] = True
     resource.configure_custom_tls(issuer_ca_configmap, CERT_PREFIX)
 
-    return resource.update()
+    return resource
+
+
+@pytest.fixture(scope="module")
+def replica_set_certs(issuer: str, namespace: str):
+    return create_mongodb_tls_certs(issuer, namespace, MDB_RS_RESOURCE, f"prefix-{MDB_RS_RESOURCE}-cert")
+
+
+@pytest.fixture(scope="module")
+def replica_set(
+    issuer_ca_configmap: str,
+    namespace: str,
+    replica_set_certs: str,
+    custom_mdb_version: str,
+):
+    resource = MongoDB.from_yaml(
+        yaml_fixture("replica-set-basic.yaml"),
+        namespace=namespace,
+        name=MDB_RS_RESOURCE,
+    ).configure(om=None)
+
+    if try_load(resource):
+        return resource
+
+    resource.set_version(custom_mdb_version)
+    resource.configure_custom_tls(issuer_ca_configmap, CERT_PREFIX)
+
+    return resource
 
 
 @pytest.mark.e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
@@ -100,14 +130,21 @@ class TestShardedClusterDeployment:
         install_legacy_deployment_state_meko(namespace, managed_security_context, operator_installation_config)
 
     def test_create_sharded_cluster(self, sharded_cluster: MongoDB):
+        sharded_cluster.update()
         sharded_cluster.assert_reaches_phase(phase=Phase.Running, timeout=350)
 
     def test_scale_up_sharded_cluster(self, sharded_cluster: MongoDB):
-        sharded_cluster.load()
         sharded_cluster["spec"]["mongodsPerShardCount"] = 3
         sharded_cluster["spec"]["configServerCount"] = 3
         sharded_cluster.update()
         sharded_cluster.assert_reaches_phase(phase=Phase.Running, timeout=300)
+
+
+@pytest.mark.e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
+class TestReplicaSetDeployment:
+    def test_create_replica_set(self, replica_set: MongoDB):
+        replica_set.update()
+        replica_set.assert_reaches_phase(phase=Phase.Running, timeout=350)
 
 
 @pytest.mark.e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
@@ -135,6 +172,12 @@ class TestOperatorUpgrade:
 
     def test_assert_connectivity(self, ca_path: str):
         ShardedClusterTester(MDB_RESOURCE, 1, ssl=True, ca_path=ca_path).assert_connectivity()
+
+    def test_replica_set_reconciled(self, replica_set: MongoDB):
+        replica_set.assert_reaches_phase(phase=Phase.Running, timeout=850, ignore_errors=True)
+
+    def test_assert_connectivity_replica_set(self, ca_path: str):
+        ReplicaSetTester(MDB_RS_RESOURCE, 3, ssl=True, ca_path=ca_path).assert_connectivity()
 
     def test_scale_down_sharded_cluster(self, sharded_cluster: MongoDB, namespace: str):
         sharded_cluster.load()
@@ -166,6 +209,12 @@ class TestOperatorDowngrade:
 
     def test_assert_connectivity(self, ca_path: str):
         ShardedClusterTester(MDB_RESOURCE, 1, ssl=True, ca_path=ca_path).assert_connectivity()
+
+    def test_replica_set_reconciled(self, replica_set: MongoDB):
+        replica_set.assert_reaches_phase(phase=Phase.Running, timeout=850, ignore_errors=True)
+
+    def test_assert_connectivity_replica_set(self, ca_path: str):
+        ReplicaSetTester(MDB_RS_RESOURCE, 3, ssl=True, ca_path=ca_path).assert_connectivity()
 
     def test_scale_up_sharded_cluster(self, sharded_cluster: MongoDB):
         sharded_cluster.load()

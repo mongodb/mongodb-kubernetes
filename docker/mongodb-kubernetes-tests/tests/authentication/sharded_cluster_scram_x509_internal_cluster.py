@@ -41,7 +41,8 @@ def sharded_cluster(namespace: str, server_certs, agent_certs: str, issuer_ca_co
         namespace=namespace,
     )
     resource["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
-    yield resource.create()
+    resource.create()
+    return resource
 
 
 @mark.e2e_sharded_cluster_scram_x509_internal_cluster

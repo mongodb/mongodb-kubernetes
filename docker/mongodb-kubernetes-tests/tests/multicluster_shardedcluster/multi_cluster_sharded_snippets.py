@@ -47,7 +47,7 @@ def get_sharded_resources(namespace: str) -> List[MongoDB]:
         # We set the resource name as the file name, but replace _ with - and lowercase,
         # to respect kubernetes naming constraints
         sc = load_resource(namespace, file_path)
-        sc["spec"]["opsManager"]["configMapRef"]["name"] = f"{file_to_resource_name(file_name)}-project-map"
+        sc.configure(None, f"{file_to_resource_name(file_name)}")
         resources.append(sc)
     return resources
 
@@ -59,30 +59,6 @@ def file_to_resource_name(file_name: str) -> str:
 @mark.e2e_multi_cluster_sharded_snippets
 def test_deploy_operator(multi_cluster_operator: Operator):
     multi_cluster_operator.assert_is_running()
-
-
-@mark.e2e_multi_cluster_sharded_snippets
-def test_create_projects_configmaps(namespace: str):
-    for file_name in SNIPPETS_FILES:
-        base_cm = read_configmap(namespace=namespace, name="my-project")
-        # Validate required keys
-        required_keys = ["baseUrl", "orgId", "projectName"]
-        for key in required_keys:
-            if key not in base_cm:
-                raise KeyError(f"The OM/CM project configmap is missing the key: {key}")
-
-        create_or_update_configmap(
-            namespace=namespace,
-            name=f"{file_to_resource_name(file_name)}-project-map",
-            data={
-                "baseUrl": base_cm["baseUrl"],
-                "orgId": base_cm["orgId"],
-                # In EVG, we generate a unique ID for the project name in the 'my-project' configmap when we set up a
-                # test. To avoid project name collisions in between two concurrently running tasks in CloudQA,
-                # we concatenate it to the name of the mdb resource
-                "projectName": f"{base_cm['projectName']}-{file_to_resource_name(file_name)}",
-            },
-        )
 
 
 @mark.e2e_multi_cluster_sharded_snippets

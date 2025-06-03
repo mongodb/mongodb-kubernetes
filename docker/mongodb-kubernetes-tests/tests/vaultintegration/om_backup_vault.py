@@ -170,11 +170,12 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoD
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name=OPLOG_RS_NAME,
-    ).configure(ops_manager, "development")
+    ).configure(ops_manager)
 
     resource.set_version(custom_mdb_version)
 
-    yield resource.create()
+    resource.create()
+    return resource
 
 
 @fixture(scope="module")
@@ -183,10 +184,11 @@ def s3_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoDB:
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name=S3_RS_NAME,
-    ).configure(ops_manager, "s3metadata")
+    ).configure(ops_manager)
 
     resource.set_version(custom_mdb_version)
-    yield resource.create()
+    resource.create()
+    return resource
 
 
 @mark.e2e_vault_setup_om_backup

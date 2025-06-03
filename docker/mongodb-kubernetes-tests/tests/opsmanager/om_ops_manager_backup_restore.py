@@ -72,7 +72,7 @@ def mdb_latest(ops_manager: MongoDBOpsManager, namespace, custom_mdb_version: st
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name="mdb-latest",
-    ).configure(ops_manager, "mdbLatestProject")
+    ).configure(ops_manager)
     # MongoD versions greater than 4.2.0 must be enterprise build to enable backup
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.configure_backup(mode="enabled")
@@ -88,7 +88,7 @@ def mdb_prev(ops_manager: MongoDBOpsManager, namespace, custom_mdb_prev_version:
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name="mdb-previous",
-    ).configure(ops_manager, "mdbPreviousProject")
+    ).configure(ops_manager)
     resource.set_version(ensure_ent_version(custom_mdb_prev_version))
     resource.configure_backup(mode="enabled")
 

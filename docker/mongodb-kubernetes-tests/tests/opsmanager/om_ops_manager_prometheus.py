@@ -84,10 +84,11 @@ def sharded_cluster(ops_manager: MongoDBOpsManager, namespace: str, issuer: str,
         "port": CONFIGURED_PROMETHEUS_PORT,
     }
     del resource["spec"]["cloudManager"]
-    resource.configure(ops_manager, namespace)
+    resource.configure(ops_manager)
     resource.set_version(ensure_ent_version(custom_mdb_version))
 
-    yield resource.create()
+    resource.create()
+    return resource
 
 
 @fixture(scope="module")
@@ -112,7 +113,8 @@ def replica_set(
             "name": prom_cert_secret,
         },
     }
-    yield resource.create()
+    resource.create()
+    return resource
 
 
 @mark.e2e_om_ops_manager_prometheus

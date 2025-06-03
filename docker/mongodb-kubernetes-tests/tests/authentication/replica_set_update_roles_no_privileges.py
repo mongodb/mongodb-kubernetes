@@ -28,7 +28,8 @@ def replica_set(
         "authzQueryTemplate": "{USER}?memberOf?base",
     }
 
-    yield resource.create()
+    resource.create()
+    return resource
     resource.delete()
 
 

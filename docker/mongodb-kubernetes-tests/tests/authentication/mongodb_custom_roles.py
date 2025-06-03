@@ -1,5 +1,4 @@
 from kubetester import (
-    create_or_update_configmap,
     find_fixture,
     read_configmap,
     try_load,
@@ -150,9 +149,9 @@ def replica_set(
     namespace: str,
     mongodb_role_with_empty_strings: ClusterMongoDBRole,
     mongodb_role_without_empty_strings: ClusterMongoDBRole,
-    first_project: str,
 ) -> MongoDB:
     resource = MongoDB.from_yaml(find_fixture("replica-set-scram.yaml"), namespace=namespace)
+    resource.configure(None)
 
     if try_load(resource):
         return resource
@@ -168,7 +167,6 @@ def replica_set(
             "kind": ClusterMongoDBRoleKind,
         },
     ]
-    resource["spec"]["opsManager"]["configMapRef"]["name"] = first_project
 
     return resource
 
@@ -178,9 +176,9 @@ def sharded_cluster(
     namespace: str,
     mongodb_role_with_empty_strings: ClusterMongoDBRole,
     mongodb_role_without_empty_strings: ClusterMongoDBRole,
-    second_project: str,
 ) -> MongoDB:
     resource = MongoDB.from_yaml(find_fixture("sharded-cluster-scram-sha-1.yaml"), namespace=namespace)
+    resource.configure(None)
 
     if try_load(resource):
         return resource
@@ -199,7 +197,6 @@ def sharded_cluster(
             "kind": ClusterMongoDBRoleKind,
         },
     ]
-    resource["spec"]["opsManager"]["configMapRef"]["name"] = second_project
 
     return resource
 
@@ -209,9 +206,9 @@ def mc_replica_set(
     namespace: str,
     mongodb_role_with_empty_strings: ClusterMongoDBRole,
     mongodb_role_without_empty_strings: ClusterMongoDBRole,
-    third_project: str,
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(find_fixture("mongodb-multi.yaml"), namespace=namespace)
+    resource.configure(None)
 
     if try_load(resource):
         return resource
@@ -228,7 +225,6 @@ def mc_replica_set(
             },
         ]
     }
-    resource["spec"]["opsManager"]["configMapRef"]["name"] = third_project
     resource["spec"]["clusterSpecList"] = cluster_spec_list(["kind-e2e-cluster-1"], [1])
 
     return resource

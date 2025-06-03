@@ -21,56 +21,21 @@ custom_readiness_log_path = "/var/log/mongodb-mms-automation/customReadinessLogF
 
 
 @fixture(scope="module")
-def project_name_prefix(namespace: str) -> str:
-    return random_k8s_name(f"{namespace}-project")
-
-
-@fixture(scope="module")
-def first_project(namespace: str, project_name_prefix: str) -> str:
-    cm = read_configmap(namespace=namespace, name="my-project")
-    project_name = f"{project_name_prefix}-first"
-    return create_or_update_configmap(
-        namespace=namespace,
-        name=project_name,
-        data={
-            "baseUrl": cm["baseUrl"],
-            "projectName": project_name,
-            "orgId": cm["orgId"],
-        },
-    )
-
-
-@fixture(scope="module")
-def second_project(namespace: str, project_name_prefix: str) -> str:
-    cm = read_configmap(namespace=namespace, name="my-project")
-    project_name = project_name_prefix
-    return create_or_update_configmap(
-        namespace=namespace,
-        name=project_name,
-        data={
-            "baseUrl": cm["baseUrl"],
-            "projectName": project_name,
-            "orgId": cm["orgId"],
-        },
-    )
-
-
-@fixture(scope="module")
-def replica_set(namespace: str, first_project: str, custom_mdb_version: str) -> MongoDB:
+def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(find_fixture("replica-set-basic.yaml"), namespace=namespace, name="replica-set")
+    resource.configure(None)
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.set_architecture_annotation()
-    resource["spec"]["opsManager"]["configMapRef"]["name"] = first_project
 
     resource.update()
     return resource
 
 
 @fixture(scope="module")
-def second_replica_set(namespace: str, second_project: str, custom_mdb_version: str) -> MongoDB:
+def second_replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(find_fixture("replica-set-basic.yaml"), namespace=namespace, name="replica-set-2")
+    resource.configure(None)
     resource.set_version(ensure_ent_version(custom_mdb_version))
-    resource["spec"]["opsManager"]["configMapRef"]["name"] = second_project
 
     resource.update()
     return resource

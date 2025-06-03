@@ -1,14 +1,9 @@
-﻿from operator import truediv
-from typing import List
+﻿from typing import List
 
 import kubernetes
 import pytest
 from kubetester import (
-    create_or_update_configmap,
-    random_k8s_name,
-    read_configmap,
     try_load,
-    wait_until,
 )
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
@@ -24,26 +19,7 @@ from tests.multicluster.conftest import cluster_spec_list
 
 RESOURCE_NAME = "multi-replica-set"
 BUNDLE_SECRET_NAME = f"prefix-{RESOURCE_NAME}-cert"
-
-
-@pytest.fixture(scope="module")
-def project_name_prefix(namespace: str) -> str:
-    return random_k8s_name(f"{namespace}-project-")
-
-
-@pytest.fixture(scope="module")
-def new_project_configmap(namespace: str, project_name_prefix: str) -> str:
-    cm = read_configmap(namespace=namespace, name="my-project")
-    project_name = f"{project_name_prefix}-new-project"
-    return create_or_update_configmap(
-        namespace=namespace,
-        name=project_name,
-        data={
-            "baseUrl": cm["baseUrl"],
-            "projectName": project_name,
-            "orgId": cm["orgId"],
-        },
-    )
+PROJECT_NAME = f"{RESOURCE_NAME}-multi"
 
 
 @pytest.fixture(scope="module")
@@ -55,6 +31,7 @@ def mongodb_multi_unmarshalled(
     custom_mdb_version: str,
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), RESOURCE_NAME, namespace)
+    resource.configure(None)
     resource.set_version(custom_mdb_version)
     # ensure certs are created for the members during scale up
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [3, 1, 2])
@@ -64,7 +41,6 @@ def mongodb_multi_unmarshalled(
             "ca": multi_cluster_issuer_ca_configmap,
         },
     }
-    resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     return resource
 
 
@@ -118,8 +94,8 @@ def test_statefulsets_have_been_created_correctly(
 
 
 @pytest.mark.e2e_multi_cluster_scale_up_cluster
-def test_ops_manager_has_been_updated_correctly_before_scaling():
-    ac = AutomationConfigTester()
+def test_ops_manager_has_been_updated_correctly_before_scaling(mongodb_multi: MongoDBMulti):
+    ac = mongodb_multi.get_automation_config_tester()
     ac.assert_processes_size(3)
 
 
@@ -142,8 +118,8 @@ def test_statefulsets_have_been_scaled_up_correctly(
 
 
 @pytest.mark.e2e_multi_cluster_scale_up_cluster
-def test_ops_manager_has_been_updated_correctly_after_scaling():
-    ac = AutomationConfigTester()
+def test_ops_manager_has_been_updated_correctly_after_scaling(mongodb_multi: MongoDBMulti):
+    ac = mongodb_multi.get_automation_config_tester()
     ac.assert_processes_size(5)
 
 
@@ -178,16 +154,20 @@ class TestNonSequentialMemberIdsInReplicaSet(KubernetesTester):
         mongodb_multi.assert_statefulsets_are_ready(member_cluster_clients)
         mongodb_multi.assert_reaches_phase(Phase.Running, timeout=600)
 
-    def test_change_project(self, mongodb_multi: MongoDBMulti, new_project_configmap: str):
-        oldRsMembers = mongodb_multi.get_automation_config_tester().get_replica_set_members(mongodb_multi.name)
-
-        mongodb_multi["spec"]["opsManager"]["configMapRef"]["name"] = new_project_configmap
+    def test_change_project(self, mongodb_multi: MongoDBMulti):
+        new_project_name = f"{mongodb_multi.name}-new-project"
+        old_rs_members = mongodb_multi.get_automation_config_tester(group_name=PROJECT_NAME).get_replica_set_members(
+            mongodb_multi.name
+        )
+        mongodb_multi.configure(None)
         mongodb_multi.update()
 
         mongodb_multi.assert_abandons_phase(phase=Phase.Running, timeout=300)
         mongodb_multi.assert_reaches_phase(phase=Phase.Running, timeout=600)
 
-        newRsMembers = mongodb_multi.get_automation_config_tester().get_replica_set_members(mongodb_multi.name)
+        new_rs_members = mongodb_multi.get_automation_config_tester(
+            group_name=new_project_name
+        ).get_replica_set_members(mongodb_multi.name)
 
         # Assert that the replica set member ids have not changed after changing the project.
-        assert oldRsMembers == newRsMembers
+        assert old_rs_members == new_rs_members

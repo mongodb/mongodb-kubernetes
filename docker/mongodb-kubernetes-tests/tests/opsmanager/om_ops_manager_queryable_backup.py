@@ -136,7 +136,7 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoD
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name=OPLOG_RS_NAME,
-    ).configure(ops_manager, "development")
+    ).configure(ops_manager)
     resource.set_version(custom_mdb_version)
 
     #  TODO: Remove when CLOUDP-60443 is fixed
@@ -155,7 +155,7 @@ def s3_replica_set(ops_manager, namespace) -> MongoDB:
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name=S3_RS_NAME,
-    ).configure(ops_manager, "s3metadata")
+    ).configure(ops_manager)
 
     resource.update()
     return resource
@@ -167,7 +167,7 @@ def blockstore_replica_set(ops_manager, namespace, custom_mdb_version: str) -> M
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name=BLOCKSTORE_RS_NAME,
-    ).configure(ops_manager, "blockstore")
+    ).configure(ops_manager)
 
     resource.set_version(custom_mdb_version)
 
@@ -225,7 +225,7 @@ def mdb42(ops_manager: MongoDBOpsManager, namespace, custom_mdb_version: str):
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name="mdb-four-two",
-    ).configure(ops_manager, PROJECT_NAME)
+    ).configure(ops_manager)
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.configure_backup(mode="enabled")
     resource.update()
