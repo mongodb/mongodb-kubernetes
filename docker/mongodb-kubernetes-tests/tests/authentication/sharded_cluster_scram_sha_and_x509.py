@@ -153,7 +153,7 @@ def test_x509_user_reaches_updated_phase(x509_user: MongoDBUser):
 def test_x509_user_exists_in_automation_config(x509_user: MongoDBUser):
     ac = KubernetesTester.get_automation_config()
     users = ac["auth"]["usersWanted"]
-    return x509_user["spec"]["username"] in (user["user"] for user in users)
+    assert x509_user["spec"]["username"] in (user["user"] for user in users)
 
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_and_x509
