@@ -12,12 +12,10 @@ from kubetester import (
     update_configmap,
 )
 from kubetester.kubetester import (
-    KubernetesTester,
     ensure_ent_version,
 )
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import (
-    get_env_var_or_fail,
     is_default_architecture_static,
     is_multi_cluster,
     run_periodically,
@@ -29,6 +27,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
+from tests.common.ops_manager.cloud_manager import is_cloud_qa
 from tests.conftest import (
     MULTI_CLUSTER_MEMBER_LIST_CONFIGMAP,
     get_central_cluster_client,
@@ -52,10 +51,6 @@ logger = test_logger.get_test_logger(__name__)
 # We ensure that the operator correctly ignores the unhealthy cluster in the subsequent reconciliation,
 # and we can still scale. The DR procedure requires to first scale down all unhealthy members to be able
 # to reconfigure the deployment further.
-
-
-def is_cloud_qa() -> bool:
-    return os.getenv("ops_manager_version", "cloud_qa") == "cloud_qa"
 
 
 @mark.e2e_multi_cluster_sharded_disaster_recovery
