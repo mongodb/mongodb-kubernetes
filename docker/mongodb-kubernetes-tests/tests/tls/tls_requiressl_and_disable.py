@@ -1,10 +1,11 @@
 import pytest
-from kubetester import MongoDB, delete_secret, try_load
+from kubetester import delete_secret, try_load
 from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
-from kubetester.mongodb import Phase
+from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 
 MDB_RESOURCE_NAME = "tls-replica-set"
 

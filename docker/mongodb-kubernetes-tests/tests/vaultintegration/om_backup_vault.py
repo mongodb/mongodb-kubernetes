@@ -17,9 +17,11 @@ from kubetester.certs import create_mongodb_tls_certs, create_ops_manager_tls_ce
 from kubetester.http import https_endpoint_is_reachable
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import MongoDB, Phase, get_pods
+from kubetester.kubetester import get_pods
+from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pytest import fixture, mark
 
 from ..conftest import (

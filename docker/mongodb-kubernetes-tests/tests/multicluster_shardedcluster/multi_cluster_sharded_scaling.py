@@ -1,6 +1,7 @@
 from kubetester import find_fixture, try_load
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
 from tests.conftest import get_member_cluster_names

@@ -1,8 +1,8 @@
 from kubetester import create_or_update_secret, try_load
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import Phase
 from kubetester.mongodb_community import MongoDBCommunity
 from kubetester.mongodb_search import MongoDBSearch
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
 from tests.common.search import movies_search_helper

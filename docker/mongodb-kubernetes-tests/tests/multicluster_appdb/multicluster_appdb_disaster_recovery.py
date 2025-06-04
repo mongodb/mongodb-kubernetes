@@ -11,12 +11,12 @@ from kubetester import (
 )
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import run_periodically
-from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pytest import fixture, mark
+from tests.common.cert.cert_issuer import create_appdb_certs
 from tests.conftest import (
     MULTI_CLUSTER_MEMBER_LIST_CONFIGMAP,
-    create_appdb_certs,
     get_member_cluster_api_client,
 )
 from tests.multicluster.conftest import cluster_spec_list
