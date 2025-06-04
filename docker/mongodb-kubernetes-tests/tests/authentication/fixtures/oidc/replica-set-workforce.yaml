@@ -6,7 +6,7 @@ metadata:
 spec:
   type: ReplicaSet
   members: 3
-  version: 7.0.5-ent
+  version: 7.0.11-ent
 
   opsManager:
     configMapRef:
