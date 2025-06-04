@@ -19,8 +19,8 @@ from kubetester.kubetester import (
 )
 from kubetester.omtester import OMContext, OMTester
 from opentelemetry import trace
-from tests import test_logger
 
+from tests import test_logger
 from .mongotester import (
     MongoTester,
     ReplicaSetTester,
@@ -418,11 +418,7 @@ class MongoDB(CustomObject, MongoDBCommon):
         if "oidcProviderConfigs" not in self["spec"]["security"]["authentication"]:
             self["spec"]["security"]["authentication"]["oidcProviderConfigs"] = []
 
-        oidc_configs = self["spec"]["security"]["authentication"]["oidcProviderConfigs"]
-
-        oidc_configs.append(new_config)
-
-        self["spec"]["security"]["authentication"]["oidcProviderConfigs"] = oidc_configs
+        self["spec"]["security"]["authentication"]["oidcProviderConfigs"].append(new_config)
 
         return self
 
