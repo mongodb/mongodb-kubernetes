@@ -542,7 +542,7 @@ class OMTester(object):
             f"/groups/{self.context.project_id}/backupConfigs/{backup_configs['clusterId']}/snapshotSchedule",
         ).json()
 
-    def api_read_monitoring_measurements(
+    def api_read_measurements(
         self,
         host_id: str,
         database_name: Optional[str] = None,
@@ -554,11 +554,13 @@ class OMTester(object):
 
         https://docs.opsmanager.mongodb.com/v4.4/reference/api/measures/get-host-process-system-measurements/
         """
-        if database_name is None:
-            database_name = "admin"
+        database_path = ""
+        if database_name is not None:
+            database_path = f"/databases/{database_name}"
+
         return self.om_request(
             "get",
-            f"/groups/{project_id}/hosts/{host_id}/databases/{database_name}/measurements?granularity=PT30S&period={period}",
+            f"/groups/{project_id}/hosts/{host_id}{database_path}/measurements?granularity=PT30S&period={period}",
         ).json()["measurements"]
 
     def api_read_monitoring_agents(self) -> List:
