@@ -90,7 +90,7 @@ class TestCreateOIDCShardedCluster(KubernetesTester):
         ]
         tester.assert_oidc_configuration(expected_oidc_configs)
 
-
+# Skipping the test for multi-cluster setups as we want to focus on testing only connectivity for OIDC in multi-cluster setups.
 @skip_if_multi_cluster()
 @pytest.mark.e2e_sharded_cluster_oidc_m2m_group
 class TestAddNewOIDCProviderAndRole(KubernetesTester):
