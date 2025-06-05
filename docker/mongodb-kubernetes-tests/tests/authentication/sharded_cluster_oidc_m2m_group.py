@@ -4,10 +4,15 @@ from kubetester import find_fixture, try_load, wait_until
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as load_fixture
+from kubetester.kubetester import is_multi_cluster, skip_if_multi_cluster
 from kubetester.mongodb import MongoDB
 from kubetester.mongotester import ShardedClusterTester
 from kubetester.phase import Phase
 from pytest import fixture
+from tests.shardedcluster.conftest import (
+    enable_multi_cluster_deployment,
+    get_mongos_service_names,
+)
 
 MDB_RESOURCE = "oidc-sharded-cluster-replica-set"
 
@@ -26,6 +31,14 @@ def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
 
     resource.set_oidc_provider_configs(oidc_provider_configs)
 
+    if is_multi_cluster():
+        enable_multi_cluster_deployment(
+            resource=resource,
+            shard_members_array=[1, 1, 1],
+            mongos_members_array=[1, 1, None],
+            configsrv_members_array=[1, 1, 1],
+        )
+
     return resource.update()
 
 
@@ -33,10 +46,13 @@ def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
 class TestCreateOIDCShardedCluster(KubernetesTester):
 
     def test_create_sharded_cluster(self, sharded_cluster: MongoDB):
-        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=600)
+        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=800)
 
     def test_assert_connectivity(self, sharded_cluster: MongoDB):
-        tester = ShardedClusterTester(MDB_RESOURCE, 2)
+        service_names = None
+        if is_multi_cluster():
+            service_names = get_mongos_service_names(sharded_cluster)
+        tester = sharded_cluster.tester(service_names=service_names)
         tester.assert_oidc_authentication()
 
     def test_ops_manager_state_updated_correctly(self, sharded_cluster: MongoDB):
@@ -75,6 +91,8 @@ class TestCreateOIDCShardedCluster(KubernetesTester):
         tester.assert_oidc_configuration(expected_oidc_configs)
 
 
+# Skipping the test for multi-cluster setups as we want to focus on testing only connectivity for OIDC in multi-cluster setups.
+@skip_if_multi_cluster()
 @pytest.mark.e2e_sharded_cluster_oidc_m2m_group
 class TestAddNewOIDCProviderAndRole(KubernetesTester):
     def test_add_oidc_provider_and_role(self, sharded_cluster: MongoDB):
