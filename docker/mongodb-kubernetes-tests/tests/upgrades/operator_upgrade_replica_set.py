@@ -1,10 +1,10 @@
-from kubetester import MongoDB
 from kubetester.certs import create_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import Phase
+from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
 from tests.conftest import get_default_operator

@@ -23,9 +23,10 @@ from kubetester.kubetester import (
     run_periodically,
     skip_if_local,
 )
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
 from tests.conftest import (

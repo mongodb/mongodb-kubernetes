@@ -1,8 +1,9 @@
 import pytest
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
+from kubetester.phase import Phase
 from pytest import fixture
 
 MDB_RESOURCE = "my-replica-set"

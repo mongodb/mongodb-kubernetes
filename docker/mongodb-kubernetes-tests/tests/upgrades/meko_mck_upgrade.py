@@ -2,13 +2,15 @@ from typing import Dict, List
 
 import kubernetes
 from kubernetes import client
-from kubetester import MongoDB, try_load
+from kubetester import try_load
 from kubetester.certs import create_mongodb_tls_certs
 from kubetester.helm import helm_uninstall
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import Phase
-from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
+from kubetester.mongodb import MongoDB
+from kubetester.mongodb_multi import MongoDBMulti
+from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
 from tests.common.constants import MONGODB_PORT

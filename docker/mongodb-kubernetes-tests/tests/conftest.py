@@ -15,22 +15,16 @@ from kubetester import (
     get_deployments,
     get_pod_when_ready,
     is_pod_ready,
+    read_configmap,
     read_secret,
     update_configmap,
 )
 from kubetester.awss3client import AwsS3Client
-from kubetester.certs import (
-    Certificate,
-    ClusterIssuer,
-    Issuer,
-    create_mongodb_tls_certs,
-    create_multi_cluster_mongodb_tls_certs,
-)
 from kubetester.helm import helm_install_from_chart, helm_repo_add
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
 from kubetester.kubetester import running_locally
-from kubetester.mongodb_multi import MultiClusterClient
+from kubetester.multicluster_client import MultiClusterClient
 from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
 from opentelemetry.trace import NonRecordingSpan
@@ -267,6 +261,11 @@ def intermediate_issuer(cert_manager: str, issuer: str, namespace: str) -> str:
     This fixture creates an intermediate "Issuer" in the testing namespace
     """
     # Create the Certificate for the intermediate CA based on the issuer fixture
+    from kubetester.certs import (
+        Certificate,
+        Issuer,
+    )
+
     intermediate_ca_cert = Certificate(namespace=namespace, name="intermediate-ca-issuer")
     intermediate_ca_cert["spec"] = {
         "isCA": True,
@@ -1419,6 +1418,11 @@ def create_issuer(
         else:
             raise e
 
+    from kubetester.certs import (
+        ClusterIssuer,
+        Issuer,
+    )
+
     # And then creates the Issuer
     if clusterwide:
         issuer = ClusterIssuer(name="ca-issuer", namespace="")
@@ -1447,20 +1451,6 @@ def local_operator():
 def pod_names(replica_set_name: str, replica_set_members: int) -> list[str]:
     """List of pod names for given replica set name."""
     return [f"{replica_set_name}-{i}" for i in range(0, replica_set_members)]
-
-
-def multi_cluster_pod_names(replica_set_name: str, cluster_index_with_members: list[tuple[int, int]]) -> list[str]:
-    """List of multi-cluster pod names for given replica set name and a list of member counts in member clusters."""
-    result_list = []
-    for cluster_index, members in cluster_index_with_members:
-        result_list.extend([f"{replica_set_name}-{cluster_index}-{pod_idx}" for pod_idx in range(0, members)])
-
-    return result_list
-
-
-def multi_cluster_service_names(replica_set_name: str, cluster_index_with_members: list[tuple[int, int]]) -> list[str]:
-    """List of multi-cluster service names for given replica set name and a list of member counts in member clusters."""
-    return [f"{pod_name}-svc" for pod_name in multi_cluster_pod_names(replica_set_name, cluster_index_with_members)]
 
 
 def is_member_cluster(cluster_name: Optional[str] = None) -> bool:
@@ -1543,48 +1533,6 @@ def coredns_config(tld: str, mappings: str, additional_rules: str = None):
     }}
 }}
 """
-
-
-def create_appdb_certs(
-    namespace: str,
-    issuer: str,
-    appdb_name: str,
-    cluster_index_with_members: list[tuple[int, int]] = None,
-    cert_prefix="appdb",
-    clusterwide: bool = False,
-    additional_domains: Optional[List[str]] = None,
-) -> str:
-    if cluster_index_with_members is None:
-        cluster_index_with_members = [(0, 1), (1, 2)]
-
-    appdb_cert_name = f"{cert_prefix}-{appdb_name}-cert"
-
-    if is_multi_cluster():
-        service_fqdns = [
-            f"{svc}.{namespace}.svc.cluster.local"
-            for svc in multi_cluster_service_names(appdb_name, cluster_index_with_members)
-        ]
-        create_multi_cluster_mongodb_tls_certs(
-            issuer,
-            appdb_cert_name,
-            get_member_cluster_clients(),
-            get_central_cluster_client(),
-            service_fqdns=service_fqdns,
-            namespace=namespace,
-            clusterwide=clusterwide,
-            additional_domains=additional_domains,
-        )
-    else:
-        create_mongodb_tls_certs(
-            issuer,
-            namespace,
-            appdb_name,
-            appdb_cert_name,
-            clusterwide=clusterwide,
-            additional_domains=additional_domains,
-        )
-
-    return cert_prefix
 
 
 import pytest
@@ -1844,3 +1792,15 @@ def verify_pvc_expanded(
     assert journal_pvc.status.capacity["storage"] == resized_storage_size
     logs_pvc = client.CoreV1Api().read_namespaced_persistent_volume_claim(first_logs_pvc_name, namespace)
     assert logs_pvc.status.capacity["storage"] == initial_storage_size
+
+
+def read_deployment_state(
+    resource_name: str, namespace: str, api_client: Optional[kubernetes.client.ApiClient] = None
+) -> dict[str, Any]:
+    deployment_state_cm = read_configmap(
+        namespace,
+        f"{resource_name}-state",
+        api_client=api_client,
+    )
+    state = json.loads(deployment_state_cm["state"])
+    return state

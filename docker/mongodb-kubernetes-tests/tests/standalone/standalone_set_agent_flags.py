@@ -1,6 +1,7 @@
 from kubetester import find_fixture
 from kubetester.kubetester import KubernetesTester
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
+from kubetester.phase import Phase
 from pytest import fixture, mark
 
 

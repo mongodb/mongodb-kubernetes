@@ -9,9 +9,10 @@ from kubetester.certs import (
 )
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.mongotester import ReplicaSetTester
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 
 MDB_RESOURCE = "test-x509-rs"
 X509_AGENT_SUBJECT = "CN=automation,OU={namespace},O=cert-manager"

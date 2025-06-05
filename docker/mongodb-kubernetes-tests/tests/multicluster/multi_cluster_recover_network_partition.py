@@ -6,9 +6,9 @@ from kubernetes import client
 from kubetester import delete_statefulset, statefulset_is_deleted
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import run_periodically
-from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import (
     MULTI_CLUSTER_OPERATOR_NAME,

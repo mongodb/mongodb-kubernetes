@@ -5,8 +5,9 @@ from kubetester import try_load
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.kubetester import skip_if_local
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
 from tests.conftest import (

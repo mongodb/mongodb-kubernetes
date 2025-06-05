@@ -1,9 +1,9 @@
-from kubetester import MongoDB
 from kubetester.certs import create_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
-from kubetester.mongodb import Phase
+from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 from pytest import fixture, mark
 
 MDB_RESOURCE = "test-tls-base-rs-require-ssl"

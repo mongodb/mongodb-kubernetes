@@ -5,8 +5,9 @@ import yaml
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment

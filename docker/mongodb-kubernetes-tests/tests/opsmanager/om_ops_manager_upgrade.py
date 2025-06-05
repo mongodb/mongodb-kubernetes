@@ -5,7 +5,7 @@ import pytest
 import semver
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-from kubetester import MongoDB, try_load
+from kubetester import try_load
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import (
     ensure_ent_version,
@@ -16,8 +16,9 @@ from kubetester.kubetester import (
     run_periodically,
     skip_if_local,
 )
-from kubetester.mongodb import Phase
+from kubetester.mongodb import MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pytest import fixture
 from tests import test_logger
 from tests.conftest import get_member_cluster_clients, is_multi_cluster

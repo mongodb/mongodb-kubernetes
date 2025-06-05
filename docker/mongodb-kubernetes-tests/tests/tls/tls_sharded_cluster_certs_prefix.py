@@ -4,8 +4,9 @@ from kubetester.certs import Certificate, create_sharded_cluster_certs
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.kubetester import is_multi_cluster, skip_if_local
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import central_cluster_client
 from tests.shardedcluster.conftest import (

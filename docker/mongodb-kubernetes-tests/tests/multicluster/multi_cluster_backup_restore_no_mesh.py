@@ -20,12 +20,14 @@ from kubetester.certs import create_ops_manager_tls_certs
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
-from kubetester.mongodb import MongoDB, Phase
-from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
+from kubetester.mongodb import MongoDB
+from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.mongodb_user import MongoDBUser
+from kubetester.multicluster_client import MultiClusterClient
 from kubetester.omtester import OMTester
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import assert_data_got_restored, update_coredns_hosts
 
