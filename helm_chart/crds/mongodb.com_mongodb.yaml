@@ -1535,8 +1535,8 @@ spec:
                               type: string
                             authorizationMethod:
                               description: |-
-                                Configure single-sign-on for human user access to Ops Manager deployments with Workforce Identity Federation.
-                                For programmatic, application access to Ops Manager deployments use Workload Identity Federation.
+                                Configure single-sign-on for human user access to deployments with Workforce Identity Federation.
+                                For programmatic, application access to deployments use Workload Identity Federation.
                                 Only one Workforce Identity Federation IdP can be configured per MongoDB resource
                               enum:
                               - WorkforceIdentityFederation
@@ -1558,7 +1558,7 @@ spec:
                               type: string
                             configurationName:
                               description: |-
-                                Unique label that identifies this configuration. This label is visible to your Ops Manager users and is used when
+                                Unique label that identifies this configuration. This label is visible to Ops Manager users and is used when
                                 creating users and roles for authorization. It is case-sensitive and can only contain the following characters:
                                  - alphanumeric characters (combination of a to z and 0 to 9)
                                  - hyphens (-)
@@ -1568,12 +1568,11 @@ spec:
                             groupsClaim:
                               description: |-
                                 The identifier of the claim that includes the principal's IdP user group membership information.
-                                Accept the default value unless your IdP uses a different claim, or you need a custom claim.
                                 Required when selected GroupMembership as the authorization type, ignored otherwise
                               type: string
                             issuerURI:
                               description: |-
-                                Issuer value provided by your registered IdP application. Using this URI, MongoDB finds an OpenID Provider
+                                Issuer value provided by your registered IdP application. Using this URI, MongoDB finds an OpenID Connect Provider
                                 Configuration Document, which should be available in the /.wellknown/open-id-configuration endpoint.
                                 For MongoDB 7.0, 7.3, and 8.0+, the combination of issuerURI and audience must be unique across OIDC provider configurations.
                                 For other MongoDB versions, the issuerURI itself must be unique.
