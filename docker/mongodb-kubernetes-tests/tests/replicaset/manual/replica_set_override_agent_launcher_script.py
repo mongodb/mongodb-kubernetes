@@ -8,7 +8,6 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture
 
-
 # This test is intended for manual run only.
 #
 # It's for quick iteration on changes to agent-launcher.sh.

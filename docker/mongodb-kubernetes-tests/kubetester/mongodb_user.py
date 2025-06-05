@@ -4,12 +4,11 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 from kubeobject import CustomObject
+from kubetester import random_k8s_name
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_common import MongoDBCommon
 from kubetester.mongodb_utils_state import in_desired_state
 from kubetester.phase import Phase
-
-from kubetester import random_k8s_name
 
 
 class MongoDBUser(CustomObject, MongoDBCommon):

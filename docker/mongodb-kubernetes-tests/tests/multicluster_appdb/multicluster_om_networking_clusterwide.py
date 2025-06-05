@@ -16,11 +16,11 @@ from tests.conftest import (
 from tests.multicluster import prepare_multi_cluster_namespaces
 from tests.multicluster.conftest import cluster_spec_list, create_namespace
 
-from .conftest import create_s3_bucket_blockstore, create_s3_bucket_oplog
 from ..common.constants import MEMBER_CLUSTER_1, MEMBER_CLUSTER_2, MEMBER_CLUSTER_3
 from ..common.ops_manager.multi_cluster import (
     ops_manager_multi_cluster_with_tls_s3_backups,
 )
+from .conftest import create_s3_bucket_blockstore, create_s3_bucket_oplog
 
 # This test is for checking networking when OM is deployed in a complex multi-cluster scenario involving:
 #  - OM deployed in different namespace than the operator

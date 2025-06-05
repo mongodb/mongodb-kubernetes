@@ -9,6 +9,7 @@ from typing import Dict, List, Optional
 import semver
 from kubeobject import CustomObject
 from kubernetes import client
+from kubetester import create_or_update_configmap, read_configmap
 from kubetester.kubetester import (
     KubernetesTester,
     build_host_fqdn,
@@ -18,9 +19,8 @@ from kubetester.kubetester import (
 )
 from kubetester.omtester import OMContext, OMTester
 from opentelemetry import trace
-
-from kubetester import create_or_update_configmap, read_configmap
 from tests import test_logger
+
 from .mongodb_common import MongoDBCommon
 from .mongodb_utils_state import in_desired_state
 from .mongotester import (

@@ -13,15 +13,6 @@ import kubernetes
 from kubeobject import CustomObject
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-from kubetester.kubetester import KubernetesTester
-from kubetester.phase import Phase
-from opentelemetry import trace
-from tests.vaultintegration import (
-    store_secret_in_vault,
-    vault_namespace_name,
-    vault_sts_name,
-)
-
 from kubetester import (
     create_secret,
     delete_secret,
@@ -29,7 +20,15 @@ from kubetester import (
     random_k8s_name,
     read_secret,
 )
+from kubetester.kubetester import KubernetesTester
+from kubetester.phase import Phase
+from opentelemetry import trace
 from tests import test_logger
+from tests.vaultintegration import (
+    store_secret_in_vault,
+    vault_namespace_name,
+    vault_sts_name,
+)
 
 TRACER = trace.get_tracer("evergreen-agent")
 logger = test_logger.get_test_logger(__name__)

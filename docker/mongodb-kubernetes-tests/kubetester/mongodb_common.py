@@ -3,7 +3,6 @@ from __future__ import annotations
 import time
 
 from opentelemetry import trace
-
 from tests import test_logger
 
 logger = test_logger.get_test_logger(__name__)

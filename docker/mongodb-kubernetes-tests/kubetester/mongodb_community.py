@@ -7,7 +7,6 @@ from kubetester.mongodb import MongoDB
 from kubetester.mongodb_utils_state import in_desired_state
 from kubetester.phase import Phase
 from opentelemetry import trace
-
 from tests import test_logger
 
 logger = test_logger.get_test_logger(__name__)

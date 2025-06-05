@@ -35,7 +35,6 @@ from tests.multicluster_appdb.conftest import (
     create_s3_bucket_oplog,
 )
 
-
 # This test requires a cluster-wide operator.
 # To run it locally you must specify the following in private-context:
 #  WATCH_NAMESPACE="mdb-om-mc,$NAMESPACE"
