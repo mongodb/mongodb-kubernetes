@@ -17,11 +17,14 @@ from kubetester.certs import create_mongodb_tls_certs, create_ops_manager_tls_ce
 from kubetester.http import https_endpoint_is_reachable
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import MongoDB, Phase, get_pods
+from kubetester.kubetester import get_pods
+from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pytest import fixture, mark
 
+from . import run_command_in_vault, store_secret_in_vault
 from ..conftest import (
     APPDB_SA_NAME,
     AWS_REGION,
@@ -29,7 +32,6 @@ from ..conftest import (
     OM_SA_NAME,
     OPERATOR_NAME,
 )
-from . import assert_secret_in_vault, run_command_in_vault, store_secret_in_vault
 
 OM_NAME = "om-basic"
 S3_RS_NAME = "my-mongodb-s3"

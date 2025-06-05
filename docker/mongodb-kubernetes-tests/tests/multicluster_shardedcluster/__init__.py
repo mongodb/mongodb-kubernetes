@@ -1,12 +1,11 @@
 from typing import Dict, List
 
 import kubernetes
-import pytest
 from kubernetes.client import ApiClient
 from kubetester import get_statefulset
 from kubetester.kubetester import KubernetesTester, is_multi_cluster
 from kubetester.mongodb import MongoDB
-from kubetester.mongodb_multi import MultiClusterClient
+from kubetester.multicluster_client import MultiClusterClient
 from tests import test_logger
 from tests.shardedcluster.conftest import (
     get_member_cluster_clients_using_cluster_mapping,

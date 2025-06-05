@@ -1,21 +1,19 @@
-from typing import List
-
 import kubernetes
 import kubernetes.client
 from kubetester import try_load
 from kubetester.awss3client import AwsS3Client
 from kubetester.certs import create_ops_manager_tls_certs
 from kubetester.kubetester import ensure_ent_version, run_periodically
-from kubetester.mongodb import Phase
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
+from tests.common.cert.cert_issuer import create_appdb_certs
 from tests.common.ops_manager.multi_cluster import (
     ops_manager_multi_cluster_with_tls_s3_backups,
 )
 from tests.conftest import (
-    create_appdb_certs,
     get_central_cluster_client,
     get_cluster_clients,
     get_member_cluster_clients,

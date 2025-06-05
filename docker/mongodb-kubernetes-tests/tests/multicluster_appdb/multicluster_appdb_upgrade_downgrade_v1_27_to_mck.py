@@ -4,15 +4,15 @@ from typing import Dict, List, Optional
 import kubernetes.client
 from kubetester import read_configmap
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import Phase
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
+from tests.common.cert.cert_issuer import create_appdb_certs
 from tests.conftest import (
     LEGACY_MULTI_CLUSTER_OPERATOR_NAME,
     MULTI_CLUSTER_OPERATOR_NAME,
-    create_appdb_certs,
     get_central_cluster_name,
     get_custom_appdb_version,
     install_legacy_deployment_state_meko,

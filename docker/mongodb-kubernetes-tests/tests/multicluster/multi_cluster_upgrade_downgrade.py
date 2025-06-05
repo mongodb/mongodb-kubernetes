@@ -4,10 +4,10 @@ import pytest
 from kubetester import try_load
 from kubetester.kubetester import ensure_ent_version, fcv_from_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.mongotester import MongoDBBackgroundTester
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 from tests.multicluster.conftest import cluster_spec_list
 
 MDBM_RESOURCE = "multi-replica-set-upgrade"

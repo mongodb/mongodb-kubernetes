@@ -1,8 +1,8 @@
-from kubernetes import client
 from kubetester import get_statefulset, try_load
 from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import verify_pvc_expanded
 

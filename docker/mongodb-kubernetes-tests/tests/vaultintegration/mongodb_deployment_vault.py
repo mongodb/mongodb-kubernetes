@@ -6,7 +6,6 @@ import pytest
 from kubernetes import client
 from kubernetes.client.rest import ApiException
 from kubetester import (
-    MongoDB,
     create_configmap,
     delete_secret,
     get_statefulset,
@@ -21,14 +20,15 @@ from kubetester.certs import (
 from kubetester.http import https_endpoint_is_reachable
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import is_default_architecture_static
-from kubetester.mongodb import Phase, get_pods
+from kubetester.kubetester import get_pods, is_default_architecture_static
+from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 from pytest import fixture, mark
 
-from ..conftest import DATABASE_SA_NAME, OPERATOR_NAME
 from . import run_command_in_vault, store_secret_in_vault
+from ..conftest import DATABASE_SA_NAME, OPERATOR_NAME
 
 MDB_RESOURCE = "my-replica-set"
 

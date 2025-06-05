@@ -2,12 +2,11 @@ import kubernetes
 from kubetester import read_secret, try_load
 from kubetester.awss3client import AwsS3Client
 from kubetester.certs import create_ops_manager_tls_certs
-from kubetester.mongodb import Phase
-from kubetester.mongodb_multi import MultiClusterClient
+from kubetester.multicluster_client import MultiClusterClient
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import (
-    create_appdb_certs,
     create_issuer_ca_configmap,
     get_central_cluster_client,
     get_central_cluster_name,
@@ -17,11 +16,11 @@ from tests.conftest import (
 from tests.multicluster import prepare_multi_cluster_namespaces
 from tests.multicluster.conftest import cluster_spec_list, create_namespace
 
+from .conftest import create_s3_bucket_blockstore, create_s3_bucket_oplog
 from ..common.constants import MEMBER_CLUSTER_1, MEMBER_CLUSTER_2, MEMBER_CLUSTER_3
 from ..common.ops_manager.multi_cluster import (
     ops_manager_multi_cluster_with_tls_s3_backups,
 )
-from .conftest import create_s3_bucket_blockstore, create_s3_bucket_oplog
 
 # This test is for checking networking when OM is deployed in a complex multi-cluster scenario involving:
 #  - OM deployed in different namespace than the operator
@@ -67,6 +66,8 @@ def ops_manager_certs(multi_cluster_clusterissuer: str):
 
 @fixture(scope="module")
 def appdb_certs(multi_cluster_clusterissuer: str):
+    from tests.common.cert.cert_issuer import create_appdb_certs
+
     return create_appdb_certs(
         OM_NAMESPACE,
         multi_cluster_clusterissuer,

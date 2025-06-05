@@ -1,17 +1,17 @@
 from kubetester import get_statefulset
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
-from kubetester.mongodb import Phase
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pytest import fixture, mark
+from tests.common.cert.cert_issuer import create_appdb_certs
 from tests.conftest import (
     LEGACY_MULTI_CLUSTER_OPERATOR_NAME,
     LEGACY_OPERATOR_CHART,
     LEGACY_OPERATOR_IMAGE_NAME,
     LEGACY_OPERATOR_NAME,
     MULTI_CLUSTER_OPERATOR_NAME,
-    create_appdb_certs,
     get_default_operator,
     get_multi_cluster_operator,
     install_official_operator,

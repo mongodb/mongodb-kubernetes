@@ -5,7 +5,6 @@ from typing import List, Optional
 
 import pymongo
 from kubetester import (
-    MongoDB,
     create_or_update_namespace,
     create_or_update_secret,
     read_secret,
@@ -14,15 +13,15 @@ from kubetester import (
 from kubetester.certs import create_mongodb_tls_certs, create_ops_manager_tls_certs
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import Phase
+from kubetester.mongodb import MongoDB
 from kubetester.omtester import OMTester
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pymongo import ReadPreference
-from pymongo.errors import ServerSelectionTimeoutError
 from pytest import fixture, mark
+from tests.common.cert.cert_issuer import create_appdb_certs
 from tests.conftest import (
     assert_data_got_restored,
-    create_appdb_certs,
     is_multi_cluster,
 )
 from tests.opsmanager.conftest import mino_operator_install, mino_tenant_install

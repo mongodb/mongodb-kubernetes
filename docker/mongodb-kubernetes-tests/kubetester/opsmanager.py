@@ -20,24 +20,29 @@ from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import (
     KubernetesTester,
     build_list_of_hosts,
+    get_pods,
     is_default_architecture_static,
 )
-from kubetester.mongodb import MongoDB, MongoDBCommon, Phase, get_pods, in_desired_state
+from kubetester.mongodb_common import MongoDBCommon
+from kubetester.mongodb_utils_state import in_desired_state
 from kubetester.mongotester import MongoTester, MultiReplicaSetTester, ReplicaSetTester
 from kubetester.omtester import OMContext, OMTester
+from kubetester.phase import Phase
 from opentelemetry import trace
 from requests.auth import HTTPDigestAuth
 from tests import test_logger
+from tests.common.multicluster.multicluster_utils import (
+    multi_cluster_pod_names,
+    multi_cluster_service_names,
+)
 from tests.conftest import (
     LEGACY_CENTRAL_CLUSTER_NAME,
     get_central_cluster_client,
     get_member_cluster_api_client,
     get_member_cluster_client_map,
     is_member_cluster,
-    multi_cluster_pod_names,
-    multi_cluster_service_names,
+    read_deployment_state,
 )
-from tests.shardedcluster.conftest import read_deployment_state
 
 logger = test_logger.get_test_logger(__name__)
 TRACER = trace.get_tracer("evergreen-agent")
@@ -221,7 +226,9 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             timeout=timeout,
         )
 
-    def get_appdb_resource(self) -> MongoDB:
+    def get_appdb_resource(self) -> CustomObject:
+        from kubetester.mongodb import MongoDB
+
         mdb = MongoDB(name=self.app_db_name(), namespace=self.namespace)
         # We "artificially" add SCRAM authentication to make syntax match the normal MongoDB -
         # this will let the mongo_uri() method work correctly
@@ -493,7 +500,9 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         if not self.is_appdb_multi_cluster():
             return self.get_legacy_central_cluster(self.get_appdb_members_count())
 
-        cluster_index_mapping = read_deployment_state(self.app_db_name(), self.namespace)["clusterMapping"]
+        cluster_index_mapping = read_deployment_state(self.app_db_name(), self.namespace, get_central_cluster_client())[
+            "clusterMapping"
+        ]
         result = []
         for cluster_spec_item in self["spec"]["applicationDatabase"].get("clusterSpecList", []):
             result.append(
@@ -512,7 +521,9 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         if not self.is_om_multi_cluster():
             return self.get_legacy_central_cluster(self.get_total_number_of_om_replicas())
 
-        cluster_mapping = read_deployment_state(self.name, self.namespace)["clusterMapping"]
+        cluster_mapping = read_deployment_state(self.name, self.namespace, get_central_cluster_client())[
+            "clusterMapping"
+        ]
         result = [
             (
                 int(cluster_mapping[cluster_spec_item["clusterName"]]),
@@ -521,15 +532,6 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             for cluster_spec_item in self["spec"].get("clusterSpecList", [])
         ]
         return sorted(result, key=lambda x: x[0])
-
-    def read_deployment_state(self, resource_name: str) -> dict[str, Any]:
-        deployment_state_cm = read_configmap(
-            self.namespace,
-            f"{resource_name}-state",
-            get_central_cluster_client(),
-        )
-        state = json.loads(deployment_state_cm["state"])
-        return state
 
     @staticmethod
     def get_legacy_central_cluster(replicas: int) -> list[tuple[int, dict[str, str]]]:

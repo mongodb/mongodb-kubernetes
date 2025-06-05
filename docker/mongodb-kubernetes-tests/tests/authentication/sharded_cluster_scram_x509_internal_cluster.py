@@ -7,8 +7,9 @@ from kubetester.certs import (
 )
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as find_fixture
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.omtester import get_sc_cert_names
+from kubetester.phase import Phase
 from pytest import fixture, mark
 
 MDB_RESOURCE_NAME = "sharded-cluster-scram-sha-256"

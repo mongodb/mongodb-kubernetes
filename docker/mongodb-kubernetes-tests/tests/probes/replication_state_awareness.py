@@ -9,15 +9,15 @@ import functools
 import logging
 import random
 import string
-import time
 from typing import Callable, Dict, List
 
 import pymongo
 import yaml
-from kubernetes.client.rest import ApiException
 from kubetester import find_fixture, wait_until
-from kubetester.mongodb import MongoDB, Phase, generic_replicaset
+from kubetester.mongodb import MongoDB
+from kubetester.mongodb_utils_replicaset import generic_replicaset
 from kubetester.mongotester import upload_random_data
+from kubetester.phase import Phase
 from pytest import fixture, mark
 
 

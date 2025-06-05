@@ -1,19 +1,19 @@
 from typing import Optional
 
 from kubernetes import client
-from kubernetes.client import V1ConfigMap
 from kubetester import create_secret, delete_secret, get_statefulset, read_secret
 from kubetester.certs import Certificate
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import is_default_architecture_static
-from kubetester.mongodb import MongoDB, Phase, get_pods
+from kubetester.kubetester import get_pods, is_default_architecture_static
+from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pytest import fixture, mark
 
+from . import run_command_in_vault, store_secret_in_vault
 from ..conftest import APPDB_SA_NAME, DATABASE_SA_NAME, OM_SA_NAME, OPERATOR_NAME
-from . import assert_secret_in_vault, run_command_in_vault, store_secret_in_vault
 
 MDB_RESOURCE = "my-replica-set"
 OM_NAME = "om-basic"

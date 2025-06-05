@@ -1,13 +1,15 @@
 import time
 
 from kubernetes import client
-from kubetester import MongoDB, create_or_update_secret, random_k8s_name
+from kubetester import create_or_update_secret, random_k8s_name
 from kubetester.certs import create_mongodb_tls_certs
 from kubetester.http import https_endpoint_is_reachable
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import Phase, generic_replicaset
+from kubetester.mongodb import MongoDB
+from kubetester.mongodb_utils_replicaset import generic_replicaset
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment

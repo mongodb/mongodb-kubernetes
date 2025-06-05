@@ -3,15 +3,15 @@ import time
 from typing import Optional
 
 import pymongo
-from kubetester import MongoDB, try_load
+from kubetester import try_load
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import Phase
+from kubetester.mongodb import MongoDB
 from kubetester.omtester import OMTester
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pymongo import ReadPreference
-from pymongo.errors import ServerSelectionTimeoutError
 from pytest import fixture, mark
 from tests.conftest import assert_data_got_restored, is_multi_cluster
 from tests.opsmanager.om_ops_manager_backup import (

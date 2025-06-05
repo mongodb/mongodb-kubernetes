@@ -3,9 +3,9 @@ from kubernetes import client
 from kubetester import try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
-from kubetester.mongodb import Phase
 from kubetester.omtester import OMBackgroundTester
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pytest import fixture
 from tests.conftest import (
     get_member_cluster_api_client,

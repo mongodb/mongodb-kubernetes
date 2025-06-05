@@ -4,15 +4,15 @@ import kubernetes
 from kubernetes.client.rest import ApiException
 from kubetester import read_secret, read_service, try_load
 from kubetester.certs import create_ops_manager_tls_certs
-from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pytest import fixture, mark
+from tests.common.cert.cert_issuer import create_appdb_certs
 from tests.common.constants import MEMBER_CLUSTER_2, MEMBER_CLUSTER_3
 from tests.common.ops_manager.multi_cluster import (
     ops_manager_multi_cluster_with_tls_s3_backups,
 )
 from tests.conftest import (
-    create_appdb_certs,
     create_issuer_ca_configmap,
     get_aws_s3_client,
     get_central_cluster_client,
@@ -34,6 +34,7 @@ from tests.multicluster_appdb.conftest import (
     create_s3_bucket_blockstore,
     create_s3_bucket_oplog,
 )
+
 
 # This test requires a cluster-wide operator.
 # To run it locally you must specify the following in private-context:

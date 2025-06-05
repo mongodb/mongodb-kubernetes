@@ -1,7 +1,6 @@
 import pymongo
 import pytest
-from kubernetes import client
-from kubetester import MongoDB, try_load
+from kubetester import try_load
 from kubetester.kubetester import (
     assert_statefulset_architecture,
     ensure_ent_version,
@@ -12,9 +11,10 @@ from kubetester.kubetester import (
     is_multi_cluster,
     skip_if_multi_cluster,
 )
-from kubetester.mongodb import Phase
+from kubetester.mongodb import MongoDB
 from kubetester.mongotester import MongoDBBackgroundTester, MongoTester
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 from pytest import fixture
 from tests.shardedcluster.conftest import (
     enable_multi_cluster_deployment,
