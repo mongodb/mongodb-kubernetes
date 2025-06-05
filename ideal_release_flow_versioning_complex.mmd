@@ -1,0 +1,27 @@
+%%{
+  init: {
+    'theme': 'dark',
+    'logLevel': 'debug',
+    'gitGraph': {
+      'showBranches': true,
+      'mainBranchName': 'master',
+      'parallelCommits': true
+    },
+    'themeVariables': {
+      'commitLabelColor': '#ffffff',
+      'commitLabelBackground': '#333333'
+    }
+  }
+}%%
+gitGraph
+    checkout master
+    commit id: "A1" tag:"v1.0.0"
+    commit id: "A2: fix v1.0.1"
+    commit id: "A3: feature v1.1.0"
+    commit id: "A4: fix v1.1.0"
+    commit id: "A5: fix v1.1.0" tag:"v1.1.0"
+    commit id: "A6: feature v1.2.0"
+    commit id: "A7: feature v1.2.0"
+    commit id: "A8: breaking v2.0.0"
+    commit id: "A9: breaking v2.0.0" tag:"v2.0.0"
+    commit id: "A10: feature v2.1.0"
