@@ -393,7 +393,7 @@ func TestConfigureLdapDeploymentAuthentication_WithScramAgentAuthentication(t *t
 func TestConfigureLdapDeploymentAuthentication_WithCustomRole(t *testing.T) {
 	ctx := context.Background()
 
-	customRoles := []mdbv1.MongoDbRole{
+	customRoles := []mdbv1.MongoDBRole{
 		{
 			Db:         "admin",
 			Role:       "customRole",
@@ -440,7 +440,7 @@ func TestConfigureLdapDeploymentAuthentication_WithCustomRole(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "server0:1234", ac.Ldap.Servers)
 
-	roles := ac.Deployment["roles"].([]mdbv1.MongoDbRole)
+	roles := ac.Deployment["roles"].([]mdbv1.MongoDBRole)
 	assert.Len(t, roles, 1)
 	assert.Equal(t, customRoles, roles)
 }

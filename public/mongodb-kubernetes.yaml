@@ -3,6 +3,19 @@
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
+  name: mongodb-kubernetes-operator-mongodb-cluster-mongodb-role
+rules:
+  - apiGroups:
+      - mongodb.com
+    verbs:
+      - '*'
+    resources:
+      - clustermongodbroles
+---
+# Source: mongodb-kubernetes/templates/operator-roles.yaml
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
   name: mongodb-kubernetes-operator-mongodb-webhook
 rules:
   - apiGroups:
@@ -53,6 +66,20 @@ rules:
       - nodes
     verbs:
       - list
+---
+# Source: mongodb-kubernetes/templates/operator-roles.yaml
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-kubernetes-operator-mongodb-cluster-mongodb-role-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mongodb-kubernetes-operator-mongodb-cluster-mongodb-role
+subjects:
+  - kind: ServiceAccount
+    name: mongodb-kubernetes-operator
+    namespace: mongodb
 ---
 # Source: mongodb-kubernetes/templates/operator-roles.yaml
 kind: ClusterRoleBinding
@@ -290,6 +317,7 @@ spec:
             - -watch-resource=mongodbusers
             - -watch-resource=mongodbcommunity
             - -watch-resource=mongodbsearch
+            - -watch-resource=clustermongodbroles
           command:
             - /usr/local/bin/mongodb-kubernetes-operator
           resources:

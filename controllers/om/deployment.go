@@ -60,7 +60,7 @@ func init() {
 	gob.Register(tls.Prefer)
 	gob.Register(tls.Allow)
 	gob.Register(tls.Disabled)
-	gob.Register([]mdbv1.MongoDbRole{})
+	gob.Register([]mdbv1.MongoDBRole{})
 	gob.Register([]automationconfig.MemberOptions{})
 }
 
@@ -634,16 +634,28 @@ func (d Deployment) GetNumberOfExcessProcesses(resourceName string) int {
 	return excessProcesses
 }
 
-func (d Deployment) SetRoles(roles []mdbv1.MongoDbRole) {
+func (d Deployment) SetRoles(roles []mdbv1.MongoDBRole) {
 	d["roles"] = roles
 }
 
-func (d Deployment) GetRoles() []mdbv1.MongoDbRole {
-	val, ok := d["roles"].([]mdbv1.MongoDbRole)
-	if !ok {
-		return []mdbv1.MongoDbRole{}
+func (d Deployment) GetRoles() []mdbv1.MongoDBRole {
+	roles := d["roles"]
+	result := make([]mdbv1.MongoDBRole, 0)
+
+	if roles == nil {
+		return result
 	}
-	return val
+
+	rolesBytes, err := json.Marshal(roles)
+	if err != nil {
+		return nil
+	}
+
+	if err := json.Unmarshal(rolesBytes, &result); err != nil {
+		return nil
+	}
+
+	return result
 }
 
 // GetAgentVersion returns the current version of all Agents in the deployment. It's empty until the

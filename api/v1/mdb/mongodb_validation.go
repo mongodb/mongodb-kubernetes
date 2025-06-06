@@ -391,7 +391,7 @@ func CommonValidators(db DbCommonSpec) []func(d DbCommonSpec) v1.ValidationResul
 		deploymentsMustHaveAgentModeInAuthModes,
 		scramSha1AuthValidation,
 		ldapAuthRequiresEnterprise,
-		rolesAttributeisCorrectlyConfigured,
+		rolesAttributeIsCorrectlyConfigured,
 		agentModeIsSetIfMoreThanADeploymentAuthModeIsSet,
 		ldapGroupDnIsSetIfLdapAuthzIsEnabledAndAgentsAreExternal,
 		specWithExactlyOneSchema,
