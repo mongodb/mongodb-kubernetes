@@ -314,3 +314,9 @@ func ResetUpdateStrategy(ctx context.Context, mdb annotations.Versioned, kubeCli
 	})
 	return err
 }
+
+func WithPersistentVolumeClaimRetentionPolicy(persistentVolumeClaimRetentionPolicy appsv1.StatefulSetPersistentVolumeClaimRetentionPolicy) Modification {
+	return func(set *appsv1.StatefulSet) {
+		set.Spec.PersistentVolumeClaimRetentionPolicy = &persistentVolumeClaimRetentionPolicy
+	}
+}
