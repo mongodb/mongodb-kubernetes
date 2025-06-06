@@ -180,12 +180,6 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(ctx, rs, workflow.Failed(err), log)
 	}
 
-	if scale.ReplicasThisReconciliation(rs) < rs.Status.Members {
-		if err := replicaset.PrepareScaleDownFromStatefulSet(conn, sts, rs, log); err != nil {
-			return r.updateStatus(ctx, rs, workflow.Failed(xerrors.Errorf("Failed to prepare Replica Set for scaling down using Ops Manager: %w", err)), log)
-		}
-	}
-
 	// ==== 5. Recovery logic ====
 	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
 	agentCertSecretName := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name).Name
