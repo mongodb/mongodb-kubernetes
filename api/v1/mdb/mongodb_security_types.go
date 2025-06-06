@@ -19,6 +19,23 @@ type Security struct {
 	CertificatesSecretsPrefix string `json:"certsSecretPrefix"`
 }
 
+func newSecurity() *Security {
+	return &Security{TLSConfig: &TLSConfig{}}
+}
+
+func EnsureSecurity(sec *Security) *Security {
+	if sec == nil {
+		sec = newSecurity()
+	}
+	if sec.TLSConfig == nil {
+		sec.TLSConfig = &TLSConfig{}
+	}
+	if sec.Roles == nil {
+		sec.Roles = make([]MongoDbRole, 0)
+	}
+	return sec
+}
+
 // MemberCertificateSecretName returns the name of the secret containing the member TLS certs.
 func (s *Security) MemberCertificateSecretName(defaultName string) string {
 	if s.CertificatesSecretsPrefix != "" {
@@ -168,6 +185,10 @@ type Authentication struct {
 
 	// Clients should present valid TLS certificates
 	RequiresClientTLSAuthentication bool `json:"requireClientTLSAuthentication,omitempty"`
+}
+
+func newAuthentication() *Authentication {
+	return &Authentication{Modes: []AuthMode{}}
 }
 
 // +kubebuilder:validation:Enum=X509;SCRAM;SCRAM-SHA-1;MONGODB-CR;SCRAM-SHA-256;LDAP;OIDC
@@ -454,4 +475,8 @@ func (m *MongoDB) IsOIDCEnabled() bool {
 		return false
 	}
 	return m.Spec.Security.Authentication.IsOIDCEnabled()
+}
+
+func (m *MongoDB) GetAuthenticationModes() []string {
+	return m.Spec.Security.Authentication.GetModes()
 }
