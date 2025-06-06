@@ -385,12 +385,7 @@ class MongoDB(CustomObject, MongoDBCommon):
     def append_oidc_provider_config(self, new_config: Dict):
         if "oidcProviderConfigs" not in self["spec"]["security"]["authentication"]:
             self["spec"]["security"]["authentication"]["oidcProviderConfigs"] = []
-
-        oidc_configs = self["spec"]["security"]["authentication"]["oidcProviderConfigs"]
-
-        oidc_configs.append(new_config)
-
-        self["spec"]["security"]["authentication"]["oidcProviderConfigs"] = oidc_configs
+        self["spec"]["security"]["authentication"]["oidcProviderConfigs"].append(new_config)
 
         return self
 
