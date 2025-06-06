@@ -3,9 +3,6 @@ package mdb
 import (
 	"encoding/json"
 	"fmt"
-	"sort"
-	"strings"
-
 	"github.com/blang/semver"
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/labels"
@@ -17,7 +14,6 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
@@ -27,7 +23,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
 func init() {
@@ -356,12 +351,6 @@ type MongoDbStatus struct {
 	Warnings                               []status.Warning                           `json:"warnings,omitempty"`
 }
 
-type BackupMode string
-
-type BackupStatus struct {
-	StatusName string `json:"statusName"`
-}
-
 type DbCommonSpec struct {
 	// +kubebuilder:validation:Pattern=^[0-9]+.[0-9]+.[0-9]+(-.+)?$|^$
 	// +kubebuilder:validation:Required
@@ -455,212 +444,6 @@ func (m *MongoDbSpec) GetMemberOptions() []automationconfig.MemberOptions {
 	return m.MemberConfig
 }
 
-type SnapshotSchedule struct {
-	// Number of hours between snapshots.
-	// +kubebuilder:validation:Enum=6;8;12;24
-	// +optional
-	SnapshotIntervalHours *int `json:"snapshotIntervalHours,omitempty"`
-
-	// Number of days to keep recent snapshots.
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:validation:Maximum=365
-	// +optional
-	SnapshotRetentionDays *int `json:"snapshotRetentionDays,omitempty"`
-
-	// Number of days to retain daily snapshots. Setting 0 will disable this rule.
-	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:validation:Maximum=365
-	// +optional
-	DailySnapshotRetentionDays *int `json:"dailySnapshotRetentionDays"`
-
-	// Number of weeks to retain weekly snapshots. Setting 0 will disable this rule
-	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:validation:Maximum=365
-	// +optional
-	WeeklySnapshotRetentionWeeks *int `json:"weeklySnapshotRetentionWeeks,omitempty"`
-	// Number of months to retain weekly snapshots. Setting 0 will disable this rule.
-	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:validation:Maximum=36
-	// +optional
-	MonthlySnapshotRetentionMonths *int `json:"monthlySnapshotRetentionMonths,omitempty"`
-	// Number of hours in the past for which a point-in-time snapshot can be created.
-	// +kubebuilder:validation:Enum=1;2;3;4;5;6;7;15;30;60;90;120;180;360
-	// +optional
-	PointInTimeWindowHours *int `json:"pointInTimeWindowHours,omitempty"`
-
-	// Hour of the day to schedule snapshots using a 24-hour clock, in UTC.
-	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:validation:Maximum=23
-	// +optional
-	ReferenceHourOfDay *int `json:"referenceHourOfDay,omitempty"`
-
-	// Minute of the hour to schedule snapshots, in UTC.
-	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:validation:Maximum=59
-	// +optional
-	ReferenceMinuteOfHour *int `json:"referenceMinuteOfHour,omitempty"`
-
-	// Day of the week when Ops Manager takes a full snapshot. This ensures a recent complete backup. Ops Manager sets the default value to SUNDAY.
-	// +kubebuilder:validation:Enum=SUNDAY;MONDAY;TUESDAY;WEDNESDAY;THURSDAY;FRIDAY;SATURDAY
-	// +optional
-	FullIncrementalDayOfWeek *string `json:"fullIncrementalDayOfWeek,omitempty"`
-
-	// +kubebuilder:validation:Enum=15;30;60
-	ClusterCheckpointIntervalMin *int `json:"clusterCheckpointIntervalMin,omitempty"`
-}
-
-// Backup contains configuration options for configuring
-// backup for this MongoDB resource
-type Backup struct {
-	// +kubebuilder:validation:Enum=enabled;disabled;terminated
-	// +optional
-	Mode BackupMode `json:"mode"`
-
-	// AutoTerminateOnDeletion indicates if the Operator should stop and terminate the Backup before the cleanup,
-	// when the MongoDB CR is deleted
-	// +optional
-	AutoTerminateOnDeletion bool `json:"autoTerminateOnDeletion,omitempty"`
-
-	// +optional
-	SnapshotSchedule *SnapshotSchedule `json:"snapshotSchedule,omitempty"`
-
-	// Encryption settings
-	// +optional
-	Encryption *Encryption `json:"encryption,omitempty"`
-
-	// Assignment Labels set in the Ops Manager
-	// +optional
-	AssignmentLabels []string `json:"assignmentLabels,omitempty"`
-}
-
-func (b *Backup) IsKmipEnabled() bool {
-	if b.Encryption == nil || b.Encryption.Kmip == nil {
-		return false
-	}
-	return true
-}
-
-func (b *Backup) GetKmip() *KmipConfig {
-	if !b.IsKmipEnabled() {
-		return nil
-	}
-	return b.Encryption.Kmip
-}
-
-// Encryption contains encryption settings
-type Encryption struct {
-	// Kmip corresponds to the KMIP configuration assigned to the Ops Manager Project's configuration.
-	// +optional
-	Kmip *KmipConfig `json:"kmip,omitempty"`
-}
-
-// KmipConfig contains Project-level KMIP configuration
-type KmipConfig struct {
-	// KMIP Client configuration
-	Client v1.KmipClientConfig `json:"client"`
-}
-
-type LogRotateForBackupAndMonitoring struct {
-	// Maximum size for an individual log file before rotation.
-	// OM only supports ints
-	SizeThresholdMB int `json:"sizeThresholdMB,omitempty"`
-	// Number of hours after which this MongoDB Agent rotates the log file.
-	TimeThresholdHrs int `json:"timeThresholdHrs,omitempty"`
-}
-
-// AgentLoggingMongodConfig contain settings for the mongodb processes configured by the agent
-type AgentLoggingMongodConfig struct {
-	// +optional
-	// LogRotate configures log rotation for the mongodb processes
-	LogRotate *automationconfig.CrdLogRotate `json:"logRotate,omitempty"`
-
-	// LogRotate configures audit log rotation for the mongodb processes
-	AuditLogRotate *automationconfig.CrdLogRotate `json:"auditlogRotate,omitempty"`
-
-	// +optional
-	// SystemLog configures system log of mongod
-	SystemLog *automationconfig.SystemLog `json:"systemLog,omitempty"`
-}
-
-func (a *AgentLoggingMongodConfig) HasLoggingConfigured() bool {
-	if a.LogRotate != nil || a.AuditLogRotate != nil || a.SystemLog != nil {
-		return true
-	}
-	return false
-}
-
-type BackupAgent struct {
-	// +optional
-	// LogRotate configures log rotation for the BackupAgent processes
-	LogRotate *LogRotateForBackupAndMonitoring `json:"logRotate,omitempty"`
-}
-
-type MonitoringAgent struct {
-	// +optional
-	// LogRotate configures log rotation for the BackupAgent processes
-	LogRotate *LogRotateForBackupAndMonitoring `json:"logRotate,omitempty"`
-}
-
-type AgentConfig struct {
-	// +optional
-	BackupAgent BackupAgent `json:"backupAgent,omitempty"`
-	// +optional
-	MonitoringAgent MonitoringAgent `json:"monitoringAgent,omitempty"`
-	// +optional
-	Mongod AgentLoggingMongodConfig `json:"mongod,omitempty"`
-	// +optional
-	ReadinessProbe ReadinessProbe `json:"readinessProbe,omitempty"`
-	// +optional
-	StartupParameters StartupParameters `json:"startupOptions"`
-	// +optional
-	LogLevel LogLevel `json:"logLevel"`
-	// +optional
-	MaxLogFileDurationHours int `json:"maxLogFileDurationHours"`
-	// DEPRECATED please use mongod.logRotate
-	// +optional
-	LogRotate *automationconfig.CrdLogRotate `json:"logRotate,omitempty"`
-	// DEPRECATED please use mongod.systemLog
-	// +optional
-	SystemLog *automationconfig.SystemLog `json:"systemLog,omitempty"`
-}
-
-type MonitoringAgentConfig struct {
-	StartupParameters StartupParameters `json:"startupOptions"`
-}
-
-type EnvironmentVariables map[string]string
-
-type ReadinessProbe struct {
-	EnvironmentVariables `json:"environmentVariables,omitempty"`
-}
-
-// StartupParameters can be used to configure the startup parameters with which the agent starts. That also contains
-// log rotation settings as defined here:
-type StartupParameters map[string]string
-
-func (s StartupParameters) ToCommandLineArgs() string {
-	var keys []string
-	for k := range s {
-		keys = append(keys, k)
-	}
-
-	// order must be preserved to ensure the same set of command line arguments
-	// results in the same StatefulSet template spec.
-	sort.SliceStable(keys, func(i, j int) bool {
-		return keys[i] < keys[j]
-	})
-
-	sb := strings.Builder{}
-	for _, key := range keys {
-		if value := s[key]; value != "" {
-			sb.Write([]byte(fmt.Sprintf(" -%s=%s", key, value)))
-		} else {
-			sb.Write([]byte(fmt.Sprintf(" -%s", key)))
-		}
-	}
-	return sb.String()
-}
-
 func (m *MongoDB) DesiredReplicas() int {
 	return m.Spec.Members
 }
@@ -742,38 +525,12 @@ type SharedConnectionSpec struct {
 	CloudManagerConfig *PrivateCloudConfig `json:"cloudManager,omitempty"`
 }
 
-type Security struct {
-	TLSConfig      *TLSConfig      `json:"tls,omitempty"`
-	Authentication *Authentication `json:"authentication,omitempty"`
-	Roles          []MongoDbRole   `json:"roles,omitempty"`
-
-	// +optional
-	CertificatesSecretsPrefix string `json:"certsSecretPrefix"`
-}
-
-// MemberCertificateSecretName returns the name of the secret containing the member TLS certs.
-func (s *Security) MemberCertificateSecretName(defaultName string) string {
-	if s.CertificatesSecretsPrefix != "" {
-		return fmt.Sprintf("%s-%s-cert", s.CertificatesSecretsPrefix, defaultName)
-	}
-
-	// The default behaviour is to use the `defaultname-cert` format
-	return fmt.Sprintf("%s-cert", defaultName)
-}
-
 func (d *DbCommonSpec) IsAgentImageOverridden() bool {
 	if d.StatefulSetConfiguration != nil && isAgentImageOverriden(d.StatefulSetConfiguration.SpecWrapper.Spec.Template.Spec.Containers) {
 		return true
 	}
 
 	return false
-}
-
-func (d *DbCommonSpec) GetSecurity() *Security {
-	if d.Security == nil {
-		return &Security{}
-	}
-	return d.Security
 }
 
 func (d *DbCommonSpec) GetExternalDomain() *string {
@@ -793,360 +550,6 @@ func (d *DbCommonSpec) GetAdditionalMongodConfig() *AdditionalMongodConfig {
 	}
 
 	return d.AdditionalMongodConfig
-}
-
-func (s *Security) IsTLSEnabled() bool {
-	if s == nil {
-		return false
-	}
-	if s.TLSConfig != nil {
-		if s.TLSConfig.Enabled {
-			return true
-		}
-	}
-	return s.CertificatesSecretsPrefix != ""
-}
-
-// GetAgentMechanism returns the authentication mechanism that the agents will be using.
-// The agents will use X509 if it is the only mechanism specified, otherwise they will use SCRAM if specified
-// and no auth if no mechanisms exist.
-func (s *Security) GetAgentMechanism(currentMechanism string) string {
-	if s == nil || s.Authentication == nil {
-		return ""
-	}
-	auth := s.Authentication
-	if !s.Authentication.Enabled {
-		return ""
-	}
-
-	if currentMechanism == "MONGODB-X509" {
-		return util.X509
-	}
-
-	// If we arrive here, this should
-	//  ALWAYS be true, as we do not allow
-	// agents.mode to be empty
-	// if more than one mode in specified in
-	// spec.authentication.modes
-	// The check is done in the validation webhook
-	if len(s.Authentication.Modes) == 1 {
-		return string(s.Authentication.Modes[0])
-	}
-	return auth.Agents.Mode
-}
-
-// ShouldUseX509 determines if the deployment should have X509 authentication configured
-// whether it was configured explicitly or if it required as it would be performing
-// an illegal transition otherwise.
-func (s *Security) ShouldUseX509(currentAgentAuthMode string) bool {
-	return s.GetAgentMechanism(currentAgentAuthMode) == util.X509
-}
-
-// AgentClientCertificateSecretName returns the name of the Secret that holds the agent
-// client TLS certificates.
-// If no custom name has been defined, it returns the default one.
-func (s Security) AgentClientCertificateSecretName(resourceName string) corev1.SecretKeySelector {
-	secretName := util.AgentSecretName
-
-	if s.CertificatesSecretsPrefix != "" {
-		secretName = fmt.Sprintf("%s-%s-%s", s.CertificatesSecretsPrefix, resourceName, util.AgentSecretName)
-	}
-	if s.ShouldUseClientCertificates() {
-		secretName = s.Authentication.Agents.ClientCertificateSecretRefWrap.ClientCertificateSecretRef.Name
-	}
-
-	return corev1.SecretKeySelector{
-		Key:                  util.AutomationAgentPemSecretKey,
-		LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
-	}
-}
-
-// The customer has set ClientCertificateSecretRef. This signals that client certs are required,
-// even when no x509 agent-auth has been enabled.
-func (s Security) ShouldUseClientCertificates() bool {
-	return s.Authentication != nil && s.Authentication.Agents.ClientCertificateSecretRefWrap.ClientCertificateSecretRef.Name != ""
-}
-
-func (s Security) InternalClusterAuthSecretName(defaultName string) string {
-	secretName := fmt.Sprintf("%s-clusterfile", defaultName)
-	if s.CertificatesSecretsPrefix != "" {
-		secretName = fmt.Sprintf("%s-%s", s.CertificatesSecretsPrefix, secretName)
-	}
-	return secretName
-}
-
-// RequiresClientTLSAuthentication checks if client TLS authentication is required, depending
-// on a set of defined attributes in the MongoDB resource. This can be explicitly set, setting
-// `Authentication.RequiresClientTLSAuthentication` to true or implicitly by setting x509 auth
-// as the only auth mechanism.
-func (s Security) RequiresClientTLSAuthentication() bool {
-	if s.Authentication == nil {
-		return false
-	}
-
-	if len(s.Authentication.Modes) == 1 && s.Authentication.IsX509Enabled() {
-		return true
-	}
-
-	return s.Authentication.RequiresClientTLSAuthentication
-}
-
-func (s *Security) ShouldUseLDAP(currentAgentAuthMode string) bool {
-	return s.GetAgentMechanism(currentAgentAuthMode) == util.LDAP
-}
-
-func (s *Security) GetInternalClusterAuthenticationMode() string {
-	if s == nil || s.Authentication == nil {
-		return ""
-	}
-	if s.Authentication.InternalCluster != "" {
-		return strings.ToUpper(s.Authentication.InternalCluster)
-	}
-	return ""
-}
-
-// Authentication holds various authentication related settings that affect
-// this MongoDB resource.
-type Authentication struct {
-	Enabled         bool       `json:"enabled"`
-	Modes           []AuthMode `json:"modes,omitempty"`
-	InternalCluster string     `json:"internalCluster,omitempty"`
-	// IgnoreUnknownUsers maps to the inverse of auth.authoritativeSet
-	IgnoreUnknownUsers bool `json:"ignoreUnknownUsers,omitempty"`
-
-	// LDAP Configuration
-	// +optional
-	Ldap *Ldap `json:"ldap,omitempty"`
-
-	// Configuration for OIDC providers
-	// +optional
-	OIDCProviderConfigs []OIDCProviderConfig `json:"oidcProviderConfigs,omitempty"`
-
-	// Agents contains authentication configuration properties for the agents
-	// +optional
-	Agents AgentAuthentication `json:"agents,omitempty"`
-
-	// Clients should present valid TLS certificates
-	RequiresClientTLSAuthentication bool `json:"requireClientTLSAuthentication,omitempty"`
-}
-
-// +kubebuilder:validation:Enum=X509;SCRAM;SCRAM-SHA-1;MONGODB-CR;SCRAM-SHA-256;LDAP;OIDC
-type AuthMode string
-
-func ConvertAuthModesToStrings(authModes []AuthMode) []string {
-	stringAuth := make([]string, len(authModes))
-	for i, auth := range authModes {
-		stringAuth[i] = string(auth)
-	}
-	return stringAuth
-}
-
-func IsAuthPresent(authModes []AuthMode, auth string) bool {
-	for _, authMode := range authModes {
-		if string(authMode) == auth {
-			return true
-		}
-	}
-	return false
-}
-
-type AuthenticationRestriction struct {
-	ClientSource  []string `json:"clientSource,omitempty"`
-	ServerAddress []string `json:"serverAddress,omitempty"`
-}
-
-type Resource struct {
-	// +optional
-	Db string `json:"db"`
-	// +optional
-	Collection string `json:"collection"`
-	Cluster    *bool  `json:"cluster,omitempty"`
-}
-
-type Privilege struct {
-	Actions  []string `json:"actions"`
-	Resource Resource `json:"resource"`
-}
-
-type InheritedRole struct {
-	Db   string `json:"db"`
-	Role string `json:"role"`
-}
-
-type MongoDbRole struct {
-	Role                       string                      `json:"role"`
-	AuthenticationRestrictions []AuthenticationRestriction `json:"authenticationRestrictions,omitempty"`
-	Db                         string                      `json:"db"`
-	// +optional
-	Privileges []Privilege     `json:"privileges"`
-	Roles      []InheritedRole `json:"roles,omitempty"`
-}
-
-type AgentAuthentication struct {
-	// Mode is the desired Authentication mode that the agents will use
-	Mode string `json:"mode"`
-	// +optional
-	AutomationUserName string `json:"automationUserName"`
-	// +optional
-	AutomationPasswordSecretRef corev1.SecretKeySelector `json:"automationPasswordSecretRef"`
-	// +optional
-	AutomationLdapGroupDN string `json:"automationLdapGroupDN"`
-	// +optional
-	// +kubebuilder:pruning:PreserveUnknownFields
-	ClientCertificateSecretRefWrap common.ClientCertificateSecretRefWrapper `json:"clientCertificateSecretRef,omitempty"`
-}
-
-// IsX509Enabled determines if X509 is to be enabled at the project level
-// it does not necessarily mean that the agents are using X509 authentication
-func (a *Authentication) IsX509Enabled() bool {
-	if a == nil || !a.Enabled {
-		return false
-	}
-
-	return stringutil.Contains(a.GetModes(), util.X509)
-}
-
-// IsLDAPEnabled determines if LDAP is to be enabled at the project level
-func (a *Authentication) IsLDAPEnabled() bool {
-	if a == nil || !a.Enabled {
-		return false
-	}
-
-	return stringutil.Contains(a.GetModes(), util.LDAP)
-}
-
-// IsOIDCEnabled determines if OIDC is to be enabled at the project level
-func (a *Authentication) IsOIDCEnabled() bool {
-	if a == nil || !a.Enabled {
-		return false
-	}
-
-	return stringutil.Contains(a.GetModes(), util.OIDC)
-}
-
-// GetModes returns the modes of the Authentication instance of an empty
-// list if it is nil
-func (a *Authentication) GetModes() []string {
-	if a == nil {
-		return []string{}
-	}
-	return ConvertAuthModesToStrings(a.Modes)
-}
-
-type Ldap struct {
-	// +optional
-	Servers []string `json:"servers"`
-
-	// +kubebuilder:validation:Enum=tls;none
-	// +optional
-	TransportSecurity *TransportSecurity `json:"transportSecurity"`
-	// +optional
-	ValidateLDAPServerConfig *bool `json:"validateLDAPServerConfig"`
-
-	// Allows to point at a ConfigMap/key with a CA file to mount on the Pod
-	CAConfigMapRef *corev1.ConfigMapKeySelector `json:"caConfigMapRef,omitempty"`
-
-	// +optional
-	BindQueryUser string `json:"bindQueryUser"`
-	// +optional
-	BindQuerySecretRef SecretRef `json:"bindQueryPasswordSecretRef"`
-	// +optional
-	AuthzQueryTemplate string `json:"authzQueryTemplate"`
-	// +optional
-	UserToDNMapping string `json:"userToDNMapping"`
-	// +optional
-	TimeoutMS int `json:"timeoutMS"`
-	// +optional
-	UserCacheInvalidationInterval int `json:"userCacheInvalidationInterval"`
-}
-
-type OIDCProviderConfig struct {
-	// Unique label that identifies this configuration. It is case-sensitive and can only contain the following characters:
-	//  - alphanumeric characters (combination of a to z and 0 to 9)
-	//  - hyphens (-)
-	//  - underscores (_)
-	// +kubebuilder:validation:Pattern="^[a-zA-Z0-9-_]+$"
-	// +kubebuilder:validation:Required
-	ConfigurationName string `json:"configurationName"`
-
-	// Issuer value provided by your registered IdP application. Using this URI, MongoDB finds an OpenID Connect Provider
-	// Configuration Document, which should be available in the /.wellknown/open-id-configuration endpoint.
-	// For MongoDB 7.0, 7.3, and 8.0+, the combination of issuerURI and audience must be unique across OIDC provider configurations.
-	// For other MongoDB versions, the issuerURI itself must be unique.
-	// +kubebuilder:validation:Required
-	IssuerURI string `json:"issuerURI"`
-
-	// Entity that your external identity provider intends the token for.
-	// Enter the audience value from the app you registered with external Identity Provider.
-	// +kubebuilder:validation:Required
-	Audience string `json:"audience"`
-
-	// Select GroupMembership to grant authorization based on IdP user group membership, or select UserID to grant
-	// an individual user authorization.
-	// +kubebuilder:validation:Required
-	AuthorizationType OIDCAuthorizationType `json:"authorizationType"`
-
-	// The identifier of the claim that includes the user principal identity.
-	// Accept the default value unless your IdP uses a different claim.
-	// +kubebuilder:default=sub
-	// +kubebuilder:validation:Required
-	UserClaim string `json:"userClaim"`
-
-	// The identifier of the claim that includes the principal's IdP user group membership information.
-	// Required when selected GroupMembership as the authorization type, ignored otherwise
-	// +kubebuilder:validation:Optional
-	GroupsClaim *string `json:"groupsClaim"`
-
-	// Configure single-sign-on for human user access to deployments with Workforce Identity Federation.
-	// For programmatic, application access to deployments use Workload Identity Federation.
-	// Only one Workforce Identity Federation IdP can be configured per MongoDB resource
-	// +kubebuilder:validation:Required
-	AuthorizationMethod OIDCAuthorizationMethod `json:"authorizationMethod"`
-
-	// Unique identifier for your registered application. Enter the clientId value from the app you
-	// registered with an external Identity Provider.
-	// Required when selected Workforce Identity Federation authorization method
-	// +kubebuilder:validation:Optional
-	ClientId *string `json:"clientId"`
-
-	// Tokens that give users permission to request data from the authorization endpoint.
-	// Only used for Workforce Identity Federation authorization method
-	// +kubebuilder:validation:Optional
-	RequestedScopes []string `json:"requestedScopes,omitempty"`
-}
-
-// +kubebuilder:validation:Enum=GroupMembership;UserID
-type OIDCAuthorizationType string
-
-// +kubebuilder:validation:Enum=WorkforceIdentityFederation;WorkloadIdentityFederation
-type OIDCAuthorizationMethod string
-
-type SecretRef struct {
-	// +kubebuilder:validation:Required
-	Name string `json:"name"`
-}
-
-type TLSConfig struct {
-	// DEPRECATED please enable TLS by setting `security.certsSecretPrefix` or `security.tls.secretRef.prefix`.
-	// Enables TLS for this resource. This will make the operator try to mount a
-	// Secret with a defined name (<resource-name>-cert).
-	// This is only used when enabling TLS on a MongoDB resource, and not on the
-	// AppDB, where TLS is configured by setting `secretRef.Name`.
-	Enabled bool `json:"enabled,omitempty"`
-
-	AdditionalCertificateDomains []string `json:"additionalCertificateDomains,omitempty"`
-
-	// CA corresponds to a ConfigMap containing an entry for the CA certificate (ca.pem)
-	// used to validate the certificates created already.
-	CA string `json:"ca,omitempty"`
-}
-
-func (m *MongoDbSpec) GetTLSConfig() *TLSConfig {
-	if m.Security == nil || m.Security.TLSConfig == nil {
-		return &TLSConfig{}
-	}
-
-	return m.Security.TLSConfig
 }
 
 // UnmarshalJSON when unmarshalling a MongoDB instance, we don't want to have any nil references
@@ -1224,20 +627,6 @@ func (m *MongoDB) MultiMongosRsName(clusterIdx int) string {
 
 func (m *MongoDB) MultiConfigRsName(clusterIdx int) string {
 	return fmt.Sprintf("%s-config-%d", m.Name, clusterIdx)
-}
-
-func (m *MongoDB) IsLDAPEnabled() bool {
-	if m.Spec.Security == nil || m.Spec.Security.Authentication == nil {
-		return false
-	}
-	return m.Spec.Security.Authentication.IsLDAPEnabled()
-}
-
-func (m *MongoDB) IsOIDCEnabled() bool {
-	if m.Spec.Security == nil || m.Spec.Security.Authentication == nil {
-		return false
-	}
-	return m.Spec.Security.Authentication.IsOIDCEnabled()
 }
 
 func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Option) {
@@ -1382,40 +771,6 @@ func (m *MongoDB) ObjectKey() client.ObjectKey {
 	return kube.ObjectKey(m.Namespace, m.Name)
 }
 
-func (m *MongoDB) GetLDAP(password, caContents string) *ldap.Ldap {
-	if !m.IsLDAPEnabled() {
-		return nil
-	}
-
-	mdbLdap := m.Spec.Security.Authentication.Ldap
-	transportSecurity := GetTransportSecurity(mdbLdap)
-
-	validateServerConfig := true
-	if mdbLdap.ValidateLDAPServerConfig != nil {
-		validateServerConfig = *mdbLdap.ValidateLDAPServerConfig
-	}
-
-	return &ldap.Ldap{
-		BindQueryUser:            mdbLdap.BindQueryUser,
-		BindQueryPassword:        password,
-		Servers:                  strings.Join(mdbLdap.Servers, ","),
-		TransportSecurity:        string(transportSecurity),
-		CaFileContents:           caContents,
-		ValidateLDAPServerConfig: validateServerConfig,
-
-		// Related to LDAP Authorization
-		AuthzQueryTemplate: mdbLdap.AuthzQueryTemplate,
-		UserToDnMapping:    mdbLdap.UserToDNMapping,
-
-		// TODO: Enable LDAP SASL bind method
-		BindMethod:         "simple",
-		BindSaslMechanisms: "",
-
-		TimeoutMS:                     mdbLdap.TimeoutMS,
-		UserCacheInvalidationInterval: mdbLdap.UserCacheInvalidationInterval,
-	}
-}
-
 // ExternalAccessConfiguration holds the custom Service override that will be merged into the operator created one.
 type ExternalAccessConfiguration struct {
 	// Provides a way to override the default (NodePort) Service
@@ -1437,14 +792,6 @@ type ExternalServiceConfiguration struct {
 	// A map of annotations that shall be added to the externally available Service.
 	// +optional
 	Annotations map[string]string `json:"annotations,omitempty"`
-}
-
-func GetTransportSecurity(mdbLdap *Ldap) TransportSecurity {
-	transportSecurity := TransportSecurityNone
-	if mdbLdap.TransportSecurity != nil && strings.ToLower(string(*mdbLdap.TransportSecurity)) != "none" {
-		transportSecurity = TransportSecurityTLS
-	}
-	return transportSecurity
 }
 
 type MongoDbPodSpec struct {
@@ -1571,16 +918,8 @@ func (m *MongoDbSpec) Replicas() int {
 	return replicasCount
 }
 
-func (m *MongoDbSpec) GetSecurityAuthenticationModes() []string {
-	return m.GetSecurity().Authentication.GetModes()
-}
-
 func (m *MongoDbSpec) GetResourceType() ResourceType {
 	return m.ResourceType
-}
-
-func (d *DbCommonSpec) IsSecurityTLSConfigEnabled() bool {
-	return d.GetSecurity().IsTLSEnabled()
 }
 
 func (m *MongoDbSpec) GetFeatureCompatibilityVersion() *string {
