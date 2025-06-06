@@ -180,9 +180,9 @@ parameters:
     value: "true"
     description: set this to false to suppress retries on failure
 
-  - key: pin_tag_at
-    value: 10:00
-    description: Pin tags at this time of the day. Midnight by default for periodic and 10 for releases.
+  - key: build_tag_type
+    value: release
+    description: The build type, this is added to the image tag. Used for periodic and release builds.
 
   - key: OVERRIDE_VERSION_ID
     value: ""
