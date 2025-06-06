@@ -175,11 +175,10 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	}
 
 	// ==== 4. Replicaset Construction ====
-	stsOpts, stsPointer, err := r.getRsAndStsConfigs(ctx, rs, log, conn, projectConfig, currentAgentAuthMode, prometheusCertHash)
+	stsOpts, sts, err := r.getRsAndStsConfigs(ctx, rs, log, conn, projectConfig, currentAgentAuthMode, prometheusCertHash)
 	if err != nil {
 		return r.updateStatus(ctx, rs, workflow.Failed(err), log)
 	}
-	sts := *stsPointer
 
 	if scale.ReplicasThisReconciliation(rs) < rs.Status.Members {
 		if err := replicaset.PrepareScaleDownFromStatefulSet(conn, sts, rs, log); err != nil {
@@ -301,7 +300,7 @@ func (r *ReconcileMongoDbReplicaSet) reconcileStatefulSet(ctx context.Context, r
 	return workflow.OK()
 }
 
-func (r *ReconcileMongoDbReplicaSet) getRsAndStsConfigs(ctx context.Context, rs *mdbv1.MongoDB, log *zap.SugaredLogger, conn om.Connection, projectConfig mdbv1.ProjectConfig, currentAgentAuthMode string, prometheusCertHash string) (func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, *appsv1.StatefulSet, error) {
+func (r *ReconcileMongoDbReplicaSet) getRsAndStsConfigs(ctx context.Context, rs *mdbv1.MongoDB, log *zap.SugaredLogger, conn om.Connection, projectConfig mdbv1.ProjectConfig, currentAgentAuthMode string, prometheusCertHash string) (func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, appsv1.StatefulSet, error) {
 
 	rsCertsConfig := certs.ReplicaSetConfig(*rs)
 
@@ -321,7 +320,7 @@ func (r *ReconcileMongoDbReplicaSet) getRsAndStsConfigs(ctx context.Context, rs 
 		if !rs.IsAgentImageOverridden() {
 			automationAgentVersion, err = r.getAgentVersion(conn, conn.OpsManagerVersion().VersionString, false, log)
 			if err != nil {
-				return nil, nil, xerrors.Errorf("Impossible to get agent version, please override the agent image by providing a pod template: %w", err)
+				return nil, appsv1.StatefulSet{}, xerrors.Errorf("Impossible to get agent version, please override the agent image by providing a pod template: %w", err)
 			}
 		}
 	}
@@ -343,7 +342,7 @@ func (r *ReconcileMongoDbReplicaSet) getRsAndStsConfigs(ctx context.Context, rs 
 
 	sts := construct.DatabaseStatefulSet(*rs, opts, log)
 
-	return opts, &sts, nil
+	return opts, sts, nil
 }
 
 func getHostnameOverrideConfigMapForReplicaset(mdb mdbv1.MongoDB) corev1.ConfigMap {
