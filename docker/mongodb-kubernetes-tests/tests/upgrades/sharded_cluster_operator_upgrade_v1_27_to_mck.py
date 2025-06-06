@@ -79,7 +79,8 @@ def sharded_cluster(
         yaml_fixture("sharded-cluster.yaml"),
         namespace=namespace,
         name=MDB_RESOURCE,
-    )
+    ).configure(om=None, project_name=MDB_RESOURCE)
+
     resource.set_version(custom_mdb_version)
     resource["spec"]["mongodsPerShardCount"] = 2
     resource["spec"]["configServerCount"] = 2
