@@ -2,6 +2,7 @@ package util
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 
 	"github.com/imdario/mergo"
@@ -90,8 +91,14 @@ func merge(structAsMap, unmodifiedOriginalMap map[string]interface{}) {
 
 func (t AutomationConfigTransformer) Transformer(reflect.Type) func(dst, src reflect.Value) error {
 	return func(dst, src reflect.Value) error {
-		dstMap := cast.ToStringMap(dst.Interface())
-		srcMap := cast.ToStringMap(src.Interface())
+		dstMap, dstErr := cast.ToStringMapE(dst.Interface())
+		if dstErr != nil {
+			return fmt.Errorf("failed to convert dst %v to string map: %w", dst.Interface(), dstErr)
+		}
+		srcMap, srcErr := cast.ToStringMapE(src.Interface())
+		if srcErr != nil {
+			return fmt.Errorf("failed to convert src %v to string map: %w", src.Interface(), srcErr)
+		}
 		merge(dstMap, srcMap)
 		return nil
 	}
