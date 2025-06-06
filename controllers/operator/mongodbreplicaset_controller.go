@@ -211,7 +211,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	if err != nil {
 		lastSpec = &mdbv1.MongoDbSpec{}
 	}
-	
+
 	status = workflow.RunInGivenOrder(publishAutomationConfigFirst(ctx, r.client, *rs, lastSpec, stsOpts, log),
 		func() workflow.Status {
 			return r.updateOmDeploymentRs(ctx, conn, rs.Status.Members, rs, sts, log, caFilePath, agentCertSecretName, prometheusCertHash, false).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
@@ -446,7 +446,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 	// Only "concrete" RS members should be observed
 	// - if scaling down, let's observe only members that will remain after scale-down operation
 	// - if scaling up, observe only current members, because new ones might not exist yet
-	err := agents.WaitForRsAgentsToRegister(set, util_int.Min(membersNumberBefore, int(*set.Spec.Replicas)), rs.Spec.GetClusterDomain(), conn, log, rs)
+	err := agents.WaitForRsAgentsToRegister(set, util_int.Min(membersNumberBefore, scale.ReplicasThisReconciliation(rs)), rs.Spec.GetClusterDomain(), conn, log, rs)
 	if err != nil && !isRecovering {
 		return workflow.Failed(err)
 	}
@@ -464,7 +464,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 		// TLS to be completely disabled first.
 		updatedMembers = membersNumberBefore
 	} else {
-		updatedMembers = int(*set.Spec.Replicas)
+		updatedMembers = scale.ReplicasThisReconciliation(rs)
 	}
 
 	replicaSet := replicaset.BuildFromStatefulSetWithReplicas(r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, set, rs.GetSpec(), updatedMembers, rs.CalculateFeatureCompatibilityVersion())
