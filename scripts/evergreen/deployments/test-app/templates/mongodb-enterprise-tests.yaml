@@ -80,8 +80,9 @@ spec:
     - name: OTEL_RESOURCE_ATTRIBUTES
       value: {{ .Values.otel_resource_attributes }}
     {{ end }}
+    # Set service name to identify this component in the trace
     - name: OTEL_SERVICE_NAME
-      value: evergreen-agent
+      value: mongodb-e2e-tests
     - name: PYTEST_RUN_NAME
       value: {{ .Values.taskName }}
     - name: TASK_ID
@@ -193,6 +194,8 @@ spec:
     # Options to pytest command should go in the pytest.ini file.
     command: ["pytest"]
     {{ if .Values.otel_endpoint }}
+    # Use trace-parent to create the root span with specified trace ID and parent ID
+    # Note: we create the root span here, and the operator will create child spans that connect to it
     args: ["-vv", "-m", "{{ .Values.taskName }}", "--trace-parent", "00-{{ .Values.otel_trace_id }}-{{ .Values.otel_parent_id }}-01", "--export-traces"]
     {{ else }}
     args: ["-vv", "-m", "{{ .Values.taskName }}"]
