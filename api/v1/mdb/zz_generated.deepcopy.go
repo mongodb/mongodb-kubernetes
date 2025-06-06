@@ -22,10 +22,10 @@ package mdb
 
 import (
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	apiv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	corev1 "k8s.io/api/core/v1"
+	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -426,7 +426,7 @@ func (in *DbCommonSpec) DeepCopyInto(out *DbCommonSpec) {
 	}
 	if in.Prometheus != nil {
 		in, out := &in.Prometheus, &out.Prometheus
-		*out = new(v1.Prometheus)
+		*out = new(apiv1.Prometheus)
 		**out = **in
 	}
 	if in.StatefulSetConfiguration != nil {
@@ -593,7 +593,7 @@ func (in *Ldap) DeepCopyInto(out *Ldap) {
 	}
 	if in.CAConfigMapRef != nil {
 		in, out := &in.CAConfigMapRef, &out.CAConfigMapRef
-		*out = new(corev1.ConfigMapKeySelector)
+		*out = new(v1.ConfigMapKeySelector)
 		(*in).DeepCopyInto(*out)
 	}
 	out.BindQuerySecretRef = in.BindQuerySecretRef
