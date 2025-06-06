@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
 	"reflect"
 
 	"github.com/blang/semver"
@@ -865,7 +866,7 @@ func publishAutomationConfigFirst(ctx context.Context, getter kubernetesClient.C
 		return true
 	}
 
-	if opts.Replicas < int(*currentSts.Spec.Replicas) {
+	if scale.IsScalingDown(&mdb) {
 		log.Debug("Scaling down operation. automationConfig needs to be updated first")
 		return true
 	}
