@@ -53,6 +53,9 @@ spec:
             {{- if .Values.multiCluster.clusters }}
             - -watch-resource=mongodbmulticluster
             {{- end }}
+            {{- if .Values.operator.enableClusterMongoDBRoles }}
+            - -watch-resource=clustermongodbroles
+            {{- end }}
             {{- range .Values.operator.additionalArguments }}
             - {{ . }}
             {{- end }}

@@ -1,0 +1,28 @@
+apiVersion: mongodb.com/v1
+kind: ClusterMongoDBRole
+metadata:
+  name: test-customrole
+spec:
+  role: "test-customrole"
+  db: "admin"
+  roles:
+    - db: "admin"
+      role: "root"
+  privileges:
+    - resource:
+        db: "admin"
+        collection: "system.users"
+      actions:
+        - "find"
+        - "update"
+    - resource:
+        db: "admin"
+        collection: "system.roles"
+      actions:
+        - "find"
+        - "update"
+  authenticationRestrictions:
+    - clientSource:
+        - "127.0.0.0/8"
+      serverAddress:
+        - "10.0.0.0/8"
