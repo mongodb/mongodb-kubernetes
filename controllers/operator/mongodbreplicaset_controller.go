@@ -98,6 +98,7 @@ func newReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imag
 // Reconcile reads that state of the cluster for a MongoDbReplicaSet object and makes changes based on the state read
 // and what is in the MongoDbReplicaSet.Spec
 func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
+	// ==== 1. Initial checks and setup ====
 	log := zap.S().With("ReplicaSet", request.NamespacedName)
 	rs := &mdbv1.MongoDB{}
 
@@ -145,6 +146,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(ctx, rs, status, log)
 	}
 
+	// ==== 2. Reconcile Certificates ====
 	status := certs.EnsureSSLCertsForStatefulSet(ctx, r.SecretClient, r.SecretClient, *rs.Spec.Security, certs.ReplicaSetConfig(*rs), log)
 	if !status.IsOK() {
 		return r.updateStatus(ctx, rs, status, log)
@@ -156,6 +158,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(ctx, rs, workflow.Pending("%s", err.Error()), log)
 	}
 
+	// ==== 3. Reconcile Features and Authentication (Vault?) ====
 	if status := controlledfeature.EnsureFeatureControls(*rs, conn, conn.OpsManagerVersion(), log); !status.IsOK() {
 		return r.updateStatus(ctx, rs, status, log)
 	}
@@ -171,54 +174,12 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(ctx, rs, status, log)
 	}
 
-	rsCertsConfig := certs.ReplicaSetConfig(*rs)
-
-	var vaultConfig vault.VaultConfiguration
-	var databaseSecretPath string
-	if r.VaultClient != nil {
-		vaultConfig = r.VaultClient.VaultConfig
-		databaseSecretPath = r.VaultClient.DatabaseSecretPath()
+	// ==== 4. Replicaset Construction ====
+	stsOpts, stsPointer, err := r.getRsAndStsConfigs(ctx, rs, log, conn, projectConfig, currentAgentAuthMode, prometheusCertHash)
+	if err != nil {
+		return r.updateStatus(ctx, rs, workflow.Failed(err), log)
 	}
-
-	var automationAgentVersion string
-	if architectures.IsRunningStaticArchitecture(rs.Annotations) {
-		// In case the Agent *is* overridden, its version will be merged into the StatefulSet. The merging process
-		// happens after creating the StatefulSet definition.
-		if !rs.IsAgentImageOverridden() {
-			automationAgentVersion, err = r.getAgentVersion(conn, conn.OpsManagerVersion().VersionString, false, log)
-			if err != nil {
-				log.Errorf("Impossible to get agent version, please override the agent image by providing a pod template")
-				status := workflow.Failed(xerrors.Errorf("Failed to get agent version: %w", err))
-				return r.updateStatus(ctx, rs, status, log)
-			}
-		}
-	}
-
-	rsConfig := construct.ReplicaSetOptions(
-		PodEnvVars(newPodVars(conn, projectConfig, rs.Spec.LogLevel)),
-		CurrentAgentAuthMechanism(currentAgentAuthMode),
-		CertificateHash(enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, rs.Namespace, rsCertsConfig.CertSecretName, databaseSecretPath, log)),
-		InternalClusterHash(enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, rs.Namespace, rsCertsConfig.InternalClusterSecretName, databaseSecretPath, log)),
-		PrometheusTLSCertHash(prometheusCertHash),
-		WithVaultConfig(vaultConfig),
-		WithLabels(rs.Labels),
-		WithAdditionalMongodConfig(rs.Spec.GetAdditionalMongodConfig()),
-		WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
-		WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
-		WithAgentImage(images.ContainerImage(r.imageUrls, architectures.MdbAgentImageRepo, automationAgentVersion)),
-		WithMongodbImage(images.GetOfficialImage(r.imageUrls, rs.Spec.Version, rs.GetAnnotations())),
-	)
-
-	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
-
-	if err := r.reconcileHostnameOverrideConfigMap(ctx, log, r.client, *rs); err != nil {
-		return r.updateStatus(ctx, rs, workflow.Failed(xerrors.Errorf("Failed to reconcileHostnameOverrideConfigMap: %w", err)), log)
-	}
-
-	sts := construct.DatabaseStatefulSet(*rs, rsConfig, log)
-	if status := ensureRoles(rs.Spec.GetSecurity().Roles, conn, log); !status.IsOK() {
-		return r.updateStatus(ctx, rs, status, log)
-	}
+	sts := *stsPointer
 
 	if scale.ReplicasThisReconciliation(rs) < rs.Status.Members {
 		if err := replicaset.PrepareScaleDownFromStatefulSet(conn, sts, rs, log); err != nil {
@@ -226,6 +187,8 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		}
 	}
 
+	// ==== 5. Recovery logic ====
+	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
 	agentCertSecretName := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name).Name
 	agentCertSecretName += certs.OperatorGeneratedCertSuffix
 
@@ -235,20 +198,21 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	if recovery.ShouldTriggerRecovery(rs.Status.Phase != mdbstatus.PhaseRunning, rs.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", rs.Namespace, rs.Name, rs.Status.Phase, rs.Status.LastTransition)
 		automationConfigStatus := r.updateOmDeploymentRs(ctx, conn, rs.Status.Members, rs, sts, log, caFilePath, agentCertSecretName, prometheusCertHash, true).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
-		deploymentError := create.DatabaseInKubernetes(ctx, r.client, *rs, sts, rsConfig, log)
-		if deploymentError != nil {
-			log.Errorf("Recovery failed because of deployment errors, %w", deploymentError)
+		if reconcileStatus := r.reconcileMemberResources(ctx, rs, sts, stsOpts, log, conn); !reconcileStatus.IsOK() {
+			log.Errorf("Recovery failed because of reconcile errors, %v", reconcileStatus)
 		}
 		if !automationConfigStatus.IsOK() {
 			log.Errorf("Recovery failed because of Automation Config update errors, %v", automationConfigStatus)
 		}
 	}
 
+	// ==== 6. Actual reconciliation: OM updates and Kubernetes resources updates ====
 	lastSpec, err := rs.GetLastSpec()
 	if err != nil {
 		lastSpec = &mdbv1.MongoDbSpec{}
 	}
-	status = workflow.RunInGivenOrder(publishAutomationConfigFirst(ctx, r.client, *rs, lastSpec, rsConfig, log),
+	
+	status = workflow.RunInGivenOrder(publishAutomationConfigFirst(ctx, r.client, *rs, lastSpec, stsOpts, log),
 		func() workflow.Status {
 			return r.updateOmDeploymentRs(ctx, conn, rs.Status.Members, rs, sts, log, caFilePath, agentCertSecretName, prometheusCertHash, false).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
@@ -261,8 +225,8 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 				_, _ = r.updateStatus(ctx, rs, workflow.Pending(""), log, workflowStatus.StatusOptions()...)
 			}
 
-			if err := create.DatabaseInKubernetes(ctx, r.client, *rs, sts, rsConfig, log); err != nil {
-				return workflow.Failed(xerrors.Errorf("Failed to create/update (Kubernetes reconciliation phase): %w", err))
+			if reconcileStatus := r.reconcileMemberResources(ctx, rs, sts, stsOpts, log, conn); !reconcileStatus.IsOK() {
+				return reconcileStatus
 			}
 
 			if status := statefulset.GetStatefulSetStatus(ctx, rs.Namespace, rs.Name, r.client); !status.IsOK() {
@@ -277,6 +241,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(ctx, rs, status, log)
 	}
 
+	// ==== 7. Final steps ====
 	if scale.IsStillScaling(rs) {
 		return r.updateStatus(ctx, rs, workflow.Pending("Continuing scaling operation for ReplicaSet %s, desiredMembers=%d, currentMembers=%d", rs.ObjectKey(), rs.DesiredReplicas(), scale.ReplicasThisReconciliation(rs)), log, mdbstatus.MembersOption(rs))
 	}
@@ -306,6 +271,79 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 
 	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	return r.updateStatus(ctx, rs, workflow.OK(), log, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), mdbstatus.MembersOption(rs), mdbstatus.NewPVCsStatusOptionEmptyStatus())
+}
+
+// reconcileMemberResources handles the synchronization of kubernetes resources, which can be statefulsets, services etc.
+// All the resources required in the k8s cluster (as opposed to the automation config) for creating the replicaset
+// should be reconciled in this method.
+func (r *ReconcileMongoDbReplicaSet) reconcileMemberResources(ctx context.Context, rs *mdbv1.MongoDB, sts appsv1.StatefulSet, stsOpts func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger, conn om.Connection) workflow.Status {
+
+	if err := r.reconcileHostnameOverrideConfigMap(ctx, log, r.client, *rs); err != nil {
+		return workflow.Failed(xerrors.Errorf("Failed to reconcileHostnameOverrideConfigMap: %w", err))
+	}
+
+	if status := ensureRoles(rs.GetSecurity().Roles, conn, log); !status.IsOK() {
+		return status
+	}
+
+	return r.reconcileStatefulSet(ctx, rs, sts, stsOpts, log)
+}
+
+func (r *ReconcileMongoDbReplicaSet) reconcileStatefulSet(ctx context.Context, rs *mdbv1.MongoDB, sts appsv1.StatefulSet, stsOpts func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) workflow.Status {
+
+	if err := create.DatabaseInKubernetes(ctx, r.client, *rs, sts, stsOpts, log); err != nil {
+		return workflow.Failed(xerrors.Errorf("Failed to create/update (Kubernetes reconciliation phase): %w", err))
+	}
+
+	if status := statefulset.GetStatefulSetStatus(ctx, rs.Namespace, rs.Name, r.client); !status.IsOK() {
+		return status
+	}
+	return workflow.OK()
+}
+
+func (r *ReconcileMongoDbReplicaSet) getRsAndStsConfigs(ctx context.Context, rs *mdbv1.MongoDB, log *zap.SugaredLogger, conn om.Connection, projectConfig mdbv1.ProjectConfig, currentAgentAuthMode string, prometheusCertHash string) (func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, *appsv1.StatefulSet, error) {
+
+	rsCertsConfig := certs.ReplicaSetConfig(*rs)
+
+	var vaultConfig vault.VaultConfiguration
+	var databaseSecretPath string
+	if r.VaultClient != nil {
+		vaultConfig = r.VaultClient.VaultConfig
+		databaseSecretPath = r.VaultClient.DatabaseSecretPath()
+	}
+
+	// Database container and versions configuration
+	var automationAgentVersion string
+	var err error
+	if architectures.IsRunningStaticArchitecture(rs.Annotations) {
+		// In case the Agent *is* overridden, its version will be merged into the StatefulSet. The merging process
+		// happens after creating the StatefulSet definition.
+		if !rs.IsAgentImageOverridden() {
+			automationAgentVersion, err = r.getAgentVersion(conn, conn.OpsManagerVersion().VersionString, false, log)
+			if err != nil {
+				return nil, nil, xerrors.Errorf("Impossible to get agent version, please override the agent image by providing a pod template: %w", err)
+			}
+		}
+	}
+
+	opts := construct.ReplicaSetOptions(
+		PodEnvVars(newPodVars(conn, projectConfig, rs.Spec.LogLevel)),
+		CurrentAgentAuthMechanism(currentAgentAuthMode),
+		CertificateHash(enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, rs.Namespace, rsCertsConfig.CertSecretName, databaseSecretPath, log)),
+		InternalClusterHash(enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, rs.Namespace, rsCertsConfig.InternalClusterSecretName, databaseSecretPath, log)),
+		PrometheusTLSCertHash(prometheusCertHash),
+		WithVaultConfig(vaultConfig),
+		WithLabels(rs.Labels),
+		WithAdditionalMongodConfig(rs.Spec.GetAdditionalMongodConfig()),
+		WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
+		WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
+		WithAgentImage(images.ContainerImage(r.imageUrls, architectures.MdbAgentImageRepo, automationAgentVersion)),
+		WithMongodbImage(images.GetOfficialImage(r.imageUrls, rs.Spec.Version, rs.GetAnnotations())),
+	)
+
+	sts := construct.DatabaseStatefulSet(*rs, opts, log)
+
+	return opts, &sts, nil
 }
 
 func getHostnameOverrideConfigMapForReplicaset(mdb mdbv1.MongoDB) corev1.ConfigMap {
