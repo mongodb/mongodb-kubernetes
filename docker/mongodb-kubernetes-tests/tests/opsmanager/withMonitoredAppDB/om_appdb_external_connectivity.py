@@ -4,12 +4,12 @@ from typing import Optional
 from kubetester import create_or_update_secret, get_service
 from kubetester.certs import create_ops_manager_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pytest import fixture, mark
+from tests.common.cert.cert_issuer import create_appdb_certs
 from tests.common.placeholders import placeholders
 from tests.conftest import (
-    create_appdb_certs,
     default_external_domain,
     external_domain_fqdns,
     update_coredns_hosts,

@@ -4,15 +4,16 @@ from typing import Dict, List
 import kubernetes
 from kubetester import create_secret, wait_until
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.certs import create_multi_cluster_mongodb_tls_certs
+from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_static_containers
 from kubetester.ldap import LDAP_AUTHENTICATION_MECHANISM, LDAPUser, OpenLDAP
-from kubetester.mongodb import Phase
-from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
+from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.mongodb_user import MongoDBUser, Role, generic_user
+from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import get_multi_cluster_operator_installation_config
 from tests.multicluster.conftest import cluster_spec_list

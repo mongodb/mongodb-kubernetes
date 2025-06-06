@@ -11,8 +11,8 @@ from kubetester import try_load
 from kubetester.custom_podspec import assert_volume_mounts_are_equal
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import is_default_architecture_static
-from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import APPDB_SA_NAME, OM_SA_NAME, is_multi_cluster
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment

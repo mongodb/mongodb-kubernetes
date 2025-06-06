@@ -9,8 +9,9 @@ from kubetester.create_or_replace_from_yaml import (
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as _fixture
 from kubetester.kubetester import get_pods
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 from oauthlib.oauth1.rfc5849.endpoints import resource
 from pytest import fixture, mark
 

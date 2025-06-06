@@ -2,8 +2,9 @@ import pytest
 from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.kubetester import skip_if_local
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.mongotester import StandaloneTester
+from kubetester.phase import Phase
 
 
 @pytest.fixture(scope="module")

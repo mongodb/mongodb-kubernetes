@@ -3,11 +3,12 @@ from typing import List
 import kubernetes
 from kubernetes import client
 from kubetester import get_service
-from kubetester.certs import create_multi_cluster_mongodb_tls_certs
+from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import Phase
-from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
+from kubetester.mongodb_multi import MongoDBMulti
+from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.common.placeholders import placeholders
 from tests.conftest import update_coredns_hosts

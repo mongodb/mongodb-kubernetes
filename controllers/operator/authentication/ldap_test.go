@@ -11,7 +11,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
 )
 
-var LDAPPlainMechanism = getMechanismByName(LDAPPlain)
+var ldapPlainMechanism = getMechanismByName(LDAPPlain)
 
 func TestLdapDeploymentMechanism(t *testing.T) {
 	conn := om.NewMockedOmConnection(om.NewDeployment())
@@ -24,7 +24,7 @@ func TestLdapDeploymentMechanism(t *testing.T) {
 		},
 	}
 
-	err := LDAPPlainMechanism.EnableDeploymentAuthentication(conn, opts, zap.S())
+	err := ldapPlainMechanism.EnableDeploymentAuthentication(conn, opts, zap.S())
 	require.NoError(t, err)
 
 	ac, err := conn.ReadAutomationConfig()
@@ -34,7 +34,7 @@ func TestLdapDeploymentMechanism(t *testing.T) {
 	assert.Equal(t, "Servers", ac.Ldap.Servers)
 	assert.Equal(t, "BindMethod", ac.Ldap.BindMethod)
 
-	err = LDAPPlainMechanism.DisableDeploymentAuthentication(conn, zap.S())
+	err = ldapPlainMechanism.DisableDeploymentAuthentication(conn, zap.S())
 	require.NoError(t, err)
 
 	ac, err = conn.ReadAutomationConfig()
@@ -55,7 +55,7 @@ func TestLdapEnableAgentAuthentication(t *testing.T) {
 		AutoPwd:          "LDAPPassword.",
 	}
 
-	err := LDAPPlainMechanism.EnableAgentAuthentication(conn, opts, zap.S())
+	err := ldapPlainMechanism.EnableAgentAuthentication(conn, opts, zap.S())
 	require.NoError(t, err)
 
 	ac, err := conn.ReadAutomationConfig()
@@ -80,5 +80,5 @@ func TestLDAP_DisableAgentAuthentication(t *testing.T) {
 		},
 	}
 
-	assertAgentAuthenticationDisabled(t, LDAPPlainMechanism, conn, opts)
+	assertAgentAuthenticationDisabled(t, ldapPlainMechanism, conn, opts)
 }

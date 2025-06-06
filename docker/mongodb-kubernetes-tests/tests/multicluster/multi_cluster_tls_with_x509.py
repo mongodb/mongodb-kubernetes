@@ -4,17 +4,21 @@ from typing import List
 import kubernetes
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import (
+    Certificate,
+    create_multi_cluster_x509_user_cert,
+)
+from kubetester.certs_mongodb_multi import (
     create_multi_cluster_mongodb_x509_tls_certs,
     create_multi_cluster_x509_agent_certs,
-    create_multi_cluster_x509_user_cert,
 )
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
-from kubetester.mongodb import Phase
-from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
+from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.mongodb_user import MongoDBUser
+from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.multicluster.conftest import cluster_spec_list
 

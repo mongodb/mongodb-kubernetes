@@ -9,8 +9,9 @@ from kubetester import (
     wait_until,
 )
 from kubetester.kubetester import KubernetesTester
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
+from kubetester.phase import Phase
 from pytest import fixture, mark
 
 MDB_RESOURCE = "my-replica-set"

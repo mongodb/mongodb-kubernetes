@@ -3,15 +3,16 @@ from typing import List
 import kubernetes
 from kubetester import create_secret, read_secret
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.certs import create_multi_cluster_mongodb_tls_certs
+from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
-from kubetester.mongodb import Phase
-from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
+from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.mongotester import with_scram, with_tls
+from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.multicluster.conftest import cluster_spec_list
 

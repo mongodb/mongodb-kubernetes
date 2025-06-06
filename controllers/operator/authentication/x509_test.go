@@ -12,7 +12,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
-var MongoDBX509Mechanism = getMechanismByName(MongoDBX509)
+var mongoDBX509Mechanism = getMechanismByName(MongoDBX509)
 
 func TestX509EnableAgentAuthentication(t *testing.T) {
 	conn := om.NewMockedOmConnection(om.NewDeployment())
@@ -25,7 +25,7 @@ func TestX509EnableAgentAuthentication(t *testing.T) {
 		},
 		AuthoritativeSet: true,
 	}
-	if err := MongoDBX509Mechanism.EnableAgentAuthentication(conn, options, zap.S()); err != nil {
+	if err := mongoDBX509Mechanism.EnableAgentAuthentication(conn, options, zap.S()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -55,14 +55,14 @@ func TestX509_DisableAgentAuthentication(t *testing.T) {
 			AutomationSubject: validSubject("automation"),
 		},
 	}
-	assertAgentAuthenticationDisabled(t, MongoDBX509Mechanism, conn, opts)
+	assertAgentAuthenticationDisabled(t, mongoDBX509Mechanism, conn, opts)
 }
 
 func TestX509_DeploymentConfigured(t *testing.T) {
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 	opts := Options{AgentMechanism: "SCRAM", CAFilePath: util.CAFilePathInContainer}
 
-	assertDeploymentMechanismsConfigured(t, MongoDBX509Mechanism, conn, opts)
+	assertDeploymentMechanismsConfigured(t, mongoDBX509Mechanism, conn, opts)
 
 	ac, err := conn.ReadAutomationConfig()
 	require.NoError(t, err)

@@ -481,7 +481,11 @@ func waitForReadyState(conn om.Connection, log *zap.SugaredLogger) error {
 }
 
 func externalAuthMechanismsAvailable(mechanisms []string) bool {
-	return stringutil.ContainsAny(mechanisms, util.AutomationConfigLDAPOption, util.AutomationConfigX509Option)
+	return stringutil.ContainsAny(mechanisms,
+		util.AutomationConfigLDAPOption,
+		util.AutomationConfigX509Option,
+		util.AutomationConfigOIDCOption,
+	)
 }
 
 func getAnnotationsForUserResource(user *userv1.MongoDBUser) (map[string]string, error) {

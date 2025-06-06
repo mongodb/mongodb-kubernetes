@@ -8,11 +8,12 @@ import pytest
 from kubetester import create_or_update_secret, find_fixture, try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from tests.conftest import (
     MULTI_CLUSTER_OPERATOR_NAME,
     TELEMETRY_CONFIGMAP_NAME,

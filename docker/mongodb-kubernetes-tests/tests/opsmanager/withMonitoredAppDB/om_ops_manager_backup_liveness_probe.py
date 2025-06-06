@@ -1,13 +1,14 @@
 from typing import Optional
 
 from kubernetes import client
-from kubetester import MongoDB, try_load
+from kubetester import try_load
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
-from kubetester.mongodb import Phase
+from kubetester.mongodb import MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import get_member_cluster_api_client, is_multi_cluster
 from tests.opsmanager.om_ops_manager_backup import (

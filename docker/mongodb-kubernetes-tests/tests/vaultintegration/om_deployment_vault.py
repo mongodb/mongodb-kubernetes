@@ -14,9 +14,10 @@ from kubetester import (
 from kubetester.certs import create_mongodb_tls_certs, create_ops_manager_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import Phase, get_pods
+from kubetester.kubetester import get_pods
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pytest import fixture, mark
 
 from ..conftest import APPDB_SA_NAME, OM_SA_NAME, OPERATOR_NAME

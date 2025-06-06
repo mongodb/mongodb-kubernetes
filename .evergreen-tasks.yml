@@ -1245,6 +1245,42 @@ tasks:
     commands:
       - func: e2e_test
 
+  # OIDC tests
+  - name: e2e_replica_set_oidc_m2m_group
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_replica_set_oidc_m2m_user
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_replica_set_oidc_workforce
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_sharded_cluster_oidc_m2m_group
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_sharded_cluster_oidc_m2m_user
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_oidc_m2m_group
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_oidc_m2m_user
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
   - name: e2e_search_community_basic
     tags: ["patch-run"]
     commands:
