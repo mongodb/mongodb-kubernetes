@@ -254,6 +254,11 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_mongodb_custom_roles
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_replica_set_recovery
     tags: [ "patch-run" ]
     commands:
@@ -644,7 +649,7 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_replica_set_custom_roles
+  - name: e2e_replica_set_ldap_custom_roles
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"

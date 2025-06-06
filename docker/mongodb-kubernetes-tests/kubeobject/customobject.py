@@ -145,7 +145,7 @@ class CustomObject:
             self.reload()
 
     @classmethod
-    def from_yaml(cls, yaml_file, name=None, namespace=None):
+    def from_yaml(cls, yaml_file, name=None, namespace=None, cluster_scoped=False):
         """Creates a `CustomObject` from a yaml file. In this case, `name` and
         `namespace` are optional in this function's signature, because they
         might be passed as part of the `yaml_file` document.
@@ -161,21 +161,22 @@ class CustomObject:
                 "or exist in the `metadata` section of the yaml document."
             )
 
-        if (namespace is None or namespace == "") and "namespace" not in doc["metadata"]:
-            raise ValueError(
-                "`namespace` needs to be passed as part of the function call "
-                "or exist in the `metadata` section of the yaml document."
-            )
+        if not cluster_scoped:
+            if (namespace is None or namespace == "") and "namespace" not in doc["metadata"]:
+                raise ValueError(
+                    "`namespace` needs to be passed as part of the function call "
+                    "or exist in the `metadata` section of the yaml document."
+                )
+
+            if namespace is None:
+                namespace = doc["metadata"]["namespace"]
+            else:
+                doc["metadata"]["namespace"] = namespace
 
         if name is None:
             name = doc["metadata"]["name"]
         else:
             doc["metadata"]["name"] = name
-
-        if namespace is None:
-            namespace = doc["metadata"]["namespace"]
-        else:
-            doc["metadata"]["namespace"] = namespace
 
         kind = doc["kind"]
         api_version = doc["apiVersion"]
