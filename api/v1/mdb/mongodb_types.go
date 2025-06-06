@@ -935,35 +935,10 @@ func NewOpsManagerConfig() *PrivateCloudConfig {
 	return &PrivateCloudConfig{}
 }
 
-func EnsureSecurity(sec *Security) *Security {
-	if sec == nil {
-		sec = newSecurity()
-	}
-	if sec.TLSConfig == nil {
-		sec.TLSConfig = &TLSConfig{}
-	}
-	if sec.Roles == nil {
-		sec.Roles = make([]MongoDbRole, 0)
-	}
-	return sec
-}
-
-func newAuthentication() *Authentication {
-	return &Authentication{Modes: []AuthMode{}}
-}
-
-func newSecurity() *Security {
-	return &Security{TLSConfig: &TLSConfig{}}
-}
-
 // BuildConnectionString returns a string with a connection string for this resource.
 func (m *MongoDB) BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
 	builder := NewMongoDBConnectionStringBuilder(*m, nil)
 	return builder.BuildConnectionString(username, password, scheme, connectionParams)
-}
-
-func (m *MongoDB) GetAuthenticationModes() []string {
-	return m.Spec.Security.Authentication.GetModes()
 }
 
 func (m *MongoDB) CalculateFeatureCompatibilityVersion() string {
