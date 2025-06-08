@@ -150,13 +150,12 @@ func oidcProviderConfigUniqueIssuerURIValidation(configs []OIDCProviderConfig) f
 			return v1.ValidationSuccess()
 		}
 
-		// Check if version supports duplicate issuers (7.0, 7.3, or 8.0+)
+		// Check if version supports duplicate issuers (8.0+)
 		versionParts := strings.Split(strings.TrimSuffix(d.Version, "-ent"), ".")
 		supportsMultipleIssuers := false
-		if len(versionParts) >= 2 {
+		if len(versionParts) >= 1 {
 			major := versionParts[0]
-			minor := versionParts[1]
-			if major == "8" || (major == "7" && (minor == "0" || minor == "3")) {
+			if major == "8" {
 				supportsMultipleIssuers = true
 			}
 		}
