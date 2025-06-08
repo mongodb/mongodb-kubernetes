@@ -33,12 +33,3 @@ in OpenShift with the MongoDb ClusterServiceVersion. See the `openshift` directo
 This image can't be built in any host, because it will require the use of a subscription service with Redhat. A RHEL
 host, with subscription service enabled, is required. That's the reason behind using the Redhat build service to build
 this images with.
-
-## Building the DCAR database image
-
-The dcar image needs to be built manually.
-
-```bash
-docker build . -t 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/usaf/mongodb-kubernetes-database:1.5.3
-docker push 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/usaf/mongodb-kubernetes-database:1.5.3
-```
