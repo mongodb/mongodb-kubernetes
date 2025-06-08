@@ -2,7 +2,8 @@ from unittest import skip
 
 from ..sonar import process_image
 
-#@skip("This test case is only used to generate the final Dockerfile for ops-manager")
+
+@skip("This test case is only used to generate the final Dockerfile for ops-manager")
 def test_build_om_dockerfile():
     process_image(
         image_name="ops-manager",
@@ -15,4 +16,18 @@ def test_build_om_dockerfile():
         },
         build_options={},
         inventory="inventories/om.yaml",
+    )
+
+#skip("This test case is only used to generate the final Dockerfile for database")
+def test_build_database_dockerfile():
+    process_image(
+        image_name="database",
+        skip_tags=["release"],
+        include_tags=["final_dockerfile"],
+        build_args={
+            "registry": "localhost:5000",
+            "version": "1.1.0",
+        },
+        build_options={},
+        inventory="inventories/database.yaml",
     )

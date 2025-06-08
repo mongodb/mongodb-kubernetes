@@ -33,3 +33,14 @@ in OpenShift with the MongoDb ClusterServiceVersion. See the `openshift` directo
 This image can't be built in any host, because it will require the use of a subscription service with Redhat. A RHEL
 host, with subscription service enabled, is required. That's the reason behind using the Redhat build service to build
 this images with.
+
+### Building locally
+
+For building the MongoDB Database image locally use the example command:
+
+```bash
+TAG="1.0.1"
+VERSION="1.0.1"
+docker buildx build --load --progress plain . -f docker/mongodb-kubernetes-database/Dockerfile -t "${TAG}" \
+ --build-arg VERSION="${VERSION}"
+```
