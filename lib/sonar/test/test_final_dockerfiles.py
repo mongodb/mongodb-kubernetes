@@ -18,6 +18,7 @@ def test_build_om_dockerfile():
         inventory="inventories/om.yaml",
     )
 
+
 @skip("This test case is only used to generate the final Dockerfile for database")
 def test_build_database_dockerfile():
     process_image(
@@ -31,6 +32,7 @@ def test_build_database_dockerfile():
         build_options={},
         inventory="inventories/database.yaml",
     )
+
 
 @skip("This test case is only used to generate the final Dockerfile for init appdb")
 def test_build_init_appdb_dockerfile():
@@ -48,6 +50,7 @@ def test_build_init_appdb_dockerfile():
         inventory="inventories/init_appdb.yaml",
     )
 
+
 @skip("This test case is only used to generate the final Dockerfile for init database")
 def test_build_init_database_dockerfile():
     process_image(
@@ -64,6 +67,8 @@ def test_build_init_database_dockerfile():
         inventory="inventories/init_database.yaml",
     )
 
+
+@skip("This test case is only used to generate the final Dockerfile for init ops manager")
 def test_build_init_ops_manager_dockerfile():
     process_image(
         image_name="init-ops-manager",
@@ -75,4 +80,22 @@ def test_build_init_ops_manager_dockerfile():
         },
         build_options={},
         inventory="inventories/init_om.yaml",
+    )
+
+
+def test_build_operator_dockerfile():
+    process_image(
+        image_name="mongodb-kubernetes",
+        skip_tags=["release"],
+        include_tags=["final_dockerfile"],
+        build_args={
+            "version": "1.1.0",
+            "registry": "localhost:5000",
+            "release_version": "1.1.0",
+            "log_automation_config_diff": "false",
+            "use_race": "false",
+            "debug": False,
+        },
+        build_options={},
+        inventory="inventory.yaml",
     )
