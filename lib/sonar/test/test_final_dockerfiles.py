@@ -48,6 +48,7 @@ def test_build_init_appdb_dockerfile():
         inventory="inventories/init_appdb.yaml",
     )
 
+@skip("This test case is only used to generate the final Dockerfile for init database")
 def test_build_init_database_dockerfile():
     process_image(
         image_name="init-database",
@@ -61,4 +62,17 @@ def test_build_init_database_dockerfile():
         },
         build_options={},
         inventory="inventories/init_database.yaml",
+    )
+
+def test_build_init_ops_manager_dockerfile():
+    process_image(
+        image_name="init-ops-manager",
+        skip_tags=["release"],
+        include_tags=["final_dockerfile"],
+        build_args={
+            "registry": "localhost:5000",
+            "version": "1.1.0",
+        },
+        build_options={},
+        inventory="inventories/init_om.yaml",
     )
