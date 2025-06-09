@@ -9,8 +9,9 @@ import pytest
 from kubetester import find_fixture, try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from tests.conftest import get_custom_mdb_version
 
 

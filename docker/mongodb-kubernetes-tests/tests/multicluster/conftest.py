@@ -18,7 +18,7 @@ from kubetester.ldap import (
     ensure_organizational_unit,
     ldap_initialize,
 )
-from kubetester.mongodb_multi import MultiClusterClient
+from kubetester.multicluster_client import MultiClusterClient
 from pytest import fixture
 from tests.authentication.conftest import (
     AUTOMATION_AGENT_NAME,

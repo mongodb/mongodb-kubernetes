@@ -1,3 +1,1 @@
 * @mongodb/kubernetes-hosted
-
-helm_chart/crds/ @dan-mckean @vinilage

@@ -3,7 +3,8 @@ from kubetester.custom_podspec import assert_stateful_set_podspec
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_static_containers
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
+from kubetester.phase import Phase
 from pytest import fixture, mark
 
 
@@ -31,6 +32,7 @@ def test_stateful_set_spec_updated(replica_set, namespace):
         {
             "name": "mongodb-enterprise-database",
             "resources": {
+                "claims": None,
                 "limits": {
                     "cpu": "2",
                 },
@@ -46,6 +48,7 @@ def test_stateful_set_spec_updated(replica_set, namespace):
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": True,
+                    "recursive_read_only": None,
                 },
                 {
                     "name": "test-volume",
@@ -54,6 +57,7 @@ def test_stateful_set_spec_updated(replica_set, namespace):
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
+                    "recursive_read_only": None,
                 },
                 {
                     "name": "agent-api-key",
@@ -62,6 +66,7 @@ def test_stateful_set_spec_updated(replica_set, namespace):
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
+                    "recursive_read_only": None,
                 },
                 {
                     "name": "data",
@@ -70,6 +75,7 @@ def test_stateful_set_spec_updated(replica_set, namespace):
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
+                    "recursive_read_only": None,
                 },
                 {
                     "name": "data",
@@ -78,6 +84,7 @@ def test_stateful_set_spec_updated(replica_set, namespace):
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
+                    "recursive_read_only": None,
                 },
                 {
                     "name": "data",
@@ -86,6 +93,7 @@ def test_stateful_set_spec_updated(replica_set, namespace):
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
+                    "recursive_read_only": None,
                 },
                 {
                     "name": "agent",
@@ -94,6 +102,7 @@ def test_stateful_set_spec_updated(replica_set, namespace):
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
+                    "recursive_read_only": None,
                 },
                 {
                     "name": "agent",
@@ -102,6 +111,7 @@ def test_stateful_set_spec_updated(replica_set, namespace):
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
+                    "recursive_read_only": None,
                 },
                 {
                     "name": "agent",
@@ -110,6 +120,7 @@ def test_stateful_set_spec_updated(replica_set, namespace):
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
+                    "recursive_read_only": None,
                 },
             ],
         },
@@ -124,6 +135,7 @@ def test_stateful_set_spec_updated(replica_set, namespace):
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
+                    "recursive_read_only": None,
                 }
             ],
             "command": ["/bin/sh"],

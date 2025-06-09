@@ -11,21 +11,21 @@ from kubernetes import client
 from kubetester import create_or_update_configmap, create_or_update_service, try_load
 from kubetester.awss3client import AwsS3Client
 from kubetester.certs import (
-    create_multi_cluster_mongodb_tls_certs,
     create_ops_manager_tls_certs,
 )
+from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as _fixture
 from kubetester.kubetester import skip_if_local
-from kubetester.mongodb import Phase
-from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
+from kubetester.mongodb_multi import MongoDBMulti
+from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import (
     TELEMETRY_CONFIGMAP_NAME,
     assert_data_got_restored,
-    create_appdb_certs,
     get_central_cluster_client,
     get_member_cluster_clients,
     update_coredns_hosts,
@@ -36,6 +36,7 @@ from tests.multicluster_appdb.conftest import (
 )
 
 from .. import test_logger
+from ..common.cert.cert_issuer import create_appdb_certs
 from ..common.constants import MEMBER_CLUSTER_1, MEMBER_CLUSTER_2, MEMBER_CLUSTER_3
 from ..common.ops_manager.multi_cluster import (
     ops_manager_multi_cluster_with_tls_s3_backups,

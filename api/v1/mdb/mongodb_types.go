@@ -807,13 +807,6 @@ func (s *Security) IsTLSEnabled() bool {
 	return s.CertificatesSecretsPrefix != ""
 }
 
-func (s *Security) IsOIDCEnabled() bool {
-	if s == nil || s.Authentication == nil || !s.Authentication.Enabled {
-		return false
-	}
-	return s.Authentication.IsOIDCEnabled()
-}
-
 // GetAgentMechanism returns the authentication mechanism that the agents will be using.
 // The agents will use X509 if it is the only mechanism specified, otherwise they will use SCRAM if specified
 // and no auth if no mechanisms exist.
@@ -1006,16 +999,28 @@ type AgentAuthentication struct {
 // IsX509Enabled determines if X509 is to be enabled at the project level
 // it does not necessarily mean that the agents are using X509 authentication
 func (a *Authentication) IsX509Enabled() bool {
+	if a == nil || !a.Enabled {
+		return false
+	}
+
 	return stringutil.Contains(a.GetModes(), util.X509)
 }
 
 // IsLDAPEnabled determines if LDAP is to be enabled at the project level
 func (a *Authentication) IsLDAPEnabled() bool {
+	if a == nil || !a.Enabled {
+		return false
+	}
+
 	return stringutil.Contains(a.GetModes(), util.LDAP)
 }
 
 // IsOIDCEnabled determines if OIDC is to be enabled at the project level
 func (a *Authentication) IsOIDCEnabled() bool {
+	if a == nil || !a.Enabled {
+		return false
+	}
+
 	return stringutil.Contains(a.GetModes(), util.OIDC)
 }
 
@@ -1067,6 +1072,9 @@ type OIDCProviderConfig struct {
 
 	// Issuer value provided by your registered IdP application. Using this URI, MongoDB finds an OpenID Provider
 	// Configuration Document, which should be available in the /.wellknown/open-id-configuration endpoint.
+	// For MongoDB 7.0, 7.3, and 8.0+, the combination of issuerURI and audience must be unique across OIDC provider configurations.
+	// For other MongoDB versions, the issuerURI itself must be unique.
+
 	// +kubebuilder:validation:Required
 	IssuerURI string `json:"issuerURI"`
 
@@ -1089,9 +1097,8 @@ type OIDCProviderConfig struct {
 	// The identifier of the claim that includes the principal's IdP user group membership information.
 	// Accept the default value unless your IdP uses a different claim, or you need a custom claim.
 	// Required when selected GroupMembership as the authorization type, ignored otherwise
-	// +kubebuilder:default=groups
 	// +kubebuilder:validation:Optional
-	GroupsClaim string `json:"groupsClaim,omitempty"`
+	GroupsClaim *string `json:"groupsClaim"`
 
 	// Configure single-sign-on for human user access to Ops Manager deployments with Workforce Identity Federation.
 	// For programmatic, application access to Ops Manager deployments use Workload Identity Federation.
@@ -1103,7 +1110,7 @@ type OIDCProviderConfig struct {
 	// registered with an external Identity Provider.
 	// Required when selected Workforce Identity Federation authorization method
 	// +kubebuilder:validation:Optional
-	ClientId string `json:"clientId,omitempty"`
+	ClientId *string `json:"clientId"`
 
 	// Tokens that give users permission to request data from the authorization endpoint.
 	// Only used for Workforce Identity Federation authorization method

@@ -4,7 +4,8 @@ import pytest
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import get_pods, skip_if_local
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
+from kubetester.phase import Phase
 
 RESOURCE_NAME = "my-replica-set-double"
 

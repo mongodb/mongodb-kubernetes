@@ -1,16 +1,17 @@
 from typing import Optional
 
 import pymongo
-from kubetester import MongoDB, create_or_update_secret, read_secret
+from kubetester import create_or_update_secret, read_secret
 from kubetester.awss3client import AwsS3Client
 from kubetester.certs import create_tls_certs
 from kubetester.kmip import KMIPDeployment
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import is_default_architecture_static
-from kubetester.mongodb import Phase
+from kubetester.mongodb import MongoDB
 from kubetester.omtester import OMTester
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pymongo import ReadPreference
 from pytest import fixture, mark
 from tests.conftest import is_multi_cluster

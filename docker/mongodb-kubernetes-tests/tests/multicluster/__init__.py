@@ -3,7 +3,7 @@ from typing import Dict, List
 
 from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
 from kubetester.helm import helm_template
-from kubetester.mongodb_multi import MultiClusterClient
+from kubetester.multicluster_client import MultiClusterClient
 from tests import test_logger
 
 logger = test_logger.get_test_logger(__name__)

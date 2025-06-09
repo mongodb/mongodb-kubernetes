@@ -1,12 +1,13 @@
 import kubernetes
-from kubetester import MongoDB, create_or_update_secret, try_load
+from kubetester import create_or_update_secret, try_load
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import run_periodically
-from kubetester.mongodb import Phase
+from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.mongotester import MongoTester
+from kubetester.phase import Phase
 from pytest import fixture
 
 

@@ -1,7 +1,8 @@
 from kubetester import create_secret, find_fixture
 from kubetester.ldap import LDAP_AUTHENTICATION_MECHANISM, LDAPUser, OpenLDAP
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser, Role, generic_user
+from kubetester.phase import Phase
 from pytest import fixture, mark
 
 

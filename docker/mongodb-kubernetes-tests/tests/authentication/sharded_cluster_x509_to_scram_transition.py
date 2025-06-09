@@ -11,9 +11,10 @@ from kubetester.certs import (
 )
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.mongotester import ShardedClusterTester
 from kubetester.omtester import get_sc_cert_names
+from kubetester.phase import Phase
 from opentelemetry import trace
 from pytest import fixture
 from tests import test_logger

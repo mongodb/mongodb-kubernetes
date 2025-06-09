@@ -16,10 +16,11 @@ from kubetester.awss3client import AwsS3Client, s3_endpoint
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import running_locally, skip_if_local
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.omtester import OMTester
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from kubetester.test_identifiers import set_test_identifier
 from pytest import fixture, mark
 from tests.conftest import AWS_REGION, is_multi_cluster

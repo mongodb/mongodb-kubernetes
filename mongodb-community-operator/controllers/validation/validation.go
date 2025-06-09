@@ -85,14 +85,16 @@ func validateUsers(mdb mdbv1.MongoDBCommunity) error {
 
 		// Ensure no collisions in the secret holding scram credentials
 		scramSecretName := user.ScramCredentialsSecretName
-		if previousUser, exists := scramSecretNameMap[scramSecretName]; exists {
-			scramSecretNameCollisions = append(scramSecretNameCollisions,
-				fmt.Sprintf(`[scram secret name: "%s" for user: "%s" and user: "%s"]`,
-					scramSecretName,
-					previousUser.Username,
-					user.Username))
-		} else {
-			scramSecretNameMap[scramSecretName] = user
+		if scramSecretName != "" {
+			if previousUser, exists := scramSecretNameMap[scramSecretName]; exists {
+				scramSecretNameCollisions = append(scramSecretNameCollisions,
+					fmt.Sprintf(`[scram secret name: "%s" for user: "%s" and user: "%s"]`,
+						scramSecretName,
+						previousUser.Username,
+						user.Username))
+			} else {
+				scramSecretNameMap[scramSecretName] = user
+			}
 		}
 
 		if user.Database == constants.ExternalDB {

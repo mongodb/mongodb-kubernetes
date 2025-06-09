@@ -5,9 +5,10 @@ from kubetester.certs import (
     create_mongodb_tls_certs,
 )
 from kubetester.kubetester import fixture as load_fixture
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.mongotester import StandaloneTester
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 
 MDB_RESOURCE = "my-standalone"
 

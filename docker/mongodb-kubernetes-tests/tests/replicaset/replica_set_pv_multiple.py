@@ -4,7 +4,8 @@ import pytest
 from kubetester import get_default_storage_class
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
+from kubetester.phase import Phase
 
 
 @pytest.mark.e2e_replica_set_pv_multiple

@@ -1,11 +1,12 @@
 from typing import Optional
 
 import semver
-from kubetester import MongoDB, wait_until
+from kubetester import wait_until
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import Phase
+from kubetester.mongodb import MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import (
     assert_log_rotation_backup_monitoring,

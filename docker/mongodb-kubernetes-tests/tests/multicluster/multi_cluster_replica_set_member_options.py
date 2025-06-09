@@ -3,9 +3,9 @@ from typing import Dict
 import kubernetes
 import pytest
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 from tests.multicluster.conftest import cluster_spec_list
 
 

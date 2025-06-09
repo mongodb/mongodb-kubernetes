@@ -1,16 +1,21 @@
-from typing import Dict
+from typing import Dict, Optional
 
 import pytest
-from kubetester import read_configmap
+from kubeobject import CustomObject
+from kubernetes import client
+from kubetester import create_or_update_configmap, read_configmap
 from kubetester.certs import create_sharded_cluster_certs
+from kubetester.kubetester import ensure_nested_objects
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.mongotester import ShardedClusterTester
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 from tests import test_logger
 from tests.conftest import (
     LEGACY_OPERATOR_NAME,
     OPERATOR_NAME,
+    get_central_cluster_client,
     get_default_operator,
     install_legacy_deployment_state_meko,
     log_deployments_info,
