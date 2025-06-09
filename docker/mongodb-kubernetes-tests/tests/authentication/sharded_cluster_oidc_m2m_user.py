@@ -4,11 +4,16 @@ from kubetester import find_fixture, try_load
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as load_fixture
+from kubetester.kubetester import is_multi_cluster
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.mongotester import ShardedClusterTester
 from kubetester.phase import Phase
 from pytest import fixture
+from tests.shardedcluster.conftest import (
+    enable_multi_cluster_deployment,
+    get_mongos_service_names,
+)
 
 MDB_RESOURCE = "oidc-sharded-cluster-replica-set"
 
@@ -24,6 +29,14 @@ def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
     oidc_provider_configs[0]["audience"] = oidc.get_cognito_workload_client_id()
 
     resource.set_oidc_provider_configs(oidc_provider_configs)
+
+    if is_multi_cluster():
+        enable_multi_cluster_deployment(
+            resource=resource,
+            shard_members_array=[1, 1, 1],
+            mongos_members_array=[1, 1, None],
+            configsrv_members_array=[1, 1, 1],
+        )
 
     if try_load(resource):
         return resource
@@ -44,13 +57,16 @@ def oidc_user(namespace) -> MongoDBUser:
 @pytest.mark.e2e_sharded_cluster_oidc_m2m_user
 class TestCreateOIDCShardedCluster(KubernetesTester):
     def test_create_sharded_cluster(self, sharded_cluster: MongoDB):
-        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=600)
+        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=800)
 
     def test_create_user(self, oidc_user: MongoDBUser):
         oidc_user.assert_reaches_phase(Phase.Updated, timeout=400)
 
     def test_assert_connectivity(self, sharded_cluster: MongoDB):
-        tester = ShardedClusterTester(MDB_RESOURCE, 2)
+        service_names = None
+        if is_multi_cluster():
+            service_names = get_mongos_service_names(sharded_cluster)
+        tester = sharded_cluster.tester(service_names=service_names)
         tester.assert_oidc_authentication()
 
     def test_ops_manager_state_updated_correctly(self, sharded_cluster: MongoDB):

@@ -44,7 +44,6 @@ You cannot disable SCRAM authentication.
    | `spec.users.roles.role.db` | string | Database that the role applies to. | Yes |
    | `spec.users.connectionStringSecretAnnotations` | object | Annotations of the secret object created by the operator which exposes the connection strings for the user. | No |
 
-
    ```yaml
    ---
    apiVersion: mongodbcommunity.mongodb.com/v1
