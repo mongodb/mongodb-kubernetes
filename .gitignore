@@ -93,6 +93,7 @@ logs-debug/
 
 docs/**/log/*
 docs/**/test.sh.run.log
+/.venv/
 
 # goreleaser generated files
 dist
