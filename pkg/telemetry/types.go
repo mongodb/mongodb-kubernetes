@@ -49,6 +49,7 @@ type DeploymentUsageSnapshotProperties struct {
 	Type                     string   `json:"type"` // RS, SC, OM, Single
 	IsRunningEnterpriseImage bool     `json:"IsRunningEnterpriseImage"`
 	ExternalDomains          string   `json:"externalDomains"`                   // None, Uniform, ClusterSpecific, Mixed
+	CustomRoles              string   `json:"customRoles,omitempty"`             // Custom roles used 	// None, Uniform, ClusterSpecific, Mixed
 	AuthenticationAgentMode  string   `json:"authenticationAgentMode,omitempty"` // Agent authentication mode
 	AuthenticationModes      []string `json:"-"`                                 // Deployment authentication modes
 }

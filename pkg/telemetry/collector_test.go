@@ -70,6 +70,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					"type":                     "ReplicaSet",
 					"IsRunningEnterpriseImage": false,
 					"externalDomains":          ExternalDomainNone,
+					"customRoles":              CustomRoleNone,
 					"authenticationModeLDAP":   true,
 					"authenticationModeOIDC":   true,
 					"authenticationModeSCRAM":  true,
@@ -109,6 +110,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					"type":                     "ReplicaSet",
 					"IsRunningEnterpriseImage": false,
 					"externalDomains":          ExternalDomainNone,
+					"customRoles":              CustomRoleNone,
 					"authenticationModeSCRAM":  true,
 					"authenticationAgentMode":  util.SCRAM,
 				},
@@ -227,6 +229,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					"type":                     string(mdbv1.ReplicaSet),
 					"isMultiCluster":           false,
 					"externalDomains":          ExternalDomainNone,
+					"customRoles":              CustomRoleNone,
 					"operatorID":               testOperatorUUID,
 				},
 				{
@@ -236,6 +239,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					"type":                     string(mdbv1.ReplicaSet),
 					"isMultiCluster":           false,
 					"externalDomains":          ExternalDomainNone,
+					"customRoles":              CustomRoleNone,
 					"operatorID":               testOperatorUUID,
 				},
 				{
@@ -245,6 +249,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					"type":                     string(mdbv1.ReplicaSet),
 					"isMultiCluster":           true,
 					"externalDomains":          ExternalDomainNone,
+					"customRoles":              CustomRoleNone,
 					"operatorID":               testOperatorUUID,
 					"databaseClusters":         float64(0),
 				},
@@ -255,6 +260,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					"type":                     string(mdbv1.ReplicaSet),
 					"isMultiCluster":           true,
 					"externalDomains":          ExternalDomainNone,
+					"customRoles":              CustomRoleNone,
 					"operatorID":               testOperatorUUID,
 					"databaseClusters":         float64(0),
 				},
@@ -408,6 +414,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					"operatorID":               testOperatorUUID,
 					"type":                     string(mdbv1.ReplicaSet),
 					"externalDomains":          ExternalDomainNone,
+					"customRoles":              CustomRoleNone,
 				},
 				{
 					"deploymentUID":            "a31ab7a8-e5bd-480b-afcc-ac2eec9ce348",
@@ -418,6 +425,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					"operatorID":               testOperatorUUID,
 					"type":                     string(mdbv1.ReplicaSet),
 					"externalDomains":          ExternalDomainNone,
+					"customRoles":              CustomRoleNone,
 				},
 				{
 					"deploymentUID":            "2b138678-4e4c-4be4-9877-16e6eaae279b",
@@ -804,6 +812,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 				{
 					"deploymentUID":            "2c60ec7b-b233-4d98-97e6-b7c423c19e24",
 					"externalDomains":          ExternalDomainNone,
+					"customRoles":              CustomRoleNone,
 					"isMultiCluster":           false,
 					"architecture":             string(architectures.NonStatic),
 					"IsRunningEnterpriseImage": false,
@@ -813,6 +822,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 				{
 					"deploymentUID":            "c7ccb57f-abd1-4944-8a99-02e5a79acf75",
 					"externalDomains":          ExternalDomainUniform,
+					"customRoles":              CustomRoleNone,
 					"isMultiCluster":           false,
 					"architecture":             string(architectures.NonStatic),
 					"IsRunningEnterpriseImage": false,
@@ -822,6 +832,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 				{
 					"deploymentUID":            "7eed85ce-7a38-43ea-a338-6d959339c146",
 					"externalDomains":          ExternalDomainMixed,
+					"customRoles":              CustomRoleNone,
 					"isMultiCluster":           true,
 					"databaseClusters":         float64(2),
 					"architecture":             string(architectures.NonStatic),
@@ -832,6 +843,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 				{
 					"deploymentUID":            "584515da-e797-48af-af7f-6561812c15f4",
 					"externalDomains":          ExternalDomainClusterSpecific,
+					"customRoles":              CustomRoleNone,
 					"isMultiCluster":           true,
 					"databaseClusters":         float64(2),
 					"architecture":             string(architectures.NonStatic),
@@ -842,6 +854,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 				{
 					"deploymentUID":            "27b3d7cf-1f8b-434d-a002-ce85f7313507",
 					"externalDomains":          ExternalDomainNone,
+					"customRoles":              CustomRoleNone,
 					"isMultiCluster":           true,
 					"databaseClusters":         float64(3),
 					"architecture":             string(architectures.NonStatic),
@@ -852,6 +865,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 				{
 					"deploymentUID":            "b050040e-7b53-4991-bae4-69663a523804",
 					"externalDomains":          ExternalDomainUniform,
+					"customRoles":              CustomRoleNone,
 					"isMultiCluster":           true,
 					"databaseClusters":         float64(3),
 					"architecture":             string(architectures.NonStatic),
@@ -862,6 +876,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 				{
 					"deploymentUID":            "54427a32-1799-4a1b-b03f-a50484c09d2c",
 					"externalDomains":          ExternalDomainMixed,
+					"customRoles":              CustomRoleNone,
 					"isMultiCluster":           true,
 					"databaseClusters":         float64(3),
 					"architecture":             string(architectures.NonStatic),
@@ -872,6 +887,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 				{
 					"deploymentUID":            "fe6b6fad-51f2-4f98-8ddd-54ae24143ea6",
 					"externalDomains":          ExternalDomainClusterSpecific,
+					"customRoles":              CustomRoleNone,
 					"isMultiCluster":           true,
 					"databaseClusters":         float64(3),
 					"architecture":             string(architectures.NonStatic),
@@ -918,6 +934,178 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					"IsRunningEnterpriseImage": true,
 					"operatorID":               testOperatorUUID,
 					"type":                     "OpsManager",
+				},
+			},
+		},
+		"custom roles test": {
+			objects: []client.Object{
+				&mdbv1.MongoDB{
+					Spec: mdbv1.MongoDbSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ResourceType: mdbv1.ReplicaSet,
+							Security:     &mdbv1.Security{},
+						},
+					}, ObjectMeta: metav1.ObjectMeta{
+						UID:  "be4bacfc-fb41-4e29-b7d1-712460ed908c",
+						Name: "test-rs-no-roles",
+					},
+				},
+				&mdbv1.MongoDB{
+					Spec: mdbv1.MongoDbSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ResourceType: mdbv1.ReplicaSet,
+							Security: &mdbv1.Security{
+								Roles: []mdbv1.MongoDBRole{
+									{
+										Role: "test-role1",
+										Db:   "admin",
+										Privileges: []mdbv1.Privilege{
+											{
+												Actions: []string{"action1", "action2"},
+											},
+										},
+									},
+								},
+							},
+						},
+					}, ObjectMeta: metav1.ObjectMeta{
+						UID:  "c20a7cf1-a12d-4cee-a87e-7f61aa2bd878",
+						Name: "test-rs-embedded-roles",
+					},
+				},
+				&mdbv1.MongoDB{
+					Spec: mdbv1.MongoDbSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ResourceType: mdbv1.ReplicaSet,
+							Security: &mdbv1.Security{
+								RoleRefs: []mdbv1.MongoDBRoleRef{
+									{
+										Name: "test-role",
+										Kind: "ClusterMongoDBRole",
+									},
+								},
+							},
+						},
+					}, ObjectMeta: metav1.ObjectMeta{
+						UID:  "97822e48-fb51-4ba5-9993-26841b44a7a3",
+						Name: "test-rs-ref-roles",
+					},
+				},
+				&mdbmulti.MongoDBMultiCluster{
+					Spec: mdbmulti.MongoDBMultiSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ResourceType: mdbv1.ReplicaSet,
+						},
+					}, ObjectMeta: metav1.ObjectMeta{
+						UID:  "17e352f7-dcd1-4bfa-bc12-a2f4e637477b",
+						Name: "test-mrs-no-roles",
+					},
+				},
+				&mdbmulti.MongoDBMultiCluster{
+					Spec: mdbmulti.MongoDBMultiSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ResourceType: mdbv1.ReplicaSet,
+							Security: &mdbv1.Security{
+								Roles: []mdbv1.MongoDBRole{
+									{
+										Role: "test-role1",
+										Db:   "admin",
+										Privileges: []mdbv1.Privilege{
+											{
+												Actions: []string{"action1", "action2"},
+											},
+										},
+									},
+								},
+							},
+						},
+					}, ObjectMeta: metav1.ObjectMeta{
+						UID:  "71368077-ea95-4564-acd6-09ec573fdf61",
+						Name: "test-mrs-embedded-roles",
+					},
+				},
+				&mdbmulti.MongoDBMultiCluster{
+					Spec: mdbmulti.MongoDBMultiSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ResourceType: mdbv1.ReplicaSet,
+							Security: &mdbv1.Security{
+								RoleRefs: []mdbv1.MongoDBRoleRef{
+									{
+										Name: "test-role",
+										Kind: "ClusterMongoDBRole",
+									},
+								},
+							},
+						},
+					}, ObjectMeta: metav1.ObjectMeta{
+						UID:  "a8a28c8a-6226-44fc-a8cd-e66a6942ffbd",
+						Name: "test-mrs-ref-roles",
+					},
+				},
+			},
+			expectedEventsWithProperties: []map[string]any{
+				{
+					"deploymentUID":            "be4bacfc-fb41-4e29-b7d1-712460ed908c",
+					"customRoles":              CustomRoleNone,
+					"externalDomains":          ExternalDomainNone,
+					"isMultiCluster":           false,
+					"architecture":             string(architectures.NonStatic),
+					"IsRunningEnterpriseImage": false,
+					"operatorID":               testOperatorUUID,
+					"type":                     string(mdbv1.ReplicaSet),
+				},
+				{
+					"deploymentUID":            "c20a7cf1-a12d-4cee-a87e-7f61aa2bd878",
+					"customRoles":              CustomRoleEmbedded,
+					"externalDomains":          ExternalDomainNone,
+					"isMultiCluster":           false,
+					"architecture":             string(architectures.NonStatic),
+					"IsRunningEnterpriseImage": false,
+					"operatorID":               testOperatorUUID,
+					"type":                     string(mdbv1.ReplicaSet),
+				},
+				{
+					"deploymentUID":            "97822e48-fb51-4ba5-9993-26841b44a7a3",
+					"customRoles":              CustomRoleReferenced,
+					"externalDomains":          ExternalDomainNone,
+					"isMultiCluster":           false,
+					"architecture":             string(architectures.NonStatic),
+					"IsRunningEnterpriseImage": false,
+					"operatorID":               testOperatorUUID,
+					"type":                     string(mdbv1.ReplicaSet),
+				},
+				{
+					"deploymentUID":            "17e352f7-dcd1-4bfa-bc12-a2f4e637477b",
+					"customRoles":              CustomRoleNone,
+					"databaseClusters":         float64(0),
+					"externalDomains":          ExternalDomainNone,
+					"isMultiCluster":           true,
+					"architecture":             string(architectures.NonStatic),
+					"IsRunningEnterpriseImage": false,
+					"operatorID":               testOperatorUUID,
+					"type":                     string(mdbv1.ReplicaSet),
+				},
+				{
+					"deploymentUID":            "71368077-ea95-4564-acd6-09ec573fdf61",
+					"customRoles":              CustomRoleEmbedded,
+					"databaseClusters":         float64(0),
+					"externalDomains":          ExternalDomainNone,
+					"isMultiCluster":           true,
+					"architecture":             string(architectures.NonStatic),
+					"IsRunningEnterpriseImage": false,
+					"operatorID":               testOperatorUUID,
+					"type":                     string(mdbv1.ReplicaSet),
+				},
+				{
+					"deploymentUID":            "a8a28c8a-6226-44fc-a8cd-e66a6942ffbd",
+					"customRoles":              CustomRoleReferenced,
+					"databaseClusters":         float64(0),
+					"externalDomains":          ExternalDomainNone,
+					"isMultiCluster":           true,
+					"architecture":             string(architectures.NonStatic),
+					"IsRunningEnterpriseImage": false,
+					"operatorID":               testOperatorUUID,
+					"type":                     string(mdbv1.ReplicaSet),
 				},
 			},
 		},
