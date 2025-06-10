@@ -1,6 +1,6 @@
 import os
 from enum import StrEnum
-
+from string import Template
 import git
 from git import Repo
 
@@ -17,20 +17,12 @@ class ChangeType(StrEnum):
     FIX = 'fix'
     OTHER = 'other'
 
-def generate_changelog(previous_version: str, repository_path: str = '.') -> str:
-    """Generate a changelog based on the changes since the previous version tag."""
-    changelog_entries = get_changelog_entries(previous_version, repository_path)
 
-    if not changelog_entries:
-        return "No changes since the previous version."
-
-    changelog = []
-    for change_type, content in changelog_entries:
-        changelog.append(f"## {change_type.capitalize()}\n\n{content.strip()}\n")
-
-    return "\n".join(changelog)
-
-def get_changelog_entries(previous_version: str, repository_path: str = '.') -> list[tuple[ChangeType, str]]:
+def get_changelog_entries(
+        previous_version: str,
+        repository_path: str,
+        changelog_sub_path: str,
+) -> list[tuple[ChangeType, str]]:
     changelog = []
 
     repo = Repo(repository_path)
@@ -43,7 +35,7 @@ def get_changelog_entries(previous_version: str, repository_path: str = '.') -> 
 
     # Compare previous version commit with current working tree
     # TODO: or compare with head commit?
-    diff_index = tag_ref.commit.diff(git.INDEX, paths=CHANGELOG_PATH)
+    diff_index = tag_ref.commit.diff(git.INDEX, paths=changelog_sub_path)
 
     # No changes since the previous version
     if not diff_index:
@@ -55,7 +47,8 @@ def get_changelog_entries(previous_version: str, repository_path: str = '.') -> 
         file_name = os.path.basename(file_path)
         change_type = get_change_type(file_name)
 
-        with open(file_path, 'r') as file:
+        abs_file_path = os.path.join(repository_path, file_path)
+        with open(abs_file_path, 'r') as file:
             file_content = file.read()
 
         changelog.append((change_type, file_content))
