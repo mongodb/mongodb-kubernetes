@@ -81,16 +81,28 @@ def docker_build_cli(
     if not dockerfile_path.startswith("/"):
         dockerfile_path = f"{path}/{dockerfile_path}"
 
-    args = get_docker_build_cli_args(
+    cli_command_args = get_docker_build_cli_args(
         path=path, dockerfile=dockerfile_path, tag=tag, buildargs=buildargs, labels=labels, platform=platform
     )
 
-    args_str = " ".join(args)
-    logger.info(f"executing cli docker build: {args_str}")
+    cli_command_args_str = " ".join(cli_command_args)
+    logger.info(f"executing cli docker build: {cli_command_args_str}")
 
-    cp = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    if cp.returncode != 0:
-        raise SonarAPIError(cp.stderr)
+    docker_build_process = subprocess.Popen(
+        cli_command_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
+    )
+    collected_output_lines = []
+    if docker_build_process.stdout:
+        for output_stream_line in iter(docker_build_process.stdout.readline, ""):
+            newline_stripped_line = output_stream_line.rstrip()
+            logger.info(newline_stripped_line)
+            collected_output_lines.append(newline_stripped_line)
+        docker_build_process.stdout.close()
+
+    process_exit_code = docker_build_process.wait()
+
+    if process_exit_code != 0:
+        raise SonarAPIError("\n".join(collected_output_lines))
 
 
 def get_docker_build_cli_args(
