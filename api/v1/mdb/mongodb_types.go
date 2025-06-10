@@ -1074,7 +1074,6 @@ type OIDCProviderConfig struct {
 	// Configuration Document, which should be available in the /.wellknown/open-id-configuration endpoint.
 	// For MongoDB 8.0+, the combination of issuerURI and audience must be unique across OIDC provider configurations.
 	// For other MongoDB versions, the issuerURI itself must be unique.
-
 	// +kubebuilder:validation:Required
 	IssuerURI string `json:"issuerURI"`
 
