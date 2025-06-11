@@ -29,3 +29,11 @@ def test_generate_release_notes_1_2_0(git_repo: Repo):
     release_notes = generate_release_notes("1.1.0", repo_path)
     with open("scripts/release/testdata/release_notes_1.2.0.md") as file:
         assert release_notes == file.read()
+
+
+def test_generate_release_notes_2_0_0(git_repo: Repo):
+    repo_path = git_repo.working_dir
+    git_repo.git.checkout("2.0.0")
+    release_notes = generate_release_notes("1.2.0", repo_path)
+    with open("scripts/release/testdata/release_notes_2.0.0.md") as file:
+        assert release_notes == file.read()
