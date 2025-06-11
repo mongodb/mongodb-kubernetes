@@ -2,9 +2,10 @@ package mdb
 
 import (
 	"fmt"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"sort"
 	"strings"
+
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 )
 
 type AgentConfig struct {

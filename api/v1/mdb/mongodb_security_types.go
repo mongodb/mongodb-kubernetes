@@ -2,12 +2,14 @@ package mdb
 
 import (
 	"fmt"
+	"strings"
+
+	corev1 "k8s.io/api/core/v1"
+
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
-	corev1 "k8s.io/api/core/v1"
-	"strings"
 )
 
 type Security struct {
@@ -52,6 +54,7 @@ func (d *DbCommonSpec) GetSecurity() *Security {
 	}
 	return d.Security
 }
+
 func (s *Security) IsTLSEnabled() bool {
 	if s == nil {
 		return false
