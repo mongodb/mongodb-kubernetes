@@ -1,6 +1,6 @@
-# MCK 1.1.0 Release Notes
+# MCK 1.2.0 Release Notes
 
-## Breaking Changes
+## New Features
 
 * **MongoDB**, **MongoDBMulti**: Added support for OpenID Connect (OIDC) user authentication.
     * OIDC authentication can be configured with `spec.security.authentication.modes=OIDC` and `spec.security.authentication.oidcProviderConfigs` settings.

@@ -1,19 +1,19 @@
 import os
 from enum import StrEnum
-from string import Template
-import git
 from git import Repo
 
 CHANGELOG_PATH = "changelog/"
 
+PRELUDE_ENTRIES = ["prelude"]
 BREAKING_CHANGE_ENTRIES = ["breaking_change", "major"]
 FEATURE_ENTRIES = ["feat", "feature"]
 BUGFIX_ENTRIES = ["fix", "bugfix", "hotfix", "patch"]
 
 
 class ChangeType(StrEnum):
-    FEATURE = 'feature'
+    PRELUDE = 'prelude'
     BREAKING = 'breaking'
+    FEATURE = 'feature'
     FIX = 'fix'
     OTHER = 'other'
 
@@ -34,8 +34,7 @@ def get_changelog_entries(
         raise ValueError(f"Tag '{previous_version}' not found")
 
     # Compare previous version commit with current working tree
-    # TODO: or compare with head commit?
-    diff_index = tag_ref.commit.diff(git.INDEX, paths=changelog_sub_path)
+    diff_index = tag_ref.commit.diff(paths=changelog_sub_path)
 
     # No changes since the previous version
     if not diff_index:
@@ -59,6 +58,8 @@ def get_changelog_entries(
 def get_change_type(file_name: str) -> ChangeType:
     """Extract the change type from the file name."""
 
+    if any(entry in file_name.lower() for entry in PRELUDE_ENTRIES):
+        return ChangeType.PRELUDE
     if any(entry in file_name.lower() for entry in BREAKING_CHANGE_ENTRIES):
         return ChangeType.BREAKING
     elif any(entry in file_name.lower() for entry in FEATURE_ENTRIES):
