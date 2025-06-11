@@ -5,7 +5,7 @@ from git import Repo
 CHANGELOG_PATH = "changelog/"
 
 PRELUDE_ENTRIES = ["prelude"]
-BREAKING_CHANGE_ENTRIES = ["breaking_change", "major"]
+BREAKING_CHANGE_ENTRIES = ["breaking_change", "breaking", "major"]
 FEATURE_ENTRIES = ["feat", "feature"]
 BUGFIX_ENTRIES = ["fix", "bugfix", "hotfix", "patch"]
 
