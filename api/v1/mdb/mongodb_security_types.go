@@ -322,8 +322,7 @@ type Ldap struct {
 }
 
 type OIDCProviderConfig struct {
-	// Unique label that identifies this configuration. This label is visible to your Ops Manager users and is used when
-	// creating users and roles for authorization. It is case-sensitive and can only contain the following characters:
+	// Unique label that identifies this configuration. It is case-sensitive and can only contain the following characters:
 	//  - alphanumeric characters (combination of a to z and 0 to 9)
 	//  - hyphens (-)
 	//  - underscores (_)
@@ -331,7 +330,7 @@ type OIDCProviderConfig struct {
 	// +kubebuilder:validation:Required
 	ConfigurationName string `json:"configurationName"`
 
-	// Issuer value provided by your registered IdP application. Using this URI, MongoDB finds an OpenID Provider
+	// Issuer value provided by your registered IdP application. Using this URI, MongoDB finds an OpenID Connect Provider
 	// Configuration Document, which should be available in the /.wellknown/open-id-configuration endpoint.
 	// For MongoDB 7.0, 7.3, and 8.0+, the combination of issuerURI and audience must be unique across OIDC provider configurations.
 	// For other MongoDB versions, the issuerURI itself must be unique.
@@ -361,8 +360,8 @@ type OIDCProviderConfig struct {
 	// +kubebuilder:validation:Optional
 	GroupsClaim *string `json:"groupsClaim"`
 
-	// Configure single-sign-on for human user access to Ops Manager deployments with Workforce Identity Federation.
-	// For programmatic, application access to Ops Manager deployments use Workload Identity Federation.
+	// Configure single-sign-on for human user access to deployments with Workforce Identity Federation.
+	// For programmatic, application access to deployments use Workload Identity Federation.
 	// Only one Workforce Identity Federation IdP can be configured per MongoDB resource
 	// +kubebuilder:validation:Required
 	AuthorizationMethod OIDCAuthorizationMethod `json:"authorizationMethod"`
