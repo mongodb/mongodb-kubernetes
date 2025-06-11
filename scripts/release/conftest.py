@@ -52,6 +52,19 @@ def git_repo(change_log_path: str = CHANGELOG_PATH) -> Repo:
     repo.index.commit("OIDC integration")
     repo.create_tag("1.2.0", message="OIDC integration release")
 
+    ## static architecture release and 2.0.0 tag
+    changelog_file = add_file(repo_dir, "changelog/20250612_breaking_static_as_default.md")
+    repo.index.add(changelog_file)
+    repo.index.commit("Static architecture as default")
+    changelog_file = add_file(repo_dir, "changelog/20250616_feature_om_no_service_mesh.md")
+    repo.index.add(changelog_file)
+    repo.index.commit("Ops Manager no service mesh support")
+    changelog_file_1 = add_file(repo_dir, "changelog/20250620_fix_static_container.md")
+    changelog_file_2 = add_file(repo_dir, "changelog/20250622_fix_external_access.md")
+    repo.index.add([changelog_file_1, changelog_file_2])
+    repo.index.commit("Fixes for static architecture")
+    repo.create_tag("2.0.0", message="Static architecture release")
+
     return repo
 
 
