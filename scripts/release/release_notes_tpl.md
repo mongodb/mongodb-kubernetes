@@ -1,6 +1,5 @@
 # MCK {{ version }} Release Notes
 {% if preludes %}
-
 {% for prelude in preludes -%}
 {{- prelude }}
 {%- endfor -%}

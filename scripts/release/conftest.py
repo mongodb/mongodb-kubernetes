@@ -52,7 +52,7 @@ def git_repo(change_log_path: str = CHANGELOG_PATH) -> Repo:
     repo.index.commit("OIDC integration")
     repo.create_tag("1.2.0", message="OIDC integration release")
 
-    ## static architecture release and 2.0.0 tag
+    ## Static architecture release and 2.0.0 tag
     changelog_file = add_file(repo_dir, "changelog/20250612_breaking_static_as_default.md")
     repo.index.add(changelog_file)
     repo.index.commit("Static architecture as default")
@@ -63,7 +63,36 @@ def git_repo(change_log_path: str = CHANGELOG_PATH) -> Repo:
     changelog_file_2 = add_file(repo_dir, "changelog/20250622_fix_external_access.md")
     repo.index.add([changelog_file_1, changelog_file_2])
     repo.index.commit("Fixes for static architecture")
+    changelog_file = add_file(repo_dir, "changelog/20250623_prelude_static.md")
+    repo.index.add(changelog_file)
+    repo.index.commit("Release notes prelude for static architecture")
     repo.create_tag("2.0.0", message="Static architecture release")
+
+    ## Bug fixes and 2.0.1 tag
+    file_name = create_new_file(repo_dir, "bugfix-placeholder.go", "Bugfix in go\n")
+    changelog_file = add_file(repo_dir, "changelog/20250701_fix_placeholder.md")
+    repo.index.add([file_name, changelog_file])
+    repo.index.commit("placeholder fix")
+    changelog_file = add_file(repo_dir, "changelog/20250702_fix_clusterspeclist_validation.md")
+    repo.index.add(changelog_file)
+    repo.index.commit("fix clusterspeclist validation")
+    repo.create_tag("2.0.1", message="Bug fix release")
+
+    ## Bug fixe and 2.0.2 tag
+    changelog_file = add_file(repo_dir, "changelog/20250707_fix_proxy_env_var.md")
+    repo.index.add(changelog_file)
+    repo.index.commit("fix proxy env var validation")
+    repo.create_tag("2.0.2", message="Bug fix release")
+
+    ## Static architecture release and 3.0.0 tag
+    changelog_file_1 = add_file(repo_dir, "changelog/20250710_breaking_mongodbmulti_refactor.md")
+    changelog_file_2 = add_file(repo_dir, "changelog/20250710_prelude_mongodbmulti_refactor.md")
+    repo.index.add([changelog_file_1, changelog_file_2])
+    repo.index.commit("Moved MongoDBMulti into single MongoDB resource")
+    changelog_file = add_file(repo_dir, "changelog/20250711_feature_public_search.md")
+    repo.index.add(changelog_file)
+    repo.index.commit("Public search support")
+    repo.create_tag("3.0.0", message="MongoDBMulti integration with MongoDB resource")
 
     return repo
 

@@ -1,5 +1,7 @@
 # MCK 2.0.0 Release Notes
 
+This change is making `static` architecture a default and deprecates the `non-static` architecture.
+
 ## Breaking Changes
 
 * **MongoDB**, **MongoDBMulti**: Static architecture is now the default for MongoDB and MongoDBMulti resources.
