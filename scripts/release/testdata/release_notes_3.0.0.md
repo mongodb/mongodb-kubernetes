@@ -10,3 +10,7 @@ This is a new major release of the MongoDB Kubernetes Operator (MCK) with signif
 
 * **MongoDB**: public search preview release of MongoDB Search (Community Edition) is now available.
     * Added new property [spec.search](https://www.mongodb.com/docs/kubernetes/current/mongodb/specification/#spec-search) to enable MongoDB Search.
+
+## Bug Fixes
+
+* Fixes the bug when status of `MongoDBUser` was being set to `Updated` prematurely. For example, new users were not immediately usable following `MongoDBUser` creation despite the operator reporting `Updated` state.
