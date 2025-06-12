@@ -21,7 +21,7 @@ def generate_release_notes(
 
     parameters = {
         'version': version,
-        'prelude': [c[1] for c in changelog if c[0] == ChangeType.PRELUDE],
+        'preludes': [c[1] for c in changelog if c[0] == ChangeType.PRELUDE],
         'breaking_changes': [c[1] for c in changelog if c[0] == ChangeType.BREAKING],
         'features': [c[1] for c in changelog if c[0] == ChangeType.FEATURE],
         'fixes': [c[1] for c in changelog if c[0] == ChangeType.FIX],
