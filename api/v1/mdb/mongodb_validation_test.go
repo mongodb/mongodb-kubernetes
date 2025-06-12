@@ -506,8 +506,8 @@ func TestOIDCProviderConfigUniqueIssuerURIValidation(t *testing.T) {
 		expectedResult v1.ValidationResult
 	}{
 		{
-			name:         "MongoDB 6.0 with duplicate issuer URIs - error",
-			mongoVersion: "6.0.0",
+			name:         "MongoDB 7.0.11 with duplicate issuer URIs - error",
+			mongoVersion: "7.0.11",
 			configs: []OIDCProviderConfig{
 				{
 					ConfigurationName: "config1",
@@ -524,25 +524,8 @@ func TestOIDCProviderConfigUniqueIssuerURIValidation(t *testing.T) {
 				"config1", "config2", "https://provider.com"),
 		},
 		{
-			name:         "MongoDB 7.0 with unique issuer+audience combinations",
-			mongoVersion: "7.0.0",
-			configs: []OIDCProviderConfig{
-				{
-					ConfigurationName: "config1",
-					IssuerURI:         "https://provider.com",
-					Audience:          "audience1",
-				},
-				{
-					ConfigurationName: "config2",
-					IssuerURI:         "https://provider.com",
-					Audience:          "audience2",
-				},
-			},
-			expectedResult: v1.ValidationSuccess(),
-		},
-		{
-			name:         "MongoDB 7.0 with duplicate issuer+audience combinations - warning",
-			mongoVersion: "7.0.0",
+			name:         "MongoDB 8.0 with duplicate issuer+audience combinations - warning",
+			mongoVersion: "8.0.0",
 			configs: []OIDCProviderConfig{
 				{
 					ConfigurationName: "config1",
@@ -557,23 +540,6 @@ func TestOIDCProviderConfigUniqueIssuerURIValidation(t *testing.T) {
 			},
 			expectedResult: v1.ValidationWarning("OIDC provider configs %q and %q have duplicate IssuerURI and Audience combination",
 				"config1", "config2"),
-		},
-		{
-			name:         "MongoDB 7.3 with unique issuer+audience combinations",
-			mongoVersion: "7.3.0",
-			configs: []OIDCProviderConfig{
-				{
-					ConfigurationName: "config1",
-					IssuerURI:         "https://provider.com",
-					Audience:          "audience1",
-				},
-				{
-					ConfigurationName: "config2",
-					IssuerURI:         "https://provider.com",
-					Audience:          "audience2",
-				},
-			},
-			expectedResult: v1.ValidationSuccess(),
 		},
 		{
 			name:         "MongoDB 8.0 with unique issuer+audience combinations",
@@ -594,16 +560,16 @@ func TestOIDCProviderConfigUniqueIssuerURIValidation(t *testing.T) {
 		},
 		{
 			name:         "MongoDB enterprise version with -ent suffix",
-			mongoVersion: "7.0.0-ent",
+			mongoVersion: "7.0.11-ent",
 			configs: []OIDCProviderConfig{
 				{
 					ConfigurationName: "config1",
-					IssuerURI:         "https://provider.com",
+					IssuerURI:         "https://provider-1.com",
 					Audience:          "audience1",
 				},
 				{
 					ConfigurationName: "config2",
-					IssuerURI:         "https://provider.com",
+					IssuerURI:         "https://provider-2.com",
 					Audience:          "audience2",
 				},
 			},
