@@ -1,6 +1,6 @@
 import os
 from enum import StrEnum
-from git import Repo
+from git import Repo, Commit
 
 CHANGELOG_PATH = "changelog/"
 
@@ -19,7 +19,7 @@ class ChangeType(StrEnum):
 
 
 def get_changelog_entries(
-        previous_version: str,
+        previous_commit: Commit,
         repository_path: str,
         changelog_sub_path: str,
 ) -> list[tuple[ChangeType, str]]:
@@ -27,14 +27,8 @@ def get_changelog_entries(
 
     repo = Repo(repository_path)
 
-    # Find the commit object for the previous version tag
-    try:
-        tag_ref = repo.tags[previous_version]
-    except IndexError:
-        raise ValueError(f"Tag '{previous_version}' not found")
-
     # Compare previous version commit with current working tree
-    diff_index = tag_ref.commit.diff(paths=changelog_sub_path)
+    diff_index = previous_commit.diff(other=repo.head.commit, paths=changelog_sub_path)
 
     # No changes since the previous version
     if not diff_index:
