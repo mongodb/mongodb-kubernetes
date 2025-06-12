@@ -1,17 +1,21 @@
+from git import Repo
 from jinja2 import Template
 
 from scripts.release.changelog import CHANGELOG_PATH, get_changelog_entries, ChangeType
-from scripts.release.versioning import calculate_next_release_version
+from scripts.release.versioning import calculate_next_release_version, find_previous_version
 
 
 def generate_release_notes(
-    previous_version: str,
     repository_path: str = '.',
     changelog_sub_path: str = CHANGELOG_PATH,
 ) -> str:
     """Generate a release notes based on the changes since the previous version tag."""
+    repo = Repo(repository_path)
+    initial_commit = list(repo.iter_commits(reverse=True))[0].hexsha
 
-    changelog: list = get_changelog_entries(previous_version, repository_path, changelog_sub_path)
+    previous_version, previous_commit = find_previous_version("0.0.0", initial_commit, repository_path)
+
+    changelog: list = get_changelog_entries(previous_commit, repository_path, changelog_sub_path)
 
     changelog_entries = list[ChangeType](map(lambda x: x[0], changelog))
     version = calculate_next_release_version(previous_version, changelog_entries)
