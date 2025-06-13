@@ -1606,6 +1606,20 @@ spec:
                     type: object
                   certsSecretPrefix:
                     type: string
+                  roleRefs:
+                    items:
+                      properties:
+                        kind:
+                          enum:
+                          - ClusterMongoDBRole
+                          type: string
+                        name:
+                          type: string
+                      required:
+                      - kind
+                      - name
+                      type: object
+                    type: array
                   roles:
                     items:
                       properties:
@@ -1685,6 +1699,10 @@ spec:
                         type: boolean
                     type: object
                 type: object
+                x-kubernetes-validations:
+                - message: At most one of roles or roleRefs can be non-empty
+                  rule: '!(has(self.roles) && has(self.roleRefs)) || !(self.roles.size()
+                    > 0 && self.roleRefs.size() > 0)'
               service:
                 description: |-
                   DEPRECATED please use `spec.statefulSet.spec.serviceName` to provide a custom service name.

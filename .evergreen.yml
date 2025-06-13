@@ -728,7 +728,7 @@ task_groups:
       - e2e_replica_set_ldap_user_to_dn_mapping
       # e2e_replica_set_ldap_agent_auth
       - e2e_replica_set_ldap_agent_client_certs
-      - e2e_replica_set_custom_roles
+      - e2e_replica_set_ldap_custom_roles
       - e2e_replica_set_update_roles_no_privileges
       - e2e_replica_set_ldap_group_dn
       - e2e_replica_set_ldap_group_dn_with_x509_agent
@@ -911,6 +911,7 @@ task_groups:
       - e2e_tls_x509_configure_all_options_sc
       - e2e_tls_x509_sc
       - e2e_meko_mck_upgrade
+      - e2e_mongodb_custom_roles
       - e2e_sharded_cluster_oidc_m2m_group
       - e2e_sharded_cluster_oidc_m2m_user
       - e2e_multi_cluster_oidc_m2m_group

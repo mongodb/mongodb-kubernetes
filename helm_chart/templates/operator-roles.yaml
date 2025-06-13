@@ -142,6 +142,36 @@ subjects:
     namespace: {{ include "mongodb-kubernetes-operator.namespace" $ }}
 {{- end }}
 
+---
+
+{{- if .Values.operator.enableClusterMongoDBRoles }}
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ .Values.operator.name }}-{{ include "mongodb-kubernetes-operator.namespace" . }}-cluster-mongodb-role
+rules:
+  - apiGroups:
+      - mongodb.com
+    verbs:
+      - '*'
+    resources:
+      - clustermongodbroles
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ .Values.operator.name }}-{{ include "mongodb-kubernetes-operator.namespace" . }}-cluster-mongodb-role-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Values.operator.name }}-{{ include "mongodb-kubernetes-operator.namespace" . }}-cluster-mongodb-role
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.operator.name }}
+    namespace: {{ include "mongodb-kubernetes-operator.namespace" . }}
+
+{{- end }}
+
 {{- end }}
 ---
 

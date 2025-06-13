@@ -52,12 +52,12 @@ def ldap_user_mongodb(
     return user
 
 
-@mark.e2e_replica_set_custom_roles
+@mark.e2e_replica_set_ldap_custom_roles
 def test_replica_set(replica_set: MongoDB):
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 
-@mark.e2e_replica_set_custom_roles
+@mark.e2e_replica_set_ldap_custom_roles
 def test_create_ldap_user(replica_set: MongoDB, ldap_user_mongodb: MongoDBUser):
     ldap_user_mongodb.assert_reaches_phase(Phase.Updated)
 
@@ -66,7 +66,7 @@ def test_create_ldap_user(replica_set: MongoDB, ldap_user_mongodb: MongoDBUser):
     ac.assert_expected_users(1)
 
 
-@mark.e2e_replica_set_custom_roles
+@mark.e2e_replica_set_ldap_custom_roles
 def test_new_ldap_users_can_write_to_database(replica_set: MongoDB, ldap_user_mongodb: MongoDBUser):
     tester = replica_set.tester()
 
@@ -79,7 +79,7 @@ def test_new_ldap_users_can_write_to_database(replica_set: MongoDB, ldap_user_mo
     )
 
 
-@mark.e2e_replica_set_custom_roles
+@mark.e2e_replica_set_ldap_custom_roles
 @mark.xfail(reason="The user should not be able to write to a database/collection it is not authorized to write on")
 def test_new_ldap_users_can_write_to_other_collection(replica_set: MongoDB, ldap_user_mongodb: MongoDBUser):
     tester = replica_set.tester()
@@ -93,7 +93,7 @@ def test_new_ldap_users_can_write_to_other_collection(replica_set: MongoDB, ldap
     )
 
 
-@mark.e2e_replica_set_custom_roles
+@mark.e2e_replica_set_ldap_custom_roles
 @mark.xfail(reason="The user should not be able to write to a database/collection it is not authorized to write on")
 def test_new_ldap_users_can_write_to_other_database(replica_set: MongoDB, ldap_user_mongodb: MongoDBUser):
     tester = replica_set.tester()
@@ -106,7 +106,7 @@ def test_new_ldap_users_can_write_to_other_database(replica_set: MongoDB, ldap_u
     )
 
 
-@mark.e2e_replica_set_custom_roles
+@mark.e2e_replica_set_ldap_custom_roles
 def test_automation_config_has_roles(replica_set: MongoDB):
     tester = replica_set.get_automation_config_tester()
 
