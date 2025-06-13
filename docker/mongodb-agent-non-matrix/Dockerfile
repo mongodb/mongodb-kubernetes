@@ -1,6 +1,17 @@
 ARG imagebase
 FROM ${imagebase} as base
 
+FROM registry.access.redhat.com/ubi9/ubi-minimal as builder
+
+RUN microdnf install -y tar gzip && microdnf clean all
+
+COPY --from=base /data/mongodb-agent.tar.gz /data/mongodb-tools.tgz /tmp/
+RUN tar xfz /tmp/mongodb-agent.tar.gz -C /opt && \
+    tar xfz /tmp/mongodb-tools.tgz -C /opt && \
+    rm /tmp/*.tgz /tmp/*.tar.gz
+
+RUN chmod +x /opt/mongodb-mms-automation-agent-*/mongodb-mms-automation-agent
+
 FROM registry.access.redhat.com/ubi9/ubi-minimal
 
 ARG version
@@ -15,46 +26,32 @@ LABEL name="MongoDB Agent" \
 
 # Replace libcurl-minimal and curl-minimal with the full versions
 # https://bugzilla.redhat.com/show_bug.cgi?id=1994521
-RUN  microdnf install -y libssh libpsl libbrotli \
+RUN    microdnf install -y libssh libpsl libbrotli \
     && microdnf download curl libcurl \
     && rpm -Uvh --nodeps --replacefiles "*curl*$( uname -i ).rpm" \
-    && microdnf remove -y libcurl-minimal curl-minimal
-
-RUN microdnf install -y --disableplugin=subscription-manager --setopt=install_weak_deps=0 nss_wrapper
-# Copy-pasted from https://www.mongodb.com/docs/manual/tutorial/install-mongodb-enterprise-on-red-hat-tarball/
-RUN microdnf install -y --disableplugin=subscription-manager \
- cyrus-sasl cyrus-sasl-gssapi cyrus-sasl-plain krb5-libs openldap openssl xz-libs
-# Dependencies for the Agent
-RUN microdnf install -y --disableplugin=subscription-manager  --setopt=install_weak_deps=0 \
-        net-snmp \
-        net-snmp-agent-libs
-RUN microdnf install -y --disableplugin=subscription-manager \
-    hostname tar gzip procps jq \
+    && microdnf remove -y libcurl-minimal curl-minimal \
+    && microdnf install -y --disableplugin=subscription-manager --setopt=install_weak_deps=0 nss_wrapper \
+    && microdnf install -y --disableplugin=subscription-manager \
+    cyrus-sasl cyrus-sasl-gssapi cyrus-sasl-plain krb5-libs openldap openssl xz-libs \
+    && microdnf install -y --disableplugin=subscription-manager  --setopt=install_weak_deps=0 \
+           net-snmp \
+           net-snmp-agent-libs \
+    && microdnf install -y --disableplugin=subscription-manager \
+       hostname tar gzip procps jq \
     && microdnf upgrade -y  \
-    && rm -rf /var/lib/apt/lists/*
+    && microdnf clean all \
+    && mkdir -p /agent \
+             /var/lib/mongodb-mms-automation \
+             /var/log/mongodb-mms-automation \
+             /var/lib/automation/config \
+    && chmod -R +wr /var/log/mongodb-mms-automation/ \
+    && touch /var/log/mongodb-mms-automation/readiness.log \
+    && chmod ugo+rw /var/log/mongodb-mms-automation/readiness.log \
+    && chmod -R +r /var/lib/automation/config
 
-RUN mkdir -p /agent \
-    && mkdir -p /var/lib/mongodb-mms-automation \
-      && mkdir -p /var/log/mongodb-mms-automation/ \
-      && chmod -R +wr /var/log/mongodb-mms-automation/ \
-      # ensure that the agent user can write the logs in OpenShift
-      && touch /var/log/mongodb-mms-automation/readiness.log \
-      && chmod ugo+rw /var/log/mongodb-mms-automation/readiness.log
-
-
-COPY --from=base /data/mongodb-agent.tar.gz /agent
-COPY --from=base /data/mongodb-tools.tgz /agent
 COPY --from=base /data/LICENSE /licenses/LICENSE
-
-RUN tar xfz /agent/mongodb-agent.tar.gz \
-    && mv mongodb-mms-automation-agent-*/mongodb-mms-automation-agent /agent/mongodb-agent \
-    && chmod +x /agent/mongodb-agent \
-    && mkdir -p /var/lib/automation/config \
-    && chmod -R +r /var/lib/automation/config \
-    && rm /agent/mongodb-agent.tar.gz \
-    && rm -r mongodb-mms-automation-agent-*
-
-RUN tar xfz /agent/mongodb-tools.tgz --directory /var/lib/mongodb-mms-automation/ && rm /agent/mongodb-tools.tgz
+COPY --from=builder /opt/mongodb-mms-automation-agent-*/mongodb-mms-automation-agent /agent/mongodb-agent
+COPY --from=builder /opt/mongodb-database-tools-*/bin/ /usr/local/bin/
 
 USER 2000
 CMD ["/agent/mongodb-agent", "-cluster=/var/lib/automation/config/automation-config.json"]
