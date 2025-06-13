@@ -9,7 +9,10 @@ from scripts.release.changelog import CHANGELOG_PATH
 
 @fixture(scope="session")
 def git_repo(change_log_path: str = CHANGELOG_PATH) -> Repo:
-    """Create a temporary git repository for testing."""
+    """
+    Create a temporary git repository for testing.
+    Visual representation of the repository structure is in test_git_repo.mmd (mermaid/gitgraph https://mermaid.js.org/syntax/gitgraph.html).
+    """
 
     repo_dir = tempfile.mkdtemp()
     repo = Repo.init(repo_dir)
@@ -19,9 +22,11 @@ def git_repo(change_log_path: str = CHANGELOG_PATH) -> Repo:
     ## First commit and 1.0.0 tag
     repo.git.checkout("-b", "master")
     new_file = create_new_file(repo_dir, "new-file.txt", "Initial content\n")
-    changelog_file = add_file(repo_dir, "changelog/20250506_prelude_mck.md")
-    repo.index.add([new_file, changelog_file])
+    repo.index.add(new_file)
     repo.index.commit("initial commit")
+    changelog_file = add_file(repo_dir, "changelog/20250506_prelude_mck.md")
+    repo.index.add(changelog_file)
+    repo.index.commit("release notes prelude MCK")
     repo.create_tag("1.0.0", message="Initial release")
 
     ## Bug fixes and 1.0.1 tag
