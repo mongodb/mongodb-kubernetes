@@ -19,16 +19,14 @@ class ChangeType(StrEnum):
 
 
 def get_changelog_entries(
-        previous_commit: Commit,
-        repository_path: str,
+        previous_version_commit: Commit,
+        repo: Repo,
         changelog_sub_path: str,
 ) -> list[tuple[ChangeType, str]]:
     changelog = []
 
-    repo = Repo(repository_path)
-
     # Compare previous version commit with current working tree
-    diff_index = previous_commit.diff(other=repo.head.commit, paths=changelog_sub_path)
+    diff_index = previous_version_commit.diff(other=repo.head.commit, paths=changelog_sub_path)
 
     # No changes since the previous version
     if not diff_index:
@@ -40,7 +38,7 @@ def get_changelog_entries(
         file_name = os.path.basename(file_path)
         change_type = get_change_type(file_name)
 
-        abs_file_path = os.path.join(repository_path, file_path)
+        abs_file_path = os.path.join(repo.working_dir, file_path)
         with open(abs_file_path, 'r') as file:
             file_content = file.read()
 
