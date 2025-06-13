@@ -6,7 +6,6 @@ from unittest.mock import patch
 import pytest
 
 from pipeline import (
-    get_included_images,
     gather_all_supported_agent_versions,
     gather_latest_agent_versions,
     get_versions_to_rebuild,
