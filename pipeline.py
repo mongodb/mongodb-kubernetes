@@ -1523,7 +1523,7 @@ def main():
     _setup_tracing()
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--include", action="append", help="list of images to include")
+    parser.add_argument("--include", help="list of images to include")
     parser.add_argument("--builder", default="docker", type=str)
     parser.add_argument("--list-images", action="store_true")
     parser.add_argument("--parallel", action="store_true", default=False)
