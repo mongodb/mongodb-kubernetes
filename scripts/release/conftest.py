@@ -12,6 +12,7 @@ def git_repo(change_log_path: str = CHANGELOG_PATH) -> Repo:
     """
     Create a temporary git repository for testing.
     Visual representation of the repository structure is in test_git_repo.mmd (mermaid/gitgraph https://mermaid.js.org/syntax/gitgraph.html).
+    Whenever you modify or add new commits please update the git graph as well.
     """
 
     repo_dir = tempfile.mkdtemp()
