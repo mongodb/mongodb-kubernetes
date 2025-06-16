@@ -6,8 +6,7 @@ from git import Repo
 from jinja2 import Template
 
 from scripts.release.changelog import CHANGELOG_PATH, get_changelog_entries, ChangeType
-from scripts.release.versioning import calculate_next_release_version, find_previous_version, \
-    calculate_next_version_with_changelog
+from scripts.release.version import calculate_next_release_version, find_previous_version
 
 
 def generate_release_notes(
@@ -29,11 +28,11 @@ def generate_release_notes(
     """
     repo = Repo(repository_path)
 
-    changelog, version = calculate_next_version_with_changelog(repo, changelog_sub_path, initial_commit_sha,
+    version, changelog = calculate_next_version_with_changelog(repo, changelog_sub_path, initial_commit_sha,
                                                                initial_version)
 
-    with open('scripts/release/release_notes_tpl.md', "r") as file:
-        template = Template(file.read())
+    with open('scripts/release/release_notes_tpl.md', "r") as f:
+        template = Template(f.read())
 
     parameters = {
         'version': version,
@@ -45,6 +44,25 @@ def generate_release_notes(
     }
 
     return template.render(parameters)
+
+
+def calculate_next_version_with_changelog(
+    repo: Repo,
+    changelog_sub_path: str,
+    initial_commit_sha: str | None,
+    initial_version: str) -> (str, list[tuple[ChangeType, str]]):
+    previous_version_tag, previous_version_commit = find_previous_version(repo, initial_commit_sha)
+
+    changelog: list[tuple[ChangeType, str]] = get_changelog_entries(previous_version_commit, repo, changelog_sub_path)
+    changelog_types = list[ChangeType](map(lambda x: x[0], changelog))
+
+    # If there is no previous version tag, we start with the initial version tag
+    if not previous_version_tag:
+        version = initial_version
+    else:
+        version = calculate_next_release_version(previous_version_tag.name, changelog_types)
+
+    return version, changelog
 
 
 if __name__ == "__main__":
@@ -64,7 +82,7 @@ if __name__ == "__main__":
                                            args.initial_version)
 
     if args.output is not None:
-        with open(args.output, "w") as f:
-            f.write(release_notes)
+        with open(args.output, "w") as file:
+            file.write(release_notes)
     else:
-        sys.stdout.write(release_notes)
+        print(release_notes)
