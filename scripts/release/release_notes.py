@@ -1,6 +1,5 @@
 import argparse
 import pathlib
-import sys
 
 from git import Repo
 from jinja2 import Template
