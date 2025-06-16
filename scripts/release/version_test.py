@@ -1,5 +1,5 @@
 import unittest
-from scripts.release.versioning import calculate_next_release_version
+from scripts.release.version import calculate_next_release_version
 from scripts.release.changelog import ChangeType
 
 
