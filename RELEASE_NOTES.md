@@ -7,7 +7,7 @@
 
 * Added new **ClusterMongoDBRole** CRD to support reusable roles across multiple MongoDB clusters.
   * This allows users to define roles once and reuse them in multiple **MongoDB** or **MongoDBMultiCluster** resources. The role can be referenced through the `.spec.security.roleRefs` field. Note that only one of `.spec.security.roles` and `.spec.security.roleRefs` can be used at a time.
-  * The new resource is watched by default by the operator. This means that the operator will require a new **ClusterRole** and **ClusterRoleBinding** to be created in the cluster. These resources are created by default with the helm chart or the kubectl mongodb plugin. To disable this behavior, set the `operator.enableClusterMongoDBRoles` value to `false` in the helm chart values.
+  * The new resource is watched by default by the operator. This means that the operator will require a new **ClusterRole** and **ClusterRoleBinding** to be created in the cluster. **ClusterRole** and **ClusterRoleBinding** resources are created by default with the helm chart or the kubectl mongodb plugin. To disable this behavior, set the `operator.enableClusterMongoDBRoles` value to `false` in the helm chart values.
   * The new **ClusterMongoDBRole** resource is designed to be read-only, meaning it can be used by MongoDB deployments managed by different operators.
   * The **ClusterMongoDBRole** resource can be deleted at any time, but the operator will not delete any roles that were created using this resource. To properly remove access, you must remove the reference to the **ClusterMongoDBRole** in the **MongoDB** or **MongoDBMultiCluster** resources.
   * The reference for this resource can be found here: **TODO** (link to documentation)
