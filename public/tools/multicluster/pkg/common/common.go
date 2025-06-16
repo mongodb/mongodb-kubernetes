@@ -605,21 +605,23 @@ func createRoles(ctx context.Context, c KubeClient, serviceAccountName, serviceA
 
 	}
 
-	// Create ClusterRole to access the cluster-scoped resource ClusterMongoDBRole
-	clusterRoleForMongoDBRole := buildClusterRoleMongoDBRole()
-	_, err = c.RbacV1().ClusterRoles().Create(ctx, &clusterRoleForMongoDBRole, metav1.CreateOptions{})
-	if err != nil {
-		if errors.IsAlreadyExists(err) {
-			if _, err := c.RbacV1().ClusterRoles().Update(ctx, &clusterRoleForMongoDBRole, metav1.UpdateOptions{}); err != nil {
-				return xerrors.Errorf("error updating role: %w", err)
+	if clusterType == clusterTypeCentral {
+		// Create ClusterRole to access the cluster-scoped resource ClusterMongoDBRole
+		clusterRoleForMongoDBRole := buildClusterRoleMongoDBRole()
+		_, err = c.RbacV1().ClusterRoles().Create(ctx, &clusterRoleForMongoDBRole, metav1.CreateOptions{})
+		if err != nil {
+			if errors.IsAlreadyExists(err) {
+				if _, err := c.RbacV1().ClusterRoles().Update(ctx, &clusterRoleForMongoDBRole, metav1.UpdateOptions{}); err != nil {
+					return xerrors.Errorf("error updating role: %w", err)
+				}
+			} else {
+				return xerrors.Errorf("error creating cluster role: %w", err)
 			}
-		} else {
-			return xerrors.Errorf("error creating cluster role: %w", err)
 		}
-	}
 
-	if err := createClusterRoleBinding(ctx, c, serviceAccountName, serviceAccountNamespace, DefaultOperatorName+"-cluster-mongodb-role-binding", clusterRoleForMongoDBRole); err != nil {
-		return err
+		if err := createClusterRoleBinding(ctx, c, serviceAccountName, serviceAccountNamespace, DefaultOperatorName+"-cluster-mongodb-role-binding", clusterRoleForMongoDBRole); err != nil {
+			return err
+		}
 	}
 
 	if !clusterScoped {
