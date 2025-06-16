@@ -81,7 +81,7 @@ type ReconcileMongoDbMultiReplicaSet struct {
 	memberClusterClientsMap       map[string]kubernetesClient.Client // holds the client for each of the memberclusters(where the MongoDB ReplicaSet is deployed)
 	memberClusterSecretClientsMap map[string]secrets.SecretClient
 	forceEnterprise               bool
-	watchClusterMongoDBRoles      bool
+	enableClusterMongoDBRoles     bool
 
 	imageUrls                         images.ImageUrls
 	initDatabaseNonStaticImageVersion string
@@ -90,7 +90,7 @@ type ReconcileMongoDbMultiReplicaSet struct {
 
 var _ reconcile.Reconciler = &ReconcileMongoDbMultiReplicaSet{}
 
-func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, watchClusterMongoDBRoles bool, omFunc om.ConnectionFactory, memberClustersMap map[string]client.Client) *ReconcileMongoDbMultiReplicaSet {
+func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, enableClusterMongoDBRoles bool, omFunc om.ConnectionFactory, memberClustersMap map[string]client.Client) *ReconcileMongoDbMultiReplicaSet {
 	clientsMap := make(map[string]kubernetesClient.Client)
 	secretClientsMap := make(map[string]secrets.SecretClient)
 
@@ -112,7 +112,7 @@ func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.
 		imageUrls:                         imageUrls,
 		initDatabaseNonStaticImageVersion: initDatabaseNonStaticImageVersion,
 		databaseNonStaticImageVersion:     databaseNonStaticImageVersion,
-		watchClusterMongoDBRoles:          watchClusterMongoDBRoles,
+		enableClusterMongoDBRoles:         enableClusterMongoDBRoles,
 	}
 }
 
@@ -363,7 +363,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileMemberResources(ctx context.C
 		}
 	}
 	// Ensure custom roles are created in OM
-	if status := r.ensureRoles(ctx, mrs.Spec.DbCommonSpec, r.watchClusterMongoDBRoles, conn, kube.ObjectKeyFromApiObject(mrs), log); !status.IsOK() {
+	if status := r.ensureRoles(ctx, mrs.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, conn, kube.ObjectKeyFromApiObject(mrs), log); !status.IsOK() {
 		return status
 	}
 
@@ -1075,9 +1075,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileOMCAConfigMap(ctx context.Con
 
 // AddMultiReplicaSetController creates a new MongoDbMultiReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, watchClusterMongoDBRoles bool, memberClustersMap map[string]cluster.Cluster) error {
+func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, enableClusterMongoDBRoles bool, memberClustersMap map[string]cluster.Cluster) error {
 	// Create a new controller
-	reconciler := newMultiClusterReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, watchClusterMongoDBRoles, om.NewOpsManagerConnection, multicluster.ClustersMapToClientMap(memberClustersMap))
+	reconciler := newMultiClusterReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, om.NewOpsManagerConnection, multicluster.ClustersMapToClientMap(memberClustersMap))
 	c, err := controller.New(util.MongoDbMultiClusterController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err
@@ -1116,7 +1116,7 @@ func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imag
 		return err
 	}
 
-	if watchClusterMongoDBRoles {
+	if enableClusterMongoDBRoles {
 		err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &rolev1.ClusterMongoDBRole{},
 			&watch.ResourcesHandler{ResourceType: watch.ClusterMongoDBRole, ResourceWatcher: reconciler.resourceWatcher}))
 		if err != nil {

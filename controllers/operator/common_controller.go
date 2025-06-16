@@ -101,7 +101,7 @@ func NewReconcileCommonController(ctx context.Context, client client.Client) *Re
 // ensureRoles will first check if both roles and roleRefs are populated. If both are, it will return an error, which is inline with the webhook validation rules.
 // Otherwise, if roles is populated, then it will extract the list of roles and check if they are already set in Ops Manager. If they are not, it will update the roles in Ops Manager.
 // If roleRefs is populated, it will extract the list of roles from the referenced resources and check if they are already set in Ops Manager. If they are not, it will update the roles in Ops Manager.
-func (r *ReconcileCommonController) ensureRoles(ctx context.Context, db mdbv1.DbCommonSpec, watchClusterMongoDBRoles bool, conn om.Connection, mongodbResourceNsName types.NamespacedName, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileCommonController) ensureRoles(ctx context.Context, db mdbv1.DbCommonSpec, enableClusterMongoDBRoles bool, conn om.Connection, mongodbResourceNsName types.NamespacedName, log *zap.SugaredLogger) workflow.Status {
 	localRoles := db.GetSecurity().Roles
 	roleRefs := db.GetSecurity().RoleRefs
 
@@ -111,7 +111,7 @@ func (r *ReconcileCommonController) ensureRoles(ctx context.Context, db mdbv1.Db
 
 	var roles []mdbv1.MongoDBRole
 	if len(roleRefs) > 0 {
-		if !watchClusterMongoDBRoles {
+		if !enableClusterMongoDBRoles {
 			return workflow.Failed(xerrors.Errorf("RoleRefs are not supported when ClusterMongoDBRoles are disabled. Please enable ClusterMongoDBRoles in the operator configuration."))
 		}
 		var err error
@@ -171,7 +171,7 @@ func (r *ReconcileCommonController) getRoleRefs(ctx context.Context, roleRefs []
 			err := r.client.Get(ctx, types.NamespacedName{Name: ref.Name}, customRole)
 			if err != nil {
 				if apiErrors.IsNotFound(err) {
-					return nil, xerrors.Errorf("ClusterMongoDBRole '%s' not found. If the resource was deleted, the role is still present in MongoDB. The correctly remove a role from MongoDB, please remove the reference from spec.security.roleRefs.", ref.Name)
+					return nil, xerrors.Errorf("ClusterMongoDBRole '%s' not found. If the resource was deleted, the role is still present in MongoDB. To correctly remove a role from MongoDB, please remove the reference from spec.security.roleRefs.", ref.Name)
 				}
 				return nil, xerrors.Errorf("Failed to retrieve ClusterMongoDBRole '%s': %w", ref.Name, err)
 			}

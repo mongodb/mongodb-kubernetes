@@ -727,7 +727,7 @@ def multi_cluster_operator_manual_remediation(
 
 
 @fixture(scope="module")
-def multi_cluster_operator_no_clustermongodbroles(
+def multi_cluster_operator_no_cluster_mongodb_roles(
     namespace: str,
     central_cluster_name: str,
     multi_cluster_operator_installation_config: dict[str, str],
