@@ -80,17 +80,18 @@ func testFlags(t *testing.T, cleanup bool) Flags {
 	assert.NoError(t, err)
 
 	return Flags{
-		MemberClusterApiServerUrls:  memberClusterApiServerUrls,
-		MemberClusters:              memberClusters,
-		ServiceAccount:              "mongodb-kubernetes-operator-multicluster",
-		CentralCluster:              "central-cluster",
-		MemberClusterNamespace:      "member-namespace",
-		CentralClusterNamespace:     "central-namespace",
-		Cleanup:                     cleanup,
-		ClusterScoped:               false,
-		CreateTelemetryClusterRoles: true,
-		OperatorName:                DefaultOperatorName,
-		CreateServiceAccountSecrets: true,
+		MemberClusterApiServerUrls:    memberClusterApiServerUrls,
+		MemberClusters:                memberClusters,
+		ServiceAccount:                "mongodb-kubernetes-operator-multicluster",
+		CentralCluster:                "central-cluster",
+		MemberClusterNamespace:        "member-namespace",
+		CentralClusterNamespace:       "central-namespace",
+		Cleanup:                       cleanup,
+		ClusterScoped:                 false,
+		CreateTelemetryClusterRoles:   true,
+		CreateMongoDBRolesClusterRole: true,
+		OperatorName:                  DefaultOperatorName,
+		CreateServiceAccountSecrets:   true,
 	}
 }
 
