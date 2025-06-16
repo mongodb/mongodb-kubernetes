@@ -1,6 +1,6 @@
+from conftest import git_repo
 from git import Repo
 
-from conftest import git_repo
 from scripts.release.release_notes import generate_release_notes
 
 
@@ -10,6 +10,7 @@ def test_generate_release_notes_before_1_0_0(git_repo: Repo):
     release_notes = generate_release_notes(git_repo.working_dir)
     with open("scripts/release/testdata/release_notes_1.0.0_empty.md") as file:
         assert release_notes == file.read()
+
 
 def test_generate_release_notes_1_0_0(git_repo: Repo):
     checkout_and_assert_release_notes(git_repo, "1.0.0")
@@ -61,6 +62,7 @@ def test_generate_release_notes_2_0_3(git_repo: Repo):
 
 def test_generate_release_notes_1_2_4(git_repo: Repo):
     checkout_and_assert_release_notes(git_repo, "1.2.4")
+
 
 def checkout_and_assert_release_notes(git_repo: Repo, tag: str):
     git_repo.git.checkout(tag)

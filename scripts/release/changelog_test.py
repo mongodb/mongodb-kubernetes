@@ -1,4 +1,4 @@
-from changelog import get_change_type, ChangeType
+from changelog import ChangeType, get_change_type
 
 
 def test_get_change_type():

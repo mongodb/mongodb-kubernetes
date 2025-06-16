@@ -1,6 +1,7 @@
 import unittest
-from scripts.release.version import calculate_next_release_version
+
 from scripts.release.changelog import ChangeType
+from scripts.release.version import calculate_next_release_version
 
 
 class TestCalculateNextReleaseVersion(unittest.TestCase):

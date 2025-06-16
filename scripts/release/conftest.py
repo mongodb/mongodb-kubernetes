@@ -4,6 +4,7 @@ import tempfile
 
 from _pytest.fixtures import fixture
 from git import Repo
+
 from scripts.release.changelog import CHANGELOG_PATH
 
 
@@ -47,7 +48,7 @@ def git_repo(change_log_path: str = CHANGELOG_PATH) -> Repo:
     changelog_file = add_file(
         repo_dir,
         "changelog/20250523_feature_community_search_preview_UPDATED.md",
-        "changelog/20250523_feature_community_search_preview.md"
+        "changelog/20250523_feature_community_search_preview.md",
     )
     repo.index.add(changelog_file)
     repo.index.commit("add limitations in changelog for private search preview")
@@ -156,6 +157,6 @@ def add_file(repo_path: str, src_file_path: str, dst_file_path: str | None = Non
         dst_file_path = src_file_path
 
     dst_path = os.path.join(repo_path, dst_file_path)
-    src_path = os.path.join('scripts/release/testdata', src_file_path)
+    src_path = os.path.join("scripts/release/testdata", src_file_path)
 
     return shutil.copy(src_path, dst_path)

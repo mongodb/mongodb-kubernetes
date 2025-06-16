@@ -1,6 +1,7 @@
 import os
 from enum import StrEnum
-from git import Repo, Commit
+
+from git import Commit, Repo
 
 CHANGELOG_PATH = "changelog/"
 
@@ -11,17 +12,17 @@ BUGFIX_ENTRIES = ["fix", "bugfix", "hotfix", "patch"]
 
 
 class ChangeType(StrEnum):
-    PRELUDE = 'prelude'
-    BREAKING = 'breaking'
-    FEATURE = 'feature'
-    FIX = 'fix'
-    OTHER = 'other'
+    PRELUDE = "prelude"
+    BREAKING = "breaking"
+    FEATURE = "feature"
+    FIX = "fix"
+    OTHER = "other"
 
 
 def get_changelog_entries(
-        previous_version_commit: Commit,
-        repo: Repo,
-        changelog_sub_path: str,
+    previous_version_commit: Commit,
+    repo: Repo,
+    changelog_sub_path: str,
 ) -> list[tuple[ChangeType, str]]:
     changelog = []
 
@@ -39,7 +40,7 @@ def get_changelog_entries(
         change_type = get_change_type(file_name)
 
         abs_file_path = os.path.join(repo.working_dir, file_path)
-        with open(abs_file_path, 'r') as file:
+        with open(abs_file_path, "r") as file:
             file_content = file.read()
 
         changelog.append((change_type, file_content))

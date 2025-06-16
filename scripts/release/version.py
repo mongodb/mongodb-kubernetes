@@ -1,5 +1,5 @@
 import semver
-from git import Repo, TagReference, Commit
+from git import Commit, Repo, TagReference
 
 from scripts.release.changelog import ChangeType
 
