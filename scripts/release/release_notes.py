@@ -4,12 +4,15 @@ import pathlib
 from git import Repo
 from jinja2 import Template
 
-from scripts.release.changelog import CHANGELOG_PATH, get_changelog_entries, ChangeType
-from scripts.release.version import calculate_next_release_version, find_previous_version
+from scripts.release.changelog import CHANGELOG_PATH, ChangeType, get_changelog_entries
+from scripts.release.version import (
+    calculate_next_release_version,
+    find_previous_version,
+)
 
 
 def generate_release_notes(
-    repository_path: str = '.',
+    repository_path: str = ".",
     changelog_sub_path: str = CHANGELOG_PATH,
     initial_commit_sha: str = None,
     initial_version: str = "1.0.0",
@@ -27,29 +30,28 @@ def generate_release_notes(
     """
     repo = Repo(repository_path)
 
-    version, changelog = calculate_next_version_with_changelog(repo, changelog_sub_path, initial_commit_sha,
-                                                               initial_version)
+    version, changelog = calculate_next_version_with_changelog(
+        repo, changelog_sub_path, initial_commit_sha, initial_version
+    )
 
-    with open('scripts/release/release_notes_tpl.md', "r") as f:
+    with open("scripts/release/release_notes_tpl.md", "r") as f:
         template = Template(f.read())
 
     parameters = {
-        'version': version,
-        'preludes': [c[1] for c in changelog if c[0] == ChangeType.PRELUDE],
-        'breaking_changes': [c[1] for c in changelog if c[0] == ChangeType.BREAKING],
-        'features': [c[1] for c in changelog if c[0] == ChangeType.FEATURE],
-        'fixes': [c[1] for c in changelog if c[0] == ChangeType.FIX],
-        'others': [c[1] for c in changelog if c[0] == ChangeType.OTHER],
+        "version": version,
+        "preludes": [c[1] for c in changelog if c[0] == ChangeType.PRELUDE],
+        "breaking_changes": [c[1] for c in changelog if c[0] == ChangeType.BREAKING],
+        "features": [c[1] for c in changelog if c[0] == ChangeType.FEATURE],
+        "fixes": [c[1] for c in changelog if c[0] == ChangeType.FIX],
+        "others": [c[1] for c in changelog if c[0] == ChangeType.OTHER],
     }
 
     return template.render(parameters)
 
 
 def calculate_next_version_with_changelog(
-    repo: Repo,
-    changelog_sub_path: str,
-    initial_commit_sha: str | None,
-    initial_version: str) -> (str, list[tuple[ChangeType, str]]):
+    repo: Repo, changelog_sub_path: str, initial_commit_sha: str | None, initial_version: str
+) -> (str, list[tuple[ChangeType, str]]):
     previous_version_tag, previous_version_commit = find_previous_version(repo, initial_commit_sha)
 
     changelog: list[tuple[ChangeType, str]] = get_changelog_entries(previous_version_commit, repo, changelog_sub_path)
@@ -66,19 +68,39 @@ def calculate_next_version_with_changelog(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--path", action="store", default=".", type=pathlib.Path,
-                        help="Path to the Git repository. Default is the current directory '.'")
-    parser.add_argument("--changelog_path", default="changelog/", action="store", type=str,
-                        help="Path to the changelog directory relative to the repository root. Default is 'changelog/'")
-    parser.add_argument("--initial_commit_sha", action="store", type=str,
-                        help="SHA of the initial commit to start from if no previous version tag is found.")
-    parser.add_argument("--initial_version", default="1.0.0", action="store", type=str,
-                        help="Version to use if no previous version tag is found. Default is '1.0.0'")
+    parser.add_argument(
+        "--path",
+        action="store",
+        default=".",
+        type=pathlib.Path,
+        help="Path to the Git repository. Default is the current directory '.'",
+    )
+    parser.add_argument(
+        "--changelog_path",
+        default="changelog/",
+        action="store",
+        type=str,
+        help="Path to the changelog directory relative to the repository root. Default is 'changelog/'",
+    )
+    parser.add_argument(
+        "--initial_commit_sha",
+        action="store",
+        type=str,
+        help="SHA of the initial commit to start from if no previous version tag is found.",
+    )
+    parser.add_argument(
+        "--initial_version",
+        default="1.0.0",
+        action="store",
+        type=str,
+        help="Version to use if no previous version tag is found. Default is '1.0.0'",
+    )
     parser.add_argument("--output", "-o", type=pathlib.Path)
     args = parser.parse_args()
 
-    release_notes = generate_release_notes(args.path, args.changelog_path, args.initial_commit_sha,
-                                           args.initial_version)
+    release_notes = generate_release_notes(
+        args.path, args.changelog_path, args.initial_commit_sha, args.initial_version
+    )
 
     if args.output is not None:
         with open(args.output, "w") as file:
