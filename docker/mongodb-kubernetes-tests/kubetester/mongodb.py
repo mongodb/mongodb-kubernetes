@@ -4,12 +4,12 @@ import os
 import re
 import time
 import urllib.parse
-from enum import Enum
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 import semver
 from kubeobject import CustomObject
 from kubernetes import client
+from kubetester import create_or_update_configmap, read_configmap
 from kubetester.kubetester import (
     KubernetesTester,
     build_host_fqdn,
@@ -21,51 +21,19 @@ from kubetester.omtester import OMContext, OMTester
 from opentelemetry import trace
 from tests import test_logger
 
+from .mongodb_common import MongoDBCommon
+from .mongodb_utils_state import in_desired_state
 from .mongotester import (
     MongoTester,
     ReplicaSetTester,
     ShardedClusterTester,
     StandaloneTester,
 )
+from .opsmanager import MongoDBOpsManager
+from .phase import Phase
 
 logger = test_logger.get_test_logger(__name__)
 TRACER = trace.get_tracer("evergreen-agent")
-
-
-class Phase(Enum):
-    Running = 1
-    Pending = 2
-    Failed = 3
-    Updated = 4
-    Disabled = 5
-    Unsupported = 6
-
-
-class MongoDBCommon:
-    TRACER.start_as_current_span("wait_for")
-
-    def wait_for(self, fn, timeout=None, should_raise=True):
-        if timeout is None:
-            timeout = 600
-        initial_timeout = timeout
-
-        wait = 3
-        while timeout > 0:
-            try:
-                self.reload()
-            except Exception as e:
-                print(f"Caught error: {e} while waiting for {fn.__name__}")
-                pass
-            if fn(self):
-                return True
-            timeout -= wait
-            time.sleep(wait)
-
-        if should_raise:
-            raise Exception("Timeout ({}) reached while waiting for {}".format(initial_timeout, self))
-
-    def get_generation(self) -> int:
-        return self.backing_obj["metadata"]["generation"]
 
 
 class MongoDB(CustomObject, MongoDBCommon):
@@ -404,6 +372,36 @@ class MongoDB(CustomObject, MongoDBCommon):
         except KeyError:
             return {}
 
+    def get_oidc_provider_configs(self) -> Optional[Dict]:
+        try:
+            return self["spec"]["security"]["authentication"]["oidcProviderConfigs"]
+        except KeyError:
+            return {}
+
+    def set_oidc_provider_configs(self, oidc_provider_configs: Dict):
+        self["spec"]["security"]["authentication"]["oidcProviderConfigs"] = oidc_provider_configs
+        return self
+
+    def append_oidc_provider_config(self, new_config: Dict):
+        if "oidcProviderConfigs" not in self["spec"]["security"]["authentication"]:
+            self["spec"]["security"]["authentication"]["oidcProviderConfigs"] = []
+        self["spec"]["security"]["authentication"]["oidcProviderConfigs"].append(new_config)
+
+        return self
+
+    def get_roles(self) -> Optional[Dict]:
+        try:
+            return self["spec"]["security"]["roles"]
+        except KeyError:
+            return {}
+
+    def append_role(self, new_role: Dict):
+        if "roles" not in self["spec"]["security"]:
+            self["spec"]["security"]["roles"] = []
+        self["spec"]["security"]["roles"].append(new_role)
+
+        return self
+
     def get_authentication_modes(self) -> Optional[Dict]:
         try:
             return self.get_authentication()["modes"]
@@ -581,73 +579,3 @@ class MongoDB(CustomObject, MongoDBCommon):
         REPLICA_SET = "ReplicaSet"
         SHARDED_CLUSTER = "ShardedCluster"
         STANDALONE = "Standalone"
-
-
-def get_pods(podname, qty) -> List[str]:
-    return [podname.format(i) for i in range(qty)]
-
-
-TRACER.start_as_current_span("in_desired_state")
-
-
-def in_desired_state(
-    current_state: Phase,
-    desired_state: Phase,
-    current_generation: int,
-    observed_generation: int,
-    current_message: str,
-    msg_regexp: Optional[str] = None,
-    ignore_errors=False,
-    intermediate_events: Tuple = (),
-) -> bool:
-    """Returns true if the current_state is equal to desired state, fails fast if got into Failed error.
-    Optionally checks if the message matches the specified regexp expression"""
-    if current_state is None:
-        return False
-
-    if current_generation != observed_generation:
-        # We shouldn't check the status further if the Operator hasn't started working on the new spec yet
-        return False
-
-    if current_state == Phase.Failed and not desired_state == Phase.Failed and not ignore_errors:
-        found = False
-        for event in intermediate_events:
-            if event in current_message:
-                found = True
-
-        if not found:
-            raise AssertionError(f'Got into Failed phase while waiting for Running! ("{current_message}")')
-
-    is_in_desired_state = current_state == desired_state
-    if msg_regexp is not None:
-        print("msg_regexp: " + str(msg_regexp))
-        regexp = re.compile(msg_regexp)
-        is_in_desired_state = is_in_desired_state and current_message is not None and regexp.match(current_message)
-
-    return is_in_desired_state
-
-
-def generic_replicaset(
-    namespace: str,
-    version: str,
-    name: Optional[str] = None,
-    ops_manager: Optional[MongoDBOpsManager] = None,
-) -> MongoDB:
-    if name is None:
-        name = KubernetesTester.random_k8s_name("rs-")
-
-    rs = MongoDB(namespace=namespace, name=name)
-    rs["spec"] = {
-        "members": 3,
-        "type": "ReplicaSet",
-        "persistent": False,
-        "version": version,
-    }
-
-    if ops_manager is None:
-        rs["spec"]["credentials"] = "my-credentials"
-        rs["spec"]["opsManager"] = {"configMapRef": {"name": "my-project"}}
-    else:
-        rs.configure(ops_manager, KubernetesTester.random_k8s_name("project-"))
-
-    return rs

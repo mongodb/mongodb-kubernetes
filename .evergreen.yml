@@ -216,8 +216,8 @@ patch_aliases:
     variant_tags: [ "release_all_agents_manually" ]
     task: ".*"
   - alias: "release"
-    variant_tags: [ "release" ]
-    task_tags: [ "image_release", "image_preflight", "openshift_bundles", "code_snippets" ]
+    variant_tags: [ "release", "e2e_smoke_release_test_suite" ]
+    task_tags: [ "image_release", "image_preflight", "openshift_bundles", "code_snippets", "patch-run" ]
   - alias: "smoke_test_release"
     variant_tags: [ "e2e_smoke_release_test_suite" ]
     task_tags: [ "patch-run" ]
@@ -247,8 +247,8 @@ github_checks_aliases:
 # Triggered on git tag
 git_tag_aliases:
   - git_tag: "^(\\d+\\.)?(\\d+\\.)?(\\d+)$"
-    variant_tags: [ "release" ]
-    task_tags: [ "image_release", "image_preflight", "openshift_bundles", "code_snippets" ]
+    variant_tags: [ "release", "e2e_smoke_release_test_suite" ]
+    task_tags: [ "image_release", "image_preflight", "openshift_bundles", "code_snippets", "patch-run" ]
 
 tasks:
   - name: unit_tests_golang
@@ -587,7 +587,6 @@ tasks:
       - func: clone
       - func: setup_aws
       - func: configure_docker_auth
-      - func: quay_login
       - func: setup_prepare_openshift_bundles
       - func: prepare_openshift_bundles
       - func: update_evergreen_expansions
@@ -760,6 +759,12 @@ task_groups:
       - e2e_replica_set_pv_resize
       - e2e_sharded_cluster_pv_resize
       - e2e_community_and_meko_replicaset_scale
+      # OIDC test group
+      - e2e_replica_set_oidc_m2m_group
+      - e2e_replica_set_oidc_m2m_user
+      - e2e_replica_set_oidc_workforce
+      - e2e_sharded_cluster_oidc_m2m_group
+      - e2e_sharded_cluster_oidc_m2m_user
     <<: *teardown_group
 
   # this task group contains just a one task, which is smoke testing whether the operator
@@ -906,6 +911,10 @@ task_groups:
       - e2e_tls_x509_configure_all_options_sc
       - e2e_tls_x509_sc
       - e2e_meko_mck_upgrade
+      - e2e_sharded_cluster_oidc_m2m_group
+      - e2e_sharded_cluster_oidc_m2m_user
+      - e2e_multi_cluster_oidc_m2m_group
+      - e2e_multi_cluster_oidc_m2m_user
 
     <<: *teardown_group
 
@@ -1389,29 +1398,7 @@ buildvariants:
 
   - name: e2e_smoke
     display_name: e2e_smoke
-    tags: [ "e2e_test_suite" ]
-    run_on:
-      - ubuntu2204-large
-    depends_on:
-      - name: build_test_image
-        variant: init_test_run
-    tasks:
-      - name: e2e_smoke_task_group
-
-  - name: e2e_static_smoke
-    display_name: e2e_static_smoke
-    tags: [ "e2e_test_suite" ]
-    run_on:
-      - ubuntu2204-large
-    depends_on:
-      - name: build_test_image
-        variant: init_test_run
-    tasks:
-      - name: e2e_smoke_task_group
-
-  - name: e2e_smoke_release
-    display_name: e2e_smoke_release
-    tags: [ "e2e_smoke_release_test_suite" ]
+    tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
     run_on:
       - ubuntu2204-large
     allowed_requesters: [ "patch", "github_tag" ]
@@ -1421,9 +1408,9 @@ buildvariants:
     tasks:
       - name: e2e_smoke_task_group
 
-  - name: e2e_static_smoke_release
-    display_name: e2e_static_smoke_release
-    tags: [ "e2e_smoke_release_test_suite" ]
+  - name: e2e_static_smoke
+    display_name: e2e_static_smoke
+    tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
     run_on:
       - ubuntu2204-large
     allowed_requesters: [ "patch", "github_tag" ]
@@ -1862,10 +1849,27 @@ buildvariants:
 
   - name: private_kind_code_snippets
     display_name: private_kind_code_snippets
-    allowed_requesters: ["patch"]
+    tags: [ "e2e_test_suite" ]
+    allowed_requesters: ["patch", "github_pr"]
     run_on:
       - ubuntu2204-large
     <<: *base_om8_dependency
+    tasks:
+      - name: kind_code_snippets_task_group
+
+  - name: prerelease_kind_code_snippets
+    display_name: prerelease_kind_code_snippets
+    allowed_requesters: ["patch"]
+    run_on:
+      - ubuntu2204-large
+    tasks:
+      - name: kind_code_snippets_task_group
+
+  - name: public_kind_code_snippets
+    display_name: public_kind_code_snippets
+    allowed_requesters: ["patch"]
+    run_on:
+      - ubuntu2204-large
     tasks:
       - name: kind_code_snippets_task_group
 

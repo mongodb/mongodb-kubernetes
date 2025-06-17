@@ -12,8 +12,9 @@ from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import is_default_architecture_static, skip_if_local
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.mongotester import ReplicaSetTester
+from kubetester.phase import Phase
 from pytest import fixture
 from tests.conftest import (
     DATABASE_SA_NAME,

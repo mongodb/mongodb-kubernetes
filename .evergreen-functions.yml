@@ -1,6 +1,13 @@
 variables:
   - &e2e_include_expansions_in_env
     include_expansions_in_env:
+      - cognito_user_pool_id
+      - cognito_workload_federation_client_id
+      - cognito_user_name
+      - cognito_workload_federation_client_secret
+      - cognito_user_password
+      - cognito_workload_url
+      - cognito_workload_user_id
       - ARTIFACTORY_PASSWORD
       - ARTIFACTORY_USERNAME
       - GRS_PASSWORD
@@ -160,13 +167,6 @@ functions:
         - ${workdir}/bin
       binary: scripts/evergreen/setup_kind.sh
 
-  setup_docker_datadir: &setup_docker_datadir
-    command: subprocess.exec
-    type: setup
-    params:
-      working_dir: src/github.com/mongodb/mongodb-kubernetes
-      binary: scripts/evergreen/configure-docker-datadir.sh
-
   setup_preflight:
     - command: subprocess.exec
       type: setup
@@ -227,6 +227,15 @@ functions:
         - ${workdir}/bin
       binary: scripts/dev/configure_docker_auth.sh
 
+  setup_evg_host: &setup_evg_host
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+      binary: scripts/dev/setup_evg_host.sh
+
   lint_repo:
     - command: subprocess.exec
       type: setup
@@ -249,7 +258,7 @@ functions:
     - *switch_context
     - *setup_aws
     - *configure_docker_auth
-    - *setup_docker_datadir
+    - *setup_evg_host
     - *python_venv
 
   prune_docker_resources:
@@ -447,7 +456,20 @@ functions:
         aws_secret: ${enterprise_aws_secret_access_key}
         local_files_include_filter:
           - src/github.com/mongodb/mongodb-kubernetes/public/architectures/**/*.log
+          - src/github.com/mongodb/mongodb-kubernetes/docs/**/*.log
+        remote_file: logs/${task_id}/${execution}/
+        bucket: operator-e2e-artifacts
+        permissions: private
+        visibility: signed
+        content_type: text/plain
+    - command: s3.put
+      params:
+        aws_key: ${enterprise_aws_access_key_id}
+        aws_secret: ${enterprise_aws_secret_access_key}
+        local_files_include_filter:
           - src/github.com/mongodb/mongodb-kubernetes/public/architectures/**/*.out
+          - src/github.com/mongodb/mongodb-kubernetes/docs/**/*.out
+        preserve_path: true
         remote_file: logs/${task_id}/${execution}/
         bucket: operator-e2e-artifacts
         permissions: private

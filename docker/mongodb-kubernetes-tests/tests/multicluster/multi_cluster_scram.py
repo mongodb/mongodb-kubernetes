@@ -6,11 +6,12 @@ from kubetester import create_or_update_secret, read_secret
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import Phase
-from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
+from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.mongotester import with_scram
+from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 from tests.multicluster.conftest import cluster_spec_list
 
 MDB_RESOURCE = "multi-replica-set-scram"

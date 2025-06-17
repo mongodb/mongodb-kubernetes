@@ -3,8 +3,9 @@ import tempfile
 from kubetester import create_secret, delete_secret, find_fixture, read_secret
 from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs, generate_cert
 from kubetester.ldap import LDAPUser, OpenLDAP
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser, Role, generic_user
+from kubetester.phase import Phase
 from pytest import fixture, mark
 
 USER_NAME = "mms-user-1"

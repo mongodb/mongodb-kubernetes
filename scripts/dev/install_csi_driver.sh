@@ -2,24 +2,17 @@
 
 set -eux
 
+source scripts/funcs/kubernetes
+
 # Path to the deploy script
 DEPLOY_SCRIPT_PATH="./deploy/kubernetes-latest/deploy.sh"
+EXTRACTED_DIR="csi-driver-host-path-1.14.1"
 
-# Function to deploy to a single cluster
-deploy_to_cluster() {
-    local context="$1"
-    echo "Switching to context: ${context}"
-    
-    # Set the current context to the target cluster
-    if ! kubectl config use-context "${context}";then
-      echo "Failed to switch to context: ${context}"
-    fi
-
+csi_driver_download() {
     echo "install resizable csi"
     # Define variables
     REPO_URL="https://github.com/kubernetes-csi/csi-driver-host-path/archive/refs/tags/v1.14.1.tar.gz"
     TAR_FILE="csi-driver-host-path-v1.14.1.tar.gz"
-    EXTRACTED_DIR="csi-driver-host-path-1.14.1"
 
     # Download the tar.gz file
     echo "Downloading ${REPO_URL}..."
@@ -28,56 +21,37 @@ deploy_to_cluster() {
     # Extract the tar.gz file
     echo "Extracting ${TAR_FILE}..."
     tar -xzf "${TAR_FILE}"
+}
+
+# Function to deploy to a single cluster
+csi_driver_deploy() {
+    local context="$1"
 
     # Navigate to the extracted directory
     cd "${EXTRACTED_DIR}"
-    
     # Change to the latest supported snapshotter release branch
     SNAPSHOTTER_BRANCH=release-6.3
-    
+
     # Apply VolumeSnapshot CRDs
-    kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_BRANCH}/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml
-    kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_BRANCH}/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml
-    kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_BRANCH}/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml
-    
+    kubectl apply --context "${context}" -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_BRANCH}/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml
+    kubectl apply --context "${context}" -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_BRANCH}/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml
+    kubectl apply --context "${context}" -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_BRANCH}/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml
+
     # Change to the latest supported snapshotter version
     SNAPSHOTTER_VERSION=v6.3.3
-    
-    # Create snapshot controller
-    kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_VERSION}/deploy/kubernetes/snapshot-controller/rbac-snapshot-controller.yaml
-    kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_VERSION}/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml
 
-    # Run the deploy script
-    echo "Running deploy script on ${context}"
-    if ! bash "${DEPLOY_SCRIPT_PATH}"; then
-      echo "Failed to run deploy script on ${context}"
-      return 1
+    # Create snapshot controller
+    kubectl apply --context "${context}" -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_VERSION}/deploy/kubernetes/snapshot-controller/rbac-snapshot-controller.yaml
+    kubectl apply --context "${context}" -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_VERSION}/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml
+
+    # Run the deploy script with kubectl wrapped to force it to use specific context rather than rely on current context
+    if ! run_script_with_wrapped_kubectl "${DEPLOY_SCRIPT_PATH}" "${context}"; then
+        return 1
     fi
 
     echo "Installing csi storageClass"
-    kubectl apply -f ./examples/csi-storageclass.yaml
+    kubectl apply --context "${context}" -f ./examples/csi-storageclass.yaml
 
     echo "Deployment successful on ${context}"
     return 0
 }
-
-CLUSTER_CONTEXTS=()
-
-# Set default values for the context variables if they are not set
-CTX_CLUSTER="${CTX_CLUSTER:-}"
-CTX_CLUSTER1="${CTX_CLUSTER1:-}"
-CTX_CLUSTER2="${CTX_CLUSTER2:-}"
-CTX_CLUSTER3="${CTX_CLUSTER3:-}"
-
-# Add to CLUSTER_CONTEXTS only if the environment variable is set and not empty
-[[ -n "${CTX_CLUSTER}" ]] && CLUSTER_CONTEXTS+=("${CTX_CLUSTER}")
-[[ -n "${CTX_CLUSTER1}" ]] && CLUSTER_CONTEXTS+=("${CTX_CLUSTER1}")
-[[ -n "${CTX_CLUSTER2}" ]] && CLUSTER_CONTEXTS+=("${CTX_CLUSTER2}")
-[[ -n "${CTX_CLUSTER3}" ]] && CLUSTER_CONTEXTS+=("${CTX_CLUSTER3}")
-
-# Main deployment loop
-for context in "${CLUSTER_CONTEXTS[@]}"; do
-    deploy_to_cluster "${context}"
-done
-
-echo "Deployment completed for all clusters."

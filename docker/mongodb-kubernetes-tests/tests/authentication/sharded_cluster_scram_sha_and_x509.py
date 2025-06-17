@@ -10,9 +10,10 @@ from kubetester.certs import (
 )
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.mongotester import ShardedClusterTester
+from kubetester.phase import Phase
 
 MDB_RESOURCE = "sharded-cluster-tls-scram-sha-256"
 USER_NAME = "mms-user-1"
@@ -153,7 +154,7 @@ def test_x509_user_reaches_updated_phase(x509_user: MongoDBUser):
 def test_x509_user_exists_in_automation_config(x509_user: MongoDBUser):
     ac = KubernetesTester.get_automation_config()
     users = ac["auth"]["usersWanted"]
-    return x509_user["spec"]["username"] in (user["user"] for user in users)
+    assert x509_user["spec"]["username"] in (user["user"] for user in users)
 
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_and_x509

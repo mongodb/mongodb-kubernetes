@@ -11,8 +11,8 @@ from kubetester import try_load
 from kubetester.custom_podspec import assert_volume_mounts_are_equal
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import is_default_architecture_static
-from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import APPDB_SA_NAME, OM_SA_NAME, is_multi_cluster
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
@@ -145,7 +145,9 @@ class TestOpsManagerCreation:
                     "port": 8080,
                     "scheme": "HTTP",
                 },
+                "grpc": None,
                 "failure_threshold": 20,
+                "termination_grace_period_seconds": None,
                 "timeout_seconds": 5,
                 "period_seconds": 5,
                 "success_threshold": 1,
@@ -161,7 +163,9 @@ class TestOpsManagerCreation:
                     "port": 8080,
                     "scheme": "HTTP",
                 },
+                "grpc": None,
                 "failure_threshold": 30,
+                "termination_grace_period_seconds": None,
                 "timeout_seconds": 10,
                 "period_seconds": 25,
                 "success_threshold": 1,
@@ -177,6 +181,7 @@ class TestOpsManagerCreation:
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": True,
+                    "recursive_read_only": None,
                 },
                 {
                     "name": "mongodb-uri",
@@ -185,6 +190,7 @@ class TestOpsManagerCreation:
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": True,
+                    "recursive_read_only": None,
                 },
                 {
                     "name": "test-volume",
@@ -193,6 +199,7 @@ class TestOpsManagerCreation:
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
+                    "recursive_read_only": None,
                 },
                 {
                     "name": "data",
@@ -201,6 +208,7 @@ class TestOpsManagerCreation:
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
+                    "recursive_read_only": None,
                 },
                 {
                     "name": "data",
@@ -209,6 +217,7 @@ class TestOpsManagerCreation:
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
+                    "recursive_read_only": None,
                 },
                 {
                     "name": "data",
@@ -217,6 +226,7 @@ class TestOpsManagerCreation:
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
+                    "recursive_read_only": None,
                 },
                 {
                     "name": "data",
@@ -225,6 +235,7 @@ class TestOpsManagerCreation:
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
+                    "recursive_read_only": None,
                 },
                 {
                     "name": "data",
@@ -233,6 +244,7 @@ class TestOpsManagerCreation:
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
+                    "recursive_read_only": None,
                 },
                 {
                     "name": "data",
@@ -241,6 +253,7 @@ class TestOpsManagerCreation:
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
+                    "recursive_read_only": None,
                 },
             ],
         }
@@ -259,6 +272,7 @@ class TestOpsManagerCreation:
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": True,
+                    "recursive_read_only": None,
                 },
             )
 

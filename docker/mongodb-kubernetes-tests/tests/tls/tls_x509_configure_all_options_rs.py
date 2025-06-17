@@ -8,8 +8,9 @@ from kubetester.certs import (
 )
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 
 MDB_RESOURCE = "test-x509-all-options-rs"
 

@@ -11,7 +11,10 @@ from kubetester import (
     try_load,
     update_configmap,
 )
-from kubetester.kubetester import KubernetesTester, ensure_ent_version
+from kubetester.kubetester import (
+    KubernetesTester,
+    ensure_ent_version,
+)
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import (
     get_env_var_or_fail,
@@ -20,9 +23,10 @@ from kubetester.kubetester import (
     run_periodically,
     skip_if_local,
 )
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
 from tests.conftest import (

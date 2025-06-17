@@ -9,8 +9,9 @@ from kubetester.certs import (
 )
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.mongotester import ReplicaSetTester
+from kubetester.phase import Phase
 
 MDB_RESOURCE = "replica-set-scram-256-and-x509"
 USER_NAME = "mms-user-1"
