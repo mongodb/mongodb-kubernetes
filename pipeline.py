@@ -313,9 +313,6 @@ def create_and_push_manifest(image: str, tag: str, architectures: list[str]) -> 
         final_manifest,
     ]
 
-    for arch in architectures:
-        args.extend(["--amend", f"{final_manifest}-{arch}"])
-
     args_str = " ".join(args)
     logger.debug(f"creating new manifest: {args_str}")
     cp = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
