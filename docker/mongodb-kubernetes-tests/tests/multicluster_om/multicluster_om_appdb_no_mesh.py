@@ -10,9 +10,7 @@ import yaml
 from kubernetes import client
 from kubetester import create_or_update_configmap, create_or_update_service, try_load
 from kubetester.awss3client import AwsS3Client
-from kubetester.certs import (
-    create_ops_manager_tls_certs,
-)
+from kubetester.certs import create_ops_manager_tls_certs
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as _fixture
