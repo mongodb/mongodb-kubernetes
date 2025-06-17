@@ -13,7 +13,7 @@
     * To not install the necessary **ClusterRole** and **ClusterRoleBinding** with the kubectl mongodb plugin set the `--create-mongodb-roles-cluster-role` to false.
   * The new **ClusterMongoDBRole** resource is designed to be read-only, meaning it can be used by MongoDB deployments managed by different operators.
   * The **ClusterMongoDBRole** resource can be deleted at any time, but the operator will not delete any roles that were created using this resource. To properly remove access, you must **manually** remove the reference to the **ClusterMongoDBRole** in the **MongoDB** or **MongoDBMultiCluster** resources.
-  * The reference for this resource can be found here: **TODO** (link to documentation)
+  * The reference documentation for this resource can be found here: **TODO** (link to documentation)
   * For more information please see: **TODO** (link to documentation)
 
 

@@ -5,6 +5,22 @@ metadata:
   creationTimestamp: null
   labels:
     multi-cluster: "true"
+  name: mongodb-kubernetes-operator-central-namespace-multi-cluster-mongodb-role
+rules:
+- apiGroups:
+  - mongodb.com
+  resources:
+  - clustermongodbroles
+  verbs:
+  - '*'
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  labels:
+    multi-cluster: "true"
   name: mongodb-kubernetes-operator-multi-cluster-role
 rules:
 - apiGroups:
@@ -120,6 +136,23 @@ rules:
 
 ---
 # Central Cluster, cluster-scoped resources
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  creationTimestamp: null
+  labels:
+    multi-cluster: "true"
+  name: mongodb-kubernetes-operator-central-namespace-multi-cluster-mongodb-role-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mongodb-kubernetes-operator-central-namespace-multi-cluster-mongodb-role
+subjects:
+- kind: ServiceAccount
+  name: mongodb-kubernetes-operator-multicluster
+  namespace: central-namespace
+
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
