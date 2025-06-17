@@ -261,10 +261,7 @@ def intermediate_issuer(cert_manager: str, issuer: str, namespace: str) -> str:
     This fixture creates an intermediate "Issuer" in the testing namespace
     """
     # Create the Certificate for the intermediate CA based on the issuer fixture
-    from kubetester.certs import (
-        Certificate,
-        Issuer,
-    )
+    from kubetester.certs import Certificate, Issuer
 
     intermediate_ca_cert = Certificate(namespace=namespace, name="intermediate-ca-issuer")
     intermediate_ca_cert["spec"] = {
@@ -1449,10 +1446,7 @@ def create_issuer(
         else:
             raise e
 
-    from kubetester.certs import (
-        ClusterIssuer,
-        Issuer,
-    )
+    from kubetester.certs import ClusterIssuer, Issuer
 
     # And then creates the Issuer
     if clusterwide:

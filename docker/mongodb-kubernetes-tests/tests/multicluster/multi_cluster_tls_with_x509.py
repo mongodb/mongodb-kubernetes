@@ -3,10 +3,7 @@ from typing import List
 
 import kubernetes
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.certs import (
-    Certificate,
-    create_multi_cluster_x509_user_cert,
-)
+from kubetester.certs import Certificate, create_multi_cluster_x509_user_cert
 from kubetester.certs_mongodb_multi import (
     create_multi_cluster_mongodb_x509_tls_certs,
     create_multi_cluster_x509_agent_certs,
