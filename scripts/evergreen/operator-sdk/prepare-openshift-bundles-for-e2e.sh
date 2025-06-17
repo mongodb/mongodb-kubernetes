@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -Eeou pipefail
+set -Eeou pipefail -o posix
 
 # This script prepares and publishes OpenShift bundles and catalog source for operator upgrade tests using OLM.
 # It enables testing two upgrade scenarios:

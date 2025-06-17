@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -Eeou pipefail
+set -Eeou pipefail -o posix
 
 # Notarize generated binaries with Apple and replace the original binary with the notarized one
 # This depends on binaries being generated in a goreleaser manner and gon being set up.

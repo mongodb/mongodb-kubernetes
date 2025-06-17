@@ -6,7 +6,7 @@
 # Run "evg_host.sh help" command to see the full usage.
 # See docs/dev/local_e2e_testing.md for a tutorial how to use it.
 
-set -Eeou pipefail
+set -Eeou pipefail -o posix
 
 test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
 

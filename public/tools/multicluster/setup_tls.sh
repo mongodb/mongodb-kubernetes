@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -Eeou pipefail
+set -Eeou pipefail -o posix
 
 # This script is intended for demoing and not for general customer usage. This script has no official MongoDB support and is not guaranteed to be maintained.
 #

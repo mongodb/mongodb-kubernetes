@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -Eeou pipefail
+set -Eeou pipefail -o posix
 
 test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
 

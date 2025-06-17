@@ -2,7 +2,7 @@
 
 # This scripts recreates local python venv in the ${PROJECT_DIR} directory from the current context.
 
-set -Eeou pipefail
+set -Eeou pipefail -o posix
 
 source scripts/dev/set_env_context.sh
 

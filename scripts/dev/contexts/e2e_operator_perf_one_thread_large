@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -Eeou pipefail
+set -Eeou pipefail -o posix
 
 script_name=$(readlink -f "${BASH_SOURCE[0]}")
 script_dir=$(dirname "${script_name}")
@@ -12,4 +12,3 @@ source "${script_dir}/variables/om70"
 export MDB_MAX_CONCURRENT_RECONCILES=1
 export MDB_DEFAULT_ARCHITECTURE=static
 export KUBE_ENVIRONMENT_NAME=performance
-

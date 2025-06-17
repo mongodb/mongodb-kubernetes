@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -Eeou pipefail
+set -Eeou pipefail -o posix
 
 source scripts/evergreen/e2e/lib.sh
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -Eeou pipefail
+set -Eeou pipefail -o posix
 
 ## This file contains properties that need to overridden by a user.
 ## Rename it to "private-context" and fill in with your data.

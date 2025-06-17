@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -Eeou pipefail
+set -Eeou pipefail -o posix
 
 # shellcheck disable=SC2038
 # shellcheck disable=SC2016

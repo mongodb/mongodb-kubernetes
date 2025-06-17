@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -Eeou pipefail
+set -Eeou pipefail -o posix
 source scripts/dev/set_env_context.sh
 
 if [[ "${CODE_SNIPPETS_COMMIT_OUTPUT:-"false"}" == "true" ]]; then

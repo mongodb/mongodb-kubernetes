@@ -3,7 +3,7 @@
 # This context is usable when generating OLM bundles locally that will be deployed on OpenShift.
 # OpenShift must have managed security context enabled.
 
-set -Eeou pipefail
+set -Eeou pipefail -o posix
 
 script_name=$(readlink -f "${BASH_SOURCE[0]}")
 script_dir=$(dirname "${script_name}")

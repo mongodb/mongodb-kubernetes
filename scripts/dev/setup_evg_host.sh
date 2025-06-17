@@ -2,7 +2,7 @@
 
 # this script downloads necessary tooling in EVG host
 
-set -Eeou pipefail
+set -Eeou pipefail -o posix
 
 set_limits() {
   echo "Increasing fs.inotify.max_user_instances"

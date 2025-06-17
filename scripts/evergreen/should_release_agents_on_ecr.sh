@@ -2,7 +2,7 @@
 
 # This file is a condition script used for conditionally executing evergreen task for releasing agents to ecr.
 
-set -Eeou pipefail
+set -Eeou pipefail -o posix
 
 no_local_changes() {
   git diff --quiet -- release.json

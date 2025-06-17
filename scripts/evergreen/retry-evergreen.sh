@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -Eeou pipefail
+set -Eeou pipefail -o posix
 
 ###
 ## This script automatically retriggers failed tasks from Evergreen based on the `version_id` passed in from Evergreen.

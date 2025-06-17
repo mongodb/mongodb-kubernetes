@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -Eeou pipefail
+set -Eeou pipefail -o posix
 
 
 # The script launches e2e test. Note, that the Operator and necessary resources are deployed
@@ -49,5 +49,3 @@ else
 fi
 
 title "E2e test ${test} is finished"
-
-

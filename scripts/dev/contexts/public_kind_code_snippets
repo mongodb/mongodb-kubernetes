@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # this context file is for code snippets running on GKE clusters
-set -Eeou pipefail
+set -Eeou pipefail -o posix
 
 # overrides of public env_variables.sh
 script_name=$(readlink -f "${BASH_SOURCE[0]}")

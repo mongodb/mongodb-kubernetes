@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -Eeou pipefail
+set -Eeou pipefail -o posix
 
 # the function reacting on SIGTERM command sent by the container on its shutdown. Redirects the signal
 # to the child process ("tail" in this case)

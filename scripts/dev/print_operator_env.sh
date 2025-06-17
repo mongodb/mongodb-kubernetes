@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -Eeou pipefail
+set -Eeou pipefail -o posix
 
 # NOTE: these are the env vars which are required to run the operator, either via a pod or locally
 # This is not used by E2E evergreen, only when running tests "locally"

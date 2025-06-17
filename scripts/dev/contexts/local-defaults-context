@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -Eeou pipefail
+set -Eeou pipefail -o posix
 
 # This context is the defacto local development default context, where we set sane defaults for everyone to be able to get started.
 # This is the first context we source, therefore we can easily overwrite this. in the private-context or overrides.

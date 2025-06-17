@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -Eeou pipefail
+set -Eeou pipefail -o posix
 
 # Set required version
 required_version="v2.0.2"

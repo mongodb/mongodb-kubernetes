@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -Eeou pipefail
+set -Eeou pipefail -o posix
 
 start_time=$(date +%s)
 

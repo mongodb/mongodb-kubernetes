@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -Eeou pipefail
+set -Eeou pipefail -o posix
 # script prepares environment variables relevant for the current context
 
 source scripts/funcs/errors

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -Eeou pipefail
+set -Eeou pipefail -o posix
 
 
 # TODO replace in favour of 'evergreen/e2e/configure_operator'
@@ -42,4 +42,3 @@ kubectl delete secret ${om_admin_secret} -n "${NAMESPACE}" 2>/dev/null || true
 kubectl create secret generic ${om_admin_secret}  --from-literal=Username="jane.doe@example.com" --from-literal=Password="Passw0rd."  --from-literal=FirstName="Jane" --from-literal=LastName="Doe" -n "${NAMESPACE}"
 
 title "All necessary ConfigMaps and Secrets for the Operator are configured"
-

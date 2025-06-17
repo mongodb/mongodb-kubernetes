@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -Eeou pipefail
+set -Eeou pipefail -o posix
 
 source scripts/funcs/checks
 source scripts/funcs/printing

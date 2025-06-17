@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -Eeou pipefail
+set -Eeou pipefail -o posix
 
 # Store the current state of the index and working directory
 initial_index_state=$(git diff --name-only --cached --diff-filter=AM)

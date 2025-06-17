@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -Eeou pipefail
+set -Eeou pipefail -o posix
 
 source scripts/dev/set_env_context.sh
 
@@ -25,4 +25,3 @@ else
     mv ./docker-sbom "${plugins_dir}"
     rm -rf sbom-cli-plugin_0.6.1_linux_amd64.tar.gz
 fi
-
