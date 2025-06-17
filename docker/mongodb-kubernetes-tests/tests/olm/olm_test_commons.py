@@ -2,16 +2,14 @@ import json
 import os
 import re
 import tempfile
-import time
-from typing import Callable
 
 import kubetester
-import pytest
 import requests
-import yaml
 from kubeobject import CustomObject
 from kubernetes import client
 from kubetester import run_periodically
+
+from scripts.release.calculate_next_version import next_release_version
 
 
 def custom_object_from_yaml(yaml_string: str) -> CustomObject:
@@ -138,7 +136,7 @@ def get_release_json() -> dict[str, any]:
 
 
 def get_current_operator_version() -> str:
-    return get_release_json()["mongodbOperator"]
+    return next_release_version()
 
 
 def get_latest_released_operator_version(package_name: str) -> str:

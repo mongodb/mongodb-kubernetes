@@ -19,6 +19,8 @@ from evergreen.release.agent_matrix import (
     get_supported_version_for_image_matrix_handling,
 )
 
+from release.calculate_next_version import next_release_version
+
 LOGLEVEL = os.environ.get("LOGLEVEL", "INFO").upper()
 logging.basicConfig(level=LOGLEVEL)
 
@@ -241,7 +243,7 @@ def main() -> int:
     # only preflight the current agent version and the subset of agent images suffixed with the current operator version
     if args.image == "mongodb-agent":
         release = get_release()
-        operator_version = release["mongodbOperator"]
+        operator_version = next_release_version()
         versions = list(filter(lambda version: version.endswith(f"_{operator_version}"), versions))
         versions.append(release["agentVersion"])
 

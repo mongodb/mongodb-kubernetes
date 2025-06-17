@@ -20,6 +20,8 @@ from helm_files_handler import (
 )
 from packaging.version import Version
 
+from scripts.release.calculate_next_version import next_release_version
+
 RELEASE_JSON_TO_HELM_KEY = {
     "mongodbOperator": "operator",
     "initDatabaseVersion": "initDatabase",
@@ -43,7 +45,7 @@ def filterNonReleaseOut(versions: List[str]) -> List[str]:
 def main() -> int:
     release = load_release()
 
-    operator_version = release["mongodbOperator"]
+    operator_version = next_release_version()
 
     for k in release:
         if k in RELEASE_JSON_TO_HELM_KEY:

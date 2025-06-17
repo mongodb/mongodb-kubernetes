@@ -592,13 +592,14 @@ tasks:
       - func: update_evergreen_expansions
       - func: upload_openshift_bundle
         vars:
-          # mongoDbOperator expansion is added in update_evergreen_expansions func from release.json
+          # mongoDbOperator expansion is added in update_evergreen_expansions func
           bundle_file_name: "mck-operator-certified-${mongodbOperator}.tgz"
 
   - name: run_conditionally_prepare_and_upload_openshift_bundles
     tags: [ "openshift_bundles" ]
     commands:
       - func: clone
+      - func: update_evergreen_expansions
       - func: run_task_conditionally
         vars:
           condition_script: scripts/evergreen/should_prepare_openshift_bundles.sh

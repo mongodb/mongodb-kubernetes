@@ -105,6 +105,7 @@ def update_release_json():
     update_mongodb_tools_bundle(data, newest_om_version)
 
     # PCT bumps this field, and we can use this as a base to set the version for everything else in release.json
+    # TODO: use version from the script and add function to return supported versions (latest 3 major versions)
     newest_operator_version = data["mongodbOperator"]
     update_operator_related_versions(data, newest_operator_version)
 

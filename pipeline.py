@@ -51,6 +51,7 @@ from scripts.evergreen.release.images_signing import (
     verify_signature,
 )
 from scripts.evergreen.release.sbom import generate_sbom, generate_sbom_for_cli
+from scripts.release.calculate_next_version import next_release_version
 
 TRACER = trace.get_tracer("evergreen-agent")
 
@@ -535,8 +536,7 @@ def build_CLI_SBOM(build_configuration: BuildConfiguration):
         logger.error(f"Unrecognized architectures {build_configuration.architecture}. Skipping SBOM generation")
         return
 
-    release = get_release()
-    version = release["mongodbOperator"]
+    version = next_release_version()
 
     for architecture in architectures:
         generate_sbom_for_cli(version, architecture)

@@ -16,14 +16,13 @@ export OPERATOR_REGISTRY="${QUAY_REGISTRY}"
 export INIT_IMAGES_REGISTRY="${QUAY_REGISTRY}"
 export INIT_APPDB_REGISTRY="${QUAY_REGISTRY}"
 export INIT_DATABASE_REGISTRY="${QUAY_REGISTRY}"
-# Since we're sourcing this as an initial step, the jq might not be there. That's why we need bash magic here.
-OPERATOR_VERSION="$(grep -o '"mongodbOperator": "[^"]*' release.json | grep -o '[^"]*$')"
+OPERATOR_VERSION="$(./scripts/release/calculate_next_version.py --initial_version '1.1.0' --initial_commit_sha '13431e8fa6ae9ac8476034093e18c7da162fbd45')"
 export OPERATOR_VERSION
-INIT_DATABASE_VERSION="$(grep -o '"initDatabaseVersion": "[^"]*' release.json | grep -o '[^"]*$')"
+INIT_DATABASE_VERSION="$OPERATOR_VERSION"
 export INIT_DATABASE_VERSION
-INIT_APPDB_VERSION="$(grep -o '"initAppDbVersion": "[^"]*' release.json | grep -o '[^"]*$')"
+INIT_APPDB_VERSION="$OPERATOR_VERSION"
 export INIT_APPDB_VERSION
-INIT_OPS_MANAGER_VERSION="$(grep -o '"initOpsManagerVersion": "[^"]*' release.json | grep -o '[^"]*$')"
+INIT_OPS_MANAGER_VERSION="$OPERATOR_VERSION"
 export INIT_OPS_MANAGER_VERSION
-DATABASE_VERSION="$(grep -o '"databaseImageVersion": "[^"]*' release.json | grep -o '[^"]*$')"
+DATABASE_VERSION="$OPERATOR_VERSION"
 export DATABASE_VERSION

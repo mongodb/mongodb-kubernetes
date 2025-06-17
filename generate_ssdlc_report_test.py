@@ -7,6 +7,7 @@ import os
 from typing import Dict
 
 import generate_ssdlc_report
+from scripts.release.calculate_next_version import next_release_version
 
 
 def get_release() -> Dict:
@@ -16,8 +17,7 @@ def get_release() -> Dict:
 
 def test_report_generation():
     # Given
-    release = get_release()
-    current_version = release["mongodbOperator"]
+    current_version = next_release_version()
     current_directory = os.getcwd()
 
     # When
