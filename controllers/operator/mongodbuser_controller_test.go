@@ -12,6 +12,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	corev1 "k8s.io/api/core/v1"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
@@ -402,7 +403,7 @@ func TestFinalizerIsAdded_WhenUserIsCreated(t *testing.T) {
 
 	_ = client.Get(ctx, kube.ObjectKey(user.Namespace, user.Name), user)
 
-	assert.Contains(t, user.GetFinalizers(), util.Finalizer)
+	assert.Contains(t, user.GetFinalizers(), util.UserFinalizer)
 }
 
 func TestUserReconciler_SavesConnectionStringForMultiShardedCluster(t *testing.T) {
@@ -497,7 +498,8 @@ func TestFinalizerIsRemoved_WhenUserIsDeleted(t *testing.T) {
 	assert.Nil(t, err, "there should be no error on successful reconciliation")
 	assert.Equal(t, newExpected, newResult, "there should be a successful reconciliation if the password is a valid reference")
 
-	assert.Empty(t, user.GetFinalizers())
+	err = client.Get(ctx, kube.ObjectKey(user.Namespace, user.Name), user)
+	assert.True(t, apiErrors.IsNotFound(err), "the user should not exist")
 }
 
 // BuildAuthenticationEnabledReplicaSet returns a AutomationConfig after creating a Replica Set with a set of
