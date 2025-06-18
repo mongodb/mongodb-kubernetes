@@ -40,7 +40,7 @@ from packaging.version import Version
 
 import docker
 from lib.base_logger import logger
-from build_images import process_image
+from .build_images import process_image
 from scripts.evergreen.release.agent_matrix import (
     get_supported_operator_versions,
     get_supported_version_for_image_matrix_handling,
@@ -94,7 +94,7 @@ DEFAULT_NAMESPACE = "default"
 # QUAY_REGISTRY_URL sets the base registry for all release build stages. Context images and daily builds will push the
 # final images to the registry specified here.
 # This makes it easy to use ECR to test changes on the pipeline before pushing to Quay.
-QUAY_REGISTRY_URL = os.environ.get("QUAY_REGISTRY", "quay.io/mongodb")
+QUAY_REGISTRY_URL = "268558157000.dkr.ecr.us-east-1.amazonaws.com/julienben/staging-temp"
 
 
 @dataclass
@@ -102,7 +102,6 @@ class BuildConfiguration:
     image_type: str
     base_repository: str
 
-    builder: str = "docker"
     parallel: bool = False
     parallel_factor: int = 0
     architecture: Optional[List[str]] = None
@@ -141,7 +140,6 @@ def get_tools_distro(tools_version: str) -> Dict[str, str]:
 
 
 def operator_build_configuration(
-    builder: str,
     parallel: bool,
     debug: bool,
     architecture: Optional[List[str]] = None,
@@ -152,7 +150,6 @@ def operator_build_configuration(
     bc = BuildConfiguration(
         image_type=os.environ.get("distro", DEFAULT_IMAGE_TYPE),
         base_repository=os.environ["BASE_REPO_URL"],
-        builder=builder,
         parallel=parallel,
         all_agents=all_agents or bool(os.environ.get("all_agents", False)),
         debug=debug,
@@ -169,7 +166,6 @@ def operator_build_configuration(
             f"or in pipeline but not from master (is_running_in_patch={is_running_in_patch()}). "
             "Adding 'master' tag to skip to prevent publishing to the latest dev image."
         )
-        bc.skip_tags.append("master")
 
     return bc
 
@@ -233,7 +229,9 @@ def create_and_push_manifest(image: str, tag: str, architectures: list[str]) -> 
     This method calls docker directly on the command line, this is different from the rest of the code which uses
     Sonar as an interface to docker. We decided to keep this asymmetry for now, as Sonar will be removed soon.
     """
-    final_manifest = image + ":" + tag
+    logger.debug(f"image: {image}, tag: {tag}, architectures: {architectures}")
+    final_manifest = image
+    logger.debug(f"push_manifest - final_manifest={final_manifest}")
 
     args = [
         "docker",
@@ -243,7 +241,8 @@ def create_and_push_manifest(image: str, tag: str, architectures: list[str]) -> 
     ]
 
     for arch in architectures:
-        args.extend(["--amend", f"{final_manifest}-{arch}"])
+        logger.debug(f"push_manifest - amending {final_manifest}:{tag}-{arch}")
+        args.extend(["--amend", f"{final_manifest}:{tag}-{arch}"])
 
     args_str = " ".join(args)
     logger.debug(f"creating new manifest: {args_str}")
@@ -293,16 +292,21 @@ def check_multi_arch(image: str, suffix: str) -> bool:
 def pipeline_process_image(
     image_name: str,
     dockerfile_path: str,
-    args: Dict[str, str] = None,
+    dockerfile_args: Dict[str, str] = None,
+    base_registry: str = None,
+    architecture=None,
+    sign: bool = False,
     with_sbom: bool = True,
 ):
-    """Calls sonar to build `image_name` with arguments defined in `args`."""
+    """Calls sonar to build `image_name` with arguments defined in `args`.
+    :param architecture:
+    """
     span = trace.get_current_span()
     span.set_attribute("mck.image_name", image_name)
-    if args:
-        span.set_attribute("mck.build_args", str(args))
+    if dockerfile_args:
+        span.set_attribute("mck.build_args", str(dockerfile_args))
 
-    # TODO use these
+    # TODO use these?
     build_options = {
         # Will continue building an image if it finds an error. See next comment.
         "continue_on_errors": True,
@@ -310,12 +314,22 @@ def pipeline_process_image(
         "fail_on_errors": True,
     }
 
-    logger.info(f"Dockerfile args: {args}, for image: {image_name}")
+    logger.info(f"Dockerfile args: {dockerfile_args}, for image: {image_name}")
 
-    process_image(image_name, dockerfile_path=dockerfile_path, dockerfile_args=args)
+    if not dockerfile_args:
+        dockerfile_args = {}
+    logger.debug(f"Build args: {dockerfile_args}")
+    process_image(
+        image_name,
+        dockerfile_path=dockerfile_path,
+        dockerfile_args=dockerfile_args,
+        base_registry=base_registry,
+        architecture=architecture,
+        sign=sign,
+    )
 
     if with_sbom:
-        produce_sbom(args)
+        produce_sbom(dockerfile_args)
 
 
 @TRACER.start_as_current_span("produce_sbom")
@@ -379,7 +393,7 @@ def build_tests_image(build_configuration: BuildConfiguration):
     shutil.copyfile("release.json", "docker/mongodb-kubernetes-tests/release.json")
     shutil.copyfile("requirements.txt", requirements_dest)
 
-    python_version = os.getenv("PYTHON_VERSION", "")
+    python_version = os.getenv("PYTHON_VERSION", "3.11")
     if python_version == "":
         raise Exception("Missing PYTHON_VERSION environment variable")
 
@@ -397,7 +411,7 @@ def build_mco_tests_image(build_configuration: BuildConfiguration):
     if golang_version == "":
         raise Exception("Missing GOLANG_VERSION environment variable")
 
-    buildargs = dict({"golang_version": golang_version})
+    buildargs = dict({"GOLANG_VERSION": golang_version})
 
     pipeline_process_image(image_name, "docker/mongodb-community-tests/Dockerfile", buildargs)
 
@@ -424,7 +438,7 @@ def build_operator_image(build_configuration: BuildConfiguration):
         config=build_configuration,
         image_name=image_name,
         dockerfile_path="docker/mongodb-kubernetes-operator/Dockerfile",
-        registry_address=f"{QUAY_REGISTRY_URL}/{image_name}",
+        registry_address=QUAY_REGISTRY_URL,
         extra_args=args,
     )
 
@@ -710,9 +724,9 @@ def build_om_image(build_configuration: BuildConfiguration):
 
     build_image_generic(
         config=build_configuration,
-        image_name="ops-manager",
+        image_name="mongodb-enterprise-ops-manager",
         dockerfile_path="docker/mongodb-enterprise-ops-manager/Dockerfile",
-        registry_address=f"{QUAY_REGISTRY_URL}/mongodb-enterprise-ops-manager",
+        registry_address=QUAY_REGISTRY_URL,
         extra_args=args,
     )
 
@@ -721,44 +735,49 @@ def build_image_generic(
     config: BuildConfiguration,
     image_name: str,
     dockerfile_path: str,
-    registry_address: str = None,
-    extra_args: dict = None,
+    registry_address: str | None = None,
+    extra_args: dict | None = None,
+    multi_arch_args_list: list[dict] | None = None,
     is_multi_arch: bool = False,
-    multi_arch_args_list: list = None,
-    is_run_in_parallel: bool = False,
 ):
-    """Build image generic builds context images and is used for triggering release. During releases
-    it signs and verifies the context image.
+    """
+    Build one or more architecture-specific images, then (optionally)
+    push a manifest and sign the result.
     """
 
-    if not multi_arch_args_list:
-        multi_arch_args_list = [extra_args or {}]
+    # 1) Defaults
+    registry = registry_address or "268558157000.dkr.ecr.us-east-1.amazonaws.com/julienben/staging-temp"
+    args_list = multi_arch_args_list or [extra_args or {}]
+    version = args_list[0].get("version", "")
+    architectures = [args.get("architecture") for args in args_list]
 
-    version = multi_arch_args_list[0].get("version", "")  # the version is the same in multi-arch for each item
-    registry = f"{QUAY_REGISTRY_URL}/mongodb-kubernetes-{image_name}" if not registry_address else registry_address
+    # 2) Build each arch
+    for base_args in args_list:
+        # merge in the registry without mutating caller’s dict
+        build_args = {**base_args, "quay_registry": registry}
+        logger.debug(f"Build args: {build_args}")
 
-    for args in multi_arch_args_list:  # in case we are building multiple architectures
-        args["quay_registry"] = registry
-        pipeline_process_image(image_name, dockerfile_path, args, False)
+        for arch in architectures:
+            logger.debug(f"Building {image_name} for arch={arch}")
+            logger.debug(f"build image generic - registry={registry}")
+            pipeline_process_image(
+                image_name,
+                dockerfile_path,
+                build_args,
+                registry,
+                architecture=arch,
+                sign=True,
+                with_sbom=False,
+            )
+
+    # 3) Multi-arch manifest
     if is_multi_arch:
-        # we only push the manifests of the context images here,
-        # since daily rebuilds will push the manifests for the proper images later
-        architectures = [v["architecture"] for v in multi_arch_args_list]
-        create_and_push_manifest(registry_address, f"{version}-context", architectures=architectures)
-        if not config.is_release_step_executed():
-            # Normally daily rebuild would create and push the manifests for the non-context images.
-            # But since we don't run daily rebuilds on ecr image builds, we can do that step instead here.
-            # We only need to push manifests for multi-arch images.
-            create_and_push_manifest(registry_address, version, architectures=architectures)
+        create_and_push_manifest(registry+"/"+image_name, version, architectures=architectures)
 
-    # Sign and verify the context image if on releases if requied.
-    if config.sign and config.is_release_step_executed():
-        sign_and_verify_context_image(registry, version)
-
-
-def sign_and_verify_context_image(registry, version):
-    sign_image(registry, version + "-context")
-    verify_signature(registry, version + "-context")
+    # 4) Signing (only on real releases)
+    if config.sign:
+        sign_image(registry, version)
+        verify_signature(registry, version)
 
 
 def build_init_appdb(build_configuration: BuildConfiguration):
@@ -805,8 +824,9 @@ def build_community_image(build_configuration: BuildConfiguration, image_type: s
     for arch in architectures:
         arch_args = {
             "version": version,
-            "golang_version": golang_version,
+            "GOLANG_VERSION": golang_version,
             "architecture": arch,
+            "TARGETARCH": arch,
         }
         multi_arch_args_list.append(arch_args)
 
@@ -817,7 +837,7 @@ def build_community_image(build_configuration: BuildConfiguration, image_type: s
         config=build_configuration,
         image_name=image_name,
         dockerfile_path=dockerfile_path,
-        registry_address=f"{base_repo}/{image_name}",
+        registry_address=QUAY_REGISTRY_URL,
         is_multi_arch=True,
         multi_arch_args_list=multi_arch_args_list,
     )
@@ -1196,7 +1216,6 @@ def build_image(image_name: str, build_configuration: BuildConfiguration):
 
 def build_all_images(
     images: Iterable[str],
-    builder: str,
     debug: bool = False,
     parallel: bool = False,
     architecture: Optional[List[str]] = None,
@@ -1205,38 +1224,12 @@ def build_all_images(
     parallel_factor: int = 0,
 ):
     """Builds all the images in the `images` list."""
-    build_configuration = operator_build_configuration(
-        builder, parallel, debug, architecture, sign, all_agents, parallel_factor
-    )
+    build_configuration = operator_build_configuration(parallel, debug, architecture, sign, all_agents, parallel_factor)
     if sign:
         mongodb_artifactory_login()
     for image in images:
+        logger.info(f"====Building image {image}====")
         build_image(image, build_configuration)
-
-
-def calculate_images_to_build(
-    images: List[str], include: Optional[List[str]], exclude: Optional[List[str]]
-) -> Set[str]:
-    """
-    Calculates which images to build based on the `images`, `include` and `exclude` sets.
-
-    >>> calculate_images_to_build(["a", "b"], ["a"], ["b"])
-    ... ["a"]
-    """
-
-    if not include and not exclude:
-        return set(images)
-    include = set(include or [])
-    exclude = set(exclude or [])
-    images = set(images or [])
-
-    for image in include.union(exclude):
-        if image not in images:
-            raise ValueError("Image definition {} not found".format(image))
-
-    images_to_build = include.intersection(images)
-    return images_to_build
-
 
 def main():
     _setup_tracing()
@@ -1244,7 +1237,6 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--include", action="append", help="list of images to include")
-    parser.add_argument("--builder", default="docker", type=str, help="docker or podman")
     parser.add_argument("--list-images", action="store_true")
     parser.add_argument("--parallel", action="store_true", default=False)
     parser.add_argument("--debug", action="store_true", default=False)
@@ -1270,7 +1262,7 @@ def main():
     )
     args = parser.parse_args()
 
-    images_list = list(get_builder_function_for_image_name().keys())
+    images_list = get_builder_function_for_image_name().keys()
     if args.list_images:
         print(images_list)
         sys.exit(0)
@@ -1282,11 +1274,14 @@ def main():
     if not args.sign:
         logger.warning("--sign flag not provided, images won't be signed")
 
-    images_to_build = args.include.intersection(images_list)
+    # TODO check that image names are valid
+    images_to_build = list(sorted(set(args.include).intersection(images_list)))
+    if not images_to_build:
+        logger.error("No images to build, please ensure images names are correct.")
+        sys.exit(1)
 
     build_all_images(
         images_to_build,
-        args.builder,
         debug=args.debug,
         parallel=args.parallel,
         architecture=args.arch,
