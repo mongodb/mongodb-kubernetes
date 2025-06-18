@@ -15,13 +15,15 @@ service_network="10.96.0.0/16"
 metallb_ip_range="172.18.255.200-172.18.255.250"
 install_registry=0
 configure_docker_network=0
-while getopts ':n:p:s:c:l:egrhk' opt; do
+while getopts ':n:p:s:c:l:aegrhk' opt; do
   case ${opt} in
+# options with args
   n) cluster_name=${OPTARG} ;;
   p) pod_network=${OPTARG} ;;
   s) service_network=${OPTARG} ;;
   c) cluster_domain=${OPTARG} ;;
   l) metallb_ip_range=${OPTARG} ;;
+# options without
   e) export_kubeconfig=1 ;;
   g) install_registry=1 ;;
   r) recreate=1 ;;
@@ -127,29 +129,54 @@ EOF
 }
 
 kind_create_cluster() {
-  cat <<EOF | kind create cluster --name "${cluster_name}" --kubeconfig "${kubeconfig_path}" --wait 700s -v 5 --config=-
+cat <<EOF > kind-cluster.yaml
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  podSubnet: "${pod_network}"
+  serviceSubnet: "${service_network}"
+containerdConfigPatches:
+- |-
+  [plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:${reg_port}"]
+    endpoint = ["http://${reg_name}:${reg_port}"]
 nodes:
 - role: control-plane
   image: ${kind_image}
   extraMounts:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
-networking:
-  podSubnet: "${pod_network}"
-  serviceSubnet: "${service_network}"
-kubeadmConfigPatches:
-- |
-  apiVersion: kubeadm.k8s.io/v1beta3
-  kind: ClusterConfiguration
-  networking:
-    dnsDomain: "${cluster_domain}"
-containerdConfigPatches:
-- |-
-  [plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:${reg_port}"]
-    endpoint = ["http://${reg_name}:${reg_port}"]
+  - containerPath: /etc/kubernetes/audit-policy
+    hostPath: ${HOME}/.kind/audit-policy/ # audit-policy.yaml must be copied into this directory
+    readOnly: true
+  kubeadmConfigPatches:
+  - |
+    apiVersion: kubeadm.k8s.io/v1beta3
+    kind: ClusterConfiguration
+    networking:
+      dnsDomain: "${cluster_domain}"
+    apiServer:
+      extraArgs:
+        # Tell the API server where the audit policy is
+        audit-policy-file: "/etc/kubernetes/audit-policy/audit-policy.yaml"
+        # Tell the API server where to write audit logs
+        audit-log-path: "/var/log/kubernetes/audit.log"
+      extraVolumes:
+        # Mount the audit policy directory into the apiserver pod
+        - name: audit-policy
+          hostPath: /etc/kubernetes/audit-policy
+          mountPath: /etc/kubernetes/audit-policy
+          readOnly: true
+          pathType: Directory
+        # Mount the host log directory into the apiserver pod to write logs
+        - name: audit-logs
+          hostPath: /var/log/kubernetes
+          mountPath: /var/log/kubernetes
+          readOnly: false
+          pathType: DirectoryOrCreate # Creates the directory if it doesn't exist
 EOF
+  cat kind-cluster.yaml
+  kind create cluster --name "${cluster_name}" --kubeconfig "${kubeconfig_path}" --wait 900s -v=7 --config=kind-cluster.yaml
+  rm kind-cluster.yaml
   echo "finished installing kind"
 }
 

@@ -2,11 +2,48 @@
 
 set -Eeou pipefail
 
+test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
+
 ## We need to make sure this script does not fail if one of
 ## the kubectl commands fails.
 set +e
 
 source scripts/funcs/printing
+
+get_context_prefix() {
+  ctx=$1
+  prefix="${ctx}_"
+  # shellcheck disable=SC2154
+  if [[ "${KUBE_ENVIRONMENT_NAME:-}" != "multi" ]]; then
+      prefix=""
+  fi
+
+  echo -n "${prefix}"
+}
+
+dump_audit_log() {
+  ctx=$1
+  echo "Dumping audit log for cluster context: ${ctx}"
+  if [[ "${EVG_HOST_NAME}" != "" ]]; then
+    evg_host_url=$(scripts/dev/evg_host.sh get-host-url)
+    DOCKER_HOST="ssh://${evg_host_url}"
+    export DOCKER_HOST
+    echo "Setting DOCKER_HOST=${DOCKER_HOST} to run docker command on a remote docker daemon"
+  fi
+
+  control_plane_container_name="${ctx#kind-}-control-plane"
+  echo "Finding control plane container: ${control_plane_container_name}"
+
+  control_plane_container=$(docker ps -q -f "name=${control_plane_container_name}")
+  if [[ "${control_plane_container}" == "" ]]; then
+    echo "Cannot find control plane container of ${ctx} using docker ps: "
+    docker ps
+    return 1
+  fi
+
+  echo "Found control plane container: ${control_plane_container}. Dumping audit log to logs/${ctx}_audit.log"
+  docker cp "${control_plane_container}:/var/log/kubernetes/audit.log" "logs/${ctx}_audit.log"
+}
 
 dump_all_non_default_namespaces() {
     echo "Gathering logs from all non-default namespaces"
@@ -14,11 +51,7 @@ dump_all_non_default_namespaces() {
     local original_context
     original_context="$(kubectl config current-context)"
     kubectl config use-context "${1:-${original_context}}" &> /dev/null
-    prefix="${1:-${original_context}}_"
-    # shellcheck disable=SC2154
-    if [[ "${KUBE_ENVIRONMENT_NAME:-}" != "multi" ]]; then
-        prefix=""
-    fi
+    prefix="$(get_context_prefix "${1:-${original_context}}")"
 
     mkdir -p logs
     namespaces=$(kubectl get namespace --output=jsonpath="{.items[*].metadata.name}" | tr ' ' '\n' | \
@@ -37,9 +70,12 @@ dump_all_non_default_namespaces() {
             dump_namespace "${ns}" "${prefix}"
         fi
     done
+
+    dump_audit_log "${ctx}"
 }
 
 dump_all() {
+    ctx=$1
     [[ "${MODE-}" = "dev" ]] && return
 
     mkdir -p logs
@@ -48,12 +84,8 @@ dump_all() {
     # with a different context.
     local original_context
     original_context="$(kubectl config current-context)"
-    kubectl config use-context "${1:-${original_context}}" &> /dev/null
-    prefix="${1:-${original_context}}_"
-    # shellcheck disable=SC2154
-    if [[ "${KUBE_ENVIRONMENT_NAME:-}" != "multi" ]]; then
-        prefix=""
-    fi
+    kubectl config use-context "${ctx:-${original_context}}" &> /dev/null
+    prefix="$(get_context_prefix "${1:-${original_context}}")"
 
     # The dump process usually happens for a single namespace (the one the test and the operator are installed to)
     # but in some exceptional cases (e.g. clusterwide operator) there can be more than 1 namespace to print diagnostics
@@ -76,6 +108,8 @@ dump_all() {
     kubectl -n "kube-system" get configmap coredns -o yaml > "logs/${prefix}coredns.yaml"
 
     kubectl events --all-namespaces > "logs/${prefix}kube_events.json"
+
+    dump_audit_log "${ctx}"
 }
 
 dump_objects() {
@@ -355,3 +389,54 @@ dump_namespace() {
 
     kubectl describe nodes > "logs/${prefix}z_nodes_detailed.log" || true
 }
+
+main() {
+  context=""
+  cmd=""
+  metallb_ip_range="172.18.255.200-172.18.255.250"
+  install_registry=0
+  configure_docker_network=0
+  audit_logs=0
+  while getopts ':n:p:s:c:l:aegrhk' opt; do
+    case ${opt} in
+  # options with args
+    n) cluster_name=${OPTARG} ;;
+    p) pod_network=${OPTARG} ;;
+    s) service_network=${OPTARG} ;;
+    c) cluster_domain=${OPTARG} ;;
+    l) metallb_ip_range=${OPTARG} ;;
+  # options without
+    e) export_kubeconfig=1 ;;
+    g) install_registry=1 ;;
+    r) recreate=1 ;;
+    k) configure_docker_network=1 ;;
+    h) usage ;;
+    *) usage ;;
+    esac
+  done
+  shift "$((OPTIND - 1))"
+}
+
+if [[ $# -ne 2 ]]; then
+  echo "Missing required parameters"
+  echo "Usage: $0 dump_all|dump_all_non_default_namespaces <context>"
+  exit 1
+fi
+
+func=$1
+
+if [[ "${func}" == "dump_all" ]]; then
+  if [[ $# -gt 1 ]]; then
+    shift
+  fi
+
+  dump_all "$@"
+elif [[ "${func}" == "dump_all_non_default_namespaces" ]]; then
+  if [[ $# -gt 1 ]]; then
+    shift
+  fi
+  dump_all_non_default_namespaces "$@"
+else
+  echo "Usage: $0 dump_all|dump_all_non_default_namespaces"
+  return 1
+fi

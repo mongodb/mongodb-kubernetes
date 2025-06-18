@@ -4,8 +4,7 @@ set -eou pipefail
 source scripts/dev/set_env_context.sh
 
 dump_logs() {
-  source scripts/evergreen/e2e/dump_diagnostic_information.sh
-  dump_all_non_default_namespaces "$@"
+  scripts/evergreen/e2e/dump_diagnostic_information.sh dump_all_non_default_namespaces "$@"
 }
 trap dump_logs EXIT
 

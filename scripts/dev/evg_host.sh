@@ -22,8 +22,8 @@ fi
 get_host_url() {
   host=$(evergreen host list --json | jq -r ".[] | select (.name==\"${EVG_HOST_NAME}\") | .host_name ")
   if [[ "${host}" == "" ]]; then
-    >&2 echo "Cannot find running EVG host with name ${EVG_HOST_NAME}.
-Run evergreen host list --json or visit https://spruce.mongodb.com/spawn/host."
+    echo "Cannot find running EVG host with name ${EVG_HOST_NAME}.
+Run evergreen host list --json or visit https://spruce.mongodb.com/spawn/host." >&2
     exit 1
   fi
   echo "ubuntu@${host}"
@@ -33,6 +33,10 @@ cmd=${1-""}
 
 if [[ "${cmd}" != "" && "${cmd}" != "help" ]]; then
   host_url=$(get_host_url)
+  # don't echo if script is piped
+  if [ -t 1 ]; then
+      echo "Current host: ${host_url}" >&2
+  fi
 fi
 
 kubeconfig_path="${HOME}/.operator-dev/evg-host.kubeconfig"
@@ -103,7 +107,7 @@ recreate-kind-clusters() {
   configure "${1-"amd64"}" 2>&1| prepend "evg_host.sh configure"
   echo "Recreating kind clusters on ${EVG_HOST_NAME} (${host_url})..."
   # shellcheck disable=SC2088
-  ssh -T "${host_url}" "cd ~/mongodb-kubernetes; DELETE_KIND_NETWORK=${DELETE_KIND_NETWORK} scripts/dev/recreate_kind_clusters.sh"
+  ssh -T "${host_url}" "cd ~/mongodb-kubernetes; MDB_BASH_DEBUG=${MDB_BASH_DEBUG} DELETE_KIND_NETWORK=${DELETE_KIND_NETWORK} scripts/dev/recreate_kind_clusters.sh"
   echo "Copying kubeconfig to ${kubeconfig_path}"
   get-kubeconfig 2>&1| prepend "evg_host.sh configure"
 }
@@ -114,7 +118,7 @@ recreate-kind-cluster() {
   configure "${1-"amd64"}" 2>&1| prepend "evg_host.sh configure"
   echo "Recreating kind cluster ${cluster_name} on ${EVG_HOST_NAME} (${host_url})..."
   # shellcheck disable=SC2088
-  ssh -T "${host_url}" "cd ~/mongodb-kubernetes; scripts/dev/recreate_kind_cluster.sh ${cluster_name}"
+  ssh -T "${host_url}" "cd ~/mongodb-kubernetes; MDB_BASH_DEBUG=${MDB_BASH_DEBUG} scripts/dev/recreate_kind_cluster.sh ${cluster_name}"
   echo "Copying kubeconfig to ${kubeconfig_path}"
   get-kubeconfig
 }
@@ -196,6 +200,7 @@ COMMANDS:
   ssh [args]                            creates ssh session passing optional arguments to ssh
   cmd [command with args]               execute command as if being on evg host
   upload-my-ssh-private-key             uploads your ssh keys (~/.ssh/id_rsa) to evergreen host
+  get-host-url                          prints evergreen host url
   help                                  this message
 "
 }
@@ -211,6 +216,7 @@ tunnel) retry_with_sleep tunnel "$@" ;;
 sync) sync ;;
 cmd) cmd "$@" ;;
 upload-my-ssh-private-key) upload-my-ssh-private-key ;;
+get-host-url) get_host_url ;;
 help) usage ;;
 *) usage ;;
 esac

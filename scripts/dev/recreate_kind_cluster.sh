@@ -18,6 +18,8 @@ fi
 docker_create_kind_network
 docker_run_local_registry "kind-registry" "5000"
 
+create_audit_policy_yaml "${K8S_AUDIT_LOG_LEVEL}"
+
 scripts/dev/setup_kind_cluster.sh -r -e -n "${cluster_name}" -l "172.18.255.200-172.18.255.250" -c "${CLUSTER_DOMAIN}"
 
 source scripts/dev/install_csi_driver.sh
