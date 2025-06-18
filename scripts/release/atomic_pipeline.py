@@ -201,62 +201,9 @@ class MissingEnvironmentVariable(Exception):
     pass
 
 
-def should_pin_at() -> Optional[Tuple[str, str]]:
-    """Gets the value of the pin_tag_at to tag the images with.
-
-    Returns its value split on :.
-    """
-    # We need to return something so `partition` does not raise
-    # AttributeError
-    is_patch = is_running_in_patch()
-
-    try:
-        pinned = os.environ["pin_tag_at"]
-    except KeyError:
-        raise MissingEnvironmentVariable(f"pin_tag_at environment variable does not exist, but is required")
-    if is_patch:
-        if pinned == "00:00":
-            raise Exception("Pinning to midnight during a patch is not supported. Please pin to another date!")
-
-    hour, _, minute = pinned.partition(":")
-    return hour, minute
-
-
 def is_running_in_patch():
     is_patch = os.environ.get("is_patch")
     return is_patch is not None and is_patch.lower() == "true"
-
-
-def build_id() -> str:
-    """Returns the current UTC time in ISO8601 date format.
-
-    If running in Evergreen and `created_at` expansion is defined, use the
-    datetime defined in that variable instead.
-
-    It is possible to pin this time at midnight (00:00) for periodic builds. If
-    running a manual build, then the Evergreen `pin_tag_at` variable needs to be
-    set to the empty string, in which case, the image tag suffix will correspond
-    to the current timestamp.
-
-    """
-
-    date = datetime.now(timezone.utc)
-    try:
-        created_at = os.environ["created_at"]
-        date = datetime.strptime(created_at, "%y_%m_%d_%H_%M_%S")
-    except KeyError:
-        pass
-
-    hour, minute = should_pin_at()
-    if hour and minute:
-        logger.info(f"we are pinning to, hour: {hour}, minute: {minute}")
-        date = date.replace(hour=int(hour), minute=int(minute), second=0)
-    else:
-        logger.warning(f"hour and minute cannot be extracted from provided pin_tag_at env, pinning to now")
-
-    string_time = date.strftime("%Y%m%dT%H%M%SZ")
-
-    return string_time
 
 
 def get_release() -> Dict:
