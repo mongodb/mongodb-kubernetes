@@ -15,7 +15,15 @@
   * The **ClusterMongoDBRole** resource can be deleted at any time, but the operator will not delete any roles that were created using this resource. To properly remove access, you must **manually** remove the reference to the **ClusterMongoDBRole** in the **MongoDB** or **MongoDBMultiCluster** resources.
   * The reference documentation for this resource can be found here: **TODO** (link to documentation)
   * For more information please see: **TODO** (link to documentation)
-
+* **MongoDB**, **MongoDBMulti**: Added support for OpenID Connect (OIDC) user authentication.
+  * OIDC authentication can be configured with `spec.security.authentication.modes=OIDC` and `spec.security.authentication.oidcProviderConfigs` settings.
+  * Minimum MongoDB version requirements:
+    * `7.0.11`, `8.0.0`
+    * Only supported with MongoDB Enterprise Server
+  * For more information please see:
+    * [Secure Client Authentication with OIDC](https://www.mongodb.com/docs/kubernetes/upcoming/tutorial/secure-client-connections/) # TODO
+    * [Manage Database Users using OIDC](https://www.mongodb.com/docs/kubernetes/upcoming/manage-users/) # TODO
+    * [Authentication and Authorization with OIDC/OAuth 2.0](https://www.mongodb.com/docs/manual/core/oidc/security-oidc/)
 
 <!-- Past Releases -->
 
@@ -31,7 +39,6 @@
     * TLS must be disabled in MongoDB (communication between mongot and mongod is in plaintext for now).
 
 # MCK 1.0.1 Release Notes
-
 
 ## Bug Fixes
 * Fix missing agent images in the operator bundle in OpenShift catalog and operatorhub.io.
