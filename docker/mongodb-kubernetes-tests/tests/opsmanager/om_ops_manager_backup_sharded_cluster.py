@@ -24,7 +24,9 @@ from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_de
 from tests.shardedcluster.conftest import (
     enable_multi_cluster_deployment as enable_multi_cluster_deployment_mdb,
 )
-from tests.shardedcluster.conftest import get_mongos_service_names
+from tests.shardedcluster.conftest import (
+    get_mongos_service_names,
+)
 
 HEAD_PATH = "/head/"
 S3_SECRET_NAME = "my-s3-secret"
