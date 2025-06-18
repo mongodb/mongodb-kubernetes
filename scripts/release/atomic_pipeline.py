@@ -100,7 +100,6 @@ QUAY_REGISTRY_URL = os.environ.get("QUAY_REGISTRY", "quay.io/mongodb")
 class BuildConfiguration:
     image_type: str
     base_repository: str
-    namespace: str
 
     include_tags: list[str]
     skip_tags: list[str]
@@ -168,7 +167,6 @@ def operator_build_configuration(
     bc = BuildConfiguration(
         image_type=os.environ.get("distro", DEFAULT_IMAGE_TYPE),
         base_repository=os.environ["BASE_REPO_URL"],
-        namespace=os.environ.get("namespace", DEFAULT_NAMESPACE),
         skip_tags=make_list_of_str(os.environ.get("skip_tags")),
         include_tags=make_list_of_str(os.environ.get("include_tags")),
         builder=builder,
