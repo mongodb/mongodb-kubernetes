@@ -482,7 +482,10 @@ def build_mco_tests_image(build_configuration: BuildConfiguration):
 
     sonar_build_image(image_name, build_configuration, buildargs, "inventories/mco_test.yaml")
 
+
 TRACER.start_as_current_span("build_operator_image")
+
+
 def build_operator_image(build_configuration: BuildConfiguration):
     """Calculates arguments required to build the operator image, and starts the build process."""
     # In evergreen, we can pass test_suffix env to publish the operator to a quay
@@ -498,7 +501,6 @@ def build_operator_image(build_configuration: BuildConfiguration):
     else:
         architectures = build_configuration.architecture or ["amd64", "arm64"]
 
-
     multi_arch_args_list = []
 
     for arch in architectures:
@@ -507,7 +509,7 @@ def build_operator_image(build_configuration: BuildConfiguration):
             "log_automation_config_diff": log_automation_config_diff,
             "test_suffix": test_suffix,
             "debug": build_configuration.debug,
-            "architecture": arch
+            "architecture": arch,
         }
         multi_arch_args_list.append(arch_args)
 
@@ -528,7 +530,7 @@ def build_operator_image(build_configuration: BuildConfiguration):
         inventory_file="inventory.yaml",
         registry_address=f"{base_repo}/{image_name}",
         multi_arch_args_list=multi_arch_args_list,
-        is_multi_arch=True
+        is_multi_arch=True,
     )
 
 
