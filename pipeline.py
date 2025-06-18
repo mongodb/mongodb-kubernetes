@@ -489,7 +489,7 @@ def build_operator_image(build_configuration: BuildConfiguration):
     # repository with a given suffix.
     test_suffix = os.environ.get("test_suffix", "")
     log_automation_config_diff = os.environ.get("LOG_AUTOMATION_CONFIG_DIFF", "false")
-    version, _ = get_git_release_tag()
+    version, is_release = get_git_release_tag()
 
     # Use only amd64 if we should skip arm64 builds
     if should_skip_arm64():
@@ -519,11 +519,14 @@ def build_operator_image(build_configuration: BuildConfiguration):
     current_span.set_attribute("mck.image_name", image_name)
     current_span.set_attribute("mck.architecture", architectures)
 
+    ecr_registry = os.environ.get("BASE_REPO_URL", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
+    base_repo = QUAY_REGISTRY_URL if is_release else ecr_registry
+
     build_image_generic(
         config=build_configuration,
         image_name=image_name,
         inventory_file="inventory.yaml",
-        registry_address=f"{QUAY_REGISTRY_URL}/{image_name}",
+        registry_address=f"{base_repo}/{image_name}",
         multi_arch_args_list=multi_arch_args_list,
         is_multi_arch=True
     )
