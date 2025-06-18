@@ -23,6 +23,7 @@ images:
       release_version: $(inputs.params.version)
       log_automation_config_diff: $(inputs.params.log_automation_config_diff)
       use_race: "false"
+      TARGETOS: linux
       TARGETARCH: $(inputs.params.architecture)
     output:
     - registry: $(inputs.params.registry)/operator-context
@@ -35,6 +36,7 @@ images:
       release_version: $(inputs.params.version)
       log_automation_config_diff: $(inputs.params.log_automation_config_diff)
       use_race: "true"
+      TARGETOS: linux
       TARGETARCH: $(inputs.params.architecture)
     output:
     - registry: $(inputs.params.registry)/operator-context
