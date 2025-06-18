@@ -23,6 +23,7 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/role"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
@@ -265,9 +266,124 @@ func TestReadSubjectNoCertificate(t *testing.T) {
 	assertSubjectFromFileFails(t, "testdata/certificates/just_key")
 }
 
+func TestFailWhenRoleAndRoleRefsAreConfigured(t *testing.T) {
+	ctx := context.Background()
+	customRole := mdbv1.MongoDBRole{
+		Role:                       "foo",
+		AuthenticationRestrictions: []mdbv1.AuthenticationRestriction{},
+		Db:                         "admin",
+		Roles: []mdbv1.InheritedRole{{
+			Db:   "admin",
+			Role: "readWriteAnyDatabase",
+		}},
+	}
+	roleResource := role.DefaultClusterMongoDBRoleBuilder().Build()
+	roleRef := mdbv1.MongoDBRoleRef{
+		Name: roleResource.Name,
+		Kind: util.ClusterMongoDBRoleKind,
+	}
+	assert.Nil(t, customRole.Privileges)
+	rs := mdbv1.NewDefaultReplicaSetBuilder().SetRoles([]mdbv1.MongoDBRole{customRole}).SetRoleRefs([]mdbv1.MongoDBRoleRef{roleRef}).Build()
+
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
+	controller := NewReconcileCommonController(ctx, kubeClient)
+	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
+
+	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
+	assert.False(t, result.IsOK())
+	assert.Equal(t, status.PhaseFailed, result.Phase())
+
+	ac, err := mockOm.ReadAutomationConfig()
+	assert.NoError(t, err)
+	roles, ok := ac.Deployment["roles"].([]mdbv1.MongoDBRole)
+	assert.False(t, ok)
+	assert.Empty(t, roles)
+}
+
+func TestRoleRefsAreAdded(t *testing.T) {
+	ctx := context.Background()
+	roleResource := role.DefaultClusterMongoDBRoleBuilder().Build()
+	roleRefs := []mdbv1.MongoDBRoleRef{
+		{
+			Name: roleResource.Name,
+			Kind: util.ClusterMongoDBRoleKind,
+		},
+	}
+	rs := mdbv1.NewDefaultReplicaSetBuilder().SetRoleRefs(roleRefs).Build()
+
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
+	controller := NewReconcileCommonController(ctx, kubeClient)
+	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
+
+	_ = kubeClient.Create(ctx, roleResource)
+
+	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
+
+	ac, err := mockOm.ReadAutomationConfig()
+	assert.NoError(t, err)
+	roles, ok := ac.Deployment["roles"].([]mdbv1.MongoDBRole)
+	assert.True(t, ok)
+	assert.NotNil(t, roles[0].Privileges)
+	assert.Len(t, roles, 1)
+}
+
+func TestErrorWhenRoleRefIsWrong(t *testing.T) {
+	ctx := context.Background()
+	roleResource := role.DefaultClusterMongoDBRoleBuilder().Build()
+	roleRefs := []mdbv1.MongoDBRoleRef{
+		{
+			Name: roleResource.Name,
+			Kind: "WrongMongoDBRoleReference",
+		},
+	}
+	rs := mdbv1.NewDefaultReplicaSetBuilder().SetRoleRefs(roleRefs).Build()
+
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
+	controller := NewReconcileCommonController(ctx, kubeClient)
+	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
+
+	_ = kubeClient.Create(ctx, roleResource)
+
+	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
+	assert.False(t, result.IsOK())
+	assert.Equal(t, status.PhaseFailed, result.Phase())
+
+	ac, err := mockOm.ReadAutomationConfig()
+	assert.NoError(t, err)
+	roles, ok := ac.Deployment["roles"].([]mdbv1.MongoDBRole)
+	assert.False(t, ok)
+	assert.Empty(t, roles)
+}
+
+func TestErrorWhenRoleDoesNotExist(t *testing.T) {
+	ctx := context.Background()
+	roleResource := role.DefaultClusterMongoDBRoleBuilder().Build()
+	roleRefs := []mdbv1.MongoDBRoleRef{
+		{
+			Name: roleResource.Name,
+			Kind: util.ClusterMongoDBRoleKind,
+		},
+	}
+	rs := mdbv1.NewDefaultReplicaSetBuilder().SetRoleRefs(roleRefs).Build()
+
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
+	controller := NewReconcileCommonController(ctx, kubeClient)
+	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
+
+	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
+	assert.False(t, result.IsOK())
+	assert.Equal(t, status.PhaseFailed, result.Phase())
+
+	ac, err := mockOm.ReadAutomationConfig()
+	assert.NoError(t, err)
+	roles, ok := ac.Deployment["roles"].([]mdbv1.MongoDBRole)
+	assert.False(t, ok)
+	assert.Empty(t, roles)
+}
+
 func TestDontSendNilPrivileges(t *testing.T) {
 	ctx := context.Background()
-	customRole := mdbv1.MongoDbRole{
+	customRole := mdbv1.MongoDBRole{
 		Role:                       "foo",
 		AuthenticationRestrictions: []mdbv1.AuthenticationRestriction{},
 		Db:                         "admin",
@@ -277,14 +393,14 @@ func TestDontSendNilPrivileges(t *testing.T) {
 		}},
 	}
 	assert.Nil(t, customRole.Privileges)
-	rs := DefaultReplicaSetBuilder().SetRoles([]mdbv1.MongoDbRole{customRole}).Build()
+	rs := DefaultReplicaSetBuilder().SetRoles([]mdbv1.MongoDBRole{customRole}).Build()
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
 	controller := NewReconcileCommonController(ctx, kubeClient)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
-	ensureRoles(rs.Spec.Security.Roles, mockOm, &zap.SugaredLogger{})
+	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
 	ac, err := mockOm.ReadAutomationConfig()
 	assert.NoError(t, err)
-	roles, ok := ac.Deployment["roles"].([]mdbv1.MongoDbRole)
+	roles, ok := ac.Deployment["roles"].([]mdbv1.MongoDBRole)
 	assert.True(t, ok)
 	assert.NotNil(t, roles[0].Privileges)
 }
