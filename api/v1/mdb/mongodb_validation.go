@@ -2,6 +2,7 @@ package mdb
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -150,18 +151,18 @@ func oidcProviderConfigUniqueIssuerURIValidation(configs []OIDCProviderConfig) f
 			return v1.ValidationSuccess()
 		}
 
-		// Check if version supports duplicate issuers (7.0, 7.3, or 8.0+)
+		// Check if version supports duplicate issuers (8.0+)
 		versionParts := strings.Split(strings.TrimSuffix(d.Version, "-ent"), ".")
-		supportsMultipleIssuers := false
-		if len(versionParts) >= 2 {
+		supportsMultipleIssuerURIs := false
+		if len(versionParts) >= 1 {
 			major := versionParts[0]
-			minor := versionParts[1]
-			if major == "8" || (major == "7" && (minor == "0" || minor == "3")) {
-				supportsMultipleIssuers = true
+			majorVersion, err := strconv.Atoi(major)
+			if err == nil && majorVersion >= 8 {
+				supportsMultipleIssuerURIs = true
 			}
 		}
 
-		if supportsMultipleIssuers {
+		if supportsMultipleIssuerURIs {
 			// Track issuer+audience combinations
 			issuerAudienceCombos := make(map[string]string)
 			for _, config := range configs {

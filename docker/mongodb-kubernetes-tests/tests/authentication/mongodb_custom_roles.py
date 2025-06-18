@@ -65,9 +65,7 @@ def third_project(namespace: str, project_name_prefix: str) -> str:
 
 @fixture(scope="module")
 def mongodb_role():
-    resource = ClusterMongoDBRole.from_yaml(
-        find_fixture("cluster-mongodb-role.yaml"), namespace="", cluster_scoped=True
-    )
+    resource = ClusterMongoDBRole.from_yaml(find_fixture("cluster-mongodb-role.yaml"), cluster_scoped=True)
 
     if try_load(resource):
         return resource
@@ -236,8 +234,8 @@ def test_removing_role_from_resources(replica_set: MongoDB, sharded_cluster: Mon
 
 
 @mark.e2e_mongodb_custom_roles
-def test_install_operator_with_clustermongodbroles_disabled(multi_cluster_operator_no_clustermongodbroles):
-    multi_cluster_operator_no_clustermongodbroles.assert_is_running()
+def test_install_operator_with_clustermongodbroles_disabled(multi_cluster_operator_no_cluster_mongodb_roles):
+    multi_cluster_operator_no_cluster_mongodb_roles.assert_is_running()
 
 
 @mark.e2e_mongodb_custom_roles

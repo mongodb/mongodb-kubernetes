@@ -149,6 +149,8 @@ class CustomObject:
         """Creates a `CustomObject` from a yaml file. In this case, `name` and
         `namespace` are optional in this function's signature, because they
         might be passed as part of the `yaml_file` document.
+        If creating ClusterScoped objects, `namespace` is not needed,
+        but the cluster_scoped flag should be set to true
         """
         doc = yaml.safe_load(open(yaml_file))
 
@@ -172,6 +174,8 @@ class CustomObject:
                 namespace = doc["metadata"]["namespace"]
             else:
                 doc["metadata"]["namespace"] = namespace
+        else:
+            namespace = ""
 
         if name is None:
             name = doc["metadata"]["name"]

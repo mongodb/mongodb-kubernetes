@@ -66,7 +66,9 @@ operator:
   # kubectl mongodb plugin is used to configure multi-cluster resources
   createResourcesServiceAccountsAndRoles: true
 
-  # Set to false to not create the RBAC for enabling access to the ClusterMongoDBRole resources for the operator
+  # If true, the helm chart will create the ClusterRole and ClusterRoleBinding for the operator to be able to access the ClusterMongoDBRole resources.
+  # It will also set the --watch-resource flag, to enable the operator to watch the ClusterMongoDBRole resources for changes.
+  # Set to false to not create the ClusterRole and ClusterRoleBinding and to disable the operator watching the ClusterMongoDBRole resources.
   enableClusterMongoDBRoles: true
 
   # Set to false to not create the RBAC for enabling access to the PVC for resizing for the operator

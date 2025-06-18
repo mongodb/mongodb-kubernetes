@@ -179,7 +179,7 @@ func (r *MongoDBUserReconciler) Reconcile(ctx context.Context, request reconcile
 				if err := r.client.Update(ctx, user); err != nil {
 					return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to update the user with the removed finalizer: %w", err)), log)
 				}
-				return r.updateStatus(ctx, user, workflow.Pending("UserFinalizer will be removed. MongoDB resource not found"), log)
+				return r.updateStatus(ctx, user, workflow.Pending("Finalizer will be removed. MongoDB resource not found"), log)
 			}
 
 			return r.updateStatus(ctx, user, workflow.Pending("%s", err.Error()), log)

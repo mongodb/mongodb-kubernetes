@@ -1,6 +1,24 @@
 [//]: # (Consider renaming or removing the header for next release, otherwise it appears as duplicate in the published release, e.g: https://github.com/mongodb/mongodb-enterprise-kubernetes/releases/tag/1.22.0 )
 <!-- Next Release -->
 
+# MCK 1.2.0 Release Notes
+
+## New Features
+
+* Added new **ClusterMongoDBRole** CRD to support reusable roles across multiple MongoDB clusters.
+  * This allows users to define roles once and reuse them in multiple **MongoDB** or **MongoDBMultiCluster** resources. The role can be referenced through the `.spec.security.roleRefs` field. Note that only one of `.spec.security.roles` and `.spec.security.roleRefs` can be used at a time.
+  * **ClusterMongoDBRole** resources are treated by the operator as a custom role templates that are only used when referenced by the database resources.
+  * The new resource is watched by default by the operator. This means that the operator will require a new **ClusterRole** and **ClusterRoleBinding** to be created in the cluster. **ClusterRole** and **ClusterRoleBinding** resources are created by default with the helm chart or the kubectl mongodb plugin.
+    * To disable this behavior in the helm chart, set the `operator.enableClusterMongoDBRoles` value to `false`. This will disable the creation of the necessary RBAC resources for the **ClusterMongoDBRole** resource, as well as disable the watch for this resource.
+    * To not install the necessary **ClusterRole** and **ClusterRoleBinding** with the kubectl mongodb plugin set the `--create-mongodb-roles-cluster-role` to false.
+  * The new **ClusterMongoDBRole** resource is designed to be read-only, meaning it can be used by MongoDB deployments managed by different operators.
+  * The **ClusterMongoDBRole** resource can be deleted at any time, but the operator will not delete any roles that were created using this resource. To properly remove access, you must **manually** remove the reference to the **ClusterMongoDBRole** in the **MongoDB** or **MongoDBMultiCluster** resources.
+  * The reference documentation for this resource can be found here: **TODO** (link to documentation)
+  * For more information please see: **TODO** (link to documentation)
+
+
+<!-- Past Releases -->
+
 # MCK 1.1.0 Release Notes
 
 ## New Features
@@ -12,7 +30,6 @@
     * minimum MongoDB Community version: 8.0.
     * TLS must be disabled in MongoDB (communication between mongot and mongod is in plaintext for now).
 
-<!-- Past Releases -->
 # MCK 1.0.1 Release Notes
 
 
