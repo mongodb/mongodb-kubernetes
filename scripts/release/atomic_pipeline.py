@@ -40,7 +40,7 @@ from packaging.version import Version
 
 import docker
 from lib.base_logger import logger
-from lib.sonar.sonar import process_image
+from build_images import process_image
 from scripts.evergreen.release.agent_matrix import (
     get_supported_operator_versions,
     get_supported_version_for_image_matrix_handling,
@@ -54,7 +54,8 @@ from scripts.evergreen.release.sbom import generate_sbom, generate_sbom_for_cli
 
 TRACER = trace.get_tracer("evergreen-agent")
 
-#TODO: better framework for multi arch builds (spike to come)
+# TODO: better framework for multi arch builds (spike to come)
+
 
 def _setup_tracing():
     trace_id = os.environ.get("otel_trace_id")
@@ -101,9 +102,6 @@ class BuildConfiguration:
     image_type: str
     base_repository: str
 
-    include_tags: list[str]
-    skip_tags: list[str]
-
     builder: str = "docker"
     parallel: bool = False
     parallel_factor: int = 0
@@ -122,19 +120,6 @@ class BuildConfiguration:
         args["registry"] = self.base_repository
 
         return args
-
-    def get_skip_tags(self) -> list[str]:
-        return make_list_of_str(self.skip_tags)
-
-    def get_include_tags(self) -> list[str]:
-        return make_list_of_str(self.include_tags)
-
-    def is_release_step_executed(self) -> bool:
-        if "release" in self.get_skip_tags():
-            return False
-        if "release" in self.get_include_tags():
-            return True
-        return len(self.get_include_tags()) == 0
 
 
 def make_list_of_str(value: Union[None, str, List[str]]) -> List[str]:
@@ -167,8 +152,6 @@ def operator_build_configuration(
     bc = BuildConfiguration(
         image_type=os.environ.get("distro", DEFAULT_IMAGE_TYPE),
         base_repository=os.environ["BASE_REPO_URL"],
-        skip_tags=make_list_of_str(os.environ.get("skip_tags")),
-        include_tags=make_list_of_str(os.environ.get("include_tags")),
         builder=builder,
         parallel=parallel,
         all_agents=all_agents or bool(os.environ.get("all_agents", False)),
@@ -307,45 +290,36 @@ def check_multi_arch(image: str, suffix: str) -> bool:
 
 
 @TRACER.start_as_current_span("sonar_build_image")
-def sonar_build_image(
+def pipeline_process_image(
     image_name: str,
-    build_configuration: BuildConfiguration,
+    dockerfile_path: str,
     args: Dict[str, str] = None,
-    inventory="inventory.yaml",
     with_sbom: bool = True,
 ):
     """Calls sonar to build `image_name` with arguments defined in `args`."""
     span = trace.get_current_span()
     span.set_attribute("mck.image_name", image_name)
-    span.set_attribute("mck.inventory", inventory)
     if args:
         span.set_attribute("mck.build_args", str(args))
 
+    # TODO use these
     build_options = {
         # Will continue building an image if it finds an error. See next comment.
         "continue_on_errors": True,
         # But will still fail after all the tasks have completed
         "fail_on_errors": True,
-        "pipeline": build_configuration.pipeline,
     }
 
-    logger.info(f"Sonar config bc: {build_configuration}, args: {args}, for image: {image_name}")
+    logger.info(f"Dockerfile args: {args}, for image: {image_name}")
 
-    process_image(
-        image_name,
-        skip_tags=build_configuration.get_skip_tags(),
-        include_tags=build_configuration.get_include_tags(),
-        build_args=build_configuration.build_args(args),
-        inventory=inventory,
-        build_options=build_options,
-    )
+    process_image(image_name, dockerfile_path=dockerfile_path, dockerfile_args=args)
 
     if with_sbom:
-        produce_sbom(build_configuration, args)
+        produce_sbom(args)
 
 
 @TRACER.start_as_current_span("produce_sbom")
-def produce_sbom(build_configuration, args):
+def produce_sbom(args):
     span = trace.get_current_span()
     if not is_running_in_evg_pipeline():
         logger.info("Skipping SBOM Generation (enabled only for EVG)")
@@ -354,7 +328,7 @@ def produce_sbom(build_configuration, args):
     try:
         image_pull_spec = args["quay_registry"] + args.get("ubi_suffix", "")
     except KeyError:
-        logger.error(f"Could not find image pull spec. Args: {args}, BuildConfiguration: {build_configuration}")
+        logger.error(f"Could not find image pull spec. Args: {args}")
         logger.error(f"Skipping SBOM generation")
         return
 
@@ -362,13 +336,14 @@ def produce_sbom(build_configuration, args):
         image_tag = args["release_version"]
         span.set_attribute("mck.release_version", image_tag)
     except KeyError:
-        logger.error(f"Could not find image tag. Args: {args}, BuildConfiguration: {build_configuration}")
+        logger.error(f"Could not find image tag. Args: {args}")
         logger.error(f"Skipping SBOM generation")
         return
 
     image_pull_spec = f"{image_pull_spec}:{image_tag}"
     print(f"Producing SBOM for image: {image_pull_spec} args: {args}")
 
+    platform = "linux/amd64"
     if "platform" in args:
         if args["platform"] == "arm64":
             platform = "linux/arm64"
@@ -377,8 +352,6 @@ def produce_sbom(build_configuration, args):
         else:
             # TODO: return here?
             logger.error(f"Unrecognized architectures in {args}. Skipping SBOM generation")
-    else:
-        platform = "linux/amd64"
 
     generate_sbom(image_pull_spec, platform)
 
@@ -412,7 +385,7 @@ def build_tests_image(build_configuration: BuildConfiguration):
 
     buildargs = dict({"python_version": python_version})
 
-    sonar_build_image(image_name, build_configuration, buildargs, "inventories/test.yaml")
+    pipeline_process_image(image_name, "docker/mongodb-kubernetes-tests/Dockerfile", buildargs)
 
 
 def build_mco_tests_image(build_configuration: BuildConfiguration):
@@ -426,7 +399,7 @@ def build_mco_tests_image(build_configuration: BuildConfiguration):
 
     buildargs = dict({"golang_version": golang_version})
 
-    sonar_build_image(image_name, build_configuration, buildargs, "inventories/mco_test.yaml")
+    pipeline_process_image(image_name, "docker/mongodb-community-tests/Dockerfile", buildargs)
 
 
 def build_operator_image(build_configuration: BuildConfiguration):
@@ -450,9 +423,9 @@ def build_operator_image(build_configuration: BuildConfiguration):
     build_image_generic(
         config=build_configuration,
         image_name=image_name,
-        inventory_file="inventory.yaml",
-        extra_args=args,
+        dockerfile_path="docker/mongodb-kubernetes-operator/Dockerfile",
         registry_address=f"{QUAY_REGISTRY_URL}/{image_name}",
+        extra_args=args,
     )
 
 
@@ -463,7 +436,7 @@ def build_database_image(build_configuration: BuildConfiguration):
     release = get_release()
     version = release["databaseImageVersion"]
     args = {"version": version}
-    build_image_generic(build_configuration, "database", "inventories/database.yaml", args)
+    build_image_generic(build_configuration, "database", "docker/mongodb-kubernetes-database.yaml", extra_args=args)
 
 
 def build_CLI_SBOM(build_configuration: BuildConfiguration):
@@ -578,6 +551,7 @@ def image_config(
 
     return image_name, args
 
+
 def is_version_in_range(version: str, min_version: str, max_version: str) -> bool:
     """Check if the version is in the range"""
     try:
@@ -650,6 +624,7 @@ def should_skip_arm64():
     """
     return is_running_in_evg_pipeline() and is_running_in_patch()
 
+
 @TRACER.start_as_current_span("sign_image_in_repositories")
 def sign_image_in_repositories(args: Dict[str, str], arch: str = None):
     span = trace.get_current_span()
@@ -709,7 +684,12 @@ def build_init_om_image(build_configuration: BuildConfiguration):
     release = get_release()
     init_om_version = release["initOpsManagerVersion"]
     args = {"version": init_om_version}
-    build_image_generic(build_configuration, "init-ops-manager", "inventories/init_om.yaml", args)
+    build_image_generic(
+        build_configuration,
+        "init-ops-manager",
+        "docker/mongodb-kubernetes-init-ops-manager/Dockerfile",
+        extra_args=args,
+    )
 
 
 def build_om_image(build_configuration: BuildConfiguration):
@@ -731,18 +711,18 @@ def build_om_image(build_configuration: BuildConfiguration):
     build_image_generic(
         config=build_configuration,
         image_name="ops-manager",
-        inventory_file="inventories/om.yaml",
-        extra_args=args,
+        dockerfile_path="docker/mongodb-enterprise-ops-manager/Dockerfile",
         registry_address=f"{QUAY_REGISTRY_URL}/mongodb-enterprise-ops-manager",
+        extra_args=args,
     )
 
 
 def build_image_generic(
     config: BuildConfiguration,
     image_name: str,
-    inventory_file: str,
-    extra_args: dict = None,
+    dockerfile_path: str,
     registry_address: str = None,
+    extra_args: dict = None,
     is_multi_arch: bool = False,
     multi_arch_args_list: list = None,
     is_run_in_parallel: bool = False,
@@ -759,7 +739,7 @@ def build_image_generic(
 
     for args in multi_arch_args_list:  # in case we are building multiple architectures
         args["quay_registry"] = registry
-        sonar_build_image(image_name, config, args, inventory_file, False)
+        pipeline_process_image(image_name, dockerfile_path, args, False)
     if is_multi_arch:
         # we only push the manifests of the context images here,
         # since daily rebuilds will push the manifests for the proper images later
@@ -775,6 +755,7 @@ def build_image_generic(
     if config.sign and config.is_release_step_executed():
         sign_and_verify_context_image(registry, version)
 
+
 def sign_and_verify_context_image(registry, version):
     sign_image(registry, version + "-context")
     verify_signature(registry, version + "-context")
@@ -786,7 +767,9 @@ def build_init_appdb(build_configuration: BuildConfiguration):
     base_url = "https://fastdl.mongodb.org/tools/db/"
     mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
     args = {"version": version, "is_appdb": True, "mongodb_tools_url_ubi": mongodb_tools_url_ubi}
-    build_image_generic(build_configuration, "init-appdb", "inventories/init_appdb.yaml", args)
+    build_image_generic(
+        build_configuration, "init-appdb", "docker/mongodb-kubernetes-init-appdb/Dockerfile", extra_args=args
+    )
 
 
 def build_community_image(build_configuration: BuildConfiguration, image_type: str):
@@ -800,10 +783,10 @@ def build_community_image(build_configuration: BuildConfiguration, image_type: s
 
     if image_type == "readiness-probe":
         image_name = "mongodb-kubernetes-readinessprobe"
-        inventory_file = "inventories/readiness_probe.yaml"
+        dockerfile_path = "docker/mongodb-kubernetes-readinessprobe/Dockerfile"
     elif image_type == "upgrade-hook":
         image_name = "mongodb-kubernetes-operator-version-upgrade-post-start-hook"
-        inventory_file = "inventories/upgrade_hook.yaml"
+        dockerfile_path = "docker/mongodb-kubernetes-upgrade-hook/Dockerfile"
     else:
         raise ValueError(f"Unsupported image type: {image_type}")
 
@@ -833,10 +816,10 @@ def build_community_image(build_configuration: BuildConfiguration, image_type: s
     build_image_generic(
         config=build_configuration,
         image_name=image_name,
-        multi_arch_args_list=multi_arch_args_list,
-        inventory_file=inventory_file,
+        dockerfile_path=dockerfile_path,
         registry_address=f"{base_repo}/{image_name}",
-        is_multi_arch=True,  # We for pushing manifest anyway, even if arm64 is skipped in patches
+        is_multi_arch=True,
+        multi_arch_args_list=multi_arch_args_list,
     )
 
 
@@ -854,7 +837,7 @@ def build_upgrade_hook_image(build_configuration: BuildConfiguration):
     build_community_image(build_configuration, "upgrade-hook")
 
 
-def build_agent_in_sonar(
+def build_agent_pipeline(
     build_configuration: BuildConfiguration,
     image_version,
     init_database_image,
@@ -876,9 +859,9 @@ def build_agent_in_sonar(
     build_image_generic(
         config=build_configuration,
         image_name="mongodb-agent",
-        inventory_file="inventories/agent.yaml",
-        extra_args=args,
+        dockerfile_path="docker/mongodb-agent/Dockerfile",
         registry_address=agent_quay_registry,
+        extra_args=args,
         is_run_in_parallel=True,
     )
 
@@ -932,10 +915,10 @@ def build_multi_arch_agent_in_sonar(
     build_image_generic(
         config=build_configuration,
         image_name="mongodb-agent",
-        inventory_file="inventories/agent_non_matrix.yaml",
-        multi_arch_args_list=joined_args,
+        dockerfile_path="docker/mongodb-agent-non-matrix/Dockerfile",
         registry_address=quay_agent_registry if is_release else ecr_agent_registry,
-        is_multi_arch=True,  # We for pushing manifest anyway, even if arm64 is skipped in patches
+        is_multi_arch=True,
+        multi_arch_args_list=joined_args,
         is_run_in_parallel=True,
     )
 
@@ -1094,7 +1077,7 @@ def _build_agent_operator(
 
     tasks_queue.put(
         executor.submit(
-            build_agent_in_sonar,
+            build_agent_pipeline,
             build_configuration,
             image_version,
             init_database_image,
@@ -1201,7 +1184,9 @@ def build_init_database(build_configuration: BuildConfiguration):
     base_url = "https://fastdl.mongodb.org/tools/db/"
     mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
     args = {"version": version, "mongodb_tools_url_ubi": mongodb_tools_url_ubi, "is_appdb": False}
-    build_image_generic(build_configuration, "init-database", "inventories/init_database.yaml", args)
+    build_image_generic(
+        build_configuration, "init-database", "docker/mongodb-kubernetes-init-database.yaml", extra_args=args
+    )
 
 
 def build_image(image_name: str, build_configuration: BuildConfiguration):
