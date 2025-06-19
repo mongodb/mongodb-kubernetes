@@ -62,6 +62,9 @@ precommit:
 switch:
 	@ scripts/dev/switch_context.sh $(context) $(additional_override)
 
+switcht:
+	@ scripts/dev/switch_context_by_test.sh $(test)
+
 # builds the Operator binary file and docker image and pushes it to the remote registry if using a remote registry. Deploys it to
 # k8s cluster
 operator: configure-operator build-and-push-operator-image
