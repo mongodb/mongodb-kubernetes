@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/mongodb/mongodb-kubernetes/multi/pkg/common"
@@ -68,12 +69,12 @@ kubectl-mongodb multicluster recover --central-cluster="operator-cluster" --memb
 var RecoverFlags = common.Flags{}
 
 func parseRecoverFlags(args []string) error {
-	if common.AnyAreEmpty(common.MemberClusters, RecoverFlags.ServiceAccount, RecoverFlags.CentralCluster, RecoverFlags.MemberClusterNamespace, RecoverFlags.CentralClusterNamespace, RecoverFlags.SourceCluster) {
+	if slices.Contains([]string{common.MemberClusters, RecoverFlags.ServiceAccount, RecoverFlags.CentralCluster, RecoverFlags.MemberClusterNamespace, RecoverFlags.CentralClusterNamespace, RecoverFlags.SourceCluster}, "") {
 		return xerrors.Errorf("non empty values are required for [service-account, member-clusters, central-cluster, member-cluster-namespace, central-cluster-namespace, source-cluster]")
 	}
 
 	RecoverFlags.MemberClusters = strings.Split(common.MemberClusters, ",")
-	if !common.Contains(RecoverFlags.MemberClusters, RecoverFlags.SourceCluster) {
+	if !slices.Contains(RecoverFlags.MemberClusters, RecoverFlags.SourceCluster) {
 		return xerrors.Errorf("source-cluster has to be one of the healthy member clusters: %s", common.MemberClusters)
 	}
 

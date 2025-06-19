@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"runtime/debug"
+	"slices"
 	"strings"
 
 	"github.com/mongodb/mongodb-kubernetes/multi/pkg/common"
@@ -75,7 +76,7 @@ kubectl-mongodb multicluster setup --central-cluster="operator-cluster" --member
 var setupFlags = common.Flags{}
 
 func parseSetupFlags() error {
-	if common.AnyAreEmpty(common.MemberClusters, setupFlags.ServiceAccount, setupFlags.CentralCluster, setupFlags.MemberClusterNamespace, setupFlags.CentralClusterNamespace) {
+	if slices.Contains([]string{common.MemberClusters, setupFlags.ServiceAccount, setupFlags.CentralCluster, setupFlags.MemberClusterNamespace, setupFlags.CentralClusterNamespace}, "") {
 		return xerrors.Errorf("non empty values are required for [service-account, member-clusters, central-cluster, member-cluster-namespace, central-cluster-namespace]")
 	}
 
