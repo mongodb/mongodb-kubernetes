@@ -1,8 +1,8 @@
-import json
-import os
 import sys
 
 import requests
+
+from scripts.python.evergreen_api import get_evergreen_auth_headers
 
 EVERGREEN_API = "https://evergreen.mongodb.com/api"
 
@@ -18,16 +18,13 @@ Call
 
 
 def get_variants_with_retried_tasks() -> dict[str, list[dict]]:
-    evg_user = os.environ.get("EVERGREEN_USER", "")
-    api_key = os.environ.get("API_KEY", "")
-
-    if len(sys.argv) != 2 or evg_user == "" or api_key == "":
+    if len(sys.argv) != 2:
         print_usage()
-        exit(1)
+        raise RuntimeError("Exactly one argument (patch version number) must be provided")
 
     version = sys.argv[1]
+    headers = get_evergreen_auth_headers()
 
-    headers = {"Api-User": evg_user, "Api-Key": api_key}
     print("Fetching build variants...", file=sys.stderr)
     build_ids = requests.get(url=f"{EVERGREEN_API}/rest/v2/versions/{version}", headers=headers).json()
     build_statuses = [build_status for build_status in build_ids["build_variants_status"]]
