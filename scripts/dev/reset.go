@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -288,6 +289,21 @@ func resetNamespace(ctx context.Context, contextName string, namespace string, d
 	err = kubeClient.CoreV1().PersistentVolumeClaims(namespace).DeleteCollection(ctx, deleteOptionsNoGrace, v1.ListOptions{})
 	collectError(err, "failed to delete PVCs")
 
+	// Remove finalizers on MongoDBUsers
+	userGVR := schema.GroupVersionResource{
+		Group:    "mongodb.com",
+		Version:  "v1",
+		Resource: "mongodbusers",
+	}
+	list, err := dynamicClient.Resource(userGVR).List(ctx, v1.ListOptions{})
+	collectError(err, "failed to list mongodb users")
+	if err == nil {
+		for _, customRole := range list.Items {
+			_, err := dynamicClient.Resource(userGVR).Namespace(namespace).Patch(ctx, customRole.GetName(), types.MergePatchType, []byte(`{"metadata":{"finalizers":null}}`), v1.PatchOptions{})
+			collectError(err, fmt.Sprintf("failed to patch custom role %s", customRole.GetName()))
+		}
+	}
+
 	// Delete CRDs if specified
 	if deleteCRD {
 		crdNames := []string{
@@ -298,6 +314,7 @@ func resetNamespace(ctx context.Context, contextName string, namespace string, d
 			"mongodbusers.mongodb.com",
 			"opsmanagers.mongodb.com",
 			"mongodbsearch.mongodb.com",
+			"clustermongodbroles.mongodb.com",
 		}
 		deleteCRDs(ctx, dynamicClient, crdNames, collectError)
 	}

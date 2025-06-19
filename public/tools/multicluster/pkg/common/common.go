@@ -42,20 +42,21 @@ const (
 
 // Flags holds all the fields provided by the user.
 type Flags struct {
-	MemberClusters              []string
-	MemberClusterApiServerUrls  []string
-	ServiceAccount              string
-	CentralCluster              string
-	MemberClusterNamespace      string
-	CentralClusterNamespace     string
-	Cleanup                     bool
-	ClusterScoped               bool
-	InstallDatabaseRoles        bool
-	CreateTelemetryClusterRoles bool
-	OperatorName                string
-	SourceCluster               string
-	CreateServiceAccountSecrets bool
-	ImagePullSecrets            string
+	MemberClusters                []string
+	MemberClusterApiServerUrls    []string
+	ServiceAccount                string
+	CentralCluster                string
+	MemberClusterNamespace        string
+	CentralClusterNamespace       string
+	Cleanup                       bool
+	ClusterScoped                 bool
+	InstallDatabaseRoles          bool
+	CreateTelemetryClusterRoles   bool
+	CreateMongoDBRolesClusterRole bool
+	OperatorName                  string
+	SourceCluster                 string
+	CreateServiceAccountSecrets   bool
+	ImagePullSecrets              string
 }
 
 const (
@@ -319,9 +320,6 @@ func EnsureMultiClusterResources(ctx context.Context, flags Flags, clientMap map
 	}
 
 	centralClusterClient := clientMap[flags.CentralCluster]
-	if err != nil {
-		return xerrors.Errorf("failed to get central cluster clientset: %w", err)
-	}
 
 	if err := createKubeConfigSecret(ctx, centralClusterClient, kubeConfigBytes, flags); err != nil {
 		return xerrors.Errorf("failed creating KubeConfig secret: %w", err)
@@ -524,6 +522,22 @@ func buildClusterRoleTelemetry() rbacv1.ClusterRole {
 	}
 }
 
+func buildClusterRoleMongoDBRole(namespace string) rbacv1.ClusterRole {
+	return rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   fmt.Sprintf("%s-%s-multi-cluster-mongodb-role", DefaultOperatorName, namespace),
+			Labels: multiClusterLabels(),
+		},
+		Rules: []rbacv1.PolicyRule{
+			{
+				Verbs:     []string{"*"},
+				Resources: []string{"clustermongodbroles"},
+				APIGroups: []string{"mongodb.com"},
+			},
+		},
+	}
+}
+
 // buildRoleBinding creates the RoleBinding which binds the Role to the given ServiceAccount.
 func buildRoleBinding(role rbacv1.Role, serviceAccount string, serviceAccountNamespace string) rbacv1.RoleBinding {
 	return rbacv1.RoleBinding{
@@ -570,7 +584,7 @@ func buildClusterRoleBinding(clusterRole rbacv1.ClusterRole, serviceAccountName,
 }
 
 // createRoles creates the ServiceAccount and Roles, RoleBindings, ClusterRoles and ClusterRoleBindings required.
-func createRoles(ctx context.Context, c KubeClient, serviceAccountName, serviceAccountNamespace, namespace string, clusterScoped, telemetryClusterRoles bool, clusterType clusterType) error {
+func createRoles(ctx context.Context, c KubeClient, serviceAccountName, serviceAccountNamespace, namespace string, clusterScoped, telemetryClusterRoles bool, mongodbRolesClusterRole bool, clusterType clusterType) error {
 	var err error
 
 	if telemetryClusterRoles {
@@ -590,6 +604,27 @@ func createRoles(ctx context.Context, c KubeClient, serviceAccountName, serviceA
 			return err
 		}
 
+	}
+
+	if clusterType == clusterTypeCentral && mongodbRolesClusterRole {
+		// Create ClusterRole to access the cluster-scoped resource ClusterMongoDBRole
+		clusterRoleForMongoDBRole := buildClusterRoleMongoDBRole(serviceAccountNamespace)
+		_, err = c.RbacV1().ClusterRoles().Create(ctx, &clusterRoleForMongoDBRole, metav1.CreateOptions{})
+		if err != nil {
+			if errors.IsAlreadyExists(err) {
+				if _, err := c.RbacV1().ClusterRoles().Update(ctx, &clusterRoleForMongoDBRole, metav1.UpdateOptions{}); err != nil {
+					return xerrors.Errorf("error updating role: %w", err)
+				}
+			} else {
+				return xerrors.Errorf("error creating cluster role: %w", err)
+			}
+		}
+
+		if err := createClusterRoleBinding(ctx, c, serviceAccountName, serviceAccountNamespace,
+			fmt.Sprintf("%s-%s-multi-cluster-mongodb-role-binding", DefaultOperatorName, serviceAccountNamespace),
+			clusterRoleForMongoDBRole); err != nil {
+			return err
+		}
 	}
 
 	if !clusterScoped {
@@ -675,14 +710,14 @@ func createOperatorServiceAccountsAndRoles(ctx context.Context, clientMap map[st
 		}
 	}
 
-	if err := createRoles(ctx, centralClusterClient, f.ServiceAccount, f.CentralClusterNamespace, f.CentralClusterNamespace, f.ClusterScoped, f.CreateTelemetryClusterRoles, clusterTypeCentral); err != nil {
+	if err := createRoles(ctx, centralClusterClient, f.ServiceAccount, f.CentralClusterNamespace, f.CentralClusterNamespace, f.ClusterScoped, f.CreateTelemetryClusterRoles, f.CreateMongoDBRolesClusterRole, clusterTypeCentral); err != nil {
 		return err
 	}
 
 	// in case the operator namespace (CentralClusterNamespace) is different from member cluster namespace we need
 	// to provide roles and role binding to the operator's SA in member namespace
 	if f.CentralClusterNamespace != f.MemberClusterNamespace {
-		if err := createRoles(ctx, centralClusterClient, f.ServiceAccount, f.CentralClusterNamespace, f.MemberClusterNamespace, f.ClusterScoped, f.CreateTelemetryClusterRoles, clusterTypeCentral); err != nil {
+		if err := createRoles(ctx, centralClusterClient, f.ServiceAccount, f.CentralClusterNamespace, f.MemberClusterNamespace, f.ClusterScoped, f.CreateTelemetryClusterRoles, f.CreateMongoDBRolesClusterRole, clusterTypeCentral); err != nil {
 			return err
 		}
 	}
@@ -705,10 +740,10 @@ func createOperatorServiceAccountsAndRoles(ctx context.Context, clientMap map[st
 			}
 		}
 
-		if err := createRoles(ctx, memberClusterClient, f.ServiceAccount, f.CentralClusterNamespace, f.MemberClusterNamespace, f.ClusterScoped, f.CreateTelemetryClusterRoles, clusterTypeMember); err != nil {
+		if err := createRoles(ctx, memberClusterClient, f.ServiceAccount, f.CentralClusterNamespace, f.MemberClusterNamespace, f.ClusterScoped, f.CreateTelemetryClusterRoles, f.CreateMongoDBRolesClusterRole, clusterTypeMember); err != nil {
 			return err
 		}
-		if err := createRoles(ctx, memberClusterClient, f.ServiceAccount, f.CentralClusterNamespace, f.CentralClusterNamespace, f.ClusterScoped, f.CreateTelemetryClusterRoles, clusterTypeMember); err != nil {
+		if err := createRoles(ctx, memberClusterClient, f.ServiceAccount, f.CentralClusterNamespace, f.CentralClusterNamespace, f.ClusterScoped, f.CreateTelemetryClusterRoles, f.CreateMongoDBRolesClusterRole, clusterTypeMember); err != nil {
 			return err
 		}
 	}

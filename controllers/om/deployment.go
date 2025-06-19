@@ -60,7 +60,7 @@ func init() {
 	gob.Register(tls.Prefer)
 	gob.Register(tls.Allow)
 	gob.Register(tls.Disabled)
-	gob.Register([]mdbv1.MongoDbRole{})
+	gob.Register([]mdbv1.MongoDBRole{})
 	gob.Register([]automationconfig.MemberOptions{})
 }
 
@@ -634,24 +634,24 @@ func (d Deployment) GetNumberOfExcessProcesses(resourceName string) int {
 	return excessProcesses
 }
 
-func (d Deployment) SetRoles(roles []mdbv1.MongoDbRole) {
+func (d Deployment) SetRoles(roles []mdbv1.MongoDBRole) {
 	d["roles"] = roles
 }
 
-func (d Deployment) GetRoles() []mdbv1.MongoDbRole {
+func (d Deployment) GetRoles() []mdbv1.MongoDBRole {
 	roles, ok := d["roles"]
 	if !ok || roles == nil {
-		return []mdbv1.MongoDbRole{}
+		return []mdbv1.MongoDBRole{}
 	}
 
 	rolesBytes, err := json.Marshal(roles)
 	if err != nil {
-		return []mdbv1.MongoDbRole{}
+		return []mdbv1.MongoDBRole{}
 	}
 
-	var result []mdbv1.MongoDbRole
+	var result []mdbv1.MongoDBRole
 	if err := json.Unmarshal(rolesBytes, &result); err != nil {
-		return []mdbv1.MongoDbRole{}
+		return []mdbv1.MongoDBRole{}
 	}
 
 	return result

@@ -20,10 +20,7 @@ from kubetester.phase import Phase
 from pymongo import ReadPreference
 from pytest import fixture, mark
 from tests.common.cert.cert_issuer import create_appdb_certs
-from tests.conftest import (
-    assert_data_got_restored,
-    is_multi_cluster,
-)
+from tests.conftest import assert_data_got_restored, is_multi_cluster
 from tests.opsmanager.conftest import mino_operator_install, mino_tenant_install
 from tests.opsmanager.om_ops_manager_backup import S3_SECRET_NAME
 from tests.opsmanager.om_ops_manager_backup_tls_custom_ca import (

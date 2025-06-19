@@ -174,8 +174,8 @@ func (r *MongoDBUserReconciler) Reconcile(ctx context.Context, request reconcile
 			log.Warnf("Couldn't fetch MongoDB Single/Multi Cluster Resource with name: %s, namespace: %s, err: %s",
 				user.Spec.MongoDBResourceRef.Name, user.Spec.MongoDBResourceRef.Namespace, err)
 
-			if controllerutil.ContainsFinalizer(user, util.Finalizer) {
-				controllerutil.RemoveFinalizer(user, util.Finalizer)
+			if controllerutil.ContainsFinalizer(user, util.UserFinalizer) {
+				controllerutil.RemoveFinalizer(user, util.UserFinalizer)
 				if err := r.client.Update(ctx, user); err != nil {
 					return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to update the user with the removed finalizer: %w", err)), log)
 				}
@@ -213,7 +213,7 @@ func (r *MongoDBUserReconciler) Reconcile(ctx context.Context, request reconcile
 	if !user.DeletionTimestamp.IsZero() {
 		log.Info("MongoDBUser is being deleted")
 
-		if controllerutil.ContainsFinalizer(user, util.Finalizer) {
+		if controllerutil.ContainsFinalizer(user, util.UserFinalizer) {
 			return r.preDeletionCleanup(ctx, user, conn, log)
 		}
 	}
@@ -509,8 +509,8 @@ func (r *MongoDBUserReconciler) preDeletionCleanup(ctx context.Context, user *us
 		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to perform AutomationConfig cleanup: %w", err)), log)
 	}
 
-	if finalizerRemoved := controllerutil.RemoveFinalizer(user, util.Finalizer); !finalizerRemoved {
-		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to remove finalizer: %w", err)), log)
+	if finalizerRemoved := controllerutil.RemoveFinalizer(user, util.UserFinalizer); !finalizerRemoved {
+		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to remove finalizer")), log)
 	}
 
 	if err := r.client.Update(ctx, user); err != nil {
@@ -522,7 +522,7 @@ func (r *MongoDBUserReconciler) preDeletionCleanup(ctx context.Context, user *us
 func (r *MongoDBUserReconciler) ensureFinalizer(ctx context.Context, user *userv1.MongoDBUser, log *zap.SugaredLogger) error {
 	log.Info("Adding finalizer to the MongoDBUser resource")
 
-	if finalizerAdded := controllerutil.AddFinalizer(user, util.Finalizer); finalizerAdded {
+	if finalizerAdded := controllerutil.AddFinalizer(user, util.UserFinalizer); finalizerAdded {
 		if err := r.client.Update(ctx, user); err != nil {
 			return err
 		}

@@ -113,7 +113,7 @@ function regenerate_public_rbac_multi_cluster() {
     if echo "$git_last_changed" | grep -q 'public/tools/multicluster'; then
       echo 'regenerating multicluster RBAC public example'
       pushd public/tools/multicluster
-      EXPORT_RBAC_SAMPLES="true" go test -run TestPrintingOutRolesServiceAccountsAndRoleBindings
+      EXPORT_RBAC_SAMPLES="true" go test ./... -run TestPrintingOutRolesServiceAccountsAndRoleBindings
       popd
       git add public/samples/multi-cluster-cli-gitops
     fi

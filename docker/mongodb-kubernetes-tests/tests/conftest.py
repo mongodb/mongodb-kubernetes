@@ -261,10 +261,7 @@ def intermediate_issuer(cert_manager: str, issuer: str, namespace: str) -> str:
     This fixture creates an intermediate "Issuer" in the testing namespace
     """
     # Create the Certificate for the intermediate CA based on the issuer fixture
-    from kubetester.certs import (
-        Certificate,
-        Issuer,
-    )
+    from kubetester.certs import Certificate, Issuer
 
     intermediate_ca_cert = Certificate(namespace=namespace, name="intermediate-ca-issuer")
     intermediate_ca_cert["spec"] = {
@@ -723,6 +720,37 @@ def multi_cluster_operator_manual_remediation(
             "multiCluster.performFailOver": "false",
         },
         central_cluster_name,
+    )
+
+
+@fixture(scope="module")
+def multi_cluster_operator_no_cluster_mongodb_roles(
+    namespace: str,
+    central_cluster_name: str,
+    multi_cluster_operator_installation_config: dict[str, str],
+    central_cluster_client: client.ApiClient,
+    member_cluster_clients: List[MultiClusterClient],
+    member_cluster_names: List[str],
+    apply_crds_first: bool = False,
+) -> Operator:
+    os.environ["HELM_KUBECONTEXT"] = central_cluster_name
+
+    # when running with the local operator, this is executed by scripts/dev/prepare_local_e2e_run.sh
+    if not local_operator():
+        run_kube_config_creation_tool(member_cluster_names, namespace, namespace, member_cluster_names)
+    return _install_multi_cluster_operator(
+        namespace,
+        multi_cluster_operator_installation_config,
+        central_cluster_client,
+        member_cluster_clients,
+        {
+            "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
+            # override the serviceAccountName for the operator deployment
+            "operator.createOperatorServiceAccount": "false",
+            "operator.enableClusterMongoDBRoles": "false",
+        },
+        central_cluster_name,
+        apply_crds_first=apply_crds_first,
     )
 
 
@@ -1418,10 +1446,7 @@ def create_issuer(
         else:
             raise e
 
-    from kubetester.certs import (
-        ClusterIssuer,
-        Issuer,
-    )
+    from kubetester.certs import ClusterIssuer, Issuer
 
     # And then creates the Issuer
     if clusterwide:
