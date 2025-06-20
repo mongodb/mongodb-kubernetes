@@ -6,6 +6,47 @@ to produce the final images."""
 
 # TODO: test pipeline, e.g with a test registry
 
+
+"""
+State of things
+
+All builds are working with reworked Dockerfiles ; except test image
+From repo root:
+
+python -m scripts.release.main \
+--include upgrade-hook \
+--include cli \
+--include test \
+--include operator \
+--include mco-test \
+--include readiness-probe \
+--include upgrade-hook \
+--include operator-quick \
+--include database \
+--include init-appdb \
+--include init-database \
+--include init-ops-manager \
+--include ops-manager
+
+Should push images to all staging repositories "julienben/staging-temp/***/" on ECR
+The base registry is now passed everywhere from one single entry point
+Currently hardcoded as TEMP_HARDCODED_BASE_REGISTRY in main.py
+
+
+Tried to split into smaller files:
+- main.py to parse arguments and load image building functions
+- build_configuration.py to isolate the dataclass
+- build_images.py to replace sonar (basic interactions with Docker)
+- optimized_operator_build.py to separate this function which is a mess
+- atomic_pipeline.py for everything else
+
+Made a big cleanup (no daily rebuilds, no inventories, no Sonar...) ; still some work to do
+The biggest mess is the agent builds
+
+TODO:
+- continue to clean pipeline
+"""
+
 import json
 import os
 import shutil
@@ -281,7 +322,7 @@ def build_tests_image(build_configuration: BuildConfiguration):
     """
     Builds image used to run tests.
     """
-    image_name = "test"
+    image_name = "mongodb-kubernetes-tests"
 
     # helm directory needs to be copied over to the tests docker context.
     helm_src = "helm_chart"
@@ -306,7 +347,8 @@ def build_tests_image(build_configuration: BuildConfiguration):
 
     buildargs = dict({"python_version": python_version})
 
-    pipeline_process_image(image_name, "docker/mongodb-kubernetes-tests/Dockerfile", buildargs)
+    # TODO: don't allow test images to be released to Quay
+    pipeline_process_image(image_name, "docker/mongodb-kubernetes-tests/Dockerfile", buildargs, base_registry=build_configuration.base_registry)
 
 
 def build_mco_tests_image(build_configuration: BuildConfiguration):
