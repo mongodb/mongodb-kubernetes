@@ -1042,10 +1042,8 @@ def build_image_generic(
             # But since we don't run daily rebuilds on ecr image builds, we can do that step instead here.
             # We only need to push manifests for multi-arch images.
             create_and_push_manifest(registry_address, version, architectures=architectures)
-            # if not is_running_in_patch() and is_running_in_evg_pipeline():
-            # FIXME only for testing master latest tag push
-            if is_running_in_evg_pipeline():
-                latest_tag="latest-test"
+            latest_tag="latest"
+            if not is_running_in_patch() and is_running_in_evg_pipeline():
                 logger.info(f"Tagging and pushing {registry_address}:{version} as {latest_tag}")
                 try:
                     client = docker.from_env()
@@ -1056,6 +1054,8 @@ def build_image_generic(
                 except docker.errors.DockerException as e:
                     logger.error(f"Failed to tag/push {latest_tag} image: {e}")
                     raise
+            else:
+                logger.info(f"Skipping tagging and pushing {registry_address}:{version} as {latest_tag} tag; is_running_in_patch={is_running_in_patch()}, is_running_in_evg_pipeline={is_running_in_evg_pipeline()}")
 
     # Sign and verify the context image if on releases if required.
     if config.sign and config.is_release_step_executed():
