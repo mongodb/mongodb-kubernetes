@@ -4,46 +4,26 @@
 and where to fetch and calculate parameters. It uses Sonar.py
 to produce the final images."""
 
-import argparse
-import copy
+# TODO: test pipeline, e.g with a test registry
+
 import json
 import os
-import random
 import shutil
 import subprocess
-import sys
-import tarfile
 import time
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from concurrent.futures import ProcessPoolExecutor
 from queue import Queue
-from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple, Union
+from typing import Callable, Dict, Iterable, List, Optional, Tuple, Union
 
 import requests
 import semver
-from opentelemetry import context
-from opentelemetry import context as otel_context
 from opentelemetry import trace
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
-    OTLPSpanExporter as OTLPSpanGrpcExporter,
-)
-from opentelemetry.sdk.resources import SERVICE_NAME, Resource
-from opentelemetry.sdk.trace import (
-    SynchronousMultiSpanProcessor,
-    Tracer,
-    TracerProvider,
-)
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
 from packaging.version import Version
 
 import docker
 from lib.base_logger import logger
-from .build_images import process_image
 from scripts.evergreen.release.agent_matrix import (
     get_supported_operator_versions,
-    get_supported_version_for_image_matrix_handling,
 )
 from scripts.evergreen.release.images_signing import (
     mongodb_artifactory_login,
@@ -51,43 +31,14 @@ from scripts.evergreen.release.images_signing import (
     verify_signature,
 )
 from scripts.evergreen.release.sbom import generate_sbom, generate_sbom_for_cli
+from .build_configuration import BuildConfiguration
 
-TRACER = trace.get_tracer("evergreen-agent")
+from .build_images import process_image
+from .optimized_operator_build import build_operator_image_fast
 
 # TODO: better framework for multi arch builds (spike to come)
 
-
-def _setup_tracing():
-    trace_id = os.environ.get("otel_trace_id")
-    parent_id = os.environ.get("otel_parent_id")
-    endpoint = os.environ.get("otel_collector_endpoint")
-    if any(value is None for value in [trace_id, parent_id, endpoint]):
-        logger.info("tracing environment variables are missing, not configuring tracing")
-        return
-    logger.info(f"parent_id is {parent_id}")
-    logger.info(f"trace_id is {trace_id}")
-    logger.info(f"endpoint is {endpoint}")
-    span_context = SpanContext(
-        trace_id=int(trace_id, 16),
-        span_id=int(parent_id, 16),
-        is_remote=False,
-        # Magic number needed for our OTEL collector
-        trace_flags=TraceFlags(0x01),
-    )
-    ctx = trace.set_span_in_context(NonRecordingSpan(span_context))
-    context.attach(ctx)
-    sp = SynchronousMultiSpanProcessor()
-    span_processor = BatchSpanProcessor(
-        OTLPSpanGrpcExporter(
-            endpoint=endpoint,
-        )
-    )
-    sp.add_span_processor(span_processor)
-    resource = Resource(attributes={SERVICE_NAME: "evergreen-agent"})
-    provider = TracerProvider(resource=resource, active_span_processor=sp)
-    trace.set_tracer_provider(provider)
-
-
+TRACER = trace.get_tracer("evergreen-agent")
 DEFAULT_IMAGE_TYPE = "ubi"
 DEFAULT_NAMESPACE = "default"
 
@@ -95,30 +46,6 @@ DEFAULT_NAMESPACE = "default"
 # final images to the registry specified here.
 # This makes it easy to use ECR to test changes on the pipeline before pushing to Quay.
 QUAY_REGISTRY_URL = "268558157000.dkr.ecr.us-east-1.amazonaws.com/julienben/staging-temp"
-
-
-@dataclass
-class BuildConfiguration:
-    image_type: str
-    base_repository: str
-
-    parallel: bool = False
-    parallel_factor: int = 0
-    architecture: Optional[List[str]] = None
-    sign: bool = False
-    all_agents: bool = False
-
-    pipeline: bool = True
-    debug: bool = True
-
-    def build_args(self, args: Optional[Dict[str, str]] = None) -> Dict[str, str]:
-        if args is None:
-            args = {}
-        args = args.copy()
-
-        args["registry"] = self.base_repository
-
-        return args
 
 
 def make_list_of_str(value: Union[None, str, List[str]]) -> List[str]:
@@ -140,6 +67,7 @@ def get_tools_distro(tools_version: str) -> Dict[str, str]:
 
 
 def operator_build_configuration(
+    base_registry: str,
     parallel: bool,
     debug: bool,
     architecture: Optional[List[str]] = None,
@@ -148,8 +76,8 @@ def operator_build_configuration(
     parallel_factor: int = 0,
 ) -> BuildConfiguration:
     bc = BuildConfiguration(
+        base_registry=base_registry,
         image_type=os.environ.get("distro", DEFAULT_IMAGE_TYPE),
-        base_repository=os.environ["BASE_REPO_URL"],
         parallel=parallel,
         all_agents=all_agents or bool(os.environ.get("all_agents", False)),
         debug=debug,
@@ -174,10 +102,6 @@ def is_running_in_evg_pipeline():
     return os.getenv("RUNNING_IN_EVG", "") == "true"
 
 
-class MissingEnvironmentVariable(Exception):
-    pass
-
-
 def is_running_in_patch():
     is_patch = os.environ.get("is_patch")
     return is_patch is not None and is_patch.lower() == "true"
@@ -199,21 +123,6 @@ def get_git_release_tag() -> tuple[str, bool]:
 
     patch_id = os.environ.get("version_id", "latest")
     return patch_id, False
-
-
-def copy_into_container(client, src, dst):
-    """Copies a local file into a running container."""
-
-    os.chdir(os.path.dirname(src))
-    srcname = os.path.basename(src)
-    with tarfile.open(src + ".tar", mode="w") as tar:
-        tar.add(srcname)
-
-    name, dst = dst.split(":")
-    container = client.containers.get(name)
-
-    with open(src + ".tar", "rb") as fd:
-        container.put_archive(os.path.dirname(dst), fd.read())
 
 
 def create_and_push_manifest(image: str, tag: str, architectures: list[str]) -> None:
@@ -298,9 +207,7 @@ def pipeline_process_image(
     sign: bool = False,
     with_sbom: bool = True,
 ):
-    """Calls sonar to build `image_name` with arguments defined in `args`.
-    :param architecture:
-    """
+    """Builds a Docker image with arguments defined in `args`."""
     span = trace.get_current_span()
     span.set_attribute("mck.image_name", image_name)
     if dockerfile_args:
@@ -413,7 +320,7 @@ def build_mco_tests_image(build_configuration: BuildConfiguration):
 
     buildargs = dict({"GOLANG_VERSION": golang_version})
 
-    pipeline_process_image(image_name, "docker/mongodb-community-tests/Dockerfile", buildargs)
+    pipeline_process_image(image_name, "docker/mongodb-community-tests/Dockerfile", buildargs, base_registry=build_configuration.base_registry)
 
 
 def build_operator_image(build_configuration: BuildConfiguration):
@@ -435,12 +342,17 @@ def build_operator_image(build_configuration: BuildConfiguration):
 
     image_name = "mongodb-kubernetes"
     build_image_generic(
-        config=build_configuration,
         image_name=image_name,
         dockerfile_path="docker/mongodb-kubernetes-operator/Dockerfile",
-        registry_address=QUAY_REGISTRY_URL,
+        registry_address=build_configuration.base_registry,
         extra_args=args,
+        sign=build_configuration.sign,
     )
+
+
+def build_operator_image_patch(build_configuration: BuildConfiguration):
+    if not build_operator_image_fast(build_configuration):
+        build_operator_image(build_configuration)
 
 
 def build_database_image(build_configuration: BuildConfiguration):
@@ -450,7 +362,7 @@ def build_database_image(build_configuration: BuildConfiguration):
     release = get_release()
     version = release["databaseImageVersion"]
     args = {"version": version}
-    build_image_generic(build_configuration, "database", "docker/mongodb-kubernetes-database.yaml", extra_args=args)
+    build_image_generic(image_name="mongodb-kubernetes-database", dockerfile_path="docker/mongodb-kubernetes-database/Dockerfile", registry_address=build_configuration.base_registry, extra_args=args, sign=build_configuration.sign)
 
 
 def build_CLI_SBOM(build_configuration: BuildConfiguration):
@@ -475,160 +387,6 @@ def build_CLI_SBOM(build_configuration: BuildConfiguration):
         generate_sbom_for_cli(version, architecture)
 
 
-def build_operator_image_patch(build_configuration: BuildConfiguration):
-    """This function builds the operator locally and pushed into an existing
-    Docker image. This is the fastest way I could image we can do this."""
-
-    client = docker.from_env()
-    # image that we know is where we build operator.
-    image_repo = build_configuration.base_repository + "/" + build_configuration.image_type + "/mongodb-kubernetes"
-    image_tag = "latest"
-    repo_tag = image_repo + ":" + image_tag
-
-    logger.debug(f"Pulling image: {repo_tag}")
-    try:
-        image = client.images.get(repo_tag)
-    except docker.errors.ImageNotFound:
-        logger.debug("Operator image does not exist locally. Building it now")
-        build_operator_image(build_configuration)
-        return
-
-    logger.debug("Done")
-    too_old = datetime.now() - timedelta(hours=3)
-    image_timestamp = datetime.fromtimestamp(
-        image.history()[0]["Created"]
-    )  # Layer 0 is the latest added layer to this Docker image. [-1] is the FROM layer.
-
-    if image_timestamp < too_old:
-        logger.info("Current operator image is too old, will rebuild it completely first")
-        build_operator_image(build_configuration)
-        return
-
-    container_name = "mongodb-enterprise-operator"
-    operator_binary_location = "/usr/local/bin/mongodb-kubernetes-operator"
-    try:
-        client.containers.get(container_name).remove()
-        logger.debug(f"Removed {container_name}")
-    except docker.errors.NotFound:
-        pass
-
-    container = client.containers.run(repo_tag, name=container_name, entrypoint="sh", detach=True)
-
-    logger.debug("Building operator with debugging symbols")
-    subprocess.run(["make", "manager"], check=True, stdout=subprocess.PIPE)
-    logger.debug("Done building the operator")
-
-    copy_into_container(
-        client,
-        os.getcwd() + "/docker/mongodb-kubernetes-operator/content/mongodb-kubernetes-operator",
-        container_name + ":" + operator_binary_location,
-    )
-
-    # Commit changes on disk as a tag
-    container.commit(
-        repository=image_repo,
-        tag=image_tag,
-    )
-    # Stop this container so we can use it next time
-    container.stop()
-    container.remove()
-
-    logger.info("Pushing operator to {}:{}".format(image_repo, image_tag))
-    client.images.push(
-        repository=image_repo,
-        tag=image_tag,
-    )
-
-
-def get_supported_variants_for_image(image: str) -> List[str]:
-    return get_release()["supportedImages"][image]["variants"]
-
-
-def image_config(
-    image_name: str,
-    name_prefix: str = "mongodb-kubernetes-",
-    s3_bucket: str = "enterprise-operator-dockerfiles",
-    ubi_suffix: str = "-ubi",
-    base_suffix: str = "",
-) -> Tuple[str, Dict[str, str]]:
-    """Generates configuration for an image suitable to be passed
-    to Sonar.
-
-    It returns a dictionary with registries and S3 configuration."""
-    args = {
-        "quay_registry": "{}/{}{}".format(QUAY_REGISTRY_URL, name_prefix, image_name),
-        "ecr_registry_ubi": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/{}{}".format(name_prefix, image_name),
-        "s3_bucket_http": "https://{}.s3.amazonaws.com/dockerfiles/{}{}".format(s3_bucket, name_prefix, image_name),
-        "ubi_suffix": ubi_suffix,
-        "base_suffix": base_suffix,
-    }
-
-    return image_name, args
-
-
-def is_version_in_range(version: str, min_version: str, max_version: str) -> bool:
-    """Check if the version is in the range"""
-    try:
-        parsed_version = semver.VersionInfo.parse(version)
-        if parsed_version.prerelease:
-            logger.info(f"Excluding {version} from range {min_version}-{max_version} because it's a pre-release")
-            return False
-        version_without_rc = semver.VersionInfo.finalize_version(parsed_version)
-    except ValueError:
-        version_without_rc = version
-    if min_version and max_version:
-        return version_without_rc.match(">=" + min_version) and version_without_rc.match("<" + max_version)
-    return True
-
-
-def get_versions_to_rebuild(supported_versions, min_version, max_version):
-    # this means we only want to release one version, we cannot rely on the below range function
-    # since the agent does not follow semver for comparison
-    if (min_version and max_version) and (min_version == max_version):
-        return [min_version]
-    return filter(lambda x: is_version_in_range(x, min_version, max_version), supported_versions)
-
-
-def get_versions_to_rebuild_per_operator_version(supported_versions, operator_version):
-    """
-    This function returns all versions sliced by a specific operator version.
-    If the input is `onlyAgents` then it only returns agents without the operator suffix.
-    """
-    versions_to_rebuild = []
-
-    for version in supported_versions:
-        if operator_version == "onlyAgents":
-            # 1_ works because we append the operator version via "_", all agents end with "1".
-            if "1_" not in version:
-                versions_to_rebuild.append(version)
-        else:
-            if operator_version in version:
-                versions_to_rebuild.append(version)
-    return versions_to_rebuild
-
-
-class TracedThreadPoolExecutor(ThreadPoolExecutor):
-    """Implementation of :class:ThreadPoolExecutor that will pass context into sub tasks."""
-
-    def __init__(self, tracer: Tracer, *args, **kwargs):
-        self.tracer = tracer
-        super().__init__(*args, **kwargs)
-
-    def with_otel_context(self, c: otel_context.Context, fn: Callable):
-        otel_context.attach(c)
-        return fn()
-
-    def submit(self, fn, *args, **kwargs):
-        """Submit a new task to the thread pool."""
-
-        # get the current otel context
-        c = otel_context.get_current()
-        if c:
-            return super().submit(
-                lambda: self.with_otel_context(c, lambda: fn(*args, **kwargs)),
-            )
-        else:
-            return super().submit(lambda: fn(*args, **kwargs))
 
 
 def should_skip_arm64():
@@ -699,10 +457,11 @@ def build_init_om_image(build_configuration: BuildConfiguration):
     init_om_version = release["initOpsManagerVersion"]
     args = {"version": init_om_version}
     build_image_generic(
-        build_configuration,
-        "init-ops-manager",
+        "mongodb-kubernetes-init-ops-manager",
         "docker/mongodb-kubernetes-init-ops-manager/Dockerfile",
+        registry_address=build_configuration.base_registry,
         extra_args=args,
+        sign=build_configuration.sign,
     )
 
 
@@ -723,22 +482,22 @@ def build_om_image(build_configuration: BuildConfiguration):
     }
 
     build_image_generic(
-        config=build_configuration,
-        image_name="mongodb-enterprise-ops-manager",
+        image_name="mongodb-enterprise-ops-manager-ubi",
         dockerfile_path="docker/mongodb-enterprise-ops-manager/Dockerfile",
-        registry_address=QUAY_REGISTRY_URL,
+        registry_address=build_configuration.base_registry,
         extra_args=args,
+        sign=build_configuration.sign,
     )
 
 
 def build_image_generic(
-    config: BuildConfiguration,
     image_name: str,
     dockerfile_path: str,
-    registry_address: str | None = None,
+    registry_address: str,
     extra_args: dict | None = None,
     multi_arch_args_list: list[dict] | None = None,
     is_multi_arch: bool = False,
+    sign: bool = False,
 ):
     """
     Build one or more architecture-specific images, then (optionally)
@@ -746,7 +505,7 @@ def build_image_generic(
     """
 
     # 1) Defaults
-    registry = registry_address or "268558157000.dkr.ecr.us-east-1.amazonaws.com/julienben/staging-temp"
+    registry = registry_address
     args_list = multi_arch_args_list or [extra_args or {}]
     version = args_list[0].get("version", "")
     architectures = [args.get("architecture") for args in args_list]
@@ -766,16 +525,16 @@ def build_image_generic(
                 build_args,
                 registry,
                 architecture=arch,
-                sign=True,
+                sign=False,
                 with_sbom=False,
             )
 
     # 3) Multi-arch manifest
     if is_multi_arch:
-        create_and_push_manifest(registry+"/"+image_name, version, architectures=architectures)
+        create_and_push_manifest(registry + "/" + image_name, version, architectures=architectures)
 
     # 4) Signing (only on real releases)
-    if config.sign:
+    if sign:
         sign_image(registry, version)
         verify_signature(registry, version)
 
@@ -787,7 +546,11 @@ def build_init_appdb(build_configuration: BuildConfiguration):
     mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
     args = {"version": version, "is_appdb": True, "mongodb_tools_url_ubi": mongodb_tools_url_ubi}
     build_image_generic(
-        build_configuration, "init-appdb", "docker/mongodb-kubernetes-init-appdb/Dockerfile", extra_args=args
+        "mongodb-kubernetes-init-appdb",
+        "docker/mongodb-kubernetes-init-appdb/Dockerfile",
+        registry_address=build_configuration.base_registry,
+        extra_args=args,
+        sign=build_configuration.sign,
     )
 
 
@@ -830,16 +593,13 @@ def build_community_image(build_configuration: BuildConfiguration, image_type: s
         }
         multi_arch_args_list.append(arch_args)
 
-    ecr_registry = os.environ.get("BASE_REPO_URL", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
-    base_repo = QUAY_REGISTRY_URL if is_release else ecr_registry
-
     build_image_generic(
-        config=build_configuration,
         image_name=image_name,
         dockerfile_path=dockerfile_path,
-        registry_address=QUAY_REGISTRY_URL,
+        registry_address=build_configuration.base_registry,
         is_multi_arch=True,
         multi_arch_args_list=multi_arch_args_list,
+        sign=build_configuration.sign,
     )
 
 
@@ -872,17 +632,16 @@ def build_agent_pipeline(
         "init_database_image": init_database_image,
     }
 
-    agent_quay_registry = QUAY_REGISTRY_URL + f"/mongodb-agent-ubi"
-    args["quay_registry"] = agent_quay_registry
+    agent_quay_registry = build_configuration.base_registry + f"/mongodb-agent-ubi"
+    args["quay_registry"] = build_configuration.base_registry
     args["agent_version"] = agent_version
 
     build_image_generic(
-        config=build_configuration,
-        image_name="mongodb-agent",
+        image_name="mongodb-agent-ubi",
         dockerfile_path="docker/mongodb-agent/Dockerfile",
-        registry_address=agent_quay_registry,
+        registry_address=build_configuration.base_registry,
         extra_args=args,
-        is_run_in_parallel=True,
+        sign=build_configuration.sign,
     )
 
 
@@ -901,7 +660,6 @@ def build_multi_arch_agent_in_sonar(
     """
 
     logger.info(f"building multi-arch base image for: {image_version}")
-    is_release = build_configuration.is_release_step_executed()
     args = {
         "version": image_version,
         "tools_version": tools_version,
@@ -923,9 +681,6 @@ def build_multi_arch_agent_in_sonar(
         arch_arm["tools_distro"] = "rhel93-aarch64"
         arch_amd["tools_distro"] = "rhel93-x86_64"
 
-    ecr_registry = os.environ.get("REGISTRY", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
-    ecr_agent_registry = ecr_registry + f"/mongodb-agent-ubi"
-    quay_agent_registry = QUAY_REGISTRY_URL + f"/mongodb-agent-ubi"
     joined_args = [args | arch_amd]
 
     # Only include arm64 if we shouldn't skip it
@@ -933,13 +688,13 @@ def build_multi_arch_agent_in_sonar(
         joined_args.append(args | arch_arm)
 
     build_image_generic(
-        config=build_configuration,
-        image_name="mongodb-agent",
+        image_name="mongodb-agent-ubi",
         dockerfile_path="docker/mongodb-agent-non-matrix/Dockerfile",
-        registry_address=quay_agent_registry if is_release else ecr_agent_registry,
+        registry_address=build_configuration.base_registry,
         is_multi_arch=True,
         multi_arch_args_list=joined_args,
         is_run_in_parallel=True,
+        sign=build_configuration.sign,
     )
 
 
@@ -1205,7 +960,7 @@ def build_init_database(build_configuration: BuildConfiguration):
     mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
     args = {"version": version, "mongodb_tools_url_ubi": mongodb_tools_url_ubi, "is_appdb": False}
     build_image_generic(
-        build_configuration, "init-database", "docker/mongodb-kubernetes-init-database.yaml", extra_args=args
+        "mongodb-kubernetes-init-database", "docker/mongodb-kubernetes-init-database/Dockerfile", registry_address=build_configuration.base_registry, extra_args=args, sign=build_configuration.sign
     )
 
 
@@ -1216,6 +971,7 @@ def build_image(image_name: str, build_configuration: BuildConfiguration):
 
 def build_all_images(
     images: Iterable[str],
+    base_registry: str,
     debug: bool = False,
     parallel: bool = False,
     architecture: Optional[List[str]] = None,
@@ -1224,72 +980,12 @@ def build_all_images(
     parallel_factor: int = 0,
 ):
     """Builds all the images in the `images` list."""
-    build_configuration = operator_build_configuration(parallel, debug, architecture, sign, all_agents, parallel_factor)
+    build_configuration = operator_build_configuration(
+        base_registry, parallel, debug, architecture, sign, all_agents, parallel_factor
+    )
     if sign:
         mongodb_artifactory_login()
-    for image in images:
-        logger.info(f"====Building image {image}====")
+    for idx, image in enumerate(images):
+        logger.info(f"====Building image {image} ({idx}/{len(images)-1})====")
+        time.sleep(1)
         build_image(image, build_configuration)
-
-def main():
-    _setup_tracing()
-    _setup_tracing()
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--include", action="append", help="list of images to include")
-    parser.add_argument("--list-images", action="store_true")
-    parser.add_argument("--parallel", action="store_true", default=False)
-    parser.add_argument("--debug", action="store_true", default=False)
-    parser.add_argument(
-        "--arch",
-        choices=["amd64", "arm64"],
-        nargs="+",
-        help="for operator and community images only, specify the list of architectures to build for images",
-    )
-    parser.add_argument("--sign", action="store_true", default=False)
-    parser.add_argument(
-        "--parallel-factor",
-        type=int,
-        default=0,
-        help="the factor on how many agents are built in parallel. 0 means all CPUs will be used",
-    )
-    parser.add_argument(
-        "--all-agents",
-        action="store_true",
-        default=False,
-        help="optional parameter to be able to push "
-        "all non operator suffixed agents, even if we are not in a release",
-    )
-    args = parser.parse_args()
-
-    images_list = get_builder_function_for_image_name().keys()
-    if args.list_images:
-        print(images_list)
-        sys.exit(0)
-
-    if args.arch == ["arm64"]:
-        print("Building for arm64 only is not supported yet")
-        sys.exit(1)
-
-    if not args.sign:
-        logger.warning("--sign flag not provided, images won't be signed")
-
-    # TODO check that image names are valid
-    images_to_build = list(sorted(set(args.include).intersection(images_list)))
-    if not images_to_build:
-        logger.error("No images to build, please ensure images names are correct.")
-        sys.exit(1)
-
-    build_all_images(
-        images_to_build,
-        debug=args.debug,
-        parallel=args.parallel,
-        architecture=args.arch,
-        sign=args.sign,
-        all_agents=args.all_agents,
-        parallel_factor=args.parallel_factor,
-    )
-
-
-if __name__ == "__main__":
-    main()

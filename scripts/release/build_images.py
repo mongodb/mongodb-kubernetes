@@ -1,23 +1,16 @@
-# Methods responsible for building and pushing docker images.
+# This file is the new Sonar
+import base64
 import sys
-import traceback
+from typing import Dict
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
-import base64
 
-from lib.base_logger import logger
 import docker
+from lib.base_logger import logger
+from lib.sonar.sonar import create_ecr_repository
+from scripts.evergreen.release.images_signing import sign_image, verify_signature
 
-logger.info("Starting build images script")
-
-IMAGE_NAME = "mongodb-kubernetes-operator"
-DOCKERFILES_PATH = f"./docker/{IMAGE_NAME}"
-CONTEXT_DOCKERFILE = "Dockerfile"
-RELEASE_DOCKERFILE = "Dockerfile.plain"
-STAGING_REGISTRY = "268558157000.dkr.ecr.us-east-1.amazonaws.com/julienben/operator-staging-temp"
-LATEST_TAG = "latest"
-LATEST_TAG_CONTEXT = f"{LATEST_TAG}-context"
 
 def ecr_login_boto3(region: str, account_id: str):
     """
@@ -26,7 +19,7 @@ def ecr_login_boto3(region: str, account_id: str):
     """
     registry = f"{account_id}.dkr.ecr.{region}.amazonaws.com"
     # 1) get token
-    boto3.setup_default_session(profile_name='default')
+    boto3.setup_default_session(profile_name="default")
     ecr = boto3.client("ecr", region_name=region)
     try:
         resp = ecr.get_authorization_token(registryIds=[account_id])
@@ -39,41 +32,41 @@ def ecr_login_boto3(region: str, account_id: str):
 
     # 2) docker login
     client = docker.APIClient()  # low-level client supports login()
-    login_resp = client.login(
-        username=username,
-        password=password,
-        registry=registry,
-        reauth=True
-    )
+    login_resp = client.login(username=username, password=password, registry=registry, reauth=True)
     # login_resp is a dict like {'Status': 'Login Succeeded'}
     status = login_resp.get("Status", "")
     if "Succeeded" not in status:
         raise RuntimeError(f"Docker login failed: {login_resp}")
-    logger.info(f"ECR login succeeded: {status}")
+    logger.debug(f"ECR login succeeded: {status}")
 
-def build_image(docker_client: docker.DockerClient, tag: str, dockerfile: str, path: str, args=None):
+
+def build_image(docker_client: docker.DockerClient, tag: str, dockerfile: str, path: str, args: Dict[str, str] = {}):
     """
     Build a Docker image.
 
+    :param docker_client:
     :param path: Build context path (directory with your Dockerfile)
     :param dockerfile: Name or relative path of the Dockerfile within `path`
     :param tag: Image tag (name:tag)
+    :param args:
     """
 
     try:
+        if args:
+            args = {k: str(v) for k, v in args.items()}
         image, logs = docker_client.images.build(
             path=path,
             dockerfile=dockerfile,
             tag=tag,
-            rm=True,        # remove intermediate containers after a successful build
-            pull=False,     # set True to always attempt to pull a newer base image
-            buildargs=args  # pass build args if provided
+            rm=True,  # remove intermediate containers after a successful build
+            pull=False,  # set True to always attempt to pull a newer base image
+            buildargs=args,  # pass build args if provided
         )
         logger.info(f"Successfully built {tag} (id: {image.id})")
         # Print build output
         for chunk in logs:
-            if 'stream' in chunk:
-                logger.debug(chunk['stream'])
+            if "stream" in chunk:
+                logger.debug(chunk["stream"])
     except docker.errors.BuildError as e:
         logger.error("Build failed:")
         for stage in e.build_log:
@@ -82,50 +75,68 @@ def build_image(docker_client: docker.DockerClient, tag: str, dockerfile: str, p
             elif "error" in stage:
                 logger.error(stage["error"])
         logger.error(e)
-        sys.exit(1)
+        raise RuntimeError(f"Failed to build image {tag}")
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
-        sys.exit(2)
+        raise RuntimeError(f"Failed to build image {tag}")
+
 
 def push_image(docker_client: docker.DockerClient, image: str, tag: str):
     """
     Push a Docker image to a registry.
 
+    :param docker_client:
     :param image: Image name (e.g., 'my-image')
     :param tag: Image tag (e.g., 'latest')
     """
+    logger.debug(f"push_image - image: {image}, tag: {tag}")
+    image_full_uri = f"{image}:{tag}"
     try:
-        response = docker_client.images.push(image, tag=tag)
-        logger.info(f"Successfully pushed {image}:{tag}")
-        logger.debug(response)
-    except docker.errors.APIError as e:
-        logger.error(f"Failed to push image {image}:{tag} - {e}")
+        output = docker_client.images.push(image, tag=tag)
+        if "error" in output:
+            raise RuntimeError(f"Failed to push image {image_full_uri} {output}")
+        logger.info(f"Successfully pushed {image_full_uri}")
+    except Exception as e:
+        logger.error(f"Failed to push image {image_full_uri} - {e}")
         sys.exit(1)
 
-if __name__ == '__main__':
+LATEST_TAG = "latest"
+def process_image(
+    image_name: str,
+    dockerfile_path: str,
+    dockerfile_args: Dict[str, str],
+    base_registry: str,
+    architecture: str = None,
+    sign: bool = False,
+):
     docker_client = docker.from_env()
-    logger.info("Docker client initialized")
-
+    logger.debug("Docker client initialized")
     # Login to ECR using boto3
-    ecr_login_boto3(region='us-east-1', account_id='268558157000')
+    ecr_login_boto3(region="us-east-1", account_id="268558157000")
 
-    # Build context image
-    image_full_tag = f"{STAGING_REGISTRY}:{LATEST_TAG_CONTEXT}"
-    logger.info(f"Building image: {image_full_tag}")
-    context_dockerfile_full_path = f"{DOCKERFILES_PATH}/{CONTEXT_DOCKERFILE}"
-    logger.info(f"Using Dockerfile at: {context_dockerfile_full_path}")
-    build_image(docker_client, path=".", dockerfile=context_dockerfile_full_path, tag=LATEST_TAG_CONTEXT, args={'version': '0.0.1'})
+    # Helper to automatically create registry with correct name
+    should_create_repo = False
+    if should_create_repo:
+        repo_to_create="julienben/staging-temp/"+image_name
+        logger.debug(f"repo_to_create: {repo_to_create}")
+        create_ecr_repository(repo_to_create)
+        logger.info(f"Created repository {repo_to_create}")
+
+    # Build image
+    docker_registry = f"{base_registry}/{image_name}"
+    arch_tag = f"-{architecture}" if architecture else ""
+    image_tag = f"{LATEST_TAG}{arch_tag}"
+    image_full_uri = f"{docker_registry}:{image_tag}"
+    logger.info(f"Building image: {image_full_uri}")
+    logger.info(f"Using Dockerfile at: {dockerfile_path}")
+    logger.debug(f"Build args: {dockerfile_args}")
+    build_image(docker_client, path=".", dockerfile=f"{dockerfile_path}", tag=image_full_uri, args=dockerfile_args)
 
     # Push to staging registry
-    push_image(docker_client, STAGING_REGISTRY, LATEST_TAG_CONTEXT)
+    logger.info(f"Pushing image: {image_tag} to {docker_registry}")
+    push_image(docker_client, docker_registry, image_tag)
 
-    # Build release image
-    release_image_full_tag = f'{STAGING_REGISTRY}:latest'
-    release_dockerfile_full_path = f"{DOCKERFILES_PATH}/{RELEASE_DOCKERFILE}"
-    logger.info(f"Building release image with tag: {release_image_full_tag}")
-    logger.info(f"Using Dockerfile at: {release_dockerfile_full_path}")
-
-    build_image(docker_client, path=".", dockerfile=release_dockerfile_full_path, tag=release_image_full_tag, args={'imagebase': image_full_tag})
-
-    # Push release image
-    push_image(docker_client, STAGING_REGISTRY, LATEST_TAG)
+    if sign:
+        logger.info("Signing image")
+        sign_image(docker_registry, image_tag)
+        verify_signature(docker_registry, image_tag)
