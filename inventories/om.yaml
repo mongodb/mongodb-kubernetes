@@ -13,6 +13,7 @@ images:
   stages:
   - name: ops-manager-context
     task_type: docker_build
+    tags: ["final_dockerfile"]
     dockerfile: docker/mongodb-enterprise-ops-manager/Dockerfile.builder
     output:
     - registry: $(inputs.params.registry)/ops-manager-context
@@ -21,7 +22,7 @@ images:
   - name: ops-manager-template-ubi
     task_type: dockerfile_template
     template_file_extension: ubi
-    tags: ["ubi"]
+    tags: ["ubi", "final_dockerfile"]
     inputs:
     - om_download_url
     - version
