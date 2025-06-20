@@ -1059,7 +1059,7 @@ func TestApplyInto(t *testing.T) {
 }
 
 func changeTypes(deployment Deployment) error {
-	rs := deployment.getReplicaSets()
+	rs := deployment.GetReplicaSets()
 	deployment.setReplicaSets(rs)
 	return nil
 }
