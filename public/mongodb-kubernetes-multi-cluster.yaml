@@ -71,7 +71,8 @@ rules:
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-kubernetes-operator-multi-cluster-mongodb-cluster-mongodb-role-binding
+  name: 
+    mongodb-kubernetes-operator-multi-cluster-mongodb-cluster-mongodb-role-binding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -100,7 +101,8 @@ subjects:
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-kubernetes-operator-multi-cluster-mongodb-cluster-telemetry-binding
+  name: 
+    mongodb-kubernetes-operator-multi-cluster-mongodb-cluster-telemetry-binding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
