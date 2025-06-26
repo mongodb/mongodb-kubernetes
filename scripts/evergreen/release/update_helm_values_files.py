@@ -57,9 +57,13 @@ def main() -> int:
 
 
 def update_standalone(operator_version):
-    update_standalone_installer("public/mongodb-kubernetes.yaml", operator_version),
-    update_standalone_installer("public/mongodb-kubernetes-openshift.yaml", operator_version),
-    update_standalone_installer("public/mongodb-kubernetes-multi-cluster.yaml", operator_version),
+    file_paths = [
+        "public/mongodb-kubernetes.yaml",
+        "public/mongodb-kubernetes-openshift.yaml",
+        "public/mongodb-kubernetes-multi-cluster.yaml",
+    ]
+    for file_path in file_paths:
+        update_standalone_installer(file_path, operator_version)
 
 
 def update_helm_charts(operator_version, release):
