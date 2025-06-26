@@ -9,6 +9,8 @@ FROM public.ecr.aws/docker/library/golang:1.24 as builder
 ARG release_version
 ARG log_automation_config_diff
 ARG use_race
+ARG TARGETOS
+ARG TARGETARCH
 
 COPY go.sum go.mod /go/src/github.com/mongodb/mongodb-kubernetes/
 
@@ -22,14 +24,14 @@ RUN git version
 RUN mkdir /build && \
     if [ $use_race = "true" ]; then \
         echo "Building with race detector" && \
-        CGO_ENABLED=1 go build -o /build/mongodb-kubernetes-operator \
+        CGO_ENABLED=1 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /build/mongodb-kubernetes-operator \
         -buildvcs=false \
         -race \
         -ldflags=" -X github.com/mongodb/mongodb-kubernetes/pkg/util.OperatorVersion=${release_version} \
         -X github.com/mongodb/mongodb-kubernetes/pkg/util.LogAutomationConfigDiff=${log_automation_config_diff}"; \
     else \
         echo "Building without race detector" && \
-        CGO_ENABLED=0 go build -o /build/mongodb-kubernetes-operator \
+        CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /build/mongodb-kubernetes-operator \
         -buildvcs=false \
         -ldflags="-s -w -X github.com/mongodb/mongodb-kubernetes/pkg/util.OperatorVersion=${release_version} \
         -X github.com/mongodb/mongodb-kubernetes/pkg/util.LogAutomationConfigDiff=${log_automation_config_diff}"; \
