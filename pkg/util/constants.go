@@ -283,7 +283,10 @@ const (
 	// TODO: remove this from here and move it to the certs package
 	// This currently creates an import cycle
 	InternalCertAnnotationKey = "internalCertHash"
-	LastAchievedSpec          = "mongodb.com/v1.lastSuccessfulConfiguration"
+
+	// Annotation keys used by the operator
+	LastAchievedSpec        = "mongodb.com/v1.lastSuccessfulConfiguration"
+	LastAchievedRsMemberIds = "mongodb.com/v1.lastAchievedRsMemberIds"
 
 	// SecretVolumeName is the name of the volume resource.
 	SecretVolumeName = "secret-certs"

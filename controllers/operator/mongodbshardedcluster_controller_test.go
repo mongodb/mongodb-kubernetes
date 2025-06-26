@@ -1644,7 +1644,7 @@ func createDeploymentFromShardedCluster(t *testing.T, updatable v1.CustomResourc
 			construct.GetPodEnvOptions(),
 		)
 		shardSts := construct.DatabaseStatefulSet(*sh, shardOptions, zap.S())
-		shards[i], _ = buildReplicaSetFromProcesses(shardSts.Name, createShardProcesses("fake-mongoDBImage", false, shardSts, sh, ""), sh, sh.Spec.GetMemberOptions(), om.NewDeployment())
+		shards[i], _ = buildReplicaSetFromProcesses(shardSts.Name, createShardProcesses("fake-mongoDBImage", false, shardSts, sh, ""), sh, sh.Spec.GetMemberOptions(), om.NewDeployment(), make(map[string]int))
 	}
 
 	desiredMongosConfig := createMongosSpec(sh)
@@ -1665,7 +1665,7 @@ func createDeploymentFromShardedCluster(t *testing.T, updatable v1.CustomResourc
 		construct.GetPodEnvOptions(),
 	)
 	configSvrSts := construct.DatabaseStatefulSet(*sh, configServerOptions, zap.S())
-	configRs, _ := buildReplicaSetFromProcesses(configSvrSts.Name, createConfigSrvProcesses("fake-mongoDBImage", false, configSvrSts, sh, ""), sh, sh.Spec.GetMemberOptions(), om.NewDeployment())
+	configRs, _ := buildReplicaSetFromProcesses(configSvrSts.Name, createConfigSrvProcesses("fake-mongoDBImage", false, configSvrSts, sh, ""), sh, sh.Spec.GetMemberOptions(), om.NewDeployment(), make(map[string]int))
 
 	d := om.NewDeployment()
 	_, err := d.MergeShardedCluster(om.DeploymentShardedClusterMergeOptions{

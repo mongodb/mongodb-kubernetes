@@ -141,6 +141,22 @@ func (oc *MockedOmConnection) ConfigureProject(project *Project) {
 	oc.context.OrgID = project.OrgID
 }
 
+func (oc *MockedOmConnection) GetReplicaSetMemberIds() (map[string]map[string]int, error) {
+	oc.addToHistory(reflect.ValueOf(oc.GetReplicaSetMemberIds))
+	dep, err := oc.ReadDeployment()
+	if err != nil {
+		return nil, err
+	}
+
+	finalProcessIds := make(map[string]map[string]int)
+
+	for _, replicaSet := range dep.GetReplicaSets() {
+		finalProcessIds[replicaSet.Name()] = replicaSet.MemberIds()
+	}
+
+	return finalProcessIds, nil
+}
+
 var _ Connection = &MockedOmConnection{}
 
 // NewEmptyMockedOmConnection is the standard function for creating mocked connections that is usually used for testing
@@ -734,7 +750,7 @@ func (oc *MockedOmConnection) CheckResourcesAndBackupDeleted(t *testing.T, resou
 	// This can be improved for some more complicated scenarios when we have different resources in parallel - so far
 	// just checking if deployment
 	assert.Empty(t, oc.deployment.getProcesses())
-	assert.Empty(t, oc.deployment.getReplicaSets())
+	assert.Empty(t, oc.deployment.GetReplicaSets())
 	assert.Empty(t, oc.deployment.getShardedClusters())
 	assert.Empty(t, oc.deployment.getMonitoringVersions())
 	assert.Empty(t, oc.deployment.getBackupVersions())

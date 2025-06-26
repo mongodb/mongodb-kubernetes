@@ -280,13 +280,13 @@ func (d Deployment) AddMonitoringAndBackup(log *zap.SugaredLogger, tls bool, caF
 	d.addBackup(log)
 }
 
-// DEPRECATED: this shouldn't be used as it may panic because of different underlying type; use getReplicaSets instead
+// DEPRECATED: this shouldn't be used as it may panic because of different underlying type; use GetReplicaSets instead
 func (d Deployment) ReplicaSets() []ReplicaSet {
 	return d["replicaSets"].([]ReplicaSet)
 }
 
 func (d Deployment) GetReplicaSetByName(name string) ReplicaSet {
-	for _, rs := range d.getReplicaSets() {
+	for _, rs := range d.GetReplicaSets() {
 		if rs.Name() == name {
 			return rs
 		}
@@ -395,7 +395,7 @@ func (d Deployment) RemoveReplicaSetByName(name string, log *zap.SugaredLogger) 
 		return xerrors.New("ReplicaSet does not exist")
 	}
 
-	currentRs := d.getReplicaSets()
+	currentRs := d.GetReplicaSets()
 	toKeep := make([]ReplicaSet, len(currentRs)-1)
 	i := 0
 	for _, el := range currentRs {
@@ -685,7 +685,7 @@ func (d Deployment) ProcessesCopy() []Process {
 
 // ReplicaSetsCopy returns the COPY of replicasets in the deployment.
 func (d Deployment) ReplicaSetsCopy() []ReplicaSet {
-	return d.deepCopy().getReplicaSets()
+	return d.deepCopy().GetReplicaSets()
 }
 
 // ShardedClustersCopy returns the COPY of sharded clusters in the deployment.
@@ -958,7 +958,7 @@ func (d Deployment) getProcessByName(name string) *Process {
 }
 
 func (d Deployment) getReplicaSetByName(name string) *ReplicaSet {
-	for _, r := range d.getReplicaSets() {
+	for _, r := range d.GetReplicaSets() {
 		if r.Name() == name {
 			return &r
 		}
@@ -977,7 +977,7 @@ func (d Deployment) getShardedClusterByName(name string) *ShardedCluster {
 	return nil
 }
 
-func (d Deployment) getReplicaSets() []ReplicaSet {
+func (d Deployment) GetReplicaSets() []ReplicaSet {
 	switch v := d["replicaSets"].(type) {
 	case []ReplicaSet:
 		return v
@@ -997,7 +997,7 @@ func (d Deployment) setReplicaSets(replicaSets []ReplicaSet) {
 }
 
 func (d Deployment) addReplicaSet(rs ReplicaSet) {
-	d.setReplicaSets(append(d.getReplicaSets(), rs))
+	d.setReplicaSets(append(d.GetReplicaSets(), rs))
 }
 
 func (d Deployment) getShardedClusters() []ShardedCluster {
@@ -1052,7 +1052,7 @@ func (d Deployment) findReplicaSetsRemovedFromShardedCluster(clusterName string)
 	clusterReplicaSets := shardedCluster.getAllReplicaSets()
 	var ans []string
 
-	for _, v := range d.getReplicaSets() {
+	for _, v := range d.GetReplicaSets() {
 		if !stringutil.Contains(clusterReplicaSets, v.Name()) && isShardOfShardedCluster(clusterName, v.Name()) {
 			ans = append(ans, v.Name())
 		}
