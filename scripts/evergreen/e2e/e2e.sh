@@ -6,7 +6,6 @@ start_time=$(date +%s)
 source scripts/funcs/checks
 source scripts/funcs/kubernetes
 source scripts/funcs/printing
-source scripts/evergreen/e2e/dump_diagnostic_information.sh
 source scripts/evergreen/e2e/lib.sh
 source scripts/dev/set_env_context.sh
 
@@ -107,15 +106,15 @@ fi
 # shellcheck disable=SC2154
 if [[ "${KUBE_ENVIRONMENT_NAME:-}" = "multi" ]]; then
   echo "Dumping diagnostics for context ${CENTRAL_CLUSTER}"
-  dump_all "${CENTRAL_CLUSTER}" || true
+  scripts/evergreen/e2e/dump_diagnostic_information.sh dump_all "${CENTRAL_CLUSTER}" || true
 
   for member_cluster in ${MEMBER_CLUSTERS}; do
     echo "Dumping diagnostics for context ${member_cluster}"
-    dump_all "${member_cluster}" || true
+    scripts/evergreen/e2e/dump_diagnostic_information.sh dump_all "${member_cluster}" || true
   done
 else
   # Dump all the information we can from this namespace
-  dump_all || true
+  scripts/evergreen/e2e/dump_diagnostic_information.sh dump_all "$(kubectl config current-context)" || true
 fi
 
 # we only have static cluster in openshift, otherwise there is no need to mark and clean them up here
