@@ -2,6 +2,7 @@
 
 set -Eeou pipefail
 
+test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
 ##
 ## The script deploys a single test application and waits until it finishes.
 ## All the Operator deployment, configuration and teardown work is done in 'e2e' script
@@ -15,6 +16,23 @@ source scripts/funcs/operator_deployment
 
 check_env_var "TEST_NAME" "The 'TEST_NAME' must be specified to run the Operator single e2e test"
 
+find_test_file_by_fixture_mark() {
+  fixture_mark="$1"
+
+  cd docker/mongodb-kubernetes-tests
+  if ! test_files="$(grep -l -R "mark.${fixture_mark}$" --include '*.py')"; then
+    >&2 echo "Cannot find any test file containing a pytest fixture mark: ${fixture_mark}"
+    return 1
+  fi
+  number_of_files_matched=$(wc -l <<< "${test_files}")
+  if [[ ${number_of_files_matched} -gt 1 ]]; then
+    >&2 echo "Found more than one file with the same pytest fixture mark ${fixture_mark}:"
+    grep --color=auto --line-number --recursive -C2 "mark.${fixture_mark}$" --include '*.py' .
+    return 1
+  fi
+
+  echo -n "${test_files}"
+}
 
 deploy_test_app() {
     printenv
@@ -33,12 +51,17 @@ deploy_test_app() {
     BUILD_ID="${BUILD_ID:-default_build_id}"
     BUILD_VARIANT="${BUILD_VARIANT:-default_build_variant}"
 
+    if ! test_file=$(find_test_file_by_fixture_mark "${TASK_NAME}"); then
+      return 1
+    fi
+
     # note, that the 4 last parameters are used only for Mongodb resource testing - not for Ops Manager
     helm_params=(
         "--set" "taskId=${task_id:-'not-specified'}"
         "--set" "repo=${BASE_REPO_URL:=268558157000.dkr.ecr.us-east-1.amazonaws.com/dev}"
         "--set" "namespace=${NAMESPACE}"
         "--set" "taskName=${task_name}"
+        "--set" "testFile=${test_file}"
         "--set" "tag=${tag}"
         "--set" "aws.accessKey=${AWS_ACCESS_KEY_ID}"
         "--set" "aws.secretAccessKey=${AWS_SECRET_ACCESS_KEY}"
@@ -128,7 +151,9 @@ deploy_test_app() {
 
     helm_params+=("--set" "opsManagerVersion=${ops_manager_version}")
 
-    helm template "scripts/evergreen/deployments/test-app" "${helm_params[@]}" > "${helm_template_file}" || exit 1
+    echo "Executing helm template:"
+    echo "helm template scripts/evergreen/deployments/test-app ${helm_params[*]}"
+    helm template "scripts/evergreen/deployments/test-app" "${helm_params[@]}" > "${helm_template_file}" || return 1
 
     cat "${helm_template_file}"
 
@@ -189,7 +214,9 @@ run_tests() {
 
     prepare_operator_config_map "${operator_context}"
 
-    deploy_test_app "${test_pod_context}"
+    if ! deploy_test_app "${test_pod_context}"; then
+      return 1
+    fi
 
     wait_until_pod_is_running_or_failed_or_succeeded "${test_pod_context}"
 

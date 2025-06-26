@@ -8,6 +8,10 @@ apiKey: omApiKey
 orgId: ""
 projectId: omProjectId
 tag:
+
+# if testFile is specified, then test is executed as pytest <testFile>
+testFile:
+# if testFile is empty, executes the test by fixture mark: pytest -m <taskName>
 taskName: ${TASK_NAME}
 
 pytest:
