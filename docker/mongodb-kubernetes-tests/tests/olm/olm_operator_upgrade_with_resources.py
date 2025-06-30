@@ -1,11 +1,7 @@
 import kubernetes
 import pytest
 from kubeobject import CustomObject
-from kubetester import (
-    create_or_update_secret,
-    get_default_storage_class,
-    try_load,
-)
+from kubetester import create_or_update_secret, get_default_storage_class, try_load
 from kubetester.awss3client import AwsS3Client
 from kubetester.certs import create_sharded_cluster_certs
 from kubetester.kubetester import ensure_ent_version

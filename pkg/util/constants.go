@@ -30,6 +30,9 @@ const (
 	// MongoDbSearchController name of the MongoDBSearch controller
 	MongoDbSearchController = "mongodbsearch-controller"
 
+	// Kinds
+	ClusterMongoDBRoleKind = "ClusterMongoDBRole"
+
 	// Ops manager config map and secret variables
 	OmBaseUrl         = "baseUrl"
 	OmOrgId           = "orgId"
@@ -316,7 +319,7 @@ const (
 
 	MdbAppdbAssumeOldFormat = "MDB_APPDB_ASSUME_OLD_FORMAT"
 
-	Finalizer = "mongodb.com/v1.userRemovalFinalizer"
+	UserFinalizer = "mongodb.com/v1.userRemovalFinalizer"
 )
 
 type OperatorEnvironment string

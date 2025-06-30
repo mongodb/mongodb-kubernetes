@@ -9,10 +9,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.common.cert.cert_issuer import create_appdb_certs
-from tests.conftest import (
-    get_member_cluster_api_client,
-    is_multi_cluster,
-)
+from tests.conftest import get_member_cluster_api_client, is_multi_cluster
 from tests.opsmanager.om_ops_manager_backup import (
     BLOCKSTORE_RS_NAME,
     OPLOG_RS_NAME,

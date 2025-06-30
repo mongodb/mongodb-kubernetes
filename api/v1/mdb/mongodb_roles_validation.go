@@ -270,7 +270,7 @@ func isValidCIDR(cidr string) bool {
 	return err == nil
 }
 
-func roleIsCorrectlyConfigured(role MongoDbRole, mdbVersion string) v1.ValidationResult {
+func RoleIsCorrectlyConfigured(role MongoDBRole, mdbVersion string) v1.ValidationResult {
 	// Extensive validation of the roles attribute
 
 	if role.Role == "" {
@@ -305,10 +305,10 @@ func roleIsCorrectlyConfigured(role MongoDbRole, mdbVersion string) v1.Validatio
 	return v1.ValidationSuccess()
 }
 
-func rolesAttributeisCorrectlyConfigured(d DbCommonSpec) v1.ValidationResult {
+func rolesAttributeIsCorrectlyConfigured(d DbCommonSpec) v1.ValidationResult {
 	// Validate every single entry and return error on the first one that fails validation
 	for _, role := range d.Security.Roles {
-		if res := roleIsCorrectlyConfigured(role, d.Version); res.Level == v1.ErrorLevel {
+		if res := RoleIsCorrectlyConfigured(role, d.Version); res.Level == v1.ErrorLevel {
 			return v1.ValidationError("Error validating role - %s", res.Msg)
 		}
 	}
