@@ -198,8 +198,14 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return r.updateStatus(ctx, &mrs, status, log)
 	}
 
+	// Save replicasets member ids in annotation
+	finalMemberIds, err := conn.GetReplicaSetMemberIds()
+	if err != nil {
+		return r.updateStatus(ctx, &mrs, workflow.Failed(err), log)
+	}
+
 	mrs.Status.FeatureCompatibilityVersion = mrs.CalculateFeatureCompatibilityVersion()
-	if err := r.saveLastAchievedSpec(ctx, mrs); err != nil {
+	if err := r.saveLastAchievedSpec(ctx, mrs, finalMemberIds); err != nil {
 		return r.updateStatus(ctx, &mrs, workflow.Failed(xerrors.Errorf("Failed to set annotation: %w", err)), log)
 	}
 
@@ -624,7 +630,7 @@ func getMembersForClusterSpecItemThisReconciliation(mrs *mdbmultiv1.MongoDBMulti
 }
 
 // saveLastAchievedSpec updates the MongoDBMultiCluster resource with the spec that was just achieved.
-func (r *ReconcileMongoDbMultiReplicaSet) saveLastAchievedSpec(ctx context.Context, mrs mdbmultiv1.MongoDBMultiCluster) error {
+func (r *ReconcileMongoDbMultiReplicaSet) saveLastAchievedSpec(ctx context.Context, mrs mdbmultiv1.MongoDBMultiCluster, rsMemberIds map[string]map[string]int) error {
 	clusterSpecs, err := mrs.GetClusterSpecItems()
 	if err != nil {
 		return err
@@ -652,6 +658,14 @@ func (r *ReconcileMongoDbMultiReplicaSet) saveLastAchievedSpec(ctx context.Conte
 	annotationsToAdd[util.LastAchievedSpec] = string(achievedSpecBytes)
 	if string(clusterNumBytes) != "null" {
 		annotationsToAdd[mdbmultiv1.LastClusterNumMapping] = string(clusterNumBytes)
+	}
+
+	rsMemberIdsBytes, err := json.Marshal(rsMemberIds)
+	if err != nil {
+		return err
+	}
+	if string(rsMemberIdsBytes) != "null" {
+		annotationsToAdd[util.LastAchievedRsMemberIds] = string(rsMemberIdsBytes)
 	}
 
 	return annotations.SetAnnotations(ctx, &mrs, annotationsToAdd, r.client)
@@ -696,6 +710,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 	}
 
 	processIds := getReplicaSetProcessIdsFromReplicaSets(mrs.Name, existingDeployment)
+	// If there is no replicaset configuration saved in OM, it might be a new project, so we check the ids saved in annotation
+	if len(processIds) == 0 {
+		processIds = getReplicaSetProcessIdsFromAnnotation(mrs)
+	}
 	log.Debugf("Existing process Ids: %+v", processIds)
 
 	certificateFileName := ""
@@ -789,6 +807,16 @@ func getReplicaSetProcessIdsFromReplicaSets(replicaSetName string, deployment om
 	}
 
 	return processIds
+}
+
+func getReplicaSetProcessIdsFromAnnotation(mrs mdbmultiv1.MongoDBMultiCluster) map[string]int {
+	processIds := make(map[string]map[string]int)
+	if processIdsStr, ok := mrs.Annotations[util.LastAchievedRsMemberIds]; ok {
+		if err := json.Unmarshal([]byte(processIdsStr), &processIds); err != nil {
+			return map[string]int{}
+		}
+	}
+	return processIds[mrs.Name]
 }
 
 func getSRVService(mrs *mdbmultiv1.MongoDBMultiCluster) corev1.Service {
