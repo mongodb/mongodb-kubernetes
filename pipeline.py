@@ -735,11 +735,14 @@ class TracedThreadPoolExecutor(ThreadPoolExecutor):
             return super().submit(lambda: fn(*args, **kwargs))
 
 
-def should_skip_arm64():
+def should_skip_arm64(config: BuildConfiguration) -> bool:
     """
     Determines if arm64 builds should be skipped based on environment.
     Returns True if running in Evergreen pipeline as a patch.
     """
+    if config.is_release_step_executed():
+        return False
+
     return is_running_in_evg_pipeline() and is_running_in_patch()
 
 
@@ -765,7 +768,7 @@ def build_image_daily(
         if arch_set == {"arm64"}:
             raise ValueError("Building for ARM64 only is not supported yet")
 
-        if should_skip_arm64():
+        if should_skip_arm64(build_configuration):
             logger.info("Skipping ARM64 builds as this is running in EVG pipeline as a patch")
             return {"amd64"}
 
@@ -824,6 +827,10 @@ def build_image_daily(
                 args["release_version"] = version
 
                 arch_set = get_architectures_set(build_configuration, args)
+                span = trace.get_current_span()
+                span.set_attribute("mck.architectures", str(arch_set))
+                span.set_attribute("mck.architectures_numbers", len(arch_set))
+                span.set_attribute("mck.release", build_configuration.is_release_step_executed())
 
                 if version not in completed_versions:
                     if arch_set == {"amd64", "arm64"}:
@@ -973,6 +980,7 @@ def build_om_image(build_configuration: BuildConfiguration):
     )
 
 
+@TRACER.start_as_current_span("build_image_generic")
 def build_image_generic(
     config: BuildConfiguration,
     image_name: str,
@@ -1011,6 +1019,12 @@ def build_image_generic(
     # Sign and verify the context image if on releases if requied.
     if config.sign and config.is_release_step_executed():
         sign_and_verify_context_image(registry, version)
+
+    span = trace.get_current_span()
+    span.set_attribute("mck.image.image_name", image_name)
+    span.set_attribute("mck.image.version", version)
+    span.set_attribute("mck.image.is_release", config.is_release_step_executed())
+    span.set_attribute("mck.image.is_multi_arch", is_multi_arch)
 
     # Release step. Release images via the daily image process.
     if config.is_release_step_executed() and version and QUAY_REGISTRY_URL in registry:
