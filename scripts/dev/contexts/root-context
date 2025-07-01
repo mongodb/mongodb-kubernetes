@@ -116,3 +116,8 @@ export MDB_SEARCH_COMMUNITY_VERSION
 
 export MDB_SEARCH_COMMUNITY_NAME="mongodb-search-community"
 export MDB_SEARCH_COMMUNITY_REPO_URL="quay.io/mongodb"
+
+
+if [[ ${MDB_BASH_DEBUG:-0} == 1 ]]; then
+  export PS4='+(${BASH_SOURCE}:${LINENO})[^$?]: ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
+fi

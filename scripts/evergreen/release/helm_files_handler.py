@@ -78,6 +78,7 @@ def update_standalone_installer(yaml_file_path: str, version: str):
     yaml.explicit_start = True  # Ensure explicit `---` in the output
     yaml.indent(mapping=2, sequence=4, offset=2)  # Align with tab width produced by Helm
     yaml.preserve_quotes = True  # Preserve original quotes in the YAML file
+    yaml.width = 4096  # Set a very large line width to prevent inconsistent line wrapping
 
     with open(yaml_file_path, "r") as fd:
         data = list(yaml.load_all(fd))  # Convert the generator to a list
