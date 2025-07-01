@@ -7,7 +7,9 @@ from kubernetes import client
 from kubernetes.client.rest import ApiException
 from kubetester import try_load
 from kubetester.awss3client import AwsS3Client
-from kubetester.kubetester import ensure_ent_version
+from kubetester.kubetester import (
+    ensure_ent_version,
+)
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import (
     is_default_architecture_static,
