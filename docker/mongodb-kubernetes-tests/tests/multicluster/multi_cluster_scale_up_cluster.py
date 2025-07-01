@@ -3,7 +3,13 @@ from typing import List
 
 import kubernetes
 import pytest
-from kubetester import create_or_update_configmap, read_configmap, try_load, wait_until, random_k8s_name
+from kubetester import (
+    create_or_update_configmap,
+    random_k8s_name,
+    read_configmap,
+    try_load,
+    wait_until,
+)
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
@@ -18,15 +24,14 @@ from tests.multicluster.conftest import cluster_spec_list
 RESOURCE_NAME = "multi-replica-set"
 BUNDLE_SECRET_NAME = f"prefix-{RESOURCE_NAME}-cert"
 
+
 @pytest.fixture(scope="module")
 def project_name_prefix(namespace: str) -> str:
     return random_k8s_name(f"{namespace}-project-")
 
+
 @pytest.fixture(scope="module")
-def new_project_configmap(
-    namespace: str,
-    project_name_prefix: str
-) -> str:
+def new_project_configmap(namespace: str, project_name_prefix: str) -> str:
     cm = read_configmap(namespace=namespace, name="my-project")
     project_name = f"{project_name_prefix}-new-project"
     return create_or_update_configmap(
@@ -142,6 +147,7 @@ def test_statefulsets_have_been_scaled_up_correctly(
 
     wait_until(sts_are_ready(mongodb_multi, member_cluster_clients, [2, 1, 2]), timeout=60)
 
+
 @pytest.mark.e2e_multi_cluster_scale_up_cluster
 def test_ops_manager_has_been_updated_correctly_after_scaling():
     ac = AutomationConfigTester()
@@ -175,8 +181,7 @@ def test_scale_up_first_cluster(
     mongodb_multi["spec"]["clusterSpecList"][0]["members"] = 3
     mongodb_multi.update()
 
-
-    wait_until(sts_are_ready(mongodb_multi, member_cluster_clients, [3,1,2]), timeout=600)
+    wait_until(sts_are_ready(mongodb_multi, member_cluster_clients, [3, 1, 2]), timeout=600)
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=600)
 
 

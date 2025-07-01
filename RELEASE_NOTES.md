@@ -25,6 +25,9 @@
     * [Manage Database Users using OIDC](https://www.mongodb.com/docs/kubernetes/upcoming/manage-users/) # TODO
     * [Authentication and Authorization with OIDC/OAuth 2.0](https://www.mongodb.com/docs/manual/core/oidc/security-oidc/)
 
+## Bug Fixes
+* Fixed an issue where moving a **MongoDBMultiCluster** resource to a new project (or a new OM instance) would leave the deployment in a failed state.
+
 <!-- Past Releases -->
 
 # MCK 1.1.0 Release Notes
