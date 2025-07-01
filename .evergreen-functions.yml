@@ -53,6 +53,7 @@ functions:
 
   setup_context: &setup_context # Running the first switch is important to fill the workdir and other important initial env vars
     command: shell.exec
+    display_name: Initialize context files
     type: setup
     params:
       shell: bash
@@ -66,6 +67,7 @@ functions:
 
   switch_context: &switch_context
     command: shell.exec
+    display_name: Switch context
     type: setup
     params:
       shell: bash
@@ -81,6 +83,7 @@ functions:
 
   python_venv: &python_venv
     command: subprocess.exec
+    display_name: recreate_python_venv.sh
     type: setup
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -88,18 +91,22 @@ functions:
 
   "clone":
     - command: subprocess.exec
+      display_name: mkdir
       type: setup
       params:
         command: "mkdir -p src/github.com/mongodb"
     - command: git.get_project
+      display_name: Clone repository
       type: setup
       params:
         directory: src/github.com/mongodb/mongodb-kubernetes
     - command: subprocess.exec
+      display_name: git config username
       type: setup
       params:
         command: "git config --global user.name 'Evergreen'"
     - command: subprocess.exec
+      display_name: git config email
       type: setup
       params:
         command: "git config --global user.email 'kubernetes-hosted-team@mongodb.com'"
@@ -107,6 +114,7 @@ functions:
 
   setup_kubectl: &setup_kubectl
     command: subprocess.exec
+    display_name: setup_kubectl.sh
     type: setup
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -114,6 +122,7 @@ functions:
 
   setup_jq: &setup_jq
     command: subprocess.exec
+    display_name: setup_jq.sh
     type: setup
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -121,6 +130,7 @@ functions:
 
   setup_shellcheck:
     command: subprocess.exec
+    display_name: setup_shellcheck.sh
     type: setup
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -130,6 +140,7 @@ functions:
 
   setup_aws: &setup_aws
     command: subprocess.exec
+    display_name: setup_aws.sh
     type: setup
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -139,6 +150,7 @@ functions:
 
   setup_gcloud_cli:
     command: subprocess.exec
+    display_name: setup_gcloud_cli.sh
     type: setup
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -150,6 +162,7 @@ functions:
 
   setup_mongosh:
     command: subprocess.exec
+    display_name: setup_mongosh.sh
     type: setup
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -160,6 +173,7 @@ functions:
   # configures Docker size, installs the Kind binary (if necessary)
   setup_kind: &setup_kind
     command: subprocess.exec
+    display_name: setup_kind.sh
     type: setup
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -169,6 +183,7 @@ functions:
 
   setup_preflight:
     - command: subprocess.exec
+      display_name: setup_preflight.sh
       type: setup
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -178,6 +193,7 @@ functions:
 
   setup_prepare_openshift_bundles:
     - command: subprocess.exec
+      display_name: setup_yq.sh
       type: setup
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -185,6 +201,7 @@ functions:
           - ${workdir}/bin
         command: scripts/evergreen/setup_yq.sh
     - command: subprocess.exec
+      display_name: setup_prepare_openshift_bundles.sh
       type: setup
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -194,6 +211,7 @@ functions:
 
   install_olm:
     - command: subprocess.exec
+      display_name: install-olm.sh
       type: setup
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -203,6 +221,7 @@ functions:
 
   prepare_openshift_bundles_for_e2e:
     - command: subprocess.exec
+      display_name: prepare-openshift-bundles-for-e2e.sh
       type: setup
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -212,6 +231,7 @@ functions:
 
   setup_docker_sbom:
     - command: subprocess.exec
+      display_name: setup_docker_sbom.sh
       type: setup
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -220,6 +240,7 @@ functions:
   # Logs into all used registries
   configure_docker_auth: &configure_docker_auth
     command: subprocess.exec
+    display_name: configure_docker_auth.sh
     type: setup
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -229,6 +250,7 @@ functions:
 
   setup_evg_host: &setup_evg_host
     command: subprocess.exec
+    display_name: setup_evg_host.sh
     type: setup
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -238,6 +260,7 @@ functions:
 
   lint_repo:
     - command: subprocess.exec
+      display_name: setup_yq.sh
       type: setup
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -245,6 +268,7 @@ functions:
           - ${workdir}/bin
         command: scripts/evergreen/setup_yq.sh
     - command: subprocess.exec
+      display_name: check_precommit.sh
       type: test
       params:
         add_to_path:
@@ -263,6 +287,7 @@ functions:
 
   prune_docker_resources:
     - command: subprocess.exec
+      display_name: docker system prune
       type: setup
       params:
         command: "docker system prune -a -f"
@@ -280,6 +305,7 @@ functions:
 
   teardown_kubernetes_environment:
     - command: shell.exec
+      display_name: teardown_kubernetes_environment.sh
       type: setup
       params:
         shell: bash
@@ -290,6 +316,7 @@ functions:
   # Makes sure a kubectl context is defined.
   setup_kubernetes_environment_p: &setup_kubernetes_environment_p
     command: subprocess.exec
+    display_name: setup_kubernetes_environment.sh
     type: setup
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -307,6 +334,7 @@ functions:
   # added to it with more clearing features, when needed.
   cleanup_exec_environment:
     - command: shell.exec
+      display_name: Clean logs directory
       type: setup
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -315,6 +343,7 @@ functions:
 
   quay_login:
     - command: subprocess.exec
+      display_name: docker login quay.io
       type: setup
       params:
         command: "docker login quay.io -u ${quay_prod_username} -p ${quay_prod_robot_token}"
@@ -322,6 +351,7 @@ functions:
   setup_cloud_qa:
     - *switch_context
     - command: shell.exec
+      display_name: Setup Cloud QA environment
       type: setup
       params:
         shell: bash
@@ -334,6 +364,7 @@ functions:
 
   teardown_cloud_qa:
     - command: shell.exec
+      display_name: Teardown Cloud QA environment
       type: setup
       params:
         shell: bash
@@ -344,6 +375,7 @@ functions:
 
   dump_diagnostic_information_from_all_namespaces:
     - command: subprocess.exec
+      display_name: dump_diagnostic_information_from_all_namespaces.sh
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         add_to_path:
@@ -359,6 +391,7 @@ functions:
   # environment variables.
   release_docker_image_to_registry:
     - command: subprocess.exec
+      display_name: tag_push_docker_image.sh
       type: system
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -378,6 +411,7 @@ functions:
   #
   prepare_aws: &prepare_aws
     command: subprocess.exec
+    display_name: prepare_aws.sh
     type: setup
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -387,6 +421,7 @@ functions:
 
   build-dockerfiles:
     - command: subprocess.exec
+      display_name: update_supported_dockerfiles.py
       type: setup
       params:
         add_to_path:
@@ -394,6 +429,7 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/evergreen/run_python.sh scripts/update_supported_dockerfiles.py
     - command: subprocess.exec
+      display_name: Create dockerfiles tarball
       type: setup
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -404,6 +440,7 @@ functions:
 
   enable_QEMU:
     - command: shell.exec
+      display_name: Enable QEMU for Docker
       type: setup
       params:
         shell: bash
@@ -419,6 +456,7 @@ functions:
   # and any running container in the host (which kills Kind).
   upload_e2e_logs:
     - command: s3.put
+      display_name: Upload E2E logs to S3
       params:
         aws_key: ${enterprise_aws_access_key_id}
         aws_secret: ${enterprise_aws_secret_access_key}
@@ -430,11 +468,13 @@ functions:
         visibility: signed
         content_type: text/plain
     - command: attach.xunit_results
+      display_name: Attach xUnit test results
       params:
         file: "src/github.com/mongodb/mongodb-kubernetes/logs/myreport.xml"
 
   upload_e2e_logs_gotest:
     - command: s3.put
+      display_name: Upload E2E logs to S3
       params:
         aws_key: ${enterprise_aws_access_key_id}
         aws_secret: ${enterprise_aws_secret_access_key}
@@ -446,11 +486,13 @@ functions:
         visibility: signed
         content_type: text/plain
     - command: gotest.parse_files
+      display_name: Parse Go test files
       params:
         files: [ "src/github.com/mongodb/mongodb-kubernetes/logs/*.suite" ]
 
   upload_code_snippets_logs:
     - command: s3.put
+      display_name: Upload code snippets logs to S3
       params:
         aws_key: ${enterprise_aws_access_key_id}
         aws_secret: ${enterprise_aws_secret_access_key}
@@ -463,6 +505,7 @@ functions:
         visibility: signed
         content_type: text/plain
     - command: s3.put
+      display_name: Upload code snippets output files to S3
       params:
         aws_key: ${enterprise_aws_access_key_id}
         aws_secret: ${enterprise_aws_secret_access_key}
@@ -479,6 +522,7 @@ functions:
   preflight_image:
     - *switch_context
     - command: subprocess.exec
+      display_name: preflight_images.py
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         add_to_path:
@@ -490,6 +534,7 @@ functions:
 
   build_multi_cluster_binary:
     - command: subprocess.exec
+      display_name: build_multi_cluster_kubeconfig_creator.sh
       type: setup
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -497,6 +542,7 @@ functions:
 
   build_and_push_appdb_database:
     - command: subprocess.exec
+      display_name: build_and_push_appdb_database_images.sh
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes/docker/mongodb-kubernetes-appdb-database
         binary: ./build_and_push_appdb_database_images.sh
@@ -507,6 +553,7 @@ functions:
   pipeline:
     - *switch_context
     - command: shell.exec
+      display_name: Setup Docker buildx
       type: setup
       params:
         shell: bash
@@ -532,6 +579,7 @@ functions:
           # write the KONDUKTO_TOKEN environment variable to Silkbomb environment file
           echo "KONDUKTO_TOKEN=$kondukto_token" > ${workdir}/silkbomb.env
     - command: subprocess.exec
+      display_name: pipeline.py
       retry_on_failure: true
       type: setup
       params:
@@ -543,6 +591,7 @@ functions:
   teardown_cloud_qa_all:
     - *switch_context
     - command: shell.exec
+      display_name: Teardown all Cloud QA environments
       type: setup
       params:
         shell: bash
@@ -555,18 +604,21 @@ functions:
   # Use e.g. ${mongoDbOperator} afterwards.
   update_evergreen_expansions:
     - command: subprocess.exec
+      display_name: generate_evergreen_expansions.sh
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         add_to_path:
           - ${workdir}/bin
         command: "scripts/evergreen/generate_evergreen_expansions.sh"
     - command: expansions.update
+      display_name: Update Evergreen expansions
       params:
         file: "src/github.com/mongodb/mongodb-kubernetes/evergreen_expansions.yaml"
 
   # Uploads openshift bundle specified by bundle_file_name argument.
   upload_openshift_bundle:
     - command: s3.put
+      display_name: Upload OpenShift bundle to S3
       params:
         aws_key: ${enterprise_aws_access_key_id}
         aws_secret: ${enterprise_aws_secret_access_key}
@@ -578,6 +630,7 @@ functions:
 
   prepare_openshift_bundles:
     - command: subprocess.exec
+      display_name: prepare-openshift-bundles.sh
       type: setup
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -591,6 +644,7 @@ functions:
     - *setup_aws
     - *prepare_aws
     - command: subprocess.exec
+      display_name: periodic-cleanup-aws.py
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         add_to_path:
@@ -617,6 +671,7 @@ functions:
   #
   e2e_test:
     - command: subprocess.exec
+      display_name: e2e.sh
       type: test
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -634,6 +689,7 @@ functions:
 
   e2e_test_perf:
     - command: subprocess.exec
+      display_name: e2e.sh (performance)
       type: test
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -655,6 +711,7 @@ functions:
 
   test_golang_unit:
     - command: shell.exec
+      display_name: Run Go unit tests with race detection
       type: test
       params:
         shell: bash
@@ -663,11 +720,13 @@ functions:
           source .generated/context.export.env
           make test-race
     - command: gotest.parse_files
+      display_name: Parse Go test files
       params:
         files: [ "src/github.com/mongodb/mongodb-kubernetes/*.suite", "src/github.com/mongodb/mongodb-kubernetes/public/tools/multicluster/*.suite", "src/github.com/mongodb/mongodb-kubernetes/docker/mongodb-kubernetes-init-ops-manager/mmsconfiguration/*.suite" ]
 
   test_python_unit:
     - command: shell.exec
+      display_name: Run Python unit tests
       type: test
       params:
         shell: bash
@@ -678,6 +737,7 @@ functions:
 
   test_sboms:
     - command: shell.exec
+      display_name: Run SBOM tests
       type: test
       params:
         shell: bash
@@ -689,6 +749,7 @@ functions:
   generate_perf_tests_tasks:
     - *switch_context
     - command: shell.exec
+      display_name: Generate performance test tasks
       type: setup
       params:
         shell: bash
@@ -699,6 +760,7 @@ functions:
           echo "tasks to run:"
           cat evergreen_tasks.json
     - command: generate.tasks
+      display_name: Generate Evergreen tasks
       params:
         files:
           - evergreen_tasks.json
@@ -707,6 +769,7 @@ functions:
 
   run_retry_script:
     - command: shell.exec
+      display_name: retry-evergreen.sh
       type: test
       params:
         shell: bash
@@ -738,6 +801,7 @@ functions:
   #      task: prepare_and_upload_openshift_bundles
   run_task_conditionally:
     - command: shell.exec
+      display_name: Run task conditionally
       params:
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -749,6 +813,7 @@ functions:
             echo "skipping task ${task} due to ${condition_script} result: $?"
           fi
     - command: generate.tasks
+      display_name: Generate tasks conditionally
       params:
         files:
           - evergreen_tasks.json
@@ -760,9 +825,11 @@ functions:
 
   sample_commit_output:
     - command: github.generate_token
+      display_name: Generate GitHub token
       params:
         expansion_name: GH_TOKEN
     - command: subprocess.exec
+      display_name: sample_commit_output.sh
       params:
         include_expansions_in_env:
           - GH_TOKEN
@@ -774,6 +841,7 @@ functions:
   test_code_snippets:
     - *switch_context
     - command: shell.exec
+      display_name: Test code snippets
       params:
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes

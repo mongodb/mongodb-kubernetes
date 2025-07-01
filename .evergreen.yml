@@ -358,9 +358,11 @@ tasks:
       - func: download_kube_tools
       - func: setup_shellcheck
       - command: github.generate_token
+        display_name: Generate GitHub token
         params:
           expansion_name: GH_TOKEN
       - command: subprocess.exec
+        display_name: precommit_bump.sh
         type: setup
         params:
           include_expansions_in_env:

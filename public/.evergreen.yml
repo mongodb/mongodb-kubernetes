@@ -6,16 +6,19 @@ variables:
 functions:
   "clone":
     - command: subprocess.exec
+      display_name: mkdir
       type: setup
       params:
         command: "mkdir -p src/github.com/mongodb"
     - command: git.get_project
+      display_name: Clone repository
       type: setup
       params:
         directory: src/github.com/mongodb/mongodb-kubernetes
 
   "install goreleaser":
     - command: shell.exec
+      display_name: Install GoReleaser
       type: setup
       include_expansions_in_env:
         - goreleaser_pro_tar_gz
@@ -28,6 +31,7 @@ functions:
 
   "install macos notarization service":
     - command: shell.exec
+      display_name: Install macOS notarization service
       type: setup
       params:
         include_expansions_in_env:
@@ -40,9 +44,11 @@ functions:
           chmod 755 ./linux_amd64/macnotary
   "release":
     - command: github.generate_token
+      display_name: Generate GitHub token
       params:
         expansion_name: generated_token
     - command: shell.exec
+      display_name: Run GoReleaser
       type: setup
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes/public/tools/multicluster
@@ -84,6 +90,7 @@ tasks:
   - name: noop
     commands:
       - command: shell.exec
+        display_name: No-op task
         params:
           shell: bash
           script: echo "this is the noop task"
