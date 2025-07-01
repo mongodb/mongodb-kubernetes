@@ -1,7 +1,9 @@
+﻿from operator import truediv
 from typing import List
 
 import kubernetes
 import pytest
+from kubetester import create_or_update_configmap, read_configmap, try_load, wait_until, random_k8s_name
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
@@ -16,6 +18,27 @@ from tests.multicluster.conftest import cluster_spec_list
 RESOURCE_NAME = "multi-replica-set"
 BUNDLE_SECRET_NAME = f"prefix-{RESOURCE_NAME}-cert"
 
+@pytest.fixture(scope="module")
+def project_name_prefix(namespace: str) -> str:
+    return random_k8s_name(f"{namespace}-project-")
+
+@pytest.fixture(scope="module")
+def new_project_configmap(
+    namespace: str,
+    project_name_prefix: str
+) -> str:
+    cm = read_configmap(namespace=namespace, name="my-project")
+    project_name = f"{project_name_prefix}-new-project"
+    return create_or_update_configmap(
+        namespace=namespace,
+        name=project_name,
+        data={
+            "baseUrl": cm["baseUrl"],
+            "projectName": project_name,
+            "orgId": cm["orgId"],
+        },
+    )
+
 
 @pytest.fixture(scope="module")
 def mongodb_multi_unmarshalled(
@@ -28,7 +51,7 @@ def mongodb_multi_unmarshalled(
     resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), RESOURCE_NAME, namespace)
     resource.set_version(custom_mdb_version)
     # ensure certs are created for the members during scale up
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [3, 1, 2])
     resource["spec"]["security"] = {
         "certsSecretPrefix": "prefix",
         "tls": {
@@ -58,9 +81,14 @@ def server_certs(
 
 @pytest.fixture(scope="module")
 def mongodb_multi(mongodb_multi_unmarshalled: MongoDBMulti, server_certs: str) -> MongoDBMulti:
+    if try_load(mongodb_multi_unmarshalled):
+        return mongodb_multi_unmarshalled
+
     # remove the last element, we are only starting with 2 clusters we will scale up the 3rd one later.
     mongodb_multi_unmarshalled["spec"]["clusterSpecList"].pop()
-    return mongodb_multi_unmarshalled.update()
+    # remove one member from the first cluster to start with 2 members
+    mongodb_multi_unmarshalled["spec"]["clusterSpecList"][0]["members"] = 2
+    return mongodb_multi_unmarshalled
 
 
 @pytest.mark.e2e_multi_cluster_scale_up_cluster
@@ -70,6 +98,7 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 
 @pytest.mark.e2e_multi_cluster_scale_up_cluster
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
+    mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=600)
 
 
@@ -97,7 +126,6 @@ def test_ops_manager_has_been_updated_correctly_before_scaling():
 
 @pytest.mark.e2e_multi_cluster_scale_up_cluster
 def test_scale_mongodb_multi(mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]):
-    mongodb_multi.load()
     mongodb_multi["spec"]["clusterSpecList"].append(
         {"members": 2, "clusterName": member_cluster_clients[2].cluster_name}
     )
@@ -111,22 +139,8 @@ def test_statefulsets_have_been_scaled_up_correctly(
     mongodb_multi: MongoDBMulti,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients)
 
-    assert len(statefulsets) == 3
-
-    cluster_one_client = member_cluster_clients[0]
-    cluster_one_sts = statefulsets[cluster_one_client.cluster_name]
-    assert cluster_one_sts.status.ready_replicas == 2
-
-    cluster_two_client = member_cluster_clients[1]
-    cluster_two_sts = statefulsets[cluster_two_client.cluster_name]
-    assert cluster_two_sts.status.ready_replicas == 1
-
-    cluster_three_client = member_cluster_clients[2]
-    cluster_three_sts = statefulsets[cluster_three_client.cluster_name]
-    assert cluster_three_sts.status.ready_replicas == 2
-
+    wait_until(sts_are_ready(mongodb_multi, member_cluster_clients, [2, 1, 2]), timeout=60)
 
 @pytest.mark.e2e_multi_cluster_scale_up_cluster
 def test_ops_manager_has_been_updated_correctly_after_scaling():
@@ -139,3 +153,60 @@ def test_ops_manager_has_been_updated_correctly_after_scaling():
 def test_replica_set_is_reachable(mongodb_multi: MongoDBMulti, ca_path: str):
     tester = mongodb_multi.tester()
     tester.assert_connectivity(opts=[with_tls(use_tls=True, ca_path=ca_path)])
+
+
+# From here on, the tests are for verifying that we can change the project of the MongoDBMulti resource even with
+# non-sequential member ids in the replicaset.
+
+
+@pytest.mark.e2e_multi_cluster_scale_up_cluster
+def test_scale_up_first_cluster(
+    mongodb_multi: MongoDBMulti,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    # Scale up the first cluster to 3 members. This will lead to non-sequential member ids in the replicaset.
+    # multi-replica-set-0-0 : 0
+    # multi-replica-set-0-1 : 1
+    # multi-replica-set-0-2 : 5
+    # multi-replica-set-1-0 : 2
+    # multi-replica-set-2-0 : 3
+    # multi-replica-set-2-1 : 4
+
+    mongodb_multi["spec"]["clusterSpecList"][0]["members"] = 3
+    mongodb_multi.update()
+
+
+    wait_until(sts_are_ready(mongodb_multi, member_cluster_clients, [3,1,2]), timeout=600)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=600)
+
+
+@pytest.mark.e2e_multi_cluster_scale_up_cluster
+def test_change_project(mongodb_multi: MongoDBMulti, new_project_configmap: str):
+    oldRsMembers = mongodb_multi.get_automation_config_tester().get_replica_set_members(mongodb_multi.name)
+
+    mongodb_multi["spec"]["opsManager"]["configMapRef"]["name"] = new_project_configmap
+    mongodb_multi.update()
+
+    mongodb_multi.assert_abandons_phase(phase=Phase.Running, timeout=300)
+    mongodb_multi.assert_reaches_phase(phase=Phase.Running, timeout=600)
+
+    newRsMembers = mongodb_multi.get_automation_config_tester().get_replica_set_members(mongodb_multi.name)
+
+    # Assert that the replica set member ids have not changed after changing the project.
+    assert oldRsMembers == newRsMembers
+
+
+def sts_are_ready(mdb: MongoDBMulti, member_cluster_clients: List[MultiClusterClient], members: List[int]):
+    def fn():
+        statefulsets = mdb.read_statefulsets(member_cluster_clients)
+
+        assert len(statefulsets) == len(members)
+
+        for i, mcc in enumerate(member_cluster_clients):
+            cluster_sts = statefulsets[mcc.cluster_name]
+            if cluster_sts.status.ready_replicas != members[i]:
+                return False
+
+        return True
+
+    return fn
