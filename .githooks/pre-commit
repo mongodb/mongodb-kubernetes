@@ -142,24 +142,27 @@ function check_incorrect_makefile_variable_brackets() {
 }
 
 function pre_commit() {
+  if [[ "${SKIP_UPDATE_LICENSES:-""}" != "true" ]]; then
+    ( (time update_licenses) 2>&1 | prepend "update_licenses" ) &
+  fi
+  ( (time scripts/evergreen/lint_code.sh) 2>&1 | prepend "lint_code.sh" ) &
+  ( (time start_shellcheck) 2>&1 | prepend "shellcheck" ) &
+
   # Update release.json first in case there is a newer version
   (time update_release_json) 2>&1 | prepend "update_release_json"
   # We need to generate the values files first
   (time update_values_yaml_files) 2>&1 | prepend "update_values_yaml_files"
   # The values files are used for generating the standalone yaml
   (time generate_standalone_yaml) 2>&1 | prepend "generate_standalone_yaml"
+
+  ( (time regenerate_public_rbac_multi_cluster) 2>&1 | prepend "regenerate_public_rbac_multi_cluster" ) &
+
   # Run black on python files that have changed
-  (time python_formatting) 2>&1 | prepend "python_formatting"
+  ( (time python_formatting) 2>&1 | prepend "python_formatting") &
 
-  (time regenerate_public_rbac_multi_cluster) 2>&1 | prepend "regenerate_public_rbac_multi_cluster"
+  ( (time check_erroneous_kubebuilder_annotations) 2>&1 | prepend "check_erroneous_kubebuilder_annotations" ) &
 
-  (time start_shellcheck) 2>&1 | prepend "shellcheck"
-
-  (time check_erroneous_kubebuilder_annotations) 2>&1 | prepend "check_erroneous_kubebuilder_annotations"
-
-  (time scripts/evergreen/lint_code.sh) 2>&1 | prepend "lint_code.sh"
-
-  (time update_licenses) 2>&1 | prepend "update_licenses"
+  wait
 }
 
 # Function to run shellcheck on a single file
@@ -196,7 +199,9 @@ if [[ "${cmd}" == "generate_standalone_yaml" ]]; then
   shift 1
   generate_standalone_yaml "$@"
 elif [[ "${cmd}" == "pre-commit" ]]; then
-  pre_commit
+ time pre_commit
+elif [[ "${cmd}" == "pre-commit-skip-license" ]]; then
+ time pre_commit "skip-license"
 elif [[ "${cmd}" == "shellcheck" ]]; then
   start_shellcheck
 elif [[ "${cmd}" == "lint" ]]; then
