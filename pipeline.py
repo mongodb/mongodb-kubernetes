@@ -735,11 +735,15 @@ class TracedThreadPoolExecutor(ThreadPoolExecutor):
             return super().submit(lambda: fn(*args, **kwargs))
 
 
-def should_skip_arm64():
+def should_skip_arm64(config: BuildConfiguration) -> bool:
     """
-    Determines if arm64 builds should be skipped based on environment.
-    Returns True if running in Evergreen pipeline as a patch.
+        Determines if arm64 builds should be skipped based on environment.
+    Determines if arm64 builds should be skipped based on BuildConfiguration or environment.```
+    And skipping the evergreen detail.
     """
+    if config.is_release_step_executed():
+        return False
+
     return is_running_in_evg_pipeline() and is_running_in_patch()
 
 
@@ -765,8 +769,8 @@ def build_image_daily(
         if arch_set == {"arm64"}:
             raise ValueError("Building for ARM64 only is not supported yet")
 
-        if should_skip_arm64():
-            logger.info("Skipping ARM64 builds as this is running in EVG pipeline as a patch")
+        if should_skip_arm64(build_configuration):
+            logger.info("Skipping ARM64 builds as this is running in as a patch and not a release step.")
             return {"amd64"}
 
         # Automatic architecture detection is the default behavior if 'arch' argument isn't specified
@@ -824,6 +828,10 @@ def build_image_daily(
                 args["release_version"] = version
 
                 arch_set = get_architectures_set(build_configuration, args)
+                span = trace.get_current_span()
+                span.set_attribute("mck.architectures", str(arch_set))
+                span.set_attribute("mck.architectures_numbers", len(arch_set))
+                span.set_attribute("mck.release", build_configuration.is_release_step_executed())
 
                 if version not in completed_versions:
                     if arch_set == {"amd64", "arm64"}:
@@ -973,6 +981,7 @@ def build_om_image(build_configuration: BuildConfiguration):
     )
 
 
+@TRACER.start_as_current_span("build_image_generic")
 def build_image_generic(
     config: BuildConfiguration,
     image_name: str,
@@ -1011,6 +1020,12 @@ def build_image_generic(
     # Sign and verify the context image if on releases if requied.
     if config.sign and config.is_release_step_executed():
         sign_and_verify_context_image(registry, version)
+
+    span = trace.get_current_span()
+    span.set_attribute("mck.image.image_name", image_name)
+    span.set_attribute("mck.image.version", version)
+    span.set_attribute("mck.image.is_release", config.is_release_step_executed())
+    span.set_attribute("mck.image.is_multi_arch", is_multi_arch)
 
     # Release step. Release images via the daily image process.
     if config.is_release_step_executed() and version and QUAY_REGISTRY_URL in registry:
@@ -1066,7 +1081,7 @@ def build_community_image(build_configuration: BuildConfiguration, image_type: s
     golang_version = os.getenv("GOLANG_VERSION", "1.24")
 
     # Use only amd64 if we should skip arm64 builds
-    if should_skip_arm64():
+    if should_skip_arm64(build_configuration):
         architectures = ["amd64"]
         logger.info("Skipping ARM64 builds for community image as this is running in EVG pipeline as a patch")
     else:
@@ -1181,7 +1196,7 @@ def build_multi_arch_agent_in_sonar(
     joined_args = [args | arch_amd]
 
     # Only include arm64 if we shouldn't skip it
-    if not should_skip_arm64():
+    if not should_skip_arm64(build_configuration):
         joined_args.append(args | arch_arm)
 
     build_image_generic(
