@@ -737,9 +737,9 @@ class TracedThreadPoolExecutor(ThreadPoolExecutor):
 
 def should_skip_arm64(config: BuildConfiguration) -> bool:
     """
-    Determines if arm64 builds should be skipped based on environment.
-Determines if arm64 builds should be skipped based on BuildConfiguration or environment.```
-And skipping the evergreen detail.
+        Determines if arm64 builds should be skipped based on environment.
+    Determines if arm64 builds should be skipped based on BuildConfiguration or environment.```
+    And skipping the evergreen detail.
     """
     if config.is_release_step_executed():
         return False
