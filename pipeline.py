@@ -1081,7 +1081,7 @@ def build_community_image(build_configuration: BuildConfiguration, image_type: s
     golang_version = os.getenv("GOLANG_VERSION", "1.24")
 
     # Use only amd64 if we should skip arm64 builds
-    if should_skip_arm64():
+    if should_skip_arm64(build_configuration):
         architectures = ["amd64"]
         logger.info("Skipping ARM64 builds for community image as this is running in EVG pipeline as a patch")
     else:
@@ -1196,7 +1196,7 @@ def build_multi_arch_agent_in_sonar(
     joined_args = [args | arch_amd]
 
     # Only include arm64 if we shouldn't skip it
-    if not should_skip_arm64():
+    if not should_skip_arm64(build_configuration):
         joined_args.append(args | arch_arm)
 
     build_image_generic(
