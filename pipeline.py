@@ -770,7 +770,7 @@ def build_image_daily(
             raise ValueError("Building for ARM64 only is not supported yet")
 
         if should_skip_arm64(build_configuration):
-            logger.info("Skipping ARM64 builds as this is running in EVG pipeline as a patch")
+            logger.info("Skipping ARM64 builds as this is running in as a patch and not a release step.")
             return {"amd64"}
 
         # Automatic architecture detection is the default behavior if 'arch' argument isn't specified
