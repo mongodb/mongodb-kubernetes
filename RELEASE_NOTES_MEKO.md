@@ -130,7 +130,7 @@
     * `spec.agent.monitoringAgent.logRotation` to configure the backup agent
     * `spec.agent.readinessProbe.environmentVariables` to configure the environment variables the readinessProbe runs with.
       That also applies to settings related to the logRotation,
-      the supported environment settings can be found [here](https://github.com/mongodb/mongodb-kubernetes-operator/blob/master/docs/logging.md#readinessprobe).
+      the supported environment settings can be found [here](https://github.com/mongodb/mongodb-kubernetes/blob/master/docs/mongodbcommunity/logging.md#readinessprobe).
     * the same applies for AppDB:
         * you can configure AppDB via `spec.applicationDatabase.agent.mongod.logRotation`
     * Please Note: For shardedCluster we only support configuring logRotation under `spec.Agent`

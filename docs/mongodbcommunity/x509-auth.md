@@ -24,7 +24,7 @@ MongoDB Agent and client.
 
 You can use Helm to install and deploy the MongoDB Community Kubernetes 
 Operator with X.509 Authentication enabled for the MongoDB Agent and 
-client. To learn more, see [Install the Operator using Helm](https://github.com/mongodb/mongodb-kubernetes-operator/blob/master/docs/install-upgrade.md#install-the-operator-using-helm).
+client. To learn more, see [Install the Operator using Helm](https://github.com/mongodb/mongodb-kubernetes/blob/master/docs/install-upgrade.md#install-the-operator-using-helm).
 
 1. To deploy the MongoDB Community Kubernetes Operator, copy and paste 
    the following command and replace the `<namespace>` variable with the 
@@ -52,13 +52,13 @@ Operator with X.509 Authentication enabled for the MongoDB Agent and
 client.
 
 1. To install the MongoDB Community Kubernetes Operator, see 
-   [Install the Operator using kubectl](https://github.com/mongodb/mongodb-kubernetes-operator/blob/master/docs/install-upgrade.md#install-the-operator-using-kubectl).
+   [Install the Operator using kubectl](https://github.com/mongodb/mongodb-kubernetes/blob/master/docs/install-upgrade.md#install-the-operator-using-kubectl).
 
 1. To create a CA, ConfigMap, secrets, issuer, and certificate, see 
-   [Enable External Access to a MongoDB Deployment](https://github.com/mongodb/mongodb-kubernetes-operator/blob/master/docs/external_access.md).
+   [Enable External Access to a MongoDB Deployment](https://github.com/mongodb/mongodb-kubernetes/blob/master/docs/external_access.md).
 
 1. Create a YAML file for the  MongoDB Agent certificate. For an example, 
-   see [agent-certificate.yaml](https://github.com/mongodb/mongodb-kubernetes-operator/blob/master/mongodb-community-operator/config/samples/external_access/agent-certificate.yaml).
+   see [agent-certificate.yaml](https://github.com/mongodb/mongodb-kubernetes/blob/master/mongodb-community-operator/config/samples/external_access/agent-certificate.yaml).
 
    **Note:**
 
@@ -78,7 +78,7 @@ client.
    ```
 
 1. Create a YAML file for your resource. For an example, see 
-   [mongodb.com_v1_mongodbcommunity_x509.yaml](https://github.com/mongodb/mongodb-kubernetes-operator/blob/master/mongodb-community-operator/config/samples/mongodb.com_v1_mongodbcommunity_x509.yaml).
+   [mongodb.com_v1_mongodbcommunity_x509.yaml](https://github.com/mongodb/mongodb-kubernetes/blob/master/mongodb-community-operator/config/samples/mongodb.com_v1_mongodbcommunity_x509.yaml).
 
    **Note:**
 
@@ -118,7 +118,7 @@ client.
    ```
 
 1. Create a YAML file for the client certificate. For an example, see 
-   [cert-x509.yaml](https://github.com/mongodb/mongodb-kubernetes-operator/blob/master/mongodb-community-operator/config/samples/external_access/cert-x509.yaml).
+   [cert-x509.yaml](https://github.com/mongodb/mongodb-kubernetes/blob/master/mongodb-community-operator/config/samples/external_access/cert-x509.yaml).
 
 1. To apply the file, copy and paste the following command and replace 
    the `<client-certificate>` variable with the name of your client 
