@@ -495,7 +495,7 @@ def build_operator_image(build_configuration: BuildConfiguration):
     version, is_release = get_git_release_tag()
 
     # Use only amd64 if we should skip arm64 builds
-    if should_skip_arm64():
+    if should_skip_arm64(build_configuration):
         architectures = ["amd64"]
         logger.info("Skipping ARM64 builds for operator image as this is running in EVG pipeline as a patch")
     else:
