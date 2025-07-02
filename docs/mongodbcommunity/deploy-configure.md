@@ -24,10 +24,10 @@ different topology than the previous ones.
 
 To deploy your first replica set:
 
-1. Replace `<your-password-here>` in [config/samples/mongodb.com_v1_mongodbcommunity_cr.yaml](../config/samples/mongodb.com_v1_mongodbcommunity_cr.yaml) to the password you wish to use.
+1. Replace `<your-password-here>` in [config/samples/community/mongodb.com_v1_mongodbcommunity_cr.yaml](../config/samples/community/mongodb.com_v1_mongodbcommunity_cr.yaml) to the password you wish to use.
 2. Invoke the following `kubectl` command:
    ```
-   kubectl apply -f config/samples/mongodb.com_v1_mongodbcommunity_cr.yaml --namespace <my-namespace>
+   kubectl apply -f config/samples/community/mongodb.com_v1_mongodbcommunity_cr.yaml --namespace <my-namespace>
    ```
 3. Verify that the MongoDBCommunity resource deployed:
    ```
@@ -258,7 +258,7 @@ To upgrade this resource from `4.0.6` to `4.2.7`:
 
 To deploy the operator on OpenShift you will have to provide the environment variable `MANAGED_SECURITY_CONTEXT` set to `true` for the operator deployment.
 
-See [here](../config/samples/mongodb.com_v1_mongodbcommunity_openshift_cr.yaml) for
+See [here](../config/samples/community/mongodb.com_v1_mongodbcommunity_openshift_cr.yaml) for
 an example of how to provide the required configuration for a MongoDB
 replica set.
 
@@ -344,7 +344,7 @@ Under some circumstances it might be necessary to set your own custom values for
 the `ReadinessProbe` used by the MongoDB Community Operator. To do so, you
 should use the `statefulSet` attribute in `resource.spec`, as in the following
 provided example [yaml
-file](../config/samples/mongodb.com_v1_mongodbcommunity_readiness_probe_values.yaml).
+file](../config/samples/community/mongodb.com_v1_mongodbcommunity_readiness_probe_values.yaml).
 Only those attributes passed will be set, for instance, given the following structure:
 
 ```yaml

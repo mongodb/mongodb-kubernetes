@@ -37,7 +37,7 @@ kubectl create secret tls ca-key-pair  --cert=<path-to-ca.crt>  --key=<path-to-c
 
 ### Create the Cert Manager issuer and secret
 
-Edit the file [cert-manager-certificate.yaml](../config/samples/external_access/cert-manager-certificate.yaml) to replace ```<mongodb-name>``` with your MongoDB deployment name. Also replace ```<domain-rs-1>```, ```<domain-rs-2>```, and ```<domain-rs-3>``` with the external FQDNs of the MongoDB replicaset members. Please remember that you will have to add an equal number of entries for each member of the replicaset, for example:
+Edit the file [cert-manager-certificate.yaml](../config/samples/community/external_access/cert-manager-certificate.yaml) to replace ```<mongodb-name>``` with your MongoDB deployment name. Also replace ```<domain-rs-1>```, ```<domain-rs-2>```, and ```<domain-rs-3>``` with the external FQDNs of the MongoDB replicaset members. Please remember that you will have to add an equal number of entries for each member of the replicaset, for example:
 
 ```yaml
 ...
@@ -57,30 +57,30 @@ spec:
 Apply the manifests. Replace ```<your-namespace>``` with the namespace you are using for the deployment.
 
 ```sh
-kubectl apply -f config/samples/external_access/cert-manager-issuer.yaml --namespace <your-namespace>
-kubectl apply -f config/samples/external_access/cert-manager-certificate.yaml --namespace <your-namespace>
+kubectl apply -f config/samples/community/external_access/cert-manager-issuer.yaml --namespace <your-namespace>
+kubectl apply -f config/samples/community/external_access/cert-manager-certificate.yaml --namespace <your-namespace>
 ```
 
 ### Create the MongoDB deployment
 
-Edit [mongodb.com_v1_mongodbcommunity_cr.yaml](../config/samples/external_access/mongodb.com_v1_mongodbcommunity_cr.yaml). Replace <mongodb-name> with the desired MongoDB deployment name -- this should be the same as in the previous step. Replace ```<domain-rs-1>```, ```<domain-rs-2>```, and ```<domain-rs-3>``` with the external FQDNs of the MongoDB replicaset members. Please remember that you should have the same number of entries in this section as the number of your replicaset members. You can also edit the ports for external access to your preferred numbers in this section -- you will have to remember to change them in the next step too. Change ```<your-admin-password>``` to your desired admin password for MongoDB.
+Edit [mongodb.com_v1_mongodbcommunity_cr.yaml](../config/samples/community/external_access/mongodb.com_v1_mongodbcommunity_cr.yaml). Replace <mongodb-name> with the desired MongoDB deployment name -- this should be the same as in the previous step. Replace ```<domain-rs-1>```, ```<domain-rs-2>```, and ```<domain-rs-3>``` with the external FQDNs of the MongoDB replicaset members. Please remember that you should have the same number of entries in this section as the number of your replicaset members. You can also edit the ports for external access to your preferred numbers in this section -- you will have to remember to change them in the next step too. Change ```<your-admin-password>``` to your desired admin password for MongoDB.
 
 Apply the manifest.
 
 ```sh
-kubectl apply -f config/samples/external_access/mongodb.com_v1_mongodbcommunity_cr.yaml --namespace <your-namespace>
+kubectl apply -f config/samples/community/external_access/mongodb.com_v1_mongodbcommunity_cr.yaml --namespace <your-namespace>
 ```
 
 Wait for the replicaset to be available.
 
 ### Create the external NodePort services for accessing the MongoDB deployment from outside the Kubernetes cluster
 
-Edit [external_services.yaml](../config/samples/external_access/external_services.yaml) and replace ```<mongodb-name>``` with the MongoDB deployment name that you have used in the preceeding steps. You can change the ```nodePort``` and ```port``` to reflect the changes (if any) you have made in the previous steps.
+Edit [external_services.yaml](../config/samples/community/external_access/external_services.yaml) and replace ```<mongodb-name>``` with the MongoDB deployment name that you have used in the preceeding steps. You can change the ```nodePort``` and ```port``` to reflect the changes (if any) you have made in the previous steps.
 
 Apply the manifest.
 
 ```sh
-kubectl apply -f config/samples/external_access/external_services.yaml --namespace <your-namespace>
+kubectl apply -f config/samples/community/external_access/external_services.yaml --namespace <your-namespace>
 ```
 
 ### Retrieve the certificates from a MongoDB replicaset member
