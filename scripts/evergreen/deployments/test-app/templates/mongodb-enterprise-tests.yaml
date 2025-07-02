@@ -192,11 +192,19 @@ spec:
     image: {{ .Values.repo }}/mongodb-kubernetes-tests:{{ .Values.tag }}
     # Options to pytest command should go in the pytest.ini file.
     command: ["pytest"]
-    {{ if .Values.otel_endpoint }}
-    args: ["-vv", "-m", "{{ .Values.taskName }}", "--trace-parent", "00-{{ .Values.otel_trace_id }}-{{ .Values.otel_parent_id }}-01", "--export-traces"]
-    {{ else }}
-    args: ["-vv", "-m", "{{ .Values.taskName }}"]
-    {{ end }}
+    args:
+      - "-vv"
+      {{- if .Values.testFile }}
+      - "{{ .Values.testFile }}"
+      {{- else }}
+      - "-m"
+      - "{{ .Values.taskName }}"
+      {{- end }}
+      {{- if .Values.otel_endpoint }}
+      - "--trace-parent"
+      - "00-{{ .Values.otel_trace_id }}-{{ .Values.otel_parent_id }}-01"
+      - "--export-traces"
+      {{- end }}
     imagePullPolicy: Always
     volumeMounts:
       - name: results
