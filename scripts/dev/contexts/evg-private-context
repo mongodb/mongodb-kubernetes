@@ -120,3 +120,5 @@ export cognito_workload_federation_client_secret="${cognito_workload_federation_
 export cognito_user_password="${cognito_user_password}"
 export cognito_workload_url="${cognito_workload_url}"
 export cognito_workload_user_id="${cognito_workload_user_id}"
+
+export MDB_UPDATE_LICENSES=true
