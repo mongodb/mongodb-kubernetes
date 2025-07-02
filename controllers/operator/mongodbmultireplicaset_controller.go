@@ -714,7 +714,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 	}
 
 	processIds := getReplicaSetProcessIdsFromReplicaSets(mrs.Name, existingDeployment)
+
 	// If there is no replicaset configuration saved in OM, it might be a new project, so we check the ids saved in annotation
+	// A project migration can happen if .spec.opsManager.configMapRef is changed, or the original configMap has been modified.
 	if len(processIds) == 0 {
 		processIds, err = getReplicaSetProcessIdsFromAnnotation(mrs)
 		if err != nil {
