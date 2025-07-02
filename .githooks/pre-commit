@@ -142,7 +142,7 @@ function check_incorrect_makefile_variable_brackets() {
 }
 
 function pre_commit() {
-  if [[ "${SKIP_UPDATE_LICENSES:-""}" != "true" ]]; then
+  if [[ "${MDB_UPDATE_LICENSES:-""}" == "true" ]]; then
     ( (time update_licenses) 2>&1 | prepend "update_licenses" ) &
   fi
   ( (time scripts/evergreen/lint_code.sh) 2>&1 | prepend "lint_code.sh" ) &
@@ -157,7 +157,7 @@ function pre_commit() {
 
   ( (time regenerate_public_rbac_multi_cluster) 2>&1 | prepend "regenerate_public_rbac_multi_cluster" ) &
 
-  # Run black on python files that have changed
+  # Run black and isort on python files that have changed
   ( (time python_formatting) 2>&1 | prepend "python_formatting") &
 
   ( (time check_erroneous_kubebuilder_annotations) 2>&1 | prepend "check_erroneous_kubebuilder_annotations" ) &
