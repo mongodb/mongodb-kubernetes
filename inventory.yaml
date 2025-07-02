@@ -60,6 +60,7 @@ images:
     - registry: $(inputs.params.registry)/mongodb-kubernetes
       tag: $(inputs.params.version_id)-$(inputs.params.architecture)
 
+  # we don't do multi-arch for race images; so we can just directly release it
   - name: operator-ubi-race-build
     task_type: docker_build
     dockerfile: $(stages['operator-template-ubi'].outputs[0].dockerfile)
@@ -67,7 +68,7 @@ images:
       imagebase: $(inputs.params.registry)/mongodb-kubernetes:$(inputs.params.version_id)-context-race-$(inputs.params.architecture)
     output:
     - registry: $(inputs.params.registry)/mongodb-kubernetes
-      tag: $(inputs.params.version_id)-race-$(inputs.params.architecture)
+      tag: $(inputs.params.version_id)-race
 
   - name: master-latest
     task_type: tag_image
