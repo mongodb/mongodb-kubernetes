@@ -24,12 +24,7 @@ import (
 const controllerLabelName = "app.kubernetes.io/name"
 
 // createWebhookService creates a Kubernetes service for the webhook.
-func createWebhookService(ctx context.Context, client client.Client, location types.NamespacedName, webhookPort int, multiClusterMode bool) error {
-	svcSelector := util.OperatorName
-	if multiClusterMode {
-		svcSelector = util.MultiClusterOperatorName
-	}
-
+func createWebhookService(ctx context.Context, client client.Client, location types.NamespacedName, webhookPort int, svcSelector string) error {
 	svc := corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      location.Name,
@@ -186,7 +181,7 @@ func shouldRegisterWebhookConfiguration() bool {
 	return env.ReadBoolOrDefault(util.MdbWebhookRegisterConfigurationEnv, true) // nolint:forbidigo
 }
 
-func Setup(ctx context.Context, client client.Client, serviceLocation types.NamespacedName, certDirectory string, webhookPort int, multiClusterMode bool, log *zap.SugaredLogger) error {
+func Setup(ctx context.Context, client client.Client, serviceLocation types.NamespacedName, certDirectory string, webhookPort int, svcSelector string, log *zap.SugaredLogger) error {
 	if !shouldRegisterWebhookConfiguration() {
 		log.Debugf("Skipping configuration of ValidatingWebhookConfiguration")
 		// After upgrading OLM version after migrating to proper OLM webhooks we don't need that `operator-service` anymore.
@@ -217,7 +212,7 @@ func Setup(ctx context.Context, client client.Client, serviceLocation types.Name
 		return err
 	}
 
-	if err := createWebhookService(ctx, client, serviceLocation, webhookPort, multiClusterMode); err != nil {
+	if err := createWebhookService(ctx, client, serviceLocation, webhookPort, svcSelector); err != nil {
 		return err
 	}
 

@@ -83,7 +83,6 @@ const (
 	// Pod/StatefulSet specific constants
 	OperatorName                   = "mongodb-kubernetes-operator"
 	LegacyOperatorName             = "mongodb-enterprise-operator" // Still used for some selectors and labels
-	MultiClusterOperatorName       = "mongodb-kubernetes-operator-multi-cluster"
 	OperatorLabelName              = "controller"
 	OperatorLabelValue             = LegacyOperatorName
 	OpsManagerContainerName        = "mongodb-ops-manager"
@@ -196,6 +195,7 @@ const (
 	BackupDisableWaitRetriesEnv      = "BACKUP_WAIT_RETRIES"
 	ManagedSecurityContextEnv        = "MANAGED_SECURITY_CONTEXT"
 	CurrentNamespace                 = "NAMESPACE"
+	OperatorNameEnv                  = "OPERATOR_NAME"
 	WatchNamespace                   = "WATCH_NAMESPACE"
 	OpsManagerMonitorAppDB           = "OPS_MANAGER_MONITOR_APPDB"
 	MongodbCommunityAgentImageEnv    = "MDB_COMMUNITY_AGENT_IMAGE"
