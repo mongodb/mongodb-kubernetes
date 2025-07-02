@@ -716,7 +716,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 	processIds := getReplicaSetProcessIdsFromReplicaSets(mrs.Name, existingDeployment)
 	// If there is no replicaset configuration saved in OM, it might be a new project, so we check the ids saved in annotation
 	if len(processIds) == 0 {
-		processIds = getReplicaSetProcessIdsFromAnnotation(mrs)
+		processIds, err = getReplicaSetProcessIdsFromAnnotation(mrs)
+		if err != nil {
+			return xerrors.Errorf("failed to get member ids from annotation: %w", err)
+		}
 	}
 	log.Debugf("Existing process Ids: %+v", processIds)
 
@@ -813,14 +816,15 @@ func getReplicaSetProcessIdsFromReplicaSets(replicaSetName string, deployment om
 	return processIds
 }
 
-func getReplicaSetProcessIdsFromAnnotation(mrs mdbmultiv1.MongoDBMultiCluster) map[string]int {
-	processIds := make(map[string]map[string]int)
+func getReplicaSetProcessIdsFromAnnotation(mrs mdbmultiv1.MongoDBMultiCluster) (map[string]int, error) {
 	if processIdsStr, ok := mrs.Annotations[util.LastAchievedRsMemberIds]; ok {
+		processIds := make(map[string]map[string]int)
 		if err := json.Unmarshal([]byte(processIdsStr), &processIds); err != nil {
-			return map[string]int{}
+			return map[string]int{}, err
 		}
+		return processIds[mrs.Name], nil
 	}
-	return processIds[mrs.Name]
+	return make(map[string]int), nil
 }
 
 func getSRVService(mrs *mdbmultiv1.MongoDBMultiCluster) corev1.Service {
