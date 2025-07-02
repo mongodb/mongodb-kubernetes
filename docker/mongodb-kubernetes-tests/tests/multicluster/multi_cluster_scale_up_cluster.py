@@ -12,6 +12,7 @@ from kubetester import (
 )
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
+from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb_multi import MongoDBMulti
@@ -84,7 +85,7 @@ def server_certs(
     )
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def mongodb_multi(mongodb_multi_unmarshalled: MongoDBMulti, server_certs: str) -> MongoDBMulti:
     if try_load(mongodb_multi_unmarshalled):
         return mongodb_multi_unmarshalled
@@ -113,14 +114,7 @@ def test_statefulsets_have_been_created_correctly(
     member_cluster_clients: List[MultiClusterClient],
 ):
     # read all statefulsets except the last one
-    statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients[:-1])
-    cluster_one_client = member_cluster_clients[0]
-    cluster_one_sts = statefulsets[cluster_one_client.cluster_name]
-    assert cluster_one_sts.status.ready_replicas == 2
-
-    cluster_two_client = member_cluster_clients[1]
-    cluster_two_sts = statefulsets[cluster_two_client.cluster_name]
-    assert cluster_two_sts.status.ready_replicas == 1
+    mongodb_multi.assert_statefulsets_are_ready(member_cluster_clients[:-1])
 
 
 @pytest.mark.e2e_multi_cluster_scale_up_cluster
@@ -144,8 +138,7 @@ def test_statefulsets_have_been_scaled_up_correctly(
     mongodb_multi: MongoDBMulti,
     member_cluster_clients: List[MultiClusterClient],
 ):
-
-    wait_until(sts_are_ready(mongodb_multi, member_cluster_clients, [2, 1, 2]), timeout=60)
+    mongodb_multi.assert_statefulsets_are_ready(member_cluster_clients, timeout=60)
 
 
 @pytest.mark.e2e_multi_cluster_scale_up_cluster
@@ -166,52 +159,35 @@ def test_replica_set_is_reachable(mongodb_multi: MongoDBMulti, ca_path: str):
 
 
 @pytest.mark.e2e_multi_cluster_scale_up_cluster
-def test_scale_up_first_cluster(
-    mongodb_multi: MongoDBMulti,
-    member_cluster_clients: List[MultiClusterClient],
-):
-    # Scale up the first cluster to 3 members. This will lead to non-sequential member ids in the replicaset.
-    # multi-replica-set-0-0 : 0
-    # multi-replica-set-0-1 : 1
-    # multi-replica-set-0-2 : 5
-    # multi-replica-set-1-0 : 2
-    # multi-replica-set-2-0 : 3
-    # multi-replica-set-2-1 : 4
+class TestNonSequentialMemberIdsInReplicaSet(KubernetesTester):
 
-    mongodb_multi["spec"]["clusterSpecList"][0]["members"] = 3
-    mongodb_multi.update()
+    def test_scale_up_first_cluster(
+        self, mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]
+    ):
+        # Scale up the first cluster to 3 members. This will lead to non-sequential member ids in the replicaset.
+        # multi-replica-set-0-0 : 0
+        # multi-replica-set-0-1 : 1
+        # multi-replica-set-0-2 : 5
+        # multi-replica-set-1-0 : 2
+        # multi-replica-set-2-0 : 3
+        # multi-replica-set-2-1 : 4
 
-    wait_until(sts_are_ready(mongodb_multi, member_cluster_clients, [3, 1, 2]), timeout=600)
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=600)
+        mongodb_multi["spec"]["clusterSpecList"][0]["members"] = 3
+        mongodb_multi.update()
 
+        mongodb_multi.assert_statefulsets_are_ready(member_cluster_clients)
+        mongodb_multi.assert_reaches_phase(Phase.Running, timeout=600)
 
-@pytest.mark.e2e_multi_cluster_scale_up_cluster
-def test_change_project(mongodb_multi: MongoDBMulti, new_project_configmap: str):
-    oldRsMembers = mongodb_multi.get_automation_config_tester().get_replica_set_members(mongodb_multi.name)
+    def test_change_project(self, mongodb_multi: MongoDBMulti, new_project_configmap: str):
+        oldRsMembers = mongodb_multi.get_automation_config_tester().get_replica_set_members(mongodb_multi.name)
 
-    mongodb_multi["spec"]["opsManager"]["configMapRef"]["name"] = new_project_configmap
-    mongodb_multi.update()
+        mongodb_multi["spec"]["opsManager"]["configMapRef"]["name"] = new_project_configmap
+        mongodb_multi.update()
 
-    mongodb_multi.assert_abandons_phase(phase=Phase.Running, timeout=300)
-    mongodb_multi.assert_reaches_phase(phase=Phase.Running, timeout=600)
+        mongodb_multi.assert_abandons_phase(phase=Phase.Running, timeout=300)
+        mongodb_multi.assert_reaches_phase(phase=Phase.Running, timeout=600)
 
-    newRsMembers = mongodb_multi.get_automation_config_tester().get_replica_set_members(mongodb_multi.name)
+        newRsMembers = mongodb_multi.get_automation_config_tester().get_replica_set_members(mongodb_multi.name)
 
-    # Assert that the replica set member ids have not changed after changing the project.
-    assert oldRsMembers == newRsMembers
-
-
-def sts_are_ready(mdb: MongoDBMulti, member_cluster_clients: List[MultiClusterClient], members: List[int]):
-    def fn():
-        statefulsets = mdb.read_statefulsets(member_cluster_clients)
-
-        assert len(statefulsets) == len(members)
-
-        for i, mcc in enumerate(member_cluster_clients):
-            cluster_sts = statefulsets[mcc.cluster_name]
-            if cluster_sts.status.ready_replicas != members[i]:
-                return False
-
-        return True
-
-    return fn
+        # Assert that the replica set member ids have not changed after changing the project.
+        assert oldRsMembers == newRsMembers

@@ -64,10 +64,6 @@ type Connection interface {
 	GetPreferredHostnames(agentApiKey string) ([]PreferredHostname, error)
 	AddPreferredHostname(agentApiKey string, value string, isRegexp bool) error
 
-	// GetReplicaSetMemberIds returns a map with the replicaset name as the key.
-	// The value is another map where the key is the replicaset member name and the value is its member id.
-	GetReplicaSetMemberIds() (map[string]map[string]int, error)
-
 	backup.GroupConfigReader
 	backup.GroupConfigUpdater
 
@@ -275,21 +271,6 @@ func (oc *HTTPOmConnection) GetAgentAuthMode() (string, error) {
 		return "", nil
 	}
 	return ac.Auth.AutoAuthMechanism, nil
-}
-
-func (oc *HTTPOmConnection) GetReplicaSetMemberIds() (map[string]map[string]int, error) {
-	dep, err := oc.ReadDeployment()
-	if err != nil {
-		return nil, err
-	}
-
-	finalProcessIds := make(map[string]map[string]int)
-
-	for _, replicaSet := range dep.GetReplicaSets() {
-		finalProcessIds[replicaSet.Name()] = replicaSet.MemberIds()
-	}
-
-	return finalProcessIds, nil
 }
 
 var _ Connection = &HTTPOmConnection{}
@@ -995,6 +976,21 @@ func (oc *HTTPOmConnection) AddPreferredHostname(agentApiKey string, value strin
 		return err
 	}
 	return nil
+}
+
+func GetReplicaSetMemberIds(conn Connection) (map[string]map[string]int, error) {
+	dep, err := conn.ReadDeployment()
+	if err != nil {
+		return nil, err
+	}
+
+	finalProcessIds := make(map[string]map[string]int)
+
+	for _, replicaSet := range dep.GetReplicaSets() {
+		finalProcessIds[replicaSet.Name()] = replicaSet.MemberIds()
+	}
+
+	return finalProcessIds, nil
 }
 
 //********************************** Private methods *******************************************************************

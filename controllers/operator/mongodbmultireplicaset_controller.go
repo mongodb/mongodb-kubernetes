@@ -201,8 +201,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return r.updateStatus(ctx, &mrs, status, log)
 	}
 
-	// Save replicasets member ids in annotation
-	finalMemberIds, err := conn.GetReplicaSetMemberIds()
+	finalMemberIds, err := om.GetReplicaSetMemberIds(conn)
 	if err != nil {
 		return r.updateStatus(ctx, &mrs, workflow.Failed(err), log)
 	}
@@ -663,12 +662,14 @@ func (r *ReconcileMongoDbMultiReplicaSet) saveLastAchievedSpec(ctx context.Conte
 		annotationsToAdd[mdbmultiv1.LastClusterNumMapping] = string(clusterNumBytes)
 	}
 
-	rsMemberIdsBytes, err := json.Marshal(rsMemberIds)
-	if err != nil {
-		return err
-	}
-	if string(rsMemberIdsBytes) != "null" {
-		annotationsToAdd[util.LastAchievedRsMemberIds] = string(rsMemberIdsBytes)
+	if len(rsMemberIds) > 0 {
+		rsMemberIdsBytes, err := json.Marshal(rsMemberIds)
+		if err != nil {
+			return err
+		}
+		if len(rsMemberIdsBytes) > 0 {
+			annotationsToAdd[util.LastAchievedRsMemberIds] = string(rsMemberIdsBytes)
+		}
 	}
 
 	return annotations.SetAnnotations(ctx, &mrs, annotationsToAdd, r.client)
