@@ -200,8 +200,6 @@ if [[ "${cmd}" == "generate_standalone_yaml" ]]; then
   generate_standalone_yaml "$@"
 elif [[ "${cmd}" == "pre-commit" ]]; then
  time pre_commit
-elif [[ "${cmd}" == "pre-commit-skip-license" ]]; then
- time pre_commit "skip-license"
 elif [[ "${cmd}" == "shellcheck" ]]; then
   start_shellcheck
 elif [[ "${cmd}" == "lint" ]]; then
