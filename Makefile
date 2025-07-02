@@ -57,7 +57,10 @@ prerequisites:
 	@ scripts/dev/install.sh
 
 precommit:
-	@ EVERGREEN_MODE=true .githooks/pre-commit
+	@ .githooks/pre-commit
+
+precommit-with-licenses:
+	@ MDB_UPDATE_LICENSE=true .githooks/pre-commit
 
 switch:
 	@ scripts/dev/switch_context.sh $(context) $(additional_override)

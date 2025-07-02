@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -eux
+set -Eeou pipefail
 
 source scripts/funcs/kubernetes
 
