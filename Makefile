@@ -59,7 +59,7 @@ prerequisites:
 precommit:
 	@ .githooks/pre-commit
 
-precommit-with-license:
+precommit-with-licenses:
 	@ MDB_UPDATE_LICENSE=true .githooks/pre-commit
 
 switch:
