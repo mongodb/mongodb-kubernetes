@@ -428,6 +428,14 @@ spec:
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.15.8741-1_1.0.1"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_15_8741_1_1_1_0
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.15.8741-1_1.1.0"
+            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_16_8756_1
+              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.16.8756-1"
+            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_16_8756_1_1_0_0
+              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.16.8756-1_1.0.0"
+            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_16_8756_1_1_0_1
+              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.16.8756-1_1.0.1"
+            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_16_8756_1_1_1_0
+              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.16.8756-1_1.1.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_2_8729_1
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.2.8729-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_4_8770_1
@@ -494,12 +502,12 @@ spec:
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:6.0.27"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_7_0_12
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:7.0.12"
-            - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_7_0_13
-              value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:7.0.13"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_7_0_14
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:7.0.14"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_7_0_15
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:7.0.15"
+            - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_7_0_16
+              value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:7.0.16"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_8_0_5
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:8.0.5"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_8_0_6
