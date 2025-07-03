@@ -130,6 +130,7 @@ func main() {
 	initOpsManagerImageVersion := env.ReadOrDefault(util.InitOpsManagerVersion, "latest")
 	// Namespace where the operator is installed
 	currentNamespace := env.ReadOrPanic(util.CurrentNamespace)
+	webhookSVCSelector := env.ReadOrPanic(util.OperatorNameEnv)
 
 	enableClusterMongoDBRoles := slices.Contains(crds, clusterMongoDBRoleCRDPlural)
 
@@ -163,7 +164,7 @@ func main() {
 		managerOptions.HealthProbeBindAddress = "127.0.0.1:8181"
 	}
 
-	webhookOptions := setupWebhook(ctx, cfg, log, slices.Contains(crds, mongoDBMultiClusterCRDPlural), currentNamespace)
+	webhookOptions := setupWebhook(ctx, cfg, log, webhookSVCSelector, currentNamespace)
 	managerOptions.WebhookServer = crWebhook.NewServer(webhookOptions)
 
 	mgr, err := ctrl.NewManager(cfg, managerOptions)
@@ -393,7 +394,7 @@ func isInLocalMode() bool {
 
 // setupWebhook sets up the validation webhook for MongoDB resources in order
 // to give people early warning when their MongoDB resources are wrong.
-func setupWebhook(ctx context.Context, cfg *rest.Config, log *zap.SugaredLogger, multiClusterMode bool, currentNamespace string) crWebhook.Options {
+func setupWebhook(ctx context.Context, cfg *rest.Config, log *zap.SugaredLogger, svcSelector string, currentNamespace string) crWebhook.Options {
 	// set webhook port — 1993 is chosen as Ben's birthday
 	webhookPort := env.ReadIntOrDefault(util.MdbWebhookPortEnv, 1993)
 
@@ -419,7 +420,7 @@ func setupWebhook(ctx context.Context, cfg *rest.Config, log *zap.SugaredLogger,
 		Namespace: currentNamespace,
 	}
 
-	if err := webhook.Setup(ctx, webhookClient, webhookServiceLocation, certDir, webhookPort, multiClusterMode, log); err != nil {
+	if err := webhook.Setup(ctx, webhookClient, webhookServiceLocation, certDir, webhookPort, svcSelector, log); err != nil {
 		log.Errorf("could not set up webhook: %v", err)
 	}
 
