@@ -3,11 +3,10 @@
 set -eou pipefail
 source scripts/dev/set_env_context.sh
 
-dump_logs() {
-  source scripts/evergreen/e2e/dump_diagnostic_information.sh
-  dump_all_non_default_namespaces "$@"
+function on_exit() {
+  scripts/evergreen/e2e/dump_diagnostic_information_from_all_namespaces.sh
 }
-trap dump_logs EXIT
+trap on_exit EXIT
 
 test_dir="./docs/community-search/quick-start"
 
