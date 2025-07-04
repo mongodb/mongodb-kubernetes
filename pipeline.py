@@ -270,9 +270,11 @@ def get_git_release_tag() -> tuple[str, bool]:
     # that means we are in a release and only return the git_tag; otherwise we want to return the patch_id
     # appended to ensure the image created is unique and does not interfere
     if release_env_var is not None:
+        logger.info(f"Release detected with git tag: {release_env_var}")
         return release_env_var, True
 
     patch_id = os.environ.get("version_id", "latest")
+    logger.info(f"Non-release detected, using patch_id: {patch_id}")
     return patch_id, False
 
 
