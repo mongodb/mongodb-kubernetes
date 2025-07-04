@@ -263,17 +263,19 @@ def get_release() -> Dict:
         return json.load(release)
 
 
-def get_git_release_tag() -> tuple[str, bool]:
+def get_git_release_tag() -> str:
     """Returns the git tag of the current run on releases, on non-release returns the patch id."""
     release_env_var = os.getenv("triggered_by_git_tag")
 
     # that means we are in a release and only return the git_tag; otherwise we want to return the patch_id
     # appended to ensure the image created is unique and does not interfere
     if release_env_var is not None:
-        return release_env_var, True
+        logger.info(f"git tag detected: {release_env_var}")
+        return release_env_var
 
     patch_id = os.environ.get("version_id", "latest")
-    return patch_id, False
+    logger.info(f"No git tag detected, using patch_id: {patch_id}")
+    return patch_id
 
 
 def copy_into_container(client, src, dst):
@@ -492,7 +494,7 @@ def build_operator_image(build_configuration: BuildConfiguration):
     # repository with a given suffix.
     test_suffix = os.environ.get("test_suffix", "")
     log_automation_config_diff = os.environ.get("LOG_AUTOMATION_CONFIG_DIFF", "false")
-    version, is_release = get_git_release_tag()
+    version = get_git_release_tag()
 
     # Use only amd64 if we should skip arm64 builds
     if should_skip_arm64(build_configuration):
@@ -522,7 +524,7 @@ def build_operator_image(build_configuration: BuildConfiguration):
     current_span.set_attribute("mck.architecture", architectures)
 
     ecr_registry = os.environ.get("BASE_REPO_URL", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
-    base_repo = QUAY_REGISTRY_URL if is_release else ecr_registry
+    base_repo = QUAY_REGISTRY_URL if build_configuration.is_release_step_executed() else ecr_registry
 
     build_image_generic(
         config=build_configuration,
@@ -1101,7 +1103,7 @@ def build_community_image(build_configuration: BuildConfiguration, image_type: s
     else:
         raise ValueError(f"Unsupported image type: {image_type}")
 
-    version, is_release = get_git_release_tag()
+    version = get_git_release_tag()
     golang_version = os.getenv("GOLANG_VERSION", "1.24")
 
     # Use only amd64 if we should skip arm64 builds
@@ -1122,7 +1124,7 @@ def build_community_image(build_configuration: BuildConfiguration, image_type: s
         multi_arch_args_list.append(arch_args)
 
     ecr_registry = os.environ.get("BASE_REPO_URL", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
-    base_repo = QUAY_REGISTRY_URL if is_release else ecr_registry
+    base_repo = QUAY_REGISTRY_URL if build_configuration.is_release_step_executed() else ecr_registry
 
     build_image_generic(
         config=build_configuration,
@@ -1242,7 +1244,8 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
     """
     release = get_release()
 
-    operator_version, is_release = get_git_release_tag()
+    operator_version = get_git_release_tag()
+    is_release = build_configuration.is_release_step_executed()
 
     # We need to release [all agents x latest operator] on operator releases
     if is_release:

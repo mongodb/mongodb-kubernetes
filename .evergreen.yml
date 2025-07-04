@@ -286,6 +286,7 @@ tasks:
       - func: pipeline
         vars:
           image_name: operator
+          include_tags: release
 
   # Releases init images to Quay
   - name: release_init_appdb
@@ -299,6 +300,7 @@ tasks:
       - func: pipeline
         vars:
           image_name: init-appdb
+          include_tags: release
 
   - name: release_init_database
     tags: [ "image_release" ]
@@ -311,6 +313,7 @@ tasks:
       - func: pipeline
         vars:
           image_name: init-database
+          include_tags: release
 
   - name: release_init_ops_manager
     tags: [ "image_release" ]
@@ -323,6 +326,7 @@ tasks:
       - func: pipeline
         vars:
           image_name: init-ops-manager
+          include_tags: release
 
   - name: release_agent_operator_release
     tags: [ "image_release" ]
@@ -335,6 +339,7 @@ tasks:
       - func: pipeline
         vars:
           image_name: agent
+          include_tags: release
 
   # pct only triggers this variant once a new agent image is out
   - name: release_agent
