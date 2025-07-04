@@ -1351,6 +1351,7 @@ def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
 
     queue_exception_handling(tasks_queue)
 
+
 @TRACER.start_as_current_span("queue_exception_handling")
 def queue_exception_handling(tasks_queue):
     span = trace.get_current_span()
@@ -1370,7 +1371,9 @@ def queue_exception_handling(tasks_queue):
             logger.fatal(f"The following exception has been found when building: {task.exception()}")
 
     span.set_attribute("mck.agent.queue.exceptions_count", exception_count)
-    span.set_attribute("mck.agent.queue.success_rate", ((total_tasks - exception_count) / total_tasks * 100) if total_tasks > 0 else 0)
+    span.set_attribute(
+        "mck.agent.queue.success_rate", ((total_tasks - exception_count) / total_tasks * 100) if total_tasks > 0 else 0
+    )
     span.set_attribute("mck.agent.queue.exception_types", list(exception_types))
     span.set_attribute("mck.agent.queue.has_exceptions", exceptions_found)
 
@@ -1378,6 +1381,7 @@ def queue_exception_handling(tasks_queue):
         raise Exception(
             f"Exception(s) found when processing Agent images. \nSee also previous logs for more info\nFailing the build"
         )
+
 
 def _build_agent_operator(
     agent_version: Tuple[str, str],
