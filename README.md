@@ -25,7 +25,7 @@ See [more info](#how-does-mck-differ-from-the-mongodb-enterprise-kubernetes-oper
 
 ## Getting Started & Further Documentation
 * For guidance on using the Operator for Enterprise Advanced, please refer to our official [documentation](https://www.mongodb.com/docs/kubernetes/current/).
-*For guidance on using the Operator for MongoDB Community Edition, please refer to the [guidance in this repository](https://github.com/mongodb/mongodb-kubernetes/tree/master/mongodb-community-operator).
+* For guidance on using the Operator for MongoDB Community Edition, please refer to the [guidance in this repository](https://github.com/mongodb/mongodb-kubernetes/tree/master/docs/mongodbcommunity).
 
 ## License
 Customers with contracts that allowed use of the Enterprise Operator will still be able to leverage the new replacement, allowing customers to adopt it without contract changes. The Operator itself is licensed under the Apache 2.0, and a license file [included in the repository](LICENSE-MCK) provides further details. License entitlements for all other MongoDB products and tools remain unchanged (for example Enterprise Server and Ops Manager) - if in doubt, contact your MongoDB account team.

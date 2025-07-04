@@ -146,6 +146,14 @@ func (r ReplicaSet) String() string {
 	return fmt.Sprintf("\"%s\" (members: %v)", r.Name(), r.Members())
 }
 
+func (r ReplicaSet) MemberIds() map[string]int {
+	memberIds := make(map[string]int)
+	for _, rsMember := range r.Members() {
+		memberIds[rsMember.Name()] = rsMember.Id()
+	}
+	return memberIds
+}
+
 // ***************************************** Private methods ***********************************************************
 
 func initDefaultRs(set ReplicaSet, name string, protocolVersion string) {

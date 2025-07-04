@@ -8,34 +8,39 @@ images:
   vars:
     context: .
     template_context: docker/mongodb-kubernetes-operator
-  platform: linux/amd64
+  platform: linux/$(inputs.params.architecture)
   inputs:
   - version
   - log_automation_config_diff
+  - architecture
 
   stages:
 
-  - name: operator-context-dockerfile
+  - name: mongodb-kubernetes-context
     task_type: docker_build
     dockerfile: docker/mongodb-kubernetes-operator/Dockerfile.builder
     buildargs:
       release_version: $(inputs.params.version)
       log_automation_config_diff: $(inputs.params.log_automation_config_diff)
       use_race: "false"
+      TARGETOS: linux
+      TARGETARCH: $(inputs.params.architecture)
     output:
-    - registry: $(inputs.params.registry)/operator-context
-      tag: $(inputs.params.version_id)
+    - registry: $(inputs.params.registry)/mongodb-kubernetes
+      tag: $(inputs.params.version_id)-context-$(inputs.params.architecture)
 
-  - name: operator-race-context-dockerfile
+  - name: operator-race-context
     task_type: docker_build
     dockerfile: docker/mongodb-kubernetes-operator/Dockerfile.builder
     buildargs:
       release_version: $(inputs.params.version)
       log_automation_config_diff: $(inputs.params.log_automation_config_diff)
       use_race: "true"
+      TARGETOS: linux
+      TARGETARCH: $(inputs.params.architecture)
     output:
-    - registry: $(inputs.params.registry)/operator-context
-      tag: $(inputs.params.version_id)-race
+    - registry: $(inputs.params.registry)/mongodb-kubernetes
+      tag: $(inputs.params.version_id)-context-race-$(inputs.params.architecture)
 
   - name: operator-template-ubi
     task_type: dockerfile_template
@@ -50,16 +55,17 @@ images:
     task_type: docker_build
     dockerfile: $(stages['operator-template-ubi'].outputs[0].dockerfile)
     buildargs:
-      imagebase: $(inputs.params.registry)/operator-context:$(inputs.params.version_id)
+      imagebase: $(inputs.params.registry)/mongodb-kubernetes:$(inputs.params.version_id)-context-$(inputs.params.architecture)
     output:
     - registry: $(inputs.params.registry)/mongodb-kubernetes
-      tag: $(inputs.params.version_id)
+      tag: $(inputs.params.version_id)-$(inputs.params.architecture)
 
+  # we don't do multi-arch for race images; so we can just directly release it
   - name: operator-ubi-race-build
     task_type: docker_build
     dockerfile: $(stages['operator-template-ubi'].outputs[0].dockerfile)
     buildargs:
-      imagebase: $(inputs.params.registry)/operator-context:$(inputs.params.version_id)-race
+      imagebase: $(inputs.params.registry)/mongodb-kubernetes:$(inputs.params.version_id)-context-race-$(inputs.params.architecture)
     output:
     - registry: $(inputs.params.registry)/mongodb-kubernetes
       tag: $(inputs.params.version_id)-race
@@ -69,20 +75,20 @@ images:
     tags: [ "master" ]
     source:
       registry: $(inputs.params.registry)/mongodb-kubernetes
-      tag: $(inputs.params.version_id)
+      tag: $(inputs.params.version_id)-$(inputs.params.architecture)
     destination:
       - registry: $(inputs.params.registry)/mongodb-kubernetes
-        tag: latest
+        tag: latest-$(inputs.params.architecture)
 
-  - name: operator-context-release
+  - name: mongodb-kubernetes-release
     task_type: tag_image
     tags: ["release"]
     source:
-      registry: $(inputs.params.registry)/operator-context
-      tag: $(inputs.params.version_id)
+      registry: $(inputs.params.registry)/mongodb-kubernetes
+      tag: $(inputs.params.version_id)-context-$(inputs.params.architecture)
     destination:
     - registry: $(inputs.params.quay_registry)
-      tag: $(inputs.params.version)-context
+      tag: $(inputs.params.version)-context-$(inputs.params.architecture)
 
   - name: operator-template-ubi
     task_type: dockerfile_template

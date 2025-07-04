@@ -31,9 +31,9 @@ func TestMergeShardedCluster_New(t *testing.T) {
 	assert.NoError(t, err)
 
 	require.Len(t, d.getProcesses(), 15)
-	require.Len(t, d.getReplicaSets(), 4)
+	require.Len(t, d.GetReplicaSets(), 4)
 	for i := 0; i < 4; i++ {
-		require.Len(t, d.getReplicaSets()[i].Members(), 3)
+		require.Len(t, d.GetReplicaSets()[i].Members(), 3)
 	}
 	checkMongoSProcesses(t, d.getProcesses(), createMongosProcesses(3, "pretty", "cluster"))
 	checkReplicaSet(t, d, createConfigSrvRs("configSrv", true))
@@ -130,9 +130,9 @@ func TestMergeShardedCluster_ReplicaSetsModified(t *testing.T) {
 	expectedShards[0].Rs["writeConcernMajorityJournalDefault"] = true
 
 	require.Len(t, d.getProcesses(), 15)
-	require.Len(t, d.getReplicaSets(), 4)
+	require.Len(t, d.GetReplicaSets(), 4)
 	for i := 0; i < 4; i++ {
-		require.Len(t, d.getReplicaSets()[i].Members(), 3)
+		require.Len(t, d.GetReplicaSets()[i].Members(), 3)
 	}
 	checkMongoSProcesses(t, d.getProcesses(), createMongosProcesses(3, "pretty", "cluster"))
 	checkReplicaSet(t, d, createConfigSrvRs("configSrv", true))
@@ -166,7 +166,7 @@ func TestMergeShardedCluster_ShardedClusterModified(t *testing.T) {
 
 	mergeReplicaSet(d, "fakeShard", createReplicaSetProcesses("fakeShard"))
 
-	require.Len(t, d.getReplicaSets(), 5)
+	require.Len(t, d.GetReplicaSets(), 5)
 
 	// Final check - we create the expected configuration, add there correct OM changes and check for equality with merge
 	// result
@@ -188,9 +188,9 @@ func TestMergeShardedCluster_ShardedClusterModified(t *testing.T) {
 	// Note, that fake replicaset and it's processes haven't disappeared as we passed 'false' to 'MergeShardedCluster'
 	// which results in "draining" for redundant shards but not physical removal of replica sets
 	require.Len(t, d.getProcesses(), 18)
-	require.Len(t, d.getReplicaSets(), 5)
+	require.Len(t, d.GetReplicaSets(), 5)
 	for i := 0; i < 4; i++ {
-		require.Len(t, d.getReplicaSets()[i].Members(), 3)
+		require.Len(t, d.GetReplicaSets()[i].Members(), 3)
 	}
 	checkMongoSProcesses(t, d.getProcesses(), createMongosProcesses(3, "pretty", "cluster"))
 	checkReplicaSet(t, d, createConfigSrvRs("configSrv", true))
