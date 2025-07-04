@@ -410,7 +410,7 @@ spec:
               value: "ubi8"
             # Community Env Vars End
             - name: MDB_SEARCH_COMMUNITY_REPO_URL
-              value: "quay.io/mongodb"
+              value: "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
             - name: MDB_SEARCH_COMMUNITY_NAME
               value: "mongodb-search-community"
             - name: MDB_SEARCH_COMMUNITY_VERSION

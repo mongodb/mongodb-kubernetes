@@ -207,19 +207,42 @@ func buildSearchHeadlessService(search *searchv1.MongoDBSearch) corev1.Service {
 }
 
 func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResource) mongot.Config {
-	return mongot.Config{CommunityPrivatePreview: mongot.CommunityPrivatePreview{
-		MongodHostAndPort:  fmt.Sprintf("%s.%s.svc.cluster.local:%d", db.DatabaseServiceName(), db.GetNamespace(), db.DatabasePort()),
-		QueryServerAddress: fmt.Sprintf("localhost:%d", search.GetMongotPort()),
-		KeyFilePath:        "/mongot/keyfile/keyfile",
-		DataPath:           "/mongot/data/config.yml",
-		Metrics: mongot.Metrics{
+	return mongot.Config{
+		SyncSource: mongot.ConfigSyncSource{
+			ReplicaSet: mongot.ConfigReplicaSet{
+				HostAndPort:  fmt.Sprintf("%s.%s.svc.cluster.local:%d", db.DatabaseServiceName(), db.GetNamespace(), db.DatabasePort()),
+				Username:     "__system",
+				PasswordFile: "/tmp/keyfile",
+				TLS:          false,
+				// TODO check
+				ReadPreference: "secondaryPreferred",
+			},
+		},
+		Storage: mongot.ConfigStorage{
+			DataPath: "/mongot/data/config.yml",
+		},
+		Server: mongot.ConfigServer{
+			Wireproto: mongot.ConfigWireproto{
+				Address: "0.0.0.0:27027",
+				Authentication: mongot.ConfigAuthentication{
+					Mode:    "keyfile",
+					KeyFile: "/tmp/keyfile",
+				},
+				TLS: mongot.ConfigTLS{Mode: "disabled"},
+			},
+		},
+		Metrics: mongot.ConfigMetrics{
 			Enabled: true,
 			Address: fmt.Sprintf("localhost:%d", search.GetMongotMetricsPort()),
 		},
-		Logging: mongot.Logging{
-			Verbosity: "DEBUG",
+		HealthCheck: mongot.ConfigHealthCheck{
+			Address: "0.0.0.0:8080",
 		},
-	}}
+		Logging: mongot.ConfigLogging{
+			Verbosity: "DEBUG",
+			LogPath:   nil,
+		},
+	}
 }
 
 func GetMongodConfigParameters(search *searchv1.MongoDBSearch) map[string]interface{} {
