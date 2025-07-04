@@ -180,7 +180,12 @@ func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []co
 		container.WithCommand([]string{"sh"}),
 		container.WithArgs([]string{
 			"-c",
-			"/mongot-community/mongot --config /mongot/config/config.yml",
+			`
+cp /mongot/keyfile/keyfile /tmp/keyfile
+chown 2000:2000 /tmp/keyfile
+chmod 0600 /tmp/keyfile
+/mongot-community/mongot --config /mongot/config/config.yml
+`,
 		}),
 		containerSecurityContext,
 	)
