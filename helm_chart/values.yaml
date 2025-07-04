@@ -22,7 +22,7 @@ operator:
   deployment_name: mongodb-kubernetes-operator
 
   # Version of mongodb-kubernetes-operator
-  version: 1.1.0
+  version: 1.2.0
 
   # The Custom Resources that will be watched by the Operator. Needs to be changed if only some of the CRDs are installed
   watchedResources:
@@ -123,11 +123,11 @@ operator:
 ## Database
 database:
   name: mongodb-kubernetes-database
-  version: 1.1.0
+  version: 1.2.0
 
 initDatabase:
   name: mongodb-kubernetes-init-database
-  version: 1.1.0
+  version: 1.2.0
 
 ## Ops Manager
 opsManager:
@@ -135,12 +135,12 @@ opsManager:
 
 initOpsManager:
   name: mongodb-kubernetes-init-ops-manager
-  version: 1.1.0
+  version: 1.2.0
 
 ## Application Database
 initAppDb:
   name: mongodb-kubernetes-init-appdb
-  version: 1.1.0
+  version: 1.2.0
 
 agent:
   name: mongodb-agent-ubi
