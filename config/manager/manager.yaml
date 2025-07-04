@@ -292,7 +292,7 @@ spec:
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:8.0.6"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_8_0_7
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:8.0.7"
-      # since the official server images end with a different suffix we can re-use the same $mongodbImageEnv
+            # since the official server images end with a different suffix we can re-use the same $mongodbImageEnv
             - name: RELATED_IMAGE_MONGODB_IMAGE_4_4_0_ubi8
               value: "quay.io/mongodb/mongodb-enterprise-server:4.4.0-ubi8"
             - name: RELATED_IMAGE_MONGODB_IMAGE_4_4_1_ubi8
