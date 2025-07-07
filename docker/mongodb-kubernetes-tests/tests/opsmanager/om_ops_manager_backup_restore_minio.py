@@ -190,6 +190,9 @@ def ops_manager(
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
+    resource["spec"]["configuration"]["brs.legacy.cert.behavior"] = "true"
+    resource["spec"]["configuration"]["brs.useAwsSdkV2"] = "false"
+
     return resource
 
 

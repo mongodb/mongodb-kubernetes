@@ -98,6 +98,9 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
     if is_multi_cluster():
         enable_multi_cluster_deployment(om)
 
+    om["spec"]["configuration"]["brs.legacy.cert.behavior"] = "true"
+    om["spec"]["configuration"]["brs.useAwsSdkV2"] = "false"
+
     om.update()
     return om
 
