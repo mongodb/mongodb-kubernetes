@@ -30,6 +30,9 @@ const (
 	// MongoDbSearchController name of the MongoDBSearch controller
 	MongoDbSearchController = "mongodbsearch-controller"
 
+	// Kinds
+	ClusterMongoDBRoleKind = "ClusterMongoDBRole"
+
 	// Ops manager config map and secret variables
 	OmBaseUrl         = "baseUrl"
 	OmOrgId           = "orgId"
@@ -280,7 +283,10 @@ const (
 	// TODO: remove this from here and move it to the certs package
 	// This currently creates an import cycle
 	InternalCertAnnotationKey = "internalCertHash"
-	LastAchievedSpec          = "mongodb.com/v1.lastSuccessfulConfiguration"
+
+	// Annotation keys used by the operator
+	LastAchievedSpec        = "mongodb.com/v1.lastSuccessfulConfiguration"
+	LastAchievedRsMemberIds = "mongodb.com/v1.lastAchievedRsMemberIds"
 
 	// SecretVolumeName is the name of the volume resource.
 	SecretVolumeName = "secret-certs"
@@ -313,7 +319,7 @@ const (
 
 	MdbAppdbAssumeOldFormat = "MDB_APPDB_ASSUME_OLD_FORMAT"
 
-	Finalizer = "mongodb.com/v1.userRemovalFinalizer"
+	UserFinalizer = "mongodb.com/v1.userRemovalFinalizer"
 )
 
 type OperatorEnvironment string

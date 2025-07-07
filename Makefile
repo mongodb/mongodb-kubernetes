@@ -57,10 +57,16 @@ prerequisites:
 	@ scripts/dev/install.sh
 
 precommit:
-	@ EVERGREEN_MODE=true .githooks/pre-commit
+	@ .githooks/pre-commit
+
+precommit-with-licenses:
+	@ MDB_UPDATE_LICENSE=true .githooks/pre-commit
 
 switch:
 	@ scripts/dev/switch_context.sh $(context) $(additional_override)
+
+switcht:
+	@ scripts/dev/switch_context_by_test.sh $(test)
 
 # builds the Operator binary file and docker image and pushes it to the remote registry if using a remote registry. Deploys it to
 # k8s cluster
@@ -322,9 +328,9 @@ deploy: manifests kustomize
 undeploy:
 	$(KUSTOMIZE) build config/default | kubectl delete -f -
 
-# Generate manifests e.g. CRD, RBAC etc.
+# Generate manifests e.g. CRD etc.
 manifests: controller-gen
-	export PATH="$(PATH)"; export GOROOT=$(GOROOT); $(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=manager-role paths=./... output:crd:artifacts:config=config/crd/bases
+	export PATH="$(PATH)"; export GOROOT=$(GOROOT); $(CONTROLLER_GEN) $(CRD_OPTIONS) paths=./... output:crd:artifacts:config=config/crd/bases
 	# copy the CRDs to the public folder
 	cp config/crd/bases/* helm_chart/crds/
 	cat "helm_chart/crds/"* > public/crds.yaml

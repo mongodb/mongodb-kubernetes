@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Dict, List, Optional
 
 from kubernetes import client
+from kubetester import wait_until
 from kubetester.mongodb import MongoDB
 from kubetester.mongotester import MongoTester, MultiReplicaSetTester
 from kubetester.multicluster_client import MultiClusterClient
@@ -76,6 +77,21 @@ class MongoDBMulti(MongoDB):
             for j in range(spec["members"]):
                 service_names.append(f"{self.name}-{i}-{j}-svc")
         return service_names
+
+    def assert_statefulsets_are_ready(self, clients: List[MultiClusterClient], timeout: int = 600):
+        def fn():
+            statefulsets = self.read_statefulsets(clients)
+
+            assert len(statefulsets) == len(self["spec"]["clusterSpecList"])
+
+            for i, mcc in enumerate(clients):
+                cluster_sts = statefulsets[mcc.cluster_name]
+                if cluster_sts.status.ready_replicas != self.get_item_spec(mcc.cluster_name)["members"]:
+                    return False
+
+            return True
+
+        wait_until(fn, timeout=timeout, interval=10, message="Waiting for all statefulsets to be ready")
 
     def tester(
         self,

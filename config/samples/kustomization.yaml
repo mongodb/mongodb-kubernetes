@@ -4,3 +4,4 @@ resources:
 - mongodb-user.yaml
 - mongodb-om.yaml
 - mongodb-multi.yaml
+- cluster-mongodb-role.yaml

@@ -978,6 +978,21 @@ func (oc *HTTPOmConnection) AddPreferredHostname(agentApiKey string, value strin
 	return nil
 }
 
+func GetReplicaSetMemberIds(conn Connection) (map[string]map[string]int, error) {
+	dep, err := conn.ReadDeployment()
+	if err != nil {
+		return nil, err
+	}
+
+	finalProcessIds := make(map[string]map[string]int)
+
+	for _, replicaSet := range dep.GetReplicaSets() {
+		finalProcessIds[replicaSet.Name()] = replicaSet.MemberIds()
+	}
+
+	return finalProcessIds, nil
+}
+
 //********************************** Private methods *******************************************************************
 
 func (oc *HTTPOmConnection) get(path string) ([]byte, error) {
