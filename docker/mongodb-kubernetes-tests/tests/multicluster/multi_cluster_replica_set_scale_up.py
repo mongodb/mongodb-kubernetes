@@ -81,9 +81,10 @@ def test_statefulsets_have_been_created_correctly(
     mongodb_multi: MongoDBMulti,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    # even though we already verified, in previous test, that the MongoDBMultiCluster resource's phase is running (that would mean all STSs are ready);
-    # checking the expected number of replicas for STS makes the test flaky. That's why we are waiting for STS to have expected number of replicas.
-    # Details are documented here https://jira.mongodb.org/browse/CLOUDP-329231
+    # Even though we already verified, in previous test, that the MongoDBMultiCluster resource's phase is running (that would mean all STSs are ready);
+    # checking the expected number of replicas for STS makes the test flaky because of an issue mentioned in detail in this ticket https://jira.mongodb.org/browse/CLOUDP-329231.
+    # That's why we are waiting for STS to have expected number of replicas. This change can be reverted when we make the proper fix as
+    # mentioned in the above ticket.
     def fn():
         cluster_one_client = member_cluster_clients[0]
         cluster_one_statefulsets = mongodb_multi.read_statefulsets([cluster_one_client])
@@ -128,9 +129,10 @@ def test_statefulsets_have_been_scaled_up_correctly(
     mongodb_multi: MongoDBMulti,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    # even though we already verified, in previous test, that the MongoDBMultiCluster resource's phase is running (that would mean all STSs are ready);
-    # checking the expected number of replicas for STS makes the test flaky. That's why we are waiting for STS to have expected number of replicas.
-    # Details are documented here https://jira.mongodb.org/browse/CLOUDP-329231
+    # Even though we already verified, in previous test, that the MongoDBMultiCluster resource's phase is running (that would mean all STSs are ready);
+    # checking the expected number of replicas for STS makes the test flaky because of an issue mentioned in detail in this ticket https://jira.mongodb.org/browse/CLOUDP-329231.
+    # That's why we are waiting for STS to have expected number of replicas. This change can be reverted when we make the proper fix as
+    # mentioned in the above ticket.
     def fn():
         cluster_one_client = member_cluster_clients[0]
         cluster_one_statefulsets = mongodb_multi.read_statefulsets([cluster_one_client])
