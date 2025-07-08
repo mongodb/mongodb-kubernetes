@@ -13,7 +13,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import yaml
 
@@ -24,9 +24,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def run_command(cmd: List[str], check: bool = True) -> subprocess.CompletedProcess:
-    """Run a shell command and return the result."""
-    logger.debug(f"Running command: {' '.join(cmd)}")
+def run_command(cmd: List[str], check: bool = True, dry_run: bool = False) -> Optional[subprocess.CompletedProcess]:
+    """Run a shell command and return the result.
+
+    If dry_run is True, only log the command and return None.
+    """
+    logger.info(f"[DRY RUN] Executing: {' '.join(cmd)}" if dry_run else f"Executing: {' '.join(cmd)}")
+
+    if dry_run:
+        logger.info(f"skipping executing")
+        return None
+
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=check)
         if result.stdout:
@@ -183,59 +191,27 @@ def generate_backup_tag(original_image: str, original_tag: str, version: str) ->
     return f"quay.io/mongodb/{repo_name}:{original_tag}_openshift_{version}"
 
 
-def ensure_quay_login():
-    """Ensure we're logged into Quay.io using the production robot token."""
+def backup_image_process(original_image: str, backup_image: str, dry_run: bool = False) -> bool:
+    """Backup a single image to Quay, preserving the original digest"""
     try:
-        logger.info("Authenticating with Quay.io...")
-
-        username = os.environ.get("quay_prod_username")
-        token = os.environ.get("quay_prod_robot_token")
-
-        if not username or not token:
-            logger.error("Both quay_prod_username and quay_prod_robot_token environment variables must be set")
-            sys.exit(1)
-
-        login_cmd = [
-            "docker", "login", "quay.io",
-            "-u", username,
-            "-p", token
-        ]
-
-        result = run_command(login_cmd, check=False)
-
-        if "Login Succeeded" not in result:
-            logger.error(f"Failed to login to Quay.io: {result}")
-            sys.exit(1)
-
-        logger.info("Successfully authenticated with Quay.io")
-
-    except Exception as e:
-        logger.error(f"Error during Quay.io authentication: {str(e)}")
-        sys.exit(1)
-
-
-def backup_image(original_image: str, backup_image: str) -> bool:
-    """Backup a single image to ECR, preserving the original digest if present."""
-    try:
-        logger.info(f"Backing up {original_image} -> {backup_image}")
+        logger.info(f"{'[DRY RUN] ' if dry_run else ''}Backing up {original_image} -> {backup_image}")
 
         has_digest = "@sha256:" in original_image
 
-        logger.info(f"Pulling {original_image}...")
-        run_command(["docker", "pull", original_image])
-
         if has_digest:
+            logger.info(f"Pulling {original_image}...")
+            run_command(["docker", "pull", original_image], dry_run=dry_run)
             digest = original_image.split("@")[1]
             backup_image_with_digest = f"{backup_image}@{digest}"
             logger.info(f"Tagging as {backup_image_with_digest} (with digest)...")
-            run_command(["docker", "tag", original_image, backup_image_with_digest])
+            run_command(["docker", "tag", original_image, backup_image_with_digest], dry_run=dry_run)
 
             logger.info(f"Pushing {backup_image_with_digest}...")
-            run_command(["docker", "push", backup_image_with_digest])
+            run_command(["docker", "push", backup_image_with_digest], dry_run=dry_run)
 
-            run_command(["docker", "rmi", backup_image_with_digest], check=False)
-            run_command(["docker", "rmi", backup_image], check=False)
-            run_command(["docker", "rmi", original_image], check=False)
+            run_command(["docker", "rmi", backup_image_with_digest], check=False, dry_run=dry_run)
+            run_command(["docker", "rmi", backup_image], check=False, dry_run=dry_run)
+            run_command(["docker", "rmi", original_image], check=False, dry_run=dry_run)
 
             logger.info(f"Successfully backed up {original_image}")
             return True
@@ -321,13 +297,7 @@ def main():
 
     if args.dry_run:
         logger.info("Dry run mode - no images will be backed up")
-        return
-
-    # Handle Quay.io login if not skipped
-    if not args.skip_login:
-        ensure_quay_login()
-    else:
-        logger.info("Skipping Quay.io login as requested")
+        logger.info("Dry run mode - no images will be backed up")
 
     # Execute backup
     successful = 0
@@ -340,7 +310,7 @@ def main():
 
     for i, (original_image, image_to_backup) in enumerate(backup_plan, 1):
         logger.info(f"Processing image {i} of {len(backup_plan)}")
-        if backup_image(original_image, image_to_backup):
+        if backup_image_process(original_image, image_to_backup):
             successful += 1
         else:
             failed += 1
