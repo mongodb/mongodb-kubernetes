@@ -76,6 +76,10 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Failed(err)
 	}
 
+	if err := r.ValidateSearchImageVersion(); err != nil {
+		return workflow.Failed(err)
+	}
+
 	if err := r.ValidateSingleMongoDBSearchForSearchSource(ctx); err != nil {
 		return workflow.Failed(err)
 	}
@@ -265,6 +269,14 @@ func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSourc
 			resourceNames[i] = search.Name
 		}
 		return xerrors.Errorf("Found multiple MongoDBSearch resources for search source '%s': %s", r.db.Name(), strings.Join(resourceNames, ", "))
+	}
+
+	return nil
+}
+
+func (r *MongoDBSearchReconcileHelper) ValidateSearchImageVersion() error {
+	if r.mdbSearch.Spec.Version == "1.47.0" {
+		return xerrors.New("MongoDBSearch version 1.47.0 is not supported")
 	}
 
 	return nil
