@@ -1,0 +1,359 @@
+#!/usr/bin/env python3
+"""
+Script to backup digest-pinned images from a ClusterServiceVersion to quay with _openshift_<mck_version>.
+
+This script parses a ClusterServiceVersion YAML file, extracts all digest-pinned images,
+and backs them up to the same quay registry under the with the _openshift_<mck_version> tag.
+
+"""
+
+import argparse
+import json
+import logging
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+from typing import Dict, List, Set, Tuple
+
+import yaml
+
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+def run_command(cmd: List[str], check: bool = True) -> subprocess.CompletedProcess:
+    """Run a shell command and return the result."""
+    logger.debug(f"Running command: {' '.join(cmd)}")
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=check)
+        if result.stdout:
+            logger.debug(f"Command output: {result.stdout.strip()}")
+        return result
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Command failed: {' '.join(cmd)}")
+        logger.error(f"Error: {e.stderr}")
+        raise
+
+
+def get_image_digest(image_url: str) -> str:
+    """Get the digest of an image using docker inspect."""
+    try:
+        # First try to pull the image to ensure we have the latest
+        run_command(["docker", "pull", image_url])
+
+        # Get the digest
+        result = run_command([
+            "docker", "inspect", "--format={{index .RepoDigests 0}}", image_url
+        ])
+
+        digest_url = result.stdout.strip()
+        if "@sha256:" in digest_url:
+            return digest_url.split("@sha256:")[1]
+        else:
+            logger.warning(f"Could not get digest for {image_url}")
+            return ""
+    except subprocess.CalledProcessError:
+        logger.error(f"Failed to get digest for {image_url}")
+        return ""
+
+
+def parse_csv_file(csv_path: Path) -> Dict:
+    """Parse the ClusterServiceVersion YAML file."""
+    try:
+        with open(csv_path, 'r') as f:
+            csv_data = yaml.safe_load(f)
+        logger.info(f"Successfully parsed CSV file: {csv_path}")
+        return csv_data
+    except Exception as e:
+        logger.error(f"Failed to parse CSV file {csv_path}: {e}")
+        sys.exit(1)
+
+
+def extract_version_from_csv(csv_data: Dict) -> str:
+    """Extract version from CSV metadata."""
+    name = csv_data.get('metadata', {}).get('name', '')
+    # Common patterns: mongodb-kubernetes.v1.2.0
+    version = name.split('.v')[-1]
+    logger.debug(f"Extracted version from metadata.name: {version}")
+    return version
+
+
+def extract_images_from_csv(csv_data: Dict) -> Dict[str, str]:
+    """Extract all images from the ClusterServiceVersion with their original tags."""
+    image_url_to_tag = {}  # image_url -> original_tag
+
+    # Extract from relatedImages section
+    try:
+        related_images = csv_data.get('spec', {}).get('relatedImages', [])
+        for related_image in related_images:
+            if 'image' in related_image:
+                original_tag = extract_tag_from_related_image_name(related_image['name'])
+                image_url_to_tag[related_image['image']] = original_tag
+                logger.debug(f"Found relatedImages entry: {related_image['image']} -> {original_tag}")
+    except Exception as e:
+        logger.warning(f"Error extracting relatedImages: {e}")
+
+    logger.info(f"Extracted {len(image_url_to_tag)} total images from CSV")
+    return image_url_to_tag
+
+
+def extract_tag_from_related_image_name(image_name: str) -> str:
+    """Convert image name to version string.
+
+    Examples:
+        # Agent images
+        'agent-image-107-0-10-8627-1-1-1-0' -> '107.0.10.8627-1_1.1.0'
+        'agent_image_107_0_10_8627_1_1_0_1' -> '107.0.10.8627-1.1.0.1'
+
+        # Non-agent images
+        'mongodb-image' -> ''  # skipped
+        'init-appdb-image-repository-1-2-0' -> '1.2.0'
+        'ops-manager-image-repository-6-0-25' -> '6.0.25'
+    """
+    if 'mongodb-image' in image_name:
+        return ''
+
+    if 'agent' in image_name.lower():
+        parts = image_name.replace('-', '_').split('_')
+        version_parts = [p for p in parts if p.isdigit()]
+
+        if not version_parts:
+            return ""
+
+        # For agent images, we need at least 4 parts (major, minor, patch, 1) for the main version, the rest - if it exists - is the operator version
+        if len(version_parts) >= 4:
+            main_version = ".".join(version_parts[:4])
+            if len(version_parts) > 4:
+                return f"{main_version}-{'.'.join(version_parts[4:])}"
+            return main_version
+
+        # If we have fewer than 4 parts, just join them with dots
+        return ".".join(version_parts)
+
+    # For non-agent images, take the last segment after the last hyphen
+    # and convert remaining hyphens to dots (e.g., '1-2-0' -> '1.2.0')
+    if '-' in image_name:
+        version_parts = image_name.split('-')[-3:]  # Take last 3 parts for version
+        return '.'.join(version_parts)
+
+    return ""
+
+
+def filter_digest_pinned_images(images: Dict[str, str]) -> Dict[str, str]:
+    """Filter images to only include those with digest pins (sha256)."""
+    digest_images = {}
+
+    for image_url, original_tag in images.items():
+        if "@sha256:" in image_url:
+            digest_images[image_url] = original_tag
+            logger.debug(f"Found digest-pinned image: {image_url} -> {original_tag}")
+
+    logger.info(f"Found {len(digest_images)} digest-pinned images")
+    return digest_images
+
+
+def parse_image_url(image_url: str) -> tuple[str, str, str] | None:
+    """Parse an image URL into registry, repository, and tag/digest components."""
+    # Handle digest format: registry/repo@sha256:digest
+    if "@sha256:" in image_url:
+        base_url, digest = image_url.split("@sha256:")
+        if "/" in base_url:
+            registry = base_url.split("/")[0]
+            repository = "/".join(base_url.split("/")[1:])
+        else:
+            registry = ""
+            repository = base_url
+        return registry, repository, f"sha256:{digest}"
+
+
+def generate_backup_tag(original_image: str, original_tag: str, version: str) -> str:
+    """Generate the backup tag for an image with the following pattern:
+        quay.io/mongodb/{repo_name}:{original_tag}_openshift_{version}
+    """
+    registry, repository, tag_or_digest = parse_image_url(original_image)
+    if registry is None:
+        return ""
+
+    # Extract just the repository name (last part after /)
+    repo_name = repository.split("/")[-1] if "/" in repository else repository
+
+    return f"quay.io/mongodb/{repo_name}:{original_tag}_openshift_{version}"
+
+
+def ensure_quay_login():
+    """Ensure we're logged into Quay.io using the production robot token."""
+    try:
+        logger.info("Authenticating with Quay.io...")
+
+        username = os.environ.get("quay_prod_username")
+        token = os.environ.get("quay_prod_robot_token")
+
+        if not username or not token:
+            logger.error("Both quay_prod_username and quay_prod_robot_token environment variables must be set")
+            sys.exit(1)
+
+        login_cmd = [
+            "docker", "login", "quay.io",
+            "-u", username,
+            "-p", token
+        ]
+
+        result = run_command(login_cmd, check=False)
+
+        if "Login Succeeded" not in result:
+            logger.error(f"Failed to login to Quay.io: {result}")
+            sys.exit(1)
+
+        logger.info("Successfully authenticated with Quay.io")
+
+    except Exception as e:
+        logger.error(f"Error during Quay.io authentication: {str(e)}")
+        sys.exit(1)
+
+
+def backup_image(original_image: str, backup_image: str) -> bool:
+    """Backup a single image to ECR, preserving the original digest if present."""
+    try:
+        logger.info(f"Backing up {original_image} -> {backup_image}")
+
+        has_digest = "@sha256:" in original_image
+
+        logger.info(f"Pulling {original_image}...")
+        run_command(["docker", "pull", original_image])
+
+        if has_digest:
+            digest = original_image.split("@")[1]
+            backup_image_with_digest = f"{backup_image}@{digest}"
+            logger.info(f"Tagging as {backup_image_with_digest} (with digest)...")
+            run_command(["docker", "tag", original_image, backup_image_with_digest])
+
+            logger.info(f"Pushing {backup_image_with_digest}...")
+            run_command(["docker", "push", backup_image_with_digest])
+
+            run_command(["docker", "rmi", backup_image_with_digest], check=False)
+            run_command(["docker", "rmi", backup_image], check=False)
+            run_command(["docker", "rmi", original_image], check=False)
+
+            logger.info(f"Successfully backed up {original_image}")
+            return True
+        else:
+            logger.info(f"Image has no digest, skipping backup")
+            return False
+
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Failed to backup {original_image}: {e}")
+        return False
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Backup digest-pinned images from ClusterServiceVersion to Quay.io"
+    )
+    parser.add_argument(
+        "--skip-login",
+        action="store_true",
+        help="Skip Quay.io login (use if already authenticated)",
+    )
+    parser.add_argument(
+        "csv_file",
+        type=Path,
+        help="Path to the ClusterServiceVersion YAML file"
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be backed up without actually doing it"
+    )
+
+    parser.add_argument(
+        "--verbose", "-v",
+        action="store_true",
+        help="Enable verbose logging"
+    )
+
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=0,
+        help="Maximum number of images to back up (0 means no limit)"
+    )
+
+    args = parser.parse_args()
+
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+
+    if not args.csv_file.exists():
+        logger.error(f"CSV file not found: {args.csv_file}")
+        sys.exit(1)
+
+    csv_data = parse_csv_file(args.csv_file)
+
+    mck_version = extract_version_from_csv(csv_data)
+
+    logger.info(f"Using mck_version: {mck_version}")
+
+    all_images = extract_images_from_csv(csv_data)
+
+    digest_pinned_images_to_backup = filter_digest_pinned_images(all_images)
+    if not digest_pinned_images_to_backup:
+        logger.info("No digest-pinned images found in CSV file")
+        return
+
+    backup_plan = []
+    for image_url, original_tag in digest_pinned_images_to_backup.items():
+        if 'mongodb-enterprise-server' in image_url:
+            logger.info(f"Skipping mongodb-enterprise-server image: {image_url}")
+            continue
+
+        image_to_backup = generate_backup_tag(image_url, original_tag, mck_version)
+        if image_to_backup == "":
+            logger.info(f"Skipping image: {image_url}, as it doesn't contain a digest")
+            continue
+        backup_plan.append((image_url, image_to_backup))
+
+    logger.info(f"Backup plan for {len(backup_plan)} images:")
+    for original, backup in backup_plan:
+        logger.info(f"  {original} -> {backup}")
+
+    if args.dry_run:
+        logger.info("Dry run mode - no images will be backed up")
+        return
+
+    # Handle Quay.io login if not skipped
+    if not args.skip_login:
+        ensure_quay_login()
+    else:
+        logger.info("Skipping Quay.io login as requested")
+
+    # Execute backup
+    successful = 0
+    failed = 0
+    total = len(backup_plan)
+
+    if args.limit > 0:
+        logger.info(f"Limiting backup to {args.limit} out of {total} images")
+        backup_plan = backup_plan[:args.limit]
+
+    for i, (original_image, image_to_backup) in enumerate(backup_plan, 1):
+        logger.info(f"Processing image {i} of {len(backup_plan)}")
+        if backup_image(original_image, image_to_backup):
+            successful += 1
+        else:
+            failed += 1
+
+    # Summary
+    logger.info(f"Backup completed: {successful} successful, {failed} failed")
+
+    if failed > 0:
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
