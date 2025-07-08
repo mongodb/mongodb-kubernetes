@@ -614,8 +614,7 @@ tasks:
           working_dir: src/github.com/mongodb/mongodb-kubernetes
           binary: python3
           args:
-            - scripts/dev/backup_csv_images.py
-            - --csv-file
+            - scripts/dev/release/backup_csv_images.py
             - scripts/dev/release/1.2.0.clusterserviceversion.yaml
             - --dry-run
             - --verbose
@@ -628,8 +627,7 @@ tasks:
           working_dir: src/github.com/mongodb/mongodb-kubernetes
           binary: python3
           args:
-            - scripts/dev/backup_csv_images.py
-            - --csv-file
+            - scripts/dev/release/backup_csv_images.py
             - scripts/dev/release/1.2.0.clusterserviceversion.yaml
             - --limit
             - "3"
@@ -643,8 +641,7 @@ tasks:
           working_dir: src/github.com/mongodb/mongodb-kubernetes
           binary: python3
           args:
-            - scripts/dev/backup_csv_images.py
-            - --csv-file
+            - scripts/dev/release/backup_csv_images.py
             - scripts/dev/release/1.2.0.clusterserviceversion.yaml
             - --verbose
 

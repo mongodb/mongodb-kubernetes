@@ -8,17 +8,14 @@ and backs them up to the same quay registry under the with the _openshift_<mck_v
 """
 
 import argparse
-import json
 import logging
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List
 
 import yaml
-
 
 # Configure logging
 logging.basicConfig(
