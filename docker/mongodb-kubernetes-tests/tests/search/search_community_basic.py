@@ -12,8 +12,15 @@ from tests.conftest import get_default_operator
 
 logger = test_logger.get_test_logger(__name__)
 
-USER_PASSWORD = "Passw0rd."
-USER_NAME = "my-user"
+ADMIN_USER_NAME = "mdb-admin-user"
+ADMIN_USER_PASSWORD = "mdb-admin-user-pass"
+
+MONGOT_USER_NAME = "mongot-user"
+MONGOT_USER_PASSWORD = "mongot-user-password"
+
+USER_NAME = "mdb-user"
+USER_PASSWORD = "mdb-user-pass"
+
 MDBC_RESOURCE_NAME = "mdbc-rs"
 
 
@@ -27,8 +34,8 @@ def mdbc(namespace: str, custom_mdb_version: str) -> MongoDBCommunity:
 
     resource["spec"]["version"] = custom_mdb_version
 
-    if try_load(resource):
-        return resource
+    # if try_load(resource):
+    #     return resource
 
     return resource
 
@@ -40,8 +47,8 @@ def mdbs(namespace: str) -> MongoDBSearch:
         namespace=namespace,
     )
 
-    if try_load(resource):
-        return resource
+    # if try_load(resource):
+    #     return resource
 
     return resource
 
@@ -53,8 +60,14 @@ def test_install_operator(namespace: str, operator_installation_config: dict[str
 
 
 @mark.e2e_search_community_basic
-def test_install_secret(namespace: str):
-    create_or_update_secret(namespace=namespace, name="my-user-password", data={"password": USER_PASSWORD})
+def test_install_secrets(namespace: str, mdbs: MongoDBSearch):
+    create_or_update_secret(namespace=namespace, name=f"{USER_NAME}-password", data={"password": USER_PASSWORD})
+    create_or_update_secret(
+        namespace=namespace, name=f"{ADMIN_USER_NAME}-password", data={"password": ADMIN_USER_PASSWORD}
+    )
+    create_or_update_secret(
+        namespace=namespace, name=f"{mdbs.name}-{MONGOT_USER_NAME}-password", data={"password": MONGOT_USER_PASSWORD}
+    )
 
 
 @mark.e2e_search_community_basic
@@ -76,7 +89,9 @@ def test_wait_for_community_resource_ready(mdbc: MongoDBCommunity):
 
 @fixture(scope="function")
 def sample_movies_helper(mdbc: MongoDBCommunity) -> SampleMoviesSearchHelper:
-    return movies_search_helper.SampleMoviesSearchHelper(SearchTester(get_connection_string(mdbc)))
+    return movies_search_helper.SampleMoviesSearchHelper(
+        SearchTester(get_connection_string(mdbc, USER_NAME, USER_PASSWORD))
+    )
 
 
 @mark.e2e_search_community_basic
@@ -96,8 +111,8 @@ def test_search_wait_for_search_indexes(sample_movies_helper: SampleMoviesSearch
 
 @mark.e2e_search_community_basic
 def test_search_assert_search_query(sample_movies_helper: SampleMoviesSearchHelper):
-    sample_movies_helper.assert_search_query()
+    sample_movies_helper.assert_search_query(retry_timeout=5)
 
 
-def get_connection_string(mdbc: MongoDBCommunity) -> str:
-    return f"mongodb://{USER_NAME}:{USER_PASSWORD}@{mdbc.name}-0.{mdbc.name}-svc.{mdbc.namespace}.svc.cluster.local:27017/?replicaSet={mdbc.name}"
+def get_connection_string(mdbc: MongoDBCommunity, user_name: str, user_password: str) -> str:
+    return f"mongodb://{user_name}:{user_password}@{mdbc.name}-0.{mdbc.name}-svc.{mdbc.namespace}.svc.cluster.local:27017/?replicaSet={mdbc.name}"

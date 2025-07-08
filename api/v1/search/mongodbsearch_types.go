@@ -1,6 +1,8 @@
 package search
 
 import (
+	"fmt"
+
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -14,8 +16,9 @@ import (
 )
 
 const (
-	MongotDefaultPort        = 27027
-	MongotDefaultMetricsPort = 9946
+	MongotDefaultPort               = 27027
+	MongotDefaultMetricsPort        = 9946
+	MongotDefaultSyncSourceUsername = "mongot-user"
 )
 
 func init() {
@@ -38,6 +41,10 @@ type MongoDBSearchSpec struct {
 type MongoDBSource struct {
 	// +optional
 	MongoDBResourceRef *userv1.MongoDBResourceRef `json:"mongodbResourceRef,omitempty"`
+	// +optional
+	PasswordSecretRef *userv1.SecretKeyRef `json:"passwordSecretRef,omitempty"`
+	// +optional
+	Username *string `json:"username,omitempty"`
 }
 
 type MongoDBSearchStatus struct {
@@ -103,6 +110,25 @@ func (s *MongoDBSearch) SearchServiceNamespacedName() types.NamespacedName {
 
 func (s *MongoDBSearch) MongotConfigConfigMapNamespacedName() types.NamespacedName {
 	return types.NamespacedName{Name: s.Name + "-search-config", Namespace: s.Namespace}
+}
+
+func (s *MongoDBSearch) SourceUserPasswordSecretRef() *userv1.SecretKeyRef {
+	if s.Spec.Source != nil && s.Spec.Source.PasswordSecretRef != nil {
+		return s.Spec.Source.PasswordSecretRef
+	}
+
+	return &userv1.SecretKeyRef{
+		Name: fmt.Sprintf("%s-%s-password", s.Name, MongotDefaultSyncSourceUsername),
+		Key:  "password",
+	}
+}
+
+func (s *MongoDBSearch) SourceUsername() string {
+	if s.Spec.Source != nil && s.Spec.Source.Username != nil {
+		return *s.Spec.Source.Username
+	}
+
+	return MongotDefaultSyncSourceUsername
 }
 
 func (s *MongoDBSearch) StatefulSetNamespacedName() types.NamespacedName {
