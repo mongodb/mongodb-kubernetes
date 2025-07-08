@@ -5,5 +5,5 @@ NAME                                        READY   UP-TO-DATE   AVAILABLE   AGE
 mongodb-kubernetes-operator-multi-cluster   1/1     1            1           6s
 
 Operator pod in mongodb-operator namespace
-NAME                                                        READY   STATUS    RESTARTS   AGE
-mongodb-kubernetes-operator-multi-cluster-c8bcd8447-kn64n   1/1     Running   0          7s
+NAME                                                         READY   STATUS    RESTARTS   AGE
+mongodb-kubernetes-operator-multi-cluster-5b875c54c5-n9wsm   1/1     Running   0          7s
