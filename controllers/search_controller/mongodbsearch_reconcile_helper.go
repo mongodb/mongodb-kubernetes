@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base32"
 	"fmt"
+	"k8s.io/utils/ptr"
 	"strings"
 
 	"github.com/blang/semver"
@@ -210,21 +211,20 @@ func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResourc
 	return mongot.Config{
 		SyncSource: mongot.ConfigSyncSource{
 			ReplicaSet: mongot.ConfigReplicaSet{
-				HostAndPort:  fmt.Sprintf("%s.%s.svc.cluster.local:%d", db.DatabaseServiceName(), db.GetNamespace(), db.DatabasePort()),
-				Username:     "__system",
-				PasswordFile: "/tmp/keyfile",
-				TLS:          false,
-				// TODO check
-				ReadPreference: "secondaryPreferred",
+				HostAndPort:    fmt.Sprintf("%s.%s.svc.cluster.local:%d", db.DatabaseServiceName(), db.GetNamespace(), db.DatabasePort()),
+				Username:       "__system",
+				PasswordFile:   "/tmp/keyfile",
+				TLS:            ptr.To(false),
+				ReadPreference: ptr.To("secondaryPreferred"),
 			},
 		},
 		Storage: mongot.ConfigStorage{
 			DataPath: "/mongot/data/config.yml",
 		},
 		Server: mongot.ConfigServer{
-			Wireproto: mongot.ConfigWireproto{
+			Wireproto: &mongot.ConfigWireproto{
 				Address: "0.0.0.0:27027",
-				Authentication: mongot.ConfigAuthentication{
+				Authentication: &mongot.ConfigAuthentication{
 					Mode:    "keyfile",
 					KeyFile: "/tmp/keyfile",
 				},

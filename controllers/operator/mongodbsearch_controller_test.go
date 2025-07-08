@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"k8s.io/utils/ptr"
 	"testing"
 
 	"github.com/ghodss/yaml"
@@ -79,17 +80,17 @@ func buildExpectedMongotConfig(search *searchv1.MongoDBSearch, mdbc *mdbcv1.Mong
 				HostAndPort:    fmt.Sprintf("%s.%s.svc.cluster.local:%d", mdbc.Name+"-svc", search.Namespace, 27017),
 				Username:       "__system",
 				PasswordFile:   "/tmp/keyfile",
-				TLS:            false,
-				ReadPreference: "secondaryPreferred",
+				TLS:            ptr.To(false),
+				ReadPreference: ptr.To("secondaryPreferred"),
 			},
 		},
 		Storage: mongot.ConfigStorage{
 			DataPath: "/mongot/data/config.yml",
 		},
 		Server: mongot.ConfigServer{
-			Wireproto: mongot.ConfigWireproto{
+			Wireproto: &mongot.ConfigWireproto{
 				Address: "0.0.0.0:27027",
-				Authentication: mongot.ConfigAuthentication{
+				Authentication: &mongot.ConfigAuthentication{
 					Mode:    "keyfile",
 					KeyFile: "/tmp/keyfile",
 				},

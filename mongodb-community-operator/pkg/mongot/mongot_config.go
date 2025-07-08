@@ -14,11 +14,11 @@ type ConfigSyncSource struct {
 }
 
 type ConfigReplicaSet struct {
-	HostAndPort    string `json:"hostAndPort"`
-	Username       string `json:"username"`
-	PasswordFile   string `json:"passwordFile"`
-	TLS            bool   `json:"tls"`
-	ReadPreference string `json:"readPreference"`
+	HostAndPort    string  `json:"hostAndPort"`
+	Username       string  `json:"username"`
+	PasswordFile   string  `json:"passwordFile"`
+	TLS            *bool   `json:"tls,omitempty"`
+	ReadPreference *string `json:"readPreference,omitempty"`
 }
 
 type ConfigStorage struct {
@@ -26,13 +26,13 @@ type ConfigStorage struct {
 }
 
 type ConfigServer struct {
-	Wireproto ConfigWireproto `json:"wireproto"`
+	Wireproto *ConfigWireproto `json:"wireproto,omitempty"`
 }
 
 type ConfigWireproto struct {
-	Address        string               `json:"address"`
-	Authentication ConfigAuthentication `json:"authentication"`
-	TLS            ConfigTLS            `json:"tls"`
+	Address        string                `json:"address"`
+	Authentication *ConfigAuthentication `json:"authentication,omitempty"`
+	TLS            ConfigTLS             `json:"tls"`
 }
 
 type ConfigAuthentication struct {
@@ -40,8 +40,16 @@ type ConfigAuthentication struct {
 	KeyFile string `json:"keyFile"`
 }
 
+type ConfigTLSMode string
+
+const (
+	ConfigTLSModeTLS      ConfigTLSMode = "TLS"
+	ConfigTLSModeDisabled ConfigTLSMode = "Disabled"
+)
+
 type ConfigTLS struct {
-	Mode string `json:"mode"`
+	Mode               ConfigTLSMode `json:"mode"`
+	CertificateKeyFile *string       `json:"certificateKeyFile,omitempty"`
 }
 
 type ConfigMetrics struct {
