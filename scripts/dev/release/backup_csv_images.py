@@ -236,10 +236,6 @@ def backup_image_process(original_image: str, backup_image: str, dry_run: bool =
         logger.info(f"Pushing {backup_image}...")
         run_command(["docker", "push", backup_image], dry_run=dry_run)
 
-        # Clean up
-        run_command(["docker", "rmi", backup_image], check=False, dry_run=dry_run)
-        run_command(["docker", "rmi", original_image], check=False, dry_run=dry_run)
-
         logger.info(f"Successfully backed up {original_image}")
         return True
 
