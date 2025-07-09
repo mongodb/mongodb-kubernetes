@@ -30,7 +30,9 @@ import (
 )
 
 const (
-	MongoDBSearchIndexFieldName = "mdbsearch-for-mongodbresourceref-index"
+	MongoDBSearchIndexFieldName      = "mdbsearch-for-mongodbresourceref-index"
+	unsupportedSearchVersion         = "1.47.0"
+	unsupportedSearchVersionErrorFmt = "MongoDBSearch version %s is not supported"
 )
 
 type OperatorSearchConfig struct {
@@ -268,15 +270,32 @@ func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSourc
 		for i, search := range searchList.Items {
 			resourceNames[i] = search.Name
 		}
-		return xerrors.Errorf("Found multiple MongoDBSearch resources for search source '%s': %s", r.db.Name(), strings.Join(resourceNames, ", "))
+		return xerrors.Errorf(
+			"Found multiple MongoDBSearch resources for search source '%s': %s", r.db.Name(),
+			strings.Join(resourceNames, ", "),
+		)
 	}
 
 	return nil
 }
 
 func (r *MongoDBSearchReconcileHelper) ValidateSearchImageVersion() error {
-	if r.mdbSearch.Spec.Version == "1.47.0" {
-		return xerrors.New("MongoDBSearch version 1.47.0 is not supported")
+	version := strings.TrimSpace(r.mdbSearch.Spec.Version)
+	if version != "" {
+		if version == unsupportedSearchVersion {
+			return xerrors.Errorf(unsupportedSearchVersionErrorFmt, unsupportedSearchVersion)
+		}
+		return nil
+	}
+
+	if r.mdbSearch.Spec.StatefulSetConfiguration == nil {
+		return nil
+	}
+
+	for _, container := range r.mdbSearch.Spec.StatefulSetConfiguration.SpecWrapper.Spec.Template.Spec.Containers {
+		if strings.Contains(container.Image, unsupportedSearchVersion) {
+			return xerrors.Errorf(unsupportedSearchVersionErrorFmt, unsupportedSearchVersion)
+		}
 	}
 
 	return nil
