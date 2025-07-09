@@ -115,7 +115,7 @@ def extract_tag_from_related_image_name(image_name: str) -> str:
     Examples:
         # Agent images
         'agent-image-107-0-10-8627-1-1-1-0' -> '107.0.10.8627-1_1.1.0'
-        'agent_image_107_0_10_8627_1_1_0_1' -> '107.0.10.8627-1.1.0.1'
+        'agent-image-107-0-10-8627-1' -> '107.0.10.8627-1'
 
         # Non-agent images
         'mongodb-image' -> ''  # skipped
@@ -132,15 +132,19 @@ def extract_tag_from_related_image_name(image_name: str) -> str:
         if not version_parts:
             return ""
 
-        # For agent images, we need at least 4 parts (major, minor, patch, 1) for the main version, the rest - if it exists - is the operator version
-        if len(version_parts) >= 4:
-            main_version = ".".join(version_parts[:4])
-            if len(version_parts) > 4:
-                return f"{main_version}-{'.'.join(version_parts[4:])}"
-            return main_version
+        # For agent images, we need at least 4 parts (major, minor, patch, build, magical_one)
+        if len(version_parts) >= 5:
+            main_version = ".".join(version_parts[:4])  # Join first 3 parts with dots (major.minor.patch.build)
+            magical_one = version_parts[4]  # 4th part is the build number
+            agent_version = f"{main_version}-{magical_one}"
 
-        # If we have fewer than 4 parts, just join them with dots
-        return ".".join(version_parts)
+            # If we have additional parts, they form the operator version
+            if len(version_parts) > 5:
+                operator_version = ".".join(version_parts[5:])  # Join remaining parts with dots
+                return f"{agent_version}_{operator_version}"
+            return f"{agent_version}"
+
+        logger.info(f"we had an agent version with an uncommon pattern, skipping it: {image_name}")
 
     # For non-agent images, take the last segment after the last hyphen
     # and convert remaining hyphens to dots (e.g., '1-2-0' -> '1.2.0')
