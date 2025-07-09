@@ -219,6 +219,25 @@ def generate_backup_tag(original_image: str, original_tag: str, mck_version: str
         return ""
 
 
+def image_exists(image_ref: str, dry_run: bool = False) -> bool:
+    """Check if an image exists in the remote registry"""
+    if dry_run:
+        return False  # Always assume image doesn't exist in dry-run mode
+        
+    try:
+        # Use docker manifest inspect to check if the image exists without pulling it
+        result = subprocess.run(
+            ["docker", "manifest", "inspect", image_ref],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        return result.returncode == 0
+    except Exception as e:
+        logger.debug(f"Error checking if image exists {image_ref}: {e}")
+        return False
+
+
 def backup_image_process(original_image: str, backup_image: str, dry_run: bool = False) -> bool:
     """Backup a single image to Quay, preserving the original digest"""
     try:
@@ -227,6 +246,11 @@ def backup_image_process(original_image: str, backup_image: str, dry_run: bool =
         if "@sha256:" not in original_image:
             logger.info(f"Image has no digest, skipping backup")
             return False
+
+        # Check if the backup image already exists
+        if image_exists(backup_image, dry_run):
+            logger.info(f"Backup image already exists, skipping: {backup_image}")
+            return True
 
         logger.info(f"Pulling {original_image}...")
         run_command(["docker", "pull", original_image], dry_run=dry_run)
