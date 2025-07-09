@@ -297,7 +297,6 @@ def main():
 
     if args.dry_run:
         logger.info("Dry run mode - no images will be backed up")
-        logger.info("Dry run mode - no images will be backed up")
 
     # Execute backup
     successful = 0
@@ -310,7 +309,7 @@ def main():
 
     for i, (original_image, image_to_backup) in enumerate(backup_plan, 1):
         logger.info(f"Processing image {i} of {len(backup_plan)}")
-        if backup_image_process(original_image, image_to_backup):
+        if backup_image_process(original_image, image_to_backup, dry_run=args.dry_run):
             successful += 1
         else:
             failed += 1

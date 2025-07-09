@@ -1247,7 +1247,7 @@ buildvariants:
     display_name: "Backup CSV Images"
     tags: [ "release_csv_backup" ]
     run_on:
-      - ubuntu2204-large
+      - ubuntu2204-small
     tasks:
       - name: backup_csv_images_dry_run
       - name: backup_csv_images_limit_3
