@@ -18,11 +18,9 @@ from typing import Dict, List, Optional
 import yaml
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
+
 
 def run_command(cmd: List[str], check: bool = True, dry_run: bool = False) -> Optional[subprocess.CompletedProcess]:
     """Run a shell command and return the result.
@@ -48,7 +46,7 @@ def run_command(cmd: List[str], check: bool = True, dry_run: bool = False) -> Op
 def parse_csv_file(csv_path: Path) -> Dict:
     """Parse the ClusterServiceVersion YAML file."""
     try:
-        with open(csv_path, 'r') as f:
+        with open(csv_path, "r") as f:
             csv_data = yaml.safe_load(f)
         logger.info(f"Successfully parsed CSV file: {csv_path}")
         return csv_data
@@ -59,26 +57,26 @@ def parse_csv_file(csv_path: Path) -> Dict:
 
 def extract_version_from_csv(csv_data: Dict) -> str:
     """Extract version from CSV metadata."""
-    name = csv_data.get('metadata', {}).get('name', '')
+    name = csv_data.get("metadata", {}).get("name", "")
     # Common patterns: mongodb-kubernetes.v1.2.0
-    version = name.split('.v')[-1]
+    version = name.split(".v")[-1]
     logger.debug(f"Extracted version from metadata.name: {version}")
     return version
 
 
 def extract_images_from_csv(csv_data: Dict) -> Dict[str, str]:
     """Extract all images from the ClusterServiceVersion with their original tags.
-        The relatedImages section in spec.relatedImages
+    The relatedImages section in spec.relatedImages
     """
     image_url_to_tag = {}  # image_url -> original_tag
 
     # Extract from relatedImages section
     try:
-        related_images = csv_data.get('spec', {}).get('relatedImages', [])
+        related_images = csv_data.get("spec", {}).get("relatedImages", [])
         for related_image in related_images:
-            if 'image' in related_image:
-                original_tag = extract_tag_from_related_image_name(related_image['name'])
-                image_url_to_tag[related_image['image']] = original_tag
+            if "image" in related_image:
+                original_tag = extract_tag_from_related_image_name(related_image["name"])
+                image_url_to_tag[related_image["image"]] = original_tag
                 logger.debug(f"Found relatedImages entry: {related_image['image']} -> {original_tag}")
     except Exception as e:
         logger.warning(f"Error extracting relatedImages: {e}")
@@ -100,11 +98,11 @@ def extract_tag_from_related_image_name(image_name: str) -> str:
         'init-appdb-image-repository-1-2-0' -> '1.2.0'
         'ops-manager-image-repository-6-0-25' -> '6.0.25'
     """
-    if 'mongodb-image' in image_name:
-        return ''
+    if "mongodb-image" in image_name:
+        return ""
 
-    if 'agent' in image_name.lower():
-        parts = image_name.replace('-', '_').split('_')
+    if "agent" in image_name.lower():
+        parts = image_name.replace("-", "_").split("_")
         version_parts = [p for p in parts if p.isdigit()]
 
         if not version_parts:
@@ -126,9 +124,9 @@ def extract_tag_from_related_image_name(image_name: str) -> str:
 
     # For non-agent images, take the last segment after the last hyphen
     # and convert remaining hyphens to dots (e.g., '1-2-0' -> '1.2.0')
-    if '-' in image_name:
-        version_parts = image_name.split('-')[-3:]  # Take last 3 parts for version
-        return '.'.join(version_parts)
+    if "-" in image_name:
+        version_parts = image_name.split("-")[-3:]  # Take last 3 parts for version
+        return ".".join(version_parts)
 
     return ""
 
@@ -204,10 +202,7 @@ def image_exists(image_ref: str, dry_run: bool = False) -> bool:
     try:
         # Use docker manifest inspect to check if the image exists without pulling it
         result = subprocess.run(
-            ["docker", "manifest", "inspect", image_ref],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
+            ["docker", "manifest", "inspect", image_ref], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
         )
         return result.returncode == 0
     except Exception as e:
@@ -246,37 +241,18 @@ def backup_image_process(original_image: str, backup_image: str, dry_run: bool =
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Backup digest-pinned images from ClusterServiceVersion to Quay.io"
-    )
+    parser = argparse.ArgumentParser(description="Backup digest-pinned images from ClusterServiceVersion to Quay.io")
     parser.add_argument(
         "--skip-login",
         action="store_true",
         help="Skip Quay.io login (use if already authenticated)",
     )
-    parser.add_argument(
-        "csv_file",
-        type=Path,
-        help="Path to the ClusterServiceVersion YAML file"
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Show what would be backed up without actually doing it"
-    )
+    parser.add_argument("csv_file", type=Path, help="Path to the ClusterServiceVersion YAML file")
+    parser.add_argument("--dry-run", action="store_true", help="Show what would be backed up without actually doing it")
 
-    parser.add_argument(
-        "--verbose", "-v",
-        action="store_true",
-        help="Enable verbose logging"
-    )
+    parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging")
 
-    parser.add_argument(
-        "--limit",
-        type=int,
-        default=0,
-        help="Maximum number of images to back up (0 means no limit)"
-    )
+    parser.add_argument("--limit", type=int, default=0, help="Maximum number of images to back up (0 means no limit)")
 
     args = parser.parse_args()
 
@@ -302,7 +278,7 @@ def main():
 
     backup_plan = []
     for image_url, original_tag in digest_pinned_images_to_backup.items():
-        if 'mongodb-enterprise-server' in image_url:
+        if "mongodb-enterprise-server" in image_url:
             logger.info(f"Skipping mongodb-enterprise-server image: {image_url}")
             continue
 
@@ -326,7 +302,7 @@ def main():
 
     if args.limit > 0:
         logger.info(f"Limiting backup to {args.limit} out of {total} images")
-        backup_plan = backup_plan[:args.limit]
+        backup_plan = backup_plan[: args.limit]
 
     for i, (original_image, image_to_backup) in enumerate(backup_plan, 1):
         logger.info(f"Processing image {i} of {len(backup_plan)}")
