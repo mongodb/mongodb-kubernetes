@@ -24,6 +24,7 @@ def copy_into_container(client, src, dst):
     with open(src + ".tar", "rb") as fd:
         container.put_archive(os.path.dirname(dst), fd.read())
 
+
 def build_operator_image_fast(build_configuration: BuildConfiguration) -> bool:
     """This function builds the operator locally and pushed into an existing
     Docker image. This is the fastest way I could image we can do this."""
@@ -69,7 +70,7 @@ def build_operator_image_fast(build_configuration: BuildConfiguration) -> bool:
         client,
         os.getcwd() + "/docker/mongodb-kubernetes-operator/content/mongodb-kubernetes-operator",
         container_name + ":" + operator_binary_location,
-        )
+    )
 
     # Commit changes on disk as a tag
     container.commit(

@@ -32,7 +32,8 @@ from scripts.release.atomic_pipeline import (
     build_init_appdb,
     build_init_database,
     build_init_om_image,
-    build_om_image, operator_build_configuration,
+    build_om_image,
+    operator_build_configuration,
 )
 from scripts.release.build_configuration import BuildConfiguration
 
@@ -63,6 +64,7 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
     }
 
     return image_builders
+
 
 def build_image(image_name: str, build_configuration: BuildConfiguration):
     """Builds one of the supported images by its name."""
