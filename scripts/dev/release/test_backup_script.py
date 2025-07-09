@@ -198,11 +198,10 @@ class TestBackupImageProcess(unittest.TestCase):
 
         # Verify the correct commands were executed
         expected_calls = [
+            (["docker", "manifest", "inspect", backup_image],),
             (["docker", "pull", original_image],),
             (["docker", "tag", original_image, backup_image],),
             (["docker", "push", backup_image],),
-            (["docker", "rmi", backup_image],),
-            (["docker", "rmi", original_image],),
         ]
 
         for i, call_args in enumerate(mock_run.call_args_list):
