@@ -11,7 +11,8 @@ from lib.base_logger import logger
 from lib.sonar.sonar import create_ecr_repository
 from scripts.evergreen.release.images_signing import sign_image, verify_signature
 
-
+# TODO use either from python_on_whales import docker to use buildx and build multi arch image at once
+#  or subprocess with cmd = [ "docker", "buildx", "build", "--platform", platforms ]
 def ecr_login_boto3(region: str, account_id: str):
     """
     Fetches an auth token from ECR via boto3 and logs
@@ -19,7 +20,6 @@ def ecr_login_boto3(region: str, account_id: str):
     """
     registry = f"{account_id}.dkr.ecr.{region}.amazonaws.com"
     # 1) get token
-    boto3.setup_default_session(profile_name="default")
     ecr = boto3.client("ecr", region_name=region)
     try:
         resp = ecr.get_authorization_token(registryIds=[account_id])
@@ -60,7 +60,7 @@ def build_image(docker_client: docker.DockerClient, tag: str, dockerfile: str, p
             tag=tag,
             rm=True,  # remove intermediate containers after a successful build
             pull=False,  # set True to always attempt to pull a newer base image
-            buildargs=args,  # pass build args if provided
+            buildargs=args,
         )
         logger.info(f"Successfully built {tag} (id: {image.id})")
         # Print build output
@@ -75,6 +75,9 @@ def build_image(docker_client: docker.DockerClient, tag: str, dockerfile: str, p
             elif "error" in stage:
                 logger.error(stage["error"])
         logger.error(e)
+        logger.error(
+            "Note that the docker client only surfaces the general error message. For detailed troubleshooting of the build failure, run the equivalent build command locally or use the docker Python API client directly."
+        )
         raise RuntimeError(f"Failed to build image {tag}")
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
@@ -100,14 +103,16 @@ def push_image(docker_client: docker.DockerClient, image: str, tag: str):
         logger.error(f"Failed to push image {image_full_uri} - {e}")
         sys.exit(1)
 
-LATEST_TAG = "latest"
+
 def process_image(
     image_name: str,
+    image_tag: str,
     dockerfile_path: str,
     dockerfile_args: Dict[str, str],
     base_registry: str,
     architecture: str = None,
     sign: bool = False,
+    build_path: str = ".",
 ):
     docker_client = docker.from_env()
     logger.debug("Docker client initialized")
@@ -117,7 +122,7 @@ def process_image(
     # Helper to automatically create registry with correct name
     should_create_repo = False
     if should_create_repo:
-        repo_to_create="julienben/staging-temp/"+image_name
+        repo_to_create = "julienben/staging-temp/" + image_name
         logger.debug(f"repo_to_create: {repo_to_create}")
         create_ecr_repository(repo_to_create)
         logger.info(f"Created repository {repo_to_create}")
@@ -125,12 +130,12 @@ def process_image(
     # Build image
     docker_registry = f"{base_registry}/{image_name}"
     arch_tag = f"-{architecture}" if architecture else ""
-    image_tag = f"{LATEST_TAG}{arch_tag}"
+    image_tag = f"{image_tag}{arch_tag}"
     image_full_uri = f"{docker_registry}:{image_tag}"
     logger.info(f"Building image: {image_full_uri}")
-    logger.info(f"Using Dockerfile at: {dockerfile_path}")
+    logger.info(f"Using Dockerfile at: {dockerfile_path}, and build path: {build_path}")
     logger.debug(f"Build args: {dockerfile_args}")
-    build_image(docker_client, path=".", dockerfile=f"{dockerfile_path}", tag=image_full_uri, args=dockerfile_args)
+    build_image(docker_client, path=build_path, dockerfile=f"{dockerfile_path}", tag=image_full_uri, args=dockerfile_args)
 
     # Push to staging registry
     logger.info(f"Pushing image: {image_tag} to {docker_registry}")
