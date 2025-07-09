@@ -196,28 +196,28 @@ def backup_image_process(original_image: str, backup_image: str, dry_run: bool =
     try:
         logger.info(f"{'[DRY RUN] ' if dry_run else ''}Backing up {original_image} -> {backup_image}")
 
-        has_digest = "@sha256:" in original_image
-
-        if has_digest:
-            logger.info(f"Pulling {original_image}...")
-            run_command(["docker", "pull", original_image], dry_run=dry_run)
-            digest = original_image.split("@")[1]
-            backup_image_with_digest = f"{backup_image}@{digest}"
-            logger.info(f"Tagging as {backup_image_with_digest} (with digest)...")
-            run_command(["docker", "tag", original_image, backup_image_with_digest], dry_run=dry_run)
-
-            logger.info(f"Pushing {backup_image_with_digest}...")
-            run_command(["docker", "push", backup_image_with_digest], dry_run=dry_run)
-
-            run_command(["docker", "rmi", backup_image_with_digest], check=False, dry_run=dry_run)
-            run_command(["docker", "rmi", backup_image], check=False, dry_run=dry_run)
-            run_command(["docker", "rmi", original_image], check=False, dry_run=dry_run)
-
-            logger.info(f"Successfully backed up {original_image}")
-            return True
-        else:
+        if "@sha256:" not in original_image:
             logger.info(f"Image has no digest, skipping backup")
             return False
+
+        # Pull the original image
+        logger.info(f"Pulling {original_image}...")
+        run_command(["docker", "pull", original_image], dry_run=dry_run)
+
+        # Tag the image with the backup tag (without the digest)
+        logger.info(f"Tagging as {backup_image}...")
+        run_command(["docker", "tag", original_image, backup_image], dry_run=dry_run)
+
+        # Push the backup image
+        logger.info(f"Pushing {backup_image}...")
+        run_command(["docker", "push", backup_image], dry_run=dry_run)
+
+        # Clean up
+        run_command(["docker", "rmi", backup_image], check=False, dry_run=dry_run)
+        run_command(["docker", "rmi", original_image], check=False, dry_run=dry_run)
+
+        logger.info(f"Successfully backed up {original_image}")
+        return True
 
     except subprocess.CalledProcessError as e:
         logger.error(f"Failed to backup {original_image}: {e}")
