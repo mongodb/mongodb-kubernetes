@@ -32,7 +32,6 @@ def run_command(cmd: List[str], check: bool = True, dry_run: bool = False) -> Op
     logger.info(f"[DRY RUN] Executing: {' '.join(cmd)}" if dry_run else f"Executing: {' '.join(cmd)}")
 
     if dry_run:
-        logger.info(f"skipping executing")
         return None
 
     try:
@@ -90,7 +89,9 @@ def extract_version_from_csv(csv_data: Dict) -> str:
 
 
 def extract_images_from_csv(csv_data: Dict) -> Dict[str, str]:
-    """Extract all images from the ClusterServiceVersion with their original tags."""
+    """Extract all images from the ClusterServiceVersion with their original tags.
+        The relatedImages section in spec.relatedImages
+    """
     image_url_to_tag = {}  # image_url -> original_tag
 
     # Extract from relatedImages section
@@ -163,32 +164,55 @@ def filter_digest_pinned_images(images: Dict[str, str]) -> Dict[str, str]:
     return digest_images
 
 
-def parse_image_url(image_url: str) -> tuple[str, str, str] | None:
-    """Parse an image URL into registry, repository, and tag/digest components."""
-    # Handle digest format: registry/repo@sha256:digest
-    if "@sha256:" in image_url:
-        base_url, digest = image_url.split("@sha256:")
-        if "/" in base_url:
-            registry = base_url.split("/")[0]
-            repository = "/".join(base_url.split("/")[1:])
-        else:
-            registry = ""
-            repository = base_url
-        return registry, repository, f"sha256:{digest}"
+def parse_image_url(image_url: str) -> tuple[str, str, str]:
+    """Parse a digest-pinned image URL into registry, repository, and digest components.
+
+    Args:
+        image_url: The digest-pinned image URL (e.g., 'quay.io/mongodb/mongodb-agent-ubi@sha256:abc123')
+
+    Returns:
+        A tuple of (registry, repository, digest)
+        - registry: The registry part (e.g., 'quay.io')
+        - repository: The repository path (e.g., 'mongodb/mongodb-agent-ubi')
+        - digest: The image digest (e.g., 'sha256:abc123')
+    """
+    # Split off the digest
+    if "@" not in image_url:
+        raise ValueError(f"Expected digest-pinned image URL, got: {image_url}")
+
+    base_url, digest = image_url.split("@", 1)
+
+    # Split registry and repository
+    parts = base_url.split("/")
+    if len(parts) < 2:
+        raise ValueError(f"Invalid image URL format: {image_url}")
+
+    registry = parts[0]
+    repository = "/".join(parts[1:])
+
+    return registry, repository, digest
 
 
-def generate_backup_tag(original_image: str, original_tag: str, version: str) -> str:
+def generate_backup_tag(original_image: str, original_tag: str, mck_version: str) -> str:
     """Generate the backup tag for an image with the following pattern:
         quay.io/mongodb/{repo_name}:{original_tag}_openshift_{version}
+
+    Args:
+        original_image: The original image URL (e.g., 'quay.io/mongodb/operator@sha256:abc123')
+        original_tag: The original tag to use in the backup tag
+        mck_version: The version to append to the backup tag
+
+    Returns:
+        The backup tag in the format 'quay.io/mongodb/{repo_name}:{original_tag}_openshift_{version}'
     """
-    registry, repository, tag_or_digest = parse_image_url(original_image)
-    if registry is None:
+    try:
+        # Extract the repository name (last part of the image path)
+        # Example: 'quay.io/mongodb/mongodb-agent-ubi' -> 'mongodb-agent-ubi'
+        repo_name = original_image.split("@")[0].split("/")[-1]
+        return f"quay.io/mongodb/{repo_name}:{original_tag}_openshift_{mck_version}"
+    except Exception as e:
+        logger.error(f"Failed to generate backup tag for {original_image}: {e}")
         return ""
-
-    # Extract just the repository name (last part after /)
-    repo_name = repository.split("/")[-1] if "/" in repository else repository
-
-    return f"quay.io/mongodb/{repo_name}:{original_tag}_openshift_{version}"
 
 
 def backup_image_process(original_image: str, backup_image: str, dry_run: bool = False) -> bool:
