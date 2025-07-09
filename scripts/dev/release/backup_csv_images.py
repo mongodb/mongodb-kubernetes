@@ -45,28 +45,6 @@ def run_command(cmd: List[str], check: bool = True, dry_run: bool = False) -> Op
         raise
 
 
-def get_image_digest(image_url: str) -> str:
-    """Get the digest of an image using docker inspect."""
-    try:
-        # First try to pull the image to ensure we have the latest
-        run_command(["docker", "pull", image_url])
-
-        # Get the digest
-        result = run_command([
-            "docker", "inspect", "--format={{index .RepoDigests 0}}", image_url
-        ])
-
-        digest_url = result.stdout.strip()
-        if "@sha256:" in digest_url:
-            return digest_url.split("@sha256:")[1]
-        else:
-            logger.warning(f"Could not get digest for {image_url}")
-            return ""
-    except subprocess.CalledProcessError:
-        logger.error(f"Failed to get digest for {image_url}")
-        return ""
-
-
 def parse_csv_file(csv_path: Path) -> Dict:
     """Parse the ClusterServiceVersion YAML file."""
     try:
@@ -132,15 +110,15 @@ def extract_tag_from_related_image_name(image_name: str) -> str:
         if not version_parts:
             return ""
 
-        # For agent images, we need at least 4 parts (major, minor, patch, build, magical_one)
+        # For agent images, we need at least 5 parts (major, minor, patch, build, magical_one)
         if len(version_parts) >= 5:
-            main_version = ".".join(version_parts[:4])  # Join first 3 parts with dots (major.minor.patch.build)
-            magical_one = version_parts[4]  # 4th part is the build number
+            main_version = ".".join(version_parts[:4])  # Join first 4 parts with dots (major.minor.patch.build)
+            magical_one = version_parts[4]  # 5th part is the magical one
             agent_version = f"{main_version}-{magical_one}"
 
             # If we have additional parts, they form the operator version
             if len(version_parts) > 5:
-                operator_version = ".".join(version_parts[5:])  # Join remaining parts with dots
+                operator_version = ".".join(version_parts[5:])
                 return f"{agent_version}_{operator_version}"
             return f"{agent_version}"
 
@@ -180,13 +158,12 @@ def parse_image_url(image_url: str) -> tuple[str, str, str]:
         - repository: The repository path (e.g., 'mongodb/mongodb-agent-ubi')
         - digest: The image digest (e.g., 'sha256:abc123')
     """
-    # Split off the digest
+
     if "@" not in image_url:
         raise ValueError(f"Expected digest-pinned image URL, got: {image_url}")
 
     base_url, digest = image_url.split("@", 1)
 
-    # Split registry and repository
     parts = base_url.split("/")
     if len(parts) < 2:
         raise ValueError(f"Invalid image URL format: {image_url}")
@@ -223,7 +200,7 @@ def image_exists(image_ref: str, dry_run: bool = False) -> bool:
     """Check if an image exists in the remote registry"""
     if dry_run:
         return False  # Always assume image doesn't exist in dry-run mode
-        
+
     try:
         # Use docker manifest inspect to check if the image exists without pulling it
         result = subprocess.run(
@@ -247,7 +224,6 @@ def backup_image_process(original_image: str, backup_image: str, dry_run: bool =
             logger.info(f"Image has no digest, skipping backup")
             return False
 
-        # Check if the backup image already exists
         if image_exists(backup_image, dry_run):
             logger.info(f"Backup image already exists, skipping: {backup_image}")
             return True
