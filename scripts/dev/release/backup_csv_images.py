@@ -224,15 +224,12 @@ def backup_image_process(original_image: str, backup_image: str, dry_run: bool =
             logger.info(f"Image has no digest, skipping backup")
             return False
 
-        # Pull the original image
         logger.info(f"Pulling {original_image}...")
         run_command(["docker", "pull", original_image], dry_run=dry_run)
 
-        # Tag the image with the backup tag (without the digest)
         logger.info(f"Tagging as {backup_image}...")
         run_command(["docker", "tag", original_image, backup_image], dry_run=dry_run)
 
-        # Push the backup image
         logger.info(f"Pushing {backup_image}...")
         run_command(["docker", "push", backup_image], dry_run=dry_run)
 
