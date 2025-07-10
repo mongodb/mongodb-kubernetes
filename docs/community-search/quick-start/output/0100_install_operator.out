@@ -1,6 +1,6 @@
 Release "mongodb-kubernetes" does not exist. Installing it now.
 NAME: mongodb-kubernetes
-LAST DEPLOYED: Thu May 22 14:03:10 2025
+LAST DEPLOYED: Tue Jul  8 07:04:51 2025
 NAMESPACE: mongodb
 STATUS: deployed
 REVISION: 1
@@ -39,17 +39,17 @@ community:
     version: 4.4.0
 database:
   name: mongodb-kubernetes-database
-  version: 1.1.0
+  version: 1.2.0
 dummy: value
 initAppDb:
   name: mongodb-kubernetes-init-appdb
-  version: 1.1.0
+  version: 1.2.0
 initDatabase:
   name: mongodb-kubernetes-init-database
-  version: 1.1.0
+  version: 1.2.0
 initOpsManager:
   name: mongodb-kubernetes-init-ops-manager
-  version: 1.1.0
+  version: 1.2.0
 managedSecurityContext: false
 mongodb:
   appdbAssumeOldFormat: false
@@ -68,6 +68,7 @@ operator:
   createOperatorServiceAccount: true
   createResourcesServiceAccountsAndRoles: true
   deployment_name: mongodb-kubernetes-operator
+  enableClusterMongoDBRoles: true
   enablePVCResize: true
   env: prod
   maxConcurrentReconciles: 1
@@ -95,7 +96,7 @@ operator:
   vaultSecretBackend:
     enabled: false
     tlsSecretRef: ""
-  version: 1.1.0
+  version: 1.2.0
   watchedResources:
   - mongodb
   - opsmanagers
@@ -168,6 +169,19 @@ metadata:
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
+  name: mongodb-kubernetes-operator-mongodb-cluster-mongodb-role
+rules:
+  - apiGroups:
+      - mongodb.com
+    verbs:
+      - '*'
+    resources:
+      - clustermongodbroles
+---
+# Source: mongodb-kubernetes/templates/operator-roles.yaml
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
   name: mongodb-kubernetes-operator-mongodb-webhook
 rules:
   - apiGroups:
@@ -218,6 +232,20 @@ rules:
       - nodes
     verbs:
       - list
+---
+# Source: mongodb-kubernetes/templates/operator-roles.yaml
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-kubernetes-operator-mongodb-cluster-mongodb-role-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mongodb-kubernetes-operator-mongodb-cluster-mongodb-role
+subjects:
+  - kind: ServiceAccount
+    name: mongodb-kubernetes-operator
+    namespace: mongodb
 ---
 # Source: mongodb-kubernetes/templates/operator-roles.yaml
 kind: ClusterRoleBinding
@@ -419,7 +447,7 @@ spec:
         runAsUser: 2000
       containers:
         - name: mongodb-kubernetes-operator
-          image: "quay.io/mongodb/mongodb-kubernetes:1.1.0"
+          image: "quay.io/mongodb/mongodb-kubernetes:1.2.0"
           imagePullPolicy: Always
           args:
             - -watch-resource=mongodb
@@ -427,6 +455,7 @@ spec:
             - -watch-resource=mongodbusers
             - -watch-resource=mongodbcommunity
             - -watch-resource=mongodbsearch
+            - -watch-resource=clustermongodbroles
           command:
             - /usr/local/bin/mongodb-kubernetes-operator
           resources:
@@ -463,21 +492,21 @@ spec:
             - name: INIT_DATABASE_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-kubernetes-init-database
             - name: INIT_DATABASE_VERSION
-              value: 1.1.0
+              value: 1.2.0
             - name: DATABASE_VERSION
-              value: 1.1.0
+              value: 1.2.0
             # Ops Manager
             - name: OPS_MANAGER_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-enterprise-ops-manager-ubi
             - name: INIT_OPS_MANAGER_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-kubernetes-init-ops-manager
             - name: INIT_OPS_MANAGER_VERSION
-              value: 1.1.0
+              value: 1.2.0
             # AppDB
             - name: INIT_APPDB_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-kubernetes-init-appdb
             - name: INIT_APPDB_VERSION
-              value: 1.1.0
+              value: 1.2.0
             - name: OPS_MANAGER_IMAGE_PULL_POLICY
               value: Always
             - name: AGENT_IMAGE
