@@ -203,3 +203,13 @@ func TestMongoDBSearchReconcile_MultipleSearchResources(t *testing.T) {
 
 	checkSearchReconcileFailed(ctx, t, reconciler, c, search1, "multiple MongoDBSearch")
 }
+
+func TestMongoDBSearchReconcile_InvalidSearchImageVersion(t *testing.T) {
+	ctx := context.Background()
+	search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
+	mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
+	search.Spec.Version = "1.47.0"
+	reconciler, c := newSearchReconciler(mdbc, search)
+
+	checkSearchReconcileFailed(ctx, t, reconciler, c, search, "MongoDBSearch version 1.47.0 is not supported")
+}
