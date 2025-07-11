@@ -1,11 +1,10 @@
-import json
 from ipaddress import IPv4Address
-from typing import Any, List
+from typing import List
 
 import kubernetes
 import pytest
-from kubetester import MongoDB, read_configmap
-from kubetester.mongodb_multi import MultiClusterClient
+from kubetester.mongodb import MongoDB
+from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
 from tests.conftest import (
     LEGACY_CENTRAL_CLUSTER_NAME,
@@ -18,6 +17,7 @@ from tests.conftest import (
     get_multi_cluster_operator_installation_config,
     get_operator_installation_config,
     is_multi_cluster,
+    read_deployment_state,
 )
 from tests.multicluster.conftest import cluster_spec_list
 
@@ -220,14 +220,14 @@ def setup_cluster_spec_list(resource: MongoDB, cluster_spec_type: str, members_a
 
 
 def get_member_cluster_clients_using_cluster_mapping(resource_name: str, namespace: str) -> List[MultiClusterClient]:
-    cluster_mapping = read_deployment_state(resource_name, namespace)["clusterMapping"]
+    cluster_mapping = read_deployment_state(resource_name, namespace, get_central_cluster_client())["clusterMapping"]
     return get_member_cluster_clients(cluster_mapping)
 
 
 def get_member_cluster_client_using_cluster_mapping(
     resource_name: str, namespace: str, cluster_name: str
 ) -> MultiClusterClient:
-    cluster_mapping = read_deployment_state(resource_name, namespace)["clusterMapping"]
+    cluster_mapping = read_deployment_state(resource_name, namespace, get_central_cluster_client())["clusterMapping"]
     for m in get_member_cluster_clients(cluster_mapping):
         if m.cluster_name == cluster_name:
             return m
@@ -277,13 +277,3 @@ def get_all_shards_pod_names(resource: MongoDB):
                 pod_names.append(pod_name)
 
     return pod_names
-
-
-def read_deployment_state(resource_name: str, namespace: str) -> dict[str, Any]:
-    deployment_state_cm = read_configmap(
-        namespace,
-        f"{resource_name}-state",
-        get_central_cluster_client(),
-    )
-    state = json.loads(deployment_state_cm["state"])
-    return state

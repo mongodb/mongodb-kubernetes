@@ -1,7 +1,8 @@
 import pytest
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
+from kubetester.phase import Phase
 from pytest import fixture
 
 RESOURCE_NAME = "my-replica-set"

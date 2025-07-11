@@ -2,16 +2,9 @@
 
 set -Eeou pipefail
 
-pushd "${PWD}" > /dev/null || return
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
-cd "${DIR}" || return
-# shellcheck source=scripts/funcs/checks
-source checks
-# shellcheck source=scripts/funcs/errors
-source errors
-# shellcheck source=scripts/funcs/printing
-source printing
-popd > /dev/null || return
+source scripts/funcs/checks
+source scripts/funcs/errors
+source scripts/funcs/printing
 
 ensure_namespace() {
     local namespace="${1}"
@@ -194,4 +187,70 @@ delete_kind_network() {
   fi
 
   docker network rm kind
+}
+
+docker_run_local_registry() {
+  reg_name="$1"
+  reg_port="$2"
+  running="$(docker inspect -f '{{.State.Running}}' "${reg_name}" 2>/dev/null || true)"
+  if [ "${running}" != 'true' ]; then
+    docker run -d --restart=always -p "127.0.0.1:${reg_port}:5000" --name "${reg_name}" registry:2
+  fi
+}
+
+docker_create_kind_network() {
+  # We create docker network primarily so that all kind clusters use the same network.
+  # We hardcode 172.18/16 subnet in few places, so we must ensure the network uses that subnet:
+  #   - we set IP ranges for MetalLB
+  #   - we write into coredns config map with IP used for exposing pods externally and for no-mesh test
+  # In case of any errors, verify if any other subnet is not already using that subnet.
+  docker network create --subnet=172.18.0.0/16 kind || true
+}
+
+docker_network_connect_to_kind() {
+# connect the registry to the cluster network if not already connected
+  if [ "$(docker inspect -f='{{json .NetworkSettings.Networks.kind}}' "${reg_name}")" = 'null' ]; then
+    docker network connect "kind" "${reg_name}"
+  fi
+}
+
+# Function to run a script with kubectl wrapped to use a specific context.
+# This is useful when we run third-party/downloaded scripts which don't specify kubectl context
+# explicitly but assume kubectl works on the current context.
+# When kubectl is assuming current context it is not possible to execute it concurrently for different contexts.
+run_script_with_wrapped_kubectl() {
+    local script_path="$1"
+    local context="$2"
+
+    # Create a temporary wrapper script in the same directory as the script to run
+    local script_dir
+    script_dir="$(dirname "${script_path}")"
+    local wrapper_script="${script_dir}/kubectl_wrapper_${context//\//_}_$$.sh"
+
+    cat > "${wrapper_script}" << EOF
+#!/bin/bash
+# Define kubectl function to include the context
+set -x
+kubectl() {
+  command kubectl --context "${context}" "\$@"
+}
+export -f kubectl
+source "${script_path}"
+EOF
+
+    # Make the wrapper script executable
+    chmod +x "${wrapper_script}"
+
+    # Run the wrapper script
+    echo "Running script ${script_path} with kubectl wrapped for context ${context}"
+    local result=0
+    if ! "${wrapper_script}"; then
+        echo "Failed to run ${script_path} with kubectl wrapped for context ${context}"
+        result=1
+    fi
+
+    # Clean up the temporary script
+    rm "${wrapper_script}"
+
+    return ${result}
 }

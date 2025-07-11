@@ -258,13 +258,13 @@ func TestOIDCAuthValidation(t *testing.T) {
 						ConfigurationName:   "provider",
 						IssuerURI:           "https://example1.com",
 						AuthorizationMethod: OIDCAuthorizationMethodWorkforceIdentityFederation,
-						ClientId:            "clientId1",
+						ClientId:            ptr.To("clientId1"),
 					},
 					{
 						ConfigurationName:   "provider",
 						IssuerURI:           "https://example2.com",
 						AuthorizationMethod: OIDCAuthorizationMethodWorkforceIdentityFederation,
-						ClientId:            "clientId2",
+						ClientId:            ptr.To("clientId2"),
 					},
 				},
 			},
@@ -281,13 +281,13 @@ func TestOIDCAuthValidation(t *testing.T) {
 						ConfigurationName:   "test-provider1",
 						IssuerURI:           "https://example1.com",
 						AuthorizationMethod: OIDCAuthorizationMethodWorkforceIdentityFederation,
-						ClientId:            "clientId1",
+						ClientId:            ptr.To("clientId1"),
 					},
 					{
 						ConfigurationName:   "test-provider2",
 						IssuerURI:           "https://example2.com",
 						AuthorizationMethod: OIDCAuthorizationMethodWorkforceIdentityFederation,
-						ClientId:            "clientId2",
+						ClientId:            ptr.To("clientId2"),
 					},
 				},
 			},
@@ -304,7 +304,7 @@ func TestOIDCAuthValidation(t *testing.T) {
 						ConfigurationName:   "test-provider-workforce1",
 						IssuerURI:           "https://example1.com",
 						AuthorizationMethod: OIDCAuthorizationMethodWorkforceIdentityFederation,
-						ClientId:            "clientId1",
+						ClientId:            ptr.To("clientId1"),
 					},
 					{
 						ConfigurationName:   "test-provider-workload2",
@@ -376,7 +376,7 @@ func TestOIDCAuthValidation(t *testing.T) {
 						ConfigurationName:   "test-provider",
 						IssuerURI:           "https://example.com",
 						AuthorizationMethod: OIDCAuthorizationMethodWorkloadIdentityFederation,
-						ClientId:            "clientId",
+						ClientId:            ptr.To("clientId"),
 					},
 				},
 			},
@@ -410,7 +410,7 @@ func TestOIDCAuthValidation(t *testing.T) {
 						ConfigurationName: "test-provider1",
 						IssuerURI:         "https://example.com",
 						AuthorizationType: OIDCAuthorizationTypeGroupMembership,
-						GroupsClaim:       "groups",
+						GroupsClaim:       ptr.To("groups"),
 					},
 					{
 						ConfigurationName: "test-provider2",
@@ -432,7 +432,7 @@ func TestOIDCAuthValidation(t *testing.T) {
 						ConfigurationName: "test-provider1",
 						IssuerURI:         "https://example.com",
 						AuthorizationType: OIDCAuthorizationTypeUserID,
-						GroupsClaim:       "groups",
+						GroupsClaim:       ptr.To("groups"),
 						UserClaim:         "sub",
 					},
 					{
@@ -456,13 +456,13 @@ func TestOIDCAuthValidation(t *testing.T) {
 						ConfigurationName: "test-provider1",
 						IssuerURI:         "https://example.com",
 						AuthorizationType: OIDCAuthorizationTypeGroupMembership,
-						GroupsClaim:       "groups",
+						GroupsClaim:       ptr.To("groups"),
 					},
 					{
 						ConfigurationName: "test-provider2",
 						IssuerURI:         "https://example.com",
 						AuthorizationType: OIDCAuthorizationTypeGroupMembership,
-						GroupsClaim:       "groups",
+						GroupsClaim:       ptr.To("groups"),
 					},
 				},
 			},
@@ -494,6 +494,100 @@ func TestOIDCAuthValidation(t *testing.T) {
 				warnings := rs.GetStatusWarnings()
 				assert.Contains(t, warnings, tt.expectedWarning)
 			}
+		})
+	}
+}
+
+func TestOIDCProviderConfigUniqueIssuerURIValidation(t *testing.T) {
+	tests := []struct {
+		name           string
+		mongoVersion   string
+		configs        []OIDCProviderConfig
+		expectedResult v1.ValidationResult
+	}{
+		{
+			name:         "MongoDB 7.0.11 with duplicate issuer URIs - error",
+			mongoVersion: "7.0.11",
+			configs: []OIDCProviderConfig{
+				{
+					ConfigurationName: "config1",
+					IssuerURI:         "https://provider.com",
+					Audience:          "audience1",
+				},
+				{
+					ConfigurationName: "config2",
+					IssuerURI:         "https://provider.com",
+					Audience:          "audience2",
+				},
+			},
+			expectedResult: v1.ValidationError("OIDC provider configs %q and %q have duplicate IssuerURI: %s",
+				"config1", "config2", "https://provider.com"),
+		},
+		{
+			name:         "MongoDB 8.0 with duplicate issuer+audience combinations - warning",
+			mongoVersion: "8.0.0",
+			configs: []OIDCProviderConfig{
+				{
+					ConfigurationName: "config1",
+					IssuerURI:         "https://provider.com",
+					Audience:          "audience1",
+				},
+				{
+					ConfigurationName: "config2",
+					IssuerURI:         "https://provider.com",
+					Audience:          "audience1",
+				},
+			},
+			expectedResult: v1.ValidationWarning("OIDC provider configs %q and %q have duplicate IssuerURI and Audience combination",
+				"config1", "config2"),
+		},
+		{
+			name:         "MongoDB 8.0 with unique issuer+audience combinations",
+			mongoVersion: "8.0.0",
+			configs: []OIDCProviderConfig{
+				{
+					ConfigurationName: "config1",
+					IssuerURI:         "https://provider.com",
+					Audience:          "audience1",
+				},
+				{
+					ConfigurationName: "config2",
+					IssuerURI:         "https://provider.com",
+					Audience:          "audience2",
+				},
+			},
+			expectedResult: v1.ValidationSuccess(),
+		},
+		{
+			name:         "MongoDB enterprise version with -ent suffix",
+			mongoVersion: "7.0.11-ent",
+			configs: []OIDCProviderConfig{
+				{
+					ConfigurationName: "config1",
+					IssuerURI:         "https://provider-1.com",
+					Audience:          "audience1",
+				},
+				{
+					ConfigurationName: "config2",
+					IssuerURI:         "https://provider-2.com",
+					Audience:          "audience2",
+				},
+			},
+			expectedResult: v1.ValidationSuccess(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validationFunc := oidcProviderConfigUniqueIssuerURIValidation(tt.configs)
+
+			dbSpec := DbCommonSpec{
+				Version: tt.mongoVersion,
+			}
+
+			result := validationFunc(dbSpec)
+
+			assert.Equal(t, tt.expectedResult, result)
 		})
 	}
 }

@@ -25,7 +25,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
 )
 
@@ -184,19 +183,13 @@ func collectOperatorSnapshot(ctx context.Context, memberClusterMap map[string]Co
 		OperatorVersion:      versionutil.StaticContainersOperatorVersion(),
 		OperatorType:         MEKO,
 	}
-	operatorProperties, err := maputil.StructToMap(operatorEvent)
-	if err != nil {
-		Logger.Debugf("failed converting properties to map: %s", err)
-		return nil
+
+	event := createEvent(operatorEvent, time.Now(), Operators)
+	if event == nil {
+		return []Event{}
 	}
 
-	return []Event{
-		{
-			Timestamp:  time.Now(),
-			Source:     Operators,
-			Properties: operatorProperties,
-		},
-	}
+	return []Event{*event}
 }
 
 func collectDeploymentsSnapshot(ctx context.Context, operatorClusterMgr manager.Manager, operatorUUID, mongodbImage, databaseNonStaticImage string) []Event {
@@ -239,6 +232,9 @@ func getMdbEvents(ctx context.Context, operatorClusterClient kubeclient.Client, 
 				Type:                     string(item.Spec.GetResourceType()),
 				IsRunningEnterpriseImage: images.IsEnterpriseImage(imageURL),
 				ExternalDomains:          getExternalDomainProperty(item),
+				CustomRoles:              getCustomRoles(item.Spec.Security),
+				AuthenticationModes:      getAuthenticationModes(item.Spec.Security),
+				AuthenticationAgentMode:  getAuthenticationAgentMode(item.Spec.Security),
 			}
 
 			if numberOfClustersUsed > 0 {
@@ -277,6 +273,9 @@ func addMultiEvents(ctx context.Context, operatorClusterClient kubeclient.Client
 			Type:                     string(item.Spec.GetResourceType()),
 			IsRunningEnterpriseImage: images.IsEnterpriseImage(imageURL),
 			ExternalDomains:          getExternalDomainPropertyForMongoDBMulti(item),
+			CustomRoles:              getCustomRoles(item.Spec.Security),
+			AuthenticationModes:      getAuthenticationModes(item.Spec.Security),
+			AuthenticationAgentMode:  getAuthenticationAgentMode(item.Spec.Security),
 		}
 
 		if event := createEvent(properties, now, Deployments); event != nil {
@@ -324,8 +323,8 @@ func addOmEvents(ctx context.Context, operatorClusterClient kubeclient.Client, o
 	return events
 }
 
-func createEvent(properties any, now time.Time, eventType EventType) *Event {
-	convertedProperties, err := maputil.StructToMap(properties)
+func createEvent(properties FlatProperties, now time.Time, eventType EventType) *Event {
+	convertedProperties, err := properties.ConvertToFlatMap()
 	if err != nil {
 		Logger.Debugf("failed to parse %s properties: %v", eventType, err)
 		return nil
@@ -427,13 +426,12 @@ func handleEvents(ctx context.Context, atlasClient *Client, events []Event, even
 		return
 	}
 
-	err = atlasClient.SendEventWithRetry(ctx, events)
-	if err == nil {
-		if err := updateTelemetryConfigMapTimeStamp(ctx, operatorClusterClient, namespace, OperatorConfigMapTelemetryConfigMapName, eventType); err != nil {
-			Logger.Debugf("Failed saving timestamp of successful sending of data for type: %s with error: %s", eventType, err)
+	if sendErr := atlasClient.SendEventWithRetry(ctx, events); sendErr == nil {
+		if updateErr := updateTelemetryConfigMapTimeStamp(ctx, operatorClusterClient, namespace, OperatorConfigMapTelemetryConfigMapName, eventType); updateErr != nil {
+			Logger.Debugf("Failed saving timestamp of successful sending of data for type: %s with error: %s", eventType, updateErr)
 		}
 	} else {
-		Logger.Debugf("Encountered error while trying to send payload to atlas; err: %s", err)
+		Logger.Debugf("Encountered error while trying to send payload to atlas; err: %s", sendErr)
 	}
 }
 
@@ -538,4 +536,50 @@ func isExternalDomainSpecifiedInClusterSpecList(clusterSpecList mdbv1.ClusterSpe
 	}
 
 	return clusterSpecList.IsExternalDomainSpecifiedInClusterSpecList()
+}
+
+const (
+	CustomRoleNone       = "None"
+	CustomRoleEmbedded   = "Embedded"
+	CustomRoleReferenced = "Referenced"
+)
+
+func getCustomRoles(security *mdbv1.Security) string {
+	if security == nil {
+		return CustomRoleNone
+	}
+
+	if len(security.Roles) > 0 {
+		return CustomRoleEmbedded
+	}
+
+	if len(security.RoleRefs) > 0 {
+		return CustomRoleReferenced
+	}
+
+	return CustomRoleNone
+}
+
+func getAuthenticationModes(security *mdbv1.Security) []string {
+	if security == nil || security.Authentication == nil {
+		return nil
+	}
+
+	if !security.Authentication.Enabled {
+		return nil
+	}
+
+	return security.Authentication.GetModes()
+}
+
+func getAuthenticationAgentMode(security *mdbv1.Security) string {
+	if security == nil || security.Authentication == nil {
+		return ""
+	}
+
+	if !security.Authentication.Enabled {
+		return ""
+	}
+
+	return security.Authentication.Agents.Mode
 }

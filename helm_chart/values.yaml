@@ -22,7 +22,7 @@ operator:
   deployment_name: mongodb-kubernetes-operator
 
   # Version of mongodb-kubernetes-operator
-  version: 1.0.1
+  version: 1.2.0
 
   # The Custom Resources that will be watched by the Operator. Needs to be changed if only some of the CRDs are installed
   watchedResources:
@@ -65,6 +65,11 @@ operator:
   # It might be necessary to disable it to avoid conflicts when
   # kubectl mongodb plugin is used to configure multi-cluster resources
   createResourcesServiceAccountsAndRoles: true
+
+  # If true, the helm chart will create the ClusterRole and ClusterRoleBinding for the operator to be able to access the ClusterMongoDBRole resources.
+  # It will also set the --watch-resource flag, to enable the operator to watch the ClusterMongoDBRole resources for changes.
+  # Set to false to not create the ClusterRole and ClusterRoleBinding and to disable the operator watching the ClusterMongoDBRole resources.
+  enableClusterMongoDBRoles: true
 
   # Set to false to not create the RBAC for enabling access to the PVC for resizing for the operator
   enablePVCResize: true
@@ -118,11 +123,11 @@ operator:
 ## Database
 database:
   name: mongodb-kubernetes-database
-  version: 1.0.1
+  version: 1.2.0
 
 initDatabase:
   name: mongodb-kubernetes-init-database
-  version: 1.0.1
+  version: 1.2.0
 
 ## Ops Manager
 opsManager:
@@ -130,12 +135,12 @@ opsManager:
 
 initOpsManager:
   name: mongodb-kubernetes-init-ops-manager
-  version: 1.0.1
+  version: 1.2.0
 
 ## Application Database
 initAppDb:
   name: mongodb-kubernetes-init-appdb
-  version: 1.0.1
+  version: 1.2.0
 
 agent:
   name: mongodb-agent-ubi

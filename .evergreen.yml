@@ -216,8 +216,8 @@ patch_aliases:
     variant_tags: [ "release_all_agents_manually" ]
     task: ".*"
   - alias: "release"
-    variant_tags: [ "release" ]
-    task_tags: [ "image_release", "image_preflight", "openshift_bundles", "code_snippets" ]
+    variant_tags: [ "release", "e2e_smoke_release_test_suite" ]
+    task_tags: [ "image_release", "image_preflight", "openshift_bundles", "code_snippets", "patch-run" ]
   - alias: "smoke_test_release"
     variant_tags: [ "e2e_smoke_release_test_suite" ]
     task_tags: [ "patch-run" ]
@@ -247,8 +247,8 @@ github_checks_aliases:
 # Triggered on git tag
 git_tag_aliases:
   - git_tag: "^(\\d+\\.)?(\\d+\\.)?(\\d+)$"
-    variant_tags: [ "release" ]
-    task_tags: [ "image_release", "image_preflight", "openshift_bundles", "code_snippets" ]
+    variant_tags: [ "release", "e2e_smoke_release_test_suite" ]
+    task_tags: [ "image_release", "image_preflight", "openshift_bundles", "code_snippets", "patch-run" ]
 
 tasks:
   - name: unit_tests_golang
@@ -286,6 +286,7 @@ tasks:
       - func: pipeline
         vars:
           image_name: operator
+          include_tags: release
 
   # Releases init images to Quay
   - name: release_init_appdb
@@ -299,6 +300,7 @@ tasks:
       - func: pipeline
         vars:
           image_name: init-appdb
+          include_tags: release
 
   - name: release_init_database
     tags: [ "image_release" ]
@@ -311,6 +313,7 @@ tasks:
       - func: pipeline
         vars:
           image_name: init-database
+          include_tags: release
 
   - name: release_init_ops_manager
     tags: [ "image_release" ]
@@ -323,6 +326,7 @@ tasks:
       - func: pipeline
         vars:
           image_name: init-ops-manager
+          include_tags: release
 
   - name: release_agent_operator_release
     tags: [ "image_release" ]
@@ -335,6 +339,7 @@ tasks:
       - func: pipeline
         vars:
           image_name: agent
+          include_tags: release
 
   # pct only triggers this variant once a new agent image is out
   - name: release_agent
@@ -587,7 +592,6 @@ tasks:
       - func: clone
       - func: setup_aws
       - func: configure_docker_auth
-      - func: quay_login
       - func: setup_prepare_openshift_bundles
       - func: prepare_openshift_bundles
       - func: update_evergreen_expansions
@@ -605,6 +609,46 @@ tasks:
           condition_script: scripts/evergreen/should_prepare_openshift_bundles.sh
           variant: prepare_openshift_bundles
           task: prepare_and_upload_openshift_bundles
+
+  - name: backup_csv_images_dry_run
+    commands:
+      - func: clone
+      - func: quay_login
+      - command: subprocess.exec
+        params:
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          binary: python3
+          args:
+            - scripts/dev/release/backup_csv_images.py
+            - scripts/dev/release/1.2.0.clusterserviceversion.yaml
+            - --dry-run
+            - --verbose
+  - name: backup_csv_images_limit_3
+    commands:
+      - func: clone
+      - func: quay_login
+      - command: subprocess.exec
+        params:
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          binary: python3
+          args:
+            - scripts/dev/release/backup_csv_images.py
+            - scripts/dev/release/1.2.0.clusterserviceversion.yaml
+            - --limit
+            - "3"
+            - --verbose
+  - name: backup_csv_images_all
+    commands:
+      - func: clone
+      - func: quay_login
+      - command: subprocess.exec
+        params:
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          binary: python3
+          args:
+            - scripts/dev/release/backup_csv_images.py
+            - scripts/dev/release/1.2.0.clusterserviceversion.yaml
+            - --verbose
 
 task_groups:
   - name: unit_task_group
@@ -729,7 +773,7 @@ task_groups:
       - e2e_replica_set_ldap_user_to_dn_mapping
       # e2e_replica_set_ldap_agent_auth
       - e2e_replica_set_ldap_agent_client_certs
-      - e2e_replica_set_custom_roles
+      - e2e_replica_set_ldap_custom_roles
       - e2e_replica_set_update_roles_no_privileges
       - e2e_replica_set_ldap_group_dn
       - e2e_replica_set_ldap_group_dn_with_x509_agent
@@ -760,6 +804,12 @@ task_groups:
       - e2e_replica_set_pv_resize
       - e2e_sharded_cluster_pv_resize
       - e2e_community_and_meko_replicaset_scale
+      # OIDC test group
+      - e2e_replica_set_oidc_m2m_group
+      - e2e_replica_set_oidc_m2m_user
+      - e2e_replica_set_oidc_workforce
+      - e2e_sharded_cluster_oidc_m2m_group
+      - e2e_sharded_cluster_oidc_m2m_user
     <<: *teardown_group
 
   # this task group contains just a one task, which is smoke testing whether the operator
@@ -906,6 +956,11 @@ task_groups:
       - e2e_tls_x509_configure_all_options_sc
       - e2e_tls_x509_sc
       - e2e_meko_mck_upgrade
+      - e2e_mongodb_custom_roles
+      - e2e_sharded_cluster_oidc_m2m_group
+      - e2e_sharded_cluster_oidc_m2m_user
+      - e2e_multi_cluster_oidc_m2m_group
+      - e2e_multi_cluster_oidc_m2m_user
 
     <<: *teardown_group
 
@@ -1192,6 +1247,17 @@ task_groups:
 
 buildvariants:
 
+  ## Backup CSV Images Variant
+  - name: backup_csv_images
+    display_name: "Backup CSV Images"
+    tags: [ "release_csv_backup" ]
+    run_on:
+      - ubuntu2204-small
+    tasks:
+      - name: backup_csv_images_dry_run
+      - name: backup_csv_images_limit_3
+      - name: backup_csv_images_all
+
   ## Unit tests + lint build variant
 
   - name: unit_tests
@@ -1389,29 +1455,7 @@ buildvariants:
 
   - name: e2e_smoke
     display_name: e2e_smoke
-    tags: [ "e2e_test_suite" ]
-    run_on:
-      - ubuntu2204-large
-    depends_on:
-      - name: build_test_image
-        variant: init_test_run
-    tasks:
-      - name: e2e_smoke_task_group
-
-  - name: e2e_static_smoke
-    display_name: e2e_static_smoke
-    tags: [ "e2e_test_suite" ]
-    run_on:
-      - ubuntu2204-large
-    depends_on:
-      - name: build_test_image
-        variant: init_test_run
-    tasks:
-      - name: e2e_smoke_task_group
-
-  - name: e2e_smoke_release
-    display_name: e2e_smoke_release
-    tags: [ "e2e_smoke_release_test_suite" ]
+    tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
     run_on:
       - ubuntu2204-large
     allowed_requesters: [ "patch", "github_tag" ]
@@ -1421,9 +1465,9 @@ buildvariants:
     tasks:
       - name: e2e_smoke_task_group
 
-  - name: e2e_static_smoke_release
-    display_name: e2e_static_smoke_release
-    tags: [ "e2e_smoke_release_test_suite" ]
+  - name: e2e_static_smoke
+    display_name: e2e_static_smoke
+    tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
     run_on:
       - ubuntu2204-large
     allowed_requesters: [ "patch", "github_tag" ]
@@ -1862,10 +1906,27 @@ buildvariants:
 
   - name: private_kind_code_snippets
     display_name: private_kind_code_snippets
-    allowed_requesters: ["patch"]
+    tags: [ "e2e_test_suite" ]
+    allowed_requesters: ["patch", "github_pr"]
     run_on:
       - ubuntu2204-large
     <<: *base_om8_dependency
+    tasks:
+      - name: kind_code_snippets_task_group
+
+  - name: prerelease_kind_code_snippets
+    display_name: prerelease_kind_code_snippets
+    allowed_requesters: ["patch"]
+    run_on:
+      - ubuntu2204-large
+    tasks:
+      - name: kind_code_snippets_task_group
+
+  - name: public_kind_code_snippets
+    display_name: public_kind_code_snippets
+    allowed_requesters: ["patch"]
+    run_on:
+      - ubuntu2204-large
     tasks:
       - name: kind_code_snippets_task_group
 

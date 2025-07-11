@@ -4,6 +4,114 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.15.0
+  name: clustermongodbroles.mongodb.com
+spec:
+  group: mongodb.com
+  names:
+    kind: ClusterMongoDBRole
+    listKind: ClusterMongoDBRoleList
+    plural: clustermongodbroles
+    shortNames:
+    - cmdbr
+    singular: clustermongodbrole
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - description: The time since the MongoDB Custom Role resource was created.
+      jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
+    schema:
+      openAPIV3Schema:
+        description: ClusterMongoDBRole is the Schema for the clustermongodbroles
+          API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ClusterMongoDBRoleSpec defines the desired state of ClusterMongoDBRole.
+            properties:
+              authenticationRestrictions:
+                items:
+                  properties:
+                    clientSource:
+                      items:
+                        type: string
+                      type: array
+                    serverAddress:
+                      items:
+                        type: string
+                      type: array
+                  type: object
+                type: array
+              db:
+                type: string
+              privileges:
+                items:
+                  properties:
+                    actions:
+                      items:
+                        type: string
+                      type: array
+                    resource:
+                      properties:
+                        cluster:
+                          type: boolean
+                        collection:
+                          type: string
+                        db:
+                          type: string
+                      type: object
+                  required:
+                  - actions
+                  - resource
+                  type: object
+                type: array
+              role:
+                type: string
+              roles:
+                items:
+                  properties:
+                    db:
+                      type: string
+                    role:
+                      type: string
+                  required:
+                  - db
+                  - role
+                  type: object
+                type: array
+            required:
+            - db
+            - role
+            type: object
+            x-kubernetes-preserve-unknown-fields: true
+        type: object
+    served: true
+    storage: true
+    subresources: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.15.0
   name: mongodb.mongodb.com
 spec:
   group: mongodb.com
@@ -1535,8 +1643,8 @@ spec:
                               type: string
                             authorizationMethod:
                               description: |-
-                                Configure single-sign-on for human user access to Ops Manager deployments with Workforce Identity Federation.
-                                For programmatic, application access to Ops Manager deployments use Workload Identity Federation.
+                                Configure single-sign-on for human user access to deployments with Workforce Identity Federation.
+                                For programmatic, application access to deployments use Workload Identity Federation.
                                 Only one Workforce Identity Federation IdP can be configured per MongoDB resource
                               enum:
                               - WorkforceIdentityFederation
@@ -1558,24 +1666,23 @@ spec:
                               type: string
                             configurationName:
                               description: |-
-                                Unique label that identifies this configuration. This label is visible to your Ops Manager users and is used when
-                                creating users and roles for authorization. It is case-sensitive and can only contain the following characters:
+                                Unique label that identifies this configuration. It is case-sensitive and can only contain the following characters:
                                  - alphanumeric characters (combination of a to z and 0 to 9)
                                  - hyphens (-)
                                  - underscores (_)
                               pattern: ^[a-zA-Z0-9-_]+$
                               type: string
                             groupsClaim:
-                              default: groups
                               description: |-
                                 The identifier of the claim that includes the principal's IdP user group membership information.
-                                Accept the default value unless your IdP uses a different claim, or you need a custom claim.
                                 Required when selected GroupMembership as the authorization type, ignored otherwise
                               type: string
                             issuerURI:
                               description: |-
-                                Issuer value provided by your registered IdP application. Using this URI, MongoDB finds an OpenID Provider
+                                Issuer value provided by your registered IdP application. Using this URI, MongoDB finds an OpenID Connect Provider
                                 Configuration Document, which should be available in the /.wellknown/open-id-configuration endpoint.
+                                For MongoDB 8.0+, the combination of issuerURI and audience must be unique across OIDC provider configurations.
+                                For other MongoDB versions, the issuerURI itself must be unique.
                               type: string
                             requestedScopes:
                               description: |-
@@ -1607,6 +1714,20 @@ spec:
                     type: object
                   certsSecretPrefix:
                     type: string
+                  roleRefs:
+                    items:
+                      properties:
+                        kind:
+                          enum:
+                          - ClusterMongoDBRole
+                          type: string
+                        name:
+                          type: string
+                      required:
+                      - kind
+                      - name
+                      type: object
+                    type: array
                   roles:
                     items:
                       properties:
@@ -1686,6 +1807,10 @@ spec:
                         type: boolean
                     type: object
                 type: object
+                x-kubernetes-validations:
+                - message: At most one of roles or roleRefs can be non-empty
+                  rule: '!(has(self.roles) && has(self.roleRefs)) || !(self.roles.size()
+                    > 0 && self.roleRefs.size() > 0)'
               service:
                 description: |-
                   DEPRECATED please use `spec.statefulSet.spec.serviceName` to provide a custom service name.
@@ -4171,8 +4296,8 @@ spec:
                               type: string
                             authorizationMethod:
                               description: |-
-                                Configure single-sign-on for human user access to Ops Manager deployments with Workforce Identity Federation.
-                                For programmatic, application access to Ops Manager deployments use Workload Identity Federation.
+                                Configure single-sign-on for human user access to deployments with Workforce Identity Federation.
+                                For programmatic, application access to deployments use Workload Identity Federation.
                                 Only one Workforce Identity Federation IdP can be configured per MongoDB resource
                               enum:
                               - WorkforceIdentityFederation
@@ -4194,24 +4319,23 @@ spec:
                               type: string
                             configurationName:
                               description: |-
-                                Unique label that identifies this configuration. This label is visible to your Ops Manager users and is used when
-                                creating users and roles for authorization. It is case-sensitive and can only contain the following characters:
+                                Unique label that identifies this configuration. It is case-sensitive and can only contain the following characters:
                                  - alphanumeric characters (combination of a to z and 0 to 9)
                                  - hyphens (-)
                                  - underscores (_)
                               pattern: ^[a-zA-Z0-9-_]+$
                               type: string
                             groupsClaim:
-                              default: groups
                               description: |-
                                 The identifier of the claim that includes the principal's IdP user group membership information.
-                                Accept the default value unless your IdP uses a different claim, or you need a custom claim.
                                 Required when selected GroupMembership as the authorization type, ignored otherwise
                               type: string
                             issuerURI:
                               description: |-
-                                Issuer value provided by your registered IdP application. Using this URI, MongoDB finds an OpenID Provider
+                                Issuer value provided by your registered IdP application. Using this URI, MongoDB finds an OpenID Connect Provider
                                 Configuration Document, which should be available in the /.wellknown/open-id-configuration endpoint.
+                                For MongoDB 8.0+, the combination of issuerURI and audience must be unique across OIDC provider configurations.
+                                For other MongoDB versions, the issuerURI itself must be unique.
                               type: string
                             requestedScopes:
                               description: |-
@@ -4243,6 +4367,20 @@ spec:
                     type: object
                   certsSecretPrefix:
                     type: string
+                  roleRefs:
+                    items:
+                      properties:
+                        kind:
+                          enum:
+                          - ClusterMongoDBRole
+                          type: string
+                        name:
+                          type: string
+                      required:
+                      - kind
+                      - name
+                      type: object
+                    type: array
                   roles:
                     items:
                       properties:
@@ -4322,6 +4460,10 @@ spec:
                         type: boolean
                     type: object
                 type: object
+                x-kubernetes-validations:
+                - message: At most one of roles or roleRefs can be non-empty
+                  rule: '!(has(self.roles) && has(self.roleRefs)) || !(self.roles.size()
+                    > 0 && self.roleRefs.size() > 0)'
               statefulSet:
                 description: |-
                   StatefulSetConfiguration provides the statefulset override for each of the cluster's statefulset
@@ -5818,8 +5960,8 @@ spec:
                                   type: string
                                 authorizationMethod:
                                   description: |-
-                                    Configure single-sign-on for human user access to Ops Manager deployments with Workforce Identity Federation.
-                                    For programmatic, application access to Ops Manager deployments use Workload Identity Federation.
+                                    Configure single-sign-on for human user access to deployments with Workforce Identity Federation.
+                                    For programmatic, application access to deployments use Workload Identity Federation.
                                     Only one Workforce Identity Federation IdP can be configured per MongoDB resource
                                   enum:
                                   - WorkforceIdentityFederation
@@ -5841,24 +5983,23 @@ spec:
                                   type: string
                                 configurationName:
                                   description: |-
-                                    Unique label that identifies this configuration. This label is visible to your Ops Manager users and is used when
-                                    creating users and roles for authorization. It is case-sensitive and can only contain the following characters:
+                                    Unique label that identifies this configuration. It is case-sensitive and can only contain the following characters:
                                      - alphanumeric characters (combination of a to z and 0 to 9)
                                      - hyphens (-)
                                      - underscores (_)
                                   pattern: ^[a-zA-Z0-9-_]+$
                                   type: string
                                 groupsClaim:
-                                  default: groups
                                   description: |-
                                     The identifier of the claim that includes the principal's IdP user group membership information.
-                                    Accept the default value unless your IdP uses a different claim, or you need a custom claim.
                                     Required when selected GroupMembership as the authorization type, ignored otherwise
                                   type: string
                                 issuerURI:
                                   description: |-
-                                    Issuer value provided by your registered IdP application. Using this URI, MongoDB finds an OpenID Provider
+                                    Issuer value provided by your registered IdP application. Using this URI, MongoDB finds an OpenID Connect Provider
                                     Configuration Document, which should be available in the /.wellknown/open-id-configuration endpoint.
+                                    For MongoDB 8.0+, the combination of issuerURI and audience must be unique across OIDC provider configurations.
+                                    For other MongoDB versions, the issuerURI itself must be unique.
                                   type: string
                                 requestedScopes:
                                   description: |-
@@ -5890,6 +6031,20 @@ spec:
                         type: object
                       certsSecretPrefix:
                         type: string
+                      roleRefs:
+                        items:
+                          properties:
+                            kind:
+                              enum:
+                              - ClusterMongoDBRole
+                              type: string
+                            name:
+                              type: string
+                          required:
+                          - kind
+                          - name
+                          type: object
+                        type: array
                       roles:
                         items:
                           properties:
@@ -5969,6 +6124,10 @@ spec:
                             type: boolean
                         type: object
                     type: object
+                    x-kubernetes-validations:
+                    - message: At most one of roles or roleRefs can be non-empty
+                      rule: '!(has(self.roles) && has(self.roleRefs)) || !(self.roles.size()
+                        > 0 && self.roleRefs.size() > 0)'
                   service:
                     description: this is an optional service, it will get the name
                       "<rsName>-svc" in case not provided
@@ -7569,6 +7728,13 @@ spec:
                       nullable: true
                       type: object
                       x-kubernetes-preserve-unknown-fields: true
+                    connectionStringSecretAnnotations:
+                      additionalProperties:
+                        type: string
+                      description: ConnectionStringSecretAnnotations is the annotations
+                        of the secret object created by the operator which exposes
+                        the connection strings for the user.
+                      type: object
                     connectionStringSecretName:
                       description: |-
                         ConnectionStringSecretName is the name of the secret object created by the operator which exposes the connection strings for the user.

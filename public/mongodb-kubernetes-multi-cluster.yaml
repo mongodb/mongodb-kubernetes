@@ -3,6 +3,19 @@
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
+  name: mongodb-kubernetes-operator-multi-cluster-mongodb-cluster-mongodb-role
+rules:
+  - apiGroups:
+      - mongodb.com
+    verbs:
+      - '*'
+    resources:
+      - clustermongodbroles
+---
+# Source: mongodb-kubernetes/templates/operator-roles.yaml
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
   name: mongodb-kubernetes-operator-mongodb-webhook
 rules:
   - apiGroups:
@@ -53,6 +66,20 @@ rules:
       - nodes
     verbs:
       - list
+---
+# Source: mongodb-kubernetes/templates/operator-roles.yaml
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-kubernetes-operator-multi-cluster-mongodb-cluster-mongodb-role-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mongodb-kubernetes-operator-multi-cluster-mongodb-cluster-mongodb-role
+subjects:
+  - kind: ServiceAccount
+    name: mongodb-kubernetes-operator-multi-cluster
+    namespace: mongodb
 ---
 # Source: mongodb-kubernetes/templates/operator-roles.yaml
 kind: ClusterRoleBinding
@@ -282,7 +309,7 @@ spec:
         runAsUser: 2000
       containers:
         - name: mongodb-kubernetes-operator-multi-cluster
-          image: "quay.io/mongodb/mongodb-kubernetes:1.0.1"
+          image: "quay.io/mongodb/mongodb-kubernetes:1.2.0"
           imagePullPolicy: Always
           args:
             - -watch-resource=mongodb
@@ -291,6 +318,7 @@ spec:
             - -watch-resource=mongodbcommunity
             - -watch-resource=mongodbsearch
             - -watch-resource=mongodbmulticluster
+            - -watch-resource=clustermongodbroles
           command:
             - /usr/local/bin/mongodb-kubernetes-operator
           volumeMounts:
@@ -330,21 +358,21 @@ spec:
             - name: INIT_DATABASE_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-kubernetes-init-database
             - name: INIT_DATABASE_VERSION
-              value: 1.0.1
+              value: 1.2.0
             - name: DATABASE_VERSION
-              value: 1.0.1
+              value: 1.2.0
             # Ops Manager
             - name: OPS_MANAGER_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-enterprise-ops-manager-ubi
             - name: INIT_OPS_MANAGER_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-kubernetes-init-ops-manager
             - name: INIT_OPS_MANAGER_VERSION
-              value: 1.0.1
+              value: 1.2.0
             # AppDB
             - name: INIT_APPDB_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-kubernetes-init-appdb
             - name: INIT_APPDB_VERSION
-              value: 1.0.1
+              value: 1.2.0
             - name: OPS_MANAGER_IMAGE_PULL_POLICY
               value: Always
             - name: AGENT_IMAGE

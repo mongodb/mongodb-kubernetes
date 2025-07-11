@@ -3,6 +3,8 @@
 set -Eeou pipefail
 
 source scripts/dev/set_env_context.sh
+source scripts/funcs/printing
+
 if [ -f "${PROJECT_DIR}"/venv/bin/activate ]; then
   source "${PROJECT_DIR}"/venv/bin/activate
 fi
@@ -107,55 +109,67 @@ function update_release_json() {
   git add release.json
 }
 
-function pre_commit() {
-  # Update release.json first in case there is a newer version
-  update_release_json
-  # Generate operator manifests (CRDs, etc)
-  generate_manifests
-  # We need to generate the values files first
-  update_values_yaml_files
-  # The values files are used for generating the standalone yaml
-  generate_standalone_yaml
-  # Run black on python files that have changed
-  python_formatting
-  # Generate MCO evergreen tests
-  update_mco_tests
+function regenerate_public_rbac_multi_cluster() {
+    if echo "$git_last_changed" | grep -q 'public/tools/multicluster'; then
+      echo 'regenerating multicluster RBAC public example'
+      pushd public/tools/multicluster
+      EXPORT_RBAC_SAMPLES="true" go test ./... -run TestPrintingOutRolesServiceAccountsAndRoleBindings
+      popd
+      git add public/samples/multi-cluster-cli-gitops
+    fi
+}
 
-  source scripts/evergreen/lint_code.sh
+function update_licenses() {
+    echo 'regenerating licenses'
+    time scripts/evergreen/update_licenses.sh 2>&1 | prepend "update_licenses"
+    git add LICENSE-THIRD-PARTY
+}
 
-  echo 'regenerating licenses.csv'
-  scripts/evergreen/update_licenses.sh
-  git add LICENSE-THIRD-PARTY
-
-  if echo "$git_last_changed" | grep -q 'public/tools/multicluster'; then
-    echo 'regenerating multicluster RBAC public example'
-    pushd public/tools/multicluster
-    EXPORT_RBAC_SAMPLES="true" go test -run TestPrintingOutRolesServiceAccountsAndRoleBindings
-    popd
-    git add public/samples/multi-cluster-cli-gitops
-  fi
-
-  if find . -name "Makefile" | grep -v vendor | xargs grep "\${"; then
-    echo 'ERROR: Makefiles should NEVER contain curly brackets variables'
-    exit 1
-  fi
-
+function check_erroneous_kubebuilder_annotations() {
   # Makes sure there are not erroneous kubebuilder annotations that can
   # end up in CRDs as descriptions.
   if grep "// kubebuilder" ./* -r --exclude-dir=vendor --include=\*.go; then
     echo "Found an erroneous kubebuilder annotation"
     exit 1
   fi
+}
 
-  start_shellcheck
+function check_incorrect_makefile_variable_brackets() {
+  if find . -name "Makefile" | grep -v vendor | xargs grep "\${"; then
+    echo 'ERROR: Makefiles should NEVER contain curly brackets variables'
+    exit 1
+  fi
+}
 
+function pre_commit() {
+  if [[ "${MDB_UPDATE_LICENSES:-""}" == "true" ]]; then
+    ( (time update_licenses) 2>&1 | prepend "update_licenses" ) &
+  fi
+  ( (time scripts/evergreen/lint_code.sh) 2>&1 | prepend "lint_code.sh" ) &
+  ( (time start_shellcheck) 2>&1 | prepend "shellcheck" ) &
+
+  # Update release.json first in case there is a newer version
+  (time update_release_json) 2>&1 | prepend "update_release_json"
+  # We need to generate the values files first
+  (time update_values_yaml_files) 2>&1 | prepend "update_values_yaml_files"
+  # The values files are used for generating the standalone yaml
+  (time generate_standalone_yaml) 2>&1 | prepend "generate_standalone_yaml"
+
+  ( (time regenerate_public_rbac_multi_cluster) 2>&1 | prepend "regenerate_public_rbac_multi_cluster" ) &
+
+  # Run black and isort on python files that have changed
+  ( (time python_formatting) 2>&1 | prepend "python_formatting") &
+
+  ( (time check_erroneous_kubebuilder_annotations) 2>&1 | prepend "check_erroneous_kubebuilder_annotations" ) &
+
+  wait
 }
 
 # Function to run shellcheck on a single file
 run_shellcheck() {
   local file="$1"
   echo "Running shellcheck on $file"
-  if ! shellcheck -x "$file" -e SC2154 -e SC1091 -e SC1090 -e SC2148 -o require-variable-braces -P "scripts"; then
+  if ! shellcheck --color=always -x "$file" -e SC2154 -e SC1091 -e SC1090 -e SC2148 -o require-variable-braces -P "scripts"; then
     echo "shellcheck failed on $file"
     exit 1
   fi
@@ -185,7 +199,7 @@ if [[ "${cmd}" == "generate_standalone_yaml" ]]; then
   shift 1
   generate_standalone_yaml "$@"
 elif [[ "${cmd}" == "pre-commit" ]]; then
-  pre_commit
+ time pre_commit
 elif [[ "${cmd}" == "shellcheck" ]]; then
   start_shellcheck
 elif [[ "${cmd}" == "lint" ]]; then

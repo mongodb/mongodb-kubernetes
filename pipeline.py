@@ -263,17 +263,19 @@ def get_release() -> Dict:
         return json.load(release)
 
 
-def get_git_release_tag() -> tuple[str, bool]:
+def get_git_release_tag() -> str:
     """Returns the git tag of the current run on releases, on non-release returns the patch id."""
     release_env_var = os.getenv("triggered_by_git_tag")
 
     # that means we are in a release and only return the git_tag; otherwise we want to return the patch_id
     # appended to ensure the image created is unique and does not interfere
     if release_env_var is not None:
-        return release_env_var, True
+        logger.info(f"git tag detected: {release_env_var}")
+        return release_env_var
 
     patch_id = os.environ.get("version_id", "latest")
-    return patch_id, False
+    logger.info(f"No git tag detected, using patch_id: {patch_id}")
+    return patch_id
 
 
 def copy_into_container(client, src, dst):
@@ -483,30 +485,54 @@ def build_mco_tests_image(build_configuration: BuildConfiguration):
     sonar_build_image(image_name, build_configuration, buildargs, "inventories/mco_test.yaml")
 
 
+TRACER.start_as_current_span("build_operator_image")
+
+
 def build_operator_image(build_configuration: BuildConfiguration):
     """Calculates arguments required to build the operator image, and starts the build process."""
     # In evergreen, we can pass test_suffix env to publish the operator to a quay
     # repository with a given suffix.
     test_suffix = os.environ.get("test_suffix", "")
     log_automation_config_diff = os.environ.get("LOG_AUTOMATION_CONFIG_DIFF", "false")
-    version, _ = get_git_release_tag()
+    version = get_git_release_tag()
 
-    args = {
-        "version": version,
-        "log_automation_config_diff": log_automation_config_diff,
-        "test_suffix": test_suffix,
-        "debug": build_configuration.debug,
-    }
+    # Use only amd64 if we should skip arm64 builds
+    if should_skip_arm64(build_configuration):
+        architectures = ["amd64"]
+        logger.info("Skipping ARM64 builds for operator image as this is running in EVG pipeline as a patch")
+    else:
+        architectures = build_configuration.architecture or ["amd64", "arm64"]
 
-    logger.info(f"Building Operator args: {args}")
+    multi_arch_args_list = []
+
+    for arch in architectures:
+        arch_args = {
+            "version": version,
+            "log_automation_config_diff": log_automation_config_diff,
+            "test_suffix": test_suffix,
+            "debug": build_configuration.debug,
+            "architecture": arch,
+        }
+        multi_arch_args_list.append(arch_args)
+
+    logger.info(f"Building Operator args: {multi_arch_args_list}")
 
     image_name = "mongodb-kubernetes"
+
+    current_span = trace.get_current_span()
+    current_span.set_attribute("mck.image_name", image_name)
+    current_span.set_attribute("mck.architecture", architectures)
+
+    ecr_registry = os.environ.get("BASE_REPO_URL", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
+    base_repo = QUAY_REGISTRY_URL if build_configuration.is_release_step_executed() else ecr_registry
+
     build_image_generic(
         config=build_configuration,
         image_name=image_name,
         inventory_file="inventory.yaml",
-        extra_args=args,
-        registry_address=f"{QUAY_REGISTRY_URL}/{image_name}",
+        registry_address=f"{base_repo}/{image_name}",
+        multi_arch_args_list=multi_arch_args_list,
+        is_multi_arch=True,
     )
 
 
@@ -735,11 +761,15 @@ class TracedThreadPoolExecutor(ThreadPoolExecutor):
             return super().submit(lambda: fn(*args, **kwargs))
 
 
-def should_skip_arm64():
+def should_skip_arm64(config: BuildConfiguration) -> bool:
     """
-    Determines if arm64 builds should be skipped based on environment.
-    Returns True if running in Evergreen pipeline as a patch.
+        Determines if arm64 builds should be skipped based on environment.
+    Determines if arm64 builds should be skipped based on BuildConfiguration or environment.```
+    And skipping the evergreen detail.
     """
+    if config.is_release_step_executed():
+        return False
+
     return is_running_in_evg_pipeline() and is_running_in_patch()
 
 
@@ -765,8 +795,8 @@ def build_image_daily(
         if arch_set == {"arm64"}:
             raise ValueError("Building for ARM64 only is not supported yet")
 
-        if should_skip_arm64():
-            logger.info("Skipping ARM64 builds as this is running in EVG pipeline as a patch")
+        if should_skip_arm64(build_configuration):
+            logger.info("Skipping ARM64 builds as this is running in as a patch and not a release step.")
             return {"amd64"}
 
         # Automatic architecture detection is the default behavior if 'arch' argument isn't specified
@@ -824,6 +854,10 @@ def build_image_daily(
                 args["release_version"] = version
 
                 arch_set = get_architectures_set(build_configuration, args)
+                span = trace.get_current_span()
+                span.set_attribute("mck.architectures", str(arch_set))
+                span.set_attribute("mck.architectures_numbers", len(arch_set))
+                span.set_attribute("mck.release", build_configuration.is_release_step_executed())
 
                 if version not in completed_versions:
                     if arch_set == {"amd64", "arm64"}:
@@ -973,6 +1007,7 @@ def build_om_image(build_configuration: BuildConfiguration):
     )
 
 
+@TRACER.start_as_current_span("build_image_generic")
 def build_image_generic(
     config: BuildConfiguration,
     image_name: str,
@@ -1011,6 +1046,12 @@ def build_image_generic(
     # Sign and verify the context image if on releases if requied.
     if config.sign and config.is_release_step_executed():
         sign_and_verify_context_image(registry, version)
+
+    span = trace.get_current_span()
+    span.set_attribute("mck.image.image_name", image_name)
+    span.set_attribute("mck.image.version", version)
+    span.set_attribute("mck.image.is_release", config.is_release_step_executed())
+    span.set_attribute("mck.image.is_multi_arch", is_multi_arch)
 
     # Release step. Release images via the daily image process.
     if config.is_release_step_executed() and version and QUAY_REGISTRY_URL in registry:
@@ -1062,11 +1103,11 @@ def build_community_image(build_configuration: BuildConfiguration, image_type: s
     else:
         raise ValueError(f"Unsupported image type: {image_type}")
 
-    version, is_release = get_git_release_tag()
+    version = get_git_release_tag()
     golang_version = os.getenv("GOLANG_VERSION", "1.24")
 
     # Use only amd64 if we should skip arm64 builds
-    if should_skip_arm64():
+    if should_skip_arm64(build_configuration):
         architectures = ["amd64"]
         logger.info("Skipping ARM64 builds for community image as this is running in EVG pipeline as a patch")
     else:
@@ -1083,7 +1124,7 @@ def build_community_image(build_configuration: BuildConfiguration, image_type: s
         multi_arch_args_list.append(arch_args)
 
     ecr_registry = os.environ.get("BASE_REPO_URL", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
-    base_repo = QUAY_REGISTRY_URL if is_release else ecr_registry
+    base_repo = QUAY_REGISTRY_URL if build_configuration.is_release_step_executed() else ecr_registry
 
     build_image_generic(
         config=build_configuration,
@@ -1181,7 +1222,7 @@ def build_multi_arch_agent_in_sonar(
     joined_args = [args | arch_amd]
 
     # Only include arm64 if we shouldn't skip it
-    if not should_skip_arm64():
+    if not should_skip_arm64(build_configuration):
         joined_args.append(args | arch_arm)
 
     build_image_generic(
@@ -1203,7 +1244,8 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
     """
     release = get_release()
 
-    operator_version, is_release = get_git_release_tag()
+    operator_version = get_git_release_tag()
+    is_release = build_configuration.is_release_step_executed()
 
     # We need to release [all agents x latest operator] on operator releases
     if is_release:
@@ -1313,12 +1355,31 @@ def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
     queue_exception_handling(tasks_queue)
 
 
+@TRACER.start_as_current_span("queue_exception_handling")
 def queue_exception_handling(tasks_queue):
+    span = trace.get_current_span()
+
     exceptions_found = False
+    exception_count = 0
+    total_tasks = len(tasks_queue.queue)
+    exception_types = set()
+
+    span.set_attribute("mck.agent.queue.tasks_total", total_tasks)
+
     for task in tasks_queue.queue:
         if task.exception() is not None:
             exceptions_found = True
+            exception_count += 1
+            exception_types.add(type(task.exception()).__name__)
             logger.fatal(f"The following exception has been found when building: {task.exception()}")
+
+    span.set_attribute("mck.agent.queue.exceptions_count", exception_count)
+    span.set_attribute(
+        "mck.agent.queue.success_rate", ((total_tasks - exception_count) / total_tasks * 100) if total_tasks > 0 else 0
+    )
+    span.set_attribute("mck.agent.queue.exception_types", list(exception_types))
+    span.set_attribute("mck.agent.queue.has_exceptions", exceptions_found)
+
     if exceptions_found:
         raise Exception(
             f"Exception(s) found when processing Agent images. \nSee also previous logs for more info\nFailing the build"

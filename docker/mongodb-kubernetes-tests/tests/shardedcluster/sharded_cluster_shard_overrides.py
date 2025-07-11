@@ -3,11 +3,16 @@ from kubetester import try_load
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import is_multi_cluster
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
-from tests.conftest import get_member_cluster_names
+from tests.conftest import (
+    get_central_cluster_client,
+    get_member_cluster_names,
+    read_deployment_state,
+)
 from tests.multicluster.conftest import cluster_spec_list
 from tests.multicluster_shardedcluster import (
     build_expected_statefulsets,
@@ -18,7 +23,6 @@ from tests.multicluster_shardedcluster import (
     validate_shard_configurations_in_ac,
     validate_shard_configurations_in_ac_multi,
 )
-from tests.shardedcluster.conftest import read_deployment_state
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -72,7 +76,7 @@ class TestShardedClusterShardOverrides:
         logger.info("Validating statefulsets in cluster(s)")
         if is_multi_cluster():
             # We need the unique cluster index, stored in the state configmap, for computing expected sts names
-            cluster_mapping = read_deployment_state(sc.name, namespace)["clusterMapping"]
+            cluster_mapping = read_deployment_state(sc.name, namespace, get_central_cluster_client())["clusterMapping"]
             logger.debug(f"Cluster mapping in state: {cluster_mapping}")
             expected_statefulsets = build_expected_statefulsets_multi(sc, cluster_mapping)
             validate_correct_sts_in_cluster_multi(expected_statefulsets, namespace, member_cluster_clients)
@@ -127,7 +131,7 @@ class TestShardedClusterShardOverrides:
         logger.info("Validating statefulsets in cluster(s)")
         if is_multi_cluster():
             # We need the unique cluster index, stored in the state configmap, for computing expected sts names
-            cluster_mapping = read_deployment_state(sc.name, namespace)["clusterMapping"]
+            cluster_mapping = read_deployment_state(sc.name, namespace, get_central_cluster_client())["clusterMapping"]
             logger.debug(f"Cluster mapping in state: {cluster_mapping}")
             expected_statefulsets = build_expected_statefulsets_multi(sc, cluster_mapping)
             validate_correct_sts_in_cluster_multi(expected_statefulsets, namespace, member_cluster_clients)

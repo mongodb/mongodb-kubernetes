@@ -742,10 +742,16 @@ type SharedConnectionSpec struct {
 	CloudManagerConfig *PrivateCloudConfig `json:"cloudManager,omitempty"`
 }
 
+// +kubebuilder:validation:XValidation:rule="!(has(self.roles) && has(self.roleRefs)) || !(self.roles.size() > 0 && self.roleRefs.size() > 0)",message="At most one of roles or roleRefs can be non-empty"
 type Security struct {
 	TLSConfig      *TLSConfig      `json:"tls,omitempty"`
 	Authentication *Authentication `json:"authentication,omitempty"`
-	Roles          []MongoDbRole   `json:"roles,omitempty"`
+
+	// +optional
+	Roles []MongoDBRole `json:"roles,omitempty"`
+
+	// +optional
+	RoleRefs []MongoDBRoleRef `json:"roleRefs,omitempty"`
 
 	// +optional
 	CertificatesSecretsPrefix string `json:"certsSecretPrefix"`
@@ -805,13 +811,6 @@ func (s *Security) IsTLSEnabled() bool {
 		}
 	}
 	return s.CertificatesSecretsPrefix != ""
-}
-
-func (s *Security) IsOIDCEnabled() bool {
-	if s == nil || s.Authentication == nil || !s.Authentication.Enabled {
-		return false
-	}
-	return s.Authentication.IsOIDCEnabled()
 }
 
 // GetAgentMechanism returns the authentication mechanism that the agents will be using.
@@ -980,7 +979,16 @@ type InheritedRole struct {
 	Role string `json:"role"`
 }
 
-type MongoDbRole struct {
+type MongoDBRoleRef struct {
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+
+	// +kubebuilder:validation:Enum=ClusterMongoDBRole
+	// +kubebuilder:validation:Required
+	Kind string `json:"kind"`
+}
+
+type MongoDBRole struct {
 	Role                       string                      `json:"role"`
 	AuthenticationRestrictions []AuthenticationRestriction `json:"authenticationRestrictions,omitempty"`
 	Db                         string                      `json:"db"`
@@ -1006,16 +1014,28 @@ type AgentAuthentication struct {
 // IsX509Enabled determines if X509 is to be enabled at the project level
 // it does not necessarily mean that the agents are using X509 authentication
 func (a *Authentication) IsX509Enabled() bool {
+	if a == nil || !a.Enabled {
+		return false
+	}
+
 	return stringutil.Contains(a.GetModes(), util.X509)
 }
 
 // IsLDAPEnabled determines if LDAP is to be enabled at the project level
 func (a *Authentication) IsLDAPEnabled() bool {
+	if a == nil || !a.Enabled {
+		return false
+	}
+
 	return stringutil.Contains(a.GetModes(), util.LDAP)
 }
 
 // IsOIDCEnabled determines if OIDC is to be enabled at the project level
 func (a *Authentication) IsOIDCEnabled() bool {
+	if a == nil || !a.Enabled {
+		return false
+	}
+
 	return stringutil.Contains(a.GetModes(), util.OIDC)
 }
 
@@ -1056,8 +1076,7 @@ type Ldap struct {
 }
 
 type OIDCProviderConfig struct {
-	// Unique label that identifies this configuration. This label is visible to your Ops Manager users and is used when
-	// creating users and roles for authorization. It is case-sensitive and can only contain the following characters:
+	// Unique label that identifies this configuration. It is case-sensitive and can only contain the following characters:
 	//  - alphanumeric characters (combination of a to z and 0 to 9)
 	//  - hyphens (-)
 	//  - underscores (_)
@@ -1065,8 +1084,10 @@ type OIDCProviderConfig struct {
 	// +kubebuilder:validation:Required
 	ConfigurationName string `json:"configurationName"`
 
-	// Issuer value provided by your registered IdP application. Using this URI, MongoDB finds an OpenID Provider
+	// Issuer value provided by your registered IdP application. Using this URI, MongoDB finds an OpenID Connect Provider
 	// Configuration Document, which should be available in the /.wellknown/open-id-configuration endpoint.
+	// For MongoDB 8.0+, the combination of issuerURI and audience must be unique across OIDC provider configurations.
+	// For other MongoDB versions, the issuerURI itself must be unique.
 	// +kubebuilder:validation:Required
 	IssuerURI string `json:"issuerURI"`
 
@@ -1087,14 +1108,12 @@ type OIDCProviderConfig struct {
 	UserClaim string `json:"userClaim"`
 
 	// The identifier of the claim that includes the principal's IdP user group membership information.
-	// Accept the default value unless your IdP uses a different claim, or you need a custom claim.
 	// Required when selected GroupMembership as the authorization type, ignored otherwise
-	// +kubebuilder:default=groups
 	// +kubebuilder:validation:Optional
-	GroupsClaim string `json:"groupsClaim,omitempty"`
+	GroupsClaim *string `json:"groupsClaim"`
 
-	// Configure single-sign-on for human user access to Ops Manager deployments with Workforce Identity Federation.
-	// For programmatic, application access to Ops Manager deployments use Workload Identity Federation.
+	// Configure single-sign-on for human user access to deployments with Workforce Identity Federation.
+	// For programmatic, application access to deployments use Workload Identity Federation.
 	// Only one Workforce Identity Federation IdP can be configured per MongoDB resource
 	// +kubebuilder:validation:Required
 	AuthorizationMethod OIDCAuthorizationMethod `json:"authorizationMethod"`
@@ -1103,7 +1122,7 @@ type OIDCProviderConfig struct {
 	// registered with an external Identity Provider.
 	// Required when selected Workforce Identity Federation authorization method
 	// +kubebuilder:validation:Optional
-	ClientId string `json:"clientId,omitempty"`
+	ClientId *string `json:"clientId"`
 
 	// Tokens that give users permission to request data from the authorization endpoint.
 	// Only used for Workforce Identity Federation authorization method
@@ -1600,7 +1619,10 @@ func EnsureSecurity(sec *Security) *Security {
 		sec.TLSConfig = &TLSConfig{}
 	}
 	if sec.Roles == nil {
-		sec.Roles = make([]MongoDbRole, 0)
+		sec.Roles = make([]MongoDBRole, 0)
+	}
+	if sec.RoleRefs == nil {
+		sec.RoleRefs = make([]MongoDBRoleRef, 0)
 	}
 	return sec
 }

@@ -12,9 +12,9 @@ import (
 )
 
 var (
-	MongoDBCRMechanism   = getMechanismByName(MongoDBCR)
-	ScramSha1Mechanism   = getMechanismByName(ScramSha1)
-	ScramSha256Mechanism = getMechanismByName(ScramSha256)
+	mongoDBCRMechanism   = getMechanismByName(MongoDBCR)
+	scramSha1Mechanism   = getMechanismByName(ScramSha1)
+	scramSha256Mechanism = getMechanismByName(ScramSha256)
 )
 
 func TestAgentsAuthentication(t *testing.T) {
@@ -23,13 +23,13 @@ func TestAgentsAuthentication(t *testing.T) {
 	}
 	tests := map[string]TestConfig{
 		"SCRAM-SHA-1": {
-			mechanism: ScramSha1Mechanism,
+			mechanism: scramSha1Mechanism,
 		},
 		"SCRAM-SHA-256": {
-			mechanism: ScramSha256Mechanism,
+			mechanism: scramSha256Mechanism,
 		},
 		"CR": {
-			mechanism: MongoDBCRMechanism,
+			mechanism: mongoDBCRMechanism,
 		},
 	}
 	for testName, testConfig := range tests {
@@ -65,10 +65,10 @@ func TestAgentsAuthentication(t *testing.T) {
 
 func TestScramSha1_DisableAgentAuthentication(t *testing.T) {
 	conn := om.NewMockedOmConnection(om.NewDeployment())
-	assertAgentAuthenticationDisabled(t, ScramSha1Mechanism, conn, Options{})
+	assertAgentAuthenticationDisabled(t, scramSha1Mechanism, conn, Options{})
 }
 
 func TestScramSha256_DisableAgentAuthentication(t *testing.T) {
 	conn := om.NewMockedOmConnection(om.NewDeployment())
-	assertAgentAuthenticationDisabled(t, ScramSha256Mechanism, conn, Options{})
+	assertAgentAuthenticationDisabled(t, scramSha256Mechanism, conn, Options{})
 }

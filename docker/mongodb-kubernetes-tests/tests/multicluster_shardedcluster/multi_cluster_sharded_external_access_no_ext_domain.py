@@ -4,8 +4,9 @@ from typing import Dict, List
 from kubernetes import client
 from kubetester import find_fixture, try_load
 from kubetester.kubetester import ensure_ent_version
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
 from tests.conftest import get_member_cluster_api_client

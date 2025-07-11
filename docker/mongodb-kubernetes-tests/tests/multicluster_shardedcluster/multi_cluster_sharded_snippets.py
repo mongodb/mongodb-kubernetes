@@ -3,8 +3,9 @@ from typing import List
 
 from kubetester import create_or_update_configmap, read_configmap, try_load
 from kubetester.kubetester import ensure_ent_version
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 from pytest import mark
 from tests import test_logger
 

@@ -7,8 +7,10 @@ import (
 	"github.com/spf13/cast"
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/utils/ptr"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/oidc"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -627,6 +629,54 @@ func TestAutomationConfigEquality(t *testing.T) {
 	}
 	ldapConfig2 := ldapConfig
 
+	oidcProviderConfigs := []oidc.ProviderConfig{
+		{
+			AuthNamePrefix:        "provider-1",
+			Audience:              "aud",
+			IssuerUri:             "https://provider1.okta.com",
+			UserClaim:             "sub",
+			GroupsClaim:           ptr.To("groups"),
+			SupportsHumanFlows:    false,
+			UseAuthorizationClaim: true,
+		},
+		{
+			AuthNamePrefix:        "provider-2",
+			Audience:              "aud",
+			IssuerUri:             "https://provider2.okta.com",
+			ClientId:              ptr.To("provider2-clientId"),
+			RequestedScopes:       []string{"openid", "profile"},
+			UserClaim:             "sub",
+			SupportsHumanFlows:    true,
+			UseAuthorizationClaim: false,
+		},
+	}
+
+	oidcProviderConfigsWithMergoDelete := []oidc.ProviderConfig{
+		{
+			AuthNamePrefix:        "provider-1",
+			Audience:              "aud",
+			IssuerUri:             "https://provider1.okta.com",
+			ClientId:              nil,
+			UserClaim:             "sub",
+			GroupsClaim:           ptr.To("groups"),
+			SupportsHumanFlows:    false,
+			UseAuthorizationClaim: true,
+		},
+		{
+			AuthNamePrefix:        "provider-2",
+			Audience:              "aud",
+			IssuerUri:             "https://provider2.okta.com",
+			ClientId:              ptr.To("provider2-clientId"),
+			RequestedScopes:       []string{"openid", "profile"},
+			UserClaim:             "sub",
+			GroupsClaim:           nil,
+			SupportsHumanFlows:    true,
+			UseAuthorizationClaim: false,
+		},
+	}
+
+	oidcProviderConfigs2 := oidcProviderConfigs
+
 	tests := map[string]struct {
 		a                *AutomationConfig
 		b                *AutomationConfig
@@ -653,29 +703,33 @@ func TestAutomationConfigEquality(t *testing.T) {
 		},
 		"Two the same configs created using the same structs are the same": {
 			a: &AutomationConfig{
-				Auth:       &authConfig,
-				AgentSSL:   &agentSSLConfig,
-				Deployment: deployment1,
-				Ldap:       &ldapConfig,
+				Auth:                &authConfig,
+				AgentSSL:            &agentSSLConfig,
+				Deployment:          deployment1,
+				Ldap:                &ldapConfig,
+				OIDCProviderConfigs: oidcProviderConfigs,
 			},
 			b: &AutomationConfig{
-				Auth:       &authConfig,
-				AgentSSL:   &agentSSLConfig,
-				Deployment: deployment1,
-				Ldap:       &ldapConfig,
+				Auth:                &authConfig,
+				AgentSSL:            &agentSSLConfig,
+				Deployment:          deployment1,
+				Ldap:                &ldapConfig,
+				OIDCProviderConfigs: oidcProviderConfigs,
 			},
 			expectedEquality: true,
 		},
 		"Two the same configs created using deep copy (and structs with different addresses) are the same": {
 			a: &AutomationConfig{
-				Auth:     &authConfig,
-				AgentSSL: &agentSSLConfig,
-				Ldap:     &ldapConfig,
+				Auth:                &authConfig,
+				AgentSSL:            &agentSSLConfig,
+				Ldap:                &ldapConfig,
+				OIDCProviderConfigs: oidcProviderConfigs,
 			},
 			b: &AutomationConfig{
-				Auth:     &authConfig2,
-				AgentSSL: &agentSSLConfig2,
-				Ldap:     &ldapConfig2,
+				Auth:                &authConfig2,
+				AgentSSL:            &agentSSLConfig2,
+				Ldap:                &ldapConfig2,
+				OIDCProviderConfigs: oidcProviderConfigs2,
 			},
 			expectedEquality: true,
 		},
@@ -685,7 +739,8 @@ func TestAutomationConfigEquality(t *testing.T) {
 					NewAutoPwd:  util.MergoDelete,
 					LdapGroupDN: "abc",
 				},
-				Ldap: &ldapConfig,
+				Ldap:                &ldapConfig,
+				OIDCProviderConfigs: oidcProviderConfigs,
 			},
 			b: &AutomationConfig{
 				Auth: &Auth{
@@ -694,7 +749,8 @@ func TestAutomationConfigEquality(t *testing.T) {
 				AgentSSL: &AgentSSL{
 					AutoPEMKeyFilePath: util.MergoDelete,
 				},
-				Ldap: &ldapConfig2,
+				Ldap:                &ldapConfig2,
+				OIDCProviderConfigs: oidcProviderConfigsWithMergoDelete,
 			},
 			expectedEquality: true,
 		},
@@ -783,6 +839,204 @@ func TestLDAPIsMerged(t *testing.T) {
 	assert.Contains(t, ldapMap, "CAFileContents")
 }
 
+func TestOIDCProviderConfigsAreMerged(t *testing.T) {
+	tests := map[string]struct {
+		providerConfigs         []oidc.ProviderConfig
+		expectedProviderConfigs any
+	}{
+		"nil config list clears deployment oidcProviderConfigs": {
+			providerConfigs:         nil,
+			expectedProviderConfigs: nil,
+		},
+		"empty config list clears deployment oidcProviderConfigs": {
+			providerConfigs:         make([]oidc.ProviderConfig, 0),
+			expectedProviderConfigs: nil,
+		},
+		"single config not present in deployment oidcProviderConfigs": {
+			providerConfigs: []oidc.ProviderConfig{
+				{
+					AuthNamePrefix:        "provider-new",
+					Audience:              "aud",
+					ClientId:              nil,
+					IssuerUri:             "https://provider-new.okta.com",
+					UserClaim:             "sub",
+					GroupsClaim:           ptr.To("groups"),
+					SupportsHumanFlows:    false,
+					UseAuthorizationClaim: true,
+				},
+			},
+			expectedProviderConfigs: []map[string]any{
+				{
+					"authNamePrefix":        "provider-new",
+					"audience":              "aud",
+					"issuerUri":             "https://provider-new.okta.com",
+					"userClaim":             "sub",
+					"groupsClaim":           ptr.To("groups"),
+					"supportsHumanFlows":    false,
+					"useAuthorizationClaim": true,
+				},
+			},
+		},
+		"single config present in deployment oidcProviderConfig, without changes": {
+			providerConfigs: []oidc.ProviderConfig{
+				{
+					AuthNamePrefix:        "OIDC_WORKFORCE_USERID",
+					Audience:              "aud",
+					IssuerUri:             "https://provider.okta.com",
+					ClientId:              ptr.To("oktaClientId"),
+					UserClaim:             "sub",
+					GroupsClaim:           nil,
+					RequestedScopes:       []string{"openid"},
+					SupportsHumanFlows:    true,
+					UseAuthorizationClaim: false,
+				},
+			},
+			expectedProviderConfigs: []map[string]any{
+				{
+					"authNamePrefix": "OIDC_WORKFORCE_USERID",
+					"audience":       "aud",
+					"issuerUri":      "https://provider.okta.com",
+					"clientId":       ptr.To("oktaClientId"),
+					"requestedScopes": []string{
+						"openid",
+					},
+					"userClaim":             "sub",
+					"supportsHumanFlows":    true,
+					"useAuthorizationClaim": false,
+					"JWKSPollSecs":          float64(360),
+					"additionalField": []any{
+						"example.com",
+					},
+				},
+			},
+		},
+		"single config present in deployment oidcProviderConfig, but modified": {
+			providerConfigs: []oidc.ProviderConfig{
+				{
+					AuthNamePrefix:        "OIDC_WORKLOAD_USERID",
+					Audience:              "aud",
+					ClientId:              nil,
+					IssuerUri:             "https://provider1.okta.com",
+					UserClaim:             "sub",
+					GroupsClaim:           ptr.To("groups"),
+					SupportsHumanFlows:    false,
+					UseAuthorizationClaim: true,
+				},
+			},
+			expectedProviderConfigs: []map[string]any{
+				{
+					"authNamePrefix":        "OIDC_WORKLOAD_USERID",
+					"audience":              "aud",
+					"issuerUri":             "https://provider1.okta.com",
+					"userClaim":             "sub",
+					"groupsClaim":           ptr.To("groups"),
+					"supportsHumanFlows":    false,
+					"useAuthorizationClaim": true,
+					"JWKSPollSecs":          float64(360),
+					"additionalField": []interface{}{
+						"example.com",
+					},
+				},
+			},
+		},
+		"multiple configs in deployment oidcProviderConfig": {
+			providerConfigs: []oidc.ProviderConfig{
+				{
+					AuthNamePrefix:        "OIDC_WORKFORCE_USERID",
+					Audience:              "aud",
+					ClientId:              ptr.To("oktaClientId"),
+					IssuerUri:             "https://provider.okta.com",
+					UserClaim:             "sub",
+					GroupsClaim:           nil,
+					RequestedScopes:       []string{"openid"},
+					SupportsHumanFlows:    true,
+					UseAuthorizationClaim: false,
+				},
+				{
+					AuthNamePrefix:        "OIDC_WORKLOAD_USERID",
+					Audience:              "aud",
+					ClientId:              nil,
+					IssuerUri:             "https://provider.okta.com",
+					UserClaim:             "sub",
+					GroupsClaim:           nil,
+					RequestedScopes:       []string{"openid"},
+					SupportsHumanFlows:    false,
+					UseAuthorizationClaim: false,
+				},
+				{
+					AuthNamePrefix:        "OIDC_WORKLOAD_GROUP_MEMBERSHIP",
+					Audience:              "aud",
+					ClientId:              nil,
+					IssuerUri:             "https://provider.okta.com",
+					UserClaim:             "sub",
+					GroupsClaim:           ptr.To("groups"),
+					SupportsHumanFlows:    false,
+					UseAuthorizationClaim: true,
+				},
+			},
+			expectedProviderConfigs: []map[string]any{
+				{
+					"authNamePrefix": "OIDC_WORKFORCE_USERID",
+					"audience":       "aud",
+					"issuerUri":      "https://provider.okta.com",
+					"clientId":       ptr.To("oktaClientId"),
+					"requestedScopes": []string{
+						"openid",
+					},
+					"userClaim":             "sub",
+					"supportsHumanFlows":    true,
+					"useAuthorizationClaim": false,
+					"JWKSPollSecs":          float64(360),
+					"additionalField": []interface{}{
+						"example.com",
+					},
+				},
+				{
+					"authNamePrefix": "OIDC_WORKLOAD_USERID",
+					"audience":       "aud",
+					"issuerUri":      "https://provider.okta.com",
+					"requestedScopes": []string{
+						"openid",
+					},
+					"userClaim":             "sub",
+					"supportsHumanFlows":    false,
+					"useAuthorizationClaim": false,
+					"JWKSPollSecs":          float64(360),
+					"additionalField": []interface{}{
+						"example.com",
+					},
+				},
+				{
+					"authNamePrefix":        "OIDC_WORKLOAD_GROUP_MEMBERSHIP",
+					"audience":              "aud",
+					"issuerUri":             "https://provider.okta.com",
+					"userClaim":             "sub",
+					"groupsClaim":           ptr.To("groups"),
+					"supportsHumanFlows":    false,
+					"useAuthorizationClaim": true,
+					"JWKSPollSecs":          float64(360),
+					"additionalField": []interface{}{
+						"example.com",
+					},
+				},
+			},
+		},
+	}
+
+	for testName, testParameters := range tests {
+		t.Run(testName, func(t *testing.T) {
+			ac := getTestAutomationConfig()
+			ac.OIDCProviderConfigs = testParameters.providerConfigs
+			if err := ac.Apply(); err != nil {
+				t.Fatal(err)
+			}
+
+			providerConfigs := ac.Deployment["oidcProviderConfigs"]
+			assert.Equal(t, testParameters.expectedProviderConfigs, providerConfigs)
+		})
+	}
+}
+
 func TestApplyInto(t *testing.T) {
 	config := AutomationConfig{
 		Auth: NewAuth(),
@@ -805,7 +1059,7 @@ func TestApplyInto(t *testing.T) {
 }
 
 func changeTypes(deployment Deployment) error {
-	rs := deployment.getReplicaSets()
+	rs := deployment.GetReplicaSets()
 	deployment.setReplicaSets(rs)
 	return nil
 }

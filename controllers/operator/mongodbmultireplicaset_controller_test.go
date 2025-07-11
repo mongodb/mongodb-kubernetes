@@ -758,7 +758,7 @@ func TestMultiReplicaSetRace(t *testing.T) {
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory().WithResourceToProjectMapping(resourceToProjectMapping)
 	memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(clusters, omConnectionFactory, true, true)
-	reconciler := newMultiClusterReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, omConnectionFactory.GetConnectionFunc, memberClusterMap)
+	reconciler := newMultiClusterReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, omConnectionFactory.GetConnectionFunc, memberClusterMap)
 
 	testConcurrentReconciles(ctx, t, fakeClient, reconciler, rs1, rs2, rs3)
 }
@@ -938,6 +938,90 @@ func TestScaling(t *testing.T) {
 		assert.Len(t, replicaSets, 1)
 		members = replicaSets[0].Members()
 		assert.Len(t, members, 4)
+
+		assertMemberNameAndId(t, members, fmt.Sprintf("%s-0-0", mrs.Name), 0)
+		assertMemberNameAndId(t, members, fmt.Sprintf("%s-0-1", mrs.Name), 3)
+		assertMemberNameAndId(t, members, fmt.Sprintf("%s-1-0", mrs.Name), 1)
+		assertMemberNameAndId(t, members, fmt.Sprintf("%s-2-0", mrs.Name), 2)
+	})
+
+	t.Run("Added members reuse member Ids when annotation is set", func(t *testing.T) {
+		mrs := mdbmulti.DefaultMultiReplicaSetBuilder().
+			SetClusterSpecList(clusters).
+			Build()
+
+		mrs.Spec.ClusterSpecList[0].Members = 1
+		mrs.Spec.ClusterSpecList[1].Members = 1
+		mrs.Spec.ClusterSpecList[2].Members = 1
+		reconciler, client, _, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
+
+		assert.Len(t, omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetProcesses(), 3)
+
+		dep, err := omConnectionFactory.GetConnection().ReadDeployment()
+		assert.NoError(t, err)
+
+		replicaSets := dep.GetReplicaSets()
+
+		assert.Len(t, replicaSets, 1)
+		members := replicaSets[0].Members()
+		assert.Len(t, members, 3)
+
+		assertMemberNameAndId(t, members, fmt.Sprintf("%s-0-0", mrs.Name), 0)
+		assertMemberNameAndId(t, members, fmt.Sprintf("%s-1-0", mrs.Name), 1)
+		assertMemberNameAndId(t, members, fmt.Sprintf("%s-2-0", mrs.Name), 2)
+
+		assert.Equal(t, members[0].Id(), 0)
+		assert.Equal(t, members[1].Id(), 1)
+		assert.Equal(t, members[2].Id(), 2)
+
+		rsMemberIds := map[string]map[string]int{
+			mrs.GetName(): {
+				fmt.Sprintf("%s-0-0", mrs.Name): 0,
+				fmt.Sprintf("%s-1-0", mrs.Name): 1,
+				fmt.Sprintf("%s-2-0", mrs.Name): 2,
+			},
+		}
+
+		rsMemberIdsBytes, _ := json.Marshal(rsMemberIds)
+
+		// Assert that the member ids are saved in the annotation
+		assert.Equal(t, mrs.GetAnnotations()[util.LastAchievedRsMemberIds], string(rsMemberIdsBytes))
+
+		// Scaling up this cluster means we get non-sequential member Ids
+		mrs.Spec.ClusterSpecList[0].Members = 2
+
+		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
+
+		dep, err = omConnectionFactory.GetConnection().ReadDeployment()
+		assert.NoError(t, err)
+
+		replicaSets = dep.GetReplicaSets()
+
+		assert.Len(t, replicaSets, 1)
+		members = replicaSets[0].Members()
+		assert.Len(t, members, 4)
+
+		assertMemberNameAndId(t, members, fmt.Sprintf("%s-0-0", mrs.Name), 0)
+		assertMemberNameAndId(t, members, fmt.Sprintf("%s-0-1", mrs.Name), 3)
+		assertMemberNameAndId(t, members, fmt.Sprintf("%s-1-0", mrs.Name), 1)
+		assertMemberNameAndId(t, members, fmt.Sprintf("%s-2-0", mrs.Name), 2)
+
+		// Assert that the member ids are updated in the annotation
+		rsMemberIds[mrs.GetName()][fmt.Sprintf("%s-0-1", mrs.Name)] = 3
+		rsMemberIdsBytes, _ = json.Marshal(rsMemberIds)
+		assert.Equal(t, mrs.GetAnnotations()[util.LastAchievedRsMemberIds], string(rsMemberIdsBytes))
+
+		// We simulate a changing the project by recreating the omConnection. The resource will keep the annotation.
+		// This part would have failed before 1.2.0.
+		reconciler, client, _, omConnectionFactory = defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs)
+		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
+
+		dep, err = omConnectionFactory.GetConnection().ReadDeployment()
+		assert.NoError(t, err)
+
+		replicaSets = dep.GetReplicaSets()
+		members = replicaSets[0].Members()
 
 		assertMemberNameAndId(t, members, fmt.Sprintf("%s-0-0", mrs.Name), 0)
 		assertMemberNameAndId(t, members, fmt.Sprintf("%s-0-1", mrs.Name), 3)
@@ -1430,7 +1514,7 @@ func calculateHostNamesForExternalDomains(m *mdbmulti.MongoDBMultiCluster) []str
 func multiReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, m *mdbmulti.MongoDBMultiCluster) (*ReconcileMongoDbMultiReplicaSet, kubernetesClient.Client, map[string]client.Client, *om.CachedOMConnectionFactory) {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(m)
 	memberClusterMap := getFakeMultiClusterMap(omConnectionFactory)
-	return newMultiClusterReplicaSetReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, omConnectionFactory.GetConnectionFunc, memberClusterMap), kubeClient, memberClusterMap, omConnectionFactory
+	return newMultiClusterReplicaSetReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, omConnectionFactory.GetConnectionFunc, memberClusterMap), kubeClient, memberClusterMap, omConnectionFactory
 }
 
 func getFakeMultiClusterMap(omConnectionFactory *om.CachedOMConnectionFactory) map[string]client.Client {
