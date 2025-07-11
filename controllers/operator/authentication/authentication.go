@@ -118,6 +118,11 @@ func Configure(conn om.Connection, opts Options, isRecovering bool, log *zap.Sug
 		return err
 	}
 
+	// Now that we are sure the user has been created, we can set the agent's authentication mechanism.
+	if err := setAgentAuthMechanismIfNeeded(conn, opts, log); err != nil {
+		return xerrors.Errorf("error setting agent auth mechanism: %w", err)
+	}
+
 	// once we have successfully enabled auth for the agents, we need to remove mechanisms we don't need.
 	// this ensures we don't have mechanisms enabled that have not been configured.
 	if err := removeUnsupportedAgentMechanisms(conn, opts, log); err != nil {
@@ -224,6 +229,31 @@ func Disable(conn om.Connection, opts Options, deleteUsers bool, log *zap.Sugare
 		return xerrors.Errorf("error waiting for ready state: %w", err)
 	}
 
+	return nil
+}
+
+// setAgentAuthMechanismIfNeeded sets the agent authentication mechanism in the automation config if the user has been created.
+// we assume the comment under Disable applies here as well - we should activate keyfiles first and then the auth.
+func setAgentAuthMechanismIfNeeded(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
+	ac, err := conn.ReadAutomationConfig()
+	if err != nil {
+		return xerrors.Errorf("error reading automation config: %w", err)
+	}
+
+	// Get the OM-specific mechanism name (e.g. "SCRAM-SHA-256")
+	mechanism := convertToMechanismOrPanic(opts.AgentMechanism, ac)
+	omMechanismName := string(mechanism.GetName())
+
+	// If the user has been created, but the agent is not yet using the mechanism, configure it.
+	if ac.Auth.AutoUser == opts.AutoUser && ac.Auth.AutoPwd != "" {
+		log.Infof("Setting agent authentication mechanism to %s", omMechanismName)
+		return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+			ac.Auth.AutoAuthMechanisms = []string{omMechanismName}
+			return nil
+		}, log)
+	} else {
+		log.Errorf("Agent user %s has not been created yet, cannot set authentication mechanism", opts.AutoUser)
+	}
 	return nil
 }
 
