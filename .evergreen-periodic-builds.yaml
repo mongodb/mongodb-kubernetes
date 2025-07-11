@@ -103,6 +103,22 @@ tasks:
         vars:
           image_name: mongodb-agent-1-daily
 
+  - name: periodic_build_agent_2
+    exec_timeout_secs: 43200
+    commands:
+      - func: enable_QEMU
+      - func: pipeline
+        vars:
+          image_name: mongodb-agent-2-daily
+
+  - name: periodic_build_agent_3
+    exec_timeout_secs: 43200
+    commands:
+      - func: enable_QEMU
+      - func: pipeline
+        vars:
+          image_name: mongodb-agent-3-daily
+
   #TODO should we still build the community operator?
   - name: periodic_build_community_operator
     commands:
@@ -142,6 +158,8 @@ task_groups:
       - periodic_build_sbom_cli
       - periodic_build_agent
       - periodic_build_agent_1
+      - periodic_build_agent_2
+      - periodic_build_agent_3
 
   - name: periodic_teardown_task_group
     <<: *setup_group
