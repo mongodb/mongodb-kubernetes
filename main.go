@@ -137,13 +137,11 @@ func main() {
 
 	log.Debugf("Setting up tracing with ID: %s, Parent ID: %s, Endpoint: %s", traceIDHex, spanIDHex, endpoint)
 	ctx, tp, err := telemetry.SetupTracingFromParent(ctx, traceIDHex, spanIDHex, endpoint)
-	defer func() {
-		if tp != nil {
-			shutdownTracerProvider(ctx, tp)
-		} else {
-			log.Debug("No tracer provider to shut down")
-		}
-	}()
+	if err != nil {
+		log.Errorf("Failed to setup tracing: %v", err)
+	} else {
+		defer shutdownTracerProvider(ctx, tp)
+	}
 
 	ctx, operatorSpan := startRootSpan(currentNamespace, spanIDHex, ctx)
 	defer operatorSpan.End()
