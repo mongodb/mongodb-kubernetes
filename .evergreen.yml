@@ -610,6 +610,46 @@ tasks:
           variant: prepare_openshift_bundles
           task: prepare_and_upload_openshift_bundles
 
+  - name: backup_csv_images_dry_run
+    commands:
+      - func: clone
+      - func: quay_login
+      - command: subprocess.exec
+        params:
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          binary: python3
+          args:
+            - scripts/dev/release/backup_csv_images.py
+            - scripts/dev/release/1.2.0.clusterserviceversion.yaml
+            - --dry-run
+            - --verbose
+  - name: backup_csv_images_limit_3
+    commands:
+      - func: clone
+      - func: quay_login
+      - command: subprocess.exec
+        params:
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          binary: python3
+          args:
+            - scripts/dev/release/backup_csv_images.py
+            - scripts/dev/release/1.2.0.clusterserviceversion.yaml
+            - --limit
+            - "3"
+            - --verbose
+  - name: backup_csv_images_all
+    commands:
+      - func: clone
+      - func: quay_login
+      - command: subprocess.exec
+        params:
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          binary: python3
+          args:
+            - scripts/dev/release/backup_csv_images.py
+            - scripts/dev/release/1.2.0.clusterserviceversion.yaml
+            - --verbose
+
 task_groups:
   - name: unit_task_group
     max_hosts: -1
@@ -1206,6 +1246,17 @@ task_groups:
     <<: *teardown_group
 
 buildvariants:
+
+  ## Backup CSV Images Variant
+  - name: backup_csv_images
+    display_name: "Backup CSV Images"
+    tags: [ "release_csv_backup" ]
+    run_on:
+      - ubuntu2204-small
+    tasks:
+      - name: backup_csv_images_dry_run
+      - name: backup_csv_images_limit_3
+      - name: backup_csv_images_all
 
   ## Unit tests + lint build variant
 
