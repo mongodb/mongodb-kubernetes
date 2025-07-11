@@ -33,9 +33,13 @@ from scripts.release.atomic_pipeline import (
     build_init_database,
     build_init_om_image,
     build_om_image,
-    operator_build_configuration,
 )
 from scripts.release.build_configuration import BuildConfiguration
+from scripts.release.build_context import (
+    BuildContext,
+    RegistryResolver,
+    VersionResolver,
+)
 
 
 def get_builder_function_for_image_name() -> Dict[str, Callable]:
@@ -73,22 +77,13 @@ def build_image(image_name: str, build_configuration: BuildConfiguration):
 
 def build_all_images(
     images: Iterable[str],
-    base_registry: str,
-    debug: bool = False,
-    parallel: bool = False,
-    architecture: Optional[List[str]] = None,
-    sign: bool = False,
-    all_agents: bool = False,
-    parallel_factor: int = 0,
+    build_configuration: BuildConfiguration,
 ):
     """Builds all the images in the `images` list."""
-    build_configuration = operator_build_configuration(
-        base_registry, parallel, debug, architecture, sign, all_agents, parallel_factor
-    )
-    if sign:
-        mongodb_artifactory_login()
+    # if sign:
+    #    mongodb_artifactory_login()
     for idx, image in enumerate(images):
-        logger.info(f"====Building image {image} ({idx}/{len(images)-1})====")
+        logger.info(f"====Building image {image} ({idx + 1}/{len(images)})====")
         time.sleep(1)
         build_image(image, build_configuration)
 
@@ -126,70 +121,68 @@ def _setup_tracing():
 
 def main():
     _setup_tracing()
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--include", action="append", help="list of images to include")
-    parser.add_argument("--list-images", action="store_true")
-    parser.add_argument("--parallel", action="store_true", default=False)
-    parser.add_argument("--debug", action="store_true", default=False)
+    parser = argparse.ArgumentParser(description="Build container images.")
+    parser.add_argument("--include", action="append", help="Image to include.")
+    parser.add_argument("--skip", action="append", help="Image to skip.")
     parser.add_argument(
-        "--arch",
-        choices=["amd64", "arm64"],
-        nargs="+",
-        help="for operator and community images only, specify the list of architectures to build for images",
+        "--builder",
+        default="docker",
+        choices=["docker", "podman"],
+        help="Tool to use to build images.",
     )
-    parser.add_argument("--sign", action="store_true", default=False)
+    parser.add_argument("--parallel", action="store_true", help="Build images in parallel.")
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging.")
+    parser.add_argument("--sign", action="store_true", help="Sign images.")
     parser.add_argument(
-        "--parallel-factor",
-        type=int,
-        default=0,
-        help="the factor on how many agents are built in parallel. 0 means all CPUs will be used",
+        "--architecture",
+        action="append",
+        help="Target architecture for the build. Can be specified multiple times. Defaults to amd64 and arm64.",
     )
     parser.add_argument(
         "--all-agents",
         action="store_true",
-        default=False,
-        help="optional parameter to be able to push "
-        "all non operator suffixed agents, even if we are not in a release",
+        help="Build all agent variants instead of only the latest.",
     )
+    parser.add_argument(
+        "--parallel-factor",
+        default=0,
+        type=int,
+        help="Number of builds to run in parallel, defaults to number of cores",
+    )
+
     args = parser.parse_args()
+    images_to_build = get_builder_function_for_image_name().keys()
 
-    images_list = get_builder_function_for_image_name().keys()
+    if args.include:
+        images_to_build = set(args.include)
 
-    if args.list_images:
-        print(images_list)
-        sys.exit(0)
+    if args.skip:
+        images_to_build = set(images_to_build) - set(args.skip)
 
-    if not args.include:
-        logger.error(f"--include is required")
-        sys.exit(1)
+    # Centralized configuration management
+    build_context = BuildContext.from_environment()
+    version_resolver = VersionResolver(build_context)
+    registry_resolver = RegistryResolver(build_context)
 
-    if args.arch == ["arm64"]:
-        print("Building for arm64 only is not supported yet")
-        sys.exit(1)
-
-    if not args.sign:
-        logger.warning("--sign flag not provided, images won't be signed")
-
-    # TODO check that image names are valid
-    images_to_build = sorted(list(set(args.include).intersection(images_list)))
-    if not images_to_build:
-        logger.error("No images to build, please ensure images names are correct.")
-        sys.exit(1)
-
-    TEMP_HARDCODED_BASE_REGISTRY = "268558157000.dkr.ecr.us-east-1.amazonaws.com/julienben/staging-temp"
-
-    build_all_images(
-        base_registry=TEMP_HARDCODED_BASE_REGISTRY,
-        images=images_to_build,
-        debug=args.debug,
+    build_configuration = BuildConfiguration(
+        scenario=build_context.scenario,
+        version=version_resolver.get_version(),
+        base_registry=registry_resolver.get_base_registry(),
         parallel=args.parallel,
-        architecture=args.arch,
-        sign=args.sign,
-        all_agents=args.all_agents,
+        debug=args.debug,
+        architecture=args.architecture,
+        sign=args.sign or build_context.signing_enabled,
+        all_agents=args.all_agents or bool(os.environ.get("all_agents", False)),
         parallel_factor=args.parallel_factor,
     )
 
+    logger.info(f"Building images: {list(images_to_build)}")
+    logger.info(f"Build configuration: {build_configuration}")
+
+    build_all_images(
+        images=images_to_build,
+        build_configuration=build_configuration,
+    )
 
 if __name__ == "__main__":
     main()
