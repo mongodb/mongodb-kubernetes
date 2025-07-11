@@ -1731,7 +1731,7 @@ buildvariants:
     allowed_requesters: [ "patch", "github_tag" ]
     max_hosts: -1
     run_on:
-      - release-ubuntu2204-large
+      - release-ubuntu2204-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1790,7 +1790,7 @@ buildvariants:
     display_name: (Static Containers) Release Agent matrix
     tags: [ "release_agent" ]
     run_on:
-      - release-ubuntu2204-large
+      - release-ubuntu2204-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     depends_on:
       - variant: init_release_agents_on_ecr
         name: '*'
@@ -1880,7 +1880,7 @@ buildvariants:
     display_name: publish_om60_images
     allowed_requesters: [ "patch", "github_pr" ]
     run_on:
-      - release-ubuntu2204-large
+      - release-ubuntu2204-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     depends_on:
       - variant: e2e_om60_kind_ubi
         name: '*'
@@ -1894,7 +1894,7 @@ buildvariants:
     display_name: publish_om70_images
     allowed_requesters: [ "patch", "github_pr" ]
     run_on:
-      - release-ubuntu2204-large
+      - release-ubuntu2204-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     depends_on:
       - variant: e2e_om70_kind_ubi
         name: '*'
@@ -1908,7 +1908,7 @@ buildvariants:
     display_name: publish_om80_images
     allowed_requesters: [ "patch", "github_pr" ]
     run_on:
-      - release-ubuntu2204-large
+      - release-ubuntu2204-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     depends_on:
       - variant: e2e_om80_kind_ubi
         name: '*'
