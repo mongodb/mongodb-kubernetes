@@ -121,3 +121,11 @@ export MDB_SEARCH_COMMUNITY_REPO_URL="quay.io/mongodb"
 if [[ ${MDB_BASH_DEBUG:-0} == 1 ]]; then
   export PS4='+(${BASH_SOURCE}:${LINENO})[^$?]: ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
 fi
+
+# MCK is capable of deploying a webhook (optional).
+# To do so it needs know which pods to select for routing traffic
+# in the Service and operator name currently serves as a selector.
+# This value must be different for multi cluster setup,
+# but we can unify once we are done with unified operator
+# installation for both multicluster and single cluster setups.
+export OPERATOR_NAME="mongodb-kubernetes-operator"
