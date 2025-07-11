@@ -4,8 +4,6 @@ import tarfile
 from datetime import datetime, timedelta, timezone
 
 import docker
-
-
 from lib.base_logger import logger
 from scripts.release.build_configuration import BuildConfiguration
 

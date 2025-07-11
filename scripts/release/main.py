@@ -2,7 +2,7 @@ import argparse
 import os
 import sys
 import time
-from typing import Dict, Callable, Iterable, Optional, List
+from typing import Callable, Dict, Iterable, List, Optional
 
 from opentelemetry import context, trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
@@ -19,20 +19,20 @@ from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
 from lib.base_logger import logger
 from scripts.evergreen.release.images_signing import mongodb_artifactory_login
 from scripts.release.atomic_pipeline import (
-    build_CLI_SBOM,
-    build_tests_image,
-    build_operator_image,
-    build_mco_tests_image,
-    build_readiness_probe_image,
-    build_upgrade_hook_image,
-    build_operator_image_patch,
-    build_database_image,
-    build_agent_on_agent_bump,
     build_agent_default_case,
+    build_agent_on_agent_bump,
+    build_CLI_SBOM,
+    build_database_image,
     build_init_appdb,
     build_init_database,
     build_init_om_image,
+    build_mco_tests_image,
     build_om_image,
+    build_operator_image,
+    build_operator_image_patch,
+    build_readiness_probe_image,
+    build_tests_image,
+    build_upgrade_hook_image,
 )
 from scripts.release.build_configuration import BuildConfiguration
 from scripts.release.build_context import (

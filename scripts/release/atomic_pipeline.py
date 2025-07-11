@@ -75,8 +75,8 @@ from scripts.evergreen.release.images_signing import (
     verify_signature,
 )
 from scripts.evergreen.release.sbom import generate_sbom, generate_sbom_for_cli
-from .build_configuration import BuildConfiguration
 
+from .build_configuration import BuildConfiguration
 from .build_images import process_image
 from .optimized_operator_build import build_operator_image_fast
 
