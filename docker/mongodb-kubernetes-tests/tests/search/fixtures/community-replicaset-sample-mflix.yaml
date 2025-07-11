@@ -25,6 +25,25 @@ spec:
         - name: readWrite
           db: sample_mflix
       scramCredentialsSecretName: my-scram
+    - name: mongot-user
+      db: admin
+      passwordSecretRef: # a reference to the secret that will be used to generate the user's password
+        name: my-user-password
+      roles:
+        - new RoleName("readWriteAnyDatabase", RoleName.ADMIN_DB),
+        - new RoleName("clusterMonitor", RoleName.ADMIN_DB),
+        - new RoleName("readWrite", RoleName.LOCAL_DB),
+        - new RoleName("directShardOperations", RoleName.ADMIN_DB, "7.0"),
+        - new RoleName(NDSDBRole.BYPASS_DEFAULT_MAX_TIME_MS, RoleName.ADMIN_DB, "8.0"));
+        - name: readWriteAnyDatabase
+          db: admin
+        - name: clusterMonitor
+          db: admin
+        - name: readWrite
+          db: local
+        - name: readWrite
+          db: config
+      scramCredentialsSecretName: my-scram
   statefulSet:
     spec:
       template:
