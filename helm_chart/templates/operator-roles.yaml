@@ -255,7 +255,6 @@ rules:
       - nodes
     verbs:
       - list
-{{- end}}
 ---
 # ClusterRoleBinding for clusterVersionDetection
 kind: ClusterRoleBinding
@@ -270,4 +269,5 @@ subjects:
   - kind: ServiceAccount
     name: {{ .Values.operator.name }}
     namespace: {{ include "mongodb-kubernetes-operator.namespace" . }}
-{{- end }}
+  {{- end}}{{/* if ne $telemetry.installClusterRole false */}}
+{{- end }}{{/* if ne $telemetry.enabled false */}}
