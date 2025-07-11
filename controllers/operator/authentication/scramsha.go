@@ -27,14 +27,14 @@ func (s *automationConfigScramSha) EnableAgentAuthentication(conn om.Connection,
 			return err
 		}
 
+		// This function is now only responsible for ensuring the user and keyfile exist.
+		// The agent's authentication mechanism is set in a separate step by the calling controller
+		// to prevent a race condition between user creation and agent configuration.
 		auth := ac.Auth
 		auth.Disabled = false
 		auth.AuthoritativeSet = opts.AuthoritativeSet
 		auth.KeyFile = util.AutomationAgentKeyFilePathInContainer
 		auth.KeyFileWindows = util.AutomationAgentWindowsKeyFilePath
-
-		// We can only have a single agent authentication mechanism specified at a given time
-		auth.AutoAuthMechanisms = []string{string(s.MechanismName)}
 		return nil
 	}, log)
 }

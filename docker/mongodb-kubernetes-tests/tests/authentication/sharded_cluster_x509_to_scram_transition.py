@@ -114,6 +114,7 @@ class TestCanEnableScramSha256:
             "SCRAM",
         ]
         sharded_cluster["spec"]["security"]["authentication"]["agents"]["mode"] = "SCRAM"
+
         sharded_cluster.update()
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=800)
 
