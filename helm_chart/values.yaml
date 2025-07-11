@@ -32,15 +32,6 @@ operator:
   - mongodbcommunity
   - mongodbsearch
 
-  # OpenTelemetry configuration for the operator to support tracing
-  opentelemetry:
-    tracing:
-      # Enable or disable sending tracing data to the OpenTelemetry collector
-      enabled: false
-      traceID: ''
-      parentID: ''
-      collectorEndpoint: ''
-
   nodeSelector: {}
 
   tolerations: []
