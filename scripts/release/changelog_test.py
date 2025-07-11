@@ -1,8 +1,9 @@
-from changelog import ChangeType, get_change_type
+import datetime
+
+from changelog import ChangeType, get_change_type, strip_changelog_entry_frontmatter
 
 
 def test_get_change_type():
-
     # Test prelude
     assert get_change_type("20250502_prelude_release_notes.md") == ChangeType.PRELUDE
 
@@ -24,3 +25,29 @@ def test_get_change_type():
     # Test other
     assert get_change_type("20250520_docs_update_readme.md") == ChangeType.OTHER
     assert get_change_type("20250610_refactor_codebase.md") == ChangeType.OTHER
+
+
+def test_strip_changelog_entry_frontmatter():
+    file_contents = """
+---
+title: This is my change
+kind: feature
+date: 2025-07-10
+---
+
+* **MongoDB**: public search preview release of MongoDB Search (Community Edition) is now available.
+  * Added new property [spec.search](https://www.mongodb.com/docs/kubernetes/current/mongodb/specification/#spec-search) to enable MongoDB Search.
+"""
+
+    change_meta, contents = strip_changelog_entry_frontmatter(file_contents)
+
+    assert change_meta.title == "This is my change"
+    assert change_meta.kind == ChangeType.FEATURE
+    assert change_meta.date == datetime.date(2025, 7, 10)
+
+    assert (
+        contents
+        == """* **MongoDB**: public search preview release of MongoDB Search (Community Edition) is now available.
+  * Added new property [spec.search](https://www.mongodb.com/docs/kubernetes/current/mongodb/specification/#spec-search) to enable MongoDB Search.
+"""
+    )
