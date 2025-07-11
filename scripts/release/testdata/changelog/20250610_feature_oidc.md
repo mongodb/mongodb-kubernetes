@@ -1,3 +1,9 @@
+---
+title: OIDC Authentication Support
+kind: feature
+date: 2025-06-10
+---
+
 * **MongoDB**, **MongoDBMulti**: Added support for OpenID Connect (OIDC) user authentication.
     * OIDC authentication can be configured with `spec.security.authentication.modes=OIDC` and `spec.security.authentication.oidcProviderConfigs` settings.
     * Minimum MongoDB version requirements:
