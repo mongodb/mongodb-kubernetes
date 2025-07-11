@@ -58,7 +58,6 @@ def build_image(docker_client: docker.DockerClient, tag: str, dockerfile: str, p
             path=path,
             dockerfile=dockerfile,
             tag=tag,
-            rm=True,  # remove intermediate containers after a successful build
             pull=False,  # set True to always attempt to pull a newer base image
             buildargs=args,
         )

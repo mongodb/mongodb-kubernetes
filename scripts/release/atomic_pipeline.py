@@ -20,7 +20,6 @@ python -m scripts.release.main \
 --include operator \
 --include mco-test \
 --include readiness-probe \
---include upgrade-hook \
 --include operator-quick \
 --include database \
 --include init-appdb \
@@ -44,7 +43,10 @@ Made a big cleanup (no daily rebuilds, no inventories, no Sonar...) ; still some
 The biggest mess is the agent builds
 
 TODO:
+- start using new pipeline into patches build
+- open PR with the minimal set of changes required to build a simple image
 - continue to clean pipeline
+- we don't use readiness probe and version upgrade hook anymore, but they are "base" images for some init image
 """
 
 import json
@@ -241,11 +243,13 @@ def check_multi_arch(image: str, suffix: str) -> bool:
 @TRACER.start_as_current_span("sonar_build_image")
 def pipeline_process_image(
     image_name: str,
+    image_tag: str,  # TODO how to define tag properly
     dockerfile_path: str,
     dockerfile_args: Dict[str, str] = None,
     base_registry: str = None,
     architecture=None,
     sign: bool = False,
+    build_path: str = ".",
     with_sbom: bool = True,
 ):
     """Builds a Docker image with arguments defined in `args`."""
@@ -269,11 +273,13 @@ def pipeline_process_image(
     logger.debug(f"Build args: {dockerfile_args}")
     process_image(
         image_name,
+        image_tag=image_tag,
         dockerfile_path=dockerfile_path,
         dockerfile_args=dockerfile_args,
         base_registry=base_registry,
         architecture=architecture,
         sign=sign,
+        build_path=build_path,
     )
 
     if with_sbom:
@@ -345,10 +351,18 @@ def build_tests_image(build_configuration: BuildConfiguration):
     if python_version == "":
         raise Exception("Missing PYTHON_VERSION environment variable")
 
-    buildargs = dict({"python_version": python_version})
+    buildargs = dict({"PYTHON_VERSION": python_version})
 
+    image_tag, _ = get_git_release_tag()  # TODO: correct tag for test image ?
     # TODO: don't allow test images to be released to Quay
-    pipeline_process_image(image_name, "docker/mongodb-kubernetes-tests/Dockerfile", buildargs, base_registry=build_configuration.base_registry)
+    pipeline_process_image(
+        image_name,
+        image_tag=image_tag,
+        dockerfile_path="Dockerfile",
+        dockerfile_args=buildargs,
+        base_registry=build_configuration.base_registry,
+        build_path="docker/mongodb-kubernetes-tests",
+    )
 
 
 def build_mco_tests_image(build_configuration: BuildConfiguration):
@@ -362,7 +376,14 @@ def build_mco_tests_image(build_configuration: BuildConfiguration):
 
     buildargs = dict({"GOLANG_VERSION": golang_version})
 
-    pipeline_process_image(image_name, "docker/mongodb-community-tests/Dockerfile", buildargs, base_registry=build_configuration.base_registry)
+    image_tag, _ = get_git_release_tag()  # TODO: correct tag for test image ?
+    pipeline_process_image(
+        image_name,
+        image_tag=image_tag,
+        dockerfile_path="docker/mongodb-community-tests/Dockerfile",
+        dockerfile_args=buildargs,
+        base_registry=build_configuration.base_registry,
+    )
 
 
 def build_operator_image(build_configuration: BuildConfiguration):
@@ -403,8 +424,15 @@ def build_database_image(build_configuration: BuildConfiguration):
     """
     release = get_release()
     version = release["databaseImageVersion"]
+    version, _ = get_git_release_tag()  # TODO: check how to properly retrieve version
     args = {"version": version}
-    build_image_generic(image_name="mongodb-kubernetes-database", dockerfile_path="docker/mongodb-kubernetes-database/Dockerfile", registry_address=build_configuration.base_registry, extra_args=args, sign=build_configuration.sign)
+    build_image_generic(
+        image_name="mongodb-kubernetes-database",
+        dockerfile_path="docker/mongodb-kubernetes-database/Dockerfile",
+        registry_address=build_configuration.base_registry,
+        extra_args=args,
+        sign=build_configuration.sign,
+    )
 
 
 def build_CLI_SBOM(build_configuration: BuildConfiguration):
@@ -427,8 +455,6 @@ def build_CLI_SBOM(build_configuration: BuildConfiguration):
 
     for architecture in architectures:
         generate_sbom_for_cli(version, architecture)
-
-
 
 
 def should_skip_arm64():
@@ -496,8 +522,9 @@ def find_om_url(om_version: str) -> str:
 
 def build_init_om_image(build_configuration: BuildConfiguration):
     release = get_release()
-    init_om_version = release["initOpsManagerVersion"]
-    args = {"version": init_om_version}
+    version = release["initOpsManagerVersion"]
+    version, _ = get_git_release_tag()  # TODO: check how to properly retrieve version
+    args = {"version": version}
     build_image_generic(
         "mongodb-kubernetes-init-ops-manager",
         "docker/mongodb-kubernetes-init-ops-manager/Dockerfile",
@@ -562,10 +589,11 @@ def build_image_generic(
             logger.debug(f"Building {image_name} for arch={arch}")
             logger.debug(f"build image generic - registry={registry}")
             pipeline_process_image(
-                image_name,
-                dockerfile_path,
-                build_args,
-                registry,
+                image_name=image_name,
+                image_tag=version,
+                dockerfile_path=dockerfile_path,
+                dockerfile_args=build_args,
+                base_registry=registry,
                 architecture=arch,
                 sign=False,
                 with_sbom=False,
@@ -586,6 +614,7 @@ def build_init_appdb(build_configuration: BuildConfiguration):
     version = release["initAppDbVersion"]
     base_url = "https://fastdl.mongodb.org/tools/db/"
     mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
+    version, _ = get_git_release_tag()  # TODO: check how to properly retrieve version
     args = {"version": version, "is_appdb": True, "mongodb_tools_url_ubi": mongodb_tools_url_ubi}
     build_image_generic(
         "mongodb-kubernetes-init-appdb",
@@ -739,7 +768,7 @@ def build_multi_arch_agent_in_sonar(
         sign=build_configuration.sign,
     )
 
-
+# TODO: figure out why I hit toomanyrequests: Rate exceeded with the new pipeline
 def build_agent_default_case(build_configuration: BuildConfiguration):
     """
     Build the agent only for the latest operator for patches and operator releases.
@@ -770,15 +799,15 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
         for agent_version in agent_versions_to_build:
             # We don't need to keep create and push the same image on every build.
             # It is enough to create and push the non-operator suffixed images only during releases to ecr and quay.
-            if build_configuration.is_release_step_executed() or build_configuration.all_agents:
-                tasks_queue.put(
-                    executor.submit(
-                        build_multi_arch_agent_in_sonar,
-                        build_configuration,
-                        agent_version[0],
-                        agent_version[1],
-                    )
-                )
+            # if build_configuration.is_release_step_executed() or build_configuration.all_agents:
+            #    tasks_queue.put(
+            #        executor.submit(
+            #            build_multi_arch_agent_in_sonar,
+            #            build_configuration,
+            #            agent_version[0],
+            #            agent_version[1],
+            #        )
+            #    )
             _build_agent_operator(
                 agent_version, build_configuration, executor, operator_version, tasks_queue, is_release
             )
@@ -890,7 +919,8 @@ def _build_agent_operator(
     # We could rely on input params (quay_registry or registry), but it makes templating more complex in the inventory
     non_quay_registry = os.environ.get("REGISTRY", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
     base_init_database_repo = QUAY_REGISTRY_URL if use_quay else non_quay_registry
-    init_database_image = f"{base_init_database_repo}/mongodb-kubernetes-init-database:{operator_version}"
+    TEMP_HARDCODED_BASE_REGISTRY = "268558157000.dkr.ecr.us-east-1.amazonaws.com/julienben/staging-temp"
+    init_database_image = f"{TEMP_HARDCODED_BASE_REGISTRY}/mongodb-kubernetes-init-database:{operator_version}"
 
     tasks_queue.put(
         executor.submit(
@@ -1000,9 +1030,14 @@ def build_init_database(build_configuration: BuildConfiguration):
     version = release["initDatabaseVersion"]  # comes from release.json
     base_url = "https://fastdl.mongodb.org/tools/db/"
     mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
+    version, _ = get_git_release_tag()  # TODO: check how to properly retrieve version
     args = {"version": version, "mongodb_tools_url_ubi": mongodb_tools_url_ubi, "is_appdb": False}
     build_image_generic(
-        "mongodb-kubernetes-init-database", "docker/mongodb-kubernetes-init-database/Dockerfile", registry_address=build_configuration.base_registry, extra_args=args, sign=build_configuration.sign
+        "mongodb-kubernetes-init-database",
+        "docker/mongodb-kubernetes-init-database/Dockerfile",
+        registry_address=build_configuration.base_registry,
+        extra_args=args,
+        sign=build_configuration.sign,
     )
 
 
