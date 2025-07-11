@@ -1050,6 +1050,8 @@ def build_image_generic(
                     source_image = client.images.pull(f"{registry_address}:{version}")
                     source_image.tag(registry_address, latest_tag)
                     client.images.push(registry_address, tag=latest_tag)
+                    span = trace.get_current_span()
+                    span.set_attribute("mck.image.push_latest", f"{registry_address}:{latest_tag}")
                     logger.info(f"Successfully tagged and pushed {registry_address}:{latest_tag}")
                 except docker.errors.DockerException as e:
                     logger.error(f"Failed to tag/push {latest_tag} image: {e}")
@@ -1622,7 +1624,6 @@ def calculate_images_to_build(
 
 
 def main():
-    _setup_tracing()
     _setup_tracing()
 
     parser = argparse.ArgumentParser()
