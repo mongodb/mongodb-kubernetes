@@ -3,6 +3,7 @@
 """This pipeline script knows about the details of our Docker images
 and where to fetch and calculate parameters. It uses Sonar.py
 to produce the final images."""
+from .build_context import BuildScenario
 
 # TODO: test pipeline, e.g with a test registry
 
@@ -274,7 +275,7 @@ def build_tests_image(build_configuration: BuildConfiguration):
 
     pipeline_process_image(
         image_name,
-        image_tag=image_tag,
+        image_tag=build_configuration.version,
         dockerfile_path="Dockerfile",
         dockerfile_args=buildargs,
         base_registry=build_configuration.base_registry,
@@ -527,8 +528,7 @@ def build_init_appdb(build_configuration: BuildConfiguration):
     version = release["initAppDbVersion"]
     base_url = "https://fastdl.mongodb.org/tools/db/"
     mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
-    version, _ = get_git_release_tag()  # TODO: check how to properly retrieve version
-    args = {"version": version, "is_appdb": True, "mongodb_tools_url_ubi": mongodb_tools_url_ubi}
+    args = {"version": version, "mongodb_tools_url_ubi": mongodb_tools_url_ubi}
     build_image_generic(
         image_name="mongodb-kubernetes-init-appdb",
         dockerfile_path="docker/mongodb-kubernetes-init-appdb/Dockerfile",
@@ -556,7 +556,7 @@ def build_community_image(build_configuration: BuildConfiguration, image_type: s
     else:
         raise ValueError(f"Unsupported image type: {image_type}")
 
-    version, is_release = get_git_release_tag()
+    version = build_configuration.version
     golang_version = os.getenv("GOLANG_VERSION", "1.24")
 
     # Use only amd64 if we should skip arm64 builds
@@ -611,10 +611,6 @@ def build_agent_pipeline(
 ):
     version = f"{agent_version}_{image_version}"
 
-    quay_agent_registry = (
-        f"{build_configuration.base_registry}/mongodb-agent-ubi"
-    )
-
     args = {
         "version": version,
         "agent_version": agent_version,
@@ -623,13 +619,13 @@ def build_agent_pipeline(
         "init_database_image": init_database_image,
         "mongodb_tools_url_ubi": mongodb_tools_url_ubi,
         "mongodb_agent_url_ubi": mongodb_agent_url_ubi,
-        "quay_registry": quay_agent_registry,
+        "quay_registry": build_configuration.base_registry,
     }
 
     build_image_generic(
         image_name="mongodb-agent-ubi",
         dockerfile_path="docker/mongodb-agent/Dockerfile",
-        registry_address=quay_agent_registry,
+        registry_address=build_configuration.base_registry,
         extra_args=args,
         sign=build_configuration.sign,
     )
@@ -696,16 +692,14 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
     """
     release = load_release_file()
 
-    operator_version, is_release = get_git_release_tag()
-
     # We need to release [all agents x latest operator] on operator releases
-    if is_release:
+    if build_configuration.scenario == BuildScenario.RELEASE:
         agent_versions_to_build = gather_all_supported_agent_versions(release)
     # We only need [latest agents (for each OM major version and for CM) x patch ID] for patches
     else:
         agent_versions_to_build = gather_latest_agent_versions(release)
 
-    logger.info(f"Building Agent versions: {agent_versions_to_build} for Operator versions: {operator_version}")
+    logger.info(f"Building Agent versions: {agent_versions_to_build} for Operator versions: {build_configuration.version}")
 
     tasks_queue = Queue()
     max_workers = 1
@@ -728,7 +722,7 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
             #        )
             #    )
             _build_agent_operator(
-                agent_version, build_configuration, executor, operator_version, tasks_queue, is_release
+                agent_version, build_configuration, executor, build_configuration.version, tasks_queue, build_configuration.scenario == BuildScenario.RELEASE
             )
 
     queue_exception_handling(tasks_queue)
@@ -834,12 +828,7 @@ def _build_agent_operator(
         f"https://downloads.mongodb.org/tools/db/mongodb-database-tools-{tools_distro}-{tools_version}.tgz"
     )
     mongodb_agent_url_ubi = f"https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod/mongodb-mms-automation-agent-{agent_version[0]}.{agent_distro}.tar.gz"
-    # We use Quay if not in a patch
-    # We could rely on input params (quay_registry or registry), but it makes templating more complex in the inventory
-    non_quay_registry = os.environ.get("REGISTRY", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
-    base_init_database_repo = QUAY_REGISTRY_URL if use_quay else non_quay_registry
-    TEMP_HARDCODED_BASE_REGISTRY = "268558157000.dkr.ecr.us-east-1.amazonaws.com/julienben/staging-temp"
-    init_database_image = f"{TEMP_HARDCODED_BASE_REGISTRY}/mongodb-kubernetes-init-database:{operator_version}"
+    init_database_image = f"{build_configuration.base_registry}/mongodb-kubernetes-init-database:{operator_version}"
 
     tasks_queue.put(
         executor.submit(
@@ -950,7 +939,7 @@ def build_init_database(build_configuration: BuildConfiguration):
     base_url = "https://fastdl.mongodb.org/tools/db/"
     mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
     version = build_configuration.version  # TODO: check how to properly retrieve version
-    args = {"version": version, "mongodb_tools_url_ubi": mongodb_tools_url_ubi, "is_appdb": False}
+    args = {"version": version, "mongodb_tools_url_ubi": mongodb_tools_url_ubi}
     build_image_generic(
         "mongodb-kubernetes-init-database",
         "docker/mongodb-kubernetes-init-database/Dockerfile",
