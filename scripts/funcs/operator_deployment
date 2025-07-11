@@ -69,9 +69,6 @@ get_operator_helm_values() {
     comma_separated_list="$(echo "${MEMBER_CLUSTERS}" | tr ' ' ',')"
     # shellcheck disable=SC2154
     config+=("multiCluster.clusters={${comma_separated_list}}")
-  fi
-
-  if [[ "${KUBE_ENVIRONMENT_NAME:-}" == "multi" ]]; then
     config+=("operator.createOperatorServiceAccount=false")
   fi
 

@@ -150,7 +150,8 @@ func main() {
 	ctx, tp, err := telemetry.SetupTracingFromParent(ctx, traceIDHex, spanIDHex, endpoint)
 	if err != nil {
 		log.Errorf("Failed to setup tracing: %v", err)
-	} else {
+	}
+	if tp != nil {
 		defer shutdownTracerProvider(ctx, tp)
 	}
 

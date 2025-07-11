@@ -149,7 +149,7 @@ fi
 dump_cluster_information
 
 # We only have static clusters in OpenShift; otherwise, there's no need to mark and clean them up here.
-if [[ "${CLUSTER_TYPE}" == "openshift" ]]; then
+if [[ "${KUBE_ENVIRONMENT_NAME}" == *openshift* ]]; then
   cleanup_openshift_cluster
 else
   if [[ "${KUBE_ENVIRONMENT_NAME}" == "multi" ]]; then

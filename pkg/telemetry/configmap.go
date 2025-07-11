@@ -83,7 +83,7 @@ func updateConfigMapWithNewUUID(ctx context.Context, k8sClient kubeclient.Client
 
 // Creates a new ConfigMap with a generated UUID
 func createNewConfigMap(ctx context.Context, k8sClient kubeclient.Client, namespace string) string {
-	_, span := TRACER.Start(ctx, "createNewConfigMap")
+	ctx, span := TRACER.Start(ctx, "createNewConfigMap")
 	span.SetAttributes(
 		attribute.String("mck.resource.type", "telemetry-collection"),
 		attribute.String("mck.k8s.namespace", namespace),
