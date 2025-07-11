@@ -1,10 +1,13 @@
-from typing import Optional, List
 from dataclasses import dataclass
+from typing import List, Optional
+
+from .build_context import BuildScenario
 
 
 @dataclass
 class BuildConfiguration:
-    image_type: str
+    scenario: BuildScenario
+    version: str
     base_registry: str
 
     parallel: bool = False
@@ -12,6 +15,4 @@ class BuildConfiguration:
     architecture: Optional[List[str]] = None
     sign: bool = False
     all_agents: bool = False
-
-    pipeline: bool = True
     debug: bool = True
