@@ -1,3 +1,9 @@
+---
+title: MCK release announcement
+kind: prelude
+date: 2025-05-06
+---
+
 Exciting news for MongoDB on Kubernetes\! We're happy to announce the first release of MongoDB Controllers for Kubernetes (MCK), a unified open-source operator merging our support of MongoDB Community and Enterprise in Kubernetes.
 
 **Acronyms**

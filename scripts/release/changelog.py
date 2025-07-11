@@ -1,6 +1,8 @@
+import datetime
 import os
 from enum import StrEnum
 
+import frontmatter
 from git import Commit, Repo
 
 CHANGELOG_PATH = "changelog/"
@@ -43,7 +45,9 @@ def get_changelog_entries(
         with open(abs_file_path, "r") as file:
             file_content = file.read()
 
-        changelog.append((change_type, file_content))
+        _, contents = strip_changelog_entry_frontmatter(file_content)
+
+        changelog.append((change_type, contents))
 
     return changelog
 
@@ -61,3 +65,22 @@ def get_change_type(file_name: str) -> ChangeType:
         return ChangeType.FIX
     else:
         return ChangeType.OTHER
+
+
+class ChangeMeta:
+    def __init__(self, date: datetime, kind: ChangeType, title: str):
+        self.date = date
+        self.kind = kind
+        self.title = title
+
+
+def strip_changelog_entry_frontmatter(file_contents: str) -> (ChangeMeta, str):
+    """Strip the front matter from a changelog entry."""
+    data = frontmatter.loads(file_contents)
+
+    meta = ChangeMeta(date=data["date"], title=str(data["title"]), kind=ChangeType(str(data["kind"]).lower()))
+
+    ## Add newline to contents so the Markdown file also contains a newline at the end
+    contents = data.content + "\n"
+
+    return meta, contents
