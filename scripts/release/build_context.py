@@ -75,10 +75,11 @@ class VersionResolver:
 
 class RegistryResolver:
     """Determines the correct container registry based on the build context."""
+
     ECR_BASE_URL = "268558157000.dkr.ecr.us-east-1.amazonaws.com"
 
     REGISTRY_MAP = {
-        BuildScenario.RELEASE: f"{ECR_BASE_URL}/julienben/staging-temp", # TODO: replace with real staging repo
+        BuildScenario.RELEASE: f"{ECR_BASE_URL}/julienben/staging-temp",  # TODO: replace with real staging repo
         BuildScenario.MASTER: f"{ECR_BASE_URL}/dev",
         BuildScenario.PATCH: f"{ECR_BASE_URL}/dev",
         BuildScenario.DEVELOPMENT: os.environ.get("BASE_REPO_URL"),
@@ -90,8 +91,8 @@ class RegistryResolver:
     def get_base_registry(self) -> str:
         """Get the base registry URL for the current build scenario."""
         ## Allow overriding registry for development and testing
-        #override_registry = os.environ.get("QUAY_REGISTRY")
-        #if self.context.scenario == BuildScenario.DEVELOPMENT and override_registry:
+        # override_registry = os.environ.get("QUAY_REGISTRY")
+        # if self.context.scenario == BuildScenario.DEVELOPMENT and override_registry:
         #    logger.info(f"Using override registry: {override_registry}")
         #    return override_registry
 

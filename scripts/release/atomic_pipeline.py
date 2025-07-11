@@ -85,6 +85,7 @@ from .optimized_operator_build import build_operator_image_fast
 TRACER = trace.get_tracer("evergreen-agent")
 DEFAULT_NAMESPACE = "default"
 
+
 def make_list_of_str(value: Union[None, str, List[str]]) -> List[str]:
     if value is None:
         return []
@@ -115,6 +116,7 @@ def is_running_in_patch():
 def load_release_file() -> Dict:
     with open("release.json") as release:
         return json.load(release)
+
 
 def create_and_push_manifest(image: str, tag: str, architectures: list[str]) -> None:
     """
@@ -683,6 +685,7 @@ def build_multi_arch_agent_in_sonar(
         sign=build_configuration.sign,
     )
 
+
 # TODO: figure out why I hit toomanyrequests: Rate exceeded with the new pipeline
 def build_agent_default_case(build_configuration: BuildConfiguration):
     """
@@ -699,7 +702,9 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
     else:
         agent_versions_to_build = gather_latest_agent_versions(release)
 
-    logger.info(f"Building Agent versions: {agent_versions_to_build} for Operator versions: {build_configuration.version}")
+    logger.info(
+        f"Building Agent versions: {agent_versions_to_build} for Operator versions: {build_configuration.version}"
+    )
 
     tasks_queue = Queue()
     max_workers = 1
@@ -722,7 +727,12 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
             #        )
             #    )
             _build_agent_operator(
-                agent_version, build_configuration, executor, build_configuration.version, tasks_queue, build_configuration.scenario == BuildScenario.RELEASE
+                agent_version,
+                build_configuration,
+                executor,
+                build_configuration.version,
+                tasks_queue,
+                build_configuration.scenario == BuildScenario.RELEASE,
             )
 
     queue_exception_handling(tasks_queue)

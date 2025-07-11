@@ -11,6 +11,7 @@ from lib.base_logger import logger
 from lib.sonar.sonar import create_ecr_repository
 from scripts.evergreen.release.images_signing import sign_image, verify_signature
 
+
 # TODO use either from python_on_whales import docker to use buildx and build multi arch image at once
 #  or subprocess with cmd = [ "docker", "buildx", "build", "--platform", platforms ]
 def ecr_login_boto3(region: str, account_id: str):
@@ -134,7 +135,9 @@ def process_image(
     logger.info(f"Building image: {image_full_uri}")
     logger.info(f"Using Dockerfile at: {dockerfile_path}, and build path: {build_path}")
     logger.debug(f"Build args: {dockerfile_args}")
-    build_image(docker_client, path=build_path, dockerfile=f"{dockerfile_path}", tag=image_full_uri, args=dockerfile_args)
+    build_image(
+        docker_client, path=build_path, dockerfile=f"{dockerfile_path}", tag=image_full_uri, args=dockerfile_args
+    )
 
     # Push to staging registry
     logger.info(f"Pushing image: {image_tag} to {docker_registry}")
