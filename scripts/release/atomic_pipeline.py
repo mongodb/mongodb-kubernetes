@@ -15,14 +15,14 @@ From repo root:
 
 python -m scripts.release.main \
 --include upgrade-hook \
---include cli \
---include test \
 --include operator \
+--include init-appdb \
+--include database \
 --include mco-test \
+--include test \
 --include readiness-probe \
 --include operator-quick \
---include database \
---include init-appdb \
+--include cli \
 --include init-database \
 --include init-ops-manager \
 --include ops-manager
@@ -82,14 +82,7 @@ from .optimized_operator_build import build_operator_image_fast
 # TODO: better framework for multi arch builds (spike to come)
 
 TRACER = trace.get_tracer("evergreen-agent")
-DEFAULT_IMAGE_TYPE = "ubi"
 DEFAULT_NAMESPACE = "default"
-
-# QUAY_REGISTRY_URL sets the base registry for all release build stages. Context images and daily builds will push the
-# final images to the registry specified here.
-# This makes it easy to use ECR to test changes on the pipeline before pushing to Quay.
-QUAY_REGISTRY_URL = "268558157000.dkr.ecr.us-east-1.amazonaws.com/julienben/staging-temp"
-
 
 def make_list_of_str(value: Union[None, str, List[str]]) -> List[str]:
     if value is None:
@@ -109,38 +102,6 @@ def get_tools_distro(tools_version: str) -> Dict[str, str]:
     return default_distro
 
 
-def operator_build_configuration(
-    base_registry: str,
-    parallel: bool,
-    debug: bool,
-    architecture: Optional[List[str]] = None,
-    sign: bool = False,
-    all_agents: bool = False,
-    parallel_factor: int = 0,
-) -> BuildConfiguration:
-    bc = BuildConfiguration(
-        base_registry=base_registry,
-        image_type=os.environ.get("distro", DEFAULT_IMAGE_TYPE),
-        parallel=parallel,
-        all_agents=all_agents or bool(os.environ.get("all_agents", False)),
-        debug=debug,
-        architecture=architecture,
-        sign=sign,
-        parallel_factor=parallel_factor,
-    )
-
-    logger.info(f"is_running_in_patch: {is_running_in_patch()}")
-    logger.info(f"is_running_in_evg_pipeline: {is_running_in_evg_pipeline()}")
-    if is_running_in_patch() or not is_running_in_evg_pipeline():
-        logger.info(
-            f"Running build not in evg pipeline (is_running_in_evg_pipeline={is_running_in_evg_pipeline()}) "
-            f"or in pipeline but not from master (is_running_in_patch={is_running_in_patch()}). "
-            "Adding 'master' tag to skip to prevent publishing to the latest dev image."
-        )
-
-    return bc
-
-
 def is_running_in_evg_pipeline():
     return os.getenv("RUNNING_IN_EVG", "") == "true"
 
@@ -150,23 +111,9 @@ def is_running_in_patch():
     return is_patch is not None and is_patch.lower() == "true"
 
 
-def get_release() -> Dict:
+def load_release_file() -> Dict:
     with open("release.json") as release:
         return json.load(release)
-
-
-def get_git_release_tag() -> tuple[str, bool]:
-    """Returns the git tag of the current run on releases, on non-release returns the patch id."""
-    release_env_var = os.getenv("triggered_by_git_tag")
-
-    # that means we are in a release and only return the git_tag; otherwise we want to return the patch_id
-    # appended to ensure the image created is unique and does not interfere
-    if release_env_var is not None:
-        return release_env_var, True
-
-    patch_id = os.environ.get("version_id", "latest")
-    return patch_id, False
-
 
 def create_and_push_manifest(image: str, tag: str, architectures: list[str]) -> None:
     """
@@ -210,34 +157,6 @@ def create_and_push_manifest(image: str, tag: str, architectures: list[str]) -> 
 
     if cp.returncode != 0:
         raise Exception(cp.stderr)
-
-
-def try_get_platform_data(client, image):
-    """Helper function to try and retrieve platform data."""
-    try:
-        return client.images.get_registry_data(image)
-    except Exception as e:
-        logger.error("Failed to get registry data for image: {0}. Error: {1}".format(image, str(e)))
-        return None
-
-
-def check_multi_arch(image: str, suffix: str) -> bool:
-    """
-    Checks if a docker image supports AMD and ARM platforms by inspecting the registry data.
-
-    :param str image: The image name and tag
-    """
-    client = docker.from_env()
-    platforms = ["linux/amd64", "linux/arm64"]
-
-    for img in [image, image + suffix]:
-        reg_data = try_get_platform_data(client, img)
-        if reg_data is not None and all(reg_data.has_platform(p) for p in platforms):
-            logger.info("Base image {} supports multi architecture, building for ARM64 and AMD64".format(img))
-            return True
-
-    logger.info("Base image {} is single-arch, building only for AMD64.".format(img))
-    return False
 
 
 @TRACER.start_as_current_span("sonar_build_image")
@@ -353,8 +272,6 @@ def build_tests_image(build_configuration: BuildConfiguration):
 
     buildargs = dict({"PYTHON_VERSION": python_version})
 
-    image_tag, _ = get_git_release_tag()  # TODO: correct tag for test image ?
-    # TODO: don't allow test images to be released to Quay
     pipeline_process_image(
         image_name,
         image_tag=image_tag,
@@ -376,10 +293,9 @@ def build_mco_tests_image(build_configuration: BuildConfiguration):
 
     buildargs = dict({"GOLANG_VERSION": golang_version})
 
-    image_tag, _ = get_git_release_tag()  # TODO: correct tag for test image ?
     pipeline_process_image(
         image_name,
-        image_tag=image_tag,
+        image_tag=build_configuration.version,
         dockerfile_path="docker/mongodb-community-tests/Dockerfile",
         dockerfile_args=buildargs,
         base_registry=build_configuration.base_registry,
@@ -392,10 +308,9 @@ def build_operator_image(build_configuration: BuildConfiguration):
     # repository with a given suffix.
     test_suffix = os.environ.get("test_suffix", "")
     log_automation_config_diff = os.environ.get("LOG_AUTOMATION_CONFIG_DIFF", "false")
-    version, _ = get_git_release_tag()
 
     args = {
-        "version": version,
+        "version": build_configuration.version,
         "log_automation_config_diff": log_automation_config_diff,
         "test_suffix": test_suffix,
         "debug": build_configuration.debug,
@@ -422,10 +337,9 @@ def build_database_image(build_configuration: BuildConfiguration):
     """
     Builds a new database image.
     """
-    release = get_release()
+    release = load_release_file()
     version = release["databaseImageVersion"]
-    version, _ = get_git_release_tag()  # TODO: check how to properly retrieve version
-    args = {"version": version}
+    args = {"version": build_configuration.version}
     build_image_generic(
         image_name="mongodb-kubernetes-database",
         dockerfile_path="docker/mongodb-kubernetes-database/Dockerfile",
@@ -450,7 +364,7 @@ def build_CLI_SBOM(build_configuration: BuildConfiguration):
         logger.error(f"Unrecognized architectures {build_configuration.architecture}. Skipping SBOM generation")
         return
 
-    release = get_release()
+    release = load_release_file()
     version = release["mongodbOperator"]
 
     for architecture in architectures:
@@ -521,13 +435,12 @@ def find_om_url(om_version: str) -> str:
 
 
 def build_init_om_image(build_configuration: BuildConfiguration):
-    release = get_release()
+    release = load_release_file()
     version = release["initOpsManagerVersion"]
-    version, _ = get_git_release_tag()  # TODO: check how to properly retrieve version
-    args = {"version": version}
+    args = {"version": build_configuration.version}
     build_image_generic(
-        "mongodb-kubernetes-init-ops-manager",
-        "docker/mongodb-kubernetes-init-ops-manager/Dockerfile",
+        image_name="mongodb-kubernetes-init-ops-manager",
+        dockerfile_path="docker/mongodb-kubernetes-init-ops-manager/Dockerfile",
         registry_address=build_configuration.base_registry,
         extra_args=args,
         sign=build_configuration.sign,
@@ -610,15 +523,15 @@ def build_image_generic(
 
 
 def build_init_appdb(build_configuration: BuildConfiguration):
-    release = get_release()
+    release = load_release_file()
     version = release["initAppDbVersion"]
     base_url = "https://fastdl.mongodb.org/tools/db/"
     mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
     version, _ = get_git_release_tag()  # TODO: check how to properly retrieve version
     args = {"version": version, "is_appdb": True, "mongodb_tools_url_ubi": mongodb_tools_url_ubi}
     build_image_generic(
-        "mongodb-kubernetes-init-appdb",
-        "docker/mongodb-kubernetes-init-appdb/Dockerfile",
+        image_name="mongodb-kubernetes-init-appdb",
+        dockerfile_path="docker/mongodb-kubernetes-init-appdb/Dockerfile",
         registry_address=build_configuration.base_registry,
         extra_args=args,
         sign=build_configuration.sign,
@@ -668,8 +581,8 @@ def build_community_image(build_configuration: BuildConfiguration, image_type: s
         image_name=image_name,
         dockerfile_path=dockerfile_path,
         registry_address=build_configuration.base_registry,
-        is_multi_arch=True,
         multi_arch_args_list=multi_arch_args_list,
+        is_multi_arch=True,
         sign=build_configuration.sign,
     )
 
@@ -696,21 +609,27 @@ def build_agent_pipeline(
     mongodb_agent_url_ubi: str,
     agent_version,
 ):
+    version = f"{agent_version}_{image_version}"
+
+    quay_agent_registry = (
+        f"{build_configuration.base_registry}/mongodb-agent-ubi"
+    )
+
     args = {
-        "version": image_version,
+        "version": version,
+        "agent_version": agent_version,
+        "ubi_suffix": "-ubi",
+        "release_version": image_version,
+        "init_database_image": init_database_image,
         "mongodb_tools_url_ubi": mongodb_tools_url_ubi,
         "mongodb_agent_url_ubi": mongodb_agent_url_ubi,
-        "init_database_image": init_database_image,
+        "quay_registry": quay_agent_registry,
     }
-
-    agent_quay_registry = build_configuration.base_registry + f"/mongodb-agent-ubi"
-    args["quay_registry"] = build_configuration.base_registry
-    args["agent_version"] = agent_version
 
     build_image_generic(
         image_name="mongodb-agent-ubi",
         dockerfile_path="docker/mongodb-agent/Dockerfile",
-        registry_address=build_configuration.base_registry,
+        registry_address=quay_agent_registry,
         extra_args=args,
         sign=build_configuration.sign,
     )
@@ -775,7 +694,7 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
 
     See more information in the function: build_agent_on_agent_bump
     """
-    release = get_release()
+    release = load_release_file()
 
     operator_version, is_release = get_git_release_tag()
 
@@ -824,13 +743,13 @@ def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
     - operator releases
     - OM/CM bumps via PCT
 
-    We don't require building a full matrix on e2e test runs and operator releases.
+    We don’t require building a full matrix on e2e test runs and operator releases.
     "Operator releases" and "e2e test runs" require only the latest operator x agents
 
     In OM/CM bumps, we release a new agent which we potentially require to release to older operators as well.
     This function takes care of that.
     """
-    release = get_release()
+    release = load_release_file()
     is_release = build_configuration.is_release_step_executed()
 
     if build_configuration.all_agents:
@@ -955,7 +874,7 @@ def gather_latest_agent_versions(release: Dict) -> List[Tuple[str, str]]:
     """
     This function is used when we release a new agent via OM bump.
     That means we will need to release that agent with all supported operators.
-    Since we don't want to release all agents again, we only release the latest, which will contain the newly added one
+    Since we don’t want to release all agents again, we only release the latest, which will contain the newly added one
     :return: the latest agent for each major version
     """
     agent_versions_to_build = list()
@@ -1026,11 +945,11 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
 
 # TODO: nam static: remove this once static containers becomes the default
 def build_init_database(build_configuration: BuildConfiguration):
-    release = get_release()
+    release = load_release_file()
     version = release["initDatabaseVersion"]  # comes from release.json
     base_url = "https://fastdl.mongodb.org/tools/db/"
     mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
-    version, _ = get_git_release_tag()  # TODO: check how to properly retrieve version
+    version = build_configuration.version  # TODO: check how to properly retrieve version
     args = {"version": version, "mongodb_tools_url_ubi": mongodb_tools_url_ubi, "is_appdb": False}
     build_image_generic(
         "mongodb-kubernetes-init-database",
@@ -1039,30 +958,3 @@ def build_init_database(build_configuration: BuildConfiguration):
         extra_args=args,
         sign=build_configuration.sign,
     )
-
-
-def build_image(image_name: str, build_configuration: BuildConfiguration):
-    """Builds one of the supported images by its name."""
-    get_builder_function_for_image_name()[image_name](build_configuration)
-
-
-def build_all_images(
-    images: Iterable[str],
-    base_registry: str,
-    debug: bool = False,
-    parallel: bool = False,
-    architecture: Optional[List[str]] = None,
-    sign: bool = False,
-    all_agents: bool = False,
-    parallel_factor: int = 0,
-):
-    """Builds all the images in the `images` list."""
-    build_configuration = operator_build_configuration(
-        base_registry, parallel, debug, architecture, sign, all_agents, parallel_factor
-    )
-    if sign:
-        mongodb_artifactory_login()
-    for idx, image in enumerate(images):
-        logger.info(f"====Building image {image} ({idx}/{len(images)-1})====")
-        time.sleep(1)
-        build_image(image, build_configuration)
