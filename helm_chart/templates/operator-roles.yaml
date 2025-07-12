@@ -173,11 +173,11 @@ subjects:
 {{- end }}
 
 {{- end }}
----
 
 {{/* This cluster role and binding is necessary to allow the operator to automatically register ValidatingWebhookConfiguration. */}}
 {{- if and .Values.operator.webhook.registerConfiguration .Values.operator.webhook.installClusterRole }}
 {{- if not (lookup "rbac.authorization.k8s.io/v1" "ClusterRole" "" "mongodb-kubernetes-operator-mongodb-webhook") }}
+---
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:

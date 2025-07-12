@@ -13,7 +13,6 @@ rules:
       - clustermongodbroles
 ---
 # Source: mongodb-kubernetes/templates/operator-roles.yaml
----
 # Additional ClusterRole for clusterVersionDetection
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
