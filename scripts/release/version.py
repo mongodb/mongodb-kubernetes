@@ -1,7 +1,7 @@
 import semver
 from git import Commit, Repo, TagReference
 
-from scripts.release.changelog import ChangeType
+from scripts.release.changelog import ChangeKind
 
 
 def find_previous_version(repo: Repo, initial_commit_sha: str = None) -> (TagReference | None, Commit):
@@ -38,13 +38,13 @@ def find_previous_version_tag(repo: Repo) -> TagReference | None:
     return sorted_tags[0]
 
 
-def calculate_next_release_version(previous_version_str: str, changelog: list[ChangeType]) -> str:
+def calculate_next_release_version(previous_version_str: str, changelog: list[ChangeKind]) -> str:
     previous_version = semver.VersionInfo.parse(previous_version_str)
 
-    if ChangeType.BREAKING in changelog:
+    if ChangeKind.BREAKING in changelog:
         return str(previous_version.bump_major())
 
-    if ChangeType.FEATURE in changelog:
+    if ChangeKind.FEATURE in changelog:
         return str(previous_version.bump_minor())
 
     return str(previous_version.bump_patch())

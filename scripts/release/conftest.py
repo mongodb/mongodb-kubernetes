@@ -5,11 +5,11 @@ import tempfile
 from _pytest.fixtures import fixture
 from git import Repo
 
-from scripts.release.changelog import CHANGELOG_PATH
+from scripts.release.changelog import DEFAULT_CHANGELOG_PATH
 
 
 @fixture(scope="session")
-def git_repo(change_log_path: str = CHANGELOG_PATH) -> Repo:
+def git_repo(change_log_path: str = DEFAULT_CHANGELOG_PATH) -> Repo:
     """
     Create a temporary git repository for testing.
     Visual representation of the repository structure is in test_git_repo.mmd (mermaid/gitgraph https://mermaid.js.org/syntax/gitgraph.html).
