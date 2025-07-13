@@ -1,5 +1,6 @@
 import datetime
 import os
+import re
 from enum import StrEnum
 
 import frontmatter
@@ -8,7 +9,7 @@ from git import Commit, Repo
 CHANGELOG_PATH = "changelog/"
 
 PRELUDE_ENTRIES = ["prelude"]
-BREAKING_CHANGE_ENTRIES = ["breaking_change", "breaking", "major"]
+BREAKING_CHANGE_ENTRIES = ["breaking", "major"]
 FEATURE_ENTRIES = ["feat", "feature"]
 BUGFIX_ENTRIES = ["fix", "bugfix", "hotfix", "patch"]
 
@@ -19,6 +20,13 @@ class ChangeType(StrEnum):
     FEATURE = "feature"
     FIX = "fix"
     OTHER = "other"
+
+
+class ChangeMeta:
+    def __init__(self, date: datetime, kind: ChangeType, title: str):
+        self.date = date
+        self.kind = kind
+        self.title = title
 
 
 def get_changelog_entries(
@@ -38,47 +46,71 @@ def get_changelog_entries(
     # Traverse added Diff objects only (change type 'A' for added files)
     for diff_item in diff_index.iter_change_type("A"):
         file_path = diff_item.b_path
-        file_name = os.path.basename(file_path)
-        change_type = get_change_type(file_name)
 
-        abs_file_path = os.path.join(repo.working_dir, file_path)
-        with open(abs_file_path, "r") as file:
-            file_content = file.read()
+        change_meta, contents = extract_changelog_data(repo.working_dir, file_path)
 
-        _, contents = strip_changelog_entry_frontmatter(file_content)
-
-        changelog.append((change_type, contents))
+        changelog.append((str(change_meta.kind), contents))
 
     return changelog
 
 
-def get_change_type(file_name: str) -> ChangeType:
-    """Extract the change type from the file name."""
+def extract_changelog_data(working_dir: str, file_path: str) -> (ChangeMeta, str):
+    file_name = os.path.basename(file_path)
+    date, kind = extract_date_and_kind_from_file_name(file_name)
 
-    if any(entry in file_name.lower() for entry in PRELUDE_ENTRIES):
+    abs_file_path = os.path.join(working_dir, file_path)
+    with open(abs_file_path, "r") as file:
+        file_content = file.read()
+
+    change_meta, contents = strip_changelog_entry_frontmatter(file_content)
+
+    if change_meta.date != date:
+        raise Exception(
+            f"{file_name} - date in front matter {change_meta.date} does not match date extracted from file name {date}"
+        )
+
+    if change_meta.kind != kind:
+        raise Exception(
+            f"{file_name} - kind in front matter {change_meta.kind} does not match kind extracted from file name {kind}"
+        )
+
+    return change_meta, contents
+
+
+def extract_date_and_kind_from_file_name(file_name: str) -> (datetime, ChangeType):
+    match = re.match(r"(\d{8})_([a-zA-Z]+)_(.+)\.md", file_name)
+    if not match:
+        raise Exception(f"{file_name} - doesn't match expected pattern")
+
+    date_str, kind_str, _ = match.groups()
+    try:
+        date = datetime.datetime.strptime(date_str, "%Y%m%d").date()
+    except Exception:
+        raise Exception(f"{file_name} - date part {date_str} is not in the expected format YYYYMMDD")
+
+    kind = get_change_type(kind_str)
+
+    return date, kind
+
+
+def get_change_type(kind_str: str) -> ChangeType:
+    if kind_str.lower() in PRELUDE_ENTRIES:
         return ChangeType.PRELUDE
-    if any(entry in file_name.lower() for entry in BREAKING_CHANGE_ENTRIES):
+    if kind_str.lower() in BREAKING_CHANGE_ENTRIES:
         return ChangeType.BREAKING
-    elif any(entry in file_name.lower() for entry in FEATURE_ENTRIES):
+    elif kind_str.lower() in FEATURE_ENTRIES:
         return ChangeType.FEATURE
-    elif any(entry in file_name.lower() for entry in BUGFIX_ENTRIES):
+    elif kind_str.lower() in BUGFIX_ENTRIES:
         return ChangeType.FIX
     else:
         return ChangeType.OTHER
-
-
-class ChangeMeta:
-    def __init__(self, date: datetime, kind: ChangeType, title: str):
-        self.date = date
-        self.kind = kind
-        self.title = title
 
 
 def strip_changelog_entry_frontmatter(file_contents: str) -> (ChangeMeta, str):
     """Strip the front matter from a changelog entry."""
     data = frontmatter.loads(file_contents)
 
-    meta = ChangeMeta(date=data["date"], title=str(data["title"]), kind=ChangeType(str(data["kind"]).lower()))
+    meta = ChangeMeta(date=data["date"], title=str(data["title"]), kind=get_change_type(str(data["kind"])))
 
     ## Add newline to contents so the Markdown file also contains a newline at the end
     contents = data.content + "\n"
