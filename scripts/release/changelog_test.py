@@ -1,30 +1,87 @@
 import datetime
 
-from changelog import ChangeType, get_change_type, strip_changelog_entry_frontmatter
+import pytest
+
+from changelog import (
+    ChangeType,
+    extract_date_and_kind_from_file_name,
+    strip_changelog_entry_frontmatter,
+)
 
 
-def test_get_change_type():
+def test_extract_changelog_data_from_file_name():
     # Test prelude
-    assert get_change_type("20250502_prelude_release_notes.md") == ChangeType.PRELUDE
+    assert extract_date_and_kind_from_file_name("20250502_prelude_release_notes.md") == (
+        datetime.date(2025, 5, 2),
+        ChangeType.PRELUDE,
+    )
 
     # Test breaking changes
-    assert get_change_type("20250101_breaking_change_api_update.md") == ChangeType.BREAKING
-    assert get_change_type("20250508_breaking_remove_deprecated.md") == ChangeType.BREAKING
-    assert get_change_type("20250509_major_schema_change.md") == ChangeType.BREAKING
+    assert extract_date_and_kind_from_file_name("20250101_breaking_api_update.md") == (
+        datetime.date(2025, 1, 1),
+        ChangeType.BREAKING,
+    )
+    assert extract_date_and_kind_from_file_name("20250508_breaking_remove_deprecated.md") == (
+        datetime.date(2025, 5, 8),
+        ChangeType.BREAKING,
+    )
+    assert extract_date_and_kind_from_file_name("20250509_major_schema_change.md") == (
+        datetime.date(2025, 5, 9),
+        ChangeType.BREAKING,
+    )
 
     # Test features
-    assert get_change_type("20250509_feature_new_dashboard.md") == ChangeType.FEATURE
-    assert get_change_type("20250511_feat_add_metrics.md") == ChangeType.FEATURE
+    assert extract_date_and_kind_from_file_name("20250509_feature_new_dashboard.md") == (
+        datetime.date(2025, 5, 9),
+        ChangeType.FEATURE,
+    )
+    assert extract_date_and_kind_from_file_name("20250511_feat_add_metrics.md") == (
+        datetime.date(2025, 5, 11),
+        ChangeType.FEATURE,
+    )
 
     # Test fixes
-    assert get_change_type("20251210_fix_olm_missing_images.md") == ChangeType.FIX
-    assert get_change_type("20251010_bugfix_memory_leak.md") == ChangeType.FIX
-    assert get_change_type("20250302_hotfix_security_issue.md") == ChangeType.FIX
-    assert get_change_type("20250301_patch_typo_correction.md") == ChangeType.FIX
+    assert extract_date_and_kind_from_file_name("20251210_fix_olm_missing_images.md") == (
+        datetime.date(2025, 12, 10),
+        ChangeType.FIX,
+    )
+    assert extract_date_and_kind_from_file_name("20251010_bugfix_memory_leak.md") == (
+        datetime.date(2025, 10, 10),
+        ChangeType.FIX,
+    )
+    assert extract_date_and_kind_from_file_name("20250302_hotfix_security_issue.md") == (
+        datetime.date(2025, 3, 2),
+        ChangeType.FIX,
+    )
+    assert extract_date_and_kind_from_file_name("20250301_patch_typo_correction.md") == (
+        datetime.date(2025, 3, 1),
+        ChangeType.FIX,
+    )
 
     # Test other
-    assert get_change_type("20250520_docs_update_readme.md") == ChangeType.OTHER
-    assert get_change_type("20250610_refactor_codebase.md") == ChangeType.OTHER
+    assert extract_date_and_kind_from_file_name("20250520_docs_update_readme.md") == (
+        datetime.date(2025, 5, 20),
+        ChangeType.OTHER,
+    )
+    assert extract_date_and_kind_from_file_name("20250610_refactor_codebase.md") == (
+        datetime.date(2025, 6, 10),
+        ChangeType.OTHER,
+    )
+
+    # Invalid date part (day 40 does not exist)
+    with pytest.raises(Exception) as e:
+        extract_date_and_kind_from_file_name("20250640_refactor_codebase.md")
+    assert str(e.value) == "20250640_refactor_codebase.md - date part 20250640 is not in the expected format YYYYMMDD"
+
+    # Wrong file name format (date part)
+    with pytest.raises(Exception) as e:
+        extract_date_and_kind_from_file_name("202yas_refactor_codebase.md")
+    assert str(e.value) == "202yas_refactor_codebase.md - doesn't match expected pattern"
+
+    # Wrong file name format (missing title part)
+    with pytest.raises(Exception) as e:
+        extract_date_and_kind_from_file_name("20250620_change.md")
+    assert str(e.value) == "20250620_change.md - doesn't match expected pattern"
 
 
 def test_strip_changelog_entry_frontmatter():
