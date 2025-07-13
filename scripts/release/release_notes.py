@@ -20,15 +20,15 @@ def generate_release_notes(
     repository_path: str = ".",
     changelog_sub_path: str = DEFAULT_CHANGELOG_PATH,
     initial_commit_sha: str = None,
-    initial_version: str = "1.0.0",
+    initial_version: str = DEFAULT_INITIAL_GIT_TAG_VERSION,
 ) -> str:
-    """Generate a release notes based on the changes since the previous version tag.
+    f"""Generate a release notes based on the changes since the previous version tag.
 
     Parameters:
         repository_path: Path to the Git repository. Default is the current directory '.'.
-        changelog_sub_path: Path to the changelog directory relative to the repository root. Default is 'changelog/'.
+        changelog_sub_path: Path to the changelog directory relative to the repository root. Default is '{DEFAULT_CHANGELOG_PATH}.
         initial_commit_sha: SHA of the initial commit to start from if no previous version tag is found.
-        initial_version: Version to use if no previous version tag is found. Default is "1.0.0".
+        initial_version: Version to use if no previous version tag is found. Default is '{DEFAULT_INITIAL_GIT_TAG_VERSION}'.
 
     Returns:
         Formatted release notes as a string.
