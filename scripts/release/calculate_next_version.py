@@ -3,36 +3,48 @@ import pathlib
 
 from git import Repo
 
+from scripts.release.changelog import (
+    DEFAULT_CHANGELOG_PATH,
+    DEFAULT_INITIAL_GIT_TAG_VERSION,
+)
 from scripts.release.release_notes import calculate_next_version_with_changelog
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        "-p",
         "--path",
-        action="store",
         default=".",
+        metavar="",
+        action="store",
         type=pathlib.Path,
         help="Path to the Git repository. Default is the current directory '.'",
     )
     parser.add_argument(
-        "--changelog_path",
-        default="changelog/",
+        "-c",
+        "--changelog-path",
+        default=DEFAULT_CHANGELOG_PATH,
+        metavar="",
         action="store",
         type=str,
-        help="Path to the changelog directory relative to the repository root. Default is 'changelog/'",
+        help=f"Path to the changelog directory relative to the repository root. Default is '{DEFAULT_CHANGELOG_PATH}'",
     )
     parser.add_argument(
-        "--initial_commit_sha",
+        "-s",
+        "--initial-commit-sha",
+        metavar="",
         action="store",
         type=str,
         help="SHA of the initial commit to start from if no previous version tag is found.",
     )
     parser.add_argument(
-        "--initial_version",
-        default="1.0.0",
+        "-v",
+        "--initial-version",
+        default=DEFAULT_INITIAL_GIT_TAG_VERSION,
+        metavar="",
         action="store",
         type=str,
-        help="Version to use if no previous version tag is found. Default is '1.0.0'",
+        help=f"Version to use if no previous version tag is found. Default is '{DEFAULT_INITIAL_GIT_TAG_VERSION}'",
     )
     parser.add_argument("--output", "-o", type=pathlib.Path)
     args = parser.parse_args()

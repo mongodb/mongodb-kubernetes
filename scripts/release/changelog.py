@@ -6,7 +6,10 @@ from enum import StrEnum
 import frontmatter
 from git import Commit, Repo
 
-CHANGELOG_PATH = "changelog/"
+DEFAULT_CHANGELOG_PATH = "changelog/"
+DEFAULT_INITIAL_GIT_TAG_VERSION = "1.0.0"
+FILENAME_DATE_FORMAT = "%Y%m%d"
+FRONTMATTER_DATE_FORMAT = "%Y-%m-%d"
 
 PRELUDE_ENTRIES = ["prelude"]
 BREAKING_CHANGE_ENTRIES = ["breaking", "major"]
@@ -14,7 +17,7 @@ FEATURE_ENTRIES = ["feat", "feature"]
 BUGFIX_ENTRIES = ["fix", "bugfix", "hotfix", "patch"]
 
 
-class ChangeType(StrEnum):
+class ChangeKind(StrEnum):
     PRELUDE = "prelude"
     BREAKING = "breaking"
     FEATURE = "feature"
@@ -23,7 +26,7 @@ class ChangeType(StrEnum):
 
 
 class ChangeMeta:
-    def __init__(self, date: datetime, kind: ChangeType, title: str):
+    def __init__(self, date: datetime, kind: ChangeKind, title: str):
         self.date = date
         self.kind = kind
         self.title = title
@@ -33,7 +36,7 @@ def get_changelog_entries(
     previous_version_commit: Commit,
     repo: Repo,
     changelog_sub_path: str,
-) -> list[tuple[ChangeType, str]]:
+) -> list[tuple[ChangeKind, str]]:
     changelog = []
 
     # Compare previous version commit with current working tree
@@ -77,40 +80,51 @@ def extract_changelog_data(working_dir: str, file_path: str) -> (ChangeMeta, str
     return change_meta, contents
 
 
-def extract_date_and_kind_from_file_name(file_name: str) -> (datetime, ChangeType):
+def extract_date_and_kind_from_file_name(file_name: str) -> (datetime, ChangeKind):
     match = re.match(r"(\d{8})_([a-zA-Z]+)_(.+)\.md", file_name)
     if not match:
         raise Exception(f"{file_name} - doesn't match expected pattern")
 
     date_str, kind_str, _ = match.groups()
     try:
-        date = datetime.datetime.strptime(date_str, "%Y%m%d").date()
-    except Exception:
-        raise Exception(f"{file_name} - date part {date_str} is not in the expected format YYYYMMDD")
+        date = parse_change_date(date_str, FILENAME_DATE_FORMAT)
+    except Exception as e:
+        raise Exception(f"{file_name} - {e}")
 
-    kind = get_change_type(kind_str)
+    kind = get_change_kind(kind_str)
 
     return date, kind
 
 
-def get_change_type(kind_str: str) -> ChangeType:
+def parse_change_date(date_str: str, date_format: str) -> datetime:
+    try:
+        date = datetime.datetime.strptime(date_str, date_format).date()
+    except Exception:
+        raise Exception(f"date {date_str} is not in the expected format {date_format}")
+
+    return date
+
+
+def get_change_kind(kind_str: str) -> ChangeKind:
     if kind_str.lower() in PRELUDE_ENTRIES:
-        return ChangeType.PRELUDE
+        return ChangeKind.PRELUDE
     if kind_str.lower() in BREAKING_CHANGE_ENTRIES:
-        return ChangeType.BREAKING
+        return ChangeKind.BREAKING
     elif kind_str.lower() in FEATURE_ENTRIES:
-        return ChangeType.FEATURE
+        return ChangeKind.FEATURE
     elif kind_str.lower() in BUGFIX_ENTRIES:
-        return ChangeType.FIX
+        return ChangeKind.FIX
     else:
-        return ChangeType.OTHER
+        return ChangeKind.OTHER
 
 
 def strip_changelog_entry_frontmatter(file_contents: str) -> (ChangeMeta, str):
     """Strip the front matter from a changelog entry."""
     data = frontmatter.loads(file_contents)
 
-    meta = ChangeMeta(date=data["date"], title=str(data["title"]), kind=get_change_type(str(data["kind"])))
+    kind = get_change_kind(str(data["kind"]))
+    date = parse_change_date(str(data["date"]), FRONTMATTER_DATE_FORMAT)
+    meta = ChangeMeta(date=date, title=str(data["title"]), kind=kind)
 
     ## Add newline to contents so the Markdown file also contains a newline at the end
     contents = data.content + "\n"
