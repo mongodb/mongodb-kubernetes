@@ -35,6 +35,7 @@ function generate_standalone_yaml() {
   FILES=(
     "${charttmpdir}/mongodb-kubernetes/templates/operator-roles-base.yaml"
     "${charttmpdir}/mongodb-kubernetes/templates/operator-roles-clustermongodbroles.yaml"
+    "${charttmpdir}/mongodb-kubernetes/templates/operator-roles-pvc-resize.yaml"
     "${charttmpdir}/mongodb-kubernetes/templates/operator-roles-telemetry.yaml"
     "${charttmpdir}/mongodb-kubernetes/templates/operator-roles-webhook.yaml"
     "${charttmpdir}/mongodb-kubernetes/templates/database-roles.yaml"
@@ -62,6 +63,7 @@ function generate_standalone_yaml() {
   cp "${charttmpdir}/mongodb-kubernetes/templates/database-roles.yaml" config/rbac/database-roles.yaml
   cp "${charttmpdir}/mongodb-kubernetes/templates/operator-roles-base.yaml" config/rbac/operator-roles-base.yaml
   cp "${charttmpdir}/mongodb-kubernetes/templates/operator-roles-clustermongodbroles.yaml" config/rbac/operator-roles-clustermongodbroles.yaml
+  cp "${charttmpdir}/mongodb-kubernetes/templates/operator-roles-pvc-resize.yaml" config/rbac/operator-roles-pvc-resize.yaml
   cp "${charttmpdir}/mongodb-kubernetes/templates/operator-roles-telemetry.yaml" config/rbac/operator-roles-telemetry.yaml
 
   # generate multi-cluster public example
