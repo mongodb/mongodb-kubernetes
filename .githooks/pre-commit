@@ -33,7 +33,10 @@ function generate_standalone_yaml() {
   mkdir -p "${charttmpdir}"
 
   FILES=(
-    "${charttmpdir}/mongodb-kubernetes/templates/operator-roles.yaml"
+    "${charttmpdir}/mongodb-kubernetes/templates/operator-roles-base.yaml"
+    "${charttmpdir}/mongodb-kubernetes/templates/operator-roles-clustermongodbroles.yaml"
+    "${charttmpdir}/mongodb-kubernetes/templates/operator-roles-telemetry.yaml"
+    "${charttmpdir}/mongodb-kubernetes/templates/operator-roles-webhook.yaml"
     "${charttmpdir}/mongodb-kubernetes/templates/database-roles.yaml"
     "${charttmpdir}/mongodb-kubernetes/templates/operator-sa.yaml"
     "${charttmpdir}/mongodb-kubernetes/templates/operator.yaml"
@@ -57,7 +60,9 @@ function generate_standalone_yaml() {
   # update kustomize files for OLM bundle with files generated for openshift
   cp "${charttmpdir}/mongodb-kubernetes/templates/operator.yaml" config/manager/manager.yaml
   cp "${charttmpdir}/mongodb-kubernetes/templates/database-roles.yaml" config/rbac/database-roles.yaml
-  cp "${charttmpdir}/mongodb-kubernetes/templates/operator-roles.yaml" config/rbac/operator-roles.yaml
+  cp "${charttmpdir}/mongodb-kubernetes/templates/operator-roles-base.yaml" config/rbac/operator-roles-base.yaml
+  cp "${charttmpdir}/mongodb-kubernetes/templates/operator-roles-clustermongodbroles.yaml" config/rbac/operator-roles-clustermongodbroles.yaml
+  cp "${charttmpdir}/mongodb-kubernetes/templates/operator-roles-telemetry.yaml" config/rbac/operator-roles-telemetry.yaml
 
   # generate multi-cluster public example
   rm -rf "${charttmpdir:?}"/*
