@@ -1,0 +1,253 @@
+{
+  "mongodbToolsBundle": {
+    "ubi": "mongodb-database-tools-rhel88-x86_64-100.12.0.tgz"
+  },
+  "mongodbOperator": "1.1.0",
+  "initDatabaseVersion": "1.1.0",
+  "initOpsManagerVersion": "1.1.0",
+  "initAppDbVersion": "1.1.0",
+  "databaseImageVersion": "1.1.0",
+  "agentVersion": "108.0.2.8729-1",
+  "openshift": {
+    "minimumSupportedVersion": "4.6"
+  },
+  "search": {
+    "community": {
+      "version": "1.47.0"
+    }
+  },
+  "supportedImages": {
+    "readinessprobe": {
+      "ssdlc_name": "MongoDB Controllers for Kubernetes Readiness Probe",
+      "versions": [
+        "1.0.22"
+      ],
+      "variants": [
+        "ubi"
+      ]
+    },
+    "operator-version-upgrade-post-start-hook": {
+      "ssdlc_name": "MongoDB Controllers for Kubernetes Operator Version Upgrade Hook",
+      "versions": [
+        "1.0.9"
+      ],
+      "variants": [
+        "ubi"
+      ]
+    },
+    "ops-manager": {
+      "ssdlc_name": "MongoDB Controllers for Kubernetes Enterprise Ops Manager",
+      "versions": [
+        "6.0.25",
+        "6.0.26",
+        "6.0.27",
+        "7.0.12",
+        "7.0.13",
+        "7.0.14",
+        "7.0.15",
+        "8.0.5",
+        "8.0.6",
+        "8.0.7"
+      ],
+      "variants": [
+        "ubi"
+      ]
+    },
+    "mongodb-kubernetes": {
+      "Description": "We support 3 last versions, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
+      "ssdlc_name": "MongoDB Controllers for Kubernetes Operator",
+      "versions": [
+        "1.0.0",
+        "1.0.1",
+        "1.1.0"
+      ],
+      "variants": [
+        "ubi"
+      ]
+    },
+    "mongodb-kubernetes-operator": {
+      "Description": "Community Operator daily rebuilds",
+      "ssdlc_name": "MongoDB Community Operator",
+      "versions": [
+        "0.12.0",
+        "0.11.0",
+        "0.10.0",
+        "0.9.0",
+        "0.8.3",
+        "0.8.2",
+        "0.8.1",
+        "0.8.0",
+        "0.7.9",
+        "0.7.8",
+        "0.7.7",
+        "0.7.6"
+      ],
+      "variants": [
+        "ubi"
+      ]
+    },
+    "mongodb-agent": {
+      "Description": "Agents corresponding to OpsManager 5.x and 6.x series",
+      "ssdlc_name": "MongoDB Controllers for Kubernetes MongoDB Agent",
+      "Description for specific versions": {
+        "11.0.5.6963-1": "An upgraded version for OM 5.0 we use for Operator-only deployments",
+        "12.0.28.7763-1": "OM 6 basic version"
+      },
+      "versions": [
+        "108.0.2.8729-1"
+      ],
+      "opsManagerMapping": {
+        "Description": "These are the agents from which we start supporting static containers.",
+        "cloud_manager": "13.35.0.9498-1",
+        "cloud_manager_tools": "100.12.1",
+        "ops_manager": {
+          "6.0.25": {
+            "agent_version": "12.0.33.7866-1",
+            "tools_version": "100.10.0"
+          },
+          "6.0.26": {
+            "agent_version": "12.0.34.7888-1",
+            "tools_version": "100.10.0"
+          },
+          "6.0.27": {
+            "agent_version": "12.0.35.7911-1",
+            "tools_version": "100.10.0"
+          },
+          "7.0.13": {
+            "agent_version": "107.0.13.8702-1",
+            "tools_version": "100.10.0"
+          },
+          "7.0.14": {
+            "agent_version": "107.0.13.8702-1",
+            "tools_version": "100.10.0"
+          },
+          "7.0.15": {
+            "agent_version": "107.0.15.8741-1",
+            "tools_version": "100.11.0"
+          },
+          "8.0.5": {
+            "agent_version": "108.0.4.8770-1",
+            "tools_version": "100.11.0"
+          },
+          "8.0.6": {
+            "agent_version": "108.0.6.8796-1",
+            "tools_version": "100.11.0"
+          },
+          "8.0.7": {
+            "agent_version": "108.0.7.8810-1",
+            "tools_version": "100.12.0"
+          }
+        }
+      },
+      "variants": [
+        "ubi"
+      ]
+    },
+    "init-ops-manager": {
+      "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
+      "ssdlc_name": "MongoDB Controllers for Kubernetes Init Ops Manager",
+      "versions": [
+        "1.0.0",
+        "1.0.1",
+        "1.1.0"
+      ],
+      "variants": [
+        "ubi"
+      ]
+    },
+    "init-database": {
+      "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
+      "ssdlc_name": "MongoDB Controllers for Kubernetes Init Database",
+      "versions": [
+        "1.0.0",
+        "1.0.1",
+        "1.1.0"
+      ],
+      "variants": [
+        "ubi"
+      ]
+    },
+    "init-appdb": {
+      "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
+      "ssdlc_name": "MongoDB Controllers for Kubernetes Init AppDB",
+      "versions": [
+        "1.0.0",
+        "1.0.1",
+        "1.1.0"
+      ],
+      "variants": [
+        "ubi"
+      ]
+    },
+    "database": {
+      "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
+      "ssdlc_name": "MongoDB Controllers for Kubernetes Database",
+      "versions": [
+        "1.0.0",
+        "1.0.1",
+        "1.1.0"
+      ],
+      "variants": [
+        "ubi"
+      ]
+    },
+    "mongodb-enterprise-server": {
+      "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
+      "ssdlc_name": "MongoDB Enterprise Server",
+      "versions": [
+        "4.4.0-ubi8",
+        "4.4.1-ubi8",
+        "4.4.2-ubi8",
+        "4.4.3-ubi8",
+        "4.4.4-ubi8",
+        "4.4.5-ubi8",
+        "4.4.6-ubi8",
+        "4.4.7-ubi8",
+        "4.4.8-ubi8",
+        "4.4.9-ubi8",
+        "4.4.10-ubi8",
+        "4.4.11-ubi8",
+        "4.4.12-ubi8",
+        "4.4.13-ubi8",
+        "4.4.14-ubi8",
+        "4.4.15-ubi8",
+        "4.4.16-ubi8",
+        "4.4.17-ubi8",
+        "4.4.18-ubi8",
+        "4.4.19-ubi8",
+        "4.4.20-ubi8",
+        "4.4.21-ubi8",
+        "5.0.0-ubi8",
+        "5.0.1-ubi8",
+        "5.0.2-ubi8",
+        "5.0.3-ubi8",
+        "5.0.4-ubi8",
+        "5.0.5-ubi8",
+        "5.0.6-ubi8",
+        "5.0.7-ubi8",
+        "5.0.8-ubi8",
+        "5.0.9-ubi8",
+        "5.0.10-ubi8",
+        "5.0.11-ubi8",
+        "5.0.12-ubi8",
+        "5.0.13-ubi8",
+        "5.0.14-ubi8",
+        "5.0.15-ubi8",
+        "5.0.16-ubi8",
+        "5.0.17-ubi8",
+        "5.0.18-ubi8",
+        "6.0.0-ubi8",
+        "6.0.1-ubi8",
+        "6.0.2-ubi8",
+        "6.0.3-ubi8",
+        "6.0.4-ubi8",
+        "6.0.5-ubi8",
+        "8.0.0-ubi8",
+        "8.0.0-ubi9"
+      ],
+      "variants": [
+        "ubi"
+      ]
+    }
+  }
+}

@@ -1,0 +1,28 @@
+%%{
+  init: {
+    'theme': 'dark',
+    'logLevel': 'debug',
+    'gitGraph': {
+      'showBranches': true,
+      'mainBranchName': 'master',
+      'parallelCommits': true
+    },
+    'themeVariables': {
+      'commitLabelColor': '#ffffff',
+      'commitLabelBackground': '#333333'
+    }
+  }
+}%%
+gitGraph
+    checkout master
+    commit id: "A1" tag:"v1.0.0"
+    commit id: "A2"
+    commit id: "A3" tag:"v1.1.0"
+    commit id: "A4" tag:"v1.2.0"
+    commit id: "A5"
+    commit id: "A6"
+    commit id: "A7" tag:"v2.0.0"
+    commit id: "A8"
+    commit id: "A9" tag:"v2.1.0"
+    commit id: "A10"
+    commit id: "A11" tag: "v3.0.0"

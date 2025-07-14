@@ -11,6 +11,7 @@ images:
   stages:
   - name: init-ops-manager-build-context
     task_type: docker_build
+    tags: ["final_dockerfile"]
     dockerfile: Dockerfile.builder
     output:
     - registry: $(inputs.params.registry)/mongodb-kubernetes-init-ops-manager-context
@@ -19,7 +20,7 @@ images:
   - name: init-ops-manager-template-ubi
     task_type: dockerfile_template
     template_file_extension: ubi_minimal
-    tags: ["ubi"]
+    tags: ["ubi", "final_dockerfile"]
     inputs:
     - version
     output:
