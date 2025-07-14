@@ -86,13 +86,11 @@ rules:
       - mongodbmulticluster/finalizers
       - mongodbsearch
       - mongodbsearch/finalizers
-    {{- if .Values.subresourceEnabled }}
       - mongodb/status
       - mongodbusers/status
       - opsmanagers/status
       - mongodbmulticluster/status
       - mongodbsearch/status
-    {{- end }}
 {{- if eq $roleScope "ClusterRole" }}
   - apiGroups:
       - ''
