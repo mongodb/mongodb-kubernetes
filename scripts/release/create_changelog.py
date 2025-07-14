@@ -15,7 +15,10 @@ from scripts.release.changelog import (
 )
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description="Utility to easily create a new changelog entry file.",
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
     parser.add_argument(
         "-c",
         "--changelog-path",

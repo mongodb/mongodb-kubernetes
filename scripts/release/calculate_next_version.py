@@ -10,7 +10,10 @@ from scripts.release.changelog import (
 from scripts.release.release_notes import calculate_next_version_with_changelog
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description="Calculate the next version based on the changes since the previous version tag.",
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
     parser.add_argument(
         "-p",
         "--path",
@@ -46,7 +49,6 @@ if __name__ == "__main__":
         type=str,
         help=f"Version to use if no previous version tag is found. Default is '{DEFAULT_INITIAL_GIT_TAG_VERSION}'",
     )
-    parser.add_argument("--output", "-o", type=pathlib.Path)
     args = parser.parse_args()
 
     repo = Repo(args.path)
