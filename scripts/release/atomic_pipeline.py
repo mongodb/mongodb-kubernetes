@@ -3,8 +3,6 @@
 """This pipeline script knows about the details of our Docker images
 and where to fetch and calculate parameters. It uses Sonar.py
 to produce the final images."""
-from .build_context import BuildScenario
-
 import json
 import os
 import shutil
@@ -32,6 +30,7 @@ from scripts.evergreen.release.images_signing import (
 from scripts.evergreen.release.sbom import generate_sbom, generate_sbom_for_cli
 
 from .build_configuration import BuildConfiguration
+from .build_context import BuildScenario
 from .build_images import process_image
 from .optimized_operator_build import build_operator_image_fast
 
@@ -656,7 +655,7 @@ def build_multi_arch_agent_in_sonar(
         sign=build_configuration.sign,
     )
 
-
+# TODO: why versions are wrong -> 13.35.0.9498-1_13.35.0.9498-1_6874c19d2aab5d0007820c51 ; duplicate
 # TODO: figure out why I hit toomanyrequests: Rate exceeded with the new pipeline
 def build_agent_default_case(build_configuration: BuildConfiguration):
     """
@@ -708,7 +707,7 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
 
     queue_exception_handling(tasks_queue)
 
-
+# TODO: for now, release agents ECR release versions with image:version_version (duplicated)
 def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
     """
     Build the agent matrix (operator version x agent version), triggered by PCT.

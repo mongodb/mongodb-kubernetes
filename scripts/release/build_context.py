@@ -44,7 +44,7 @@ class BuildContext:
             scenario = BuildScenario.PATCH
             logger.info(f"Build scenario: {scenario} (patch_id: {patch_id})")
         elif is_evg:
-            scenario = BuildScenario.MASTER
+            scenario = BuildScenario.MASTER # TODO: ultimately we won't have RELEASE variant and master will push to staging
             logger.info(f"Build scenario: {scenario} (patch_id: {patch_id})")
         else:
             scenario = BuildScenario.DEVELOPMENT
