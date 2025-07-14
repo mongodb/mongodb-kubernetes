@@ -1,0 +1,34 @@
+---
+# Source: mongodb-kubernetes/templates/operator-roles-pvc-resize.yaml
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-kubernetes-operator-pvc-resize
+  namespace: mongodb
+rules:
+  - apiGroups:
+      - ''
+    resources:
+      - persistentvolumeclaims
+    verbs:
+      - get
+      - delete
+      - list
+      - watch
+      - patch
+      - update
+---
+# Source: mongodb-kubernetes/templates/operator-roles-pvc-resize.yaml
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-kubernetes-operator-pvc-resize-binding
+  namespace: mongodb
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mongodb-kubernetes-operator-pvc-resize
+subjects:
+  - kind: ServiceAccount
+    name: mongodb-kubernetes-operator
+    namespace: mongodb
