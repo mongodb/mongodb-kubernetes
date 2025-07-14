@@ -72,7 +72,10 @@ def calculate_next_version_with_changelog(
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description="Generate release notes based on the changes since the previous version tag.",
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
     parser.add_argument(
         "-p",
         "--path",
@@ -108,7 +111,13 @@ if __name__ == "__main__":
         type=str,
         help=f"Version to use if no previous version tag is found. Default is '{DEFAULT_INITIAL_GIT_TAG_VERSION}'",
     )
-    parser.add_argument("--output", "-o", type=pathlib.Path)
+    parser.add_argument(
+        "--output",
+        "-o",
+        metavar="",
+        type=pathlib.Path,
+        help="Path to save the release notes. If not provided, prints to stdout.",
+    )
     args = parser.parse_args()
 
     release_notes = generate_release_notes(
