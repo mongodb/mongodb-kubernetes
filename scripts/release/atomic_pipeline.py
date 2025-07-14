@@ -5,51 +5,6 @@ and where to fetch and calculate parameters. It uses Sonar.py
 to produce the final images."""
 from .build_context import BuildScenario
 
-# TODO: test pipeline, e.g with a test registry
-
-
-"""
-State of things
-
-All builds are working with reworked Dockerfiles ; except test image
-From repo root:
-
-python -m scripts.release.main \
---include upgrade-hook \
---include operator \
---include init-appdb \
---include database \
---include mco-test \
---include test \
---include readiness-probe \
---include operator-quick \
---include cli \
---include init-database \
---include init-ops-manager \
---include ops-manager
-
-Should push images to all staging repositories "julienben/staging-temp/***/" on ECR
-The base registry is now passed everywhere from one single entry point
-Currently hardcoded as TEMP_HARDCODED_BASE_REGISTRY in main.py
-
-
-Tried to split into smaller files:
-- main.py to parse arguments and load image building functions
-- build_configuration.py to isolate the dataclass
-- build_images.py to replace sonar (basic interactions with Docker)
-- optimized_operator_build.py to separate this function which is a mess
-- atomic_pipeline.py for everything else
-
-Made a big cleanup (no daily rebuilds, no inventories, no Sonar...) ; still some work to do
-The biggest mess is the agent builds
-
-TODO:
-- start using new pipeline into patches build
-- open PR with the minimal set of changes required to build a simple image
-- continue to clean pipeline
-- we don't use readiness probe and version upgrade hook anymore, but they are "base" images for some init image
-"""
-
 import json
 import os
 import shutil
@@ -530,10 +485,26 @@ def build_init_appdb(build_configuration: BuildConfiguration):
     version = release["initAppDbVersion"]
     base_url = "https://fastdl.mongodb.org/tools/db/"
     mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
-    args = {"version": version, "mongodb_tools_url_ubi": mongodb_tools_url_ubi}
+    args = {"version": build_configuration.version, "mongodb_tools_url_ubi": mongodb_tools_url_ubi}
     build_image_generic(
         image_name="mongodb-kubernetes-init-appdb",
         dockerfile_path="docker/mongodb-kubernetes-init-appdb/Dockerfile",
+        registry_address=build_configuration.base_registry,
+        extra_args=args,
+        sign=build_configuration.sign,
+    )
+
+
+# TODO: nam static: remove this once static containers becomes the default
+def build_init_database(build_configuration: BuildConfiguration):
+    release = load_release_file()
+    version = release["initDatabaseVersion"]  # comes from release.json
+    base_url = "https://fastdl.mongodb.org/tools/db/"
+    mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
+    args = {"version": build_configuration.version, "mongodb_tools_url_ubi": mongodb_tools_url_ubi}
+    build_image_generic(
+        "mongodb-kubernetes-init-database",
+        "docker/mongodb-kubernetes-init-database/Dockerfile",
         registry_address=build_configuration.base_registry,
         extra_args=args,
         sign=build_configuration.sign,
@@ -940,20 +911,3 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
     }
 
     return image_builders
-
-
-# TODO: nam static: remove this once static containers becomes the default
-def build_init_database(build_configuration: BuildConfiguration):
-    release = load_release_file()
-    version = release["initDatabaseVersion"]  # comes from release.json
-    base_url = "https://fastdl.mongodb.org/tools/db/"
-    mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
-    version = build_configuration.version  # TODO: check how to properly retrieve version
-    args = {"version": version, "mongodb_tools_url_ubi": mongodb_tools_url_ubi}
-    build_image_generic(
-        "mongodb-kubernetes-init-database",
-        "docker/mongodb-kubernetes-init-database/Dockerfile",
-        registry_address=build_configuration.base_registry,
-        extra_args=args,
-        sign=build_configuration.sign,
-    )
