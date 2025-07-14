@@ -51,10 +51,10 @@ if __name__ == "__main__":
         required=True,
         type=str,
         help=f"""Kind of the changelog entry:
-  - '{".".join(PRELUDE_ENTRIES)}' for prelude entries
-  - '{".".join(BREAKING_CHANGE_ENTRIES)}' for breaking change entries
-  - '{".".join(FEATURE_ENTRIES)}' for feature entries
-  - '{".".join(BUGFIX_ENTRIES)}' for bugfix entries
+  - '{", ".join(PRELUDE_ENTRIES)}' for prelude entries
+  - '{", ".join(BREAKING_CHANGE_ENTRIES)}' for breaking change entries
+  - '{", ".join(FEATURE_ENTRIES)}' for feature entries
+  - '{", ".join(BUGFIX_ENTRIES)}' for bugfix entries
   - everything else will be treated as other entries""",
     )
     parser.add_argument("title", type=str, help="Title for the changelog entry")
