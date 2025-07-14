@@ -5,12 +5,12 @@ mdbc-rs   Running   8.0.6
 
 MongoDBSearch resource
 NAME      PHASE     AGE
-mdbc-rs   Running   5m11s
+mdbc-rs   Running   5m21s
 
 Pods running in cluster kind-kind
-NAME                                           READY   STATUS    RESTARTS       AGE
-mdbc-rs-0                                      2/2     Running   1 (32s ago)    7m51s
-mdbc-rs-1                                      2/2     Running   1 (3m8s ago)   6m39s
-mdbc-rs-2                                      2/2     Running   1 (109s ago)   5m52s
-mdbc-rs-search-0                               1/1     Running   0              5m11s
-mongodb-kubernetes-operator-5c6565b578-tg8ts   1/1     Running   0              7m54s
+NAME                                           READY   STATUS    RESTARTS        AGE
+mdbc-rs-0                                      2/2     Running   1 (35s ago)     7m51s
+mdbc-rs-1                                      2/2     Running   1 (3m11s ago)   6m45s
+mdbc-rs-2                                      2/2     Running   1 (114s ago)    5m57s
+mdbc-rs-search-0                               1/1     Running   0               5m21s
+mongodb-kubernetes-operator-64d5b47b46-fd6nr   1/1     Running   0               7m54s
