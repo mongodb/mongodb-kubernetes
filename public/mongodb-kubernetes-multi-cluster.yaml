@@ -1,116 +1,5 @@
 ---
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
-kind: ClusterRole
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: mongodb-kubernetes-operator-multi-cluster-mongodb-cluster-mongodb-role
-rules:
-  - apiGroups:
-      - mongodb.com
-    verbs:
-      - '*'
-    resources:
-      - clustermongodbroles
----
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
-kind: ClusterRole
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: mongodb-kubernetes-operator-mongodb-webhook
-rules:
-  - apiGroups:
-      - "admissionregistration.k8s.io"
-    resources:
-      - validatingwebhookconfigurations
-    verbs:
-      - get
-      - create
-      - update
-      - delete
-  - apiGroups:
-      - ""
-    resources:
-      - services
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - delete
----
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
-# Additional ClusterRole for clusterVersionDetection
-kind: ClusterRole
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: mongodb-kubernetes-operator-multi-cluster-cluster-telemetry
-rules:
-  # Non-resource URL permissions
-  - nonResourceURLs:
-      - "/version"
-    verbs:
-      - get
-  # Cluster-scoped resource permissions
-  - apiGroups:
-      - ''
-    resources:
-      - namespaces
-    resourceNames:
-      - kube-system
-    verbs:
-      - get
-  - apiGroups:
-      - ''
-    resources:
-      - nodes
-    verbs:
-      - list
----
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
-kind: ClusterRoleBinding
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: mongodb-kubernetes-operator-multi-cluster-mongodb-cluster-mongodb-role-binding
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: mongodb-kubernetes-operator-multi-cluster-mongodb-cluster-mongodb-role
-subjects:
-  - kind: ServiceAccount
-    name: mongodb-kubernetes-operator-multi-cluster
-    namespace: mongodb
----
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
-kind: ClusterRoleBinding
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: mongodb-kubernetes-operator-multi-cluster-mongodb-webhook-binding
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: mongodb-kubernetes-operator-mongodb-webhook
-subjects:
-  - kind: ServiceAccount
-    name: mongodb-kubernetes-operator-multi-cluster
-    namespace: mongodb
----
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
-# ClusterRoleBinding for clusterVersionDetection
-kind: ClusterRoleBinding
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: mongodb-kubernetes-operator-multi-cluster-mongodb-cluster-telemetry-binding
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: mongodb-kubernetes-operator-multi-cluster-cluster-telemetry
-subjects:
-  - kind: ServiceAccount
-    name: mongodb-kubernetes-operator-multi-cluster
-    namespace: mongodb
----
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
+# Source: mongodb-kubernetes/templates/operator-roles-base.yaml
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -203,7 +92,7 @@ rules:
       - patch
       - update
 ---
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
+# Source: mongodb-kubernetes/templates/operator-roles-base.yaml
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -213,6 +102,117 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: mongodb-kubernetes-operator-multi-cluster
+subjects:
+  - kind: ServiceAccount
+    name: mongodb-kubernetes-operator-multi-cluster
+    namespace: mongodb
+---
+# Source: mongodb-kubernetes/templates/operator-roles-clustermongodbroles.yaml
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-kubernetes-operator-multi-cluster-mongodb-cluster-mongodb-role
+rules:
+  - apiGroups:
+      - mongodb.com
+    verbs:
+      - '*'
+    resources:
+      - clustermongodbroles
+---
+# Source: mongodb-kubernetes/templates/operator-roles-clustermongodbroles.yaml
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-kubernetes-operator-multi-cluster-mongodb-cluster-mongodb-role-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mongodb-kubernetes-operator-multi-cluster-mongodb-cluster-mongodb-role
+subjects:
+  - kind: ServiceAccount
+    name: mongodb-kubernetes-operator-multi-cluster
+    namespace: mongodb
+---
+# Source: mongodb-kubernetes/templates/operator-roles-telemetry.yaml
+# Additional ClusterRole for clusterVersionDetection
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-kubernetes-operator-multi-cluster-cluster-telemetry
+rules:
+  # Non-resource URL permissions
+  - nonResourceURLs:
+      - "/version"
+    verbs:
+      - get
+  # Cluster-scoped resource permissions
+  - apiGroups:
+      - ''
+    resources:
+      - namespaces
+    resourceNames:
+      - kube-system
+    verbs:
+      - get
+  - apiGroups:
+      - ''
+    resources:
+      - nodes
+    verbs:
+      - list
+---
+# Source: mongodb-kubernetes/templates/operator-roles-telemetry.yaml
+# ClusterRoleBinding for clusterVersionDetection
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-kubernetes-operator-multi-cluster-mongodb-cluster-telemetry-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mongodb-kubernetes-operator-multi-cluster-cluster-telemetry
+subjects:
+  - kind: ServiceAccount
+    name: mongodb-kubernetes-operator-multi-cluster
+    namespace: mongodb
+---
+# Source: mongodb-kubernetes/templates/operator-roles-webhook.yaml
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-kubernetes-operator-mongodb-webhook
+rules:
+  - apiGroups:
+      - "admissionregistration.k8s.io"
+    resources:
+      - validatingwebhookconfigurations
+    verbs:
+      - get
+      - create
+      - update
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - delete
+---
+# Source: mongodb-kubernetes/templates/operator-roles-webhook.yaml
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-kubernetes-operator-multi-cluster-mongodb-webhook-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mongodb-kubernetes-operator-mongodb-webhook
 subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator-multi-cluster

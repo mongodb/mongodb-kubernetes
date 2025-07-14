@@ -58,7 +58,7 @@ operator:
   maxConcurrentReconciles: 1
 
   # Create operator service account and roles
-  # if false, then templates/operator-roles.yaml is excluded
+  # if false, then operator RBAC will not be provided by the chart
   createOperatorServiceAccount: true
 
   # Set to false to NOT create service accounts and roles for the resources managed by the operator
