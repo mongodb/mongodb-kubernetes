@@ -162,7 +162,7 @@ buildvariants:
     display_name: periodic_build
     tags: [ "periodic_build" ]
     run_on:
-      - ubuntu2204-large
+      - release-ubuntu2204-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     tasks:
       - name: periodic_build_task_group
 
