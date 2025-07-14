@@ -10,6 +10,7 @@ DEFAULT_CHANGELOG_PATH = "changelog/"
 DEFAULT_INITIAL_GIT_TAG_VERSION = "1.0.0"
 FILENAME_DATE_FORMAT = "%Y%m%d"
 FRONTMATTER_DATE_FORMAT = "%Y-%m-%d"
+MAX_TITLE_LENGTH = 50
 
 PRELUDE_ENTRIES = ["prelude"]
 BREAKING_CHANGE_ENTRIES = ["breaking", "major"]
@@ -130,3 +131,33 @@ def strip_changelog_entry_frontmatter(file_contents: str) -> (ChangeMeta, str):
     contents = data.content + "\n"
 
     return meta, contents
+
+
+def get_changelog_filename(title: str, kind: ChangeKind, date: datetime) -> str:
+    sanitized_title = sanitize_title(title)
+    filename_date = datetime.datetime.strftime(date, FILENAME_DATE_FORMAT)
+
+    return f"{filename_date}_{kind}_{sanitized_title}.md"
+
+
+def sanitize_title(title: str) -> str:
+    # Only keep alphanumeric characters, dashes, underscores and spaces
+    regex = re.compile("[^a-zA-Z0-9-_ ]+")
+    title = regex.sub("", title)
+
+    # Replace multiple dashes, underscores and spaces with underscores
+    regex_underscore = re.compile("[-_ ]+")
+    title = regex_underscore.sub(" ", title).strip()
+
+    # Lowercase and split by space
+    words = [word.lower() for word in title.split(" ")]
+
+    result = words[0]
+
+    for word in words[1:]:
+        if len(result) + len("_") + len(word) <= MAX_TITLE_LENGTH:
+            result = result + "_" + word
+        else:
+            break
+
+    return result

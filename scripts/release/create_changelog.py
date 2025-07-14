@@ -1,40 +1,18 @@
 import argparse
 import datetime
 import os
-import re
 
 from scripts.release.changelog import (
     BREAKING_CHANGE_ENTRIES,
     BUGFIX_ENTRIES,
     DEFAULT_CHANGELOG_PATH,
     FEATURE_ENTRIES,
-    FILENAME_DATE_FORMAT,
     FRONTMATTER_DATE_FORMAT,
     PRELUDE_ENTRIES,
+    get_change_kind,
+    get_changelog_filename,
     parse_change_date,
 )
-
-MAX_TITLE_LENGTH = 50
-
-
-def sanitize_title(title: str) -> str:
-    # Remove non-alphabetic and space characters
-    regex = re.compile("[^a-zA-Z ]+")
-    title = regex.sub("", title)
-
-    # Lowercase and split by space
-    words = [word.lower() for word in title.split(" ")]
-
-    result = words[0]
-
-    for word in words[1:]:
-        if len(result) + len("_") + len(word) <= MAX_TITLE_LENGTH:
-            result = result + "_" + word
-        else:
-            break
-
-    return result
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
@@ -79,9 +57,11 @@ if __name__ == "__main__":
     parser.add_argument("title", type=str, help="Title for the changelog entry")
     args = parser.parse_args()
 
+    title = args.title
+    date_str = args.date
     date = parse_change_date(args.date, FRONTMATTER_DATE_FORMAT)
-    sanitized_title = sanitize_title(args.title)
-    filename = f"{datetime.datetime.strftime(date, FILENAME_DATE_FORMAT)}_{args.kind}_{sanitized_title}.md"
+    kind = get_change_kind(args.kind)
+    filename = get_changelog_filename(title, kind, date)
 
     working_dir = os.getcwd()
     changelog_path = os.path.join(working_dir, args.changelog_path, filename)
@@ -93,9 +73,9 @@ if __name__ == "__main__":
     with open(changelog_path, "w") as f:
         # Add frontmatter based on args
         f.write("---\n")
-        f.write(f"title: {args.title}\n")
-        f.write(f"kind: {args.kind}\n")
-        f.write(f"date: {date}\n")
+        f.write(f"title: {title}\n")
+        f.write(f"kind: {str(kind)}\n")
+        f.write(f"date: {date_str}\n")
         f.write("---\n\n")
 
     if args.editor:
