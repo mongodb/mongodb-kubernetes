@@ -7,6 +7,7 @@ script_dir=$(dirname "${script_name}")
 source "${script_dir}/private-context"
 
 export PROJECT_DIR="${PWD}"
+export PYTHON_PATH="${PROJECT_DIR}"
 export IMAGE_TYPE=ubi
 export UBI_IMAGE_WITHOUT_SUFFIX=true
 export WATCH_NAMESPACE=${WATCH_NAMESPACE:-${NAMESPACE}}
