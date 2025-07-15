@@ -11,8 +11,10 @@ on:
 
 jobs:
   validate-changelog:
-    name: Check for valid changelog entry in Pull Request
+    name: Check for valid changelog entry
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -23,7 +25,8 @@ jobs:
         with:
           python-version: '${{ vars.PYTHON_VERSION }}'
       - name: Check if changelog entry file was added in this PR
-        run: python -m scripts.release.check_changelog -b $BASE_SHA -f $FAIL_ON_NO_CHANGES >> $GITHUB_STEP_SUMMARY
+        run: |
+          python -m scripts.release.check_changelog -b $BASE_SHA -f $FAIL_ON_NO_CHANGES | tee >> $GITHUB_STEP_SUMMARY
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           FAIL_ON_NO_CHANGES: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-changelog') }}

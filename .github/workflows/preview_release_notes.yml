@@ -13,6 +13,9 @@ jobs:
   preview_release_notes:
     name: Preview Release Notes
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -24,9 +27,17 @@ jobs:
           python-version: '${{ vars.PYTHON_VERSION }}'
       - name: Generate Release Notes
         id: generate_release_notes
-        run: python -m scripts.release.release_notes -s $INITIAL_COMMIT_SHA -v $INITIAL_VERSION -o release_notes_tmp.md
+        run: |
+          python -m scripts.release.release_notes -s $INITIAL_COMMIT_SHA -v $INITIAL_VERSION -o release_notes_tmp.md
         env:
           INITIAL_COMMIT_SHA: ${{ vars.RELEASE_INITIAL_COMMIT_SHA }}
           INITIAL_VERSION: ${{ vars.RELEASE_INITIAL_VERSION }}
       - name: Summarize results
         run: echo $(cat release_notes_tmp.md) >> $GITHUB_STEP_SUMMARY
+      - name: Update PR comment
+        if: github.event_name == 'pull_request'
+        run: |
+          gh issue comment $ISSUE --edit-last --create-if-none --body-file release_notes_tmp.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE: ${{ github.event.pull_request.html_url }}
