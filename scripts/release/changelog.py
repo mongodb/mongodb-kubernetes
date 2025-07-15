@@ -70,12 +70,12 @@ def extract_changelog_entry(working_dir: str, file_path: str) -> ChangeEntry:
 
     if change_entry.date != date:
         raise Exception(
-            f"{file_name} - date in front matter {change_entry.date} does not match date extracted from file name {date}"
+            f"{file_name} - date in front matter '{change_entry.date}' does not match date extracted from file name '{date}'"
         )
 
     if change_entry.kind != kind:
         raise Exception(
-            f"{file_name} - kind in front matter {change_entry.kind} does not match kind extracted from file name {kind}"
+            f"{file_name} - kind in front matter '{change_entry.kind}' does not match kind extracted from file name '{kind}'"
         )
 
     return change_entry
@@ -101,7 +101,7 @@ def parse_change_date(date_str: str, date_format: str) -> datetime:
     try:
         date = datetime.datetime.strptime(date_str, date_format).date()
     except Exception:
-        raise Exception(f"date {date_str} is not in the expected format {date_format}")
+        raise Exception(f"date '{date_str}' is not in the expected format {date_format}")
 
     return date
 
