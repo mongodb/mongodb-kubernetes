@@ -5,15 +5,17 @@ from git import Repo
 
 from scripts.release.changelog import DEFAULT_CHANGELOG_PATH, get_changelog_entries
 
+
 def str2bool(v):
     if isinstance(v, bool):
         return v
-    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+    if v.lower() in ("yes", "true", "t", "y", "1"):
         return True
-    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+    elif v.lower() in ("no", "false", "f", "n", "0"):
         return False
     else:
-        raise argparse.ArgumentTypeError('Boolean value expected.')
+        raise argparse.ArgumentTypeError("Boolean value expected.")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -54,8 +56,7 @@ if __name__ == "__main__":
         metavar="",
         action="store",
         type=str2bool,
-        nargs='?',
-        const=True,
+        nargs="?",
         help="Fail if no changelog entries are found. Default is True.",
     )
     args = parser.parse_args()

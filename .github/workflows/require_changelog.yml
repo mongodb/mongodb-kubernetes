@@ -28,7 +28,7 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
       - name: Check if changelog entry file was added in this PR
-        run: python scripts/release/check_changelog.py --base-sha "$BASE_SHA" --fail-on-no-changes $FAIL_ON_NO_CHANGES
+        run: python -m scripts.release.check_changelog --base-sha "$BASE_SHA" --fail-on-no-changes $FAIL_ON_NO_CHANGES
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           FAIL_ON_NO_CHANGES: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-changelog') }}
