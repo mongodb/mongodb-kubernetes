@@ -204,6 +204,13 @@ func buildSearchHeadlessService(search *searchv1.MongoDBSearch) corev1.Service {
 		TargetPort: intstr.FromInt32(search.GetMongotMetricsPort()),
 	})
 
+	serviceBuilder.AddPort(&corev1.ServicePort{
+		Name:       "healthcheck",
+		Protocol:   corev1.ProtocolTCP,
+		Port:       search.GetMongotHealthCheckPort(),
+		TargetPort: intstr.FromInt32(search.GetMongotHealthCheckPort()),
+	})
+
 	return serviceBuilder.Build()
 }
 
@@ -236,7 +243,7 @@ func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResourc
 			Address: fmt.Sprintf("localhost:%d", search.GetMongotMetricsPort()),
 		},
 		HealthCheck: mongot.ConfigHealthCheck{
-			Address: "0.0.0.0:8080",
+			Address: fmt.Sprintf("localhost:%d", search.GetMongotHealthCheckPort()),
 		},
 		Logging: mongot.ConfigLogging{
 			Verbosity: "DEBUG",

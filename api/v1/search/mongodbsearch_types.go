@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	MongotDefaultPort        = 27027
-	MongotDefaultMetricsPort = 9946
+	MongotDefaultPort           = 27027
+	MongotDefaultMetricsPort    = 9946
+	MongotDefautHealthCheckPort = 8080
 )
 
 func init() {
@@ -133,4 +134,8 @@ func (s *MongoDBSearch) GetMongotPort() int32 {
 
 func (s *MongoDBSearch) GetMongotMetricsPort() int32 {
 	return MongotDefaultMetricsPort
+}
+
+func (s *MongoDBSearch) GetMongotHealthCheckPort() int32 {
+	return MongotDefautHealthCheckPort
 }

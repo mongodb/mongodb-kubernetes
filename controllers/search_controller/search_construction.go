@@ -19,7 +19,9 @@ import (
 )
 
 const (
-	MongotContainerName = "mongot"
+	MongotContainerName      = "mongot"
+	SearchLivenessProbePath  = "/health"
+	SearchReadinessProbePath = "/health" // Todo: Update this when search GA is available
 )
 
 // SearchSourceDBResource is an object wrapping a MongoDBCommunity object
@@ -170,11 +172,8 @@ func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []co
 		container.WithName(MongotContainerName),
 		container.WithImage(searchImage),
 		container.WithImagePullPolicy(corev1.PullAlways),
-		container.WithReadinessProbe(probes.Apply(
-			probes.WithTCPSocket("", intstr.FromInt32(mdbSearch.GetMongotPort())),
-			probes.WithInitialDelaySeconds(20),
-			probes.WithPeriodSeconds(10),
-		)),
+		container.WithLivenessProbe(mongotLivenessProbe(mdbSearch)),
+		container.WithReadinessProbe(mongotReadinessProbe(mdbSearch)),
 		container.WithResourceRequirements(createSearchResourceRequirements(mdbSearch.Spec.ResourceRequirements)),
 		container.WithVolumeMounts(volumeMounts),
 		container.WithCommand([]string{"sh"}),
@@ -188,6 +187,42 @@ chmod 0600 /tmp/keyfile
 `,
 		}),
 		containerSecurityContext,
+	)
+}
+
+func mongotLivenessProbe(search *searchv1.MongoDBSearch) func(*corev1.Probe) {
+	return probes.Apply(
+		probes.WithHandler(corev1.ProbeHandler{
+			HTTPGet: &corev1.HTTPGetAction{
+				Scheme: corev1.URISchemeHTTP,
+				Port:   intstr.FromInt32(search.GetMongotHealthCheckPort()),
+				Path:   SearchLivenessProbePath,
+			},
+		}),
+		probes.WithInitialDelaySeconds(10),
+		probes.WithPeriodSeconds(10),
+		probes.WithTimeoutSeconds(5),
+		probes.WithSuccessThreshold(1),
+		probes.WithFailureThreshold(10),
+	)
+}
+
+// mongotReadinessProbe just uses the endpoint intended for liveness checks;
+// readiness check endpoint may be available in search GA.
+func mongotReadinessProbe(search *searchv1.MongoDBSearch) func(*corev1.Probe) {
+	return probes.Apply(
+		probes.WithHandler(corev1.ProbeHandler{
+			HTTPGet: &corev1.HTTPGetAction{
+				Scheme: corev1.URISchemeHTTP,
+				Port:   intstr.FromInt32(search.GetMongotHealthCheckPort()),
+				Path:   SearchReadinessProbePath,
+			},
+		}),
+		probes.WithInitialDelaySeconds(20),
+		probes.WithPeriodSeconds(10),
+		probes.WithTimeoutSeconds(5),
+		probes.WithSuccessThreshold(1),
+		probes.WithFailureThreshold(3),
 	)
 }
 
