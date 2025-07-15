@@ -1,6 +1,6 @@
-from conftest import git_repo
 from git import Repo
 
+from scripts.release.conftest import git_repo
 from scripts.release.release_notes import generate_release_notes
 
 
