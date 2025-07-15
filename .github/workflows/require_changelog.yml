@@ -1,4 +1,4 @@
-run-name: Validate Changelog Requirement for PRs
+name: Validate Changelog Requirement
 on:
   pull_request:
     branches:
@@ -24,6 +24,7 @@ jobs:
           cache: 'pip' # caching pip dependencies
       - name: Install dependencies
         run: |
+          sudo apt-get install libldap2-dev libsasl2-dev # Required for python-ldap
           pip install --upgrade pip
           pip install -r requirements.txt
       - name: Check if changelog entry file was added in this PR
