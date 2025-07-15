@@ -4,9 +4,9 @@ import unittest
 from changelog import (
     MAX_TITLE_LENGTH,
     ChangeKind,
+    extract_changelog_entry_from_contents,
     extract_date_and_kind_from_file_name,
     sanitize_title,
-    strip_changelog_entry_frontmatter,
 )
 
 
@@ -94,14 +94,13 @@ date: 2025-07-10
   * Added new property [spec.search](https://www.mongodb.com/docs/kubernetes/current/mongodb/specification/#spec-search) to enable MongoDB Search.
 """
 
-    change_meta, contents = strip_changelog_entry_frontmatter(file_contents)
+    change_entry = extract_changelog_entry_from_contents(file_contents)
 
-    assert change_meta.title == "This is my change"
-    assert change_meta.kind == ChangeKind.FEATURE
-    assert change_meta.date == datetime.date(2025, 7, 10)
-
+    assert change_entry.title == "This is my change"
+    assert change_entry.kind == ChangeKind.FEATURE
+    assert change_entry.date == datetime.date(2025, 7, 10)
     assert (
-        contents
+        change_entry.contents
         == """* **MongoDB**: public search preview release of MongoDB Search (Community Edition) is now available.
   * Added new property [spec.search](https://www.mongodb.com/docs/kubernetes/current/mongodb/specification/#spec-search) to enable MongoDB Search.
 """

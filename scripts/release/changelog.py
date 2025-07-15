@@ -26,18 +26,19 @@ class ChangeKind(StrEnum):
     OTHER = "other"
 
 
-class ChangeMeta:
-    def __init__(self, date: datetime, kind: ChangeKind, title: str):
+class ChangeEntry:
+    def __init__(self, date: datetime, kind: ChangeKind, title: str, contents: str):
         self.date = date
         self.kind = kind
         self.title = title
+        self.contents = contents
 
 
 def get_changelog_entries(
     previous_version_commit: Commit,
     repo: Repo,
     changelog_sub_path: str,
-) -> list[tuple[ChangeKind, str]]:
+) -> list[ChangeEntry]:
     changelog = []
 
     # Compare previous version commit with current working tree
@@ -51,14 +52,13 @@ def get_changelog_entries(
     for diff_item in diff_index.iter_change_type("A"):
         file_path = diff_item.b_path
 
-        change_meta, contents = extract_changelog_data(repo.working_dir, file_path)
-
-        changelog.append((str(change_meta.kind), contents))
+        change_entry = extract_changelog_entry(repo.working_dir, file_path)
+        changelog.append(change_entry)
 
     return changelog
 
 
-def extract_changelog_data(working_dir: str, file_path: str) -> (ChangeMeta, str):
+def extract_changelog_entry(working_dir: str, file_path: str) -> ChangeEntry:
     file_name = os.path.basename(file_path)
     date, kind = extract_date_and_kind_from_file_name(file_name)
 
@@ -66,19 +66,19 @@ def extract_changelog_data(working_dir: str, file_path: str) -> (ChangeMeta, str
     with open(abs_file_path, "r") as file:
         file_content = file.read()
 
-    change_meta, contents = strip_changelog_entry_frontmatter(file_content)
+    change_entry = extract_changelog_entry_from_contents(file_content)
 
-    if change_meta.date != date:
+    if change_entry.date != date:
         raise Exception(
-            f"{file_name} - date in front matter {change_meta.date} does not match date extracted from file name {date}"
+            f"{file_name} - date in front matter {change_entry.date} does not match date extracted from file name {date}"
         )
 
-    if change_meta.kind != kind:
+    if change_entry.kind != kind:
         raise Exception(
-            f"{file_name} - kind in front matter {change_meta.kind} does not match kind extracted from file name {kind}"
+            f"{file_name} - kind in front matter {change_entry.kind} does not match kind extracted from file name {kind}"
         )
 
-    return change_meta, contents
+    return change_entry
 
 
 def extract_date_and_kind_from_file_name(file_name: str) -> (datetime, ChangeKind):
@@ -119,18 +119,15 @@ def get_change_kind(kind_str: str) -> ChangeKind:
         return ChangeKind.OTHER
 
 
-def strip_changelog_entry_frontmatter(file_contents: str) -> (ChangeMeta, str):
-    """Strip the front matter from a changelog entry."""
+def extract_changelog_entry_from_contents(file_contents: str) -> ChangeEntry:
     data = frontmatter.loads(file_contents)
 
     kind = get_change_kind(str(data["kind"]))
     date = parse_change_date(str(data["date"]), FRONTMATTER_DATE_FORMAT)
-    meta = ChangeMeta(date=date, title=str(data["title"]), kind=kind)
-
     ## Add newline to contents so the Markdown file also contains a newline at the end
     contents = data.content + "\n"
 
-    return meta, contents
+    return ChangeEntry(date=date, title=str(data["title"]), kind=kind, contents=contents)
 
 
 def get_changelog_filename(title: str, kind: ChangeKind, date: datetime) -> str:

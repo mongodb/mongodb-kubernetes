@@ -7,6 +7,7 @@ from jinja2 import Template
 from scripts.release.changelog import (
     DEFAULT_CHANGELOG_PATH,
     DEFAULT_INITIAL_GIT_TAG_VERSION,
+    ChangeEntry,
     ChangeKind,
     get_changelog_entries,
 )
@@ -44,11 +45,11 @@ def generate_release_notes(
 
     parameters = {
         "version": version,
-        "preludes": [c[1] for c in changelog if c[0] == ChangeKind.PRELUDE],
-        "breaking_changes": [c[1] for c in changelog if c[0] == ChangeKind.BREAKING],
-        "features": [c[1] for c in changelog if c[0] == ChangeKind.FEATURE],
-        "fixes": [c[1] for c in changelog if c[0] == ChangeKind.FIX],
-        "others": [c[1] for c in changelog if c[0] == ChangeKind.OTHER],
+        "preludes": [c.contents for c in changelog if c.kind == ChangeKind.PRELUDE],
+        "breaking_changes": [c.contents for c in changelog if c.kind == ChangeKind.BREAKING],
+        "features": [c.contents for c in changelog if c.kind == ChangeKind.FEATURE],
+        "fixes": [c.contents for c in changelog if c.kind == ChangeKind.FIX],
+        "others": [c.contents for c in changelog if c.kind == ChangeKind.OTHER],
     }
 
     return template.render(parameters)
@@ -56,11 +57,11 @@ def generate_release_notes(
 
 def calculate_next_version_with_changelog(
     repo: Repo, changelog_sub_path: str, initial_commit_sha: str | None, initial_version: str
-) -> (str, list[tuple[ChangeKind, str]]):
+) -> (str, list[ChangeEntry]):
     previous_version_tag, previous_version_commit = find_previous_version(repo, initial_commit_sha)
 
-    changelog: list[tuple[ChangeKind, str]] = get_changelog_entries(previous_version_commit, repo, changelog_sub_path)
-    changelog_kinds = list[ChangeKind](map(lambda x: x[0], changelog))
+    changelog: list[ChangeEntry] = get_changelog_entries(previous_version_commit, repo, changelog_sub_path)
+    changelog_kinds = list(set(entry.kind for entry in changelog))
 
     # If there is no previous version tag, we start with the initial version tag
     if not previous_version_tag:
