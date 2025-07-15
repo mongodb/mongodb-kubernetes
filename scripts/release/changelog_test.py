@@ -1,7 +1,7 @@
 import datetime
 import unittest
 
-from changelog import (
+from scripts.release.changelog import (
     MAX_TITLE_LENGTH,
     ChangeKind,
     extract_changelog_entry_from_contents,

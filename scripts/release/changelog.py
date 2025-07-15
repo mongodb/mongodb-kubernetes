@@ -35,14 +35,14 @@ class ChangeEntry:
 
 
 def get_changelog_entries(
-    previous_version_commit: Commit,
+    base_commit: Commit,
     repo: Repo,
     changelog_sub_path: str,
 ) -> list[ChangeEntry]:
     changelog = []
 
-    # Compare previous version commit with current working tree
-    diff_index = previous_version_commit.diff(other=repo.head.commit, paths=changelog_sub_path)
+    # Compare base commit with current working tree
+    diff_index = base_commit.diff(other=repo.head.commit, paths=changelog_sub_path)
 
     # No changes since the previous version
     if not diff_index:
