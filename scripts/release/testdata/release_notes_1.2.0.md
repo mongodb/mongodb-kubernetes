@@ -11,3 +11,8 @@
         * [Secure Client Authentication with OIDC](https://www.mongodb.com/docs/kubernetes/upcoming/tutorial/secure-client-connections/)
         * [Manage Database Users using OIDC](https://www.mongodb.com/docs/kubernetes/upcoming/manage-users/)
         * [Authentication and Authorization with OIDC/OAuth 2.0](https://www.mongodb.com/docs/manual/core/oidc/security-oidc/)
+
+## Other Changes
+
+* Fixing CI/CD pipeline issues.
+* Some other change that is not related to OIDC authentication.

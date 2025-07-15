@@ -25,7 +25,7 @@
 {{- fix -}}
 {%- endfor -%}
 {%- endif -%}
-{% if other %}
+{% if others %}
 ## Other Changes
 
 {% for other in others -%}
