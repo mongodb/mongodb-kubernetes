@@ -11,24 +11,19 @@ on:
 
 jobs:
   validate-changelog:
+    name: Check for valid changelog entry in Pull Request
     runs-on: ubuntu-latest
     steps:
-      - name: Check out repository code
+      - name: Check out repository
         uses: actions/checkout@v4
         with:
           fetch-depth: '0'
-      - name: setup python
-        uses: actions/setup-python@v5
+      - name: Setup host
+        uses: ./.github/actions/setup-ubuntu-host
         with:
-          python-version: 3.13 # Make this env var
-          cache: 'pip' # caching pip dependencies
-      - name: Install dependencies
-        run: |
-          sudo apt-get install libldap2-dev libsasl2-dev # Required for python-ldap
-          pip install --upgrade pip
-          pip install -r requirements.txt
+          python-version: '${{ vars.PYTHON_VERSION }}'
       - name: Check if changelog entry file was added in this PR
-        run: python -m scripts.release.check_changelog --base-sha "$BASE_SHA" --fail-on-no-changes $FAIL_ON_NO_CHANGES
+        run: python -m scripts.release.check_changelog -b $BASE_SHA -f $FAIL_ON_NO_CHANGES >> $GITHUB_STEP_SUMMARY
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           FAIL_ON_NO_CHANGES: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-changelog') }}

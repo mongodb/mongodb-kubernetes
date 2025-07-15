@@ -41,7 +41,7 @@ if __name__ == "__main__":
         help=f"Path to the changelog directory relative to the repository root. Default is '{DEFAULT_CHANGELOG_PATH}'",
     )
     parser.add_argument(
-        "-t",
+        "-b",
         "--base-sha",
         metavar="",
         action="store",

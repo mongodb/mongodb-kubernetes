@@ -1,0 +1,32 @@
+name: Preview Release Notes
+on:
+  push:
+    branches:
+      - master
+      - release-*
+  pull_request:
+    branches:
+      - master
+      - release-*
+
+jobs:
+  preview_release_notes:
+    name: Preview Release Notes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: '0'
+      - name: Setup host
+        uses: ./.github/actions/setup-ubuntu-host
+        with:
+          python-version: '${{ vars.PYTHON_VERSION }}'
+      - name: Generate Release Notes
+        id: generate_release_notes
+        run: python -m scripts.release.release_notes -s $INITIAL_COMMIT_SHA -v $INITIAL_VERSION -o release_notes_tmp.md
+        env:
+          INITIAL_COMMIT_SHA: ${{ vars.RELEASE_INITIAL_COMMIT_SHA }}
+          INITIAL_VERSION: ${{ vars.RELEASE_INITIAL_VERSION }}
+      - name: Summarize results
+        run: echo $(cat release_notes_tmp.md) >> $GITHUB_STEP_SUMMARY
