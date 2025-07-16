@@ -1,12 +1,15 @@
-package cmd
+package root
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/signal"
 	"runtime/debug"
 	"syscall"
+
+	cmddebug "github.com/mongodb/mongodb-kubernetes/cmd/kubectl-mongodb/debug"
+	"github.com/mongodb/mongodb-kubernetes/cmd/kubectl-mongodb/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/cmd/kubectl-mongodb/utils"
 
 	"github.com/spf13/cobra"
 )
@@ -18,6 +21,11 @@ var rootCmd = &cobra.Command{
 	Long: `This application is a tool to simplify maintenance tasks
 of MongoDB resources in your kubernetes cluster.
 	`,
+}
+
+func init() {
+	rootCmd.AddCommand(multicluster.MulticlusterCmd)
+	rootCmd.AddCommand(cmddebug.DebugCmd)
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -34,26 +42,10 @@ func Execute(ctx context.Context) {
 	}()
 	buildInfo, ok := debug.ReadBuildInfo()
 	if ok {
-		rootCmd.Long += getBuildInfoString(buildInfo)
+		rootCmd.Long += utils.GetBuildInfoString(buildInfo)
 	}
 	err := rootCmd.ExecuteContext(ctx)
 	if err != nil {
 		os.Exit(1)
 	}
-}
-
-func getBuildInfoString(buildInfo *debug.BuildInfo) string {
-	var vcsHash string
-	var vcsTime string
-	for _, setting := range buildInfo.Settings {
-		if setting.Key == "vcs.revision" {
-			vcsHash = setting.Value
-		}
-		if setting.Key == "vcs.time" {
-			vcsTime = setting.Value
-		}
-	}
-
-	buildInfoStr := fmt.Sprintf("\nBuild: %s, %s", vcsHash, vcsTime)
-	return buildInfoStr
 }

@@ -7,17 +7,16 @@ import (
 	"fmt"
 	"strings"
 
-	"k8s.io/utils/ptr"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kubectl-mongodb/common"
 
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/remotecommand"
-
-	"github.com/mongodb/mongodb-kubernetes/multi/pkg/common"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/remotecommand"
+	"k8s.io/utils/ptr"
 )
 
 var (
