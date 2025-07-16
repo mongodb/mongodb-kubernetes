@@ -1,0 +1,70 @@
+# Release Build Variants
+# Build variants for releases, OpenShift bundles, and production deployments
+
+buildvariants:
+  ## Release Build Variants ##
+
+  - name: release
+    display_name: release
+    tags: [ "release" ]
+    allowed_requesters: ["patch", "github_tag"]
+    run_on:
+      - ubuntu2204-large
+    tasks:
+      - name: release_operator
+      - name: release_init_appdb
+      - name: release_init_database
+      - name: release_init_ops_manager
+      - name: release_agent_operator_release
+      - name: release_agent
+      - name: release_database
+      - name: release_agents_on_ecr_conditional
+      - name: release_agents_on_ecr
+      - name: release_all_agents_on_ecr
+      - name: publish_ops_manager
+
+  ## OpenShift Bundle Variants ##
+
+  - name: openshift_bundles
+    display_name: openshift_bundles
+    tags: [ "openshift_bundles" ]
+    allowed_requesters: ["patch", "github_tag"]
+    run_on:
+      - ubuntu2204-large
+    tasks:
+      - name: prepare_and_upload_openshift_bundles_for_e2e
+      - name: prepare_and_upload_openshift_bundles
+      - name: run_conditionally_prepare_and_upload_openshift_bundles
+
+  ## CSV Backup Variants ##
+
+  - name: csv_backup
+    display_name: csv_backup
+    run_on:
+      - ubuntu2204-large
+    tasks:
+      - name: backup_csv_images_dry_run
+      - name: backup_csv_images_limit_3
+      - name: backup_csv_images_all
+
+  ## Performance Test Generation Variants ##
+
+  - name: perf_test_generation
+    display_name: perf_test_generation
+    run_on:
+      - ubuntu2204-large
+    tasks:
+      - name: generate_perf_tasks_one_thread
+      - name: generate_perf_tasks_10_thread
+      - name: generate_perf_tasks_30_thread
+
+  ## Pre-commit and Utility Variants ##
+
+  - name: utilities
+    display_name: utilities
+    run_on:
+      - ubuntu2204-large
+    tasks:
+      - name: run_precommit_and_push
+      - name: prepare_aws
+      - name: run_retry_script

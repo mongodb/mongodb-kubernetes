@@ -1,0 +1,248 @@
+# Image Build Tasks
+# Docker image building and related tasks
+
+tasks:
+  ### Core Image Build Tasks ###
+
+  - name: build_test_image
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: build_multi_cluster_binary
+      - func: pipeline
+        vars:
+          image_name: test
+
+  - name: build_mco_test_image
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: mco-test
+
+  - name: build_operator_ubi
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          skip_tags: ubuntu,release
+          distro: ubi
+          image_name: operator
+
+  ### Init Image Build Tasks ###
+
+  - name: build_init_om_images_ubi
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: init-ops-manager
+          skip_tags: ubuntu,release
+
+  - name: build_init_appdb_images_ubi
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: init-appdb
+          skip_tags: ubuntu,release
+
+  - name: build_init_database_image_ubi
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: init-database
+          skip_tags: ubuntu,release
+
+  ### Agent and Database Image Build Tasks ###
+
+  - name: build_agent_images_ubi
+    depends_on:
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: agent
+          skip_tags: ubuntu,release
+
+  - name: build_database_image_ubi
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: database
+          skip_tags: ubuntu,release
+
+  ### Community Image Build Tasks ###
+
+  - name: build_readiness_probe_image
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: readiness-probe
+          skip_tags: ubuntu,release
+
+  - name: build_upgrade_hook_image
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: upgrade-hook
+          skip_tags: ubuntu,release
+
+  ### Ops Manager Image Build Tasks ###
+
+  - name: build_om_images
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: ops-manager
+
+  ### Release Image Tasks ###
+
+  - name: release_operator
+    tags: [ "image_release" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_login
+      - func: setup_docker_sbom
+      - func: pipeline
+        vars:
+          image_name: operator
+          include_tags: release
+
+  - name: release_init_appdb
+    tags: [ "image_release" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_login
+      - func: setup_docker_sbom
+      - func: pipeline
+        vars:
+          image_name: init-appdb
+          include_tags: release
+
+  - name: release_init_database
+    tags: [ "image_release" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_login
+      - func: setup_docker_sbom
+      - func: pipeline
+        vars:
+          image_name: init-database
+          include_tags: release
+
+  - name: release_init_ops_manager
+    tags: [ "image_release" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_login
+      - func: setup_docker_sbom
+      - func: pipeline
+        vars:
+          image_name: init-ops-manager
+          include_tags: release
+
+  - name: release_agent_operator_release
+    tags: [ "image_release" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_login
+      - func: setup_docker_sbom
+      - func: pipeline
+        vars:
+          image_name: agent-operator-release
+          include_tags: release
+
+  - name: release_agent
+    tags: [ "image_release" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_login
+      - func: setup_docker_sbom
+      - func: pipeline
+        vars:
+          image_name: agent
+          include_tags: release
+
+  - name: release_database
+    tags: [ "image_release" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_login
+      - func: setup_docker_sbom
+      - func: pipeline
+        vars:
+          image_name: database
+          include_tags: release
+
+  ### Agent Release Tasks ###
+
+  - name: release_agents_on_ecr_conditional
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: agent-conditional
+
+  - name: release_agents_on_ecr
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: agent-ecr
+
+  - name: release_all_agents_on_ecr
+    # this enables us to run this manually (patch) and release all agent versions to ECR
+    # it's needed during operator new version release process - e2e tests (especially olm tests)
+    # will look for agent with new operator version suffix, but during PR checks we only build
+    # agent versions for most recent major OM versions and the tests will fail. Before running the PR
+    # checks, we need to run this task to build all agent versions.
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: agent-all-ecr
+
+  ### Ops Manager Publishing ###
+
+  - name: publish_ops_manager
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: ops-manager-publish

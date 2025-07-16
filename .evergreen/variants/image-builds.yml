@@ -1,0 +1,151 @@
+# Image Build Variants
+# Build variants for Docker image building and preflight validation
+
+buildvariants:
+  ## Main Image Build Variant ##
+
+  - name: init_test_run
+    display_name: init_test_run
+    run_on:
+      - ubuntu2204-large
+    tasks:
+      - name: build_test_image
+      - name: build_mco_test_image
+      - name: build_operator_ubi
+      - name: build_init_om_images_ubi
+      - name: build_init_appdb_images_ubi
+      - name: build_agent_images_ubi
+      - name: build_init_database_image_ubi
+      - name: build_database_image_ubi
+      - name: build_readiness_probe_image
+      - name: build_upgrade_hook_image
+
+  ## Ops Manager Image Build Variants ##
+
+  - name: build_om60_images
+    display_name: build_om60_images
+    run_on:
+      - ubuntu2204-large
+    tasks:
+      - name: build_om_images
+        vars:
+          om_version: *ops_manager_60_latest
+
+  - name: build_om70_images
+    display_name: build_om70_images
+    run_on:
+      - ubuntu2204-large
+    tasks:
+      - name: build_om_images
+        vars:
+          om_version: *ops_manager_70_latest
+
+  - name: build_om80_images
+    display_name: build_om80_images
+    run_on:
+      - ubuntu2204-large
+    tasks:
+      - name: build_om_images
+        vars:
+          om_version: *ops_manager_80_latest
+
+  ## Preflight Validation Variants ##
+
+  - name: preflight_release_images_check_only
+    display_name: preflight_release_images_check_only
+    run_on:
+      - rhel90-large
+    tasks:
+      - name: preflight_images_task_group
+
+  ## Code Snippets Build Variants ##
+
+  - name: gke_code_snippets
+    display_name: gke_code_snippets
+    tags: [ "release" ]
+    allowed_requesters: ["patch", "github_tag"]
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
+      - name: build_readiness_probe_image
+        variant: init_test_run
+      - name: build_upgrade_hook_image
+        variant: init_test_run
+      - name: build_mco_test_image
+        variant: init_test_run
+    run_on:
+      - ubuntu2204-large
+    tasks:
+      - name: gke_code_snippets_task_group
+
+  - name: kind_code_snippets
+    display_name: kind_code_snippets
+    tags: [ "release" ]
+    allowed_requesters: ["patch", "github_tag"]
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
+      - name: build_readiness_probe_image
+        variant: init_test_run
+      - name: build_upgrade_hook_image
+        variant: init_test_run
+      - name: build_mco_test_image
+        variant: init_test_run
+    run_on:
+      - ubuntu2204-large
+    tasks:
+      - name: kind_code_snippets_task_group
+
+  ## Pre-release Build Variants ##
+
+  - name: prerelease_gke_code_snippets
+    display_name: prerelease_gke_code_snippets
+    tags: [ "release" ]
+    allowed_requesters: ["patch", "github_tag"]
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
+      - name: build_readiness_probe_image
+        variant: init_test_run
+      - name: build_upgrade_hook_image
+        variant: init_test_run
+      - name: build_mco_test_image
+        variant: init_test_run
+    run_on:
+      - ubuntu2204-large
+    tasks:
+      - name: gke_code_snippets_task_group
+
+  - name: prerelease_kind_code_snippets
+    display_name: prerelease_kind_code_snippets
+    tags: [ "release" ]
+    allowed_requesters: ["patch", "github_tag"]
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
+      - name: build_readiness_probe_image
+        variant: init_test_run
+      - name: build_upgrade_hook_image
+        variant: init_test_run
+      - name: build_mco_test_image
+        variant: init_test_run
+    run_on:
+      - ubuntu2204-large
+    tasks:
+      - name: kind_code_snippets_task_group

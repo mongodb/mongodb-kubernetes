@@ -1,0 +1,1972 @@
+# MongoDB Kubernetes Operator CI Configuration
+# This file now uses a modular structure for better maintainability
+# All configuration has been organized into logical, focused files
+
+include:
+  - filename: .evergreen/main.yml
+
+variables:
+  - &ops_manager_60_latest 6.0.27 # The order/index is important, since these are anchors. Please do not change
+
+  - &ops_manager_70_latest 7.0.15 # The order/index is important, since these are anchors. Please do not change
+
+  - &ops_manager_80_latest 8.0.7 # The order/index is important, since these are anchors. Please do not change
+
+  # The dependency unification between static and non-static is intentional here.
+  # Even though some images are exclusive, in EVG they all are built once and in parallel.
+  # It is not worth the effort of splitting them out.
+  # Once Static Containers are default, this piece can be cleaned up.
+  - &base_om6_dependency
+    depends_on:
+      - name: build_om_images
+        variant: build_om60_images
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_init_appdb_images_ubi
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
+
+  - &base_no_om_image_dependency
+    depends_on:
+      - name: build_om_images
+        variant: build_om70_images
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_init_appdb_images_ubi
+        variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
+
+  - &community_dependency
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
+      - name: build_readiness_probe_image
+        variant: init_test_run
+      - name: build_upgrade_hook_image
+        variant: init_test_run
+      - name: build_mco_test_image
+        variant: init_test_run
+
+  - &setup_group
+    setup_group_can_fail_task: true
+    setup_group:
+      - func: clone
+      - func: download_kube_tools
+      - func: setup_building_host
+
+  - &setup_group_multi_cluster
+    setup_group_can_fail_task: true
+    setup_group:
+      - func: clone
+      - func: download_kube_tools
+      - func: setup_building_host
+      - func: build_multi_cluster_binary
+
+  - &setup_and_teardown_group_gke_code_snippets
+    setup_task_can_fail_task: true
+    setup_group:
+      - func: clone
+      - func: setup_gcloud_cli
+      - func: setup_mongosh
+      - func: download_kube_tools
+      - func: build_multi_cluster_binary
+    teardown_group:
+      - func: upload_code_snippets_logs
+
+  - &setup_and_teardown_group_kind_code_snippets
+    setup_task_can_fail_task: true
+    setup_group:
+      - func: clone
+      - func: cleanup_exec_environment
+      - func: download_kube_tools
+      - func: configure_docker_auth
+      - func: setup_kubernetes_environment
+    teardown_task:
+      - func: upload_e2e_logs
+      - func: upload_code_snippets_logs
+
+  - &setup_and_teardown_task_cloudqa
+    setup_task_can_fail_task: true
+    setup_task:
+      - func: cleanup_exec_environment
+      - func: configure_docker_auth
+      - func: setup_kubernetes_environment
+      - func: setup_cloud_qa
+    teardown_task_can_fail_task: true
+    teardown_task:
+      - func: upload_e2e_logs
+      - func: teardown_kubernetes_environment
+      - func: teardown_cloud_qa
+
+  - &setup_and_teardown_task
+    setup_task_can_fail_task: true
+    setup_task:
+      - func: cleanup_exec_environment
+      - func: configure_docker_auth
+      - func: setup_kubernetes_environment
+    teardown_task_can_fail_task: true
+    teardown_task:
+      - func: upload_e2e_logs
+      - func: teardown_kubernetes_environment
+
+  - &teardown_group
+    teardown_group:
+      - func: prune_docker_resources
+      - func: run_retry_script
+
+  - &base_om7_dependency
+    depends_on:
+      - name: build_om_images
+        variant: build_om70_images
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_init_appdb_images_ubi
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
+
+  - &base_om8_dependency
+    depends_on:
+      - name: build_om_images
+        variant: build_om80_images
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_init_appdb_images_ubi
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
+
+parameters:
+  - key: evergreen_retry
+    value: "true"
+    description: set this to false to suppress retries on failure
+
+  - key: pin_tag_at
+    value: 10:00
+    description: Pin tags at this time of the day. Midnight by default for periodic and 10 for releases.
+
+  - key: OVERRIDE_VERSION_ID
+    value: ""
+    description: "Patch id to reuse images from other Evergreen build"
+
+  - key: code_snippets_teardown
+    value: "true"
+    description: set this to false if you would like to keep the clusters created during code snippets tests
+
+  - key: code_snippets_reset
+    value: "false"
+    description: set this to true if you would like to delete the resources created in the code snippet tests, but keep the clusters
+
+  - key: code_snippets_commit_output
+    value: "false"
+    description: set this to true if you would like the pipeline to automatically push a branch with updated snippets outputs
+
+
+# Triggered manually or by PCT.
+patch_aliases:
+  - alias: "periodic_builds"
+    variant_tags: [ "periodic_build" ]
+    task: ".*"
+  - alias: "periodic_teardowns"
+    variant_tags: [ "periodic_teardown" ]
+    task: ".*"
+  - alias: "release_agent"
+    variant_tags: [ "release_agent" ]
+    task: ".*"
+  - alias: "release_all_agents_manually"
+    variant_tags: [ "release_all_agents_manually" ]
+    task: ".*"
+  - alias: "release"
+    variant_tags: [ "release", "e2e_smoke_release_test_suite" ]
+    task_tags: [ "image_release", "image_preflight", "openshift_bundles", "code_snippets", "patch-run" ]
+  - alias: "smoke_test_release"
+    variant_tags: [ "e2e_smoke_release_test_suite" ]
+    task_tags: [ "patch-run" ]
+  - alias: "patch-run-cloudqa"
+    variant_tags: [ "cloudqa" ]
+    task: ".*"
+
+# Triggered whenever the GitHub PR is created
+github_pr_aliases:
+  - variant_tags: [ "unit_tests" ]
+    task_tags: [ "unit_tests" ]
+  - variant_tags: [ "e2e_test_suite" ]
+    task_tags: [ "patch-run" ]
+  - variant_tags: [ "e2e_mco_test_suite" ]
+    task: ".*"
+  - variant_tags: [ "auto_bump" ]
+    task_tags: [ "patch-run" ]
+  - variant_tags: [ "release_agents_on_ecr" ]
+    task: ".*"
+
+# Allows to see evergreen checks in GitHub commits
+# https://github.com/mongodb/mongodb-kubernetes/commits/master/
+github_checks_aliases:
+  - variant: ".*"
+    task: ".*"
+
+# Triggered on git tag
+git_tag_aliases:
+  - git_tag: "^(\\d+\\.)?(\\d+\\.)?(\\d+)$"
+    variant_tags: [ "release", "e2e_smoke_release_test_suite" ]
+    task_tags: [ "image_release", "image_preflight", "openshift_bundles", "code_snippets", "patch-run" ]
+
+tasks:
+  - name: unit_tests_golang
+    tags: [ "unit_tests" ]
+    commands:
+      - func: "test_golang_unit"
+
+  - name: unit_tests_python
+    tags: [ "unit_tests" ]
+    commands:
+      - func: "test_python_unit"
+
+  - name: sbom_tests
+    tags: [ "unit_tests" ]
+    # The SBOM tests run only on commit builds. Running this on patches might cause false-positive failures
+    # because certain images might not be there yet. Such situation happens for OM image upgrades for example.
+    # See https://docs.devprod.prod.corp.mongodb.com/evergreen/Project-Configuration/Project-Configuration-Files#limiting-when-a-task-or-variant-will-run
+    patchable: false
+    commands:
+      - func: "test_sboms"
+
+  - name: lint_repo
+    tags: [ "unit_tests" ]
+    commands:
+      - func: lint_repo
+
+  - name: release_operator
+    tags: [ "image_release" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_login
+      - func: setup_docker_sbom
+      - func: pipeline
+        vars:
+          image_name: operator
+          include_tags: release
+
+  # Releases init images to Quay
+  - name: release_init_appdb
+    tags: [ "image_release" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_login
+      - func: setup_docker_sbom
+      - func: pipeline
+        vars:
+          image_name: init-appdb
+          include_tags: release
+
+  - name: release_init_database
+    tags: [ "image_release" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_login
+      - func: setup_docker_sbom
+      - func: pipeline
+        vars:
+          image_name: init-database
+          include_tags: release
+
+  - name: release_init_ops_manager
+    tags: [ "image_release" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_login
+      - func: setup_docker_sbom
+      - func: pipeline
+        vars:
+          image_name: init-ops-manager
+          include_tags: release
+
+  - name: release_agent_operator_release
+    tags: [ "image_release" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_login
+      - func: setup_docker_sbom
+      - func: pipeline
+        vars:
+          image_name: agent
+          include_tags: release
+
+  # pct only triggers this variant once a new agent image is out
+  - name: release_agent
+    # this enables us to run this variant either manually (patch) which pct does or during an OM bump (github_pr)
+    allowed_requesters: [ "patch", "github_pr" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_login
+      - func: setup_docker_sbom
+      - func: pipeline
+        vars:
+          image_name: agent-pct
+          include_tags: release
+
+  - name: run_precommit_and_push
+    tags: ["patch-run"]
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: download_kube_tools
+      - func: setup_shellcheck
+      - command: github.generate_token
+        params:
+          expansion_name: GH_TOKEN
+      - command: subprocess.exec
+        type: setup
+        params:
+          include_expansions_in_env:
+            - GH_TOKEN
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          binary: scripts/evergreen/precommit_bump.sh
+
+  # Pct only triggers this variant once a new agent image is out
+  # these releases the agent with the operator suffix (not patch id) on ecr to allow for digest pinning to pass.
+  # For this to work, we rely on skip_tags which is used to determine whether
+  # we want to release on quay or not, in this case - ecr instead.
+  # We rely on the init_database from ecr for the agent x operator images.
+  # This runs on agent releases that are not concurrent with operator releases.
+  - name: release_agents_on_ecr_conditional
+    commands:
+      - func: clone
+      - func: run_task_conditionally
+        vars:
+          condition_script: scripts/evergreen/should_release_agents_on_ecr.sh
+          variant: init_release_agents_on_ecr
+          task: release_agents_on_ecr
+
+  - name: release_agents_on_ecr
+    # this enables us to run this variant either manually (patch) which pct does or during an OM bump (github_pr)
+    allowed_requesters: [ "patch", "github_pr" ]
+    priority: 70
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: agent-pct
+          skip_tags: release
+
+  - name: release_all_agents_on_ecr
+    # this enables us to run this manually (patch) and release all agent versions to ECR
+    # it's needed during operator new version release process - e2e tests (especially olm tests)
+    # will look for agent with new operator version suffix, but during PR checks we only build
+    # agent versions for most recent major OM versions and the tests will fail. Before running the PR
+    # we have to manually release all agents to ECR by triggering this patch
+    allowed_requesters: [ "patch" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: agent-pct
+          skip_tags: release
+          all_agents: true
+
+  - name: build_test_image
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: build_multi_cluster_binary
+      - func: pipeline
+        vars:
+          image_name: test
+
+  - name: build_mco_test_image
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: mco-test
+
+  - name: build_operator_ubi
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          skip_tags: ubuntu,release
+          distro: ubi
+          image_name: operator
+
+  - name: build_init_om_images_ubi
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: init-ops-manager
+          skip_tags: ubuntu,release
+
+  - name: build_init_appdb_images_ubi
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: init-appdb
+          skip_tags: ubuntu,release
+
+  - name: build_agent_images_ubi
+    depends_on:
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: agent
+          skip_tags: ubuntu,release
+
+  - name: build_init_database_image_ubi
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: init-database
+          skip_tags: ubuntu,release
+
+  - name: build_database_image_ubi
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: database
+          skip_tags: ubuntu,release
+
+  - name: build_readiness_probe_image
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: readiness-probe
+          skip_tags: ubuntu,release
+
+  - name: build_upgrade_hook_image
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: upgrade-hook
+          skip_tags: ubuntu,release
+
+  - name: prepare_aws
+    priority: 59
+    commands:
+      - func: clone
+      - func: setup_jq
+      - func: setup_aws
+      - func: prepare_aws
+
+  - name: run_retry_script
+    tags: [ "patch-run" ]
+    commands:
+      - func: run_retry_script
+
+  - name: generate_perf_tasks_one_thread
+    commands:
+      - func: clone
+      - func: generate_perf_tests_tasks
+        vars:
+          variant: e2e_operator_perf_one_thread
+          size: small
+
+  - name: generate_perf_tasks_10_thread
+    commands:
+      - func: clone
+      - func: generate_perf_tests_tasks
+        vars:
+          variant: e2e_operator_perf
+          size: small
+
+  - name: generate_perf_tasks_30_thread
+    commands:
+      - func: clone
+      - func: generate_perf_tests_tasks
+        vars:
+          variant: e2e_operator_perf_thirty
+          size: small
+
+  - name: release_database
+    tags: [ "image_release" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_login
+      - func: setup_docker_sbom
+      - func: pipeline
+        vars:
+          image_name: database
+
+  - name: build_om_images
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: ops-manager
+          skip_tags: release
+
+  - name: publish_ops_manager
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_login
+      - func: setup_docker_sbom
+      - func: pipeline
+        vars:
+          image_name: ops-manager
+          include_tags: release
+
+  - name: prepare_and_upload_openshift_bundles_for_e2e
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: download_kube_tools
+      - func: setup_prepare_openshift_bundles
+      - func: prepare_openshift_bundles_for_e2e
+
+  - name: prepare_and_upload_openshift_bundles
+    tags: [ "openshift_bundles" ]
+    commands:
+      - func: clone
+      - func: setup_aws
+      - func: configure_docker_auth
+      - func: setup_prepare_openshift_bundles
+      - func: prepare_openshift_bundles
+      - func: update_evergreen_expansions
+      - func: upload_openshift_bundle
+        vars:
+          # mongoDbOperator expansion is added in update_evergreen_expansions func from release.json
+          bundle_file_name: "mck-operator-certified-${mongodbOperator}.tgz"
+
+  - name: run_conditionally_prepare_and_upload_openshift_bundles
+    tags: [ "openshift_bundles" ]
+    commands:
+      - func: clone
+      - func: run_task_conditionally
+        vars:
+          condition_script: scripts/evergreen/should_prepare_openshift_bundles.sh
+          variant: prepare_openshift_bundles
+          task: prepare_and_upload_openshift_bundles
+
+  - name: backup_csv_images_dry_run
+    commands:
+      - func: clone
+      - func: quay_login
+      - command: subprocess.exec
+        params:
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          binary: python3
+          args:
+            - scripts/dev/release/backup_csv_images.py
+            - scripts/dev/release/1.2.0.clusterserviceversion.yaml
+            - --dry-run
+            - --verbose
+  - name: backup_csv_images_limit_3
+    commands:
+      - func: clone
+      - func: quay_login
+      - command: subprocess.exec
+        params:
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          binary: python3
+          args:
+            - scripts/dev/release/backup_csv_images.py
+            - scripts/dev/release/1.2.0.clusterserviceversion.yaml
+            - --limit
+            - "3"
+            - --verbose
+  - name: backup_csv_images_all
+    commands:
+      - func: clone
+      - func: quay_login
+      - command: subprocess.exec
+        params:
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          binary: python3
+          args:
+            - scripts/dev/release/backup_csv_images.py
+            - scripts/dev/release/1.2.0.clusterserviceversion.yaml
+            - --verbose
+
+task_groups:
+  - name: unit_task_group
+    max_hosts: -1
+    setup_group_can_fail_task: true
+    setup_group:
+      - func: clone
+      - func: python_venv
+      - func: download_kube_tools
+      - func: setup_shellcheck
+    tasks:
+      - lint_repo
+      - unit_tests_golang
+      - unit_tests_python
+      - sbom_tests
+
+  - name: gke_code_snippets_task_group
+    <<: *setup_and_teardown_group_gke_code_snippets
+    max_hosts: -1
+    tasks:
+      - task_gke_multi_cluster_snippets
+      - task_gke_multi_cluster_no_mesh_snippets
+
+  - name: kind_code_snippets_task_group
+    <<: *setup_and_teardown_group_kind_code_snippets
+    max_hosts: -1
+    tasks:
+      - task_kind_community_search_snippets
+
+  # Task group for deploying mongodbcommunity resources and testing the (former) MCO
+  - name: e2e_mdb_community_task_group
+    max_hosts: -1
+    <<: *setup_group
+    <<: *setup_and_teardown_task
+    tasks:
+      - e2e_community_replicaset_scale
+      - e2e_search_community_basic
+
+  # This is the task group that contains all the tests run in the e2e_mdb_kind_ubuntu_cloudqa build variant
+  - name: e2e_mdb_kind_cloudqa_task_group
+    max_hosts: -1
+    <<: *setup_group
+    <<: *setup_and_teardown_task_cloudqa
+    tasks:
+      # e2e_kube_only_task_group
+      - e2e_crd_validation
+      - e2e_replica_set_config_map
+      - e2e_replica_set_exposed_externally
+      - e2e_replica_set_pv
+      - e2e_replica_set_pv_multiple
+      - e2e_replica_set_schema_validation
+      - e2e_replica_set_statefulset_status
+      - e2e_sharded_cluster_pv
+      - e2e_sharded_cluster_recovery
+      - e2e_sharded_cluster_schema_validation
+      - e2e_sharded_cluster_statefulset_status
+      - e2e_standalone_config_map
+      - e2e_standalone_recovery
+      - e2e_standalone_schema_validation
+      - e2e_users_schema_validation
+      - e2e_replica_set_tls_default
+      - e2e_replica_set_tls_override
+      - e2e_replica_set_ignore_unknown_users
+      # e2e_core_task_group
+      - e2e_all_mongodb_resources_parallel
+      - e2e_multiple_cluster_failures
+      - e2e_replica_set_custom_podspec
+      - e2e_replica_set_custom_sa
+      - e2e_replica_set_report_pending_pods
+      - e2e_replica_set_recovery
+      - e2e_replica_set_upgrade_downgrade
+      - e2e_replica_set_agent_flags_and_readinessProbe
+      - e2e_sharded_cluster
+      - e2e_sharded_cluster_secret
+      - e2e_sharded_cluster_upgrade_downgrade
+      - e2e_sharded_cluster_custom_podspec
+      - e2e_sharded_cluster_agent_flags
+      - e2e_standalone_upgrade_downgrade
+      - e2e_standalone_custom_podspec
+      - e2e_standalone_agent_flags
+      - e2e_replica_set_process_hostnames
+      - e2e_replica_set_member_options
+      # e2e_tls_task_group
+      - e2e_replica_set_tls_allow
+      - e2e_replica_set_tls_prefer
+      - e2e_replica_set_tls_require_upgrade
+      - e2e_tls_rs_additional_certs
+      - e2e_tls_sc_additional_certs
+      - e2e_tls_rs_intermediate_ca
+      - e2e_tls_sharded_cluster_certs_prefix
+      - e2e_sharded_cluster_migration
+      - e2e_standalone_no_tls_no_status_is_set
+      - e2e_feature_controls_authentication
+      - e2e_replica_set
+      - e2e_replica_set_liveness_probe
+      - e2e_replica_set_mongod_options
+      - e2e_replica_set_readiness_probe
+      - e2e_replica_set_update_delete_parallel
+      - e2e_sharded_cluster_scale_shards
+      - e2e_sharded_cluster_shard_overrides
+      - e2e_sharded_cluster_mongod_options_and_log_rotation
+      - e2e_tls_rs_external_access
+      - e2e_replica_set_tls_require
+      - e2e_replica_set_tls_certs_secret_prefix
+      - e2e_disable_tls_scale_up
+      - e2e_replica_set_tls_require_and_disable
+      # e2e_x509_task_group
+      - e2e_configure_tls_and_x509_simultaneously_st
+      - e2e_configure_tls_and_x509_simultaneously_rs
+      - e2e_configure_tls_and_x509_simultaneously_sc
+      - e2e_tls_x509_rs
+      - e2e_tls_x509_sc
+      - e2e_tls_x509_configure_all_options_rs
+      - e2e_tls_x509_configure_all_options_sc
+      - e2e_tls_x509_user_connectivity
+      - e2e_tls_x509_users_addition_removal
+      - e2e_replica_set_tls_process_hostnames
+      # e2e_ldap_task_group
+      - e2e_replica_set_ldap
+      - e2e_sharded_cluster_ldap
+      - e2e_replica_set_ldap_tls
+      - e2e_replica_set_ldap_user_to_dn_mapping
+      # e2e_replica_set_ldap_agent_auth
+      - e2e_replica_set_ldap_agent_client_certs
+      - e2e_replica_set_ldap_custom_roles
+      - e2e_replica_set_update_roles_no_privileges
+      - e2e_replica_set_ldap_group_dn
+      - e2e_replica_set_ldap_group_dn_with_x509_agent
+      # e2e_scram_sha_task_group_with_manually_generated_certs
+      - e2e_replica_set_scram_sha_256_user_connectivity
+      - e2e_replica_set_scram_sha_256_user_first
+      - e2e_replica_set_scram_sha_1_user_connectivity
+      - e2e_replica_set_scram_sha_1_upgrade
+      - e2e_replica_set_scram_x509_ic_manual_certs
+      - e2e_sharded_cluster_scram_sha_1_upgrade
+      - e2e_sharded_cluster_scram_sha_256_user_connectivity
+      - e2e_sharded_cluster_scram_sha_1_user_connectivity
+      - e2e_sharded_cluster_scram_x509_ic_manual_certs
+      - e2e_sharded_cluster_external_access
+      # e2e_auth_transitions_task_group
+      - e2e_replica_set_scram_sha_and_x509
+      - e2e_replica_set_x509_to_scram_transition
+      - e2e_sharded_cluster_scram_sha_and_x509
+      - e2e_sharded_cluster_x509_to_scram_transition
+      - e2e_sharded_cluster_internal_cluster_transition
+      # e2e_webhook_validation_task_group
+      - e2e_mongodb_validation_webhook
+      - e2e_mongodb_roles_validation_webhook
+      - e2e_vault_setup
+      - e2e_vault_setup_tls
+      # this test will either migrate from static to non-static or the other way around
+      - e2e_replica_set_migration
+      - e2e_replica_set_pv_resize
+      - e2e_sharded_cluster_pv_resize
+      - e2e_community_and_meko_replicaset_scale
+      # OIDC test group
+      - e2e_replica_set_oidc_m2m_group
+      - e2e_replica_set_oidc_m2m_user
+      - e2e_replica_set_oidc_workforce
+      - e2e_sharded_cluster_oidc_m2m_group
+      - e2e_sharded_cluster_oidc_m2m_user
+    <<: *teardown_group
+
+  # this task group contains just a one task, which is smoke testing whether the operator
+  # works correctly when we run it without installing webhook cluster roles
+  - name: e2e_mdb_kind_no_webhook_roles_cloudqa_task_group
+    max_hosts: -1
+    <<: *setup_group
+    <<: *setup_and_teardown_task_cloudqa
+    tasks:
+      - e2e_replica_set_agent_flags_and_readinessProbe
+    <<: *teardown_group
+
+  # This task group mostly duplicates tests running in e2e_mdb_kind_ubi_cloudqa
+  # This is mostly a smoke test, so we execute only a few essential ones.
+  - name: e2e_mdb_openshift_ubi_cloudqa_task_group
+    # OM tests are also run on the same Openshift cluster, so we use 1 max host to not
+    # allow the helm installations to interfere with each other during the setup of the tests.
+    max_hosts: 1
+    <<: *setup_group
+    <<: *setup_and_teardown_task_cloudqa
+    tasks:
+      - e2e_crd_validation
+      - e2e_replica_set_scram_sha_256_user_connectivity
+      - e2e_sharded_cluster_scram_sha_256_user_connectivity
+      - e2e_replica_set_pv
+      - e2e_sharded_cluster_pv
+
+  - name: e2e_custom_domain_task_group
+    max_hosts: -1
+    <<: *setup_group
+    <<: *setup_and_teardown_task_cloudqa
+    tasks:
+      - e2e_replica_set
+
+  # e2e_operator_task_group includes the tests for the specific Operator configuration/behavior. They may deal with
+  # cluster-wide resources so should be run in isolated K8s clusters only (Kind or Minikube).
+  - name: e2e_operator_task_group
+    max_hosts: -1
+    <<: *setup_group
+    <<: *setup_and_teardown_task_cloudqa
+    tasks:
+      - e2e_operator_upgrade_replica_set
+      - e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
+      - e2e_operator_upgrade_ops_manager
+      - e2e_operator_proxy
+      - e2e_operator_partial_crd
+      - e2e_operator_clusterwide
+      - e2e_operator_multi_namespaces
+      - e2e_appdb_tls_operator_upgrade_v1_32_to_mck
+      - e2e_meko_mck_upgrade
+    <<: *teardown_group
+
+  # e2e_operator_race_with_telemetry_task_group includes the tests for testing the operator with race detector enabled
+  # additionally, it sends telemetry to cloud-dev; more here: https://wiki.corp.mongodb.com/display/MMS/Telemetry
+  - name: e2e_operator_race_with_telemetry_task_group
+    max_hosts: -1
+    <<: *setup_group_multi_cluster
+    <<: *setup_and_teardown_task
+    tasks:
+      - e2e_om_reconcile_race_with_telemetry
+    <<: *teardown_group
+
+  # e2e_operator_task_group includes the tests for the specific Operator configuration/behavior. They may deal with
+  # cluster-wide resources so should be run in isolated K8s clusters only (Kind or Minikube).
+  - name: e2e_static_operator_task_group
+    max_hosts: -1
+    <<: *setup_group
+    <<: *setup_and_teardown_task_cloudqa
+    tasks:
+      - e2e_operator_upgrade_replica_set
+      - e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
+      - e2e_operator_upgrade_ops_manager
+      - e2e_operator_proxy
+      - e2e_operator_partial_crd
+      - e2e_operator_clusterwide
+      - e2e_operator_multi_namespaces
+      - e2e_appdb_tls_operator_upgrade_v1_32_to_mck
+      - e2e_meko_mck_upgrade
+    <<: *teardown_group
+
+  - name: e2e_multi_cluster_kind_task_group
+    max_hosts: -1
+    <<: *setup_group
+    <<: *setup_and_teardown_task_cloudqa
+    tasks:
+      - e2e_multi_cluster_replica_set
+      - e2e_multi_cluster_replica_set_migration
+      - e2e_multi_cluster_replica_set_member_options
+      - e2e_multi_cluster_recover
+      - e2e_multi_cluster_recover_clusterwide
+      - e2e_multi_cluster_specific_namespaces
+      - e2e_multi_cluster_scram
+      - e2e_multi_cluster_tls_with_x509
+      - e2e_multi_cluster_tls_no_mesh
+      - e2e_multi_cluster_enable_tls
+      # e2e_multi_cluster_with_ldap
+      # e2e_multi_cluster_with_ldap_custom_roles
+      - e2e_multi_cluster_mtls_test
+      - e2e_multi_cluster_replica_set_deletion
+      - e2e_multi_cluster_replica_set_scale_up
+      - e2e_multi_cluster_scale_up_cluster
+      - e2e_multi_cluster_scale_up_cluster_new_cluster
+      - e2e_multi_cluster_replica_set_scale_down
+      - e2e_multi_cluster_scale_down_cluster
+      - e2e_multi_sts_override
+      - e2e_multi_cluster_tls_with_scram
+      - e2e_multi_cluster_upgrade_downgrade
+      - e2e_multi_cluster_backup_restore
+      - e2e_multi_cluster_backup_restore_no_mesh
+      - e2e_multi_cluster_disaster_recovery
+      - e2e_multi_cluster_multi_disaster_recovery
+      - e2e_multi_cluster_recover_network_partition
+      - e2e_multi_cluster_validation
+      - e2e_multi_cluster_agent_flags
+      - e2e_multi_cluster_replica_set_ignore_unknown_users
+      - e2e_multi_cluster_pvc_resize
+      - e2e_multi_cluster_sharded_geo_sharding
+      - e2e_multi_cluster_sharded_scaling
+      - e2e_multi_cluster_sharded_scaling_all_shard_overrides
+      - e2e_multi_cluster_sharded_simplest
+      - e2e_multi_cluster_sharded_snippets
+      - e2e_multi_cluster_sharded_simplest_no_mesh
+      - e2e_multi_cluster_sharded_external_access_no_ext_domain
+      - e2e_multi_cluster_sharded_tls_no_mesh
+      - e2e_multi_cluster_sharded_tls
+      - e2e_multi_cluster_sharded_disaster_recovery
+      - e2e_sharded_cluster
+      - e2e_sharded_cluster_agent_flags
+      - e2e_sharded_cluster_custom_podspec
+      - e2e_sharded_cluster_mongod_options_and_log_rotation
+      - e2e_sharded_cluster_migration
+      - e2e_sharded_cluster_pv
+      - e2e_sharded_cluster_pv_resize
+      - e2e_sharded_cluster_recovery
+      - e2e_sharded_cluster_scale_shards
+      - e2e_sharded_cluster_shard_overrides
+      - e2e_sharded_cluster_secret
+      - e2e_sharded_cluster_statefulset_status
+      - e2e_sharded_cluster_upgrade_downgrade
+      - e2e_configure_tls_and_x509_simultaneously_sc
+      - e2e_sharded_cluster_tls_require_custom_ca
+      - e2e_tls_sharded_cluster_certs_prefix
+      - e2e_tls_sc_additional_certs
+      - e2e_tls_x509_configure_all_options_sc
+      - e2e_tls_x509_sc
+      - e2e_meko_mck_upgrade
+      - e2e_mongodb_custom_roles
+      - e2e_sharded_cluster_oidc_m2m_group
+      - e2e_sharded_cluster_oidc_m2m_user
+      - e2e_multi_cluster_oidc_m2m_group
+      - e2e_multi_cluster_oidc_m2m_user
+
+    <<: *teardown_group
+
+  - name: e2e_multi_cluster_2_clusters_task_group
+    max_hosts: -1
+    <<: *setup_group
+    <<: *setup_and_teardown_task_cloudqa
+    tasks:
+      - e2e_multi_cluster_2_clusters_replica_set
+      - e2e_multi_cluster_2_clusters_clusterwide
+    <<: *teardown_group
+
+  - name: e2e_multi_cluster_om_appdb_task_group
+    max_hosts: -1
+    <<: *setup_group_multi_cluster
+    <<: *setup_and_teardown_task
+    tasks:
+      # Dedicated AppDB Multi-Cluster tests
+      - e2e_multi_cluster_appdb_validation
+      - e2e_multi_cluster_om_validation
+      - e2e_multi_cluster_appdb
+      - e2e_multi_cluster_appdb_cleanup
+      - e2e_multi_cluster_appdb_s3_based_backup_restore
+      - e2e_multi_cluster_appdb_disaster_recovery
+      - e2e_multi_cluster_appdb_disaster_recovery_force_reconfigure
+      - e2e_multi_cluster_om_networking_clusterwide
+      - e2e_multi_cluster_om_appdb_no_mesh
+      # Reused OM tests with AppDB Multi-Cluster topology
+      - e2e_appdb_tls_operator_upgrade_v1_32_to_mck
+      - e2e_om_appdb_flags_and_config
+      - e2e_om_appdb_upgrade
+      - e2e_om_appdb_monitoring_tls
+      - e2e_om_ops_manager_backup
+      - e2e_om_ops_manager_backup_light
+      - e2e_om_ops_manager_backup_liveness_probe
+      - e2e_om_ops_manager_pod_spec
+      - e2e_om_ops_manager_secure_config
+      - e2e_om_appdb_validation
+      - e2e_om_appdb_scram
+      - e2e_om_external_connectivity
+      - e2e_om_jvm_params
+      - e2e_om_migration
+      - e2e_om_localmode
+      - e2e_om_ops_manager_enable_local_mode_running_om
+      - e2e_om_localmode_multiple_pv
+      - e2e_om_weak_password
+      - e2e_om_ops_manager_backup_delete_sts_and_log_rotation
+      - e2e_om_ops_manager_backup_tls
+      - e2e_om_ops_manager_backup_s3_tls
+      - e2e_om_ops_manager_backup_tls_custom_ca
+      - e2e_om_ops_manager_backup_sharded_cluster
+      - e2e_om_ops_manager_backup_kmip
+      - e2e_om_ops_manager_https_enabled
+      - e2e_om_ops_manager_https_enabled_hybrid
+      - e2e_om_ops_manager_https_enabled_internet_mode
+      - e2e_om_ops_manager_https_enabled_prefix
+      - e2e_om_ops_manager_scale
+      - e2e_om_ops_manager_upgrade
+      - e2e_om_update_before_reconciliation
+      - e2e_om_feature_controls
+      - e2e_multi_cluster_appdb_upgrade_downgrade_v1_27_to_mck
+      - e2e_multi_cluster_sharded_disaster_recovery
+    # disabled tests:
+    #    - e2e_om_multiple # multi-cluster failures in EVG
+    #    - e2e_om_appdb_scale_up_down # test not "reused" for multi-cluster appdb
+    <<: *teardown_group
+
+  - name: e2e_static_multi_cluster_om_appdb_task_group
+    max_hosts: -1
+    <<: *setup_group_multi_cluster
+    <<: *setup_and_teardown_task
+    tasks:
+      # Dedicated AppDB Multi-Cluster tests
+      - e2e_multi_cluster_appdb_validation
+      - e2e_multi_cluster_om_validation
+      - e2e_multi_cluster_appdb
+      - e2e_multi_cluster_appdb_cleanup
+      - e2e_multi_cluster_appdb_s3_based_backup_restore
+      - e2e_multi_cluster_appdb_disaster_recovery
+      - e2e_multi_cluster_appdb_disaster_recovery_force_reconfigure
+      - e2e_multi_cluster_om_networking_clusterwide
+      - e2e_multi_cluster_om_appdb_no_mesh
+      # Reused OM tests with AppDB Multi-Cluster topology
+      - e2e_om_appdb_flags_and_config
+      - e2e_om_appdb_upgrade
+      - e2e_om_appdb_monitoring_tls
+      - e2e_om_ops_manager_backup
+      - e2e_om_ops_manager_backup_light
+      - e2e_om_ops_manager_backup_liveness_probe
+      - e2e_om_ops_manager_pod_spec
+      - e2e_om_ops_manager_secure_config
+      - e2e_om_appdb_validation
+      - e2e_om_appdb_scram
+      - e2e_om_external_connectivity
+      - e2e_om_jvm_params
+      - e2e_om_migration
+      #  Deactivated tests
+      #    - e2e_om_localmode
+      #    - e2e_om_localmode_multiple_pv
+      #    - e2e_om_ops_manager_https_enabled
+      #    - e2e_om_ops_manager_https_enabled_hybrid
+      #    - e2e_om_ops_manager_https_enabled_internet_mode
+      - e2e_om_ops_manager_https_enabled_prefix
+      - e2e_om_ops_manager_enable_local_mode_running_om
+      - e2e_om_weak_password
+      - e2e_om_ops_manager_backup_delete_sts_and_log_rotation
+      - e2e_om_ops_manager_backup_tls
+      - e2e_om_ops_manager_backup_s3_tls
+      - e2e_om_ops_manager_backup_tls_custom_ca
+      - e2e_om_ops_manager_backup_sharded_cluster
+      - e2e_om_ops_manager_backup_kmip
+      - e2e_om_ops_manager_scale
+      - e2e_om_ops_manager_upgrade
+      - e2e_multi_cluster_appdb_upgrade_downgrade_v1_27_to_mck
+      - e2e_om_update_before_reconciliation
+      - e2e_om_feature_controls
+      - e2e_multi_cluster_sharded_disaster_recovery
+    <<: *teardown_group
+
+  # Dedicated task group for deploying OM Multi-Cluster when the operator is in the central cluster
+  # that is not in the mesh
+  - name: e2e_multi_cluster_om_operator_not_in_mesh_task_group
+    max_hosts: -1
+    <<: *setup_group_multi_cluster
+    <<: *setup_and_teardown_task
+    tasks:
+      - e2e_multi_cluster_om_clusterwide_operator_not_in_mesh_networking
+    <<: *teardown_group
+
+
+  # This task group runs on Kind clusters. In theory ALL Ops Manager tests should be added here
+  # including the cluster-wide resources changing. Uses Cloud-qa. TODO why Cloud-qa? those are OM tests
+  - name: e2e_ops_manager_kind_only_task_group
+    max_hosts: -1
+    <<: *setup_group
+    <<: *setup_and_teardown_task
+    tasks:
+      - e2e_om_appdb_external_connectivity
+      - e2e_om_appdb_flags_and_config
+      - e2e_om_appdb_monitoring_tls
+      - e2e_om_appdb_multi_change
+      - e2e_om_appdb_scale_up_down
+      - e2e_om_appdb_upgrade
+      - e2e_om_appdb_validation
+      - e2e_om_appdb_scram
+      - e2e_om_external_connectivity
+      - e2e_om_jvm_params
+      - e2e_om_migration
+      - e2e_om_localmode
+      - e2e_om_ops_manager_enable_local_mode_running_om
+      - e2e_om_localmode_multiple_pv
+      - e2e_om_weak_password
+      - e2e_om_ops_manager_backup_delete_sts_and_log_rotation
+      - e2e_om_ops_manager_backup_light
+      - e2e_om_ops_manager_backup_tls
+      - e2e_om_ops_manager_backup_s3_tls
+      - e2e_om_ops_manager_backup_restore_minio
+      - e2e_om_ops_manager_backup_tls_custom_ca
+      - e2e_om_ops_manager_backup_liveness_probe
+      - e2e_om_ops_manager_backup_sharded_cluster
+      - e2e_om_ops_manager_backup_kmip
+      - e2e_om_ops_manager_pod_spec
+      - e2e_om_ops_manager_https_enabled
+      - e2e_om_ops_manager_https_enabled_hybrid
+      - e2e_om_ops_manager_https_enabled_internet_mode
+      - e2e_om_ops_manager_https_enabled_prefix
+      - e2e_om_ops_manager_scale
+      - e2e_om_validation_webhook
+      - e2e_om_ops_manager_secure_config
+      - e2e_om_update_before_reconciliation
+      - e2e_om_multiple
+      - e2e_om_feature_controls
+      - e2e_vault_setup_om
+      - e2e_vault_setup_om_backup
+    <<: *teardown_group
+
+  - name: e2e_static_ops_manager_kind_only_task_group
+    max_hosts: -1
+    <<: *setup_group
+    <<: *setup_and_teardown_task
+    tasks:
+      - e2e_om_appdb_external_connectivity
+      - e2e_om_appdb_flags_and_config
+      - e2e_om_appdb_monitoring_tls
+      - e2e_om_appdb_multi_change
+      - e2e_om_appdb_scale_up_down
+      - e2e_om_appdb_upgrade
+      - e2e_om_appdb_validation
+      - e2e_om_appdb_scram
+      - e2e_om_external_connectivity
+      - e2e_om_jvm_params
+      - e2e_om_weak_password
+      - e2e_om_ops_manager_backup_delete_sts_and_log_rotation
+      - e2e_om_ops_manager_backup_light
+      - e2e_om_ops_manager_backup_tls
+      - e2e_om_ops_manager_backup_s3_tls
+      - e2e_om_ops_manager_backup_restore_minio
+      - e2e_om_ops_manager_backup_tls_custom_ca
+      - e2e_om_ops_manager_backup_liveness_probe
+      - e2e_om_ops_manager_backup_sharded_cluster
+      - e2e_om_ops_manager_backup_kmip
+      - e2e_om_ops_manager_pod_spec
+      - e2e_om_ops_manager_scale
+      - e2e_om_validation_webhook
+      - e2e_om_ops_manager_secure_config
+      - e2e_om_update_before_reconciliation
+      - e2e_om_multiple
+      - e2e_om_feature_controls
+      - e2e_vault_setup_om
+      - e2e_vault_setup_om_backup
+    #   Deactivated tests
+    #    - e2e_om_localmode_multiple_pv
+    #    - e2e_om_localmode
+    #    - e2e_om_ops_manager_https_enabled_hybrid
+    #    - e2e_om_ops_manager_https_enabled_internet_mode
+    #    - e2e_om_ops_manager_https_enabled
+    #    - e2e_om_ops_manager_https_enabled_prefix
+    <<: *teardown_group
+
+  - name: e2e_smoke_task_group
+    max_hosts: -1
+    <<: *setup_group
+    <<: *setup_and_teardown_task
+    tasks:
+      - e2e_om_ops_manager_backup
+    <<: *teardown_group
+
+  - name: e2e_ops_manager_kind_5_0_only_task_group
+    max_hosts: -1
+    <<: *setup_group
+    <<: *setup_and_teardown_task
+    tasks:
+      - e2e_om_remotemode
+      - e2e_om_ops_manager_backup_restore
+      - e2e_om_ops_manager_queryable_backup
+      - e2e_om_ops_manager_backup
+    <<: *teardown_group
+
+  # Tests features only supported on OM60
+  - name: e2e_ops_manager_kind_6_0_only_task_group
+    max_hosts: -1
+    <<: *setup_group
+    <<: *setup_and_teardown_task
+    tasks:
+      - e2e_om_ops_manager_prometheus
+    <<: *teardown_group
+
+  # Tests features only supported on OM70 and OM80, its only upgrade test as we test upgrading from 6 to 7 or 7 to 8
+  - name: e2e_ops_manager_upgrade_only_task_group
+    max_hosts: -1
+    <<: *setup_group
+    <<: *setup_and_teardown_task
+    tasks:
+      - e2e_om_ops_manager_upgrade
+    <<: *teardown_group
+
+  # Tests features only supported on OM60
+  - name: e2e_static_ops_manager_kind_6_0_only_task_group
+    max_hosts: -1
+    <<: *setup_group
+    <<: *setup_and_teardown_task
+    tasks:
+      - e2e_om_ops_manager_prometheus
+    <<: *teardown_group
+
+  - name: e2e_kind_olm_group
+    max_hosts: -1
+    <<: *setup_group
+    <<: *setup_and_teardown_task
+    setup_task_can_fail_task: true
+    setup_task:
+      # Even if the two first tasks are already part of setup_and_teardown_task,
+      # we need to repeat them because we are overriding the setup_task variable of the YAML anchor
+      - func: cleanup_exec_environment
+      - func: configure_docker_auth
+      - func: setup_kubernetes_environment
+      - func: setup_prepare_openshift_bundles
+      - func: install_olm
+    tasks:
+      - e2e_olm_operator_upgrade
+      - e2e_olm_operator_upgrade_with_resources
+      - e2e_olm_meko_operator_upgrade_with_resources
+    <<: *teardown_group
+
+buildvariants:
+  ## Unit tests + lint build variant
+
+  - name: unit_tests
+    display_name: "unit_tests"
+    tags: [ "unit_tests" ]
+    run_on:
+      - ubuntu2204-small
+    tasks:
+      - name: "unit_task_group"
+
+  ## Build variants for E2E tests
+
+  # The pattern for naming build variants for E2E tests:
+  # e2e_<type>_<cluster>_<distro>[_<om_version>]
+  # where <type> is any of mdb|om<version>|operator
+  # where <cluster> is any of kind|openshift
+  # where <distro> is any of ubuntu|ubi
+  # where <om_version> denotes the OM version tested (e.g. om50, om60, cloudqa) - used only for MDB tests
+
+  # MongoDBCommunity build variant
+  - name: e2e_mdb_community
+    display_name: e2e_mdb_community
+    tags: [ "e2e_test_suite"]
+    run_on:
+      - ubuntu2204-large
+    <<: *community_dependency
+    tasks:
+      - name: e2e_mdb_community_task_group
+
+  ## MongoDB build variants
+  - name: e2e_mdb_kind_ubi_cloudqa
+    display_name: e2e_mdb_kind_ubi_cloudqa
+    tags: [ "e2e_test_suite", "cloudqa" ]
+    run_on:
+      - ubuntu2204-large
+    <<: *base_no_om_image_dependency
+    tasks:
+      - name: e2e_mdb_kind_cloudqa_task_group
+
+  - name: e2e_custom_domain_mdb_kind_ubi_cloudqa
+    display_name: e2e_custom_domain_mdb_kind_ubi_cloudqa
+    tags: [ "e2e_test_suite", "cloudqa" ]
+    run_on:
+      - ubuntu2204-large
+    <<: *base_no_om_image_dependency
+    tasks:
+      - name: e2e_custom_domain_task_group
+
+  - name: e2e_static_mdb_kind_ubi_cloudqa
+    display_name: e2e_static_mdb_kind_ubi_cloudqa
+    tags: [ "e2e_test_suite", "cloudqa" ]
+    run_on:
+      - ubuntu2204-large
+    <<: *base_no_om_image_dependency
+    tasks:
+      - name: e2e_mdb_kind_cloudqa_task_group
+
+  - name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
+    display_name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
+    tags: [ "e2e_test_suite", "cloudqa" ]
+    run_on:
+      - ubuntu2204-large
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_init_appdb_images_ubi
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
+    tasks:
+      - name: e2e_custom_domain_task_group
+
+  - name: e2e_mdb_openshift_ubi_cloudqa
+    display_name: e2e_mdb_openshift_ubi_cloudqa
+    tags: [ "e2e_openshift_test_suite", "cloudqa" ]
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+    run_on:
+      - ubuntu2204-small
+    tasks:
+      - name: e2e_mdb_openshift_ubi_cloudqa_task_group
+
+  # This name is on purpose reversed from e2e_static_openshift to e2e_openshift_static.
+  # That is because we run a regex
+  # in evergreen for all variants matching e2e_static-*, but we do not want to run openshift variants on every pr.
+  - name: e2e_openshift_static_mdb_ubi_cloudqa
+    display_name: e2e_openshift_static_mdb_ubi_cloudqa
+    tags: [ "e2e_openshift_test_suite", "cloudqa" ]
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
+    run_on:
+      - ubuntu2204-small
+    tasks:
+      - name: e2e_mdb_openshift_ubi_cloudqa_task_group
+
+  ## Ops Manager build variants
+
+  # Isolated Ops Manager Tests for 6.0 version
+  - name: e2e_om60_kind_ubi
+    display_name: e2e_om60_kind_ubi
+    tags: [ "e2e_test_suite" ]
+    run_on:
+      - ubuntu2204-large
+    <<: *base_om6_dependency
+    tasks:
+      - name: e2e_ops_manager_kind_only_task_group
+      - name: e2e_ops_manager_kind_5_0_only_task_group
+      - name: e2e_ops_manager_kind_6_0_only_task_group
+
+  # Isolated Ops Manager Tests for 6.0 version
+  - name: e2e_static_om60_kind_ubi
+    display_name: e2e_static_om60_kind_ubi
+    tags: [ "e2e_test_suite" ]
+    run_on:
+      - ubuntu2204-large
+    <<: *base_om6_dependency
+    tasks:
+      - name: e2e_static_ops_manager_kind_only_task_group
+      - name: e2e_static_ops_manager_kind_6_0_only_task_group
+
+  - name: e2e_om70_kind_ubi
+    display_name: e2e_om70_kind_ubi
+    tags: [ "e2e_test_suite" ]
+    run_on:
+      - ubuntu2204-large
+    <<: *base_om7_dependency
+    tasks:
+      - name: e2e_ops_manager_kind_only_task_group
+      - name: e2e_ops_manager_kind_5_0_only_task_group
+      - name: e2e_ops_manager_kind_6_0_only_task_group
+      - name: e2e_ops_manager_upgrade_only_task_group
+
+  - name: e2e_static_om70_kind_ubi
+    display_name: e2e_static_om70_kind_ubi
+    tags: [ "e2e_test_suite" ]
+    run_on:
+      - ubuntu2204-large
+    <<: *base_om7_dependency
+    tasks:
+      - name: e2e_static_ops_manager_kind_only_task_group
+      - name: e2e_static_ops_manager_kind_6_0_only_task_group
+      - name: e2e_ops_manager_upgrade_only_task_group
+
+  - name: e2e_om80_kind_ubi
+    display_name: e2e_om80_kind_ubi
+    tags: [ "e2e_test_suite" ]
+    run_on:
+      - ubuntu2204-large
+    <<: *base_om8_dependency
+    tasks:
+      - name: e2e_ops_manager_kind_only_task_group
+      - name: e2e_ops_manager_kind_5_0_only_task_group
+      - name: e2e_ops_manager_kind_6_0_only_task_group
+      - name: e2e_ops_manager_upgrade_only_task_group
+
+  - name: e2e_static_om80_kind_ubi
+    display_name: e2e_static_om80_kind_ubi
+    tags: [ "e2e_test_suite" ]
+    run_on:
+      - ubuntu2204-large
+    <<: *base_om8_dependency
+    tasks:
+      - name: e2e_static_ops_manager_kind_only_task_group
+      - name: e2e_static_ops_manager_kind_6_0_only_task_group
+      - name: e2e_ops_manager_upgrade_only_task_group
+
+  - name: e2e_operator_race_ubi_with_telemetry
+    display_name: e2e_operator_race_ubi_with_telemetry
+    tags: [ "e2e_test_suite" ]
+    run_on:
+      - ubuntu1804-xlarge
+    <<: *base_om7_dependency
+    tasks:
+      - name: e2e_operator_race_with_telemetry_task_group
+
+  - name: e2e_smoke
+    display_name: e2e_smoke
+    tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
+    run_on:
+      - ubuntu2204-large
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: build_test_image
+        variant: init_test_run
+    tasks:
+      - name: e2e_smoke_task_group
+
+  - name: e2e_static_smoke
+    display_name: e2e_static_smoke
+    tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
+    run_on:
+      - ubuntu2204-large
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: build_test_image
+        variant: init_test_run
+    tasks:
+      - name: e2e_smoke_task_group
+
+  - name: e2e_multi_cluster_kind
+    display_name: e2e_multi_cluster_kind
+    tags: [ "e2e_test_suite" ]
+    run_on:
+      - ubuntu2204-large
+    <<: *base_om6_dependency
+    tasks:
+      - name: e2e_multi_cluster_kind_task_group
+
+  - name: e2e_static_multi_cluster_kind
+    display_name: e2e_static_multi_cluster_kind
+    tags: [ "e2e_test_suite" ]
+    run_on:
+      - ubuntu2204-large
+    <<: *base_om6_dependency
+    tasks:
+      - name: e2e_multi_cluster_kind_task_group
+
+  - name: e2e_multi_cluster_2_clusters
+    display_name: e2e_multi_cluster_2_clusters
+    tags: [ "e2e_test_suite" ]
+    run_on:
+      - ubuntu2204-large
+    <<: *base_om6_dependency
+    tasks:
+      - name: e2e_multi_cluster_2_clusters_task_group
+
+  - name: e2e_static_multi_cluster_2_clusters
+    display_name: e2e_static_multi_cluster_2_clusters
+    tags: [ "e2e_test_suite" ]
+    run_on:
+      - ubuntu2204-large
+    <<: *base_om6_dependency
+    tasks:
+      - name: e2e_multi_cluster_2_clusters_task_group
+
+  - name: e2e_multi_cluster_om_appdb
+    display_name: e2e_multi_cluster_om_appdb
+    tags: [ "e2e_test_suite" ]
+    run_on:
+      - ubuntu2204-large
+    <<: *base_om6_dependency
+    tasks:
+      - name: e2e_multi_cluster_om_appdb_task_group
+
+  - name: e2e_static_multi_cluster_om_appdb
+    display_name: e2e_static_multi_cluster_om_appdb
+    tags: [ "e2e_test_suite" ]
+    run_on:
+      - ubuntu2204-large
+    <<: *base_om6_dependency
+    tasks:
+      - name: e2e_static_multi_cluster_om_appdb_task_group
+
+  - name: e2e_multi_cluster_om_operator_not_in_mesh
+    display_name: e2e_multi_cluster_om_operator_not_in_mesh
+    tags: [ "e2e_test_suite" ]
+    run_on:
+      - ubuntu2204-large
+    <<: *base_om7_dependency
+    tasks:
+      - name: e2e_multi_cluster_om_operator_not_in_mesh_task_group
+
+  ## Operator tests build variants
+
+  - name: e2e_operator_kind_ubi_cloudqa
+    display_name: e2e_operator_kind_ubi_cloudqa
+    tags: [ "e2e_test_suite", "cloudqa" ]
+    run_on:
+      - ubuntu2204-large
+    <<: *base_no_om_image_dependency
+    tasks:
+      - name: e2e_operator_task_group
+
+  - name: e2e_static_operator_kind_ubi_cloudqa
+    display_name: e2e_static_operator_kind_ubi_cloudqa
+    tags: [ "e2e_test_suite", "cloudqa" ]
+    run_on:
+      - ubuntu2204-large
+    <<: *base_no_om_image_dependency
+    tasks:
+      - name: e2e_static_operator_task_group
+
+  - name: e2e_operator_no_webhook_roles_cloudqa
+    display_name: e2e_operator_no_webhook_roles_cloudqa
+    tags: [ "e2e_test_suite", "cloudqa" ]
+    run_on:
+      - ubuntu2204-large
+    <<: *base_no_om_image_dependency
+    tasks:
+      - name: e2e_mdb_kind_no_webhook_roles_cloudqa_task_group
+
+  - name: e2e_kind_olm_ubi
+    display_name: e2e_kind_olm_ubi
+    tags: [ "e2e_test_suite" ]
+    run_on:
+      - ubuntu2204-large
+    depends_on:
+      - name: build_om_images
+        variant: build_om60_images
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_init_appdb_images_ubi
+        variant: init_test_run
+      - name: prepare_and_upload_openshift_bundles_for_e2e
+        variant: init_tests_with_olm
+    tasks:
+      - name: e2e_kind_olm_group
+
+  - name: e2e_static_kind_olm_ubi
+    display_name: e2e_static_kind_olm_ubi
+    tags: [ "e2e_test_suite" ]
+    run_on:
+      - ubuntu2204-large
+    depends_on:
+      - name: build_om_images
+        variant: build_om60_images
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: build_init_appdb_images_ubi
+        variant: init_test_run
+      - name: prepare_and_upload_openshift_bundles_for_e2e
+        variant: init_tests_with_olm
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
+    tasks:
+      - name: e2e_kind_olm_group
+
+    # This variants runs the tests from MCO with the MEKO operator binary
+  - name: e2e_mco_tests
+    display_name: "e2e_mco_tests"
+    tags: [ "e2e_mco_test_suite"]
+    <<: *community_dependency
+    run_on:
+      - ubuntu2004-large
+
+  ## Manual (patch) E2E tests not run for every PR and commit
+
+  - name: e2e_operator_perf
+    display_name: e2e_operator_perf
+    tags: [ "e2e_perf_test_suite" ]
+    allowed_requesters: [ "patch" ]
+    run_on:
+      - ubuntu1804-xlarge
+    <<: *base_om7_dependency
+    tasks:
+      - name: generate_perf_tasks_10_thread
+
+  - name: e2e_operator_perf_one_thread
+    display_name: e2e_operator_perf_one_thread
+    tags: [ "e2e_perf_test_suite" ]
+    allowed_requesters: [ "patch" ]
+    run_on:
+      - ubuntu1804-xlarge
+    <<: *base_om7_dependency
+    tasks:
+      - name: generate_perf_tasks_one_thread
+
+  - name: e2e_operator_perf_thirty
+    display_name: e2e_operator_perf_thirty
+    tags: [ "e2e_perf_test_suite" ]
+    allowed_requesters: [ "patch" ]
+    run_on:
+      - ubuntu1804-xlarge
+    <<: *base_om7_dependency
+    tasks:
+      - name: generate_perf_tasks_30_thread
+
+  ### Prerequisites for E2E test suite
+
+  - name: init_test_run
+    display_name: init_test_run
+    max_hosts: -1
+    run_on:
+      - ubuntu2204-small
+    tasks:
+      - name: build_operator_ubi
+      - name: build_test_image
+      - name: build_mco_test_image
+      - name: build_init_appdb_images_ubi
+      - name: build_init_om_images_ubi
+      - name: build_init_database_image_ubi
+      - name: build_database_image_ubi
+      - name: build_agent_images_ubi
+      - name: build_readiness_probe_image
+      - name: build_upgrade_hook_image
+      - name: prepare_aws
+
+  - name: init_release_agents_on_ecr
+    display_name: init_release_agents_on_ecr
+    # this enables us to run this variant either manually (patch) which pct does or during an OM bump (github_pr)
+    allowed_requesters: [ "patch", "github_pr" ]
+    tags: [ "release_agents_on_ecr" ]
+    # We want that to run first and finish asap. Digest pinning depends on this to succeed.
+    priority: 70
+    run_on:
+      - ubuntu2204-large
+    tasks:
+      - name: release_agents_on_ecr_conditional
+
+  - name: run_pre_commit
+    priority: 70
+    display_name: run_pre_commit
+    allowed_requesters: [ "patch", "github_pr" ]
+    tags: [ "auto_bump" ]
+    run_on:
+      - ubuntu2204-small
+    tasks:
+      - name: run_precommit_and_push
+
+  - name: init_tests_with_olm
+    display_name: init_tests_with_olm
+    depends_on:
+      - name: build_om_images
+        variant: build_om60_images
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_init_appdb_images_ubi
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
+    run_on:
+      - ubuntu2204-small
+    tasks:
+      - name: prepare_and_upload_openshift_bundles_for_e2e
+
+  ### End of build variants for E2E
+
+  ### Variants that run on each commit
+
+  - name: preflight_release_images_check_only
+    display_name: preflight_release_images_check_only
+    run_on:
+      - rhel90-large
+    tasks:
+      - name: preflight_images_task_group
+
+  - name: build_om60_images
+    display_name: build_om60_images
+    run_on:
+      - ubuntu2204-small
+    tasks:
+      - name: build_om_images
+
+  - name: preflight_om60_images
+    display_name: preflight_om60_images
+    run_on:
+      - rhel90-large
+    tasks:
+      - name: preflight_om_image
+
+  - name: build_om70_images
+    display_name: build_om70_images
+    run_on:
+      - ubuntu2204-small
+    tasks:
+      - name: build_om_images
+
+  - name: preflight_om70_images
+    display_name: preflight_om70_images
+    run_on:
+      - rhel90-large
+    tasks:
+      - name: preflight_om_image
+
+  - name: build_om80_images
+    display_name: build_om80_images
+    run_on:
+      - ubuntu2204-small
+    tasks:
+      - name: build_om_images
+
+  - name: preflight_om80_images
+    display_name: preflight_om80_images
+    run_on:
+      - rhel90-large
+    tasks:
+      - name: preflight_om_image
+
+  ### Release build variants
+
+  ## Adds versions as supported in the supported versions Database.
+  - name: release_images
+    display_name: release_images
+    tags: [ "release" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    max_hosts: -1
+    run_on:
+      - release-ubuntu2204-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: build_init_appdb_images_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+    tasks:
+      - name: release_operator
+      - name: release_init_appdb
+      - name: release_init_database
+      - name: release_init_ops_manager
+      - name: release_database
+      # Once we release the operator, we will also release the init databases, we require them to be out first
+      # such that we can reference them and retrieve those binaries.
+      # Since we immediately run daily rebuild after creating the image, we can ensure that the init_database is out
+      # such that the agent image build can use it.
+      - name: release_agent_operator_release
+        depends_on:
+          - name: release_init_database
+
+  - name: preflight_release_images
+    display_name: preflight_release_images
+    tags: [ "release" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: "*"
+        variant: release_images
+    run_on:
+      - rhel90-large
+    expansions:
+      preflight_submit: true
+    tasks:
+      - name: preflight_images_task_group
+
+  - name: prepare_openshift_bundles
+    display_name: prepare_openshift_bundles
+    tags: [ "release" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: "*"
+        variant: release_images
+      - name: "*"
+        variant: preflight_release_images
+    run_on:
+      - ubuntu2204-large
+    tasks:
+      - name: run_conditionally_prepare_and_upload_openshift_bundles
+
+    # It will be called by pct while bumping the agent cloud manager image
+  - name: release_agent
+    display_name: (Static Containers) Release Agent matrix
+    tags: [ "release_agent" ]
+    run_on:
+      - release-ubuntu2204-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    depends_on:
+      - variant: init_release_agents_on_ecr
+        name: '*'
+      - variant: e2e_multi_cluster_kind
+        name: '*'
+      - variant: e2e_static_multi_cluster_2_clusters
+        name: '*'
+      - variant: e2e_mdb_kind_ubi_cloudqa
+        name: '*'
+      - variant: e2e_static_mdb_kind_ubi_cloudqa
+        name: '*'
+    tasks:
+      - name: release_agent
+
+    # Only called manually, It's used for testing the task release_agents_on_ecr in case the release.json
+    # has not changed, and you still want to push the images to ecr.
+  - name: manual_ecr_release_agent
+    display_name: Manual Agent Release for all versions
+    tags: [ "release_all_agents_manually" ]
+    run_on:
+      - ubuntu2204-large
+    tasks:
+      - name: release_all_agents_on_ecr
+
+    # These variants are used to test the code snippets and each one can be used in patches
+    # Prerelease is especially used when the repo is tagged
+    # More details in the TD: https://docs.google.com/document/d/1fuTxfRtP8QPtn7sKYxQM_AGcD6xycTZH8svngGxyKhc/edit?tab=t.0#bookmark=id.e8uva0393mbe
+  - name: public_gke_code_snippets
+    display_name: public_gke_code_snippets
+    allowed_requesters: ["patch"]
+    run_on:
+      - ubuntu2204-small
+    tasks:
+      - name: gke_code_snippets_task_group
+
+  - name: prerelease_gke_code_snippets
+    display_name: prerelease_gke_code_snippets
+    tags: [ "release" ]
+    allowed_requesters: ["patch", "github_tag"]
+    depends_on:
+      - variant: release_images
+        name: '*'
+        patch_optional: true
+    run_on:
+      - ubuntu2204-small
+    tasks:
+      - name: gke_code_snippets_task_group
+
+  - name: private_gke_code_snippets
+    display_name: private_gke_code_snippets
+    allowed_requesters: ["patch"]
+    run_on:
+      - ubuntu2204-small
+    <<: *base_om8_dependency
+    tasks:
+      - name: gke_code_snippets_task_group
+
+  - name: private_kind_code_snippets
+    display_name: private_kind_code_snippets
+    tags: [ "e2e_test_suite" ]
+    allowed_requesters: ["patch", "github_pr"]
+    run_on:
+      - ubuntu2204-large
+    <<: *base_om8_dependency
+    tasks:
+      - name: kind_code_snippets_task_group
+
+  - name: prerelease_kind_code_snippets
+    display_name: prerelease_kind_code_snippets
+    allowed_requesters: ["patch"]
+    run_on:
+      - ubuntu2204-large
+    tasks:
+      - name: kind_code_snippets_task_group
+
+  - name: public_kind_code_snippets
+    display_name: public_kind_code_snippets
+    allowed_requesters: ["patch"]
+    run_on:
+      - ubuntu2204-large
+    tasks:
+      - name: kind_code_snippets_task_group
+
+  ### Build variants for manual patch only
+
+  - name: backup_csv_images
+    display_name: "Backup CSV Images"
+    allowed_requesters: [ "patch" ]
+    run_on:
+      - ubuntu2204-small
+    tasks:
+      - name: backup_csv_images_dry_run
+      - name: backup_csv_images_limit_3
+      - name: backup_csv_images_all
+
+  - name: publish_om60_images
+    display_name: publish_om60_images
+    allowed_requesters: [ "patch", "github_pr" ]
+    run_on:
+      - release-ubuntu2204-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    depends_on:
+      - variant: e2e_om60_kind_ubi
+        name: '*'
+      - variant: e2e_static_om60_kind_ubi
+        name: '*'
+    tasks:
+      - name: publish_ops_manager
+      - name: release_agent
+
+  - name: publish_om70_images
+    display_name: publish_om70_images
+    allowed_requesters: [ "patch", "github_pr" ]
+    run_on:
+      - release-ubuntu2204-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    depends_on:
+      - variant: e2e_om70_kind_ubi
+        name: '*'
+      - variant: e2e_static_om70_kind_ubi
+        name: '*'
+    tasks:
+      - name: publish_ops_manager
+      - name: release_agent
+
+  - name: publish_om80_images
+    display_name: publish_om80_images
+    allowed_requesters: [ "patch", "github_pr" ]
+    run_on:
+      - release-ubuntu2204-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    depends_on:
+      - variant: e2e_om80_kind_ubi
+        name: '*'
+      - variant: e2e_static_om80_kind_ubi
+        name: '*'
+    tasks:
+      - name: publish_ops_manager
+      - name: release_agent

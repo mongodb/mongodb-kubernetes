@@ -1,0 +1,31 @@
+# Main Evergreen Configuration
+# Modular CI configuration entry point
+
+# Global timeout setting
+exec_timeout_secs: 7200
+
+include:
+  # Variables - Core configuration and reusable definitions
+  - filename: .evergreen/variables/common.yml
+  - filename: .evergreen/variables/versions.yml
+  - filename: .evergreen/variables/dependencies.yml
+  
+  # Functions - Organized by purpose
+  - filename: .evergreen/functions/setup.yml
+  - filename: .evergreen/functions/build.yml
+  - filename: .evergreen/functions/test.yml
+  - filename: .evergreen/functions/deploy.yml
+  
+  # Tasks - Organized by functionality
+  - filename: .evergreen/tasks/unit-tests.yml
+  - filename: .evergreen/tasks/e2e-tests.yml
+  - filename: .evergreen/tasks/image-builds.yml
+  - filename: .evergreen/tasks/mco-tests.yml
+  - filename: .evergreen/tasks/preflight.yml
+  
+  # Build Variants - Organized by purpose
+  - filename: .evergreen/variants/unit-tests.yml
+  - filename: .evergreen/variants/e2e-community.yml
+  - filename: .evergreen/variants/e2e-enterprise.yml
+  - filename: .evergreen/variants/image-builds.yml
+  - filename: .evergreen/variants/releases.yml

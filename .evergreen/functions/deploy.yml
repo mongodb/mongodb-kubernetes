@@ -1,0 +1,68 @@
+# Deploy Functions
+# Deployment, cleanup, and infrastructure management functions
+
+functions:
+  ### Environment Teardown Functions ###
+
+  teardown_kubernetes_environment:
+    - command: shell.exec
+      type: setup
+      params:
+        shell: bash
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        script: |
+          scripts/evergreen/teardown_kubernetes_environment.sh
+
+  teardown_cloud_qa:
+    - command: shell.exec
+      type: setup
+      params:
+        shell: bash
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        script: |
+          source .generated/context.export.env
+          scripts/evergreen/e2e/setup_cloud_qa.py delete
+
+  teardown_cloud_qa_all:
+    - func: switch_context
+    - command: shell.exec
+      type: setup
+      params:
+        shell: bash
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        script: |
+          source .generated/context.export.env
+          scripts/evergreen/e2e/setup_cloud_qa.py delete-all
+
+  ### Resource Cleanup Functions ###
+
+  prune_docker_resources:
+    - command: shell.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        script: |
+          scripts/evergreen/prune_docker_resources.sh
+
+  cleanup_aws:
+    - func: switch_context
+    - command: shell.exec
+      type: setup
+      params:
+        shell: bash
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        script: |
+          source .generated/context.export.env
+          scripts/evergreen/cleanup_aws.py
+
+  ### Retry and Recovery Functions ###
+
+  run_retry_script:
+    - command: shell.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        script: |
+          scripts/evergreen/run_retry_script.sh
+
+

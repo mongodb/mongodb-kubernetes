@@ -1,0 +1,162 @@
+# Test Functions
+# Testing, validation, and quality assurance functions
+
+functions:
+  ### E2E Test Functions ###
+
+  # Please note: There are many ENV variables passed to the `e2e` script, so try
+  # to not add more. If this is required, discuss your use case with the team first.
+  e2e_test:
+    - command: subprocess.exec
+      type: test
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        include_expansions_in_env:
+          - otel_parent_id
+          - branch_name
+          - github_commit
+          - revision
+          - github_pr_number
+          - project_identifier
+          - revision_order_id
+        add_to_path:
+          - ${workdir}/bin
+        binary: scripts/evergreen/e2e/e2e.sh
+
+  e2e_test_perf:
+    - command: subprocess.exec
+      type: test
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        include_expansions_in_env:
+          - otel_parent_id
+          - branch_name
+          - github_commit
+          - revision
+          - github_pr_number
+          - project_identifier
+          - revision_order_id
+        add_to_path:
+          - ${workdir}/bin
+        env:
+          PERF_TASK_DEPLOYMENTS: ${PERF_TASK_DEPLOYMENTS}
+          PERF_TASK_REPLICAS: ${PERF_TASK_REPLICAS}
+          TEST_NAME_OVERRIDE: ${TEST_NAME_OVERRIDE}
+        binary: scripts/evergreen/e2e/e2e.sh
+
+  ### Unit Test Functions ###
+
+  test_golang_unit:
+    - command: shell.exec
+      type: test
+      params:
+        shell: bash
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        script: |
+          source .generated/context.export.env
+          make test-race
+    - command: gotest.parse_files
+      params:
+        files: [ "src/github.com/mongodb/mongodb-kubernetes/*.suite", "src/github.com/mongodb/mongodb-kubernetes/public/tools/multicluster/*.suite", "src/github.com/mongodb/mongodb-kubernetes/docker/mongodb-kubernetes-init-ops-manager/mmsconfiguration/*.suite" ]
+
+  test_python_unit:
+    - command: shell.exec
+      type: test
+      params:
+        shell: bash
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        script: |
+          source .generated/context.export.env
+          make python-tests
+
+  test_sboms:
+    - command: shell.exec
+      type: test
+      params:
+        shell: bash
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        script: |
+          source .generated/context.export.env
+          make sbom-tests
+
+  ### Validation and Quality Functions ###
+
+  preflight_image:
+    - command: subprocess.exec
+      type: test
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/evergreen/preflight_image.sh
+
+  lint_repo:
+    - command: shell.exec
+      type: test
+      params:
+        shell: bash
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        script: |
+          source .generated/context.export.env
+          make lint
+
+  ### Log Upload and Diagnostic Functions ###
+
+  upload_e2e_logs:
+    - command: s3.put
+      type: system
+      params:
+        aws_key: ${aws_key}
+        aws_secret: ${aws_secret}
+        local_files_include_filter:
+          - src/github.com/mongodb/mongodb-kubernetes/tmp/manager_logs/**/*
+        remote_file: ${project}/${build_variant}/${revision}/${version_id}/${build_id}/logs/
+        bucket: mciuploads
+        permissions: public-read
+        content_type: text/plain
+        display_name: "manager logs"
+
+  upload_e2e_logs_gotest:
+    - command: s3.put
+      type: system
+      params:
+        aws_key: ${aws_key}
+        aws_secret: ${aws_secret}
+        local_files_include_filter:
+          - src/github.com/mongodb/mongodb-kubernetes/tmp/manager_logs/**/*
+        remote_file: ${project}/${build_variant}/${revision}/${version_id}/${build_id}/logs/
+        bucket: mciuploads
+        permissions: public-read
+        content_type: text/plain
+        display_name: "manager logs"
+
+  upload_code_snippets_logs:
+    - command: s3.put
+      type: system
+      params:
+        aws_key: ${aws_key}
+        aws_secret: ${aws_secret}
+        local_files_include_filter:
+          - src/github.com/mongodb/mongodb-kubernetes/tmp/code_snippets_logs/**/*
+        remote_file: ${project}/${build_variant}/${revision}/${version_id}/${build_id}/logs/
+        bucket: mciuploads
+        permissions: public-read
+        content_type: text/plain
+        display_name: "code snippets logs"
+
+  dump_diagnostic_information_from_all_namespaces:
+    - command: subprocess.exec
+      type: system
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/evergreen/dump_diagnostic_information_from_all_namespaces.sh
+
+  ### Sample and Demo Functions ###
+
+  sample_commit_output:
+    - command: github.generate_token
+      params:
+        expansion_name: GH_TOKEN
+    - command: subprocess.exec
+      type: system
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/evergreen/sample_commit_output.sh

@@ -1,0 +1,117 @@
+# E2E Test Tasks
+# End-to-end test task definitions organized by test type
+
+tasks:
+  ### Community E2E Tests ###
+
+  - name: e2e_multiple_cluster_failures
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_community_and_meko_replicaset_scale
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_standalone_custom_podspec
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_standalone_schema_validation
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_schema_validation
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_schema_validation
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_external_access
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_users_schema_validation
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_crd_validation
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_standalone_config_map
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_standalone_groups
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  ### TLS and Security Tests ###
+
+  - name: e2e_tls_sc_additional_certs
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_tls_x509_rs
+    tags: [ "patch-run" ]
+    # longer timeout than usual as this test tests recovery from bad states which can take some time
+    commands:
+      - func: "e2e_test"
+
+  ### Multi-Cluster Tests ###
+
+  - name: e2e_multi_cluster_scram
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  ### Ops Manager E2E Tests ###
+
+  - name: e2e_om_appdb_multi_change
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_om_reconcile_perf
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  ### Performance Tests ###
+
+  - name: e2e_perf_test_one_thread
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test_perf
+
+  - name: e2e_perf_test_10_thread
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test_perf
+
+  - name: e2e_perf_test_30_thread
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test_perf
+
+  ### Code Snippets Tests ###
+
+  - name: test_code_snippets
+    tags: [ "patch-run" ]
+    commands:
+      - func: test_code_snippets
+      - func: sample_commit_output

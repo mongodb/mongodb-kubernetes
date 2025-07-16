@@ -1,0 +1,112 @@
+# Scheduled/Periodic Builds
+# Configuration for periodic and scheduled build tasks
+
+include:
+  - filename: ../.evergreen/variables/common.yml
+  - filename: ../.evergreen/variables/versions.yml
+  - filename: ../.evergreen/variables/dependencies.yml
+  - filename: ../.evergreen/functions/setup.yml
+  - filename: ../.evergreen/functions/build.yml
+  - filename: ../.evergreen/functions/test.yml
+  - filename: ../.evergreen/functions/deploy.yml
+
+parameters:
+  - key: pin_tag_at
+    value: 00:00
+    description: Pin tags at this time of the day. Midnight by default.
+
+tasks:
+  ### Periodic Build Tasks ###
+
+  - name: periodic_build_operator
+    commands:
+      - func: pipeline
+        vars:
+          image_name: operator-daily
+
+  - name: periodic_build_init_appdb
+    commands:
+      - func: pipeline
+        vars:
+          image_name: init-appdb-daily
+
+  - name: periodic_build_init_database
+    commands:
+      - func: pipeline
+        vars:
+          image_name: init-database-daily
+
+  - name: periodic_build_init_opsmanager
+    commands:
+      - func: pipeline
+        vars:
+          image_name: init-ops-manager-daily
+
+  - name: periodic_build_agent
+    commands:
+      - func: pipeline
+        vars:
+          image_name: agent-daily
+
+  - name: periodic_build_database
+    commands:
+      - func: pipeline
+        vars:
+          image_name: database-daily
+
+  - name: periodic_build_readiness_probe
+    commands:
+      - func: pipeline
+        vars:
+          image_name: readiness-probe-daily
+
+  - name: periodic_build_upgrade_hook
+    commands:
+      - func: pipeline
+        vars:
+          image_name: upgrade-hook-daily
+
+  - name: periodic_build_test_image
+    commands:
+      - func: pipeline
+        vars:
+          image_name: test-daily
+
+  ### Periodic Cleanup Tasks ###
+
+  - name: periodic_teardown_aws
+    commands:
+      - func: cleanup_aws
+
+  - name: periodic_teardown_cloudqa
+    commands:
+      - func: teardown_cloud_qa_all
+
+buildvariants:
+  ### Periodic Build Variants ###
+
+  - name: periodic_builds
+    display_name: periodic_builds
+    cron: "0 0 * * *"  # Daily at midnight
+    run_on:
+      - ubuntu2204-large
+    <<: *setup_group
+    tasks:
+      - name: periodic_build_operator
+      - name: periodic_build_init_appdb
+      - name: periodic_build_init_database
+      - name: periodic_build_init_opsmanager
+      - name: periodic_build_agent
+      - name: periodic_build_database
+      - name: periodic_build_readiness_probe
+      - name: periodic_build_upgrade_hook
+      - name: periodic_build_test_image
+
+  - name: periodic_cleanup
+    display_name: periodic_cleanup
+    cron: "0 2 * * *"  # Daily at 2 AM
+    run_on:
+      - ubuntu2204-small
+    tasks:
+      - name: periodic_teardown_aws
+      - name: periodic_teardown_cloudqa

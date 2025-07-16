@@ -1,0 +1,80 @@
+# Community E2E Build Variants
+# Build variants for MongoDB Community Operator E2E tests
+
+buildvariants:
+  # The pattern for naming build variants for E2E tests:
+  # e2e_<type>_<cluster>_<distro>[_<om_version>]
+  # where <type> is any of mdb|om<version>|operator
+  # where <cluster> is any of kind|openshift
+  # where <distro> is any of ubuntu|ubi
+  # where <om_version> denotes the OM version tested (e.g. om50, om60, cloudqa) - used only for MDB tests
+
+  ## MongoDB Community Build Variants ##
+
+  # MongoDBCommunity build variant
+  - name: e2e_mdb_community
+    display_name: e2e_mdb_community
+    tags: [ "e2e_test_suite"]
+    run_on:
+      - ubuntu2204-large
+    <<: *community_dependency
+    tasks:
+      - name: e2e_mdb_community_task_group
+
+  ## MongoDB KIND CloudQA Build Variants ##
+
+  - name: e2e_mdb_kind_ubi_cloudqa
+    display_name: e2e_mdb_kind_ubi_cloudqa
+    tags: [ "e2e_test_suite", "cloudqa" ]
+    run_on:
+      - ubuntu2204-large
+    <<: *base_no_om_image_dependency
+    tasks:
+      - name: e2e_mdb_kind_cloudqa_task_group
+
+  - name: e2e_custom_domain_mdb_kind_ubi_cloudqa
+    display_name: e2e_custom_domain_mdb_kind_ubi_cloudqa
+    tags: [ "e2e_test_suite", "cloudqa" ]
+    run_on:
+      - ubuntu2204-large
+    <<: *base_no_om_image_dependency
+    tasks:
+      - name: e2e_custom_domain_task_group
+
+  - name: e2e_static_mdb_kind_ubi_cloudqa
+    display_name: e2e_static_mdb_kind_ubi_cloudqa
+    tags: [ "e2e_test_suite", "cloudqa" ]
+    run_on:
+      - ubuntu2204-large
+    <<: *base_no_om_image_dependency
+    tasks:
+      - name: e2e_static_operator_task_group
+
+  - name: e2e_mdb_kind_no_webhook_roles_ubi_cloudqa
+    display_name: e2e_mdb_kind_no_webhook_roles_ubi_cloudqa
+    tags: [ "e2e_test_suite", "cloudqa" ]
+    run_on:
+      - ubuntu2204-large
+    <<: *base_no_om_image_dependency
+    tasks:
+      - name: e2e_mdb_kind_no_webhook_roles_cloudqa_task_group
+
+  ## Multi-Cluster Build Variants ##
+
+  - name: e2e_multi_cluster_kind_ubi
+    display_name: e2e_multi_cluster_kind_ubi
+    tags: [ "e2e_test_suite" ]
+    run_on:
+      - ubuntu2204-large
+    <<: *community_dependency
+    tasks:
+      - name: e2e_multi_cluster_kind_task_group
+
+  ## MCO Build Variants ##
+
+  - name: e2e_mco_tests
+    display_name: e2e_mco_tests
+    run_on:
+      - ubuntu2204-large
+    tasks:
+      - name: e2e_mco_task_group

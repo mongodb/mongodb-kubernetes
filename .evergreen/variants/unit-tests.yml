@@ -1,0 +1,13 @@
+# Unit Test Build Variants
+# Build variants for unit testing, linting, and code quality
+
+buildvariants:
+  ## Unit tests + lint build variant
+
+  - name: unit_tests
+    display_name: "unit_tests"
+    tags: [ "unit_tests" ]
+    run_on:
+      - ubuntu2204-small
+    tasks:
+      - name: "unit_task_group"

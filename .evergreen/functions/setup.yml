@@ -1,0 +1,259 @@
+# Setup Functions
+# Environment setup, tool installation, and initialization functions
+
+variables:
+  - &e2e_include_expansions_in_env
+    include_expansions_in_env:
+      - cognito_user_pool_id
+      - cognito_workload_federation_client_id
+      - cognito_user_name
+      - cognito_workload_federation_client_secret
+      - cognito_user_password
+      - cognito_workload_url
+      - cognito_workload_user_id
+      - ARTIFACTORY_PASSWORD
+      - ARTIFACTORY_USERNAME
+      - GRS_PASSWORD
+      - GRS_USERNAME
+      - OVERRIDE_VERSION_ID
+      - PKCS11_URI
+      - branch_name
+      - build_id
+      - build_variant
+      - distro
+      - e2e_cloud_qa_apikey_owner_ubi_cloudqa
+      - e2e_cloud_qa_orgid_owner_ubi_cloudqa
+      - e2e_cloud_qa_user_owner_ubi_cloudqa
+      - ecr_registry
+      - ecr_registry_needs_auth
+      - execution
+      - github_commit
+      - github_pr_number
+      - is_patch
+      - project
+      - project_identifier
+      - revision
+      - revision_order_id
+      - task_id
+      - task_name
+      - version_id
+      - workdir
+
+functions:
+  ### Core Setup Functions ###
+
+  setup_context: &setup_context # Running the first switch is important to fill the workdir and other important initial env vars
+    command: shell.exec
+    type: setup
+    params:
+      shell: bash
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      <<: *e2e_include_expansions_in_env
+      script: |
+        echo "Initializing context files"
+        cp scripts/dev/contexts/evg-private-context scripts/dev/contexts/private-context
+        scripts/dev/switch_context.sh root-context
+        echo "Finished initializing to the root context"
+
+  switch_context: &switch_context
+    command: shell.exec
+    type: setup
+    params:
+      shell: bash
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      <<: *e2e_include_expansions_in_env
+      add_to_path:
+        - ${workdir}/bin
+        - ${workdir}/google-cloud-sdk/bin
+      script: |
+        echo "Switching context"
+        scripts/dev/switch_context.sh "${build_variant}"
+        echo "Finished switching context"
+
+  python_venv: &python_venv
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      command: scripts/dev/recreate_python_venv.sh
+
+  "clone":
+    - command: subprocess.exec
+      type: setup
+      params:
+        command: "mkdir -p src/github.com/mongodb"
+    - command: git.get_project
+      type: setup
+      params:
+        directory: src/github.com/mongodb/mongodb-kubernetes
+    - command: subprocess.exec
+      type: setup
+      params:
+        command: "git config --global user.name 'Evergreen'"
+    - command: subprocess.exec
+      type: setup
+      params:
+        command: "git config --global user.email 'kubernetes-hosted-team@mongodb.com'"
+    - *setup_context
+
+  ### Tool Setup Functions ###
+
+  setup_kubectl: &setup_kubectl
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      binary: scripts/evergreen/setup_kubectl.sh
+
+  setup_jq: &setup_jq
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      binary: scripts/evergreen/setup_jq.sh
+
+  setup_shellcheck:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/evergreen/setup_shellcheck.sh
+
+  download_kube_tools:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/evergreen/download_kube_tools.sh
+
+  ### Cloud Provider Setup ###
+
+  setup_aws: &setup_aws
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      binary: scripts/evergreen/setup_aws.sh
+
+  setup_gcloud_cli:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/evergreen/setup_gcloud_cli.sh
+
+  setup_mongosh:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/evergreen/setup_mongosh.sh
+
+  ### Kubernetes Environment Setup ###
+
+  setup_kind: &setup_kind
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      binary: scripts/evergreen/setup_kind.sh
+
+  setup_kubernetes_environment_p: &setup_kubernetes_environment_p
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      binary: scripts/evergreen/setup_kubernetes_environment.sh
+
+  setup_kubernetes_environment:
+    - func: setup_kubernetes_environment_p
+    - func: setup_kind
+
+  cleanup_exec_environment:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/evergreen/cleanup_exec_environment.sh
+
+  ### Docker and Registry Setup ###
+
+  configure_docker_auth: &configure_docker_auth
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      binary: scripts/evergreen/configure_docker_auth.sh
+
+  quay_login:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/evergreen/quay_login.sh
+
+  setup_docker_sbom:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/evergreen/setup_docker_sbom.sh
+
+  ### Host and Environment Setup ###
+
+  setup_evg_host: &setup_evg_host
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      binary: scripts/evergreen/setup_evg_host.sh
+
+  setup_building_host:
+    - func: setup_evg_host
+    - func: enable_QEMU
+
+  enable_QEMU:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/evergreen/enable_QEMU.sh
+
+  ### Cloud QA Setup ###
+
+  setup_cloud_qa:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/evergreen/setup_cloud_qa.sh
+
+  ### OpenShift and OLM Setup ###
+
+  setup_preflight:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/evergreen/setup_preflight.sh
+
+  setup_prepare_openshift_bundles:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/evergreen/setup_prepare_openshift_bundles.sh
+
+  install_olm:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/evergreen/install_olm.sh
+
+  prepare_openshift_bundles_for_e2e:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/evergreen/prepare_openshift_bundles_for_e2e.sh

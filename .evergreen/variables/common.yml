@@ -1,0 +1,150 @@
+# Common Variables and Anchors
+# Global configuration settings and reusable YAML anchors
+
+variables:
+  # Environment expansion anchor for E2E tests
+  - &e2e_include_expansions_in_env
+    include_expansions_in_env:
+      - workdir
+      - project
+      - branch_name
+      - github_commit
+      - revision
+      - github_pr_number
+      - project_identifier
+      - revision_order_id
+      - version_id
+      - build_id
+      - build_variant
+      - execution
+      - is_patch
+      - task_id
+      - task_name
+
+  # Global timeout setting
+  - &global_timeout 7200
+
+  # Common setup group configurations
+  - &setup_group
+    setup_group_can_fail_task: true
+    setup_group:
+      - func: clone
+      - func: download_kube_tools
+      - func: setup_building_host
+
+  - &setup_group_multi_cluster
+    setup_group_can_fail_task: true
+    setup_group:
+      - func: clone
+      - func: download_kube_tools
+      - func: setup_building_host
+      - func: build_multi_cluster_binary
+
+  # Setup and teardown patterns for different environments
+  - &setup_and_teardown_group_gke_code_snippets
+    setup_task_can_fail_task: true
+    setup_group:
+      - func: clone
+      - func: setup_gcloud_cli
+      - func: setup_mongosh
+      - func: download_kube_tools
+      - func: build_multi_cluster_binary
+    teardown_group:
+      - func: upload_code_snippets_logs
+
+  - &setup_and_teardown_group_kind_code_snippets
+    setup_task_can_fail_task: true
+    setup_group:
+      - func: clone
+      - func: cleanup_exec_environment
+      - func: download_kube_tools
+      - func: configure_docker_auth
+      - func: setup_kubernetes_environment
+    teardown_task:
+      - func: upload_e2e_logs
+      - func: upload_code_snippets_logs
+
+  # Task-level setup and teardown patterns
+  - &setup_and_teardown_task_cloudqa
+    setup_task_can_fail_task: true
+    setup_task:
+      - func: cleanup_exec_environment
+      - func: configure_docker_auth
+      - func: setup_kubernetes_environment
+      - func: setup_cloud_qa
+    teardown_task_can_fail_task: true
+    teardown_task:
+      - func: upload_e2e_logs
+      - func: teardown_kubernetes_environment
+      - func: teardown_cloud_qa
+
+  - &setup_and_teardown_task
+    setup_task_can_fail_task: true
+    setup_task:
+      - func: cleanup_exec_environment
+      - func: configure_docker_auth
+      - func: setup_kubernetes_environment
+    teardown_task_can_fail_task: true
+    teardown_task:
+      - func: upload_e2e_logs
+      - func: teardown_kubernetes_environment
+
+  # Common teardown group
+  - &teardown_group
+    teardown_group:
+      - func: prune_docker_resources
+      - func: run_retry_script
+
+  # Environment variable expansions for E2E tests
+  - &e2e_include_expansions_in_env
+    include_expansions_in_env:
+      - cognito_user_pool_id
+      - cognito_workload_federation_client_id
+      - cognito_user_name
+      - cognito_workload_federation_client_secret
+      - cognito_user_password
+      - cognito_workload_url
+      - cognito_workload_user_id
+      - ARTIFACTORY_PASSWORD
+      - ARTIFACTORY_USERNAME
+      - GRS_PASSWORD
+      - GRS_USERNAME
+      - OVERRIDE_VERSION_ID
+      - PKCS11_URI
+      - branch_name
+      - build_id
+      - build_variant
+      - distro
+      - e2e_cloud_qa_apikey_owner_ubi_cloudqa
+      - e2e_cloud_qa_orgid_owner_ubi_cloudqa
+      - e2e_cloud_qa_user_owner_ubi_cloudqa
+      - ecr_registry
+      - ecr_registry_needs_auth
+      - execution
+      - github_commit
+      - image_name
+      - include_tags
+      - is_patch
+      - mms_eng_test_aws_access_key
+      - mms_eng_test_aws_region
+      - mms_eng_test_aws_secret
+      - openshift_token
+      - openshift_url
+      - otel_collector_endpoint
+      - otel_parent_id
+      - otel_trace_id
+      - pin_tag_at
+      - registry
+      - requester
+      - skip_tags
+      - task_name
+      - triggered_by_git_tag
+      - version_id
+      - workdir
+      # temporary secret to pull community private preview image from quay.io
+      - community_private_preview_pullsecret_dockerconfigjson
+
+parameters:
+  - key: evergreen_retry
+    value: "true"
+    description: set this to false to suppress retries on failure

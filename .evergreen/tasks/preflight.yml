@@ -1,0 +1,163 @@
+# Preflight and Validation Tasks
+# Image validation, preflight checks, and OpenShift bundle tasks
+
+tasks:
+  ### Preflight Image Validation Tasks ###
+
+  - name: preflight_images
+    tags: [ "image_preflight" ]
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: setup_preflight
+      - func: preflight_image
+        vars:
+          image_name: mongodb-kubernetes
+      - func: preflight_image
+        vars:
+          image_name: init-appdb
+      - func: preflight_image
+        vars:
+          image_name: init-database
+      - func: preflight_image
+        vars:
+          image_name: init-ops-manager
+      - func: preflight_image
+        vars:
+          image_name: database
+
+  - name: preflight_ops_manager
+    tags: [ "image_preflight" ]
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: setup_preflight
+      - func: preflight_image
+        vars:
+          image_name: ops-manager
+
+  - name: preflight_official_database_image
+    tags: [ "image_preflight" ]
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: setup_preflight
+      - func: preflight_image
+        vars:
+          image_name: official-database
+
+  - name: preflight_mongodb_agent_image
+    tags: [ "image_preflight" ]
+    commands:
+      - func: clone
+      - func: python_venv
+      - func: setup_preflight
+      - func: preflight_image
+        vars:
+          image_name: mongodb-agent
+
+  ### OpenShift Bundle Tasks ###
+
+  - name: prepare_and_upload_openshift_bundles_for_e2e
+    commands:
+      - func: clone
+      - func: setup_aws
+      - func: prepare_openshift_bundles_for_e2e
+
+  - name: prepare_and_upload_openshift_bundles
+    tags: [ "openshift_bundles" ]
+    commands:
+      - func: clone
+      - func: setup_aws
+      - func: prepare_openshift_bundles
+      - func: upload_openshift_bundle
+
+  - name: run_conditionally_prepare_and_upload_openshift_bundles
+    commands:
+      - func: clone
+      - func: setup_aws
+      - func: prepare_openshift_bundles
+      - func: upload_openshift_bundle
+
+  ### CSV Backup Tasks ###
+
+  - name: backup_csv_images_dry_run
+    commands:
+      - func: clone
+      - func: setup_aws
+      - func: backup_csv_images
+        vars:
+          dry_run: "true"
+
+  - name: backup_csv_images_limit_3
+    commands:
+      - func: clone
+      - func: setup_aws
+      - func: backup_csv_images
+        vars:
+          limit: "3"
+
+  - name: backup_csv_images_all
+    commands:
+      - func: clone
+      - func: setup_aws
+      - func: backup_csv_images
+
+  ### Utility Tasks ###
+
+  - name: prepare_aws
+    priority: 59
+    commands:
+      - func: clone
+      - func: setup_jq
+      - func: setup_aws
+      - func: prepare_aws
+
+  - name: run_retry_script
+    commands:
+      - func: run_retry_script
+
+  ### Performance Test Generation Tasks ###
+
+  - name: generate_perf_tasks_one_thread
+    commands:
+      - func: clone
+      - func: generate_perf_tests_tasks
+        vars:
+          variant: e2e_perf_test_one_thread
+          size: 1
+
+  - name: generate_perf_tasks_10_thread
+    commands:
+      - func: clone
+      - func: generate_perf_tests_tasks
+        vars:
+          variant: e2e_perf_test_10_thread
+          size: 10
+
+  - name: generate_perf_tasks_30_thread
+    commands:
+      - func: clone
+      - func: generate_perf_tests_tasks
+        vars:
+          variant: e2e_perf_test_30_thread
+          size: 30
+
+  ### Pre-commit Tasks ###
+
+  - name: run_precommit_and_push
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: run_precommit_and_push
+
+task_groups:
+  ### Preflight Task Group ###
+
+  - name: preflight_images_task_group
+    max_hosts: -1
+    tasks:
+      - preflight_images
+      - preflight_official_database_image
+      - preflight_mongodb_agent_image
+      - preflight_ops_manager

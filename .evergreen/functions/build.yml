@@ -1,0 +1,128 @@
+# Build Functions
+# Image building, compilation, and artifact creation functions
+
+variables:
+  - &e2e_include_expansions_in_env
+    include_expansions_in_env:
+      - workdir
+      - project
+      - branch_name
+      - github_commit
+      - revision
+      - github_pr_number
+      - project_identifier
+      - revision_order_id
+      - version_id
+      - build_id
+      - build_variant
+      - execution
+      - is_patch
+      - task_id
+      - task_name
+
+functions:
+  ### Core Build Functions ###
+
+  build_multi_cluster_binary:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/evergreen/build_multi_cluster_kubeconfig_creator.sh
+
+  build_and_push_appdb_database:
+    - command: subprocess.exec
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes/docker/mongodb-kubernetes-appdb-database
+        binary: ./build_and_push_appdb_database_images.sh
+        add_to_path:
+          - ${workdir}/bin
+          - ${workdir}
+
+  ### Main Pipeline Build Function ###
+
+  pipeline:
+    - func: switch_context
+    - command: shell.exec
+      type: setup
+      params:
+        shell: bash
+        script: |
+          # Docker Hub workaround
+          # docker buildx needs the moby/buildkit image when setting up a builder so we pull it from our mirror
+          docker buildx create --driver=docker-container --driver-opt=image=268558157000.dkr.ecr.eu-west-1.amazonaws.com/docker-hub-mirrors/moby/buildkit:buildx-stable-1 --use
+          docker buildx inspect --bootstrap
+    - command: ec2.assume_role
+      display_name: Assume IAM role with permissions to pull Kondukto API token
+      params:
+        role_arn: ${kondukto_role_arn}
+    - command: shell.exec
+      display_name: Pull Kondukto API token from AWS Secrets Manager and write it to file
+      params:
+        silent: true
+        shell: bash
+        include_expansions_in_env: [AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN]
+        script: |
+          set -e
+          # use AWS CLI to get the Kondukto API token from AWS Secrets Manager
+          kondukto_token=$(aws secretsmanager get-secret-value --secret-id "kondukto-token" --region "us-east-1" --query 'SecretString' --output text)
+          # write the KONDUKTO_TOKEN environment variable to Silkbomb environment file
+          echo "KONDUKTO_TOKEN=$kondukto_token" > ${workdir}/silkbomb.env
+    - command: subprocess.exec
+      retry_on_failure: true
+      type: setup
+      params:
+        shell: bash
+        <<: *e2e_include_expansions_in_env
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/evergreen/run_python.sh pipeline.py --include ${image_name} --parallel --sign
+
+  ### Registry and Release Functions ###
+
+  release_docker_image_to_registry:
+    - command: subprocess.exec
+      type: system
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/evergreen/release_docker_image_to_registry.sh
+
+  ### AWS Resource Management ###
+
+  prepare_aws: &prepare_aws
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      binary: scripts/evergreen/prepare_aws.sh
+
+  ### OpenShift Bundle Functions ###
+
+  prepare_openshift_bundles:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/evergreen/prepare_openshift_bundles.sh
+
+  upload_openshift_bundle:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/evergreen/upload_openshift_bundle.sh
+
+  ### Performance Test Generation ###
+
+  generate_perf_tests_tasks:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/evergreen/generate_perf_tests_tasks.sh
+
+  ### Utility Functions ###
+
+  update_evergreen_expansions:
+    - command: expansions.update
+      params:
+        file: src/github.com/mongodb/mongodb-kubernetes/expansions.yml

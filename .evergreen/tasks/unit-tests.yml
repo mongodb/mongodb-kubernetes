@@ -1,0 +1,46 @@
+# Unit Test Tasks
+# Unit testing, linting, and code quality tasks
+
+tasks:
+  ### Core Unit Test Tasks ###
+
+  - name: unit_tests_golang
+    tags: [ "unit_tests" ]
+    commands:
+      - func: "test_golang_unit"
+
+  - name: unit_tests_python
+    tags: [ "unit_tests" ]
+    commands:
+      - func: "test_python_unit"
+
+  - name: sbom_tests
+    tags: [ "unit_tests" ]
+    # The SBOM tests run only on commit builds. Running this on patches might cause false-positive failures
+    # because certain images might not be there yet. Such situation happens for OM image upgrades for example.
+    # See https://docs.devprod.prod.corp.mongodb.com/evergreen/Project-Configuration/Project-Configuration-Files#limiting-when-a-task-or-variant-will-run
+    patchable: false
+    commands:
+      - func: "test_sboms"
+
+  ### Code Quality Tasks ###
+
+  - name: lint_repo
+    tags: [ "unit_tests" ]
+    commands:
+      - func: lint_repo
+
+task_groups:
+  ### Unit Test Task Group ###
+
+  - name: unit_task_group
+    max_hosts: -1
+    setup_group_can_fail_task: true
+    setup_group:
+      - func: clone
+      - func: python_venv
+    tasks:
+      - unit_tests_golang
+      - unit_tests_python
+      - sbom_tests
+      - lint_repo

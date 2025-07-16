@@ -1,0 +1,162 @@
+# Dependency Definitions
+# Centralized build dependency patterns for different test scenarios
+
+variables:
+  # Build dependency anchors for different test scenarios
+  # These define which images need to be built before running tests
+  
+  # Community dependency - for MongoDB Community Operator tests
+  - &community_dependency
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
+      - name: build_readiness_probe_image
+        variant: init_test_run
+      - name: build_upgrade_hook_image
+        variant: init_test_run
+      - name: build_mco_test_image
+        variant: init_test_run
+
+  # Base dependency without OM images - for CloudQA tests
+  - &base_no_om_image_dependency
+    depends_on:
+      - name: build_om_images
+        variant: build_om70_images
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_init_appdb_images_ubi
+        variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
+
+  # Base dependencies for Ops Manager 6.0 tests
+  # The dependency unification between static and non-static is intentional here.
+  # Even though some images are exclusive, in EVG they all are built once and in parallel.
+  # It is not worth the effort of splitting them out.
+  # Once Static Containers are default, this piece can be cleaned up.
+  - &base_om6_dependency
+    depends_on:
+      - name: build_om_images
+        variant: build_om60_images
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_init_appdb_images_ubi
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
+
+  # Base dependencies for Ops Manager 7.0 tests
+  - &base_om7_dependency
+    depends_on:
+      - name: build_om_images
+        variant: build_om70_images
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_init_appdb_images_ubi
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
+
+  # Base dependencies for Ops Manager 8.0 tests
+  - &base_om8_dependency
+    depends_on:
+      - name: build_om_images
+        variant: build_om80_images
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_init_appdb_images_ubi
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
+
+  # Dependencies for tests that don't require OM images
+  - &base_no_om_image_dependency
+    depends_on:
+      - name: build_om_images
+        variant: build_om70_images
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_init_appdb_images_ubi
+        variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
+
+  # Dependencies for community tests (no Ops Manager)
+  - &community_dependency
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
+      - name: build_readiness_probe_image
+        variant: init_test_run
+      - name: build_upgrade_hook_image
+        variant: init_test_run
+      - name: build_mco_test_image
+        variant: init_test_run
+
+  # Common image build dependencies (reusable pattern)
+  - &common_image_dependencies
+    - name: build_operator_ubi
+      variant: init_test_run
+    - name: build_test_image
+      variant: init_test_run
+    - name: build_agent_images_ubi
+      variant: init_test_run
+
+  # Ops Manager specific dependencies (reusable pattern)
+  - &om_image_dependencies
+    - name: build_init_database_image_ubi
+      variant: init_test_run
+    - name: build_database_image_ubi
+      variant: init_test_run
+    - name: build_init_appdb_images_ubi
+      variant: init_test_run
+    - name: build_init_om_images_ubi
+      variant: init_test_run
