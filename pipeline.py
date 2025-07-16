@@ -1153,7 +1153,6 @@ def build_upgrade_hook_image(build_configuration: BuildConfiguration):
 def build_agent_in_sonar(
     build_configuration: BuildConfiguration,
     image_version,
-    init_database_image,
     mongodb_tools_url_ubi,
     mongodb_agent_url_ubi: str,
     agent_version,
@@ -1162,7 +1161,6 @@ def build_agent_in_sonar(
         "version": image_version,
         "mongodb_tools_url_ubi": mongodb_tools_url_ubi,
         "mongodb_agent_url_ubi": mongodb_agent_url_ubi,
-        "init_database_image": init_database_image,
     }
 
     agent_quay_registry = QUAY_REGISTRY_URL + f"/mongodb-agent-ubi"
@@ -1228,7 +1226,7 @@ def build_multi_arch_agent_in_sonar(
     build_image_generic(
         config=build_configuration,
         image_name="mongodb-agent",
-        inventory_file="inventories/agent_non_matrix.yaml",
+        inventory_file="inventories/agent.yaml",
         multi_arch_args_list=joined_args,
         registry_address=quay_agent_registry if is_release else ecr_agent_registry,
         is_multi_arch=True,  # We for pushing manifest anyway, even if arm64 is skipped in patches
@@ -1242,19 +1240,18 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
 
     See more information in the function: build_agent_on_agent_bump
     """
-    release = get_release()
+    release_json = get_release()
 
-    operator_version = get_git_release_tag()
     is_release = build_configuration.is_release_step_executed()
 
     # We need to release [all agents x latest operator] on operator releases
     if is_release:
-        agent_versions_to_build = gather_all_supported_agent_versions(release)
+        agent_versions_to_build = gather_all_supported_agent_versions(release_json)
     # We only need [latest agents (for each OM major version and for CM) x patch ID] for patches
     else:
-        agent_versions_to_build = gather_latest_agent_versions(release)
+        agent_versions_to_build = gather_latest_agent_versions(release_json)
 
-    logger.info(f"Building Agent versions: {agent_versions_to_build} for Operator versions: {operator_version}")
+    logger.info(f"Building Agent versions: {agent_versions_to_build}")
 
     tasks_queue = Queue()
     max_workers = 1
@@ -1276,8 +1273,8 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
                         agent_version[1],
                     )
                 )
-            _build_agent_operator(
-                agent_version, build_configuration, executor, operator_version, tasks_queue, is_release
+            _add_to_agent_queue(
+                agent_version, build_configuration, executor, tasks_queue
             )
 
     queue_exception_handling(tasks_queue)
@@ -1292,18 +1289,12 @@ def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
     - operator releases
     - OM/CM bumps via PCT
 
-    We don't require building a full matrix on e2e test runs and operator releases.
-    "Operator releases" and "e2e test runs" require only the latest operator x agents
-
-    In OM/CM bumps, we release a new agent which we potentially require to release to older operators as well.
-    This function takes care of that.
+    In OM/CM bumps, we release a new agent.
     """
     release = get_release()
     is_release = build_configuration.is_release_step_executed()
 
     if build_configuration.all_agents:
-        # We need to release [all agents x latest operator] on operator releases to make e2e tests work
-        # This was changed previously in https://github.com/mongodb/mongodb-kubernetes/pull/3960
         agent_versions_to_build = gather_all_supported_agent_versions(release)
     else:
         # we only need to release the latest images, we don't need to re-push old images, as we don't clean them up anymore.
@@ -1346,11 +1337,10 @@ def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
                         agent_version[1],
                     )
                 )
-            for operator_version in get_supported_operator_versions():
-                logger.info(f"Building Agent versions: {agent_version} for Operator versions: {operator_version}")
-                _build_agent_operator(
-                    agent_version, build_configuration, executor, operator_version, tasks_queue, is_release
-                )
+            logger.info(f"Building Agent versions: {agent_version}")
+            _add_to_agent_queue(
+                agent_version, build_configuration, executor, tasks_queue
+            )
 
     queue_exception_handling(tasks_queue)
 
@@ -1386,37 +1376,21 @@ def queue_exception_handling(tasks_queue):
         )
 
 
-def _build_agent_operator(
+def _add_to_agent_queue(
     agent_version: Tuple[str, str],
     build_configuration: BuildConfiguration,
     executor: ProcessPoolExecutor,
-    operator_version: str,
     tasks_queue: Queue,
-    use_quay: bool = False,
 ):
-    agent_distro = "rhel9_x86_64"
     tools_version = agent_version[1]
-    tools_distro = get_tools_distro(tools_version)["amd"]
-    image_version = f"{agent_version[0]}_{operator_version}"
-    mongodb_tools_url_ubi = (
-        f"https://downloads.mongodb.org/tools/db/mongodb-database-tools-{tools_distro}-{tools_version}.tgz"
-    )
-    mongodb_agent_url_ubi = f"https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod/mongodb-mms-automation-agent-{agent_version[0]}.{agent_distro}.tar.gz"
-    # We use Quay if not in a patch
-    # We could rely on input params (quay_registry or registry), but it makes templating more complex in the inventory
-    non_quay_registry = os.environ.get("REGISTRY", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
-    base_init_database_repo = QUAY_REGISTRY_URL if use_quay else non_quay_registry
-    init_database_image = f"{base_init_database_repo}/mongodb-kubernetes-init-database:{operator_version}"
+    image_version = f"{agent_version[0]}"
 
     tasks_queue.put(
         executor.submit(
-            build_agent_in_sonar,
+            build_multi_arch_agent_in_sonar,
             build_configuration,
             image_version,
-            init_database_image,
-            mongodb_tools_url_ubi,
-            mongodb_agent_url_ubi,
-            agent_version[0],
+            tools_version,
         )
     )
 
