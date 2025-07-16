@@ -39,7 +39,7 @@ func NOOP() Modification {
 }
 
 // WithContainer applies the modifications to the container with the provided name
-func WithContainer(name string, funcs ...func(*corev1.Container)) Modification {
+func WithContainer(name string, containerfunc func(*corev1.Container)) Modification {
 	return func(podTemplateSpec *corev1.PodTemplateSpec) {
 		idx := findIndexByName(name, podTemplateSpec.Spec.Containers)
 		if idx == notFound {
@@ -48,9 +48,7 @@ func WithContainer(name string, funcs ...func(*corev1.Container)) Modification {
 			idx = len(podTemplateSpec.Spec.Containers) - 1
 		}
 		c := &podTemplateSpec.Spec.Containers[idx]
-		for _, f := range funcs {
-			f(c)
-		}
+		containerfunc(c)
 	}
 }
 
@@ -69,7 +67,7 @@ func WithContainerByIndex(index int, funcs ...func(container *corev1.Container))
 }
 
 // WithInitContainer applies the modifications to the init container with the provided name
-func WithInitContainer(name string, funcs ...func(*corev1.Container)) Modification {
+func WithInitContainer(name string, containerfunc func(*corev1.Container)) Modification {
 	return func(podTemplateSpec *corev1.PodTemplateSpec) {
 		idx := findIndexByName(name, podTemplateSpec.Spec.InitContainers)
 		if idx == notFound {
@@ -78,9 +76,7 @@ func WithInitContainer(name string, funcs ...func(*corev1.Container)) Modificati
 			idx = len(podTemplateSpec.Spec.InitContainers) - 1
 		}
 		c := &podTemplateSpec.Spec.InitContainers[idx]
-		for _, f := range funcs {
-			f(c)
-		}
+		containerfunc(c)
 	}
 }
 
