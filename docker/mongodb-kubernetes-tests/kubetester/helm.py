@@ -120,6 +120,9 @@ def helm_repo_add(repo_name: str, url: str):
 
 
 def process_run_and_check(args, **kwargs):
+    if 'check' not in kwargs:
+        kwargs['check'] = True
+
     try:
         logger.debug(f"subprocess.run: {args}")
         completed_process = subprocess.run(args, **kwargs)

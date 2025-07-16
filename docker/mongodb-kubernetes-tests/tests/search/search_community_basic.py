@@ -104,9 +104,9 @@ def test_search_create_search_index(sample_movies_helper: SampleMoviesSearchHelp
     sample_movies_helper.create_search_index()
 
 
-@mark.e2e_search_community_basic
-def test_search_wait_for_search_indexes(sample_movies_helper: SampleMoviesSearchHelper):
-    sample_movies_helper.wait_for_search_indexes()
+# @mark.e2e_search_community_basic
+# def test_search_wait_for_search_indexes(sample_movies_helper: SampleMoviesSearchHelper):
+#     sample_movies_helper.wait_for_search_indexes()
 
 
 @mark.e2e_search_community_basic

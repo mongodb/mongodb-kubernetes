@@ -239,7 +239,7 @@ func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResourc
 			Address: "0.0.0.0:8080",
 		},
 		Logging: mongot.ConfigLogging{
-			Verbosity: "DEBUG",
+			Verbosity: "TRACE",
 			LogPath:   nil,
 		},
 	}
