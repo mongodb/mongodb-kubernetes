@@ -68,7 +68,8 @@ class TestExtractChangelogDataFromFileName(unittest.TestCase):
         with self.assertRaises(Exception) as context:
             extract_date_and_kind_from_file_name("20250640_refactor_codebase.md")
         self.assertEqual(
-            str(context.exception), "20250640_refactor_codebase.md - date 20250640 is not in the expected format %Y%m%d"
+            str(context.exception),
+            "20250640_refactor_codebase.md - date '20250640' is not in the expected format %Y%m%d",
         )
 
     def test_wrong_file_name_format_date(self):
