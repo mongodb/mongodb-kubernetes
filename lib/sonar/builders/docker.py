@@ -209,7 +209,7 @@ def docker_push(registry: str, tag: str):
     # Instead of doing the hack here, we should instead either:
     # - make sonar aware of context images
     # - move the logic out of sonar to pipeline.py to all the places where we build context images
-    if "-context" in tag and image_exists(registry, tag):
+    if "-context" in tag and image_exists(registry, tag) and "ecr" not in registry:
         logger.info(f"Image: {tag} in registry: {registry} already exists skipping pushing it")
     else:
         logger.info("Image does not exist remotely or is not a context image, pushing it!")
