@@ -47,7 +47,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
 
@@ -684,9 +683,7 @@ func (r *ReconcileCommonController) getAgentVersion(conn om.Connection, omVersio
 		return "", err
 	} else {
 		log.Debugf("Using agent version %s", agentVersion)
-		currentOperatorVersion := versionutil.StaticContainersOperatorVersion()
-		log.Debugf("Using Operator version: %s", currentOperatorVersion)
-		return agentVersion + "_" + currentOperatorVersion, nil
+		return agentVersion, nil
 	}
 }
 

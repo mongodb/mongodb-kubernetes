@@ -105,10 +105,10 @@ type DatabaseStatefulSetOptions struct {
 	StsType                 StsType
 	AdditionalMongodConfig  *mdbv1.AdditionalMongodConfig
 
-	InitDatabaseNonStaticImage string
-	DatabaseNonStaticImage     string
-	MongodbImage               string
-	AgentImage                 string
+	InitDatabaseImage      string
+	DatabaseNonStaticImage string
+	MongodbImage           string
+	AgentImage             string
 
 	Annotations map[string]string
 	VaultConfig vault.VaultConfiguration
@@ -489,8 +489,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 
 	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations()) {
 		shareProcessNs = func(sts *appsv1.StatefulSet) {
-			a := true
-			sts.Spec.Template.Spec.ShareProcessNamespace = &a
+			sts.Spec.Template.Spec.ShareProcessNamespace = ptr.To(true)
 		}
 		secondContainerModification = podtemplatespec.WithContainerByIndex(1, container.WithVolumeMounts(volumeMounts))
 	}
@@ -666,6 +665,83 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 
 // buildMongoDBPodTemplateSpec constructs the podTemplateSpec for the MongoDB resource
 func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseStatefulSetSource) podtemplatespec.Modification {
+	var modifications podtemplatespec.Modification
+	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations()) {
+		modifications = buildStaticArchitecturePodTemplateSpec(opts, mdb)
+	} else {
+		modifications =  buildNonStaticArchitecturePodTemplateSpec(opts, mdb)
+	}
+	sharedModifications := sharedDatabaseConfiguration(opts)
+	return podtemplatespec.Apply(sharedModifications, modifications)
+}
+
+// buildStaticArchitecturePodTemplateSpec constructs the podTemplateSpec for static architecture
+func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseStatefulSetSource) podtemplatespec.Modification {
+	var volumes []corev1.Volume
+
+	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
+
+	agentContainerModifications := []func(*corev1.Container){container.Apply(
+		container.WithName(util.AgentContainerName),
+		container.WithImage(opts.AgentImage),
+		container.WithEnvs(databaseEnvVars(opts)...),
+		container.WithArgs([]string{}),
+		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))), // nolint:forbidigo
+		container.WithLivenessProbe(DatabaseLivenessProbe()),
+		container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
+		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
+		container.WithEnvs(staticContainersEnvVars(mdb)...),
+		container.WithEnvs(readinessEnvironmentVariablesToEnvVars(opts.AgentConfig.ReadinessProbe.EnvironmentVariables)...),
+		container.WithCommand([]string{"/opt/scripts/agent-launcher-shim.sh"}),
+		containerSecurityContext,
+	)}
+
+	mongodContainerModifications := []func(*corev1.Container){container.Apply(
+		container.WithName(util.DatabaseContainerName),
+		container.WithArgs([]string{"tail -F -n0 \"${MDB_LOG_FILE_MONGODB}\""}),
+		container.WithResourceRequirements(buildRequirementsFromPodSpec(*opts.PodSpec)),
+		container.WithImage(opts.MongodbImage),
+		container.WithEnvs(databaseEnvVars(opts)...),
+		container.WithCommand([]string{"bash", "-c", "tail -F -n0 ${MDB_LOG_FILE_MONGODB} mongodb_marker"}),
+		containerSecurityContext,
+	)}
+
+	agentUtilitiesHolderModifications := []func(*corev1.Container){container.Apply(
+		container.WithName(util.AgentContainerUtilitiesName),
+		container.WithArgs([]string{""}),
+		container.WithImage(opts.InitDatabaseImage),
+		container.WithEnvs(databaseEnvVars(opts)...),
+		container.WithCommand([]string{"bash", "-c", "tail -f /dev/null"}),
+		containerSecurityContext,
+	)}
+
+	if opts.HostNameOverrideConfigmapName != "" {
+		volumes = append(volumes, statefulset.CreateVolumeFromConfigMap(opts.HostNameOverrideConfigmapName, opts.HostNameOverrideConfigmapName))
+		hostnameOverrideModification := container.WithVolumeMounts([]corev1.VolumeMount{
+			{
+				Name:      opts.HostNameOverrideConfigmapName,
+				MountPath: "/opt/scripts/config",
+			},
+		})
+		agentContainerModifications = append(agentContainerModifications, hostnameOverrideModification)
+		mongodContainerModifications = append(mongodContainerModifications, hostnameOverrideModification)
+		agentUtilitiesHolderModifications = append(agentUtilitiesHolderModifications, hostnameOverrideModification)
+	}
+
+	mods := []podtemplatespec.Modification{
+		podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
+		podtemplatespec.WithServiceAccount(getServiceAccountName(opts)),
+		podtemplatespec.WithVolumes(volumes),
+		podtemplatespec.WithContainerByIndex(0, agentContainerModifications...),
+		podtemplatespec.WithContainerByIndex(1, mongodContainerModifications...),
+		podtemplatespec.WithContainerByIndex(2, agentUtilitiesHolderModifications...),
+	}
+
+	return podtemplatespec.Apply(mods...)
+}
+
+// buildNonStaticArchitecturePodTemplateSpec constructs the podTemplateSpec for non-static architecture
+func buildNonStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseStatefulSetSource) podtemplatespec.Modification {
 	// scripts volume is shared by the init container and the AppDB, so the startup
 	// script can be copied over
 	scriptsVolume := statefulset.CreateVolumeFromEmptyDir("database-scripts")
@@ -674,71 +750,41 @@ func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseSt
 	volumes := []corev1.Volume{scriptsVolume}
 	volumeMounts := []corev1.VolumeMount{databaseScriptsVolumeMount}
 
-	initContainerModifications := []func(*corev1.Container){buildDatabaseInitContainer(opts.InitDatabaseNonStaticImage)}
+	initContainerModifications := []func(*corev1.Container){buildDatabaseInitContainer(opts.InitDatabaseImage)}
+
 	databaseContainerModifications := []func(*corev1.Container){container.Apply(
 		container.WithName(util.DatabaseContainerName),
 		container.WithImage(opts.DatabaseNonStaticImage),
 		container.WithEnvs(databaseEnvVars(opts)...),
 		container.WithCommand([]string{"/opt/scripts/agent-launcher.sh"}),
 		container.WithVolumeMounts(volumeMounts),
+		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))), // nolint:forbidigo
+		container.WithLivenessProbe(DatabaseLivenessProbe()),
+		container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
+		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
+		container.WithEnvs(staticContainersEnvVars(mdb)...),
+		container.WithEnvs(readinessEnvironmentVariablesToEnvVars(opts.AgentConfig.ReadinessProbe.EnvironmentVariables)...),
 	)}
-
-	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
-
-	staticContainerMongodContainerModification := podtemplatespec.NOOP()
-	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations()) {
-		// we don't use initContainers therefore, we reset it here
-		initContainerModifications = []func(*corev1.Container){}
-		mongodModification := []func(*corev1.Container){container.Apply(
-			container.WithName(util.DatabaseContainerName),
-			container.WithArgs([]string{""}),
-			container.WithImage(opts.MongodbImage),
-			container.WithEnvs(databaseEnvVars(opts)...),
-			container.WithCommand([]string{"bash", "-c", "tail -F -n0 ${MDB_LOG_FILE_MONGODB} mongodb_marker"}),
-			containerSecurityContext,
-		)}
-		staticContainerMongodContainerModification = podtemplatespec.WithContainerByIndex(1, mongodModification...)
-
-		// We are not setting the database-scripts volume on purpose,
-		// since we don't need to copy things from the init container over.
-		databaseContainerModifications = []func(*corev1.Container){container.Apply(
-			container.WithName(util.AgentContainerName),
-			container.WithImage(opts.AgentImage),
-			container.WithEnvs(databaseEnvVars(opts)...),
-			containerSecurityContext,
-		)}
-	}
 
 	if opts.HostNameOverrideConfigmapName != "" {
 		volumes = append(volumes, statefulset.CreateVolumeFromConfigMap(opts.HostNameOverrideConfigmapName, opts.HostNameOverrideConfigmapName))
-		modification := container.WithVolumeMounts([]corev1.VolumeMount{
+		hostnameOverrideModification := container.WithVolumeMounts([]corev1.VolumeMount{
 			{
 				Name:      opts.HostNameOverrideConfigmapName,
 				MountPath: "/opt/scripts/config",
 			},
 		})
-
-		// we only need to add the volume modification if we actually use an init container
-		if len(initContainerModifications) > 0 {
-			initContainerModifications = append(initContainerModifications, modification)
-		}
-
-		databaseContainerModifications = append(databaseContainerModifications, modification)
+		initContainerModifications = append(initContainerModifications, hostnameOverrideModification)
+		databaseContainerModifications = append(databaseContainerModifications, hostnameOverrideModification)
 	}
-
-	serviceAccountName := getServiceAccountName(opts)
 
 	mods := []podtemplatespec.Modification{
-		sharedDatabaseConfiguration(opts, mdb),
+		sharedDatabaseConfiguration(opts),
 		podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
-		podtemplatespec.WithServiceAccount(serviceAccountName),
+		podtemplatespec.WithServiceAccount(getServiceAccountName(opts)),
 		podtemplatespec.WithVolumes(volumes),
 		podtemplatespec.WithContainerByIndex(0, databaseContainerModifications...),
-		staticContainerMongodContainerModification,
-	}
-
-	if len(initContainerModifications) > 0 {
-		mods = append(mods, podtemplatespec.WithInitContainerByIndex(0, initContainerModifications...))
+		podtemplatespec.WithInitContainerByIndex(0, initContainerModifications...),
 	}
 
 	return podtemplatespec.Apply(mods...)
@@ -761,54 +807,12 @@ func getServiceAccountName(opts DatabaseStatefulSetOptions) string {
 
 // sharedDatabaseConfiguration is a function which applies all the shared configuration
 // between the appDb and MongoDB resources
-func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions, mdb databaseStatefulSetSource) podtemplatespec.Modification {
-	configurePodSpecSecurityContext, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
+func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions) podtemplatespec.Modification {
+	configurePodSpecSecurityContext, _ := podtemplatespec.WithDefaultSecurityContextsModifications()
 
 	pullSecretsConfigurationFunc := podtemplatespec.NOOP()
 	if pullSecrets, ok := env.Read(util.ImagePullSecrets); ok { // nolint:forbidigo
 		pullSecretsConfigurationFunc = podtemplatespec.WithImagePullSecrets(pullSecrets)
-	}
-
-	agentModification := podtemplatespec.WithContainerByIndex(0,
-		container.Apply(
-			container.WithResourceRequirements(buildRequirementsFromPodSpec(*opts.PodSpec)),
-			container.WithPorts([]corev1.ContainerPort{{ContainerPort: opts.ServicePort}}),
-			container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))), // nolint:forbidigo
-			container.WithLivenessProbe(DatabaseLivenessProbe()),
-			container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
-			container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
-			container.WithEnvs(readinessEnvironmentVariablesToEnvVars(opts.AgentConfig.ReadinessProbe.EnvironmentVariables)...),
-			configureContainerSecurityContext,
-		),
-	)
-
-	staticMongodModification := podtemplatespec.NOOP()
-	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations()) {
-		// The mongod
-		staticMongodModification = podtemplatespec.WithContainerByIndex(1,
-			container.Apply(
-				container.WithArgs([]string{"tail -F -n0 \"${MDB_LOG_FILE_MONGODB}\""}),
-				container.WithResourceRequirements(buildRequirementsFromPodSpec(*opts.PodSpec)),
-				container.WithPorts([]corev1.ContainerPort{{ContainerPort: opts.ServicePort}}),
-				container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))), // nolint:forbidigo
-				container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
-				container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
-				configureContainerSecurityContext,
-			),
-		)
-		agentModification = podtemplatespec.WithContainerByIndex(0,
-			container.Apply(
-				container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))), // nolint:forbidigo
-				container.WithLivenessProbe(DatabaseLivenessProbe()),
-				container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
-				container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
-				container.WithEnvs(staticContainersEnvVars(mdb)...),
-				container.WithEnvs(readinessEnvironmentVariablesToEnvVars(opts.AgentConfig.ReadinessProbe.EnvironmentVariables)...),
-				container.WithArgs([]string{}),
-				container.WithCommand([]string{"/opt/scripts/agent-launcher.sh"}),
-				configureContainerSecurityContext,
-			),
-		)
 	}
 
 	return podtemplatespec.Apply(
@@ -818,10 +822,6 @@ func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions, mdb databaseSt
 		configurePodSpecSecurityContext,
 		podtemplatespec.WithAffinity(opts.Name, PodAntiAffinityLabelKey, 100),
 		podtemplatespec.WithTopologyKey(opts.PodSpec.GetTopologyKeyOrDefault(), 0),
-		// The Agent
-		agentModification,
-		// AgentLoggingMongodConfig if static container
-		staticMongodModification,
 	)
 }
 
