@@ -489,8 +489,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 
 	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations()) {
 		shareProcessNs = func(sts *appsv1.StatefulSet) {
-			a := true
-			sts.Spec.Template.Spec.ShareProcessNamespace = &a
+			sts.Spec.Template.Spec.ShareProcessNamespace = ptr.To(true)
 		}
 		secondContainerModification = podtemplatespec.WithContainerByIndex(1, container.WithVolumeMounts(volumeMounts))
 	}
@@ -697,7 +696,7 @@ func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseSt
 			container.WithCommand([]string{"bash", "-c", "tail -F -n0 ${MDB_LOG_FILE_MONGODB} mongodb_marker"}),
 			containerSecurityContext,
 		)}
-		staticContainerMongodContainerModification = podtemplatespec.WithContainerByIndex(1, mongodModification...)
+		staticContainerMongodContainerModification = podtemplatespec.WithContainer(util.DatabaseContainerName, mongodModification...)
 
 		// We are not setting the database-scripts volume on purpose,
 		// since we don't need to copy things from the init container over.
@@ -726,19 +725,17 @@ func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseSt
 		databaseContainerModifications = append(databaseContainerModifications, modification)
 	}
 
-	serviceAccountName := getServiceAccountName(opts)
-
 	mods := []podtemplatespec.Modification{
 		sharedDatabaseConfiguration(opts, mdb),
 		podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
-		podtemplatespec.WithServiceAccount(serviceAccountName),
+		podtemplatespec.WithServiceAccount(getServiceAccountName(opts)),
 		podtemplatespec.WithVolumes(volumes),
 		podtemplatespec.WithContainerByIndex(0, databaseContainerModifications...),
 		staticContainerMongodContainerModification,
 	}
 
 	if len(initContainerModifications) > 0 {
-		mods = append(mods, podtemplatespec.WithInitContainerByIndex(0, initContainerModifications...))
+		mods = append(mods, podtemplatespec.WithInitContainer(InitDatabaseContainerName, initContainerModifications...))
 	}
 
 	return podtemplatespec.Apply(mods...)

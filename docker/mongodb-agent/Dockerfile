@@ -18,6 +18,8 @@ COPY --from=base /data/readinessprobe /opt/scripts/readinessprobe
 COPY --from=base /data/version-upgrade-hook /opt/scripts/version-upgrade-hook
 COPY --from=base /data/agent-launcher-lib.sh /opt/scripts/agent-launcher-lib.sh
 COPY --from=base /data/agent-launcher.sh /opt/scripts/agent-launcher.sh
+COPY agent-launcher-shim.sh /agent-launcher-shim.sh
+RUN chmod +x /agent-launcher-shim.sh
 COPY --from=base /data/LICENSE /licenses/LICENSE
 
 # Replace libcurl-minimal and curl-minimal with the full versions
