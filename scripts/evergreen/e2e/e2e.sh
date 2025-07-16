@@ -28,6 +28,50 @@ run_e2e_mco_tests() {
   return ${test_results}
 }
 
+dump_cluster_information() {
+  # Dump information from all clusters.
+  # TODO: ensure cluster name is included in log files so there is no overwriting of cross cluster files.
+  # shellcheck disable=SC2154
+  if [[ "${KUBE_ENVIRONMENT_NAME:-}" = "multi" ]]; then
+    echo "Dumping diagnostics for context ${CENTRAL_CLUSTER}"
+    dump_all "${CENTRAL_CLUSTER}" || true
+
+    for member_cluster in ${MEMBER_CLUSTERS}; do
+      echo "Dumping diagnostics for context ${member_cluster}"
+      dump_all "${member_cluster}" || true
+    done
+  else
+    # Dump all the information we can from this namespace
+    dump_all || true
+  fi
+}
+
+cleanup_openshift_cluster(){
+  if [[ "${TEST_RESULTS}" -ne 0 ]]; then
+    # Mark namespace as failed to be cleaned later
+    kubectl label "namespace/${NAMESPACE}" "evg/state=failed" --overwrite=true
+
+    if [ "${ALWAYS_REMOVE_TESTING_NAMESPACE-}" = "true" ]; then
+      # Failed namespaces might cascade into more failures if the namespaces
+      # are not being removed soon enough.
+      reset_namespace "$(kubectl config current-context)" "${NAMESPACE}" || true
+    fi
+  else
+    if [[ "${KUBE_ENVIRONMENT_NAME}" = "multi" ]]; then
+      echo "Tearing down cluster ${CENTRAL_CLUSTER}"
+      reset_namespace "${CENTRAL_CLUSTER}" "${NAMESPACE}" || true
+
+      for member_cluster in ${MEMBER_CLUSTERS}; do
+        echo "Tearing down cluster ${member_cluster}"
+        reset_namespace "${member_cluster}" "${NAMESPACE}" || true
+      done
+    else
+      # If the test pass, then the namespace is removed
+      reset_namespace "$(kubectl config current-context)" "${NAMESPACE}" || true
+    fi
+  fi
+}
+
 if [[ -n "${KUBECONFIG:-}" && ! -f "${KUBECONFIG}" ]]; then
   echo "Kube configuration: ${KUBECONFIG} file does not exist!"
   exit 1
@@ -102,48 +146,21 @@ else
   timeout --foreground "${timeout_sec}" scripts/evergreen/e2e/single_e2e.sh || TEST_RESULTS=$?
 fi
 
-# Dump information from all clusters.
-# TODO: ensure cluster name is included in log files so there is no overwriting of cross cluster files.
-# shellcheck disable=SC2154
-if [[ "${KUBE_ENVIRONMENT_NAME:-}" = "multi" ]]; then
-  echo "Dumping diagnostics for context ${CENTRAL_CLUSTER}"
-  dump_all "${CENTRAL_CLUSTER}" || true
+dump_cluster_information
 
-  for member_cluster in ${MEMBER_CLUSTERS}; do
-    echo "Dumping diagnostics for context ${member_cluster}"
-    dump_all "${member_cluster}" || true
-  done
+# We only have static clusters in OpenShift; otherwise, there's no need to mark and clean them up here.
+if [[ "${KUBE_ENVIRONMENT_NAME}" == *openshift* ]]; then
+  cleanup_openshift_cluster
 else
-  # Dump all the information we can from this namespace
-  dump_all || true
-fi
-
-# we only have static cluster in openshift, otherwise there is no need to mark and clean them up here
-if [[ ${CLUSTER_TYPE} == "openshift" ]]; then
-  if [[ "${TEST_RESULTS}" -ne 0 ]]; then
-    # Mark namespace as failed to be cleaned later
-    kubectl label "namespace/${NAMESPACE}" "evg/state=failed" --overwrite=true
-
-    if [ "${ALWAYS_REMOVE_TESTING_NAMESPACE-}" = "true" ]; then
-      # Failed namespaces might cascade into more failures if the namespaces
-      # are not being removed soon enough.
-      reset_namespace "$(kubectl config current-context)" "${NAMESPACE}" || true
-    fi
+  if [[ "${KUBE_ENVIRONMENT_NAME}" == "multi" ]]; then
+    echo "Tearing down operator on ${CENTRAL_CLUSTER}"
+    delete_operator "${NAMESPACE}" "mongodb-kubernetes-operator-multi-cluster"
   else
-    if [[ "${KUBE_ENVIRONMENT_NAME}" = "multi" ]]; then
-      echo "Tearing down cluster ${CENTRAL_CLUSTER}"
-      reset_namespace "${CENTRAL_CLUSTER}" "${NAMESPACE}" || true
-
-      for member_cluster in ${MEMBER_CLUSTERS}; do
-        echo "Tearing down cluster ${member_cluster}"
-        reset_namespace "${member_cluster}" "${NAMESPACE}" || true
-      done
-    else
-      # If the test pass, then the namespace is removed
-      reset_namespace "$(kubectl config current-context)" "${NAMESPACE}" || true
-    fi
+    # If the test passed, then the namespace is removed
+    delete_operator "${NAMESPACE}" "mongodb-kubernetes-operator"
   fi
 fi
+
 
 # We exit with the test result to surface status to Evergreen.
 exit ${TEST_RESULTS}
