@@ -29,7 +29,6 @@ get_operator_helm_values() {
     "mongodb.name=mongodb-enterprise-server"
     "mongodb.imageType=${MDB_IMAGE_TYPE:-ubi8}"
     "operator.mdbDefaultArchitecture=${MDB_DEFAULT_ARCHITECTURE:-non-static}"
-    "operator.enablePVCResize=${MDB_ENABLE_PVC_RESIZE:-true}"
     # only send the telemetry to the backend on a specific variant, thus default to false
     "operator.telemetry.send.enabled=${MDB_OPERATOR_TELEMETRY_SEND_ENABLED:-false}"
     # lets collect and save in the configmap as frequently as we can
