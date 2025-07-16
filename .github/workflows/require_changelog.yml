@@ -28,6 +28,7 @@ jobs:
           python-version: '${{ vars.PYTHON_VERSION }}'
       - name: Check if changelog entry file was added in this PR
         run: |
+          set -o pipefail
           python -m scripts.release.check_changelog -b $BASE_SHA -f $FAIL_ON_NO_CHANGES | tee >> $GITHUB_STEP_SUMMARY
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
