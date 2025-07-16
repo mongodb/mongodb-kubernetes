@@ -33,7 +33,7 @@ jobs:
           INITIAL_COMMIT_SHA: ${{ vars.RELEASE_INITIAL_COMMIT_SHA }}
           INITIAL_VERSION: ${{ vars.RELEASE_INITIAL_VERSION }}
       - name: Summarize results
-        run: echo $(cat release_notes_tmp.md) >> $GITHUB_STEP_SUMMARY
+        run: cat release_notes_tmp.md | tee >> $GITHUB_STEP_SUMMARY
       - name: Update PR comment
         if: github.event_name == 'pull_request'
         run: |
