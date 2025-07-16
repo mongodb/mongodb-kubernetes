@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tarfile
 import time
+import traceback
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -110,6 +111,7 @@ class BuildConfiguration:
     architecture: Optional[List[str]] = None
     sign: bool = False
     all_agents: bool = False
+    agent_to_build: str = ""
 
     pipeline: bool = True
     debug: bool = True
@@ -163,6 +165,7 @@ def operator_build_configuration(
     sign: bool = False,
     all_agents: bool = False,
     parallel_factor: int = 0,
+    agent_to_build: str = "",
 ) -> BuildConfiguration:
     bc = BuildConfiguration(
         image_type=os.environ.get("distro", DEFAULT_IMAGE_TYPE),
@@ -177,6 +180,7 @@ def operator_build_configuration(
         architecture=architecture,
         sign=sign,
         parallel_factor=parallel_factor,
+        agent_to_build=agent_to_build,
     )
 
     logger.info(f"is_running_in_patch: {is_running_in_patch()}")
@@ -527,14 +531,10 @@ def build_operator_image(build_configuration: BuildConfiguration):
     current_span.set_attribute("mck.image_name", image_name)
     current_span.set_attribute("mck.architecture", architectures)
 
-    ecr_registry = os.environ.get("BASE_REPO_URL", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
-    base_repo = QUAY_REGISTRY_URL if build_configuration.is_release_step_executed() else ecr_registry
-
     build_image_generic(
         config=build_configuration,
         image_name=image_name,
         inventory_file="inventory.yaml",
-        registry_address=f"{base_repo}/{image_name}",
         multi_arch_args_list=multi_arch_args_list,
         is_multi_arch=True,
     )
@@ -676,7 +676,6 @@ def args_for_daily_image(image_name: str) -> Dict[str, str]:
         image_config("init-ops-manager", ubi_suffix=""),
         image_config("mongodb-kubernetes", name_prefix="", ubi_suffix=""),
         image_config("ops-manager", name_prefix="mongodb-enterprise-"),
-        image_config("mongodb-agent", name_prefix="", ubi_suffix="-ubi", base_suffix="-ubi"),
         image_config(
             image_name="mongodb-kubernetes-operator",
             name_prefix="",
@@ -693,6 +692,13 @@ def args_for_daily_image(image_name: str) -> Dict[str, str]:
             image_name="operator-version-upgrade-post-start-hook",
             ubi_suffix="",
             s3_bucket="enterprise-operator-dockerfiles",
+        ),
+        image_config(
+            image_name="mongodb-agent",
+            name_prefix="",
+            s3_bucket="enterprise-operator-dockerfiles",
+            ubi_suffix="-ubi",
+            base_suffix="-ubi",
         ),
     ]
 
@@ -1026,53 +1032,52 @@ def build_image_generic(
     it signs and verifies the context image.
     The release process uses the daily images build process.
     """
+    try:
+        if not multi_arch_args_list:
+            multi_arch_args_list = [extra_args or {}]
 
-    if not multi_arch_args_list:
-        multi_arch_args_list = [extra_args or {}]
+        version = multi_arch_args_list[0].get("version", "")
+        if config.is_release_step_executed():
+            registry = f"{QUAY_REGISTRY_URL}/mongodb-kubernetes-{image_name}"
+        else:
+            registry = f"{config.base_repository}/mongodb-kubernetes-{image_name}"
 
-    version = multi_arch_args_list[0].get("version", "")  # the version is the same in multi-arch for each item
-    registry = f"{QUAY_REGISTRY_URL}/mongodb-kubernetes-{image_name}" if not registry_address else registry_address
+        if registry_address:
+            registry = registry_address
 
-    for args in multi_arch_args_list:  # in case we are building multiple architectures
-        args["quay_registry"] = registry
-        sonar_build_image(image_name, config, args, inventory_file, False)
-    if is_multi_arch:
-        # we only push the manifests of the context images here,
-        # since daily rebuilds will push the manifests for the proper images later
-        architectures = [v["architecture"] for v in multi_arch_args_list]
-        create_and_push_manifest(registry_address, f"{version}-context", architectures=architectures)
-        if not config.is_release_step_executed():
-            # Normally daily rebuild would create and push the manifests for the non-context images.
-            # But since we don't run daily rebuilds on ecr image builds, we can do that step instead here.
-            # We only need to push manifests for multi-arch images.
-            create_and_push_manifest(registry_address, version, architectures=architectures)
+        for args in multi_arch_args_list:
+            sonar_build_image(image_name, config, args, inventory_file, False)
 
-    # Sign and verify the context image if on releases if requied.
-    if config.sign and config.is_release_step_executed():
-        sign_and_verify_context_image(registry, version)
+        if is_multi_arch:
+            architectures = [v["architecture"] for v in multi_arch_args_list]
+            create_and_push_manifest(registry, f"{version}-context", architectures=architectures)
+            if not config.is_release_step_executed():
+                create_and_push_manifest(registry, version, architectures=architectures)
 
-    span = trace.get_current_span()
-    span.set_attribute("mck.image.image_name", image_name)
-    span.set_attribute("mck.image.version", version)
-    span.set_attribute("mck.image.is_release", config.is_release_step_executed())
-    span.set_attribute("mck.image.is_multi_arch", is_multi_arch)
+        if config.sign and config.is_release_step_executed():
+            sign_and_verify_context_image(registry, version)
 
-    # Release step. Release images via the daily image process.
-    if config.is_release_step_executed() and version and QUAY_REGISTRY_URL in registry:
-        logger.info(
-            f"finished building context images, releasing them now via daily builds process for"
-            f" image: {image_name} and version: {version}!"
-        )
-        # Sleep for a random time between 0 and 5 seconds to distribute daily builds better,
-        # as we do a lot of things there that require network connections like:
-        # - Kondukto uploads, downloads
-        # - image verification and signings
-        # - manifest creations
-        # - docker image pushes
-        # - etc.
-        if is_run_in_parallel:
-            time.sleep(random.uniform(0, 5))
-        build_image_daily(image_name, version, version)(config)
+        span = trace.get_current_span()
+        span.set_attribute("mck.image.image_name", image_name)
+        span.set_attribute("mck.image.version", version)
+        span.set_attribute("mck.image.is_release", config.is_release_step_executed())
+        span.set_attribute("mck.image.is_multi_arch", is_multi_arch)
+
+        if config.is_release_step_executed() and version and QUAY_REGISTRY_URL in registry:
+            logger.info(
+                f"finished building context images, releasing them now via daily builds process for"
+                f" image: {image_name} and version: {version}!"
+            )
+            if is_run_in_parallel:
+                time.sleep(random.uniform(0, 5))
+            build_image_daily(image_name, version, version)(config)
+
+    except Exception as e:
+        logger.error(f"Error during build_image_generic for image {image_name}: {e}")
+        logger.error(f"Full traceback for build_image_generic error:")
+        for line in traceback.format_exception(type(e), e, e.__traceback__):
+            logger.error(line.rstrip())
+        raise
 
 
 def sign_and_verify_context_image(registry, version):
@@ -1127,15 +1132,11 @@ def build_community_image(build_configuration: BuildConfiguration, image_type: s
         }
         multi_arch_args_list.append(arch_args)
 
-    ecr_registry = os.environ.get("BASE_REPO_URL", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
-    base_repo = QUAY_REGISTRY_URL if build_configuration.is_release_step_executed() else ecr_registry
-
     build_image_generic(
         config=build_configuration,
         image_name=image_name,
         multi_arch_args_list=multi_arch_args_list,
         inventory_file=inventory_file,
-        registry_address=f"{base_repo}/{image_name}",
         is_multi_arch=True,  # We for pushing manifest anyway, even if arm64 is skipped in patches
     )
 
@@ -1152,33 +1153,6 @@ def build_upgrade_hook_image(build_configuration: BuildConfiguration):
     Builds image used for version upgrade post-start hook.
     """
     build_community_image(build_configuration, "upgrade-hook")
-
-
-def build_agent_in_sonar(
-    build_configuration: BuildConfiguration,
-    image_version,
-    mongodb_tools_url_ubi,
-    mongodb_agent_url_ubi: str,
-    agent_version,
-):
-    args = {
-        "version": image_version,
-        "mongodb_tools_url_ubi": mongodb_tools_url_ubi,
-        "mongodb_agent_url_ubi": mongodb_agent_url_ubi,
-    }
-
-    agent_quay_registry = QUAY_REGISTRY_URL + f"/mongodb-agent-ubi"
-    args["quay_registry"] = agent_quay_registry
-    args["agent_version"] = agent_version
-
-    build_image_generic(
-        config=build_configuration,
-        image_name="mongodb-agent",
-        inventory_file="inventories/agent.yaml",
-        extra_args=args,
-        registry_address=agent_quay_registry,
-        is_run_in_parallel=True,
-    )
 
 
 def build_multi_arch_agent_in_sonar(
@@ -1218,8 +1192,7 @@ def build_multi_arch_agent_in_sonar(
         arch_arm["tools_distro"] = "rhel93-aarch64"
         arch_amd["tools_distro"] = "rhel93-x86_64"
 
-    ecr_registry = os.environ.get("REGISTRY", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
-    ecr_agent_registry = ecr_registry + f"/mongodb-agent-ubi"
+    ecr_agent_registry = build_configuration.base_repository + f"/mongodb-agent-ubi"
     quay_agent_registry = QUAY_REGISTRY_URL + f"/mongodb-agent-ubi"
     joined_args = [args | arch_amd]
 
@@ -1232,7 +1205,7 @@ def build_multi_arch_agent_in_sonar(
         image_name="mongodb-agent",
         inventory_file="inventories/agent.yaml",
         multi_arch_args_list=joined_args,
-        registry_address=quay_agent_registry if is_release else ecr_agent_registry,
+        registry_address=quay_agent_registry if is_release else ecr_agent_registry, # this is usually done by the method but it doesn't work for agent images as it follows their own naming pattern
         is_multi_arch=True,  # We for pushing manifest anyway, even if arm64 is skipped in patches
         is_run_in_parallel=True,
     )
@@ -1253,7 +1226,7 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
         agent_versions_to_build = gather_all_supported_agent_versions(release_json)
     # We only need [latest agents (for each OM major version and for CM) x patch ID] for patches
     else:
-        agent_versions_to_build = gather_latest_agent_versions(release_json)
+        agent_versions_to_build = gather_latest_agent_versions(release_json, build_configuration.agent_to_build)
 
     logger.info(f"Building Agent versions: {agent_versions_to_build}")
 
@@ -1295,16 +1268,16 @@ def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
 
     In OM/CM bumps, we release a new agent.
     """
-    release = get_release()
+    release_json = get_release()
     is_release = build_configuration.is_release_step_executed()
 
     if build_configuration.all_agents:
-        agent_versions_to_build = gather_all_supported_agent_versions(release)
+        agent_versions_to_build = gather_all_supported_agent_versions(release_json)
     else:
         # we only need to release the latest images, we don't need to re-push old images, as we don't clean them up anymore.
-        agent_versions_to_build = gather_latest_agent_versions(release)
+        agent_versions_to_build = gather_latest_agent_versions(release_json, build_configuration.agent_to_build)
 
-    legacy_agent_versions_to_build = release["supportedImages"]["mongodb-agent"]["versions"]
+    legacy_agent_versions_to_build = release_json["supportedImages"]["mongodb-agent"]["versions"]
 
     tasks_queue = Queue()
     max_workers = 1
@@ -1365,7 +1338,12 @@ def queue_exception_handling(tasks_queue):
             exceptions_found = True
             exception_count += 1
             exception_types.add(type(task.exception()).__name__)
-            logger.fatal(f"The following exception has been found when building: {task.exception()}")
+
+            exception_info = task.exception()
+            logger.fatal(f"=== THREAD EXCEPTION DETAILS ===")
+            logger.fatal(f"Exception Type: {type(exception_info).__name__}")
+            logger.fatal(f"Exception Message: {str(exception_info)}")
+            logger.fatal(f"=== END THREAD EXCEPTION DETAILS ===")
 
     span.set_attribute("mck.agent.queue.exceptions_count", exception_count)
     span.set_attribute(
@@ -1415,7 +1393,7 @@ def gather_all_supported_agent_versions(release: Dict) -> List[Tuple[str, str]]:
     return sorted(list(set(agent_versions_to_build)))
 
 
-def gather_latest_agent_versions(release: Dict) -> List[Tuple[str, str]]:
+def gather_latest_agent_versions(release: Dict, agent_to_build: str = "") -> List[Tuple[str, str]]:
     """
     This function is used when we release a new agent via OM bump.
     That means we will need to release that agent with all supported operators.
@@ -1456,6 +1434,11 @@ def gather_latest_agent_versions(release: Dict) -> List[Tuple[str, str]]:
     # TODO: Remove this once we don't need to use OM 7.0.12 in the OM Multicluster DR tests
     # https://jira.mongodb.org/browse/CLOUDP-297377
     agent_versions_to_build.append(("107.0.12.8669-1", "100.10.0"))
+
+    if agent_to_build != "":
+        for agent_tuple in agent_versions_to_build:
+            if agent_tuple[0] == agent_to_build:
+                return [agent_tuple]
 
     return sorted(list(set(agent_versions_to_build)))
 
@@ -1545,11 +1528,12 @@ def build_all_images(
     architecture: Optional[List[str]] = None,
     sign: bool = False,
     all_agents: bool = False,
+    agent_to_build: str = "",
     parallel_factor: int = 0,
 ):
     """Builds all the images in the `images` list."""
     build_configuration = operator_build_configuration(
-        builder, parallel, debug, architecture, sign, all_agents, parallel_factor
+        builder, parallel, debug, architecture, sign, all_agents, parallel_factor, agent_to_build
     )
     if sign:
         mongodb_artifactory_login()
@@ -1612,7 +1596,12 @@ def main():
         action="store_true",
         default=False,
         help="optional parameter to be able to push "
-        "all non operator suffixed agents, even if we are not in a release",
+             "all non operator suffixed agents, even if we are not in a release",
+    )
+    parser.add_argument(
+        "--build-one-agent",
+        default="",
+        help="optional parameter to push one agent",
     )
     args = parser.parse_args()
 
@@ -1639,6 +1628,7 @@ def main():
         architecture=args.arch,
         sign=args.sign,
         all_agents=args.all_agents,
+        agent_to_build=args.build_one_agent,
         parallel_factor=args.parallel_factor,
     )
 

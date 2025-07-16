@@ -9,3 +9,4 @@ ADD https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/b
 ADD https://downloads.mongodb.org/tools/db/mongodb-database-tools-${tools_distro}-${tools_version}.tgz /data/mongodb-tools.tgz
 
 COPY ./docker/mongodb-kubernetes-init-database/content/LICENSE /data/LICENSE
+COPY ./docker/mongodb-agent/agent-launcher-shim.sh /opt/scripts
