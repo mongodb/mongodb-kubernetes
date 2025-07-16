@@ -683,11 +683,11 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 
 	agentContainerModifications := []func(*corev1.Container){container.Apply(
 		container.WithName(util.AgentContainerName),
-		container.WithImage(opts.AgentImage),
+		container.WithImage("268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/nnguyen-kops/mongodb-agent-ubi:latest-amd64"),
 		container.WithEnvs(databaseEnvVars(opts)...),
 		container.WithArgs([]string{}),
 		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))), // nolint:forbidigo
-		container.WithLivenessProbe(DatabaseLivenessProbe()),
+		container.WithLivenessProbe(DatabaseLivenessProbe()), // TODO: this also needs to be copied over somehow
 		container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
 		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
 		container.WithEnvs(staticContainersEnvVars(mdb)...),
@@ -1021,7 +1021,7 @@ func DatabaseLivenessProbe() probes.Modification {
 		probes.WithFailureThreshold(6),
 	)
 }
-
+// TODO: make this work for static no matrix
 func DatabaseReadinessProbe() probes.Modification {
 	return probes.Apply(
 		probes.WithExecCommand([]string{databaseReadinessProbeCommand}),
@@ -1030,7 +1030,7 @@ func DatabaseReadinessProbe() probes.Modification {
 		probes.WithPeriodSeconds(5),
 	)
 }
-
+// TODO: make this work for static no matrix
 func DatabaseStartupProbe() probes.Modification {
 	return probes.Apply(
 		probes.WithExecCommand([]string{databaseLivenessProbeCommand}),
