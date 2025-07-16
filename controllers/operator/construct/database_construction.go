@@ -669,7 +669,7 @@ func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseSt
 	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations()) {
 		modifications = buildStaticArchitecturePodTemplateSpec(opts, mdb)
 	} else {
-		modifications =  buildNonStaticArchitecturePodTemplateSpec(opts, mdb)
+		modifications = buildNonStaticArchitecturePodTemplateSpec(opts, mdb)
 	}
 	sharedModifications := sharedDatabaseConfiguration(opts)
 	return podtemplatespec.Apply(sharedModifications, modifications)

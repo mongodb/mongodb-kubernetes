@@ -536,6 +536,7 @@ def build_operator_image(build_configuration: BuildConfiguration):
         image_name=image_name,
         inventory_file="inventory.yaml",
         multi_arch_args_list=multi_arch_args_list,
+        with_image_base=False,
         is_multi_arch=True,
     )
 
@@ -1023,7 +1024,7 @@ def build_image_generic(
     image_name: str,
     inventory_file: str,
     extra_args: dict = None,
-    registry_address: str = None,
+    with_image_base: bool = True,
     is_multi_arch: bool = False,
     multi_arch_args_list: list = None,
     is_run_in_parallel: bool = False,
@@ -1031,19 +1032,22 @@ def build_image_generic(
     """Build image generic builds context images and is used for triggering release. During releases
     it signs and verifies the context image.
     The release process uses the daily images build process.
+    The with_image_base parameter determines whether the image being built should include a base image prefix.
+    When set to True, the function prepends "mongodb-kubernetes-" to the image name
     """
+    image_base = ""
+    if with_image_base:
+        image_base = "mongodb-kubernetes-"
+
     try:
         if not multi_arch_args_list:
             multi_arch_args_list = [extra_args or {}]
 
         version = multi_arch_args_list[0].get("version", "")
         if config.is_release_step_executed():
-            registry = f"{QUAY_REGISTRY_URL}/mongodb-kubernetes-{image_name}"
+            registry = f"{QUAY_REGISTRY_URL}/{image_base}{image_name}"
         else:
-            registry = f"{config.base_repository}/mongodb-kubernetes-{image_name}"
-
-        if registry_address:
-            registry = registry_address
+            registry = f"{config.base_repository}/{image_base}{image_name}"
 
         for args in multi_arch_args_list:
             sonar_build_image(image_name, config, args, inventory_file, False)
@@ -1135,6 +1139,7 @@ def build_community_image(build_configuration: BuildConfiguration, image_type: s
     build_image_generic(
         config=build_configuration,
         image_name=image_name,
+        with_image_base=False,
         multi_arch_args_list=multi_arch_args_list,
         inventory_file=inventory_file,
         is_multi_arch=True,  # We for pushing manifest anyway, even if arm64 is skipped in patches
@@ -1205,7 +1210,7 @@ def build_multi_arch_agent_in_sonar(
         image_name="mongodb-agent",
         inventory_file="inventories/agent.yaml",
         multi_arch_args_list=joined_args,
-        registry_address=quay_agent_registry if is_release else ecr_agent_registry, # this is usually done by the method but it doesn't work for agent images as it follows their own naming pattern
+        with_image_base=False,
         is_multi_arch=True,  # We for pushing manifest anyway, even if arm64 is skipped in patches
         is_run_in_parallel=True,
     )
@@ -1250,9 +1255,7 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
                         agent_version[1],
                     )
                 )
-            _add_to_agent_queue(
-                agent_version, build_configuration, executor, tasks_queue
-            )
+            _add_to_agent_queue(agent_version, build_configuration, executor, tasks_queue)
 
     queue_exception_handling(tasks_queue)
 
@@ -1315,9 +1318,7 @@ def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
                     )
                 )
             logger.info(f"Building Agent versions: {agent_version}")
-            _add_to_agent_queue(
-                agent_version, build_configuration, executor, tasks_queue
-            )
+            _add_to_agent_queue(agent_version, build_configuration, executor, tasks_queue)
 
     queue_exception_handling(tasks_queue)
 
@@ -1596,7 +1597,7 @@ def main():
         action="store_true",
         default=False,
         help="optional parameter to be able to push "
-             "all non operator suffixed agents, even if we are not in a release",
+        "all non operator suffixed agents, even if we are not in a release",
     )
     parser.add_argument(
         "--build-one-agent",
