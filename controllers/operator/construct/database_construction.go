@@ -694,6 +694,15 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		containerSecurityContext,
 	)}
 
+	agentUtilitiesHolderModifications := []func(*corev1.Container){container.Apply(
+		container.WithName(util.AgentContainerUtilitiesName),
+		container.WithArgs([]string{""}),
+		container.WithImage(opts.InitDatabaseImage),
+		container.WithEnvs(databaseEnvVars(opts)...),
+		container.WithCommand([]string{"bash", "-c", "tail -f /dev/null"}),
+		containerSecurityContext,
+	)}
+
 	if opts.HostNameOverrideConfigmapName != "" {
 		volumes = append(volumes, statefulset.CreateVolumeFromConfigMap(opts.HostNameOverrideConfigmapName, opts.HostNameOverrideConfigmapName))
 		hostnameOverrideModification := container.WithVolumeMounts([]corev1.VolumeMount{
@@ -704,6 +713,7 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		})
 		agentContainerModifications = append(agentContainerModifications, hostnameOverrideModification)
 		mongodContainerModifications = append(mongodContainerModifications, hostnameOverrideModification)
+		agentUtilitiesHolderModifications = append(agentUtilitiesHolderModifications, hostnameOverrideModification)
 	}
 
 	mods := []podtemplatespec.Modification{
@@ -713,6 +723,7 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		podtemplatespec.WithVolumes(volumes),
 		podtemplatespec.WithContainerByIndex(0, agentContainerModifications...),
 		podtemplatespec.WithContainerByIndex(1, mongodContainerModifications...),
+		podtemplatespec.WithContainerByIndex(2, agentUtilitiesHolderModifications...),
 	}
 
 	return podtemplatespec.Apply(mods...)
