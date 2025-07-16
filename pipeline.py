@@ -1014,7 +1014,7 @@ def build_om_image(build_configuration: BuildConfiguration):
         image_name="ops-manager",
         inventory_file="inventories/om.yaml",
         extra_args=args,
-        registry_address=f"{QUAY_REGISTRY_URL}/mongodb-enterprise-ops-manager",
+        registry_address_override=f"{QUAY_REGISTRY_URL}/mongodb-enterprise-ops-manager",
     )
 
 
@@ -1028,6 +1028,7 @@ def build_image_generic(
     is_multi_arch: bool = False,
     multi_arch_args_list: list = None,
     is_run_in_parallel: bool = False,
+    registry_address_override: str = "",
 ):
     """Build image generic builds context images and is used for triggering release. During releases
     it signs and verifies the context image.
@@ -1048,6 +1049,9 @@ def build_image_generic(
             registry = f"{QUAY_REGISTRY_URL}/{image_base}{image_name}"
         else:
             registry = f"{config.base_repository}/{image_base}{image_name}"
+
+        if registry_address_override:
+            registry = registry_address_override
 
         for args in multi_arch_args_list:
             sonar_build_image(image_name, config, args, inventory_file, False)
