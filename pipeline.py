@@ -1201,8 +1201,6 @@ def build_multi_arch_agent_in_sonar(
         arch_arm["tools_distro"] = "rhel93-aarch64"
         arch_amd["tools_distro"] = "rhel93-x86_64"
 
-    ecr_agent_registry = build_configuration.base_repository + f"/mongodb-agent-ubi"
-    quay_agent_registry = QUAY_REGISTRY_URL + f"/mongodb-agent-ubi"
     joined_args = [args | arch_amd]
 
     # Only include arm64 if we shouldn't skip it
@@ -1211,7 +1209,7 @@ def build_multi_arch_agent_in_sonar(
 
     build_image_generic(
         config=build_configuration,
-        image_name="mongodb-agent",
+        image_name="mongodb-agent-ubi",
         inventory_file="inventories/agent.yaml",
         multi_arch_args_list=joined_args,
         with_image_base=False,
