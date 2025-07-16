@@ -678,7 +678,6 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 
 	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 
-	// Static architecture containers: agent container and mongod container
 	agentContainerModifications := []func(*corev1.Container){container.Apply(
 		container.WithName(util.AgentContainerName),
 		container.WithImage(opts.AgentImage),
@@ -695,7 +694,6 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		containerSecurityContext,
 	)}
 
-	// Handle hostname override for static architecture
 	if opts.HostNameOverrideConfigmapName != "" {
 		volumes = append(volumes, statefulset.CreateVolumeFromConfigMap(opts.HostNameOverrideConfigmapName, opts.HostNameOverrideConfigmapName))
 		hostnameOverrideModification := container.WithVolumeMounts([]corev1.VolumeMount{
@@ -730,7 +728,6 @@ func buildNonStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, 
 	volumes := []corev1.Volume{scriptsVolume}
 	volumeMounts := []corev1.VolumeMount{databaseScriptsVolumeMount}
 
-	// Non-static architecture: init container and database container
 	initContainerModifications := []func(*corev1.Container){buildDatabaseInitContainer(opts.InitDatabaseImage)}
 
 	databaseContainerModifications := []func(*corev1.Container){container.Apply(
@@ -741,7 +738,6 @@ func buildNonStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, 
 		container.WithVolumeMounts(volumeMounts),
 	)}
 
-	// Handle hostname override for non-static architecture
 	if opts.HostNameOverrideConfigmapName != "" {
 		volumes = append(volumes, statefulset.CreateVolumeFromConfigMap(opts.HostNameOverrideConfigmapName, opts.HostNameOverrideConfigmapName))
 		hostnameOverrideModification := container.WithVolumeMounts([]corev1.VolumeMount{
