@@ -195,10 +195,7 @@ cp /mongot/sourceUserPassword/password /tmp/sourceUserPassword
 chown 2000:2000 /tmp/sourceUserPassword
 chmod 0600 /tmp/sourceUserPassword
 
-if ! /mongot-community/mongot --config /mongot/config/config.yml; then
-	echo "mongot error code, sleeping to allow to ssh"
-	sleep 600
-fi
+/mongot-community/mongot --config /mongot/config/config.yml
 `,
 		}),
 		containerSecurityContext,

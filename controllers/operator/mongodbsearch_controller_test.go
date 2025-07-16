@@ -78,10 +78,11 @@ func buildExpectedMongotConfig(search *searchv1.MongoDBSearch, mdbc *mdbcv1.Mong
 		SyncSource: mongot.ConfigSyncSource{
 			ReplicaSet: mongot.ConfigReplicaSet{
 				HostAndPort:    fmt.Sprintf("%s.%s.svc.cluster.local:%d", mdbc.Name+"-svc", search.Namespace, 27017),
-				Username:       "__system",
-				PasswordFile:   "/tmp/keyfile",
+				Username:       "mongot-user",
+				PasswordFile:   "/tmp/sourceUserPassword",
 				TLS:            ptr.To(false),
 				ReadPreference: ptr.To("secondaryPreferred"),
+				ReplicaSetName: "mdb",
 			},
 		},
 		Storage: mongot.ConfigStorage{
@@ -105,7 +106,7 @@ func buildExpectedMongotConfig(search *searchv1.MongoDBSearch, mdbc *mdbcv1.Mong
 			Address: "0.0.0.0:8080",
 		},
 		Logging: mongot.ConfigLogging{
-			Verbosity: "DEBUG",
+			Verbosity: "TRACE",
 			LogPath:   nil,
 		},
 	}

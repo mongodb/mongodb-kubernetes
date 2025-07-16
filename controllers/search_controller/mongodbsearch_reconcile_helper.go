@@ -216,6 +216,7 @@ func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResourc
 				PasswordFile:   "/tmp/sourceUserPassword",
 				TLS:            ptr.To(false),
 				ReadPreference: ptr.To("secondaryPreferred"),
+				ReplicaSetName: db.Name(),
 			},
 		},
 		Storage: mongot.ConfigStorage{

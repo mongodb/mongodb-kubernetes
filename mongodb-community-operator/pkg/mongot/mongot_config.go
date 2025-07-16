@@ -17,6 +17,7 @@ type ConfigReplicaSet struct {
 	HostAndPort    string  `json:"hostAndPort"`
 	Username       string  `json:"username"`
 	PasswordFile   string  `json:"passwordFile"`
+	ReplicaSetName string  `json:"replicaSetName"`
 	TLS            *bool   `json:"tls,omitempty"`
 	ReadPreference *string `json:"readPreference,omitempty"`
 }
