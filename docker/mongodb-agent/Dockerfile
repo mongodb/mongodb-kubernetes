@@ -41,10 +41,12 @@ RUN mkdir -p /agent \
       && touch /var/log/mongodb-mms-automation/readiness.log \
       && chmod ugo+rw /var/log/mongodb-mms-automation/readiness.log
 
+RUN mkdir -p /opt/scripts
 
 COPY --from=base /data/mongodb-agent.tar.gz /agent
 COPY --from=base /data/mongodb-tools.tgz /agent
 COPY --from=base /data/LICENSE /licenses/LICENSE
+COPY --from=base /data/agent-launcher-shim.sh /opt/scripts/agent-launcher-shim.sh
 
 RUN tar xfz /agent/mongodb-agent.tar.gz \
     && mv mongodb-mms-automation-agent-*/mongodb-mms-automation-agent /agent/mongodb-agent \
