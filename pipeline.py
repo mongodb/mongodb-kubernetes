@@ -306,10 +306,14 @@ def create_and_push_manifest(image: str, tag: str, architectures: list[str]) -> 
     This method calls docker directly on the command line, this is different from the rest of the code which uses
     Sonar as an interface to docker. We decided to keep this asymmetry for now, as Sonar will be removed soon.
     """
+    docker_cmd = shutil.which("docker")
+    if docker_cmd is None:
+        raise Exception("Docker executable not found in PATH")
+
     final_manifest = image + ":" + tag
 
     args = [
-        "docker",
+        docker_cmd,
         "manifest",
         "create",
         final_manifest,
@@ -325,7 +329,7 @@ def create_and_push_manifest(image: str, tag: str, architectures: list[str]) -> 
     if cp.returncode != 0:
         raise Exception(cp.stderr)
 
-    args = ["docker", "manifest", "push", final_manifest]
+    args = [docker_cmd, "manifest", "push", final_manifest]
     args_str = " ".join(args)
     logger.info(f"pushing new manifest: {args_str}")
     cp = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
