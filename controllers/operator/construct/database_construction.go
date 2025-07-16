@@ -105,10 +105,10 @@ type DatabaseStatefulSetOptions struct {
 	StsType                 StsType
 	AdditionalMongodConfig  *mdbv1.AdditionalMongodConfig
 
-	InitDatabaseNonStaticImage string
-	DatabaseNonStaticImage     string
-	MongodbImage               string
-	AgentImage                 string
+	InitDatabaseImage      string
+	DatabaseNonStaticImage string
+	MongodbImage           string
+	AgentImage             string
 
 	Annotations map[string]string
 	VaultConfig vault.VaultConfiguration
@@ -665,6 +665,63 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 
 // buildMongoDBPodTemplateSpec constructs the podTemplateSpec for the MongoDB resource
 func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseStatefulSetSource) podtemplatespec.Modification {
+	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations()) {
+		return buildStaticArchitecturePodTemplateSpec(opts, mdb)
+	} else {
+		return buildNonStaticArchitecturePodTemplateSpec(opts, mdb)
+	}
+}
+
+// buildStaticArchitecturePodTemplateSpec constructs the podTemplateSpec for static architecture
+func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseStatefulSetSource) podtemplatespec.Modification {
+	var volumes []corev1.Volume
+
+	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
+
+	// Static architecture containers: agent container and mongod container
+	agentContainerModifications := []func(*corev1.Container){container.Apply(
+		container.WithName(util.AgentContainerName),
+		container.WithImage(opts.AgentImage),
+		container.WithEnvs(databaseEnvVars(opts)...),
+		containerSecurityContext,
+	)}
+
+	mongodContainerModifications := []func(*corev1.Container){container.Apply(
+		container.WithName(util.DatabaseContainerName),
+		container.WithArgs([]string{""}),
+		container.WithImage(opts.MongodbImage),
+		container.WithEnvs(databaseEnvVars(opts)...),
+		container.WithCommand([]string{"bash", "-c", "tail -F -n0 ${MDB_LOG_FILE_MONGODB} mongodb_marker"}),
+		containerSecurityContext,
+	)}
+
+	// Handle hostname override for static architecture
+	if opts.HostNameOverrideConfigmapName != "" {
+		volumes = append(volumes, statefulset.CreateVolumeFromConfigMap(opts.HostNameOverrideConfigmapName, opts.HostNameOverrideConfigmapName))
+		hostnameOverrideModification := container.WithVolumeMounts([]corev1.VolumeMount{
+			{
+				Name:      opts.HostNameOverrideConfigmapName,
+				MountPath: "/opt/scripts/config",
+			},
+		})
+		agentContainerModifications = append(agentContainerModifications, hostnameOverrideModification)
+		mongodContainerModifications = append(mongodContainerModifications, hostnameOverrideModification)
+	}
+
+	mods := []podtemplatespec.Modification{
+		sharedDatabaseConfiguration(opts, mdb),
+		podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
+		podtemplatespec.WithServiceAccount(getServiceAccountName(opts)),
+		podtemplatespec.WithVolumes(volumes),
+		podtemplatespec.WithContainerByIndex(0, agentContainerModifications...),
+		podtemplatespec.WithContainerByIndex(1, mongodContainerModifications...),
+	}
+
+	return podtemplatespec.Apply(mods...)
+}
+
+// buildNonStaticArchitecturePodTemplateSpec constructs the podTemplateSpec for non-static architecture
+func buildNonStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseStatefulSetSource) podtemplatespec.Modification {
 	// scripts volume is shared by the init container and the AppDB, so the startup
 	// script can be copied over
 	scriptsVolume := statefulset.CreateVolumeFromEmptyDir("database-scripts")
@@ -673,7 +730,9 @@ func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseSt
 	volumes := []corev1.Volume{scriptsVolume}
 	volumeMounts := []corev1.VolumeMount{databaseScriptsVolumeMount}
 
-	initContainerModifications := []func(*corev1.Container){buildDatabaseInitContainer(opts.InitDatabaseNonStaticImage)}
+	// Non-static architecture: init container and database container
+	initContainerModifications := []func(*corev1.Container){buildDatabaseInitContainer(opts.InitDatabaseImage)}
+
 	databaseContainerModifications := []func(*corev1.Container){container.Apply(
 		container.WithName(util.DatabaseContainerName),
 		container.WithImage(opts.DatabaseNonStaticImage),
@@ -682,47 +741,17 @@ func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseSt
 		container.WithVolumeMounts(volumeMounts),
 	)}
 
-	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
-
-	staticContainerMongodContainerModification := podtemplatespec.NOOP()
-	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations()) {
-		// we don't use initContainers therefore, we reset it here
-		initContainerModifications = []func(*corev1.Container){}
-		mongodModification := []func(*corev1.Container){container.Apply(
-			container.WithName(util.DatabaseContainerName),
-			container.WithArgs([]string{""}),
-			container.WithImage(opts.MongodbImage),
-			container.WithEnvs(databaseEnvVars(opts)...),
-			container.WithCommand([]string{"bash", "-c", "tail -F -n0 ${MDB_LOG_FILE_MONGODB} mongodb_marker"}),
-			containerSecurityContext,
-		)}
-		staticContainerMongodContainerModification = podtemplatespec.WithContainer(util.DatabaseContainerName, mongodModification...)
-
-		// We are not setting the database-scripts volume on purpose,
-		// since we don't need to copy things from the init container over.
-		databaseContainerModifications = []func(*corev1.Container){container.Apply(
-			container.WithName(util.AgentContainerName),
-			container.WithImage(opts.AgentImage),
-			container.WithEnvs(databaseEnvVars(opts)...),
-			containerSecurityContext,
-		)}
-	}
-
+	// Handle hostname override for non-static architecture
 	if opts.HostNameOverrideConfigmapName != "" {
 		volumes = append(volumes, statefulset.CreateVolumeFromConfigMap(opts.HostNameOverrideConfigmapName, opts.HostNameOverrideConfigmapName))
-		modification := container.WithVolumeMounts([]corev1.VolumeMount{
+		hostnameOverrideModification := container.WithVolumeMounts([]corev1.VolumeMount{
 			{
 				Name:      opts.HostNameOverrideConfigmapName,
 				MountPath: "/opt/scripts/config",
 			},
 		})
-
-		// we only need to add the volume modification if we actually use an init container
-		if len(initContainerModifications) > 0 {
-			initContainerModifications = append(initContainerModifications, modification)
-		}
-
-		databaseContainerModifications = append(databaseContainerModifications, modification)
+		initContainerModifications = append(initContainerModifications, hostnameOverrideModification)
+		databaseContainerModifications = append(databaseContainerModifications, hostnameOverrideModification)
 	}
 
 	mods := []podtemplatespec.Modification{
@@ -731,11 +760,7 @@ func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseSt
 		podtemplatespec.WithServiceAccount(getServiceAccountName(opts)),
 		podtemplatespec.WithVolumes(volumes),
 		podtemplatespec.WithContainerByIndex(0, databaseContainerModifications...),
-		staticContainerMongodContainerModification,
-	}
-
-	if len(initContainerModifications) > 0 {
-		mods = append(mods, podtemplatespec.WithInitContainer(InitDatabaseContainerName, initContainerModifications...))
+		podtemplatespec.WithInitContainerByIndex(0, initContainerModifications...),
 	}
 
 	return podtemplatespec.Apply(mods...)
