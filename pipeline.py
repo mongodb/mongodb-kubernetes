@@ -987,7 +987,7 @@ def build_om_image(build_configuration: BuildConfiguration):
     if om_version is None:
         raise ValueError("`om_version` should be defined.")
 
-    om_download_url = os.environ.get("om_download_url", "")
+    om_download_url = "https://mciuploads.s3.amazonaws.com/mms-ops-manager-7.0/mms_ops_manager_7.0_package_rpm_patch_b1ae3910c92229c8371e61df62714858c325b338_687696379e065d0007c0ed60_25_07_15_17_56_11/PACKAGE_OPS_MANAGER/mongodb-mms-7.0.17.501.20250715T1759Z.tar.gz"
     if om_download_url == "":
         om_download_url = find_om_url(om_version)
 

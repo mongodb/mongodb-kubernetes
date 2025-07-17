@@ -32,7 +32,7 @@ COPY --from=base /data/scripts /opt/scripts
 
 
 {% block static %}
-RUN curl --fail -L -o ops_manager.tar.gz {{ om_download_url }} \
+RUN curl --fail -L -o ops_manager.tar.gz https://mciuploads.s3.amazonaws.com/mms-ops-manager-7.0/mms_ops_manager_7.0_package_rpm_patch_b1ae3910c92229c8371e61df62714858c325b338_687696379e065d0007c0ed60_25_07_15_17_56_11/PACKAGE_OPS_MANAGER/mongodb-mms-7.0.17.501.20250715T1759Z.tar.gz \
   && tar -xzf ops_manager.tar.gz \
   && rm ops_manager.tar.gz \
   && mv mongodb-mms* "${MMS_HOME}"
