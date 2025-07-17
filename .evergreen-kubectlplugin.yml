@@ -1,3 +1,8 @@
+modules:
+  - name: mongodb-kubectlplugin-refactor
+    owner: mongodb
+    repo: mongodb-kubernetes
+    branch: mongodb-kubectlplugin-refactor
 variables:
   - &go_env
     XDG_CONFIG_HOME: ${go_base_path}${workdir}
@@ -13,7 +18,8 @@ functions:
       type: setup
       params:
         directory: src/github.com/mongodb/mongodb-kubernetes
-        revision: mongodb-kubectlplugin-refactor
+        revisions:
+          mongodb-kubectlplugin-refactor: mongodb-kubectlplugin-refactor
 
   "install goreleaser":
     - command: shell.exec
