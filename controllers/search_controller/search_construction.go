@@ -38,6 +38,7 @@ type SearchSourceDBResource interface {
 	DatabasePort() int
 	GetMongoDBVersion() string
 	IsSecurityTLSConfigEnabled() bool
+	Members() int
 }
 
 func NewSearchSourceDBResourceFromMongoDBCommunity(mdbc *mdbcv1.MongoDBCommunity) SearchSourceDBResource {
@@ -46,6 +47,10 @@ func NewSearchSourceDBResourceFromMongoDBCommunity(mdbc *mdbcv1.MongoDBCommunity
 
 type mdbcSearchResource struct {
 	db *mdbcv1.MongoDBCommunity
+}
+
+func (r *mdbcSearchResource) Members() int {
+	return r.db.Spec.Members
 }
 
 func (r *mdbcSearchResource) Name() string {

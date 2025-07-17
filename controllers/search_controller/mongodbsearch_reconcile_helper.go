@@ -208,15 +208,19 @@ func buildSearchHeadlessService(search *searchv1.MongoDBSearch) corev1.Service {
 }
 
 func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResource) mongot.Config {
+	var hostAndPorts []string
+	for i := range db.Members() {
+		hostAndPorts = append(hostAndPorts, fmt.Sprintf("%s-%d.%s.%s.svc.cluster.local:%d", db.Name(), i, db.DatabaseServiceName(), db.GetNamespace(), db.DatabasePort()))
+	}
+
 	return mongot.Config{
 		SyncSource: mongot.ConfigSyncSource{
 			ReplicaSet: mongot.ConfigReplicaSet{
-				HostAndPort:    fmt.Sprintf("%s.%s.svc.cluster.local:%d", db.DatabaseServiceName(), db.GetNamespace(), db.DatabasePort()),
+				HostAndPort:    hostAndPorts,
 				Username:       search.SourceUsername(),
 				PasswordFile:   "/tmp/sourceUserPassword",
 				TLS:            ptr.To(false),
 				ReadPreference: ptr.To("secondaryPreferred"),
-				ReplicaSetName: db.Name(),
 			},
 		},
 		Storage: mongot.ConfigStorage{
