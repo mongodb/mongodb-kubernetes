@@ -31,12 +31,16 @@ jobs:
         env:
           INITIAL_COMMIT_SHA: ${{ vars.RELEASE_INITIAL_COMMIT_SHA }}
           INITIAL_VERSION: ${{ vars.RELEASE_INITIAL_VERSION }}
+      - name: Add disclaimer to release notes preview
+        run: |
+          echo -e "_:warning: (this preview might not be accurate if the PR is not rebased on current master branch)_\n" > release_notes_preview.md
+          cat release_notes_tmp.md >> release_notes_preview.md
       - name: Summarize results
-        run: cat release_notes_tmp.md >> $GITHUB_STEP_SUMMARY
+        run: cat release_notes_preview.md >> $GITHUB_STEP_SUMMARY
       - name: Update PR comment
         # If the PR is from a fork, we cannot update the comment using read only permissions
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        run: gh issue comment $ISSUE --edit-last --create-if-none --body-file release_notes_tmp.md
+        run: gh issue comment $ISSUE --edit-last --create-if-none --body-file release_notes_preview.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE: ${{ github.event.pull_request.html_url }}
