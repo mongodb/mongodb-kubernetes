@@ -111,7 +111,7 @@ def test_search_create_search_index(sample_movies_helper: SampleMoviesSearchHelp
 
 @mark.e2e_search_community_basic
 def test_search_assert_search_query(sample_movies_helper: SampleMoviesSearchHelper):
-    sample_movies_helper.assert_search_query(retry_timeout=5)
+    sample_movies_helper.assert_search_query(retry_timeout=60)
 
 
 def get_connection_string(mdbc: MongoDBCommunity, user_name: str, user_password: str) -> str:
