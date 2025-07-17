@@ -13,6 +13,7 @@ functions:
       type: setup
       params:
         directory: src/github.com/mongodb/mongodb-kubernetes
+        revision: mongodb-kubectlplugin-refactor
 
   "install goreleaser":
     - command: shell.exec
