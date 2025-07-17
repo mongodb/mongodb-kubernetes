@@ -280,23 +280,34 @@ func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSourc
 }
 
 func (r *MongoDBSearchReconcileHelper) ValidateSearchImageVersion() error {
-	version := strings.TrimSpace(r.mdbSearch.Spec.Version)
-	if version != "" {
-		if version == unsupportedSearchVersion {
-			return xerrors.Errorf(unsupportedSearchVersionErrorFmt, unsupportedSearchVersion)
-		}
-		return nil
-	}
+	version := r.getMongotImage()
 
-	if r.mdbSearch.Spec.StatefulSetConfiguration == nil {
-		return nil
-	}
-
-	for _, container := range r.mdbSearch.Spec.StatefulSetConfiguration.SpecWrapper.Spec.Template.Spec.Containers {
-		if strings.Contains(container.Image, unsupportedSearchVersion) {
-			return xerrors.Errorf(unsupportedSearchVersionErrorFmt, unsupportedSearchVersion)
-		}
+	if strings.Contains(version, unsupportedSearchVersion) {
+		return xerrors.Errorf(unsupportedSearchVersionErrorFmt, unsupportedSearchVersion)
 	}
 
 	return nil
+}
+
+func (r *MongoDBSearchReconcileHelper) getMongotImage() string {
+	version := strings.TrimSpace(r.mdbSearch.Spec.Version)
+	if version != "" {
+		return version
+	}
+
+	if r.operatorSearchConfig.SearchVersion != "" {
+		return r.operatorSearchConfig.SearchVersion
+	}
+
+	if r.mdbSearch.Spec.StatefulSetConfiguration == nil {
+		return ""
+	}
+
+	for _, container := range r.mdbSearch.Spec.StatefulSetConfiguration.SpecWrapper.Spec.Template.Spec.Containers {
+		if strings.Contains(container.Name, MongotContainerName) && strings.Contains(container.Image, unsupportedSearchVersion) {
+			return container.Image
+		}
+	}
+
+	return ""
 }
