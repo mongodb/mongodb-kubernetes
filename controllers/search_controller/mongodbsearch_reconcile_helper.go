@@ -304,7 +304,7 @@ func (r *MongoDBSearchReconcileHelper) getMongotImage() string {
 	}
 
 	for _, container := range r.mdbSearch.Spec.StatefulSetConfiguration.SpecWrapper.Spec.Template.Spec.Containers {
-		if strings.Contains(container.Name, MongotContainerName) {
+		if container.Name == MongotContainerName {
 			return container.Image
 		}
 	}
