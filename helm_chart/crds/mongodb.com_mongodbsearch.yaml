@@ -160,6 +160,21 @@ spec:
                     required:
                     - name
                     type: object
+                  passwordSecretRef:
+                    description: |-
+                      SecretKeyRef is a reference to a value in a given secret in the same
+                      namespace. Based on:
+                      https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.15/#secretkeyselector-v1-core
+                    properties:
+                      key:
+                        type: string
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  username:
+                    type: string
                 type: object
               statefulSet:
                 description: |-

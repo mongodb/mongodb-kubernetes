@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllertest"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -73,21 +74,42 @@ func newSearchReconciler(
 }
 
 func buildExpectedMongotConfig(search *searchv1.MongoDBSearch, mdbc *mdbcv1.MongoDBCommunity) mongot.Config {
-	return mongot.Config{CommunityPrivatePreview: mongot.CommunityPrivatePreview{
-		MongodHostAndPort: fmt.Sprintf(
-			"%s.%s.svc.cluster.local:%d",
-			mdbc.ServiceName(), mdbc.Namespace,
-			mdbc.GetMongodConfiguration().GetDBPort(),
-		),
-		QueryServerAddress: fmt.Sprintf("localhost:%d", search.GetMongotPort()),
-		KeyFilePath:        "/mongot/keyfile/keyfile",
-		DataPath:           "/mongot/data/config.yml",
-		Metrics: mongot.Metrics{
-			Enabled: true,
-			Address: fmt.Sprintf("localhost:%d", search.GetMongotMetricsPort()),
+	return mongot.Config{
+		SyncSource: mongot.ConfigSyncSource{
+			ReplicaSet: mongot.ConfigReplicaSet{
+				HostAndPort:    fmt.Sprintf("%s.%s.svc.cluster.local:%d", mdbc.Name+"-svc", search.Namespace, 27017),
+				Username:       "mongot-user",
+				PasswordFile:   "/tmp/sourceUserPassword",
+				TLS:            ptr.To(false),
+				ReadPreference: ptr.To("secondaryPreferred"),
+				ReplicaSetName: "mdb",
+			},
 		},
-		Logging: mongot.Logging{Verbosity: "DEBUG"},
-	}}
+		Storage: mongot.ConfigStorage{
+			DataPath: "/mongot/data/config.yml",
+		},
+		Server: mongot.ConfigServer{
+			Wireproto: &mongot.ConfigWireproto{
+				Address: "0.0.0.0:27027",
+				Authentication: &mongot.ConfigAuthentication{
+					Mode:    "keyfile",
+					KeyFile: "/tmp/keyfile",
+				},
+				TLS: mongot.ConfigTLS{Mode: "disabled"},
+			},
+		},
+		Metrics: mongot.ConfigMetrics{
+			Enabled: true,
+			Address: fmt.Sprintf("localhost:%d", searchv1.MongotDefaultMetricsPort),
+		},
+		HealthCheck: mongot.ConfigHealthCheck{
+			Address: "0.0.0.0:8080",
+		},
+		Logging: mongot.ConfigLogging{
+			Verbosity: "TRACE",
+			LogPath:   nil,
+		},
+	}
 }
 
 func TestMongoDBSearchReconcile_NotFound(t *testing.T) {

@@ -49,6 +49,10 @@ class SearchTester(MongoTester):
 
     def search_indexes_ready(self, database_name: str, collection_name: str):
         search_indexes = self.get_search_indexes(database_name, collection_name)
+        if len(search_indexes) == 0:
+            logger.error(f"There are no search indexes available in {database_name}.{collection_name}")
+            return False
+
         for idx in search_indexes:
             if idx.get("status") != "READY":
                 logger.debug(f"{database_name}/{collection_name}: search index {idx} is not ready")

@@ -13,6 +13,7 @@ import (
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -207,26 +208,50 @@ func buildSearchHeadlessService(search *searchv1.MongoDBSearch) corev1.Service {
 }
 
 func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResource) mongot.Config {
-	return mongot.Config{CommunityPrivatePreview: mongot.CommunityPrivatePreview{
-		MongodHostAndPort:  fmt.Sprintf("%s.%s.svc.cluster.local:%d", db.DatabaseServiceName(), db.GetNamespace(), db.DatabasePort()),
-		QueryServerAddress: fmt.Sprintf("localhost:%d", search.GetMongotPort()),
-		KeyFilePath:        "/mongot/keyfile/keyfile",
-		DataPath:           "/mongot/data/config.yml",
-		Metrics: mongot.Metrics{
+	return mongot.Config{
+		SyncSource: mongot.ConfigSyncSource{
+			ReplicaSet: mongot.ConfigReplicaSet{
+				HostAndPort:    fmt.Sprintf("%s.%s.svc.cluster.local:%d", db.DatabaseServiceName(), db.GetNamespace(), db.DatabasePort()),
+				Username:       search.SourceUsername(),
+				PasswordFile:   "/tmp/sourceUserPassword",
+				TLS:            ptr.To(false),
+				ReadPreference: ptr.To("secondaryPreferred"),
+				ReplicaSetName: db.Name(),
+			},
+		},
+		Storage: mongot.ConfigStorage{
+			DataPath: "/mongot/data/config.yml",
+		},
+		Server: mongot.ConfigServer{
+			Wireproto: &mongot.ConfigWireproto{
+				Address: "0.0.0.0:27027",
+				Authentication: &mongot.ConfigAuthentication{
+					Mode:    "keyfile",
+					KeyFile: "/tmp/keyfile",
+				},
+				TLS: mongot.ConfigTLS{Mode: "disabled"},
+			},
+		},
+		Metrics: mongot.ConfigMetrics{
 			Enabled: true,
 			Address: fmt.Sprintf("localhost:%d", search.GetMongotMetricsPort()),
 		},
-		Logging: mongot.Logging{
-			Verbosity: "DEBUG",
+		HealthCheck: mongot.ConfigHealthCheck{
+			Address: "0.0.0.0:8080",
 		},
-	}}
+		Logging: mongot.ConfigLogging{
+			Verbosity: "TRACE",
+			LogPath:   nil,
+		},
+	}
 }
 
 func GetMongodConfigParameters(search *searchv1.MongoDBSearch) map[string]interface{} {
 	return map[string]interface{}{
 		"setParameter": map[string]interface{}{
-			"mongotHost":                       mongotHostAndPort(search),
-			"searchIndexManagementHostAndPort": mongotHostAndPort(search),
+			"mongotHost":                                      mongotHostAndPort(search),
+			"searchIndexManagementHostAndPort":                mongotHostAndPort(search),
+			"skipAuthenticationToSearchIndexManagementServer": false,
 		},
 	}
 }
