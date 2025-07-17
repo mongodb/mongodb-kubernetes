@@ -1029,6 +1029,7 @@ func DatabaseLivenessProbe() probes.Modification {
 		probes.WithFailureThreshold(6),
 	)
 }
+
 // TODO: make this work for static no matrix
 func DatabaseReadinessProbe() probes.Modification {
 	return probes.Apply(
@@ -1038,6 +1039,7 @@ func DatabaseReadinessProbe() probes.Modification {
 		probes.WithPeriodSeconds(5),
 	)
 }
+
 // TODO: make this work for static no matrix
 func DatabaseStartupProbe() probes.Modification {
 	return probes.Apply(
