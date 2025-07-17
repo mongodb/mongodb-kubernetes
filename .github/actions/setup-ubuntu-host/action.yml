@@ -3,7 +3,6 @@ inputs:
   python-version:
     description: 'Python version to use'
     required: true
-    default: '3.13'
 runs:
   using: "composite"
   steps:
