@@ -30,7 +30,8 @@ import (
 )
 
 const (
-	MongoDBSearchIndexFieldName = "mdbsearch-for-mongodbresourceref-index"
+	MongoDBSearchIndexFieldName    = "mdbsearch-for-mongodbresourceref-index"
+	MinimumSupportedMongoDBVersion = "8.2.0"
 )
 
 type OperatorSearchConfig struct {
@@ -237,7 +238,7 @@ func mongotHostAndPort(search *searchv1.MongoDBSearch) string {
 }
 
 func ValidateSearchSource(db SearchSourceDBResource) error {
-	err := ValidateMinVersion(db.GetMongoDBVersion(), "8.2.0")
+	err := ValidateMinVersion(db.GetMongoDBVersion(), MinimumSupportedMongoDBVersion)
 	if err != nil {
 		return err
 	}
@@ -280,5 +281,6 @@ func ValidateMinVersion(versionStr, minVersionStr string) error {
 	if version.LT(minVersion) {
 		return xerrors.Errorf("MongoDBSearch requires MongoDB version %s or higher", minVersionStr)
 	}
+
 	return nil
 }
