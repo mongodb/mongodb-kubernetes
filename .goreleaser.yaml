@@ -1,5 +1,4 @@
 project_name: kubectl-mongodb
-version: 2
 
 before:
   hooks:
@@ -43,7 +42,7 @@ checksum:
 snapshot:
   name_template: "{{ incpatch .Version }}-next"
 changelog:
-  disable: true
+  skip: true
 
 release:
   prerelease: auto
