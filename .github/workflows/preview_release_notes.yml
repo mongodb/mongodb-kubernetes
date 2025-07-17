@@ -34,7 +34,8 @@ jobs:
       - name: Summarize results
         run: cat release_notes_tmp.md >> $GITHUB_STEP_SUMMARY
       - name: Update PR comment
-        if: github.event_name == 'pull_request'
+        # If the PR is from a fork, we cannot update the comment using read only permissions
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         run: gh issue comment $ISSUE --edit-last --create-if-none --body-file release_notes_tmp.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
