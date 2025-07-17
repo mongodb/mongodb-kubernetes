@@ -46,14 +46,14 @@ RUN mkdir -p /opt/scripts
 COPY --from=base /data/mongodb-agent.tar.gz /agent
 COPY --from=base /data/mongodb-tools.tgz /agent
 COPY --from=base /data/LICENSE /licenses/LICENSE
-COPY --from=base /opt/scripts/agent-launcher-shim.sh /opt/scripts/agent-launcher-shim.sh
+COPY --from=base /opt/scripts/agent-launcher-shim.sh /usr/local/bin/agent-launcher-shim.sh
 
-# Copy dummy probe scripts to prevent failures before real probes are copied
-COPY --from=base /opt/scripts/dummy-probe.sh /opt/scripts/probe.sh
-COPY --from=base /opt/scripts/dummy-readinessprobe.sh /opt/scripts/readinessprobe
+# Copy dummy probe scripts to a safe location that won't be overwritten by volume mount
+COPY --from=base /opt/scripts/dummy-probe.sh /usr/local/bin/dummy-probe.sh
+COPY --from=base /opt/scripts/dummy-readinessprobe.sh /usr/local/bin/dummy-readinessprobe
 
 # Make all scripts executable
-RUN chmod +x /opt/scripts/*.sh /opt/scripts/readinessprobe
+RUN chmod +x /usr/local/bin/agent-launcher-shim.sh /usr/local/bin/dummy-probe.sh /usr/local/bin/dummy-readinessprobe
 
 RUN tar xfz /agent/mongodb-agent.tar.gz \
     && mv mongodb-mms-automation-agent-*/mongodb-mms-automation-agent /agent/mongodb-agent \

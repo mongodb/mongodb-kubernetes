@@ -519,6 +519,8 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 			podtemplatespec.WithPodLabels(podLabels),
 			podtemplatespec.WithContainerByIndex(0, sharedDatabaseContainerFunc(databaseImage, *opts.PodSpec, volumeMounts, configureContainerSecurityContext, opts.ServicePort)),
 			secondContainerModification,
+			podtemplatespec.WithContainerByIndex(1, container.WithVolumeMounts(volumeMounts)),
+			podtemplatespec.WithContainerByIndex(2, container.WithVolumeMounts(volumeMounts)),
 			volumesFunc,
 			configurePodSpecSecurityContext,
 			configureImagePullSecrets,
@@ -677,9 +679,14 @@ func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseSt
 
 // buildStaticArchitecturePodTemplateSpec constructs the podTemplateSpec for static architecture
 func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseStatefulSetSource) podtemplatespec.Modification {
-	var volumes []corev1.Volume
+	// scripts volume is needed for agent-launcher-shim.sh to copy scripts
+	scriptsVolume := statefulset.CreateVolumeFromEmptyDir("database-scripts")
+	databaseScriptsVolumeMount := databaseScriptsVolumeMount(false) // writable for shim script
 
-	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
+	volumes := []corev1.Volume{scriptsVolume}
+	volumeMounts := []corev1.VolumeMount{databaseScriptsVolumeMount}
+
+	_, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 
 	agentContainerModifications := []func(*corev1.Container){container.Apply(
 		container.WithName(util.AgentContainerName),
@@ -687,13 +694,14 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		container.WithEnvs(databaseEnvVars(opts)...),
 		container.WithArgs([]string{}),
 		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))), // nolint:forbidigo
-		container.WithLivenessProbe(DatabaseLivenessProbe()), // TODO: this also needs to be copied over somehow
+		container.WithLivenessProbe(DatabaseLivenessProbe()),
 		container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
 		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
 		container.WithEnvs(staticContainersEnvVars(mdb)...),
 		container.WithEnvs(readinessEnvironmentVariablesToEnvVars(opts.AgentConfig.ReadinessProbe.EnvironmentVariables)...),
-		container.WithCommand([]string{"/opt/scripts/agent-launcher-shim.sh"}),
-		containerSecurityContext,
+		container.WithCommand([]string{"/usr/local/bin/agent-launcher-shim.sh"}),
+		container.WithVolumeMounts(volumeMounts),
+		configureContainerSecurityContext,
 	)}
 
 	mongodContainerModifications := []func(*corev1.Container){container.Apply(
@@ -703,7 +711,7 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		container.WithImage(opts.MongodbImage),
 		container.WithEnvs(databaseEnvVars(opts)...),
 		container.WithCommand([]string{"bash", "-c", "tail -F -n0 ${MDB_LOG_FILE_MONGODB} mongodb_marker"}),
-		containerSecurityContext,
+		configureContainerSecurityContext,
 	)}
 
 	agentUtilitiesHolderModifications := []func(*corev1.Container){container.Apply(
@@ -712,7 +720,7 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		container.WithImage(opts.InitDatabaseImage),
 		container.WithEnvs(databaseEnvVars(opts)...),
 		container.WithCommand([]string{"bash", "-c", "tail -f /dev/null"}),
-		containerSecurityContext,
+		configureContainerSecurityContext,
 	)}
 
 	if opts.HostNameOverrideConfigmapName != "" {
