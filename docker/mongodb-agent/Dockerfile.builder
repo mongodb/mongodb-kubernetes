@@ -10,3 +10,5 @@ ADD https://downloads.mongodb.org/tools/db/mongodb-database-tools-${tools_distro
 
 COPY ./docker/mongodb-kubernetes-init-database/content/LICENSE /data/LICENSE
 COPY ./docker/mongodb-agent/agent-launcher-shim.sh /opt/scripts/agent-launcher-shim.sh
+COPY ./docker/mongodb-agent/dummy-probe.sh /opt/scripts/dummy-probe.sh
+COPY ./docker/mongodb-agent/dummy-readinessprobe.sh /opt/scripts/dummy-readinessprobe.sh

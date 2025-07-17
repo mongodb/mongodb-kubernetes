@@ -49,8 +49,8 @@ COPY --from=base /data/LICENSE /licenses/LICENSE
 COPY --from=base /opt/scripts/agent-launcher-shim.sh /opt/scripts/agent-launcher-shim.sh
 
 # Copy dummy probe scripts to prevent failures before real probes are copied
-COPY dummy-probe.sh /opt/scripts/probe.sh
-COPY dummy-readinessprobe /opt/scripts/readinessprobe
+COPY --from=base /opt/scripts/dummy-probe.sh /opt/scripts/probe.sh
+COPY --from=base /opt/scripts/dummy-readinessprobe /opt/scripts/readinessprobe
 
 # Make all scripts executable
 RUN chmod +x /opt/scripts/*.sh /opt/scripts/readinessprobe
