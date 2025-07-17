@@ -1,5 +1,7 @@
 import logging
 
+import pymongo.errors
+
 from kubetester import kubetester
 from tests import test_logger
 from tests.common.search.search_tester import SearchTester
@@ -32,15 +34,19 @@ class SampleMoviesSearchHelper:
     def assert_search_query(self, retry_timeout: int = 1):
         def wait_for_search_results():
             # sample taken from: https://www.mongodb.com/docs/atlas/atlas-search/tutorial/run-query/#run-a-complex-query-on-the-movies-collection-7
-            result = self.execute_example_search_query()
             count = 0
-            status_msg = f"{self.db_name}/{self.col_name}: search query results:\n"
-            for r in result:
-                status_msg += f"{r}\n"
-                count += 1
+            status_msg = ""
+            try:
+                result = self.execute_example_search_query()
+                status_msg = f"{self.db_name}/{self.col_name}: search query results:\n"
+                for r in result:
+                    status_msg += f"{r}\n"
+                    count += 1
+                status_msg += f"Count: {count}"
+                logger.debug(status_msg)
+            except pymongo.errors.PyMongoError as e:
+                logger.debug(f"error: {e}")
 
-            status_msg += f"Count: {count}"
-            logger.debug(status_msg)
             return count == 4, status_msg
 
         kubetester.run_periodically(
