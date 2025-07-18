@@ -10,19 +10,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
-	"k8s.io/client-go/informers"
-	"k8s.io/client-go/tools/cache"
-
 	"github.com/ghodss/yaml"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/informers"
+	"k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/tools/clientcmd"
+
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/kubernetes/fake"
-	"k8s.io/client-go/tools/clientcmd"
 )
 
 const testKubeconfig = `apiVersion: v1
@@ -553,10 +553,10 @@ func TestPrintingOutRolesServiceAccountsAndRoleBindings(t *testing.T) {
 }
 
 func marshalToYaml[T interface{}](t *testing.T, sb *strings.Builder, comment string, apiVersion string, kind string, items []T) *strings.Builder {
-	sb.WriteString(fmt.Sprintf("# %s\n", comment))
+	fmt.Fprintf(sb, "# %s\n", comment)
 	for _, cr := range items {
-		sb.WriteString(fmt.Sprintf("apiVersion: %s\n", apiVersion))
-		sb.WriteString(fmt.Sprintf("kind: %s\n", kind))
+		fmt.Fprintf(sb, "apiVersion: %s\n", apiVersion)
+		fmt.Fprintf(sb, "kind: %s\n", kind)
 		marshalledBytes, err := yaml.Marshal(cr)
 		assert.NoError(t, err)
 		sb.WriteString(string(marshalledBytes))

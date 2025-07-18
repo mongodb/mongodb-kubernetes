@@ -5,11 +5,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/mongodb/mongodb-kubernetes/pkg/kubectl-mongodb/common"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kubectl-mongodb/debug"
-
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/tools/clientcmd"
+
+	"github.com/mongodb/mongodb-kubernetes/pkg/kubectl-mongodb/common"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kubectl-mongodb/debug"
 )
 
 type Flags struct {

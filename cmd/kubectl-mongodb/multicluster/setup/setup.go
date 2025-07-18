@@ -7,12 +7,12 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/mongodb/mongodb-kubernetes/cmd/kubectl-mongodb/utils"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kubectl-mongodb/common"
-
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 	"k8s.io/client-go/tools/clientcmd"
+
+	"github.com/mongodb/mongodb-kubernetes/cmd/kubectl-mongodb/utils"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kubectl-mongodb/common"
 )
 
 func init() {
