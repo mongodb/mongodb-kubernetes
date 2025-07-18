@@ -46,9 +46,13 @@ jobs:
 
   approve_release:
     name: Approve Release
-    environment: production
+    environment: pre-production
     runs-on: ubuntu-latest
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: '0'
       - name: Create git tag
         run: |
           git tag -a $VERSION -m "Release of MCK $VERSION"
@@ -62,6 +66,10 @@ jobs:
     environment: production
     runs-on: ubuntu-latest
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: '0'
       - name: Publish Release Notes
         run: |
           gh release edit $VERSION --draft=false --verify-tag
