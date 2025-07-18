@@ -38,7 +38,7 @@ jobs:
       # Put all of this in single script
       - name: Generate draft release
         run: |
-          gh release create $VERSION --target $COMMIT_SHA --draft --prerelease --latest --notes-file release_notes_final.md --title "Release of MCK $VERSION" --fail-on-no-commits
+          gh release create $VERSION --target $COMMIT_SHA --draft --prerelease --latest --notes-file release_notes_final.md --title "Release of MCK $VERSION"
         env:
           VERSION: ${{ github.event.inputs.version }}
           COMMIT_SHA: ${{ github.event.inputs.commit_sha }}
