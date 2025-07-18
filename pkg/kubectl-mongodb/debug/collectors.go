@@ -7,16 +7,17 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/mongodb/mongodb-kubernetes/pkg/kubectl-mongodb/common"
-
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/utils/ptr"
+
+	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/mongodb/mongodb-kubernetes/pkg/kubectl-mongodb/common"
 )
 
 var (
@@ -269,7 +270,7 @@ func (s *AgentHealthFileCollector) Collect(ctx context.Context, kubeClient commo
 		found := false
 		for _, c := range pod.Spec.Containers {
 			for _, e := range c.Env {
-				if "AGENT_STATUS_FILEPATH" == e.Name {
+				if e.Name == "AGENT_STATUS_FILEPATH" {
 					add.agentFileName = e.Value
 					found = true
 					break

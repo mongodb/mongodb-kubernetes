@@ -129,5 +129,5 @@ func getType(obj runtime.Object) (string, error) {
 }
 
 func cleanContext(context string) string {
-	return strings.Replace(context, "/", "-", -1)
+	return strings.ReplaceAll(context, "/", "-")
 }

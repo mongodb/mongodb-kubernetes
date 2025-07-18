@@ -1,10 +1,10 @@
 package multicluster
 
 import (
+	"github.com/spf13/cobra"
+
 	"github.com/mongodb/mongodb-kubernetes/cmd/kubectl-mongodb/multicluster/recover"
 	"github.com/mongodb/mongodb-kubernetes/cmd/kubectl-mongodb/multicluster/setup"
-	
-	"github.com/spf13/cobra"
 )
 
 // MulticlusterCmd represents the multicluster command

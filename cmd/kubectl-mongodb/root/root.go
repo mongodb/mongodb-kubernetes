@@ -7,11 +7,11 @@ import (
 	"runtime/debug"
 	"syscall"
 
+	"github.com/spf13/cobra"
+
 	cmddebug "github.com/mongodb/mongodb-kubernetes/cmd/kubectl-mongodb/debug"
 	"github.com/mongodb/mongodb-kubernetes/cmd/kubectl-mongodb/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/cmd/kubectl-mongodb/utils"
-
-	"github.com/spf13/cobra"
 )
 
 // rootCmd represents the base command when called without any subcommands
