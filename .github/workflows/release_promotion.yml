@@ -17,7 +17,7 @@ jobs:
     name: Create draft Release Notes
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
