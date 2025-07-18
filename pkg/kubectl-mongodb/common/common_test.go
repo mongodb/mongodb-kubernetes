@@ -445,7 +445,7 @@ func TestReplaceClusterMembersConfigMap(t *testing.T) {
 
 	{
 		flags.MemberClusters = []string{"member-1", "member-2"}
-		err := ReplaceClusterMembersConfigMap(ctx, client, flags)
+		_ = ReplaceClusterMembersConfigMap(ctx, client, flags)
 		cm, err := client.CoreV1().ConfigMaps(flags.CentralClusterNamespace).Get(ctx, DefaultOperatorConfigMapName, metav1.GetOptions{})
 		assert.NoError(t, err)
 
@@ -474,13 +474,13 @@ func TestPrintingOutRolesServiceAccountsAndRoleBindings(t *testing.T) {
 	{
 		sb := &strings.Builder{}
 		clientMap := getClientResources(ctx, flags)
-		err := EnsureMultiClusterResources(ctx, flags, clientMap)
+		_ = EnsureMultiClusterResources(ctx, flags, clientMap)
 
 		cr, err := clientMap[flags.CentralCluster].RbacV1().ClusterRoles().List(ctx, metav1.ListOptions{})
 		assert.NoError(t, err)
 		crb, err := clientMap[flags.CentralCluster].RbacV1().ClusterRoleBindings().List(ctx, metav1.ListOptions{})
 		assert.NoError(t, err)
-		sa, err := clientMap[flags.CentralCluster].CoreV1().ServiceAccounts(flags.CentralClusterNamespace).List(ctx, metav1.ListOptions{})
+		sa, _ := clientMap[flags.CentralCluster].CoreV1().ServiceAccounts(flags.CentralClusterNamespace).List(ctx, metav1.ListOptions{})
 
 		sb = marshalToYaml(t, sb, "Central Cluster, cluster-scoped resources", "rbac.authorization.k8s.io/v1", "ClusterRole", cr.Items)
 		sb = marshalToYaml(t, sb, "Central Cluster, cluster-scoped resources", "rbac.authorization.k8s.io/v1", "ClusterRoleBinding", crb.Items)
@@ -493,13 +493,13 @@ func TestPrintingOutRolesServiceAccountsAndRoleBindings(t *testing.T) {
 	{
 		sb := &strings.Builder{}
 		clientMap := getClientResources(ctx, flags)
-		err := EnsureMultiClusterResources(ctx, flags, clientMap)
+		_ = EnsureMultiClusterResources(ctx, flags, clientMap)
 
 		cr, err := clientMap[flags.MemberClusters[0]].RbacV1().ClusterRoles().List(ctx, metav1.ListOptions{})
 		assert.NoError(t, err)
 		crb, err := clientMap[flags.MemberClusters[0]].RbacV1().ClusterRoleBindings().List(ctx, metav1.ListOptions{})
 		assert.NoError(t, err)
-		sa, err := clientMap[flags.MemberClusters[0]].CoreV1().ServiceAccounts(flags.MemberClusterNamespace).List(ctx, metav1.ListOptions{})
+		sa, _ := clientMap[flags.MemberClusters[0]].CoreV1().ServiceAccounts(flags.MemberClusterNamespace).List(ctx, metav1.ListOptions{})
 
 		sb = marshalToYaml(t, sb, "Member Cluster, cluster-scoped resources", "rbac.authorization.k8s.io/v1", "ClusterRole", cr.Items)
 		sb = marshalToYaml(t, sb, "Member Cluster, cluster-scoped resources", "rbac.authorization.k8s.io/v1", "ClusterRoleBinding", crb.Items)
@@ -514,13 +514,13 @@ func TestPrintingOutRolesServiceAccountsAndRoleBindings(t *testing.T) {
 		flags.ClusterScoped = false
 
 		clientMap := getClientResources(ctx, flags)
-		err := EnsureMultiClusterResources(ctx, flags, clientMap)
+		_ = EnsureMultiClusterResources(ctx, flags, clientMap)
 
 		r, err := clientMap[flags.CentralCluster].RbacV1().Roles(flags.CentralClusterNamespace).List(ctx, metav1.ListOptions{})
 		assert.NoError(t, err)
 		rb, err := clientMap[flags.CentralCluster].RbacV1().RoleBindings(flags.CentralClusterNamespace).List(ctx, metav1.ListOptions{})
 		assert.NoError(t, err)
-		sa, err := clientMap[flags.CentralCluster].CoreV1().ServiceAccounts(flags.CentralClusterNamespace).List(ctx, metav1.ListOptions{})
+		sa, _ := clientMap[flags.CentralCluster].CoreV1().ServiceAccounts(flags.CentralClusterNamespace).List(ctx, metav1.ListOptions{})
 
 		sb = marshalToYaml(t, sb, "Central Cluster, namespace-scoped resources", "rbac.authorization.k8s.io/v1", "Role", r.Items)
 		sb = marshalToYaml(t, sb, "Central Cluster, namespace-scoped resources", "rbac.authorization.k8s.io/v1", "RoleBinding", rb.Items)
@@ -535,13 +535,13 @@ func TestPrintingOutRolesServiceAccountsAndRoleBindings(t *testing.T) {
 		flags.ClusterScoped = false
 
 		clientMap := getClientResources(ctx, flags)
-		err := EnsureMultiClusterResources(ctx, flags, clientMap)
+		_ = EnsureMultiClusterResources(ctx, flags, clientMap)
 
 		r, err := clientMap[flags.MemberClusters[0]].RbacV1().Roles(flags.MemberClusterNamespace).List(ctx, metav1.ListOptions{})
 		assert.NoError(t, err)
 		rb, err := clientMap[flags.MemberClusters[0]].RbacV1().RoleBindings(flags.MemberClusterNamespace).List(ctx, metav1.ListOptions{})
 		assert.NoError(t, err)
-		sa, err := clientMap[flags.MemberClusters[0]].CoreV1().ServiceAccounts(flags.MemberClusterNamespace).List(ctx, metav1.ListOptions{})
+		sa, _ := clientMap[flags.MemberClusters[0]].CoreV1().ServiceAccounts(flags.MemberClusterNamespace).List(ctx, metav1.ListOptions{})
 
 		sb = marshalToYaml(t, sb, "Member Cluster, namespace-scoped resources", "rbac.authorization.k8s.io/v1", "Role", r.Items)
 		sb = marshalToYaml(t, sb, "Member Cluster, namespace-scoped resources", "rbac.authorization.k8s.io/v1", "RoleBinding", rb.Items)
@@ -831,7 +831,6 @@ type resourceType string
 var (
 	serviceAccountResourceType resourceType = "ServiceAccount"
 	namespaceResourceType      resourceType = "Namespace"
-	roleBindingResourceType    resourceType = "RoleBinding"
 	roleResourceType           resourceType = "Role"
 )
 
@@ -891,7 +890,7 @@ func onSecretCreate(s *corev1.Secret, clusterName string, clientset *fake.Client
 }
 
 // containsResourceType returns true if r is in resourceTypes, otherwise false.
-func containsResourceType(resourceTypes []resourceType, r resourceType) bool {
+func containsResourceType(resourceTypes []resourceType, r resourceType) bool { // nolint:unused
 	for _, rt := range resourceTypes {
 		if rt == r {
 			return true

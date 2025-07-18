@@ -240,7 +240,7 @@ func (s *LogsCollector) Collect(ctx context.Context, kubeClient common.KubeClien
 			bytes := []byte(line)
 			logsToCollect[i].content = append(logsToCollect[i].content, bytes...)
 		}
-		LogStream.Close()
+		LogStream.Close() //nolint: errcheck
 	}
 	return nil, logsToCollect, nil
 }
@@ -314,8 +314,8 @@ func getFileContent(config *rest.Config, clientset common.KubeClient, namespace,
 
 	buf := &bytes.Buffer{}
 	errBuf := &bytes.Buffer{}
-	exec, err := remotecommand.NewSPDYExecutor(config, "POST", u)
-	err = exec.Stream(remotecommand.StreamOptions{
+	exec, err := remotecommand.NewSPDYExecutor(config, "POST", u) // nolint: ineffassign,staticcheck
+	err = exec.Stream(remotecommand.StreamOptions{                // nolint:staticcheck
 		Stdout: buf,
 		Stderr: errBuf,
 	})

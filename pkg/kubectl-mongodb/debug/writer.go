@@ -39,14 +39,14 @@ func WriteToFile(path string, collectionResults ...CollectionResult) (string, st
 				return "", "", err
 			}
 			fileName := fmt.Sprintf("%s/%s-%s-%s-%s.yaml", path, cleanContext(collectionResult.context), collectionResult.namespace, kubeType, meta.GetName())
-			err = os.WriteFile(fileName, data, os.ModePerm)
+			err = os.WriteFile(fileName, data, os.ModePerm) // nolint:gosec
 			if err != nil {
 				return "", "", err
 			}
 		}
 		for _, obj := range collectionResult.rawObjects {
 			fileName := fmt.Sprintf("%s/%s-%s-%s-%s-%s.txt", path, cleanContext(collectionResult.context), collectionResult.namespace, "txt", obj.ContainerName, obj.Name)
-			err = os.WriteFile(fileName, obj.content, os.ModePerm)
+			err = os.WriteFile(fileName, obj.content, os.ModePerm) // nolint:gosec
 			if err != nil {
 				return "", "", err
 			}
@@ -66,10 +66,10 @@ func compressDirectory(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer file.Close()
+	defer file.Close() // nolint: errcheck
 
 	w := zip.NewWriter(file)
-	defer w.Close()
+	defer w.Close() // nolint: errcheck
 
 	walker := func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -82,7 +82,7 @@ func compressDirectory(path string) (string, error) {
 		if err != nil {
 			return err
 		}
-		defer file.Close()
+		defer file.Close() // nolint: errcheck
 
 		// Ensure that `path` is not absolute; it should not start with "/".
 		// This snippet happens to work because I don't use

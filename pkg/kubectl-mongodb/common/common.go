@@ -838,7 +838,7 @@ func getAllMemberClusterServiceAccountSecretTokens(ctx context.Context, clientSe
 
 		// Wait for the token secret to be created and populated with service account token data
 		var tokenSecret *corev1.Secret
-		if err := wait.PollWithContext(ctx, PollingInterval, PollingTimeout, func(ctx context.Context) (done bool, err error) {
+		if err := wait.PollWithContext(ctx, PollingInterval, PollingTimeout, func(ctx context.Context) (done bool, err error) { // nolint:staticcheck
 			tokenSecret, err = getServiceAccountToken(ctx, c, *sa)
 			if err != nil {
 				if errors.IsNotFound(err) {
