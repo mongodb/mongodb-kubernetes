@@ -31,7 +31,8 @@ import (
 )
 
 const (
-	MongoDBSearchIndexFieldName = "mdbsearch-for-mongodbresourceref-index"
+	MongoDBSearchIndexFieldName    = "mdbsearch-for-mongodbresourceref-index"
+	MinimumSupportedMongoDBVersion = "8.2.0"
 )
 
 type OperatorSearchConfig struct {
@@ -266,13 +267,10 @@ func mongotHostAndPort(search *searchv1.MongoDBSearch) string {
 }
 
 func ValidateSearchSource(db SearchSourceDBResource) error {
-	version, err := semver.ParseTolerant(db.GetMongoDBVersion())
+	err := ValidateMinVersion(db.GetMongoDBVersion(), MinimumSupportedMongoDBVersion)
 	if err != nil {
-		return xerrors.Errorf("error parsing MongoDB version '%s': %w", db.GetMongoDBVersion(), err)
-	} else if version.Major < 8 {
-		return xerrors.New("MongoDB version must be 8.0 or higher")
+		return err
 	}
-
 	if db.IsSecurityTLSConfigEnabled() {
 		return xerrors.New("MongoDBSearch does not support TLS-enabled sources")
 	}
@@ -294,6 +292,23 @@ func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSourc
 			resourceNames[i] = search.Name
 		}
 		return xerrors.Errorf("Found multiple MongoDBSearch resources for search source '%s': %s", r.db.Name(), strings.Join(resourceNames, ", "))
+	}
+
+	return nil
+}
+
+func ValidateMinVersion(versionStr, minVersionStr string) error {
+	version, err := semver.ParseTolerant(versionStr)
+	if err != nil {
+		return xerrors.Errorf("error parsing MongoDB version '%s': %w", versionStr, err)
+	}
+	minVersion, err := semver.ParseTolerant(minVersionStr)
+	if err != nil {
+		return xerrors.Errorf("error parsing MongodB minimum version '%s': %w", minVersionStr, err)
+	}
+
+	if version.LT(minVersion) {
+		return xerrors.Errorf("MongoDBSearch requires MongoDB version %s or higher", minVersionStr)
 	}
 
 	return nil
