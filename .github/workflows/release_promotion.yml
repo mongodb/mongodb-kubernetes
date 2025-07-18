@@ -1,0 +1,70 @@
+name: Release Promotion
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: 'SHA of the commit to release'
+        type: string
+        required: true
+      version:
+        description: 'Version to promote'
+        required: true
+        type: string
+
+jobs:
+  crate_draft_release_notes:
+    name: Create draft Release Notes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: '0'
+      - name: Setup host
+        uses: ./.github/actions/setup-ubuntu-host
+        with:
+          python-version: '${{ vars.PYTHON_VERSION }}'
+      # Probably we should just download the Release Notes from the staging registry (together with other artifacts)
+      - name: Generate Release Notes
+        id: generate_release_notes
+        run: python -m scripts.release.release_notes -s $INITIAL_COMMIT_SHA -v $INITIAL_VERSION -o release_notes_final.md
+        env:
+          INITIAL_COMMIT_SHA: ${{ vars.RELEASE_INITIAL_COMMIT_SHA }}
+          INITIAL_VERSION: ${{ vars.RELEASE_INITIAL_VERSION }}
+      # Add all other assets to the release notes
+      # Put all of this in single script
+      - name: Generate draft release
+        run: |
+          gh release create $VERSION --target $COMMIT_SHA --draft --prerelease --latest --notes-file release_notes_final.md --title "Release of MCK $VERSION" --fail-on-no-commits
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+          COMMIT_SHA: ${{ github.event.inputs.commit_sha }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  approve_release:
+    name: Approve Release
+    environment: production
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create git tag
+        run: |
+          git tag -a $VERSION -m "Release of MCK $VERSION"
+          git push origin $VERSION
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish_release_notess:
+    name: Publish Release Notes
+    environment: production
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish Release Notes
+        run: |
+          gh release edit $VERSION --draft=false --verify-tag
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
