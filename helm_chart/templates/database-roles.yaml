@@ -24,28 +24,6 @@ imagePullSecrets:
 {{- end }}
 
 ---
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: {{ $.Values.operator.baseName }}-database-pods
-  {{ $namespaceBlock }}
-{{- if $.Values.registry.imagePullSecrets}}
-imagePullSecrets:
-  - name: {{ $.Values.registry.imagePullSecrets }}
-{{- end }}
-
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: {{ $.Values.operator.baseName }}-ops-manager
-  {{ $namespaceBlock }}
-{{- if $.Values.registry.imagePullSecrets}}
-imagePullSecrets:
-  - name: {{ $.Values.registry.imagePullSecrets }}
-{{- end }}
-
----
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:

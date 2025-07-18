@@ -65,8 +65,6 @@ const (
 	KubeConfigSecretName         = "mongodb-enterprise-operator-multi-cluster-kubeconfig"
 	KubeConfigSecretKey          = "kubeconfig"
 	AppdbServiceAccount          = "mongodb-kubernetes-appdb"
-	DatabasePodsServiceAccount   = "mongodb-kubernetes-database-pods"
-	OpsManagerServiceAccount     = "mongodb-kubernetes-ops-manager"
 	AppdbRole                    = "mongodb-kubernetes-appdb"
 	AppdbRoleBinding             = "mongodb-kubernetes-appdb"
 	DefaultOperatorName          = "mongodb-kubernetes-operator"
@@ -987,12 +985,6 @@ func createDatabaseRoles(ctx context.Context, client KubeClient, f Flags) error 
 	if _, err := createServiceAccount(ctx, client, AppdbServiceAccount, f.MemberClusterNamespace, f.ImagePullSecrets); err != nil {
 		return err
 	}
-	if _, err := createServiceAccount(ctx, client, DatabasePodsServiceAccount, f.MemberClusterNamespace, f.ImagePullSecrets); err != nil {
-		return err
-	}
-	if _, err := createServiceAccount(ctx, client, OpsManagerServiceAccount, f.MemberClusterNamespace, f.ImagePullSecrets); err != nil {
-		return err
-	}
 	if err := createDatabaseRole(ctx, client, AppdbRole, f.MemberClusterNamespace); err != nil {
 		return err
 	}
@@ -1007,14 +999,6 @@ func copyDatabaseRoles(ctx context.Context, src, dst KubeClient, namespace strin
 	if err != nil {
 		return xerrors.Errorf("failed retrieving service account %s, from ns: %s from source cluster: %w", AppdbServiceAccount, namespace, err)
 	}
-	dbpodsSA, err := src.CoreV1().ServiceAccounts(namespace).Get(ctx, DatabasePodsServiceAccount, metav1.GetOptions{})
-	if err != nil {
-		return xerrors.Errorf("failed retrieving service account %s, from ns: %s from source cluster: %w", DatabasePodsServiceAccount, namespace, err)
-	}
-	opsManagerSA, err := src.CoreV1().ServiceAccounts(namespace).Get(ctx, OpsManagerServiceAccount, metav1.GetOptions{})
-	if err != nil {
-		return xerrors.Errorf("failed retrieving service account %s, from ns: %s from source cluster: %w", OpsManagerServiceAccount, namespace, err)
-	}
 	appdbR, err := src.RbacV1().Roles(namespace).Get(ctx, AppdbRole, metav1.GetOptions{})
 	if err != nil {
 		return xerrors.Errorf("failed retrieving role %s from source cluster: %w", AppdbRole, err)
@@ -1028,16 +1012,6 @@ func copyDatabaseRoles(ctx context.Context, src, dst KubeClient, namespace strin
 			fmt.Printf("failed creating image pull secret %s: %s\n", appdbSA.ImagePullSecrets[0].Name, err)
 		}
 	}
-	if len(dbpodsSA.ImagePullSecrets) > 0 {
-		if err := copySecret(ctx, src, dst, namespace, dbpodsSA.ImagePullSecrets[0].Name); err != nil {
-			fmt.Printf("failed creating image pull secret %s: %s\n", dbpodsSA.ImagePullSecrets[0].Name, err)
-		}
-	}
-	if len(opsManagerSA.ImagePullSecrets) > 0 {
-		if err := copySecret(ctx, src, dst, namespace, opsManagerSA.ImagePullSecrets[0].Name); err != nil {
-			fmt.Printf("failed creating image pull secret %s: %s\n", opsManagerSA.ImagePullSecrets[0].Name, err)
-		}
-	}
 	_, err = dst.CoreV1().ServiceAccounts(namespace).Create(ctx, &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   appdbSA.Name,
@@ -1048,27 +1022,6 @@ func copyDatabaseRoles(ctx context.Context, src, dst KubeClient, namespace strin
 	if !errors.IsAlreadyExists(err) && err != nil {
 		return xerrors.Errorf("error creating service account: %w", err)
 	}
-	_, err = dst.CoreV1().ServiceAccounts(namespace).Create(ctx, &corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:   dbpodsSA.Name,
-			Labels: dbpodsSA.Labels,
-		},
-		ImagePullSecrets: dbpodsSA.DeepCopy().ImagePullSecrets,
-	}, metav1.CreateOptions{})
-	if !errors.IsAlreadyExists(err) && err != nil {
-		return xerrors.Errorf("error creating service account: %w", err)
-	}
-	_, err = dst.CoreV1().ServiceAccounts(namespace).Create(ctx, &corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:   opsManagerSA.Name,
-			Labels: opsManagerSA.Labels,
-		},
-		ImagePullSecrets: opsManagerSA.DeepCopy().ImagePullSecrets,
-	}, metav1.CreateOptions{})
-	if !errors.IsAlreadyExists(err) && err != nil {
-		return xerrors.Errorf("error creating service account: %w", err)
-	}
-
 	_, err = dst.RbacV1().Roles(namespace).Create(ctx, &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   appdbR.Name,

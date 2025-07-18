@@ -132,10 +132,6 @@ const (
 	RunAsUser = 2000
 	FsGroup   = 2000
 
-	// Service accounts
-	OpsManagerServiceAccount = "mongodb-kubernetes-ops-manager"
-	MongoDBServiceAccount    = "mongodb-kubernetes-database-pods"
-
 	// Authentication
 	AgentSecretName                   = "agent-certs"
 	AutomationConfigX509Option        = "MONGODB-X509"

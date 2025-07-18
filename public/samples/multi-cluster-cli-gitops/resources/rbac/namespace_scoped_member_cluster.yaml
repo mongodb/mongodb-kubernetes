@@ -129,23 +129,3 @@ metadata:
   namespace: member-namespace
 
 ---
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  creationTimestamp: null
-  labels:
-    multi-cluster: "true"
-  name: mongodb-kubernetes-database-pods
-  namespace: member-namespace
-
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  creationTimestamp: null
-  labels:
-    multi-cluster: "true"
-  name: mongodb-kubernetes-ops-manager
-  namespace: member-namespace
-
----

@@ -660,18 +660,6 @@ func assertDatabaseRolesExist(t *testing.T, ctx context.Context, clientMap map[s
 		require.NotNil(t, sa)
 		assert.Equal(t, sa.Labels, multiClusterLabels())
 
-		// database pods service account
-		sa, err = client.CoreV1().ServiceAccounts(flags.MemberClusterNamespace).Get(ctx, DatabasePodsServiceAccount, metav1.GetOptions{})
-		require.NoError(t, err)
-		require.NotNil(t, sa)
-		assert.Equal(t, sa.Labels, multiClusterLabels())
-
-		// ops manager service account
-		sa, err = client.CoreV1().ServiceAccounts(flags.MemberClusterNamespace).Get(ctx, OpsManagerServiceAccount, metav1.GetOptions{})
-		require.NoError(t, err)
-		require.NotNil(t, sa)
-		assert.Equal(t, sa.Labels, multiClusterLabels())
-
 		// appdb role
 		r, err := client.RbacV1().Roles(flags.MemberClusterNamespace).Get(ctx, AppdbRole, metav1.GetOptions{})
 		require.NoError(t, err)

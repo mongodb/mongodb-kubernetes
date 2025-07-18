@@ -730,7 +730,6 @@ func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseSt
 
 	mods := []podtemplatespec.Modification{
 		sharedDatabaseConfiguration(opts, mdb),
-		podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
 		podtemplatespec.WithServiceAccount(serviceAccountName),
 		podtemplatespec.WithVolumes(volumes),
 		podtemplatespec.WithContainerByIndex(0, databaseContainerModifications...),
@@ -756,7 +755,7 @@ func getServiceAccountName(opts DatabaseStatefulSetOptions) string {
 		}
 	}
 
-	return util.MongoDBServiceAccount
+	return ""
 }
 
 // sharedDatabaseConfiguration is a function which applies all the shared configuration

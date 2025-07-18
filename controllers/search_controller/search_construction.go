@@ -15,7 +15,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/probes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 const (
@@ -147,7 +146,6 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 				}),
 				podtemplatespec.WithVolumes(volumes),
 				podtemplatespec.WithServiceAccount(sourceDBResource.DatabaseServiceName()),
-				podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
 				podtemplatespec.WithContainer(MongotContainerName, mongodbSearchContainer(mdbSearch, volumeMounts, searchImage)),
 			),
 		),

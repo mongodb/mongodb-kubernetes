@@ -466,7 +466,6 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 				configurePodSpecSecurityContext,
 				podtemplatespec.WithPodLabels(labels),
 				pullSecretsConfigurationFunc,
-				podtemplatespec.WithServiceAccount(util.OpsManagerServiceAccount),
 				podtemplatespec.WithAffinity(opts.Name, podAntiAffinityLabelKey, 100),
 				podtemplatespec.WithTopologyKey(util.DefaultAntiAffinityTopologyKey, 0),
 				initContainerMod,
