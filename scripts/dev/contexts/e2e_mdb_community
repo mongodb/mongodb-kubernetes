@@ -10,3 +10,11 @@ source "${script_dir}/variables/mongodb_latest"
 
 # This variable is needed otherwise the `fetch_om_information.sh` script is called and fails the test
 export OM_EXTERNALLY_CONFIGURED="true"
+
+# Temporary development images built from mongot master
+#export MDB_SEARCH_COMMUNITY_VERSION="776d43523d185b6b234289e17c191712a3e6569b" # master
+export MDB_SEARCH_COMMUNITY_VERSION="d6884ae132aab30497af55dbaff05e8274e9775f" # Local->Admin
+#export MDB_SEARCH_COMMUNITY_VERSION="ad8acf5c3a045d6e0306ad67d61fcb5be40f57ae" # hardcoded mdbc-rs replicaset name
+#export MDB_SEARCH_COMMUNITY_VERSION="b9b80915f5571bfa5fc2aa70acb20d784e68d79b" # hardcoded Local->Admin, handled replicaSetName in config
+export MDB_SEARCH_COMMUNITY_NAME="mongot/community"
+export MDB_SEARCH_COMMUNITY_REPO_URL="268558157000.dkr.ecr.eu-west-1.amazonaws.com"

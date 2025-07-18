@@ -10,6 +10,7 @@ export PROJECT_DIR="${PWD}"
 export IMAGE_TYPE=ubi
 export UBI_IMAGE_WITHOUT_SUFFIX=true
 export WATCH_NAMESPACE=${WATCH_NAMESPACE:-${NAMESPACE}}
+export OPERATOR_NAME="mongodb-kubernetes-operator"
 
 #
 # changing variables below should not be necessary

@@ -696,9 +696,9 @@ spec:
             - name: RELATED_IMAGE_MONGODB_IMAGE_8_0_0_ubi9
               value: "quay.io/mongodb/mongodb-enterprise-server:8.0.0-ubi9"
             - name: RELATED_IMAGE_MDB_SEARCH_IMAGE_1_47_0
-              value: "quay.io/mongodb/mongodb-search-community:1.47.0"
+              value: "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-search-community:1.47.0"
             - name: MDB_SEARCH_COMMUNITY_REPO_URL
-              value: "quay.io/mongodb"
+              value: "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
             - name: MDB_SEARCH_COMMUNITY_NAME
               value: "mongodb-search-community"
             - name: MDB_SEARCH_COMMUNITY_VERSION

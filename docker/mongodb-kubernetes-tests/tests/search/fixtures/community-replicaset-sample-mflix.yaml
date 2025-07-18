@@ -9,22 +9,36 @@ spec:
   version: "8.0.5"
   security:
     authentication:
-      modes: ["SCRAM"]
+      modes: ["SCRAM-SHA-1"]
   agent:
     logLevel: DEBUG
   users:
-    - name: my-user
+    - name: mdb-admin
       db: admin
       passwordSecretRef: # a reference to the secret that will be used to generate the user's password
-        name: my-user-password
+        name: mdb-admin-user-password
       roles:
-        - name: clusterAdmin
+        - name: root
           db: admin
-        - name: userAdminAnyDatabase
-          db: admin
+      scramCredentialsSecretName: mdb-admin-user-scram
+    - name: mdb-user
+      db: admin
+      passwordSecretRef: # a reference to the secret that will be used to generate the user's password
+        name: mdb-user-password
+      roles:
+        - name: restore
+          db: sample_mflix
         - name: readWrite
           db: sample_mflix
-      scramCredentialsSecretName: my-scram
+      scramCredentialsSecretName: mdb-user-scram
+    - name: mongot-user
+      db: admin
+      passwordSecretRef: # a reference to the secret that will be used to generate the user's password
+        name: mdbc-rs-mongot-user-password
+      roles:
+        - name: searchCoordinator
+          db: admin
+      scramCredentialsSecretName: mongot-user-scram
   statefulSet:
     spec:
       template:
