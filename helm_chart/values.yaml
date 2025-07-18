@@ -229,4 +229,4 @@ search:
     repo: 268558157000.dkr.ecr.eu-west-1.amazonaws.com
     name: mongot/community
     # default MongoDB Search version used; can be overridden by setting MongoDBSearch.spec.version field.
-    version: b9b80915f5571bfa5fc2aa70acb20d784e68d79b
+    version: d6884ae132aab30497af55dbaff05e8274e9775f

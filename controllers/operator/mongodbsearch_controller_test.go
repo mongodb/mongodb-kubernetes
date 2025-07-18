@@ -74,15 +74,18 @@ func newSearchReconciler(
 }
 
 func buildExpectedMongotConfig(search *searchv1.MongoDBSearch, mdbc *mdbcv1.MongoDBCommunity) mongot.Config {
+	var hostAndPorts []string
+	for i := range mdbc.Spec.Members {
+		hostAndPorts = append(hostAndPorts, fmt.Sprintf("%s-%d.%s.%s.svc.cluster.local:%d", mdbc.Name, i, mdbc.Name+"-svc", search.Namespace, 27017))
+	}
 	return mongot.Config{
 		SyncSource: mongot.ConfigSyncSource{
 			ReplicaSet: mongot.ConfigReplicaSet{
-				HostAndPort:    fmt.Sprintf("%s.%s.svc.cluster.local:%d", mdbc.Name+"-svc", search.Namespace, 27017),
+				HostAndPort:    hostAndPorts,
 				Username:       "mongot-user",
 				PasswordFile:   "/tmp/sourceUserPassword",
 				TLS:            ptr.To(false),
 				ReadPreference: ptr.To("secondaryPreferred"),
-				ReplicaSetName: "mdb",
 			},
 		},
 		Storage: mongot.ConfigStorage{
