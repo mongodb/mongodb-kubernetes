@@ -7,17 +7,17 @@ import (
 	"fmt"
 	"strings"
 
-	"k8s.io/utils/ptr"
-
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/remotecommand"
-
-	"github.com/mongodb/mongodb-kubernetes/multi/pkg/common"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/remotecommand"
+	"k8s.io/utils/ptr"
+
+	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/mongodb/mongodb-kubernetes/pkg/kubectl-mongodb/common"
 )
 
 var (
@@ -240,7 +240,7 @@ func (s *LogsCollector) Collect(ctx context.Context, kubeClient common.KubeClien
 			bytes := []byte(line)
 			logsToCollect[i].content = append(logsToCollect[i].content, bytes...)
 		}
-		LogStream.Close()
+		LogStream.Close() //nolint: errcheck
 	}
 	return nil, logsToCollect, nil
 }
@@ -270,7 +270,7 @@ func (s *AgentHealthFileCollector) Collect(ctx context.Context, kubeClient commo
 		found := false
 		for _, c := range pod.Spec.Containers {
 			for _, e := range c.Env {
-				if "AGENT_STATUS_FILEPATH" == e.Name {
+				if e.Name == "AGENT_STATUS_FILEPATH" {
 					add.agentFileName = e.Value
 					found = true
 					break
@@ -314,8 +314,8 @@ func getFileContent(config *rest.Config, clientset common.KubeClient, namespace,
 
 	buf := &bytes.Buffer{}
 	errBuf := &bytes.Buffer{}
-	exec, err := remotecommand.NewSPDYExecutor(config, "POST", u)
-	err = exec.Stream(remotecommand.StreamOptions{
+	exec, err := remotecommand.NewSPDYExecutor(config, "POST", u) // nolint: ineffassign,staticcheck
+	err = exec.Stream(remotecommand.StreamOptions{                // nolint:staticcheck
 		Stdout: buf,
 		Stderr: errBuf,
 	})

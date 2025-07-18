@@ -7,6 +7,7 @@ before:
 builds:
   - env:
       - CGO_ENABLED=0
+    main: ./cmd/kubectl-mongodb
     goos:
       - linux
       - darwin
@@ -16,9 +17,9 @@ builds:
     hooks:
       # This will notarize Apple binaries and replace goreleaser bins with the notarized ones
       post:
-        - cmd: ./kubectl_mac_notarize.sh
+        - cmd: ./scripts/release/kubectl-mongodb/kubectl_mac_notarize.sh
           output: true
-        - cmd: ./sign.sh {{ .Path }}
+        - cmd: ./scripts/release/kubectl-mongodb/sign.sh {{ .Path }}
           env:
             - GRS_USERNAME={{ .Env.GRS_USERNAME }}
             - GRS_PASSWORD={{ .Env.GRS_PASSWORD }}
@@ -27,7 +28,7 @@ builds:
             - SIGNING_IMAGE_URI={{ .Env.SIGNING_IMAGE_URI }}
             - ARTIFACTORY_USERNAME=mongodb-enterprise-kubernetes-operator
             - ARTIFACTORY_PASSWORD={{ .Env.ARTIFACTORY_PASSWORD }}
-        - cmd: ./verify.sh {{ .Path }} && echo "VERIFIED OK"
+        - cmd: ./scripts/release/kubectl-mongodb/verify.sh {{ .Path }} && echo "VERIFIED OK"
 
 archives:
   - format: tar.gz

@@ -45,7 +45,7 @@ functions:
     - command: shell.exec
       type: setup
       params:
-        working_dir: src/github.com/mongodb/mongodb-kubernetes/public/tools/multicluster
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
         include_expansions_in_env:
           - GRS_USERNAME
           - GRS_PASSWORD

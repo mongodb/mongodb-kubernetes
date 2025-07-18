@@ -30,7 +30,7 @@ process_licenses() {
 }
 
 process_licenses "${REPO_DIR}" &
-process_licenses "${REPO_DIR}/public/tools/multicluster" &
+process_licenses "${REPO_DIR}/cmd/kubectl-mongodb" &
 
 wait
 

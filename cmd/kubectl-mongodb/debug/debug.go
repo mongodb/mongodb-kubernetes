@@ -1,15 +1,15 @@
-package cmd
+package debug
 
 import (
 	"fmt"
 	"os"
 	"strings"
 
+	"github.com/spf13/cobra"
 	"k8s.io/client-go/tools/clientcmd"
 
-	"github.com/mongodb/mongodb-kubernetes/multi/pkg/common"
-	"github.com/mongodb/mongodb-kubernetes/multi/pkg/debug"
-	"github.com/spf13/cobra"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kubectl-mongodb/common"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kubectl-mongodb/debug"
 )
 
 type Flags struct {
@@ -39,18 +39,16 @@ func (f *Flags) ParseDebugFlags() error {
 var debugFlags = &Flags{}
 
 func init() {
-	rootCmd.AddCommand(debugCmd)
-
-	debugCmd.Flags().StringVar(&common.MemberClusters, "member-clusters", "", "Comma separated list of member clusters. [optional]")
-	debugCmd.Flags().StringVar(&debugFlags.CentralCluster, "central-cluster", "", "The central cluster the operator will be deployed in. [optional]")
-	debugCmd.Flags().StringVar(&debugFlags.MemberClusterNamespace, "member-cluster-namespace", "", "The namespace the member cluster resources will be deployed to. [optional]")
-	debugCmd.Flags().StringVar(&debugFlags.CentralClusterNamespace, "central-cluster-namespace", "", "The namespace the Operator will be deployed to. [optional]")
-	debugCmd.Flags().StringVar(&common.MemberClustersApiServers, "member-clusters-api-servers", "", "Comma separated list of api servers addresses. [optional, default will take addresses from KUBECONFIG env var]")
-	debugCmd.Flags().BoolVar(&debugFlags.Anonymize, "anonymize", true, "True if anonymization should be turned on")
-	debugCmd.Flags().BoolVar(&debugFlags.UseOwnerRef, "ownerRef", false, "True if the collection should be made with owner references (consider turning it on after CLOUDP-176772 is fixed)")
+	DebugCmd.Flags().StringVar(&common.MemberClusters, "member-clusters", "", "Comma separated list of member clusters. [optional]")
+	DebugCmd.Flags().StringVar(&debugFlags.CentralCluster, "central-cluster", "", "The central cluster the operator will be deployed in. [optional]")
+	DebugCmd.Flags().StringVar(&debugFlags.MemberClusterNamespace, "member-cluster-namespace", "", "The namespace the member cluster resources will be deployed to. [optional]")
+	DebugCmd.Flags().StringVar(&debugFlags.CentralClusterNamespace, "central-cluster-namespace", "", "The namespace the Operator will be deployed to. [optional]")
+	DebugCmd.Flags().StringVar(&common.MemberClustersApiServers, "member-clusters-api-servers", "", "Comma separated list of api servers addresses. [optional, default will take addresses from KUBECONFIG env var]")
+	DebugCmd.Flags().BoolVar(&debugFlags.Anonymize, "anonymize", true, "True if anonymization should be turned on")
+	DebugCmd.Flags().BoolVar(&debugFlags.UseOwnerRef, "ownerRef", false, "True if the collection should be made with owner references (consider turning it on after CLOUDP-176772 is fixed)")
 }
 
-var debugCmd = &cobra.Command{
+var DebugCmd = &cobra.Command{
 	Use:   "debug",
 	Short: "Downloads all resources required for debugging and stores them into the disk",
 	Long: `'debug' downloads all resources required for debugging and stores them into the disk.

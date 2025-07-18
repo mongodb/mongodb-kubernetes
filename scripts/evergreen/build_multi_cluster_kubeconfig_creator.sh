@@ -15,7 +15,7 @@ fi
 echo "Building multi cluster kube config creation tool."
 
 project_dir="$(pwd)"
-pushd public/tools/multicluster
+pushd cmd/kubectl-mongodb
 GOOS="${OS}" GOARCH="${ARCH}" CGO_ENABLED=0 go build -buildvcs=false -o "${project_dir}/docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator" main.go
 GOOS="linux" GOARCH="amd64" CGO_ENABLED=0 go build -buildvcs=false -o "${project_dir}/docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator_linux" main.go
 popd
