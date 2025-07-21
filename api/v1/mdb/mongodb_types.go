@@ -174,12 +174,15 @@ func (m *MongoDB) GetSecretsMountedIntoDBPod() []string {
 	secrets := []string{}
 	var tls string
 	if m.Spec.ResourceType == ShardedCluster {
-		for i := 0; i < m.Spec.ShardCount; i++ {
-			tls = m.GetSecurity().MemberCertificateSecretName(m.ShardRsName(i))
-			if tls != "" {
-				secrets = append(secrets, tls)
+		for _, zone := range m.Spec.GetShardZones() {
+			for i := 0; i < zone.Shards; i++ {
+				tls = m.GetSecurity().MemberCertificateSecretName(m.ShardRsName(zone.Name, i))
+				if tls != "" {
+					secrets = append(secrets, tls)
+				}
 			}
 		}
+
 		tls = m.GetSecurity().MemberCertificateSecretName(m.ConfigRsName())
 		if tls != "" {
 			secrets = append(secrets, tls)
@@ -345,15 +348,15 @@ type MongoDBConnectivity struct {
 }
 
 type MongoDbStatus struct {
-	status.Common                          `json:",inline"`
-	BackupStatus                           *BackupStatus `json:"backup,omitempty"`
-	status.MongodbShardedClusterSizeConfig `json:",inline"`
-	SizeStatusInClusters                   *status.MongodbShardedSizeStatusInClusters `json:"sizeStatusInClusters,omitempty"`
-	Members                                int                                        `json:"members,omitempty"`
-	Version                                string                                     `json:"version"`
-	Link                                   string                                     `json:"link,omitempty"`
-	FeatureCompatibilityVersion            string                                     `json:"featureCompatibilityVersion,omitempty"`
-	Warnings                               []status.Warning                           `json:"warnings,omitempty"`
+	status.Common                              `json:",inline"`
+	BackupStatus                               *BackupStatus `json:"backup,omitempty"`
+	status.MongodbZoneShardedClusterSizeConfig `json:",inline"`
+	SizeStatusInClusters                       *status.MongodbShardedSizeStatusInClusters `json:"sizeStatusInClusters,omitempty"`
+	Members                                    int                                        `json:"members,omitempty"`
+	Version                                    string                                     `json:"version"`
+	Link                                       string                                     `json:"link,omitempty"`
+	FeatureCompatibilityVersion                string                                     `json:"featureCompatibilityVersion,omitempty"`
+	Warnings                                   []status.Warning                           `json:"warnings,omitempty"`
 }
 
 type BackupMode string
@@ -1207,6 +1210,21 @@ func (m *MongoDB) ServiceName() string {
 	return m.Spec.Service
 }
 
+func (m *MongoDbSpec) GetShardZones() []ShardZoneSpec {
+	if len(m.ShardZones) == 0 {
+		return []ShardZoneSpec{
+			{
+				Name:                        "",
+				Shards:                      m.ShardCount,
+				Nodes:                       m.MongodsPerShardCount,
+				ShardedClusterComponentSpec: *m.ShardSpec,
+				MemberConfig:                m.MemberConfig,
+			},
+		}
+	}
+	return m.ShardZones
+}
+
 func (m *MongoDB) ConfigSrvServiceName() string {
 	return m.Name + "-cs"
 }
@@ -1223,14 +1241,17 @@ func (m *MongoDB) ConfigRsName() string {
 	return m.Name + "-config"
 }
 
-func (m *MongoDB) ShardRsName(i int) string {
+func (m *MongoDB) ShardRsName(zone string, i int) string {
 	// Unfortunately the pattern used by OM (name_idx) doesn't work as Kubernetes doesn't create the stateful set with an
 	// exception: "a DNS-1123 subdomain must consist of lower case alphanumeric characters, '-' or '.'"
-	return fmt.Sprintf("%s-%d", m.Name, i)
+	if zone == "" {
+		return fmt.Sprintf("%s-%d", m.Name, i)
+	}
+	return fmt.Sprintf("%s-%s-%d", m.Name, strings.ToLower(zone), i)
 }
 
-func (m *MongoDB) MultiShardRsName(clusterIdx int, shardIdx int) string {
-	return fmt.Sprintf("%s-%d-%d", m.Name, shardIdx, clusterIdx)
+func (m *MongoDB) MultiShardRsName(zoneName string, clusterIdx int, shardIdx int) string {
+	return fmt.Sprintf("%s-%s-%d-%d", m.Name, strings.ToLower(zoneName), shardIdx, clusterIdx)
 }
 
 func (m *MongoDB) MultiMongosRsName(clusterIdx int) string {
@@ -1279,7 +1300,7 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 	case ShardedCluster:
 		if option, exists := status.GetOption(statusOptions, status.ShardedClusterSizeConfigOption{}); exists {
 			if sizeConfig := option.(status.ShardedClusterSizeConfigOption).SizeConfig; sizeConfig != nil {
-				m.Status.MongodbShardedClusterSizeConfig = *sizeConfig
+				m.Status.MongodbZoneShardedClusterSizeConfig = *sizeConfig
 			}
 		}
 		if option, exists := status.GetOption(statusOptions, status.ShardedClusterSizeStatusInClustersOption{}); exists {
@@ -1296,7 +1317,11 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 
 		switch m.Spec.ResourceType {
 		case ShardedCluster:
-			m.Status.ShardCount = m.Spec.ShardCount
+			shardCount := map[string]int{}
+			for _, zone := range m.Spec.GetShardZones() {
+				shardCount[zone.Name] = zone.Shards
+			}
+			m.Status.ShardCount = shardCount
 		}
 	}
 }

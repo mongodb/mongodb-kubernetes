@@ -66,15 +66,17 @@ func NewShardedClusterFromInterface(i interface{}) ShardedCluster {
 }
 
 // NewShardedCluster builds a shard configuration with shards by replicasets names
-func NewShardedCluster(name, configRsName string, replicaSets []ReplicaSetWithProcesses) ShardedCluster {
+func NewShardedCluster(name, configRsName string, replicaSets map[string][]ReplicaSetWithProcesses) ShardedCluster {
 	ans := ShardedCluster{}
 	ans.setName(name)
 	ans.setConfigServerRsName(configRsName)
 
-	shards := make([]Shard, len(replicaSets))
-	for k, v := range replicaSets {
-		s := newShard(v.Rs.Name())
-		shards[k] = s
+	shards := make([]Shard, 0)
+	for zoneName, zone := range replicaSets {
+		for _, v := range zone {
+			s := newShard(v.Rs.Name(), zoneName)
+			shards = append(shards, s)
+		}
 	}
 	ans.setShards(shards)
 	return ans
@@ -90,10 +92,13 @@ func (s ShardedCluster) ConfigServerRsName() string {
 
 // ***************************************** Private methods ***********************************************************
 
-func newShard(name string) Shard {
+func newShard(name string, tag string) Shard {
 	s := Shard{}
 	s.setId(name)
 	s.setRs(name)
+	//if tag != "" {
+	//	s.setTags([]string{tag})
+	//}
 	return s
 }
 
@@ -137,6 +142,7 @@ func (s ShardedCluster) mergeFrom(operatorCluster ShardedCluster) []string {
 func (s Shard) mergeFrom(operatorShard Shard) {
 	s.setId(operatorShard.id())
 	s.setRs(operatorShard.rs())
+	//s.setTags(operatorShard.tags())
 }
 
 func (s ShardedCluster) shards() []Shard {
@@ -235,6 +241,14 @@ func (s Shard) rs() string {
 
 func (s Shard) setRs(rsName string) {
 	s["rs"] = rsName
+}
+
+func (s Shard) tags() []string {
+	return s["tags"].([]string)
+}
+
+func (s Shard) setTags(tags []string) {
+	s["tags"] = tags
 }
 
 // Returns keys that exist in leftMap but don't exist in right one

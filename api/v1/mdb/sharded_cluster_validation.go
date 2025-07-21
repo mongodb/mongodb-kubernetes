@@ -45,18 +45,18 @@ func ShardedClusterMultiValidators() []func(m MongoDB) []v1.ValidationResult {
 
 // This applies to any topology
 func shardCountSpecified(m MongoDB) v1.ValidationResult {
-	if m.Spec.ShardCount == 0 {
-		return v1.ValidationError("shardCount must be specified")
-	}
+	//if m.Spec.ShardCount == 0 {
+	//	return v1.ValidationError("shardCount must be specified")
+	//}
 	return v1.ValidationSuccess()
 }
 
 func mandatorySingleClusterFieldsAreSpecified(m MongoDB) v1.ValidationResult {
-	if m.Spec.MongodsPerShardCount == 0 ||
-		m.Spec.MongosCount == 0 ||
-		m.Spec.ConfigServerCount == 0 {
-		return v1.ValidationError("The following fields must be specified in single cluster topology: mongodsPerShardCount, mongosCount, configServerCount")
-	}
+	//if m.Spec.MongodsPerShardCount == 0 ||
+	//	m.Spec.MongosCount == 0 ||
+	//	m.Spec.ConfigServerCount == 0 {
+	//	return v1.ValidationError("The following fields must be specified in single cluster topology: mongodsPerShardCount, mongosCount, configServerCount")
+	//}
 	return v1.ValidationSuccess()
 }
 

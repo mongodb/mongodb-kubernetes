@@ -65,7 +65,7 @@ func (o MultiReplicaSetMemberOption) Value() interface{} {
 }
 
 type ShardedClusterMongodsPerShardCountOption struct {
-	Members int
+	Members map[string]int
 }
 
 func (o ShardedClusterMongodsPerShardCountOption) Value() interface{} {
@@ -89,7 +89,7 @@ func (o ShardedClusterMongosOption) Value() interface{} {
 }
 
 type ShardedClusterSizeConfigOption struct {
-	SizeConfig *MongodbShardedClusterSizeConfig
+	SizeConfig *MongodbZoneShardedClusterSizeConfig
 }
 
 func (o ShardedClusterSizeConfigOption) Value() interface{} {
@@ -113,6 +113,15 @@ type MongodbShardedClusterSizeConfig struct {
 	ConfigServerCount    int `json:"configServerCount,omitempty"`
 }
 
+// MongodbZoneShardedClusterSizeConfig describes the numbers and sizes of replica sets inside sharded cluster
+// +k8s:deepcopy-gen=true
+type MongodbZoneShardedClusterSizeConfig struct {
+	ShardCount           map[string]int `json:"shardCount,omitempty"`
+	MongodsPerShardCount map[string]int `json:"mongodsPerShardCount,omitempty"`
+	MongosCount          int            `json:"mongosCount,omitempty"`
+	ConfigServerCount    int            `json:"configServerCount,omitempty"`
+}
+
 func (m *MongodbShardedClusterSizeConfig) String() string {
 	return fmt.Sprintf("%+v", *m)
 }
@@ -120,7 +129,7 @@ func (m *MongodbShardedClusterSizeConfig) String() string {
 // MongodbShardedSizeStatusInClusters describes the number and sizes of replica sets members deployed across member clusters
 // +k8s:deepcopy-gen=true
 type MongodbShardedSizeStatusInClusters struct {
-	ShardMongodsInClusters        map[string]int            `json:"shardMongodsInClusters,omitempty"`
+	ShardMongodsInClusters        map[string]map[string]int `json:"shardMongodsInClusters,omitempty"`
 	ShardOverridesInClusters      map[string]map[string]int `json:"shardOverridesInClusters,omitempty"`
 	MongosCountInClusters         map[string]int            `json:"mongosCountInClusters,omitempty"`
 	ConfigServerMongodsInClusters map[string]int            `json:"configServerMongodsInClusters,omitempty"`
@@ -138,8 +147,12 @@ func sumMap(m map[string]int) int {
 	return sum
 }
 
-func (s *MongodbShardedSizeStatusInClusters) TotalShardMongodsInClusters() int {
-	return sumMap(s.ShardMongodsInClusters)
+func (s *MongodbShardedSizeStatusInClusters) TotalShardMongodsInClusters() map[string]int {
+	shardMongodsCount := map[string]int{}
+	for zone, shardMongods := range s.ShardMongodsInClusters {
+		shardMongodsCount[zone] = sumMap(shardMongods)
+	}
+	return shardMongodsCount
 }
 
 func (s *MongodbShardedSizeStatusInClusters) TotalConfigServerMongodsInClusters() int {

@@ -226,16 +226,16 @@ func AppDBMultiClusterReplicaSetConfig(om *omv1.MongoDBOpsManager, scaler interf
 }
 
 // ShardConfig returns a struct which provides all the configuration options required for the given shard.
-func ShardConfig(mdb mdbv1.MongoDB, shardNum int, externalDomain *string, scaler interfaces.MultiClusterReplicaSetScaler) Options {
-	resourceName := mdb.ShardRsName(shardNum)
+func ShardConfig(mdb mdbv1.MongoDB, zoneName string, shardNum int, externalDomain *string, scaler interfaces.MultiClusterReplicaSetScaler) Options {
+	resourceName := mdb.ShardRsName(zoneName, shardNum)
 	if mdb.Spec.IsMultiCluster() {
-		resourceName = mdb.MultiShardRsName(scaler.MemberClusterNum(), shardNum)
+		resourceName = mdb.MultiShardRsName(zoneName, scaler.MemberClusterNum(), shardNum)
 	}
 
 	return Options{
 		ResourceName:                 resourceName,
-		CertSecretName:               mdb.GetSecurity().MemberCertificateSecretName(mdb.ShardRsName(shardNum)),
-		InternalClusterSecretName:    mdb.GetSecurity().InternalClusterAuthSecretName(mdb.ShardRsName(shardNum)),
+		CertSecretName:               mdb.GetSecurity().MemberCertificateSecretName(mdb.ShardRsName(zoneName, shardNum)),
+		InternalClusterSecretName:    mdb.GetSecurity().InternalClusterAuthSecretName(mdb.ShardRsName(zoneName, shardNum)),
 		Namespace:                    mdb.Namespace,
 		Replicas:                     scale.ReplicasThisReconciliation(scaler),
 		ServiceName:                  mdb.ShardServiceName(),

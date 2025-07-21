@@ -240,7 +240,7 @@ type DeploymentShardedClusterMergeOptions struct {
 	Name                                 string
 	MongosProcesses                      []Process
 	ConfigServerRs                       ReplicaSetWithProcesses
-	Shards                               []ReplicaSetWithProcesses
+	Shards                               map[string][]ReplicaSetWithProcesses
 	Finalizing                           bool
 	ConfigServerAdditionalOptionsDesired map[string]interface{}
 	MongosAdditionalOptionsDesired       map[string]interface{}
@@ -817,8 +817,10 @@ func (d Deployment) mergeConfigReplicaSet(opts DeploymentShardedClusterMergeOpti
 // element as well
 func (d Deployment) mergeShards(opts DeploymentShardedClusterMergeOptions, log *zap.SugaredLogger) bool {
 	// First merging the individual replica sets for each shard
-	for _, v := range opts.Shards {
-		d.MergeReplicaSet(v, opts.ShardAdditionalOptionsDesired, opts.ShardAdditionalOptionsPrev, log)
+	for _, zone := range opts.Shards {
+		for _, v := range zone {
+			d.MergeReplicaSet(v, opts.ShardAdditionalOptionsDesired, opts.ShardAdditionalOptionsPrev, log)
+		}
 	}
 	cluster := NewShardedCluster(opts.Name, opts.ConfigServerRs.Rs.Name(), opts.Shards)
 

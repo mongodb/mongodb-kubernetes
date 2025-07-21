@@ -273,12 +273,12 @@ func (c shardedOptionCfg) hasExternalDomain() bool {
 }
 
 // ShardOptions returns a set of options which will configure single Shard StatefulSet
-func ShardOptions(shardNum int, shardSpec *mdbv1.ShardedClusterComponentSpec, memberClusterName string, additionalOpts ...func(options *DatabaseStatefulSetOptions)) func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
+func ShardOptions(zoneName string, shardNum int, shardSpec *mdbv1.ShardedClusterComponentSpec, memberClusterName string, additionalOpts ...func(options *DatabaseStatefulSetOptions)) func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 	return func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 		cfg := shardedOptionCfg{
 			mdb:               mdb,
 			componentSpec:     shardSpec,
-			rsName:            mdb.ShardRsName(shardNum),
+			rsName:            mdb.ShardRsName(zoneName, shardNum),
 			memberClusterName: memberClusterName,
 			serviceName:       mdb.ShardServiceName(),
 			stsType:           Shard,

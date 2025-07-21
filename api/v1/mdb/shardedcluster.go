@@ -15,6 +15,8 @@ type ShardedClusterSpec struct {
 	MongosSpec *ShardedClusterComponentSpec `json:"mongos,omitempty"`
 	// +kubebuilder:pruning:PreserveUnknownFields
 	ShardSpec *ShardedClusterComponentSpec `json:"shard,omitempty"`
+
+	ShardZones []ShardZoneSpec `json:"shardZones,omitempty"`
 	// ShardOverrides allow for overriding the configuration of a specific shard.
 	// It replaces deprecated spec.shard.shardSpecificPodSpec field. When spec.shard.shardSpecificPodSpec is still defined then
 	// spec.shard.shardSpecificPodSpec is applied first to the particular shard and then spec.shardOverrides is applied on top
@@ -30,6 +32,27 @@ type ShardedClusterSpec struct {
 	// DEPRECATED please use spec.shard.shardOverrides instead
 	// +optional
 	ShardSpecificPodSpec []MongoDbPodSpec `json:"shardSpecificPodSpec,omitempty"`
+}
+
+type ShardZoneSpec struct {
+	// +kubebuilder:pruning:PreserveUnknownFields
+	Name   string `json:"name,omitempty"`
+	Shards int    `json:"shards,omitempty"`
+
+	// Single cluster only
+	Nodes int `json:"nodes,omitempty"`
+
+	// MemberConfig allows to specify votes, priorities and tags for each of the mongodb process.
+	// +kubebuilder:pruning:PreserveUnknownFields
+	// +optional
+	MemberConfig []automationconfig.MemberOptions `json:"memberConfig,omitempty"`
+
+	ElectableNodesCount int `json:"electableNodesCount,omitempty"`
+	ReadOnlyNodesCount  int `json:"readOnlyNodesCount,omitempty"`
+
+	// Multi cluster only
+
+	ShardedClusterComponentSpec `json:",inline"`
 }
 
 type ShardedClusterComponentSpec struct {

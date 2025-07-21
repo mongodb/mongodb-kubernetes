@@ -144,9 +144,11 @@ func (r *ShardedClusterReconcileHelper) initializeMemberClusters(globalMemberClu
 		for _, clusterSpecItem := range r.getMongosClusterSpecList() {
 			allReferencedClusterNamesMap[clusterSpecItem.ClusterName] = struct{}{}
 		}
-		for _, shardComponentSpec := range shardsMap {
-			for _, clusterSpecItem := range shardComponentSpec.ClusterSpecList {
-				allReferencedClusterNamesMap[clusterSpecItem.ClusterName] = struct{}{}
+		for _, shardZone := range shardsMap {
+			for _, shardComponentSpec := range shardZone {
+				for _, clusterSpecItem := range shardComponentSpec.ClusterSpecList {
+					allReferencedClusterNamesMap[clusterSpecItem.ClusterName] = struct{}{}
+				}
 			}
 		}
 		var allReferencedClusterNames []string
@@ -234,62 +236,68 @@ func (r *ShardedClusterReconcileHelper) createAllMemberClustersList() []multiclu
 
 // createShardsMemberClusterLists creates a list of member clusters from the current desired shards configuration.
 // legacyMemberCluster parameter is used to indicate the member cluster should be marked as Legacy for reusing this function also in single-cluster mode.
-func (r *ShardedClusterReconcileHelper) createShardsMemberClusterLists(shardsMap map[int]*mdbv1.ShardedClusterComponentSpec, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger, deploymentState *ShardedClusterDeploymentState, legacyMemberCluster bool) (map[int][]multicluster.MemberCluster, []multicluster.MemberCluster) {
-	shardMemberClustersMap := map[int][]multicluster.MemberCluster{}
+func (r *ShardedClusterReconcileHelper) createShardsMemberClusterLists(shardsMap map[string]map[int]*mdbv1.ShardedClusterComponentSpec, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger, deploymentState *ShardedClusterDeploymentState, legacyMemberCluster bool) (map[string]map[int][]multicluster.MemberCluster, []multicluster.MemberCluster) {
+	shardMemberClustersMap := map[string]map[int][]multicluster.MemberCluster{}
 	var allShardsMemberClusters []multicluster.MemberCluster
 	alreadyAdded := map[string]struct{}{}
 	// Shards can have different member clusters specified in spec.ShardSpec.ClusterSpecList and in shard overrides.
 	// Here we construct a unique list of member clusters on which shards are deployed
-	for shardIdx, shardSpec := range shardsMap {
-		shardGetLastAppliedMembersFunc := func(memberClusterName string) int {
-			shardOverridesInClusters := deploymentState.Status.SizeStatusInClusters.ShardOverridesInClusters
-			if _, ok := shardOverridesInClusters[r.sc.ShardRsName(shardIdx)]; ok {
-				if count, ok := shardOverridesInClusters[r.sc.ShardRsName(shardIdx)][memberClusterName]; ok {
-					// If we stored an override for this shard in the status, get the member count from it
+	for zoneName, zoneSpec := range shardsMap {
+		shardMemberClustersMap[zoneName] = make(map[int][]multicluster.MemberCluster)
+
+		for shardIdx, shardSpec := range zoneSpec {
+			shardGetLastAppliedMembersFunc := func(memberClusterName string) int {
+				shardOverridesInClusters := deploymentState.Status.SizeStatusInClusters.ShardOverridesInClusters
+				if _, ok := shardOverridesInClusters[zoneName][r.sc.ShardRsName(zoneName, shardIdx)]; ok {
+					if count, ok := shardOverridesInClusters[r.sc.ShardRsName(zoneName, shardIdx)][memberClusterName]; ok {
+						// If we stored an override for this shard in the status, get the member count from it
+						return count
+					}
+				}
+				// Because we store one common distribution for all shards in ShardMongodsInClusters, we need to make sure
+				// we assign a size of 0 to newly created shards, as they haven't scaled yet.
+				if shardIdx >= deploymentState.Status.ShardCount[zoneName] {
+					return 0
+				}
+				if count, ok := deploymentState.Status.SizeStatusInClusters.ShardMongodsInClusters[zoneName][memberClusterName]; ok {
+					// Otherwise get the default one ShardMongodsInClusters
+					// ShardMongodsInClusters is not correct in the edge case where all shards are overridden
+					// but we won't enter this branch as we check for override in the branch above
+					// This edge case is tested in e2e_multi_cluster_sharded_scaling_all_shard_overrides
 					return count
 				}
-			}
-			// Because we store one common distribution for all shards in ShardMongodsInClusters, we need to make sure
-			// we assign a size of 0 to newly created shards, as they haven't scaled yet.
-			if shardIdx >= deploymentState.Status.ShardCount {
+
 				return 0
 			}
-			if count, ok := deploymentState.Status.SizeStatusInClusters.ShardMongodsInClusters[memberClusterName]; ok {
-				// Otherwise get the default one ShardMongodsInClusters
-				// ShardMongodsInClusters is not correct in the edge case where all shards are overridden
-				// but we won't enter this branch as we check for override in the branch above
-				// This edge case is tested in e2e_multi_cluster_sharded_scaling_all_shard_overrides
-				return count
-			}
+			// we use here shardSpec.ClusterSpecList directly as it's already a "processed" one from shardMap
+			shardMemberClustersMap[zoneName][shardIdx] = createMemberClusterListFromClusterSpecList(shardSpec.ClusterSpecList, globalMemberClustersMap, log, deploymentState.ClusterMapping, shardGetLastAppliedMembersFunc, legacyMemberCluster)
 
-			return 0
-		}
-		// we use here shardSpec.ClusterSpecList directly as it's already a "processed" one from shardMap
-		shardMemberClustersMap[shardIdx] = createMemberClusterListFromClusterSpecList(shardSpec.ClusterSpecList, globalMemberClustersMap, log, deploymentState.ClusterMapping, shardGetLastAppliedMembersFunc, legacyMemberCluster)
-
-		for _, shardMemberCluster := range shardMemberClustersMap[shardIdx] {
-			if _, ok := alreadyAdded[shardMemberCluster.Name]; !ok {
-				// We don't care from which shard we use memberCluster for this list;
-				// we deliberately reset Replicas to not accidentally use it
-				shardMemberCluster.Replicas = 0
-				allShardsMemberClusters = append(allShardsMemberClusters, shardMemberCluster)
-				alreadyAdded[shardMemberCluster.Name] = struct{}{}
+			for _, shardMemberCluster := range shardMemberClustersMap[zoneName][shardIdx] {
+				if _, ok := alreadyAdded[shardMemberCluster.Name]; !ok {
+					// We don't care from which shard we use memberCluster for this list;
+					// we deliberately reset Replicas to not accidentally use it
+					shardMemberCluster.Replicas = 0
+					allShardsMemberClusters = append(allShardsMemberClusters, shardMemberCluster)
+					alreadyAdded[shardMemberCluster.Name] = struct{}{}
+				}
 			}
 		}
 	}
-
 	return shardMemberClustersMap, allShardsMemberClusters
 }
 
 func (r *ShardedClusterReconcileHelper) getShardNameToShardIdxMap() map[string]int {
 	mapping := map[string]int{}
-	for shardIdx := 0; shardIdx < max(r.sc.Spec.ShardCount, r.deploymentState.Status.ShardCount); shardIdx++ {
-		mapping[r.sc.ShardRsName(shardIdx)] = shardIdx
+	for _, zone := range r.sc.Spec.GetShardZones() {
+		for shardIdx := 0; shardIdx < zone.Shards; shardIdx++ {
+			mapping[r.sc.ShardRsName(zone.Name, shardIdx)] = shardIdx
+		}
 	}
 
 	return mapping
 }
 
+// TODO fix this
 func (r *ShardedClusterReconcileHelper) getShardClusterSpecList() mdbv1.ClusterSpecList {
 	spec := r.sc.Spec
 	if spec.IsMultiCluster() {
@@ -340,7 +348,7 @@ func (r *ShardedClusterReconcileHelper) getConfigSrvClusterSpecList() mdbv1.Clus
 // It returns map of each shard (by index) with its configuration over all clusters and applying all pods spec overrides.
 // In other words, this function is rendering final configuration of each shard over all member clusters applying all override logic.
 // The reconciler implementation should refer to this structure only without taking into consideration complexities of MongoDbSpec wrt sharded clusters.
-func (r *ShardedClusterReconcileHelper) prepareDesiredShardsConfiguration() map[int]*mdbv1.ShardedClusterComponentSpec {
+func (r *ShardedClusterReconcileHelper) prepareDesiredShardsConfiguration() map[string]map[int]*mdbv1.ShardedClusterComponentSpec {
 	spec := r.sc.Spec.DeepCopy()
 	// We initialize ClusterSpecList to contain a single legacy cluster in case of SingleCluster mode.
 	if spec.ShardSpec == nil {
@@ -353,23 +361,37 @@ func (r *ShardedClusterReconcileHelper) prepareDesiredShardsConfiguration() map[
 	// We create here a collapsed structure of each shard configuration with all overrides applied to make the final configuration.
 	// For single cluster deployment it will be a single-element ClusterSpecList for each shard.
 	// For multiple clusters, each shard will have configuration specified for each member cluster.
-	shardComponentSpecs := map[int]*mdbv1.ShardedClusterComponentSpec{}
+	shardComponentSpecs := map[string]map[int]*mdbv1.ShardedClusterComponentSpec{}
 
-	for shardIdx := 0; shardIdx < max(spec.ShardCount, r.deploymentState.Status.ShardCount); shardIdx++ {
-		topLevelPersistenceOverride, topLevelPodSpecOverride := getShardTopLevelOverrides(spec, shardIdx)
-		shardComponentSpec := *spec.ShardSpec.DeepCopy()
-		shardComponentSpec.ClusterSpecList = processClusterSpecList(shardComponentSpec.ClusterSpecList, topLevelPodSpecOverride, topLevelPersistenceOverride)
-		shardComponentSpecs[shardIdx] = &shardComponentSpec
+	for _, zone := range spec.GetShardZones() {
+		if !spec.IsMultiCluster() {
+			zone.ClusterSpecList = mdbv1.ClusterSpecList{
+				{
+					ClusterName:  multicluster.LegacyCentralClusterName,
+					Members:      zone.Nodes,
+					MemberConfig: zone.MemberConfig,
+				},
+			}
+		}
+
+		shardComponentSpecs[zone.Name] = make(map[int]*mdbv1.ShardedClusterComponentSpec)
+		for shardIdx := 0; shardIdx < max(zone.Shards, r.deploymentState.Status.ShardCount[zone.Name]); shardIdx++ {
+			topLevelPersistenceOverride, topLevelPodSpecOverride := getShardTopLevelOverrides(spec, shardIdx)
+			shardComponentSpec := *zone.ShardedClusterComponentSpec.DeepCopy()
+			shardComponentSpec.ClusterSpecList = processClusterSpecList(shardComponentSpec.ClusterSpecList, topLevelPodSpecOverride, topLevelPersistenceOverride)
+			shardComponentSpecs[zone.Name][shardIdx] = &shardComponentSpec
+		}
 	}
 
+	//TODO fix this
 	for _, shardOverride := range expandShardOverrides(spec.ShardOverrides) {
 		// guaranteed to have one shard name in expandedShardOverrides
 		shardName := shardOverride.ShardNames[0]
 		shardIndex := r.getShardNameToShardIdxMap()[shardName]
 		// here we copy the whole element and overwrite at the end of every iteration
-		defaultShardConfiguration := shardComponentSpecs[shardIndex].DeepCopy()
+		defaultShardConfiguration := shardComponentSpecs[""][shardIndex].DeepCopy()
 		topLevelPersistenceOverride, topLevelPodSpecOverride := getShardTopLevelOverrides(spec, shardIndex)
-		shardComponentSpecs[shardIndex] = processShardOverride(spec, shardOverride, defaultShardConfiguration, topLevelPodSpecOverride, topLevelPersistenceOverride)
+		shardComponentSpecs[""][shardIndex] = processShardOverride(spec, shardOverride, defaultShardConfiguration, topLevelPodSpecOverride, topLevelPersistenceOverride)
 	}
 	return shardComponentSpecs
 }
@@ -642,12 +664,12 @@ type ShardedClusterReconcileHelper struct {
 	sc *mdbv1.MongoDB
 
 	// desired Configurations structs contain the target state - they reflect applying all the override rules to render the final, desired configuration
-	desiredShardsConfiguration       map[int]*mdbv1.ShardedClusterComponentSpec
+	desiredShardsConfiguration       map[string]map[int]*mdbv1.ShardedClusterComponentSpec
 	desiredConfigServerConfiguration *mdbv1.ShardedClusterComponentSpec
 	desiredMongosConfiguration       *mdbv1.ShardedClusterComponentSpec
 
 	// all member clusters here contain the number of members set to the current state read from deployment state
-	shardsMemberClustersMap map[int][]multicluster.MemberCluster
+	shardsMemberClustersMap map[string]map[int][]multicluster.MemberCluster
 	allShardsMemberClusters []multicluster.MemberCluster
 	configSrvMemberClusters []multicluster.MemberCluster
 	mongosMemberClusters    []multicluster.MemberCluster
@@ -828,7 +850,7 @@ func (r *ShardedClusterReconcileHelper) initializeStateStore(ctx context.Context
 			r.deploymentState.Status.SizeStatusInClusters.ConfigServerMongodsInClusters = map[string]int{}
 		}
 		if r.deploymentState.Status.SizeStatusInClusters.ShardMongodsInClusters == nil {
-			r.deploymentState.Status.SizeStatusInClusters.ShardMongodsInClusters = map[string]int{}
+			r.deploymentState.Status.SizeStatusInClusters.ShardMongodsInClusters = map[string]map[string]int{}
 		}
 		if r.deploymentState.Status.SizeStatusInClusters.ShardOverridesInClusters == nil {
 			r.deploymentState.Status.SizeStatusInClusters.ShardOverridesInClusters = map[string]map[string]int{}
@@ -874,7 +896,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	log.Info("-> ShardedCluster.Reconcile")
 	log.Infow("ShardedCluster.Spec", "spec", sc.Spec)
 	log.Infow("ShardedCluster.Status", "status", r.deploymentState.Status)
-	log.Infow("ShardedCluster.deploymentState", "sizeStatus", r.deploymentState.Status.MongodbShardedClusterSizeConfig, "sizeStatusInClusters", r.deploymentState.Status.SizeStatusInClusters)
+	log.Infow("ShardedCluster.deploymentState", "sizeStatus", r.deploymentState.Status.MongodbZoneShardedClusterSizeConfig, "sizeStatusInClusters", r.deploymentState.Status.SizeStatusInClusters)
 
 	r.logAllScalers(log)
 
@@ -958,8 +980,10 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	// This is executed only after the replicaset which are going to be removed are properly drained and
 	// all the processes in the cluster reports ready state. At this point the statefulsets are
 	// no longer part of the replicaset and are safe to remove - all the data from them is migrated (drained) to other shards.
-	if sc.Spec.ShardCount < r.deploymentState.Status.ShardCount {
-		r.removeUnusedStatefulsets(ctx, sc, log)
+	for _, zone := range sc.Spec.GetShardZones() {
+		if zone.Shards < r.deploymentState.Status.ShardCount[zone.Name] {
+			r.removeUnusedStatefulsets(ctx, sc, zone, log)
+		}
 	}
 
 	annotationsToAdd, err := getAnnotationsForResource(sc)
@@ -990,11 +1014,16 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	log.Infof("Finished reconciliation for Sharded Cluster! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	// It's the second place in the reconcile logic we're updating sizes of all the components
 	// We're also updating the shardCount here - it's the only place we're doing that.
+
+	mongodsPerShardCount := map[string]int{}
+	for _, zone := range sc.Spec.GetShardZones() {
+		mongodsPerShardCount[zone.Name] = zone.Shards
+	}
 	return r.updateStatus(ctx, sc, workflowStatus, log,
 		mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())),
 		mdbstatus.ShardedClusterSizeConfigOption{SizeConfig: sizeStatus},
 		mdbstatus.ShardedClusterSizeStatusInClustersOption{SizeConfigInClusters: sizeStatusInClusters},
-		mdbstatus.ShardedClusterMongodsPerShardCountOption{Members: r.sc.Spec.ShardCount},
+		mdbstatus.ShardedClusterMongodsPerShardCountOption{Members: mongodsPerShardCount},
 		mdbstatus.NewPVCsStatusOptionEmptyStatus(),
 	)
 }
@@ -1129,10 +1158,12 @@ func (r *ShardedClusterReconcileHelper) prepareX509CertConfigurator(memberCluste
 	var opts []certs.Options
 
 	// we don't have inverted mapping of memberCluster -> shard/configSrv/mongos configuration, so we need to find the specified member cluster first
-	for shardIdx := range r.desiredShardsConfiguration {
-		for _, shardMemberCluster := range r.shardsMemberClustersMap[shardIdx] {
-			if shardMemberCluster.Name == memberCluster.Name {
-				opts = append(opts, certs.ShardConfig(*r.sc, shardIdx, r.sc.Spec.GetExternalDomain(), r.GetShardScaler(shardIdx, shardMemberCluster)))
+	for zoneName, shardSpec := range r.desiredShardsConfiguration {
+		for shardIdx := range shardSpec {
+			for _, shardMemberCluster := range r.shardsMemberClustersMap[zoneName][shardIdx] {
+				if shardMemberCluster.Name == memberCluster.Name {
+					opts = append(opts, certs.ShardConfig(*r.sc, zoneName, shardIdx, r.sc.Spec.GetExternalDomain(), r.GetShardScaler(zoneName, shardIdx, shardMemberCluster)))
+				}
 			}
 		}
 	}
@@ -1166,8 +1197,11 @@ func getTLSSecretNames(sc *mdbv1.MongoDB) func() []string {
 			sc.GetSecurity().MemberCertificateSecretName(sc.MongosRsName()),
 			sc.GetSecurity().MemberCertificateSecretName(sc.ConfigRsName()),
 		)
-		for i := 0; i < sc.Spec.ShardCount; i++ {
-			secretNames = append(secretNames, sc.GetSecurity().MemberCertificateSecretName(sc.ShardRsName(i)))
+
+		for _, zone := range sc.Spec.GetShardZones() {
+			for i := 0; i < zone.Shards; i++ {
+				secretNames = append(secretNames, sc.GetSecurity().MemberCertificateSecretName(sc.ShardRsName(zone.Name, i)))
+			}
 		}
 		return secretNames
 	}
@@ -1180,9 +1214,12 @@ func getInternalAuthSecretNames(sc *mdbv1.MongoDB) func() []string {
 			sc.GetSecurity().InternalClusterAuthSecretName(sc.MongosRsName()),
 			sc.GetSecurity().InternalClusterAuthSecretName(sc.ConfigRsName()),
 		)
-		for i := 0; i < sc.Spec.ShardCount; i++ {
-			secretNames = append(secretNames, sc.GetSecurity().InternalClusterAuthSecretName(sc.ShardRsName(i)))
+		for _, zone := range sc.Spec.GetShardZones() {
+			for i := 0; i < zone.Shards; i++ {
+				secretNames = append(secretNames, sc.GetSecurity().InternalClusterAuthSecretName(sc.ShardRsName(zone.Name, i)))
+			}
 		}
+
 		return secretNames
 	}
 }
@@ -1223,9 +1260,11 @@ func anyStatefulSetNeedsToPublishStateToOM(ctx context.Context, sc mdbv1.MongoDB
 // This includes the Mongos, the Config Server and all Shards
 func (r *ShardedClusterReconcileHelper) getAllConfigs(ctx context.Context, sc mdbv1.MongoDB, opts deploymentOptions, log *zap.SugaredLogger) []func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
 	allConfigs := make([]func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, 0)
-	for shardIdx, shardSpec := range r.desiredShardsConfiguration {
-		for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[shardIdx]) {
-			allConfigs = append(allConfigs, r.getShardOptions(ctx, sc, shardIdx, opts, log, shardSpec, memberCluster))
+	for zoneName, shardMap := range r.desiredShardsConfiguration {
+		for shardIdx, shardSpec := range shardMap {
+			for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[zoneName][shardIdx]) {
+				allConfigs = append(allConfigs, r.getShardOptions(ctx, sc, zoneName, shardIdx, opts, log, shardSpec, memberCluster))
+			}
 		}
 	}
 	for _, memberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
@@ -1248,14 +1287,14 @@ func getHealthyMemberClusters(memberClusters []multicluster.MemberCluster) []mul
 	return result
 }
 
-func (r *ShardedClusterReconcileHelper) removeUnusedStatefulsets(ctx context.Context, sc *mdbv1.MongoDB, log *zap.SugaredLogger) {
-	statefulsetsToRemove := r.deploymentState.Status.ShardCount - sc.Spec.ShardCount
-	shardsCount := r.deploymentState.Status.ShardCount
+func (r *ShardedClusterReconcileHelper) removeUnusedStatefulsets(ctx context.Context, sc *mdbv1.MongoDB, zone mdbv1.ShardZoneSpec, log *zap.SugaredLogger) {
+	statefulsetsToRemove := r.deploymentState.Status.ShardCount[zone.Name] - zone.Shards
+	shardsCount := r.deploymentState.Status.ShardCount[zone.Name]
 
 	// we iterate over last 'statefulsetsToRemove' shards if any
 	for i := shardsCount - statefulsetsToRemove; i < shardsCount; i++ {
-		for _, memberCluster := range r.shardsMemberClustersMap[i] {
-			key := kube.ObjectKey(sc.Namespace, r.GetShardStsName(i, memberCluster))
+		for _, memberCluster := range r.shardsMemberClustersMap[zone.Name][i] {
+			key := kube.ObjectKey(sc.Namespace, r.GetShardStsName(zone.Name, i, memberCluster))
 			err := memberCluster.Client.DeleteStatefulSet(ctx, key)
 			if err != nil {
 				// Most of all the error won't be recoverable, also our sharded cluster is in good shape - we can just warn
@@ -1294,12 +1333,14 @@ func (r *ShardedClusterReconcileHelper) ensureSSLCertificates(ctx context.Contex
 		workflowStatus = workflowStatus.Merge(tStatus)
 	}
 
-	for i := 0; i < s.Spec.ShardCount; i++ {
-		for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[i]) {
-			shardCert := certs.ShardConfig(*s, i, r.sc.Spec.DbCommonSpec.GetExternalDomain(), r.GetShardScaler(i, memberCluster))
-			tStatus := certs.EnsureSSLCertsForStatefulSet(ctx, r.commonController.SecretClient, memberCluster.SecretClient, *s.Spec.Security, shardCert, log)
-			certSecretTypes[shardCert.CertSecretName] = true
-			workflowStatus = workflowStatus.Merge(tStatus)
+	for _, zone := range s.Spec.GetShardZones() {
+		for i := 0; i < zone.Shards; i++ {
+			for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[zone.Name][i]) {
+				shardCert := certs.ShardConfig(*s, zone.Name, i, r.sc.Spec.DbCommonSpec.GetExternalDomain(), r.GetShardScaler(zone.Name, i, memberCluster))
+				tStatus := certs.EnsureSSLCertsForStatefulSet(ctx, r.commonController.SecretClient, memberCluster.SecretClient, *s.Spec.Security, shardCert, log)
+				certSecretTypes[shardCert.CertSecretName] = true
+				workflowStatus = workflowStatus.Merge(tStatus)
+			}
 		}
 	}
 
@@ -1374,46 +1415,50 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateMongos(ctx context.Context
 }
 
 func (r *ShardedClusterReconcileHelper) createOrUpdateShards(ctx context.Context, s *mdbv1.MongoDB, opts deploymentOptions, log *zap.SugaredLogger) workflow.Status {
-	shardsNames := make([]string, s.Spec.ShardCount)
-	for shardIdx := 0; shardIdx < s.Spec.ShardCount; shardIdx++ {
-		// it doesn't matter for which cluster we get scaler as we need it only for ScalingFirstTime which is iterating over all member clusters internally anyway
-		scalingFirstTime := r.GetShardScaler(shardIdx, r.shardsMemberClustersMap[shardIdx][0]).ScalingFirstTime()
-		for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[shardIdx]) {
-			// shardsNames contains shard name, not statefulset name
-			// in single cluster sts name == shard name
-			// in multi cluster sts name contains cluster index, but shard name does not (it's a replicaset name)
-			shardsNames[shardIdx] = s.ShardRsName(shardIdx)
-			shardOpts := r.getShardOptions(ctx, *s, shardIdx, opts, log, r.desiredShardsConfiguration[shardIdx], memberCluster)
-			shardSts := construct.DatabaseStatefulSet(*s, shardOpts, log)
+	shardsNames := make(map[string][]string)
+	for _, zone := range s.Spec.GetShardZones() {
+		for shardIdx := 0; shardIdx < zone.Shards; shardIdx++ {
+			shardsNames[zone.Name] = make([]string, zone.Shards)
+			// it doesn't matter for which cluster we get scaler as we need it only for ScalingFirstTime which is iterating over all member clusters internally anyway
+			// TODO maybe it does matter with zones
+			scalingFirstTime := r.GetShardScaler(zone.Name, shardIdx, r.shardsMemberClustersMap[zone.Name][shardIdx][0]).ScalingFirstTime()
+			for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[zone.Name][shardIdx]) {
+				// shardsNames contains shard name, not statefulset name
+				// in single cluster sts name == shard name
+				// in multi cluster sts name contains cluster index, but shard name does not (it's a replicaset name)
+				shardsNames[zone.Name][shardIdx] = s.ShardRsName(zone.Name, shardIdx)
+				shardOpts := r.getShardOptions(ctx, *s, zone.Name, shardIdx, opts, log, r.desiredShardsConfiguration[zone.Name][shardIdx], memberCluster)
+				shardSts := construct.DatabaseStatefulSet(*s, shardOpts, log)
 
-			if workflowStatus := r.handlePVCResize(ctx, memberCluster, &shardSts, log); !workflowStatus.IsOK() {
-				return workflowStatus
-			}
-
-			if err := create.DatabaseInKubernetes(ctx, memberCluster.Client, *s, shardSts, shardOpts, log); err != nil {
-				return workflow.Failed(xerrors.Errorf("Failed to create StatefulSet for shard %s: %w", shardSts.Name, err))
-			}
-
-			if !scalingFirstTime {
-				// If we scale for the first time, we deploy all statefulsets across all clusters for the given shard.
-				// We can do that because when doing the initial deployment there is no automation config, so we can deploy
-				// everything in parallel and our pods will be spinning up agents only. After everything is ready
-				// (we have the case in readiness for empty AC to return true) we then publish AC with fully constructed processes
-				// and all agents are starting to wire things up and configure the replicaset.
-				// If we don't scale for the first time we need to wait for each individual sts as we need to scale members of the whole replica set one at a time
-				if workflowStatus := statefulset.GetStatefulSetStatus(ctx, s.Namespace, shardSts.Name, memberCluster.Client); !workflowStatus.IsOK() {
+				if workflowStatus := r.handlePVCResize(ctx, memberCluster, &shardSts, log); !workflowStatus.IsOK() {
 					return workflowStatus
 				}
+
+				if err := create.DatabaseInKubernetes(ctx, memberCluster.Client, *s, shardSts, shardOpts, log); err != nil {
+					return workflow.Failed(xerrors.Errorf("Failed to create StatefulSet for shard %s: %w", shardSts.Name, err))
+				}
+
+				if !scalingFirstTime {
+					// If we scale for the first time, we deploy all statefulsets across all clusters for the given shard.
+					// We can do that because when doing the initial deployment there is no automation config, so we can deploy
+					// everything in parallel and our pods will be spinning up agents only. After everything is ready
+					// (we have the case in readiness for empty AC to return true) we then publish AC with fully constructed processes
+					// and all agents are starting to wire things up and configure the replicaset.
+					// If we don't scale for the first time we need to wait for each individual sts as we need to scale members of the whole replica set one at a time
+					if workflowStatus := statefulset.GetStatefulSetStatus(ctx, s.Namespace, shardSts.Name, memberCluster.Client); !workflowStatus.IsOK() {
+						return workflowStatus
+					}
+				}
 			}
-		}
-		// if we scale for the first time we didn't wait for statefulsets to become ready in the loop over member clusters
-		// we need to wait for all sts here instead after all were deployed/scaled up to desired members
-		if scalingFirstTime {
-			getShardStsName := func(memberCluster multicluster.MemberCluster) string {
-				return r.GetShardStsName(shardIdx, memberCluster)
-			}
-			if workflowStatus := r.getMergedStatefulsetStatus(ctx, s, r.shardsMemberClustersMap[shardIdx], getShardStsName); !workflowStatus.IsOK() {
-				return workflowStatus
+			// if we scale for the first time we didn't wait for statefulsets to become ready in the loop over member clusters
+			// we need to wait for all sts here instead after all were deployed/scaled up to desired members
+			if scalingFirstTime {
+				getShardStsName := func(memberCluster multicluster.MemberCluster) string {
+					return r.GetShardStsName(zone.Name, shardIdx, memberCluster)
+				}
+				if workflowStatus := r.getMergedStatefulsetStatus(ctx, s, r.shardsMemberClustersMap[zone.Name][shardIdx], getShardStsName); !workflowStatus.IsOK() {
+					return workflowStatus
+				}
 			}
 		}
 	}
@@ -1494,41 +1539,45 @@ func isShardOverridden(shardName string, shardOverrides []mdbv1.ShardOverride) b
 // What is important to note it the scalers used here and usage of scale.ReplicasThisReconciliation makes the sizes returned consistent throughout a single reconcile execution and
 // with the guarantee that only one node can be added at a time to any replicaset.
 // That means we use the scale.ReplicasThisReconciliation function with scalers in other parts of the reconciler logic (e.g. for creating sts and processes for AC, here for status).
-func (r *ShardedClusterReconcileHelper) calculateSizeStatus(s *mdbv1.MongoDB) (*mdbstatus.MongodbShardedSizeStatusInClusters, *mdbstatus.MongodbShardedClusterSizeConfig) {
+func (r *ShardedClusterReconcileHelper) calculateSizeStatus(s *mdbv1.MongoDB) (*mdbstatus.MongodbShardedSizeStatusInClusters, *mdbstatus.MongodbZoneShardedClusterSizeConfig) {
 	sizeStatusInClusters := r.deploymentState.Status.SizeStatusInClusters.DeepCopy()
-	sizeStatus := r.deploymentState.Status.MongodbShardedClusterSizeConfig.DeepCopy()
+	sizeStatus := r.deploymentState.Status.MongodbZoneShardedClusterSizeConfig.DeepCopy()
 
 	// We calculate the current member counts for updating the status at the end of the function, after everything is ready according to the current reconcile loop's scalers
 	// Before making the reconcile loop multi-cluster-first, the counts were saved only when workflow result was OK, so we're keeping the same logic here
 
 	// We iterate over all clusters (not only healthy as it would remove the counts from those) and store counts to deployment state
-	shardMongodsCountInClusters := map[string]int{}
+	shardMongodsCountInClusters := map[string]map[string]int{}
 	shardOverridesInClusters := map[string]map[string]int{}
 	// In all shards, we iterate over all clusters (not only healthy as it would remove the counts from those) and store
 	// counts to deployment state
-	for shardIdx := 0; shardIdx < s.Spec.ShardCount; shardIdx++ {
-		shardName := r.sc.ShardRsName(shardIdx)
-		isOverridden := isShardOverridden(shardName, r.sc.Spec.ShardOverrides)
+	for _, zone := range s.Spec.GetShardZones() {
+		shardMongodsCountInClusters[zone.Name] = make(map[string]int)
 
-		// if all shards are overridden, we have nothing in shardMongodsCountInClusters, followup ticket: https://jira.mongodb.org/browse/CLOUDP-287426
-		if isOverridden {
-			// Initialize the map for this override if needed
-			if shardOverridesInClusters[shardName] == nil {
-				shardOverridesInClusters[shardName] = map[string]int{}
+		for shardIdx := 0; shardIdx < zone.Shards; shardIdx++ {
+			shardName := r.sc.ShardRsName(zone.Name, shardIdx)
+			isOverridden := isShardOverridden(shardName, r.sc.Spec.ShardOverrides)
+
+			// if all shards are overridden, we have nothing in shardMongodsCountInClusters, followup ticket: https://jira.mongodb.org/browse/CLOUDP-287426
+			if isOverridden {
+				// Initialize the map for this override if needed
+				if shardOverridesInClusters[shardName] == nil {
+					shardOverridesInClusters[shardName] = map[string]int{}
+				}
+				for _, memberCluster := range r.shardsMemberClustersMap[zone.Name][shardIdx] {
+					currentReplicas := scale.ReplicasThisReconciliation(r.GetShardScaler(zone.Name, shardIdx, memberCluster))
+					shardOverridesInClusters[shardName][memberCluster.Name] = currentReplicas
+				}
+			} else if len(shardMongodsCountInClusters) == 0 {
+				// Without override, shardMongodsCountInClusters will be the same for any shard, we need to populate it
+				// only once, if it's empty
+				for _, memberCluster := range r.shardsMemberClustersMap[zone.Name][shardIdx] {
+					currentReplicas := scale.ReplicasThisReconciliation(r.GetShardScaler(zone.Name, shardIdx, memberCluster))
+					shardMongodsCountInClusters[zone.Name][memberCluster.Name] = currentReplicas
+				}
 			}
-			for _, memberCluster := range r.shardsMemberClustersMap[shardIdx] {
-				currentReplicas := scale.ReplicasThisReconciliation(r.GetShardScaler(shardIdx, memberCluster))
-				shardOverridesInClusters[shardName][memberCluster.Name] = currentReplicas
-			}
-		} else if len(shardMongodsCountInClusters) == 0 {
-			// Without override, shardMongodsCountInClusters will be the same for any shard, we need to populate it
-			// only once, if it's empty
-			for _, memberCluster := range r.shardsMemberClustersMap[shardIdx] {
-				currentReplicas := scale.ReplicasThisReconciliation(r.GetShardScaler(shardIdx, memberCluster))
-				shardMongodsCountInClusters[memberCluster.Name] = currentReplicas
-			}
+			// If shardMongodsCountInClusters is already populated, no action is needed for non-overridden shards
 		}
-		// If shardMongodsCountInClusters is already populated, no action is needed for non-overridden shards
 	}
 
 	sizeStatusInClusters.ShardMongodsInClusters = shardMongodsCountInClusters // While we do not address the above to do, this field can be nil in the case where all shards are overridden
@@ -1708,15 +1757,15 @@ func (r *ShardedClusterReconcileHelper) getConfigSrvHostnames(memberCluster mult
 	}
 }
 
-func (r *ShardedClusterReconcileHelper) getShardHostnames(shardIdx int, memberCluster multicluster.MemberCluster, replicas int) ([]string, []string) {
+func (r *ShardedClusterReconcileHelper) getShardHostnames(zoneName string, shardIdx int, memberCluster multicluster.MemberCluster, replicas int) ([]string, []string) {
 	externalDomain := r.sc.Spec.ShardSpec.ClusterSpecList.GetExternalDomainForMemberCluster(memberCluster.Name)
 	if externalDomain == nil && r.sc.Spec.IsMultiCluster() {
 		externalDomain = r.sc.Spec.DbCommonSpec.GetExternalDomain()
 	}
 	if !memberCluster.Legacy {
-		return dns.GetMultiClusterProcessHostnamesAndPodNames(r.sc.ShardRsName(shardIdx), r.sc.Namespace, memberCluster.Index, replicas, r.sc.Spec.GetClusterDomain(), externalDomain)
+		return dns.GetMultiClusterProcessHostnamesAndPodNames(r.sc.ShardRsName(zoneName, shardIdx), r.sc.Namespace, memberCluster.Index, replicas, r.sc.Spec.GetClusterDomain(), externalDomain)
 	} else {
-		return dns.GetDNSNames(r.GetShardStsName(shardIdx, memberCluster), r.sc.ShardServiceName(), r.sc.Namespace, r.sc.Spec.GetClusterDomain(), replicas, externalDomain)
+		return dns.GetDNSNames(r.GetShardStsName(zoneName, shardIdx, memberCluster), r.sc.ShardServiceName(), r.sc.Namespace, r.sc.Spec.GetClusterDomain(), replicas, externalDomain)
 	}
 }
 
@@ -1735,7 +1784,7 @@ func (r *ShardedClusterReconcileHelper) getMongosHostnames(memberCluster multicl
 	}
 }
 
-func (r *ShardedClusterReconcileHelper) computeMembersToScaleDown(configSrvMemberClusters []multicluster.MemberCluster, shardsMemberClustersMap map[int][]multicluster.MemberCluster, log *zap.SugaredLogger) map[string][]string {
+func (r *ShardedClusterReconcileHelper) computeMembersToScaleDown(configSrvMemberClusters []multicluster.MemberCluster, zoneShardsMemberClustersMap map[string]map[int][]multicluster.MemberCluster, log *zap.SugaredLogger) map[string][]string {
 	membersToScaleDown := make(map[string][]string)
 	for _, memberCluster := range configSrvMemberClusters {
 		currentReplicas := memberCluster.Replicas
@@ -1753,19 +1802,21 @@ func (r *ShardedClusterReconcileHelper) computeMembersToScaleDown(configSrvMembe
 	}
 
 	// Scaledown size of each shard
-	for shardIdx, memberClusters := range shardsMemberClustersMap {
-		for _, memberCluster := range memberClusters {
-			currentReplicas := memberCluster.Replicas
-			desiredReplicas := scale.ReplicasThisReconciliation(r.GetShardScaler(shardIdx, memberCluster))
-			_, currentPodNames := r.getShardHostnames(shardIdx, memberCluster, currentReplicas)
-			if desiredReplicas < currentReplicas {
-				log.Debugf("Detected shard idx=%d in cluster %s is scaling down: desiredReplicas=%d, currentReplicas=%d", shardIdx, memberCluster.Name, desiredReplicas, currentReplicas)
-				shardRsName := r.sc.ShardRsName(shardIdx)
-				if _, ok := membersToScaleDown[shardRsName]; !ok {
-					membersToScaleDown[shardRsName] = []string{}
+	for zoneName, shardsMemberClustersMap := range zoneShardsMemberClustersMap {
+		for shardIdx, memberClusters := range shardsMemberClustersMap {
+			for _, memberCluster := range memberClusters {
+				currentReplicas := memberCluster.Replicas
+				desiredReplicas := scale.ReplicasThisReconciliation(r.GetShardScaler(zoneName, shardIdx, memberCluster))
+				_, currentPodNames := r.getShardHostnames(zoneName, shardIdx, memberCluster, currentReplicas)
+				if desiredReplicas < currentReplicas {
+					log.Debugf("Detected shard idx=%d in cluster %s is scaling down: desiredReplicas=%d, currentReplicas=%d", shardIdx, memberCluster.Name, desiredReplicas, currentReplicas)
+					shardRsName := r.sc.ShardRsName(zoneName, shardIdx)
+					if _, ok := membersToScaleDown[shardRsName]; !ok {
+						membersToScaleDown[shardRsName] = []string{}
+					}
+					podNamesToScaleDown := currentPodNames[desiredReplicas:currentReplicas]
+					membersToScaleDown[shardRsName] = append(membersToScaleDown[shardRsName], podNamesToScaleDown...)
 				}
-				podNamesToScaleDown := currentPodNames[desiredReplicas:currentReplicas]
-				membersToScaleDown[shardRsName] = append(membersToScaleDown[shardRsName], podNamesToScaleDown...)
 			}
 		}
 	}
@@ -1926,15 +1977,18 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 	configRs, _ := buildReplicaSetFromProcesses(sc.ConfigRsName(), configSrvProcesses, sc, configSrvMemberOptions, existingDeployment)
 
 	// Shards
-	shards := make([]om.ReplicaSetWithProcesses, sc.Spec.ShardCount)
+	shards := map[string][]om.ReplicaSetWithProcesses{}
 	var shardInternalClusterPaths []string
-	for shardIdx := 0; shardIdx < r.sc.Spec.ShardCount; shardIdx++ {
-		shardOptionsFunc := r.getShardOptions(ctx, *sc, shardIdx, *opts, log, r.desiredShardsConfiguration[shardIdx], r.shardsMemberClustersMap[shardIdx][0])
-		shardOptions := shardOptionsFunc(*r.sc)
-		shardInternalClusterPaths = append(shardInternalClusterPaths, fmt.Sprintf("%s/%s", util.InternalClusterAuthMountPath, shardOptions.InternalClusterHash))
-		shardMemberCertPath := fmt.Sprintf("%s/%s", util.TLSCertMountPath, shardOptions.CertificateHash)
-		desiredShardProcesses, desiredShardMemberOptions := r.createDesiredShardProcessesAndMemberOptions(shardIdx, shardMemberCertPath)
-		shards[shardIdx], _ = buildReplicaSetFromProcesses(r.sc.ShardRsName(shardIdx), desiredShardProcesses, sc, desiredShardMemberOptions, existingDeployment)
+	for _, zone := range sc.Spec.GetShardZones() {
+		shards[zone.Name] = make([]om.ReplicaSetWithProcesses, zone.Shards)
+		for shardIdx := 0; shardIdx < zone.Shards; shardIdx++ {
+			shardOptionsFunc := r.getShardOptions(ctx, *sc, zone.Name, shardIdx, *opts, log, r.desiredShardsConfiguration[zone.Name][shardIdx], r.shardsMemberClustersMap[zone.Name][shardIdx][0])
+			shardOptions := shardOptionsFunc(*r.sc)
+			shardInternalClusterPaths = append(shardInternalClusterPaths, fmt.Sprintf("%s/%s", util.InternalClusterAuthMountPath, shardOptions.InternalClusterHash))
+			shardMemberCertPath := fmt.Sprintf("%s/%s", util.TLSCertMountPath, shardOptions.CertificateHash)
+			desiredShardProcesses, desiredShardMemberOptions := r.createDesiredShardProcessesAndMemberOptions(zone.Name, shardIdx, shardMemberCertPath)
+			shards[zone.Name][shardIdx], _ = buildReplicaSetFromProcesses(r.sc.ShardRsName(zone.Name, shardIdx), desiredShardProcesses, sc, desiredShardMemberOptions, existingDeployment)
+		}
 	}
 
 	// updateOmAuthentication normally takes care of the certfile rotation code, but since sharded-cluster is special pertaining multiple clusterfiles, we code this part here for now.
@@ -2063,10 +2117,12 @@ func setupInternalClusterAuth(d om.Deployment, name string, internalClusterAuthM
 	}
 }
 
-func getAllProcesses(shards []om.ReplicaSetWithProcesses, configRs om.ReplicaSetWithProcesses, mongosProcesses []om.Process) []om.Process {
+func getAllProcesses(zoneShards map[string][]om.ReplicaSetWithProcesses, configRs om.ReplicaSetWithProcesses, mongosProcesses []om.Process) []om.Process {
 	allProcesses := make([]om.Process, 0)
-	for _, shard := range shards {
-		allProcesses = append(allProcesses, shard.Processes...)
+	for _, shards := range zoneShards {
+		for _, shard := range shards {
+			allProcesses = append(allProcesses, shard.Processes...)
+		}
 	}
 	allProcesses = append(allProcesses, configRs.Processes...)
 	allProcesses = append(allProcesses, mongosProcesses...)
@@ -2093,14 +2149,16 @@ func (r *ShardedClusterReconcileHelper) waitForAgentsToRegister(sc *mdbv1.MongoD
 		return xerrors.Errorf("Config server agents didn't register with Ops Manager: %w", err)
 	}
 
-	for shardIdx := 0; shardIdx < sc.Spec.ShardCount; shardIdx++ {
-		var shardHostnames []string
-		for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[shardIdx]) {
-			hostnames, _ := r.getShardHostnames(shardIdx, memberCluster, scale.ReplicasThisReconciliation(r.GetShardScaler(shardIdx, memberCluster)))
-			shardHostnames = append(shardHostnames, hostnames...)
-		}
-		if err := agents.WaitForRsAgentsToRegisterSpecifiedHostnames(conn, shardHostnames, log.With("hostnamesOf", "shard", "shardIdx", shardIdx)); err != nil {
-			return xerrors.Errorf("Shards agents didn't register with Ops Manager: %w", err)
+	for _, zone := range sc.Spec.GetShardZones() {
+		for shardIdx := 0; shardIdx < zone.Shards; shardIdx++ {
+			var shardHostnames []string
+			for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[zone.Name][shardIdx]) {
+				hostnames, _ := r.getShardHostnames(zone.Name, shardIdx, memberCluster, scale.ReplicasThisReconciliation(r.GetShardScaler(zone.Name, shardIdx, memberCluster)))
+				shardHostnames = append(shardHostnames, hostnames...)
+			}
+			if err := agents.WaitForRsAgentsToRegisterSpecifiedHostnames(conn, shardHostnames, log.With("hostnamesOf", "shard", "shardIdx", shardIdx)); err != nil {
+				return xerrors.Errorf("Shards agents didn't register with Ops Manager: %w", err)
+			}
 		}
 	}
 
@@ -2138,15 +2196,17 @@ func (r *ShardedClusterReconcileHelper) getAllConfigSrvHostnamesAndPodNames(desi
 func (r *ShardedClusterReconcileHelper) getAllShardHostnamesAndPodNames(desiredReplicas bool) ([]string, []string) {
 	var shardHostnames []string
 	var shardPodNames []string
-	for shardIdx, memberClusterMap := range r.shardsMemberClustersMap {
-		for _, memberCluster := range memberClusterMap {
-			replicas := memberCluster.Replicas
-			if desiredReplicas {
-				replicas = scale.ReplicasThisReconciliation(r.GetShardScaler(shardIdx, memberCluster))
+	for zoneName, shardsMemberClustersMap := range r.shardsMemberClustersMap {
+		for shardIdx, memberClusterMap := range shardsMemberClustersMap {
+			for _, memberCluster := range memberClusterMap {
+				replicas := memberCluster.Replicas
+				if desiredReplicas {
+					replicas = scale.ReplicasThisReconciliation(r.GetShardScaler(zoneName, shardIdx, memberCluster))
+				}
+				hostnames, podNames := r.getShardHostnames(zoneName, shardIdx, memberCluster, replicas)
+				shardHostnames = append(shardHostnames, hostnames...)
+				shardPodNames = append(shardPodNames, podNames...)
 			}
-			hostnames, podNames := r.getShardHostnames(shardIdx, memberCluster, replicas)
-			shardHostnames = append(shardHostnames, hostnames...)
-			shardPodNames = append(shardPodNames, podNames...)
 		}
 	}
 
@@ -2204,16 +2264,16 @@ func (r *ShardedClusterReconcileHelper) createDesiredConfigSrvProcessesAndMember
 	return processes, memberOptions
 }
 
-func (r *ShardedClusterReconcileHelper) createDesiredShardProcessesAndMemberOptions(shardIdx int, certificateFilePath string) ([]om.Process, []automationconfig.MemberOptions) {
+func (r *ShardedClusterReconcileHelper) createDesiredShardProcessesAndMemberOptions(zoneName string, shardIdx int, certificateFilePath string) ([]om.Process, []automationconfig.MemberOptions) {
 	var processes []om.Process
 	var memberOptions []automationconfig.MemberOptions
-	for _, memberCluster := range r.shardsMemberClustersMap[shardIdx] {
-		hostnames, podNames := r.getShardHostnames(shardIdx, memberCluster, scale.ReplicasThisReconciliation(r.GetShardScaler(shardIdx, memberCluster)))
+	for _, memberCluster := range r.shardsMemberClustersMap[zoneName][shardIdx] {
+		hostnames, podNames := r.getShardHostnames(zoneName, shardIdx, memberCluster, scale.ReplicasThisReconciliation(r.GetShardScaler(zoneName, shardIdx, memberCluster)))
 		for i := range hostnames {
-			process := om.NewMongodProcess(podNames[i], hostnames[i], r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, r.desiredShardsConfiguration[shardIdx].GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion())
+			process := om.NewMongodProcess(podNames[i], hostnames[i], r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, r.desiredShardsConfiguration[zoneName][shardIdx].GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion())
 			processes = append(processes, process)
 		}
-		specMemberOptions := r.desiredShardsConfiguration[shardIdx].GetClusterSpecItem(memberCluster.Name).MemberConfig
+		specMemberOptions := r.desiredShardsConfiguration[zoneName][shardIdx].GetClusterSpecItem(memberCluster.Name).MemberConfig
 		memberOptions = append(memberOptions, specMemberOptions...)
 	}
 
@@ -2324,9 +2384,9 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 }
 
 // getShardOptions returns the Options needed to build the StatefulSet for a given shard.
-func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc mdbv1.MongoDB, shardNum int, opts deploymentOptions, log *zap.SugaredLogger, shardSpec *mdbv1.ShardedClusterComponentSpec, memberCluster multicluster.MemberCluster) func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
-	certSecretName := sc.GetSecurity().MemberCertificateSecretName(sc.ShardRsName(shardNum))
-	internalClusterSecretName := sc.GetSecurity().InternalClusterAuthSecretName(sc.ShardRsName(shardNum))
+func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc mdbv1.MongoDB, zoneName string, shardNum int, opts deploymentOptions, log *zap.SugaredLogger, shardSpec *mdbv1.ShardedClusterComponentSpec, memberCluster multicluster.MemberCluster) func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
+	certSecretName := sc.GetSecurity().MemberCertificateSecretName(sc.ShardRsName(zoneName, shardNum))
+	internalClusterSecretName := sc.GetSecurity().InternalClusterAuthSecretName(sc.ShardRsName(zoneName, shardNum))
 
 	var vaultConfig vault.VaultConfiguration
 	var databaseSecretPath string
@@ -2335,9 +2395,9 @@ func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc 
 		databaseSecretPath = r.commonController.VaultClient.DatabaseSecretPath()
 	}
 
-	return construct.ShardOptions(shardNum, r.desiredShardsConfiguration[shardNum], memberCluster.Name,
-		Replicas(scale.ReplicasThisReconciliation(r.GetShardScaler(shardNum, memberCluster))),
-		StatefulSetNameOverride(r.GetShardStsName(shardNum, memberCluster)),
+	return construct.ShardOptions(zoneName, shardNum, r.desiredShardsConfiguration[zoneName][shardNum], memberCluster.Name,
+		Replicas(scale.ReplicasThisReconciliation(r.GetShardScaler(zoneName, shardNum, memberCluster))),
+		StatefulSetNameOverride(r.GetShardStsName(zoneName, shardNum, memberCluster)),
 		PodEnvVars(opts.podEnvVars),
 		CurrentAgentAuthMechanism(opts.currentAgentAuthMode),
 		CertificateHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, certSecretName, databaseSecretPath, log)),
@@ -2363,7 +2423,7 @@ func (r *ShardedClusterReconcileHelper) migrateToNewDeploymentState(sc *mdbv1.Mo
 	r.deploymentState.Status = sc.Status.DeepCopy()
 	if !sc.Spec.IsMultiCluster() {
 		r.deploymentState.Status.SizeStatusInClusters = &mdbstatus.MongodbShardedSizeStatusInClusters{
-			ShardMongodsInClusters: map[string]int{
+			ShardMongodsInClusters: map[string]map[string]int{
 				multicluster.LegacyCentralClusterName: r.deploymentState.Status.MongodsPerShardCount,
 			},
 			ShardOverridesInClusters: map[string]map[string]int{},
@@ -2376,7 +2436,7 @@ func (r *ShardedClusterReconcileHelper) migrateToNewDeploymentState(sc *mdbv1.Mo
 		}
 	} else {
 		r.deploymentState.Status.SizeStatusInClusters = &mdbstatus.MongodbShardedSizeStatusInClusters{
-			ShardMongodsInClusters:        map[string]int{},
+			ShardMongodsInClusters:        map[string]map[string]int{},
 			ShardOverridesInClusters:      map[string]map[string]int{},
 			MongosCountInClusters:         map[string]int{},
 			ConfigServerMongodsInClusters: map[string]int{},
@@ -2400,11 +2460,11 @@ func (r *ShardedClusterReconcileHelper) updateStatus(ctx context.Context, resour
 	}
 }
 
-func (r *ShardedClusterReconcileHelper) GetShardStsName(shardIdx int, memberCluster multicluster.MemberCluster) string {
+func (r *ShardedClusterReconcileHelper) GetShardStsName(zoneName string, shardIdx int, memberCluster multicluster.MemberCluster) string {
 	if memberCluster.Legacy {
-		return r.sc.ShardRsName(shardIdx)
+		return r.sc.ShardRsName(zoneName, shardIdx)
 	} else {
-		return r.sc.MultiShardRsName(memberCluster.Index, shardIdx)
+		return r.sc.MultiShardRsName(zoneName, memberCluster.Index, shardIdx)
 	}
 }
 
@@ -2432,16 +2492,18 @@ func (r *ShardedClusterReconcileHelper) GetMongosScaler(memberCluster multiclust
 	return scalers.NewMultiClusterReplicaSetScaler("mongos", r.desiredMongosConfiguration.ClusterSpecList, memberCluster.Name, memberCluster.Index, r.mongosMemberClusters)
 }
 
-func (r *ShardedClusterReconcileHelper) GetShardScaler(shardIdx int, memberCluster multicluster.MemberCluster) interfaces.MultiClusterReplicaSetScaler {
-	return scalers.NewMultiClusterReplicaSetScaler(fmt.Sprintf("shard idx %d", shardIdx), r.desiredShardsConfiguration[shardIdx].ClusterSpecList, memberCluster.Name, memberCluster.Index, r.shardsMemberClustersMap[shardIdx])
+func (r *ShardedClusterReconcileHelper) GetShardScaler(zoneName string, shardIdx int, memberCluster multicluster.MemberCluster) interfaces.MultiClusterReplicaSetScaler {
+	return scalers.NewMultiClusterReplicaSetScaler(fmt.Sprintf("zone: %s, shard idx %d", zoneName, shardIdx), r.desiredShardsConfiguration[zoneName][shardIdx].ClusterSpecList, memberCluster.Name, memberCluster.Index, r.shardsMemberClustersMap[zoneName][shardIdx])
 }
 
 func (r *ShardedClusterReconcileHelper) getAllScalers() []interfaces.MultiClusterReplicaSetScaler {
 	var result []interfaces.MultiClusterReplicaSetScaler
-	for shardIdx := 0; shardIdx < r.sc.Spec.ShardCount; shardIdx++ {
-		for _, memberCluster := range r.shardsMemberClustersMap[shardIdx] {
-			scaler := r.GetShardScaler(shardIdx, memberCluster)
-			result = append(result, scaler)
+	for _, zone := range r.sc.Spec.GetShardZones() {
+		for shardIdx := 0; shardIdx < zone.Shards; shardIdx++ {
+			for _, memberCluster := range r.shardsMemberClustersMap[zone.Name][shardIdx] {
+				scaler := r.GetShardScaler(zone.Name, shardIdx, memberCluster)
+				result = append(result, scaler)
+			}
 		}
 	}
 
@@ -2510,12 +2572,14 @@ func (r *ShardedClusterReconcileHelper) createHostnameOverrideConfigMapData() ma
 		}
 	}
 
-	for shardIdx := 0; shardIdx < max(r.sc.Spec.ShardCount, r.deploymentState.Status.ShardCount); shardIdx++ {
-		for _, memberCluster := range r.shardsMemberClustersMap[shardIdx] {
-			shardScaler := r.GetShardScaler(shardIdx, memberCluster)
-			shardHostnames, shardPodNames := r.getShardHostnames(shardIdx, memberCluster, max(shardScaler.CurrentReplicas(), shardScaler.DesiredReplicas()))
-			for i := range shardPodNames {
-				data[shardPodNames[i]] = shardHostnames[i]
+	for _, zone := range r.sc.Spec.GetShardZones() {
+		for shardIdx := 0; shardIdx < max(zone.Shards, r.deploymentState.Status.ShardCount[zone.Name]); shardIdx++ {
+			for _, memberCluster := range r.shardsMemberClustersMap[zone.Name][shardIdx] {
+				shardScaler := r.GetShardScaler(zone.Name, shardIdx, memberCluster)
+				shardHostnames, shardPodNames := r.getShardHostnames(zone.Name, shardIdx, memberCluster, max(shardScaler.CurrentReplicas(), shardScaler.DesiredReplicas()))
+				for i := range shardPodNames {
+					data[shardPodNames[i]] = shardHostnames[i]
+				}
 			}
 		}
 	}
@@ -2560,10 +2624,12 @@ func (r *ShardedClusterReconcileHelper) reconcileServices(ctx context.Context, l
 		}
 	}
 
-	for shardIdx := 0; shardIdx < r.sc.Spec.ShardCount; shardIdx++ {
-		for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[shardIdx]) {
-			if err := r.reconcileShardServices(ctx, log, shardIdx, memberCluster, allServices); err != nil {
-				return err
+	for _, zone := range r.sc.Spec.GetShardZones() {
+		for shardIdx := 0; shardIdx < zone.Shards; shardIdx++ {
+			for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[zone.Name][shardIdx]) {
+				if err := r.reconcileShardServices(ctx, log, zone.Name, shardIdx, memberCluster, allServices); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -2624,26 +2690,26 @@ func (r *ShardedClusterReconcileHelper) reconcileConfigServerServices(ctx contex
 	return nil
 }
 
-func (r *ShardedClusterReconcileHelper) reconcileShardServices(ctx context.Context, log *zap.SugaredLogger, shardIdx int, memberCluster multicluster.MemberCluster, allServices []*corev1.Service) error {
-	shardsExternalAccess := r.desiredShardsConfiguration[shardIdx].ClusterSpecList.GetExternalAccessConfigurationForMemberCluster(memberCluster.Name)
+func (r *ShardedClusterReconcileHelper) reconcileShardServices(ctx context.Context, log *zap.SugaredLogger, zoneName string, shardIdx int, memberCluster multicluster.MemberCluster, allServices []*corev1.Service) error {
+	shardsExternalAccess := r.desiredShardsConfiguration[zoneName][shardIdx].ClusterSpecList.GetExternalAccessConfigurationForMemberCluster(memberCluster.Name)
 	if shardsExternalAccess == nil {
 		shardsExternalAccess = r.sc.Spec.ExternalAccessConfiguration
 	}
-	portOrDefault := r.desiredShardsConfiguration[shardIdx].AdditionalMongodConfig.GetPortOrDefault()
-	scaler := r.GetShardScaler(shardIdx, memberCluster)
+	portOrDefault := r.desiredShardsConfiguration[zoneName][shardIdx].AdditionalMongodConfig.GetPortOrDefault()
+	scaler := r.GetShardScaler(zoneName, shardIdx, memberCluster)
 
 	for podNum := 0; podNum < scaler.DesiredReplicas(); podNum++ {
 		// Shards need external services only if an externalDomain is configured
 		if shardsExternalAccess != nil && shardsExternalAccess.ExternalDomain != nil {
-			log.Debugf("creating external services for %s in cluster: %s", r.sc.ShardRsName(shardIdx), memberCluster.Name)
+			log.Debugf("creating external services for %s in cluster: %s", r.sc.ShardRsName(zoneName, shardIdx), memberCluster.Name)
 			svc, err := r.getPodExternalService(
 				memberCluster,
-				r.sc.ShardRsName(shardIdx),
+				r.sc.ShardRsName(zoneName, shardIdx),
 				shardsExternalAccess,
 				podNum,
 				portOrDefault)
 			if err != nil {
-				return xerrors.Errorf("failed to build an external service %s in cluster: %s, err: %w", dns.GetMultiExternalServiceName(r.sc.ShardRsName(shardIdx), memberCluster.Index, podNum), memberCluster.Name, err)
+				return xerrors.Errorf("failed to build an external service %s in cluster: %s, err: %w", dns.GetMultiExternalServiceName(r.sc.ShardRsName(zoneName, shardIdx), memberCluster.Index, podNum), memberCluster.Name, err)
 			}
 			if err = mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
@@ -2651,8 +2717,8 @@ func (r *ShardedClusterReconcileHelper) reconcileShardServices(ctx context.Conte
 		}
 		// We don't need internal per-pod services in case we have externalAccess configured AND an external domain
 		if shardsExternalAccess == nil || shardsExternalAccess.ExternalDomain == nil {
-			log.Debugf("creating internal services for %s in cluster: %s", r.sc.ShardRsName(shardIdx), memberCluster.Name)
-			svc := r.getPodService(r.sc.ShardRsName(shardIdx), memberCluster, podNum, portOrDefault)
+			log.Debugf("creating internal services for %s in cluster: %s", r.sc.ShardRsName(zoneName, shardIdx), memberCluster.Name)
+			svc := r.getPodService(r.sc.ShardRsName(zoneName, shardIdx), memberCluster, podNum, portOrDefault)
 			if err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil {
 				return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
 			}
@@ -2661,7 +2727,7 @@ func (r *ShardedClusterReconcileHelper) reconcileShardServices(ctx context.Conte
 		}
 	}
 
-	if err := r.createHeadlessServiceForStatefulSet(ctx, r.sc.ShardRsName(shardIdx), portOrDefault, memberCluster); err != nil {
+	if err := r.createHeadlessServiceForStatefulSet(ctx, r.sc.ShardRsName(zoneName, shardIdx), portOrDefault, memberCluster); err != nil {
 		return err
 	}
 	return nil
@@ -2868,7 +2934,7 @@ func (r *ShardedClusterReconcileHelper) statefulsetLabels() map[string]string {
 	return merge.StringToStringMap(r.sc.Labels, r.sc.GetOwnerLabels())
 }
 
-func (r *ShardedClusterReconcileHelper) ShardsMemberClustersMap() map[int][]multicluster.MemberCluster {
+func (r *ShardedClusterReconcileHelper) ShardsMemberClustersMap() map[string]map[int][]multicluster.MemberCluster {
 	return r.shardsMemberClustersMap
 }
 
@@ -2953,11 +3019,13 @@ func (r *ShardedClusterReconcileHelper) getHealthyConfigSrvProcesses() ([]string
 func (r *ShardedClusterReconcileHelper) getHealthyShardsProcesses() ([]string, []string) {
 	var processNames []string
 	var hostnames []string
-	for shardIdx := 0; shardIdx < r.sc.Spec.ShardCount; shardIdx++ {
-		for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[shardIdx]) {
-			clusterHostnames, clusterProcessNames := r.getShardHostnames(shardIdx, memberCluster, scale.ReplicasThisReconciliation(r.GetShardScaler(shardIdx, memberCluster)))
-			hostnames = append(hostnames, clusterHostnames...)
-			processNames = append(processNames, clusterProcessNames...)
+	for _, zone := range r.sc.Spec.GetShardZones() {
+		for shardIdx := 0; shardIdx < zone.Shards; shardIdx++ {
+			for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[zone.Name][shardIdx]) {
+				clusterHostnames, clusterProcessNames := r.getShardHostnames(zone.Name, shardIdx, memberCluster, scale.ReplicasThisReconciliation(r.GetShardScaler(zone.Name, shardIdx, memberCluster)))
+				hostnames = append(hostnames, clusterHostnames...)
+				processNames = append(processNames, clusterProcessNames...)
+			}
 		}
 	}
 	return hostnames, processNames
