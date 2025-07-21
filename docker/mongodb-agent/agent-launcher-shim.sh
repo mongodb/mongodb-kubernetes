@@ -15,8 +15,9 @@ setup_dummy_probes() {
 # Find the init container process with retries
 find_init_container() {
   echo "Looking for init/utilities container process..."
-  for attempt in {1..5}; do
-    local pid=$(pgrep -f 'tail -f /dev/null' | head -n1)
+  for attempt in {1..10}; do
+    local pid
+    pid=$(pgrep -f 'tail -f /dev/null' | head -n1)
     if [ -n "$pid" ]; then
       echo "Found init container process with PID: ${pid} (attempt ${attempt})"
       echo "$pid"
@@ -82,37 +83,42 @@ wait_for_init_container() {
   return 0
 }
 
-# Copy agent launcher scripts from init container
-copy_agent_scripts() {
+# Create symlinks to agent launcher scripts from init container
+symlink_agent_scripts() {
   local init_scripts_dir="$1"
 
-  echo "Copying agent launcher scripts..."
+  echo "Creating symlinks to agent launcher scripts..."
   echo "Available files in ${init_scripts_dir}:"
   ls -la "${init_scripts_dir}/" 2>/dev/null || echo "Cannot list scripts directory"
 
-  if ! cp -r "${init_scripts_dir}"/* "${TARGET_SCRIPTS_DIR}"/; then
-    echo "ERROR: Failed to copy agent launcher scripts"
-    return 1
-  fi
+  # Create symlinks for all files in the scripts directory
+  for script_file in "${init_scripts_dir}"/*; do
+    local filename
+    filename=$(basename "${script_file}")
+    if ! ln -sf "${script_file}" "${TARGET_SCRIPTS_DIR}/${filename}"; then
+      echo "ERROR: Failed to create symlink for ${filename}"
+      return 1
+    fi
+  done
 
-  echo "Agent launcher scripts copied successfully"
+  echo "Agent launcher script symlinks created successfully"
   return 0
 }
 
-# Copy probe scripts from init container
-copy_probe_scripts() {
+# Create symlinks to probe scripts from init container
+symlink_probe_scripts() {
   local init_probes_dir="$1"
 
-  echo "Copying probe scripts..."
+  echo "Creating symlinks to probe scripts..."
   echo "Available files in ${init_probes_dir}:"
   ls -la "${init_probes_dir}/" 2>/dev/null || echo "Probes directory not found"
 
-  # Copy readiness probe
+  # Create symlink for readiness probe
   if [ -f "${init_probes_dir}/readinessprobe" ]; then
-    if cp "${init_probes_dir}"/* "${TARGET_SCRIPTS_DIR}"/; then
-      echo "Replaced dummy readinessprobe with real one"
+    if ln -sf "${init_probes_dir}/readinessprobe" "${TARGET_SCRIPTS_DIR}/readinessprobe"; then
+      echo "Replaced dummy readinessprobe with symlink to real one"
     else
-      echo "ERROR: Failed to copy readinessprobe"
+      echo "ERROR: Failed to create symlink for readinessprobe"
       return 1
     fi
   else
@@ -120,12 +126,12 @@ copy_probe_scripts() {
     echo "Keeping dummy readiness probe"
   fi
 
-  # Copy liveness probe
+  # Create symlink for liveness probe
   if [ -f "${init_probes_dir}/probe.sh" ]; then
-    if cp "${init_probes_dir}"/probe.sh "${TARGET_SCRIPTS_DIR}"/probe.sh; then
-      echo "Replaced dummy probe.sh with real one (liveness probe)"
+    if ln -sf "${init_probes_dir}/probe.sh" "${TARGET_SCRIPTS_DIR}/probe.sh"; then
+      echo "Replaced dummy probe.sh with symlink to real one (liveness probe)"
     else
-      echo "ERROR: Failed to copy probe.sh"
+      echo "ERROR: Failed to create symlink for probe.sh"
       return 1
     fi
   else
@@ -173,12 +179,12 @@ main() {
       exit 1
     fi
 
-    # Step 4: Copy scripts from init container
-    if ! copy_agent_scripts "$init_scripts_dir"; then
+    # Step 4: Create symlinks to scripts from init container
+    if ! symlink_agent_scripts "$init_scripts_dir"; then
       exit 1
     fi
 
-    if ! copy_probe_scripts "$init_probes_dir"; then
+    if ! symlink_probe_scripts "$init_probes_dir"; then
       exit 1
     fi
 
