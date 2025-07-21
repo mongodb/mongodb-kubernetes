@@ -487,24 +487,39 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 	shareProcessNs := statefulset.NOOP()
 	secondContainerModification := podtemplatespec.NOOP()
 
+	var databaseImage string
+	var staticMods []podtemplatespec.Modification
 	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations()) {
 		shareProcessNs = func(sts *appsv1.StatefulSet) {
 			sts.Spec.Template.Spec.ShareProcessNamespace = ptr.To(true)
 		}
-		secondContainerModification = podtemplatespec.WithContainerByIndex(1, container.WithVolumeMounts(volumeMounts))
-	}
-
-	var databaseImage string
-	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations()) {
+		staticMods = append(staticMods, podtemplatespec.WithContainerByIndex(1, container.WithVolumeMounts(volumeMounts)))
+		staticMods = append(staticMods, podtemplatespec.WithContainerByIndex(2, container.WithVolumeMounts(volumeMounts)))
 		databaseImage = opts.AgentImage
 	} else {
 		databaseImage = opts.DatabaseNonStaticImage
 	}
 
+	podTemplateModifications := []podtemplatespec.Modification{
+		podTemplateAnnotationFunc,
+		podtemplatespec.WithAffinity(podAffinity, PodAntiAffinityLabelKey, 100),
+		podtemplatespec.WithTerminationGracePeriodSeconds(util.DefaultPodTerminationPeriodSeconds),
+		podtemplatespec.WithPodLabels(podLabels),
+		podtemplatespec.WithContainerByIndex(0, sharedDatabaseContainerFunc(databaseImage, *opts.PodSpec, volumeMounts, configureContainerSecurityContext, opts.ServicePort)),
+		secondContainerModification,
+		volumesFunc,
+		configurePodSpecSecurityContext,
+		configureImagePullSecrets,
+		podTemplateSpecFunc,
+	}
+		podTemplateModifications = append(podTemplateModifications, staticMods...)
+
 	return statefulset.Apply(
+		// StatefulSet metadata
 		statefulset.WithLabels(ssLabels),
 		statefulset.WithName(stsName),
 		statefulset.WithNamespace(mdb.GetNamespace()),
+		// StatefulSet spec
 		statefulset.WithMatchLabels(podLabels),
 		statefulset.WithServiceName(opts.ServiceName),
 		statefulset.WithReplicas(opts.Replicas),
@@ -512,20 +527,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 		annotationFunc,
 		volumeClaimFuncs,
 		shareProcessNs,
-		statefulset.WithPodSpecTemplate(podtemplatespec.Apply(
-			podTemplateAnnotationFunc,
-			podtemplatespec.WithAffinity(podAffinity, PodAntiAffinityLabelKey, 100),
-			podtemplatespec.WithTerminationGracePeriodSeconds(util.DefaultPodTerminationPeriodSeconds),
-			podtemplatespec.WithPodLabels(podLabels),
-			podtemplatespec.WithContainerByIndex(0, sharedDatabaseContainerFunc(databaseImage, *opts.PodSpec, volumeMounts, configureContainerSecurityContext, opts.ServicePort)),
-			secondContainerModification,
-			podtemplatespec.WithContainerByIndex(1, container.WithVolumeMounts(volumeMounts)),
-			podtemplatespec.WithContainerByIndex(2, container.WithVolumeMounts(volumeMounts)),
-			volumesFunc,
-			configurePodSpecSecurityContext,
-			configureImagePullSecrets,
-			podTemplateSpecFunc,
-		)),
+		statefulset.WithPodSpecTemplate(podtemplatespec.Apply(podTemplateModifications...)),
 	)
 }
 
