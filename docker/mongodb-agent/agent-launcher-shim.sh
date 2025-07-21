@@ -1,200 +1,108 @@
 #!/bin/bash
 set -e
 
-# Configuration variables
-TIMEOUT_SECONDS=300  # 5 minutes timeout
-TARGET_SCRIPTS_DIR="/opt/scripts"
+SCRIPTS_DIR="/opt/scripts"
 
+# Set up dummy probe scripts
+# liveness always returns success
+# readiness always returns failure
 setup_dummy_probes() {
   echo "Setting up dummy probe scripts..."
-  cp /usr/local/bin/dummy-probe.sh "${TARGET_SCRIPTS_DIR}"/probe.sh
-  cp /usr/local/bin/dummy-readinessprobe "${TARGET_SCRIPTS_DIR}"/readinessprobe
+  cp /usr/local/bin/dummy-probe.sh "$SCRIPTS_DIR/probe.sh"
+  cp /usr/local/bin/dummy-readinessprobe "$SCRIPTS_DIR/readinessprobe"
   echo "Dummy probe scripts ready"
 }
 
-# Find the init container process with retries
+# wait max 5m
 find_init_container() {
-  echo "Looking for init/utilities container process..."
-  for attempt in {1..10}; do
+  for i in {1..150}; do
     local pid
-    pid=$(pgrep -f 'tail -f /dev/null' | head -n1)
-    if [ -n "$pid" ]; then
-      echo "Found init container process with PID: ${pid} (attempt ${attempt})"
+    pid=$(pgrep -f "agent-utilities-holder_marker" | head -n1)
+    if [[ -n "$pid" && -d "/proc/$pid/root/scripts" ]]; then
       echo "$pid"
       return 0
     fi
-    echo "Attempt ${attempt}: No process found, retrying in 1 second..."
-    sleep 1
+    echo "Waiting for init container... (attempt $i)" >&2
+    sleep 2
   done
   return 1
 }
 
-# Check if agent launcher already exists in image
-check_existing_scripts() {
-  if [ -f "${TARGET_SCRIPTS_DIR}/agent-launcher.sh" ]; then
-    echo "Agent launcher script already exists in image"
-    return 0
-  else
-    echo "ERROR: No init container found and no agent-launcher.sh in image"
-    echo "Available processes:"
-    ps aux
-    return 1
-  fi
-}
-
-# Wait for init container directories to be ready
-wait_for_init_container() {
-  local init_scripts_dir="$1"
-  local init_container_root="$2"
-  local init_pid="$3"
-  local wait_count=0
-
-  if [ -d "${init_scripts_dir}" ]; then
-    echo "Scripts directory found immediately: ${init_scripts_dir}"
-    return 0
-  fi
-
-  echo "Scripts directory not found, waiting..."
-  echo "Waiting for agent-launcher container to be ready..."
-
-  while [ ! -d "${init_scripts_dir}" ]; do
-    sleep 1
-    wait_count=$((wait_count + 1))
-
-    if [ $wait_count -ge $TIMEOUT_SECONDS ]; then
-      echo "ERROR: Timeout waiting for init container after ${TIMEOUT_SECONDS} seconds"
-      echo "Init container PID: ${init_pid}"
-      echo "Expected directory: ${init_scripts_dir}"
-      echo "Available directories in init container root:"
-      ls -la "${init_container_root}/" 2>/dev/null || echo "Cannot list init container root"
-      echo "Process still running?"
-      ps -p "${init_pid}" || echo "Process ${init_pid} no longer exists"
-      return 1
-    fi
-
-    if [ $((wait_count % 30)) -eq 0 ]; then
-      echo "Still waiting for init container... (${wait_count}/${TIMEOUT_SECONDS} seconds)"
-      echo "Current init container root contents:"
-      ls -la "${init_container_root}/" 2>/dev/null || echo "Cannot access ${init_container_root}"
-    fi
-  done
-
-  echo "Init container ready after ${wait_count} seconds"
-  return 0
-}
-
-# Create symlinks to agent launcher scripts from init container
-symlink_agent_scripts() {
+link_agent_scripts() {
   local init_scripts_dir="$1"
 
-  echo "Creating symlinks to agent launcher scripts..."
-  echo "Available files in ${init_scripts_dir}:"
-  ls -la "${init_scripts_dir}/" 2>/dev/null || echo "Cannot list scripts directory"
-
-  # Create symlinks for all files in the scripts directory
-  for script_file in "${init_scripts_dir}"/*; do
-    local filename
-    filename=$(basename "${script_file}")
-    if ! ln -sf "${script_file}" "${TARGET_SCRIPTS_DIR}/${filename}"; then
-      echo "ERROR: Failed to create symlink for ${filename}"
+  echo "Linking agent launcher scripts..."
+  for script in agent-launcher.sh agent-launcher-lib.sh; do
+    if [[ ! -f "$init_scripts_dir/$script" ]]; then
+      echo "ERROR: $script not found in init container"
       return 1
     fi
+    ln -sf "$init_scripts_dir/$script" "$SCRIPTS_DIR/$script"
+    echo "Linked $script"
   done
-
-  echo "Agent launcher script symlinks created successfully"
-  return 0
 }
 
-# Create symlinks to probe scripts from init container
-symlink_probe_scripts() {
+# Link probe scripts from init container and replacing dummy ones
+link_probe_scripts() {
   local init_probes_dir="$1"
 
-  echo "Creating symlinks to probe scripts..."
-  echo "Available files in ${init_probes_dir}:"
-  ls -la "${init_probes_dir}/" 2>/dev/null || echo "Probes directory not found"
-
-  # Create symlink for readiness probe
-  if [ -f "${init_probes_dir}/readinessprobe" ]; then
-    if ln -sf "${init_probes_dir}/readinessprobe" "${TARGET_SCRIPTS_DIR}/readinessprobe"; then
-      echo "Replaced dummy readinessprobe with symlink to real one"
+  echo "Linking probe scripts..."
+  for probe in probe.sh readinessprobe; do
+    if [[ -f "$init_probes_dir/$probe" ]]; then
+      ln -sf "$init_probes_dir/$probe" "$SCRIPTS_DIR/$probe"
+      echo "Replaced dummy $probe with real one"
     else
-      echo "ERROR: Failed to create symlink for readinessprobe"
-      return 1
+      echo "WARNING: $probe not found in init container"
+      exit 1
     fi
-  else
-    echo "WARNING: readinessprobe not found in init container at ${init_probes_dir}/readinessprobe"
-    echo "Keeping dummy readiness probe"
-  fi
-
-  # Create symlink for liveness probe
-  if [ -f "${init_probes_dir}/probe.sh" ]; then
-    if ln -sf "${init_probes_dir}/probe.sh" "${TARGET_SCRIPTS_DIR}/probe.sh"; then
-      echo "Replaced dummy probe.sh with symlink to real one (liveness probe)"
-    else
-      echo "ERROR: Failed to create symlink for probe.sh"
-      return 1
-    fi
-  else
-    echo "WARNING: probe.sh not found in init container at ${init_probes_dir}/probe.sh"
-    echo "Keeping dummy liveness probe"
-  fi
-
-  return 0
+  done
 }
 
-# Start the agent launcher
-start_agent_launcher() {
+start_agent() {
   echo "Starting agent launcher..."
-  echo "Final contents of ${TARGET_SCRIPTS_DIR}:"
-  ls -la "${TARGET_SCRIPTS_DIR}/"
+  echo "Final contents of $SCRIPTS_DIR:"
+  ls -la "$SCRIPTS_DIR"
 
-  if [ -f "${TARGET_SCRIPTS_DIR}/agent-launcher.sh" ]; then
-    exec "${TARGET_SCRIPTS_DIR}"/agent-launcher.sh
+  if [[ -f "$SCRIPTS_DIR/agent-launcher.sh" ]]; then
+    echo "Found agent-launcher.sh, executing..."
+    exec "$SCRIPTS_DIR/agent-launcher.sh"
   else
-    echo "ERROR: agent-launcher.sh not found at ${TARGET_SCRIPTS_DIR}/agent-launcher.sh"
-    return 1
+    echo "ERROR: agent-launcher.sh not found"
+    exit 1
   fi
 }
 
-# Main execution flow
 main() {
-  # Step 1: Setup dummy probes immediately
   setup_dummy_probes
 
-  # Step 2: Try to find init container
-  if ! init_pid=$(find_init_container); then
-    echo "No init container found after 5 attempts. Checking if scripts already exist in image..."
+  if init_pid=$(find_init_container); then
+    echo "Found init container with PID: $init_pid"
 
-    if ! check_existing_scripts; then
+    init_root="/proc/$init_pid/root"
+    init_scripts="$init_root/scripts"
+    init_probes="$init_root/probes"
+
+    # Verify scripts directory exists
+    if [[ ! -d "$init_scripts" ]]; then
+      echo "ERROR: Scripts directory $init_scripts not found"
       exit 1
     fi
 
+    # Verify scripts directory exists
+    if [[ ! -d "$init_probes" ]]; then
+      echo "ERROR: Scripts directory $init_probes not found"
+      exit 1
+    fi
+
+    # Link scripts from init container
+    link_agent_scripts "$init_scripts"
+    link_probe_scripts "$init_probes"
   else
-    # Step 3: Setup paths and wait for init container
-    init_container_root="/proc/${init_pid}/root"
-    init_scripts_dir="${init_container_root}/scripts"
-    init_probes_dir="${init_container_root}/probes"
-
-    if ! wait_for_init_container "$init_scripts_dir" "$init_container_root" "$init_pid"; then
+    echo "No init container found exiting"
       exit 1
-    fi
-
-    # Step 4: Create symlinks to scripts from init container
-    if ! symlink_agent_scripts "$init_scripts_dir"; then
-      exit 1
-    fi
-
-    if ! symlink_probe_scripts "$init_probes_dir"; then
-      exit 1
-    fi
-
-    # Step 5: Make scripts executable
-    chmod +x "${TARGET_SCRIPTS_DIR}"/*.sh "${TARGET_SCRIPTS_DIR}"/readinessprobe 2>/dev/null || true
   fi
 
-  # Step 6: Start the agent launcher
-  start_agent_launcher
+  start_agent
 }
 
-# Run main function
 main "$@"
