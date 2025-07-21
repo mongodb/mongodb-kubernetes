@@ -66,8 +66,9 @@ func mergeBoth(structAsMap map[string]interface{}, unmodifiedOriginalMap map[str
 func merge(dstMap, srcMap map[string]interface{}) {
 	for key, srcVal := range srcMap {
 		dstVal, ok := dstMap[key]
-		// if the value is nil it means that this is done by intention, and we want to skip it and delete in the next step
-		if dstVal == nil {
+		// if the key exists, but the value is nil it means that this is done by intention to delete the value.
+		// In this case we want to skip it and delete in the next step
+		if ok && dstVal == nil {
 			continue
 		}
 		// if the value does not exist in the dst map we need to populate it with the value from the src map
