@@ -38,6 +38,7 @@ type SearchSourceDBResource interface {
 	DatabasePort() int
 	GetMongoDBVersion() string
 	IsSecurityTLSConfigEnabled() bool
+	TLSOperatorCASecretNamespacedName() types.NamespacedName
 	Members() int
 }
 
@@ -89,8 +90,12 @@ func (r *mdbcSearchResource) DatabasePort() int {
 	return r.db.GetMongodConfiguration().GetDBPort()
 }
 
+func (r *mdbcSearchResource) TLSOperatorCASecretNamespacedName() types.NamespacedName {
+	return r.db.TLSOperatorCASecretNamespacedName()
+}
+
 // ReplicaSetOptions returns a set of options which will configure a ReplicaSet StatefulSet
-func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBResource SearchSourceDBResource, searchImage string, mongotConfigHash string) statefulset.Modification {
+func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBResource SearchSourceDBResource, searchImage string) statefulset.Modification {
 	labels := map[string]string{
 		"app": mdbSearch.SearchServiceNamespacedName().Name,
 	}
@@ -153,9 +158,6 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 			podtemplatespec.Apply(
 				podSecurityContext,
 				podtemplatespec.WithPodLabels(labels),
-				podtemplatespec.WithAnnotations(map[string]string{
-					"mongotConfigHash": mongotConfigHash,
-				}),
 				podtemplatespec.WithVolumes(volumes),
 				podtemplatespec.WithServiceAccount(sourceDBResource.DatabaseServiceName()),
 				podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),

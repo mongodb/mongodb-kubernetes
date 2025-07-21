@@ -36,6 +36,8 @@ type MongoDBSearchSpec struct {
 	Persistence *common.Persistence `json:"persistence,omitempty"`
 	// +optional
 	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
+	// +optional
+	Security Security `json:"security"`
 }
 
 type MongoDBSource struct {
@@ -45,6 +47,22 @@ type MongoDBSource struct {
 	PasswordSecretRef *userv1.SecretKeyRef `json:"passwordSecretRef,omitempty"`
 	// +optional
 	Username *string `json:"username,omitempty"`
+}
+
+type Security struct {
+	// +optional
+	TLS TLS `json:"tls"`
+}
+
+type TLS struct {
+	Enabled bool `json:"enabled"`
+	// CertificateKeySecret is a reference to a Secret containing a private key and certificate to use for TLS.
+	// The key and cert are expected to be PEM encoded and available at "tls.key" and "tls.crt".
+	// This is the same format used for the standard "kubernetes.io/tls" Secret type, but no specific type is required.
+	// Alternatively, an entry tls.pem, containing the concatenation of cert and key, can be provided.
+	// If all of tls.pem, tls.crt and tls.key are present, the tls.pem one needs to be equal to the concatenation of tls.crt and tls.key
+	// +optional
+	CertificateKeySecret corev1.LocalObjectReference `json:"certificateKeySecretRef"`
 }
 
 type MongoDBSearchStatus struct {
@@ -159,4 +177,15 @@ func (s *MongoDBSearch) GetMongotPort() int32 {
 
 func (s *MongoDBSearch) GetMongotMetricsPort() int32 {
 	return MongotDefaultMetricsPort
+}
+
+// TLSSecretNamespacedName will get the namespaced name of the Secret containing the server certificate and key
+func (s *MongoDBSearch) TLSSecretNamespacedName() types.NamespacedName {
+	return types.NamespacedName{Name: s.Spec.Security.TLS.CertificateKeySecret.Name, Namespace: s.Namespace}
+}
+
+// TLSOperatorSecretNamespacedName will get the namespaced name of the Secret created by the operator
+// containing the combined certificate and key.
+func (s *MongoDBSearch) TLSOperatorSecretNamespacedName() types.NamespacedName {
+	return types.NamespacedName{Name: s.Name + "-search-certificate-key", Namespace: s.Namespace}
 }

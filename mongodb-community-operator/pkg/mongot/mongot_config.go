@@ -1,5 +1,19 @@
 package mongot
 
+type Modification func(*Config)
+
+func NOOP() Modification {
+	return func(config *Config) {}
+}
+
+func Apply(modifications ...Modification) func(*Config) {
+	return func(config *Config) {
+		for _, mod := range modifications {
+			mod(config)
+		}
+	}
+}
+
 type Config struct {
 	SyncSource  ConfigSyncSource  `json:"syncSource"`
 	Storage     ConfigStorage     `json:"storage"`

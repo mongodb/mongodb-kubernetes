@@ -25,14 +25,12 @@ MDBC_RESOURCE_NAME = "mdbc-rs"
 
 
 @fixture(scope="function")
-def mdbc(namespace: str, custom_mdb_version: str) -> MongoDBCommunity:
+def mdbc(namespace: str) -> MongoDBCommunity:
     resource = MongoDBCommunity.from_yaml(
         yaml_fixture("community-replicaset-sample-mflix.yaml"),
         name=MDBC_RESOURCE_NAME,
         namespace=namespace,
     )
-
-    resource["spec"]["version"] = custom_mdb_version
 
     # if try_load(resource):
     #     return resource
