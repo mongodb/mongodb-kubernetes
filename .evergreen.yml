@@ -286,6 +286,7 @@ tasks:
       - func: pipeline
         vars:
           image_name: operator
+          include_tags: release
 
   # Releases init images to Quay
   - name: release_init_appdb
@@ -299,6 +300,7 @@ tasks:
       - func: pipeline
         vars:
           image_name: init-appdb
+          include_tags: release
 
   - name: release_init_database
     tags: [ "image_release" ]
@@ -311,6 +313,7 @@ tasks:
       - func: pipeline
         vars:
           image_name: init-database
+          include_tags: release
 
   - name: release_init_ops_manager
     tags: [ "image_release" ]
@@ -323,6 +326,7 @@ tasks:
       - func: pipeline
         vars:
           image_name: init-ops-manager
+          include_tags: release
 
   - name: release_agent_operator_release
     tags: [ "image_release" ]
@@ -335,6 +339,7 @@ tasks:
       - func: pipeline
         vars:
           image_name: agent
+          include_tags: release
 
   # pct only triggers this variant once a new agent image is out
   - name: release_agent
@@ -604,6 +609,46 @@ tasks:
           condition_script: scripts/evergreen/should_prepare_openshift_bundles.sh
           variant: prepare_openshift_bundles
           task: prepare_and_upload_openshift_bundles
+
+  - name: backup_csv_images_dry_run
+    commands:
+      - func: clone
+      - func: quay_login
+      - command: subprocess.exec
+        params:
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          binary: python3
+          args:
+            - scripts/dev/release/backup_csv_images.py
+            - scripts/dev/release/1.2.0.clusterserviceversion.yaml
+            - --dry-run
+            - --verbose
+  - name: backup_csv_images_limit_3
+    commands:
+      - func: clone
+      - func: quay_login
+      - command: subprocess.exec
+        params:
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          binary: python3
+          args:
+            - scripts/dev/release/backup_csv_images.py
+            - scripts/dev/release/1.2.0.clusterserviceversion.yaml
+            - --limit
+            - "3"
+            - --verbose
+  - name: backup_csv_images_all
+    commands:
+      - func: clone
+      - func: quay_login
+      - command: subprocess.exec
+        params:
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          binary: python3
+          args:
+            - scripts/dev/release/backup_csv_images.py
+            - scripts/dev/release/1.2.0.clusterserviceversion.yaml
+            - --verbose
 
 task_groups:
   - name: unit_task_group
@@ -1201,7 +1246,6 @@ task_groups:
     <<: *teardown_group
 
 buildvariants:
-
   ## Unit tests + lint build variant
 
   - name: unit_tests
@@ -1731,7 +1775,7 @@ buildvariants:
     allowed_requesters: [ "patch", "github_tag" ]
     max_hosts: -1
     run_on:
-      - ubuntu2204-large
+      - release-ubuntu2204-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1790,7 +1834,7 @@ buildvariants:
     display_name: (Static Containers) Release Agent matrix
     tags: [ "release_agent" ]
     run_on:
-      - ubuntu2204-large
+      - release-ubuntu2204-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     depends_on:
       - variant: init_release_agents_on_ecr
         name: '*'
@@ -1876,11 +1920,21 @@ buildvariants:
 
   ### Build variants for manual patch only
 
+  - name: backup_csv_images
+    display_name: "Backup CSV Images"
+    allowed_requesters: [ "patch" ]
+    run_on:
+      - ubuntu2204-small
+    tasks:
+      - name: backup_csv_images_dry_run
+      - name: backup_csv_images_limit_3
+      - name: backup_csv_images_all
+
   - name: publish_om60_images
     display_name: publish_om60_images
     allowed_requesters: [ "patch", "github_pr" ]
     run_on:
-      - ubuntu2204-large
+      - release-ubuntu2204-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     depends_on:
       - variant: e2e_om60_kind_ubi
         name: '*'
@@ -1894,7 +1948,7 @@ buildvariants:
     display_name: publish_om70_images
     allowed_requesters: [ "patch", "github_pr" ]
     run_on:
-      - ubuntu2204-large
+      - release-ubuntu2204-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     depends_on:
       - variant: e2e_om70_kind_ubi
         name: '*'
@@ -1908,7 +1962,7 @@ buildvariants:
     display_name: publish_om80_images
     allowed_requesters: [ "patch", "github_pr" ]
     run_on:
-      - ubuntu2204-large
+      - release-ubuntu2204-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     depends_on:
       - variant: e2e_om80_kind_ubi
         name: '*'

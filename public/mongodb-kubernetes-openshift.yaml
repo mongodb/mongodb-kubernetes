@@ -1,116 +1,5 @@
 ---
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
-kind: ClusterRole
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: mongodb-kubernetes-operator-mongodb-cluster-mongodb-role
-rules:
-  - apiGroups:
-      - mongodb.com
-    verbs:
-      - '*'
-    resources:
-      - clustermongodbroles
----
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
-kind: ClusterRole
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: mongodb-kubernetes-operator-mongodb-webhook
-rules:
-  - apiGroups:
-      - "admissionregistration.k8s.io"
-    resources:
-      - validatingwebhookconfigurations
-    verbs:
-      - get
-      - create
-      - update
-      - delete
-  - apiGroups:
-      - ""
-    resources:
-      - services
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - delete
----
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
-# Additional ClusterRole for clusterVersionDetection
-kind: ClusterRole
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: mongodb-kubernetes-operator-cluster-telemetry
-rules:
-  # Non-resource URL permissions
-  - nonResourceURLs:
-      - "/version"
-    verbs:
-      - get
-  # Cluster-scoped resource permissions
-  - apiGroups:
-      - ''
-    resources:
-      - namespaces
-    resourceNames:
-      - kube-system
-    verbs:
-      - get
-  - apiGroups:
-      - ''
-    resources:
-      - nodes
-    verbs:
-      - list
----
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
-kind: ClusterRoleBinding
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: mongodb-kubernetes-operator-mongodb-cluster-mongodb-role-binding
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: mongodb-kubernetes-operator-mongodb-cluster-mongodb-role
-subjects:
-  - kind: ServiceAccount
-    name: mongodb-kubernetes-operator
-    namespace: mongodb
----
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
-kind: ClusterRoleBinding
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: mongodb-kubernetes-operator-mongodb-webhook-binding
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: mongodb-kubernetes-operator-mongodb-webhook
-subjects:
-  - kind: ServiceAccount
-    name: mongodb-kubernetes-operator
-    namespace: mongodb
----
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
-# ClusterRoleBinding for clusterVersionDetection
-kind: ClusterRoleBinding
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: mongodb-kubernetes-operator-mongodb-cluster-telemetry-binding
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: mongodb-kubernetes-operator-cluster-telemetry
-subjects:
-  - kind: ServiceAccount
-    name: mongodb-kubernetes-operator
-    namespace: mongodb
----
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
+# Source: mongodb-kubernetes/templates/operator-roles-base.yaml
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -190,7 +79,56 @@ rules:
       - opsmanagers/status
       - mongodbmulticluster/status
       - mongodbsearch/status
-
+---
+# Source: mongodb-kubernetes/templates/operator-roles-base.yaml
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-kubernetes-operator
+  namespace: mongodb
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mongodb-kubernetes-operator
+subjects:
+  - kind: ServiceAccount
+    name: mongodb-kubernetes-operator
+    namespace: mongodb
+---
+# Source: mongodb-kubernetes/templates/operator-roles-clustermongodbroles.yaml
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-kubernetes-operator-mongodb-cluster-mongodb-role
+rules:
+  - apiGroups:
+      - mongodb.com
+    verbs:
+      - '*'
+    resources:
+      - clustermongodbroles
+---
+# Source: mongodb-kubernetes/templates/operator-roles-clustermongodbroles.yaml
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-kubernetes-operator-mongodb-cluster-mongodb-role-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mongodb-kubernetes-operator-mongodb-cluster-mongodb-role
+subjects:
+  - kind: ServiceAccount
+    name: mongodb-kubernetes-operator
+    namespace: mongodb
+---
+# Source: mongodb-kubernetes/templates/operator-roles-pvc-resize.yaml
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-kubernetes-operator-pvc-resize
+  namespace: mongodb
+rules:
   - apiGroups:
       - ''
     resources:
@@ -203,16 +141,100 @@ rules:
       - patch
       - update
 ---
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
+# Source: mongodb-kubernetes/templates/operator-roles-pvc-resize.yaml
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-kubernetes-operator
+  name: mongodb-kubernetes-operator-pvc-resize-binding
   namespace: mongodb
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: mongodb-kubernetes-operator
+  name: mongodb-kubernetes-operator-pvc-resize
+subjects:
+  - kind: ServiceAccount
+    name: mongodb-kubernetes-operator
+    namespace: mongodb
+---
+# Source: mongodb-kubernetes/templates/operator-roles-telemetry.yaml
+# Additional ClusterRole for clusterVersionDetection
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-kubernetes-operator-cluster-telemetry
+rules:
+  # Non-resource URL permissions
+  - nonResourceURLs:
+      - "/version"
+    verbs:
+      - get
+  # Cluster-scoped resource permissions
+  - apiGroups:
+      - ''
+    resources:
+      - namespaces
+    resourceNames:
+      - kube-system
+    verbs:
+      - get
+  - apiGroups:
+      - ''
+    resources:
+      - nodes
+    verbs:
+      - list
+---
+# Source: mongodb-kubernetes/templates/operator-roles-telemetry.yaml
+# ClusterRoleBinding for clusterVersionDetection
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-kubernetes-operator-mongodb-cluster-telemetry-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mongodb-kubernetes-operator-cluster-telemetry
+subjects:
+  - kind: ServiceAccount
+    name: mongodb-kubernetes-operator
+    namespace: mongodb
+---
+# Source: mongodb-kubernetes/templates/operator-roles-webhook.yaml
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-kubernetes-operator-mongodb-webhook
+rules:
+  - apiGroups:
+      - "admissionregistration.k8s.io"
+    resources:
+      - validatingwebhookconfigurations
+    verbs:
+      - get
+      - create
+      - update
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - delete
+---
+# Source: mongodb-kubernetes/templates/operator-roles-webhook.yaml
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-kubernetes-operator-mongodb-webhook-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mongodb-kubernetes-operator-mongodb-webhook
 subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
@@ -306,7 +328,7 @@ spec:
       serviceAccountName: mongodb-kubernetes-operator
       containers:
         - name: mongodb-kubernetes-operator
-          image: "quay.io/mongodb/mongodb-kubernetes:1.1.0"
+          image: "quay.io/mongodb/mongodb-kubernetes:1.2.0"
           imagePullPolicy: Always
           args:
             - -watch-resource=mongodb
@@ -353,21 +375,21 @@ spec:
             - name: INIT_DATABASE_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-kubernetes-init-database
             - name: INIT_DATABASE_VERSION
-              value: 1.1.0
+              value: 1.2.0
             - name: DATABASE_VERSION
-              value: 1.1.0
+              value: 1.2.0
             # Ops Manager
             - name: OPS_MANAGER_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-enterprise-ops-manager-ubi
             - name: INIT_OPS_MANAGER_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-kubernetes-init-ops-manager
             - name: INIT_OPS_MANAGER_VERSION
-              value: 1.1.0
+              value: 1.2.0
             # AppDB
             - name: INIT_APPDB_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-kubernetes-init-appdb
             - name: INIT_APPDB_VERSION
-              value: 1.1.0
+              value: 1.2.0
             - name: OPS_MANAGER_IMAGE_PULL_POLICY
               value: Always
             - name: AGENT_IMAGE
@@ -404,142 +426,142 @@ spec:
             - name: MDB_COMMUNITY_IMAGE_TYPE
               value: "ubi8"
             # Community Env Vars End
-            - name: RELATED_IMAGE_MONGODB_ENTERPRISE_DATABASE_IMAGE_1_1_0
-              value: "quay.io/mongodb/mongodb-kubernetes-database:1.1.0"
-            - name: RELATED_IMAGE_INIT_DATABASE_IMAGE_REPOSITORY_1_1_0
-              value: "quay.io/mongodb/mongodb-kubernetes-init-database:1.1.0"
-            - name: RELATED_IMAGE_INIT_OPS_MANAGER_IMAGE_REPOSITORY_1_1_0
-              value: "quay.io/mongodb/mongodb-kubernetes-init-ops-manager:1.1.0"
-            - name: RELATED_IMAGE_INIT_APPDB_IMAGE_REPOSITORY_1_1_0
-              value: "quay.io/mongodb/mongodb-kubernetes-init-appdb:1.1.0"
+            - name: RELATED_IMAGE_MONGODB_ENTERPRISE_DATABASE_IMAGE_1_2_0
+              value: "quay.io/mongodb/mongodb-kubernetes-database:1.2.0"
+            - name: RELATED_IMAGE_INIT_DATABASE_IMAGE_REPOSITORY_1_2_0
+              value: "quay.io/mongodb/mongodb-kubernetes-init-database:1.2.0"
+            - name: RELATED_IMAGE_INIT_OPS_MANAGER_IMAGE_REPOSITORY_1_2_0
+              value: "quay.io/mongodb/mongodb-kubernetes-init-ops-manager:1.2.0"
+            - name: RELATED_IMAGE_INIT_APPDB_IMAGE_REPOSITORY_1_2_0
+              value: "quay.io/mongodb/mongodb-kubernetes-init-appdb:1.2.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_10_8627_1
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.10.8627-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_10_8627_1_1_0_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.10.8627-1_1.0.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_10_8627_1_1_0_1
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.10.8627-1_1.0.1"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_10_8627_1_1_1_0
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.10.8627-1_1.1.0"
+            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_10_8627_1_1_2_0
+              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.10.8627-1_1.2.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_11_8645_1
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.11.8645-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_11_8645_1_1_0_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.11.8645-1_1.0.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_11_8645_1_1_0_1
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.11.8645-1_1.0.1"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_11_8645_1_1_1_0
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.11.8645-1_1.1.0"
+            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_11_8645_1_1_2_0
+              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.11.8645-1_1.2.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_12_8669_1
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.12.8669-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_12_8669_1_1_0_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.12.8669-1_1.0.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_12_8669_1_1_0_1
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.12.8669-1_1.0.1"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_12_8669_1_1_1_0
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.12.8669-1_1.1.0"
+            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_12_8669_1_1_2_0
+              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.12.8669-1_1.2.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_13_8702_1
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.13.8702-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_13_8702_1_1_0_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.13.8702-1_1.0.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_13_8702_1_1_0_1
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.13.8702-1_1.0.1"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_13_8702_1_1_1_0
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.13.8702-1_1.1.0"
+            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_13_8702_1_1_2_0
+              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.13.8702-1_1.2.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_15_8741_1
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.15.8741-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_15_8741_1_1_0_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.15.8741-1_1.0.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_15_8741_1_1_0_1
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.15.8741-1_1.0.1"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_15_8741_1_1_1_0
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.15.8741-1_1.1.0"
+            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_15_8741_1_1_2_0
+              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.15.8741-1_1.2.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_0_8694_1
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.0.8694-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_108_0_0_8694_1_1_0_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:108.0.0.8694-1_1.0.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_0_8694_1_1_0_1
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.0.8694-1_1.0.1"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_0_8694_1_1_1_0
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.0.8694-1_1.1.0"
+            - name: RELATED_IMAGE_AGENT_IMAGE_108_0_0_8694_1_1_2_0
+              value: "quay.io/mongodb/mongodb-agent-ubi:108.0.0.8694-1_1.2.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_1_8718_1
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.1.8718-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_108_0_1_8718_1_1_0_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:108.0.1.8718-1_1.0.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_1_8718_1_1_0_1
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.1.8718-1_1.0.1"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_1_8718_1_1_1_0
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.1.8718-1_1.1.0"
+            - name: RELATED_IMAGE_AGENT_IMAGE_108_0_1_8718_1_1_2_0
+              value: "quay.io/mongodb/mongodb-agent-ubi:108.0.1.8718-1_1.2.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_2_8729_1
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.2.8729-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_108_0_2_8729_1_1_0_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:108.0.2.8729-1_1.0.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_2_8729_1_1_0_1
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.2.8729-1_1.0.1"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_2_8729_1_1_1_0
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.2.8729-1_1.1.0"
+            - name: RELATED_IMAGE_AGENT_IMAGE_108_0_2_8729_1_1_2_0
+              value: "quay.io/mongodb/mongodb-agent-ubi:108.0.2.8729-1_1.2.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_3_8758_1
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.3.8758-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_108_0_3_8758_1_1_0_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:108.0.3.8758-1_1.0.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_3_8758_1_1_0_1
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.3.8758-1_1.0.1"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_3_8758_1_1_1_0
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.3.8758-1_1.1.0"
+            - name: RELATED_IMAGE_AGENT_IMAGE_108_0_3_8758_1_1_2_0
+              value: "quay.io/mongodb/mongodb-agent-ubi:108.0.3.8758-1_1.2.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_4_8770_1
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.4.8770-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_108_0_4_8770_1_1_0_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:108.0.4.8770-1_1.0.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_4_8770_1_1_0_1
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.4.8770-1_1.0.1"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_4_8770_1_1_1_0
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.4.8770-1_1.1.0"
+            - name: RELATED_IMAGE_AGENT_IMAGE_108_0_4_8770_1_1_2_0
+              value: "quay.io/mongodb/mongodb-agent-ubi:108.0.4.8770-1_1.2.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_6_8796_1
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.6.8796-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_108_0_6_8796_1_1_0_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:108.0.6.8796-1_1.0.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_6_8796_1_1_0_1
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.6.8796-1_1.0.1"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_6_8796_1_1_1_0
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.6.8796-1_1.1.0"
+            - name: RELATED_IMAGE_AGENT_IMAGE_108_0_6_8796_1_1_2_0
+              value: "quay.io/mongodb/mongodb-agent-ubi:108.0.6.8796-1_1.2.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_7_8810_1
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.7.8810-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_108_0_7_8810_1_1_0_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:108.0.7.8810-1_1.0.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_7_8810_1_1_0_1
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.7.8810-1_1.0.1"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_7_8810_1_1_1_0
               value: "quay.io/mongodb/mongodb-agent-ubi:108.0.7.8810-1_1.1.0"
+            - name: RELATED_IMAGE_AGENT_IMAGE_108_0_7_8810_1_1_2_0
+              value: "quay.io/mongodb/mongodb-agent-ubi:108.0.7.8810-1_1.2.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_33_7866_1
               value: "quay.io/mongodb/mongodb-agent-ubi:12.0.33.7866-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_12_0_33_7866_1_1_0_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:12.0.33.7866-1_1.0.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_33_7866_1_1_0_1
               value: "quay.io/mongodb/mongodb-agent-ubi:12.0.33.7866-1_1.0.1"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_33_7866_1_1_1_0
               value: "quay.io/mongodb/mongodb-agent-ubi:12.0.33.7866-1_1.1.0"
+            - name: RELATED_IMAGE_AGENT_IMAGE_12_0_33_7866_1_1_2_0
+              value: "quay.io/mongodb/mongodb-agent-ubi:12.0.33.7866-1_1.2.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_34_7888_1
               value: "quay.io/mongodb/mongodb-agent-ubi:12.0.34.7888-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_12_0_34_7888_1_1_0_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:12.0.34.7888-1_1.0.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_34_7888_1_1_0_1
               value: "quay.io/mongodb/mongodb-agent-ubi:12.0.34.7888-1_1.0.1"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_34_7888_1_1_1_0
               value: "quay.io/mongodb/mongodb-agent-ubi:12.0.34.7888-1_1.1.0"
+            - name: RELATED_IMAGE_AGENT_IMAGE_12_0_34_7888_1_1_2_0
+              value: "quay.io/mongodb/mongodb-agent-ubi:12.0.34.7888-1_1.2.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_35_7911_1
               value: "quay.io/mongodb/mongodb-agent-ubi:12.0.35.7911-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_12_0_35_7911_1_1_0_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:12.0.35.7911-1_1.0.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_35_7911_1_1_0_1
               value: "quay.io/mongodb/mongodb-agent-ubi:12.0.35.7911-1_1.0.1"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_35_7911_1_1_1_0
               value: "quay.io/mongodb/mongodb-agent-ubi:12.0.35.7911-1_1.1.0"
+            - name: RELATED_IMAGE_AGENT_IMAGE_12_0_35_7911_1_1_2_0
+              value: "quay.io/mongodb/mongodb-agent-ubi:12.0.35.7911-1_1.2.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_13_36_0_9555_1
               value: "quay.io/mongodb/mongodb-agent-ubi:13.36.0.9555-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_13_36_0_9555_1_1_0_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:13.36.0.9555-1_1.0.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_13_36_0_9555_1_1_0_1
               value: "quay.io/mongodb/mongodb-agent-ubi:13.36.0.9555-1_1.0.1"
             - name: RELATED_IMAGE_AGENT_IMAGE_13_36_0_9555_1_1_1_0
               value: "quay.io/mongodb/mongodb-agent-ubi:13.36.0.9555-1_1.1.0"
+            - name: RELATED_IMAGE_AGENT_IMAGE_13_36_0_9555_1_1_2_0
+              value: "quay.io/mongodb/mongodb-agent-ubi:13.36.0.9555-1_1.2.0"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_6_0_25
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:6.0.25"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_6_0_26
