@@ -692,7 +692,7 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 
 	agentContainerModifications := []func(*corev1.Container){container.Apply(
 		container.WithName(util.AgentContainerName),
-		container.WithImage("268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/nnguyen-kops/mongodb-agent-ubi:latest-amd64"),
+		container.WithImage(opts.AgentImage),
 		container.WithEnvs(databaseEnvVars(opts)...),
 		container.WithArgs([]string{}),
 		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))), // nolint:forbidigo
@@ -1032,7 +1032,6 @@ func DatabaseLivenessProbe() probes.Modification {
 	)
 }
 
-// TODO: make this work for static no matrix
 func DatabaseReadinessProbe() probes.Modification {
 	return probes.Apply(
 		probes.WithExecCommand([]string{databaseReadinessProbeCommand}),
@@ -1042,7 +1041,6 @@ func DatabaseReadinessProbe() probes.Modification {
 	)
 }
 
-// TODO: make this work for static no matrix
 func DatabaseStartupProbe() probes.Modification {
 	return probes.Apply(
 		probes.WithExecCommand([]string{databaseLivenessProbeCommand}),
