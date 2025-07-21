@@ -17,6 +17,7 @@ require (
 	github.com/prometheus/client_golang v1.22.0
 	github.com/r3labs/diff/v3 v3.0.1
 	github.com/spf13/cast v1.9.2
+	github.com/spf13/cobra v1.7.0
 	github.com/stretchr/objx v0.5.2
 	github.com/stretchr/testify v1.10.0
 	github.com/xdg/stringprep v1.0.3
@@ -69,6 +70,8 @@ require (
 	github.com/hashicorp/go-secure-stdlib/strutil v0.1.2 // indirect
 	github.com/hashicorp/go-sockaddr v1.0.2 // indirect
 	github.com/hashicorp/hcl v1.0.1-vault-7 // indirect
+	github.com/hashicorp/hcl v1.0.0 // indirect
+	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect

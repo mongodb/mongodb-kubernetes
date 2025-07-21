@@ -6,16 +6,17 @@ import (
 	"strings"
 	"time"
 
-	"k8s.io/apimachinery/pkg/util/wait"
-
 	"github.com/ghodss/yaml"
 	"golang.org/x/xerrors"
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/kubernetes"
+
+	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
+
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
-	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 )
 
 type clusterType string
@@ -837,7 +838,7 @@ func getAllMemberClusterServiceAccountSecretTokens(ctx context.Context, clientSe
 
 		// Wait for the token secret to be created and populated with service account token data
 		var tokenSecret *corev1.Secret
-		if err := wait.PollWithContext(ctx, PollingInterval, PollingTimeout, func(ctx context.Context) (done bool, err error) {
+		if err := wait.PollWithContext(ctx, PollingInterval, PollingTimeout, func(ctx context.Context) (done bool, err error) { // nolint:staticcheck
 			tokenSecret, err = getServiceAccountToken(ctx, c, *sa)
 			if err != nil {
 				if errors.IsNotFound(err) {
