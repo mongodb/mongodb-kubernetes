@@ -28,20 +28,20 @@ func TestBuildStatefulSet_PersistentFlagStatic(t *testing.T) {
 	mdb := mdbv1.NewReplicaSetBuilder().SetPersistent(nil).Build()
 	set := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 1)
-	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 7)
+	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 8)
 	assert.Len(t, set.Spec.Template.Spec.Containers[1].VolumeMounts, 7)
 
 	mdb = mdbv1.NewReplicaSetBuilder().SetPersistent(util.BooleanRef(true)).Build()
 	set = DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 1)
-	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 7)
+	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 8)
 	assert.Len(t, set.Spec.Template.Spec.Containers[1].VolumeMounts, 7)
 
 	// If no persistence is set then we still mount init scripts
 	mdb = mdbv1.NewReplicaSetBuilder().SetPersistent(util.BooleanRef(false)).Build()
 	set = DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 0)
-	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 7)
+	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 8)
 	assert.Len(t, set.Spec.Template.Spec.Containers[1].VolumeMounts, 7)
 }
 

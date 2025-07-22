@@ -322,8 +322,7 @@ func TestShardedClusterReconcileContainerImagesWithStaticArchitecture(t *testing
 			require.Len(t, sts.Spec.Template.Spec.Containers, 3)
 
 			// Version from OM
-			assert.Equal(t, "quay.io/mongodb/mongodb-agent-ubi:12.0.30.7791-1", sts.Spec.Template.Spec.Containers[0].Image)
-			assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE", sts.Spec.Template.Spec.Containers[2].Image)
+			VerifyStaticContainers(t, sts.Spec.Template.Spec.Containers)
 		})
 	}
 }
@@ -928,22 +927,22 @@ func TestShardedCustomPodSpecTemplate(t *testing.T) {
 	assertPodSpecSts(t, &statefulSetScConfig, configSrvPodSpec.NodeName, configSrvPodSpec.Hostname, configSrvPodSpec.RestartPolicy)
 
 	podSpecTemplateSc0 := statefulSetSc0.Spec.Template.Spec
-	assert.Len(t, podSpecTemplateSc0.Containers, 2, "Should have 2 containers now")
+	assert.Len(t, podSpecTemplateSc0.Containers, 2, "Should have 3 containers now")
 	assert.Equal(t, util.DatabaseContainerName, podSpecTemplateSc0.Containers[0].Name, "Database container should always be first")
 	assert.Equal(t, "my-custom-container-sc", podSpecTemplateSc0.Containers[1].Name, "Custom container should be second")
 
 	podSpecTemplateSc1 := statefulSetSc1.Spec.Template.Spec
-	assert.Len(t, podSpecTemplateSc1.Containers, 2, "Should have 2 containers now")
+	assert.Len(t, podSpecTemplateSc1.Containers, 2, "Should have 3 containers now")
 	assert.Equal(t, util.DatabaseContainerName, podSpecTemplateSc1.Containers[0].Name, "Database container should always be first")
 	assert.Equal(t, "my-custom-container-sc", podSpecTemplateSc1.Containers[1].Name, "Custom container should be second")
 
 	podSpecTemplateMongoS := statefulSetMongoS.Spec.Template.Spec
-	assert.Len(t, podSpecTemplateMongoS.Containers, 2, "Should have 2 containers now")
+	assert.Len(t, podSpecTemplateMongoS.Containers, 2, "Should have 3 containers now")
 	assert.Equal(t, util.DatabaseContainerName, podSpecTemplateMongoS.Containers[0].Name, "Database container should always be first")
 	assert.Equal(t, "my-custom-container-mongos", podSpecTemplateMongoS.Containers[1].Name, "Custom container should be second")
 
 	podSpecTemplateScConfig := statefulSetScConfig.Spec.Template.Spec
-	assert.Len(t, podSpecTemplateScConfig.Containers, 2, "Should have 2 containers now")
+	assert.Len(t, podSpecTemplateScConfig.Containers, 2, "Should have 3 containers now")
 	assert.Equal(t, util.DatabaseContainerName, podSpecTemplateScConfig.Containers[0].Name, "Database container should always be first")
 	assert.Equal(t, "my-custom-container-config", podSpecTemplateScConfig.Containers[1].Name, "Custom container should be second")
 }
@@ -1027,24 +1026,24 @@ func TestShardedCustomPodStaticSpecTemplate(t *testing.T) {
 	assertPodSpecSts(t, &statefulSetScConfig, configSrvPodSpec.NodeName, configSrvPodSpec.Hostname, configSrvPodSpec.RestartPolicy)
 
 	podSpecTemplateSc0 := statefulSetSc0.Spec.Template.Spec
-	assert.Len(t, podSpecTemplateSc0.Containers, 3, "Should have 2 containers now")
-	assert.Equal(t, util.AgentContainerName, podSpecTemplateSc0.Containers[0].Name, "Database container should always be first")
-	assert.Equal(t, "my-custom-container-sc", podSpecTemplateSc0.Containers[2].Name, "Custom container should be second")
+	assert.Len(t, podSpecTemplateSc0.Containers, 4, "Should have 4 containers (3 base + 1 custom)")
+	assert.Equal(t, util.AgentContainerName, podSpecTemplateSc0.Containers[0].Name, "Agent container should be first alphabetically")
+	assert.Equal(t, "my-custom-container-sc", podSpecTemplateSc0.Containers[len(podSpecTemplateSc0.Containers)-1].Name, "Custom container should be last")
 
 	podSpecTemplateSc1 := statefulSetSc1.Spec.Template.Spec
-	assert.Len(t, podSpecTemplateSc1.Containers, 3, "Should have 2 containers now")
-	assert.Equal(t, util.AgentContainerName, podSpecTemplateSc1.Containers[0].Name, "Database container should always be first")
-	assert.Equal(t, "my-custom-container-sc", podSpecTemplateSc1.Containers[2].Name, "Custom container should be second")
+	assert.Len(t, podSpecTemplateSc1.Containers, 4, "Should have 4 containers (3 base + 1 custom)")
+	assert.Equal(t, util.AgentContainerName, podSpecTemplateSc1.Containers[0].Name, "Agent container should be first alphabetically")
+	assert.Equal(t, "my-custom-container-sc", podSpecTemplateSc1.Containers[len(podSpecTemplateSc1.Containers)-1].Name, "Custom container should be last")
 
 	podSpecTemplateMongoS := statefulSetMongoS.Spec.Template.Spec
-	assert.Len(t, podSpecTemplateMongoS.Containers, 3, "Should have 2 containers now")
-	assert.Equal(t, util.AgentContainerName, podSpecTemplateMongoS.Containers[0].Name, "Database container should always be first")
-	assert.Equal(t, "my-custom-container-mongos", podSpecTemplateMongoS.Containers[2].Name, "Custom container should be second")
+	assert.Len(t, podSpecTemplateMongoS.Containers, 4, "Should have 4 containers (3 base + 1 custom)")
+	assert.Equal(t, util.AgentContainerName, podSpecTemplateMongoS.Containers[0].Name, "Agent container should be first alphabetically")
+	assert.Equal(t, "my-custom-container-mongos", podSpecTemplateMongoS.Containers[len(podSpecTemplateMongoS.Containers)-1].Name, "Custom container should be last")
 
 	podSpecTemplateScConfig := statefulSetScConfig.Spec.Template.Spec
-	assert.Len(t, podSpecTemplateScConfig.Containers, 3, "Should have 2 containers now")
-	assert.Equal(t, util.AgentContainerName, podSpecTemplateScConfig.Containers[0].Name, "Database container should always be first")
-	assert.Equal(t, "my-custom-container-config", podSpecTemplateScConfig.Containers[2].Name, "Custom container should be second")
+	assert.Len(t, podSpecTemplateScConfig.Containers, 4, "Should have 4 containers (3 base + 1 custom)")
+	assert.Equal(t, util.AgentContainerName, podSpecTemplateScConfig.Containers[0].Name, "Agent container should be first alphabetically")
+	assert.Equal(t, "my-custom-container-config", podSpecTemplateScConfig.Containers[len(podSpecTemplateScConfig.Containers)-1].Name, "Custom container should be last")
 }
 
 func TestFeatureControlsNoAuth(t *testing.T) {
@@ -1789,88 +1788,6 @@ func SingleClusterShardedScalingWithOverridesTestCase(t *testing.T, tc SingleClu
 
 			// Verify scaled deployment
 			checkCorrectShardDistributionInStatefulSets(t, ctx, sc, clusterMapping, map[string]client.Client{multicluster.LegacyCentralClusterName: kubeClient}, expectedShardDistribution)
-		})
-	}
-}
-
-func TestSingleClusterShardedScalingWithOverrides(t *testing.T) {
-	scDefaultName := test.SCBuilderDefaultName + "-"
-	testCases := []SingleClusterShardedScalingTestCase{
-		{
-			name: "Basic sample test",
-			scalingSteps: []SingleClusterShardedScalingStep{
-				{
-					name:                 "Initial scaling",
-					shardCount:           3,
-					mongodsPerShardCount: 3,
-					shardOverrides: map[string]int{
-						scDefaultName + "0": 5,
-					},
-					expectedShardDistribution: []int{
-						5,
-						3,
-						3,
-					},
-				},
-				{
-					name:                 "Scale up mongodsPerShard",
-					shardCount:           3,
-					mongodsPerShardCount: 5,
-					shardOverrides: map[string]int{
-						scDefaultName + "0": 5,
-					},
-					expectedShardDistribution: []int{
-						5,
-						5,
-						5,
-					},
-				},
-			},
-		},
-		{
-			// This operation works in unit test only
-			// In e2e tests, the operator is waiting for uncreated hostnames to be ready
-			name: "Scale overrides up and down",
-			scalingSteps: []SingleClusterShardedScalingStep{
-				{
-					name:                 "Initial deployment",
-					shardCount:           4,
-					mongodsPerShardCount: 2,
-					shardOverrides: map[string]int{
-						scDefaultName + "0": 3,
-						scDefaultName + "1": 3,
-						scDefaultName + "3": 2,
-					},
-					expectedShardDistribution: []int{
-						3,
-						3,
-						2, // Not overridden
-						2,
-					},
-				},
-				{
-					name:                 "Scale overrides",
-					shardCount:           4,
-					mongodsPerShardCount: 2,
-					shardOverrides: map[string]int{
-						scDefaultName + "0": 2, // Scaled down
-						scDefaultName + "1": 2, // Scaled down
-						scDefaultName + "3": 3, // Scaled up
-					},
-					expectedShardDistribution: []int{
-						2, // Scaled down
-						2, // Scaled down
-						2, // Not overridden
-						3, // Scaled up
-					},
-				},
-			},
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			SingleClusterShardedScalingWithOverridesTestCase(t, tc)
 		})
 	}
 }

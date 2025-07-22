@@ -366,7 +366,8 @@ func DatabaseStatefulSetHelper(mdb databaseStatefulSetSource, stsOpts *DatabaseS
 	stsOpts.ExtraEnvs = extraEnvs
 
 	templateFunc := buildMongoDBPodTemplateSpec(*stsOpts, mdb)
-	return statefulset.New(buildDatabaseStatefulSetConfigurationFunction(mdb, templateFunc, *stsOpts, log))
+	sts := statefulset.New(buildDatabaseStatefulSetConfigurationFunction(mdb, templateFunc, *stsOpts, log))
+	return sts
 }
 
 // buildVaultDatabaseSecretsToInject fully constructs the DatabaseSecretsToInject required to
@@ -512,7 +513,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 		configureImagePullSecrets,
 		podTemplateSpecFunc,
 	}
-		podTemplateModifications = append(podTemplateModifications, staticMods...)
+	podTemplateModifications = append(podTemplateModifications, staticMods...)
 
 	return statefulset.Apply(
 		// StatefulSet metadata
