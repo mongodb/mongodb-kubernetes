@@ -123,7 +123,7 @@ def pipeline_process_image(
     dockerfile_path: str,
     dockerfile_args: Dict[str, str] = None,
     base_registry: str = None,
-    architecture=None,
+    platforms: list[str] = None,
     sign: bool = False,
     build_path: str = ".",
     with_sbom: bool = True,
@@ -153,7 +153,7 @@ def pipeline_process_image(
         dockerfile_path=dockerfile_path,
         dockerfile_args=dockerfile_args,
         base_registry=base_registry,
-        architecture=architecture,
+        platforms=platforms,
         sign=sign,
         build_path=build_path,
     )
@@ -311,14 +311,14 @@ def build_CLI_SBOM(build_configuration: BuildConfiguration):
         logger.info("Skipping SBOM Generation (enabled only for EVG)")
         return
 
-    if build_configuration.architecture is None or len(build_configuration.architecture) == 0:
+    if build_configuration.platforms is None or len(build_configuration.platforms) == 0:
         architectures = ["linux/amd64", "linux/arm64", "darwin/arm64", "darwin/amd64"]
-    elif "arm64" in build_configuration.architecture:
+    elif "arm64" in build_configuration.platforms:
         architectures = ["linux/arm64", "darwin/arm64"]
-    elif "amd64" in build_configuration.architecture:
+    elif "amd64" in build_configuration.platforms:
         architectures = ["linux/amd64", "darwin/amd64"]
     else:
-        logger.error(f"Unrecognized architectures {build_configuration.architecture}. Skipping SBOM generation")
+        logger.error(f"Unrecognized architectures {build_configuration.platforms}. Skipping SBOM generation")
         return
 
     release = load_release_file()

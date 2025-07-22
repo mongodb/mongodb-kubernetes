@@ -12,7 +12,7 @@ class BuildConfiguration:
 
     parallel: bool = False
     parallel_factor: int = 0
-    architecture: Optional[List[str]] = None
+    platforms: Optional[List[str]] = None
     sign: bool = False
     all_agents: bool = False
     debug: bool = True

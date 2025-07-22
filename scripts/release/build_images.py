@@ -3,6 +3,10 @@ import base64
 import sys
 from typing import Dict
 
+import python_on_whales
+from python_on_whales.exceptions import DockerException
+import time
+
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
@@ -40,68 +44,89 @@ def ecr_login_boto3(region: str, account_id: str):
         raise RuntimeError(f"Docker login failed: {login_resp}")
     logger.debug(f"ECR login succeeded: {status}")
 
+# TODO: don't do it every time ?
+def ensure_buildx_builder(builder_name: str = "multiarch") -> str:
+      """
+      Ensures a Docker Buildx builder exists for multi-platform builds.
+      
+      :param builder_name: Name for the buildx builder
+      :return: The builder name that was created or reused
+      """
+      docker = python_on_whales.docker
 
-def build_image(docker_client: docker.DockerClient, tag: str, dockerfile: str, path: str, args: Dict[str, str] = {}):
+      try:
+          docker.buildx.create(
+              name=builder_name,
+              driver="docker-container",
+              use=True,
+              bootstrap=True,
+          )
+          logger.info(f"Created new buildx builder: {builder_name}")
+      except DockerException as e:
+          if f'existing instance for "{builder_name}"' in str(e):
+              logger.info(f"Builder '{builder_name}' already exists – reusing it.")
+              # Make sure it's the current one:
+              docker.buildx.use(builder_name)
+          else:
+              # Some other failure happened
+              logger.error(f"Failed to create buildx builder: {e}")
+              raise
+
+      return builder_name
+
+
+def build_image(tag: str, dockerfile: str, path: str, args: Dict[str, str] = {}, push: bool = True, platforms: list[str] = None):
     """
-    Build a Docker image.
+    Build a Docker image using python_on_whales and Docker Buildx for multi-architecture support.
 
-    :param docker_client:
-    :param path: Build context path (directory with your Dockerfile)
-    :param dockerfile: Name or relative path of the Dockerfile within `path`
     :param tag: Image tag (name:tag)
-    :param args:
+    :param dockerfile: Name or relative path of the Dockerfile within `path`
+    :param path: Build context path (directory with your Dockerfile)
+    :param args: Build arguments dictionary
+    :param push: Whether to push the image after building
+    :param platforms: List of target platforms (e.g., ["linux/amd64", "linux/arm64"])
     """
-
+    docker = python_on_whales.docker
+    
     try:
-        if args:
-            args = {k: str(v) for k, v in args.items()}
-        image, logs = docker_client.images.build(
-            path=path,
-            dockerfile=dockerfile,
-            tag=tag,
-            pull=False,  # set True to always attempt to pull a newer base image
-            buildargs=args,
+        # Convert build args to the format expected by python_on_whales
+        build_args = {k: str(v) for k, v in args.items()} if args else {}
+        
+        # Set default platforms if not specified
+        if platforms is None:
+            platforms = ["linux/amd64"]
+        
+        logger.info(f"Building image: {tag}")
+        logger.info(f"Platforms: {platforms}")
+        logger.info(f"Dockerfile: {dockerfile}")
+        logger.info(f"Build context: {path}")
+        logger.debug(f"Build args: {build_args}")
+        
+        # Use buildx for multi-platform builds
+        if len(platforms) > 1:
+            logger.info(f"Multi-platform build for {len(platforms)} architectures")
+        
+        # We need a special driver to handle multi platform builds
+        builder_name = ensure_buildx_builder("multiarch")
+
+        # Build the image using buildx
+        docker.buildx.build(
+            context_path=path,
+            file=dockerfile,
+            tags=[tag],
+            platforms=platforms,
+            builder=builder_name,
+            build_args=build_args,
+            push=push,
+            pull=False,  # Don't always pull base images
         )
-        logger.info(f"Successfully built {tag} (id: {image.id})")
-        # Print build output
-        for chunk in logs:
-            if "stream" in chunk:
-                logger.debug(chunk["stream"])
-    except docker.errors.BuildError as e:
-        logger.error("Build failed:")
-        for stage in e.build_log:
-            if "stream" in stage:
-                logger.debug(stage["stream"])
-            elif "error" in stage:
-                logger.error(stage["error"])
-        logger.error(e)
-        logger.error(
-            "Note that the docker client only surfaces the general error message. For detailed troubleshooting of the build failure, run the equivalent build command locally or use the docker Python API client directly."
-        )
-        raise RuntimeError(f"Failed to build image {tag}")
+        
+        logger.info(f"Successfully built {'and pushed' if push else ''} {tag}")
+        
     except Exception as e:
-        logger.error(f"Unexpected error: {e}")
-        raise RuntimeError(f"Failed to build image {tag}")
+        logger.error(f"Failed to build image {tag}: {e}")
+        raise RuntimeError(f"Failed to build image {tag}: {str(e)}")
 
-
-def push_image(docker_client: docker.DockerClient, image: str, tag: str):
-    """
-    Push a Docker image to a registry.
-
-    :param docker_client:
-    :param image: Image name (e.g., 'my-image')
-    :param tag: Image tag (e.g., 'latest')
-    """
-    logger.debug(f"push_image - image: {image}, tag: {tag}")
-    image_full_uri = f"{image}:{tag}"
-    try:
-        output = docker_client.images.push(image, tag=tag)
-        if "error" in output:
-            raise RuntimeError(f"Failed to push image {image_full_uri} {output}")
-        logger.info(f"Successfully pushed {image_full_uri}")
-    except Exception as e:
-        logger.error(f"Failed to push image {image_full_uri} - {e}")
-        sys.exit(1)
 
 
 def process_image(
@@ -110,12 +135,11 @@ def process_image(
     dockerfile_path: str,
     dockerfile_args: Dict[str, str],
     base_registry: str,
-    architecture: str = None,
+    platforms: list[str] = None,
     sign: bool = False,
     build_path: str = ".",
+    push: bool = True,
 ):
-    docker_client = docker.from_env()
-    logger.debug("Docker client initialized")
     # Login to ECR using boto3
     ecr_login_boto3(region="us-east-1", account_id="268558157000")
 
@@ -127,21 +151,28 @@ def process_image(
         create_ecr_repository(repo_to_create)
         logger.info(f"Created repository {repo_to_create}")
 
-    # Build image
+    # Set default platforms if none provided TODO: remove from here and do it at higher level later
+    if platforms is None:
+        platforms = ["linux/amd64"]
+
+    # Build image with multi-platform support
     docker_registry = f"{base_registry}/{image_name}"
-    arch_tag = f"-{architecture}" if architecture else ""
-    image_tag = f"{image_tag}{arch_tag}"
     image_full_uri = f"{docker_registry}:{image_tag}"
+    
     logger.info(f"Building image: {image_full_uri}")
+    logger.info(f"Target platforms: {platforms}")
     logger.info(f"Using Dockerfile at: {dockerfile_path}, and build path: {build_path}")
     logger.debug(f"Build args: {dockerfile_args}")
+    
+    # Use new build_image function with buildx multi-platform support
     build_image(
-        docker_client, path=build_path, dockerfile=f"{dockerfile_path}", tag=image_full_uri, args=dockerfile_args
+        tag=image_full_uri,
+        dockerfile=dockerfile_path,
+        path=build_path,
+        args=dockerfile_args,
+        push=push,
+        platforms=platforms
     )
-
-    # Push to staging registry
-    logger.info(f"Pushing image: {image_tag} to {docker_registry}")
-    push_image(docker_client, docker_registry, image_tag)
 
     if sign:
         logger.info("Signing image")

@@ -120,6 +120,7 @@ def _setup_tracing():
 
 
 def main():
+
     _setup_tracing()
     parser = argparse.ArgumentParser(description="Build container images.")
     parser.add_argument("--include", action="append", help="Image to include.")
@@ -134,9 +135,9 @@ def main():
     parser.add_argument("--debug", action="store_true", help="Enable debug logging.")
     parser.add_argument("--sign", action="store_true", help="Sign images.")
     parser.add_argument(
-        "--architecture",
-        action="append",
-        help="Target architecture for the build. Can be specified multiple times. Defaults to amd64 and arm64.",
+        "--platform",
+        default="linux/amd64",
+        help="Target platforms for multi-arch builds (comma-separated). Example: linux/amd64,linux/arm64. Defaults to linux/amd64.",
     )
     parser.add_argument(
         "--all-agents",
@@ -159,6 +160,9 @@ def main():
     if args.skip:
         images_to_build = set(images_to_build) - set(args.skip)
 
+    # Parse platform argument (comma-separated)
+    platforms = [p.strip() for p in args.platform.split(",")]
+
     # Centralized configuration management
     build_context = BuildContext.from_environment()
     version_resolver = VersionResolver(build_context)
@@ -170,7 +174,7 @@ def main():
         base_registry=registry_resolver.get_base_registry(),
         parallel=args.parallel,
         debug=args.debug,
-        architecture=args.architecture,
+        architecture=platforms,
         sign=args.sign or build_context.signing_enabled,
         all_agents=args.all_agents or bool(os.environ.get("all_agents", False)),
         parallel_factor=args.parallel_factor,
