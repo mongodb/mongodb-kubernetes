@@ -2601,7 +2601,7 @@ func TestComputeMembersToScaleDown(t *testing.T) {
 			_, omConnectionFactory := mock.NewDefaultFakeClient(targetSpec)
 			memberClusterMap := getFakeMultiClusterMapWithClusters(memberClusterNames, omConnectionFactory)
 
-			_, reconcileHelper, _, _, err := defaultClusterReconciler(ctx, nil, "", "", targetSpec, memberClusterMap)
+			_, reconcileHelper, _, _, err := defaultClusterReconciler(t, ctx, nil, "", "", targetSpec, memberClusterMap)
 			assert.NoError(t, err)
 
 			membersToScaleDown := reconcileHelper.computeMembersToScaleDown(tc.cfgServerCurrentClusters, tc.shardsCurrentClusters, zaptest.NewLogger(t).Sugar())

@@ -55,7 +55,7 @@ import (
 func TestChangingFCVShardedCluster(t *testing.T) {
 	ctx := context.Background()
 	sc := test.DefaultClusterBuilder().Build()
-	reconciler, _, cl, _, err := defaultClusterReconciler(ctx, nil, "", "", sc, nil)
+	reconciler, _, cl, _, err := defaultClusterReconciler(t, ctx, nil, "", "", sc, nil)
 	require.NoError(t, err)
 
 	// Helper function to update and verify FCV
@@ -77,7 +77,7 @@ func TestReconcileCreateShardedCluster(t *testing.T) {
 	ctx := context.Background()
 	sc := test.DefaultClusterBuilder().Build()
 
-	reconciler, _, kubeClient, omConnectionFactory, err := defaultClusterReconciler(ctx, nil, "", "", sc, nil)
+	reconciler, _, kubeClient, omConnectionFactory, err := defaultClusterReconciler(t, ctx, nil, "", "", sc, nil)
 	c := kubeClient
 	require.NoError(t, err)
 
@@ -221,7 +221,7 @@ func TestReconcileCreateShardedCluster_ScaleDown(t *testing.T) {
 	ctx := context.Background()
 	// First creation
 	sc := test.DefaultClusterBuilder().SetShardCountSpec(4).SetShardCountStatus(4).Build()
-	reconciler, _, clusterClient, omConnectionFactory, err := defaultClusterReconciler(ctx, nil, "", "", sc, nil)
+	reconciler, _, clusterClient, omConnectionFactory, err := defaultClusterReconciler(t, ctx, nil, "", "", sc, nil)
 	require.NoError(t, err)
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, clusterClient)
@@ -262,7 +262,7 @@ func TestShardedClusterReconcileContainerImages(t *testing.T) {
 	ctx := context.Background()
 	sc := test.DefaultClusterBuilder().SetVersion("8.0.0").SetShardCountSpec(1).Build()
 
-	reconciler, _, kubeClient, _, err := defaultClusterReconciler(ctx, imageUrlsMock, "2.0.0", "1.0.0", sc, nil)
+	reconciler, _, kubeClient, _, err := defaultClusterReconciler(t, ctx, imageUrlsMock, "2.0.0", "1.0.0", sc, nil)
 	require.NoError(t, err)
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
@@ -300,7 +300,7 @@ func TestShardedClusterReconcileContainerImagesWithStaticArchitecture(t *testing
 		databaseRelatedImageEnv:         "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE",
 	}
 
-	reconciler, _, kubeClient, omConnectionFactory, err := defaultClusterReconciler(ctx, imageUrlsMock, "", "", sc, nil)
+	reconciler, _, kubeClient, omConnectionFactory, err := defaultClusterReconciler(t, ctx, imageUrlsMock, "", "", sc, nil)
 	require.NoError(t, err)
 
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
@@ -341,7 +341,7 @@ func TestReconcilePVCResizeShardedCluster(t *testing.T) {
 	sc.Spec.Persistent = util.BooleanRef(true)
 	sc.Spec.ConfigSrvPodSpec.Persistence = &persistence
 	sc.Spec.ShardPodSpec.Persistence = &persistence
-	reconciler, _, c, _, err := defaultClusterReconciler(ctx, nil, "", "", sc, nil)
+	reconciler, _, c, _, err := defaultClusterReconciler(t, ctx, nil, "", "", sc, nil)
 	assert.NoError(t, err)
 
 	// first, we create the shardedCluster with sts and pvc,
@@ -502,7 +502,7 @@ func TestAddDeleteShardedCluster(t *testing.T) {
 	// First we need to create a sharded cluster
 	sc := test.DefaultClusterBuilder().Build()
 
-	reconciler, _, clusterClient, omConnectionFactory, err := defaultClusterReconciler(ctx, nil, "", "", sc, nil)
+	reconciler, _, clusterClient, omConnectionFactory, err := defaultClusterReconciler(t, ctx, nil, "", "", sc, nil)
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		connection.(*om.MockedOmConnection).AgentsDelayCount = 1
 	})
@@ -558,7 +558,7 @@ func TestPrepareScaleDownShardedCluster_ConfigMongodsUp(t *testing.T) {
 	kubeClient, _ := mock.NewDefaultFakeClient(scAfterScale)
 	// Store the initial scaling status in state configmap
 	assert.NoError(t, createMockStateConfigMap(kubeClient, mock.TestNamespace, scBeforeScale.Name, initialState))
-	_, reconcileHelper, err := newShardedClusterReconcilerFromResource(nil, ctx, nil, "", "", scAfterScale, nil, kubeClient, omConnectionFactory)
+	_, reconcileHelper, err := newShardedClusterReconcilerFromResource(t, ctx, nil, "", "", scAfterScale, nil, kubeClient, omConnectionFactory)
 	assert.NoError(t, err)
 	assert.NoError(t, reconcileHelper.prepareScaleDownShardedCluster(omConnectionFactory.GetConnection(), zaptest.NewLogger(t).Sugar()))
 
@@ -605,7 +605,7 @@ func TestPrepareScaleDownShardedCluster_ShardsUpMongodsDown(t *testing.T) {
 	omConnectionFactory := om.NewCachedOMConnectionFactoryWithInitializedConnection(om.NewMockedOmConnection(createDeploymentFromShardedCluster(t, scBeforeScale)))
 	kubeClient, _ := mock.NewDefaultFakeClient(scAfterScale)
 	assert.NoError(t, createMockStateConfigMap(kubeClient, mock.TestNamespace, scBeforeScale.Name, initialState))
-	_, reconcileHelper, err := newShardedClusterReconcilerFromResource(nil, ctx, nil, "", "", scAfterScale, nil, kubeClient, omConnectionFactory)
+	_, reconcileHelper, err := newShardedClusterReconcilerFromResource(t, ctx, nil, "", "", scAfterScale, nil, kubeClient, omConnectionFactory)
 	assert.NoError(t, err)
 
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
@@ -651,7 +651,7 @@ func TestConstructConfigSrv(t *testing.T) {
 func TestPrepareScaleDownShardedCluster_OnlyMongos(t *testing.T) {
 	ctx := context.Background()
 	sc := test.DefaultClusterBuilder().SetMongosCountStatus(4).SetMongosCountSpec(2).Build()
-	_, reconcileHelper, _, omConnectionFactory, _ := defaultClusterReconciler(ctx, nil, "", "", sc, nil)
+	_, reconcileHelper, _, omConnectionFactory, _ := defaultClusterReconciler(t, ctx, nil, "", "", sc, nil)
 	oldDeployment := createDeploymentFromShardedCluster(t, sc)
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		if _, err := connection.UpdateDeployment(oldDeployment); err != nil {
@@ -708,7 +708,7 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 	omConnectionFactory := om.NewCachedOMConnectionFactoryWithInitializedConnection(om.NewMockedOmConnection(createDeploymentFromShardedCluster(t, sc)))
 	kubeClient, _ := mock.NewDefaultFakeClient(sc)
 	assert.NoError(t, createMockStateConfigMap(kubeClient, mock.TestNamespace, sc.Name, initialState))
-	_, reconcileHelper, err := newShardedClusterReconcilerFromResource(nil, ctx, nil, "", "", scScaledDown, nil, kubeClient, omConnectionFactory)
+	_, reconcileHelper, err := newShardedClusterReconcilerFromResource(t, ctx, nil, "", "", scScaledDown, nil, kubeClient, omConnectionFactory)
 	assert.NoError(t, err)
 
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
@@ -806,7 +806,7 @@ func TestShardedCluster_WithTLSEnabled_AndX509Enabled_Succeeds(t *testing.T) {
 		SetTLSCA("custom-ca").
 		Build()
 
-	reconciler, _, clusterClient, _, err := defaultClusterReconciler(ctx, nil, "", "", sc, nil)
+	reconciler, _, clusterClient, _, err := defaultClusterReconciler(t, ctx, nil, "", "", sc, nil)
 	require.NoError(t, err)
 	addKubernetesTlsResources(ctx, clusterClient, sc)
 
@@ -825,7 +825,7 @@ func TestShardedCluster_NeedToPublishState(t *testing.T) {
 		Build()
 
 	// perform successful reconciliation to populate all the stateful sets in the mocked client
-	reconciler, reconcilerHelper, clusterClient, _, err := defaultClusterReconciler(ctx, nil, "", "", sc, nil)
+	reconciler, reconcilerHelper, clusterClient, _, err := defaultClusterReconciler(t, ctx, nil, "", "", sc, nil)
 	require.NoError(t, err)
 	addKubernetesTlsResources(ctx, clusterClient, sc)
 	actualResult, err := reconciler.Reconcile(ctx, requestFromObject(sc))
@@ -901,7 +901,7 @@ func TestShardedCustomPodSpecTemplate(t *testing.T) {
 		Spec: configSrvPodSpec,
 	}).Build()
 
-	reconciler, _, kubeClient, _, err := defaultClusterReconciler(ctx, nil, "", "", sc, nil)
+	reconciler, _, kubeClient, _, err := defaultClusterReconciler(t, ctx, nil, "", "", sc, nil)
 	require.NoError(t, err)
 
 	addKubernetesTlsResources(ctx, kubeClient, sc)
@@ -1000,7 +1000,7 @@ func TestShardedCustomPodStaticSpecTemplate(t *testing.T) {
 		Spec: configSrvPodSpec,
 	}).Build()
 
-	reconciler, _, kubeClient, _, err := defaultClusterReconciler(ctx, nil, "", "", sc, nil)
+	reconciler, _, kubeClient, _, err := defaultClusterReconciler(t, ctx, nil, "", "", sc, nil)
 	require.NoError(t, err)
 
 	addKubernetesTlsResources(ctx, kubeClient, sc)
@@ -1082,7 +1082,7 @@ func TestScalingShardedCluster_ScalesOneMemberAtATime_WhenScalingUp(t *testing.T
 		Build()
 
 	clusterClient, omConnectionFactory := mock.NewDefaultFakeClient(sc)
-	reconciler, _, err := newShardedClusterReconcilerFromResource(nil, ctx, nil, "", "", sc, nil, clusterClient, omConnectionFactory)
+	reconciler, _, err := newShardedClusterReconcilerFromResource(t, ctx, nil, "", "", sc, nil, clusterClient, omConnectionFactory)
 	require.NoError(t, err)
 
 	// perform initial reconciliation, so we are not creating a new resource
@@ -1171,7 +1171,7 @@ func TestScalingShardedCluster_ScalesOneMemberAtATime_WhenScalingDown(t *testing
 		SetShardCountStatus(3).
 		Build()
 
-	reconciler, _, clusterClient, _, err := defaultClusterReconciler(ctx, nil, "", "", sc, nil)
+	reconciler, _, clusterClient, _, err := defaultClusterReconciler(t, ctx, nil, "", "", sc, nil)
 	require.NoError(t, err)
 	// perform initial reconciliation so we are not creating a new resource
 	checkReconcileSuccessful(ctx, t, reconciler, sc, clusterClient)
@@ -1289,7 +1289,7 @@ func TestShardedClusterPortsAreConfigurable_WithAdditionalMongoConfig(t *testing
 		SetShardAdditionalConfig(shardConfig).
 		Build()
 
-	reconciler, _, clusterClient, _, err := defaultClusterReconciler(ctx, nil, "", "", sc, nil)
+	reconciler, _, clusterClient, _, err := defaultClusterReconciler(t, ctx, nil, "", "", sc, nil)
 	require.NoError(t, err)
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, clusterClient)
@@ -1319,7 +1319,7 @@ func TestShardedCluster_ConfigMapAndSecretWatched(t *testing.T) {
 	ctx := context.Background()
 	sc := test.DefaultClusterBuilder().Build()
 
-	reconciler, _, clusterClient, _, err := defaultClusterReconciler(ctx, nil, "", "", sc, nil)
+	reconciler, _, clusterClient, _, err := defaultClusterReconciler(t, ctx, nil, "", "", sc, nil)
 	require.NoError(t, err)
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, clusterClient)
@@ -1338,7 +1338,7 @@ func TestShardedClusterTLSAndInternalAuthResourcesWatched(t *testing.T) {
 	ctx := context.Background()
 	sc := test.DefaultClusterBuilder().SetShardCountSpec(1).EnableTLS().SetTLSCA("custom-ca").Build()
 	sc.Spec.Security.Authentication.InternalCluster = "x509"
-	reconciler, _, clusterClient, _, err := defaultClusterReconciler(ctx, nil, "", "", sc, nil)
+	reconciler, _, clusterClient, _, err := defaultClusterReconciler(t, ctx, nil, "", "", sc, nil)
 	require.NoError(t, err)
 
 	addKubernetesTlsResources(ctx, clusterClient, sc)
@@ -1386,7 +1386,7 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 		}).
 		Build()
 
-	reconciler, _, clusterClient, omConnectionFactory, err := defaultClusterReconciler(ctx, nil, "", "", sc, nil)
+	reconciler, _, clusterClient, omConnectionFactory, err := defaultClusterReconciler(t, ctx, nil, "", "", sc, nil)
 	require.NoError(t, err)
 	omConnectionFactory.SetPostCreateHook(func(c om.Connection) {
 		// 4 because config server + num shards + 1 for entity to represent the sharded cluster itself
@@ -1511,7 +1511,7 @@ func TestTlsConfigPrefix_ForShardedCluster(t *testing.T) {
 		}).
 		Build()
 
-	reconciler, _, clusterClient, _, err := defaultClusterReconciler(ctx, nil, "", "", sc, nil)
+	reconciler, _, clusterClient, _, err := defaultClusterReconciler(t, ctx, nil, "", "", sc, nil)
 	require.NoError(t, err)
 
 	createShardedClusterTLSSecretsFromCustomCerts(ctx, sc, "my-prefix", clusterClient)
@@ -1555,7 +1555,7 @@ func TestShardSpecificPodSpec(t *testing.T) {
 		},
 	}).Build()
 
-	reconciler, _, clusterClient, _, err := defaultClusterReconciler(ctx, nil, "", "", sc, nil)
+	reconciler, _, clusterClient, _, err := defaultClusterReconciler(t, ctx, nil, "", "", sc, nil)
 	require.NoError(t, err)
 	addKubernetesTlsResources(ctx, clusterClient, sc)
 	checkReconcileSuccessful(ctx, t, reconciler, sc, clusterClient)
@@ -1579,7 +1579,7 @@ func TestShardedClusterAgentVersionMapping(t *testing.T) {
 	reconcilerFactory := func(sc *mdbv1.MongoDB) (reconcile.Reconciler, kubernetesClient.Client) {
 		// Go couldn't infer correctly that *ReconcileMongoDbShardedCluster implemented *reconciler.Reconciler interface
 		// without this anonymous function
-		reconciler, _, mockClient, _, err := defaultClusterReconciler(ctx, nil, "", "", sc, nil)
+		reconciler, _, mockClient, _, err := defaultClusterReconciler(t, ctx, nil, "", "", sc, nil)
 		require.NoError(t, err)
 		return reconciler, mockClient
 	}
@@ -1681,9 +1681,9 @@ func createDeploymentFromShardedCluster(t *testing.T, updatable v1.CustomResourc
 	return d
 }
 
-func defaultClusterReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, kubernetesClient.Client, *om.CachedOMConnectionFactory, error) {
+func defaultClusterReconciler(t *testing.T, ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, kubernetesClient.Client, *om.CachedOMConnectionFactory, error) {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(sc)
-	r, reconcileHelper, err := newShardedClusterReconcilerFromResource(nil, ctx, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, sc, globalMemberClustersMap, kubeClient, omConnectionFactory)
+	r, reconcileHelper, err := newShardedClusterReconcilerFromResource(t, ctx, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, sc, globalMemberClustersMap, kubeClient, omConnectionFactory)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -1767,7 +1767,7 @@ func SingleClusterShardedScalingWithOverridesTestCase(t *testing.T, tc SingleClu
 
 	for _, scalingStep := range tc.scalingSteps {
 		t.Run(scalingStep.name, func(t *testing.T) {
-			reconciler, reconcilerHelper, kubeClient, omConnectionFactory, err := defaultClusterReconciler(ctx, nil, "", "", sc, nil)
+			reconciler, reconcilerHelper, kubeClient, omConnectionFactory, err := defaultClusterReconciler(t, ctx, nil, "", "", sc, nil)
 			_ = omConnectionFactory.GetConnectionFunc(&om.OMContext{GroupName: om.TestGroupName})
 			require.NoError(t, err)
 			clusterMapping := reconcilerHelper.deploymentState.ClusterMapping

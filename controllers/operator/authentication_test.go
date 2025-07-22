@@ -65,7 +65,7 @@ func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_Sh
 	ctx := context.Background()
 	scWithTls := test.DefaultClusterBuilder().EnableTLS().EnableX509().SetName("sc-with-tls").SetTLSCA("custom-ca").Build()
 
-	reconciler, _, client, _, err := defaultClusterReconciler(ctx, nil, "", "", scWithTls, nil)
+	reconciler, _, client, _, err := defaultClusterReconciler(t, ctx, nil, "", "", scWithTls, nil)
 	require.NoError(t, err)
 	addKubernetesTlsResources(ctx, client, scWithTls)
 
@@ -76,7 +76,7 @@ func TestX509CanBeEnabled_WhenThereAreOnlyTlsDeployments_ShardedCluster(t *testi
 	ctx := context.Background()
 	scWithTls := test.DefaultClusterBuilder().EnableTLS().EnableX509().SetName("sc-with-tls").SetTLSCA("custom-ca").Build()
 
-	reconciler, _, client, _, err := defaultClusterReconciler(ctx, nil, "", "", scWithTls, nil)
+	reconciler, _, client, _, err := defaultClusterReconciler(t, ctx, nil, "", "", scWithTls, nil)
 	require.NoError(t, err)
 	addKubernetesTlsResources(ctx, client, scWithTls)
 
@@ -332,7 +332,7 @@ func TestX509InternalClusterAuthentication_CanBeEnabledWithScram_ShardedCluster(
 		EnableX509InternalClusterAuth().
 		Build()
 
-	r, _, kubeClient, omConnectionFactory, _ := defaultClusterReconciler(ctx, nil, "", "", sc, nil)
+	r, _, kubeClient, omConnectionFactory, _ := defaultClusterReconciler(t, ctx, nil, "", "", sc, nil)
 	addKubernetesTlsResources(ctx, r.client, sc)
 	checkReconcileSuccessful(ctx, t, r, sc, kubeClient)
 
@@ -769,7 +769,7 @@ func Test_NoAdditionalDomainsPresent(t *testing.T) {
 	// The default secret we create does not contain additional domains so it will not be valid for this RS
 	rs.Spec.Security.TLSConfig.AdditionalCertificateDomains = []string{"foo"}
 
-	reconciler, _, client, _, err := defaultClusterReconciler(ctx, nil, "", "", rs, nil)
+	reconciler, _, client, _, err := defaultClusterReconciler(t, ctx, nil, "", "", rs, nil)
 	require.NoError(t, err)
 	addKubernetesTlsResources(ctx, client, rs)
 
