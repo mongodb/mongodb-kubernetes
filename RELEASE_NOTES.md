@@ -6,7 +6,7 @@
 ## Other Changes
 * Optional permissions for `PersistentVolumeClaim` moved to a separate role. When managing the operator with Helm it is possible to disable permissions for `PersistentVolumeClaim` resources by setting `operator.enablePVCResize` value to `false` (`true` by default). When enabled, previously these permissions were part of the primary operator role. With this change, permissions have a separate role.
 * `subresourceEnabled` Helm value was removed. This setting used to be `true` by default and made it possible to exclude subresource permissions from the operator role by specifying `false` as the value. We are removing this configuration option, making the operator roles always have subresource permissions. This setting was introduced as a temporary solution for [this](https://bugzilla.redhat.com/show_bug.cgi?id=1803171) OpenShift issue. The issue has since been resolved and the setting is no longer needed.
-* The `MDB_ASSUME_ENTERPRISE_IMAGE` environment variable has been removed. This undocumented environment variable, when set to `true`, forced the `-ent` suffix for the database image version in static architecture.
+* The `MDB_ASSUME_ENTERPRISE_IMAGE` environment variable has been removed. This undocumented environment variable, when set to `true`, forced the `-ent` suffix for the database image version in static architecture. If you are mirroring images and were using this variable, ensure that you do not rename the server image. The name must contain `mongodb-enterprise-server`; otherwise, the operator will not function correctly.
 
 
 <!-- Past Releases -->
