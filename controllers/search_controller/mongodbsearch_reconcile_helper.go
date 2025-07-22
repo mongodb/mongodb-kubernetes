@@ -13,6 +13,7 @@ import (
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -22,9 +23,13 @@ import (
 
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/service"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/mongot"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 )
@@ -93,13 +98,28 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Failed(err)
 	}
 
-	mongotConfig := createMongotConfig(r.mdbSearch, r.db)
-	configHash, err := r.ensureMongotConfig(ctx, mongotConfig)
+	ingressTlsMongotModification, ingressTlsStsModification, err := r.ensureIngressTlsConfig(ctx)
 	if err != nil {
 		return workflow.Failed(err)
 	}
 
-	if err := r.createOrUpdateStatefulSet(ctx, log, configHash); err != nil {
+	egressTlsMongotModification, egressTlsStsModification, err := r.ensureEgressTlsConfig(ctx)
+	if err != nil {
+		return workflow.Failed(err)
+	}
+
+	configHash, err := r.ensureMongotConfig(ctx, log, createMongotConfig(r.mdbSearch, r.db), ingressTlsMongotModification, egressTlsMongotModification)
+	if err != nil {
+		return workflow.Failed(err)
+	}
+
+	configHashModification := statefulset.WithPodSpecTemplate(podtemplatespec.WithAnnotations(
+		map[string]string{
+			"mongotConfigHash": configHash,
+		},
+	))
+
+	if err := r.createOrUpdateStatefulSet(ctx, log, CreateSearchStatefulSetFunc(r.mdbSearch, r.db, r.buildImageString()), configHashModification, ingressTlsStsModification, egressTlsStsModification); err != nil {
 		return workflow.Failed(err)
 	}
 
@@ -110,18 +130,19 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	return workflow.OK()
 }
 
-func (r *MongoDBSearchReconcileHelper) createOrUpdateStatefulSet(ctx context.Context, log *zap.SugaredLogger, mongotConfigHash string) error {
+func (r *MongoDBSearchReconcileHelper) buildImageString() string {
 	imageVersion := r.mdbSearch.Spec.Version
 	if imageVersion == "" {
 		imageVersion = r.operatorSearchConfig.SearchVersion
 	}
-	searchImage := fmt.Sprintf("%s/%s:%s", r.operatorSearchConfig.SearchRepo, r.operatorSearchConfig.SearchName, imageVersion)
+	return fmt.Sprintf("%s/%s:%s", r.operatorSearchConfig.SearchRepo, r.operatorSearchConfig.SearchName, imageVersion)
+}
 
+func (r *MongoDBSearchReconcileHelper) createOrUpdateStatefulSet(ctx context.Context, log *zap.SugaredLogger, modifications ...statefulset.Modification) error {
 	stsName := r.mdbSearch.StatefulSetNamespacedName()
 	sts := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: stsName.Name, Namespace: stsName.Namespace}}
 	op, err := controllerutil.CreateOrUpdate(ctx, r.client, sts, func() error {
-		stsModification := CreateSearchStatefulSetFunc(r.mdbSearch, r.db, searchImage, mongotConfigHash)
-		stsModification(sts)
+		statefulset.Apply(modifications...)(sts)
 		return nil
 	})
 	if err != nil {
@@ -151,7 +172,9 @@ func (r *MongoDBSearchReconcileHelper) ensureSearchService(ctx context.Context, 
 	return nil
 }
 
-func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, mongotConfig mongot.Config) (string, error) {
+func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, log *zap.SugaredLogger, modifications ...mongot.Modification) (string, error) {
+	mongotConfig := mongot.Config{}
+	mongot.Apply(modifications...)(&mongotConfig)
 	configData, err := yaml.Marshal(mongotConfig)
 	if err != nil {
 		return "", err
@@ -172,9 +195,96 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, m
 		return "", err
 	}
 
-	zap.S().Debugf("Updated mongot config yaml config map: %v (%s) with the following configuration: %s", cmName, op, string(configData))
+	log.Debugf("Updated mongot config yaml config map: %v (%s) with the following configuration: %s", cmName, op, string(configData))
 
 	return hashMongotConfig(configData), nil
+}
+
+func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Context) (mongot.Modification, statefulset.Modification, error) {
+	if !r.mdbSearch.Spec.Security.TLS.Enabled {
+		mongotModification := func(config *mongot.Config) {
+			config.Server.Wireproto.TLS.Mode = mongot.ConfigTLSModeDisabled
+		}
+		return mongotModification, statefulset.NOOP(), nil
+	}
+
+	// TODO: validate that the certificate in the user-provided Secret in .spec.security.tls.certificateKeySecret is issued by the CA in the operator's CA Secret
+
+	certFileName, err := tls.EnsureTLSSecret(ctx, r.client, r.mdbSearch)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	mongotModification := func(config *mongot.Config) {
+		certPath := tls.OperatorSecretMountPath + certFileName
+		config.Server.Wireproto.TLS.Mode = mongot.ConfigTLSModeTLS
+		config.Server.Wireproto.TLS.CertificateKeyFile = ptr.To(certPath)
+	}
+
+	tlsSecret := r.mdbSearch.TLSOperatorSecretNamespacedName()
+	tlsVolume := statefulset.CreateVolumeFromSecret("tls", tlsSecret.Name)
+	tlsVolumeMount := statefulset.CreateVolumeMount("tls", tls.OperatorSecretMountPath, statefulset.WithReadOnly(true))
+	statefulsetModification := statefulset.WithPodSpecTemplate(podtemplatespec.Apply(
+		podtemplatespec.WithVolume(tlsVolume),
+		podtemplatespec.WithContainer(MongotContainerName, container.Apply(
+			container.WithVolumeMounts([]corev1.VolumeMount{tlsVolumeMount}),
+		)),
+	))
+
+	return mongotModification, statefulsetModification, nil
+}
+
+func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context) (mongot.Modification, statefulset.Modification, error) {
+	if !r.db.IsSecurityTLSConfigEnabled() {
+		return mongot.NOOP(), statefulset.NOOP(), nil
+	}
+
+	caSecretName := r.db.TLSOperatorCASecretNamespacedName()
+	caSecret := &corev1.Secret{}
+	if err := r.client.Get(ctx, caSecretName, caSecret); err != nil {
+		return nil, nil, xerrors.Errorf("error getting CA Secret %s: %w", caSecretName, err)
+	}
+
+	// HACK: find a better way of getting the CA file name
+	var caFileName string
+	for k := range caSecret.Data {
+		caFileName = k
+	}
+
+	mongotModification := func(config *mongot.Config) {
+		config.SyncSource.ReplicaSet.TLS = ptr.To(true)
+	}
+
+	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
+	caVolume := statefulset.CreateVolumeFromSecret("ca", caSecretName.Name)
+	trustStoreVolume := statefulset.CreateVolumeFromEmptyDir("cacerts")
+	statefulsetModification := statefulset.WithPodSpecTemplate(podtemplatespec.Apply(
+		podtemplatespec.WithVolume(caVolume),
+		podtemplatespec.WithVolume(trustStoreVolume),
+		podtemplatespec.WithInitContainer("init-cacerts", container.Apply(
+			container.WithImage(r.buildImageString()),
+			containerSecurityContext,
+			container.WithVolumeMounts([]corev1.VolumeMount{
+				statefulset.CreateVolumeMount(caVolume.Name, tls.CAMountPath, statefulset.WithReadOnly(true)),
+				statefulset.CreateVolumeMount(trustStoreVolume.Name, "/java/trust-store", statefulset.WithReadOnly(false)),
+			}),
+			container.WithCommand([]string{"sh"}),
+			container.WithArgs([]string{
+				"-c",
+				fmt.Sprintf(`
+cp /mongot-community/bin/jdk/lib/security/cacerts /java/trust-store/cacerts
+/mongot-community/bin/jdk/bin/keytool -keystore /java/trust-store/cacerts -storepass changeit -noprompt -trustcacerts -importcert -alias mongodcert -file %s/%s
+							`, tls.CAMountPath, caFileName),
+			}),
+		)),
+		podtemplatespec.WithContainer(MongotContainerName, container.Apply(
+			container.WithVolumeMounts([]corev1.VolumeMount{
+				statefulset.CreateVolumeMount(trustStoreVolume.Name, "/mongot-community/bin/jdk/lib/security/cacerts", statefulset.WithReadOnly(true), statefulset.WithSubPath("cacerts")),
+			}),
+		)),
+	))
+
+	return mongotModification, statefulsetModification, nil
 }
 
 func hashMongotConfig(mongotConfigYaml []byte) string {
@@ -215,27 +325,59 @@ func buildSearchHeadlessService(search *searchv1.MongoDBSearch) corev1.Service {
 	return serviceBuilder.Build()
 }
 
-func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResource) mongot.Config {
-	return mongot.Config{CommunityPrivatePreview: mongot.CommunityPrivatePreview{
-		MongodHostAndPort:  fmt.Sprintf("%s.%s.svc.cluster.local:%d", db.DatabaseServiceName(), db.GetNamespace(), db.DatabasePort()),
-		QueryServerAddress: fmt.Sprintf("localhost:%d", search.GetMongotPort()),
-		KeyFilePath:        "/mongot/keyfile/keyfile",
-		DataPath:           "/mongot/data/config.yml",
-		Metrics: mongot.Metrics{
+func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResource) mongot.Modification {
+	return func(config *mongot.Config) {
+		var hostAndPorts []string
+		for i := range db.Members() {
+			hostAndPorts = append(hostAndPorts, fmt.Sprintf("%s-%d.%s.%s.svc.cluster.local:%d", db.Name(), i, db.DatabaseServiceName(), db.GetNamespace(), db.DatabasePort()))
+		}
+
+		config.SyncSource = mongot.ConfigSyncSource{
+			ReplicaSet: mongot.ConfigReplicaSet{
+				HostAndPort:    hostAndPorts,
+				Username:       search.SourceUsername(),
+				PasswordFile:   "/tmp/sourceUserPassword",
+				TLS:            ptr.To(false),
+				ReadPreference: ptr.To("secondaryPreferred"),
+			},
+		}
+		config.Storage = mongot.ConfigStorage{
+			DataPath: "/mongot/data/config.yml",
+		}
+		config.Server = mongot.ConfigServer{
+			Wireproto: &mongot.ConfigWireproto{
+				Address: "0.0.0.0:27027",
+				Authentication: &mongot.ConfigAuthentication{
+					Mode:    "keyfile",
+					KeyFile: "/tmp/keyfile",
+				},
+			},
+		}
+		config.Metrics = mongot.ConfigMetrics{
 			Enabled: true,
 			Address: fmt.Sprintf("localhost:%d", search.GetMongotMetricsPort()),
-		},
-		Logging: mongot.Logging{
-			Verbosity: "DEBUG",
-		},
-	}}
+		}
+		config.HealthCheck = mongot.ConfigHealthCheck{
+			Address: "0.0.0.0:8080",
+		}
+		config.Logging = mongot.ConfigLogging{
+			Verbosity: "TRACE",
+			LogPath:   nil,
+		}
+	}
 }
 
-func GetMongodConfigParameters(search *searchv1.MongoDBSearch) map[string]interface{} {
-	return map[string]interface{}{
-		"setParameter": map[string]interface{}{
-			"mongotHost":                       mongotHostAndPort(search),
-			"searchIndexManagementHostAndPort": mongotHostAndPort(search),
+func GetMongodConfigParameters(search *searchv1.MongoDBSearch) map[string]any {
+	searchTLSMode := automationconfig.TLSModeDisabled
+	if search.Spec.Security.TLS.Enabled {
+		searchTLSMode = automationconfig.TLSModeRequired
+	}
+	return map[string]any{
+		"setParameter": map[string]any{
+			"mongotHost":                                      mongotHostAndPort(search),
+			"searchIndexManagementHostAndPort":                mongotHostAndPort(search),
+			"skipAuthenticationToSearchIndexManagementServer": false,
+			"searchTLSMode":                                   searchTLSMode,
 		},
 	}
 }
@@ -249,12 +391,8 @@ func ValidateSearchSource(db SearchSourceDBResource) error {
 	version, err := semver.ParseTolerant(db.GetMongoDBVersion())
 	if err != nil {
 		return xerrors.Errorf("error parsing MongoDB version '%s': %w", db.GetMongoDBVersion(), err)
-	} else if version.Major < 8 {
-		return xerrors.New("MongoDB version must be 8.0 or higher")
-	}
-
-	if db.IsSecurityTLSConfigEnabled() {
-		return xerrors.New("MongoDBSearch does not support TLS-enabled sources")
+	} else if version.LT(semver.MustParse("8.0.10")) {
+		return xerrors.New("MongoDB version must be 8.0.10 or higher")
 	}
 
 	return nil

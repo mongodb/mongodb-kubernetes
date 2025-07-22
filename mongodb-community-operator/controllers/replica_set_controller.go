@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -727,6 +728,7 @@ func (r ReplicaSetReconciler) buildAutomationConfig(ctx context.Context, mdb mdb
 		prometheusModification,
 		processPortManager.GetPortsModification(),
 		getMongodConfigSearchModification(search),
+		searchCoordinatorCustomRoleModification(search),
 	)
 	if err != nil {
 		return automationconfig.AutomationConfig{}, fmt.Errorf("could not create an automation config: %s", err)
@@ -737,6 +739,66 @@ func (r ReplicaSetReconciler) buildAutomationConfig(ctx context.Context, mdb mdb
 	}
 
 	return automationConfig, nil
+}
+
+// TODO: remove this as soon as searchCoordinator builtin role is backported
+func searchCoordinatorCustomRoleModification(search *searchv1.MongoDBSearch) automationconfig.Modification {
+	if search == nil {
+		return automationconfig.NOOP()
+	}
+
+	return func(ac *automationconfig.AutomationConfig) {
+		searchCoordinatorRole := searchCoordinatorCustomRoleStruct()
+		ac.Roles = append(ac.Roles, searchCoordinatorRole)
+	}
+}
+
+func searchCoordinatorCustomRoleStruct() automationconfig.CustomRole {
+	// direct translation of https://github.com/10gen/mongo/blob/6f8d95a513eea8f91ea9f5d895dd8a288dfcf725/src/mongo/db/auth/builtin_roles.yml#L652
+	return automationconfig.CustomRole{
+		Role: "searchCoordinator",
+		DB:   "admin",
+		Roles: []automationconfig.Role{
+			{
+				Role:     "clusterMonitor",
+				Database: "admin",
+			},
+			{
+				Role:     "directShardOperations",
+				Database: "admin",
+			},
+			{
+				Role:     "readAnyDatabase",
+				Database: "admin",
+			},
+		},
+		Privileges: []automationconfig.Privilege{
+			{
+				Resource: automationconfig.Resource{
+					DB:         ptr.To("__mdb_internal_search"),
+					Collection: ptr.To(""),
+				},
+				Actions: []string{
+					"changeStream", "collStats", "dbHash", "dbStats", "find",
+					"killCursors", "listCollections", "listIndexes", "listSearchIndexes",
+					// performRawDataOperations is available only on mongod master
+					// "performRawDataOperations",
+					"planCacheRead", "cleanupStructuredEncryptionData",
+					"compactStructuredEncryptionData", "convertToCapped", "createCollection",
+					"createIndex", "createSearchIndexes", "dropCollection", "dropIndex",
+					"dropSearchIndex", "insert", "remove", "renameCollectionSameDB",
+					"update", "updateSearchIndex",
+				},
+			},
+			{
+				Resource: automationconfig.Resource{
+					Cluster: true,
+				},
+				Actions: []string{"bypassDefaultMaxTimeMS"},
+			},
+		},
+		AuthenticationRestrictions: nil,
+	}
 }
 
 // OverrideToAutomationConfig turns an automation config override from the resource spec into an automation config
@@ -773,9 +835,7 @@ func getMongodConfigModification(mdb mdbv1.MongoDBCommunity) automationconfig.Mo
 // into the configuration set up by the operator.
 func getMongodConfigSearchModification(search *searchv1.MongoDBSearch) automationconfig.Modification {
 	if search == nil {
-		return func(config *automationconfig.AutomationConfig) {
-			// do nothing
-		}
+		return automationconfig.NOOP()
 	}
 
 	searchConfigParameters := search_controller.GetMongodConfigParameters(search)

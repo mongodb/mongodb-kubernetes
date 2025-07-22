@@ -1,41 +1,81 @@
 package mongot
 
+type Modification func(*Config)
+
+func NOOP() Modification {
+	return func(config *Config) {}
+}
+
+func Apply(modifications ...Modification) func(*Config) {
+	return func(config *Config) {
+		for _, mod := range modifications {
+			mod(config)
+		}
+	}
+}
+
 type Config struct {
-	CommunityPrivatePreview CommunityPrivatePreview `json:"communityPrivatePreview"`
+	SyncSource  ConfigSyncSource  `json:"syncSource"`
+	Storage     ConfigStorage     `json:"storage"`
+	Server      ConfigServer      `json:"server"`
+	Metrics     ConfigMetrics     `json:"metrics"`
+	HealthCheck ConfigHealthCheck `json:"healthCheck"`
+	Logging     ConfigLogging     `json:"logging"`
 }
 
-// CommunityPrivatePreview structure reflects private preview configuration from mongot:
-// https://github.com/10gen/mongot/blob/060ec179af062ac2639678f4a613b8ab02c21597/src/main/java/com/xgen/mongot/config/provider/community/CommunityConfig.java#L100
-// Comments are from the default config file: https://github.com/10gen/mongot/blob/375379e56a580916695a2f53e12fd4a99aa24f0b/deploy/community-resources/config.default.yml#L1-L0
-type CommunityPrivatePreview struct {
-	// Socket (IPv4/6) address of the sync source mongod
-	MongodHostAndPort string `json:"mongodHostAndPort"`
+type ConfigSyncSource struct {
+	ReplicaSet ConfigReplicaSet `json:"replicaSet"`
+}
 
-	// Socket (IPv4/6) address on which to listen for wire protocol connections
-	QueryServerAddress string `json:"queryServerAddress"`
+type ConfigReplicaSet struct {
+	HostAndPort    []string `json:"hostAndPort"`
+	Username       string   `json:"username"`
+	PasswordFile   string   `json:"passwordFile"`
+	TLS            *bool    `json:"tls,omitempty"`
+	ReadPreference *string  `json:"readPreference,omitempty"`
+}
 
-	// Keyfile used for mongod -> mongot authentication
-	KeyFilePath string `json:"keyFilePath"`
-
-	// Filesystem path that all mongot data will be stored at
+type ConfigStorage struct {
 	DataPath string `json:"dataPath"`
-
-	// Options for metrics
-	Metrics Metrics `json:"metrics,omitempty"`
-
-	// Options for logging
-	Logging Logging `json:"logging,omitempty"`
 }
 
-type Metrics struct {
-	// Whether to enable the Prometheus metrics endpoint
-	Enabled bool `json:"enabled"`
+type ConfigServer struct {
+	Wireproto *ConfigWireproto `json:"wireproto,omitempty"`
+}
 
-	// Socket address (IPv4/6) on which the Prometheus /metrics endpoint will be exposed
+type ConfigWireproto struct {
+	Address        string                `json:"address"`
+	Authentication *ConfigAuthentication `json:"authentication,omitempty"`
+	TLS            ConfigTLS             `json:"tls"`
+}
+
+type ConfigAuthentication struct {
+	Mode    string `json:"mode"`
+	KeyFile string `json:"keyFile"`
+}
+
+type ConfigTLSMode string
+
+const (
+	ConfigTLSModeTLS      ConfigTLSMode = "TLS"
+	ConfigTLSModeDisabled ConfigTLSMode = "Disabled"
+)
+
+type ConfigTLS struct {
+	Mode               ConfigTLSMode `json:"mode"`
+	CertificateKeyFile *string       `json:"certificateKeyFile,omitempty"`
+}
+
+type ConfigMetrics struct {
+	Enabled bool   `json:"enabled"`
 	Address string `json:"address"`
 }
 
-type Logging struct {
-	// Log level
-	Verbosity string `json:"verbosity"`
+type ConfigHealthCheck struct {
+	Address string `json:"address"`
+}
+
+type ConfigLogging struct {
+	Verbosity string  `json:"verbosity"`
+	LogPath   *string `json:"logPath,omitempty"`
 }

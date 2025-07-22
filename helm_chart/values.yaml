@@ -58,7 +58,7 @@ operator:
   maxConcurrentReconciles: 1
 
   # Create operator service account and roles
-  # if false, then templates/operator-roles.yaml is excluded
+  # if false, then operator RBAC will not be provided by the chart
   createOperatorServiceAccount: true
 
   # Set to false to NOT create service accounts and roles for the resources managed by the operator
@@ -187,9 +187,6 @@ multiCluster:
   kubeConfigSecretName: mongodb-enterprise-operator-multi-cluster-kubeconfig
   performFailOver: true
   clusterClientTimeout: 10
-# Set this to false to disable subresource utilization
-# It might be required on some versions of Openshift
-subresourceEnabled: true
 
 # Resources only for the MongoDBCommunity resource reconciler
 community:
@@ -225,7 +222,11 @@ community:
 search:
   community:
     # Full Search container image url used for the MongoDB Community Search container will be constructed as {search.community.repo}/{search.community.name}:{search.community.version}
-    repo: quay.io/mongodb
-    name: mongodb-search-community
+#    repo: quay.io/mongodb
+#    name: mongodb-search-community
+#    # default MongoDB Search version used; can be overridden by setting MongoDBSearch.spec.version field.
+#    version: 1.47.0
+    repo: 268558157000.dkr.ecr.eu-west-1.amazonaws.com
+    name: mongot/community
     # default MongoDB Search version used; can be overridden by setting MongoDBSearch.spec.version field.
-    version: 1.47.0
+    version: d6884ae132aab30497af55dbaff05e8274e9775f
