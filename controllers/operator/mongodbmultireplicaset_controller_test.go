@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"go.uber.org/zap/zaptest"
 	"sort"
 	"testing"
 
@@ -593,7 +594,7 @@ func TestResourceDeletion(t *testing.T) {
 		}
 	})
 
-	err := reconciler.deleteManagedResources(ctx, *mrs, zap.S())
+	err := reconciler.deleteManagedResources(ctx, *mrs, zaptest.NewLogger(t).Sugar())
 	assert.NoError(t, err)
 
 	clusterSpecs, err := mrs.GetClusterSpecItems()

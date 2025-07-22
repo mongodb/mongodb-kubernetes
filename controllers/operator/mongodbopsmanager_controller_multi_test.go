@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -104,7 +104,7 @@ func createOMTLSCert(ctx context.Context, t *testing.T, kubeClient client.Client
 	err := kubeClient.Create(ctx, secret)
 	require.NoError(t, err)
 
-	pemHash := enterprisepem.ReadHashFromData(secrets.DataToStringData(secret.Data), zap.S())
+	pemHash := enterprisepem.ReadHashFromData(secrets.DataToStringData(secret.Data), zaptest.NewLogger(t).Sugar())
 	require.NotEmpty(t, pemHash)
 
 	return secret.Name, pemHash

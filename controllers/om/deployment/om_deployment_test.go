@@ -1,20 +1,17 @@
 package deployment
 
 import (
+	"go.uber.org/zap/zaptest"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/replicaset"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	"github.com/stretchr/testify/assert"
 )
 
 func init() {
-	logger, _ := zap.NewDevelopment()
-	zap.ReplaceGlobals(logger)
 	mock.InitDefaultEnvVariables()
 }
 
@@ -29,7 +26,7 @@ func TestPrepareScaleDown_OpsManagerRemovedMember(t *testing.T) {
 
 	// We try to prepare two members for scale down, but one of them will fail (bam-2)
 	rsWithThreeMembers := map[string][]string{"bam": {"bam-1", "bam-2"}}
-	assert.NoError(t, replicaset.PrepareScaleDownFromMap(mockedOmConnection, rsWithThreeMembers, rsWithThreeMembers["bam"], zap.S()))
+	assert.NoError(t, replicaset.PrepareScaleDownFromMap(mockedOmConnection, rsWithThreeMembers, rsWithThreeMembers["bam"], zaptest.NewLogger(t).Sugar()))
 
 	expectedDeployment := CreateFromReplicaSet("fake-mongoDBImage", false, rs)
 

@@ -2,6 +2,7 @@ package om
 
 import (
 	"fmt"
+	"go.uber.org/zap/zaptest"
 	"os"
 	"strconv"
 	"strings"
@@ -9,23 +10,17 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
-func init() {
-	logger, _ := zap.NewDevelopment()
-	zap.ReplaceGlobals(logger)
-}
-
 // First time merge adds the new standalone
 // second invocation doesn't add new node as the existing standalone is found (by name) and the data is merged
 func TestMergeStandalone(t *testing.T) {
 	d := NewDeployment()
-	mergeStandalone(d, createStandalone())
+	mergeStandalone(t, d, createStandalone())
 
 	assert.Len(t, d.getProcesses(), 1)
 
@@ -35,7 +30,7 @@ func TestMergeStandalone(t *testing.T) {
 	d.getProcesses()[0]["authSchemaVersion"] = 10
 	d.getProcesses()[0]["featureCompatibilityVersion"] = "bla"
 
-	mergeStandalone(d, createStandalone())
+	mergeStandalone(t, d, createStandalone())
 
 	assert.Len(t, d.getProcesses(), 1)
 
@@ -52,7 +47,7 @@ func TestMergeStandalone(t *testing.T) {
 // Second merge performs real merge operation
 func TestMergeReplicaSet(t *testing.T) {
 	d := NewDeployment()
-	mergeReplicaSet(d, "fooRs", createReplicaSetProcesses("fooRs"))
+	mergeReplicaSet(t, d, "fooRs", createReplicaSetProcesses("fooRs"))
 	expectedRs := buildRsByProcesses("fooRs", createReplicaSetProcesses("fooRs"))
 
 	assert.Len(t, d.getProcesses(), 3)
@@ -71,7 +66,7 @@ func TestMergeReplicaSet(t *testing.T) {
 	d.GetReplicaSets()[0].addMember(newProcess, "", automationconfig.MemberOptions{}) // "adding" some new node
 	d.GetReplicaSets()[0].Members()[0]["arbiterOnly"] = true                          // changing data for first node
 
-	mergeReplicaSet(d, "fooRs", createReplicaSetProcesses("fooRs"))
+	mergeReplicaSet(t, d, "fooRs", createReplicaSetProcesses("fooRs"))
 
 	assert.Len(t, d.getProcesses(), 3)
 	assert.Len(t, d.GetReplicaSets(), 1)
@@ -87,13 +82,13 @@ func TestMergeReplicaSet(t *testing.T) {
 func TestMergeReplica_ScaleDown(t *testing.T) {
 	d := NewDeployment()
 
-	mergeReplicaSet(d, "someRs", createReplicaSetProcesses("someRs"))
+	mergeReplicaSet(t, d, "someRs", createReplicaSetProcesses("someRs"))
 	assert.Len(t, d.getProcesses(), 3)
 	assert.Len(t, d.GetReplicaSets()[0].Members(), 3)
 
 	// "scale down"
 	scaledDownRsProcesses := createReplicaSetProcesses("someRs")[0:2]
-	mergeReplicaSet(d, "someRs", scaledDownRsProcesses)
+	mergeReplicaSet(t, d, "someRs", scaledDownRsProcesses)
 
 	assert.Len(t, d.getProcesses(), 2)
 	assert.Len(t, d.GetReplicaSets()[0].Members(), 2)
@@ -110,8 +105,8 @@ func TestMergeReplica_ScaleDown(t *testing.T) {
 func TestMergeReplicaSet_MergeFirstProcess(t *testing.T) {
 	d := NewDeployment()
 
-	mergeReplicaSet(d, "fooRs", createReplicaSetProcesses("fooRs"))
-	mergeReplicaSet(d, "anotherRs", createReplicaSetProcesses("anotherRs"))
+	mergeReplicaSet(t, d, "fooRs", createReplicaSetProcesses("fooRs"))
+	mergeReplicaSet(t, d, "anotherRs", createReplicaSetProcesses("anotherRs"))
 
 	// Now the first process (and usually all others in practice) are changed by OM
 	d.getProcesses()[0].EnsureNetConfig()["MaxIncomingConnections"] = 20
@@ -120,7 +115,7 @@ func TestMergeReplicaSet_MergeFirstProcess(t *testing.T) {
 	d.getProcesses()[0]["kerberos"] = map[string]string{"keytab": "123456"}
 
 	// Now we merged the scaled up RS
-	mergeReplicaSet(d, "fooRs", createReplicaSetProcessesCount(5, "fooRs"))
+	mergeReplicaSet(t, d, "fooRs", createReplicaSetProcessesCount(5, "fooRs"))
 
 	assert.Len(t, d.getProcesses(), 8)
 	assert.Len(t, d.GetReplicaSets(), 2)
@@ -173,14 +168,14 @@ func TestMergeDeployment_BigReplicaset(t *testing.T) {
 	rs := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(8, "my-rs"))
 	checkNumberOfVotingMembers(t, rs, 8, 8)
 
-	omDeployment.MergeReplicaSet(rs, nil, nil, zap.S())
+	omDeployment.MergeReplicaSet(rs, nil, nil, zaptest.NewLogger(t).Sugar())
 	checkNumberOfVotingMembers(t, rs, 7, 8)
 
 	// Now OM user "has changed" votes for some of the members - this must stay the same after merge
 	omDeployment.GetReplicaSets()[0].Members()[2].setVotes(0).setPriority(0)
 	omDeployment.GetReplicaSets()[0].Members()[4].setVotes(0).setPriority(0)
 
-	omDeployment.MergeReplicaSet(rs, nil, nil, zap.S())
+	omDeployment.MergeReplicaSet(rs, nil, nil, zaptest.NewLogger(t).Sugar())
 	checkNumberOfVotingMembers(t, rs, 5, 8)
 
 	// Now operator scales up by one - the "OM votes" should not suffer, but total number of votes will increase by one
@@ -188,7 +183,7 @@ func TestMergeDeployment_BigReplicaset(t *testing.T) {
 	rsToMerge.Rs.Members()[2].setVotes(0).setPriority(0)
 	rsToMerge.Rs.Members()[4].setVotes(0).setPriority(0)
 	rsToMerge.Rs.Members()[7].setVotes(0).setPriority(0)
-	omDeployment.MergeReplicaSet(rsToMerge, nil, nil, zap.S())
+	omDeployment.MergeReplicaSet(rsToMerge, nil, nil, zaptest.NewLogger(t).Sugar())
 	checkNumberOfVotingMembers(t, rs, 6, 9)
 
 	// Now operator scales up by two - the "OM votes" should not suffer, but total number of votes will increase by one
@@ -197,7 +192,7 @@ func TestMergeDeployment_BigReplicaset(t *testing.T) {
 	rsToMerge.Rs.Members()[2].setVotes(0).setPriority(0)
 	rsToMerge.Rs.Members()[4].setVotes(0).setPriority(0)
 
-	omDeployment.MergeReplicaSet(rsToMerge, nil, nil, zap.S())
+	omDeployment.MergeReplicaSet(rsToMerge, nil, nil, zaptest.NewLogger(t).Sugar())
 	checkNumberOfVotingMembers(t, rs, 7, 11)
 	assert.Equal(t, 0, omDeployment.GetReplicaSets()[0].Members()[2].Votes())
 	assert.Equal(t, 0, omDeployment.GetReplicaSets()[0].Members()[4].Votes())
@@ -209,11 +204,11 @@ func TestGetAllProcessNames_MergedReplicaSetsAndShardedClusters(t *testing.T) {
 	d := NewDeployment()
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
 
-	d.MergeReplicaSet(rs0, nil, nil, zap.S())
+	d.MergeReplicaSet(rs0, nil, nil, zaptest.NewLogger(t).Sugar())
 	assert.Equal(t, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, d.GetAllProcessNames())
 
 	rs1 := buildRsByProcesses("another-rs", createReplicaSetProcessesCount(5, "another-rs"))
-	d.MergeReplicaSet(rs1, nil, nil, zap.S())
+	d.MergeReplicaSet(rs1, nil, nil, zaptest.NewLogger(t).Sugar())
 
 	assert.Equal(
 		t,
@@ -304,14 +299,14 @@ func TestDeploymentCountIsCorrect(t *testing.T) {
 	d := NewDeployment()
 
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
-	d.MergeReplicaSet(rs0, nil, nil, zap.S())
+	d.MergeReplicaSet(rs0, nil, nil, zaptest.NewLogger(t).Sugar())
 
 	excessProcesses := d.GetNumberOfExcessProcesses("my-rs")
 	// There's only one resource in this deployment
 	assert.Equal(t, 0, excessProcesses)
 
 	rs1 := buildRsByProcesses("my-rs-second", createReplicaSetProcessesCount(3, "my-rs-second"))
-	d.MergeReplicaSet(rs1, nil, nil, zap.S())
+	d.MergeReplicaSet(rs1, nil, nil, zaptest.NewLogger(t).Sugar())
 	excessProcesses = d.GetNumberOfExcessProcesses("my-rs")
 
 	// another replica set was added to the deployment. 3 processes do not belong to this one
@@ -402,7 +397,7 @@ func TestIsShardOf(t *testing.T) {
 func TestProcessBelongsToReplicaSet(t *testing.T) {
 	d := NewDeployment()
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
-	d.MergeReplicaSet(rs0, nil, nil, zap.S())
+	d.MergeReplicaSet(rs0, nil, nil, zaptest.NewLogger(t).Sugar())
 
 	assert.True(t, d.ProcessBelongsToResource("my-rs-0", "my-rs"))
 	assert.True(t, d.ProcessBelongsToResource("my-rs-1", "my-rs"))
@@ -468,7 +463,7 @@ func TestDeploymentMinimumMajorVersion(t *testing.T) {
 	d0 := NewDeployment()
 	rs0Processes := createReplicaSetProcessesCount(3, "my-rs")
 	rs0 := buildRsByProcesses("my-rs", rs0Processes)
-	d0.MergeReplicaSet(rs0, nil, nil, zap.S())
+	d0.MergeReplicaSet(rs0, nil, nil, zaptest.NewLogger(t).Sugar())
 
 	assert.Equal(t, uint64(3), d0.MinimumMajorVersion())
 
@@ -476,14 +471,14 @@ func TestDeploymentMinimumMajorVersion(t *testing.T) {
 	rs1Processes := createReplicaSetProcessesCount(3, "my-rs")
 	rs1Processes[0]["featureCompatibilityVersion"] = "2.4"
 	rs1 := buildRsByProcesses("my-rs", rs1Processes)
-	d1.MergeReplicaSet(rs1, nil, nil, zap.S())
+	d1.MergeReplicaSet(rs1, nil, nil, zaptest.NewLogger(t).Sugar())
 
 	assert.Equal(t, uint64(2), d1.MinimumMajorVersion())
 
 	d2 := NewDeployment()
 	rs2Processes := createReplicaSetProcessesCountEnt(3, "my-rs")
 	rs2 := buildRsByProcesses("my-rs", rs2Processes)
-	d2.MergeReplicaSet(rs2, nil, nil, zap.S())
+	d2.MergeReplicaSet(rs2, nil, nil, zaptest.NewLogger(t).Sugar())
 
 	assert.Equal(t, uint64(3), d2.MinimumMajorVersion())
 }
@@ -507,8 +502,8 @@ func TestAddMonitoring(t *testing.T) {
 	d := NewDeployment()
 
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
-	d.MergeReplicaSet(rs0, nil, nil, zap.S())
-	d.AddMonitoring(zap.S(), false, util.CAFilePathInContainer)
+	d.MergeReplicaSet(rs0, nil, nil, zaptest.NewLogger(t).Sugar())
+	d.AddMonitoring(zaptest.NewLogger(t).Sugar(), false, util.CAFilePathInContainer)
 
 	expectedMonitoringVersions := []interface{}{
 		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion},
@@ -518,7 +513,7 @@ func TestAddMonitoring(t *testing.T) {
 	assert.Equal(t, expectedMonitoringVersions, d.getMonitoringVersions())
 
 	// adding again - nothing changes
-	d.AddMonitoring(zap.S(), false, util.CAFilePathInContainer)
+	d.AddMonitoring(zaptest.NewLogger(t).Sugar(), false, util.CAFilePathInContainer)
 	assert.Equal(t, expectedMonitoringVersions, d.getMonitoringVersions())
 }
 
@@ -526,8 +521,8 @@ func TestAddMonitoringTls(t *testing.T) {
 	d := NewDeployment()
 
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
-	d.MergeReplicaSet(rs0, nil, nil, zap.S())
-	d.AddMonitoring(zap.S(), true, util.CAFilePathInContainer)
+	d.MergeReplicaSet(rs0, nil, nil, zaptest.NewLogger(t).Sugar())
+	d.AddMonitoring(zaptest.NewLogger(t).Sugar(), true, util.CAFilePathInContainer)
 
 	expectedAdditionalParams := map[string]string{
 		"useSslForAllConnections":      "true",
@@ -542,7 +537,7 @@ func TestAddMonitoringTls(t *testing.T) {
 	assert.Equal(t, expectedMonitoringVersions, d.getMonitoringVersions())
 
 	// adding again - nothing changes
-	d.AddMonitoring(zap.S(), false, util.CAFilePathInContainer)
+	d.AddMonitoring(zaptest.NewLogger(t).Sugar(), false, util.CAFilePathInContainer)
 	assert.Equal(t, expectedMonitoringVersions, d.getMonitoringVersions())
 }
 
@@ -550,8 +545,8 @@ func TestAddBackup(t *testing.T) {
 	d := NewDeployment()
 
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
-	d.MergeReplicaSet(rs0, nil, nil, zap.S())
-	d.addBackup(zap.S())
+	d.MergeReplicaSet(rs0, nil, nil, zaptest.NewLogger(t).Sugar())
+	d.addBackup(zaptest.NewLogger(t).Sugar())
 
 	expectedBackupVersions := []interface{}{
 		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": BackupAgentDefaultVersion},
@@ -561,7 +556,7 @@ func TestAddBackup(t *testing.T) {
 	assert.Equal(t, expectedBackupVersions, d.getBackupVersions())
 
 	// adding again - nothing changes
-	d.addBackup(zap.S())
+	d.addBackup(zaptest.NewLogger(t).Sugar())
 	assert.Equal(t, expectedBackupVersions, d.getBackupVersions())
 }
 
@@ -813,14 +808,14 @@ func createConfigSrvRsCount(count int, name string, check bool) ReplicaSetWithPr
 	return replicaSetWithProcesses
 }
 
-func mergeReplicaSet(d Deployment, rsName string, rsProcesses []Process) ReplicaSetWithProcesses {
+func mergeReplicaSet(t *testing.T, d Deployment, rsName string, rsProcesses []Process) ReplicaSetWithProcesses {
 	rs := buildRsByProcesses(rsName, rsProcesses)
-	d.MergeReplicaSet(rs, nil, nil, zap.S())
+	d.MergeReplicaSet(rs, nil, nil, zaptest.NewLogger(t).Sugar())
 	return rs
 }
 
-func mergeStandalone(d Deployment, s Process) Process {
-	d.MergeStandalone(s, nil, nil, zap.S())
+func mergeStandalone(t *testing.T, d Deployment, s Process) Process {
+	d.MergeStandalone(s, nil, nil, zaptest.NewLogger(t).Sugar())
 	return s
 }
 

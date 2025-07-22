@@ -1,11 +1,11 @@
 package authentication
 
 import (
+	"go.uber.org/zap/zaptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 	"k8s.io/utils/ptr"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
@@ -52,7 +52,7 @@ func TestOIDC_EnableDeploymentAuthentication(t *testing.T) {
 	configured := mongoDBOIDCMechanism.IsDeploymentAuthenticationConfigured(ac, opts)
 	assert.False(t, configured)
 
-	err = mongoDBOIDCMechanism.EnableDeploymentAuthentication(conn, opts, zap.S())
+	err = mongoDBOIDCMechanism.EnableDeploymentAuthentication(conn, opts, zaptest.NewLogger(t).Sugar())
 	require.NoError(t, err)
 
 	ac, err = conn.ReadAutomationConfig()
@@ -63,7 +63,7 @@ func TestOIDC_EnableDeploymentAuthentication(t *testing.T) {
 	configured = mongoDBOIDCMechanism.IsDeploymentAuthenticationConfigured(ac, opts)
 	assert.True(t, configured)
 
-	err = mongoDBOIDCMechanism.DisableDeploymentAuthentication(conn, zap.S())
+	err = mongoDBOIDCMechanism.DisableDeploymentAuthentication(conn, zaptest.NewLogger(t).Sugar())
 	require.NoError(t, err)
 
 	ac, err = conn.ReadAutomationConfig()
@@ -88,9 +88,9 @@ func TestOIDC_EnableAgentAuthentication(t *testing.T) {
 	configured := mongoDBOIDCMechanism.IsAgentAuthenticationConfigured(ac, opts)
 	assert.False(t, configured)
 
-	err = mongoDBOIDCMechanism.EnableAgentAuthentication(conn, opts, zap.S())
+	err = mongoDBOIDCMechanism.EnableAgentAuthentication(conn, opts, zaptest.NewLogger(t).Sugar())
 	require.Error(t, err)
 
-	err = mongoDBOIDCMechanism.DisableAgentAuthentication(conn, zap.S())
+	err = mongoDBOIDCMechanism.DisableAgentAuthentication(conn, zaptest.NewLogger(t).Sugar())
 	require.Error(t, err)
 }

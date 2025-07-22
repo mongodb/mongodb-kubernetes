@@ -1,11 +1,11 @@
 package authentication
 
 import (
+	"go.uber.org/zap/zaptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -43,10 +43,10 @@ func TestAgentsAuthentication(t *testing.T) {
 				CAFilePath:       util.CAFilePathInContainer,
 			}
 
-			err := s.EnableAgentAuthentication(conn, opts, zap.S())
+			err := s.EnableAgentAuthentication(conn, opts, zaptest.NewLogger(t).Sugar())
 			require.NoError(t, err)
 
-			err = s.EnableDeploymentAuthentication(conn, opts, zap.S())
+			err = s.EnableDeploymentAuthentication(conn, opts, zaptest.NewLogger(t).Sugar())
 			require.NoError(t, err)
 
 			ac, err := conn.ReadAutomationConfig()

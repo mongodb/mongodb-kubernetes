@@ -37,6 +37,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"go.uber.org/zap/zaptest"
 )
 
 const opsManagerUserPassword = "MBPYfkAj5ZM0l9uw6C7ggw" //nolint
@@ -79,7 +80,7 @@ func TestAppDB_MultiCluster(t *testing.T) {
 	tlsCertSecretName, tlsSecretPemHash := createAppDBTLSCert(ctx, t, kubeClient, appdb)
 	pemSecretName := tlsCertSecretName + "-pem"
 
-	reconciler, err := newAppDbMultiReconciler(ctx, kubeClient, opsManager, memberClusterMap, zap.S(), omConnectionFactory.GetConnectionFunc)
+	reconciler, err := newAppDbMultiReconciler(ctx, kubeClient, opsManager, memberClusterMap, zaptest.NewLogger(t).Sugar(), omConnectionFactory.GetConnectionFunc)
 	require.NoError(t, err)
 
 	err = createOpsManagerUserPasswordSecret(ctx, kubeClient, opsManager, opsManagerUserPassword)
@@ -146,7 +147,7 @@ func agentAPIKeySecretName(projectID string) string {
 
 func TestAppDB_MultiCluster_AutomationConfig(t *testing.T) {
 	ctx := context.Background()
-	log := zap.S()
+	log := zaptest.NewLogger(t).Sugar()
 	centralClusterName := multicluster.LegacyCentralClusterName
 	memberClusterName := "member-cluster-1"
 	memberClusterName2 := "member-cluster-2"
@@ -492,7 +493,7 @@ func makeClusterSpecList(clusters ...string) mdbv1.ClusterSpecList {
 
 func TestAppDB_MultiCluster_ClusterMapping(t *testing.T) {
 	ctx := context.Background()
-	log := zap.S()
+	log := zaptest.NewLogger(t).Sugar()
 	centralClusterName := multicluster.LegacyCentralClusterName
 	memberClusterName1 := "member-cluster-1"
 	memberClusterName2 := "member-cluster-2"
@@ -613,7 +614,7 @@ func TestAppDB_MultiCluster_ClusterMapping(t *testing.T) {
 
 func TestAppDB_MultiCluster_ClusterMappingMigrationToDeploymentState(t *testing.T) {
 	ctx := context.Background()
-	log := zap.S()
+	log := zaptest.NewLogger(t).Sugar()
 	centralClusterName := multicluster.LegacyCentralClusterName
 	memberClusterName1 := "member-cluster-1"
 	memberClusterName2 := "member-cluster-2"
@@ -673,7 +674,7 @@ func TestAppDB_MultiCluster_ClusterMappingMigrationToDeploymentState(t *testing.
 // This test ensures that we update legacy Config Maps on top of the new Deployment State
 func TestAppDB_MultiCluster_KeepUpdatingLegacyState(t *testing.T) {
 	ctx := context.Background()
-	log := zap.S()
+	log := zaptest.NewLogger(t).Sugar()
 	centralClusterName := multicluster.LegacyCentralClusterName
 	memberClusterName1 := "member-cluster-1"
 	memberClusterName2 := "member-cluster-2"
@@ -850,7 +851,7 @@ func createAppDBTLSCert(ctx context.Context, t *testing.T, k8sClient client.Clie
 	err := k8sClient.Create(ctx, tlsSecret)
 	require.NoError(t, err)
 
-	pemHash := enterprisepem.ReadHashFromData(secrets.DataToStringData(tlsSecret.Data), zap.S())
+	pemHash := enterprisepem.ReadHashFromData(secrets.DataToStringData(tlsSecret.Data), zaptest.NewLogger(t).Sugar())
 	require.NotEmpty(t, pemHash)
 
 	return tlsSecret.Name, pemHash
@@ -868,7 +869,7 @@ func TestAppDB_MultiCluster_ReconcilerFailsWhenThereIsNoClusterListConfigured(t 
 		SetAppDBTopology(mdbv1.ClusterTopologyMultiCluster)
 	opsManager := builder.Build()
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
-	_, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
+	_, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zaptest.NewLogger(t).Sugar())
 	assert.Error(t, err)
 }
 
@@ -898,7 +899,7 @@ func TestAppDBMultiClusterRemoveResources(t *testing.T) {
 	reconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", opsManager, memberClusterMap, omConnectionFactory)
 
 	// create opsmanager reconciler
-	appDBReconciler, _ := newAppDbMultiReconciler(ctx, kubeClient, opsManager, memberClusterMap, zap.S(), omConnectionFactory.GetConnectionFunc)
+	appDBReconciler, _ := newAppDbMultiReconciler(ctx, kubeClient, opsManager, memberClusterMap, zaptest.NewLogger(t).Sugar(), omConnectionFactory.GetConnectionFunc)
 
 	// initially requeued as monitoring needs to be configured
 	_, err := appDBReconciler.ReconcileAppDB(ctx, opsManager)
@@ -912,7 +913,7 @@ func TestAppDBMultiClusterRemoveResources(t *testing.T) {
 	}
 
 	// delete the OM resource
-	reconciler.OnDelete(ctx, opsManager, zap.S())
+	reconciler.OnDelete(ctx, opsManager, zaptest.NewLogger(t).Sugar())
 	assert.Zero(t, len(reconciler.resourceWatcher.GetWatchedResources()))
 
 	// assert STS objects in member cluster
@@ -925,7 +926,7 @@ func TestAppDBMultiClusterRemoveResources(t *testing.T) {
 
 func TestAppDBMultiClusterMonitoringHostnames(t *testing.T) {
 	ctx := context.Background()
-	log := zap.S()
+	log := zaptest.NewLogger(t).Sugar()
 	centralClusterName := multicluster.LegacyCentralClusterName
 	memberClusterName := "member-cluster-1"
 	memberClusterName2 := "member-cluster-2"
@@ -1020,7 +1021,7 @@ func TestAppDBMultiClusterMonitoringHostnames(t *testing.T) {
 
 func TestAppDBMultiClusterTryConfigureMonitoring(t *testing.T) {
 	ctx := context.Background()
-	log := zap.S()
+	log := zaptest.NewLogger(t).Sugar()
 	centralClusterName := multicluster.LegacyCentralClusterName
 	memberClusterName1 := "member-cluster-1"
 	memberClusterName2 := "member-cluster-2"
@@ -1746,7 +1747,7 @@ func TestAppDBMultiClusterServiceCreation_WithExternalName(t *testing.T) {
 			kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
 			memberClusterMap := getFakeMultiClusterMapWithClusters(memberClusters, omConnectionFactory)
 
-			reconciler, err := newAppDbMultiReconciler(ctx, kubeClient, opsManager, memberClusterMap, zap.S(), omConnectionFactory.GetConnectionFunc)
+			reconciler, err := newAppDbMultiReconciler(ctx, kubeClient, opsManager, memberClusterMap, zaptest.NewLogger(t).Sugar(), omConnectionFactory.GetConnectionFunc)
 			require.NoError(t, err)
 
 			err = createOpsManagerUserPasswordSecret(ctx, kubeClient, opsManager, opsManagerUserPassword)

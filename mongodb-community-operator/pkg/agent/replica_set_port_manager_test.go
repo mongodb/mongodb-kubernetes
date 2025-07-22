@@ -2,11 +2,11 @@ package agent
 
 import (
 	"fmt"
+	"go.uber.org/zap/zaptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
@@ -200,7 +200,7 @@ func TestReplicaSetPortManagerCalculateExpectedPorts(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			portManager := NewReplicaSetPortManager(zap.S(), tc.in.expectedPort, tc.in.currentPodStates, tc.in.currentAC.Processes)
+			portManager := NewReplicaSetPortManager(zaptest.NewLogger(t).Sugar(), tc.in.expectedPort, tc.in.currentPodStates, tc.in.currentAC.Processes)
 			portMap, portChangeRequired, oldPort := portManager.calculateExpectedPorts()
 			actualOutput := output{
 				portMap:            portMap,

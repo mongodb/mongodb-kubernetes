@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -36,7 +36,7 @@ import (
 
 func TestCreateOmProcess(t *testing.T) {
 	const mongodbImage = "quay.io/mongodb/mongodb-enterprise-server"
-	sts := construct.DatabaseStatefulSet(*DefaultReplicaSetBuilder().SetName("dublin").Build(), construct.StandaloneOptions(construct.GetPodEnvOptions()), zap.S())
+	sts := construct.DatabaseStatefulSet(*DefaultReplicaSetBuilder().SetName("dublin").Build(), construct.StandaloneOptions(construct.GetPodEnvOptions()), zaptest.NewLogger(t).Sugar())
 	process := createProcess(mongodbImage, false, sts, util.AgentContainerName, DefaultStandaloneBuilder().Build())
 	// Note, that for standalone the name of process is the name of statefulset - not the pod inside it.
 	assert.Equal(t, "dublin", process.Name())
@@ -48,7 +48,7 @@ func TestCreateOmProcesStatic(t *testing.T) {
 	const mongodbImage = "quay.io/mongodb/mongodb-enterprise-server"
 	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
 
-	sts := construct.DatabaseStatefulSet(*DefaultReplicaSetBuilder().SetName("dublin").Build(), construct.StandaloneOptions(construct.GetPodEnvOptions()), zap.S())
+	sts := construct.DatabaseStatefulSet(*DefaultReplicaSetBuilder().SetName("dublin").Build(), construct.StandaloneOptions(construct.GetPodEnvOptions()), zaptest.NewLogger(t).Sugar())
 	process := createProcess(mongodbImage, false, sts, util.AgentContainerName, DefaultStandaloneBuilder().Build())
 	// Note, that for standalone the name of process is the name of statefulset - not the pod inside it.
 	assert.Equal(t, "dublin", process.Name())
@@ -73,7 +73,7 @@ func TestOnAddStandalone(t *testing.T) {
 	assert.Equal(t, *mock.GetMapForObject(kubeClient, &appsv1.StatefulSet{})[st.ObjectKey()].(*appsv1.StatefulSet).Spec.Replicas, int32(1))
 	assert.Len(t, mock.GetMapForObject(kubeClient, &corev1.Secret{}), 2)
 
-	omConn.(*om.MockedOmConnection).CheckDeployment(t, createDeploymentFromStandalone(st), "auth", "tls")
+	omConn.(*om.MockedOmConnection).CheckDeployment(t, createDeploymentFromStandalone(t, st), "auth", "tls")
 	omConn.(*om.MockedOmConnection).CheckNumberOfUpdateRequests(t, 1)
 }
 
@@ -171,7 +171,7 @@ func TestAddDeleteStandalone(t *testing.T) {
 	checkReconcileSuccessful(ctx, t, reconciler, st, kubeClient)
 
 	// Now delete it
-	assert.NoError(t, reconciler.OnDelete(ctx, st, zap.S()))
+	assert.NoError(t, reconciler.OnDelete(ctx, st, zaptest.NewLogger(t).Sugar()))
 
 	mockedConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
 	// Operator doesn't mutate K8s state, so we don't check its changes, only OM
@@ -400,9 +400,9 @@ func (b *StandaloneBuilder) Build() *mdbv1.MongoDB {
 	return b.DeepCopy()
 }
 
-func createDeploymentFromStandalone(st *mdbv1.MongoDB) om.Deployment {
+func createDeploymentFromStandalone(t *testing.T, st *mdbv1.MongoDB) om.Deployment {
 	d := om.NewDeployment()
-	sts := construct.DatabaseStatefulSet(*st, construct.StandaloneOptions(construct.GetPodEnvOptions()), zap.S())
+	sts := construct.DatabaseStatefulSet(*st, construct.StandaloneOptions(construct.GetPodEnvOptions()), zaptest.NewLogger(t).Sugar())
 	hostnames, _ := dns.GetDnsForStatefulSet(sts, st.Spec.GetClusterDomain(), nil)
 	process := om.NewMongodProcess(st.Name, hostnames[0], "fake-mongoDBImage", false, st.Spec.AdditionalMongodConfig, st.GetSpec(), "", nil, st.Status.FeatureCompatibilityVersion)
 
@@ -412,6 +412,6 @@ func createDeploymentFromStandalone(st *mdbv1.MongoDB) om.Deployment {
 	}
 
 	d.MergeStandalone(process, st.Spec.AdditionalMongodConfig.ToMap(), lastConfig.ToMap(), nil)
-	d.AddMonitoringAndBackup(zap.S(), st.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
+	d.AddMonitoringAndBackup(zaptest.NewLogger(t).Sugar(), st.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
 	return d
 }

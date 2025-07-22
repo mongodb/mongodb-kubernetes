@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -62,8 +62,8 @@ func TestOpsManagerReconciler_watchedResources(t *testing.T) {
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
 	reconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory)
-	reconciler.watchMongoDBResourcesReferencedByBackup(ctx, testOm, zap.S())
-	reconciler.watchMongoDBResourcesReferencedByBackup(ctx, otherTestOm, zap.S())
+	reconciler.watchMongoDBResourcesReferencedByBackup(ctx, testOm, zaptest.NewLogger(t).Sugar())
+	reconciler.watchMongoDBResourcesReferencedByBackup(ctx, otherTestOm, zaptest.NewLogger(t).Sugar())
 
 	key := watch.Object{
 		ResourceType: watch.MongoDB,
@@ -203,7 +203,7 @@ func TestOpsManagerReconciler_removeWatchedResources(t *testing.T) {
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
 	reconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory)
-	reconciler.watchMongoDBResourcesReferencedByBackup(ctx, testOm, zap.S())
+	reconciler.watchMongoDBResourcesReferencedByBackup(ctx, testOm, zaptest.NewLogger(t).Sugar())
 
 	key := watch.Object{
 		ResourceType: watch.MongoDB,
@@ -215,7 +215,7 @@ func TestOpsManagerReconciler_removeWatchedResources(t *testing.T) {
 	assert.Contains(t, reconciler.resourceWatcher.GetWatchedResources()[key], mock.ObjectKeyFromApiObject(testOm))
 
 	// watched resources list is cleared when CR is deleted
-	reconciler.OnDelete(ctx, testOm, zap.S())
+	reconciler.OnDelete(ctx, testOm, zaptest.NewLogger(t).Sugar())
 	assert.Zero(t, len(reconciler.resourceWatcher.GetWatchedResources()))
 }
 
@@ -225,7 +225,7 @@ func TestOpsManagerReconciler_prepareOpsManager(t *testing.T) {
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
 	reconciler, client, initializer := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory)
 
-	reconcileStatus, _ := reconciler.prepareOpsManager(ctx, testOm, testOm.CentralURL(), zap.S())
+	reconcileStatus, _ := reconciler.prepareOpsManager(ctx, testOm, testOm.CentralURL(), zaptest.NewLogger(t).Sugar())
 
 	assert.Equal(t, workflow.OK(), reconcileStatus)
 	assert.Equal(t, "jane.doe@g.com", api.CurrMockedAdmin.PublicKey)
@@ -263,7 +263,7 @@ func TestOpsManagerReconcilerPrepareOpsManagerWithTLS(t *testing.T) {
 
 	addOmCACm(ctx, t, testOm, reconciler)
 
-	reconcileStatus, _ := reconciler.prepareOpsManager(ctx, testOm, testOm.CentralURL(), zap.S())
+	reconcileStatus, _ := reconciler.prepareOpsManager(ctx, testOm, testOm.CentralURL(), zaptest.NewLogger(t).Sugar())
 
 	assert.Equal(t, workflow.OK(), reconcileStatus)
 }
@@ -278,7 +278,7 @@ func TestOpsManagerReconcilePrepareOpsManagerWithTLSHostCA(t *testing.T) {
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
 	reconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory)
-	reconcileStatus, _ := reconciler.prepareOpsManager(ctx, testOm, testOm.CentralURL(), zap.S())
+	reconcileStatus, _ := reconciler.prepareOpsManager(ctx, testOm, testOm.CentralURL(), zaptest.NewLogger(t).Sugar())
 
 	assert.Equal(t, workflow.OK(), reconcileStatus)
 }
@@ -301,7 +301,7 @@ func TestOpsManagerReconciler_prepareOpsManagerTwoCalls(t *testing.T) {
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
 	reconciler, client, initializer := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory)
 
-	reconciler.prepareOpsManager(ctx, testOm, testOm.CentralURL(), zap.S())
+	reconciler.prepareOpsManager(ctx, testOm, testOm.CentralURL(), zaptest.NewLogger(t).Sugar())
 
 	APIKeySecretName, err := testOm.APIKeySecretName(ctx, secrets.SecretClient{KubeClient: client}, "")
 	assert.NoError(t, err)
@@ -313,7 +313,7 @@ func TestOpsManagerReconciler_prepareOpsManagerTwoCalls(t *testing.T) {
 	assert.NoError(t, err)
 
 	// second call is ok - we just don't create the admin user in OM and don't add new secrets
-	reconcileStatus, _ := reconciler.prepareOpsManager(ctx, testOm, testOm.CentralURL(), zap.S())
+	reconcileStatus, _ := reconciler.prepareOpsManager(ctx, testOm, testOm.CentralURL(), zaptest.NewLogger(t).Sugar())
 	assert.Equal(t, workflow.OK(), reconcileStatus)
 	assert.Equal(t, "jane.doe@g.com-key", api.CurrMockedAdmin.PrivateKey)
 
@@ -336,7 +336,7 @@ func TestOpsManagerReconciler_prepareOpsManagerDuplicatedUser(t *testing.T) {
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
 	reconciler, client, initializer := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory)
 
-	reconciler.prepareOpsManager(ctx, testOm, testOm.CentralURL(), zap.S())
+	reconciler.prepareOpsManager(ctx, testOm, testOm.CentralURL(), zaptest.NewLogger(t).Sugar())
 
 	APIKeySecretName, err := testOm.APIKeySecretName(ctx, secrets.SecretClient{KubeClient: client}, "")
 	assert.NoError(t, err)
@@ -347,7 +347,7 @@ func TestOpsManagerReconciler_prepareOpsManagerDuplicatedUser(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Namespace: OperatorNamespace, Name: APIKeySecretName},
 	})
 
-	reconcileStatus, admin := reconciler.prepareOpsManager(ctx, testOm, testOm.CentralURL(), zap.S())
+	reconcileStatus, admin := reconciler.prepareOpsManager(ctx, testOm, testOm.CentralURL(), zaptest.NewLogger(t).Sugar())
 	assert.Equal(t, status.PhaseFailed, reconcileStatus.Phase())
 
 	option, exists := status.GetOption(reconcileStatus.StatusOptions(), status.MessageOption{})
@@ -372,17 +372,17 @@ func TestOpsManagerGeneratesAppDBPassword_IfNotProvided(t *testing.T) {
 
 	testOm := DefaultOpsManagerBuilder().Build()
 	kubeManager, omConnectionFactory := mock.NewDefaultFakeClient(testOm)
-	appDBReconciler, err := newAppDbReconciler(ctx, kubeManager, testOm, omConnectionFactory.GetConnectionFunc, zap.S())
+	appDBReconciler, err := newAppDbReconciler(ctx, kubeManager, testOm, omConnectionFactory.GetConnectionFunc, zaptest.NewLogger(t).Sugar())
 	require.NoError(t, err)
 
-	password, err := appDBReconciler.ensureAppDbPassword(ctx, testOm, zap.S())
+	password, err := appDBReconciler.ensureAppDbPassword(ctx, testOm, zaptest.NewLogger(t).Sugar())
 	assert.NoError(t, err)
 	assert.Len(t, password, 12, "auto generated password should have a size of 12")
 }
 
 func TestOpsManagerUsersPassword_SpecifiedInSpec(t *testing.T) {
 	ctx := context.Background()
-	log := zap.S()
+	log := zaptest.NewLogger(t).Sugar()
 	testOm := DefaultOpsManagerBuilder().SetAppDBPassword("my-secret", "password").Build()
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
 	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory)
@@ -402,7 +402,7 @@ func TestOpsManagerUsersPassword_SpecifiedInSpec(t *testing.T) {
 
 	appDBReconciler, err := reconciler.createNewAppDBReconciler(ctx, testOm, log)
 	require.NoError(t, err)
-	password, err := appDBReconciler.ensureAppDbPassword(ctx, testOm, zap.S())
+	password, err := appDBReconciler.ensureAppDbPassword(ctx, testOm, zaptest.NewLogger(t).Sugar())
 
 	assert.NoError(t, err)
 	assert.Equal(t, password, "my-password", "the password specified by the SecretRef should have been returned when specified")
@@ -735,11 +735,11 @@ func TestOpsManagerBackupAssignmentLabels(t *testing.T) {
 	mockedAdmin := api.NewMockedAdminProvider("testUrl", "publicApiKey", "privateApiKey", true)
 	defer mockedAdmin.(*api.MockedOmAdmin).Reset()
 
-	reconcilerHelper, err := NewOpsManagerReconcilerHelper(ctx, reconciler, testOm, nil, zap.S())
+	reconcilerHelper, err := NewOpsManagerReconcilerHelper(ctx, reconciler, testOm, nil, zaptest.NewLogger(t).Sugar())
 	require.NoError(t, err)
 
 	// when
-	reconciler.prepareBackupInOpsManager(ctx, reconcilerHelper, testOm, mockedAdmin, "", zap.S())
+	reconciler.prepareBackupInOpsManager(ctx, reconcilerHelper, testOm, mockedAdmin, "", zaptest.NewLogger(t).Sugar())
 	blockStoreConfigs, _ := mockedAdmin.ReadBlockStoreConfigs()
 	oplogConfigs, _ := mockedAdmin.ReadOplogStoreConfigs()
 	s3Configs, _ := mockedAdmin.ReadS3Configs()
@@ -756,22 +756,22 @@ func TestTriggerOmChangedEventIfNeeded(t *testing.T) {
 	ctx := context.Background()
 	t.Run("Om changed event got triggered, major version update", func(t *testing.T) {
 		nextScheduledTime := agents.NextScheduledUpgradeTime()
-		assert.NoError(t, triggerOmChangedEventIfNeeded(ctx, omv1.NewOpsManagerBuilder().SetVersion("5.2.13").SetOMStatusVersion("4.2.13").Build(), nil, zap.S()))
+		assert.NoError(t, triggerOmChangedEventIfNeeded(ctx, omv1.NewOpsManagerBuilder().SetVersion("5.2.13").SetOMStatusVersion("4.2.13").Build(), nil, zaptest.NewLogger(t).Sugar()))
 		assert.NotEqual(t, nextScheduledTime, agents.NextScheduledUpgradeTime())
 	})
 	t.Run("Om changed event got triggered, minor version update", func(t *testing.T) {
 		nextScheduledTime := agents.NextScheduledUpgradeTime()
-		assert.NoError(t, triggerOmChangedEventIfNeeded(ctx, omv1.NewOpsManagerBuilder().SetVersion("4.4.0").SetOMStatusVersion("4.2.13").Build(), nil, zap.S()))
+		assert.NoError(t, triggerOmChangedEventIfNeeded(ctx, omv1.NewOpsManagerBuilder().SetVersion("4.4.0").SetOMStatusVersion("4.2.13").Build(), nil, zaptest.NewLogger(t).Sugar()))
 		assert.NotEqual(t, nextScheduledTime, agents.NextScheduledUpgradeTime())
 	})
 	t.Run("Om changed event got triggered, minor version update, candidate version", func(t *testing.T) {
 		nextScheduledTime := agents.NextScheduledUpgradeTime()
-		assert.NoError(t, triggerOmChangedEventIfNeeded(ctx, omv1.NewOpsManagerBuilder().SetVersion("4.4.0-rc2").SetOMStatusVersion("4.2.13").Build(), nil, zap.S()))
+		assert.NoError(t, triggerOmChangedEventIfNeeded(ctx, omv1.NewOpsManagerBuilder().SetVersion("4.4.0-rc2").SetOMStatusVersion("4.2.13").Build(), nil, zaptest.NewLogger(t).Sugar()))
 		assert.NotEqual(t, nextScheduledTime, agents.NextScheduledUpgradeTime())
 	})
 	t.Run("Om changed event not triggered, patch version update", func(t *testing.T) {
 		nextScheduledTime := agents.NextScheduledUpgradeTime()
-		assert.NoError(t, triggerOmChangedEventIfNeeded(ctx, omv1.NewOpsManagerBuilder().SetVersion("4.4.10").SetOMStatusVersion("4.4.0").Build(), nil, zap.S()))
+		assert.NoError(t, triggerOmChangedEventIfNeeded(ctx, omv1.NewOpsManagerBuilder().SetVersion("4.4.10").SetOMStatusVersion("4.4.0").Build(), nil, zaptest.NewLogger(t).Sugar()))
 		assert.Equal(t, nextScheduledTime, agents.NextScheduledUpgradeTime())
 	})
 }

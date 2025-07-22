@@ -1,19 +1,14 @@
 package memberwatch
 
 import (
+	"go.uber.org/zap/zaptest"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
 )
-
-func init() {
-	logger, _ := zap.NewDevelopment()
-	zap.ReplaceGlobals(logger)
-}
 
 func TestIsMemberClusterHealthy(t *testing.T) {
 	// mark cluster as healthy because "200" status code
@@ -21,8 +16,8 @@ func TestIsMemberClusterHealthy(t *testing.T) {
 		rw.WriteHeader(200)
 	}))
 
-	memberHealthCheck := NewMemberHealthCheck(server.URL, []byte("ca-data"), "bhjkb", zap.S())
-	healthy := memberHealthCheck.IsClusterHealthy(zap.S())
+	memberHealthCheck := NewMemberHealthCheck(server.URL, []byte("ca-data"), "bhjkb", zaptest.NewLogger(t).Sugar())
+	healthy := memberHealthCheck.IsClusterHealthy(zaptest.NewLogger(t).Sugar())
 	assert.Equal(t, true, healthy)
 
 	// mark cluster unhealthy because != "200" status code
@@ -36,8 +31,8 @@ func TestIsMemberClusterHealthy(t *testing.T) {
 	DefaultRetryMax = 2
 
 	startTime := time.Now()
-	memberHealthCheck = NewMemberHealthCheck(server.URL, []byte("ca-data"), "hhfhj", zap.S())
-	healthy = memberHealthCheck.IsClusterHealthy(zap.S())
+	memberHealthCheck = NewMemberHealthCheck(server.URL, []byte("ca-data"), "hhfhj", zaptest.NewLogger(t).Sugar())
+	healthy = memberHealthCheck.IsClusterHealthy(zaptest.NewLogger(t).Sugar())
 	endTime := time.Since(startTime)
 
 	assert.Equal(t, false, healthy)
@@ -45,7 +40,7 @@ func TestIsMemberClusterHealthy(t *testing.T) {
 	assert.LessOrEqual(t, endTime, DefaultRetryWaitMax*2+time.Second)
 
 	// mark cluster unhealthy because of error
-	memberHealthCheck = NewMemberHealthCheck("", []byte("ca-data"), "bhdjbh", zap.S())
-	healthy = memberHealthCheck.IsClusterHealthy(zap.S())
+	memberHealthCheck = NewMemberHealthCheck("", []byte("ca-data"), "bhdjbh", zaptest.NewLogger(t).Sugar())
+	healthy = memberHealthCheck.IsClusterHealthy(zaptest.NewLogger(t).Sugar())
 	assert.Equal(t, false, healthy)
 }

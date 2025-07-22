@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"go.uber.org/zap/zaptest"
 	"reflect"
 	"strings"
 	"testing"
@@ -122,7 +123,7 @@ func TestReconcileCreateSingleClusterShardedClusterWithExternalDomainSimplest(t 
 		Build()
 
 	kubeClient := kubernetesClient.NewClient(fakeClient)
-	reconciler, _, _ := newShardedClusterReconcilerFromResource(ctx, nil, "", "", sc, nil, kubeClient, omConnectionFactory)
+	reconciler, _, _ := newShardedClusterReconcilerFromResource(t, ctx, nil, "", "", sc, nil, kubeClient, omConnectionFactory)
 
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		var allHostnames []string
@@ -509,7 +510,7 @@ func TestAddDeleteShardedCluster(t *testing.T) {
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, clusterClient)
 	// Now delete it
-	assert.NoError(t, reconciler.OnDelete(ctx, sc, zap.S()))
+	assert.NoError(t, reconciler.OnDelete(ctx, sc, zaptest.NewLogger(t).Sugar()))
 
 	// Operator doesn't mutate K8s state, so we don't check its changes, only OM
 	mockedOmConnection := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
@@ -557,9 +558,9 @@ func TestPrepareScaleDownShardedCluster_ConfigMongodsUp(t *testing.T) {
 	kubeClient, _ := mock.NewDefaultFakeClient(scAfterScale)
 	// Store the initial scaling status in state configmap
 	assert.NoError(t, createMockStateConfigMap(kubeClient, mock.TestNamespace, scBeforeScale.Name, initialState))
-	_, reconcileHelper, err := newShardedClusterReconcilerFromResource(ctx, nil, "", "", scAfterScale, nil, kubeClient, omConnectionFactory)
+	_, reconcileHelper, err := newShardedClusterReconcilerFromResource(nil, ctx, nil, "", "", scAfterScale, nil, kubeClient, omConnectionFactory)
 	assert.NoError(t, err)
-	assert.NoError(t, reconcileHelper.prepareScaleDownShardedCluster(omConnectionFactory.GetConnection(), zap.S()))
+	assert.NoError(t, reconcileHelper.prepareScaleDownShardedCluster(omConnectionFactory.GetConnection(), zaptest.NewLogger(t).Sugar()))
 
 	// create the expected deployment from the sharded cluster that has not yet scaled
 	// expected change of state: rs members are marked unvoted
@@ -604,7 +605,7 @@ func TestPrepareScaleDownShardedCluster_ShardsUpMongodsDown(t *testing.T) {
 	omConnectionFactory := om.NewCachedOMConnectionFactoryWithInitializedConnection(om.NewMockedOmConnection(createDeploymentFromShardedCluster(t, scBeforeScale)))
 	kubeClient, _ := mock.NewDefaultFakeClient(scAfterScale)
 	assert.NoError(t, createMockStateConfigMap(kubeClient, mock.TestNamespace, scBeforeScale.Name, initialState))
-	_, reconcileHelper, err := newShardedClusterReconcilerFromResource(ctx, nil, "", "", scAfterScale, nil, kubeClient, omConnectionFactory)
+	_, reconcileHelper, err := newShardedClusterReconcilerFromResource(nil, ctx, nil, "", "", scAfterScale, nil, kubeClient, omConnectionFactory)
 	assert.NoError(t, err)
 
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
@@ -616,7 +617,7 @@ func TestPrepareScaleDownShardedCluster_ShardsUpMongodsDown(t *testing.T) {
 		connection.(*om.MockedOmConnection).CleanHistory()
 	})
 
-	assert.NoError(t, reconcileHelper.prepareScaleDownShardedCluster(omConnectionFactory.GetConnection(), zap.S()))
+	assert.NoError(t, reconcileHelper.prepareScaleDownShardedCluster(omConnectionFactory.GetConnection(), zaptest.NewLogger(t).Sugar()))
 
 	// expected change of state: rs members are marked unvoted only for two shards (old state)
 	expectedDeployment := createDeploymentFromShardedCluster(t, scBeforeScale)
@@ -641,7 +642,7 @@ func TestConstructConfigSrv(t *testing.T) {
 	sc := test.DefaultClusterBuilder().Build()
 	configSrvSpec := createConfigSrvSpec(sc)
 	assert.NotPanics(t, func() {
-		construct.DatabaseStatefulSet(*sc, construct.ConfigServerOptions(configSrvSpec, multicluster.LegacyCentralClusterName, construct.GetPodEnvOptions()), zap.S())
+		construct.DatabaseStatefulSet(*sc, construct.ConfigServerOptions(configSrvSpec, multicluster.LegacyCentralClusterName, construct.GetPodEnvOptions()), zaptest.NewLogger(t).Sugar())
 	})
 }
 
@@ -660,9 +661,9 @@ func TestPrepareScaleDownShardedCluster_OnlyMongos(t *testing.T) {
 	})
 
 	// necessary otherwise next omConnectionFactory.GetConnection() will return nil as the connectionFactoryFunc hasn't been called yet
-	initializeOMConnection(t, ctx, reconcileHelper, sc, zap.S(), omConnectionFactory)
+	initializeOMConnection(t, ctx, reconcileHelper, sc, zaptest.NewLogger(t).Sugar(), omConnectionFactory)
 
-	assert.NoError(t, reconcileHelper.prepareScaleDownShardedCluster(omConnectionFactory.GetConnection(), zap.S()))
+	assert.NoError(t, reconcileHelper.prepareScaleDownShardedCluster(omConnectionFactory.GetConnection(), zaptest.NewLogger(t).Sugar()))
 	mockedOmConnection := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
 	mockedOmConnection.CheckNumberOfUpdateRequests(t, 0)
 	mockedOmConnection.CheckDeployment(t, createDeploymentFromShardedCluster(t, sc))
@@ -707,7 +708,7 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 	omConnectionFactory := om.NewCachedOMConnectionFactoryWithInitializedConnection(om.NewMockedOmConnection(createDeploymentFromShardedCluster(t, sc)))
 	kubeClient, _ := mock.NewDefaultFakeClient(sc)
 	assert.NoError(t, createMockStateConfigMap(kubeClient, mock.TestNamespace, sc.Name, initialState))
-	_, reconcileHelper, err := newShardedClusterReconcilerFromResource(ctx, nil, "", "", scScaledDown, nil, kubeClient, omConnectionFactory)
+	_, reconcileHelper, err := newShardedClusterReconcilerFromResource(nil, ctx, nil, "", "", scScaledDown, nil, kubeClient, omConnectionFactory)
 	assert.NoError(t, err)
 
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
@@ -728,7 +729,7 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 	}, nil)
 
 	mockOm := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
-	assert.Equal(t, workflow.OK(), reconcileHelper.updateOmDeploymentShardedCluster(ctx, mockOm, scScaledDown, deploymentOptions{podEnvVars: &env.PodEnvVars{ProjectID: "abcd"}}, false, zap.S()))
+	assert.Equal(t, workflow.OK(), reconcileHelper.updateOmDeploymentShardedCluster(ctx, mockOm, scScaledDown, deploymentOptions{podEnvVars: &env.PodEnvVars{ProjectID: "abcd"}}, false, zaptest.NewLogger(t).Sugar()))
 
 	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadUpdateDeployment), reflect.ValueOf(mockOm.RemoveHost))
 
@@ -748,8 +749,8 @@ func TestPodAntiaffinity_MongodsInsideShardAreSpread(t *testing.T) {
 
 	kubeClient, _ := mock.NewDefaultFakeClient(sc)
 	shardSpec, memberCluster := createShardSpecAndDefaultCluster(kubeClient, sc)
-	firstShardSet := construct.DatabaseStatefulSet(*sc, construct.ShardOptions(0, shardSpec, memberCluster.Name, construct.GetPodEnvOptions()), zap.S())
-	secondShardSet := construct.DatabaseStatefulSet(*sc, construct.ShardOptions(1, shardSpec, memberCluster.Name, construct.GetPodEnvOptions()), zap.S())
+	firstShardSet := construct.DatabaseStatefulSet(*sc, construct.ShardOptions(0, shardSpec, memberCluster.Name, construct.GetPodEnvOptions()), zaptest.NewLogger(t).Sugar())
+	secondShardSet := construct.DatabaseStatefulSet(*sc, construct.ShardOptions(1, shardSpec, memberCluster.Name, construct.GetPodEnvOptions()), zaptest.NewLogger(t).Sugar())
 
 	assert.Equal(t, sc.ShardRsName(0), firstShardSet.Spec.Selector.MatchLabels[construct.PodAntiAffinityLabelKey])
 	assert.Equal(t, sc.ShardRsName(1), secondShardSet.Spec.Selector.MatchLabels[construct.PodAntiAffinityLabelKey])
@@ -833,9 +834,9 @@ func TestShardedCluster_NeedToPublishState(t *testing.T) {
 	assert.Equal(t, expectedResult, actualResult)
 	assert.Nil(t, err)
 
-	allConfigs := reconcilerHelper.getAllConfigs(ctx, *sc, getEmptyDeploymentOptions(), zap.S())
+	allConfigs := reconcilerHelper.getAllConfigs(ctx, *sc, getEmptyDeploymentOptions(), zaptest.NewLogger(t).Sugar())
 
-	assert.False(t, anyStatefulSetNeedsToPublishStateToOM(ctx, *sc, clusterClient, reconcilerHelper.deploymentState.LastAchievedSpec, allConfigs, zap.S()))
+	assert.False(t, anyStatefulSetNeedsToPublishStateToOM(ctx, *sc, clusterClient, reconcilerHelper.deploymentState.LastAchievedSpec, allConfigs, zaptest.NewLogger(t).Sugar()))
 
 	// attempting to set tls to false
 	require.NoError(t, clusterClient.Get(ctx, kube.ObjectKeyFromApiObject(sc), sc))
@@ -846,8 +847,8 @@ func TestShardedCluster_NeedToPublishState(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Ops Manager state needs to be published first as we want to reach goal state before unmounting certificates
-	allConfigs = reconcilerHelper.getAllConfigs(ctx, *sc, getEmptyDeploymentOptions(), zap.S())
-	assert.True(t, anyStatefulSetNeedsToPublishStateToOM(ctx, *sc, clusterClient, reconcilerHelper.deploymentState.LastAchievedSpec, allConfigs, zap.S()))
+	allConfigs = reconcilerHelper.getAllConfigs(ctx, *sc, getEmptyDeploymentOptions(), zaptest.NewLogger(t).Sugar())
+	assert.True(t, anyStatefulSetNeedsToPublishStateToOM(ctx, *sc, clusterClient, reconcilerHelper.deploymentState.LastAchievedSpec, allConfigs, zaptest.NewLogger(t).Sugar()))
 }
 
 func TestShardedCustomPodSpecTemplate(t *testing.T) {
@@ -1081,7 +1082,7 @@ func TestScalingShardedCluster_ScalesOneMemberAtATime_WhenScalingUp(t *testing.T
 		Build()
 
 	clusterClient, omConnectionFactory := mock.NewDefaultFakeClient(sc)
-	reconciler, _, err := newShardedClusterReconcilerFromResource(ctx, nil, "", "", sc, nil, clusterClient, omConnectionFactory)
+	reconciler, _, err := newShardedClusterReconcilerFromResource(nil, ctx, nil, "", "", sc, nil, clusterClient, omConnectionFactory)
 	require.NoError(t, err)
 
 	// perform initial reconciliation, so we are not creating a new resource
@@ -1643,7 +1644,7 @@ func createDeploymentFromShardedCluster(t *testing.T, updatable v1.CustomResourc
 			Replicas(sh.Spec.MongodsPerShardCount),
 			construct.GetPodEnvOptions(),
 		)
-		shardSts := construct.DatabaseStatefulSet(*sh, shardOptions, zap.S())
+		shardSts := construct.DatabaseStatefulSet(*sh, shardOptions, zaptest.NewLogger(t).Sugar())
 		shards[i], _ = buildReplicaSetFromProcesses(shardSts.Name, createShardProcesses("fake-mongoDBImage", false, shardSts, sh, ""), sh, sh.Spec.GetMemberOptions(), om.NewDeployment())
 	}
 
@@ -1654,7 +1655,7 @@ func createDeploymentFromShardedCluster(t *testing.T, updatable v1.CustomResourc
 		Replicas(sh.Spec.MongosCount),
 		construct.GetPodEnvOptions(),
 	)
-	mongosSts := construct.DatabaseStatefulSet(*sh, mongosOptions, zap.S())
+	mongosSts := construct.DatabaseStatefulSet(*sh, mongosOptions, zaptest.NewLogger(t).Sugar())
 	mongosProcesses := createMongosProcesses("fake-mongoDBImage", false, mongosSts, sh, util.PEMKeyFilePathInContainer)
 
 	desiredConfigSrvConfig := createConfigSrvSpec(sh)
@@ -1664,7 +1665,7 @@ func createDeploymentFromShardedCluster(t *testing.T, updatable v1.CustomResourc
 		Replicas(sh.Spec.ConfigServerCount),
 		construct.GetPodEnvOptions(),
 	)
-	configSvrSts := construct.DatabaseStatefulSet(*sh, configServerOptions, zap.S())
+	configSvrSts := construct.DatabaseStatefulSet(*sh, configServerOptions, zaptest.NewLogger(t).Sugar())
 	configRs, _ := buildReplicaSetFromProcesses(configSvrSts.Name, createConfigSrvProcesses("fake-mongoDBImage", false, configSvrSts, sh, ""), sh, sh.Spec.GetMemberOptions(), om.NewDeployment())
 
 	d := om.NewDeployment()
@@ -1676,22 +1677,22 @@ func createDeploymentFromShardedCluster(t *testing.T, updatable v1.CustomResourc
 		Finalizing:      false,
 	})
 	assert.NoError(t, err)
-	d.AddMonitoringAndBackup(zap.S(), sh.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
+	d.AddMonitoringAndBackup(zaptest.NewLogger(t).Sugar(), sh.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
 	return d
 }
 
 func defaultClusterReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, kubernetesClient.Client, *om.CachedOMConnectionFactory, error) {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(sc)
-	r, reconcileHelper, err := newShardedClusterReconcilerFromResource(ctx, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, sc, globalMemberClustersMap, kubeClient, omConnectionFactory)
+	r, reconcileHelper, err := newShardedClusterReconcilerFromResource(nil, ctx, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, sc, globalMemberClustersMap, kubeClient, omConnectionFactory)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
 	return r, reconcileHelper, kubeClient, omConnectionFactory, nil
 }
 
-func newShardedClusterReconcilerFromResource(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, kubeClient kubernetesClient.Client, omConnectionFactory *om.CachedOMConnectionFactory) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, error) {
+func newShardedClusterReconcilerFromResource(t *testing.T, ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, kubeClient kubernetesClient.Client, omConnectionFactory *om.CachedOMConnectionFactory) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, error) {
 	r := newShardedClusterReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc)
-	reconcileHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, sc, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, zap.S())
+	reconcileHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, sc, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, zaptest.NewLogger(t).Sugar())
 	if err != nil {
 		return nil, nil, err
 	}

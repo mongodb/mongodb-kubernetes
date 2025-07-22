@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"go.uber.org/zap/zaptest"
 	"os"
 	"reflect"
 	"strings"
@@ -55,11 +56,11 @@ func TestEnsureTagAdded(t *testing.T) {
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 
 	// normal tag
-	err := connection.EnsureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "myTag", zap.S())
+	err := connection.EnsureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "myTag", zaptest.NewLogger(t).Sugar())
 	assert.NoError(t, err)
 
 	// long tag
-	err = connection.EnsureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "LOOKATTHISTRINGTHATISTOOLONGFORTHEFIELD", zap.S())
+	err = connection.EnsureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "LOOKATTHISTRINGTHATISTOOLONGFORTHEFIELD", zaptest.NewLogger(t).Sugar())
 	assert.NoError(t, err)
 
 	expected := []string{"EXTERNALLY_MANAGED_BY_KUBERNETES", "MY-NAMESPACE", "MYTAG", "LOOKATTHISTRINGTHATISTOOLONGFORT"}
@@ -72,11 +73,11 @@ func TestEnsureTagAddedDuplicates(t *testing.T) {
 	opsManagerController := NewReconcileCommonController(ctx, kubeClient)
 
 	mockOm, _ := prepareConnection(ctx, opsManagerController, omConnectionFactory.GetConnectionFunc, t)
-	err := connection.EnsureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "MYTAG", zap.S())
+	err := connection.EnsureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "MYTAG", zaptest.NewLogger(t).Sugar())
 	assert.NoError(t, err)
-	err = connection.EnsureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "MYTAG", zap.S())
+	err = connection.EnsureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "MYTAG", zaptest.NewLogger(t).Sugar())
 	assert.NoError(t, err)
-	err = connection.EnsureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "MYOTHERTAG", zap.S())
+	err = connection.EnsureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "MYOTHERTAG", zaptest.NewLogger(t).Sugar())
 	assert.NoError(t, err)
 	expected := []string{"EXTERNALLY_MANAGED_BY_KUBERNETES", "MY-NAMESPACE", "MYTAG", "MYOTHERTAG"}
 	assert.Equal(t, expected, mockOm.FindGroup(om.TestGroupName).Tags)
@@ -229,7 +230,7 @@ func TestUpdateStatus_Patched(t *testing.T) {
 	reconciledObject := rs.DeepCopy()
 	// The current reconciled object "has diverged" from the one in API server
 	reconciledObject.Spec.Version = "10.0.0"
-	_, err := controller.updateStatus(ctx, reconciledObject, workflow.Pending("Waiting for secret..."), zap.S())
+	_, err := controller.updateStatus(ctx, reconciledObject, workflow.Pending("Waiting for secret..."), zaptest.NewLogger(t).Sugar())
 	assert.NoError(t, err)
 
 	// Verifying that the resource in API server still has the correct spec
@@ -289,7 +290,7 @@ func TestFailWhenRoleAndRoleRefsAreConfigured(t *testing.T) {
 	controller := NewReconcileCommonController(ctx, kubeClient)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 
-	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
+	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zaptest.NewLogger(t).Sugar())
 	assert.False(t, result.IsOK())
 	assert.Equal(t, status.PhaseFailed, result.Phase())
 
@@ -317,7 +318,7 @@ func TestRoleRefsAreAdded(t *testing.T) {
 
 	_ = kubeClient.Create(ctx, roleResource)
 
-	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
+	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zaptest.NewLogger(t).Sugar())
 
 	ac, err := mockOm.ReadAutomationConfig()
 	assert.NoError(t, err)
@@ -344,7 +345,7 @@ func TestErrorWhenRoleRefIsWrong(t *testing.T) {
 
 	_ = kubeClient.Create(ctx, roleResource)
 
-	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
+	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zaptest.NewLogger(t).Sugar())
 	assert.False(t, result.IsOK())
 	assert.Equal(t, status.PhaseFailed, result.Phase())
 
@@ -370,7 +371,7 @@ func TestErrorWhenRoleDoesNotExist(t *testing.T) {
 	controller := NewReconcileCommonController(ctx, kubeClient)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 
-	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
+	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zaptest.NewLogger(t).Sugar())
 	assert.False(t, result.IsOK())
 	assert.Equal(t, status.PhaseFailed, result.Phase())
 
@@ -397,7 +398,7 @@ func TestDontSendNilPrivileges(t *testing.T) {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
 	controller := NewReconcileCommonController(ctx, kubeClient)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
-	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
+	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zaptest.NewLogger(t).Sugar())
 	ac, err := mockOm.ReadAutomationConfig()
 	assert.NoError(t, err)
 	roles, ok := ac.Deployment["roles"].([]mdbv1.MongoDBRole)
@@ -480,7 +481,7 @@ func prepareConnection(ctx context.Context, controller *ReconcileCommonControlle
 	credsConfig, err := project.ReadCredentials(ctx, controller.SecretClient, kube.ObjectKey(mock.TestNamespace, mock.TestCredentialsSecretName), &zap.SugaredLogger{})
 	assert.NoError(t, err)
 
-	conn, _, e := connection.PrepareOpsManagerConnection(ctx, controller.SecretClient, projectConfig, credsConfig, omConnectionFunc, mock.TestNamespace, zap.S())
+	conn, _, e := connection.PrepareOpsManagerConnection(ctx, controller.SecretClient, projectConfig, credsConfig, omConnectionFunc, mock.TestNamespace, zaptest.NewLogger(t).Sugar())
 	mockOm := conn.(*om.MockedOmConnection)
 	assert.NoError(t, e)
 	return mockOm, newPodVars(conn, projectConfig, mdbv1.Warn)

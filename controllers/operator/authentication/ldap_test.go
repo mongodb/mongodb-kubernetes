@@ -1,20 +1,20 @@
 package authentication
 
 import (
+	"go.uber.org/zap/zaptest"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var ldapPlainMechanism = getMechanismByName(LDAPPlain)
 
 func TestLdapDeploymentMechanism(t *testing.T) {
 	conn := om.NewMockedOmConnection(om.NewDeployment())
+	logger := zaptest.NewLogger(t).Sugar()
 
 	opts := Options{
 		Ldap: &ldap.Ldap{
@@ -24,7 +24,8 @@ func TestLdapDeploymentMechanism(t *testing.T) {
 		},
 	}
 
-	err := ldapPlainMechanism.EnableDeploymentAuthentication(conn, opts, zap.S())
+	zaptest.NewLogger(t).Sugar()
+	err := ldapPlainMechanism.EnableDeploymentAuthentication(conn, opts, logger)
 	require.NoError(t, err)
 
 	ac, err := conn.ReadAutomationConfig()
@@ -34,7 +35,7 @@ func TestLdapDeploymentMechanism(t *testing.T) {
 	assert.Equal(t, "Servers", ac.Ldap.Servers)
 	assert.Equal(t, "BindMethod", ac.Ldap.BindMethod)
 
-	err = ldapPlainMechanism.DisableDeploymentAuthentication(conn, zap.S())
+	err = ldapPlainMechanism.DisableDeploymentAuthentication(conn, logger)
 	require.NoError(t, err)
 
 	ac, err = conn.ReadAutomationConfig()
@@ -55,7 +56,8 @@ func TestLdapEnableAgentAuthentication(t *testing.T) {
 		AutoPwd:          "LDAPPassword.",
 	}
 
-	err := ldapPlainMechanism.EnableAgentAuthentication(conn, opts, zap.S())
+	zaptest.NewLogger(t).Sugar()
+	err := ldapPlainMechanism.EnableAgentAuthentication(conn, opts, zaptest.NewLogger(t).Sugar())
 	require.NoError(t, err)
 
 	ac, err := conn.ReadAutomationConfig()

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"go.uber.org/zap/zaptest"
 	"os"
 	"testing"
 
@@ -30,7 +31,7 @@ func TestAllReachedGoalState(t *testing.T) {
 	assert.NoError(t, err)
 
 	t.Run("Returns true if all pods are not found", func(t *testing.T) {
-		ready, err := AllReachedGoalState(ctx, sts, mockPodGetter{}, 3, 3, zap.S())
+		ready, err := AllReachedGoalState(ctx, sts, mockPodGetter{}, 3, 3, zaptest.NewLogger(t).Sugar())
 		assert.NoError(t, err)
 		assert.True(t, ready)
 	})
@@ -40,7 +41,7 @@ func TestAllReachedGoalState(t *testing.T) {
 			createPodWithAgentAnnotation("3"),
 			createPodWithAgentAnnotation("3"),
 			createPodWithAgentAnnotation("3"),
-		}}, 3, 3, zap.S())
+		}}, 3, 3, zaptest.NewLogger(t).Sugar())
 		assert.NoError(t, err)
 		assert.True(t, ready)
 	})
@@ -50,13 +51,13 @@ func TestAllReachedGoalState(t *testing.T) {
 			createPodWithAgentAnnotation("2"),
 			createPodWithAgentAnnotation("3"),
 			createPodWithAgentAnnotation("3"),
-		}}, 3, 3, zap.S())
+		}}, 3, 3, zaptest.NewLogger(t).Sugar())
 		assert.NoError(t, err)
 		assert.False(t, ready)
 	})
 
 	t.Run("Returns true when the pods are not found", func(t *testing.T) {
-		ready, err := AllReachedGoalState(ctx, sts, mockPodGetter{shouldReturnNotFoundError: true}, 3, 3, zap.S())
+		ready, err := AllReachedGoalState(ctx, sts, mockPodGetter{shouldReturnNotFoundError: true}, 3, 3, zaptest.NewLogger(t).Sugar())
 		assert.NoError(t, err)
 		assert.True(t, ready)
 	})
@@ -64,19 +65,19 @@ func TestAllReachedGoalState(t *testing.T) {
 
 func TestReachedGoalState(t *testing.T) {
 	t.Run("Pod reaches goal state when annotation is present", func(t *testing.T) {
-		assert.True(t, ReachedGoalState(createPodWithAgentAnnotation("2"), 2, zap.S()))
-		assert.True(t, ReachedGoalState(createPodWithAgentAnnotation("4"), 4, zap.S()))
-		assert.True(t, ReachedGoalState(createPodWithAgentAnnotation("20"), 20, zap.S()))
+		assert.True(t, ReachedGoalState(createPodWithAgentAnnotation("2"), 2, zaptest.NewLogger(t).Sugar()))
+		assert.True(t, ReachedGoalState(createPodWithAgentAnnotation("4"), 4, zaptest.NewLogger(t).Sugar()))
+		assert.True(t, ReachedGoalState(createPodWithAgentAnnotation("20"), 20, zaptest.NewLogger(t).Sugar()))
 	})
 
 	t.Run("Pod does not reach goal state when there is a mismatch", func(t *testing.T) {
-		assert.False(t, ReachedGoalState(createPodWithAgentAnnotation("2"), 4, zap.S()))
-		assert.False(t, ReachedGoalState(createPodWithAgentAnnotation("3"), 7, zap.S()))
-		assert.False(t, ReachedGoalState(createPodWithAgentAnnotation("10"), 1, zap.S()))
+		assert.False(t, ReachedGoalState(createPodWithAgentAnnotation("2"), 4, zaptest.NewLogger(t).Sugar()))
+		assert.False(t, ReachedGoalState(createPodWithAgentAnnotation("3"), 7, zaptest.NewLogger(t).Sugar()))
+		assert.False(t, ReachedGoalState(createPodWithAgentAnnotation("10"), 1, zaptest.NewLogger(t).Sugar()))
 	})
 
 	t.Run("Pod does not reach goal state when annotation is not present", func(t *testing.T) {
-		assert.False(t, ReachedGoalState(corev1.Pod{}, 10, zap.S()))
+		assert.False(t, ReachedGoalState(corev1.Pod{}, 10, zaptest.NewLogger(t).Sugar()))
 	})
 }
 

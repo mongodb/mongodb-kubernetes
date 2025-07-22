@@ -1,10 +1,10 @@
 package om
 
 import (
+	"go.uber.org/zap/zaptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
 )
 
 func TestCheckAutomationStatusIsGoal(t *testing.T) {
@@ -113,7 +113,7 @@ func TestCheckAutomationStatusIsGoal(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			goal, msg := checkAutomationStatusIsGoal(tt.args.as, tt.args.relevantProcesses, zap.S())
+			goal, msg := checkAutomationStatusIsGoal(tt.args.as, tt.args.relevantProcesses, zaptest.NewLogger(t).Sugar())
 			assert.Equalf(t, tt.expectedResult, goal, "checkAutomationStatusIsGoal(%v, %v)", tt.args.as, tt.args.relevantProcesses)
 			assert.Contains(t, msg, tt.expectedMsg)
 		})

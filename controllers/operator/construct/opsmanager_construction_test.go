@@ -2,6 +2,7 @@ package construct
 
 import (
 	"context"
+	"go.uber.org/zap/zaptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -59,7 +60,7 @@ func TestBuildJvmParamsEnvVars_FromCustomContainerResource(t *testing.T) {
 		Build()
 	om.Spec.JVMParams = []string{"-DFakeOptionEnabled"}
 
-	omSts, err := createOpsManagerStatefulset(ctx, om)
+	omSts, err := createOpsManagerStatefulset(t, ctx, om)
 	assert.NoError(t, err)
 	template := omSts.Spec.Template
 
@@ -92,14 +93,14 @@ func TestBuildJvmParamsEnvVars_FromCustomContainerResource(t *testing.T) {
 	assert.Equal(t, "-DFakeOptionEnabled", envVarsNoLimitsOrReqs[0].Value)
 }
 
-func createOpsManagerStatefulset(ctx context.Context, om *omv1.MongoDBOpsManager, additionalOpts ...func(*OpsManagerStatefulSetOptions)) (appsv1.StatefulSet, error) {
+func createOpsManagerStatefulset(t *testing.T, ctx context.Context, om *omv1.MongoDBOpsManager, additionalOpts ...func(*OpsManagerStatefulSetOptions)) (appsv1.StatefulSet, error) {
 	client, _ := mock.NewDefaultFakeClient()
 	secretsClient := secrets.SecretClient{
 		VaultClient: &vault.VaultClient{},
 		KubeClient:  client,
 	}
 
-	omSts, err := OpsManagerStatefulSet(ctx, secretsClient, om, multicluster.GetLegacyCentralMemberCluster(om.Spec.Replicas, 0, client, secretsClient), zap.S(), additionalOpts...)
+	omSts, err := OpsManagerStatefulSet(ctx, secretsClient, om, multicluster.GetLegacyCentralMemberCluster(om.Spec.Replicas, 0, client, secretsClient), zaptest.NewLogger(t).Sugar(), additionalOpts...)
 	return omSts, err
 }
 
@@ -116,7 +117,7 @@ func TestBuildJvmParamsEnvVars_FromDefaultPodSpec(t *testing.T) {
 		KubeClient:  client,
 	}
 
-	omSts, err := OpsManagerStatefulSet(ctx, secretsClient, om, multicluster.GetLegacyCentralMemberCluster(om.Spec.Replicas, 0, client, secretsClient), zap.S())
+	omSts, err := OpsManagerStatefulSet(ctx, secretsClient, om, multicluster.GetLegacyCentralMemberCluster(om.Spec.Replicas, 0, client, secretsClient), zaptest.NewLogger(t).Sugar())
 	assert.NoError(t, err)
 	template := omSts.Spec.Template
 
@@ -138,7 +139,7 @@ func TestBuildOpsManagerStatefulSet(t *testing.T) {
 			AddConfiguration("mms.adminEmailAddr", "cloud-manager-support@mongodb.com").
 			Build()
 
-		sts, err := createOpsManagerStatefulset(ctx, om)
+		sts, err := createOpsManagerStatefulset(t, ctx, om)
 
 		assert.NoError(t, err)
 
@@ -176,7 +177,7 @@ func TestBuildOpsManagerStatefulSet(t *testing.T) {
 			SetStatefulSetSpec(statefulSet.Spec).
 			Build()
 
-		sts, err := createOpsManagerStatefulset(ctx, om)
+		sts, err := createOpsManagerStatefulset(t, ctx, om)
 		assert.NoError(t, err)
 		expectedVars := []corev1.EnvVar{
 			{Name: "ENABLE_IRP", Value: "true"},
@@ -190,7 +191,7 @@ func TestBuildOpsManagerStatefulSet(t *testing.T) {
 
 func Test_buildOpsManagerStatefulSet(t *testing.T) {
 	ctx := context.Background()
-	sts, err := createOpsManagerStatefulset(ctx, omv1.NewOpsManagerBuilderDefault().SetName("test-om").Build())
+	sts, err := createOpsManagerStatefulset(t, ctx, omv1.NewOpsManagerBuilderDefault().SetName("test-om").Build())
 	assert.NoError(t, err)
 	assert.Equal(t, "test-om", sts.Name)
 	assert.Equal(t, util.OpsManagerContainerName, sts.Spec.Template.Spec.Containers[0].Name)
@@ -201,7 +202,7 @@ func Test_buildOpsManagerStatefulSet(t *testing.T) {
 func Test_buildOpsManagerStatefulSet_Secrets(t *testing.T) {
 	ctx := context.Background()
 	opsManager := omv1.NewOpsManagerBuilderDefault().SetName("test-om").Build()
-	sts, err := createOpsManagerStatefulset(ctx, opsManager)
+	sts, err := createOpsManagerStatefulset(t, ctx, opsManager)
 	assert.NoError(t, err)
 
 	expectedSecretVolumeNames := []string{"test-om-gen-key", opsManager.AppDBMongoConnectionStringSecretName()}
@@ -239,7 +240,7 @@ func TestOpsManagerPodTemplate_MergePodTemplate(t *testing.T) {
 
 	om := omv1.NewOpsManagerBuilderDefault().Build()
 
-	omSts, err := createOpsManagerStatefulset(ctx, om)
+	omSts, err := createOpsManagerStatefulset(t, ctx, om)
 	assert.NoError(t, err)
 	template := omSts.Spec.Template
 
@@ -273,7 +274,7 @@ func TestOpsManagerPodTemplate_MergePodTemplate(t *testing.T) {
 // TestOpsManagerPodTemplate_PodSpec verifies that StatefulSetSpec is applied correctly to OpsManager/Backup pod template.
 func TestOpsManagerPodTemplate_PodSpec(t *testing.T) {
 	ctx := context.Background()
-	omSts, err := createOpsManagerStatefulset(ctx, omv1.NewOpsManagerBuilderDefault().Build())
+	omSts, err := createOpsManagerStatefulset(t, ctx, omv1.NewOpsManagerBuilderDefault().Build())
 	assert.NoError(t, err)
 
 	resourceLimits := buildSafeResourceList("1.0", "500M")
@@ -331,7 +332,7 @@ func TestOpsManagerPodTemplate_SecurityContext(t *testing.T) {
 	ctx := context.Background()
 	defer mock.InitDefaultEnvVariables()
 
-	omSts, err := createOpsManagerStatefulset(ctx, omv1.NewOpsManagerBuilderDefault().Build())
+	omSts, err := createOpsManagerStatefulset(t, ctx, omv1.NewOpsManagerBuilderDefault().Build())
 	assert.NoError(t, err)
 
 	podSpecTemplate := omSts.Spec.Template
@@ -343,7 +344,7 @@ func TestOpsManagerPodTemplate_SecurityContext(t *testing.T) {
 
 	t.Setenv(util.ManagedSecurityContextEnv, "true")
 
-	omSts, err = createOpsManagerStatefulset(ctx, omv1.NewOpsManagerBuilderDefault().Build())
+	omSts, err = createOpsManagerStatefulset(t, ctx, omv1.NewOpsManagerBuilderDefault().Build())
 	assert.NoError(t, err)
 	podSpecTemplate = omSts.Spec.Template
 	assert.Nil(t, podSpecTemplate.Spec.SecurityContext)
@@ -351,7 +352,7 @@ func TestOpsManagerPodTemplate_SecurityContext(t *testing.T) {
 
 func TestOpsManagerPodTemplate_TerminationTimeout(t *testing.T) {
 	ctx := context.Background()
-	omSts, err := createOpsManagerStatefulset(ctx, omv1.NewOpsManagerBuilderDefault().Build())
+	omSts, err := createOpsManagerStatefulset(t, ctx, omv1.NewOpsManagerBuilderDefault().Build())
 	assert.NoError(t, err)
 	podSpecTemplate := omSts.Spec.Template
 	assert.Equal(t, int64(300), *podSpecTemplate.Spec.TerminationGracePeriodSeconds)
@@ -361,7 +362,7 @@ func TestOpsManagerPodTemplate_ImagePullPolicy(t *testing.T) {
 	ctx := context.Background()
 	defer mock.InitDefaultEnvVariables()
 
-	omSts, err := createOpsManagerStatefulset(ctx, omv1.NewOpsManagerBuilderDefault().Build())
+	omSts, err := createOpsManagerStatefulset(t, ctx, omv1.NewOpsManagerBuilderDefault().Build())
 	assert.NoError(t, err)
 
 	podSpecTemplate := omSts.Spec.Template
@@ -370,7 +371,7 @@ func TestOpsManagerPodTemplate_ImagePullPolicy(t *testing.T) {
 	assert.Nil(t, spec.ImagePullSecrets)
 
 	t.Setenv(util.ImagePullSecrets, "my-cool-secret")
-	omSts, err = createOpsManagerStatefulset(ctx, omv1.NewOpsManagerBuilderDefault().Build())
+	omSts, err = createOpsManagerStatefulset(t, ctx, omv1.NewOpsManagerBuilderDefault().Build())
 	assert.NoError(t, err)
 	podSpecTemplate = omSts.Spec.Template
 	spec = podSpecTemplate.Spec
@@ -385,7 +386,7 @@ func TestOpsManagerPodTemplate_Container(t *testing.T) {
 
 	ctx := context.Background()
 	om := omv1.NewOpsManagerBuilderDefault().SetVersion("4.2.0").Build()
-	sts, err := createOpsManagerStatefulset(ctx, om, WithOpsManagerImage(opsManagerImage))
+	sts, err := createOpsManagerStatefulset(t, ctx, om, WithOpsManagerImage(opsManagerImage))
 	assert.NoError(t, err)
 	template := sts.Spec.Template
 

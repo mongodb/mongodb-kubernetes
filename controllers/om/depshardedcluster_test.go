@@ -1,15 +1,14 @@
 package om
 
 import (
+	"go.uber.org/zap/zaptest"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestMergeShardedClusterNoExisting that just merges the Sharded cluster into an empty deployment
@@ -164,7 +163,7 @@ func TestMergeShardedCluster_ShardedClusterModified(t *testing.T) {
 	(*d.getShardedClusterByName("cluster")).setShards(d.getShardedClusterByName("cluster").shards()[0:2])
 	(*d.getShardedClusterByName("cluster")).setShards(append(d.getShardedClusterByName("cluster").shards(), newShard("fakeShard")))
 
-	mergeReplicaSet(d, "fakeShard", createReplicaSetProcesses("fakeShard"))
+	mergeReplicaSet(t, d, "fakeShard", createReplicaSetProcesses("fakeShard"))
 
 	require.Len(t, d.GetReplicaSets(), 5)
 
@@ -509,11 +508,11 @@ func TestRemoveShardedClusterByName(t *testing.T) {
 	_, err = d.MergeShardedCluster(mergeOpts)
 	assert.NoError(t, err)
 
-	mergeStandalone(d, createStandalone())
+	mergeStandalone(t, d, createStandalone())
 
-	rs := mergeReplicaSet(d, "fooRs", createReplicaSetProcesses("fooRs"))
+	rs := mergeReplicaSet(t, d, "fooRs", createReplicaSetProcesses("fooRs"))
 
-	err = d.RemoveShardedClusterByName("otherCluster", zap.S())
+	err = d.RemoveShardedClusterByName("otherCluster", zaptest.NewLogger(t).Sugar())
 	assert.NoError(t, err)
 
 	// First check that all other entities stay untouched

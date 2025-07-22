@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/yudai/gojsondiff"
 	"github.com/yudai/gojsondiff/formatter"
-	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest"
 	"golang.org/x/exp/constraints"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -42,9 +42,9 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
-func newShardedClusterReconcilerForMultiCluster(ctx context.Context, forceEnterprise bool, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, kubeClient kubernetesClient.Client, omConnectionFactory *om.CachedOMConnectionFactory) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, error) {
+func newShardedClusterReconcilerForMultiCluster(ctx context.Context, t *testing.T, forceEnterprise bool, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, kubeClient kubernetesClient.Client, omConnectionFactory *om.CachedOMConnectionFactory) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, error) {
 	r := newShardedClusterReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc)
-	reconcileHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", forceEnterprise, false, sc, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, zap.S())
+	reconcileHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", forceEnterprise, false, sc, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, zaptest.NewLogger(t).Sugar())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -369,7 +369,7 @@ func BlockReconcileScalingBothWaysCase(t *testing.T, tc BlockReconcileScalingBot
 	require.NoError(t, err)
 
 	// Checking that we don't scale both ways is done when we initiate the reconciler, not in the reconcile loop.
-	reconciler, _, err := newShardedClusterReconcilerForMultiCluster(ctx, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
+	reconciler, _, err := newShardedClusterReconcilerForMultiCluster(ctx, t, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
 	require.NoError(t, err)
 	// The validation happens at the beginning of the reconciliation loop. We expect to fail immediately when scaling is
 	// invalid, or stay in pending phase otherwise.
@@ -411,7 +411,7 @@ func TestReconcileCreateMultiClusterShardedClusterWithExternalDomain(t *testing.
 	kubeClient := kubernetesClient.NewClient(fakeClient)
 	memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(memberClusters.ClusterNames, omConnectionFactory, true, true)
 
-	reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
+	reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, t, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
 	require.NoError(t, err)
 	clusterMapping := reconcilerHelper.deploymentState.ClusterMapping
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
@@ -482,7 +482,7 @@ func TestReconcileCreateMultiClusterShardedClusterWithExternalAccessAndOnlyTopLe
 	kubeClient := kubernetesClient.NewClient(fakeClient)
 	memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(memberClusters.ClusterNames, omConnectionFactory, true, true)
 
-	reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
+	reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, t, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
 	clusterMapping := reconcilerHelper.deploymentState.ClusterMapping
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		allHostnames, _ := generateAllHosts(sc, memberClusters.MongosDistribution, clusterMapping, memberClusters.ConfigServerDistribution, memberClusters.ShardDistribution, test.ClusterLocalDomains, test.SingleExternalClusterDomains)
@@ -549,7 +549,7 @@ func TestReconcileCreateMultiClusterShardedClusterWithExternalAccessAndNoExterna
 	kubeClient := kubernetesClient.NewClient(fakeClient)
 	memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(memberClusters.ClusterNames, omConnectionFactory, true, true)
 
-	reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
+	reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, t, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
 	clusterMapping := reconcilerHelper.deploymentState.ClusterMapping
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		allHostnames, _ := generateAllHosts(sc, memberClusters.MongosDistribution, clusterMapping, memberClusters.ConfigServerDistribution, memberClusters.ShardDistribution, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
@@ -616,7 +616,7 @@ func TestReconcileCreateMultiClusterShardedCluster(t *testing.T) {
 	kubeClient := kubernetesClient.NewClient(fakeClient)
 	memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(memberClusters.ClusterNames, omConnectionFactory, true, true)
 
-	reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
+	reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, t, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
 	clusterMapping := reconcilerHelper.deploymentState.ClusterMapping
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		allHostnames, _ := generateAllHosts(sc, memberClusters.MongosDistribution, clusterMapping, memberClusters.ConfigServerDistribution, memberClusters.ShardDistribution, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
@@ -814,7 +814,7 @@ func TestReconcileMultiClusterShardedClusterCertsAndSecretsReplication(t *testin
 	memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(memberClusterNames, omConnectionFactory, true, false)
 
 	ctx := context.Background()
-	reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
+	reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, t, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
 	clusterMapping := reconcilerHelper.deploymentState.ClusterMapping
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		allHostnames, _ := generateAllHosts(sc, mongosDistribution, clusterMapping, configSrvDistribution, shardDistribution, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
@@ -985,7 +985,7 @@ func TestReconcileForComplexMultiClusterYaml(t *testing.T) {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(sc)
 	memberClusterMap := getFakeMultiClusterMapWithClusters(memberClusterNames, omConnectionFactory)
 
-	reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
+	reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, t, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
 	clusterMapping := reconcilerHelper.deploymentState.ClusterMapping
 	require.NoError(t, err)
 
@@ -1076,7 +1076,7 @@ func TestMigrateToNewDeploymentState(t *testing.T) {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(sc)
 	memberClusterMap := getFakeMultiClusterMapWithClusters([]string{multicluster.LegacyCentralClusterName}, omConnectionFactory)
 
-	reconciler, _, err := newShardedClusterReconcilerForMultiCluster(ctx, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
+	reconciler, _, err := newShardedClusterReconcilerForMultiCluster(ctx, t, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
 	require.NoError(t, err)
 
 	// Migration is performed at reconciliation, when needed
@@ -1130,7 +1130,7 @@ func testDesiredConfigurationFromYAML[T *mdbv1.ShardedClusterComponentSpec | map
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(sc)
 	memberClusterMap := getFakeMultiClusterMapWithClusters(memberClusterNames, omConnectionFactory)
 
-	_, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
+	_, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, t, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
 	require.NoError(t, err)
 
 	var actual interface{}
@@ -1251,9 +1251,9 @@ func TestMultiClusterShardedSetRace(t *testing.T) {
 	ctx := context.Background()
 	reconciler := newShardedClusterReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc)
 
-	allHostnames := generateHostsForCluster(ctx, reconciler, false, sc, mongosDistribution, configSrvDistribution, shardDistribution)
-	allHostnames1 := generateHostsForCluster(ctx, reconciler, false, sc1, mongosDistribution, configSrvDistribution, shardDistribution)
-	allHostnames2 := generateHostsForCluster(ctx, reconciler, false, sc2, mongosDistribution, configSrvDistribution, shardDistribution)
+	allHostnames := generateHostsForCluster(ctx, t, reconciler, false, sc, mongosDistribution, configSrvDistribution, shardDistribution)
+	allHostnames1 := generateHostsForCluster(ctx, t, reconciler, false, sc1, mongosDistribution, configSrvDistribution, shardDistribution)
+	allHostnames2 := generateHostsForCluster(ctx, t, reconciler, false, sc2, mongosDistribution, configSrvDistribution, shardDistribution)
 
 	projectHostMapping := map[string][]string{
 		projectName:  allHostnames,
@@ -1645,7 +1645,7 @@ func TestMultiClusterShardedMongosDeadlock(t *testing.T) {
 	// TODO: statuses in OM mock
 	// TODO: OM mock: set agent ready depending on a clusterDown parameter ? + set mongos not ready if anything is not ready
 
-	reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
+	reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, t, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
 	require.NoError(t, err)
 	clusterMapping := reconcilerHelper.deploymentState.ClusterMapping
 
@@ -1851,7 +1851,7 @@ func TestCheckForMongosDeadlock(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			isDeadLocked, processStates := checkForMongosDeadlock(tc.clusterState, tc.mongosReplicaSetName, tc.isScaling, zap.S())
+			isDeadLocked, processStates := checkForMongosDeadlock(tc.clusterState, tc.mongosReplicaSetName, tc.isScaling, zaptest.NewLogger(t).Sugar())
 			assert.Equal(t, tc.expectedDeadlock, isDeadLocked)
 			assert.Equal(t, tc.expectedProcessStatesSize, len(processStates))
 		})
@@ -1952,7 +1952,7 @@ func MultiClusterShardedScalingWithOverridesTestCase(t *testing.T, tc MultiClust
 
 	for _, scalingStep := range tc.scalingSteps {
 		t.Run(scalingStep.name, func(t *testing.T) {
-			reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
+			reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, t, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
 			require.NoError(t, err)
 			clusterMapping := reconcilerHelper.deploymentState.ClusterMapping
 
@@ -2295,7 +2295,7 @@ func TestMultiClusterShardedScaling(t *testing.T) {
 		memberClusterClients = append(memberClusterClients, c)
 	}
 
-	reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
+	reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, t, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
 	require.NoError(t, err)
 	clusterMapping := reconcilerHelper.deploymentState.ClusterMapping
 	addAllHostsWithDistribution := func(connection om.Connection, mongosDistribution map[string]int, clusterMapping map[string]int, configSrvDistribution map[string]int, shardDistribution []map[string]int) {
@@ -2341,7 +2341,7 @@ func TestMultiClusterShardedScaling(t *testing.T) {
 	err = kubeClient.Update(ctx, sc)
 	require.NoError(t, err)
 
-	reconciler, reconcilerHelper, err = newShardedClusterReconcilerForMultiCluster(ctx, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
+	reconciler, reconcilerHelper, err = newShardedClusterReconcilerForMultiCluster(ctx, t, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
 	require.NoError(t, err)
 	clusterMapping = reconcilerHelper.deploymentState.ClusterMapping
 	addAllHostsWithDistribution(omConnectionFactory.GetConnection(), mongosDistribution, clusterMapping, configSrvDistribution, shardDistribution)
@@ -2368,7 +2368,7 @@ func TestMultiClusterShardedScaling(t *testing.T) {
 	err = kubeClient.Update(ctx, sc)
 	require.NoError(t, err)
 
-	reconciler, reconcilerHelper, err = newShardedClusterReconcilerForMultiCluster(ctx, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
+	reconciler, reconcilerHelper, err = newShardedClusterReconcilerForMultiCluster(ctx, t, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
 	require.NoError(t, err)
 	clusterMapping = reconcilerHelper.deploymentState.ClusterMapping
 	addAllHostsWithDistribution(omConnectionFactory.GetConnection(), mongosDistribution, clusterMapping, configSrvDistribution, shardDistribution)
@@ -2399,7 +2399,7 @@ func reconcileUntilSuccessful(ctx context.Context, t *testing.T, reconciler reco
 			if expectedReconciles != nil {
 				assert.Equal(t, *expectedReconciles, actualReconciles)
 			}
-			zap.S().Debugf("Reconcile successful on %d try", actualReconciles)
+			zaptest.NewLogger(t).Sugar().Debugf("Reconcile successful on %d try", actualReconciles)
 			return
 		} else if object.Status.Phase == status.PhaseFailed {
 			if !ignoreFailures {
@@ -2409,8 +2409,8 @@ func reconcileUntilSuccessful(ctx context.Context, t *testing.T, reconciler reco
 	}
 }
 
-func generateHostsForCluster(ctx context.Context, reconciler *ReconcileMongoDbShardedCluster, forceEnterprise bool, sc *mdbv1.MongoDB, mongosDistribution map[string]int, configSrvDistribution map[string]int, shardDistribution []map[string]int) []string {
-	reconcileHelper, _ := NewShardedClusterReconcilerHelper(ctx, reconciler.ReconcileCommonController, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", forceEnterprise, false, sc, reconciler.memberClustersMap, reconciler.omConnectionFactory, zap.S())
+func generateHostsForCluster(ctx context.Context, t *testing.T, reconciler *ReconcileMongoDbShardedCluster, forceEnterprise bool, sc *mdbv1.MongoDB, mongosDistribution map[string]int, configSrvDistribution map[string]int, shardDistribution []map[string]int) []string {
+	reconcileHelper, _ := NewShardedClusterReconcilerHelper(ctx, reconciler.ReconcileCommonController, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", forceEnterprise, false, sc, reconciler.memberClustersMap, reconciler.omConnectionFactory, zaptest.NewLogger(t).Sugar())
 	allHostnames, _ := generateAllHosts(sc, mongosDistribution, reconcileHelper.deploymentState.ClusterMapping, configSrvDistribution, shardDistribution, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
 	return allHostnames
 }
@@ -2604,7 +2604,7 @@ func TestComputeMembersToScaleDown(t *testing.T) {
 			_, reconcileHelper, _, _, err := defaultClusterReconciler(ctx, nil, "", "", targetSpec, memberClusterMap)
 			assert.NoError(t, err)
 
-			membersToScaleDown := reconcileHelper.computeMembersToScaleDown(tc.cfgServerCurrentClusters, tc.shardsCurrentClusters, zap.S())
+			membersToScaleDown := reconcileHelper.computeMembersToScaleDown(tc.cfgServerCurrentClusters, tc.shardsCurrentClusters, zaptest.NewLogger(t).Sugar())
 
 			assert.Equal(t, tc.expected, membersToScaleDown)
 		})
@@ -3492,7 +3492,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 
 			kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(sc)
 			memberClusterMap := getFakeMultiClusterMapWithClusters(memberClusters, omConnectionFactory)
-			reconciler, reconcileHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
+			reconciler, reconcileHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, t, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
 			require.NoError(t, err)
 
 			mongosDistribution := clusterSpecListToDistribution(tc.mongosClusterSpecList)

@@ -1,20 +1,14 @@
 package authentication
 
 import (
+	"go.uber.org/zap/zaptest"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
-
-func init() {
-	logger, _ := zap.NewDevelopment()
-	zap.ReplaceGlobals(logger)
-}
 
 func TestConfigureScramSha256(t *testing.T) {
 	dep := om.NewDeployment()
@@ -27,7 +21,7 @@ func TestConfigureScramSha256(t *testing.T) {
 		AgentMechanism:   "SCRAM",
 	}
 
-	if err := Configure(conn, opts, false, zap.S()); err != nil {
+	if err := Configure(conn, opts, false, zaptest.NewLogger(t).Sugar()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -55,7 +49,7 @@ func TestConfigureX509(t *testing.T) {
 		},
 	}
 
-	if err := Configure(conn, opts, false, zap.S()); err != nil {
+	if err := Configure(conn, opts, false, zaptest.NewLogger(t).Sugar()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -79,7 +73,7 @@ func TestConfigureScramSha1(t *testing.T) {
 		AgentMechanism:   "SCRAM-SHA-1",
 	}
 
-	if err := Configure(conn, opts, false, zap.S()); err != nil {
+	if err := Configure(conn, opts, false, zaptest.NewLogger(t).Sugar()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -104,7 +98,7 @@ func TestConfigureMultipleAuthenticationMechanisms(t *testing.T) {
 		},
 	}
 
-	if err := Configure(conn, opts, false, zap.S()); err != nil {
+	if err := Configure(conn, opts, false, zaptest.NewLogger(t).Sugar()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -131,9 +125,9 @@ func TestDisableAuthentication(t *testing.T) {
 	_ = conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 		ac.Auth.Enable()
 		return nil
-	}, zap.S())
+	}, zaptest.NewLogger(t).Sugar())
 
-	if err := Disable(conn, Options{}, true, zap.S()); err != nil {
+	if err := Disable(conn, Options{}, true, zaptest.NewLogger(t).Sugar()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -203,7 +197,7 @@ func assertAuthenticationMechanism(t *testing.T, auth *om.Auth, mechanism string
 }
 
 func assertDeploymentMechanismsConfigured(t *testing.T, authMechanism Mechanism, conn om.Connection, opts Options) {
-	err := authMechanism.EnableDeploymentAuthentication(conn, opts, zap.S())
+	err := authMechanism.EnableDeploymentAuthentication(conn, opts, zaptest.NewLogger(t).Sugar())
 	require.NoError(t, err)
 
 	ac, err := conn.ReadAutomationConfig()
@@ -212,14 +206,14 @@ func assertDeploymentMechanismsConfigured(t *testing.T, authMechanism Mechanism,
 }
 
 func assertAgentAuthenticationDisabled(t *testing.T, authMechanism Mechanism, conn om.Connection, opts Options) {
-	err := authMechanism.EnableAgentAuthentication(conn, opts, zap.S())
+	err := authMechanism.EnableAgentAuthentication(conn, opts, zaptest.NewLogger(t).Sugar())
 	require.NoError(t, err)
 
 	ac, err := conn.ReadAutomationConfig()
 	require.NoError(t, err)
 	assert.True(t, authMechanism.IsAgentAuthenticationConfigured(ac, opts))
 
-	err = authMechanism.DisableAgentAuthentication(conn, zap.S())
+	err = authMechanism.DisableAgentAuthentication(conn, zaptest.NewLogger(t).Sugar())
 	require.NoError(t, err)
 
 	ac, err = conn.ReadAutomationConfig()

@@ -1,6 +1,7 @@
 package construct
 
 import (
+	"go.uber.org/zap/zaptest"
 	"path"
 	"slices"
 	"testing"
@@ -97,13 +98,13 @@ func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
 		mongosSpec := createMongosSpec(sc)
 
 		assert.Panics(t, func() {
-			DatabaseStatefulSet(*sc, ShardOptions(0, shardSpec, memberCluster.Name), zap.S())
+			DatabaseStatefulSet(*sc, ShardOptions(0, shardSpec, memberCluster.Name), zaptest.NewLogger(t).Sugar())
 		})
 		assert.Panics(t, func() {
-			DatabaseStatefulSet(*sc, ConfigServerOptions(configServerSpec, memberCluster.Name), zap.S())
+			DatabaseStatefulSet(*sc, ConfigServerOptions(configServerSpec, memberCluster.Name), zaptest.NewLogger(t).Sugar())
 		})
 		assert.Panics(t, func() {
-			DatabaseStatefulSet(*sc, MongosOptions(mongosSpec, memberCluster.Name), zap.S())
+			DatabaseStatefulSet(*sc, MongosOptions(mongosSpec, memberCluster.Name), zaptest.NewLogger(t).Sugar())
 		})
 	})
 }
@@ -118,13 +119,13 @@ func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSetStatic(t *testing.T) {
 		configServerSpec := createConfigSrvSpec(sc)
 		mongosSpec := createMongosSpec(sc)
 		assert.Panics(t, func() {
-			DatabaseStatefulSet(*sc, ShardOptions(0, shardSpec, memberCluster.Name), zap.S())
+			DatabaseStatefulSet(*sc, ShardOptions(0, shardSpec, memberCluster.Name), zaptest.NewLogger(t).Sugar())
 		})
 		assert.Panics(t, func() {
-			DatabaseStatefulSet(*sc, ConfigServerOptions(configServerSpec, memberCluster.Name), zap.S())
+			DatabaseStatefulSet(*sc, ConfigServerOptions(configServerSpec, memberCluster.Name), zaptest.NewLogger(t).Sugar())
 		})
 		assert.Panics(t, func() {
-			DatabaseStatefulSet(*sc, MongosOptions(mongosSpec, memberCluster.Name), zap.S())
+			DatabaseStatefulSet(*sc, MongosOptions(mongosSpec, memberCluster.Name), zaptest.NewLogger(t).Sugar())
 		})
 	})
 }
@@ -133,7 +134,7 @@ func TestStatefulsetCreationSuccessful(t *testing.T) {
 	start := time.Now()
 	rs := mdbv1.NewReplicaSetBuilder().Build()
 
-	_ = DatabaseStatefulSet(*rs, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
+	_ = DatabaseStatefulSet(*rs, ReplicaSetOptions(GetPodEnvOptions()), zaptest.NewLogger(t).Sugar())
 	assert.True(t, time.Since(start) < time.Second*4) // we waited only a little (considering 2 seconds of wait as well)
 }
 
@@ -195,7 +196,7 @@ func TestAgentFlags(t *testing.T) {
 	}
 
 	mdb := mdbv1.NewReplicaSetBuilder().SetAgentConfig(mdbv1.AgentConfig{StartupParameters: agentStartupParameters}).Build()
-	sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
+	sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zaptest.NewLogger(t).Sugar())
 	variablesMap := env.ToMap(sts.Spec.Template.Spec.Containers[0].Env...)
 	val, ok := variablesMap["AGENT_FLAGS"]
 	assert.True(t, ok)
@@ -208,7 +209,7 @@ func TestLabelsAndAnotations(t *testing.T) {
 	annotations := map[string]string{"a1": "val1", "a2": "val2"}
 
 	mdb := mdbv1.NewReplicaSetBuilder().SetAnnotations(annotations).SetLabels(labels).Build()
-	sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
+	sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zaptest.NewLogger(t).Sugar())
 
 	// add the default label to the map
 	labels["app"] = "test-mdb-svc"
@@ -372,7 +373,7 @@ func TestDatabaseStatefulSet_StaticContainersEnvVars(t *testing.T) {
 			t.Setenv(architectures.DefaultEnvArchitecture, tt.defaultArchitecture)
 
 			mdb := mdbv1.NewReplicaSetBuilder().SetAnnotations(tt.annotations).Build()
-			sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
+			sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zaptest.NewLogger(t).Sugar())
 
 			agentContainerIdx := slices.IndexFunc(sts.Spec.Template.Spec.Containers, func(container corev1.Container) bool {
 				return container.Name == util.AgentContainerName

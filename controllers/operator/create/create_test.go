@@ -3,6 +3,7 @@ package create
 import (
 	"context"
 	"fmt"
+	"go.uber.org/zap/zaptest"
 	"strings"
 	"sync"
 	"testing"
@@ -99,10 +100,10 @@ func TestOpsManagerInKubernetes_InternalConnectivityOverride(t *testing.T) {
 	}
 
 	memberCluster := multicluster.GetLegacyCentralMemberCluster(testOm.Spec.Replicas, 0, fakeClient, secretsClient)
-	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, memberCluster, zap.S())
+	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, memberCluster, zaptest.NewLogger(t).Sugar())
 	assert.NoError(t, err)
 
-	err = OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
+	err = OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zaptest.NewLogger(t).Sugar())
 	assert.NoError(t, err)
 
 	svc, err := fakeClient.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()))
@@ -138,10 +139,10 @@ func TestOpsManagerInKubernetes_DefaultInternalServiceForMultiCluster(t *testing
 	}
 
 	memberCluster := multicluster.GetLegacyCentralMemberCluster(testOm.Spec.Replicas, 0, fakeClient, secretsClient)
-	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, memberCluster, zap.S())
+	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, memberCluster, zaptest.NewLogger(t).Sugar())
 	assert.NoError(t, err)
 
-	err = OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
+	err = OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zaptest.NewLogger(t).Sugar())
 	assert.NoError(t, err)
 
 	svc, err := fakeClient.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()))
@@ -473,10 +474,10 @@ func TestOpsManagerInKubernetes_ClusterSpecificExternalConnectivity(t *testing.T
 
 			for _, memberCluster := range memberClusters {
 				ctx := context.Background()
-				sts, err := construct.OpsManagerStatefulSet(ctx, memberCluster.SecretClient, testOm, memberCluster, zap.S())
+				sts, err := construct.OpsManagerStatefulSet(ctx, memberCluster.SecretClient, testOm, memberCluster, zaptest.NewLogger(t).Sugar())
 				assert.NoError(t, err)
 
-				err = OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
+				err = OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zaptest.NewLogger(t).Sugar())
 				assert.NoError(t, err)
 
 				expectedService, ok := tc.expectedServices[memberCluster.Name]
@@ -508,10 +509,10 @@ func TestBackupServiceCreated_NoExternalConnectivity(t *testing.T) {
 	}
 
 	memberCluster := multicluster.GetLegacyCentralMemberCluster(testOm.Spec.Replicas, 0, fakeClient, secretsClient)
-	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, memberCluster, zap.S())
+	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, memberCluster, zaptest.NewLogger(t).Sugar())
 	assert.NoError(t, err)
 
-	err = OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
+	err = OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zaptest.NewLogger(t).Sugar())
 	assert.NoError(t, err)
 
 	_, err = fakeClient.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()+"-ext"))
@@ -552,10 +553,10 @@ func TestBackupServiceCreated_ExternalConnectivity(t *testing.T) {
 		KubeClient:  fakeClient,
 	}
 	memberCluster := multicluster.GetLegacyCentralMemberCluster(testOm.Spec.Replicas, 0, fakeClient, secretsClient)
-	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, memberCluster, zap.S())
+	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, memberCluster, zaptest.NewLogger(t).Sugar())
 	assert.NoError(t, err)
 
-	err = OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zap.S())
+	err = OpsManagerInKubernetes(ctx, memberCluster, testOm, sts, zaptest.NewLogger(t).Sugar())
 	assert.NoError(t, err)
 
 	externalService, err := fakeClient.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()+"-ext"))
@@ -827,7 +828,7 @@ func TestDatabaseInKubernetes_ExternalServicesWithPlaceholders_WithExternalDomai
 }
 
 func testDatabaseInKubernetesExternalServices(ctx context.Context, t *testing.T, externalAccessConfiguration mdbv1.ExternalAccessConfiguration, expectedServices []corev1.Service) {
-	log := zap.S()
+	log := zaptest.NewLogger(t).Sugar()
 	fakeClient, _ := mock.NewDefaultFakeClient()
 	mdb := mdbv1.NewReplicaSetBuilder().
 		SetName(defaultResourceName).
@@ -871,7 +872,7 @@ func testDatabaseInKubernetesExternalServices(ctx context.Context, t *testing.T,
 
 func TestDatabaseInKubernetesExternalServicesSharded(t *testing.T) {
 	ctx := context.Background()
-	log := zap.S()
+	log := zaptest.NewLogger(t).Sugar()
 	fakeClient, _ := mock.NewDefaultFakeClient()
 	mdb := mdbv1.NewDefaultShardedClusterBuilder().
 		SetName("mdb").

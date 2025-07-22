@@ -2,14 +2,13 @@ package authentication
 
 import (
 	"fmt"
+	"go.uber.org/zap/zaptest"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var mongoDBX509Mechanism = getMechanismByName(MongoDBX509)
@@ -25,7 +24,7 @@ func TestX509EnableAgentAuthentication(t *testing.T) {
 		},
 		AuthoritativeSet: true,
 	}
-	if err := mongoDBX509Mechanism.EnableAgentAuthentication(conn, options, zap.S()); err != nil {
+	if err := mongoDBX509Mechanism.EnableAgentAuthentication(conn, options, zaptest.NewLogger(t).Sugar()); err != nil {
 		t.Fatal(err)
 	}
 

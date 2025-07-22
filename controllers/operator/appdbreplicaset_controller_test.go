@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"go.uber.org/zap/zaptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -130,7 +131,7 @@ func TestAutomationConfig_IsCreatedInSecret(t *testing.T) {
 	opsManager := builder.Build()
 	appdb := opsManager.Spec.AppDB
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
-	reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
+	reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zaptest.NewLogger(t).Sugar())
 	require.NoError(t, err)
 
 	err = createOpsManagerUserPasswordSecret(ctx, kubeClient, opsManager, "MBPYfkAj5ZM0l9uw6C7ggw")
@@ -152,18 +153,18 @@ func TestPublishAutomationConfigCreate(t *testing.T) {
 	appdb := opsManager.Spec.AppDB
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
 	kubeClient := mock.NewEmptyFakeClientWithInterceptor(omConnectionFactory)
-	reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
+	reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zaptest.NewLogger(t).Sugar())
 	require.NoError(t, err)
 
 	memberCluster := multicluster.GetLegacyCentralMemberCluster(opsManager.Spec.Replicas, 0, reconciler.client, reconciler.SecretClient)
-	automationConfig, err := buildAutomationConfigForAppDb(ctx, builder, kubeClient, omConnectionFactory.GetConnectionFunc, automation, zap.S())
+	automationConfig, err := buildAutomationConfigForAppDb(ctx, builder, kubeClient, omConnectionFactory.GetConnectionFunc, automation, zaptest.NewLogger(t).Sugar())
 	assert.NoError(t, err)
 
 	version, err := reconciler.publishAutomationConfig(ctx, opsManager, automationConfig, appdb.AutomationConfigSecretName(), memberCluster.SecretClient)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, version)
 
-	monitoringAutomationConfig, err := buildAutomationConfigForAppDb(ctx, builder, kubeClient, omConnectionFactory.GetConnectionFunc, monitoring, zap.S())
+	monitoringAutomationConfig, err := buildAutomationConfigForAppDb(ctx, builder, kubeClient, omConnectionFactory.GetConnectionFunc, monitoring, zaptest.NewLogger(t).Sugar())
 	assert.NoError(t, err)
 	version, err = reconciler.publishAutomationConfig(ctx, opsManager, monitoringAutomationConfig, appdb.MonitoringAutomationConfigSecretName(), memberCluster.SecretClient)
 	assert.NoError(t, err)
@@ -217,7 +218,7 @@ func TestPublishAutomationConfig_Update(t *testing.T) {
 	opsManager := builder.Build()
 	appdb := opsManager.Spec.AppDB
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
-	reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
+	reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zaptest.NewLogger(t).Sugar())
 	require.NoError(t, err)
 
 	// create
@@ -276,9 +277,9 @@ func TestBuildAppDbAutomationConfig(t *testing.T) {
 	err := createOpsManagerUserPasswordSecret(ctx, kubeClient, om, "omPass")
 	assert.NoError(t, err)
 
-	automationConfig, err := buildAutomationConfigForAppDb(ctx, builder, kubeClient, omConnectionFactory.GetConnectionFunc, automation, zap.S())
+	automationConfig, err := buildAutomationConfigForAppDb(ctx, builder, kubeClient, omConnectionFactory.GetConnectionFunc, automation, zaptest.NewLogger(t).Sugar())
 	assert.NoError(t, err)
-	monitoringAutomationConfig, err := buildAutomationConfigForAppDb(ctx, builder, kubeClient, omConnectionFactory.GetConnectionFunc, monitoring, zap.S())
+	monitoringAutomationConfig, err := buildAutomationConfigForAppDb(ctx, builder, kubeClient, omConnectionFactory.GetConnectionFunc, monitoring, zaptest.NewLogger(t).Sugar())
 	assert.NoError(t, err)
 	// processes
 	assert.Len(t, automationConfig.Processes, 2)
@@ -320,14 +321,14 @@ func TestRegisterAppDBHostsWithProject(t *testing.T) {
 			return mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, false)(ctx, client, key, obj, opts...)
 		},
 	})
-	reconciler, err := newAppDbReconciler(ctx, fakeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
+	reconciler, err := newAppDbReconciler(ctx, fakeClient, opsManager, omConnectionFactory.GetConnectionFunc, zaptest.NewLogger(t).Sugar())
 	require.NoError(t, err)
 
 	t.Run("Ensure all hosts are added", func(t *testing.T) {
 		_, err = reconciler.ReconcileAppDB(ctx, opsManager)
 
 		hostnames := reconciler.getCurrentStatefulsetHostnames(opsManager)
-		err = reconciler.registerAppDBHostsWithProject(hostnames, omConnectionFactory.GetConnection(), "password", zap.S())
+		err = reconciler.registerAppDBHostsWithProject(hostnames, omConnectionFactory.GetConnection(), "password", zaptest.NewLogger(t).Sugar())
 		assert.NoError(t, err)
 
 		hosts, _ := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetHosts()
@@ -339,7 +340,7 @@ func TestRegisterAppDBHostsWithProject(t *testing.T) {
 		_, err = reconciler.ReconcileAppDB(ctx, opsManager)
 
 		hostnames := reconciler.getCurrentStatefulsetHostnames(opsManager)
-		err = reconciler.registerAppDBHostsWithProject(hostnames, omConnectionFactory.GetConnection(), "password", zap.S())
+		err = reconciler.registerAppDBHostsWithProject(hostnames, omConnectionFactory.GetConnection(), "password", zaptest.NewLogger(t).Sugar())
 		assert.NoError(t, err)
 
 		hosts, _ := omConnectionFactory.GetConnection().GetHosts()
@@ -354,11 +355,11 @@ func TestEnsureAppDbAgentApiKey(t *testing.T) {
 	// we need to pre-initialize connection as we don't call full reconciler in this test and connection is never created by calling connection factory func
 	omConnectionFactory := om.NewCachedOMConnectionFactoryWithInitializedConnection(om.NewMockedOmConnection(om.NewDeployment()))
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory)
-	reconciler, err := newAppDbReconciler(ctx, fakeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
+	reconciler, err := newAppDbReconciler(ctx, fakeClient, opsManager, omConnectionFactory.GetConnectionFunc, zaptest.NewLogger(t).Sugar())
 	require.NoError(t, err)
 
 	omConnectionFactory.GetConnection().(*om.MockedOmConnection).AgentAPIKey = "my-api-key"
-	_, err = reconciler.ensureAppDbAgentApiKey(ctx, opsManager, omConnectionFactory.GetConnection(), omConnectionFactory.GetConnection().GroupID(), zap.S())
+	_, err = reconciler.ensureAppDbAgentApiKey(ctx, opsManager, omConnectionFactory.GetConnection(), omConnectionFactory.GetConnection().GroupID(), zaptest.NewLogger(t).Sugar())
 	assert.NoError(t, err)
 
 	secretName := agents.ApiKeySecretName(omConnectionFactory.GetConnection().GroupID())
@@ -373,18 +374,18 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 	opsManager := builder.Build()
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
 	appdbScaler := scalers.GetAppDBScaler(opsManager, multicluster.LegacyCentralClusterName, 0, nil)
-	reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
+	reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zaptest.NewLogger(t).Sugar())
 	require.NoError(t, err)
 
 	// attempt configuring monitoring when there is no api key secret
-	podVars, err := reconciler.tryConfigureMonitoringInOpsManager(ctx, opsManager, "password", zap.S())
+	podVars, err := reconciler.tryConfigureMonitoringInOpsManager(ctx, opsManager, "password", zaptest.NewLogger(t).Sugar())
 	assert.NoError(t, err)
 
 	assert.Empty(t, podVars.ProjectID)
 	assert.Empty(t, podVars.User)
 
 	opsManager.Spec.AppDB.Members = 5
-	appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, zap.S())
+	appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, zaptest.NewLogger(t).Sugar())
 	assert.NoError(t, err)
 
 	assert.Nil(t, findVolumeByName(appDbSts.Spec.Template.Spec.Volumes, construct.AgentAPIKeyVolumeName))
@@ -408,7 +409,7 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 	assert.NoError(t, err)
 
 	// once the secret exists, monitoring should be fully configured
-	podVars, err = reconciler.tryConfigureMonitoringInOpsManager(ctx, opsManager, "password", zap.S())
+	podVars, err = reconciler.tryConfigureMonitoringInOpsManager(ctx, opsManager, "password", zaptest.NewLogger(t).Sugar())
 	assert.NoError(t, err)
 
 	assert.Equal(t, om.TestGroupID, podVars.ProjectID)
@@ -424,7 +425,7 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 
 	assertExpectedHostnamesAndPreferred(t, omConnectionFactory.GetConnection().(*om.MockedOmConnection), expectedHostnames)
 
-	appDbSts, err = construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, zap.S())
+	appDbSts, err = construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, zaptest.NewLogger(t).Sugar())
 	assert.NoError(t, err)
 
 	assert.NotNil(t, findVolumeByName(appDbSts.Spec.Template.Spec.Volumes, construct.AgentAPIKeyVolumeName))
@@ -459,7 +460,7 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 
 	t.Run("do not override images while activating monitoring", func(t *testing.T) {
 		podVars := env.PodEnvVars{ProjectID: "something"}
-		appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, zap.S())
+		appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, zaptest.NewLogger(t).Sugar())
 		assert.NoError(t, err)
 		assert.NotNil(t, appDbSts)
 
@@ -485,7 +486,7 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 
 	t.Run("do not override images, but remove monitoring if not activated", func(t *testing.T) {
 		podVars := env.PodEnvVars{}
-		appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, zap.S())
+		appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, zaptest.NewLogger(t).Sugar())
 		assert.NoError(t, err)
 		assert.NotNil(t, appDbSts)
 
@@ -518,18 +519,18 @@ func TestTryConfigureMonitoringInOpsManagerWithExternalDomains(t *testing.T) {
 		}).Build()
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
 	appdbScaler := scalers.GetAppDBScaler(opsManager, multicluster.LegacyCentralClusterName, 0, nil)
-	reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
+	reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zaptest.NewLogger(t).Sugar())
 	require.NoError(t, err)
 
 	// attempt configuring monitoring when there is no api key secret
-	podVars, err := reconciler.tryConfigureMonitoringInOpsManager(ctx, opsManager, "password", zap.S())
+	podVars, err := reconciler.tryConfigureMonitoringInOpsManager(ctx, opsManager, "password", zaptest.NewLogger(t).Sugar())
 	assert.NoError(t, err)
 
 	assert.Empty(t, podVars.ProjectID)
 	assert.Empty(t, podVars.User)
 
 	opsManager.Spec.AppDB.Members = 5
-	appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, zap.S())
+	appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, zaptest.NewLogger(t).Sugar())
 	assert.NoError(t, err)
 
 	assert.Nil(t, findVolumeByName(appDbSts.Spec.Template.Spec.Volumes, construct.AgentAPIKeyVolumeName))
@@ -553,7 +554,7 @@ func TestTryConfigureMonitoringInOpsManagerWithExternalDomains(t *testing.T) {
 	assert.NoError(t, err)
 
 	// once the secret exists, monitoring should be fully configured
-	podVars, err = reconciler.tryConfigureMonitoringInOpsManager(ctx, opsManager, "password", zap.S())
+	podVars, err = reconciler.tryConfigureMonitoringInOpsManager(ctx, opsManager, "password", zaptest.NewLogger(t).Sugar())
 	assert.NoError(t, err)
 
 	assert.Equal(t, om.TestGroupID, podVars.ProjectID)
@@ -569,7 +570,7 @@ func TestTryConfigureMonitoringInOpsManagerWithExternalDomains(t *testing.T) {
 
 	assertExpectedHostnamesAndPreferred(t, omConnectionFactory.GetConnection().(*om.MockedOmConnection), expectedHostnames)
 
-	appDbSts, err = construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, zap.S())
+	appDbSts, err = construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, zaptest.NewLogger(t).Sugar())
 	assert.NoError(t, err)
 
 	assert.NotNil(t, findVolumeByName(appDbSts.Spec.Template.Spec.Volumes, construct.AgentAPIKeyVolumeName))
@@ -1045,7 +1046,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 			opsManager := opsManagerBuilder.Build()
 
 			kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
-			reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
+			reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zaptest.NewLogger(t).Sugar())
 			require.NoError(t, err)
 
 			err = createOpsManagerUserPasswordSecret(ctx, kubeClient, opsManager, opsManagerUserPassword)
@@ -1157,7 +1158,7 @@ func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
 		kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
 		err := createOpsManagerUserPasswordSecret(ctx, kubeClient, opsManager, "my-password")
 		assert.NoError(t, err)
-		reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
+		reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zaptest.NewLogger(t).Sugar())
 		require.NoError(t, err)
 		memberCluster := multicluster.GetLegacyCentralMemberCluster(opsManager.Spec.Replicas, 0, reconciler.client, reconciler.SecretClient)
 
@@ -1165,7 +1166,7 @@ func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
 		// if the automation is not there, we will always want to reconcile. Otherwise, we may not reconcile
 		// based on whether or not there are disabled processes.
 		if createAutomationConfig {
-			ac, err := reconciler.buildAppDbAutomationConfig(ctx, opsManager, automation, UnusedPrometheusConfiguration, multicluster.LegacyCentralClusterName, zap.S())
+			ac, err := reconciler.buildAppDbAutomationConfig(ctx, opsManager, automation, UnusedPrometheusConfiguration, multicluster.LegacyCentralClusterName, zaptest.NewLogger(t).Sugar())
 			assert.NoError(t, err)
 
 			_, err = reconciler.publishAutomationConfig(ctx, opsManager, ac, opsManager.Spec.AppDB.AutomationConfigSecretName(), memberCluster.SecretClient)
@@ -1193,7 +1194,7 @@ func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
 			},
 		}).Build()
 
-		shouldReconcile, err := reconciler.shouldReconcileAppDB(ctx, opsManager, zap.S())
+		shouldReconcile, err := reconciler.shouldReconcileAppDB(ctx, opsManager, zaptest.NewLogger(t).Sugar())
 		assert.NoError(t, err)
 		assert.True(t, shouldReconcile)
 	})
@@ -1215,7 +1216,7 @@ func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
 
 		reconciler := createReconcilerWithAllRequiredSecrets(opsManager, true)
 
-		shouldReconcile, err := reconciler.shouldReconcileAppDB(ctx, opsManager, zap.S())
+		shouldReconcile, err := reconciler.shouldReconcileAppDB(ctx, opsManager, zaptest.NewLogger(t).Sugar())
 		assert.NoError(t, err)
 		assert.False(t, shouldReconcile)
 	})
@@ -1234,7 +1235,7 @@ func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
 
 		reconciler := createReconcilerWithAllRequiredSecrets(opsManager, false)
 
-		shouldReconcile, err := reconciler.shouldReconcileAppDB(ctx, opsManager, zap.S())
+		shouldReconcile, err := reconciler.shouldReconcileAppDB(ctx, opsManager, zaptest.NewLogger(t).Sugar())
 		assert.NoError(t, err)
 		assert.True(t, shouldReconcile)
 	})
@@ -1255,7 +1256,7 @@ func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
 
 		opsManager = DefaultOpsManagerBuilder().SetName(omName).Build()
 
-		shouldReconcile, err := reconciler.shouldReconcileAppDB(ctx, opsManager, zap.S())
+		shouldReconcile, err := reconciler.shouldReconcileAppDB(ctx, opsManager, zaptest.NewLogger(t).Sugar())
 		assert.NoError(t, err)
 		assert.True(t, shouldReconcile)
 	})
@@ -1333,11 +1334,11 @@ func buildAutomationConfigForAppDb(ctx context.Context, builder *omv1.OpsManager
 	// Ensure the password exists for the Ops Manager User. The Ops Manager controller will have ensured this.
 	// We are ignoring this err on purpose since the secret might already exist.
 	_ = createOpsManagerUserPasswordSecret(ctx, kubeClient, opsManager, "my-password")
-	reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactoryFunc, zap.S())
+	reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactoryFunc, log)
 	if err != nil {
 		return automationconfig.AutomationConfig{}, err
 	}
-	return reconciler.buildAppDbAutomationConfig(ctx, opsManager, acType, UnusedPrometheusConfiguration, multicluster.LegacyCentralClusterName, zap.S())
+	return reconciler.buildAppDbAutomationConfig(ctx, opsManager, acType, UnusedPrometheusConfiguration, multicluster.LegacyCentralClusterName, log)
 }
 
 func checkDeploymentEqualToPublished(t *testing.T, expected automationconfig.AutomationConfig, s *corev1.Secret) {
@@ -1353,7 +1354,7 @@ func checkDeploymentEqualToPublished(t *testing.T, expected automationconfig.Aut
 
 func newAppDbReconciler(ctx context.Context, c client.Client, opsManager *omv1.MongoDBOpsManager, omConnectionFactoryFunc om.ConnectionFactory, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
 	commonController := NewReconcileCommonController(ctx, c)
-	return NewAppDBReplicaSetReconciler(ctx, nil, "", opsManager.Spec.AppDB, commonController, omConnectionFactoryFunc, opsManager.Annotations, nil, zap.S())
+	return NewAppDBReplicaSetReconciler(ctx, nil, "", opsManager.Spec.AppDB, commonController, omConnectionFactoryFunc, opsManager.Annotations, nil, log)
 }
 
 func newAppDbMultiReconciler(ctx context.Context, c client.Client, opsManager *omv1.MongoDBOpsManager, memberClusterMap map[string]client.Client, log *zap.SugaredLogger, omConnectionFactoryFunc om.ConnectionFactory) (*ReconcileAppDbReplicaSet, error) {
@@ -1412,7 +1413,7 @@ func readAutomationConfigMonitoringSecret(ctx context.Context, t *testing.T, kub
 func createRunningAppDB(ctx context.Context, t *testing.T, startingMembers int, fakeClient kubernetesClient.Client, opsManager *omv1.MongoDBOpsManager, omConnectionFactory *om.CachedOMConnectionFactory) *ReconcileAppDbReplicaSet {
 	err := createOpsManagerUserPasswordSecret(ctx, fakeClient, opsManager, "pass")
 	assert.NoError(t, err)
-	reconciler, err := newAppDbReconciler(ctx, fakeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
+	reconciler, err := newAppDbReconciler(ctx, fakeClient, opsManager, omConnectionFactory.GetConnectionFunc, zaptest.NewLogger(t).Sugar())
 	require.NoError(t, err)
 
 	// create the apiKey and OM user

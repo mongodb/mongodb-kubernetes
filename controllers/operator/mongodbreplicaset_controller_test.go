@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -358,7 +359,7 @@ func TestCreateReplicaSet_TLS(t *testing.T) {
 	for _, v := range processes {
 		assert.NotNil(t, v.TLSConfig())
 		assert.Len(t, v.TLSConfig(), 2)
-		assert.Equal(t, fmt.Sprintf("%s/%s", util.TLSCertMountPath, pem.ReadHashFromSecret(ctx, reconciler.SecretClient, rs.Namespace, fmt.Sprintf("%s-cert", rs.Name), "", zap.S())), v.TLSConfig()["certificateKeyFile"])
+		assert.Equal(t, fmt.Sprintf("%s/%s", util.TLSCertMountPath, pem.ReadHashFromSecret(ctx, reconciler.SecretClient, rs.Namespace, fmt.Sprintf("%s-cert", rs.Name), "", zaptest.NewLogger(t).Sugar())), v.TLSConfig()["certificateKeyFile"])
 		assert.Equal(t, "requireTLS", v.TLSConfig()["mode"])
 	}
 
@@ -378,26 +379,26 @@ func TestUpdateDeploymentTLSConfiguration(t *testing.T) {
 	rsNoTLS := mdbv1.NewReplicaSetBuilder().Build()
 	deploymentWithTLS := deployment.CreateFromReplicaSet("fake-mongoDBImage", false, rsWithTLS)
 	deploymentNoTLS := deployment.CreateFromReplicaSet("fake-mongoDBImage", false, rsNoTLS)
-	stsWithTLS := construct.DatabaseStatefulSet(*rsWithTLS, construct.ReplicaSetOptions(construct.GetPodEnvOptions()), zap.S())
-	stsNoTLS := construct.DatabaseStatefulSet(*rsNoTLS, construct.ReplicaSetOptions(construct.GetPodEnvOptions()), zap.S())
+	stsWithTLS := construct.DatabaseStatefulSet(*rsWithTLS, construct.ReplicaSetOptions(construct.GetPodEnvOptions()), zaptest.NewLogger(t).Sugar())
+	stsNoTLS := construct.DatabaseStatefulSet(*rsNoTLS, construct.ReplicaSetOptions(construct.GetPodEnvOptions()), zaptest.NewLogger(t).Sugar())
 
 	// TLS Disabled -> TLS Disabled
-	shouldLockMembers, err := updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentNoTLS), "fake-mongoDBImage", false, 3, rsNoTLS, stsNoTLS, zap.S(), util.CAFilePathInContainer)
+	shouldLockMembers, err := updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentNoTLS), "fake-mongoDBImage", false, 3, rsNoTLS, stsNoTLS, zaptest.NewLogger(t).Sugar(), util.CAFilePathInContainer)
 	assert.NoError(t, err)
 	assert.False(t, shouldLockMembers)
 
 	// TLS Disabled -> TLS Enabled
-	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentNoTLS), "fake-mongoDBImage", false, 3, rsWithTLS, stsWithTLS, zap.S(), util.CAFilePathInContainer)
+	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentNoTLS), "fake-mongoDBImage", false, 3, rsWithTLS, stsWithTLS, zaptest.NewLogger(t).Sugar(), util.CAFilePathInContainer)
 	assert.NoError(t, err)
 	assert.False(t, shouldLockMembers)
 
 	// TLS Enabled -> TLS Enabled
-	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentWithTLS), "fake-mongoDBImage", false, 3, rsWithTLS, stsWithTLS, zap.S(), util.CAFilePathInContainer)
+	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentWithTLS), "fake-mongoDBImage", false, 3, rsWithTLS, stsWithTLS, zaptest.NewLogger(t).Sugar(), util.CAFilePathInContainer)
 	assert.NoError(t, err)
 	assert.False(t, shouldLockMembers)
 
 	// TLS Enabled -> TLS Disabled
-	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentWithTLS), "fake-mongoDBImage", false, 3, rsNoTLS, stsNoTLS, zap.S(), util.CAFilePathInContainer)
+	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentWithTLS), "fake-mongoDBImage", false, 3, rsNoTLS, stsNoTLS, zaptest.NewLogger(t).Sugar(), util.CAFilePathInContainer)
 	assert.NoError(t, err)
 	assert.True(t, shouldLockMembers)
 }
@@ -418,7 +419,7 @@ func TestCreateDeleteReplicaSet(t *testing.T) {
 	mockedOmConn.CleanHistory()
 
 	// Now delete it
-	assert.NoError(t, reconciler.OnDelete(ctx, rs, zap.S()))
+	assert.NoError(t, reconciler.OnDelete(ctx, rs, zaptest.NewLogger(t).Sugar()))
 
 	// Operator doesn't mutate K8s state, so we don't check its changes, only OM
 	mockedOmConn.CheckResourcesDeleted(t)

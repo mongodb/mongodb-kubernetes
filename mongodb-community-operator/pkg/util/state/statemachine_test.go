@@ -2,25 +2,16 @@ package state
 
 import (
 	"errors"
-	"os"
+	"go.uber.org/zap/zaptest"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/result"
 )
-
-func init() {
-	logger, err := zap.NewDevelopment()
-	if err != nil {
-		os.Exit(1)
-	}
-	zap.ReplaceGlobals(logger)
-}
 
 // inMemorySaveLoader stores and loads states to member fields
 // and maintains a history of all the fields saved.
@@ -52,7 +43,7 @@ func newInMemorySaveLoader(startingState string) *inMemorySaveLoader {
 
 func TestOrderOfStatesIsCorrect(t *testing.T) {
 	in := newInMemorySaveLoader("State0")
-	s := NewStateMachine(in, types.NamespacedName{}, zap.S())
+	s := NewStateMachine(in, types.NamespacedName{}, zaptest.NewLogger(t).Sugar())
 
 	state0 := newAlwaysCompletingState("State0")
 	state1 := newAlwaysCompletingState("State1")
@@ -70,7 +61,7 @@ func TestOrderOfStatesIsCorrect(t *testing.T) {
 
 func TestOrderOfStatesIsCorrectIfAddedInDifferentOrder(t *testing.T) {
 	in := newInMemorySaveLoader("State0")
-	s := NewStateMachine(in, types.NamespacedName{}, zap.S())
+	s := NewStateMachine(in, types.NamespacedName{}, zaptest.NewLogger(t).Sugar())
 
 	state0 := newAlwaysCompletingState("State0")
 	state1 := newAlwaysCompletingState("State1")
@@ -92,7 +83,7 @@ func TestOrderOfStatesIsCorrectIfAddedInDifferentOrder(t *testing.T) {
 
 func TestPredicateReturningFalse_PreventsStateTransition(t *testing.T) {
 	in := newInMemorySaveLoader("State0")
-	s := NewStateMachine(in, types.NamespacedName{}, zap.S())
+	s := NewStateMachine(in, types.NamespacedName{}, zaptest.NewLogger(t).Sugar())
 
 	state0 := newAlwaysCompletingState("State0")
 	state1 := newAlwaysCompletingState("State1")
@@ -116,7 +107,7 @@ func TestPredicateReturningFalse_PreventsStateTransition(t *testing.T) {
 
 func TestAddTransition(t *testing.T) {
 	in := newInMemorySaveLoader("State0")
-	s := NewStateMachine(in, types.NamespacedName{}, zap.S())
+	s := NewStateMachine(in, types.NamespacedName{}, zaptest.NewLogger(t).Sugar())
 
 	state0 := newAlwaysCompletingState("State0")
 	state1 := newAlwaysCompletingState("State1")
@@ -144,7 +135,7 @@ func TestIfStateFails_ItIsRunAgain(t *testing.T) {
 	succeeds := newAlwaysCompletingState("SucceedsState")
 
 	in := newInMemorySaveLoader(fails.Name)
-	s := NewStateMachine(in, types.NamespacedName{}, zap.S())
+	s := NewStateMachine(in, types.NamespacedName{}, zaptest.NewLogger(t).Sugar())
 
 	s.AddDirectTransition(fails, succeeds)
 
@@ -180,7 +171,7 @@ func TestStateReconcileValue_IsReturnedFromStateMachine(t *testing.T) {
 		s1 := newAlwaysCompletingState("State1")
 
 		in := newInMemorySaveLoader(s0.Name)
-		s := NewStateMachine(in, types.NamespacedName{}, zap.S())
+		s := NewStateMachine(in, types.NamespacedName{}, zaptest.NewLogger(t).Sugar())
 
 		s.AddDirectTransition(s0, s1)
 
@@ -201,7 +192,7 @@ func TestStateReconcileValue_IsReturnedFromStateMachine(t *testing.T) {
 		s1 := newAlwaysCompletingState("State1")
 
 		in := newInMemorySaveLoader(s0.Name)
-		s := NewStateMachine(in, types.NamespacedName{}, zap.S())
+		s := NewStateMachine(in, types.NamespacedName{}, zaptest.NewLogger(t).Sugar())
 
 		s.AddDirectTransition(s0, s1)
 
@@ -220,7 +211,7 @@ func TestCycleInStateMachine(t *testing.T) {
 	s4 := newAlwaysCompletingState("State4")
 
 	in := newInMemorySaveLoader("State0")
-	s := NewStateMachine(in, types.NamespacedName{}, zap.S())
+	s := NewStateMachine(in, types.NamespacedName{}, zaptest.NewLogger(t).Sugar())
 
 	flag := true
 	s.AddDirectTransition(s0, s1)
@@ -259,7 +250,7 @@ func TestBranchingPath(t *testing.T) {
 	right2 := newAlwaysCompletingState("Right2")
 
 	in := newInMemorySaveLoader(root.Name)
-	s := NewStateMachine(in, types.NamespacedName{}, zap.S())
+	s := NewStateMachine(in, types.NamespacedName{}, zaptest.NewLogger(t).Sugar())
 
 	goLeft := true
 
@@ -306,7 +297,7 @@ func TestDetermineStartingState_ReadsFromLoader(t *testing.T) {
 		s1 := newAlwaysCompletingState("State1")
 
 		in := newInMemorySaveLoader(s0.Name)
-		s := NewStateMachine(in, types.NamespacedName{}, zap.S())
+		s := NewStateMachine(in, types.NamespacedName{}, zaptest.NewLogger(t).Sugar())
 
 		// State must be added before it can be returned in determine state
 		s.AddDirectTransition(s0, s1)
@@ -321,7 +312,7 @@ func TestDetermineStartingState_ReadsFromLoader(t *testing.T) {
 		s0 := newAlwaysCompletingState("State0")
 
 		in := newInMemorySaveLoader(s0.Name)
-		s := NewStateMachine(in, types.NamespacedName{}, zap.S())
+		s := NewStateMachine(in, types.NamespacedName{}, zaptest.NewLogger(t).Sugar())
 
 		assert.Nil(t, s.currentState)
 		err := s.determineState()

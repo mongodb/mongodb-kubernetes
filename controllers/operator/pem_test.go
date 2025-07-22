@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -146,17 +146,17 @@ func TestReadPemHashFromSecret(t *testing.T) {
 	assert.Empty(t, pem.ReadHashFromSecret(ctx, secrets.SecretClient{
 		VaultClient: nil,
 		KubeClient:  mockSecretGetter{},
-	}, mock.TestNamespace, name, "", zap.S()), "secret does not exist so pem hash should be empty")
+	}, mock.TestNamespace, name, "", zaptest.NewLogger(t).Sugar()), "secret does not exist so pem hash should be empty")
 
 	hash := pem.ReadHashFromSecret(ctx, secrets.SecretClient{
 		VaultClient: nil,
 		KubeClient:  mockSecretGetter{secret: secret},
-	}, mock.TestNamespace, name, "", zap.S())
+	}, mock.TestNamespace, name, "", zaptest.NewLogger(t).Sugar())
 
 	hash2 := pem.ReadHashFromSecret(ctx, secrets.SecretClient{
 		VaultClient: nil,
 		KubeClient:  mockSecretGetter{secret: secret},
-	}, mock.TestNamespace, name, "", zap.S())
+	}, mock.TestNamespace, name, "", zaptest.NewLogger(t).Sugar())
 
 	assert.NotEmpty(t, hash, "pem hash should be read from the secret")
 	assert.Equal(t, hash, hash2, "hash creation should be idempotent")
@@ -175,5 +175,5 @@ func TestReadPemHashFromSecretOpaqueType(t *testing.T) {
 	assert.Empty(t, pem.ReadHashFromSecret(ctx, secrets.SecretClient{
 		VaultClient: nil,
 		KubeClient:  mockSecretGetter{secret: secret},
-	}, mock.TestNamespace, name, "", zap.S()), "if secret type is not TLS the empty string should be returned")
+	}, mock.TestNamespace, name, "", zaptest.NewLogger(t).Sugar()), "if secret type is not TLS the empty string should be returned")
 }
