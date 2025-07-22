@@ -32,7 +32,10 @@ import (
 const (
 	MongoDBSearchIndexFieldName      = "mdbsearch-for-mongodbresourceref-index"
 	unsupportedSearchVersion         = "1.47.0"
-	unsupportedSearchVersionErrorFmt = "MongoDBSearch version %s is not supported"
+	unsupportedSearchVersionErrorFmt = "MongoDBSearch version %s is not supported because of breaking changes. " +
+		"The operator will ignore this resource: it will not reconcile or reconfigure the workload. " +
+		"Existing deployments will continue to run, but cannot be managed by the operator. " +
+		"To regain operator management, you must delete and recreate the MongoDBSearch resource."
 )
 
 type OperatorSearchConfig struct {
