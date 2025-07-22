@@ -3,13 +3,13 @@ package operator
 import (
 	"context"
 	"fmt"
-	"k8s.io/utils/ptr"
 	"testing"
 
 	"github.com/ghodss/yaml"
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllertest"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -74,12 +74,16 @@ func newSearchReconciler(
 }
 
 func buildExpectedMongotConfig(search *searchv1.MongoDBSearch, mdbc *mdbcv1.MongoDBCommunity) mongot.Config {
+	var hostAndPorts []string
+	for i := range mdbc.Spec.Members {
+		hostAndPorts = append(hostAndPorts, fmt.Sprintf("%s-%d.%s.%s.svc.cluster.local:%d", mdbc.Name, i, mdbc.Name+"-svc", search.Namespace, 27017))
+	}
 	return mongot.Config{
 		SyncSource: mongot.ConfigSyncSource{
 			ReplicaSet: mongot.ConfigReplicaSet{
-				HostAndPort:    fmt.Sprintf("%s.%s.svc.cluster.local:%d", mdbc.Name+"-svc", search.Namespace, 27017),
-				Username:       "__system",
-				PasswordFile:   "/tmp/keyfile",
+				HostAndPort:    hostAndPorts,
+				Username:       "mongot-user",
+				PasswordFile:   "/tmp/sourceUserPassword",
 				TLS:            ptr.To(false),
 				ReadPreference: ptr.To("secondaryPreferred"),
 			},
@@ -105,7 +109,7 @@ func buildExpectedMongotConfig(search *searchv1.MongoDBSearch, mdbc *mdbcv1.Mong
 			Address: "0.0.0.0:8080",
 		},
 		Logging: mongot.ConfigLogging{
-			Verbosity: "DEBUG",
+			Verbosity: "TRACE",
 			LogPath:   nil,
 		},
 	}
