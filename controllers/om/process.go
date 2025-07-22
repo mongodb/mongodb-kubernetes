@@ -93,13 +93,13 @@ func NewProcessFromInterface(i interface{}) Process {
 	return i.(map[string]interface{})
 }
 
-func NewMongosProcess(name, hostName, mongoDBImage string, forceEnterprise bool, additionalMongodConfig *mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec, certificateFilePath string, annotations map[string]string, fcv string) Process {
+func NewMongosProcess(name, hostName, mongoDBImage string, additionalMongodConfig *mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec, certificateFilePath string, annotations map[string]string, fcv string) Process {
 	if additionalMongodConfig == nil {
 		additionalMongodConfig = mdbv1.NewEmptyAdditionalMongodConfig()
 	}
 
 	architecture := architectures.GetArchitecture(annotations)
-	processVersion := architectures.GetMongoVersionForAutomationConfig(mongoDBImage, spec.GetMongoDBVersion(), forceEnterprise, architecture)
+	processVersion := architectures.GetMongoVersionForAutomationConfig(mongoDBImage, spec.GetMongoDBVersion(), architecture)
 	p := createProcess(
 		WithName(name),
 		WithHostname(hostName),
@@ -119,13 +119,13 @@ func NewMongosProcess(name, hostName, mongoDBImage string, forceEnterprise bool,
 	return p
 }
 
-func NewMongodProcess(name, hostName, mongoDBImage string, forceEnterprise bool, additionalConfig *mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec, certificateFilePath string, annotations map[string]string, fcv string) Process {
+func NewMongodProcess(name, hostName, mongoDBImage string, additionalConfig *mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec, certificateFilePath string, annotations map[string]string, fcv string) Process {
 	if additionalConfig == nil {
 		additionalConfig = mdbv1.NewEmptyAdditionalMongodConfig()
 	}
 
 	architecture := architectures.GetArchitecture(annotations)
-	processVersion := architectures.GetMongoVersionForAutomationConfig(mongoDBImage, spec.GetMongoDBVersion(), forceEnterprise, architecture)
+	processVersion := architectures.GetMongoVersionForAutomationConfig(mongoDBImage, spec.GetMongoDBVersion(), architecture)
 	p := createProcess(
 		WithName(name),
 		WithHostname(hostName),

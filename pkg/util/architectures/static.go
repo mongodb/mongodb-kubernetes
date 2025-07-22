@@ -33,12 +33,6 @@ const (
 	DefaultEnvArchitecture                     = "MDB_DEFAULT_ARCHITECTURE"
 	Static                 DefaultArchitecture = "static"
 	NonStatic              DefaultArchitecture = "non-static"
-	// MdbAssumeEnterpriseImage allows the customer to override the version image detection used by the operator to
-	// set up the automation config.
-	// true: always append the -ent suffix and assume enterprise
-	// false: do not append the -ent suffix and assume community
-	// default: false
-	MdbAssumeEnterpriseImage = "MDB_ASSUME_ENTERPRISE_IMAGE"
 	// MdbAgentImageRepo contains the repository containing the agent image for the database
 	MdbAgentImageRepo        = "MDB_AGENT_IMAGE_REPOSITORY"
 	MdbAgentImageRepoDefault = "quay.io/mongodb/mongodb-agent-ubi"
@@ -74,12 +68,12 @@ func GetArchitecture(annotations map[string]string) DefaultArchitecture {
 // GetMongoVersionForAutomationConfig returns the required version with potentially the suffix -ent.
 // If we are in static containers architecture, we need the -ent suffix in case we are running the ea image.
 // If not, the agent will try to change the version to reflect the non-enterprise image.
-func GetMongoVersionForAutomationConfig(mongoDBImage, version string, forceEnterprise bool, architecture DefaultArchitecture) string {
+func GetMongoVersionForAutomationConfig(mongoDBImage, version string, architecture DefaultArchitecture) string {
 	if architecture != Static {
 		return version
 	}
 	// the image repo should be	either mongodb / mongodb-enterprise-server or mongodb / mongodb-community-server
-	if strings.Contains(mongoDBImage, util.OfficialEnterpriseServerImageUrl) || forceEnterprise {
+	if strings.Contains(mongoDBImage, util.OfficialEnterpriseServerImageUrl) {
 		if !strings.HasSuffix(version, "-ent") {
 			version = version + "-ent"
 		}

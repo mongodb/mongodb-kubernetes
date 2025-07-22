@@ -24,14 +24,14 @@ func init() {
 func TestPrepareScaleDown_OpsManagerRemovedMember(t *testing.T) {
 	// This is deployment with 2 members (emulating that OpsManager removed the 3rd one)
 	rs := mdbv1.NewReplicaSetBuilder().SetName("bam").SetMembers(2).Build()
-	oldDeployment := CreateFromReplicaSet("fake-mongoDBImage", false, rs)
+	oldDeployment := CreateFromReplicaSet("fake-mongoDBImage", rs)
 	mockedOmConnection := om.NewMockedOmConnection(oldDeployment)
 
 	// We try to prepare two members for scale down, but one of them will fail (bam-2)
 	rsWithThreeMembers := map[string][]string{"bam": {"bam-1", "bam-2"}}
 	assert.NoError(t, replicaset.PrepareScaleDownFromMap(mockedOmConnection, rsWithThreeMembers, rsWithThreeMembers["bam"], zap.S()))
 
-	expectedDeployment := CreateFromReplicaSet("fake-mongoDBImage", false, rs)
+	expectedDeployment := CreateFromReplicaSet("fake-mongoDBImage", rs)
 
 	assert.NoError(t, expectedDeployment.MarkRsMembersUnvoted("bam", []string{"bam-1"}))
 
