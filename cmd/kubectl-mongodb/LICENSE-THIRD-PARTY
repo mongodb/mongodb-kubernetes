@@ -2,7 +2,7 @@
 github.com/davecgh/go-spew/spew,v1.1.1,https://github.com/davecgh/go-spew/blob/v1.1.1/LICENSE,ISC
 github.com/emicklei/go-restful/v3,v3.11.0,https://github.com/emicklei/go-restful/blob/v3.11.0/LICENSE,MIT
 github.com/ghodss/yaml,v1.0.0,https://github.com/ghodss/yaml/blob/v1.0.0/LICENSE,MIT
-github.com/go-logr/logr,v1.4.2,https://github.com/go-logr/logr/blob/v1.4.2/LICENSE,Apache-2.0
+github.com/go-logr/logr,v1.4.3,https://github.com/go-logr/logr/blob/v1.4.3/LICENSE,Apache-2.0
 github.com/go-openapi/jsonpointer,v0.19.6,https://github.com/go-openapi/jsonpointer/blob/v0.19.6/LICENSE,Apache-2.0
 github.com/go-openapi/jsonreference,v0.20.2,https://github.com/go-openapi/jsonreference/blob/v0.20.2/LICENSE,Apache-2.0
 github.com/go-openapi/swag,v0.22.3,https://github.com/go-openapi/swag/blob/v0.22.3/LICENSE,Apache-2.0
@@ -23,6 +23,7 @@ github.com/munnerz/goautoneg,v0.0.0-20191010083416-a7dc8b61c822,https://github.c
 github.com/mxk/go-flowrate/flowrate,v0.0.0-20140419014527-cca7078d478f,https://github.com/mxk/go-flowrate/blob/cca7078d478f/LICENSE,BSD-3-Clause
 github.com/spf13/cobra,v1.7.0,https://github.com/spf13/cobra/blob/v1.7.0/LICENSE.txt,Apache-2.0
 github.com/spf13/pflag,v1.0.5,https://github.com/spf13/pflag/blob/v1.0.5/LICENSE,BSD-3-Clause
+go.yaml.in/yaml/v2,v2.4.2,https://github.com/yaml/go-yaml/blob/v2.4.2/LICENSE,Apache-2.0
 google.golang.org/protobuf,v1.36.5,https://github.com/protocolbuffers/protobuf-go/blob/v1.36.5/LICENSE,BSD-3-Clause
 gopkg.in/inf.v0,v0.9.1,https://github.com/go-inf/inf/blob/v0.9.1/LICENSE,BSD-3-Clause
 gopkg.in/yaml.v2,v2.4.0,https://github.com/go-yaml/yaml/blob/v2.4.0/LICENSE,Apache-2.0
@@ -39,5 +40,4 @@ k8s.io/utils,v0.0.0-20240502163921-fe8a2dddb1d0,https://github.com/kubernetes/ut
 k8s.io/utils/internal/third_party/forked/golang/net,v0.0.0-20240502163921-fe8a2dddb1d0,https://github.com/kubernetes/utils/blob/fe8a2dddb1d0/internal/third_party/forked/golang/LICENSE,BSD-3-Clause
 sigs.k8s.io/json,v0.0.0-20221116044647-bc3834ca7abd,https://github.com/kubernetes-sigs/json/blob/bc3834ca7abd/LICENSE,Apache-2.0
 sigs.k8s.io/structured-merge-diff/v4,v4.4.1,https://github.com/kubernetes-sigs/structured-merge-diff/blob/v4.4.1/LICENSE,Apache-2.0
-sigs.k8s.io/yaml,v1.4.0,https://github.com/kubernetes-sigs/yaml/blob/v1.4.0/LICENSE,Apache-2.0
-sigs.k8s.io/yaml/goyaml.v2,v1.4.0,https://github.com/kubernetes-sigs/yaml/blob/v1.4.0/goyaml.v2/LICENSE,Apache-2.0
+sigs.k8s.io/yaml,v1.5.0,https://github.com/kubernetes-sigs/yaml/blob/v1.5.0/LICENSE,Apache-2.0
