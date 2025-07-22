@@ -1,3 +1,5 @@
+//go:build community_e2e
+
 package feature_compatibility_version
 
 import (
