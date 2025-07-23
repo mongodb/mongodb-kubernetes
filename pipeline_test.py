@@ -309,7 +309,10 @@ def test_create_and_push_manifest_single_arch(mock_run, mock_which):
 
     # Verify first call - create manifest (should only include one architecture)
     create_call_args = mock_run.call_args_list[0][0][0]
-    assert " ".join(create_call_args) == "/mock/path/to/docker manifest create test/image:1.0.0 --amend test/image:1.0.0-amd64"
+    assert (
+        " ".join(create_call_args)
+        == "/mock/path/to/docker manifest create test/image:1.0.0 --amend test/image:1.0.0-amd64"
+    )
 
 
 @patch("pipeline.shutil.which", return_value="/mock/path/to/docker")
