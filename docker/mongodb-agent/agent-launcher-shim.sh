@@ -20,7 +20,7 @@ start_agent_launcher() {
 
 main() {
   echo "Running setup-agent-files.sh..."
-  if ! $SCRIPTS_DIR/setup-agent-files.sh; then
+  if ! /usr/local/bin/setup-agent-files.sh; then
     echo "ERROR: Failed to set up agent files"
     exit 1
   fi

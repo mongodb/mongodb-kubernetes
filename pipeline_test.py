@@ -257,8 +257,9 @@ class TestRunCommandWithRetries(unittest.TestCase):
         self.assertEqual(mock_sleep.call_count, 2)
 
 
+@patch("pipeline.shutil.which", return_value="/mock/path/to/docker")
 @patch("subprocess.run")
-def test_create_and_push_manifest_success(mock_run):
+def test_create_and_push_manifest_success(mock_run, mock_which):
     """Test successful creation and pushing of manifest with multiple architectures."""
     # Setup mock to return success for both calls
     mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout=b"", stderr=b"")
@@ -276,7 +277,7 @@ def test_create_and_push_manifest_success(mock_run):
     # Verify first call - create manifest
     create_call_args = mock_run.call_args_list[0][0][0]
     assert create_call_args == [
-        "docker",
+        "/mock/path/to/docker",
         "manifest",
         "create",
         "test/image:1.0.0",
@@ -288,11 +289,12 @@ def test_create_and_push_manifest_success(mock_run):
 
     # Verify second call - push manifest
     push_call_args = mock_run.call_args_list[1][0][0]
-    assert push_call_args == ["docker", "manifest", "push", f"{image}:{tag}"]
+    assert push_call_args == ["/mock/path/to/docker", "manifest", "push", f"{image}:{tag}"]
 
 
+@patch("pipeline.shutil.which", return_value="/mock/path/to/docker")
 @patch("subprocess.run")
-def test_create_and_push_manifest_single_arch(mock_run):
+def test_create_and_push_manifest_single_arch(mock_run, mock_which):
     """Test manifest creation with a single architecture."""
     # Setup mock to return success for both calls
     mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout=b"", stderr=b"")
@@ -307,11 +309,12 @@ def test_create_and_push_manifest_single_arch(mock_run):
 
     # Verify first call - create manifest (should only include one architecture)
     create_call_args = mock_run.call_args_list[0][0][0]
-    assert " ".join(create_call_args) == f"docker manifest create {image}:{tag} --amend {image}:{tag}-amd64"
+    assert " ".join(create_call_args) == "/mock/path/to/docker manifest create test/image:1.0.0 --amend test/image:1.0.0-amd64"
 
 
+@patch("pipeline.shutil.which", return_value="/mock/path/to/docker")
 @patch("subprocess.run")
-def test_create_and_push_manifest_create_error(mock_run):
+def test_create_and_push_manifest_create_error(mock_run, mock_which):
     """Test error handling when manifest creation fails."""
     # Setup mock to return error for create call
     mock_run.return_value = subprocess.CompletedProcess(
@@ -332,13 +335,14 @@ def test_create_and_push_manifest_create_error(mock_run):
     assert mock_run.call_count == 1  # Only the create call, not the push call
 
 
+@patch("pipeline.shutil.which", return_value="/mock/path/to/docker")
 @patch("subprocess.run")
-def test_create_and_push_manifest_push_error(mock_run):
+def test_create_and_push_manifest_push_error(mock_run, mock_which):
     """Test error handling when manifest push fails."""
     # Setup mock to return success for create but error for push
     mock_run.side_effect = [
         subprocess.CompletedProcess(args=[], returncode=0, stdout=b"", stderr=b""),  # create success
-        subprocess.CompletedProcess(args=[], returncode=1, stdout=b"", stderr=b"Error pushing manifest"),  # push error
+        subprocess.CompletedProcess(args=[], returncode=1, stdout=b"", stderr=b"Push failed"),  # push fails
     ]
 
     # Call function with test parameters
@@ -352,5 +356,6 @@ def test_create_and_push_manifest_push_error(mock_run):
     with pytest.raises(Exception) as exc_info:
         create_and_push_manifest(image, tag, architectures)
 
-    assert "Error pushing manifest" in str(exc_info.value)
+    # The function raises the stderr directly, so we should check for the exact error message
+    assert "Push failed" in str(exc_info.value)
     assert mock_run.call_count == 2  # Both create and push calls
