@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -164,6 +165,7 @@ func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb MongoDBStatefulSe
 	scriptsVolumeMod := podtemplatespec.WithVolume(scriptsVolume)
 	hooksVolumeMod := podtemplatespec.WithVolume(hooksVolume)
 	withStaticContainerModification := podtemplatespec.NOOP()
+	shareProcessNs := statefulset.NOOP()
 
 	// we need the upgrade hook and readinessProbe either via init containers or via a side-car and /proc access
 	if withInitContainers {
@@ -172,7 +174,12 @@ func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb MongoDBStatefulSe
 		upgradeInitContainer = podtemplatespec.WithInitContainer(versionUpgradeHookName, versionUpgradeHookInit([]corev1.VolumeMount{hooksVolumeMount}, versionUpgradeHookImage))
 		readinessInitContainer = podtemplatespec.WithInitContainer(ReadinessProbeContainerName, readinessProbeInit([]corev1.VolumeMount{scriptsVolumeMount}, readinessProbeImage))
 	} else {
-		withStaticContainerModification = podtemplatespec.WithContainer(util.AgentContainerUtilitiesName, mongodbAgentUtilitiesContainer([]corev1.VolumeMount{hooksVolumeMount, scriptsVolumeMount}, initAppDBImage))
+		staticMounts := []corev1.VolumeMount{hooksVolumeMount, scriptsVolumeMount}
+		withStaticContainerModification = podtemplatespec.WithContainer(util.AgentContainerUtilitiesName, mongodbAgentUtilitiesContainer(staticMounts, initAppDBImage))
+		mongodbAgentVolumeMounts = append(mongodbAgentVolumeMounts, staticMounts...)
+		shareProcessNs = func(sts *appsv1.StatefulSet) {
+			sts.Spec.Template.Spec.ShareProcessNamespace = ptr.To(true)
+		}
 	}
 
 	dataVolumeClaim := statefulset.NOOP()
@@ -223,6 +230,7 @@ func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb MongoDBStatefulSe
 		dataVolumeClaim,
 		logVolumeClaim,
 		singleModeVolumeClaim,
+		shareProcessNs,
 		statefulset.WithPodSpecTemplate(
 			podtemplatespec.Apply(
 				podSecurityContext,
@@ -271,7 +279,7 @@ func AutomationAgentCommand(withStatic bool, withAgentAPIKeyExport bool, logLeve
 func GetMongodbUserCommandWithAPIKeyExport(withStatic bool) string {
 	agentPrepareScript := ""
 	if withStatic {
-		agentPrepareScript = "/opt/scripts/setup-agent-files.sh\n"
+		agentPrepareScript = "/usr/local/bin/setup-agent-files.sh\n"
 	}
 
 	//nolint:gosec //The credentials path is hardcoded in the container.
@@ -333,7 +341,7 @@ func mongodbAgentUtilitiesContainer(volumeMounts []corev1.VolumeMount, initDatab
 		container.WithImagePullPolicy(corev1.PullAlways),
 		container.WithResourceRequirements(resourcerequirements.Defaults()),
 		container.WithVolumeMounts(volumeMounts),
-		container.WithCommand([]string{"bash", "-c", "touch /tmp/agent-utilities-holder_marker && tail -F -n0 /tmp/agent-utilities-holder_marker"}),
+		container.WithCommand([]string{"bash", "-c", "touch /opt/scripts/agent-utilities-holder_marker && tail -F -n0 /opt/scripts/agent-utilities-holder_marker"}),
 		container.WithArgs([]string{""}),
 		containerSecurityContext,
 	)
