@@ -1,7 +1,6 @@
 import logging
 
 import pymongo.errors
-
 from kubetester import kubetester
 from tests import test_logger
 from tests.common.search.search_tester import SearchTester
