@@ -9,13 +9,50 @@ find . -name go.mod -not -path "./docker/mongodb-kubernetes-tests/*" -exec dirna
 cd "$0"
 echo "testing $0"
 rm -f result.suite
+
+# Set verbose flag if VERBOSE is enabled
+VERBOSE_FLAG=""
+if [ "$VERBOSE" = "true" ]; then
+  VERBOSE_FLAG="-v"
+fi
+
 if [ "$USE_RACE" = "true" ]; then
   echo "running test with race enabled"
-  GO_TEST_CMD="go test -coverprofile cover.out \$(go list ./... | grep -v \"mongodb-community-operator/test/e2e\")"
+  GO_TEST_CMD="go test $VERBOSE_FLAG -coverprofile cover.out \$(go list ./... | grep -v \"mongodb-community-operator/test/e2e\")"
 else
   echo "running test without race enabled"
-  GO_TEST_CMD="go test -coverprofile cover.out \$(go list ./... | grep -v \"mongodb-community-operator/test/e2e\")"
+  GO_TEST_CMD="go test $VERBOSE_FLAG -coverprofile cover.out \$(go list ./... | grep -v \"mongodb-community-operator/test/e2e\")"
 fi
 echo "running $GO_TEST_CMD"
 eval "$GO_TEST_CMD" | tee -a result.suite
 '
+
+# Capture the exit status from the test runs
+EXIT_STATUS=$?
+
+# Generate summary of failed tests
+echo ""
+echo "========================================="
+echo "TEST SUMMARY"
+echo "========================================="
+
+FAILED_TESTS=$(find . -name "result.suite" -not -path "./docker/mongodb-kubernetes-tests/*" -exec grep -l "FAIL" {} \; 2>/dev/null || true)
+
+if [ -n "$FAILED_TESTS" ]; then
+  echo "FAILED TEST MODULES:"
+  for suite in $FAILED_TESTS; do
+    MODULE_DIR=$(dirname "$suite")
+    echo "  - $MODULE_DIR"
+    echo "    Failed tests:"
+    grep "^--- FAIL:" "$suite" | sed 's/^/      /' || true
+  done
+  echo ""
+  echo "Total modules with failures: $(echo "$FAILED_TESTS" | wc -l | tr -d ' ')"
+else
+  echo " All tests passed!"
+fi
+
+echo "========================================="
+
+# Exit with the original status to preserve CI behavior
+exit $EXIT_STATUS

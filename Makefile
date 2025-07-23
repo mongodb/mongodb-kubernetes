@@ -280,8 +280,9 @@ ENVTEST_ASSETS_DIR=$(shell pwd)/testbin
 golang-tests:
 	scripts/evergreen/unit-tests.sh
 
+# this will be used by the CI, evergreen requires -v to be able to parse the test-result
 golang-tests-race:
-	USE_RACE=true scripts/evergreen/unit-tests.sh
+	VERBOSE=true USE_RACE=true scripts/evergreen/unit-tests.sh
 
 sbom-tests:
 	@ scripts/evergreen/run_python.sh -m pytest generate_ssdlc_report_test.py
