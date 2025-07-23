@@ -1,6 +1,6 @@
 {
   "mongodbToolsBundle": {
-    "ubi": "mongodb-database-tools-rhel88-x86_64-100.12.0.tgz"
+    "ubi": "mongodb-database-tools-rhel88-x86_64-100.12.2.tgz"
   },
   "mongodbOperator": "1.2.0",
   "initDatabaseVersion": "1.2.0",
@@ -41,7 +41,6 @@
         "6.0.25",
         "6.0.26",
         "6.0.27",
-        "7.0.10",
         "7.0.11",
         "7.0.12",
         "7.0.13",
@@ -54,7 +53,8 @@
         "8.0.4",
         "8.0.5",
         "8.0.6",
-        "8.0.7"
+        "8.0.7",
+        "8.0.11"
       ],
       "variants": [
         "ubi"
@@ -120,10 +120,6 @@
             "agent_version": "12.0.35.7911-1",
             "tools_version": "100.10.0"
           },
-          "7.0.10": {
-            "agent_version": "107.0.10.8627-1",
-            "tools_version": "100.9.5"
-          },
           "7.0.11": {
             "agent_version": "107.0.11.8645-1",
             "tools_version": "100.10.0"
@@ -175,6 +171,10 @@
           "8.0.7": {
             "agent_version": "108.0.7.8810-1",
             "tools_version": "100.12.0"
+          },
+          "8.0.11": {
+            "agent_version": "108.0.11.8830-1",
+            "tools_version": "100.12.2"
           }
         }
       },
