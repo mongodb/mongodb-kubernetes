@@ -51,7 +51,7 @@ if [[ -f ~/.docker/config.json ]]; then
     ecr_auth=$(jq -r '.auths."268558157000.dkr.ecr.us-east-1.amazonaws.com".auth // empty' ~/.docker/config.json)
 
     if [[ -n "${ecr_auth}" ]]; then
-      http_status=$(curl -s -o /dev/null -w "%{http_code}" -I --max-time 3 "https://268558157000.dkr.ecr.us-east-1.amazonaws.com/v2/dev/mongodb-kubernetes/manifests/latest" \
+      http_status=$(curl --head -s -o /dev/null -w "%{http_code}" --max-time 3 "https://268558157000.dkr.ecr.us-east-1.amazonaws.com/v2/dev/mongodb-kubernetes/manifests/latest" \
         -H "Authorization: Basic ${ecr_auth}" 2>/dev/null || echo "error/timeout")
 
       if [[ "${http_status}" != "401" && "${http_status}" != "403" && "${http_status}" != "error/timeout" ]]; then
