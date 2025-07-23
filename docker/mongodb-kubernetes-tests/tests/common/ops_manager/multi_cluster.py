@@ -1,5 +1,6 @@
 import kubernetes
 from kubetester.awss3client import s3_endpoint
+from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.opsmanager import MongoDBOpsManager
 from tests.common.constants import S3_BLOCKSTORE_NAME, S3_OPLOG_NAME
@@ -22,13 +23,13 @@ def ops_manager_multi_cluster_with_tls_s3_backups(
     resource.set_appdb_version(custom_appdb_version)
 
     # configure S3 Blockstore
-    resource["spec"]["backup"]["s3Stores"][0]["name"] = S3_BLOCKSTORE_NAME
+    resource["spec"]["backup"]["s3Stores"][0]["name"] = KubernetesTester.random_k8s_name(S3_BLOCKSTORE_NAME)
     resource["spec"]["backup"]["s3Stores"][0]["s3SecretRef"]["name"] = S3_BLOCKSTORE_NAME + "-secret"
     resource["spec"]["backup"]["s3Stores"][0]["s3BucketEndpoint"] = s3_endpoint(AWS_REGION)
     resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket_blockstore
     resource["spec"]["backup"]["s3Stores"][0]["s3RegionOverride"] = AWS_REGION
     # configure S3 Oplog
-    resource["spec"]["backup"]["s3OpLogStores"][0]["name"] = S3_OPLOG_NAME
+    resource["spec"]["backup"]["s3OpLogStores"][0]["name"] = KubernetesTester.random_k8s_name(S3_OPLOG_NAME)
     resource["spec"]["backup"]["s3OpLogStores"][0]["s3SecretRef"]["name"] = S3_OPLOG_NAME + "-secret"
     resource["spec"]["backup"]["s3OpLogStores"][0]["s3BucketEndpoint"] = s3_endpoint(AWS_REGION)
     resource["spec"]["backup"]["s3OpLogStores"][0]["s3BucketName"] = s3_bucket_oplog

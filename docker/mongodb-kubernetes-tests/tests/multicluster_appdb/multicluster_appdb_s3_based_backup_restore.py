@@ -10,12 +10,9 @@ from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.omtester import OMTester
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
-from pymongo.errors import ServerSelectionTimeoutError
 from pytest import fixture, mark
 from tests.common.constants import (
     MONGODB_PORT,
-    S3_BLOCKSTORE_NAME,
-    S3_OPLOG_NAME,
     TEST_DATA,
 )
 from tests.common.ops_manager.multi_cluster import (
@@ -143,9 +140,12 @@ class TestOpsManagerCreation:
         ops_manager: MongoDBOpsManager,
         central_cluster_client: kubernetes.client.ApiClient,
     ):
+        s3_blockstore_name = ops_manager["spec"]["backup"]["s3Stores"][0]["name"]
+        s3_oplog_name = ops_manager["spec"]["backup"]["s3OpLogStores"][0]["name"]
+
         om_tester = ops_manager.get_om_tester(api_client=central_cluster_client)
-        om_tester.assert_s3_stores([{"id": S3_BLOCKSTORE_NAME, "s3RegionOverride": AWS_REGION}])
-        om_tester.assert_oplog_s3_stores([{"id": S3_OPLOG_NAME, "s3RegionOverride": AWS_REGION}])
+        om_tester.assert_s3_stores([{"id": s3_blockstore_name, "s3RegionOverride": AWS_REGION}])
+        om_tester.assert_oplog_s3_stores([{"id": s3_oplog_name, "s3RegionOverride": AWS_REGION}])
 
 
 @mark.e2e_multi_cluster_appdb_s3_based_backup_restore
