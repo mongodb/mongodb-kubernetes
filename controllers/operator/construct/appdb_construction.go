@@ -122,10 +122,6 @@ func appDbPodSpec(initContainerImage string, om om.MongoDBOpsManager) podtemplat
 		construct.AgentName,
 		container.WithResourceRequirements(buildRequirementsFromPodSpec(*appdbPodSpec)),
 	)
-	automationUtilitiesPodTemplateFunc := podtemplatespec.WithContainer(
-		util.AgentContainerUtilitiesName,
-		container.WithResourceRequirements(buildRequirementsFromPodSpec(*appdbPodSpec)),
-	)
 	scriptsVolumeMount := statefulset.CreateVolumeMount("agent-scripts", "/opt/scripts", statefulset.WithReadOnly(false))
 	hooksVolumeMount := statefulset.CreateVolumeMount("hooks", "/hooks", statefulset.WithReadOnly(false))
 
@@ -143,7 +139,6 @@ func appDbPodSpec(initContainerImage string, om om.MongoDBOpsManager) podtemplat
 	return podtemplatespec.Apply(
 		mongoPodTemplateFunc,
 		automationPodTemplateFunc,
-		automationUtilitiesPodTemplateFunc,
 		initUpdateFunc,
 	)
 }
@@ -395,7 +390,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	}
 
 	// We copy the Automation Agent command from community and add the agent startup parameters
-	automationAgentCommand := construct.AutomationAgentCommand(true, true, opsManager.Spec.AppDB.GetAgentLogLevel(), opsManager.Spec.AppDB.GetAgentLogFile(), opsManager.Spec.AppDB.GetAgentMaxLogFileDurationHours())
+	automationAgentCommand := construct.AutomationAgentCommand(architectures.IsRunningStaticArchitecture(opsManager.Annotations), true, opsManager.Spec.AppDB.GetAgentLogLevel(), opsManager.Spec.AppDB.GetAgentLogFile(), opsManager.Spec.AppDB.GetAgentMaxLogFileDurationHours())
 	idx := len(automationAgentCommand) - 1
 	automationAgentCommand[idx] += appDb.AutomationAgent.StartupParameters.ToCommandLineArgs()
 
@@ -408,13 +403,10 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		MountPath: "/var/lib/automation/config/acVersion",
 	}
 
-	// Here we ask to create init containers which also creates required volumens.
+	// Here we ask to create init containers which also creates required volumes.
 	// Note that we provide empty images for init containers. They are not important
 	// at this stage because later we will define our own init containers for non-static architecture.
-	mod := construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, scaler, opts.MongodbImage, opts.AgentImage, "", "", true, opts.InitAppDBImage)
-	if architectures.IsRunningStaticArchitecture(opsManager.Annotations) {
-		mod = construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, scaler, opts.MongodbImage, opts.AgentImage, "", "", false, opts.InitAppDBImage)
-	}
+	mod := construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, scaler, opts.MongodbImage, opts.AgentImage, "", "", !architectures.IsRunningStaticArchitecture(opsManager.Annotations), opts.InitAppDBImage)
 
 	sts := statefulset.New(
 		mod,

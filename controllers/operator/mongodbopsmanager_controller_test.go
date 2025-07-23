@@ -589,10 +589,10 @@ func TestOpsManagerReconcileContainerImagesWithStaticArchitecture(t *testing.T) 
 	require.NoError(t, err)
 
 	require.Len(t, appDBSts.Spec.Template.Spec.InitContainers, 0)
-	require.Len(t, appDBSts.Spec.Template.Spec.Containers, 3)
+	require.Len(t, appDBSts.Spec.Template.Spec.Containers, 4)
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA", appDBSts.Spec.Template.Spec.Containers[1].Image)
 	// In static architecture this container is a copy of agent container
-	assert.Equal(t, appDBSts.Spec.Template.Spec.Containers[0].Image, appDBSts.Spec.Template.Spec.Containers[2].Image)
+	assert.Equal(t, appDBSts.Spec.Template.Spec.Containers[0].Image, appDBSts.Spec.Template.Spec.Containers[3].Image)
 }
 
 func TestOpsManagerConnectionString_IsPassedAsSecretRef(t *testing.T) {

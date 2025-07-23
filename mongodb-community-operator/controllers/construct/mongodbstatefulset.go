@@ -168,13 +168,14 @@ func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb MongoDBStatefulSe
 	shareProcessNs := statefulset.NOOP()
 
 	// we need the upgrade hook and readinessProbe either via init containers or via a side-car and /proc access
+	// if we don't use init containers we need to use static containers
 	if withInitContainers {
 		mongodVolumeMounts = append(mongodVolumeMounts, hooksVolumeMount)
 		mongodbAgentVolumeMounts = append(mongodbAgentVolumeMounts, scriptsVolumeMount)
 		upgradeInitContainer = podtemplatespec.WithInitContainer(versionUpgradeHookName, versionUpgradeHookInit([]corev1.VolumeMount{hooksVolumeMount}, versionUpgradeHookImage))
 		readinessInitContainer = podtemplatespec.WithInitContainer(ReadinessProbeContainerName, readinessProbeInit([]corev1.VolumeMount{scriptsVolumeMount}, readinessProbeImage))
 	} else {
-		staticMounts := []corev1.VolumeMount{hooksVolumeMount, scriptsVolumeMount}
+		staticMounts := []corev1.VolumeMount{hooksVolumeMount, scriptsVolumeMount, tmpVolumeMount}
 		withStaticContainerModification = podtemplatespec.WithContainer(util.AgentContainerUtilitiesName, mongodbAgentUtilitiesContainer(staticMounts, initAppDBImage))
 		mongodbAgentVolumeMounts = append(mongodbAgentVolumeMounts, staticMounts...)
 		shareProcessNs = func(sts *appsv1.StatefulSet) {
@@ -341,7 +342,7 @@ func mongodbAgentUtilitiesContainer(volumeMounts []corev1.VolumeMount, initDatab
 		container.WithImagePullPolicy(corev1.PullAlways),
 		container.WithResourceRequirements(resourcerequirements.Defaults()),
 		container.WithVolumeMounts(volumeMounts),
-		container.WithCommand([]string{"bash", "-c", "touch /opt/scripts/agent-utilities-holder_marker && tail -F -n0 /opt/scripts/agent-utilities-holder_marker"}),
+		container.WithCommand([]string{"bash", "-c", "touch /tmp/agent-utilities-holder_marker && tail -F -n0 /tmp/agent-utilities-holder_marker"}),
 		container.WithArgs([]string{""}),
 		containerSecurityContext,
 	)
