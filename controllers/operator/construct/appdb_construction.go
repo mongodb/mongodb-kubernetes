@@ -122,6 +122,12 @@ func appDbPodSpec(initContainerImage string, om om.MongoDBOpsManager) podtemplat
 		construct.AgentName,
 		container.WithResourceRequirements(buildRequirementsFromPodSpec(*appdbPodSpec)),
 	)
+	automationUtilitiesPodTemplateFunc := podtemplatespec.WithContainer(
+		util.AgentContainerUtilitiesName,
+		container.WithResourceRequirements(buildRequirementsFromPodSpec(*appdbPodSpec)),
+	)
+	scriptsVolumeMount := statefulset.CreateVolumeMount("agent-scripts", "/opt/scripts", statefulset.WithReadOnly(false))
+	hooksVolumeMount := statefulset.CreateVolumeMount("hooks", "/hooks", statefulset.WithReadOnly(false))
 
 	initUpdateFunc := podtemplatespec.NOOP()
 	if !architectures.IsRunningStaticArchitecture(om.Annotations) {
@@ -130,8 +136,6 @@ func appDbPodSpec(initContainerImage string, om om.MongoDBOpsManager) podtemplat
 		// volumes of different containers.
 		initUpdateFunc = func(templateSpec *corev1.PodTemplateSpec) {
 			templateSpec.Spec.InitContainers = []corev1.Container{}
-			scriptsVolumeMount := statefulset.CreateVolumeMount("agent-scripts", "/opt/scripts", statefulset.WithReadOnly(false))
-			hooksVolumeMount := statefulset.CreateVolumeMount("hooks", "/hooks", statefulset.WithReadOnly(false))
 			podtemplatespec.WithInitContainer(InitAppDbContainerName, buildAppDBInitContainer(initContainerImage, []corev1.VolumeMount{scriptsVolumeMount, hooksVolumeMount}))(templateSpec)
 		}
 	}
@@ -139,6 +143,7 @@ func appDbPodSpec(initContainerImage string, om om.MongoDBOpsManager) podtemplat
 	return podtemplatespec.Apply(
 		mongoPodTemplateFunc,
 		automationPodTemplateFunc,
+		automationUtilitiesPodTemplateFunc,
 		initUpdateFunc,
 	)
 }
@@ -390,7 +395,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	}
 
 	// We copy the Automation Agent command from community and add the agent startup parameters
-	automationAgentCommand := construct.AutomationAgentCommand(true, opsManager.Spec.AppDB.GetAgentLogLevel(), opsManager.Spec.AppDB.GetAgentLogFile(), opsManager.Spec.AppDB.GetAgentMaxLogFileDurationHours())
+	automationAgentCommand := construct.AutomationAgentCommand(true, true, opsManager.Spec.AppDB.GetAgentLogLevel(), opsManager.Spec.AppDB.GetAgentLogFile(), opsManager.Spec.AppDB.GetAgentMaxLogFileDurationHours())
 	idx := len(automationAgentCommand) - 1
 	automationAgentCommand[idx] += appDb.AutomationAgent.StartupParameters.ToCommandLineArgs()
 
@@ -403,12 +408,12 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		MountPath: "/var/lib/automation/config/acVersion",
 	}
 
-	// Here we ask to craete init containers which also creates required volumens.
+	// Here we ask to create init containers which also creates required volumens.
 	// Note that we provide empty images for init containers. They are not important
 	// at this stage beucase later we will define our own init containers for non-static architecture.
-	mod := construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, scaler, opts.MongodbImage, opts.AgentImage, "", "", true)
+	mod := construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, scaler, opts.MongodbImage, opts.AgentImage, "", "", true, opts.InitAppDBImage)
 	if architectures.IsRunningStaticArchitecture(opsManager.Annotations) {
-		mod = construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, scaler, opts.MongodbImage, opts.AgentImage, "", "", false)
+		mod = construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, scaler, opts.MongodbImage, opts.AgentImage, "", "", false, opts.InitAppDBImage)
 	}
 
 	sts := statefulset.New(
@@ -516,7 +521,7 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 	}
 	// Construct the command by concatenating:
 	// 1. The base command - from community
-	command := construct.MongodbUserCommandWithAPIKeyExport
+	command := construct.GetMongodbUserCommandWithAPIKeyExport(false)
 	command += "agent/mongodb-agent"
 	command += " -healthCheckFilePath=" + monitoringAgentHealthStatusFilePathValue
 	command += " -serveStatusPort=5001"

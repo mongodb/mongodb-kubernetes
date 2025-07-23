@@ -20,6 +20,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/readiness/config"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 var OfficialMongodbRepoUrls = []string{"docker.io/mongodb", "quay.io/mongodb"}
@@ -77,18 +78,6 @@ export LD_PRELOAD=libnss_wrapper.so
 export NSS_WRAPPER_GROUP=/etc/group
 fi
 `
-	//nolint:gosec //The credentials path is hardcoded in the container.
-	MongodbUserCommandWithAPIKeyExport = `current_uid=$(id -u)
-AGENT_API_KEY="$(cat /mongodb-automation/agent-api-key/agentApiKey)"
-declare -r current_uid
-if ! grep -q "${current_uid}" /etc/passwd ; then
-sed -e "s/^mongodb:/builder:/" /etc/passwd > /tmp/passwd
-echo "mongodb:x:$(id -u):$(id -g):,,,:/:/bin/bash" >> /tmp/passwd
-export NSS_WRAPPER_PASSWD=/tmp/passwd
-export LD_PRELOAD=libnss_wrapper.so
-export NSS_WRAPPER_GROUP=/etc/group
-fi
-`
 )
 
 // MongoDBStatefulSetOwner is an interface which any resource which generates a MongoDB StatefulSet should implement.
@@ -130,7 +119,7 @@ type MongoDBStatefulSetOwner interface {
 // BuildMongoDBReplicaSetStatefulSetModificationFunction builds the parts of the replica set that are common between every resource that implements
 // MongoDBStatefulSetOwner.
 // It doesn't configure TLS or additional containers/env vars that the statefulset might need.
-func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb MongoDBStatefulSetOwner, scaler scale.ReplicaSetScaler, mongodbImage, agentImage, versionUpgradeHookImage, readinessProbeImage string, withInitContainers bool) statefulset.Modification {
+func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb MongoDBStatefulSetOwner, scaler scale.ReplicaSetScaler, mongodbImage, agentImage, versionUpgradeHookImage, readinessProbeImage string, withInitContainers bool, initAppDBImage string) statefulset.Modification {
 	labels := map[string]string{
 		"app": mdb.ServiceName(),
 	}
@@ -167,27 +156,23 @@ func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb MongoDBStatefulSe
 	}
 	mongodVolumeMounts := []corev1.VolumeMount{mongodHealthStatusVolumeMount, keyFileVolumeVolumeMountMongod, tmpVolumeMount}
 
-	hooksVolumeMod := podtemplatespec.NOOP()
-	scriptsVolumeMod := podtemplatespec.NOOP()
+	hooksVolume = statefulset.CreateVolumeFromEmptyDir("hooks")
+	hooksVolumeMount := statefulset.CreateVolumeMount(hooksVolume.Name, "/hooks", statefulset.WithReadOnly(false))
+	scriptsVolume = statefulset.CreateVolumeFromEmptyDir("agent-scripts")
+	scriptsVolumeMount := statefulset.CreateVolumeMount(scriptsVolume.Name, "/opt/scripts", statefulset.WithReadOnly(false))
 
-	// This is temporary code;
-	// once we make the operator fully deploy static workloads, we will remove those init containers.
+	scriptsVolumeMod := podtemplatespec.WithVolume(scriptsVolume)
+	hooksVolumeMod := podtemplatespec.WithVolume(hooksVolume)
+	withStaticContainerModification := podtemplatespec.NOOP()
+
+	// we need the upgrade hook and readinessProbe either via init containers or via a side-car and /proc access
 	if withInitContainers {
-		// hooks volume is only required on the mongod pod.
-		hooksVolume = statefulset.CreateVolumeFromEmptyDir("hooks")
-		hooksVolumeMount := statefulset.CreateVolumeMount(hooksVolume.Name, "/hooks", statefulset.WithReadOnly(false))
-
-		// scripts volume is only required on the mongodb-agent pod.
-		scriptsVolume = statefulset.CreateVolumeFromEmptyDir("agent-scripts")
-		scriptsVolumeMount := statefulset.CreateVolumeMount(scriptsVolume.Name, "/opt/scripts", statefulset.WithReadOnly(false))
-
-		upgradeInitContainer = podtemplatespec.WithInitContainer(versionUpgradeHookName, versionUpgradeHookInit([]corev1.VolumeMount{hooksVolumeMount}, versionUpgradeHookImage))
-		readinessInitContainer = podtemplatespec.WithInitContainer(ReadinessProbeContainerName, readinessProbeInit([]corev1.VolumeMount{scriptsVolumeMount}, readinessProbeImage))
-		scriptsVolumeMod = podtemplatespec.WithVolume(scriptsVolume)
-		hooksVolumeMod = podtemplatespec.WithVolume(hooksVolume)
-
 		mongodVolumeMounts = append(mongodVolumeMounts, hooksVolumeMount)
 		mongodbAgentVolumeMounts = append(mongodbAgentVolumeMounts, scriptsVolumeMount)
+		upgradeInitContainer = podtemplatespec.WithInitContainer(versionUpgradeHookName, versionUpgradeHookInit([]corev1.VolumeMount{hooksVolumeMount}, versionUpgradeHookImage))
+		readinessInitContainer = podtemplatespec.WithInitContainer(ReadinessProbeContainerName, readinessProbeInit([]corev1.VolumeMount{scriptsVolumeMount}, readinessProbeImage))
+	} else {
+		withStaticContainerModification = podtemplatespec.WithContainer(util.AgentContainerUtilitiesName, mongodbAgentUtilitiesContainer([]corev1.VolumeMount{hooksVolumeMount, scriptsVolumeMount}, initAppDBImage))
 	}
 
 	dataVolumeClaim := statefulset.NOOP()
@@ -251,6 +236,7 @@ func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb MongoDBStatefulSe
 				podtemplatespec.WithServiceAccount(mongodbDatabaseServiceAccountName),
 				podtemplatespec.WithContainer(AgentName, mongodbAgentContainer(mdb.AutomationConfigSecretName(), mongodbAgentVolumeMounts, agentLogLevel, agentLogFile, agentMaxLogFileDurationHours, agentImage)),
 				podtemplatespec.WithContainer(MongodbName, mongodbContainer(mongodbImage, mongodVolumeMounts, mdb.GetMongodConfiguration())),
+				withStaticContainerModification,
 				upgradeInitContainer,
 				readinessInitContainer,
 			),
@@ -263,7 +249,7 @@ func BaseAgentCommand() string {
 
 // AutomationAgentCommand withAgentAPIKeyExport detects whether we want to deploy this agent with the agent api key exported
 // it can be used to register the agent with OM.
-func AutomationAgentCommand(withAgentAPIKeyExport bool, logLevel mdbv1.LogLevel, logFile string, maxLogFileDurationHours int) []string {
+func AutomationAgentCommand(withStatic bool, withAgentAPIKeyExport bool, logLevel mdbv1.LogLevel, logFile string, maxLogFileDurationHours int) []string {
 	// This is somewhat undocumented at https://www.mongodb.com/docs/ops-manager/current/reference/mongodb-agent-settings/
 	// Not setting the -logFile option make the mongodb-agent log to stdout. Setting -logFile /dev/stdout will result in
 	// an error by the agent trying to open /dev/stdout-verbose and still trying to do log rotation.
@@ -277,9 +263,29 @@ func AutomationAgentCommand(withAgentAPIKeyExport bool, logLevel mdbv1.LogLevel,
 	}
 
 	if withAgentAPIKeyExport {
-		return []string{"/bin/bash", "-c", MongodbUserCommandWithAPIKeyExport + BaseAgentCommand() + " -cluster=" + clusterFilePath + automationAgentOptions + agentLogOptions}
+		return []string{"/bin/bash", "-c", GetMongodbUserCommandWithAPIKeyExport(withStatic) + BaseAgentCommand() + " -cluster=" + clusterFilePath + automationAgentOptions + agentLogOptions}
 	}
 	return []string{"/bin/bash", "-c", MongodbUserCommand + BaseAgentCommand() + " -cluster=" + clusterFilePath + automationAgentOptions + agentLogOptions}
+}
+
+func GetMongodbUserCommandWithAPIKeyExport(withStatic bool) string {
+	agentPrepareScript := ""
+	if withStatic {
+		agentPrepareScript = "/opt/scripts/setup-agent-files.sh\n"
+	}
+
+	//nolint:gosec //The credentials path is hardcoded in the container.
+	return fmt.Sprintf(`%scurrent_uid=$(id -u)
+AGENT_API_KEY="$(cat /mongodb-automation/agent-api-key/agentApiKey)"
+declare -r current_uid
+if ! grep -q "${current_uid}" /etc/passwd ; then
+sed -e "s/^mongodb:/builder:/" /etc/passwd > /tmp/passwd
+echo "mongodb:x:$(id -u):$(id -g):,,,:/:/bin/bash" >> /tmp/passwd
+export NSS_WRAPPER_PASSWD=/tmp/passwd
+export LD_PRELOAD=libnss_wrapper.so
+export NSS_WRAPPER_GROUP=/etc/group
+fi
+`, agentPrepareScript)
 }
 
 func mongodbAgentContainer(automationConfigSecretName string, volumeMounts []corev1.VolumeMount, logLevel mdbv1.LogLevel, logFile string, maxLogFileDurationHours int, agentImage string) container.Modification {
@@ -291,7 +297,7 @@ func mongodbAgentContainer(automationConfigSecretName string, volumeMounts []cor
 		container.WithReadinessProbe(DefaultReadiness()),
 		container.WithResourceRequirements(resourcerequirements.Defaults()),
 		container.WithVolumeMounts(volumeMounts),
-		container.WithCommand(AutomationAgentCommand(false, logLevel, logFile, maxLogFileDurationHours)),
+		container.WithCommand(AutomationAgentCommand(false, false, logLevel, logFile, maxLogFileDurationHours)),
 		containerSecurityContext,
 		container.WithEnvs(
 			corev1.EnvVar{
@@ -316,6 +322,20 @@ func mongodbAgentContainer(automationConfigSecretName string, volumeMounts []cor
 				Value: agentHealthStatusFilePathValue,
 			},
 		),
+	)
+}
+
+func mongodbAgentUtilitiesContainer(volumeMounts []corev1.VolumeMount, initDatabaseImage string) container.Modification {
+	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
+	return container.Apply(
+		container.WithName(util.AgentContainerUtilitiesName),
+		container.WithImage(initDatabaseImage),
+		container.WithImagePullPolicy(corev1.PullAlways),
+		container.WithResourceRequirements(resourcerequirements.Defaults()),
+		container.WithVolumeMounts(volumeMounts),
+		container.WithCommand([]string{"bash", "-c", "touch /tmp/agent-utilities-holder_marker && tail -F -n0 /tmp/agent-utilities-holder_marker"}),
+		container.WithArgs([]string{""}),
+		containerSecurityContext,
 	)
 }
 

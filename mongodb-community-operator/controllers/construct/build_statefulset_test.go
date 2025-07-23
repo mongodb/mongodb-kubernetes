@@ -34,7 +34,7 @@ func newTestReplicaSet() mdbv1.MongoDBCommunity {
 
 func TestMultipleCalls_DoNotCauseSideEffects(t *testing.T) {
 	mdb := newTestReplicaSet()
-	stsFunc := BuildMongoDBReplicaSetStatefulSetModificationFunction(&mdb, &mdb, "fake-mongodbImage", "fake-agentImage", "fake-versionUpgradeHookImage", "fake-readinessProbeImage", true)
+	stsFunc := BuildMongoDBReplicaSetStatefulSetModificationFunction(&mdb, &mdb, "fake-mongodbImage", "fake-agentImage", "fake-versionUpgradeHookImage", "fake-readinessProbeImage", true, "")
 	sts := &appsv1.StatefulSet{}
 
 	t.Run("1st Call", func(t *testing.T) {
@@ -55,7 +55,7 @@ func TestManagedSecurityContext(t *testing.T) {
 	t.Setenv(podtemplatespec.ManagedSecurityContextEnv, "true")
 
 	mdb := newTestReplicaSet()
-	stsFunc := BuildMongoDBReplicaSetStatefulSetModificationFunction(&mdb, &mdb, "fake-mongodbImage", "fake-agentImage", "fake-versionUpgradeHookImage", "fake-readinessProbeImage", true)
+	stsFunc := BuildMongoDBReplicaSetStatefulSetModificationFunction(&mdb, &mdb, "fake-mongodbImage", "fake-agentImage", "fake-versionUpgradeHookImage", "fake-readinessProbeImage", true, "")
 
 	sts := &appsv1.StatefulSet{}
 	stsFunc(sts)
@@ -83,14 +83,14 @@ func TestMongod_Container(t *testing.T) {
 }
 
 func TestMongoDBAgentCommand(t *testing.T) {
-	cmd := AutomationAgentCommand(false, mdbv1.LogLevelInfo, "testfile", 24)
+	cmd := AutomationAgentCommand(false, false, mdbv1.LogLevelInfo, "testfile", 24)
 	baseCmd := MongodbUserCommand + BaseAgentCommand() + " -cluster=" + clusterFilePath + automationAgentOptions
 	assert.Len(t, cmd, 3)
 	assert.Equal(t, cmd[0], "/bin/bash")
 	assert.Equal(t, cmd[1], "-c")
 	assert.Equal(t, cmd[2], baseCmd+" -logFile testfile -logLevel INFO -maxLogFileDurationHrs 24")
 
-	cmd = AutomationAgentCommand(false, mdbv1.LogLevelInfo, "/dev/stdout", 24)
+	cmd = AutomationAgentCommand(false, false, mdbv1.LogLevelInfo, "/dev/stdout", 24)
 	assert.Len(t, cmd, 3)
 	assert.Equal(t, cmd[0], "/bin/bash")
 	assert.Equal(t, cmd[1], "-c")
