@@ -2,15 +2,16 @@
 # Dockerfile for Init Ops Manager Context.
 #
 
-FROM public.ecr.aws/docker/library/golang:1.24 as builder
+FROM public.ecr.aws/docker/library/golang:1.24 AS builder
 
-COPY . /go/src/github.com/mongodb/mongodb-kubernetes
-WORKDIR /go/src/github.com/mongodb/mongodb-kubernetes
+COPY . /build
+WORKDIR /build
 
-RUN CGO_ENABLED=0 go build -a -buildvcs=false -o /data/scripts/mmsconfiguration docker/mongodb-kubernetes-init-ops-manager/mmsconfiguration
-RUN CGO_ENABLED=0 go build -a -buildvcs=false -o /data/scripts/backup-daemon-readiness-probe docker/mongodb-kubernetes-init-ops-manager/backupdaemon_readinessprobe/
+RUN mkdir -p /data/scripts /data/licenses
 
-COPY docker/mongodb-kubernetes-init-ops-manager/scripts/docker-entry-point.sh /data/scripts/
-COPY docker/mongodb-kubernetes-init-ops-manager/scripts/backup-daemon-liveness-probe.sh /data/scripts/
+RUN CGO_ENABLED=0 go build -a -buildvcs=false -o /data/scripts/mmsconfiguration ./docker/mongodb-kubernetes-init-ops-manager/mmsconfiguration
+RUN CGO_ENABLED=0 go build -a -buildvcs=false -o /data/scripts/backup-daemon-readiness-probe ./docker/mongodb-kubernetes-init-ops-manager/backupdaemon_readinessprobe
 
-COPY LICENSE /data/licenses/mongodb-enterprise-ops-manager
+COPY docker/mongodb-kubernetes-init-ops-manager/scripts/*.sh /data/scripts/
+
+COPY docker/mongodb-kubernetes-init-ops-manager/LICENSE /data/licenses/mongodb-enterprise-ops-manager
