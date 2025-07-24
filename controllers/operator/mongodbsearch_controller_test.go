@@ -86,6 +86,7 @@ func buildExpectedMongotConfig(search *searchv1.MongoDBSearch, mdbc *mdbcv1.Mong
 				PasswordFile:   "/tmp/sourceUserPassword",
 				TLS:            ptr.To(false),
 				ReadPreference: ptr.To("secondaryPreferred"),
+				AuthSource:     ptr.To("admin"),
 			},
 		},
 		Storage: mongot.ConfigStorage{
