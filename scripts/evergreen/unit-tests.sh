@@ -16,13 +16,12 @@ if [ "$VERBOSE" = "true" ]; then
   VERBOSE_FLAG="-v"
 fi
 
+RACE_FLAG=""
 if [ "$USE_RACE" = "true" ]; then
-  echo "running test with race enabled"
-  GO_TEST_CMD="go test $VERBOSE_FLAG -coverprofile cover.out \$(go list ./... | grep -v \"mongodb-community-operator/test/e2e\")"
-else
-  echo "running test without race enabled"
-  GO_TEST_CMD="go test $VERBOSE_FLAG -coverprofile cover.out \$(go list ./... | grep -v \"mongodb-community-operator/test/e2e\")"
+  RACE_FLAG="-race"
 fi
+
+GO_TEST_CMD="go test $VERBOSE_FLAG $RACE_FLAG -coverprofile cover.out \$(go list ./... | grep -v \"mongodb-community-operator/test/e2e\")"
 echo "running $GO_TEST_CMD"
 eval "$GO_TEST_CMD" | tee -a result.suite
 '

@@ -480,7 +480,7 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 		}
 
 		assert.Equal(t, 3, foundImages)
-		assert.Equal(t, 30, len(appDbSts.Spec.Template.Spec.Containers))
+		assert.Equal(t, 3, len(appDbSts.Spec.Template.Spec.Containers))
 	})
 
 	t.Run("do not override images, but remove monitoring if not activated", func(t *testing.T) {
