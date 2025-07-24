@@ -1719,7 +1719,6 @@ func computeSingleClusterShardOverridesFromDistribution(shardOverridesDistributi
 }
 
 type SingleClusterShardedScalingTestCase struct {
-	name         string
 	scalingSteps []SingleClusterShardedScalingStep
 }
 

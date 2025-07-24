@@ -412,14 +412,6 @@ spec:
               value: "quay.io/mongodb/mongodb-kubernetes-init-ops-manager:1.2.0"
             - name: RELATED_IMAGE_INIT_APPDB_IMAGE_REPOSITORY_1_2_0
               value: "quay.io/mongodb/mongodb-kubernetes-init-appdb:1.2.0"
-            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_10_8627_1
-              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.10.8627-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_10_8627_1_1_0_1
-              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.10.8627-1_1.0.1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_10_8627_1_1_1_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.10.8627-1_1.1.0"
-            - name: RELATED_IMAGE_AGENT_IMAGE_107_0_10_8627_1_1_2_0
-              value: "quay.io/mongodb/mongodb-agent-ubi:107.0.10.8627-1_1.2.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_11_8645_1
               value: "quay.io/mongodb/mongodb-agent-ubi:107.0.11.8645-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_11_8645_1_1_0_1
