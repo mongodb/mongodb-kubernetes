@@ -6,13 +6,14 @@ images:
 - name: init-appdb
   vars:
     context: .
-    template_context: docker/mongodb-kubernetes-init-database
+    template_context: docker/mongodb-kubernetes-init-appdb
   platform: linux/amd64
 
   stages:
   - name: init-appdb-build-context
     task_type: docker_build
-    dockerfile: docker/mongodb-kubernetes-init-database/Dockerfile.builder
+    tags: ["final_dockerfile"]
+    dockerfile: docker/mongodb-kubernetes-init-appdb/Dockerfile.builder
     buildargs:
       mongodb_tools_url_ubi: $(inputs.params.mongodb_tools_url_ubi)
     output:
@@ -22,7 +23,7 @@ images:
   - name: init-appdb-template-ubi
     task_type: dockerfile_template
     template_file_extension: ubi_minimal
-    tags: ["ubi"]
+    tags: ["final_dockerfile"]
     inputs:
     - is_appdb
     output:

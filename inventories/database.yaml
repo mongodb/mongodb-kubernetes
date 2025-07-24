@@ -11,6 +11,7 @@ images:
   stages:
   - name: database-build-context
     task_type: docker_build
+    tags: ["final_dockerfile"]
     dockerfile: Dockerfile.builder
     output:
     - registry: $(inputs.params.registry)/mongodb-kubernetes-database-context
@@ -19,7 +20,7 @@ images:
   - name: init-appdb-template-ubi
     task_type: dockerfile_template
     distro: ubi
-    tags: ["ubi"]
+    tags: ["ubi", "final_dockerfile"]
     inputs:
     - version
     output:
@@ -28,12 +29,11 @@ images:
   - name: database-build-ubi
     task_type: docker_build
     dockerfile: $(stages['init-appdb-template-ubi'].outputs[0].dockerfile)
-    tags: ["ubi"]
+    tags: ["ubi", "final_dockerfile"]
     buildargs:
       imagebase: $(inputs.params.registry)/mongodb-kubernetes-database-context:$(inputs.params.version_id)
     output:
-    - registry: $(inputs.params.registry)/mongodb-kubernetes-database
-      tag: $(inputs.params.version_id)
+    - dockerfile: $(functions.tempfile)
 
   - name: master-latest
     task_type: tag_image
