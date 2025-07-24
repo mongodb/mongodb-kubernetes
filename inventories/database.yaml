@@ -33,7 +33,8 @@ images:
     buildargs:
       imagebase: $(inputs.params.registry)/mongodb-kubernetes-database-context:$(inputs.params.version_id)
     output:
-    - dockerfile: $(functions.tempfile)
+    - registry: $(inputs.params.registry)/mongodb-kubernetes-database
+      tag: $(inputs.params.version_id)
 
   - name: master-latest
     task_type: tag_image
