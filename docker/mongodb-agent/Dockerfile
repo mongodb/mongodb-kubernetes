@@ -1,5 +1,27 @@
 ARG imagebase
-FROM ${imagebase} as base
+FROM ${imagebase} AS base
+
+FROM registry.access.redhat.com/ubi9/ubi-minimal AS builder
+
+RUN microdnf install -y tar gzip && microdnf clean all
+
+COPY --from=base /data/mongodb_tools_ubi.tgz /data/mongodb_agent_ubi.tgz /tmp/
+
+RUN tar xfz /tmp/mongodb_tools_ubi.tgz -C /opt && \
+    tar xfz /tmp/mongodb_agent_ubi.tgz -C /opt && \
+    rm /tmp/*.tgz
+
+RUN chmod +x /opt/mongodb-mms-automation-agent-*/mongodb-mms-automation-agent
+RUN chmod +x /opt/mongodb-database-tools-*/bin/*
+
+COPY --from=base /data/probe.sh \
+                 /data/readinessprobe \
+                 /data/version-upgrade-hook \
+                 /data/agent-launcher-lib.sh \
+                 /data/agent-launcher.sh \
+                 /opt/scripts/
+
+RUN chmod +x  /opt/scripts/*
 
 FROM registry.access.redhat.com/ubi9/ubi-minimal
 
@@ -13,51 +35,37 @@ LABEL name="MongoDB Agent" \
       release="1" \
       maintainer="support@mongodb.com"
 
-COPY --from=base /data/probe.sh /opt/scripts/probe.sh
-COPY --from=base /data/readinessprobe /opt/scripts/readinessprobe
-COPY --from=base /data/version-upgrade-hook /opt/scripts/version-upgrade-hook
-COPY --from=base /data/agent-launcher-lib.sh /opt/scripts/agent-launcher-lib.sh
-COPY --from=base /data/agent-launcher.sh /opt/scripts/agent-launcher.sh
-COPY --from=base /data/LICENSE /licenses/LICENSE
-
-# Replace libcurl-minimal and curl-minimal with the full versions
-# https://bugzilla.redhat.com/show_bug.cgi?id=1994521
-RUN  microdnf install -y libssh libpsl libbrotli \
+RUN    microdnf install -y libssh libpsl libbrotli \
     && microdnf download curl libcurl \
     && rpm -Uvh --nodeps --replacefiles "*curl*$( uname -i ).rpm" \
-    && microdnf remove -y libcurl-minimal curl-minimal
-
-RUN microdnf install -y --disableplugin=subscription-manager --setopt=install_weak_deps=0 nss_wrapper
-# Copy-pasted from https://www.mongodb.com/docs/manual/tutorial/install-mongodb-enterprise-on-red-hat-tarball/
-RUN microdnf install -y --disableplugin=subscription-manager \
- cyrus-sasl cyrus-sasl-gssapi cyrus-sasl-plain krb5-libs openldap openssl xz-libs
-# Dependencies for the Agent
-RUN microdnf install -y --disableplugin=subscription-manager  --setopt=install_weak_deps=0 \
-        net-snmp \
-        net-snmp-agent-libs
-RUN microdnf install -y --disableplugin=subscription-manager \
-    hostname tar gzip procps jq \
+    && microdnf remove -y libcurl-minimal curl-minimal \
+    && microdnf install -y --disableplugin=subscription-manager --setopt=install_weak_deps=0 nss_wrapper \
+    && microdnf install -y --disableplugin=subscription-manager \
+    cyrus-sasl cyrus-sasl-gssapi cyrus-sasl-plain krb5-libs openldap openssl xz-libs \
+    && microdnf install -y --disableplugin=subscription-manager  --setopt=install_weak_deps=0 \
+           net-snmp \
+           net-snmp-agent-libs \
+    && microdnf install -y --disableplugin=subscription-manager \
+       hostname tar gzip procps jq \
     && microdnf upgrade -y  \
-    && rm -rf /var/lib/apt/lists/*
+    && microdnf clean all \
+    && mkdir -p /agent \
+             /var/lib/mongodb-mms-automation \
+             /var/log/mongodb-mms-automation \
+             /var/lib/automation/config \
+    && chmod -R +wr /var/log/mongodb-mms-automation/ \
+    && touch /var/log/mongodb-mms-automation/readiness.log \
+    && chmod ugo+rw /var/log/mongodb-mms-automation/readiness.log \
+    && chmod -R +r /var/lib/automation/config
 
+COPY --from=base /data/LICENSE /licenses/LICENSE
 
-COPY --from=base /data/mongodb_tools_ubi.tgz /tools/mongodb_tools.tgz
-COPY --from=base /data/mongodb_agent_ubi.tgz /agent/mongodb_agent.tgz
+COPY --from=builder /opt/scripts/* /opt/scripts/
+COPY --from=builder /opt/mongodb-database-tools-*/bin /tools
+COPY --from=builder /opt/mongodb-mms-automation-agent-*/mongodb-mms-automation-agent /agent/mongodb-agent
 
-RUN tar xfz /tools/mongodb_tools.tgz
-RUN mv mongodb-database-tools-*/bin/* /tools
-RUN chmod +x /tools/*
-RUN rm /tools/mongodb_tools.tgz
-RUN rm -rf /mongodb-database-tools-*
-
-RUN tar xfz /agent/mongodb_agent.tgz
-RUN mv mongodb-mms-automation-agent-*/mongodb-mms-automation-agent /agent/mongodb-agent
-RUN chmod +x /agent/mongodb-agent
-RUN rm /agent/mongodb_agent.tgz
-RUN rm -rf mongodb-mms-automation-agent-*
-
-RUN mkdir -p /var/lib/automation/config
-RUN chmod -R +r /var/lib/automation/config
+RUN mkdir -p /var/lib/automation/config \
+    && chmod -R +r /var/lib/automation/config
 
 USER 2000
 
