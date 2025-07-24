@@ -2,10 +2,12 @@ from typing import Optional
 
 import pytest
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import skip_if_local
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture
 from tests.conftest import is_multi_cluster
+
 
 # Important - you need to ensure that OM and Appdb images are build and pushed into your current docker registry before
 # running tests locally - use "make om-image" and "make appdb" to do this
@@ -64,6 +66,7 @@ class TestOpsManagerCreation:
     def test_admin_config_map(self, ops_manager: MongoDBOpsManager):
         ops_manager.get_automation_config_tester().reached_version(1)
 
+    @skip_if_local
     def test_om_connectivity(self, ops_manager: MongoDBOpsManager):
         ops_manager.get_om_tester().assert_healthiness()
         # todo check the backing db group, automation config and data integrity
@@ -110,6 +113,7 @@ class TestOpsManagerAppDbScaleUp:
     def test_admin_config_map(self, ops_manager: MongoDBOpsManager):
         ops_manager.get_automation_config_tester().reached_version(2)
 
+    @skip_if_local
     def test_om_connectivity(self, ops_manager: MongoDBOpsManager):
         ops_manager.get_om_tester().assert_healthiness()
 
@@ -136,5 +140,6 @@ class TestOpsManagerAppDbScaleDown:
     def test_admin_config_map(self, ops_manager: MongoDBOpsManager):
         ops_manager.get_automation_config_tester().reached_version(3)
 
+    @skip_if_local
     def test_om_connectivity(self, ops_manager: MongoDBOpsManager):
         ops_manager.get_om_tester().assert_healthiness()
