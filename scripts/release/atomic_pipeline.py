@@ -535,7 +535,7 @@ def build_community_image(build_configuration: BuildConfiguration, image_type: s
         architectures = ["amd64"]
         logger.info("Skipping ARM64 builds for community image as this is running in EVG pipeline as a patch")
     else:
-        architectures = build_configuration.architecture or ["amd64", "arm64"]
+        architectures = build_configuration.platforms or ["amd64", "arm64"]
 
     multi_arch_args_list = []
 
