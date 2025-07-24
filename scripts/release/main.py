@@ -75,19 +75,6 @@ def build_image(image_name: str, build_configuration: BuildConfiguration):
     get_builder_function_for_image_name()[image_name](build_configuration)
 
 
-def build_all_images(
-    images: Iterable[str],
-    build_configuration: BuildConfiguration,
-):
-    """Builds all the images in the `images` list."""
-    # if sign:
-    #    mongodb_artifactory_login()
-    for idx, image in enumerate(images):
-        logger.info(f"====Building image {image} ({idx + 1}/{len(images)})====")
-        time.sleep(1)
-        build_image(image, build_configuration)
-
-
 def _setup_tracing():
     trace_id = os.environ.get("otel_trace_id")
     parent_id = os.environ.get("otel_parent_id")
@@ -123,8 +110,7 @@ def main():
 
     _setup_tracing()
     parser = argparse.ArgumentParser(description="Build container images.")
-    parser.add_argument("--include", action="append", help="Image to include.")
-    parser.add_argument("--skip", action="append", help="Image to skip.")
+    parser.add_argument("image", help="Image to build.")
     parser.add_argument(
         "--builder",
         default="docker",
@@ -152,19 +138,18 @@ def main():
     )
 
     args = parser.parse_args()
-    images_to_build = get_builder_function_for_image_name().keys()
 
-    if args.include:
-        images_to_build = set(args.include)
-
-    if args.skip:
-        images_to_build = set(images_to_build) - set(args.skip)
+    # Validate that the image name is supported
+    supported_images = get_builder_function_for_image_name().keys()
+    if args.image not in supported_images:
+        logger.error(f"Unsupported image '{args.image}'. Supported images: {', '.join(supported_images)}")
+        sys.exit(1)
 
     # Parse platform argument (comma-separated)
     platforms = [p.strip() for p in args.platform.split(",")]
 
     # Centralized configuration management
-    build_context = BuildContext.from_environment()
+    build_context = BuildContext.from_environment() # TODO: allow to override
     version_resolver = VersionResolver(build_context)
     registry_resolver = RegistryResolver(build_context)
 
@@ -174,19 +159,16 @@ def main():
         base_registry=registry_resolver.get_base_registry(),
         parallel=args.parallel,
         debug=args.debug,
-        architecture=platforms,
+        platforms=platforms,
         sign=args.sign or build_context.signing_enabled,
         all_agents=args.all_agents or bool(os.environ.get("all_agents", False)),
         parallel_factor=args.parallel_factor,
     )
 
-    logger.info(f"Building images: {list(images_to_build)}")
+    logger.info(f"Building image: {args.image}")
     logger.info(f"Build configuration: {build_configuration}")
 
-    build_all_images(
-        images=images_to_build,
-        build_configuration=build_configuration,
-    )
+    build_image(args.image, build_configuration)
 
 
 if __name__ == "__main__":
