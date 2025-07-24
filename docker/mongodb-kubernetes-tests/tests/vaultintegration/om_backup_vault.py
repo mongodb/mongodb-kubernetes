@@ -15,7 +15,7 @@ from kubetester import (
 from kubetester.awss3client import AwsS3Client, s3_endpoint
 from kubetester.certs import create_mongodb_tls_certs, create_ops_manager_tls_certs
 from kubetester.http import https_endpoint_is_reachable
-from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import KubernetesTester, assert_container_count
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import get_pods
 from kubetester.mongodb import MongoDB
@@ -452,7 +452,7 @@ def test_appdb_reached_running_and_pod_count(ops_manager: MongoDBOpsManager, nam
     # check AppDB has 4 containers(+1 because of vault-agent)
     for pod_name in get_pods(ops_manager.name + "-db-{}", 3):
         pod = client.CoreV1Api().read_namespaced_pod(pod_name, namespace)
-        assert len(pod.spec.containers) == 4
+        assert_container_count(pod.spec.containers, 4)
 
 
 @mark.e2e_vault_setup_om_backup

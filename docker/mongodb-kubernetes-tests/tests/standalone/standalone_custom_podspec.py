@@ -37,7 +37,7 @@ def test_stateful_set_spec_updated(standalone, namespace):
     else:
         assert len(containers) == 2
         assert "standalone-sidecar" in container_names
-        assert "mongodb-agent" in container_names
+        assert "mongodb-enterprise-database" in container_names
 
     labels = sts.spec.template.metadata.labels
     assert labels["label1"] == "value1"

@@ -380,7 +380,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	externalDomain := appDb.GetExternalDomainForMemberCluster(scaler.MemberClusterName())
 
 	if ShouldEnableMonitoring(podVars) {
-		monitoringModification = addMonitoringContainer(*appDb, *podVars, opts, externalDomain, log)
+		monitoringModification = addMonitoringContainer(*appDb, *podVars, opts, externalDomain, architectures.IsRunningStaticArchitecture(opsManager.Annotations), log)
 	} else {
 		// Otherwise, let's remove for now every podTemplateSpec related to monitoring
 		// We will apply them when enabling monitoring
@@ -490,7 +490,7 @@ func getVolumeMountIndexByName(mounts []corev1.VolumeMount, name string) int {
 // addMonitoringContainer returns a podtemplatespec modification that adds the monitoring container to the AppDB Statefulset.
 // Note that this replicates some code from the functions that do this for the base AppDB Statefulset. After many iterations
 // this was deemed to be an acceptable compromise to make code clearer and more maintainable.
-func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts AppDBStatefulSetOptions, externalDomain *string, log *zap.SugaredLogger) podtemplatespec.Modification {
+func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts AppDBStatefulSetOptions, externalDomain *string, isStatic bool, log *zap.SugaredLogger) podtemplatespec.Modification {
 	var monitoringAcVolume corev1.Volume
 	var monitoringACFunc podtemplatespec.Modification
 
@@ -513,7 +513,7 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 	}
 	// Construct the command by concatenating:
 	// 1. The base command - from community
-	command := construct.GetMongodbUserCommandWithAPIKeyExport(false)
+	command := construct.GetMongodbUserCommandWithAPIKeyExport(isStatic)
 	command += "agent/mongodb-agent"
 	command += " -healthCheckFilePath=" + monitoringAgentHealthStatusFilePathValue
 	command += " -serveStatusPort=5001"

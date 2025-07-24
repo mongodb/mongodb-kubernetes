@@ -69,6 +69,13 @@ def is_default_architecture_static() -> bool:
     return os.getenv("MDB_DEFAULT_ARCHITECTURE", "non-static") == "static"
 
 
+def assert_container_count(current_container_count: int, expected_counter_without_static: int):
+    if is_default_architecture_static():
+        assert current_container_count == expected_counter_without_static + 1
+    else:
+        assert current_container_count == expected_counter_without_static
+
+
 def get_default_architecture() -> str:
     return "static" if is_default_architecture_static() else "non-static"
 

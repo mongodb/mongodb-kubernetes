@@ -118,7 +118,7 @@ def test_stateful_sets_spec_updated(sc: MongoDB):
             assert "mongodb-agent-operator-utilities" in container_names
             assert "sharded-cluster-sidecar" in container_names
 
-            resources = containers[2].resources
+            resources = containers[3].resources
         else:
             containers = shard1_sts.spec.template.spec.containers
             assert len(containers) == 2
