@@ -452,7 +452,7 @@ def test_appdb_reached_running_and_pod_count(ops_manager: MongoDBOpsManager, nam
     # check AppDB has 4 containers(+1 because of vault-agent)
     for pod_name in get_pods(ops_manager.name + "-db-{}", 3):
         pod = client.CoreV1Api().read_namespaced_pod(pod_name, namespace)
-        assert_container_count(pod.spec.containers, 4)
+        assert_container_count(len(pod.spec.containers), 4)
 
 
 @mark.e2e_vault_setup_om_backup
