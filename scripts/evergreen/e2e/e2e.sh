@@ -21,7 +21,7 @@ run_e2e_mco_tests() {
   docker exec kind-control-plane mkdir -p /opt/data/mongo-data-{0..2} /opt/data/mongo-logs-{0..2}
 
   set +e # let's not fail here, such that we can still dump all information
-  scripts/evergreen/run_python.sh mongodb-community-operator/scripts/dev/e2e.py --test "${TEST_NAME}" --distro ubi --cluster-wide "${cluster_wide}"
+  scripts/dev/run_python.sh mongodb-community-operator/scripts/dev/e2e.py --test "${TEST_NAME}" --distro ubi --cluster-wide "${cluster_wide}"
   local test_results=$?
   set -e
 
