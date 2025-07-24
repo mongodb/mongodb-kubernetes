@@ -71,49 +71,37 @@ func TestIsRunningStaticArchitecture(t *testing.T) {
 
 func TestGetMongoVersion(t *testing.T) {
 	tests := []struct {
-		name            string
-		mongoDBImage    string
-		version         string
-		forceEnterprise bool
-		architecture    DefaultArchitecture
-		want            string
+		name         string
+		mongoDBImage string
+		version      string
+		architecture DefaultArchitecture
+		want         string
 	}{
 		{
-			name:            "nothing",
-			mongoDBImage:    "",
-			version:         "8.0.0",
-			forceEnterprise: false,
-			architecture:    NonStatic,
-			want:            "8.0.0",
+			name:         "nothing",
+			mongoDBImage: "",
+			version:      "8.0.0",
+			architecture: NonStatic,
+			want:         "8.0.0",
 		},
 		{
-			name:            "enterprise repo",
-			mongoDBImage:    "quay.io/mongodb/mongodb-enterprise-server",
-			version:         "8.0.0",
-			forceEnterprise: false,
-			architecture:    Static,
-			want:            "8.0.0-ent",
+			name:         "enterprise repo",
+			mongoDBImage: "quay.io/mongodb/mongodb-enterprise-server",
+			version:      "8.0.0",
+			architecture: Static,
+			want:         "8.0.0-ent",
 		},
 		{
-			name:            "community repo",
-			mongoDBImage:    "quay.io/mongodb/mongodb-community-server",
-			version:         "8.0.0",
-			forceEnterprise: false,
-			architecture:    NonStatic,
-			want:            "8.0.0",
-		},
-		{
-			name:            "enterprise repo forced",
-			mongoDBImage:    "quay.io/mongodb/mongodb-private-server",
-			version:         "8.0.0",
-			forceEnterprise: true,
-			architecture:    Static,
-			want:            "8.0.0-ent",
+			name:         "community repo",
+			mongoDBImage: "quay.io/mongodb/mongodb-community-server",
+			version:      "8.0.0",
+			architecture: NonStatic,
+			want:         "8.0.0",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := GetMongoVersionForAutomationConfig(tt.mongoDBImage, tt.version, tt.forceEnterprise, tt.architecture); got != tt.want {
+			if got := GetMongoVersionForAutomationConfig(tt.mongoDBImage, tt.version, tt.architecture); got != tt.want {
 				t.Errorf("GetMongoVersionForAutomationConfig() = %v, want %v", got, tt.want)
 			}
 		})
