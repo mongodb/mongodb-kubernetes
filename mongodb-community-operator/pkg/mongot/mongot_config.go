@@ -33,6 +33,7 @@ type ConfigReplicaSet struct {
 	PasswordFile   string   `json:"passwordFile"`
 	TLS            *bool    `json:"tls,omitempty"`
 	ReadPreference *string  `json:"readPreference,omitempty"`
+	AuthSource     *string  `json:"authSource,omitempty"`
 }
 
 type ConfigStorage struct {
