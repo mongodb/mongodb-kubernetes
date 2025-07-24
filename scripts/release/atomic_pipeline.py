@@ -34,11 +34,10 @@ from .build_context import BuildScenario
 from .build_images import process_image
 from .optimized_operator_build import build_operator_image_fast
 
-# TODO: better framework for multi arch builds (spike to come)
-
 TRACER = trace.get_tracer("evergreen-agent")
 DEFAULT_NAMESPACE = "default"
 
+# TODO: rename architecture -> platform everywhere
 
 def make_list_of_str(value: Union[None, str, List[str]]) -> List[str]:
     if value is None:
@@ -243,7 +242,7 @@ def build_mco_tests_image(build_configuration: BuildConfiguration):
     """
     Builds image used to run community tests.
     """
-    image_name = "community-operator-e2e"
+    image_name = "mongodb-community-tests"
     golang_version = os.getenv("GOLANG_VERSION", "1.24")
     if golang_version == "":
         raise Exception("Missing GOLANG_VERSION environment variable")
@@ -464,7 +463,7 @@ def build_image_generic(
                 dockerfile_path=dockerfile_path,
                 dockerfile_args=build_args,
                 base_registry=registry,
-                architecture=arch,
+                platforms=arch,
                 sign=False,
                 with_sbom=False,
             )
