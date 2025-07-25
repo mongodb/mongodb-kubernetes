@@ -115,8 +115,7 @@ def get_change_kind(kind_str: str) -> ChangeKind:
         return ChangeKind.FEATURE
     elif kind_str.lower() in BUGFIX_ENTRIES:
         return ChangeKind.FIX
-    else:
-        return ChangeKind.OTHER
+    return ChangeKind.OTHER
 
 
 def extract_changelog_entry_from_contents(file_contents: str) -> ChangeEntry:
