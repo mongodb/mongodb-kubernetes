@@ -9,7 +9,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	cmddebug "github.com/mongodb/mongodb-kubernetes/cmd/kubectl-mongodb/debug"
 	"github.com/mongodb/mongodb-kubernetes/cmd/kubectl-mongodb/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/cmd/kubectl-mongodb/utils"
 )
@@ -25,7 +24,6 @@ of MongoDB resources in your kubernetes cluster.
 
 func init() {
 	rootCmd.AddCommand(multicluster.MulticlusterCmd)
-	rootCmd.AddCommand(cmddebug.DebugCmd)
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
