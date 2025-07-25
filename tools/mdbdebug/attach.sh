@@ -4,6 +4,8 @@
 
 set -Eeou pipefail
 
+source scripts/dev/set_env_context.sh
+
 if ! which fzf &>/dev/null ; then
   echo "you need to install fzf:"
   echo "  brew install fzf"
