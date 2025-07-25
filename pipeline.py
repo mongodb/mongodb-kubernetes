@@ -69,7 +69,7 @@ def _setup_tracing():
         trace_id=int(trace_id, 16),
         span_id=int(parent_id, 16),
         is_remote=False,
-        # Magic number needed for our OTEL collector
+        # This flag ensures the span is sampled and sent to the collector
         trace_flags=TraceFlags(0x01),
     )
     ctx = trace.set_span_in_context(NonRecordingSpan(span_context))
