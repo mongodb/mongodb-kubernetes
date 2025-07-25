@@ -145,7 +145,6 @@ def pipeline_process_image(
     logger.debug(f"Build args: {dockerfile_args}")
     process_image(
         image_name,
-        image_tag=image_tag,
         image_tag=build_configuration.version,
         dockerfile_path=dockerfile_path,
         dockerfile_args=dockerfile_args,
