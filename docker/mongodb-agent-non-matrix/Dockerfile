@@ -46,6 +46,12 @@ COPY --from=base /data/mongodb-agent.tar.gz /agent
 COPY --from=base /data/mongodb-tools.tgz /agent
 COPY --from=base /data/LICENSE /licenses/LICENSE
 
+# Copy scripts to a safe location that won't be overwritten by volume mount
+COPY --from=base /opt/scripts/agent-launcher-shim.sh /usr/local/bin/agent-launcher-shim.sh
+COPY --from=base /opt/scripts/setup-agent-files.sh /usr/local/bin/setup-agent-files.sh
+COPY --from=base /opt/scripts/dummy-probe.sh /usr/local/bin/dummy-probe.sh
+COPY --from=base /opt/scripts/dummy-readinessprobe.sh /usr/local/bin/dummy-readinessprobe
+
 RUN tar xfz /agent/mongodb-agent.tar.gz \
     && mv mongodb-mms-automation-agent-*/mongodb-mms-automation-agent /agent/mongodb-agent \
     && chmod +x /agent/mongodb-agent \
