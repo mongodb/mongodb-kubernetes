@@ -18,7 +18,7 @@ import (
 const (
 	MongotDefaultPort               = 27027
 	MongotDefaultMetricsPort        = 9946
-	MongotDefaultSyncSourceUsername = "mongot-user"
+	MongotDefaultSyncSourceUsername = "search-sync-source"
 )
 
 func init() {

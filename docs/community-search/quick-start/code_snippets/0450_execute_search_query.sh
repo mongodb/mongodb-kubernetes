@@ -42,6 +42,6 @@ EOF
 
 kubectl exec --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" mongodb-tools-pod -- /bin/bash -eu -c "$(cat <<EOF
 echo '${mdb_script}' > /tmp/mdb_script.js
-mongosh --quiet "mongodb://search-user:${MDB_SEARCH_USER_PASSWORD}@mdbc-rs-0.mdbc-rs-svc.${MDB_NAMESPACE}.svc.cluster.local:27017/?replicaSet=mdbc-rs" < /tmp/mdb_script.js
+mongosh --quiet "mongodb://mdb-user:${MDB_USER_PASSWORD}@mdbc-rs-0.mdbc-rs-svc.${MDB_NAMESPACE}.svc.cluster.local:27017/?replicaSet=mdbc-rs" < /tmp/mdb_script.js
 EOF
 )"

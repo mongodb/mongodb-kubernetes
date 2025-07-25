@@ -4,11 +4,9 @@ This guide provides instructions for deploying MongoDB Community Edition along w
 
 ## Prerequisites
 
-Community Search is currently in private preview, and access to the image requires a secret to pull the search container image from Quay.io. This secret is specified during the first step of the process below, and must be obtained from MongoDB when requesting access to the private preview.
-
 Before you begin, ensure you have the following tools and configurations in place:
 
-- **Kubernetes cluster**: A running Kubernetes cluster (e.g., Minikube, Kind, GKE, EKS, AKS).
+- **Kubernetes cluster**: A running Kubernetes cluster (e.g., Minikube, Kind, GKE, EKS, AKS) with kubeconfig available locally.
 - **kubectl**: The Kubernetes command-line tool, configured to communicate with your cluster.
 - **Helm**: The package manager for Kubernetes, used here to install the MongoDB Kubernetes Operator.
 - **Bash 5.1+**: All shell commands in this guide are intended to be run in Bash. Scripts in this guide are automatically tested on Linux with Bash 5.1.
@@ -47,27 +45,7 @@ Next, install the MongoDB Kubernetes Operator from the Helm repository you just 
 ```shell copy
 {% include "code_snippets/0100_install_operator.sh" %}
 ```
-This command installs the operator in the `mongodb` namespace (creating it if it doesn't exist) and names the release `community-operator`.
-
-### 4. Configure Pull Secret for MongoDB Community Search
-
-To use MongoDB Search, your Kubernetes cluster needs to pull the necessary container images. This step creates a Kubernetes secret named `community-private-preview-pullsecret`. This secret stores the credentials required to access the image repository for MongoDB Search. The script then patches the `mongodb-kubernetes-database-pods` service account to include this pull secret, allowing pods managed by this service account to pull the required images.
-
-[code_snippets/0200_configure_community_search_pullsecret.sh](code_snippets/0200_configure_community_search_pullsecret.sh)
-```shell copy
-{% include "code_snippets/0200_configure_community_search_pullsecret.sh" %}
-```
-This script creates a `community-private-preview-pullsecret` secret in your Kubernetes namespace and associates it with the service account used for MongoDB pods.
-
-### 5. Verify Pull Secret Configuration
-
-Confirm that the `community-private-preview-pullsecret` has been successfully added to the `mongodb-kubernetes-database-pods` service account. This ensures that Kubernetes can authenticate with the container registry when pulling images for MongoDB Search pods.
-
-[code_snippets/0210_verify_community_search_pullsecret.sh](code_snippets/0210_verify_community_search_pullsecret.sh)
-```shell copy
-{% include "code_snippets/0210_verify_community_search_pullsecret.sh" %}
-```
-This command checks the `mongodb-kubernetes-database-pods` service account to confirm the presence of `community-private-preview-pullsecret`.
+This command installs the operator in the `mongodb` namespace (creating it if it doesn't exist).
 
 ## Creating a MongoDB Community Search Deployment
 

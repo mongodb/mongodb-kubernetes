@@ -4,8 +4,6 @@ This guide provides instructions for deploying MongoDB Community Edition along w
 
 ## Prerequisites
 
-Community Search is currently in private preview, and access to the image requires a secret to pull the search container image from Quay.io. This secret is specified during the first step of the process below, and must be obtained from MongoDB when requesting access to the private preview.
-
 Before you begin, ensure you have the following tools and configurations in place:
 
 - **Kubernetes cluster**: A running Kubernetes cluster (e.g., Minikube, Kind, GKE, EKS, AKS).
@@ -37,7 +35,7 @@ export PRIVATE_PREVIEW_IMAGE_PULLSECRET="<.dockerconfigjson>"
 export MDB_NAMESPACE="mongodb"
 
 export MDB_ADMIN_USER_PASSWORD="admin-user-password-CHANGE-ME"
-export MDB_SEARCH_USER_PASSWORD="search-user-password-CHANGE-ME"
+export MDB_SEARCH_SYNC_USER_PASSWORD="search-user-password-CHANGE-ME"
 
 export OPERATOR_HELM_CHART="mongodb/mongodb-kubernetes"
 # comma-separated key=value pairs for additional parameters passed to the helm-chart installing the operator
@@ -139,7 +137,7 @@ kubectl --context "${K8S_CLUSTER_0_CONTEXT_NAME}" --namespace "${MDB_NAMESPACE}"
 
 kubectl --context "${K8S_CLUSTER_0_CONTEXT_NAME}" --namespace "${MDB_NAMESPACE}" \
   create secret generic search-user-password \
-  --from-literal=password="${MDB_SEARCH_USER_PASSWORD}"
+  --from-literal=password="${MDB_SEARCH_SYNC_USER_PASSWORD}"
 ```
 Ensure these secrets are created in the same namespace where you plan to deploy MongoDB.
 
@@ -338,7 +336,7 @@ kubectl exec -n "${MDB_NAMESPACE}" --context "${K8S_CLUSTER_0_CONTEXT_NAME}" mon
 echo "Downloading sample database archive..."
 curl https://atlas-education.s3.amazonaws.com/sample_mflix.archive -o /tmp/sample_mflix.archive
 echo "Restoring sample database"
-mongorestore --archive=/tmp/sample_mflix.archive --verbose=1 --drop --nsInclude 'sample_mflix.*' --uri="mongodb://search-user:${MDB_SEARCH_USER_PASSWORD}@mdbc-rs-0.mdbc-rs-svc.${MDB_NAMESPACE}.svc.cluster.local:27017/?replicaSet=mdbc-rs"
+mongorestore --archive=/tmp/sample_mflix.archive --verbose=1 --drop --nsInclude 'sample_mflix.*' --uri="mongodb://search-user:${MDB_SEARCH_SYNC_USER_PASSWORD}@mdbc-rs-0.mdbc-rs-svc.${MDB_NAMESPACE}.svc.cluster.local:27017/?replicaSet=mdbc-rs"
 EOF
 )"
 ```
@@ -353,7 +351,7 @@ Before performing search queries, create a search index. This step uses `kubectl
 #!/bin/bash
 
 kubectl exec --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" mongodb-tools-pod -- \
-  mongosh --quiet "mongodb://search-user:${MDB_SEARCH_USER_PASSWORD}@mdbc-rs-0.mdbc-rs-svc.${MDB_NAMESPACE}.svc.cluster.local:27017/?replicaSet=mdbc-rs" \
+  mongosh --quiet "mongodb://search-user:${MDB_SEARCH_SYNC_USER_PASSWORD}@mdbc-rs-0.mdbc-rs-svc.${MDB_NAMESPACE}.svc.cluster.local:27017/?replicaSet=mdbc-rs" \
     --eval "use sample_mflix" \
     --eval 'db.movies.createSearchIndex("default", { mappings: { dynamic: true } });'
 ```
@@ -368,7 +366,7 @@ Creating a search index is an asynchronous operation. This script polls periodic
 
 for _ in $(seq 0 10); do
   search_index_status=$(kubectl exec --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" mongodb-tools-pod -- \
-      mongosh --quiet "mongodb://search-user:${MDB_SEARCH_USER_PASSWORD}@mdbc-rs-0.mdbc-rs-svc.${MDB_NAMESPACE}.svc.cluster.local:27017/?replicaSet=mdbc-rs" \
+      mongosh --quiet "mongodb://search-user:${MDB_SEARCH_SYNC_USER_PASSWORD}@mdbc-rs-0.mdbc-rs-svc.${MDB_NAMESPACE}.svc.cluster.local:27017/?replicaSet=mdbc-rs" \
         --eval "use sample_mflix" \
         --eval 'db.movies.getSearchIndexes("default")[0]["status"]')
 
@@ -436,7 +434,7 @@ EOF
 
 kubectl exec --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" mongodb-tools-pod -- /bin/bash -eu -c "$(cat <<EOF
 echo '${mdb_script}' > /tmp/mdb_script.js
-mongosh --quiet "mongodb://search-user:${MDB_SEARCH_USER_PASSWORD}@mdbc-rs-0.mdbc-rs-svc.${MDB_NAMESPACE}.svc.cluster.local:27017/?replicaSet=mdbc-rs" < /tmp/mdb_script.js
+mongosh --quiet "mongodb://search-user:${MDB_SEARCH_SYNC_USER_PASSWORD}@mdbc-rs-0.mdbc-rs-svc.${MDB_NAMESPACE}.svc.cluster.local:27017/?replicaSet=mdbc-rs" < /tmp/mdb_script.js
 EOF
 )"
 ```
