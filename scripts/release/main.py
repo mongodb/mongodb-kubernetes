@@ -37,8 +37,7 @@ from scripts.release.atomic_pipeline import (
 from scripts.release.build_configuration import BuildConfiguration
 from scripts.release.build_context import (
     BuildContext,
-    RegistryResolver,
-    VersionResolver,
+    BuildScenario,
 )
 
 
@@ -110,21 +109,31 @@ def main():
 
     _setup_tracing()
     parser = argparse.ArgumentParser(description="Build container images.")
-    parser.add_argument("image", help="Image to build.")
-    parser.add_argument(
-        "--builder",
-        default="docker",
-        choices=["docker", "podman"],
-        help="Tool to use to build images.",
-    )
+    parser.add_argument("image", help="Image to build.") # Required
     parser.add_argument("--parallel", action="store_true", help="Build images in parallel.")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging.")
     parser.add_argument("--sign", action="store_true", help="Sign images.")
+    parser.add_argument(
+        "--scenario",
+        choices=list(BuildScenario),
+        help=f"Override the build scenario instead of inferring from environment. Options: release, patch, master, development",
+    )
+    # Override arguments for build context and configuration
     parser.add_argument(
         "--platform",
         default="linux/amd64",
         help="Target platforms for multi-arch builds (comma-separated). Example: linux/amd64,linux/arm64. Defaults to linux/amd64.",
     )
+    parser.add_argument(
+        "--version",
+        help="Override the version/tag instead of resolving from build scenario",
+    )
+    parser.add_argument(
+        "--registry",
+        help="Override the base registry instead of resolving from build scenario",
+    )
+    
+    # Agent specific arguments
     parser.add_argument(
         "--all-agents",
         action="store_true",
@@ -147,21 +156,31 @@ def main():
 
     # Parse platform argument (comma-separated)
     platforms = [p.strip() for p in args.platform.split(",")]
+    SUPPORTED_PLATFORMS = ["linux/amd64", "linux/arm64"]
+    if any(p not in SUPPORTED_PLATFORMS for p in platforms):
+        logger.error(f"Unsupported platform in '{args.platform}'. Supported platforms: {', '.join(SUPPORTED_PLATFORMS)}")
+        sys.exit(1)
 
-    # Centralized configuration management
-    build_context = BuildContext.from_environment() # TODO: allow to override
-    version_resolver = VersionResolver(build_context)
-    registry_resolver = RegistryResolver(build_context)
+    # Centralized configuration management with overrides
+    build_scenario = args.scenario or infer_scenario_from_environment()
+    build_context = BuildContext.from_scenario(build_scenario)
+
+    # Resolve final values with overrides
+    scenario = args.scenario or build_context.scenario
+    version = args.version or build_context.get_version()
+    registry = args.registry or build_context.get_base_registry()
+    sign = args.sign or build_context.signing_enabled
+    all_agents = args.all_agents or bool(os.environ.get("all_agents", False))
 
     build_configuration = BuildConfiguration(
-        scenario=build_context.scenario,
-        version=version_resolver.get_version(),
-        base_registry=registry_resolver.get_base_registry(),
+        scenario=scenario,
+        version=version,
+        base_registry=registry,
         parallel=args.parallel,
-        debug=args.debug,
+        debug=args.debug, # TODO: is debug used ?
         platforms=platforms,
-        sign=args.sign or build_context.signing_enabled,
-        all_agents=args.all_agents or bool(os.environ.get("all_agents", False)),
+        sign=sign,
+        all_agents=all_agents,
         parallel_factor=args.parallel_factor,
     )
 
