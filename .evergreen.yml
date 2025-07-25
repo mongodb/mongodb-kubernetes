@@ -283,7 +283,7 @@ tasks:
       - func: setup_building_host
       - func: quay_login
       - func: setup_docker_sbom
-      - func: pipeline
+      - func: legacy_pipeline
         vars:
           image_name: operator
 
@@ -296,7 +296,7 @@ tasks:
       - func: setup_building_host
       - func: quay_login
       - func: setup_docker_sbom
-      - func: pipeline
+      - func: legacy_pipeline
         vars:
           image_name: init-appdb
 
@@ -308,7 +308,7 @@ tasks:
       - func: setup_building_host
       - func: quay_login
       - func: setup_docker_sbom
-      - func: pipeline
+      - func: legacy_pipeline
         vars:
           image_name: init-database
 
@@ -320,7 +320,7 @@ tasks:
       - func: setup_building_host
       - func: quay_login
       - func: setup_docker_sbom
-      - func: pipeline
+      - func: legacy_pipeline
         vars:
           image_name: init-ops-manager
 
@@ -332,7 +332,7 @@ tasks:
       - func: setup_building_host
       - func: quay_login
       - func: setup_docker_sbom
-      - func: pipeline
+      - func: legacy_pipeline
         vars:
           image_name: agent
 
@@ -345,7 +345,7 @@ tasks:
       - func: setup_building_host
       - func: quay_login
       - func: setup_docker_sbom
-      - func: pipeline
+      - func: legacy_pipeline
         vars:
           image_name: agent-pct
           include_tags: release
@@ -390,7 +390,7 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
-      - func: pipeline
+      - func: legacy_pipeline
         vars:
           image_name: agent-pct
           skip_tags: release
@@ -405,7 +405,7 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
-      - func: pipeline
+      - func: legacy_pipeline
         vars:
           image_name: agent-pct
           skip_tags: release
@@ -549,7 +549,7 @@ tasks:
       - func: setup_building_host
       - func: quay_login
       - func: setup_docker_sbom
-      - func: pipeline
+      - func: legacy_pipeline
         vars:
           image_name: database
 
@@ -568,7 +568,7 @@ tasks:
       - func: setup_building_host
       - func: quay_login
       - func: setup_docker_sbom
-      - func: pipeline
+      - func: legacy_pipeline
         vars:
           image_name: ops-manager
           include_tags: release
