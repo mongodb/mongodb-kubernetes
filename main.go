@@ -10,8 +10,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-logr/zapr"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -23,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	corev1 "k8s.io/api/core/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -116,7 +120,7 @@ func main() {
 		}
 	}
 
-	ctx := context.Background()
+	ctx := signals.SetupSignalHandler()
 	operator.OmUpdateChannel = make(chan event.GenericEvent)
 
 	klog.InitFlags(nil)
@@ -134,11 +138,32 @@ func main() {
 
 	enableClusterMongoDBRoles := slices.Contains(crds, clusterMongoDBRoleCRDPlural)
 
+	// Get trace and span IDs from environment variables
+	traceIDHex := os.Getenv("OTEL_TRACE_ID")
+	spanIDHex := os.Getenv("OTEL_PARENT_ID")
+	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+
 	// Get a config to talk to the apiserver
 	cfg := ctrl.GetConfigOrDie()
 
+	log.Debugf("Setting up tracing with ID: %s, Parent ID: %s, Endpoint: %s", traceIDHex, spanIDHex, endpoint)
+	ctx, tp, err := telemetry.SetupTracingFromParent(ctx, traceIDHex, spanIDHex, endpoint)
+	if err != nil {
+		log.Errorf("Failed to setup tracing: %v", err)
+	}
+	if tp != nil {
+		defer shutdownTracerProvider(ctx, tp)
+	}
+
+	ctx, operatorSpan := startRootSpan(currentNamespace, spanIDHex, ctx)
+	defer operatorSpan.End()
+
 	managerOptions := ctrl.Options{
 		Scheme: scheme,
+		BaseContext: func() context.Context {
+			// Ensures every controller gets the trace and signal-aware context
+			return ctx
+		},
 	}
 
 	namespacesToWatch := operator.GetWatchedNamespace()
@@ -301,9 +326,35 @@ func main() {
 
 	log.Info("Starting the Cmd.")
 
-	// Start the Manager
-	if err := mgr.Start(signals.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(ctx); err != nil {
 		log.Fatal(err)
+	}
+}
+
+func startRootSpan(currentNamespace string, spanIDHex string, traceCtx context.Context) (context.Context, trace.Span) {
+	opts := []trace.SpanStartOption{
+		trace.WithAttributes(
+			attribute.String("component", "operator"),
+			attribute.String("namespace", currentNamespace),
+			attribute.String("service.name", "mongodb-kubernetes-operator"),
+			// let's ensure that the root span follows the given parent span
+			attribute.String("trace.parent_id", spanIDHex),
+		),
+	}
+
+	ctx, operatorSpan := telemetry.TRACER.Start(traceCtx, "MONGODB_OPERATOR_ROOT", opts...)
+	log.Debugf("Started root operator span with ID: %s in trace %s", operatorSpan.SpanContext().SpanID().String(), operatorSpan.SpanContext().TraceID().String())
+	return ctx, operatorSpan
+}
+
+func shutdownTracerProvider(signalCtx context.Context, tp *sdktrace.TracerProvider) {
+	shutdownCtx, cancel := context.WithTimeout(signalCtx, 5*time.Second)
+	defer cancel()
+
+	if err := tp.Shutdown(shutdownCtx); err != nil {
+		log.Errorf("Error shutting down tracer provider: %v", err)
+	} else {
+		log.Debug("Tracer provider successfully shut down")
 	}
 }
 
@@ -463,6 +514,9 @@ func initializeEnvironment() {
 		"MDB_",
 		"READINESS_PROBE_IMAGE",
 		"VERSION_UPGRADE_HOOK_IMAGE",
+		"OTEL_TRACE_ID",
+		"OTEL_PARENT_ID",
+		"OTEL_EXPORTER_OTLP_ENDPOINT",
 	}
 
 	// Only env variables with one of these prefixes will be printed

@@ -111,7 +111,7 @@ def get_operator_installation_config(namespace):
     config = KubernetesTester.read_configmap(namespace, "operator-installation-config")
     config["customEnvVars"] = f"OPS_MANAGER_MONITOR_APPDB={MONITOR_APPDB_E2E_DEFAULT}"
     if os.getenv("OM_DEBUG_HTTP") == "true":
-        print("Adding OM_DEBUG_HTTP=true to operator_installation_config")
+        logger.debug("Adding OM_DEBUG_HTTP=true to operator_installation_config")
         config["customEnvVars"] += "\&OM_DEBUG_HTTP=true"
 
     if local_operator():
@@ -1642,7 +1642,7 @@ def configure_telemetry():
         tracer_provider.add_span_processor(prefix_processor)
 
 
-# Remove the OpenTelemetryPlugin form the list and replace it with our custom generated one.
+# Remove the OpenTelemetryPlugin from the list and replace it with our custom generated one.
 # That's why we run our pytest last.
 @pytest.hookimpl(trylast=True)
 def pytest_configure(config):
