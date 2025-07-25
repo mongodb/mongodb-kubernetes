@@ -84,22 +84,19 @@ class TestOpsManagerCreation:
 
         assert appdb_sts.spec.template.spec.service_account_name == APPDB_SA_NAME
 
-        found_agent_container = False
-        found_sidecar_container = False
-        for container in appdb_sts.spec.template.spec.containers:
-            if container.name == "mongodb-agent":
-                found_agent_container = True
-                appdb_agent_container = container
-                assert appdb_agent_container.resources.limits["cpu"] == "750m"
-                assert appdb_agent_container.resources.limits["memory"] == "850M"
-            elif container.name == "appdb-sidecar":
-                found_sidecar_container = True
-                assert container.image == "busybox"
-                assert container.command == ["sleep"]
-                assert container.args == ["infinity"]
+        containers_by_name = {container.name: container for container in appdb_sts.spec.template.spec.containers}
 
-        assert found_agent_container, "mongodb-agent container not found"
-        assert found_sidecar_container, "appdb-sidecar container not found"
+        assert "mongodb-agent" in containers_by_name, "mongodb-agent container not found"
+        assert "appdb-sidecar" in containers_by_name, "appdb-sidecar container not found"
+
+        appdb_agent_container = containers_by_name["mongodb-agent"]
+        assert appdb_agent_container.resources.limits["cpu"] == "750m"
+        assert appdb_agent_container.resources.limits["memory"] == "850M"
+
+        appdb_sidecar_container = containers_by_name["appdb-sidecar"]
+        assert appdb_sidecar_container.image == "busybox"
+        assert appdb_sidecar_container.command == ["sleep"]
+        assert appdb_sidecar_container.args == ["infinity"]
 
     def test_appdb_persistence(self, ops_manager: MongoDBOpsManager, namespace: str):
         # appdb pod volume claim template
