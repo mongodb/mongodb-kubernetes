@@ -26,7 +26,7 @@ if __name__ == "__main__":
         metavar="",
         action="store",
         type=str,
-        help=f"Path to the changelog directory relative to the repository root. Default is {DEFAULT_CHANGELOG_PATH}",
+        help=f"Path to the changelog directory relative to a current working directory. Default is '{DEFAULT_CHANGELOG_PATH}'",
     )
     parser.add_argument(
         "-d",
