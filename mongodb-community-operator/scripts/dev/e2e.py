@@ -125,7 +125,7 @@ def create_test_pod(args: argparse.Namespace, namespace: str) -> None:
                     "command": [
                         "sh",
                         "-c",
-                        f"go test -v -timeout=45m -failfast ./mongodb-community-operator/test/e2e/{args.test} | tee -a /tmp/results/result.suite",
+                        f"go test -tags=community_e2e -v -timeout=45m -failfast ./mongodb-community-operator/test/e2e/{args.test} | tee -a /tmp/results/result.suite",
                     ],
                     "volumeMounts": [{"name": "results", "mountPath": "/tmp/results"}],
                 },

@@ -2,13 +2,16 @@
 # Dockerfile for Init Ops Manager Context.
 #
 
-FROM public.ecr.aws/docker/library/golang:1.24 as builder
-WORKDIR /go/src
-ADD . .
-RUN CGO_ENABLED=0 go build -a -buildvcs=false -o /data/scripts/mmsconfiguration ./mmsconfiguration
-RUN CGO_ENABLED=0 go build -a -buildvcs=false -o /data/scripts/backup-daemon-readiness-probe ./backupdaemon_readinessprobe/
+FROM public.ecr.aws/docker/library/golang:1.24 AS builder
 
-COPY scripts/docker-entry-point.sh /data/scripts/
-COPY scripts/backup-daemon-liveness-probe.sh /data/scripts/
+COPY . /build
+WORKDIR /build
 
-COPY LICENSE /data/licenses/mongodb-enterprise-ops-manager
+RUN mkdir -p /data/scripts /data/licenses
+
+RUN CGO_ENABLED=0 go build -a -buildvcs=false -o /data/scripts/mmsconfiguration ./docker/mongodb-kubernetes-init-ops-manager/mmsconfiguration
+RUN CGO_ENABLED=0 go build -a -buildvcs=false -o /data/scripts/backup-daemon-readiness-probe ./docker/mongodb-kubernetes-init-ops-manager/backupdaemon_readinessprobe
+
+COPY docker/mongodb-kubernetes-init-ops-manager/scripts/*.sh /data/scripts/
+
+COPY docker/mongodb-kubernetes-init-ops-manager/LICENSE /data/licenses/mongodb-enterprise-ops-manager

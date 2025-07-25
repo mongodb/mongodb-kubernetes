@@ -278,19 +278,18 @@ endif
 ENVTEST_ASSETS_DIR=$(shell pwd)/testbin
 
 golang-tests:
-	scripts/evergreen/unit-tests.sh
+	scripts/evergreen/unit-tests-golang.sh
 
 golang-tests-race:
-	USE_RACE=true scripts/evergreen/unit-tests.sh
+	USE_RACE=true scripts/evergreen/unit-tests-golang.sh
 
 sbom-tests:
-	@ scripts/evergreen/run_python.sh -m pytest generate_ssdlc_report_test.py
+	scripts/evergreen/unit-tests-sbom.sh
 
 # e2e tests are also in python and we will need to ignore them as they are in the docker/mongodb-kubernetes-tests folder
 # additionally, we have one lib which we want to test which is in the =docker/mongodb-kubernetes-tests folder.
 python-tests:
-	@ scripts/evergreen/run_python.sh -m pytest docker/mongodb-kubernetes-tests/kubeobject
-	@ scripts/evergreen/run_python.sh -m pytest --ignore=docker/mongodb-kubernetes-tests
+	scripts/evergreen/unit-tests-python.sh
 
 generate-ssdlc-report:
 	@ scripts/evergreen/run_python.sh generate_ssdlc_report.py
