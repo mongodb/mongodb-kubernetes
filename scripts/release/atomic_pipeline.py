@@ -6,18 +6,16 @@ to produce the final images."""
 import json
 import os
 import shutil
-import subprocess
-import time
 from concurrent.futures import ProcessPoolExecutor
 from queue import Queue
-from typing import Callable, Dict, Iterable, List, Optional, Tuple, Union
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import requests
 import semver
 from opentelemetry import trace
 from packaging.version import Version
 
-import docker
+
 from lib.base_logger import logger
 from scripts.evergreen.release.agent_matrix import (
     get_supported_operator_versions,
@@ -69,50 +67,6 @@ def is_running_in_patch():
 def load_release_file() -> Dict:
     with open("release.json") as release:
         return json.load(release)
-
-
-def create_and_push_manifest(image: str, tag: str, architectures: list[str]) -> None:
-    """
-    Generates docker manifests by running the following commands:
-    1. Clear existing manifests
-    docker manifest rm config.repo_url/image:tag
-    2. Create the manifest
-    docker manifest create config.repo_url/image:tag --amend config.repo_url/image:tag-amd64 --amend config.repo_url/image:tag-arm64
-    3. Push the manifest
-    docker manifest push config.repo_url/image:tag
-
-    This method calls docker directly on the command line, this is different from the rest of the code which uses
-    Sonar as an interface to docker. We decided to keep this asymmetry for now, as Sonar will be removed soon.
-    """
-    logger.debug(f"image: {image}, tag: {tag}, architectures: {architectures}")
-    final_manifest = image
-    logger.debug(f"push_manifest - final_manifest={final_manifest}")
-
-    args = [
-        "docker",
-        "manifest",
-        "create",
-        final_manifest,
-    ]
-
-    for arch in architectures:
-        logger.debug(f"push_manifest - amending {final_manifest}:{tag}-{arch}")
-        args.extend(["--amend", f"{final_manifest}:{tag}-{arch}"])
-
-    args_str = " ".join(args)
-    logger.debug(f"creating new manifest: {args_str}")
-    cp = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-    if cp.returncode != 0:
-        raise Exception(cp.stderr)
-
-    args = ["docker", "manifest", "push", final_manifest]
-    args_str = " ".join(args)
-    logger.info(f"pushing new manifest: {args_str}")
-    cp = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-    if cp.returncode != 0:
-        raise Exception(cp.stderr)
 
 
 @TRACER.start_as_current_span("sonar_build_image")
