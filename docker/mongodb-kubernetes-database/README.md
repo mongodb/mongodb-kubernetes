@@ -34,11 +34,12 @@ This image can't be built in any host, because it will require the use of a subs
 host, with subscription service enabled, is required. That's the reason behind using the Redhat build service to build
 this images with.
 
-## Building the DCAR database image
+### Building locally
 
-The dcar image needs to be built manually.
+For building the MongoDB Database image locally use the example command:
 
 ```bash
-docker build . -t 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/usaf/mongodb-kubernetes-database:1.5.3
-docker push 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/usaf/mongodb-kubernetes-database:1.5.3
+VERSION="1.0.1"
+docker buildx build --load --progress plain . -f docker/mongodb-kubernetes-database/Dockerfile -t "mongodb-kubernetes-database:${VERSION}" \
+ --build-arg VERSION="${VERSION}"
 ```

@@ -38,7 +38,7 @@ images:
     buildargs:
       imagebase: $(inputs.params.registry)/mongodb-agent-ubi:$(inputs.params.version)-context
       version:  $(inputs.params.version)
-    dockerfile: docker/mongodb-agent/Dockerfile
+    dockerfile: docker/mongodb-agent/Dockerfile.old
     output:
     - registry: $(inputs.params.registry)/mongodb-agent-ubi
       tag: $(inputs.params.version)

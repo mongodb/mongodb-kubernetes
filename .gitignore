@@ -43,11 +43,6 @@ public/architectures/**/secrets/*
 
 docker/mongodb-kubernetes-appdb/content/readinessprobe
 mongodb-kubernetes
-docker/mongodb-kubernetes-operator/Dockerfile
-docker/mongodb-kubernetes-database/Dockerfile
-docker/mongodb-enterprise-ops-manager/Dockerfile
-docker/mongodb-kubernetes-init-database/Dockerfile
-docker/mongodb-kubernetes-init-ops-manager/Dockerfile
 docker/mongodb-kubernetes-operator/content/mongodb-kubernetes-operator.tar
 docker/mongodb-kubernetes-tests/helm_chart/
 docker/mongodb-kubernetes-tests/public/
