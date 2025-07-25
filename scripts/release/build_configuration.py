@@ -18,7 +18,4 @@ class BuildConfiguration:
     debug: bool = True
 
     def is_release_step_executed(self) -> bool:
-        """
-        Determines whether release steps should be executed based on build scenario
-        """
         return self.scenario == BuildScenario.RELEASE

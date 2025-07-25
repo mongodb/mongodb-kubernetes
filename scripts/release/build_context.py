@@ -40,16 +40,7 @@ def infer_scenario_from_environment() -> BuildScenario:
 
 @dataclass
 class BuildContext:
-    """Holds the context of the current build, detected from the environment."""
-
-    ECR_BASE_URL = "268558157000.dkr.ecr.us-east-1.amazonaws.com"
-    
-    REGISTRY_MAP = {
-        BuildScenario.RELEASE: f"{ECR_BASE_URL}/julienben/staging-temp",  # TODO: replace with real staging repo
-        BuildScenario.MASTER: f"{ECR_BASE_URL}/dev",
-        BuildScenario.PATCH: f"{ECR_BASE_URL}/dev",
-        BuildScenario.DEVELOPMENT: os.environ.get("BASE_REPO_URL"),
-    }
+    """Define build parameters based on the build scenario."""
 
     scenario: BuildScenario
     git_tag: Optional[str] = None
@@ -72,15 +63,9 @@ class BuildContext:
             signing_enabled=signing_enabled,
             version=git_tag or patch_id,
         )
-
-    @classmethod
-    def from_environment(cls) -> "BuildContext":
-        """Auto-detect build context from environment variables."""
-        scenario = infer_scenario_from_environment()
-        return cls.from_scenario(scenario)
     
     def get_version(self) -> str:
-        """Gets the primary version string for the current build."""
+        """Gets the version that will be used to tag the images."""
         if self.scenario == BuildScenario.RELEASE:
             return self.git_tag
         if self.patch_id:
@@ -88,10 +73,9 @@ class BuildContext:
         return "latest"
     
     def get_base_registry(self) -> str:
-        """Get the base registry URL for the current build scenario."""
-        registry = self.REGISTRY_MAP.get(self.scenario)
-        if not registry:
-            raise ValueError(f"No registry defined for scenario {self.scenario}")
-        logger.info(f"Using registry: {registry}")
-        return registry
+        """Get the base registry URL for the current scenario."""
+        if self.scenario == BuildScenario.RELEASE:
+            return os.environ.get("STAGING_REPO_URL")
+        else:
+            return os.environ.get("BASE_REPO_URL")
 

@@ -40,6 +40,12 @@ from scripts.release.build_context import (
     BuildScenario,
 )
 
+"""
+The goal of main.py, build_configuration.py and build_context.py is to provide a single source of truth for the build 
+configuration. All parameters that depend on the the build environment (local dev, evg, etc) should be resolved here and
+not in the pipeline.
+"""
+
 
 def get_builder_function_for_image_name() -> Dict[str, Callable]:
     """Returns a dictionary of image names that can be built."""
@@ -148,6 +154,14 @@ def main():
 
     args = parser.parse_args()
 
+    build_config = build_config_from_args(args)
+    logger.info(f"Building image: {args.image}")
+    logger.info(f"Build configuration: {build_config}")
+
+    build_image(args.image, build_config)
+
+
+def build_config_from_args(args):
     # Validate that the image name is supported
     supported_images = get_builder_function_for_image_name().keys()
     if args.image not in supported_images:
@@ -172,7 +186,7 @@ def main():
     sign = args.sign or build_context.signing_enabled
     all_agents = args.all_agents or bool(os.environ.get("all_agents", False))
 
-    build_configuration = BuildConfiguration(
+    return BuildConfiguration(
         scenario=scenario,
         version=version,
         base_registry=registry,
@@ -183,11 +197,6 @@ def main():
         all_agents=all_agents,
         parallel_factor=args.parallel_factor,
     )
-
-    logger.info(f"Building image: {args.image}")
-    logger.info(f"Build configuration: {build_configuration}")
-
-    build_image(args.image, build_configuration)
 
 
 if __name__ == "__main__":
