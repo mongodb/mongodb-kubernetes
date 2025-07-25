@@ -118,12 +118,9 @@ def create_and_push_manifest(image: str, tag: str, architectures: list[str]) -> 
 @TRACER.start_as_current_span("sonar_build_image")
 def pipeline_process_image(
     image_name: str,
-    image_tag: str,  # TODO how to define tag properly
     dockerfile_path: str,
+    build_configuration: BuildConfiguration,
     dockerfile_args: Dict[str, str] = None,
-    base_registry: str = None,
-    platforms: list[str] = None,
-    sign: bool = False,
     build_path: str = ".",
     with_sbom: bool = True,
 ):
@@ -149,11 +146,12 @@ def pipeline_process_image(
     process_image(
         image_name,
         image_tag=image_tag,
+        image_tag=build_configuration.version,
         dockerfile_path=dockerfile_path,
         dockerfile_args=dockerfile_args,
-        base_registry=base_registry,
-        platforms=platforms,
-        sign=sign,
+        base_registry=build_configuration.base_registry,
+        platforms=build_configuration.platforms,
+        sign=build_configuration.sign,
         build_path=build_path,
     )
 
@@ -230,10 +228,9 @@ def build_tests_image(build_configuration: BuildConfiguration):
 
     pipeline_process_image(
         image_name,
-        image_tag=build_configuration.version,
         dockerfile_path="Dockerfile",
+        build_configuration=build_configuration,
         dockerfile_args=buildargs,
-        base_registry=build_configuration.base_registry,
         build_path="docker/mongodb-kubernetes-tests",
     )
 
@@ -251,10 +248,9 @@ def build_mco_tests_image(build_configuration: BuildConfiguration):
 
     pipeline_process_image(
         image_name,
-        image_tag=build_configuration.version,
         dockerfile_path="docker/mongodb-community-tests/Dockerfile",
+        build_configuration=build_configuration,
         dockerfile_args=buildargs,
-        base_registry=build_configuration.base_registry,
     )
 
 
@@ -278,9 +274,8 @@ def build_operator_image(build_configuration: BuildConfiguration):
     build_image_generic(
         image_name=image_name,
         dockerfile_path="docker/mongodb-kubernetes-operator/Dockerfile",
-        registry_address=build_configuration.base_registry,
+        build_configuration=build_configuration,
         extra_args=args,
-        sign=build_configuration.sign,
     )
 
 
@@ -299,9 +294,8 @@ def build_database_image(build_configuration: BuildConfiguration):
     build_image_generic(
         image_name="mongodb-kubernetes-database",
         dockerfile_path="docker/mongodb-kubernetes-database/Dockerfile",
-        registry_address=build_configuration.base_registry,
+        build_configuration=build_configuration,
         extra_args=args,
-        sign=build_configuration.sign,
     )
 
 
@@ -397,9 +391,8 @@ def build_init_om_image(build_configuration: BuildConfiguration):
     build_image_generic(
         image_name="mongodb-kubernetes-init-ops-manager",
         dockerfile_path="docker/mongodb-kubernetes-init-ops-manager/Dockerfile",
-        registry_address=build_configuration.base_registry,
+        build_configuration=build_configuration,
         extra_args=args,
-        sign=build_configuration.sign,
     )
 
 
@@ -422,20 +415,18 @@ def build_om_image(build_configuration: BuildConfiguration):
     build_image_generic(
         image_name="mongodb-enterprise-ops-manager-ubi",
         dockerfile_path="docker/mongodb-enterprise-ops-manager/Dockerfile",
-        registry_address=build_configuration.base_registry,
+        build_configuration=build_configuration,
         extra_args=args,
-        sign=build_configuration.sign,
     )
 
 
 def build_image_generic(
     image_name: str,
     dockerfile_path: str,
-    registry_address: str,
+    build_configuration: BuildConfiguration,
     extra_args: dict | None = None,
     multi_arch_args_list: list[dict] | None = None,
     is_multi_arch: bool = False,
-    sign: bool = False,
 ):
     """
     Build one or more architecture-specific images, then (optionally)
@@ -443,7 +434,7 @@ def build_image_generic(
     """
 
     # 1) Defaults
-    registry = registry_address
+    registry = build_configuration.base_registry
     args_list = multi_arch_args_list or [extra_args or {}]
     version = args_list[0].get("version", "")
     architectures = [args.get("architecture") for args in args_list]
@@ -473,7 +464,7 @@ def build_image_generic(
         create_and_push_manifest(registry + "/" + image_name, version, architectures=architectures)
 
     # 4) Signing (only on real releases)
-    if sign:
+    if build_configuration.sign:
         sign_image(registry, version)
         verify_signature(registry, version)
 
@@ -487,9 +478,8 @@ def build_init_appdb(build_configuration: BuildConfiguration):
     build_image_generic(
         image_name="mongodb-kubernetes-init-appdb",
         dockerfile_path="docker/mongodb-kubernetes-init-appdb/Dockerfile",
-        registry_address=build_configuration.base_registry,
+        build_configuration=build_configuration,
         extra_args=args,
-        sign=build_configuration.sign,
     )
 
 
@@ -503,9 +493,8 @@ def build_init_database(build_configuration: BuildConfiguration):
     build_image_generic(
         "mongodb-kubernetes-init-database",
         "docker/mongodb-kubernetes-init-database/Dockerfile",
-        registry_address=build_configuration.base_registry,
+        build_configuration=build_configuration,
         extra_args=args,
-        sign=build_configuration.sign,
     )
 
 
@@ -532,11 +521,13 @@ def build_community_image(build_configuration: BuildConfiguration, image_type: s
 
     # Use only amd64 if we should skip arm64 builds
     if should_skip_arm64():
-        architectures = ["amd64"]
+        platforms = ["linux/amd64"]
         logger.info("Skipping ARM64 builds for community image as this is running in EVG pipeline as a patch")
     else:
-        architectures = build_configuration.platforms or ["amd64", "arm64"]
+        platforms = build_configuration.platforms or ["linux/amd64", "linux/arm64"]
 
+    # Extract architectures from platforms for build args
+    architectures = [platform.split("/")[-1] for platform in platforms]
     multi_arch_args_list = []
 
     for arch in architectures:
@@ -548,13 +539,17 @@ def build_community_image(build_configuration: BuildConfiguration, image_type: s
         }
         multi_arch_args_list.append(arch_args)
 
+    # Create a copy of build_configuration with overridden platforms
+    from copy import copy
+    build_config_copy = copy(build_configuration)
+    build_config_copy.platforms = platforms
+    
     build_image_generic(
         image_name=image_name,
         dockerfile_path=dockerfile_path,
-        registry_address=build_configuration.base_registry,
+        build_configuration=build_config_copy,
         multi_arch_args_list=multi_arch_args_list,
         is_multi_arch=True,
-        sign=build_configuration.sign,
     )
 
 
@@ -596,9 +591,8 @@ def build_agent_pipeline(
     build_image_generic(
         image_name="mongodb-agent-ubi",
         dockerfile_path="docker/mongodb-agent/Dockerfile",
-        registry_address=build_configuration.base_registry,
+        build_configuration=build_configuration,
         extra_args=args,
-        sign=build_configuration.sign,
     )
 
 
@@ -647,11 +641,9 @@ def build_multi_arch_agent_in_sonar(
     build_image_generic(
         image_name="mongodb-agent-ubi",
         dockerfile_path="docker/mongodb-agent-non-matrix/Dockerfile",
-        registry_address=build_configuration.base_registry,
+        build_configuration=build_config_copy,
         is_multi_arch=True,
         multi_arch_args_list=joined_args,
-        is_run_in_parallel=True,
-        sign=build_configuration.sign,
     )
 
 # TODO: why versions are wrong -> 13.35.0.9498-1_13.35.0.9498-1_6874c19d2aab5d0007820c51 ; duplicate
