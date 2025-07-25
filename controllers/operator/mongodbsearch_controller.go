@@ -13,6 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
@@ -67,7 +68,7 @@ func getSourceMongoDBForSearch(ctx context.Context, kubeClient client.Client, se
 	mdbcName := types.NamespacedName{Namespace: search.GetNamespace(), Name: sourceMongoDBResourceRef.Name}
 	mdbc := &mdbcv1.MongoDBCommunity{}
 	if err := kubeClient.Get(ctx, mdbcName, mdbc); err != nil {
-		return nil, xerrors.Errorf("error getting MongoDBCommunity %s", mdbcName)
+		return nil, xerrors.Errorf("error getting MongoDBCommunity %s: %w", mdbcName, err)
 	}
 	return search_controller.NewSearchSourceDBResourceFromMongoDBCommunity(mdbc), nil
 }
@@ -89,5 +90,6 @@ func AddMongoDBSearchController(ctx context.Context, mgr manager.Manager, operat
 		For(&searchv1.MongoDBSearch{}).
 		Watches(&mdbcv1.MongoDBCommunity{}, r.mdbcWatcher).
 		Owns(&appsv1.StatefulSet{}).
+		Owns(&corev1.Secret{}).
 		Complete(r)
 }

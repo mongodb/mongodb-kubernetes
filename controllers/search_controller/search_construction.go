@@ -38,6 +38,8 @@ type SearchSourceDBResource interface {
 	DatabasePort() int
 	GetMongoDBVersion() string
 	IsSecurityTLSConfigEnabled() bool
+	TLSOperatorCASecretNamespacedName() types.NamespacedName
+	Members() int
 }
 
 func NewSearchSourceDBResourceFromMongoDBCommunity(mdbc *mdbcv1.MongoDBCommunity) SearchSourceDBResource {
@@ -46,6 +48,10 @@ func NewSearchSourceDBResourceFromMongoDBCommunity(mdbc *mdbcv1.MongoDBCommunity
 
 type mdbcSearchResource struct {
 	db *mdbcv1.MongoDBCommunity
+}
+
+func (r *mdbcSearchResource) Members() int {
+	return r.db.Spec.Members
 }
 
 func (r *mdbcSearchResource) Name() string {
@@ -84,8 +90,12 @@ func (r *mdbcSearchResource) DatabasePort() int {
 	return r.db.GetMongodConfiguration().GetDBPort()
 }
 
+func (r *mdbcSearchResource) TLSOperatorCASecretNamespacedName() types.NamespacedName {
+	return r.db.TLSOperatorCASecretNamespacedName()
+}
+
 // ReplicaSetOptions returns a set of options which will configure a ReplicaSet StatefulSet
-func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBResource SearchSourceDBResource, searchImage string, mongotConfigHash string) statefulset.Modification {
+func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBResource SearchSourceDBResource, searchImage string) statefulset.Modification {
 	labels := map[string]string{
 		"app": mdbSearch.SearchServiceNamespacedName().Name,
 	}
@@ -95,14 +105,18 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 
 	dataVolumeName := "data"
 	keyfileVolumeName := "keyfile"
+	sourceUserPasswordVolumeName := "password"
 	mongotConfigVolumeName := "config"
 
 	pvcVolumeMount := statefulset.CreateVolumeMount(dataVolumeName, "/mongot/data", statefulset.WithSubPath("data"))
 
-	keyfileVolume := statefulset.CreateVolumeFromSecret("keyfile", sourceDBResource.KeyfileSecretName())
+	keyfileVolume := statefulset.CreateVolumeFromSecret(keyfileVolumeName, sourceDBResource.KeyfileSecretName())
 	keyfileVolumeMount := statefulset.CreateVolumeMount(keyfileVolumeName, "/mongot/keyfile", statefulset.WithReadOnly(true))
 
-	mongotConfigVolume := statefulset.CreateVolumeFromConfigMap("config", mdbSearch.MongotConfigConfigMapNamespacedName().Name)
+	sourceUserPasswordVolume := statefulset.CreateVolumeFromSecret(sourceUserPasswordVolumeName, mdbSearch.SourceUserPasswordSecretRef().Name)
+	sourceUserPasswordVolumeMount := statefulset.CreateVolumeMount(sourceUserPasswordVolumeName, "/mongot/sourceUserPassword", statefulset.WithReadOnly(true))
+
+	mongotConfigVolume := statefulset.CreateVolumeFromConfigMap(mongotConfigVolumeName, mdbSearch.MongotConfigConfigMapNamespacedName().Name)
 	mongotConfigVolumeMount := statefulset.CreateVolumeMount(mongotConfigVolumeName, "/mongot/config", statefulset.WithReadOnly(true))
 
 	var persistenceConfig *common.PersistenceConfig
@@ -120,12 +134,14 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 		keyfileVolumeMount,
 		tmpVolumeMount,
 		mongotConfigVolumeMount,
+		sourceUserPasswordVolumeMount,
 	}
 
 	volumes := []corev1.Volume{
 		tmpVolume,
 		keyfileVolume,
 		mongotConfigVolume,
+		sourceUserPasswordVolume,
 	}
 
 	stsModifications := []statefulset.Modification{
@@ -142,9 +158,6 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 			podtemplatespec.Apply(
 				podSecurityContext,
 				podtemplatespec.WithPodLabels(labels),
-				podtemplatespec.WithAnnotations(map[string]string{
-					"mongotConfigHash": mongotConfigHash,
-				}),
 				podtemplatespec.WithVolumes(volumes),
 				podtemplatespec.WithServiceAccount(sourceDBResource.DatabaseServiceName()),
 				podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
@@ -180,7 +193,17 @@ func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []co
 		container.WithCommand([]string{"sh"}),
 		container.WithArgs([]string{
 			"-c",
-			"/mongot-community/mongot --config /mongot/config/config.yml",
+			`
+cp /mongot/keyfile/keyfile /tmp/keyfile
+chown 2000:2000 /tmp/keyfile
+chmod 0600 /tmp/keyfile
+
+cp /mongot/sourceUserPassword/password /tmp/sourceUserPassword
+chown 2000:2000 /tmp/sourceUserPassword
+chmod 0600 /tmp/sourceUserPassword
+
+/mongot-community/mongot --config /mongot/config/config.yml
+`,
 		}),
 		containerSecurityContext,
 	)
