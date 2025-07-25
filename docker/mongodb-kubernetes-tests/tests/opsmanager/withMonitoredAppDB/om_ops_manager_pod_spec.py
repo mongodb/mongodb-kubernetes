@@ -9,6 +9,7 @@ from typing import Optional
 from kubernetes import client
 from kubetester import try_load
 from kubetester.custom_podspec import assert_volume_mounts_are_equal
+from kubetester.kubetester import assert_container_count_with_static
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import is_default_architecture_static
 from kubetester.opsmanager import MongoDBOpsManager
@@ -79,19 +80,26 @@ class TestOpsManagerCreation:
 
     def test_appdb_pod_template_containers(self, ops_manager: MongoDBOpsManager):
         appdb_sts = ops_manager.read_appdb_statefulset()
-        assert len(appdb_sts.spec.template.spec.containers) == 4
+        assert_container_count_with_static(len(appdb_sts.spec.template.spec.containers), 4)
 
         assert appdb_sts.spec.template.spec.service_account_name == APPDB_SA_NAME
 
-        appdb_agent_container = appdb_sts.spec.template.spec.containers[2]
-        assert appdb_agent_container.name == "mongodb-agent"
-        assert appdb_agent_container.resources.limits["cpu"] == "750m"
-        assert appdb_agent_container.resources.limits["memory"] == "850M"
+        found_agent_container = False
+        found_sidecar_container = False
+        for container in appdb_sts.spec.template.spec.containers:
+            if container.name == "mongodb-agent":
+                found_agent_container = True
+                appdb_agent_container = container
+                assert appdb_agent_container.resources.limits["cpu"] == "750m"
+                assert appdb_agent_container.resources.limits["memory"] == "850M"
+            elif container.name == "appdb-sidecar":
+                found_sidecar_container = True
+                assert container.image == "busybox"
+                assert container.command == ["sleep"]
+                assert container.args == ["infinity"]
 
-        assert appdb_sts.spec.template.spec.containers[0].name == "appdb-sidecar"
-        assert appdb_sts.spec.template.spec.containers[0].image == "busybox"
-        assert appdb_sts.spec.template.spec.containers[0].command == ["sleep"]
-        assert appdb_sts.spec.template.spec.containers[0].args == ["infinity"]
+        assert found_agent_container, "mongodb-agent container not found"
+        assert found_sidecar_container, "appdb-sidecar container not found"
 
     def test_appdb_persistence(self, ops_manager: MongoDBOpsManager, namespace: str):
         # appdb pod volume claim template
@@ -362,16 +370,15 @@ class TestOpsManagerUpdate:
 
     def test_appdb_pod_template(self, ops_manager: MongoDBOpsManager):
         appdb_sts = ops_manager.read_appdb_statefulset()
-        assert len(appdb_sts.spec.template.spec.containers) == 4
+        assert_container_count_with_static(len(appdb_sts.spec.template.spec.containers), 4)
 
-        appdb_mongod_container = appdb_sts.spec.template.spec.containers[1]
-        assert appdb_mongod_container.name == "mongod"
+        # Find each container by name instead of position
+        containers_by_name = {c.name: c for c in appdb_sts.spec.template.spec.containers}
 
-        appdb_agent_container = appdb_sts.spec.template.spec.containers[2]
-        assert appdb_agent_container.name == "mongodb-agent"
-
-        appdb_agent_monitoring_container = appdb_sts.spec.template.spec.containers[3]
-        assert appdb_agent_monitoring_container.name == "mongodb-agent-monitoring"
+        # Check that all required containers exist
+        assert "mongod" in containers_by_name, "mongod container not found"
+        assert "mongodb-agent" in containers_by_name, "mongodb-agent container not found"
+        assert "mongodb-agent-monitoring" in containers_by_name, "mongodb-agent-monitoring container not found"
 
         assert appdb_sts.spec.template.metadata.annotations == {"annotation1": "val"}
 
