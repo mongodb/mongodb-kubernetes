@@ -41,7 +41,7 @@ spec:
       db: admin
       passwordSecretRef: # a reference to the secret containing user password
         name: mdb-admin-user-password
-      scramCredentialsSecretName: mdb-admin-user-scram
+      scramCredentialsSecretName: mdb-admin-user
       roles:
         - name: root
           db: admin
@@ -61,10 +61,9 @@ spec:
     # From MongoDB 8.2, searchCoordinator role will be a built-in role.
     - name: search-sync-source
       db: admin
-      passwordSecretRef: # a reference to the secret containing user password
+      passwordSecretRef: # a reference to the secret that will be used to generate the user's password
         name: mdbc-rs-search-sync-source-password
-      scramCredentialsSecretName: mdb-rs-search-sync-source
+      scramCredentialsSecretName: mdbc-rs-search-sync-source
       roles:
         - name: searchCoordinator
           db: admin
-EOF
