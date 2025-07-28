@@ -27,6 +27,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/controllers/search_controller"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/mongot"
 )
 
@@ -36,7 +37,7 @@ func newMongoDBCommunity(name, namespace string) *mdbcv1.MongoDBCommunity {
 		Spec: mdbcv1.MongoDBCommunitySpec{
 			Type:    mdbcv1.ReplicaSet,
 			Members: 1,
-			Version: "8.0",
+			Version: "8.0.10",
 		},
 	}
 }
@@ -52,8 +53,9 @@ func newMongoDBSearch(name, namespace, mdbcName string) *searchv1.MongoDBSearch 
 	}
 }
 
-func newSearchReconciler(
+func newSearchReconcilerWithOperatorConfig(
 	mdbc *mdbcv1.MongoDBCommunity,
+	operatorConfig search_controller.OperatorSearchConfig,
 	searches ...*searchv1.MongoDBSearch,
 ) (*MongoDBSearchReconciler, client.Client) {
 	builder := mock.NewEmptyFakeClientBuilder()
@@ -70,7 +72,15 @@ func newSearchReconciler(
 	}
 
 	fakeClient := builder.Build()
-	return newMongoDBSearchReconciler(fakeClient, search_controller.OperatorSearchConfig{}), fakeClient
+
+	return newMongoDBSearchReconciler(fakeClient, operatorConfig), fakeClient
+}
+
+func newSearchReconciler(
+	mdbc *mdbcv1.MongoDBCommunity,
+	searches ...*searchv1.MongoDBSearch,
+) (*MongoDBSearchReconciler, client.Client) {
+	return newSearchReconcilerWithOperatorConfig(mdbc, search_controller.OperatorSearchConfig{}, searches...)
 }
 
 func buildExpectedMongotConfig(search *searchv1.MongoDBSearch, mdbc *mdbcv1.MongoDBCommunity) mongot.Config {
@@ -99,15 +109,15 @@ func buildExpectedMongotConfig(search *searchv1.MongoDBSearch, mdbc *mdbcv1.Mong
 					Mode:    "keyfile",
 					KeyFile: "/tmp/keyfile",
 				},
-				TLS: mongot.ConfigTLS{Mode: "disabled"},
+				TLS: mongot.ConfigTLS{Mode: mongot.ConfigTLSModeDisabled},
 			},
 		},
 		Metrics: mongot.ConfigMetrics{
 			Enabled: true,
-			Address: fmt.Sprintf("localhost:%d", searchv1.MongotDefaultMetricsPort),
+			Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotMetricsPort()),
 		},
 		HealthCheck: mongot.ConfigHealthCheck{
-			Address: "0.0.0.0:8080",
+			Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotHealthCheckPort()),
 		},
 		Logging: mongot.ConfigLogging{
 			Verbosity: "TRACE",
@@ -210,16 +220,6 @@ func TestMongoDBSearchReconcile_InvalidVersion(t *testing.T) {
 	checkSearchReconcileFailed(ctx, t, reconciler, c, search, "MongoDB version")
 }
 
-func TestMongoDBSearchReconcile_TLSNotSupported(t *testing.T) {
-	ctx := context.Background()
-	search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
-	mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
-	mdbc.Spec.Security.TLS.Enabled = true
-	reconciler, c := newSearchReconciler(mdbc, search)
-
-	checkSearchReconcileFailed(ctx, t, reconciler, c, search, "TLS-enabled")
-}
-
 func TestMongoDBSearchReconcile_MultipleSearchResources(t *testing.T) {
 	ctx := context.Background()
 	search1 := newMongoDBSearch("search1", mock.TestNamespace, "mdb")
@@ -228,4 +228,61 @@ func TestMongoDBSearchReconcile_MultipleSearchResources(t *testing.T) {
 	reconciler, c := newSearchReconciler(mdbc, search1, search2)
 
 	checkSearchReconcileFailed(ctx, t, reconciler, c, search1, "multiple MongoDBSearch")
+}
+
+func TestMongoDBSearchReconcile_InvalidSearchImageVersion(t *testing.T) {
+	ctx := context.Background()
+	expectedMsg := "MongoDBSearch version 1.47.0 is not supported because of breaking changes. The operator will ignore this resource: it will not reconcile or reconfigure the workload. Existing deployments will continue to run, but cannot be managed by the operator. To regain operator management, you must delete and recreate the MongoDBSearch resource."
+
+	tests := []struct {
+		name              string
+		specVersion       string
+		operatorVersion   string
+		statefulSetConfig *common.StatefulSetConfiguration
+	}{
+		{
+			name:        "unsupported version in Spec.Version",
+			specVersion: "1.47.0",
+		},
+		{
+			name:            "unsupported version in operator config",
+			operatorVersion: "1.47.0",
+		},
+		{
+			name: "unsupported version in StatefulSetConfiguration",
+			statefulSetConfig: &common.StatefulSetConfiguration{
+				SpecWrapper: common.StatefulSetSpecWrapper{
+					Spec: appsv1.StatefulSetSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{
+									{
+										Name:  search_controller.MongotContainerName,
+										Image: "testrepo/mongot:1.47.0",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
+			mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
+
+			search.Spec.Version = tc.specVersion
+			search.Spec.StatefulSetConfiguration = tc.statefulSetConfig
+
+			operatorConfig := search_controller.OperatorSearchConfig{
+				SearchVersion: tc.operatorVersion,
+			}
+			reconciler, _ := newSearchReconcilerWithOperatorConfig(mdbc, operatorConfig, search)
+
+			checkSearchReconcileFailed(ctx, t, reconciler, reconciler.kubeClient, search, expectedMsg)
+		})
+	}
 }
