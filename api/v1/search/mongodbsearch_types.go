@@ -18,7 +18,7 @@ import (
 const (
 	MongotDefaultPort               = 27027
 	MongotDefaultMetricsPort        = 9946
-	MongotDefautHealthCheckPort = 8080
+	MongotDefautHealthCheckPort     = 8080
 	MongotDefaultSyncSourceUsername = "mongot-user"
 )
 
