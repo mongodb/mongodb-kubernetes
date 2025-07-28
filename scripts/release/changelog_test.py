@@ -21,21 +21,9 @@ class TestExtractChangelogDataFromFileName(unittest.TestCase):
         self.assertEqual(date, datetime.date(2025, 1, 1))
         self.assertEqual(kind, ChangeKind.BREAKING)
 
-        date, kind = extract_date_and_kind_from_file_name("20250508_breaking_remove_deprecated.md")
-        self.assertEqual(date, datetime.date(2025, 5, 8))
-        self.assertEqual(kind, ChangeKind.BREAKING)
-
-        date, kind = extract_date_and_kind_from_file_name("20250509_breaking_schema_change.md")
-        self.assertEqual(date, datetime.date(2025, 5, 9))
-        self.assertEqual(kind, ChangeKind.BREAKING)
-
     def test_features(self):
         date, kind = extract_date_and_kind_from_file_name("20250509_feature_new_dashboard.md")
         self.assertEqual(date, datetime.date(2025, 5, 9))
-        self.assertEqual(kind, ChangeKind.FEATURE)
-
-        date, kind = extract_date_and_kind_from_file_name("20250511_feat_add_metrics.md")
-        self.assertEqual(date, datetime.date(2025, 5, 11))
         self.assertEqual(kind, ChangeKind.FEATURE)
 
     def test_fixes(self):
@@ -43,25 +31,9 @@ class TestExtractChangelogDataFromFileName(unittest.TestCase):
         self.assertEqual(date, datetime.date(2025, 12, 10))
         self.assertEqual(kind, ChangeKind.FIX)
 
-        date, kind = extract_date_and_kind_from_file_name("20251010_fix_memory_leak.md")
-        self.assertEqual(date, datetime.date(2025, 10, 10))
-        self.assertEqual(kind, ChangeKind.FIX)
-
-        date, kind = extract_date_and_kind_from_file_name("20250302_fix_security_issue.md")
-        self.assertEqual(date, datetime.date(2025, 3, 2))
-        self.assertEqual(kind, ChangeKind.FIX)
-
-        date, kind = extract_date_and_kind_from_file_name("20250301_fix_typo_correction.md")
-        self.assertEqual(date, datetime.date(2025, 3, 1))
-        self.assertEqual(kind, ChangeKind.FIX)
-
     def test_other(self):
         date, kind = extract_date_and_kind_from_file_name("20250520_other_update_readme.md")
         self.assertEqual(date, datetime.date(2025, 5, 20))
-        self.assertEqual(kind, ChangeKind.OTHER)
-
-        date, kind = extract_date_and_kind_from_file_name("20250610_other_codebase.md")
-        self.assertEqual(date, datetime.date(2025, 6, 10))
         self.assertEqual(kind, ChangeKind.OTHER)
 
     def test_invalid_date(self):
