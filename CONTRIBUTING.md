@@ -39,13 +39,13 @@ positional arguments:
 options:
   -h, --help            show this help message and exit
   -c, --changelog-path
-                        Path to the changelog directory relative to the repository root. Default is changelog/
+                        Path to the changelog directory relative to a current working directory. Default is 'changelog/'
   -d, --date            Date in 'YYYY-MM-DD' format to use for the changelog entry. Default is today's date
   -e, --editor          Open the created changelog entry in the default editor (if set, otherwise uses 'vi'). Default is True
   -k, --kind            Kind of the changelog entry:
                           - 'prelude' for prelude entries
-                          - 'breaking, major' for breaking change entries
-                          - 'feat, feature' for feature entries
-                          - 'fix, bugfix, hotfix, patch' for bugfix entries
-                          - everything else will be treated as other entries
+                          - 'breaking' for breaking change entries
+                          - 'feature' for feature entries
+                          - 'fix' for bugfix entries
+                          - 'other' for other entries
 ```
