@@ -37,7 +37,7 @@ func newMongoDBCommunity(name, namespace string) *mdbcv1.MongoDBCommunity {
 		Spec: mdbcv1.MongoDBCommunitySpec{
 			Type:    mdbcv1.ReplicaSet,
 			Members: 1,
-			Version: "8.0",
+			Version: "8.0.10",
 		},
 	}
 }
@@ -109,15 +109,15 @@ func buildExpectedMongotConfig(search *searchv1.MongoDBSearch, mdbc *mdbcv1.Mong
 					Mode:    "keyfile",
 					KeyFile: "/tmp/keyfile",
 				},
-				TLS: mongot.ConfigTLS{Mode: "disabled"},
+				TLS: mongot.ConfigTLS{Mode: mongot.ConfigTLSModeDisabled},
 			},
 		},
 		Metrics: mongot.ConfigMetrics{
 			Enabled: true,
-			Address: fmt.Sprintf("localhost:%d", searchv1.MongotDefaultMetricsPort),
+			Address: fmt.Sprintf("localhost:%d", search.GetMongotMetricsPort()),
 		},
 		HealthCheck: mongot.ConfigHealthCheck{
-			Address: "0.0.0.0:8080",
+			Address: fmt.Sprintf("localhost:%d", search.GetMongotHealthCheckPort()),
 		},
 		Logging: mongot.ConfigLogging{
 			Verbosity: "TRACE",
@@ -218,16 +218,6 @@ func TestMongoDBSearchReconcile_InvalidVersion(t *testing.T) {
 	reconciler, c := newSearchReconciler(mdbc, search)
 
 	checkSearchReconcileFailed(ctx, t, reconciler, c, search, "MongoDB version")
-}
-
-func TestMongoDBSearchReconcile_TLSNotSupported(t *testing.T) {
-	ctx := context.Background()
-	search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
-	mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
-	mdbc.Spec.Security.TLS.Enabled = true
-	reconciler, c := newSearchReconciler(mdbc, search)
-
-	checkSearchReconcileFailed(ctx, t, reconciler, c, search, "TLS-enabled")
 }
 
 func TestMongoDBSearchReconcile_MultipleSearchResources(t *testing.T) {
