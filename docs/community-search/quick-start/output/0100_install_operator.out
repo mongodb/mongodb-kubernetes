@@ -1,15 +1,12 @@
-Release "mongodb-kubernetes" does not exist. Installing it now.
+Release "mongodb-kubernetes" has been upgraded. Happy Helming!
 NAME: mongodb-kubernetes
-LAST DEPLOYED: Mon Jul 28 13:50:15 2025
+LAST DEPLOYED: Mon Jul 28 14:41:51 2025
 NAMESPACE: mongodb
 STATUS: deployed
-REVISION: 1
+REVISION: 2
 TEST SUITE: None
 USER-SUPPLIED VALUES:
-agent:
-  version: 108.0.2.8729-1
 database:
-  name: mongodb-kubernetes-database
   version: 68876175f5ad6d0007fdc1d4
 initAppDb:
   version: 68876175f5ad6d0007fdc1d4
@@ -17,22 +14,8 @@ initDatabase:
   version: 68876175f5ad6d0007fdc1d4
 initOpsManager:
   version: 68876175f5ad6d0007fdc1d4
-managedSecurityContext: false
-mongodb:
-  imageType: ubi9
-  name: mongodb-enterprise-server
 operator:
-  enablePVCResize: true
-  maxConcurrentReconciles: 10
-  mdbDefaultArchitecture: non-static
-  telemetry:
-    collection:
-      frequency: 1m
-    send:
-      enabled: false
   version: 68876175f5ad6d0007fdc1d4
-opsManager:
-  name: mongodb-enterprise-ops-manager-ubi
 registry:
   agent: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
   appDb: quay.io/mongodb
@@ -45,8 +28,8 @@ registry:
   opsManager: quay.io/mongodb
 search:
   community:
-    name: mongot/community
-    repo: 268558157000.dkr.ecr.eu-west-1.amazonaws.com
+    name: community
+    repo: 268558157000.dkr.ecr.eu-west-1.amazonaws.com/mongot
     version: fbd60fb055dd500058edcb45677ea85d19421f47
 
 COMPUTED VALUES:
@@ -93,7 +76,7 @@ initOpsManager:
 managedSecurityContext: false
 mongodb:
   appdbAssumeOldFormat: false
-  imageType: ubi9
+  imageType: ubi8
   name: mongodb-enterprise-server
   repo: quay.io/mongodb
 multiCluster:
@@ -111,7 +94,7 @@ operator:
   enableClusterMongoDBRoles: true
   enablePVCResize: true
   env: prod
-  maxConcurrentReconciles: 10
+  maxConcurrentReconciles: 1
   mdbDefaultArchitecture: non-static
   name: mongodb-kubernetes-operator
   nodeSelector: {}
@@ -128,10 +111,9 @@ operator:
     collection:
       clusters: {}
       deployments: {}
-      frequency: 1m
+      frequency: 1h
       operators: {}
     send:
-      enabled: false
       frequency: 168h
   tolerations: []
   vaultSecretBackend:
@@ -167,8 +149,8 @@ registry:
   versionUpgradeHook: quay.io/mongodb
 search:
   community:
-    name: mongot/community
-    repo: 268558157000.dkr.ecr.eu-west-1.amazonaws.com
+    name: community
+    repo: 268558157000.dkr.ecr.eu-west-1.amazonaws.com/mongot
     version: fbd60fb055dd500058edcb45677ea85d19421f47
 versionUpgradeHook:
   name: mongodb-kubernetes-operator-version-upgrade-post-start-hook
@@ -253,33 +235,6 @@ rules:
       - nodes
     verbs:
       - list
----
-# Source: mongodb-kubernetes/templates/operator-roles-webhook.yaml
-kind: ClusterRole
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: mongodb-kubernetes-operator-mongodb-webhook
-rules:
-  - apiGroups:
-      - "admissionregistration.k8s.io"
-    resources:
-      - validatingwebhookconfigurations
-    verbs:
-      - get
-      - create
-      - update
-      - delete
-  - apiGroups:
-      - ""
-    resources:
-      - services
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - delete
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-clustermongodbroles.yaml
 kind: ClusterRoleBinding
@@ -551,9 +506,7 @@ spec:
                 fieldRef:
                   fieldPath: metadata.namespace
             - name: MDB_OPERATOR_TELEMETRY_COLLECTION_FREQUENCY
-              value: "1m"
-            - name: MDB_OPERATOR_TELEMETRY_SEND_ENABLED
-              value: "false"
+              value: "1h"
             - name: MDB_OPERATOR_TELEMETRY_SEND_FREQUENCY
               value: "168h"
             - name: CLUSTER_CLIENT_TIMEOUT
@@ -592,13 +545,13 @@ spec:
             - name: MONGODB_REPO_URL
               value: quay.io/mongodb
             - name: MDB_IMAGE_TYPE
-              value: ubi9
+              value: ubi8
             - name: PERFORM_FAILOVER
               value: 'true'
             - name: IMAGE_PULL_SECRETS
               value: image-registries-secret
             - name: MDB_MAX_CONCURRENT_RECONCILES
-              value: "10"
+              value: "1"
             - name: POD_NAME
               valueFrom:
                 fieldRef:
@@ -620,9 +573,9 @@ spec:
               value: "ubi8"
             # Community Env Vars End
             - name: MDB_SEARCH_COMMUNITY_REPO_URL
-              value: "268558157000.dkr.ecr.eu-west-1.amazonaws.com"
+              value: "268558157000.dkr.ecr.eu-west-1.amazonaws.com/mongot"
             - name: MDB_SEARCH_COMMUNITY_NAME
-              value: "mongot/community"
+              value: "community"
             - name: MDB_SEARCH_COMMUNITY_VERSION
               value: "fbd60fb055dd500058edcb45677ea85d19421f47"
 
