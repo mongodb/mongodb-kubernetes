@@ -3,13 +3,9 @@ import datetime
 import os
 
 from scripts.release.changelog import (
-    BREAKING_CHANGE_ENTRIES,
-    BUGFIX_ENTRIES,
     DEFAULT_CHANGELOG_PATH,
-    FEATURE_ENTRIES,
     FRONTMATTER_DATE_FORMAT,
-    PRELUDE_ENTRIES,
-    get_change_kind,
+    ChangeKind,
     get_changelog_filename,
     parse_change_date,
 )
@@ -26,7 +22,7 @@ if __name__ == "__main__":
         metavar="",
         action="store",
         type=str,
-        help=f"Path to the changelog directory relative to the repository root. Default is {DEFAULT_CHANGELOG_PATH}",
+        help=f"Path to the changelog directory relative to a current working directory. Default is '{DEFAULT_CHANGELOG_PATH}'",
     )
     parser.add_argument(
         "-d",
@@ -51,11 +47,11 @@ if __name__ == "__main__":
         required=True,
         type=str,
         help=f"""Kind of the changelog entry:
-  - '{", ".join(PRELUDE_ENTRIES)}' for prelude entries
-  - '{", ".join(BREAKING_CHANGE_ENTRIES)}' for breaking change entries
-  - '{", ".join(FEATURE_ENTRIES)}' for feature entries
-  - '{", ".join(BUGFIX_ENTRIES)}' for bugfix entries
-  - everything else will be treated as other entries""",
+  - '{str(ChangeKind.PRELUDE)}' for prelude entries
+  - '{str(ChangeKind.BREAKING)}' for breaking change entries
+  - '{str(ChangeKind.FEATURE)}' for feature entries
+  - '{str(ChangeKind.FIX)}' for bugfix entries
+  - '{str(ChangeKind.OTHER)}' for other entries""",
     )
     parser.add_argument("title", type=str, help="Title for the changelog entry")
     args = parser.parse_args()
@@ -63,7 +59,7 @@ if __name__ == "__main__":
     title = args.title
     date_str = args.date
     date = parse_change_date(args.date, FRONTMATTER_DATE_FORMAT)
-    kind = get_change_kind(args.kind)
+    kind = ChangeKind.from_str(args.kind)
     filename = get_changelog_filename(title, kind, date)
 
     working_dir = os.getcwd()

@@ -40,6 +40,23 @@ get_operator_helm_values() {
     config+=("operator.telemetry.installClusterRole=${MDB_OPERATOR_TELEMETRY_INSTALL_CLUSTER_ROLE_INSTALLATION}")
   fi
 
+  # Add OpenTelemetry values if any of the environment variables are set
+  if [[ -n "${otel_trace_id:-}" || -n "${otel_parent_id:-}" || -n "${otel_collector_endpoint:-}" ]]; then
+    config+=("operator.opentelemetry.tracing.enabled=true")
+
+    if [[ -n "${otel_trace_id:-}" ]]; then
+      config+=("operator.opentelemetry.tracing.traceID=${otel_trace_id}")
+    fi
+
+    if [[ -n "${otel_parent_id:-}" ]]; then
+      config+=("operator.opentelemetry.tracing.parentID=${otel_parent_id}")
+    fi
+
+    if [[ -n "${otel_collector_endpoint:-}" ]]; then
+      config+=("operator.opentelemetry.tracing.collectorEndpoint=${otel_collector_endpoint}")
+    fi
+  fi
+
   if [[ "${MDB_OPERATOR_TELEMETRY_ENABLED:-true}" == "false" ]]; then
     config+=("operator.telemetry.enabled=false")
     config+=("operator.telemetry.collection.clusters.enabled=false")
@@ -52,9 +69,6 @@ get_operator_helm_values() {
     comma_separated_list="$(echo "${MEMBER_CLUSTERS}" | tr ' ' ',')"
     # shellcheck disable=SC2154
     config+=("multiCluster.clusters={${comma_separated_list}}")
-  fi
-
-  if [[ "${KUBE_ENVIRONMENT_NAME:-}" == "multi" ]]; then
     config+=("operator.createOperatorServiceAccount=false")
   fi
 

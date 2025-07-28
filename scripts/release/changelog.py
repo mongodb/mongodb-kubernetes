@@ -12,11 +12,6 @@ FILENAME_DATE_FORMAT = "%Y%m%d"
 FRONTMATTER_DATE_FORMAT = "%Y-%m-%d"
 MAX_TITLE_LENGTH = 50
 
-PRELUDE_ENTRIES = ["prelude"]
-BREAKING_CHANGE_ENTRIES = ["breaking", "major"]
-FEATURE_ENTRIES = ["feat", "feature"]
-BUGFIX_ENTRIES = ["fix", "bugfix", "hotfix", "patch"]
-
 
 class ChangeKind(StrEnum):
     PRELUDE = "prelude"
@@ -24,6 +19,21 @@ class ChangeKind(StrEnum):
     FEATURE = "feature"
     FIX = "fix"
     OTHER = "other"
+
+    @staticmethod
+    def from_str(kind_str: str) -> "ChangeKind":
+        kind_str_lower = kind_str.lower()
+        if kind_str_lower == str(ChangeKind.PRELUDE):
+            return ChangeKind.PRELUDE
+        if kind_str_lower == str(ChangeKind.BREAKING):
+            return ChangeKind.BREAKING
+        elif kind_str_lower == str(ChangeKind.FEATURE):
+            return ChangeKind.FEATURE
+        elif kind_str_lower == str(ChangeKind.FIX):
+            return ChangeKind.FIX
+        elif kind_str_lower == str(ChangeKind.OTHER):
+            return ChangeKind.OTHER
+        raise ValueError(f"unknown change kind: {kind_str}")
 
 
 class ChangeEntry:
@@ -49,6 +59,10 @@ def get_changelog_entries(
         return changelog
 
     # Traverse added Diff objects only (change type 'A' for added files)
+    # Because we are traversing back to the most recent version, we only care about files that were added since then
+    # If a file was added in one commit and then modified in another, we only care about the final version of the file
+    # Same for deletions - if file was added in one commit but then deleted in another, we don't want to include it
+    # in the Release Notes
     for diff_item in diff_index.iter_change_type("A"):
         file_path = diff_item.b_path
 
@@ -92,7 +106,10 @@ def extract_date_and_kind_from_file_name(file_name: str) -> (datetime, ChangeKin
     except Exception as e:
         raise Exception(f"{file_name} - {e}")
 
-    kind = get_change_kind(kind_str)
+    try:
+        kind = ChangeKind.from_str(kind_str)
+    except Exception as e:
+        raise Exception(f"{file_name} - {e}")
 
     return date, kind
 
@@ -106,23 +123,10 @@ def parse_change_date(date_str: str, date_format: str) -> datetime:
     return date
 
 
-def get_change_kind(kind_str: str) -> ChangeKind:
-    if kind_str.lower() in PRELUDE_ENTRIES:
-        return ChangeKind.PRELUDE
-    if kind_str.lower() in BREAKING_CHANGE_ENTRIES:
-        return ChangeKind.BREAKING
-    elif kind_str.lower() in FEATURE_ENTRIES:
-        return ChangeKind.FEATURE
-    elif kind_str.lower() in BUGFIX_ENTRIES:
-        return ChangeKind.FIX
-    else:
-        return ChangeKind.OTHER
-
-
 def extract_changelog_entry_from_contents(file_contents: str) -> ChangeEntry:
     data = frontmatter.loads(file_contents)
 
-    kind = get_change_kind(str(data["kind"]))
+    kind = ChangeKind.from_str(str(data["kind"]))
     date = parse_change_date(str(data["date"]), FRONTMATTER_DATE_FORMAT)
     ## Add newline to contents so the Markdown file also contains a newline at the end
     contents = data.content + "\n"
