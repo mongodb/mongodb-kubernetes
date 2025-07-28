@@ -67,3 +67,4 @@ spec:
       roles:
         - name: searchCoordinator
           db: admin
+EOF
