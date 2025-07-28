@@ -25,13 +25,13 @@ class ChangeKind(StrEnum):
         kind_str_lower = kind_str.lower()
         if kind_str_lower == str(ChangeKind.PRELUDE):
             return ChangeKind.PRELUDE
-        if kind_str_lower in str(ChangeKind.BREAKING):
+        if kind_str_lower == str(ChangeKind.BREAKING):
             return ChangeKind.BREAKING
-        elif kind_str_lower in str(ChangeKind.FEATURE):
+        elif kind_str_lower == str(ChangeKind.FEATURE):
             return ChangeKind.FEATURE
-        elif kind_str_lower in str(ChangeKind.FIX):
+        elif kind_str_lower == str(ChangeKind.FIX):
             return ChangeKind.FIX
-        elif kind_str_lower in str(ChangeKind.OTHER):
+        elif kind_str_lower == str(ChangeKind.OTHER):
             return ChangeKind.OTHER
         raise ValueError(f"unknown change kind: {kind_str}")
 
