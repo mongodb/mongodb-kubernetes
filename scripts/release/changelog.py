@@ -59,6 +59,10 @@ def get_changelog_entries(
         return changelog
 
     # Traverse added Diff objects only (change type 'A' for added files)
+    # Because we are traversing back to the most recent version, we only care about files that were added since then
+    # If a file was added in one commit and then modified in another, we only care about the final version of the file
+    # Same for deletions - if file was added in one commit but then deleted in another, we don't want to include it
+    # in the Release Notes
     for diff_item in diff_index.iter_change_type("A"):
         file_path = diff_item.b_path
 
