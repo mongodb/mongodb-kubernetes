@@ -8,7 +8,6 @@ from kubetester.phase import Phase
 from pytest import fixture
 from tests.conftest import is_multi_cluster
 
-
 # Important - you need to ensure that OM and Appdb images are build and pushed into your current docker registry before
 # running tests locally - use "make om-image" and "make appdb" to do this
 
