@@ -18,6 +18,7 @@ import (
 const (
 	MongotDefaultPort               = 27027
 	MongotDefaultMetricsPort        = 9946
+	MongotDefautHealthCheckPort = 8080
 	MongotDefaultSyncSourceUsername = "mongot-user"
 )
 
@@ -188,4 +189,8 @@ func (s *MongoDBSearch) TLSSecretNamespacedName() types.NamespacedName {
 // containing the combined certificate and key.
 func (s *MongoDBSearch) TLSOperatorSecretNamespacedName() types.NamespacedName {
 	return types.NamespacedName{Name: s.Name + "-search-certificate-key", Namespace: s.Namespace}
+}
+
+func (s *MongoDBSearch) GetMongotHealthCheckPort() int32 {
+	return MongotDefautHealthCheckPort
 }
