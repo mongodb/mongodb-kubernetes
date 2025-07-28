@@ -35,7 +35,12 @@ import (
 )
 
 const (
-	MongoDBSearchIndexFieldName = "mdbsearch-for-mongodbresourceref-index"
+	MongoDBSearchIndexFieldName      = "mdbsearch-for-mongodbresourceref-index"
+	unsupportedSearchVersion         = "1.47.0"
+	unsupportedSearchVersionErrorFmt = "MongoDBSearch version %s is not supported because of breaking changes. " +
+		"The operator will ignore this resource: it will not reconcile or reconfigure the workload. " +
+		"Existing deployments will continue to run, but cannot be managed by the operator. " +
+		"To regain operator management, you must delete and recreate the MongoDBSearch resource."
 )
 
 type OperatorSearchConfig struct {
@@ -78,6 +83,10 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	log.Infof("Reconciling MongoDBSearch")
 
 	if err := ValidateSearchSource(r.db); err != nil {
+		return workflow.Failed(err)
+	}
+
+	if err := r.ValidateSearchImageVersion(); err != nil {
 		return workflow.Failed(err)
 	}
 
@@ -313,6 +322,13 @@ func buildSearchHeadlessService(search *searchv1.MongoDBSearch) corev1.Service {
 		TargetPort: intstr.FromInt32(search.GetMongotMetricsPort()),
 	})
 
+	serviceBuilder.AddPort(&corev1.ServicePort{
+		Name:       "healthcheck",
+		Protocol:   corev1.ProtocolTCP,
+		Port:       search.GetMongotHealthCheckPort(),
+		TargetPort: intstr.FromInt32(search.GetMongotHealthCheckPort()),
+	})
+
 	return serviceBuilder.Build()
 }
 
@@ -350,7 +366,7 @@ func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResourc
 			Address: fmt.Sprintf("localhost:%d", search.GetMongotMetricsPort()),
 		}
 		config.HealthCheck = mongot.ConfigHealthCheck{
-			Address: "0.0.0.0:8080",
+			Address: fmt.Sprintf("localhost:%d", search.GetMongotHealthCheckPort()),
 		}
 		config.Logging = mongot.ConfigLogging{
 			Verbosity: "TRACE",
@@ -403,8 +419,44 @@ func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSourc
 		for i, search := range searchList.Items {
 			resourceNames[i] = search.Name
 		}
-		return xerrors.Errorf("Found multiple MongoDBSearch resources for search source '%s': %s", r.db.Name(), strings.Join(resourceNames, ", "))
+		return xerrors.Errorf(
+			"Found multiple MongoDBSearch resources for search source '%s': %s", r.db.Name(),
+			strings.Join(resourceNames, ", "),
+		)
 	}
 
 	return nil
+}
+
+func (r *MongoDBSearchReconcileHelper) ValidateSearchImageVersion() error {
+	version := r.getMongotImage()
+
+	if strings.Contains(version, unsupportedSearchVersion) {
+		return xerrors.Errorf(unsupportedSearchVersionErrorFmt, unsupportedSearchVersion)
+	}
+
+	return nil
+}
+
+func (r *MongoDBSearchReconcileHelper) getMongotImage() string {
+	version := strings.TrimSpace(r.mdbSearch.Spec.Version)
+	if version != "" {
+		return version
+	}
+
+	if r.operatorSearchConfig.SearchVersion != "" {
+		return r.operatorSearchConfig.SearchVersion
+	}
+
+	if r.mdbSearch.Spec.StatefulSetConfiguration == nil {
+		return ""
+	}
+
+	for _, container := range r.mdbSearch.Spec.StatefulSetConfiguration.SpecWrapper.Spec.Template.Spec.Containers {
+		if container.Name == MongotContainerName {
+			return container.Image
+		}
+	}
+
+	return ""
 }
