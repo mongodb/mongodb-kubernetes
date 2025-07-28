@@ -1,6 +1,6 @@
 ---
 title: Some chore type of change
-kind: chore
+kind: other
 date: 2025-06-09
 ---
 

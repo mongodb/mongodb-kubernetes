@@ -12,11 +12,6 @@ FILENAME_DATE_FORMAT = "%Y%m%d"
 FRONTMATTER_DATE_FORMAT = "%Y-%m-%d"
 MAX_TITLE_LENGTH = 50
 
-PRELUDE_ENTRIES = ["prelude"]
-BREAKING_CHANGE_ENTRIES = ["breaking", "major"]
-FEATURE_ENTRIES = ["feat", "feature"]
-BUGFIX_ENTRIES = ["fix", "bugfix", "hotfix", "patch"]
-
 
 class ChangeKind(StrEnum):
     PRELUDE = "prelude"
@@ -24,6 +19,21 @@ class ChangeKind(StrEnum):
     FEATURE = "feature"
     FIX = "fix"
     OTHER = "other"
+
+    @staticmethod
+    def from_str(kind_str: str) -> "ChangeKind":
+        kind_str_lower = kind_str.lower()
+        if kind_str_lower == str(ChangeKind.PRELUDE):
+            return ChangeKind.PRELUDE
+        if kind_str_lower in str(ChangeKind.BREAKING):
+            return ChangeKind.BREAKING
+        elif kind_str_lower in str(ChangeKind.FEATURE):
+            return ChangeKind.FEATURE
+        elif kind_str_lower in str(ChangeKind.FIX):
+            return ChangeKind.FIX
+        elif kind_str_lower in str(ChangeKind.OTHER):
+            return ChangeKind.OTHER
+        raise ValueError(f"unknown change kind: {kind_str}")
 
 
 class ChangeEntry:
@@ -92,7 +102,10 @@ def extract_date_and_kind_from_file_name(file_name: str) -> (datetime, ChangeKin
     except Exception as e:
         raise Exception(f"{file_name} - {e}")
 
-    kind = get_change_kind(kind_str)
+    try:
+        kind = ChangeKind.from_str(kind_str)
+    except Exception as e:
+        raise Exception(f"{file_name} - {e}")
 
     return date, kind
 
@@ -106,22 +119,10 @@ def parse_change_date(date_str: str, date_format: str) -> datetime:
     return date
 
 
-def get_change_kind(kind_str: str) -> ChangeKind:
-    if kind_str.lower() in PRELUDE_ENTRIES:
-        return ChangeKind.PRELUDE
-    if kind_str.lower() in BREAKING_CHANGE_ENTRIES:
-        return ChangeKind.BREAKING
-    elif kind_str.lower() in FEATURE_ENTRIES:
-        return ChangeKind.FEATURE
-    elif kind_str.lower() in BUGFIX_ENTRIES:
-        return ChangeKind.FIX
-    return ChangeKind.OTHER
-
-
 def extract_changelog_entry_from_contents(file_contents: str) -> ChangeEntry:
     data = frontmatter.loads(file_contents)
 
-    kind = get_change_kind(str(data["kind"]))
+    kind = ChangeKind.from_str(str(data["kind"]))
     date = parse_change_date(str(data["date"]), FRONTMATTER_DATE_FORMAT)
     ## Add newline to contents so the Markdown file also contains a newline at the end
     contents = data.content + "\n"

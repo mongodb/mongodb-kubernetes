@@ -55,7 +55,7 @@ def git_repo(change_log_path: str = DEFAULT_CHANGELOG_PATH) -> Repo:
     repo.create_tag("1.1.0", message="Public search preview release")
 
     ## OIDC release and 1.2.0 tag
-    changelog_file_1 = add_file(repo_dir, "changelog/20250609_chore_not_oidc.md")
+    changelog_file_1 = add_file(repo_dir, "changelog/20250609_other_not_oidc.md")
     changelog_file_2 = add_file(repo_dir, "changelog/20250610_feature_oidc.md")
     changelog_file_3 = add_file(repo_dir, "changelog/20250611_other_not_oidc.md")
     repo.index.add([changelog_file_1, changelog_file_2, changelog_file_3])
