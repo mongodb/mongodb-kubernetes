@@ -1,13 +1,12 @@
 export K8S_CLUSTER_0_CONTEXT_NAME="kind-kind"
 
-ecr="268558157000.dkr.ecr.us-east-1.amazonaws.com"
-
 # patch id from evergreen patch
 version_id="68876175f5ad6d0007fdc1d4"
 
 search_image_repo="268558157000.dkr.ecr.eu-west-1.amazonaws.com/mongot"
 search_image_hash="fbd60fb055dd500058edcb45677ea85d19421f47"
 
+ecr="268558157000.dkr.ecr.us-east-1.amazonaws.com"
 declare -a helm_values=(
 "registry.imagePullSecrets=image-registries-secret"
 "registry.operator=${ecr}/dev"
@@ -30,4 +29,5 @@ declare -a helm_values=(
 
 OPERATOR_ADDITIONAL_HELM_VALUES="$(echo -n "${helm_values[@]}" | tr ' ' ',')"
 export OPERATOR_ADDITIONAL_HELM_VALUES
-export OPERATOR_HELM_CHART="${PROJECT_DIR}/helm_chart"
+OPERATOR_HELM_CHART="$(realpath "../../../helm_chart")"
+export OPERATOR_HELM_CHART
