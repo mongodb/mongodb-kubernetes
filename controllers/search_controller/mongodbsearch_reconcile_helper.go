@@ -363,10 +363,10 @@ func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResourc
 		}
 		config.Metrics = mongot.ConfigMetrics{
 			Enabled: true,
-			Address: fmt.Sprintf("localhost:%d", search.GetMongotMetricsPort()),
+			Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotMetricsPort()),
 		}
 		config.HealthCheck = mongot.ConfigHealthCheck{
-			Address: fmt.Sprintf("localhost:%d", search.GetMongotHealthCheckPort()),
+			Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotHealthCheckPort()),
 		}
 		config.Logging = mongot.ConfigLogging{
 			Verbosity: "TRACE",
