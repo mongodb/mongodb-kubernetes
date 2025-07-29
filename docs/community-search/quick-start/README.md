@@ -35,14 +35,10 @@ export MDB_VERSION="8.0.10"
 
 # root admin user for convenience, not used here at all in this guide
 export MDB_ADMIN_USER_PASSWORD="admin-user-password-CHANGE-ME"
-<<<<<<< Updated upstream
 # regular user performing restore and search queries on sample mflix database
 export MDB_USER_PASSWORD="mdb-user-password-CHANGE-ME"
 # user for MongoDB Search to connect to the replica set to synchronise data from
 export MDB_SEARCH_SYNC_USER_PASSWORD="search-sync-user-password-CHANGE-ME"
-=======
-export MDB_SEARCH_SYNC_USER_PASSWORD="search-user-password-CHANGE-ME"
->>>>>>> Stashed changes
 
 export OPERATOR_HELM_CHART="mongodb/mongodb-kubernetes"
 # comma-separated key=value pairs for additional parameters passed to the helm-chart installing the operator
@@ -91,7 +87,6 @@ kubectl --context "${K8S_CLUSTER_0_CONTEXT_NAME}" --namespace "${MDB_NAMESPACE}"
   --from-literal=password="${MDB_ADMIN_USER_PASSWORD}"
 
 kubectl --context "${K8S_CLUSTER_0_CONTEXT_NAME}" --namespace "${MDB_NAMESPACE}" \
-<<<<<<< Updated upstream
   create secret generic mdbc-rs-search-sync-source-password \
   --from-literal=password="${MDB_SEARCH_SYNC_USER_PASSWORD}"
 
@@ -99,10 +94,6 @@ kubectl --context "${K8S_CLUSTER_0_CONTEXT_NAME}" --namespace "${MDB_NAMESPACE}"
   create secret generic mdb-user-password \
   --from-literal=password="${MDB_USER_PASSWORD}"
 
-=======
-  create secret generic search-user-password \
-  --from-literal=password="${MDB_SEARCH_SYNC_USER_PASSWORD}"
->>>>>>> Stashed changes
 ```
 Ensure these secrets are created in the same namespace where you plan to deploy MongoDB.
 
@@ -318,12 +309,8 @@ kubectl exec -n "${MDB_NAMESPACE}" --context "${K8S_CLUSTER_0_CONTEXT_NAME}" mon
 echo "Downloading sample database archive..."
 curl https://atlas-education.s3.amazonaws.com/sample_mflix.archive -o /tmp/sample_mflix.archive
 echo "Restoring sample database"
-<<<<<<< Updated upstream
 mongorestore --archive=/tmp/sample_mflix.archive --verbose=1 --drop --nsInclude 'sample_mflix.*' \
 --uri="mongodb://mdb-user:${MDB_USER_PASSWORD}@mdbc-rs-0.mdbc-rs-svc.${MDB_NAMESPACE}.svc.cluster.local:27017/?replicaSet=mdbc-rs"
-=======
-mongorestore --archive=/tmp/sample_mflix.archive --verbose=1 --drop --nsInclude 'sample_mflix.*' --uri="mongodb://search-user:${MDB_SEARCH_SYNC_USER_PASSWORD}@mdbc-rs-0.mdbc-rs-svc.${MDB_NAMESPACE}.svc.cluster.local:27017/?replicaSet=mdbc-rs"
->>>>>>> Stashed changes
 EOF
 )"
 ```
@@ -338,11 +325,7 @@ Before performing search queries, create a search index. This step uses `kubectl
 #!/bin/bash
 
 kubectl exec --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" mongodb-tools-pod -- \
-<<<<<<< Updated upstream
   mongosh --quiet "mongodb://mdb-user:${MDB_USER_PASSWORD}@mdbc-rs-0.mdbc-rs-svc.${MDB_NAMESPACE}.svc.cluster.local:27017/?replicaSet=mdbc-rs" \
-=======
-  mongosh --quiet "mongodb://search-user:${MDB_SEARCH_SYNC_USER_PASSWORD}@mdbc-rs-0.mdbc-rs-svc.${MDB_NAMESPACE}.svc.cluster.local:27017/?replicaSet=mdbc-rs" \
->>>>>>> Stashed changes
     --eval "use sample_mflix" \
     --eval 'db.movies.createSearchIndex("default", { mappings: { dynamic: true } });'
 ```
@@ -355,30 +338,9 @@ Creating a search index is an asynchronous operation. This script polls periodic
 ```shell copy
 #!/bin/bash
 
-<<<<<<< Updated upstream
 # Currently it's not possible to check the status of search indexes, we need to just wait
 echo "Sleeping to wait for search indexes to be created"
 sleep 60
-=======
-for _ in $(seq 0 10); do
-  search_index_status=$(kubectl exec --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" mongodb-tools-pod -- \
-      mongosh --quiet "mongodb://search-user:${MDB_SEARCH_SYNC_USER_PASSWORD}@mdbc-rs-0.mdbc-rs-svc.${MDB_NAMESPACE}.svc.cluster.local:27017/?replicaSet=mdbc-rs" \
-        --eval "use sample_mflix" \
-        --eval 'db.movies.getSearchIndexes("default")[0]["status"]')
-
-  if [[ "${search_index_status}" == "READY" ]]; then
-    echo "Search index is ready."
-    break
-  fi
-  echo "Search index is not ready yet: status=${search_index_status}"
-  sleep 2
-done
-
-if [[ "${search_index_status}" != "READY" ]]; then
-  echo "Error waiting for the search index to be ready"
-  return 1
-fi
->>>>>>> Stashed changes
 ```
 
 ### 17. Execute a Search Query
@@ -431,11 +393,7 @@ EOF
 
 kubectl exec --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" mongodb-tools-pod -- /bin/bash -eu -c "$(cat <<EOF
 echo '${mdb_script}' > /tmp/mdb_script.js
-<<<<<<< Updated upstream
 mongosh --quiet "mongodb://mdb-user:${MDB_USER_PASSWORD}@mdbc-rs-0.mdbc-rs-svc.${MDB_NAMESPACE}.svc.cluster.local:27017/?replicaSet=mdbc-rs" < /tmp/mdb_script.js
-=======
-mongosh --quiet "mongodb://search-user:${MDB_SEARCH_SYNC_USER_PASSWORD}@mdbc-rs-0.mdbc-rs-svc.${MDB_NAMESPACE}.svc.cluster.local:27017/?replicaSet=mdbc-rs" < /tmp/mdb_script.js
->>>>>>> Stashed changes
 EOF
 )"
 ```
