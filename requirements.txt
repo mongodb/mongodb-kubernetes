@@ -11,14 +11,14 @@ jsonpatch==1.33
 kubernetes==30.1.0
 pymongo==4.13.2
 pytest==8.4.1
-pytest-asyncio==1.0.0
+pytest-asyncio==1.1.0
 pycognito==2024.5.1
 PyYAML==6.0.2
 urllib3==2.5.0
 cryptography==45.0.5
 python-dateutil==2.9.0.post0
 python-ldap==3.4.4
-GitPython==3.1.44
+GitPython==3.1.45
 setuptools>=71.0.3 # not directly required, pinned by Snyk to avoid a vulnerability
 opentelemetry-api
 opentelemetry-sdk
@@ -31,8 +31,8 @@ isort==6.0.1
 shrub.py==3.10.0
 pytest-mock==3.14.1
 wrapt==1.17.2
-botocore==1.39.4
-boto3==1.39.4
+botocore==1.39.15
+boto3==1.39.15
 python-frontmatter==1.1.0
 
 # from kubeobject
