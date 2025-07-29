@@ -1,8 +1,9 @@
 # the init database image gets supplied by pipeline.py and corresponds to the operator version we want to release
 # the agent with. This enables us to release the agent for older operator.
 ARG init_database_image
+FROM ${init_database_image} AS init_database
 
-FROM --platform=${BUILDPLATFORM} scratch AS tools_downloader
+FROM scratch AS tools_downloader
 
 ARG mongodb_tools_url
 
@@ -18,7 +19,7 @@ ADD "${mongodb_tools_url}/${mongodb_tools_version_s390x}" /data/s390x/mongodb_to
 ARG mongodb_tools_version_ppc64le
 ADD "${mongodb_tools_url}/${mongodb_tools_version_ppc64le}" /data/ppc64le/mongodb_tools.tgz
 
-FROM --platform=${BUILDPLATFORM} scratch AS agent_downloader
+FROM scratch AS agent_downloader
 
 ARG mongodb_agent_url
 
@@ -34,10 +35,7 @@ ADD "${mongodb_agent_url}/${mongodb_agent_version_s390x}" /data/s390x/mongodb_ag
 ARG mongodb_agent_version_ppc64le
 ADD "${mongodb_agent_url}/${mongodb_agent_version_ppc64le}" /data/ppc64le/mongodb_agent.tgz
 
-
-FROM ${init_database_image} AS init_database
-
-FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/golang:1.24 AS dependency_downloader
+FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/golang:1.24 AS readiness_builder
 
 WORKDIR /go/src/github.com/mongodb/mongodb-kubernetes/
 
@@ -45,46 +43,26 @@ COPY go.mod go.sum ./
 
 RUN go mod download
 
-FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/golang:1.24 AS readiness_builder
+COPY mongodb-community-operator /go/src/github.com/mongodb/mongodb-kubernetes/mongodb-community-operator
 
-WORKDIR /go/src/github.com/mongodb/mongodb-kubernetes/
 ARG TARGETOS
 ARG TARGETARCH
-
-COPY --from=dependency_downloader /go/pkg /go/pkg
-COPY . /go/src/github.com/mongodb/mongodb-kubernetes
-
 RUN CGO_ENABLED=0 GOFLAGS=-buildvcs=false GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /readinessprobe ./mongodb-community-operator/cmd/readiness/main.go
 RUN CGO_ENABLED=0 GOFLAGS=-buildvcs=false GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /version-upgrade-hook ./mongodb-community-operator/cmd/versionhook/main.go
 
-FROM scratch AS base
-
-COPY --from=readiness_builder /readinessprobe /data/
-COPY --from=readiness_builder /version-upgrade-hook /data/
-
-COPY --from=init_database /probes/probe.sh /data/probe.sh
-COPY --from=init_database /scripts/agent-launcher-lib.sh /data/
-COPY --from=init_database /scripts/agent-launcher.sh /data/
-COPY --from=init_database /licenses/LICENSE /data/
-
 FROM registry.access.redhat.com/ubi9/ubi-minimal
 
-ARG version
+ARG TARGETARCH
+COPY --from=tools_downloader "/data/${TARGETARCH}/mongodb_tools.tgz" /tools/mongodb_tools.tgz
+COPY --from=agent_downloader "/data/${TARGETARCH}/mongodb_agent.tgz" /agent/mongodb_agent.tgz
 
-LABEL name="MongoDB Agent" \
-      version="${version}" \
-      summary="MongoDB Agent" \
-      description="MongoDB Agent" \
-      vendor="MongoDB" \
-      release="1" \
-      maintainer="support@mongodb.com"
+COPY --from=readiness_builder /readinessprobe /opt/scripts/readinessprobe
+COPY --from=readiness_builder /version-upgrade-hook /opt/scripts/version-upgrade-hook
 
-COPY --from=base /data/probe.sh /opt/scripts/probe.sh
-COPY --from=base /data/readinessprobe /opt/scripts/readinessprobe
-COPY --from=base /data/version-upgrade-hook /opt/scripts/version-upgrade-hook
-COPY --from=base /data/agent-launcher-lib.sh /opt/scripts/agent-launcher-lib.sh
-COPY --from=base /data/agent-launcher.sh /opt/scripts/agent-launcher.sh
-COPY --from=base /data/LICENSE /licenses/LICENSE
+COPY --from=init_database /probes/probe.sh /opt/scripts/probe.sh
+COPY --from=init_database /scripts/agent-launcher-lib.sh /opt/scripts/agent-launcher-lib.sh
+COPY --from=init_database /scripts/agent-launcher.sh /opt/scripts/agent-launcher.sh
+COPY --from=init_database /licenses/LICENSE /licenses/LICENSE
 
 # Replace libcurl-minimal and curl-minimal with the full versions
 # https://bugzilla.redhat.com/show_bug.cgi?id=1994521
@@ -106,11 +84,6 @@ RUN microdnf install -y --disableplugin=subscription-manager \
     && microdnf upgrade -y  \
     && rm -rf /var/lib/apt/lists/*
 
-
-ARG TARGETARCH
-COPY --from=tools_downloader "/data/${TARGETARCH}/mongodb_tools.tgz" /tools/mongodb_tools.tgz
-COPY --from=agent_downloader "/data/${TARGETARCH}/mongodb_agent.tgz" /agent/mongodb_agent.tgz
-
 RUN tar xfz /tools/mongodb_tools.tgz
 RUN mv mongodb-database-tools-*/bin/* /tools
 RUN chmod +x /tools/*
@@ -125,6 +98,16 @@ RUN rm -rf mongodb-mms-automation-agent-*
 
 RUN mkdir -p /var/lib/automation/config
 RUN chmod -R +r /var/lib/automation/config
+
+ARG version
+
+LABEL name="MongoDB Agent" \
+      version="${version}" \
+      summary="MongoDB Agent" \
+      description="MongoDB Agent" \
+      vendor="MongoDB" \
+      release="1" \
+      maintainer="support@mongodb.com"
 
 USER 2000
 

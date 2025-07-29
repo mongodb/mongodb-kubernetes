@@ -1,26 +1,41 @@
-FROM scratch AS base
+FROM scratch AS tools_downloader
 
-ARG agent_version
-ARG agent_distro
-ARG tools_version
-ARG tools_distro
+ARG mongodb_tools_url
 
-ADD https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod/mongodb-mms-automation-agent-${agent_version}.${agent_distro}.tar.gz /data/mongodb-agent.tar.gz
-ADD https://downloads.mongodb.org/tools/db/mongodb-database-tools-${tools_distro}-${tools_version}.tgz /data/mongodb-tools.tgz
+ARG mongodb_tools_version_amd64
+ADD "${mongodb_tools_url}/${mongodb_tools_version_amd64}" /data/amd64/mongodb_tools.tgz
 
-COPY ./docker/mongodb-kubernetes-init-database/content/LICENSE /data/LICENSE
+ARG mongodb_tools_version_arm64
+ADD "${mongodb_tools_url}/${mongodb_tools_version_arm64}" /data/arm64/mongodb_tools.tgz
+
+ARG mongodb_tools_version_s390x
+ADD "${mongodb_tools_url}/${mongodb_tools_version_s390x}" /data/s390x/mongodb_tools.tgz
+
+ARG mongodb_tools_version_ppc64le
+ADD "${mongodb_tools_url}/${mongodb_tools_version_ppc64le}" /data/ppc64le/mongodb_tools.tgz
+
+FROM scratch AS agent_downloader
+
+ARG mongodb_agent_url
+
+ARG mongodb_agent_version_amd64
+ADD "${mongodb_agent_url}/${mongodb_agent_version_amd64}" /data/amd64/mongodb_agent.tgz
+
+ARG mongodb_agent_version_arm64
+ADD "${mongodb_agent_url}/${mongodb_agent_version_arm64}" /data/arm64/mongodb_agent.tgz
+
+ARG mongodb_agent_version_s390x
+ADD "${mongodb_agent_url}/${mongodb_agent_version_s390x}" /data/s390x/mongodb_agent.tgz
+
+ARG mongodb_agent_version_ppc64le
+ADD "${mongodb_agent_url}/${mongodb_agent_version_ppc64le}" /data/ppc64le/mongodb_agent.tgz
 
 FROM registry.access.redhat.com/ubi9/ubi-minimal
 
-ARG version
-
-LABEL name="MongoDB Agent" \
-      version="${version}" \
-      summary="MongoDB Agent" \
-      description="MongoDB Agent" \
-      vendor="MongoDB" \
-      release="1" \
-      maintainer="support@mongodb.com"
+ARG TARGETARCH
+COPY --from=tools_downloader "/data/${TARGETARCH}/mongodb_tools.tgz" /tools/mongodb_tools.tgz
+COPY --from=agent_downloader "/data/${TARGETARCH}/mongodb_agent.tgz" /agent/mongodb_agent.tgz
+COPY ./docker/mongodb-kubernetes-init-database/content/LICENSE /data/LICENSE
 
 # Replace libcurl-minimal and curl-minimal with the full versions
 # https://bugzilla.redhat.com/show_bug.cgi?id=1994521
@@ -50,20 +65,25 @@ RUN mkdir -p /agent \
       && touch /var/log/mongodb-mms-automation/readiness.log \
       && chmod ugo+rw /var/log/mongodb-mms-automation/readiness.log
 
-
-COPY --from=base /data/mongodb-agent.tar.gz /agent
-COPY --from=base /data/mongodb-tools.tgz /agent
-COPY --from=base /data/LICENSE /licenses/LICENSE
-
-RUN tar xfz /agent/mongodb-agent.tar.gz \
+RUN tar xfz /agent/mongodb_agent.tgz \
     && mv mongodb-mms-automation-agent-*/mongodb-mms-automation-agent /agent/mongodb-agent \
     && chmod +x /agent/mongodb-agent \
     && mkdir -p /var/lib/automation/config \
     && chmod -R +r /var/lib/automation/config \
-    && rm /agent/mongodb-agent.tar.gz \
+    && rm /agent/mongodb_agent.tgz \
     && rm -r mongodb-mms-automation-agent-*
 
-RUN tar xfz /agent/mongodb-tools.tgz --directory /var/lib/mongodb-mms-automation/ && rm /agent/mongodb-tools.tgz
+RUN tar xfz /tools/mongodb_tools.tgz --directory /var/lib/mongodb-mms-automation/ && rm /tools/mongodb_tools.tgz
+
+ARG version
+
+LABEL name="MongoDB Agent" \
+      version="${version}" \
+      summary="MongoDB Agent" \
+      description="MongoDB Agent" \
+      vendor="MongoDB" \
+      release="1" \
+      maintainer="support@mongodb.com"
 
 USER 2000
 CMD ["/agent/mongodb-agent", "-cluster=/var/lib/automation/config/automation-config.json"]
