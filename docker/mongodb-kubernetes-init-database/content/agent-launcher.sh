@@ -220,19 +220,7 @@ fi
 
 debug="${MDB_AGENT_DEBUG-}"
 if [ "${debug}" = "true" ]; then
-  cd ${mdb_downloads_dir} || true
-  mkdir -p /var/lib/mongodb-mms-automation/gopath
-  mkdir -p /var/lib/mongodb-mms-automation/go
-  curl -LO https://go.dev/dl/go1.20.1.linux-amd64.tar.gz
-  tar -xzf go1.20.1.linux-amd64.tar.gz
-  export GOPATH=${mdb_downloads_dir}/gopath
-  export GOCACHE=${mdb_downloads_dir}/.cache
-  export PATH=${PATH}:${mdb_downloads_dir}/go/bin
-  export PATH=${PATH}:${mdb_downloads_dir}/gopath/bin
-  go install github.com/go-delve/delve/cmd/dlv@latest
-  export PATH=${PATH}:${mdb_downloads_dir}/gopath/bin
-  cd ${mdb_downloads_dir} || true
-  dlv --headless=true --listen=:5006 --accept-multiclient=true --continue --api-version=2 exec "${AGENT_BINARY_PATH}" -- "${agentOpts[@]}" "${splittedAgentFlags[@]}" 2>> "${MDB_LOG_FILE_AUTOMATION_AGENT_STDERR}" > >(json_log "automation-agent-stdout") &
+  /opt/scripts/dlv --headless=true --listen=:5006 --accept-multiclient=true --continue --api-version=2 exec "${AGENT_BINARY_PATH}" -- "${agentOpts[@]}" "${splittedAgentFlags[@]}" 2>> "${MDB_LOG_FILE_AUTOMATION_AGENT_STDERR}" > >(json_log "automation-agent-stdout") &
 else
 # Note, that we do logging in subshell - this allows us to save the correct PID to variable (not the logging one)
   "${AGENT_BINARY_PATH}" "${agentOpts[@]}" "${splittedAgentFlags[@]}" 2>> "${MDB_LOG_FILE_AUTOMATION_AGENT_STDERR}" >> >(json_log "automation-agent-stdout") &
