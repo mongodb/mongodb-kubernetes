@@ -236,6 +236,15 @@ functions:
         - ${workdir}/bin
       binary: scripts/dev/setup_evg_host.sh
 
+  setup_ibm_host: &setup_ibm_host
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+      binary: scripts/dev/setup_minikube_host.sh
+
   lint_repo:
     - command: subprocess.exec
       type: setup
@@ -259,6 +268,15 @@ functions:
     - *setup_aws
     - *configure_docker_auth
     - *setup_evg_host
+    - *python_venv
+
+  # This differs for normal evg_host as we require minikube instead of kind for
+  # IBM machines
+  setup_building_host_minikube:
+    - *switch_context
+    - *setup_aws
+    - *configure_docker_auth
+    - *setup_ibm_host
     - *python_venv
 
   prune_docker_resources:
