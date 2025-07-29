@@ -403,12 +403,9 @@ def build_image_generic(
             logger.debug(f"build image generic - registry={registry}")
             pipeline_process_image(
                 image_name=image_name,
-                image_tag=version,
                 dockerfile_path=dockerfile_path,
+                build_configuration=build_configuration,
                 dockerfile_args=build_args,
-                base_registry=registry,
-                platforms=arch,
-                sign=False,
                 with_sbom=False,
             )
 
