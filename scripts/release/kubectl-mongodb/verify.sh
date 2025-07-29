@@ -11,9 +11,10 @@ SIGNATURE="${ARTIFACT}.sig"
 HOSTED_SIGN_PUBKEY="https://cosign.mongodb.com/mongodb-enterprise-kubernetes-operator.pem" # to complete
 TMPDIR=${TMPDIR:-/tmp}
 KEY_FILE="${TMPDIR}/host-public.key"
-SIGNING_IMAGE_URI=${SIGNING_IMAGE_URI}
+# shellcheck disable=SC2269
+SIGNING_IMAGE_URI="${SIGNING_IMAGE_URI}"
 
-curl -o ${KEY_FILE} "${HOSTED_SIGN_PUBKEY}"
+curl -o "${KEY_FILE}" "${HOSTED_SIGN_PUBKEY}"
 echo "Verifying signature ${SIGNATURE} of artifact ${ARTIFACT}"
 echo "Keyfile is ${KEY_FILE}"
 
@@ -22,11 +23,11 @@ echo "Keyfile is ${KEY_FILE}"
 
 docker run \
   --rm \
-  -v $(pwd):$(pwd) \
-  -v ${KEY_FILE}:${KEY_FILE} \
-  -w $(pwd) \
-  ${SIGNING_IMAGE_URI} \
-  cosign verify-blob --key ${KEY_FILE} --signature ${SIGNATURE} ${ARTIFACT}
+  -v "$(pwd)":"$(pwd)" \
+  -v "${KEY_FILE}":"${KEY_FILE}" \
+  -w "$(pwd)" \
+  "${SIGNING_IMAGE_URI}" \
+  cosign verify-blob --key "${KEY_FILE}" --signature "${SIGNATURE}" "${ARTIFACT}"
 
 # Without below line, Evergreen fails at archiving with "open dist/kubectl-[...]/kubectl-mongodb.sig: permission denied
-sudo chmod 666 ${SIGNATURE}
+sudo chmod 666 "${SIGNATURE}"

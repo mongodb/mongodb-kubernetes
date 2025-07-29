@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Disables shellcheck on lines 15-21, because vars seem to be assigned to themselves.
+# and we are not sure if removing this would be an issue.
+# shellcheck disable=SC2269
 
 set -euo pipefail
 
@@ -28,14 +31,14 @@ echo "Signing artifact ${ARTIFACT} and saving signature to ${SIGNATURE}"
 } > "${SIGNING_ENVFILE}"
 
 echo "Logging in artifactory.corp"
-echo ${ARTIFACTORY_PASSWORD} | docker login --password-stdin --username ${ARTIFACTORY_USERNAME} ${ARTIFACTORY_URL}
+echo "${ARTIFACTORY_PASSWORD}" | docker login --password-stdin --username "${ARTIFACTORY_USERNAME}" "${ARTIFACTORY_URL}"
 
 echo "Signing artifact"
 echo "Envfile is ${SIGNING_ENVFILE}"
 docker run \
   --env-file="${SIGNING_ENVFILE}" \
   --rm \
-  -v $(pwd):$(pwd) \
-  -w $(pwd) \
-  ${SIGNING_IMAGE_URI} \
-  cosign sign-blob --key "${PKCS11_URI}" --output-signature ${SIGNATURE} ${ARTIFACT} --yes
+  -v "$(pwd)":"$(pwd)" \
+  -w "$(pwd)" \
+  "${SIGNING_IMAGE_URI}" \
+  cosign sign-blob --key "${PKCS11_URI}" --output-signature "${SIGNATURE}" "${ARTIFACT}" --yes
