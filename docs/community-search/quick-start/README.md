@@ -6,7 +6,7 @@ This guide provides instructions for deploying MongoDB Community Edition along w
 
 Before you begin, ensure you have the following tools and configurations in place:
 
-- **Kubernetes cluster**: A running Kubernetes cluster (e.g., Minikube, Kind, GKE, EKS, AKS).
+- **Kubernetes cluster**: A running Kubernetes cluster (e.g., Minikube, Kind, GKE, EKS, AKS) with kubeconfig available locally.
 - **kubectl**: The Kubernetes command-line tool, configured to communicate with your cluster.
 - **Helm**: The package manager for Kubernetes, used here to install the MongoDB Kubernetes Operator.
 - **Bash 5.1+**: All shell commands in this guide are intended to be run in Bash. Scripts in this guide are automatically tested on Linux with Bash 5.1.
@@ -27,15 +27,22 @@ Download or copy the content of `env_variables.sh`:
 # set it to the context name of the k8s cluster
 export K8S_CLUSTER_0_CONTEXT_NAME="<local cluster context>"
 
-# At the private preview stage the community search image is accessible only from a private repository.
-# Please contact MongoDB Support to get access.
-export PRIVATE_PREVIEW_IMAGE_PULLSECRET="<.dockerconfigjson>"
-
 # the following namespace will be created if not exists
 export MDB_NAMESPACE="mongodb"
 
+# minimum required MongoDB version for running MongoDB Search is 8.0.10
+export MDB_VERSION="8.0.10"
+
+# root admin user for convenience, not used here at all in this guide
 export MDB_ADMIN_USER_PASSWORD="admin-user-password-CHANGE-ME"
+<<<<<<< Updated upstream
+# regular user performing restore and search queries on sample mflix database
+export MDB_USER_PASSWORD="mdb-user-password-CHANGE-ME"
+# user for MongoDB Search to connect to the replica set to synchronise data from
+export MDB_SEARCH_SYNC_USER_PASSWORD="search-sync-user-password-CHANGE-ME"
+=======
 export MDB_SEARCH_SYNC_USER_PASSWORD="search-user-password-CHANGE-ME"
+>>>>>>> Stashed changes
 
 export OPERATOR_HELM_CHART="mongodb/mongodb-kubernetes"
 # comma-separated key=value pairs for additional parameters passed to the helm-chart installing the operator
@@ -67,59 +74,7 @@ helm upgrade --install --debug --kube-context "${K8S_CLUSTER_0_CONTEXT_NAME}" \
   --set "${OPERATOR_ADDITIONAL_HELM_VALUES:-"dummy=value"}" \
   "${OPERATOR_HELM_CHART}"
 ```
-This command installs the operator in the `mongodb` namespace (creating it if it doesn't exist) and names the release `community-operator`.
-
-### 4. Configure Pull Secret for MongoDB Community Search
-
-To use MongoDB Search, your Kubernetes cluster needs to pull the necessary container images. This step creates a Kubernetes secret named `community-private-preview-pullsecret`. This secret stores the credentials required to access the image repository for MongoDB Search. The script then patches the `mongodb-kubernetes-database-pods` service account to include this pull secret, allowing pods managed by this service account to pull the required images.
-
-[code_snippets/0200_configure_community_search_pullsecret.sh](code_snippets/0200_configure_community_search_pullsecret.sh)
-```shell copy
-kubectl apply --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" -f - <<EOF
-apiVersion: v1
-kind: Secret
-metadata:
-  name: community-private-preview-pullsecret
-data:
-  .dockerconfigjson: "${PRIVATE_PREVIEW_IMAGE_PULLSECRET}"
-type: kubernetes.io/dockerconfigjson
-EOF
-
-pull_secrets=$(kubectl --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" \
-  get sa mongodb-kubernetes-database-pods -n "${MDB_NAMESPACE}" -o=jsonpath='{.imagePullSecrets[*]}')
-
-if [[ "${pull_secrets}" ]]; then
-  kubectl patch --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" \
-    sa mongodb-kubernetes-database-pods  \
-    --type=json -p='[{"op": "add", "path": "/imagePullSecrets/-", "value": {"name": "community-private-preview-pullsecret"}}]'
-else
-  kubectl patch --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" \
-    sa mongodb-kubernetes-database-pods  \
-    --type=merge -p='{"imagePullSecrets": [{"name": "community-private-preview-pullsecret"}]}'
-fi
-echo "ServiceAccount mongodb-kubernetes-database-pods has been patched: "
-
-kubectl get --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" -o yaml sa mongodb-kubernetes-database-pods
-```
-This script creates a `community-private-preview-pullsecret` secret in your Kubernetes namespace and associates it with the service account used for MongoDB pods.
-
-### 5. Verify Pull Secret Configuration
-
-Confirm that the `community-private-preview-pullsecret` has been successfully added to the `mongodb-kubernetes-database-pods` service account. This ensures that Kubernetes can authenticate with the container registry when pulling images for MongoDB Search pods.
-
-[code_snippets/0210_verify_community_search_pullsecret.sh](code_snippets/0210_verify_community_search_pullsecret.sh)
-```shell copy
-echo "Verifying mongodb-kubernetes-database-pods contains proper pull secret"
-if ! kubectl get --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" -o json \
-  sa mongodb-kubernetes-database-pods -o=jsonpath='{.imagePullSecrets[*]}' | \
-    grep community-private-preview-pullsecret; then
-  echo "ERROR: mongodb-kubernetes-database-pods service account doesn't contain necessary pullsecret"
-  kubectl get --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" -o json \
-    sa mongodb-kubernetes-database-pods -o=yaml
-  return 1
-fi
-```
-This command checks the `mongodb-kubernetes-database-pods` service account to confirm the presence of `community-private-preview-pullsecret`.
+This command installs the operator in the `mongodb` namespace (creating it if it doesn't exist).
 
 ## Creating a MongoDB Community Search Deployment
 
@@ -132,18 +87,31 @@ MongoDB requires authentication for secure access. This step creates two Kuberne
 [code_snippets/0305_create_mongodb_community_user_secrets.sh](code_snippets/0305_create_mongodb_community_user_secrets.sh)
 ```shell copy
 kubectl --context "${K8S_CLUSTER_0_CONTEXT_NAME}" --namespace "${MDB_NAMESPACE}" \
-  create secret generic admin-user-password \
+  create secret generic mdb-admin-user-password \
   --from-literal=password="${MDB_ADMIN_USER_PASSWORD}"
 
 kubectl --context "${K8S_CLUSTER_0_CONTEXT_NAME}" --namespace "${MDB_NAMESPACE}" \
+<<<<<<< Updated upstream
+  create secret generic mdbc-rs-search-sync-source-password \
+  --from-literal=password="${MDB_SEARCH_SYNC_USER_PASSWORD}"
+
+kubectl --context "${K8S_CLUSTER_0_CONTEXT_NAME}" --namespace "${MDB_NAMESPACE}" \
+  create secret generic mdb-user-password \
+  --from-literal=password="${MDB_USER_PASSWORD}"
+
+=======
   create secret generic search-user-password \
   --from-literal=password="${MDB_SEARCH_SYNC_USER_PASSWORD}"
+>>>>>>> Stashed changes
 ```
 Ensure these secrets are created in the same namespace where you plan to deploy MongoDB.
 
 ### 7. Create MongoDB Community Resource
 
-Now, deploy MongoDB Community by creating a `MongoDBCommunity` custom resource named `mdbc-rs`. This resource definition instructs the MongoDB Kubernetes Operator to configure a MongoDB replica set with 3 members, running version 8.0.6. MongoDB Community Search is supported only from MongoDB Community Server version 8.0. It also defines CPU and memory resources for the `mongod` and `mongodb-agent` containers, and sets up two users (`admin-user` and `search-user`) with their respective roles and password secrets. User `search-user` will be used to restore, connect and perform search queries on the `sample_mflix` database.
+Now, deploy MongoDB Community by creating a `MongoDBCommunity` custom resource named `mdbc-rs`. This resource definition instructs the MongoDB Kubernetes Operator to configure a MongoDB replica set with 3 members, running version 8.0.10. MongoDB Community Search is supported only from MongoDB Community Server version 8.0.10. It also defines CPU and memory resources for the `mongod` and `mongodb-agent` containers, and sets up three users:
+* `mdb-user` - a regular user used to that will perform restore of `sample_mflix` database and execute search queries.
+* `search-sync-source` - user that MongoDB Search is using to connect to MongoDB database in order to manage and build indexes. This user uses `searchCoordinator` role, which for MongoDB <8.2 is created automatically by the operator.
+* `admin-user` and ``) with their respective roles and password secrets. User `search-user` will be used to restore, connect and perform search queries on the `sample_mflix` database.
 
 [code_snippets/0310_create_mongodb_community_resource.sh](code_snippets/0310_create_mongodb_community_resource.sh)
 ```yaml copy
@@ -153,7 +121,7 @@ kind: MongoDBCommunity
 metadata:
   name: mdbc-rs
 spec:
-  version: 8.0.6
+  version: ${MDB_VERSION}
   type: ReplicaSet
   members: 3
   security:
@@ -162,7 +130,7 @@ spec:
       modes:
         - SCRAM
   agent:
-    logLevel: INFO
+    logLevel: DEBUG
   statefulSet:
     spec:
       template:
@@ -171,36 +139,51 @@ spec:
             - name: mongod
               resources:
                 limits:
-                  cpu: "3"
-                  memory: 5Gi
-                requests:
                   cpu: "2"
-                  memory: 5Gi
+                  memory: 2Gi
+                requests:
+                  cpu: "1"
+                  memory: 1Gi
             - name: mongodb-agent
               resources:
                 limits:
-                  cpu: "2"
-                  memory: 5Gi
-                requests:
                   cpu: "1"
-                  memory: 5Gi
+                  memory: 2Gi
+                requests:
+                  cpu: "0.5"
+                  memory: 1Gi
   users:
-    - name: admin-user
-      passwordSecretRef:
-        name: admin-user-password
+    # admin user with root role
+    - name: mdb-admin
+      db: admin
+      passwordSecretRef: # a reference to the secret containing user password
+        name: mdb-admin-user-password
+      scramCredentialsSecretName: mdb-admin-user
       roles:
-        - db: admin
-          name: clusterAdmin
-        - db: admin
-          name: userAdminAnyDatabase
-      scramCredentialsSecretName: admin-user
-    - name: search-user
-      passwordSecretRef:
-        name: search-user-password
+        - name: root
+          db: admin
+    # user performing search queries
+    - name: mdb-user
+      db: admin
+      passwordSecretRef: # a reference to the secret containing user password
+        name: mdb-user-password
+      scramCredentialsSecretName: mdb-user-scram
       roles:
-        - db: sample_mflix
-          name: dbOwner
-      scramCredentialsSecretName: search-user
+        - name: restore
+          db: sample_mflix
+        - name: readWrite
+          db: sample_mflix
+    # user used by MongoDB Search to connect to MongoDB database to synchronize data from
+    # For MongoDB <8.2, the operator will be creating the searchCoordinator custom role automatically
+    # From MongoDB 8.2, searchCoordinator role will be a built-in role.
+    - name: search-sync-source
+      db: admin
+      passwordSecretRef: # a reference to the secret that will be used to generate the user's password
+        name: mdbc-rs-search-sync-source-password
+      scramCredentialsSecretName: mdbc-rs-search-sync-source
+      roles:
+        - name: searchCoordinator
+          db: admin
 EOF
 ```
 
@@ -222,9 +205,8 @@ kubectl --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" get pods
 
 Once your MongoDB deployment is ready, enable Search capabilities by creating a `MongoDBSearch` custom resource, also named `mdbc-rs` to associate it with the MongoDB instance. This resource specifies the CPU and memory resource requirements for the search nodes.
 
-Note: Private preview of MongoDB Community Search comes with some limitations, and it is not suitable for production use:
-* TLS cannot be enabled in MongoDB Community deployment (MongoD communicates with MongoT with plain text).
-* Only one node of search node is supported (load balancing not supported)
+Note: Public Preview of MongoDB Community Search comes with some limitations, and it is not suitable for production use:
+* Only one instance of the search node is supported (load balancing is not supported)
 
 [code_snippets/0320_create_mongodb_search_resource.sh](code_snippets/0320_create_mongodb_search_resource.sh)
 ```shell copy
@@ -314,7 +296,7 @@ metadata:
 spec:
   containers:
   - name: mongodb-tools
-    image: mongodb/mongodb-community-server:8.0.6-ubi9
+    image: mongodb/mongodb-community-server:${MDB_VERSION}-ubi8
     command: ["/bin/bash", "-c"]
     args: ["sleep infinity"]
   restartPolicy: Never
@@ -336,7 +318,12 @@ kubectl exec -n "${MDB_NAMESPACE}" --context "${K8S_CLUSTER_0_CONTEXT_NAME}" mon
 echo "Downloading sample database archive..."
 curl https://atlas-education.s3.amazonaws.com/sample_mflix.archive -o /tmp/sample_mflix.archive
 echo "Restoring sample database"
+<<<<<<< Updated upstream
+mongorestore --archive=/tmp/sample_mflix.archive --verbose=1 --drop --nsInclude 'sample_mflix.*' \
+--uri="mongodb://mdb-user:${MDB_USER_PASSWORD}@mdbc-rs-0.mdbc-rs-svc.${MDB_NAMESPACE}.svc.cluster.local:27017/?replicaSet=mdbc-rs"
+=======
 mongorestore --archive=/tmp/sample_mflix.archive --verbose=1 --drop --nsInclude 'sample_mflix.*' --uri="mongodb://search-user:${MDB_SEARCH_SYNC_USER_PASSWORD}@mdbc-rs-0.mdbc-rs-svc.${MDB_NAMESPACE}.svc.cluster.local:27017/?replicaSet=mdbc-rs"
+>>>>>>> Stashed changes
 EOF
 )"
 ```
@@ -351,7 +338,11 @@ Before performing search queries, create a search index. This step uses `kubectl
 #!/bin/bash
 
 kubectl exec --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" mongodb-tools-pod -- \
+<<<<<<< Updated upstream
+  mongosh --quiet "mongodb://mdb-user:${MDB_USER_PASSWORD}@mdbc-rs-0.mdbc-rs-svc.${MDB_NAMESPACE}.svc.cluster.local:27017/?replicaSet=mdbc-rs" \
+=======
   mongosh --quiet "mongodb://search-user:${MDB_SEARCH_SYNC_USER_PASSWORD}@mdbc-rs-0.mdbc-rs-svc.${MDB_NAMESPACE}.svc.cluster.local:27017/?replicaSet=mdbc-rs" \
+>>>>>>> Stashed changes
     --eval "use sample_mflix" \
     --eval 'db.movies.createSearchIndex("default", { mappings: { dynamic: true } });'
 ```
@@ -364,6 +355,11 @@ Creating a search index is an asynchronous operation. This script polls periodic
 ```shell copy
 #!/bin/bash
 
+<<<<<<< Updated upstream
+# Currently it's not possible to check the status of search indexes, we need to just wait
+echo "Sleeping to wait for search indexes to be created"
+sleep 60
+=======
 for _ in $(seq 0 10); do
   search_index_status=$(kubectl exec --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" mongodb-tools-pod -- \
       mongosh --quiet "mongodb://search-user:${MDB_SEARCH_SYNC_USER_PASSWORD}@mdbc-rs-0.mdbc-rs-svc.${MDB_NAMESPACE}.svc.cluster.local:27017/?replicaSet=mdbc-rs" \
@@ -382,6 +378,7 @@ if [[ "${search_index_status}" != "READY" ]]; then
   echo "Error waiting for the search index to be ready"
   return 1
 fi
+>>>>>>> Stashed changes
 ```
 
 ### 17. Execute a Search Query
@@ -434,7 +431,11 @@ EOF
 
 kubectl exec --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" mongodb-tools-pod -- /bin/bash -eu -c "$(cat <<EOF
 echo '${mdb_script}' > /tmp/mdb_script.js
+<<<<<<< Updated upstream
+mongosh --quiet "mongodb://mdb-user:${MDB_USER_PASSWORD}@mdbc-rs-0.mdbc-rs-svc.${MDB_NAMESPACE}.svc.cluster.local:27017/?replicaSet=mdbc-rs" < /tmp/mdb_script.js
+=======
 mongosh --quiet "mongodb://search-user:${MDB_SEARCH_SYNC_USER_PASSWORD}@mdbc-rs-0.mdbc-rs-svc.${MDB_NAMESPACE}.svc.cluster.local:27017/?replicaSet=mdbc-rs" < /tmp/mdb_script.js
+>>>>>>> Stashed changes
 EOF
 )"
 ```

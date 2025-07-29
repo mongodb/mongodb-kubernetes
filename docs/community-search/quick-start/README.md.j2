@@ -63,7 +63,10 @@ Ensure these secrets are created in the same namespace where you plan to deploy 
 
 ### 7. Create MongoDB Community Resource
 
-Now, deploy MongoDB Community by creating a `MongoDBCommunity` custom resource named `mdbc-rs`. This resource definition instructs the MongoDB Kubernetes Operator to configure a MongoDB replica set with 3 members, running version 8.0.6. MongoDB Community Search is supported only from MongoDB Community Server version 8.0. It also defines CPU and memory resources for the `mongod` and `mongodb-agent` containers, and sets up two users (`admin-user` and `search-user`) with their respective roles and password secrets. User `search-user` will be used to restore, connect and perform search queries on the `sample_mflix` database.
+Now, deploy MongoDB Community by creating a `MongoDBCommunity` custom resource named `mdbc-rs`. This resource definition instructs the MongoDB Kubernetes Operator to configure a MongoDB replica set with 3 members, running version 8.0.10. MongoDB Community Search is supported only from MongoDB Community Server version 8.0.10. It also defines CPU and memory resources for the `mongod` and `mongodb-agent` containers, and sets up three users:
+* `mdb-user` - a regular user used to that will perform restore of `sample_mflix` database and execute search queries.
+* `search-sync-source` - user that MongoDB Search is using to connect to MongoDB database in order to manage and build indexes. This user uses `searchCoordinator` role, which for MongoDB <8.2 is created automatically by the operator.
+* `admin-user` and ``) with their respective roles and password secrets. User `search-user` will be used to restore, connect and perform search queries on the `sample_mflix` database.
 
 [code_snippets/0310_create_mongodb_community_resource.sh](code_snippets/0310_create_mongodb_community_resource.sh)
 ```yaml copy
@@ -83,9 +86,8 @@ After applying the `MongoDBCommunity` custom resource, the operator begins deplo
 
 Once your MongoDB deployment is ready, enable Search capabilities by creating a `MongoDBSearch` custom resource, also named `mdbc-rs` to associate it with the MongoDB instance. This resource specifies the CPU and memory resource requirements for the search nodes.
 
-Note: Private preview of MongoDB Community Search comes with some limitations, and it is not suitable for production use:
-* TLS cannot be enabled in MongoDB Community deployment (MongoD communicates with MongoT with plain text).
-* Only one node of search node is supported (load balancing not supported)
+Note: Public Preview of MongoDB Community Search comes with some limitations, and it is not suitable for production use:
+* Only one instance of the search node is supported (load balancing is not supported)
 
 [code_snippets/0320_create_mongodb_search_resource.sh](code_snippets/0320_create_mongodb_search_resource.sh)
 ```shell copy

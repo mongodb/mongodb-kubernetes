@@ -1,12 +1,17 @@
 Release "mongodb-kubernetes" does not exist. Installing it now.
 NAME: mongodb-kubernetes
+<<<<<<< Updated upstream
 LAST DEPLOYED: Mon Jul 28 15:07:59 2025
+=======
+LAST DEPLOYED: Fri Jul 25 20:50:36 2025
+>>>>>>> Stashed changes
 NAMESPACE: mongodb
 STATUS: deployed
 REVISION: 1
 TEST SUITE: None
 USER-SUPPLIED VALUES:
 database:
+<<<<<<< Updated upstream
   version: 68876175f5ad6d0007fdc1d4
 initAppDb:
   version: 68876175f5ad6d0007fdc1d4
@@ -16,6 +21,32 @@ initOpsManager:
   version: 68876175f5ad6d0007fdc1d4
 operator:
   version: 68876175f5ad6d0007fdc1d4
+=======
+  name: mongodb-kubernetes-database
+  version: latest
+initAppDb:
+  version: latest
+initDatabase:
+  version: latest
+initOpsManager:
+  version: latest
+managedSecurityContext: false
+mongodb:
+  imageType: ubi9
+  name: mongodb-enterprise-server
+operator:
+  enablePVCResize: true
+  maxConcurrentReconciles: 10
+  mdbDefaultArchitecture: non-static
+  telemetry:
+    collection:
+      frequency: 1m
+    send:
+      enabled: false
+  version: latest
+opsManager:
+  name: mongodb-enterprise-ops-manager-ubi
+>>>>>>> Stashed changes
 registry:
   agent: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
   appDb: quay.io/mongodb
@@ -28,9 +59,15 @@ registry:
   opsManager: quay.io/mongodb
 search:
   community:
+<<<<<<< Updated upstream
     name: community
     repo: 268558157000.dkr.ecr.eu-west-1.amazonaws.com/mongot
     version: fbd60fb055dd500058edcb45677ea85d19421f47
+=======
+    name: mongodb-search-community
+    repo: quay.io/mongodb
+    version: 1.47.0
+>>>>>>> Stashed changes
 
 COMPUTED VALUES:
 agent:
@@ -63,6 +100,7 @@ community:
     version: 4.4.0
 database:
   name: mongodb-kubernetes-database
+<<<<<<< Updated upstream
   version: 68876175f5ad6d0007fdc1d4
 initAppDb:
   name: mongodb-kubernetes-init-appdb
@@ -73,6 +111,18 @@ initDatabase:
 initOpsManager:
   name: mongodb-kubernetes-init-ops-manager
   version: 68876175f5ad6d0007fdc1d4
+=======
+  version: latest
+initAppDb:
+  name: mongodb-kubernetes-init-appdb
+  version: latest
+initDatabase:
+  name: mongodb-kubernetes-init-database
+  version: latest
+initOpsManager:
+  name: mongodb-kubernetes-init-ops-manager
+  version: latest
+>>>>>>> Stashed changes
 managedSecurityContext: false
 mongodb:
   appdbAssumeOldFormat: false
@@ -119,7 +169,11 @@ operator:
   vaultSecretBackend:
     enabled: false
     tlsSecretRef: ""
+<<<<<<< Updated upstream
   version: 68876175f5ad6d0007fdc1d4
+=======
+  version: latest
+>>>>>>> Stashed changes
   watchedResources:
   - mongodb
   - opsmanagers
@@ -149,9 +203,16 @@ registry:
   versionUpgradeHook: quay.io/mongodb
 search:
   community:
+<<<<<<< Updated upstream
     name: community
     repo: 268558157000.dkr.ecr.eu-west-1.amazonaws.com/mongot
     version: fbd60fb055dd500058edcb45677ea85d19421f47
+=======
+    name: mongodb-search-community
+    repo: quay.io/mongodb
+    version: 1.47.0
+subresourceEnabled: true
+>>>>>>> Stashed changes
 versionUpgradeHook:
   name: mongodb-kubernetes-operator-version-upgrade-post-start-hook
   version: 1.0.9
@@ -501,7 +562,11 @@ spec:
         - name: image-registries-secret
       containers:
         - name: mongodb-kubernetes-operator
+<<<<<<< Updated upstream
           image: "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes:68876175f5ad6d0007fdc1d4"
+=======
+          image: "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes:latest"
+>>>>>>> Stashed changes
           imagePullPolicy: Always
           args:
             - -watch-resource=mongodb
@@ -546,21 +611,35 @@ spec:
             - name: INIT_DATABASE_IMAGE_REPOSITORY
               value: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-database
             - name: INIT_DATABASE_VERSION
+<<<<<<< Updated upstream
               value: 68876175f5ad6d0007fdc1d4
             - name: DATABASE_VERSION
               value: 68876175f5ad6d0007fdc1d4
+=======
+              value: latest
+            - name: DATABASE_VERSION
+              value: latest
+>>>>>>> Stashed changes
             # Ops Manager
             - name: OPS_MANAGER_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-enterprise-ops-manager-ubi
             - name: INIT_OPS_MANAGER_IMAGE_REPOSITORY
               value: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-ops-manager
             - name: INIT_OPS_MANAGER_VERSION
+<<<<<<< Updated upstream
               value: 68876175f5ad6d0007fdc1d4
+=======
+              value: latest
+>>>>>>> Stashed changes
             # AppDB
             - name: INIT_APPDB_IMAGE_REPOSITORY
               value: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-appdb
             - name: INIT_APPDB_VERSION
+<<<<<<< Updated upstream
               value: 68876175f5ad6d0007fdc1d4
+=======
+              value: latest
+>>>>>>> Stashed changes
             - name: OPS_MANAGER_IMAGE_PULL_POLICY
               value: Always
             - name: AGENT_IMAGE
@@ -600,9 +679,17 @@ spec:
               value: "ubi8"
             # Community Env Vars End
             - name: MDB_SEARCH_COMMUNITY_REPO_URL
+<<<<<<< Updated upstream
               value: "268558157000.dkr.ecr.eu-west-1.amazonaws.com/mongot"
             - name: MDB_SEARCH_COMMUNITY_NAME
               value: "community"
             - name: MDB_SEARCH_COMMUNITY_VERSION
               value: "fbd60fb055dd500058edcb45677ea85d19421f47"
+=======
+              value: "quay.io/mongodb"
+            - name: MDB_SEARCH_COMMUNITY_NAME
+              value: "mongodb-search-community"
+            - name: MDB_SEARCH_COMMUNITY_VERSION
+              value: "1.47.0"
+>>>>>>> Stashed changes
 

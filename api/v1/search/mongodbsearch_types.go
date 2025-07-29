@@ -18,7 +18,7 @@ import (
 const (
 	MongotDefaultPort               = 27027
 	MongotDefaultMetricsPort        = 9946
-  MongotDefautHealthCheckPort     = 8080
+	MongotDefautHealthCheckPort     = 8080
 	MongotDefaultSyncSourceUsername = "search-sync-source"
 )
 
@@ -27,16 +27,23 @@ func init() {
 }
 
 type MongoDBSearchSpec struct {
+	// Optional version of MongoDB Search component (mongot). If not set, then the operator will set the most appropriate version of MongoDB Search.
 	// +optional
 	Version string `json:"version"`
+	// MongoDB database connection details from which MongoDB Search will synchronize data to build indexes.
 	// +optional
 	Source *MongoDBSource `json:"source"`
+	// StatefulSetSpec which the operator will apply to the MongoDB Search StatefulSet at the end of the reconcile loop. Use to provide necessary customizations,
+	// which aren't exposed as fields in the MongoDBSearch.spec.
 	// +optional
 	StatefulSetConfiguration *common.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	// Configure MongoDB Search's persistent volume. If not defined, the operator will request 10GB of storage.
 	// +optional
 	Persistence *common.Persistence `json:"persistence,omitempty"`
+	// Configure resource requests and limits for the MongoDB Search pods.
 	// +optional
 	ResourceRequirements *corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
+	// Configure security settings of the MongoDB Search server that MongoDB database is connecting to when performing search queries.
 	// +optional
 	Security Security `json:"security"`
 }
