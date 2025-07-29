@@ -8,7 +8,7 @@ AGENT_VERSION="108.0.7.8810-1"
 TOOLS_VERSION="100.12.0"
 AGENT_DISTRO="rhel9_x86_64"
 TOOLS_DISTRO="rhel93-x86_64"
-docker buildx build --load --progress plain . -f docker/mongodb-agent/Dockerfile -t "mongodb-agent:${AGENT_VERSION}" \
+docker buildx build --load --progress plain --platform linux/amd64,linux/arm64,linux/s390x,linux/ppc64le . -f docker/mongodb-agent/Dockerfile -t "mongodb-agent:${AGENT_VERSION}" \
  --build-arg version="${VERSION}" \
  --build-arg agent_version="${AGENT_VERSION}" \
  --build-arg tools_version="${TOOLS_VERSION}" \

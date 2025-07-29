@@ -8,13 +8,22 @@ binaries from there. Then we continue with the other steps to fully build the im
 For building the MongoDB Agent image locally use the example command:
 
 ```bash
-VERSION="108.0.7.8810-1"
-INIT_DATABASE_IMAGE="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-database:1.1.0"
-MONGODB_TOOLS_URL_UBI="https://downloads.mongodb.org/tools/db/mongodb-database-tools-rhel93-x86_64-100.12.0.tgz"
-MONGODB_AGENT_URL_UBI="https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod/mongodb-mms-automation-agent-108.0.7.8810-1.rhel9_x86_64.tar.gz"
-docker buildx build --load --progress plain . -f docker/mongodb-agent/Dockerfile -t "mongodb-agent:${VERSION}_1.1.0" \
- --build-arg version="${VERSION}" \
- --build-arg init_database_image="${INIT_DATABASE_IMAGE}" \
- --build-arg mongodb_tools_url_ubi="${MONGODB_TOOLS_URL_UBI}" \
- --build-arg mongodb_agent_url_ubi="${MONGODB_AGENT_URL_UBI}"
+AGENT_VERSION="108.0.7.8810-1"
+INIT_DATABASE_IMAGE="268558157000.dkr.ecr.us-east-1.amazonaws.com/lucian.tosa/mongodb-kubernetes-init-database:evergreen"
+MONGODB_TOOLS_URL="https://downloads.mongodb.org/tools/db"
+MONGODB_AGENT_URL="https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
+docker buildx build --load --progress plain --platform linux/amd64,linux/arm64,linux/s390x,linux/ppc64le . -f docker/mongodb-agent/Dockerfile -t "mongodb-agent:${VERSION}" \
+    --build-arg version="${VERSION}" \
+    --build-arg init_database_image="${INIT_DATABASE_IMAGE}" \
+    --build-arg mongodb_tools_url="${MONGODB_TOOLS_URL}" \
+    --build-arg mongodb_agent_url="${MONGODB_AGENT_URL}" \
+    --build-arg mongodb_agent_version_s390x="mongodb-mms-automation-agent-${AGENT_VERSION}.rhel7_s390x.tar.gz" \
+    --build-arg mongodb_agent_version_ppc64le="mongodb-mms-automation-agent-${AGENT_VERSION}.rhel8_ppc64le.tar.gz" \
+    --build-arg mongodb_agent_version_amd64="mongodb-mms-automation-agent-${AGENT_VERSION}.linux_x86_64.tar.gz" \
+    --build-arg mongodb_agent_version_arm64="mongodb-mms-automation-agent-${AGENT_VERSION}.amzn2_aarch64.tar.gz" \
+    --build-arg mongodb_tools_version_arm64="mongodb-database-tools-rhel93-aarch64-100.12.0.tgz" \
+    --build-arg mongodb_tools_version_amd64="mongodb-database-tools-rhel93-x86_64-100.12.0.tgz" \
+    --build-arg mongodb_tools_version_s390x="mongodb-database-tools-rhel9-s390x-100.12.0.tgz" \
+    --build-arg mongodb_tools_version_ppc64le="mongodb-database-tools-rhel9-ppc64le-100.12.0.tgz"
+
 ```

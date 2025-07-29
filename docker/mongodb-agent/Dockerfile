@@ -1,9 +1,43 @@
 # the init database image gets supplied by pipeline.py and corresponds to the operator version we want to release
 # the agent with. This enables us to release the agent for older operator.
 ARG init_database_image
+
+FROM --platform=${BUILDPLATFORM} scratch AS tools_downloader
+
+ARG mongodb_tools_url
+
+ARG mongodb_tools_version_amd64
+ADD "${mongodb_tools_url}/${mongodb_tools_version_amd64}" /data/amd64/mongodb_tools.tgz
+
+ARG mongodb_tools_version_arm64
+ADD "${mongodb_tools_url}/${mongodb_tools_version_arm64}" /data/arm64/mongodb_tools.tgz
+
+ARG mongodb_tools_version_s390x
+ADD "${mongodb_tools_url}/${mongodb_tools_version_s390x}" /data/s390x/mongodb_tools.tgz
+
+ARG mongodb_tools_version_ppc64le
+ADD "${mongodb_tools_url}/${mongodb_tools_version_ppc64le}" /data/ppc64le/mongodb_tools.tgz
+
+FROM --platform=${BUILDPLATFORM} scratch AS agent_downloader
+
+ARG mongodb_agent_url
+
+ARG mongodb_agent_version_amd64
+ADD "${mongodb_agent_url}/${mongodb_agent_version_amd64}" /data/amd64/mongodb_agent.tgz
+
+ARG mongodb_agent_version_arm64
+ADD "${mongodb_agent_url}/${mongodb_agent_version_arm64}" /data/arm64/mongodb_agent.tgz
+
+ARG mongodb_agent_version_s390x
+ADD "${mongodb_agent_url}/${mongodb_agent_version_s390x}" /data/s390x/mongodb_agent.tgz
+
+ARG mongodb_agent_version_ppc64le
+ADD "${mongodb_agent_url}/${mongodb_agent_version_ppc64le}" /data/ppc64le/mongodb_agent.tgz
+
+
 FROM ${init_database_image} AS init_database
 
-FROM public.ecr.aws/docker/library/golang:1.24 AS dependency_downloader
+FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/golang:1.24 AS dependency_downloader
 
 WORKDIR /go/src/github.com/mongodb/mongodb-kubernetes/
 
@@ -11,25 +45,22 @@ COPY go.mod go.sum ./
 
 RUN go mod download
 
-FROM public.ecr.aws/docker/library/golang:1.24 AS readiness_builder
+FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/golang:1.24 AS readiness_builder
 
 WORKDIR /go/src/github.com/mongodb/mongodb-kubernetes/
+ARG TARGETOS
+ARG TARGETARCH
 
 COPY --from=dependency_downloader /go/pkg /go/pkg
 COPY . /go/src/github.com/mongodb/mongodb-kubernetes
 
-RUN CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -o /readinessprobe ./mongodb-community-operator/cmd/readiness/main.go
-RUN CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -o /version-upgrade-hook ./mongodb-community-operator/cmd/versionhook/main.go
+RUN CGO_ENABLED=0 GOFLAGS=-buildvcs=false GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /readinessprobe ./mongodb-community-operator/cmd/readiness/main.go
+RUN CGO_ENABLED=0 GOFLAGS=-buildvcs=false GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /version-upgrade-hook ./mongodb-community-operator/cmd/versionhook/main.go
 
 FROM scratch AS base
-ARG mongodb_tools_url_ubi
-ARG mongodb_agent_url_ubi
 
 COPY --from=readiness_builder /readinessprobe /data/
 COPY --from=readiness_builder /version-upgrade-hook /data/
-
-ADD ${mongodb_tools_url_ubi} /data/mongodb_tools_ubi.tgz
-ADD ${mongodb_agent_url_ubi} /data/mongodb_agent_ubi.tgz
 
 COPY --from=init_database /probes/probe.sh /data/probe.sh
 COPY --from=init_database /scripts/agent-launcher-lib.sh /data/
@@ -76,8 +107,9 @@ RUN microdnf install -y --disableplugin=subscription-manager \
     && rm -rf /var/lib/apt/lists/*
 
 
-COPY --from=base /data/mongodb_tools_ubi.tgz /tools/mongodb_tools.tgz
-COPY --from=base /data/mongodb_agent_ubi.tgz /agent/mongodb_agent.tgz
+ARG TARGETARCH
+COPY --from=tools_downloader "/data/${TARGETARCH}/mongodb_tools.tgz" /tools/mongodb_tools.tgz
+COPY --from=agent_downloader "/data/${TARGETARCH}/mongodb_agent.tgz" /agent/mongodb_agent.tgz
 
 RUN tar xfz /tools/mongodb_tools.tgz
 RUN mv mongodb-database-tools-*/bin/* /tools

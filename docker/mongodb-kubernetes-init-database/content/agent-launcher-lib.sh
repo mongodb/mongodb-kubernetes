@@ -91,10 +91,21 @@ download_agent() {
       AGENT_VERSION="${MDB_AGENT_VERSION}"
     fi
 
+    if [ "$(arch)" = "x86_64" ]; then
+        AGENT_FILE="mongodb-mms-automation-agent-${AGENT_VERSION}.linux_x86_64.tar.gz"
+    elif [ "$(arch)" = "arm64" ]; then
+        AGENT_FILE="mongodb-mms-automation-agent-${AGENT_VERSION}.amzn2_aarch64.tar.gz"
+    elif [ "$(arch)" = "ppc64le" ]; then
+        AGENT_FILE="mongodb-mms-automation-agent-${AGENT_VERSION}.rhel8_ppc64le.tar.gz"
+    elif [ "$(arch)" = "s390x" ]; then
+        AGENT_FILE="mongodb-mms-automation-agent-${AGENT_VERSION}.rhel7_s390x.tar.gz"
+    fi
+
     script_log "Downloading Agent version: ${AGENT_VERSION}"
     script_log "Downloading a Mongodb Agent from ${base_url:?}"
     curl_opts=(
-        "${base_url}/download/agent/automation/mongodb-mms-automation-agent-${AGENT_VERSION}.linux_x86_64.tar.gz"
+        "${base_url}/download/agent/automation/${AGENT_FILE}"
+
         "--location" "--silent" "--retry" "3" "--fail" "-v"
         "--output" "automation-agent.tar.gz"
     );
@@ -117,13 +128,15 @@ download_agent() {
     rm "${MMS_LOG_DIR}/curl.log" 2>/dev/null || true
 
     script_log "The Mongodb Agent binary downloaded, unpacking"
+
+    mkdir -p "${MMS_HOME}/files"
     tar -xzf automation-agent.tar.gz
     AGENT_VERSION=$(find . -name "mongodb-mms-automation-agent-*" | awk -F"-" '{ print $5 }')
-    mkdir -p "${MMS_HOME}/files"
-    echo "${AGENT_VERSION}" >"${MMS_HOME}/files/agent-version"
     mv mongodb-mms-automation-agent-*/mongodb-mms-automation-agent "${MMS_HOME}/files/"
+    rm -rf automation-agent.tar.gz mongodb-mms-automation-agent-*.*
+
+    echo "${AGENT_VERSION}" >"${MMS_HOME}/files/agent-version"
     chmod +x "${MMS_HOME}/files/mongodb-mms-automation-agent"
-    rm -rf automation-agent.tar.gz mongodb-mms-automation-agent-*.linux_x86_64
     script_log "The Automation Agent was deployed at ${MMS_HOME}/files/mongodb-mms-automation-agent"
 
     popd >/dev/null || true

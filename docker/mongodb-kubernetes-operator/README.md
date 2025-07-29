@@ -13,13 +13,16 @@ CGO_ENABLED=0 GOOS=linux GOFLAGS="-mod=vendor" go build -i -o mongodb-kubernetes
 For building the MongoDB Init Ops Manager image locally use the example command:
 
 ```bash
-VERSION="1.1.0"
+VERSION="1.3.0"
 LOG_AUTOMATION_CONFIG_DIFF="false"
 USE_RACE="false"
-docker buildx build --load --progress plain . -f docker/mongodb-kubernetes-operator/Dockerfile -t "mongodb-kubernetes-operator:${VERSION}" \
+BASE_REPO_URL=""
+docker buildx build --load --progress plain --platform linux/amd64,linux/arm64,linux/s390x,linux/ppc64le . -f docker/mongodb-kubernetes-operator/Dockerfile -t "${BASE_REPO_URL}mongodb-kubernetes:${VERSION}" \
  --build-arg version="${VERSION}" \
  --build-arg log_automation_config_diff="${LOG_AUTOMATION_CONFIG_DIFF}" \
  --build-arg use_race="${USE_RACE}"
+
+docker push "${BASE_REPO_URL}mongodb-kubernetes:${VERSION}"
 ```
 
 ### Running locally
