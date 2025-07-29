@@ -1,16 +1,18 @@
-FROM public.ecr.aws/docker/library/golang:1.24 AS readiness_builder
+FROM public.ecr.aws/docker/library/golang:1.24 AS builder
 
 COPY . /go/src/github.com/mongodb/mongodb-kubernetes
 WORKDIR /go/src/github.com/mongodb/mongodb-kubernetes
 RUN CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -o /readinessprobe ./mongodb-community-operator/cmd/readiness/main.go
 RUN CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -o /version-upgrade-hook ./mongodb-community-operator/cmd/versionhook/main.go
+RUN CGO_ENABLED=0 GOBIN=/delve go install github.com/go-delve/delve/cmd/dlv@v1.25.1
 
 FROM scratch AS base
 
 ARG mongodb_tools_url_ubi
 
-COPY --from=readiness_builder /readinessprobe /data/
-COPY --from=readiness_builder /version-upgrade-hook /data/version-upgrade-hook
+COPY --from=builder /readinessprobe /data/readinessprobe
+COPY --from=builder /version-upgrade-hook /data/version-upgrade-hook
+COPY --from=builder /delve /data/delve
 
 ADD ${mongodb_tools_url_ubi} /data/mongodb_tools_ubi.tgz
 
@@ -36,6 +38,7 @@ COPY --from=base /data/readinessprobe /probes/readinessprobe
 COPY --from=base /data/probe.sh /probes/probe.sh
 COPY --from=base /data/scripts/ /scripts/
 COPY --from=base /data/licenses /licenses/
+COPY --from=base /data/delve /delve/
 
 RUN microdnf -y update --nodocs \
     && microdnf -y install --nodocs tar gzip \
