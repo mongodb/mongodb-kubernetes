@@ -33,6 +33,7 @@ pytest-mock==3.14.1
 wrapt==1.17.2
 botocore==1.39.4
 boto3==1.39.4
+python-frontmatter==1.1.0
 
 # from kubeobject
 freezegun==1.5.3
