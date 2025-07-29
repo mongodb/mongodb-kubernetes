@@ -61,7 +61,7 @@ class BuildContext:
             git_tag=git_tag,
             patch_id=patch_id,
             signing_enabled=signing_enabled,
-            version=git_tag or patch_id,
+            version=git_tag or patch_id, #TODO: update this
         )
     
     def get_version(self) -> str:
