@@ -46,17 +46,16 @@ function prepare_repositories() {
 }
 
 function copy_files() {
-  samples_dir=$1
-  dst_dir="${DOCS_DIR}/source/includes/code-examples/reference-architectures/${samples_dir}"
-  src_dir="${MCK_DIR}/public/architectures/${samples_dir}"
+  local src_dir="$1"
+  local dst_dir="$2"
 
   rm -rf "${dst_dir}"
   mkdir -p "${dst_dir}"
 
-  cp -r "${src_dir}/code_snippets" "${dst_dir}"
-  cp -r "${src_dir}/output" "${dst_dir}" || true
-  cp "${src_dir}/env_variables.sh" "${dst_dir}" || true
-  cp -r "${src_dir}/yamls" "${dst_dir}" || true
+  cp -r "${src_dir}/code_snippets" "${dst_dir}" 2>/dev/null || true
+  cp -r "${src_dir}/output" "${dst_dir}" 2>/dev/null || true
+  cp "${src_dir}/env_variables.sh" "${dst_dir}" 2>/dev/null || true
+  cp -r "${src_dir}/yamls" "${dst_dir}" 2>/dev/null || true
 }
 
 function prepare_docs_pr() {
@@ -74,17 +73,26 @@ function prepare_docs_pr() {
 
 pushd ../
 prepare_repositories
-copy_files "ops-manager-multi-cluster"
-copy_files "ops-manager-mc-no-mesh"
-copy_files "mongodb-sharded-multi-cluster"
-copy_files "mongodb-sharded-mc-no-mesh"
-copy_files "mongodb-replicaset-multi-cluster"
-copy_files "mongodb-replicaset-mc-no-mesh"
-copy_files "setup-multi-cluster/verify-connectivity"
-copy_files "setup-multi-cluster/setup-gke"
-copy_files "setup-multi-cluster/setup-istio"
-copy_files "setup-multi-cluster/setup-operator"
-copy_files "setup-multi-cluster/setup-cert-manager"
-copy_files "setup-multi-cluster/setup-externaldns"
+
+REF_ARCH_SRC_DIR="${MCK_DIR}/public/architectures"
+REF_ARCH_DST_DIR="${DOCS_DIR}/source/includes/code-examples/reference-architectures"
+
+copy_files "${REF_ARCH_SRC_DIR}/ops-manager-multi-cluster" "${REF_ARCH_DST_DIR}/ops-manager-multi-cluster"
+copy_files "${REF_ARCH_SRC_DIR}/ops-manager-mc-no-mesh" "${REF_ARCH_DST_DIR}/ops-manager-mc-no-mesh"
+copy_files "${REF_ARCH_SRC_DIR}/mongodb-sharded-multi-cluster" "${REF_ARCH_DST_DIR}/mongodb-sharded-multi-cluster"
+copy_files "${REF_ARCH_SRC_DIR}/mongodb-sharded-mc-no-mesh" "${REF_ARCH_DST_DIR}/mongodb-sharded-mc-no-mesh"
+copy_files "${REF_ARCH_SRC_DIR}/mongodb-replicaset-multi-cluster" "${REF_ARCH_DST_DIR}/mongodb-replicaset-multi-cluster"
+copy_files "${REF_ARCH_SRC_DIR}/mongodb-replicaset-mc-no-mesh" "${REF_ARCH_DST_DIR}/mongodb-replicaset-mc-no-mesh"
+copy_files "${REF_ARCH_SRC_DIR}/setup-multi-cluster/verify-connectivity" "${REF_ARCH_DST_DIR}/setup-multi-cluster/verify-connectivity"
+copy_files "${REF_ARCH_SRC_DIR}/setup-multi-cluster/setup-gke" "${REF_ARCH_DST_DIR}/setup-multi-cluster/setup-gke"
+copy_files "${REF_ARCH_SRC_DIR}/setup-multi-cluster/setup-istio" "${REF_ARCH_DST_DIR}/setup-multi-cluster/setup-istio"
+copy_files "${REF_ARCH_SRC_DIR}/setup-multi-cluster/setup-operator" "${REF_ARCH_DST_DIR}/setup-multi-cluster/setup-operator"
+copy_files "${REF_ARCH_SRC_DIR}/setup-multi-cluster/setup-cert-manager" "${REF_ARCH_DST_DIR}/setup-multi-cluster/setup-cert-manager"
+copy_files "${REF_ARCH_SRC_DIR}/setup-multi-cluster/setup-externaldns" "${REF_ARCH_DST_DIR}/setup-multi-cluster/setup-externaldns"
+
+DOCS_SNIPPETS_SRC_DIR="${MCK_DIR}/docs"
+DOCS_SNIPPEES_DST_DIR="${DOCS_DIR}/source/includes/code-examples"
+copy_files "${DOCS_SNIPPETS_SRC_DIR}/community-search/quick-start" "${DOCS_SNIPPEES_DST_DIR}/community-search/quick-start"
+
 prepare_docs_pr
 popd

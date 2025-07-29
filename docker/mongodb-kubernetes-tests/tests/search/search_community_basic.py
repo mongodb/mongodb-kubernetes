@@ -15,8 +15,8 @@ logger = test_logger.get_test_logger(__name__)
 ADMIN_USER_NAME = "mdb-admin-user"
 ADMIN_USER_PASSWORD = "mdb-admin-user-pass"
 
-MONGOT_USER_NAME = "mongot-user"
-MONGOT_USER_PASSWORD = "mongot-user-password"
+MONGOT_USER_NAME = "search-sync-source"
+MONGOT_USER_PASSWORD = "search-sync-source-user-password"
 
 USER_NAME = "mdb-user"
 USER_PASSWORD = "mdb-user-pass"
@@ -32,8 +32,8 @@ def mdbc(namespace: str) -> MongoDBCommunity:
         namespace=namespace,
     )
 
-    # if try_load(resource):
-    #     return resource
+    if try_load(resource):
+        return resource
 
     return resource
 
@@ -45,8 +45,8 @@ def mdbs(namespace: str) -> MongoDBSearch:
         namespace=namespace,
     )
 
-    # if try_load(resource):
-    #     return resource
+    if try_load(resource):
+        return resource
 
     return resource
 
@@ -75,7 +75,7 @@ def test_create_database_resource(mdbc: MongoDBCommunity):
 
 
 @mark.e2e_search_community_basic
-def test_create_search_resource(mdbs: MongoDBSearch, mdbc: MongoDBCommunity):
+def test_create_search_resource(mdbs: MongoDBSearch):
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=300)
 
@@ -100,11 +100,6 @@ def test_search_restore_sample_database(sample_movies_helper: SampleMoviesSearch
 @mark.e2e_search_community_basic
 def test_search_create_search_index(sample_movies_helper: SampleMoviesSearchHelper):
     sample_movies_helper.create_search_index()
-
-
-# @mark.e2e_search_community_basic
-# def test_search_wait_for_search_indexes(sample_movies_helper: SampleMoviesSearchHelper):
-#     sample_movies_helper.wait_for_search_indexes()
 
 
 @mark.e2e_search_community_basic

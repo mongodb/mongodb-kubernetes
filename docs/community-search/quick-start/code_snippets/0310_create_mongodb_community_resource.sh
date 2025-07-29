@@ -4,7 +4,7 @@ kind: MongoDBCommunity
 metadata:
   name: mdbc-rs
 spec:
-  version: 8.0.6
+  version: ${MDB_VERSION}
   type: ReplicaSet
   members: 3
   security:
@@ -13,7 +13,7 @@ spec:
       modes:
         - SCRAM
   agent:
-    logLevel: INFO
+    logLevel: DEBUG
   statefulSet:
     spec:
       template:
@@ -22,34 +22,49 @@ spec:
             - name: mongod
               resources:
                 limits:
-                  cpu: "3"
-                  memory: 5Gi
-                requests:
                   cpu: "2"
-                  memory: 5Gi
+                  memory: 2Gi
+                requests:
+                  cpu: "1"
+                  memory: 1Gi
             - name: mongodb-agent
               resources:
                 limits:
-                  cpu: "2"
-                  memory: 5Gi
-                requests:
                   cpu: "1"
-                  memory: 5Gi
+                  memory: 2Gi
+                requests:
+                  cpu: "0.5"
+                  memory: 1Gi
   users:
-    - name: admin-user
-      passwordSecretRef:
-        name: admin-user-password
+    # admin user with root role
+    - name: mdb-admin
+      db: admin
+      passwordSecretRef: # a reference to the secret containing user password
+        name: mdb-admin-user-password
+      scramCredentialsSecretName: mdb-admin-user
       roles:
-        - db: admin
-          name: clusterAdmin
-        - db: admin
-          name: userAdminAnyDatabase
-      scramCredentialsSecretName: admin-user
-    - name: search-user
-      passwordSecretRef:
-        name: search-user-password
+        - name: root
+          db: admin
+    # user performing search queries
+    - name: mdb-user
+      db: admin
+      passwordSecretRef: # a reference to the secret containing user password
+        name: mdb-user-password
+      scramCredentialsSecretName: mdb-user-scram
       roles:
-        - db: sample_mflix
-          name: dbOwner
-      scramCredentialsSecretName: search-user
+        - name: restore
+          db: sample_mflix
+        - name: readWrite
+          db: sample_mflix
+    # user used by MongoDB Search to connect to MongoDB database to synchronize data from
+    # For MongoDB <8.2, the operator will be creating the searchCoordinator custom role automatically
+    # From MongoDB 8.2, searchCoordinator role will be a built-in role.
+    - name: search-sync-source
+      db: admin
+      passwordSecretRef: # a reference to the secret that will be used to generate the user's password
+        name: mdbc-rs-search-sync-source-password
+      scramCredentialsSecretName: mdbc-rs-search-sync-source
+      roles:
+        - name: searchCoordinator
+          db: admin
 EOF
