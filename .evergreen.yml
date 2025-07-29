@@ -1200,7 +1200,7 @@ task_groups:
     <<: *setup_group_ibm
     <<: *setup_and_teardown_task
     tasks:
-      - e2e_om_ops_manager_backup
+      - e2e_replica_set
     <<: *teardown_group
 
   - name: e2e_ops_manager_kind_5_0_only_task_group
