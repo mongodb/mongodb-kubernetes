@@ -117,6 +117,7 @@ def build_image(tag: str, dockerfile: str, path: str, args: Dict[str, str] = {},
             builder=builder_name,
             build_args=build_args,
             push=push,
+            provenance=False, # To not get an untagged image for single platform builds
             pull=False,  # Don't always pull base images
         )
         

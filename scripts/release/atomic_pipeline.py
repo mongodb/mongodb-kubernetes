@@ -181,7 +181,7 @@ def build_tests_image(build_configuration: BuildConfiguration):
 
     pipeline_process_image(
         image_name,
-        dockerfile_path="Dockerfile",
+        dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
         build_configuration=build_configuration,
         dockerfile_args=buildargs,
         build_path="docker/mongodb-kubernetes-tests",
@@ -409,9 +409,9 @@ def build_image_generic(
                 with_sbom=False,
             )
 
-    # 3) Multi-arch manifest
-    if is_multi_arch:
-        create_and_push_manifest(registry + "/" + image_name, version, architectures=architectures)
+    # # 3) Multi-arch manifest
+    # if is_multi_arch:
+    #     create_and_push_manifest(registry + "/" + image_name, version, architectures=architectures)
 
     # 4) Signing (only on real releases)
     if build_configuration.sign:
