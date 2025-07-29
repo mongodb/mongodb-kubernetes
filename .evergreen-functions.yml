@@ -659,12 +659,9 @@ functions:
       params:
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        script: |
-          source .generated/context.export.env
-          make test-race
-    - command: gotest.parse_files
-      params:
-        files: [ "src/github.com/mongodb/mongodb-kubernetes/*.suite", "src/github.com/mongodb/mongodb-kubernetes/docker/mongodb-kubernetes-init-ops-manager/mmsconfiguration/*.suite" ]
+        env:
+          USE_RACE: "true"
+        script: scripts/evergreen/unit-tests-golang.sh
 
   test_python_unit:
     - command: shell.exec
@@ -672,19 +669,15 @@ functions:
       params:
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        script: |
-          source .generated/context.export.env
-          make python-tests
+        script: scripts/evergreen/unit-tests-python.sh
 
-  test_sboms:
+  test_python_sbom:
     - command: shell.exec
       type: test
       params:
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        script: |
-          source .generated/context.export.env
-          make sbom-tests
+        script: scripts/evergreen/unit-tests-sbom.sh
 
   generate_perf_tests_tasks:
     - *switch_context

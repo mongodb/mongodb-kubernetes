@@ -268,7 +268,7 @@ tasks:
     # See https://docs.devprod.prod.corp.mongodb.com/evergreen/Project-Configuration/Project-Configuration-Files#limiting-when-a-task-or-variant-will-run
     patchable: false
     commands:
-      - func: "test_sboms"
+      - func: "test_python_sbom"
 
   - name: lint_repo
     tags: [ "unit_tests" ]
@@ -664,6 +664,11 @@ task_groups:
       - unit_tests_golang
       - unit_tests_python
       - sbom_tests
+    teardown_task:
+      - command: attach.xunit_results
+        params:
+          files: [ "src/github.com/mongodb/mongodb-kubernetes/*-result.xml" ]
+
 
   - name: gke_code_snippets_task_group
     <<: *setup_and_teardown_group_gke_code_snippets
