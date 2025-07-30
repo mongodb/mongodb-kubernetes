@@ -388,6 +388,7 @@ bundle: manifests kustomize
 	operator-sdk generate kustomize manifests -q
 	$(KUSTOMIZE) build config/manifests | operator-sdk generate bundle -q --overwrite --version $(VERSION) $(BUNDLE_METADATA_OPTS)\
 		--channels=stable --default-channel=stable\
+		--extra-service-accounts mongodb-kubernetes-appdb \
 		--output-dir ./bundle/$(VERSION)/
 	operator-sdk bundle validate ./bundle/$(VERSION)
 
