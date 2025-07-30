@@ -1,14 +1,13 @@
 # This file is the new Sonar
 import base64
 import sys
+import time
 from typing import Dict
 
-import python_on_whales
-from python_on_whales.exceptions import DockerException
-import time
-
 import boto3
+import python_on_whales
 from botocore.exceptions import BotoCoreError, ClientError
+from python_on_whales.exceptions import DockerException
 
 import docker
 from lib.base_logger import logger

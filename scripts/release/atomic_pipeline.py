@@ -7,15 +7,14 @@ import json
 import os
 import shutil
 from concurrent.futures import ProcessPoolExecutor
+from copy import copy
 from queue import Queue
 from typing import Callable, Dict, List, Optional, Tuple, Union
-from copy import copy
 
 import requests
 import semver
 from opentelemetry import trace
 from packaging.version import Version
-
 
 from lib.base_logger import logger
 from scripts.evergreen.release.agent_matrix import (
