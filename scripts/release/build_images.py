@@ -15,6 +15,7 @@ from lib.base_logger import logger
 from lib.sonar.sonar import create_ecr_repository
 from scripts.evergreen.release.images_signing import sign_image, verify_signature
 
+
 # TODO: self review the PR
 def ecr_login_boto3(region: str, account_id: str):
     """
@@ -45,36 +46,38 @@ def ecr_login_boto3(region: str, account_id: str):
 
 # TODO: don't do it every time ? Check for existence without relying on Exception
 def ensure_buildx_builder(builder_name: str = "multiarch") -> str:
-      """
-      Ensures a Docker Buildx builder exists for multi-platform builds.
-      
-      :param builder_name: Name for the buildx builder
-      :return: The builder name that was created or reused
-      """
-      docker = python_on_whales.docker
+    """
+    Ensures a Docker Buildx builder exists for multi-platform builds.
 
-      try:
-          docker.buildx.create(
-              name=builder_name,
-              driver="docker-container",
-              use=True,
-              bootstrap=True,
-          )
-          logger.info(f"Created new buildx builder: {builder_name}")
-      except DockerException as e:
-          if f'existing instance for "{builder_name}"' in str(e):
-              logger.info(f"Builder '{builder_name}' already exists – reusing it.")
-              # Make sure it's the current one:
-              docker.buildx.use(builder_name)
-          else:
-              # Some other failure happened
-              logger.error(f"Failed to create buildx builder: {e}")
-              raise
+    :param builder_name: Name for the buildx builder
+    :return: The builder name that was created or reused
+    """
+    docker = python_on_whales.docker
 
-      return builder_name
+    try:
+        docker.buildx.create(
+            name=builder_name,
+            driver="docker-container",
+            use=True,
+            bootstrap=True,
+        )
+        logger.info(f"Created new buildx builder: {builder_name}")
+    except DockerException as e:
+        if f'existing instance for "{builder_name}"' in str(e):
+            logger.info(f"Builder '{builder_name}' already exists – reusing it.")
+            # Make sure it's the current one:
+            docker.buildx.use(builder_name)
+        else:
+            # Some other failure happened
+            logger.error(f"Failed to create buildx builder: {e}")
+            raise
+
+    return builder_name
 
 
-def build_image(tag: str, dockerfile: str, path: str, args: Dict[str, str] = {}, push: bool = True, platforms: list[str] = None):
+def build_image(
+    tag: str, dockerfile: str, path: str, args: Dict[str, str] = {}, push: bool = True, platforms: list[str] = None
+):
     """
     Build a Docker image using python_on_whales and Docker Buildx for multi-architecture support.
 
@@ -86,25 +89,25 @@ def build_image(tag: str, dockerfile: str, path: str, args: Dict[str, str] = {},
     :param platforms: List of target platforms (e.g., ["linux/amd64", "linux/arm64"])
     """
     docker = python_on_whales.docker
-    
+
     try:
         # Convert build args to the format expected by python_on_whales
         build_args = {k: str(v) for k, v in args.items()} if args else {}
-        
+
         # Set default platforms if not specified
         if platforms is None:
             platforms = ["linux/amd64"]
-        
+
         logger.info(f"Building image: {tag}")
         logger.info(f"Platforms: {platforms}")
         logger.info(f"Dockerfile: {dockerfile}")
         logger.info(f"Build context: {path}")
         logger.debug(f"Build args: {build_args}")
-        
+
         # Use buildx for multi-platform builds
         if len(platforms) > 1:
             logger.info(f"Multi-platform build for {len(platforms)} architectures")
-        
+
         # We need a special driver to handle multi platform builds
         builder_name = ensure_buildx_builder("multiarch")
 
@@ -117,16 +120,15 @@ def build_image(tag: str, dockerfile: str, path: str, args: Dict[str, str] = {},
             builder=builder_name,
             build_args=build_args,
             push=push,
-            provenance=False, # To not get an untagged image for single platform builds
+            provenance=False,  # To not get an untagged image for single platform builds
             pull=False,  # Don't always pull base images
         )
-        
+
         logger.info(f"Successfully built {'and pushed' if push else ''} {tag}")
-        
+
     except Exception as e:
         logger.error(f"Failed to build image {tag}: {e}")
         raise RuntimeError(f"Failed to build image {tag}: {str(e)}")
-
 
 
 def process_image(
@@ -141,7 +143,7 @@ def process_image(
     push: bool = True,
 ):
     # Login to ECR using boto3
-    ecr_login_boto3(region="us-east-1", account_id="268558157000") # TODO: use environment variables
+    ecr_login_boto3(region="us-east-1", account_id="268558157000")  # TODO: use environment variables
 
     # Helper to automatically create registry with correct name
     should_create_repo = False
@@ -157,7 +159,7 @@ def process_image(
 
     docker_registry = f"{base_registry}/{image_name}"
     image_full_uri = f"{docker_registry}:{image_tag}"
-    
+
     # Build image with docker buildx
     build_image(
         tag=image_full_uri,
@@ -165,7 +167,7 @@ def process_image(
         path=build_path,
         args=dockerfile_args,
         push=push,
-        platforms=platforms
+        platforms=platforms,
     )
 
     if sign:

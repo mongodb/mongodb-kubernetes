@@ -29,7 +29,9 @@ class BuildScenario(str, Enum):
             scenario = BuildScenario.PATCH
             logger.info(f"Build scenario: {scenario} (patch_id: {patch_id})")
         elif is_evg:
-            scenario = BuildScenario.MASTER  # TODO: ultimately we won't have RELEASE variant and master will push to staging
+            scenario = (
+                BuildScenario.MASTER
+            )  # TODO: ultimately we won't have RELEASE variant and master will push to staging
             logger.info(f"Build scenario: {scenario} (patch_id: {patch_id})")
         else:
             scenario = BuildScenario.DEVELOPMENT
@@ -55,15 +57,15 @@ class BuildContext:
         git_tag = os.getenv("triggered_by_git_tag")
         patch_id = os.getenv("version_id")
         signing_enabled = scenario == BuildScenario.RELEASE
-        
+
         return cls(
             scenario=scenario,
             git_tag=git_tag,
             patch_id=patch_id,
             signing_enabled=signing_enabled,
-            version=git_tag or patch_id, #TODO: update this
+            version=git_tag or patch_id,  # TODO: update this
         )
-    
+
     def get_version(self) -> str:
         """Gets the version that will be used to tag the images."""
         if self.scenario == BuildScenario.RELEASE:
@@ -71,11 +73,10 @@ class BuildContext:
         if self.patch_id:
             return self.patch_id
         return "latest"
-    
+
     def get_base_registry(self) -> str:
         """Get the base registry URL for the current scenario."""
         if self.scenario == BuildScenario.RELEASE:
             return os.environ.get("STAGING_REPO_URL")
         else:
             return os.environ.get("BASE_REPO_URL")
-

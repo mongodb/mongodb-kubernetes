@@ -115,7 +115,7 @@ def main():
 
     _setup_tracing()
     parser = argparse.ArgumentParser(description="Build container images.")
-    parser.add_argument("image", help="Image to build.") # Required
+    parser.add_argument("image", help="Image to build.")  # Required
     parser.add_argument("--parallel", action="store_true", help="Build images in parallel.")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging.")
     parser.add_argument("--sign", action="store_true", help="Sign images.")
@@ -138,7 +138,7 @@ def main():
         "--registry",
         help="Override the base registry instead of resolving from build scenario",
     )
-    
+
     # Agent specific arguments
     parser.add_argument(
         "--all-agents",
@@ -172,7 +172,9 @@ def build_config_from_args(args):
     platforms = [p.strip() for p in args.platform.split(",")]
     SUPPORTED_PLATFORMS = ["linux/amd64", "linux/arm64"]
     if any(p not in SUPPORTED_PLATFORMS for p in platforms):
-        logger.error(f"Unsupported platform in '{args.platform}'. Supported platforms: {', '.join(SUPPORTED_PLATFORMS)}")
+        logger.error(
+            f"Unsupported platform in '{args.platform}'. Supported platforms: {', '.join(SUPPORTED_PLATFORMS)}"
+        )
         sys.exit(1)
 
     # Centralized configuration management with overrides
@@ -191,7 +193,7 @@ def build_config_from_args(args):
         version=version,
         base_registry=registry,
         parallel=args.parallel,
-        debug=args.debug, # TODO: is debug used ?
+        debug=args.debug,  # TODO: is debug used ?
         platforms=platforms,
         sign=sign,
         all_agents=all_agents,
