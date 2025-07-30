@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 # this script downloads necessary tooling for alternative architectures (s390x, ppc64le) using minikube (similar to setup_evg_host.sh)
+source scripts/dev/set_env_context.sh
 
 set -Eeou pipefail
 
@@ -65,27 +66,7 @@ download_minikube() {
 
 download_docker() {
   echo "Installing Docker for ${ARCH}..."
-
-  scripts/minikube/install-docker.sh --user "$(whoami)"
-}
-
-start_minikube() {
-  echo "Starting minikube cluster..."
-  local profile=${MINIKUBE_PROFILE:-mongodb-e2e}
-
-  if minikube start --profile="${profile}" --driver=docker --memory=8192mb --cpus=4; then
-    echo "✅ Minikube cluster started successfully"
-
-    # Test cluster connectivity
-    if kubectl --kubeconfig="$(minikube kubeconfig --profile="${profile}")" get nodes >/dev/null 2>&1; then
-      echo "✅ Cluster connectivity verified"
-    else
-      echo "⚠️  Cluster connectivity test failed - may need manual intervention"
-    fi
-  else
-    echo "⚠️  Minikube start failed - likely due to docker permissions"
-    echo "This will be resolved after logout/login"
-  fi
+  scripts/minikube/install-docker.sh
 }
 
 check_disk_space
@@ -94,9 +75,6 @@ download_docker &
 download_minikube &
 
 wait
-
-# Start minikube cluster
-start_minikube
 
 echo "Minikube host setup completed successfully for ${ARCH}!"
 
@@ -107,6 +85,3 @@ echo "✅ Setup Summary"
 echo "=========================================="
 echo "Architecture: ${ARCH}"
 echo "Minikube Profile: ${MINIKUBE_PROFILE:-mongodb-e2e}"
-echo ""
-echo "If docker permissions failed, logout and login, then run:"
-echo "  minikube start --profile=\${MINIKUBE_PROFILE:-mongodb-e2e} --driver=docker --memory=8192mb --cpus=4"

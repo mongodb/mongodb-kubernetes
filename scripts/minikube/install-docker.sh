@@ -76,11 +76,16 @@ fi
 echo "Verifying Docker installation..."
 sudo docker --version
 
-# Test docker access with newgrp (temporary group membership)
+# Test docker access
 echo "Testing Docker access..."
-if newgrp docker -c 'docker ps' >/dev/null 2>&1; then
+if docker ps >/dev/null 2>&1; then
   echo "✅ Docker access confirmed"
 else
-  echo "⚠️  Docker group membership requires logout/login to take effect"
+  echo "⚠️  Docker access test failed - checking if running as root..."
+  if [[ $(id -u) -eq 0 ]]; then
+    echo "Running as root - Docker should work"
+  else
+    echo "Docker group membership may require logout/login to take effect"
+  fi
   echo "Continuing with setup..."
 fi
