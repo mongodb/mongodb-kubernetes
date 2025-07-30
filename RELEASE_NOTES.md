@@ -4,7 +4,7 @@
 # MCK 1.3.0 Release Notes
 
 ## Other Changes
-* Optional permissions for `PersistentVolumeClaim` moved to a separate role. When managing the operator with Helm it is possible to disable permissions for `PersistentVolumeClaim` resources by setting `operator.enablePVCResize` value to `false` (`true` by default). When enabled, previously these permissions were part of the primary operator role. With this change, permissions have a separate role.
+* The undocumented `operator.enablePVCResize` Helm value has been removed. If you previously set this value to `false`, please note that the operator roles will now include permissions for `PersistentVolumeClaim` resources by default.
 * `subresourceEnabled` Helm value was removed. This setting used to be `true` by default and made it possible to exclude subresource permissions from the operator role by specifying `false` as the value. We are removing this configuration option, making the operator roles always have subresource permissions. This setting was introduced as a temporary solution for [this](https://bugzilla.redhat.com/show_bug.cgi?id=1803171) OpenShift issue. The issue has since been resolved and the setting is no longer needed.
 
 
