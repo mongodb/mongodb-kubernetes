@@ -1,21 +1,7 @@
 #!/usr/bin/env bash
 set -Eeou pipefail
 
-DOCKER_USER=""
-
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        -u|--user)
-            DOCKER_USER="$2"
-            shift 2
-            ;;
-        *)
-            echo "Unknown option: $1"
-            print_usage
-            exit 1
-            ;;
-    esac
-done
+source scripts/dev/set_env_context.sh
 
 echo "Installing Docker"
 
@@ -65,11 +51,15 @@ fi
 sudo systemctl start docker
 sudo systemctl enable docker
 
-# Add user to docker group if specified
-if [[ -n "$DOCKER_USER" ]]; then
-    echo "Adding user '$DOCKER_USER' to docker group..."
-    sudo usermod -aG docker "$DOCKER_USER"
-    echo "Note: User '$DOCKER_USER' needs to log out and log back in for group membership to take effect."
+# Add current CI user to docker group and change socket permissions
+current_user=$(whoami)
+if [[ "$current_user" != "root" ]]; then
+    echo "Adding CI user '$current_user' to docker group..."
+    sudo usermod -aG docker "$current_user"
+    
+    # For CI: Change docker socket permissions to allow immediate access
+    echo "Setting docker socket permissions for CI..."
+    sudo chmod 666 /var/run/docker.sock
 fi
 
 # Verify installation
@@ -81,11 +71,9 @@ echo "Testing Docker access..."
 if docker ps >/dev/null 2>&1; then
   echo "✅ Docker access confirmed"
 else
-  echo "⚠️  Docker access test failed - checking if running as root..."
-  if [[ $(id -u) -eq 0 ]]; then
-    echo "Running as root - Docker should work"
-  else
-    echo "Docker group membership may require logout/login to take effect"
+  echo "❌ Docker access failed - CI may not work properly"
+  echo "Trying with sudo..."
+  if sudo docker ps >/dev/null 2>&1; then
+    echo "⚠️  Docker only works with sudo"
   fi
-  echo "Continuing with setup..."
 fi

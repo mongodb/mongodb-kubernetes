@@ -5,7 +5,7 @@
 # Can be run on static hosts for testing and verification
 
 source scripts/dev/set_env_context.sh
-set -Eeou pipefail
+set -Eeoux pipefail
 
 echo "=========================================="
 echo "Setting up minikube host with multi-architecture support"
@@ -54,14 +54,13 @@ run_setup_step "Docker Authentication" "scripts/dev/configure_docker_auth.sh"
 echo ""
 echo ">>> Setting up Kubernetes cluster"
 echo ">>> Command: minikube start --profile=${MINIKUBE_PROFILE:-mongodb-e2e} --driver=docker --memory=8192mb --cpus=4"
+
+# Start minikube cluster for CI
 if minikube start --profile="${MINIKUBE_PROFILE:-mongodb-e2e}" --driver=docker --memory=8192mb --cpus=4; then
     echo "✅ Minikube Kubernetes Cluster completed successfully"
 else
     echo "❌ Minikube Kubernetes Cluster failed"
     exit 1
-fi
-else
-    echo "⚠️  No Kubernetes environment specified (KUBE_ENVIRONMENT_NAME not set)"
 fi
 
 echo ""

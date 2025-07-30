@@ -2,6 +2,7 @@
 set -Eeou pipefail
 
 source scripts/dev/set_env_context.sh
+source scripts/funcs/install
 
 # Detect architecture
 ARCH=$(uname -m)
@@ -26,19 +27,6 @@ case "${ARCH}" in
 esac
 
 echo "Installing minikube on ${ARCH} architecture..."
-
-# Verify Docker is installed
-if ! command -v docker &> /dev/null; then
-    echo "Error: Docker is required but not installed. Please install Docker first."
-    exit 1
-fi
-
-# Verify Docker is running
-if ! docker info &> /dev/null; then
-    echo "Error: Docker is not running. Please start Docker service."
-    exit 1
-fi
-
 # Install minikube
 echo "Installing minikube for ${ARCH}..."
 
