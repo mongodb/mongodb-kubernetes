@@ -243,7 +243,7 @@ functions:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       add_to_path:
         - ${workdir}/bin
-      binary: scripts/dev/setup_minikube_host.sh
+      binary: scripts/minikube/setup_minikube_host.sh
 
   lint_repo:
     - command: subprocess.exec
@@ -271,13 +271,16 @@ functions:
     - *python_venv
 
   # This differs for normal evg_host as we require minikube instead of kind for
-  # IBM machines
+  # IBM machines and install aws cli via pip instead
   setup_building_host_minikube:
     - *switch_context
-    - *setup_aws
-    - *configure_docker_auth
-    - *setup_ibm_host
-    - *python_venv
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        add_to_path:
+          - ${workdir}/bin
+        command: scripts/evergreen/setup_minikube_host.sh
 
   prune_docker_resources:
     - command: subprocess.exec

@@ -81,7 +81,6 @@ variables:
     setup_group_can_fail_task: true
     setup_group:
       - func: clone
-      - func: download_kube_tools
       - func: setup_building_host_minikube
 
   - &setup_group_multi_cluster

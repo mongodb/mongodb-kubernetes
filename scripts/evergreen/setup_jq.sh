@@ -10,4 +10,6 @@ set -Eeou pipefail
 source scripts/dev/set_env_context.sh
 source scripts/funcs/install
 
-download_and_install_binary "${PROJECT_DIR:-.}/bin" jq "https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64"
+arch=$(uname -m)
+
+download_and_install_binary "${PROJECT_DIR:-.}/bin" jq "https://github.com/stedolan/jq/releases/download/jq-1.8.1/jq-linux-${arch}"

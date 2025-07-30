@@ -3,51 +3,116 @@ set -Eeou pipefail
 
 source scripts/dev/set_env_context.sh
 
-# Detect system architecture and map to AWS CLI architecture names
-detect_aws_architecture() {
+# Detect system architecture
+detect_architecture() {
     local arch
     arch=$(uname -m)
+    echo "Detected architecture: ${arch}" >&2
+    echo "${arch}"
+}
 
+# Install AWS CLI v2 via binary download (for x86_64 and aarch64)
+install_aws_cli_binary() {
+    local arch="$1"
+    echo "Installing AWS CLI v2 via binary download for ${arch}..."
+
+    # Map architecture names for AWS CLI download URLs
+    local aws_arch
     case "${arch}" in
         x86_64)
-            echo "x86_64"
+            aws_arch="x86_64"
             ;;
         aarch64|arm64)
-            echo "aarch64"
-            ;;
-        ppc64le)
-            echo "Skipping AWS CLI installation: ppc64le (IBM Power) architecture is not supported by AWS CLI v2." >&2
-            echo "AWS CLI v2 only supports: x86_64 (amd64), aarch64 (arm64)" >&2
-            exit 0
-            ;;
-        s390x)
-            echo "Skipping AWS CLI installation: s390x (IBM Z) architecture is not supported by AWS CLI v2." >&2
-            echo "AWS CLI v2 only supports: x86_64 (amd64), aarch64 (arm64)" >&2
-            exit 0
+            aws_arch="aarch64"
             ;;
         *)
-            echo "Skipping AWS CLI installation: Unsupported architecture: ${arch}" >&2
-            echo "AWS CLI v2 only supports: x86_64 (amd64), aarch64 (arm64)" >&2
-            exit 0
+            echo "Error: Unsupported architecture for binary installation: ${arch}" >&2
+            return 1
+            ;;
+    esac
+
+    # Download and install AWS CLI v2
+    local temp_dir
+    temp_dir=$(mktemp -d)
+    cd "${temp_dir}"
+
+    echo "Downloading AWS CLI v2 for ${aws_arch}..."
+    curl -s "https://awscli.amazonaws.com/awscli-exe-linux-${aws_arch}.zip" -o "awscliv2.zip"
+    
+    unzip -q awscliv2.zip
+    sudo ./aws/install --update
+
+    # Clean up
+    cd - > /dev/null
+    rm -rf "${temp_dir}"
+
+    # Verify installation
+    if command -v aws &> /dev/null; then
+        echo "AWS CLI v2 installed successfully:"
+        aws --version
+    else
+        echo "Error: AWS CLI v2 installation failed" >&2
+        return 1
+    fi
+}
+
+# Install AWS CLI v1 via pip (for IBM architectures: ppc64le, s390x)
+install_aws_cli_pip() {
+    echo "Installing AWS CLI v1 via pip (for IBM architectures)..."
+
+    # Ensure pip is available
+    if ! command -v pip3 &> /dev/null && ! command -v pip &> /dev/null; then
+        echo "Error: pip is not available. Please install Python and pip first." >&2
+        return 1
+    fi
+
+    # Use pip3 if available, otherwise pip
+    local pip_cmd="pip3"
+    if ! command -v pip3 &> /dev/null; then
+        pip_cmd="pip"
+    fi
+
+    echo "Installing AWS CLI using ${pip_cmd}..."
+    ${pip_cmd} install --user awscli
+
+    # Add ~/.local/bin to PATH if not already there (where pip --user installs)
+    if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
+        export PATH="$HOME/.local/bin:$PATH"
+        echo "Added ~/.local/bin to PATH"
+    fi
+
+    # Verify installation
+    if command -v aws &> /dev/null; then
+        echo "AWS CLI v1 installed successfully:"
+        aws --version
+    else
+        echo "Error: AWS CLI v1 installation failed or not found in PATH" >&2
+        return 1
+    fi
+}
+
+# Main installation logic
+install_aws_cli() {
+    local arch
+    arch=$(detect_architecture)
+
+    case "${arch}" in
+        ppc64le|s390x)
+            echo "IBM architecture detected (${arch}). Using pip installation..."
+            install_aws_cli_pip
+            ;;
+        x86_64|aarch64|arm64)
+            echo "Standard architecture detected (${arch}). Using binary installation..."
+            install_aws_cli_binary "${arch}"
+            ;;
+        *)
+            echo "Warning: Unknown architecture ${arch}. Falling back to pip installation..."
+            install_aws_cli_pip
             ;;
     esac
 }
 
-# Detect the current architecture
-ARCH=$(detect_aws_architecture)
-echo "Detected architecture: ${ARCH} (AWS CLI v2 supported)"
-
-INSTALL_DIR="${workdir:?}/.local/lib/aws"
-BIN_LOCATION="${workdir}/bin"
-
-mkdir -p "${BIN_LOCATION}"
-
-tmpdir=$(mktemp -d)
-cd "${tmpdir}"
-
-echo "Downloading AWS CLI v2 for ${ARCH}..."
-curl "https://awscli.amazonaws.com/awscli-exe-linux-${ARCH}.zip" -o "awscliv2.zip"
-unzip awscliv2.zip &> /dev/null
+install_aws_cli
 
 docker_dir="/home/${USER}/.docker"
 if [[ ! -d "${docker_dir}" ]]; then
@@ -56,7 +121,5 @@ fi
 
 sudo chown "${USER}":"${USER}" "${docker_dir}" -R
 sudo chmod g+rwx "${docker_dir}" -R
-sudo ./aws/install --bin-dir "${BIN_LOCATION}" --install-dir "${INSTALL_DIR}" --update
-cd -
 
-rm -rf "${tmpdir}"
+echo "AWS CLI setup completed successfully."

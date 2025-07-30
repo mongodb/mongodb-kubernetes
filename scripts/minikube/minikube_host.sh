@@ -32,16 +32,6 @@ fi
 kubeconfig_path="${HOME}/.operator-dev/s390-host.kubeconfig"
 
 configure() {
-  shift 1
-  arch=${1-"$(uname -m)"}
-
-  echo "Configuring minikube host ${S390_HOST_NAME} (${host_url}) with architecture ${arch}"
-
-  if [[ "${cmd}" == "configure" && ! "${arch}" =~ ^(s390x|ppc64le|x86_64|aarch64)$ ]]; then
-    echo "'configure' command supports the following architectures: s390x, ppc64le, x86_64, aarch64"
-    exit 1
-  fi
-
   ssh -T -q "${host_url}" "sudo chown \$(whoami):\$(whoami) ~/.docker || true; mkdir -p ~/.docker"
   if [[ -f "${HOME}/.docker/config.json" ]]; then
     echo "Copying local ~/.docker/config.json authorization credentials to s390x host"
@@ -50,7 +40,7 @@ configure() {
 
   sync
 
-  ssh -T -q "${host_url}" "cd ~/mongodb-kubernetes; scripts/dev/switch_context.sh root-context; scripts/minikube/setup_minikube_host.sh ${arch}"
+  ssh -T -q "${host_url}" "cd ~/mongodb-kubernetes; scripts/dev/switch_context.sh root-context; scripts/minikube/setup_minikube_host.sh "
 }
 
 sync() {
