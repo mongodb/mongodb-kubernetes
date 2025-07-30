@@ -594,14 +594,13 @@ def build_multi_arch_agent_in_sonar(
     build_image_generic(
         image_name="mongodb-agent-ubi",
         dockerfile_path="docker/mongodb-agent-non-matrix/Dockerfile",
-        build_configuration=build_config_copy,
+        build_configuration=build_config_copy, #TODO: why ?
         is_multi_arch=True,
         multi_arch_args_list=joined_args,
     )
 
 
-# TODO: why versions are wrong -> 13.35.0.9498-1_13.35.0.9498-1_6874c19d2aab5d0007820c51 ; duplicate
-# TODO: figure out why I hit toomanyrequests: Rate exceeded with the new pipeline
+# TODO: Observed rate limiting (429) sometimes for agent builds in patches
 def build_agent_default_case(build_configuration: BuildConfiguration):
     """
     Build the agent only for the latest operator for patches and operator releases.
@@ -646,7 +645,6 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
     queue_exception_handling(tasks_queue)
 
 
-# TODO: for now, release agents ECR release versions with image:version_version (duplicated)
 def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
     """
     Build the agent matrix (operator version x agent version), triggered by PCT.

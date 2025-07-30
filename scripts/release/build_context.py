@@ -23,7 +23,7 @@ class BuildScenario(str, Enum):
         patch_id = os.getenv("version_id")
 
         if git_tag:
-            scenario = BuildScenario.RELEASE
+            scenario = BuildScenario.RELEASE # TODO: git tag won't trigger the pipeline, only the promotion process
             logger.info(f"Build scenario: {scenario} (git_tag: {git_tag})")
         elif is_patch:
             scenario = BuildScenario.PATCH
@@ -31,7 +31,7 @@ class BuildScenario(str, Enum):
         elif is_evg:
             scenario = (
                 BuildScenario.MASTER
-            )  # TODO: ultimately we won't have RELEASE variant and master will push to staging
+            )  # TODO: MASTER -> Staging
             logger.info(f"Build scenario: {scenario} (patch_id: {patch_id})")
         else:
             scenario = BuildScenario.DEVELOPMENT

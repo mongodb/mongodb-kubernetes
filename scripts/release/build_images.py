@@ -15,7 +15,6 @@ from lib.sonar.sonar import create_ecr_repository
 from scripts.evergreen.release.images_signing import sign_image, verify_signature
 
 
-# TODO: self review the PR
 def ecr_login_boto3(region: str, account_id: str):
     """
     Fetches an auth token from ECR via boto3 and logs
@@ -43,7 +42,7 @@ def ecr_login_boto3(region: str, account_id: str):
     logger.debug(f"ECR login succeeded: {status}")
 
 
-# TODO: don't do it every time ? Check for existence without relying on Exception
+# TODO: use builders = docker.buildx.list() instead of an exception
 def ensure_buildx_builder(builder_name: str = "multiarch") -> str:
     """
     Ensures a Docker Buildx builder exists for multi-platform builds.
@@ -143,18 +142,6 @@ def process_image(
 ):
     # Login to ECR using boto3
     ecr_login_boto3(region="us-east-1", account_id="268558157000")  # TODO: use environment variables
-
-    # Helper to automatically create registry with correct name
-    should_create_repo = False
-    if should_create_repo:
-        repo_to_create = "julienben/staging-temp/" + image_name
-        logger.debug(f"repo_to_create: {repo_to_create}")
-        create_ecr_repository(repo_to_create)
-        logger.info(f"Created repository {repo_to_create}")
-
-    # Set default platforms if none provided TODO: remove from here and do it at higher level later
-    if platforms is None:
-        platforms = ["linux/amd64"]
 
     docker_registry = f"{base_registry}/{image_name}"
     image_full_uri = f"{docker_registry}:{image_tag}"
