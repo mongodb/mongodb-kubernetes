@@ -50,6 +50,24 @@ run_setup_step "IBM Host Setup" "scripts/minikube/setup_minikube_host.sh"
 
 run_setup_step "Docker Authentication" "scripts/dev/configure_docker_auth.sh"
 
+# Setup Kubernetes cluster after Docker is properly configured
+echo ""
+echo ">>> Setting up Kubernetes cluster"
+if [[ "${KUBE_ENVIRONMENT_NAME:-}" == "kind" ]]; then
+    run_setup_step "Kind Kubernetes Cluster" "scripts/dev/recreate_kind_cluster.sh" "kind"
+elif [[ "${KUBE_ENVIRONMENT_NAME:-}" == "minikube" ]]; then
+    echo ">>> Running: Minikube Kubernetes Cluster"
+    echo ">>> Command: minikube start --profile=${MINIKUBE_PROFILE:-mongodb-e2e} --driver=docker --memory=8192mb --cpus=4"
+    if minikube start --profile="${MINIKUBE_PROFILE:-mongodb-e2e}" --driver=docker --memory=8192mb --cpus=4; then
+        echo "✅ Minikube Kubernetes Cluster completed successfully"
+    else
+        echo "❌ Minikube Kubernetes Cluster failed"
+        exit 1
+    fi
+else
+    echo "⚠️  No Kubernetes environment specified (KUBE_ENVIRONMENT_NAME not set)"
+fi
+
 echo ""
 echo "=========================================="
 echo "✅ Minikube host setup completed successfully!"

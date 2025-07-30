@@ -65,51 +65,48 @@ download_minikube() {
 
 download_docker() {
   echo "Installing Docker for ${ARCH}..."
+
   scripts/minikube/install-docker.sh --user "$(whoami)"
 }
 
-# Setup group for minikube based on architecture
-setup_group() {
-  echo "Setting up group configuration for ${ARCH}..."
+start_minikube() {
+  echo "Starting minikube cluster..."
+  local profile=${MINIKUBE_PROFILE:-mongodb-e2e}
 
-  # Set SETUP_GROUP evergreen variable based on architecture
-  case "${ARCH}" in
-    s390x)
-      export SETUP_GROUP="s390x_minikube"
-      ;;
-    ppc64le)
-      export SETUP_GROUP="ppc64le_minikube"
-      ;;
-    x86_64)
-      export SETUP_GROUP="x86_64_minikube"
-      ;;
-    aarch64)
-      export SETUP_GROUP="arm64_minikube"
-      ;;
-    *)
-      export SETUP_GROUP="unknown_minikube"
-      ;;
-  esac
+  if minikube start --profile="${profile}" --driver=docker --memory=8192mb --cpus=4; then
+    echo "✅ Minikube cluster started successfully"
 
-  echo "SETUP_GROUP set to: ${SETUP_GROUP}"
-
-  # Add to bashrc for persistence
-  echo "export SETUP_GROUP=${SETUP_GROUP}" >> ~/.bashrc
+    # Test cluster connectivity
+    if kubectl --kubeconfig="$(minikube kubeconfig --profile="${profile}")" get nodes >/dev/null 2>&1; then
+      echo "✅ Cluster connectivity verified"
+    else
+      echo "⚠️  Cluster connectivity test failed - may need manual intervention"
+    fi
+  else
+    echo "⚠️  Minikube start failed - likely due to docker permissions"
+    echo "This will be resolved after logout/login"
+  fi
 }
 
 check_disk_space
 set_limits
-setup_group
-
-download_minikube &
 download_docker &
+download_minikube &
 
 wait
 
-echo "Setting up minikube environment variables..."
-echo 'export KUBE_ENVIRONMENT_NAME=minikube' >> ~/.bashrc
-echo 'export MINIKUBE_PROFILE=${MINIKUBE_PROFILE:-mongodb-e2e}' >> ~/.bashrc
-echo 'export KUBECONFIG=$(minikube kubeconfig --profile=${MINIKUBE_PROFILE:-mongodb-e2e} 2>/dev/null || echo ~/.kube/config)' >> ~/.bashrc
+# Start minikube cluster
+start_minikube
 
 echo "Minikube host setup completed successfully for ${ARCH}!"
-echo "SETUP_GROUP: ${SETUP_GROUP}"
+
+# Final status
+echo ""
+echo "=========================================="
+echo "✅ Setup Summary"
+echo "=========================================="
+echo "Architecture: ${ARCH}"
+echo "Minikube Profile: ${MINIKUBE_PROFILE:-mongodb-e2e}"
+echo ""
+echo "If docker permissions failed, logout and login, then run:"
+echo "  minikube start --profile=\${MINIKUBE_PROFILE:-mongodb-e2e} --driver=docker --memory=8192mb --cpus=4"

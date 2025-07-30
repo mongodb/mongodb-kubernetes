@@ -1197,7 +1197,13 @@ task_groups:
   - name: e2e_smoke_ibm_task_group
     max_hosts: -1
     <<: *setup_group_ibm
-    <<: *setup_and_teardown_task
+    setup_task_can_fail_task: true
+    setup_task:
+      - func: cleanup_exec_environment
+    teardown_task_can_fail_task: true
+    teardown_task:
+      - func: upload_e2e_logs
+      - func: teardown_kubernetes_environment
     tasks:
       - e2e_replica_set
     <<: *teardown_group
