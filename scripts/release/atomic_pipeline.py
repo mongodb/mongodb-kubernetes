@@ -9,6 +9,7 @@ import shutil
 from concurrent.futures import ProcessPoolExecutor
 from queue import Queue
 from typing import Callable, Dict, List, Optional, Tuple, Union
+from copy import copy
 
 import requests
 import semver
@@ -36,6 +37,7 @@ TRACER = trace.get_tracer("evergreen-agent")
 DEFAULT_NAMESPACE = "default"
 
 # TODO: rename architecture -> platform everywhere
+
 
 def make_list_of_str(value: Union[None, str, List[str]]) -> List[str]:
     if value is None:
@@ -485,15 +487,14 @@ def build_community_image(build_configuration: BuildConfiguration, image_type: s
             "version": version,
             "GOLANG_VERSION": golang_version,
             "architecture": arch,
-            "TARGETARCH": arch,
+            "TARGETARCH": arch,  # TODO: redundant ?
         }
         multi_arch_args_list.append(arch_args)
 
     # Create a copy of build_configuration with overridden platforms
-    from copy import copy
     build_config_copy = copy(build_configuration)
     build_config_copy.platforms = platforms
-    
+
     build_image_generic(
         image_name=image_name,
         dockerfile_path=dockerfile_path,
@@ -525,10 +526,13 @@ def build_agent_pipeline(
     mongodb_agent_url_ubi: str,
     agent_version,
 ):
-    version = f"{agent_version}_{image_version}"
-
+    build_configuration_copy = copy(build_configuration)
+    build_configuration_copy.version = image_version
+    print(
+        f"======== Building agent pipeline for version {image_version}, build configuration version: {build_configuration.version}"
+    )
     args = {
-        "version": version,
+        "version": image_version,
         "agent_version": agent_version,
         "ubi_suffix": "-ubi",
         "release_version": image_version,
@@ -541,7 +545,7 @@ def build_agent_pipeline(
     build_image_generic(
         image_name="mongodb-agent-ubi",
         dockerfile_path="docker/mongodb-agent/Dockerfile",
-        build_configuration=build_configuration,
+        build_configuration=build_configuration_copy,
         extra_args=args,
     )
 
@@ -596,6 +600,7 @@ def build_multi_arch_agent_in_sonar(
         multi_arch_args_list=joined_args,
     )
 
+
 # TODO: why versions are wrong -> 13.35.0.9498-1_13.35.0.9498-1_6874c19d2aab5d0007820c51 ; duplicate
 # TODO: figure out why I hit toomanyrequests: Rate exceeded with the new pipeline
 def build_agent_default_case(build_configuration: BuildConfiguration):
@@ -625,18 +630,11 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
             max_workers = build_configuration.parallel_factor
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         logger.info(f"running with factor of {max_workers}")
+        print(f"======= Versions to build {agent_versions_to_build} =======")
         for agent_version in agent_versions_to_build:
             # We don't need to keep create and push the same image on every build.
             # It is enough to create and push the non-operator suffixed images only during releases to ecr and quay.
-            # if build_configuration.is_release_step_executed() or build_configuration.all_agents:
-            #    tasks_queue.put(
-            #        executor.submit(
-            #            build_multi_arch_agent_in_sonar,
-            #            build_configuration,
-            #            agent_version[0],
-            #            agent_version[1],
-            #        )
-            #    )
+            print(f"======= Building Agent {agent_version} =======")
             _build_agent_operator(
                 agent_version,
                 build_configuration,
@@ -647,6 +645,7 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
             )
 
     queue_exception_handling(tasks_queue)
+
 
 # TODO: for now, release agents ECR release versions with image:version_version (duplicated)
 def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
