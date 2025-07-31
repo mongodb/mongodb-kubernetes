@@ -46,22 +46,14 @@ run_setup_step "kubectl and helm Setup" "scripts/evergreen/setup_kubectl.sh"
 
 run_setup_step "jq Setup" "scripts/evergreen/setup_jq.sh"
 
-run_setup_step "IBM Host Setup" "scripts/minikube/setup_minikube_host.sh"
+run_setup_step "Minikube Host Setup with Container Runtime Detection" "scripts/minikube/setup_minikube_host.sh"
 
-run_setup_step "Docker Authentication" "scripts/dev/configure_docker_auth.sh"
+run_setup_step "Container Registry Authentication" "scripts/dev/configure_docker_auth.sh"
 
-# Setup Kubernetes cluster after Docker is properly configured
+# The minikube cluster is already started by the setup_minikube_host.sh script
 echo ""
-echo ">>> Setting up Kubernetes cluster"
-echo ">>> Command: minikube start --profile=${MINIKUBE_PROFILE:-mongodb-e2e} --driver=docker --memory=8192mb --cpus=4"
-
-# Start minikube cluster for CI
-if minikube start --profile="${MINIKUBE_PROFILE:-mongodb-e2e}" --driver=docker --memory=8192mb --cpus=4; then
-    echo "✅ Minikube Kubernetes Cluster completed successfully"
-else
-    echo "❌ Minikube Kubernetes Cluster failed"
-    exit 1
-fi
+echo ">>> Minikube cluster startup completed by setup_minikube_host.sh"
+echo "✅ Minikube cluster is ready for use"
 
 echo ""
 echo "=========================================="
@@ -74,6 +66,7 @@ echo "- AWS CLI: $(aws --version 2>/dev/null || echo 'Not found')"
 echo "- kubectl: $(kubectl version --client 2>/dev/null || echo 'Not found')"
 echo "- helm: $(helm version --short 2>/dev/null || echo 'Not found')"
 echo "- jq: $(jq --version 2>/dev/null || echo 'Not found')"
-echo "- Docker: $(docker --version 2>/dev/null || echo 'Not found')"
+echo "- Container Runtime: $(command -v podman &>/dev/null && echo "Podman $(podman --version 2>/dev/null)" || command -v docker &>/dev/null && echo "Docker $(docker --version 2>/dev/null)" || echo "Not found")"
+echo "- Minikube: $(./bin/minikube version --short 2>/dev/null || echo 'Not found')"
 echo ""
 echo "Setup complete! Host is ready for minikube operations."

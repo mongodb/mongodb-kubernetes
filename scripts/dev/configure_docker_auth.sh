@@ -8,7 +8,33 @@ source scripts/funcs/checks
 source scripts/funcs/printing
 source scripts/funcs/kubernetes
 
+# Detect available container runtime
+detect_container_runtime() {
+  if command -v podman &> /dev/null && podman info &> /dev/null; then
+    CONTAINER_RUNTIME="podman"
+    CONFIG_PATH="${HOME}/.config/containers/auth.json"
+    mkdir -p "$(dirname "${CONFIG_PATH}")"
+    echo "Using Podman for container authentication"
+    return 0
+  elif command -v docker &> /dev/null; then
+    CONTAINER_RUNTIME="docker"
+    CONFIG_PATH="${HOME}/.docker/config.json"
+    mkdir -p "$(dirname "${CONFIG_PATH}")"
+    echo "Using Docker for container authentication"
+    return 0
+  else
+    echo "Error: Neither Docker nor Podman is available"
+    exit 1
+  fi
+}
+
 check_docker_daemon_is_running() {
+  if [[ "${CONTAINER_RUNTIME}" == "podman" ]]; then
+    # Podman doesn't require a daemon
+    echo "Using Podman (no daemon required)"
+    return 0
+  fi
+
   if [[ "$(uname -s)" != "Linux" ]]; then
     echo "Skipping docker daemon check when not running in Linux"
     return 0
@@ -34,71 +60,95 @@ check_docker_daemon_is_running() {
 remove_element() {
   config_option="${1}"
   tmpfile=$(mktemp)
-  jq 'del(.'"${config_option}"')' ~/.docker/config.json >"${tmpfile}"
-  cp "${tmpfile}" ~/.docker/config.json
+  
+  # Initialize config file if it doesn't exist
+  if [[ ! -f "${CONFIG_PATH}" ]]; then
+    echo '{}' > "${CONFIG_PATH}"
+  fi
+  
+  jq 'del(.'"${config_option}"')' "${CONFIG_PATH}" >"${tmpfile}"
+  cp "${tmpfile}" "${CONFIG_PATH}"
   rm "${tmpfile}"
 }
 
-# This is the script which performs docker authentication to different registries that we use (so far ECR and RedHat)
-# As the result of this login the ~/.docker/config.json will have all the 'auth' information necessary to work with docker registries
+# Container runtime login wrapper
+container_login() {
+  local username="$1"
+  local registry="$2"
+  
+  if [[ "${CONTAINER_RUNTIME}" == "podman" ]]; then
+    podman login --username "${username}" --password-stdin "${registry}"
+  else
+    docker login --username "${username}" --password-stdin "${registry}"
+  fi
+}
+
+# This is the script which performs container authentication to different registries that we use (so far ECR and RedHat)
+# As the result of this login the config file will have all the 'auth' information necessary to work with container registries
+
+# Detect container runtime and set appropriate config path
+detect_container_runtime
 
 check_docker_daemon_is_running
 
-if [[ -f ~/.docker/config.json ]]; then
+if [[ -f "${CONFIG_PATH}" ]]; then
   if [[ "${RUNNING_IN_EVG:-"false"}" != "true" ]]; then
-    # Check if login is actually required by making a HEAD request to ECR using existing Docker config
-    echo "Checking if Docker credentials are valid..."
-    ecr_auth=$(jq -r '.auths."268558157000.dkr.ecr.us-east-1.amazonaws.com".auth // empty' ~/.docker/config.json)
+    # Check if login is actually required by making a HEAD request to ECR using existing credentials
+    echo "Checking if container registry credentials are valid..."
+    ecr_auth=$(jq -r '.auths."268558157000.dkr.ecr.us-east-1.amazonaws.com".auth // empty' "${CONFIG_PATH}")
 
     if [[ -n "${ecr_auth}" ]]; then
       http_status=$(curl --head -s -o /dev/null -w "%{http_code}" --max-time 3 "https://268558157000.dkr.ecr.us-east-1.amazonaws.com/v2/dev/mongodb-kubernetes/manifests/latest" \
         -H "Authorization: Basic ${ecr_auth}" 2>/dev/null || echo "error/timeout")
 
       if [[ "${http_status}" != "401" && "${http_status}" != "403" && "${http_status}" != "error/timeout" ]]; then
-        echo "Docker credentials are up to date - not performing the new login!"
+        echo "Container registry credentials are up to date - not performing the new login!"
         exit
       fi
-      echo "Docker login required (HTTP status: ${http_status})"
+      echo "Container login required (HTTP status: ${http_status})"
     else
-      echo "No ECR credentials found in Docker config - login required"
+      echo "No ECR credentials found in container config - login required"
     fi
   fi
 
-  title "Performing docker login to ECR registries"
+  title "Performing container login to ECR registries"
 
-  # There could be some leftovers on Evergreen
-  if grep -q "credsStore" ~/.docker/config.json; then
-    remove_element "credsStore"
-  fi
-  if grep -q "credHelpers" ~/.docker/config.json; then
-    remove_element "credHelpers"
+  # There could be some leftovers on Evergreen (Docker-specific, skip for Podman)
+  if [[ "${CONTAINER_RUNTIME}" == "docker" ]]; then
+    if grep -q "credsStore" "${CONFIG_PATH}"; then
+      remove_element "credsStore"
+    fi
+    if grep -q "credHelpers" "${CONFIG_PATH}"; then
+      remove_element "credHelpers"
+    fi
   fi
 fi
 
 
 echo "$(aws --version)}"
 
-aws ecr get-login-password --region "us-east-1" | docker login --username AWS --password-stdin 268558157000.dkr.ecr.us-east-1.amazonaws.com
+aws ecr get-login-password --region "us-east-1" | container_login "AWS" "268558157000.dkr.ecr.us-east-1.amazonaws.com"
 
 # by default docker tries to store credentials in an external storage (e.g. OS keychain) - not in the config.json
 # We need to store it as base64 string in config.json instead so we need to remove the "credsStore" element
-if grep -q "credsStore" ~/.docker/config.json; then
+# This is Docker-specific behavior, Podman stores credentials directly in auth.json
+if [[ "${CONTAINER_RUNTIME}" == "docker" ]] && grep -q "credsStore" "${CONFIG_PATH}"; then
   remove_element "credsStore"
 
   # login again to store the credentials into the config.json
-  aws ecr get-login-password --region "us-east-1" | docker login --username AWS --password-stdin 268558157000.dkr.ecr.us-east-1.amazonaws.com
+  aws ecr get-login-password --region "us-east-1" | container_login "AWS" "268558157000.dkr.ecr.us-east-1.amazonaws.com"
 fi
 
-aws ecr get-login-password --region "eu-west-1" | docker login --username AWS --password-stdin 268558157000.dkr.ecr.eu-west-1.amazonaws.com
+aws ecr get-login-password --region "eu-west-1" | container_login "AWS" "268558157000.dkr.ecr.eu-west-1.amazonaws.com"
 
 if [[ -n "${COMMUNITY_PRIVATE_PREVIEW_PULLSECRET_DOCKERCONFIGJSON:-}" ]]; then
   # log in to quay.io for the mongodb/mongodb-search-community private repo
   # TODO remove once we switch to the official repo in Public Preview
   quay_io_auth_file=$(mktemp)
-  docker_configjson_tmp=$(mktemp)
+  config_tmp=$(mktemp)
   echo "${COMMUNITY_PRIVATE_PREVIEW_PULLSECRET_DOCKERCONFIGJSON}" | base64 -d > "${quay_io_auth_file}"
-  jq -s '.[0] * .[1]' "${quay_io_auth_file}" ~/.docker/config.json > "${docker_configjson_tmp}"
-  mv "${docker_configjson_tmp}" ~/.docker/config.json
+  jq -s '.[0] * .[1]' "${quay_io_auth_file}" "${CONFIG_PATH}" > "${config_tmp}"
+  mv "${config_tmp}" "${CONFIG_PATH}"
   rm "${quay_io_auth_file}"
 fi
 

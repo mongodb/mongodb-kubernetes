@@ -79,19 +79,18 @@ remote-prepare-local-e2e-run() {
 get-kubeconfig() {
   # For minikube, we need to get the kubeconfig and certificates
   echo "Getting kubeconfig from minikube on s390x host..."
-  local profile=${MINIKUBE_PROFILE:-mongodb-e2e}
 
   # Create local minikube directory structure
-  mkdir -p "${HOME}/.minikube/profiles/${profile}"
+  mkdir -p "${HOME}/.minikube"
 
   # Copy certificates from remote host
   echo "Copying minikube certificates..."
   scp "${host_url}:~/.minikube/ca.crt" "${HOME}/.minikube/"
-  scp "${host_url}:~/.minikube/profiles/${profile}/client.crt" "${HOME}/.minikube/profiles/${profile}/"
-  scp "${host_url}:~/.minikube/profiles/${profile}/client.key" "${HOME}/.minikube/profiles/${profile}/"
+  scp "${host_url}:~/.minikube/client.crt" "${HOME}/.minikube/"
+  scp "${host_url}:~/.minikube/client.key" "${HOME}/.minikube/"
 
   # Get kubeconfig and update paths to local ones
-  ssh -T -q "${host_url}" "cd ~/mongodb-kubernetes; export KUBE_ENVIRONMENT_NAME=minikube; export MINIKUBE_PROFILE=${profile}; kubectl config view --raw" > "${kubeconfig_path}"
+  ssh -T -q "${host_url}" "cd ~/mongodb-kubernetes; export KUBE_ENVIRONMENT_NAME=minikube; kubectl config view --raw" > "${kubeconfig_path}"
 
   # Update certificate paths to local paths
   sed -i '' "s|/home/cloud-user/.minikube|${HOME}/.minikube|g" "${kubeconfig_path}"
@@ -103,12 +102,10 @@ get-kubeconfig() {
 }
 
 recreate-minikube-cluster() {
-  shift 1
-  profile_name=${1:-mongodb-e2e}
   configure "$(uname -m)" 2>&1| prepend "minikube_host.sh configure"
-  echo "Recreating minikube cluster ${profile_name} on ${S390_HOST_NAME} (${host_url})..."
+  echo "Recreating minikube cluster on ${S390_HOST_NAME} (${host_url})..."
   # shellcheck disable=SC2088
-  ssh -T "${host_url}" "cd ~/mongodb-kubernetes; export KUBE_ENVIRONMENT_NAME=minikube; export MINIKUBE_PROFILE=${profile_name}; minikube delete --profile=${profile_name} || true; minikube start --profile=${profile_name} --driver=docker --memory=8192mb --cpus=4"
+  ssh -T "${host_url}" "cd ~/mongodb-kubernetes; export KUBE_ENVIRONMENT_NAME=minikube; minikube delete || true; minikube start --driver=podman --memory=8192mb --cpus=4"
   echo "Copying kubeconfig to ${kubeconfig_path}"
   get-kubeconfig
 }
@@ -116,11 +113,10 @@ recreate-minikube-cluster() {
 tunnel() {
   shift 1
   echo "Setting up tunnel for minikube cluster..."
-  local profile=${MINIKUBE_PROFILE:-mongodb-e2e}
 
   # Get the minikube API server port from remote host
   local api_port
-  api_port=$(ssh -T -q "${host_url}" "cd ~/mongodb-kubernetes; export MINIKUBE_PROFILE=${profile}; minikube ip --profile=${profile} 2>/dev/null && echo ':8443' | tr -d '\n'")
+  api_port=$(ssh -T -q "${host_url}" "cd ~/mongodb-kubernetes; minikube ip 2>/dev/null && echo ':8443' | tr -d '\n'")
 
   if [[ -z "${api_port}" ]]; then
     echo "Could not determine minikube API server details. Is the cluster running?"
@@ -134,7 +130,7 @@ tunnel() {
   # Forward the API server port through minikube
   set -x
   # shellcheck disable=SC2029
-  ssh -L "${port}:$(ssh -T -q "${host_url}" "export MINIKUBE_PROFILE=${profile}; minikube ip --profile=${profile}"):${port}" "${host_url}" "$@"
+  ssh -L "${port}:$(ssh -T -q "${host_url}" "minikube ip"):${port}" "${host_url}" "$@"
   set +x
 }
 
@@ -185,7 +181,7 @@ PREREQUISITES:
 COMMANDS:
   configure <architecture>           installs on a host: calls sync, switches context, installs necessary software (auto-detects arch)
   sync                              rsync of project directory
-  recreate-minikube-cluster <profile>  recreates minikube cluster with specific profile and executes get-kubeconfig
+  recreate-minikube-cluster          recreates minikube cluster and executes get-kubeconfig
   remote-prepare-local-e2e-run       executes prepare-local-e2e on the remote host
   get-kubeconfig                     copies remote minikube kubeconfig locally to ~/.operator-dev/s390-host.kubeconfig
   tunnel [args]                      creates ssh session with tunneling to all API servers
