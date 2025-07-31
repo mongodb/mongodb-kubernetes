@@ -1473,11 +1473,23 @@ buildvariants:
     tasks:
       - name: e2e_smoke_task_group
 
-  - name: e2e_smoke_ibm
+  - name: e2e_smoke_ibm_power
     display_name: e2e_smoke_ibm
     tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
     run_on:
       - rhel9-power-large
+    allowed_requesters: [ "patch", "github_tag" ]
+#    depends_on:
+#      - name: build_test_image
+#        variant: init_test_run
+    tasks:
+      - name: e2e_smoke_ibm_task_group
+
+  - name: e2e_smoke_ibm_z
+    display_name: e2e_smoke_ibm
+    tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
+    run_on:
+      - rhel9-zseries-large
     allowed_requesters: [ "patch", "github_tag" ]
 #    depends_on:
 #      - name: build_test_image

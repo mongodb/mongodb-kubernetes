@@ -102,8 +102,8 @@ start_minikube_cluster() {
 
   local start_args=("--driver=podman")
 
-  # Add Calico CNI for better compatibility
-  start_args+=("--cni=calico")
+  # Use default bridge CNI to avoid Docker Hub rate limiting issues
+  # start_args+=("--cni=bridge")
 
   # For ppc64le, we need to handle the crictl fix
   if [[ "${ARCH}" == "ppc64le" ]]; then
