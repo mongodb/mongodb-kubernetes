@@ -91,6 +91,11 @@ detect_container_runtime
 
 check_docker_daemon_is_running
 
+# Initialize config file if it doesn't exist
+if [[ ! -f "${CONFIG_PATH}" ]]; then
+  echo '{}' > "${CONFIG_PATH}"
+fi
+
 if [[ -f "${CONFIG_PATH}" ]]; then
   if [[ "${RUNNING_IN_EVG:-"false"}" != "true" ]]; then
     # Check if login is actually required by making a HEAD request to ECR using existing credentials

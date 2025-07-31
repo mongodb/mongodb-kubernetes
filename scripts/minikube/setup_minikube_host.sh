@@ -191,6 +191,13 @@ setup_podman() {
   # Check if podman is already available
   if command -v podman &> /dev/null; then
     echo "✅ Podman already installed"
+    
+    # Reset podman if it's in an invalid state
+    if podman info 2>&1 | grep -q "invalid internal status"; then
+      echo "Resetting podman due to invalid internal status..."
+      podman system migrate || true
+      podman system reset --force || true
+    fi
   else
     echo "Installing podman..."
     sudo dnf install -y podman
