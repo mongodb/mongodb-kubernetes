@@ -51,7 +51,7 @@ download_minikube() {
 setup_local_registry_and_custom_image() {
   if [[ "${ARCH}" == "ppc64le" ]]; then
     echo ">>> Setting up local registry and custom kicbase image for ppc64le..."
-    
+
     # Check if local registry is running
     if ! podman ps --filter "name=registry" --format "{{.Names}}" | grep -q "^registry$"; then
       echo "Starting local container registry on port 5000..."
@@ -63,7 +63,7 @@ setup_local_registry_and_custom_image() {
           podman run -d -p 5000:5000 --name registry --restart=always docker.io/library/registry:2
         }
       }
-      
+
       # Wait for registry to be ready
       echo "Waiting for registry to be ready..."
       for i in {1..30}; do
@@ -75,13 +75,18 @@ setup_local_registry_and_custom_image() {
     else
       echo "✅ Local registry already running"
     fi
-    
-    # Configure per-user podman to trust local registry (no system-wide changes)
-    echo "Configuring per-user podman registry settings..."
-    mkdir -p ~/.config/containers
-    
-    # Create user-specific registries.conf that includes insecure local registry
-    cat > ~/.config/containers/registries.conf << 'EOF'
+
+    # Configure system-wide podman to trust local registry (with backup)
+    echo "Configuring system registries.conf to trust local registry..."
+
+    # Backup existing registries.conf if it exists
+    if [[ -f /etc/containers/registries.conf ]]; then
+      echo "Backing up existing registries.conf..."
+      sudo cp /etc/containers/registries.conf /etc/containers/registries.conf.minikube-backup
+    fi
+
+    # Create a clean registries.conf that includes insecure local registry
+    sudo tee /etc/containers/registries.conf << 'EOF'
 unqualified-search-registries = ["registry.access.redhat.com", "registry.redhat.io", "docker.io"]
 
 [[registry]]
@@ -90,19 +95,19 @@ insecure = true
 
 short-name-mode = "permissive"
 EOF
-    
+
     # Check if custom image already exists in local registry
     if curl -s http://localhost:5000/v2/kicbase/tags/list | grep -q "v0.0.47"; then
       echo "✅ Custom kicbase image already exists in local registry"
       return 0
     fi
-    
+
     # Build custom kicbase image with crictl
     echo "Building custom kicbase image with crictl for ppc64le..."
-    
+
     # Create build directory if it doesn't exist
     mkdir -p "${PROJECT_DIR:-.}/scripts/minikube/kicbase"
-    
+
     # Create Dockerfile for custom kicbase
     cat > "${PROJECT_DIR:-.}/scripts/minikube/kicbase/Dockerfile" << 'EOF'
 FROM gcr.io/k8s-minikube/kicbase:v0.0.47
@@ -125,18 +130,18 @@ RUN if [ "$(uname -m)" = "ppc64le" ]; then \
 # Verify crictl is available
 RUN command -v crictl >/dev/null 2>&1 && echo "crictl is available" || echo "crictl not found"
 EOF
-    
+
     # Build and push to local registry
     echo "Building custom kicbase image..."
     cd "${PROJECT_DIR:-.}/scripts/minikube/kicbase"
-    
+
     podman build -t localhost:5000/kicbase:v0.0.47 .
-    
+
     echo "Pushing custom image to local registry..."
     podman push localhost:5000/kicbase:v0.0.47 --tls-verify=false
-    
+
     cd - > /dev/null
-    
+
     echo "✅ Custom kicbase image with crictl ready in local registry"
   fi
   return 0
@@ -152,7 +157,7 @@ start_minikube_cluster() {
     echo "Removing ~/.minikube/machines/minikube directory..."
     rm -rf ~/.minikube/machines/minikube
   fi
-  
+
   # Delete any existing minikube cluster to start fresh
   echo "Ensuring clean minikube state..."
   "${PROJECT_DIR:-.}/bin/minikube" delete 2>/dev/null || true
@@ -163,6 +168,7 @@ start_minikube_cluster() {
   if [[ "${ARCH}" == "ppc64le" ]]; then
     echo "Using custom kicbase image for ppc64le with crictl..."
     start_args+=("--base-image=localhost:5000/kicbase:v0.0.47")
+    start_args+=("--insecure-registry=localhost:5000")
   fi
 
   # Use default bridge CNI to avoid Docker Hub rate limiting issues
