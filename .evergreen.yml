@@ -1474,7 +1474,7 @@ buildvariants:
       - name: e2e_smoke_task_group
 
   - name: e2e_smoke_ibm_power
-    display_name: e2e_smoke_ibm
+    display_name: e2e_smoke_ibm_power
     tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
     run_on:
       - rhel9-power-large
@@ -1486,7 +1486,7 @@ buildvariants:
       - name: e2e_smoke_ibm_task_group
 
   - name: e2e_smoke_ibm_z
-    display_name: e2e_smoke_ibm
+    display_name: e2e_smoke_ibm_z
     tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
     run_on:
       - rhel9-zseries-large
