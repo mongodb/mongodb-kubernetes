@@ -1,6 +1,7 @@
 FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/golang:1.24 AS builder
 
-ADD https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64 /usr/local/bin/jq
+ARG BUILDARCH
+ADD "https://github.com/stedolan/jq/releases/download/jq-1.8.1/jq-linux-${BUILDARCH}" /usr/local/bin/jq
 RUN chmod +x /usr/local/bin/jq
 
 COPY go.sum go.mod /go/src/github.com/mongodb/mongodb-kubernetes/
