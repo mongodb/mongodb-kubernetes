@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -Eeoux pipefail
+set -Eeou pipefail
 
 source scripts/dev/set_env_context.sh
 
