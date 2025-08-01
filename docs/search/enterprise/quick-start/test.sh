@@ -13,6 +13,7 @@ prepare_snippets
 
 run 0045_create_namespaces.sh
 run 0046_create_image_pull_secrets.sh
+run 0050_configure_ops_manager_project.sh
 
 run_for_output 090_helm_add_mogodb_repo.sh
 run_for_output 0100_install_operator.sh

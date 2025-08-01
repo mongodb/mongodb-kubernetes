@@ -98,9 +98,12 @@ variables:
       - func: download_kube_tools
       - func: configure_docker_auth
       - func: setup_kubernetes_environment
+      - func: setup_cloud_qa
     teardown_task:
       - func: upload_e2e_logs
       - func: upload_code_snippets_logs
+      - func: teardown_kubernetes_environment
+      - func: teardown_cloud_qa
 
   - &setup_and_teardown_task_cloudqa
     setup_task_can_fail_task: true
