@@ -834,7 +834,8 @@ func getMongodConfigModification(mdb mdbv1.MongoDBCommunity) automationconfig.Mo
 // getMongodConfigModification will merge the additional configuration in the CRD
 // into the configuration set up by the operator.
 func getMongodConfigSearchModification(search *searchv1.MongoDBSearch) automationconfig.Modification {
-	if search == nil {
+	// Condition for skipping add parameter if it is external mongod
+	if search == nil || search.Spec.Source.ExternalMongoDBSource != nil {
 		return automationconfig.NOOP()
 	}
 

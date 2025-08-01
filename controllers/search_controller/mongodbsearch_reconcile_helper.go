@@ -123,7 +123,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Failed(err)
 	}
 
-	if statefulSetStatus := statefulset.GetStatefulSetStatus(ctx, r.db.NamespacedName().Namespace, r.mdbSearch.StatefulSetNamespacedName().Name, r.client); !statefulSetStatus.IsOK() {
+	if statefulSetStatus := statefulset.GetStatefulSetStatus(ctx, r.mdbSearch.Namespace, r.mdbSearch.StatefulSetNamespacedName().Name, r.client); !statefulSetStatus.IsOK() {
 		return statefulSetStatus
 	}
 
@@ -334,10 +334,7 @@ func buildSearchHeadlessService(search *searchv1.MongoDBSearch) corev1.Service {
 
 func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResource) mongot.Modification {
 	return func(config *mongot.Config) {
-		var hostAndPorts []string
-		for i := range db.Members() {
-			hostAndPorts = append(hostAndPorts, fmt.Sprintf("%s-%d.%s.%s.svc.cluster.local:%d", db.Name(), i, db.DatabaseServiceName(), db.GetNamespace(), db.DatabasePort()))
-		}
+		hostAndPorts := db.HostSeeds()
 
 		config.SyncSource = mongot.ConfigSyncSource{
 			ReplicaSet: mongot.ConfigReplicaSet{
@@ -407,11 +404,16 @@ func ValidateSearchSource(db SearchSourceDBResource) error {
 }
 
 func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSource(ctx context.Context) error {
+	if r.mdbSearch.Spec.Source != nil && r.mdbSearch.Spec.Source.ExternalMongoDBSource != nil {
+		return nil
+	}
+
+	ref := r.mdbSearch.GetMongoDBResourceRef()
 	searchList := &searchv1.MongoDBSearchList{}
 	if err := r.client.List(ctx, searchList, &client.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector(MongoDBSearchIndexFieldName, r.db.GetNamespace()+"/"+r.db.Name()),
+		FieldSelector: fields.OneTermEqualSelector(MongoDBSearchIndexFieldName, ref.Namespace+"/"+ref.Name),
 	}); err != nil {
-		return xerrors.Errorf("Error listing MongoDBSearch resources for search source '%s': %w", r.db.Name(), err)
+		return xerrors.Errorf("Error listing MongoDBSearch resources for search source '%s': %w", ref.Name, err)
 	}
 
 	if len(searchList.Items) > 1 {
@@ -420,7 +422,7 @@ func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSourc
 			resourceNames[i] = search.Name
 		}
 		return xerrors.Errorf(
-			"Found multiple MongoDBSearch resources for search source '%s': %s", r.db.Name(),
+			"Found multiple MongoDBSearch resources for search source '%s': %s", ref.Name,
 			strings.Join(resourceNames, ", "),
 		)
 	}

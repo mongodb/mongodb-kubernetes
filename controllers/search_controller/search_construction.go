@@ -1,6 +1,7 @@
 package search_controller
 
 import (
+	"fmt"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
@@ -31,25 +32,65 @@ const (
 //
 // TODO check if we could use already existing interface (DbCommon, MongoDBStatefulSetOwner, etc.)
 type SearchSourceDBResource interface {
-	Name() string
-	NamespacedName() types.NamespacedName
 	KeyfileSecretName() string
-	GetNamespace() string
-	HasSeparateDataAndLogsVolumes() bool
-	DatabaseServiceName() string
-	DatabasePort() int
 	GetMongoDBVersion() string
 	IsSecurityTLSConfigEnabled() bool
 	TLSOperatorCASecretNamespacedName() types.NamespacedName
-	Members() int
+	HostSeeds() []string
 }
 
 func NewSearchSourceDBResourceFromMongoDBCommunity(mdbc *mdbcv1.MongoDBCommunity) SearchSourceDBResource {
 	return &mdbcSearchResource{db: mdbc}
 }
 
+func NewSearchSourceDBResourceFromExternal(namespace string, spec *searchv1.ExternalMongoDBSource) SearchSourceDBResource {
+	return &externalSearchResource{namespace: namespace, spec: spec}
+}
+
+// externalSearchResource implements SearchSourceDBResource for deployments managed outside the operator.
+type externalSearchResource struct {
+	namespace string
+	spec      *searchv1.ExternalMongoDBSource
+}
+
+func (r *externalSearchResource) KeyfileSecretName() string {
+	if r.spec.KeyFileSecretKeyRef != nil {
+		return r.spec.KeyFileSecretKeyRef.Name
+	}
+
+	return ""
+}
+
+func (r *externalSearchResource) GetMongoDBVersion() string {
+	return "8.0.10" // replace this with a validate method that is always true for external mongodb
+}
+
+func (r *externalSearchResource) IsSecurityTLSConfigEnabled() bool {
+	if r.spec.TLS != nil {
+		return r.spec.TLS.Enabled
+	}
+	return false
+}
+
+func (r *externalSearchResource) TLSOperatorCASecretNamespacedName() types.NamespacedName {
+	if r.spec.TLS != nil {
+		return types.NamespacedName{Name: r.spec.TLS.CASecretRef.Name, Namespace: r.namespace}
+	}
+	return types.NamespacedName{}
+}
+
+func (r *externalSearchResource) HostSeeds() []string { return r.spec.HostAndPorts }
+
 type mdbcSearchResource struct {
 	db *mdbcv1.MongoDBCommunity
+}
+
+func (r *mdbcSearchResource) HostSeeds() []string {
+	seeds := make([]string, r.db.Spec.Members)
+	for i := range seeds {
+		seeds[i] = fmt.Sprintf("%s-%d.%s.%s.svc.cluster.local:%d", r.db.Name, i, r.db.ServiceName(), r.db.Namespace, r.db.GetMongodConfiguration().GetDBPort())
+	}
+	return seeds
 }
 
 func (r *mdbcSearchResource) Members() int {
@@ -80,6 +121,7 @@ func (r *mdbcSearchResource) DatabaseServiceName() string {
 	return r.db.ServiceName()
 }
 
+// replace with a validate method that is always true for external mongodb
 func (r *mdbcSearchResource) GetMongoDBVersion() string {
 	return r.db.Spec.Version
 }
@@ -161,7 +203,7 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 				podSecurityContext,
 				podtemplatespec.WithPodLabels(labels),
 				podtemplatespec.WithVolumes(volumes),
-				podtemplatespec.WithServiceAccount(sourceDBResource.DatabaseServiceName()),
+				//podtemplatespec.WithServiceAccount(sourceDBResource.DatabaseServiceName()),
 				podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
 				podtemplatespec.WithContainer(MongotContainerName, mongodbSearchContainer(mdbSearch, volumeMounts, searchImage)),
 			),
