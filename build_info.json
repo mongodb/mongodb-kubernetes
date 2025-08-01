@@ -1,6 +1,6 @@
 {
   "images": {
-    "mongodbOperator": {
+    "operator": {
       "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes",
         "platforms": [
@@ -22,7 +22,7 @@
         ]
       }
     },
-    "initDatabase": {
+    "init-database": {
       "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-database",
         "platforms": [
@@ -44,7 +44,7 @@
         ]
       }
     },
-    "initAppDb": {
+    "init-appdb": {
       "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-appdb",
         "platforms": [
@@ -66,7 +66,7 @@
         ]
       }
     },
-    "initOpsManager": {
+    "init-ops-manager": {
       "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-ops-manager",
         "platforms": [
@@ -110,7 +110,35 @@
         ]
       }
     },
-    "readinessprobe": {
+    "meko-tests": {
+      "patch": {
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests",
+        "platforms": [
+          "linux/amd64"
+        ]
+      },
+      "staging": {
+        "repository": "quay.io/mongodb/mongodb-kubernetes-tests-stg",
+        "platforms": [
+          "linux/amd64"
+        ]
+      }
+    },
+    "mco-tests": {
+      "patch": {
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-community-tests",
+        "platforms": [
+          "linux/amd64"
+        ]
+      },
+      "staging": {
+        "repository": "quay.io/mongodb/mongodb-community-tests-stg",
+        "platforms": [
+          "linux/amd64"
+        ]
+      }
+    },
+    "readiness-probe": {
       "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-readinessprobe",
         "platforms": [
@@ -133,7 +161,7 @@
         ]
       }
     },
-    "operator-version-upgrade-post-start-hook": {
+    "upgrade-hook": {
       "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-operator-version-upgrade-post-start-hook",
         "platforms": [

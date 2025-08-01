@@ -9,7 +9,7 @@ import shutil
 from concurrent.futures import ProcessPoolExecutor
 from copy import copy
 from queue import Queue
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import requests
 import semver
@@ -17,16 +17,30 @@ from opentelemetry import trace
 from packaging.version import Version
 
 from lib.base_logger import logger
+from scripts.evergreen.release.agent_matrix import (
+    get_supported_operator_versions,
+)
 from scripts.evergreen.release.images_signing import (
     sign_image,
     verify_signature,
 )
+from scripts.release.build.image_build_configuration import ImageBuildConfiguration
 
-from .build_configuration import BuildConfiguration
-from .build_context import BuildScenario
-from .build_images import execute_docker_build
+from .build_images import process_image
+from .optimized_operator_build import build_operator_image_fast
 
 TRACER = trace.get_tracer("evergreen-agent")
+DEFAULT_NAMESPACE = "default"
+
+
+def make_list_of_str(value: Union[None, str, List[str]]) -> List[str]:
+    if value is None:
+        return []
+
+    if isinstance(value, str):
+        return [e.strip() for e in value.split(",")]
+
+    return value
 
 
 def get_tools_distro(tools_version: str) -> Dict[str, str]:
@@ -41,12 +55,47 @@ def is_running_in_evg_pipeline():
     return os.getenv("RUNNING_IN_EVG", "") == "true"
 
 
+def is_running_in_patch():
+    is_patch = os.environ.get("is_patch")
+    return is_patch is not None and is_patch.lower() == "true"
+
+
 def load_release_file() -> Dict:
     with open("release.json") as release:
         return json.load(release)
 
 
-def build_tests_image(build_configuration: BuildConfiguration):
+@TRACER.start_as_current_span("sonar_build_image")
+def pipeline_process_image(
+    dockerfile_path: str,
+    build_configuration: ImageBuildConfiguration,
+    dockerfile_args: Dict[str, str] = None,
+    build_path: str = ".",
+):
+    """Builds a Docker image with arguments defined in `args`."""
+    image_name = build_configuration.image_name()
+    span = trace.get_current_span()
+    span.set_attribute("mck.image_name", image_name)
+    if dockerfile_args:
+        span.set_attribute("mck.build_args", str(dockerfile_args))
+
+    logger.info(f"Dockerfile args: {dockerfile_args}, for image: {image_name}")
+
+    if not dockerfile_args:
+        dockerfile_args = {}
+    logger.debug(f"Build args: {dockerfile_args}")
+    process_image(
+        image_tag=build_configuration.version,
+        dockerfile_path=dockerfile_path,
+        dockerfile_args=dockerfile_args,
+        registry=build_configuration.registry,
+        platforms=build_configuration.platforms,
+        sign=build_configuration.sign,
+        build_path=build_path,
+    )
+
+
+def build_tests_image(build_configuration: ImageBuildConfiguration):
     """
     Builds image used to run tests.
     """
@@ -69,41 +118,38 @@ def build_tests_image(build_configuration: BuildConfiguration):
     shutil.copyfile("release.json", "docker/mongodb-kubernetes-tests/release.json")
     shutil.copyfile("requirements.txt", requirements_dest)
 
-    python_version = os.getenv("PYTHON_VERSION", "3.11")
+    python_version = os.getenv("PYTHON_VERSION", "3.13")
     if python_version == "":
         raise Exception("Missing PYTHON_VERSION environment variable")
 
-    buildargs = {"PYTHON_VERSION": python_version}
+    build_args = dict({"PYTHON_VERSION": python_version})
 
-    build_image(
-        image_name=image_name,
+    pipeline_process_image(
         dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
         build_configuration=build_configuration,
-        extra_args=buildargs,
+        dockerfile_args=build_args,
         build_path="docker/mongodb-kubernetes-tests",
     )
 
 
-def build_mco_tests_image(build_configuration: BuildConfiguration):
+def build_mco_tests_image(build_configuration: ImageBuildConfiguration):
     """
     Builds image used to run community tests.
     """
-    image_name = "mongodb-community-tests"
     golang_version = os.getenv("GOLANG_VERSION", "1.24")
     if golang_version == "":
         raise Exception("Missing GOLANG_VERSION environment variable")
 
-    buildargs = {"GOLANG_VERSION": golang_version}
+    buildargs = dict({"GOLANG_VERSION": golang_version})
 
-    build_image(
-        image_name=image_name,
+    pipeline_process_image(
         dockerfile_path="docker/mongodb-community-tests/Dockerfile",
         build_configuration=build_configuration,
-        extra_args=buildargs,
+        dockerfile_args=buildargs,
     )
 
 
-def build_operator_image(build_configuration: BuildConfiguration):
+def build_operator_image(build_configuration: ImageBuildConfiguration):
     """Calculates arguments required to build the operator image, and starts the build process."""
     # In evergreen, we can pass test_suffix env to publish the operator to a quay
     # repository with a given suffix.
@@ -119,25 +165,51 @@ def build_operator_image(build_configuration: BuildConfiguration):
     logger.info(f"Building Operator args: {args}")
 
     image_name = "mongodb-kubernetes"
-    build_image(
-        image_name=image_name,
+    pipeline_process_image(
         dockerfile_path="docker/mongodb-kubernetes-operator/Dockerfile",
         build_configuration=build_configuration,
-        extra_args=args,
+        dockerfile_args=args,
     )
 
 
-def build_database_image(build_configuration: BuildConfiguration):
+def build_operator_image_patch(build_configuration: ImageBuildConfiguration):
+    if not build_operator_image_fast(build_configuration):
+        build_operator_image(build_configuration)
+
+
+def build_database_image(build_configuration: ImageBuildConfiguration):
     """
     Builds a new database image.
     """
     args = {"version": build_configuration.version}
-    build_image(
-        image_name="mongodb-kubernetes-database",
+
+    pipeline_process_image(
         dockerfile_path="docker/mongodb-kubernetes-database/Dockerfile",
         build_configuration=build_configuration,
-        extra_args=args,
+        dockerfile_args=args,
     )
+
+
+def should_skip_arm64():
+    """
+    Determines if arm64 builds should be skipped based on environment.
+    Returns True if running in Evergreen pipeline as a patch.
+    """
+    return is_running_in_evg_pipeline() and is_running_in_patch()
+
+
+@TRACER.start_as_current_span("sign_image_in_repositories")
+def sign_image_in_repositories(args: Dict[str, str], arch: str = None):
+    span = trace.get_current_span()
+    repository = args["quay_registry"] + args["ubi_suffix"]
+    tag = args["release_version"]
+    if arch:
+        tag = f"{tag}-{arch}"
+
+    span.set_attribute("mck.tag", tag)
+
+    sign_image(repository, tag)
+    verify_signature(repository, tag)
 
 
 def find_om_in_releases(om_version: str, releases: Dict[str, str]) -> Optional[str]:
@@ -157,7 +229,7 @@ def find_om_in_releases(om_version: str, releases: Dict[str, str]) -> Optional[s
 
 
 def get_om_releases() -> Dict[str, str]:
-    """Returns a dictionary representation of the Json document holding all the OM
+    """Returns a dictionary representation of the Json document holdin all the OM
     releases.
     """
     ops_manager_release_archive = (
@@ -181,17 +253,16 @@ def find_om_url(om_version: str) -> str:
     return current_release
 
 
-def build_init_om_image(build_configuration: BuildConfiguration):
+def build_init_om_image(build_configuration: ImageBuildConfiguration):
     args = {"version": build_configuration.version}
-    build_image(
-        image_name="mongodb-kubernetes-init-ops-manager",
+    pipeline_process_image(
         dockerfile_path="docker/mongodb-kubernetes-init-ops-manager/Dockerfile",
         build_configuration=build_configuration,
-        extra_args=args,
+        dockerfile_args=args,
     )
 
 
-def build_om_image(build_configuration: BuildConfiguration):
+def build_om_image(build_configuration: ImageBuildConfiguration):
     # Make this a parameter for the Evergreen build
     # https://github.com/evergreen-ci/evergreen/wiki/Parameterized-Builds
     om_version = os.environ.get("om_version")
@@ -207,139 +278,133 @@ def build_om_image(build_configuration: BuildConfiguration):
         "om_download_url": om_download_url,
     }
 
-    build_image(
-        image_name="mongodb-enterprise-ops-manager-ubi",
+    pipeline_process_image(
         dockerfile_path="docker/mongodb-enterprise-ops-manager/Dockerfile",
         build_configuration=build_configuration,
-        extra_args=args,
+        dockerfile_args=args,
     )
 
 
-@TRACER.start_as_current_span("build_image_generic")
-def build_image(
-    image_name: str,
+def build_image_generic(
     dockerfile_path: str,
-    build_configuration: BuildConfiguration,
+    build_configuration: ImageBuildConfiguration,
     extra_args: dict | None = None,
-    build_path: str = ".",
+    multi_arch_args_list: list[dict] | None = None,
 ):
     """
-    Build an image then (optionally) sign the result.
+    Build one or more platform-specific images, then (optionally)
+    push a manifest and sign the result.
     """
-    # Tracing setup
-    span = trace.get_current_span()
-    span.set_attribute("mck.image_name", image_name)
 
-    registry = build_configuration.base_registry
-    args_list = extra_args or {}
+    registry = build_configuration.registry
+    image_name = build_configuration.image_name()
+    args_list = multi_arch_args_list or [extra_args or {}]
+    version = args_list[0].get("version", "")
+    platforms = [args.get("architecture") for args in args_list]
 
-    # merge in the registry without mutating caller's dict
-    build_args = {**args_list, "quay_registry": registry}
+    for base_args in args_list:
+        # merge in the registry without mutating caller’s dict
+        build_args = {**base_args, "quay_registry": registry}
+        logger.debug(f"Build args: {build_args}")
 
-    if build_args:
-        span.set_attribute("mck.build_args", str(build_args))
-
-    logger.info(f"Building {image_name}, dockerfile args: {build_args}")
-    logger.debug(f"Build args: {build_args}")
-    logger.debug(f"Building {image_name} for platforms={build_configuration.platforms}")
-    logger.debug(f"build image generic - registry={registry}")
-
-    # Build docker registry URI and call build_image
-    docker_registry = f"{build_configuration.base_registry}/{image_name}"
-    image_full_uri = f"{docker_registry}:{build_configuration.version}"
-
-    execute_docker_build(
-        tag=image_full_uri,
-        dockerfile=dockerfile_path,
-        path=build_path,
-        args=build_args,
-        push=True,
-        platforms=build_configuration.platforms,
-    )
+        # TODO: why are we iteration over platforms here? this should be multi-arch build
+        for arch in platforms:
+            logger.debug(f"Building {image_name} for arch={arch}")
+            logger.debug(f"build image generic - registry={registry}")
+            pipeline_process_image(
+                dockerfile_path=dockerfile_path,
+                build_configuration=build_configuration,
+                dockerfile_args=build_args,
+            )
 
     if build_configuration.sign:
-        logger.info("Signing image")
-        sign_image(docker_registry, build_configuration.version)
-        verify_signature(docker_registry, build_configuration.version)
+        sign_image(registry, version)
+        verify_signature(registry, version)
 
 
-def build_init_appdb(build_configuration: BuildConfiguration):
+def build_init_appdb(build_configuration: ImageBuildConfiguration):
     release = load_release_file()
     base_url = "https://fastdl.mongodb.org/tools/db/"
     mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
     args = {"version": build_configuration.version, "mongodb_tools_url_ubi": mongodb_tools_url_ubi}
-    build_image(
-        image_name="mongodb-kubernetes-init-appdb",
+    pipeline_process_image(
         dockerfile_path="docker/mongodb-kubernetes-init-appdb/Dockerfile",
         build_configuration=build_configuration,
-        extra_args=args,
+        dockerfile_args=args,
     )
 
 
 # TODO: nam static: remove this once static containers becomes the default
-def build_init_database(build_configuration: BuildConfiguration):
+def build_init_database(build_configuration: ImageBuildConfiguration):
     release = load_release_file()
     base_url = "https://fastdl.mongodb.org/tools/db/"
     mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
     args = {"version": build_configuration.version, "mongodb_tools_url_ubi": mongodb_tools_url_ubi}
-    build_image(
-        "mongodb-kubernetes-init-database",
+    pipeline_process_image(
         "docker/mongodb-kubernetes-init-database/Dockerfile",
         build_configuration=build_configuration,
-        extra_args=args,
+        dockerfile_args=args,
     )
 
 
-def build_community_image(build_configuration: BuildConfiguration, image_type: str):
+def build_readiness_probe_image(build_configuration: ImageBuildConfiguration):
     """
-    Builds image for community components (readiness probe, upgrade hook).
-
-    Args:
-        build_configuration: The build configuration to use
-        image_type: Type of image to build ("readiness-probe" or "upgrade-hook")
+    Builds image used for readiness probe.
     """
-
-    if image_type == "readiness-probe":
-        image_name = "mongodb-kubernetes-readinessprobe"
-        dockerfile_path = "docker/mongodb-kubernetes-readinessprobe/Dockerfile"
-    elif image_type == "upgrade-hook":
-        image_name = "mongodb-kubernetes-operator-version-upgrade-post-start-hook"
-        dockerfile_path = "docker/mongodb-kubernetes-upgrade-hook/Dockerfile"
-    else:
-        raise ValueError(f"Unsupported community image type: {image_type}")
 
     version = build_configuration.version
     golang_version = os.getenv("GOLANG_VERSION", "1.24")
 
-    extra_args = {
-        "version": version,
-        "GOLANG_VERSION": golang_version,
-    }
+    # Extract architectures from platforms for build args
+    architectures = [platform.split("/")[-1] for platform in build_configuration.platforms]
+    multi_arch_args_list = []
 
-    build_image(
-        image_name=image_name,
-        dockerfile_path=dockerfile_path,
+    for arch in architectures:
+        arch_args = {
+            "version": version,
+            "GOLANG_VERSION": golang_version,
+            "architecture": arch,
+            "TARGETARCH": arch,  # TODO: redundant ?
+        }
+        multi_arch_args_list.append(arch_args)
+
+    build_image_generic(
+        dockerfile_path="docker/mongodb-kubernetes-readinessprobe/Dockerfile",
         build_configuration=build_configuration,
-        extra_args=extra_args,
+        multi_arch_args_list=multi_arch_args_list,
     )
 
 
-def build_readiness_probe_image(build_configuration: BuildConfiguration):
-    """
-    Builds image used for readiness probe.
-    """
-    build_community_image(build_configuration, "readiness-probe")
-
-
-def build_upgrade_hook_image(build_configuration: BuildConfiguration):
+def build_upgrade_hook_image(build_configuration: ImageBuildConfiguration):
     """
     Builds image used for version upgrade post-start hook.
     """
-    build_community_image(build_configuration, "upgrade-hook")
+
+    version = build_configuration.version
+    golang_version = os.getenv("GOLANG_VERSION", "1.24")
+
+    # Extract architectures from platforms for build args
+    architectures = [platform.split("/")[-1] for platform in build_configuration.platforms]
+    multi_arch_args_list = []
+
+    for arch in architectures:
+        arch_args = {
+            "version": version,
+            "GOLANG_VERSION": golang_version,
+            "architecture": arch,
+            "TARGETARCH": arch,  # TODO: redundant ?
+        }
+        multi_arch_args_list.append(arch_args)
+
+    build_image_generic(
+        dockerfile_path="docker/mongodb-kubernetes-upgrade-hook/Dockerfile",
+        build_configuration=build_configuration,
+        multi_arch_args_list=multi_arch_args_list,
+    )
 
 
 def build_agent_pipeline(
-    build_configuration: BuildConfiguration,
+    build_configuration: ImageBuildConfiguration,
     image_version,
     init_database_image,
     mongodb_tools_url_ubi,
@@ -348,6 +413,9 @@ def build_agent_pipeline(
 ):
     build_configuration_copy = copy(build_configuration)
     build_configuration_copy.version = image_version
+    print(
+        f"======== Building agent pipeline for version {image_version}, build configuration version: {build_configuration.version}"
+    )
     args = {
         "version": image_version,
         "agent_version": agent_version,
@@ -356,26 +424,75 @@ def build_agent_pipeline(
         "init_database_image": init_database_image,
         "mongodb_tools_url_ubi": mongodb_tools_url_ubi,
         "mongodb_agent_url_ubi": mongodb_agent_url_ubi,
-        "quay_registry": build_configuration.base_registry,
+        "quay_registry": build_configuration.registry,
     }
 
-    build_image(
-        image_name="mongodb-agent-ubi",
+    build_image_generic(
         dockerfile_path="docker/mongodb-agent/Dockerfile",
         build_configuration=build_configuration_copy,
         extra_args=args,
     )
 
 
-def build_agent_default_case(build_configuration: BuildConfiguration):
+def build_multi_arch_agent_in_sonar(
+    build_configuration: ImageBuildConfiguration,
+    image_version,
+    tools_version,
+):
+    """
+    Creates the multi-arch non-operator suffixed version of the agent.
+    This is a drop-in replacement for the agent
+    release from MCO.
+    This should only be called during releases.
+    Which will lead to a release of the multi-arch
+    images to quay and ecr.
+    """
+
+    logger.info(f"building multi-arch base image for: {image_version}")
+    args = {
+        "version": image_version,
+        "tools_version": tools_version,
+    }
+
+    arch_arm = {
+        "agent_distro": "amzn2_aarch64",
+        "tools_distro": get_tools_distro(tools_version=tools_version)["arm"],
+        "architecture": "arm64",
+    }
+    arch_amd = {
+        "agent_distro": "rhel9_x86_64",
+        "tools_distro": get_tools_distro(tools_version=tools_version)["amd"],
+        "architecture": "amd64",
+    }
+
+    new_rhel_tool_version = "100.10.0"
+    if Version(tools_version) >= Version(new_rhel_tool_version):
+        arch_arm["tools_distro"] = "rhel93-aarch64"
+        arch_amd["tools_distro"] = "rhel93-x86_64"
+
+    joined_args = [args | arch_amd]
+
+    # Only include arm64 if we shouldn't skip it
+    if not should_skip_arm64():
+        joined_args.append(args | arch_arm)
+
+    build_image_generic(
+        dockerfile_path="docker/mongodb-agent-non-matrix/Dockerfile",
+        build_configuration=build_configuration,
+        multi_arch_args_list=joined_args,
+    )
+
+
+def build_agent_default_case(build_configuration: ImageBuildConfiguration):
     """
     Build the agent only for the latest operator for patches and operator releases.
 
+    See more information in the function: build_agent_on_agent_bump
     """
     release = load_release_file()
 
     # We need to release [all agents x latest operator] on operator releases
-    if build_configuration.scenario == BuildScenario.RELEASE:
+    if build_configuration.all_agents:
         agent_versions_to_build = gather_all_supported_agent_versions(release)
     # We only need [latest agents (for each OM major version and for CM) x patch ID] for patches
     else:
@@ -392,12 +509,12 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
         if build_configuration.parallel_factor > 0:
             max_workers = build_configuration.parallel_factor
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        logger.info(f"Running with factor of {max_workers}")
-        logger.info(f"======= Agent versions to build {agent_versions_to_build} =======")
-        for idx, agent_version in enumerate(agent_versions_to_build):
+        logger.info(f"running with factor of {max_workers}")
+        print(f"======= Versions to build {agent_versions_to_build} =======")
+        for agent_version in agent_versions_to_build:
             # We don't need to keep create and push the same image on every build.
             # It is enough to create and push the non-operator suffixed images only during releases to ecr and quay.
-            logger.info(f"======= Building Agent {agent_version} ({idx}/{len(agent_versions_to_build)})")
+            print(f"======= Building Agent {agent_version} =======")
             _build_agent_operator(
                 agent_version,
                 build_configuration,
@@ -405,6 +522,76 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
                 build_configuration.version,
                 tasks_queue,
             )
+
+    queue_exception_handling(tasks_queue)
+
+
+def build_agent_on_agent_bump(build_configuration: ImageBuildConfiguration):
+    """
+    Build the agent matrix (operator version x agent version), triggered by PCT.
+
+    We have three cases where we need to build the agent:
+    - e2e test runs
+    - operator releases
+    - OM/CM bumps via PCT
+
+    We don’t require building a full matrix on e2e test runs and operator releases.
+    "Operator releases" and "e2e test runs" require only the latest operator x agents
+
+    In OM/CM bumps, we release a new agent which we potentially require to release to older operators as well.
+    This function takes care of that.
+    """
+    release = load_release_file()
+    is_release = build_configuration.is_release_scenario()
+
+    if build_configuration.all_agents:
+        # We need to release [all agents x latest operator] on operator releases to make e2e tests work
+        # This was changed previously in https://github.com/mongodb/mongodb-kubernetes/pull/3960
+        agent_versions_to_build = gather_all_supported_agent_versions(release)
+    else:
+        # we only need to release the latest images, we don't need to re-push old images, as we don't clean them up anymore.
+        agent_versions_to_build = gather_latest_agent_versions(release)
+
+    legacy_agent_versions_to_build = release["supportedImages"]["mongodb-agent"]["versions"]
+
+    tasks_queue = Queue()
+    max_workers = 1
+    if build_configuration.parallel:
+        max_workers = None
+        if build_configuration.parallel_factor > 0:
+            max_workers = build_configuration.parallel_factor
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        logger.info(f"running with factor of {max_workers}")
+
+        # We need to regularly push legacy agents, otherwise ecr lifecycle policy will expire them.
+        # We only need to push them once in a while to ecr, so no quay required
+        if not is_release:
+            for legacy_agent in legacy_agent_versions_to_build:
+                tasks_queue.put(
+                    executor.submit(
+                        build_multi_arch_agent_in_sonar,
+                        build_configuration,
+                        legacy_agent,
+                        # we assume that all legacy agents are build using that tools version
+                        "100.9.4",
+                    )
+                )
+
+        for agent_version in agent_versions_to_build:
+            # We don't need to keep create and push the same image on every build.
+            # It is enough to create and push the non-operator suffixed images only during releases to ecr and quay.
+            if build_configuration.all_agents:
+                tasks_queue.put(
+                    executor.submit(
+                        build_multi_arch_agent_in_sonar,
+                        build_configuration,
+                        agent_version[0],
+                        agent_version[1],
+                    )
+                )
+            for operator_version in get_supported_operator_versions():
+                logger.info(f"Building Agent versions: {agent_version} for Operator versions: {operator_version}")
+                _build_agent_operator(agent_version, build_configuration, executor, operator_version, tasks_queue)
 
     queue_exception_handling(tasks_queue)
 
@@ -423,7 +610,7 @@ def queue_exception_handling(tasks_queue):
 
 def _build_agent_operator(
     agent_version: Tuple[str, str],
-    build_configuration: BuildConfiguration,
+    build_configuration: ImageBuildConfiguration,
     executor: ProcessPoolExecutor,
     operator_version: str,
     tasks_queue: Queue,
@@ -436,7 +623,7 @@ def _build_agent_operator(
         f"https://downloads.mongodb.org/tools/db/mongodb-database-tools-{tools_distro}-{tools_version}.tgz"
     )
     mongodb_agent_url_ubi = f"https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod/mongodb-mms-automation-agent-{agent_version[0]}.{agent_distro}.tar.gz"
-    init_database_image = f"{build_configuration.base_registry}/mongodb-kubernetes-init-database:{operator_version}"
+    init_database_image = f"{build_configuration.registry}/mongodb-kubernetes-init-database:{operator_version}"
 
     tasks_queue.put(
         executor.submit(

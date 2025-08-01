@@ -9,6 +9,7 @@ from python_on_whales.exceptions import DockerException
 
 import docker
 from lib.base_logger import logger
+from scripts.evergreen.release.images_signing import sign_image, verify_signature
 
 
 def ecr_login_boto3(region: str, account_id: str):
@@ -69,7 +70,7 @@ def ensure_buildx_builder(builder_name: str = "multiarch") -> str:
     return builder_name
 
 
-def execute_docker_build(
+def build_image(
     tag: str, dockerfile: str, path: str, args: Dict[str, str] = {}, push: bool = True, platforms: list[str] = None
 ):
     """
@@ -82,9 +83,6 @@ def execute_docker_build(
     :param push: Whether to push the image after building
     :param platforms: List of target platforms (e.g., ["linux/amd64", "linux/arm64"])
     """
-    # Login to ECR before building
-    ecr_login_boto3(region="us-east-1", account_id="268558157000")
-
     docker = python_on_whales.docker
 
     try:
@@ -126,3 +124,34 @@ def execute_docker_build(
     except Exception as e:
         logger.error(f"Failed to build image {tag}: {e}")
         raise RuntimeError(f"Failed to build image {tag}: {str(e)}")
+
+
+def process_image(
+    image_tag: str,
+    dockerfile_path: str,
+    dockerfile_args: Dict[str, str],
+    registry: str,
+    platforms: list[str] = None,
+    sign: bool = False,
+    build_path: str = ".",
+    push: bool = True,
+):
+    # Login to ECR
+    ecr_login_boto3(region="us-east-1", account_id="268558157000")
+
+    image_full_uri = f"{registry}:{image_tag}"
+
+    # Build image with docker buildx
+    build_image(
+        tag=image_full_uri,
+        dockerfile=dockerfile_path,
+        path=build_path,
+        args=dockerfile_args,
+        push=push,
+        platforms=platforms,
+    )
+
+    if sign:
+        logger.info("Signing image")
+        sign_image(docker_registry, image_tag)
+        verify_signature(docker_registry, image_tag)

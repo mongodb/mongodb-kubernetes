@@ -90,7 +90,11 @@ def load_build_info(scenario: BuildScenario,
 
     images = {}
     for name, env_data in build_info["images"].items():
-        data = env_data[scenario]
+        data = env_data.get(scenario)
+        if not data:
+            # If no data is available for the scenario, skip this image
+            continue
+
         # Only update the image_version if it is not already set in the build_info.json file
         image_version = data.get("version")
         if not image_version:
@@ -100,12 +104,20 @@ def load_build_info(scenario: BuildScenario,
 
     binaries = {}
     for name, env_data in build_info["binaries"].items():
-        data = env_data[scenario]
+        data = env_data.get(scenario)
+        if not data:
+            # If no data is available for the scenario, skip this binary
+            continue
+
         binaries[name] = BinaryInfo(s3_store=data["s3-store"], platforms=data["platforms"], version=version)
 
     helm_charts = {}
     for name, env_data in build_info["helm-charts"].items():
-        data = env_data[scenario]
+        data = env_data.get(scenario)
+        if not data:
+            # If no data is available for the scenario, skip this helm-chart
+            continue
+
         helm_charts[name] = HelmChartInfo(repository=data["repository"], version=version)
 
     return BuildInfo(images=images, binaries=binaries, helm_charts=helm_charts)
