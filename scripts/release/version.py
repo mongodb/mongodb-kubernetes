@@ -11,6 +11,7 @@ from scripts.release.changelog import (
     get_changelog_entries,
 )
 
+COMMIT_SHA_LENGTH = 8
 
 class Environment(StrEnum):
     DEV = "dev"
@@ -30,7 +31,7 @@ def get_version_for_environment(env: Environment, initial_commit_sha: str | None
                 raise ValueError(f"BUILD_ID environment variable is not set for {env} environment")
             return build_id
         case Environment.STAGING:
-            return repo.head.object.hexsha
+            return repo.head.object.hexsha[:COMMIT_SHA_LENGTH]
         case Environment.PROD:
             return calculate_next_version(repo, changelog_sub_path, initial_commit_sha, initial_version)
 
