@@ -87,7 +87,7 @@ container_login() {
   local registry="$2"
 
   if [[ "${CONTAINER_RUNTIME}" == "podman" ]]; then
-    sudo podman login --username "${username}" --password-stdin "${registry}"
+    sudo podman login --authfile "${CONFIG_PATH}" --username "${username}" --password-stdin "${registry}"
   else
     docker login --username "${username}" --password-stdin "${registry}"
   fi
