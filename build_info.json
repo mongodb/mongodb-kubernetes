@@ -1,0 +1,201 @@
+{
+  "images": {
+    "mongodbOperator": {
+      "dev": {
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes",
+        "platforms": [
+          "linux/amd64"
+        ]
+      },
+      "staging": {
+        "repository": "quay.io/mongodb/mongodb-kubernetes-stg",
+        "platforms": [
+          "linux/arm64",
+          "linux/amd64"
+        ]
+      },
+      "prod": {
+        "repository": "quay.io/mongodb/mongodb-kubernetes",
+        "platforms": [
+          "linux/arm64",
+          "linux/amd64"
+        ]
+      }
+    },
+    "initDatabase": {
+      "dev": {
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-database",
+        "platforms": [
+          "linux/amd64"
+        ]
+      },
+      "staging": {
+        "repository": "quay.io/mongodb/mongodb-kubernetes-init-database-stg",
+        "platforms": [
+          "linux/arm64",
+          "linux/amd64"
+        ]
+      },
+      "prod": {
+        "repository": "quay.io/mongodb/mongodb-kubernetes-init-database",
+        "platforms": [
+          "linux/arm64",
+          "linux/amd64"
+        ]
+      }
+    },
+    "initAppDb": {
+      "dev": {
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-appdb",
+        "platforms": [
+          "linux/amd64"
+        ]
+      },
+      "staging": {
+        "repository": "quay.io/mongodb/mongodb-kubernetes-init-appdb-stg",
+        "platforms": [
+          "linux/arm64",
+          "linux/amd64"
+        ]
+      },
+      "prod": {
+        "repository": "quay.io/mongodb/mongodb-kubernetes-init-appdb",
+        "platforms": [
+          "linux/arm64",
+          "linux/amd64"
+        ]
+      }
+    },
+    "initOpsManager": {
+      "dev": {
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-ops-manager",
+        "platforms": [
+          "linux/amd64"
+        ]
+      },
+      "staging": {
+        "repository": "quay.io/mongodb/mongodb-kubernetes-init-ops-manager-stg",
+        "platforms": [
+          "linux/arm64",
+          "linux/amd64"
+        ]
+      },
+      "prod": {
+        "repository": "quay.io/mongodb/mongodb-kubernetes-init-ops-manager",
+        "platforms": [
+          "linux/arm64",
+          "linux/amd64"
+        ]
+      }
+    },
+    "database": {
+      "dev": {
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-database",
+        "platforms": [
+          "linux/amd64"
+        ]
+      },
+      "staging": {
+        "repository": "quay.io/mongodb/mongodb-kubernetes-database-stg",
+        "platforms": [
+          "linux/arm64",
+          "linux/amd64"
+        ]
+      },
+      "prod": {
+        "repository": "quay.io/mongodb/mongodb-kubernetes-database",
+        "platforms": [
+          "linux/arm64",
+          "linux/amd64"
+        ]
+      }
+    },
+    "readinessprobe": {
+      "dev": {
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-readinessprobe",
+        "platforms": [
+          "linux/amd64"
+        ]
+      },
+      "staging": {
+        "repository": "quay.io/mongodb/mongodb-kubernetes-readinessprobe-stg",
+        "platforms": [
+          "linux/arm64",
+          "linux/amd64"
+        ]
+      },
+      "prod": {
+        "version": "1.0.22",
+        "repository": "quay.io/mongodb/mongodb-kubernetes-readinessprobe",
+        "platforms": [
+          "linux/arm64",
+          "linux/amd64"
+        ]
+      }
+    },
+    "operator-version-upgrade-post-start-hook": {
+      "dev": {
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-operator-version-upgrade-post-start-hook",
+        "platforms": [
+          "linux/amd64"
+        ]
+      },
+      "staging": {
+        "repository": "quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook-stg",
+        "platforms": [
+          "linux/arm64",
+          "linux/amd64"
+        ]
+      },
+      "prod": {
+        "version": "1.0.9",
+        "repository": "quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook",
+        "platforms": [
+          "linux/arm64",
+          "linux/amd64"
+        ]
+      }
+    }
+  },
+  "binaries": {
+    "kubectl-mongodb": {
+      "dev": {
+        "s3-store": "s3://kubectl-mongodb/dev",
+        "platforms": [
+          "linux/amd64"
+        ]
+      },
+      "staging": {
+        "s3-store": "s3://kubectl-mongodb/staging",
+        "platforms": [
+          "darwin/amd64",
+          "darwin/arm64",
+          "linux/amd64",
+          "linux/arm64"
+        ]
+      },
+      "prod": {
+        "s3-store": "s3://kubectl-mongodb/prod",
+        "platforms": [
+          "darwin/amd64",
+          "darwin/arm64",
+          "linux/amd64",
+          "linux/arm64"
+        ]
+      }
+    }
+  },
+  "helm-charts": {
+    "mongodb-kubernetes": {
+      "dev": {
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/helm-charts"
+      },
+      "staging": {
+        "repository": "quay.io/mongodb/helm-charts-stg"
+      },
+      "prod": {
+        "repository": "quay.io/mongodb/helm-charts"
+      }
+    }
+  }
+}
