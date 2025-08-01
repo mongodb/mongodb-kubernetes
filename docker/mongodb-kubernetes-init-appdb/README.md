@@ -5,7 +5,7 @@ For building the MongoDB Init AppDB image locally use the example command:
 ```bash
 VERSION="1.3.0"
 MONGODB_TOOLS_URL="https://downloads.mongodb.org/tools/db"
-BASE_REPO_URL=""
+BASE_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/lucian.tosa/"
 docker buildx build --load --progress plain --platform linux/amd64,linux/arm64,linux/s390x,linux/ppc64le . -f docker/mongodb-kubernetes-init-appdb/Dockerfile -t "${BASE_REPO_URL}mongodb-kubernetes-init-appdb:${VERSION}" \
  --build-arg version="${VERSION}" \
  --build-arg mongodb_tools_url="${MONGODB_TOOLS_URL_UBI}" \
