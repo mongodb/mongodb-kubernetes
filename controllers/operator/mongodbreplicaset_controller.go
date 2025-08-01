@@ -4,12 +4,16 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/blang/semver"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -22,6 +26,7 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
@@ -39,6 +44,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/recovery"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
+	"github.com/mongodb/mongodb-kubernetes/controllers/search_controller"
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
@@ -52,6 +58,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	util_int "github.com/mongodb/mongodb-kubernetes/pkg/util/int"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault/vaultwatcher"
 )
@@ -219,6 +226,8 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(ctx, rs, workflow.Failed(xerrors.Errorf("Failed to reconcileHostnameOverrideConfigMap: %w", err)), log)
 	}
 
+	shouldMirrorKeyfile := r.applySearchOverrides(ctx, rs, log)
+
 	sts := construct.DatabaseStatefulSet(*rs, rsConfig, log)
 	if status := r.ensureRoles(ctx, rs.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, conn, kube.ObjectKeyFromApiObject(rs), log); !status.IsOK() {
 		return r.updateStatus(ctx, rs, status, log)
@@ -238,7 +247,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	// See CLOUDP-189433 and CLOUDP-229222 for more details.
 	if recovery.ShouldTriggerRecovery(rs.Status.Phase != mdbstatus.PhaseRunning, rs.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", rs.Namespace, rs.Name, rs.Status.Phase, rs.Status.LastTransition)
-		automationConfigStatus := r.updateOmDeploymentRs(ctx, conn, rs.Status.Members, rs, sts, log, caFilePath, agentCertSecretName, prometheusCertHash, true).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+		automationConfigStatus := r.updateOmDeploymentRs(ctx, conn, rs.Status.Members, rs, sts, log, caFilePath, agentCertSecretName, prometheusCertHash, true, shouldMirrorKeyfile).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		deploymentError := create.DatabaseInKubernetes(ctx, r.client, *rs, sts, rsConfig, log)
 		if deploymentError != nil {
 			log.Errorf("Recovery failed because of deployment errors, %w", deploymentError)
@@ -254,7 +263,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	}
 	status = workflow.RunInGivenOrder(publishAutomationConfigFirst(ctx, r.client, *rs, lastSpec, rsConfig, log),
 		func() workflow.Status {
-			return r.updateOmDeploymentRs(ctx, conn, rs.Status.Members, rs, sts, log, caFilePath, agentCertSecretName, prometheusCertHash, false).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+			return r.updateOmDeploymentRs(ctx, conn, rs.Status.Members, rs, sts, log, caFilePath, agentCertSecretName, prometheusCertHash, false, shouldMirrorKeyfile).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
 			workflowStatus := create.HandlePVCResize(ctx, r.client, &sts, log)
@@ -408,6 +417,16 @@ func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls
 			zap.S().Errorf("Failed to watch for vault secret changes: %w", err)
 		}
 	}
+
+	err = c.Watch(source.Kind(mgr.GetCache(), &searchv1.MongoDBSearch{},
+		handler.TypedEnqueueRequestsFromMapFunc(func(ctx context.Context, search *searchv1.MongoDBSearch) []reconcile.Request {
+			source := search.GetMongoDBResourceRef()
+			return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: source.Namespace, Name: source.Name}}}
+		})))
+	if err != nil {
+		return err
+	}
+
 	zap.S().Infof("Registered controller %s", util.MongoDbReplicaSetController)
 
 	return nil
@@ -415,7 +434,7 @@ func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
-func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, conn om.Connection, membersNumberBefore int, rs *mdbv1.MongoDB, set appsv1.StatefulSet, log *zap.SugaredLogger, caFilePath string, agentCertSecretName string, prometheusCertHash string, isRecovering bool) workflow.Status {
+func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, conn om.Connection, membersNumberBefore int, rs *mdbv1.MongoDB, set appsv1.StatefulSet, log *zap.SugaredLogger, caFilePath string, agentCertSecretName string, prometheusCertHash string, isRecovering bool, shouldMirrorKeyfileForMongot bool) workflow.Status {
 	log.Debug("Entering UpdateOMDeployments")
 	// Only "concrete" RS members should be observed
 	// - if scaling down, let's observe only members that will remain after scale-down operation
@@ -469,6 +488,11 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
+			if shouldMirrorKeyfileForMongot {
+				if err := r.mirrorKeyfileIntoSecretForMongot(ctx, d, rs, log); err != nil {
+					return err
+				}
+			}
 			return ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.Name, replicaSet, caFilePath, internalClusterPath, &p, log)
 		},
 		log,
@@ -608,4 +632,71 @@ func (r *ReconcileMongoDbReplicaSet) OnDelete(ctx context.Context, obj runtime.O
 func getAllHostsRs(set appsv1.StatefulSet, clusterName string, membersCount int, externalDomain *string) []string {
 	hostnames, _ := dns.GetDnsForStatefulSetReplicasSpecified(set, clusterName, membersCount, externalDomain)
 	return hostnames
+}
+
+func (r *ReconcileMongoDbReplicaSet) applySearchOverrides(ctx context.Context, rs *mdbv1.MongoDB, log *zap.SugaredLogger) bool {
+	search := r.lookupCorrespondingSearchResource(ctx, rs, log)
+	if search == nil {
+		log.Debugf("No MongoDBSearch resource found, skipping search overrides")
+		return false
+	}
+
+	log.Infof("Applying search overrides from MongoDBSearch %s", search.NamespacedName())
+
+	if rs.Spec.AdditionalMongodConfig == nil {
+		rs.Spec.AdditionalMongodConfig = mdbv1.NewEmptyAdditionalMongodConfig()
+	}
+	searchMongodConfig := search_controller.GetMongodConfigParameters(search)
+	rs.Spec.AdditionalMongodConfig.AddOption("setParameter", searchMongodConfig["setParameter"])
+
+	mdbVersion, err := semver.ParseTolerant(rs.Spec.Version)
+	if err != nil {
+		log.Warnf("Failed to parse MongoDB version %q: %w. Proceeding without the automatic creation of the searchCoordinator role that's necessary for MongoDB <8.2", rs.Spec.Version, err)
+	} else if semver.MustParse("8.2.0").GT(mdbVersion) {
+		log.Infof("Polyfilling the searchCoordinator role for MongoDB %s", rs.Spec.Version)
+
+		if rs.Spec.Security == nil {
+			rs.Spec.Security = &mdbv1.Security{}
+		}
+		rs.Spec.Security.Roles = append(rs.Spec.Security.Roles, search_controller.SearchCoordinatorRole())
+	}
+
+	return true
+}
+
+func (r *ReconcileMongoDbReplicaSet) mirrorKeyfileIntoSecretForMongot(ctx context.Context, d om.Deployment, rs *mdbv1.MongoDB, log *zap.SugaredLogger) error {
+	keyfileContents := maputil.ReadMapValueAsString(d, "auth", "key")
+	keyfileSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("%s-keyfile", rs.Name), Namespace: rs.Namespace}}
+
+	log.Infof("Mirroring the replicaset %s's keyfile into the secret %s", rs.ObjectKey(), kube.ObjectKeyFromApiObject(keyfileSecret))
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.client, keyfileSecret, func() error {
+		keyfileSecret.StringData = map[string]string{"keyfile": keyfileContents}
+		return controllerutil.SetOwnerReference(rs, keyfileSecret, r.client.Scheme())
+	})
+	if err != nil {
+		return xerrors.Errorf("Failed to mirror the replicaset's keyfile into a secret: %w", err)
+	} else {
+		return nil
+	}
+}
+
+func (r *ReconcileMongoDbReplicaSet) lookupCorrespondingSearchResource(ctx context.Context, rs *mdbv1.MongoDB, log *zap.SugaredLogger) *searchv1.MongoDBSearch {
+	var search *searchv1.MongoDBSearch
+	searchList := &searchv1.MongoDBSearchList{}
+	if err := r.client.List(ctx, searchList, &client.ListOptions{
+		FieldSelector: fields.OneTermEqualSelector(search_controller.MongoDBSearchIndexFieldName, rs.GetNamespace()+"/"+rs.GetName()),
+	}); err != nil {
+		log.Debugf("Failed to list MongoDBSearch resources: %v", err)
+	}
+	// this validates that there is exactly one MongoDBSearch pointing to this resource,
+	// and that this resource passes search validations. If either fails, proceed without a search target
+	// for the mongod automation config.
+	if len(searchList.Items) == 1 {
+		searchSource := search_controller.NewEnterpriseResourceSearchSource(rs)
+		if searchSource.Validate() == nil {
+			search = &searchList.Items[0]
+		}
+	}
+	return search
 }
