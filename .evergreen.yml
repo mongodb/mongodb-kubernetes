@@ -635,7 +635,8 @@ task_groups:
     <<: *setup_and_teardown_group_kind_code_snippets
     max_hosts: -1
     tasks:
-      - task_kind_community_search_snippets
+      - task_kind_search_community_snippets
+      - task_kind_search_enterprise_snippets
 
   # Task group for deploying mongodbcommunity resources and testing the (former) MCO
   - name: e2e_mdb_community_task_group
