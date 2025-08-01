@@ -7,7 +7,7 @@ from scripts.release.changelog import (
     DEFAULT_CHANGELOG_PATH,
     DEFAULT_INITIAL_GIT_TAG_VERSION,
 )
-from scripts.release.release_notes import calculate_next_version_with_changelog
+from scripts.release.version import calculate_next_version
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -53,8 +53,6 @@ if __name__ == "__main__":
 
     repo = Repo(args.path)
 
-    version, _ = calculate_next_version_with_changelog(
-        repo, args.changelog_path, args.initial_commit_sha, args.initial_version
-    )
+    version = calculate_next_version(repo, args.changelog_path, args.initial_commit_sha, args.initial_version)
 
     print(version)
