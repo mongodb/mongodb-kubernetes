@@ -45,9 +45,24 @@ type MongoDBSource struct {
 	// +optional
 	MongoDBResourceRef *userv1.MongoDBResourceRef `json:"mongodbResourceRef,omitempty"`
 	// +optional
+	ExternalMongoDBSource *ExternalMongoDBSource `json:"external,omitempty"`
+	// +optional
 	PasswordSecretRef *userv1.SecretKeyRef `json:"passwordSecretRef,omitempty"`
 	// +optional
 	Username *string `json:"username,omitempty"`
+}
+
+type ExternalMongoDBSource struct {
+	HostAndPorts        []string             `json:"hostAndPorts,omitempty"`
+	KeyFileSecretKeyRef *userv1.SecretKeyRef `json:"keyFileSecretRef,omitempty"` // This is the mongod credential used to connect to the external MongoDB deployment
+	// +optional
+	TLS *ExternalMongodTLS `json:"tls,omitempty"` // TLS configuration for the external MongoDB deployment
+}
+
+type ExternalMongodTLS struct {
+	Enabled bool `json:"enabled"`
+	// +optional
+	CASecretRef *userv1.SecretKeyRef `json:"caSecretRef,omitempty"`
 }
 
 type Security struct {
