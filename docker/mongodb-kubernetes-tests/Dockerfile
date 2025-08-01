@@ -10,16 +10,13 @@ ARG PYTHON_VERSION
 
 FROM public.ecr.aws/docker/library/python:${PYTHON_VERSION}-slim as builder
 
-# MarkupSafe, cryptography, python-ldap, ruamel.yaml.clib, grpcio, psutil
-COPY wheels /wheels
-
 RUN apt-get -qq update \
     && apt-get -y -qq install \
-    curl libldap2-dev libsasl2-dev build-essential git
+    curl libldap2-dev libsasl2-dev build-essential git libssl-dev pkg-config
 
 COPY requirements.txt requirements.txt
 
-RUN python3 -m venv /venv && . /venv/bin/activate && pip install --upgrade pip && GRPC_PYTHON_BUILD_SYSTEM_OPENSSL=1 pip install --find-links /wheels -r requirements.txt
+RUN python3 -m venv /venv && . /venv/bin/activate && pip install --upgrade pip && GRPC_PYTHON_BUILD_SYSTEM_OPENSSL=1 pip install -r requirements.txt
 
 FROM scratch AS tools_downloader
 
