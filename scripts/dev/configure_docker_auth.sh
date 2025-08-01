@@ -10,11 +10,12 @@ source scripts/funcs/kubernetes
 
 # Detect available container runtime
 detect_container_runtime() {
-  if command -v podman &> /dev/null && podman info &> /dev/null; then
+  if command -v podman &> /dev/null && (podman info &> /dev/null || sudo podman info &> /dev/null); then
     CONTAINER_RUNTIME="podman"
-    CONFIG_PATH="${HOME}/.config/containers/auth.json"
-    mkdir -p "$(dirname "${CONFIG_PATH}")"
-    echo "Using Podman for container authentication"
+    # Use root's auth.json since minikube uses sudo podman
+    CONFIG_PATH="/root/.config/containers/auth.json"
+    sudo mkdir -p "$(dirname "${CONFIG_PATH}")"
+    echo "Using Podman for container authentication (sudo mode)"
     return 0
   elif command -v docker &> /dev/null; then
     CONTAINER_RUNTIME="docker"
@@ -60,14 +61,23 @@ check_docker_daemon_is_running() {
 remove_element() {
   config_option="${1}"
   tmpfile=$(mktemp)
-  
+
   # Initialize config file if it doesn't exist
   if [[ ! -f "${CONFIG_PATH}" ]]; then
-    echo '{}' > "${CONFIG_PATH}"
+    if [[ "${CONFIG_PATH}" == "/root/.config/containers/auth.json" ]]; then
+      echo '{}' | sudo tee "${CONFIG_PATH}" > /dev/null
+    else
+      echo '{}' > "${CONFIG_PATH}"
+    fi
   fi
-  
-  jq 'del(.'"${config_option}"')' "${CONFIG_PATH}" >"${tmpfile}"
-  cp "${tmpfile}" "${CONFIG_PATH}"
+
+  if [[ "${CONFIG_PATH}" == "/root/.config/containers/auth.json" ]]; then
+    sudo "${PROJECT_DIR:-.}/bin/jq" 'del(.'"${config_option}"')' "${CONFIG_PATH}" >"${tmpfile}"
+    sudo cp "${tmpfile}" "${CONFIG_PATH}"
+  else
+    "${PROJECT_DIR:-.}/bin/jq" 'del(.'"${config_option}"')' "${CONFIG_PATH}" >"${tmpfile}"
+    cp "${tmpfile}" "${CONFIG_PATH}"
+  fi
   rm "${tmpfile}"
 }
 
@@ -75,9 +85,9 @@ remove_element() {
 container_login() {
   local username="$1"
   local registry="$2"
-  
+
   if [[ "${CONTAINER_RUNTIME}" == "podman" ]]; then
-    podman login --username "${username}" --password-stdin "${registry}"
+    sudo podman login --username "${username}" --password-stdin "${registry}"
   else
     docker login --username "${username}" --password-stdin "${registry}"
   fi
@@ -93,14 +103,22 @@ check_docker_daemon_is_running
 
 # Initialize config file if it doesn't exist
 if [[ ! -f "${CONFIG_PATH}" ]]; then
-  echo '{}' > "${CONFIG_PATH}"
+  if [[ "${CONFIG_PATH}" == "/root/.config/containers/auth.json" ]]; then
+    echo '{}' | sudo tee "${CONFIG_PATH}" > /dev/null
+  else
+    echo '{}' > "${CONFIG_PATH}"
+  fi
 fi
 
 if [[ -f "${CONFIG_PATH}" ]]; then
   if [[ "${RUNNING_IN_EVG:-"false"}" != "true" ]]; then
     # Check if login is actually required by making a HEAD request to ECR using existing credentials
     echo "Checking if container registry credentials are valid..."
-    ecr_auth=$(jq -r '.auths."268558157000.dkr.ecr.us-east-1.amazonaws.com".auth // empty' "${CONFIG_PATH}")
+    if [[ "${CONFIG_PATH}" == "/root/.config/containers/auth.json" ]]; then
+      ecr_auth=$(sudo "${PROJECT_DIR:-.}/bin/jq" -r '.auths."268558157000.dkr.ecr.us-east-1.amazonaws.com".auth // empty' "${CONFIG_PATH}")
+    else
+      ecr_auth=$("${PROJECT_DIR:-.}/bin/jq" -r '.auths."268558157000.dkr.ecr.us-east-1.amazonaws.com".auth // empty' "${CONFIG_PATH}")
+    fi
 
     if [[ -n "${ecr_auth}" ]]; then
       http_status=$(curl --head -s -o /dev/null -w "%{http_code}" --max-time 3 "https://268558157000.dkr.ecr.us-east-1.amazonaws.com/v2/dev/mongodb-kubernetes/manifests/latest" \
@@ -120,11 +138,20 @@ if [[ -f "${CONFIG_PATH}" ]]; then
 
   # There could be some leftovers on Evergreen (Docker-specific, skip for Podman)
   if [[ "${CONTAINER_RUNTIME}" == "docker" ]]; then
-    if grep -q "credsStore" "${CONFIG_PATH}"; then
-      remove_element "credsStore"
-    fi
-    if grep -q "credHelpers" "${CONFIG_PATH}"; then
-      remove_element "credHelpers"
+    if [[ "${CONFIG_PATH}" == "/root/.config/containers/auth.json" ]]; then
+      if sudo grep -q "credsStore" "${CONFIG_PATH}"; then
+        remove_element "credsStore"
+      fi
+      if sudo grep -q "credHelpers" "${CONFIG_PATH}"; then
+        remove_element "credHelpers"
+      fi
+    else
+      if grep -q "credsStore" "${CONFIG_PATH}"; then
+        remove_element "credsStore"
+      fi
+      if grep -q "credHelpers" "${CONFIG_PATH}"; then
+        remove_element "credHelpers"
+      fi
     fi
   fi
 fi
@@ -137,7 +164,7 @@ aws ecr get-login-password --region "us-east-1" | container_login "AWS" "2685581
 # by default docker tries to store credentials in an external storage (e.g. OS keychain) - not in the config.json
 # We need to store it as base64 string in config.json instead so we need to remove the "credsStore" element
 # This is Docker-specific behavior, Podman stores credentials directly in auth.json
-if [[ "${CONTAINER_RUNTIME}" == "docker" ]] && grep -q "credsStore" "${CONFIG_PATH}"; then
+if [[ "${CONTAINER_RUNTIME}" == "docker" ]] && (([[ "${CONFIG_PATH}" == "/root/.config/containers/auth.json" ]] && sudo grep -q "credsStore" "${CONFIG_PATH}") || ([[ "${CONFIG_PATH}" != "/root/.config/containers/auth.json" ]] && grep -q "credsStore" "${CONFIG_PATH}")); then
   remove_element "credsStore"
 
   # login again to store the credentials into the config.json
@@ -152,8 +179,13 @@ if [[ -n "${COMMUNITY_PRIVATE_PREVIEW_PULLSECRET_DOCKERCONFIGJSON:-}" ]]; then
   quay_io_auth_file=$(mktemp)
   config_tmp=$(mktemp)
   echo "${COMMUNITY_PRIVATE_PREVIEW_PULLSECRET_DOCKERCONFIGJSON}" | base64 -d > "${quay_io_auth_file}"
-  jq -s '.[0] * .[1]' "${quay_io_auth_file}" "${CONFIG_PATH}" > "${config_tmp}"
-  mv "${config_tmp}" "${CONFIG_PATH}"
+  if [[ "${CONFIG_PATH}" == "/root/.config/containers/auth.json" ]]; then
+    sudo jq -s '.[0] * .[1]' "${quay_io_auth_file}" "${CONFIG_PATH}" > "${config_tmp}"
+    sudo mv "${config_tmp}" "${CONFIG_PATH}"
+  else
+    jq -s '.[0] * .[1]' "${quay_io_auth_file}" "${CONFIG_PATH}" > "${config_tmp}"
+    mv "${config_tmp}" "${CONFIG_PATH}"
+  fi
   rm "${quay_io_auth_file}"
 fi
 

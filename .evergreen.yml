@@ -140,7 +140,7 @@ variables:
 
   - &teardown_group
     teardown_group:
-      - func: prune_docker_resources
+      - func: teardown_kubernetes_environment
       - func: run_retry_script
 
   - &base_om7_dependency
@@ -1197,13 +1197,7 @@ task_groups:
   - name: e2e_smoke_ibm_task_group
     max_hosts: -1
     <<: *setup_group_ibm
-    setup_task_can_fail_task: true
-    setup_task:
-      - func: cleanup_exec_environment
-    teardown_task_can_fail_task: true
-    teardown_task:
-      - func: upload_e2e_logs
-      - func: teardown_kubernetes_environment
+    <<: *setup_and_teardown_task_cloudqa
     tasks:
       - e2e_replica_set
     <<: *teardown_group
@@ -1477,7 +1471,7 @@ buildvariants:
     display_name: e2e_smoke_ibm_power
     tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
     run_on:
-      - rhel9-power-small
+      - rhel9-power-large
     allowed_requesters: [ "patch", "github_tag" ]
 #    depends_on:
 #      - name: build_test_image

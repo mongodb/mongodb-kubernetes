@@ -236,15 +236,6 @@ functions:
         - ${workdir}/bin
       binary: scripts/dev/setup_evg_host.sh
 
-  setup_ibm_host: &setup_ibm_host
-    command: subprocess.exec
-    type: setup
-    params:
-      working_dir: src/github.com/mongodb/mongodb-kubernetes
-      add_to_path:
-        - ${workdir}/bin
-      binary: scripts/minikube/setup_minikube_host.sh
-
   lint_repo:
     - command: subprocess.exec
       type: setup
@@ -349,7 +340,7 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: |
           source .generated/context.export.env
-          scripts/evergreen/e2e/setup_cloud_qa.py create
+          scripts/evergreen/run_python.sh scripts/evergreen/e2e/setup_cloud_qa.py create
     # The additional switch is needed, since we now have created the needed OM exports.
     - *switch_context
 

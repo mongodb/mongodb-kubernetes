@@ -30,17 +30,7 @@ EOF
 # retrieve arch variable off the shell command line
 ARCH=${1-"$(uname -m)"}
 
-# Validate architecture
-case "${ARCH}" in
-  s390x|ppc64le|x86_64|aarch64)
-    echo "Setting up minikube host for architecture: ${ARCH}"
-    ;;
-  *)
-    echo "ERROR: Unsupported architecture: ${ARCH}"
-    echo "Supported architectures: s390x, ppc64le, x86_64, aarch64"
-    exit 1
-    ;;
-esac
+echo "Setting up minikube host for architecture: ${ARCH}"
 
 download_minikube() {
   echo "Downloading minikube for ${ARCH}..."
@@ -52,17 +42,23 @@ setup_local_registry_and_custom_image() {
   if [[ "${ARCH}" == "ppc64le" ]]; then
     echo ">>> Setting up local registry and custom kicbase image for ppc64le..."
 
-    # Check if local registry is running
-    if ! podman ps --filter "name=registry" --format "{{.Names}}" | grep -q "^registry$"; then
+    # Check if local registry is running (with fallback for namespace issues)
+    registry_running=false
+    if curl -s http://localhost:5000/v2/_catalog >/dev/null 2>&1; then
+      echo "Registry detected via HTTP check (podman ps failed)"
+      registry_running=true
+    fi
+
+    if ! $registry_running; then
       echo "Starting local container registry on port 5000..."
-      podman run -d -p 5000:5000 --name registry --restart=always docker.io/library/registry:2 || {
-        echo "Registry might already exist, trying to start it..."
-        podman start registry || {
-          echo "Removing existing registry and creating new one..."
-          podman rm -f registry 2>/dev/null || true
-          podman run -d -p 5000:5000 --name registry --restart=always docker.io/library/registry:2
-        }
-      }
+
+      # Clean up any existing registry first
+      sudo podman rm -f registry 2>/dev/null || true
+
+      if ! sudo podman run -d -p 5000:5000 --name registry --restart=always docker.io/library/registry:2; then
+        echo "❌ Failed to start local registry - trying alternative approach"
+        exit 1
+      fi
 
       # Wait for registry to be ready
       echo "Waiting for registry to be ready..."
@@ -76,73 +72,63 @@ setup_local_registry_and_custom_image() {
       echo "✅ Local registry already running"
     fi
 
-    # Configure system-wide podman to trust local registry (with backup)
-    echo "Configuring system registries.conf to trust local registry..."
+    # Configure podman to trust local registry (both user and root level for minikube)
+    echo "Configuring registries.conf to trust local registry..."
 
-    # Backup existing registries.conf if it exists
-    if [[ -f /etc/containers/registries.conf ]]; then
-      echo "Backing up existing registries.conf..."
-      sudo cp /etc/containers/registries.conf /etc/containers/registries.conf.minikube-backup
-    fi
-
-    # Create a clean registries.conf that includes insecure local registry
-    sudo tee /etc/containers/registries.conf << 'EOF'
-unqualified-search-registries = ["registry.access.redhat.com", "registry.redhat.io", "docker.io"]
-
+    # User-level config
+    mkdir -p ~/.config/containers
+    cat > ~/.config/containers/registries.conf << 'EOF'
 [[registry]]
 location = "localhost:5000"
 insecure = true
-
-short-name-mode = "permissive"
 EOF
 
-    # Check if custom image already exists in local registry
+    # Root-level config (since minikube uses sudo podman)
+    sudo mkdir -p /root/.config/containers
+    sudo tee /root/.config/containers/registries.conf << 'EOF' >/dev/null
+[[registry]]
+location = "localhost:5000"
+insecure = true
+EOF
+
+    echo "✅ Registry configuration created for both user and root"
+    custom_image_tag="localhost:5000/kicbase:v0.0.47"
+
+    # Determine image tag
+    custom_image_tag="localhost:5000/kicbase:v0.0.47"
     if curl -s http://localhost:5000/v2/kicbase/tags/list | grep -q "v0.0.47"; then
-      echo "✅ Custom kicbase image already exists in local registry"
+      echo "Custom kicbase image already exists in local registry"
       return 0
     fi
 
     # Build custom kicbase image with crictl
     echo "Building custom kicbase image with crictl for ppc64le..."
 
-    # Create build directory if it doesn't exist
+    # Build custom kicbase image
     mkdir -p "${PROJECT_DIR:-.}/scripts/minikube/kicbase"
-
-    # Create Dockerfile for custom kicbase
     cat > "${PROJECT_DIR:-.}/scripts/minikube/kicbase/Dockerfile" << 'EOF'
 FROM gcr.io/k8s-minikube/kicbase:v0.0.47
-
-# Install crictl for ppc64le if needed
 RUN if [ "$(uname -m)" = "ppc64le" ]; then \
-        echo "Installing crictl for ppc64le architecture..." && \
         CRICTL_VERSION="v1.28.0" && \
         curl -L "https://github.com/kubernetes-sigs/cri-tools/releases/download/${CRICTL_VERSION}/crictl-${CRICTL_VERSION}-linux-ppc64le.tar.gz" \
             -o /tmp/crictl.tar.gz && \
         tar -C /usr/bin -xzf /tmp/crictl.tar.gz && \
         chmod +x /usr/bin/crictl && \
-        rm /tmp/crictl.tar.gz && \
-        echo "crictl installed successfully" && \
-        crictl --version; \
-    else \
-        echo "Not ppc64le architecture, skipping crictl installation"; \
+        rm /tmp/crictl.tar.gz; \
     fi
-
-# Verify crictl is available
-RUN command -v crictl >/dev/null 2>&1 && echo "crictl is available" || echo "crictl not found"
 EOF
 
-    # Build and push to local registry
-    echo "Building custom kicbase image..."
     cd "${PROJECT_DIR:-.}/scripts/minikube/kicbase"
-
-    podman build -t localhost:5000/kicbase:v0.0.47 .
-
-    echo "Pushing custom image to local registry..."
-    podman push localhost:5000/kicbase:v0.0.47 --tls-verify=false
-
-    cd - > /dev/null
-
-    echo "✅ Custom kicbase image with crictl ready in local registry"
+    sudo podman build -t "${custom_image_tag}" . || {
+      echo "Failed to build custom image"
+      return 1
+    }
+    sudo podman push "${custom_image_tag}" --tls-verify=false || {
+      echo "Failed to push to registry"
+      return 1
+    }
+    cd - >/dev/null
+    echo "Custom kicbase image ready: ${custom_image_tag}"
   fi
   return 0
 }
@@ -158,15 +144,14 @@ start_minikube_cluster() {
     rm -rf ~/.minikube/machines/minikube
   fi
 
-  # Delete any existing minikube cluster to start fresh
   echo "Ensuring clean minikube state..."
   "${PROJECT_DIR:-.}/bin/minikube" delete 2>/dev/null || true
 
   local start_args=("--driver=podman")
 
-  # Use custom kicbase image for ppc64le with crictl included
   if [[ "${ARCH}" == "ppc64le" ]]; then
     echo "Using custom kicbase image for ppc64le with crictl..."
+
     start_args+=("--base-image=localhost:5000/kicbase:v0.0.47")
     start_args+=("--insecure-registry=localhost:5000")
   fi
@@ -191,26 +176,17 @@ setup_podman() {
   # Check if podman is already available
   if command -v podman &> /dev/null; then
     echo "✅ Podman already installed"
-    
-    # Reset podman if it's in an invalid state
-    if podman info 2>&1 | grep -q "invalid internal status"; then
-      echo "Resetting podman due to invalid internal status..."
-      podman system migrate || true
-      podman system reset --force || true
-    fi
-  else
-    echo "Installing podman..."
-    sudo dnf install -y podman
+
+    # Diagnose podman state
+    echo "=== Podman Diagnostics ==="
+    echo "User: $(whoami), UID: $(id -u)"
+    echo "User namespace support: $(cat /proc/self/uid_map 2>/dev/null || echo 'not available')"
+    echo "Systemctl user status:"
+    systemctl --user status podman.socket 2>/dev/null || echo "podman.socket not active"
+    echo "Running 'sudo podman info' command..."
+    sudo podman info 2>&1
   fi
 
-  # Configure podman for CI environment
-  echo "Configuring Podman for ${ARCH} CI environment..."
-
-  # Enable lingering for the current user to fix systemd session issues
-  current_user=$(whoami)
-  current_uid=$(id -u)
-  echo "Enabling systemd lingering for user ${current_user} (UID: ${current_uid})"
-  sudo loginctl enable-linger "${current_uid}" 2>/dev/null || true
 
   # Configure podman to use cgroupfs instead of systemd in CI
   mkdir -p ~/.config/containers
@@ -223,11 +199,6 @@ events_logger = "file"
 cgroup_manager = "cgroupfs"
 EOF
 
-  # Start podman service if not running
-  systemctl --user enable podman.socket 2>/dev/null || true
-  systemctl --user start podman.socket 2>/dev/null || true
-
-  echo "✅ Podman configured successfully for CI"
 }
 
 # Setup podman and container runtime
@@ -246,23 +217,6 @@ if command -v minikube &> /dev/null; then
 else
     echo "❌ Minikube installation failed - minikube command not found"
     echo "Please check the installation logs above for errors"
-    exit 1
-fi
-
-echo ""
-echo ">>> Verifying podman installation..."
-if command -v podman &> /dev/null; then
-    podman_version=$(podman --version 2>/dev/null)
-    echo "✅ Podman installed successfully: ${podman_version}"
-
-    # Check podman info
-    if podman info &>/dev/null; then
-        echo "✅ Podman is working correctly"
-    else
-        echo "⚠️  Podman may need additional configuration"
-    fi
-else
-    echo "❌ Podman installation failed - podman command not found"
     exit 1
 fi
 
@@ -295,7 +249,6 @@ echo "Container Runtime: podman"
 echo "Minikube Driver: podman"
 echo "Minikube: Default cluster"
 echo "Minikube: ${minikube_version}"
-echo "Podman: ${podman_version}"
 echo "CNI: bridge (default)"
 if [[ "${ARCH}" == "ppc64le" ]]; then
     echo "Special Config: Custom kicbase image with crictl via local registry"
