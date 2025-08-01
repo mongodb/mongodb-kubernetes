@@ -71,16 +71,17 @@ func (r EnterpriseResourceSearchSource) Validate() error {
 		return xerrors.Errorf("MongoDBSearch is only supported for %s resources", mdbv1.ReplicaSet)
 	}
 
+	authModes := r.Spec.GetSecurityAuthenticationModes()
 	foundScram := false
-	for _, authMode := range r.Spec.GetSecurityAuthenticationModes() {
+	for _, authMode := range authModes {
 		// Check for SCRAM, SCRAM-SHA-1, or SCRAM-SHA-256
-		if strings.HasPrefix(authMode, util.SCRAM) {
+		if strings.HasPrefix(strings.ToUpper(authMode), util.SCRAM) {
 			foundScram = true
 			break
 		}
 	}
 
-	if !foundScram {
+	if !foundScram && len(authModes) > 0 {
 		return xerrors.New("MongoDBSearch requires SCRAM authentication to be enabled")
 	}
 

@@ -29,6 +29,7 @@ import (
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/mongot"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
 )
 
 func newMongoDBCommunity(name, namespace string) *mdbcv1.MongoDBCommunity {
@@ -62,7 +63,16 @@ func newSearchReconcilerWithOperatorConfig(
 	builder.WithIndex(&searchv1.MongoDBSearch{}, search_controller.MongoDBSearchIndexFieldName, mdbcSearchIndexBuilder)
 
 	if mdbc != nil {
-		builder.WithObjects(mdbc)
+		keyfileSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      mdbc.GetAgentKeyfileSecretNamespacedName().Name,
+				Namespace: mdbc.Namespace,
+			},
+			StringData: map[string]string{
+				constants.AgentKeyfileKey: "keyfile",
+			},
+		}
+		builder.WithObjects(mdbc, keyfileSecret)
 	}
 
 	for _, search := range searches {
