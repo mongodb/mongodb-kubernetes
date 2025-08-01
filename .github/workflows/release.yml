@@ -1,4 +1,4 @@
-name: Release Promotion
+name: Release new MCK version
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ on:
         type: string
         required: true
       version:
-        description: 'Version to promote'
+        description: 'Version to release'
         required: true
         type: string
 
@@ -27,15 +27,12 @@ jobs:
         uses: ./.github/actions/setup-ubuntu-host
         with:
           python-version: '${{ vars.PYTHON_VERSION }}'
-      # Probably we should just download the Release Notes from the staging registry (together with other artifacts)
       - name: Generate Release Notes
         id: generate_release_notes
         run: python -m scripts.release.release_notes -s $INITIAL_COMMIT_SHA -v $INITIAL_VERSION -o release_notes_final.md
         env:
           INITIAL_COMMIT_SHA: ${{ vars.RELEASE_INITIAL_COMMIT_SHA }}
           INITIAL_VERSION: ${{ vars.RELEASE_INITIAL_VERSION }}
-      # Add all other assets to the release notes
-      # Put all of this in single script
       - name: Generate draft release
         run: |
           gh release create $VERSION --target $COMMIT_SHA --draft --prerelease --latest --notes-file release_notes_final.md --title "Release of MCK $VERSION"
@@ -62,8 +59,8 @@ jobs:
           VERSION: ${{ github.event.inputs.version }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  publish_release_notess:
-    name: Publish Release Notes
+  publish_release:
+    name: Publish Release
     environment: production
     runs-on: ubuntu-latest
     needs: approve_release
