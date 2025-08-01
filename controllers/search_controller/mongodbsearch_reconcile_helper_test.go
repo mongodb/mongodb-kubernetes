@@ -63,8 +63,8 @@ func TestMongoDBSearchReconcileHelper_ValidateSearchSource(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			db := NewSearchSourceDBResourceFromMongoDBCommunity(&c.mdbc)
-			err := ValidateSearchSource(db)
+			db := NewCommunityResourceSearchSource(&c.mdbc)
+			err := db.Validate()
 			if c.expectedError == "" {
 				assert.NoError(t, err)
 			} else {
@@ -144,7 +144,7 @@ func TestMongoDBSearchReconcileHelper_ValidateSingleMongoDBSearchForSearchSource
 				clientBuilder.WithObjects(v)
 			}
 
-			helper := NewMongoDBSearchReconcileHelper(kubernetesClient.NewClient(clientBuilder.Build()), mdbSearch, NewSearchSourceDBResourceFromMongoDBCommunity(mdbc), OperatorSearchConfig{})
+			helper := NewMongoDBSearchReconcileHelper(kubernetesClient.NewClient(clientBuilder.Build()), mdbSearch, NewCommunityResourceSearchSource(mdbc), OperatorSearchConfig{})
 			err := helper.ValidateSingleMongoDBSearchForSearchSource(t.Context())
 			if c.expectedError == "" {
 				assert.NoError(t, err)

@@ -14,13 +14,16 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/search_controller"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/watch"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -28,15 +31,18 @@ import (
 
 type MongoDBSearchReconciler struct {
 	kubeClient           kubernetesClient.Client
-	mdbcWatcher          *watch.ResourceWatcher
+	mdbcWatcher          watch.ResourceWatcher
+	mdbWatcher           watch.ResourceWatcher
+	secretWatcher        watch.ResourceWatcher
 	operatorSearchConfig search_controller.OperatorSearchConfig
 }
 
 func newMongoDBSearchReconciler(client client.Client, operatorSearchConfig search_controller.OperatorSearchConfig) *MongoDBSearchReconciler {
-	mdbcWatcher := watch.New()
 	return &MongoDBSearchReconciler{
 		kubeClient:           kubernetesClient.NewClient(client),
-		mdbcWatcher:          &mdbcWatcher,
+		mdbcWatcher:          watch.New(),
+		mdbWatcher:           watch.New(),
+		secretWatcher:        watch.New(),
 		operatorSearchConfig: operatorSearchConfig,
 	}
 }
@@ -51,26 +57,43 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		return result, err
 	}
 
-	sourceResource, err := getSourceMongoDBForSearch(ctx, r.kubeClient, mdbSearch)
+	sourceResource, err := r.getSourceMongoDBForSearch(ctx, r.kubeClient, mdbSearch, log)
 	if err != nil {
 		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, err
 	}
-
-	r.mdbcWatcher.Watch(ctx, sourceResource.NamespacedName(), request.NamespacedName)
+	r.secretWatcher.Watch(ctx, kube.ObjectKey(sourceResource.GetNamespace(), sourceResource.KeyfileSecretName()), mdbSearch.NamespacedName())
 
 	reconcileHelper := search_controller.NewMongoDBSearchReconcileHelper(kubernetesClient.NewClient(r.kubeClient), mdbSearch, sourceResource, r.operatorSearchConfig)
 
 	return reconcileHelper.Reconcile(ctx, log).ReconcileResult()
 }
 
-func getSourceMongoDBForSearch(ctx context.Context, kubeClient client.Client, search *searchv1.MongoDBSearch) (search_controller.SearchSourceDBResource, error) {
+func (r *MongoDBSearchReconciler) getSourceMongoDBForSearch(ctx context.Context, kubeClient client.Client, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) (search_controller.SearchSourceDBResource, error) {
 	sourceMongoDBResourceRef := search.GetMongoDBResourceRef()
-	mdbcName := types.NamespacedName{Namespace: search.GetNamespace(), Name: sourceMongoDBResourceRef.Name}
-	mdbc := &mdbcv1.MongoDBCommunity{}
-	if err := kubeClient.Get(ctx, mdbcName, mdbc); err != nil {
-		return nil, xerrors.Errorf("error getting MongoDBCommunity %s: %w", mdbcName, err)
+	sourceName := types.NamespacedName{Namespace: search.GetNamespace(), Name: sourceMongoDBResourceRef.Name}
+	log.Infof("Looking up Search source %s", sourceName)
+
+	mdb := &mdbv1.MongoDB{}
+	if err := kubeClient.Get(ctx, sourceName, mdb); err != nil && !apierrors.IsNotFound(err) {
+		if !apierrors.IsNotFound(err) {
+			return nil, xerrors.Errorf("error getting MongoDB %s: %w", sourceName, err)
+		}
+	} else {
+		r.mdbWatcher.Watch(ctx, sourceName, search.NamespacedName())
+		return search_controller.NewEnterpriseResourceSearchSource(mdb), nil
 	}
-	return search_controller.NewSearchSourceDBResourceFromMongoDBCommunity(mdbc), nil
+
+	mdbc := &mdbcv1.MongoDBCommunity{}
+	if err := kubeClient.Get(ctx, sourceName, mdbc); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return nil, xerrors.Errorf("error getting MongoDBCommunity %s: %w", sourceName, err)
+		}
+	} else {
+		r.mdbcWatcher.Watch(ctx, sourceName, search.NamespacedName())
+		return search_controller.NewCommunityResourceSearchSource(mdbc), nil
+	}
+
+	return nil, xerrors.Errorf("No database resource named %s found", sourceName)
 }
 
 func mdbcSearchIndexBuilder(rawObj client.Object) []string {
@@ -88,7 +111,9 @@ func AddMongoDBSearchController(ctx context.Context, mgr manager.Manager, operat
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}). // nolint:forbidigo
 		For(&searchv1.MongoDBSearch{}).
+		Watches(&mdbv1.MongoDB{}, r.mdbWatcher).
 		Watches(&mdbcv1.MongoDBCommunity{}, r.mdbcWatcher).
+		Watches(&corev1.Secret{}, r.secretWatcher).
 		Owns(&appsv1.StatefulSet{}).
 		Owns(&corev1.Secret{}).
 		Complete(r)

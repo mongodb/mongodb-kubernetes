@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/blang/semver"
 	"github.com/ghodss/yaml"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -19,8 +18,10 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
@@ -30,6 +31,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/service"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/mongot"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/tls"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 )
@@ -82,7 +84,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	log = log.With("MongoDBSearch", r.mdbSearch.NamespacedName())
 	log.Infof("Reconciling MongoDBSearch")
 
-	if err := ValidateSearchSource(r.db); err != nil {
+	if err := r.db.Validate(); err != nil {
 		return workflow.Failed(err)
 	}
 
@@ -91,6 +93,13 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	}
 
 	if err := r.ValidateSingleMongoDBSearchForSearchSource(ctx); err != nil {
+		return workflow.Failed(err)
+	}
+
+	keyfileStsModification, err := r.ensureSourceKeyfile(ctx, log)
+	if apierrors.IsNotFound(err) {
+		return workflow.Pending("Waiting for keyfile secret to be created")
+	} else if err != nil {
 		return workflow.Failed(err)
 	}
 
@@ -119,7 +128,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		},
 	))
 
-	if err := r.createOrUpdateStatefulSet(ctx, log, CreateSearchStatefulSetFunc(r.mdbSearch, r.db, r.buildImageString()), configHashModification, ingressTlsStsModification, egressTlsStsModification); err != nil {
+	if err := r.createOrUpdateStatefulSet(ctx, log, CreateSearchStatefulSetFunc(r.mdbSearch, r.db, r.buildImageString()), configHashModification, keyfileStsModification, ingressTlsStsModification, egressTlsStsModification); err != nil {
 		return workflow.Failed(err)
 	}
 
@@ -128,6 +137,23 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	}
 
 	return workflow.OK()
+}
+
+func (r *MongoDBSearchReconcileHelper) ensureSourceKeyfile(ctx context.Context, log *zap.SugaredLogger) (statefulset.Modification, error) {
+	keyfileSecretName := kube.ObjectKey(r.db.GetNamespace(), r.db.KeyfileSecretName())
+	keyfileSecret := &corev1.Secret{}
+	if err := r.client.Get(ctx, keyfileSecretName, keyfileSecret); err != nil {
+		return nil, err
+	}
+
+	return statefulset.Apply(
+		// make sure mongot pods get restarted if the keyfile changes
+		statefulset.WithPodSpecTemplate(podtemplatespec.WithAnnotations(
+			map[string]string{
+				"keyfileHash": hashBytes(keyfileSecret.Data["keyfile"]),
+			},
+		)),
+	), nil
 }
 
 func (r *MongoDBSearchReconcileHelper) buildImageString() string {
@@ -197,7 +223,7 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, l
 
 	log.Debugf("Updated mongot config yaml config map: %v (%s) with the following configuration: %s", cmName, op, string(configData))
 
-	return hashMongotConfig(configData), nil
+	return hashBytes(configData), nil
 }
 
 func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Context) (mongot.Modification, statefulset.Modification, error) {
@@ -287,8 +313,8 @@ cp /mongot-community/bin/jdk/lib/security/cacerts /java/trust-store/cacerts
 	return mongotModification, statefulsetModification, nil
 }
 
-func hashMongotConfig(mongotConfigYaml []byte) string {
-	hashBytes := sha256.Sum256(mongotConfigYaml)
+func hashBytes(bytes []byte) string {
+	hashBytes := sha256.Sum256(bytes)
 	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(hashBytes[:])
 }
 
@@ -336,7 +362,7 @@ func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResourc
 	return func(config *mongot.Config) {
 		var hostAndPorts []string
 		for i := range db.Members() {
-			hostAndPorts = append(hostAndPorts, fmt.Sprintf("%s-%d.%s.%s.svc.cluster.local:%d", db.Name(), i, db.DatabaseServiceName(), db.GetNamespace(), db.DatabasePort()))
+			hostAndPorts = append(hostAndPorts, fmt.Sprintf("%s-%d.%s.%s.svc.cluster.local:%d", db.GetName(), i, db.DatabaseServiceName(), db.GetNamespace(), db.DatabasePort()))
 		}
 
 		config.SyncSource = mongot.ConfigSyncSource{
@@ -385,7 +411,7 @@ func GetMongodConfigParameters(search *searchv1.MongoDBSearch) map[string]any {
 			"mongotHost":                                      mongotHostAndPort(search),
 			"searchIndexManagementHostAndPort":                mongotHostAndPort(search),
 			"skipAuthenticationToSearchIndexManagementServer": false,
-			"searchTLSMode":                                   searchTLSMode,
+			"searchTLSMode":                                   string(searchTLSMode),
 		},
 	}
 }
@@ -395,23 +421,12 @@ func mongotHostAndPort(search *searchv1.MongoDBSearch) string {
 	return fmt.Sprintf("%s.%s.svc.cluster.local:%d", svcName.Name, svcName.Namespace, search.GetMongotPort())
 }
 
-func ValidateSearchSource(db SearchSourceDBResource) error {
-	version, err := semver.ParseTolerant(db.GetMongoDBVersion())
-	if err != nil {
-		return xerrors.Errorf("error parsing MongoDB version '%s': %w", db.GetMongoDBVersion(), err)
-	} else if version.LT(semver.MustParse("8.0.10")) {
-		return xerrors.New("MongoDB version must be 8.0.10 or higher")
-	}
-
-	return nil
-}
-
 func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSource(ctx context.Context) error {
 	searchList := &searchv1.MongoDBSearchList{}
 	if err := r.client.List(ctx, searchList, &client.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector(MongoDBSearchIndexFieldName, r.db.GetNamespace()+"/"+r.db.Name()),
+		FieldSelector: fields.OneTermEqualSelector(MongoDBSearchIndexFieldName, r.db.GetNamespace()+"/"+r.db.GetName()),
 	}); err != nil {
-		return xerrors.Errorf("Error listing MongoDBSearch resources for search source '%s': %w", r.db.Name(), err)
+		return xerrors.Errorf("Error listing MongoDBSearch resources for search source '%s': %w", r.db.GetName(), err)
 	}
 
 	if len(searchList.Items) > 1 {
@@ -420,7 +435,7 @@ func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSourc
 			resourceNames[i] = search.Name
 		}
 		return xerrors.Errorf(
-			"Found multiple MongoDBSearch resources for search source '%s': %s", r.db.Name(),
+			"Found multiple MongoDBSearch resources for search source '%s': %s", r.db.GetName(),
 			strings.Join(resourceNames, ", "),
 		)
 	}
@@ -459,4 +474,52 @@ func (r *MongoDBSearchReconcileHelper) getMongotImage() string {
 	}
 
 	return ""
+}
+
+func SearchCoordinatorRole() mdbv1.MongoDBRole {
+	// direct translation of https://github.com/10gen/mongo/blob/6f8d95a513eea8f91ea9f5d895dd8a288dfcf725/src/mongo/db/auth/builtin_roles.yml#L652
+	return mdbv1.MongoDBRole{
+		Role: "searchCoordinator",
+		Db:   "admin",
+		Roles: []mdbv1.InheritedRole{
+			{
+				Role: "clusterMonitor",
+				Db:   "admin",
+			},
+			{
+				Role: "directShardOperations",
+				Db:   "admin",
+			},
+			{
+				Role: "readAnyDatabase",
+				Db:   "admin",
+			},
+		},
+		Privileges: []mdbv1.Privilege{
+			{
+				Resource: mdbv1.Resource{
+					Db: "__mdb_internal_search",
+				},
+				Actions: []string{
+					"changeStream", "collStats", "dbHash", "dbStats", "find",
+					"killCursors", "listCollections", "listIndexes", "listSearchIndexes",
+					// performRawDataOperations is available only on mongod master
+					// "performRawDataOperations",
+					"planCacheRead", "cleanupStructuredEncryptionData",
+					"compactStructuredEncryptionData", "convertToCapped", "createCollection",
+					"createIndex", "createSearchIndexes", "dropCollection", "dropIndex",
+					"dropSearchIndex", "insert", "remove", "renameCollectionSameDB",
+					"update", "updateSearchIndex",
+				},
+			},
+			// TODO: this causes the error "(BadValue) resource: {cluster: true} conflicts with resource type 'db'"
+			// {
+			// 	Resource: mdbv1.Resource{
+			// 		Cluster: ptr.To(true),
+			// 	},
+			// 	Actions: []string{"bypassDefaultMaxTimeMS"},
+			// },
+		},
+		AuthenticationRestrictions: nil,
+	}
 }
