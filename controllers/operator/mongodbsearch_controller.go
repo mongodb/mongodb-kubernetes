@@ -74,7 +74,7 @@ func (r *MongoDBSearchReconciler) getSourceMongoDBForSearch(ctx context.Context,
 	log.Infof("Looking up Search source %s", sourceName)
 
 	mdb := &mdbv1.MongoDB{}
-	if err := kubeClient.Get(ctx, sourceName, mdb); err != nil && !apierrors.IsNotFound(err) {
+	if err := kubeClient.Get(ctx, sourceName, mdb); err != nil {
 		if !apierrors.IsNotFound(err) {
 			return nil, xerrors.Errorf("error getting MongoDB %s: %w", sourceName, err)
 		}

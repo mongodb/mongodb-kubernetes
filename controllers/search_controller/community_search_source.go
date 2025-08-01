@@ -66,13 +66,13 @@ func (r *CommunitySearchSource) Validate() error {
 	foundScram := false
 	for _, authMode := range r.Spec.Security.Authentication.Modes {
 		// Check for SCRAM, SCRAM-SHA-1, or SCRAM-SHA-256
-		if strings.HasPrefix(string(authMode), util.SCRAM) {
+		if strings.HasPrefix(strings.ToUpper(string(authMode)), util.SCRAM) {
 			foundScram = true
 			break
 		}
 	}
 
-	if !foundScram {
+	if !foundScram && len(r.Spec.Security.Authentication.Modes) > 0 {
 		return xerrors.New("MongoDBSearch requires SCRAM authentication to be enabled")
 	}
 
