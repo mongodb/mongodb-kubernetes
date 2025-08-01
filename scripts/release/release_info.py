@@ -1,53 +1,65 @@
 import json
-from enum import StrEnum
 from typing import Dict
 
+from scripts.release.version import (
+    Environment,
+)
 
-class ImageInfo:
+
+class ImageInfo(dict):
     def __init__(self, repository: str, platforms: list[str], version: str):
+        super().__init__()
         self.repository = repository
         self.platforms = platforms
         self.version = version
 
-    def __json__(self):
+    def to_json(self):
         return {"repository": self.repository, "platforms": self.platforms, "version": self.version}
 
 
-class BinaryInfo:
+class BinaryInfo(dict):
     def __init__(self, s3_store: str, platforms: list[str], version: str):
+        super().__init__()
         self.s3_store = s3_store
         self.platforms = platforms
         self.version = version
 
-    def __json__(self):
+    def to_json(self):
         return {"platforms": self.platforms, "version": self.version}
 
 
-class HelmChartInfo:
+class HelmChartInfo(dict):
     def __init__(self, repository: str, version: str):
+        super().__init__()
         self.repository = repository
         self.version = version
 
-    def __json__(self):
+    def to_json(self):
         return {"repository": self.repository, "version": self.version}
 
 
-class BuildInfo:
+class BuildInfo(dict):
     def __init__(
         self, images: Dict[str, ImageInfo], binaries: Dict[str, BinaryInfo], helm_charts: Dict[str, HelmChartInfo]
     ):
+        super().__init__()
         self.images = images
         self.binaries = binaries
         self.helm_charts = helm_charts
 
-    def __json__(self):
-        return {"images": self.images, "binaries": self.binaries, "helm_charts": self.helm_charts}
+    def __dict__(self):
+        return {
+            "images": {name: images.__dict__ for name, images in self.images.items()},
+            "binaries": {name: bin.__dict__ for name, bin in self.binaries.items()},
+            "helm-charts": {name: chart.__dict__ for name, chart in self.helm_charts.items()},
+        }
 
-
-class Environment(StrEnum):
-    DEV = "dev"
-    STAGING = "staging"
-    PROD = "prod"
+    def to_json(self):
+        return {
+            "images": {name: images.to_json() for name, images in self.images.items()},
+            "binaries": {name: bin.to_json() for name, bin in self.binaries.items()},
+            "helm-charts": {name: chart.to_json() for name, chart in self.helm_charts.items()},
+        }
 
 
 def load_build_info(environment: Environment, version: str) -> BuildInfo:
@@ -79,10 +91,5 @@ def load_build_info(environment: Environment, version: str) -> BuildInfo:
 
 def create_release_info_json(version: str) -> str:
     build_info = load_build_info(Environment.PROD, version)
-    data = {
-        "images": {name: images.__json__() for name, images in build_info.images.items()},
-        "binaries": {name: bin.__json__() for name, bin in build_info.binaries.items()},
-        "helm-charts": {name: chart.__json__() for name, chart in build_info.helm_charts.items()},
-    }
 
-    return json.dumps(data, indent=2)
+    return json.dumps(build_info.to_json(), indent=2)

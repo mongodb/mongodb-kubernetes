@@ -7,13 +7,10 @@ from jinja2 import Template
 from scripts.release.changelog import (
     DEFAULT_CHANGELOG_PATH,
     DEFAULT_INITIAL_GIT_TAG_VERSION,
-    ChangeEntry,
     ChangeKind,
-    get_changelog_entries,
 )
 from scripts.release.version import (
-    calculate_next_release_version,
-    find_previous_version,
+    calculate_next_version_with_changelog,
 )
 
 
@@ -53,23 +50,6 @@ def generate_release_notes(
     }
 
     return template.render(parameters)
-
-
-def calculate_next_version_with_changelog(
-    repo: Repo, changelog_sub_path: str, initial_commit_sha: str | None, initial_version: str
-) -> (str, list[ChangeEntry]):
-    previous_version_tag, previous_version_commit = find_previous_version(repo, initial_commit_sha)
-
-    changelog: list[ChangeEntry] = get_changelog_entries(previous_version_commit, repo, changelog_sub_path)
-    changelog_kinds = list(set(entry.kind for entry in changelog))
-
-    # If there is no previous version tag, we start with the initial version tag
-    if not previous_version_tag:
-        version = initial_version
-    else:
-        version = calculate_next_release_version(previous_version_tag.name, changelog_kinds)
-
-    return version, changelog
 
 
 if __name__ == "__main__":
