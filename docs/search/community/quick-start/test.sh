@@ -5,7 +5,7 @@ set -eou pipefail
 script_name=$(readlink -f "${BASH_SOURCE[0]}")
 script_dir=$(dirname "${script_name}")
 
-source "${script_dir}/../../../scripts/code_snippets/sample_test_runner.sh"
+source "${script_dir}/../../../../scripts/code_snippets/sample_test_runner.sh"
 
 cd "${script_dir}"
 
