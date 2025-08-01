@@ -8,8 +8,10 @@
 #
 ARG PYTHON_VERSION
 
-FROM --platform=linux/amd64 public.ecr.aws/docker/library/python:${PYTHON_VERSION}-slim as builder
+FROM public.ecr.aws/docker/library/python:${PYTHON_VERSION}-slim as builder
 
+# MarkupSafe, cryptography, python-ldap, ruamel.yaml.clib, grpcio, psutil
+COPY wheels /wheels
 
 RUN apt-get -qq update \
     && apt-get -y -qq install \
@@ -17,10 +19,29 @@ RUN apt-get -qq update \
 
 COPY requirements.txt requirements.txt
 
-RUN python3 -m venv /venv && . /venv/bin/activate && python3 -m pip install -r requirements.txt
+RUN python3 -m venv /venv && . /venv/bin/activate && pip install --upgrade pip && GRPC_PYTHON_BUILD_SYSTEM_OPENSSL=1 pip install --find-links /wheels -r requirements.txt
+
+FROM scratch AS tools_downloader
+
+ARG mongodb_tools_url="https://fastdl.mongodb.org/tools/db"
+
+ARG mongodb_tools_version_amd64="mongodb-database-tools-rhel93-x86_64-100.12.0.tgz"
+ADD "${mongodb_tools_url}/${mongodb_tools_version_amd64}" /data/amd64/mongodb_tools.tgz
+
+ARG mongodb_tools_version_arm64="mongodb-database-tools-rhel93-aarch64-100.12.0.tgz"
+ADD "${mongodb_tools_url}/${mongodb_tools_version_arm64}" /data/arm64/mongodb_tools.tgz
+
+ARG mongodb_tools_version_s390x="mongodb-database-tools-rhel9-s390x-100.12.0.tgz"
+ADD "${mongodb_tools_url}/${mongodb_tools_version_s390x}" /data/s390x/mongodb_tools.tgz
+
+ARG mongodb_tools_version_ppc64le="mongodb-database-tools-rhel9-ppc64le-100.12.0.tgz"
+ADD "${mongodb_tools_url}/${mongodb_tools_version_ppc64le}" /data/ppc64le/mongodb_tools.tgz
 
 
-FROM --platform=linux/amd64 public.ecr.aws/docker/library/python:${PYTHON_VERSION}-slim
+FROM public.ecr.aws/docker/library/python:${PYTHON_VERSION}-slim
+
+ARG TARGETARCH
+COPY --from=tools_downloader "/data/${TARGETARCH}/mongodb_tools.tgz" /tmp/mongodb-tools.tgz
 
 RUN apt-get -qq update \
     && apt-get -y -qq install \
@@ -30,20 +51,22 @@ RUN apt-get -qq update \
     git \
     openssl
 
-ENV HELM_NAME "helm-v3.17.1-linux-amd64.tar.gz"
-# install Helm
-RUN curl --fail --retry 3 -L -o "${HELM_NAME}" "https://get.helm.sh/${HELM_NAME}" \
-    && tar -xzf "${HELM_NAME}" \
-    && rm "${HELM_NAME}" \
-    && mv "linux-amd64/helm" "/usr/local/bin/helm"
-
-ADD https://fastdl.mongodb.org/tools/db/mongodb-database-tools-ubuntu2204-x86_64-100.12.0.tgz /tmp/mongodb-tools.tgz
 RUN mkdir -p /tmp/mongodb-tools && \
     tar xfz /tmp/mongodb-tools.tgz -C /tmp/mongodb-tools && \
     cp /tmp/mongodb-tools/*/bin/* /usr/local/bin/ && \
     rm -rf /tmp/mongodb-tools /tmp/mongodb-tools.tgz
 
-RUN curl -LO "https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl" \
+
+ENV HELM_NAME "helm-v3.17.1-linux-${TARGETARCH}.tar.gz"
+
+# install Helm
+RUN curl --fail --retry 3 -L -o "${HELM_NAME}" "https://get.helm.sh/${HELM_NAME}" \
+    && tar -xzf "${HELM_NAME}" \
+    && rm "${HELM_NAME}" \
+    && mv "linux-${TARGETARCH}/helm" "/usr/local/bin/helm"
+
+# install kubectl
+RUN curl -LO "https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/${TARGETARCH}/kubectl" \
     && chmod +x ./kubectl \
     && mv ./kubectl /usr/local/bin/kubectl
 
@@ -62,4 +85,4 @@ COPY release.json /release.json
 # we use the public directory to automatically test resources samples
 COPY public /mongodb-kubernetes/public
 
-ADD multi-cluster-kube-config-creator_linux /usr/local/bin/multi-cluster-kube-config-creator
+ADD "multi-cluster-kube-config-creator_${TARGETARCH}" /usr/local/bin/multi-cluster-kube-config-creator
