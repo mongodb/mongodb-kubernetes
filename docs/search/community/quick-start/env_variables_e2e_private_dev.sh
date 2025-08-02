@@ -27,7 +27,10 @@ declare -a helm_values=(
 "search.community.version=${search_image_hash}"
 )
 
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+SCRIPT_DIR="$(cd "$(dirname "${SCRIPT_PATH}")" && pwd)"
+
 OPERATOR_ADDITIONAL_HELM_VALUES="$(echo -n "${helm_values[@]}" | tr ' ' ',')"
 export OPERATOR_ADDITIONAL_HELM_VALUES
-OPERATOR_HELM_CHART="$(realpath "../../../helm_chart")"
+OPERATOR_HELM_CHART="$(realpath "${SCRIPT_DIR}/../../../../helm_chart")"
 export OPERATOR_HELM_CHART

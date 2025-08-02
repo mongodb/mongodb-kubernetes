@@ -104,9 +104,12 @@ variables:
       - func: download_kube_tools
       - func: configure_docker_auth
       - func: setup_kubernetes_environment
+      - func: setup_cloud_qa
     teardown_task:
       - func: upload_e2e_logs
       - func: upload_code_snippets_logs
+      - func: teardown_kubernetes_environment
+      - func: teardown_cloud_qa
 
   - &setup_and_teardown_task_cloudqa
     setup_task_can_fail_task: true
@@ -676,7 +679,8 @@ task_groups:
     <<: *setup_and_teardown_group_kind_code_snippets
     max_hosts: -1
     tasks:
-      - task_kind_community_search_snippets
+      - task_kind_search_community_snippets
+      - task_kind_search_enterprise_snippets
 
   # Task group for deploying mongodbcommunity resources and testing the (former) MCO
   - name: e2e_mdb_community_task_group
