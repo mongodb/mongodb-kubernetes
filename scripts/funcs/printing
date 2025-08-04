@@ -21,26 +21,3 @@ prepend() {
 
 export RED='\033[0;31m'
 export NO_COLOR='\033[0m'
-
-run_setup_step() {
-    local step_name="$1"
-    shift
-    local script_command=("$@")
-
-    echo ""
-    echo ">>> Running: ${step_name}"
-    echo ">>> Command: ${script_command[*]}"
-
-    local script_path="${script_command[0]}"
-    if [[ -f "${script_path}" ]]; then
-        if "${script_command[@]}"; then
-            echo "✅ ${step_name} completed successfully"
-        else
-            echo "❌ ${step_name} failed"
-            exit 1
-        fi
-    else
-        echo "❌ Script not found: ${script_path}"
-        exit 1
-    fi
-}
