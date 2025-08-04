@@ -8,7 +8,6 @@ import os
 import shutil
 from concurrent.futures import ProcessPoolExecutor
 from copy import copy
-from platform import architecture
 from queue import Queue
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
@@ -232,7 +231,6 @@ def build_database_image(build_configuration: BuildConfiguration):
     Builds a new database image.
     """
     release = load_release_file()
-    version = release["databaseImageVersion"]
     args = {"version": build_configuration.version}
     build_image_generic(
         image_name="mongodb-kubernetes-database",
@@ -328,8 +326,6 @@ def find_om_url(om_version: str) -> str:
 
 
 def build_init_om_image(build_configuration: BuildConfiguration):
-    release = load_release_file()
-    version = release["initOpsManagerVersion"]
     args = {"version": build_configuration.version}
     build_image_generic(
         image_name="mongodb-kubernetes-init-ops-manager",
@@ -404,7 +400,6 @@ def build_image_generic(
 
 def build_init_appdb(build_configuration: BuildConfiguration):
     release = load_release_file()
-    version = release["initAppDbVersion"]
     base_url = "https://fastdl.mongodb.org/tools/db/"
     mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
     args = {"version": build_configuration.version, "mongodb_tools_url_ubi": mongodb_tools_url_ubi}
@@ -419,7 +414,6 @@ def build_init_appdb(build_configuration: BuildConfiguration):
 # TODO: nam static: remove this once static containers becomes the default
 def build_init_database(build_configuration: BuildConfiguration):
     release = load_release_file()
-    version = release["initDatabaseVersion"]  # comes from release.json
     base_url = "https://fastdl.mongodb.org/tools/db/"
     mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
     args = {"version": build_configuration.version, "mongodb_tools_url_ubi": mongodb_tools_url_ubi}
@@ -576,7 +570,7 @@ def build_multi_arch_agent_in_sonar(
     build_image_generic(
         image_name="mongodb-agent-ubi",
         dockerfile_path="docker/mongodb-agent-non-matrix/Dockerfile",
-        build_configuration=build_config_copy, #TODO: why ?
+        build_configuration=build_configuration,
         is_multi_arch=True,
         multi_arch_args_list=joined_args,
     )
