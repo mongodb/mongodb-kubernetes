@@ -51,6 +51,13 @@ functions:
 
   ### Setup Functions ###
 
+  setup_jq: &setup_jq
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      binary: scripts/evergreen/setup_jq.sh
+
   setup_context: &setup_context # Running the first switch is important to fill the workdir and other important initial env vars
     command: shell.exec
     type: setup
@@ -103,6 +110,7 @@ functions:
       type: setup
       params:
         command: "git config --global user.email 'kubernetes-hosted-team@mongodb.com'"
+    - *setup_jq # we need jq in the context
     - *setup_context
 
   setup_kubectl: &setup_kubectl
@@ -111,13 +119,6 @@ functions:
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       binary: scripts/evergreen/setup_kubectl.sh
-
-  setup_jq: &setup_jq
-    command: subprocess.exec
-    type: setup
-    params:
-      working_dir: src/github.com/mongodb/mongodb-kubernetes
-      binary: scripts/evergreen/setup_jq.sh
 
   setup_shellcheck:
     command: subprocess.exec

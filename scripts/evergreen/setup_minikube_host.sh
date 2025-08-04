@@ -5,7 +5,7 @@
 # Can be run on static hosts for testing and verification
 
 source scripts/dev/set_env_context.sh
-set -Eeou pipefail
+set -Eeoux pipefail
 
 echo "=========================================="
 echo "Setting up minikube host with multi-architecture support"
