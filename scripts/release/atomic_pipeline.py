@@ -8,6 +8,7 @@ import os
 import shutil
 from concurrent.futures import ProcessPoolExecutor
 from copy import copy
+from platform import architecture
 from queue import Queue
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
@@ -21,7 +22,6 @@ from scripts.evergreen.release.agent_matrix import (
     get_supported_operator_versions,
 )
 from scripts.evergreen.release.images_signing import (
-    mongodb_artifactory_login,
     sign_image,
     verify_signature,
 )
@@ -34,8 +34,6 @@ from .optimized_operator_build import build_operator_image_fast
 
 TRACER = trace.get_tracer("evergreen-agent")
 DEFAULT_NAMESPACE = "default"
-
-# TODO: rename architecture -> platform everywhere
 
 
 def make_list_of_str(value: Union[None, str, List[str]]) -> List[str]:
@@ -84,14 +82,6 @@ def pipeline_process_image(
     span.set_attribute("mck.image_name", image_name)
     if dockerfile_args:
         span.set_attribute("mck.build_args", str(dockerfile_args))
-
-    # TODO use these?
-    build_options = {
-        # Will continue building an image if it finds an error. See next comment.
-        "continue_on_errors": True,
-        # But will still fail after all the tasks have completed
-        "fail_on_errors": True,
-    }
 
     logger.info(f"Dockerfile args: {dockerfile_args}, for image: {image_name}")
 
@@ -145,8 +135,7 @@ def produce_sbom(args):
         elif args["platform"] == "amd64":
             platform = "linux/amd64"
         else:
-            # TODO: return here?
-            logger.error(f"Unrecognized architectures in {args}. Skipping SBOM generation")
+            raise ValueError(f"Unrecognized platform in {args}. Cannot proceed with SBOM generation")
 
     generate_sbom(image_pull_spec, platform)
 
@@ -259,11 +248,11 @@ def build_CLI_SBOM(build_configuration: BuildConfiguration):
         return
 
     if build_configuration.platforms is None or len(build_configuration.platforms) == 0:
-        architectures = ["linux/amd64", "linux/arm64", "darwin/arm64", "darwin/amd64"]
+        platforms = ["linux/amd64", "linux/arm64", "darwin/arm64", "darwin/amd64"]
     elif "arm64" in build_configuration.platforms:
-        architectures = ["linux/arm64", "darwin/arm64"]
+        platforms = ["linux/arm64", "darwin/arm64"]
     elif "amd64" in build_configuration.platforms:
-        architectures = ["linux/amd64", "darwin/amd64"]
+        platforms = ["linux/amd64", "darwin/amd64"]
     else:
         logger.error(f"Unrecognized architectures {build_configuration.platforms}. Skipping SBOM generation")
         return
@@ -271,8 +260,8 @@ def build_CLI_SBOM(build_configuration: BuildConfiguration):
     release = load_release_file()
     version = release["mongodbOperator"]
 
-    for architecture in architectures:
-        generate_sbom_for_cli(version, architecture)
+    for platform in platforms:
+        generate_sbom_for_cli(version, platform)
 
 
 def should_skip_arm64():
@@ -383,23 +372,21 @@ def build_image_generic(
     is_multi_arch: bool = False,
 ):
     """
-    Build one or more architecture-specific images, then (optionally)
+    Build one or more platform-specific images, then (optionally)
     push a manifest and sign the result.
     """
 
-    # 1) Defaults
     registry = build_configuration.base_registry
     args_list = multi_arch_args_list or [extra_args or {}]
     version = args_list[0].get("version", "")
-    architectures = [args.get("architecture") for args in args_list]
+    platforms = [args.get("architecture") for args in args_list]
 
-    # 2) Build each arch
     for base_args in args_list:
         # merge in the registry without mutating caller’s dict
         build_args = {**base_args, "quay_registry": registry}
         logger.debug(f"Build args: {build_args}")
 
-        for arch in architectures:
+        for arch in platforms:
             logger.debug(f"Building {image_name} for arch={arch}")
             logger.debug(f"build image generic - registry={registry}")
             pipeline_process_image(
@@ -410,11 +397,6 @@ def build_image_generic(
                 with_sbom=False,
             )
 
-    # # 3) Multi-arch manifest
-    # if is_multi_arch:
-    #     create_and_push_manifest(registry + "/" + image_name, version, architectures=architectures)
-
-    # 4) Signing (only on real releases)
     if build_configuration.sign:
         sign_image(registry, version)
         verify_signature(registry, version)
@@ -600,7 +582,6 @@ def build_multi_arch_agent_in_sonar(
     )
 
 
-# TODO: Observed rate limiting (429) sometimes for agent builds in patches
 def build_agent_default_case(build_configuration: BuildConfiguration):
     """
     Build the agent only for the latest operator for patches and operator releases.
