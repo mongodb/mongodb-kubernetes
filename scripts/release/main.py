@@ -41,11 +41,12 @@ from scripts.release.build_context import (
 )
 
 """
-The goal of main.py, build_configuration.py and build_context.py is to provide a single source of truth for the build 
+The goal of main.py, build_configuration.py and build_context.py is to provide a single source of truth for the build
 configuration. All parameters that depend on the the build environment (local dev, evg, etc) should be resolved here and
 not in the pipeline.
 """
 
+SUPPORTED_PLATFORMS = ["linux/amd64", "linux/arm64"]
 
 def get_builder_function_for_image_name() -> Dict[str, Callable]:
     """Returns a dictionary of image names that can be built."""
@@ -55,7 +56,6 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         "test": build_tests_image,
         "operator": build_operator_image,
         "mco-test": build_mco_tests_image,
-        # TODO: add support to build this per patch
         "readiness-probe": build_readiness_probe_image,
         "upgrade-hook": build_upgrade_hook_image,
         "operator-quick": build_operator_image_patch,
@@ -170,7 +170,6 @@ def build_config_from_args(args):
 
     # Parse platform argument (comma-separated)
     platforms = [p.strip() for p in args.platform.split(",")]
-    SUPPORTED_PLATFORMS = ["linux/amd64", "linux/arm64"]
     if any(p not in SUPPORTED_PLATFORMS for p in platforms):
         logger.error(
             f"Unsupported platform in '{args.platform}'. Supported platforms: {', '.join(SUPPORTED_PLATFORMS)}"

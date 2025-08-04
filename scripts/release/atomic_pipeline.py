@@ -710,7 +710,6 @@ def _build_agent_operator(
     executor: ProcessPoolExecutor,
     operator_version: str,
     tasks_queue: Queue,
-    use_quay: bool = False,
 ):
     agent_distro = "rhel9_x86_64"
     tools_version = agent_version[1]
@@ -794,31 +793,3 @@ def gather_latest_agent_versions(release: Dict) -> List[Tuple[str, str]]:
     agent_versions_to_build.append(("107.0.12.8669-1", "100.10.0"))
 
     return sorted(list(set(agent_versions_to_build)))
-
-
-def get_builder_function_for_image_name() -> Dict[str, Callable]:
-    """Returns a dictionary of image names that can be built."""
-
-    image_builders = {
-        "cli": build_CLI_SBOM,
-        "test": build_tests_image,
-        "operator": build_operator_image,
-        "mco-test": build_mco_tests_image,
-        # TODO: add support to build this per patch
-        "readiness-probe": build_readiness_probe_image,
-        "upgrade-hook": build_upgrade_hook_image,
-        "operator-quick": build_operator_image_patch,
-        "database": build_database_image,
-        "agent-pct": build_agent_on_agent_bump,
-        "agent": build_agent_default_case,
-        #
-        # Init images
-        "init-appdb": build_init_appdb,
-        "init-database": build_init_database,
-        "init-ops-manager": build_init_om_image,
-        #
-        # Ops Manager image
-        "ops-manager": build_om_image,
-    }
-
-    return image_builders
