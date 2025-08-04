@@ -15,9 +15,9 @@ curl -L https://istio.io/downloadIstio | sh -
 function_check_external_ip_assigned() {
  while : ; do
    ip=$(kubectl --context="$1" get svc istio-eastwestgateway -n istio-system --output jsonpath='{.status.loadBalancer.ingress[0].ip}')
-   if [ -n "$ip" ]
+   if [ -n "${ip}" ]
    then
-     echo "external ip assigned $ip"
+     echo "external ip assigned ${ip}"
      break
    else
      echo "waiting for external ip to be assigned"
@@ -25,36 +25,36 @@ function_check_external_ip_assigned() {
 done
 }
 
-cd istio-${ISTIO_VERSION}
+cd "istio-${ISTIO_VERSION}"
 mkdir -p certs
 pushd certs
 
 # create root trust for the clusters
 make -f ../tools/certs/Makefile.selfsigned.mk root-ca
-make -f ../tools/certs/Makefile.selfsigned.mk ${CTX_CLUSTER1}-cacerts
-make -f ../tools/certs/Makefile.selfsigned.mk ${CTX_CLUSTER2}-cacerts
-make -f ../tools/certs/Makefile.selfsigned.mk ${CTX_CLUSTER3}-cacerts
+make -f ../tools/certs/Makefile.selfsigned.mk "${CTX_CLUSTER1}-cacerts"
+make -f ../tools/certs/Makefile.selfsigned.mk "${CTX_CLUSTER2}-cacerts"
+make -f ../tools/certs/Makefile.selfsigned.mk "${CTX_CLUSTER3}-cacerts"
 
 kubectl --context="${CTX_CLUSTER1}" create ns istio-system
 kubectl --context="${CTX_CLUSTER1}" create secret generic cacerts -n istio-system \
-      --from-file=${CTX_CLUSTER1}/ca-cert.pem \
-      --from-file=${CTX_CLUSTER1}/ca-key.pem \
-      --from-file=${CTX_CLUSTER1}/root-cert.pem \
-      --from-file=${CTX_CLUSTER1}/cert-chain.pem
+      --from-file="${CTX_CLUSTER1}/ca-cert.pem" \
+      --from-file="${CTX_CLUSTER1}/ca-key.pem" \
+      --from-file="${CTX_CLUSTER1}/root-cert.pem" \
+      --from-file="${CTX_CLUSTER1}/cert-chain.pem"
 
 kubectl --context="${CTX_CLUSTER2}" create ns istio-system
 kubectl --context="${CTX_CLUSTER2}" create secret generic cacerts -n istio-system \
-      --from-file=${CTX_CLUSTER2}/ca-cert.pem \
-      --from-file=${CTX_CLUSTER2}/ca-key.pem \
-      --from-file=${CTX_CLUSTER2}/root-cert.pem \
-      --from-file=${CTX_CLUSTER2}/cert-chain.pem
+      --from-file="${CTX_CLUSTER2}/ca-cert.pem" \
+      --from-file="${CTX_CLUSTER2}/ca-key.pem" \
+      --from-file="${CTX_CLUSTER2}/root-cert.pem" \
+      --from-file="${CTX_CLUSTER2}/cert-chain.pem"
 
 kubectl --context="${CTX_CLUSTER3}" create ns istio-system
 kubectl --context="${CTX_CLUSTER3}" create secret generic cacerts -n istio-system \
-      --from-file=${CTX_CLUSTER3}/ca-cert.pem \
-      --from-file=${CTX_CLUSTER3}/ca-key.pem \
-      --from-file=${CTX_CLUSTER3}/root-cert.pem \
-      --from-file=${CTX_CLUSTER3}/cert-chain.pem
+      --from-file="${CTX_CLUSTER3}/ca-cert.pem" \
+      --from-file="${CTX_CLUSTER3}/ca-key.pem" \
+      --from-file="${CTX_CLUSTER3}/root-cert.pem" \
+      --from-file="${CTX_CLUSTER3}/cert-chain.pem"
 popd
 
 # label namespace in cluster1
@@ -184,5 +184,5 @@ bin/istioctl x create-remote-secret \
 
   # cleanup: delete the istio repo at the end
 cd ..
-rm -r istio-${ISTIO_VERSION}
+rm -r "istio-${ISTIO_VERSION}"
 rm -f cluster1.yaml cluster2.yaml cluster3.yaml
