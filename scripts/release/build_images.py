@@ -1,7 +1,5 @@
 # This file is the new Sonar
 import base64
-import sys
-import time
 from typing import Dict
 
 import boto3
@@ -11,7 +9,6 @@ from python_on_whales.exceptions import DockerException
 
 import docker
 from lib.base_logger import logger
-from lib.sonar.sonar import create_ecr_repository
 from scripts.evergreen.release.images_signing import sign_image, verify_signature
 
 
@@ -42,7 +39,6 @@ def ecr_login_boto3(region: str, account_id: str):
     logger.debug(f"ECR login succeeded: {status}")
 
 
-# TODO: use builders = docker.buildx.list() instead of an exception
 def ensure_buildx_builder(builder_name: str = "multiarch") -> str:
     """
     Ensures a Docker Buildx builder exists for multi-platform builds.
@@ -50,7 +46,14 @@ def ensure_buildx_builder(builder_name: str = "multiarch") -> str:
     :param builder_name: Name for the buildx builder
     :return: The builder name that was created or reused
     """
+
     docker = python_on_whales.docker
+
+    existing_builders = docker.buildx.list()
+    if any(b.name == builder_name for b in existing_builders):
+        logger.info(f"Builder '{builder_name}' already exists – reusing it.")
+        docker.buildx.use(builder_name)
+        return builder_name
 
     try:
         docker.buildx.create(
@@ -61,14 +64,8 @@ def ensure_buildx_builder(builder_name: str = "multiarch") -> str:
         )
         logger.info(f"Created new buildx builder: {builder_name}")
     except DockerException as e:
-        if f'existing instance for "{builder_name}"' in str(e):
-            logger.info(f"Builder '{builder_name}' already exists – reusing it.")
-            # Make sure it's the current one:
-            docker.buildx.use(builder_name)
-        else:
-            # Some other failure happened
-            logger.error(f"Failed to create buildx builder: {e}")
-            raise
+        logger.error(f"Failed to create buildx builder: {e}")
+        raise
 
     return builder_name
 
@@ -81,7 +78,7 @@ def build_image(
 
     :param tag: Image tag (name:tag)
     :param dockerfile: Name or relative path of the Dockerfile within `path`
-    :param path: Build context path (directory with your Dockerfile)
+    :param path: Build context path (directory with the Dockerfile)
     :param args: Build arguments dictionary
     :param push: Whether to push the image after building
     :param platforms: List of target platforms (e.g., ["linux/amd64", "linux/arm64"])
@@ -106,7 +103,7 @@ def build_image(
         if len(platforms) > 1:
             logger.info(f"Multi-platform build for {len(platforms)} architectures")
 
-        # We need a special driver to handle multi platform builds
+        # We need a special driver to handle multi-platform builds
         builder_name = ensure_buildx_builder("multiarch")
 
         # Build the image using buildx
@@ -140,8 +137,8 @@ def process_image(
     build_path: str = ".",
     push: bool = True,
 ):
-    # Login to ECR using boto3
-    ecr_login_boto3(region="us-east-1", account_id="268558157000")  # TODO: use environment variables
+    # Login to ECR
+    ecr_login_boto3(region="us-east-1", account_id="268558157000")
 
     docker_registry = f"{base_registry}/{image_name}"
     image_full_uri = f"{docker_registry}:{image_tag}"
