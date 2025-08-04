@@ -48,6 +48,7 @@ not in the pipeline.
 
 SUPPORTED_PLATFORMS = ["linux/amd64", "linux/arm64"]
 
+
 def get_builder_function_for_image_name() -> Dict[str, Callable]:
     """Returns a dictionary of image names that can be built."""
 
