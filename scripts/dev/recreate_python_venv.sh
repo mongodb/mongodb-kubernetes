@@ -69,8 +69,15 @@ echo "Using python from the following path: ${python_bin}"
 "${python_bin}" -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
-echo "Installing requirements.txt..."
-pip install -r requirements.txt
+
+skip_requirements="${SKIP_INSTALL_REQUIREMENTS:-false}"
+if [[ "${skip_requirements}" != "true" ]]; then
+    echo "Installing requirements.txt..."
+    pip install -r requirements.txt
+else
+    echo "Skipping requirements.txt installation."
+fi
+
 echo "Python venv was recreated successfully."
 echo "Current python path: $(which python)"
 python --version

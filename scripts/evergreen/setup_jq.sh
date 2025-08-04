@@ -37,4 +37,4 @@ detect_jq_architecture() {
 jq_arch=$(detect_jq_architecture)
 echo "Detected architecture: $(uname -m), using jq architecture: ${jq_arch}"
 
-download_and_install_binary "${PROJECT_DIR:-${workdir:-.}}/bin" jq "https://github.com/stedolan/jq/releases/download/jq-1.8.1/jq-linux-${jq_arch}"
+download_and_install_binary "${PROJECT_DIR:-${workdir}}/bin" jq "https://github.com/stedolan/jq/releases/download/jq-1.8.1/jq-linux-${jq_arch}"

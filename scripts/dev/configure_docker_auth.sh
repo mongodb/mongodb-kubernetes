@@ -180,7 +180,7 @@ if [[ -n "${COMMUNITY_PRIVATE_PREVIEW_PULLSECRET_DOCKERCONFIGJSON:-}" ]]; then
   config_tmp=$(mktemp)
   echo "${COMMUNITY_PRIVATE_PREVIEW_PULLSECRET_DOCKERCONFIGJSON}" | base64 -d > "${quay_io_auth_file}"
   if [[ "${CONFIG_PATH}" == "/root/.config/containers/auth.json" ]]; then
-    sudo jq -s '.[0] * .[1]' "${quay_io_auth_file}" "${CONFIG_PATH}" > "${config_tmp}"
+    sudo "${PROJECT_DIR:-.}/bin/jq" -s '.[0] * .[1]' "${quay_io_auth_file}" "${CONFIG_PATH}" > "${config_tmp}"
     sudo mv "${config_tmp}" "${CONFIG_PATH}"
   else
     jq -s '.[0] * .[1]' "${quay_io_auth_file}" "${CONFIG_PATH}" > "${config_tmp}"

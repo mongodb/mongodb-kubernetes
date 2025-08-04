@@ -54,8 +54,10 @@ functions:
   setup_jq: &setup_jq
     command: subprocess.exec
     type: setup
-    <<: *e2e_include_expansions_in_env
     params:
+      <<: *e2e_include_expansions_in_env
+      add_to_path:
+        - ${workdir}/bin
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       binary: scripts/evergreen/setup_jq.sh
 
@@ -63,6 +65,8 @@ functions:
     command: shell.exec
     type: setup
     params:
+      add_to_path:
+        - ${workdir}/bin
       shell: bash
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       <<: *e2e_include_expansions_in_env
