@@ -9,9 +9,9 @@ from lib.base_logger import logger
 class BuildScenario(str, Enum):
     """Represents the context in which the build is running."""
 
-    RELEASE = "release"  # Official release build from a git tag
+    RELEASE = "release"  # Official release triggered by a git tag
     PATCH = "patch"  # CI build for a patch/pull request
-    MASTER = "master"  # CI build from a merge to the master
+    STAGING = "staging"  # CI build from a merge to the master
     DEVELOPMENT = "development"  # Local build on a developer machine
 
     @classmethod
@@ -23,15 +23,14 @@ class BuildScenario(str, Enum):
         patch_id = os.getenv("version_id")
 
         if git_tag:
-            scenario = BuildScenario.RELEASE # TODO: git tag won't trigger the pipeline, only the promotion process
+            # Release scenario and the git tag will be used for promotion process only
+            scenario = BuildScenario.RELEASE
             logger.info(f"Build scenario: {scenario} (git_tag: {git_tag})")
         elif is_patch:
             scenario = BuildScenario.PATCH
             logger.info(f"Build scenario: {scenario} (patch_id: {patch_id})")
         elif is_evg:
-            scenario = (
-                BuildScenario.MASTER
-            )  # TODO: MASTER -> Staging
+            scenario = BuildScenario.STAGING
             logger.info(f"Build scenario: {scenario} (patch_id: {patch_id})")
         else:
             scenario = BuildScenario.DEVELOPMENT
@@ -63,7 +62,7 @@ class BuildContext:
             git_tag=git_tag,
             patch_id=patch_id,
             signing_enabled=signing_enabled,
-            version=git_tag or patch_id,  # TODO: update this
+            version=git_tag or patch_id,
         )
 
     def get_version(self) -> str:
@@ -76,7 +75,8 @@ class BuildContext:
 
     def get_base_registry(self) -> str:
         """Get the base registry URL for the current scenario."""
-        if self.scenario == BuildScenario.RELEASE:
+        # TODO CLOUDP-335471: when working on the promotion process, use the prod registry variable in RELEASE scenario
+        if self.scenario == BuildScenario.STAGING:
             return os.environ.get("STAGING_REPO_URL")
         else:
             return os.environ.get("BASE_REPO_URL")
