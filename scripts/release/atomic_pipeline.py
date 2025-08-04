@@ -390,7 +390,7 @@ def build_image_generic(
                 dockerfile_path=dockerfile_path,
                 build_configuration=build_configuration,
                 dockerfile_args=build_args,
-                with_sbom=False,
+                with_sbom=False,  # TODO: specify no SBOM, write folllow up tasks and todo
             )
 
     if build_configuration.sign:
@@ -614,7 +614,6 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
                 executor,
                 build_configuration.version,
                 tasks_queue,
-                build_configuration.scenario == BuildScenario.RELEASE,
             )
 
     queue_exception_handling(tasks_queue)
