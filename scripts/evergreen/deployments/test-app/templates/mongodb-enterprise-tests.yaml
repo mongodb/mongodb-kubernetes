@@ -53,9 +53,8 @@ spec:
         secretName: test-pod-multi-cluster-config
   {{ end }}
   containers:
-  - image: busybox
+  - image: registry.k8s.io/pause:3.9
     name: keepalive
-    command: [ "/bin/sh", "-c", "sleep inf" ]
     volumeMounts:
       - name: results
         mountPath: /tmp/results

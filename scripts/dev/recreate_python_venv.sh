@@ -76,6 +76,7 @@ if [[ "${skip_requirements}" != "true" ]]; then
     pip install -r requirements.txt
 else
     echo "Skipping requirements.txt installation."
+    pip install requests
 fi
 
 echo "Python venv was recreated successfully."
