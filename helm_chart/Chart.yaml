@@ -1,8 +1,7 @@
 apiVersion: v2
 name: mongodb-kubernetes
-description: MongoDB Controllers for Kubernetes translate the human knowledge of
-  creating a MongoDB instance into a scalable, repeatable, and standardized 
-  method.
+description: MongoDB Controllers for Kubernetes translate the human knowledge of creating
+  a MongoDB instance into a scalable, repeatable, and standardized method.
 version: 1.2.0
 kubeVersion: '>=1.16-0'
 type: application
