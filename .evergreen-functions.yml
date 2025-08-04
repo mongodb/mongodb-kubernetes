@@ -261,6 +261,18 @@ functions:
     - *setup_evg_host
     - *python_venv
 
+  # This differs for normal evg_host as we require minikube instead of kind for
+  # IBM machines and install aws cli via pip instead
+  setup_building_host_minikube:
+    - *switch_context
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        add_to_path:
+          - ${workdir}/bin
+        command: scripts/evergreen/setup_minikube_host.sh
+
   prune_docker_resources:
     - command: subprocess.exec
       type: setup
@@ -328,7 +340,7 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: |
           source .generated/context.export.env
-          scripts/evergreen/e2e/setup_cloud_qa.py create
+          scripts/evergreen/run_python.sh scripts/evergreen/e2e/setup_cloud_qa.py create
     # The additional switch is needed, since we now have created the needed OM exports.
     - *switch_context
 

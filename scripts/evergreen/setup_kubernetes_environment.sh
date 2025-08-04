@@ -30,6 +30,8 @@ elif [ "${KUBE_ENVIRONMENT_NAME}" = "kind" ] || [ "${KUBE_ENVIRONMENT_NAME}" = "
     scripts/dev/recreate_kind_cluster.sh "kind"
 elif [[ "${KUBE_ENVIRONMENT_NAME}" = "multi" && "${CLUSTER_TYPE}" == "kind" ]]; then
     scripts/dev/recreate_kind_clusters.sh
+elif [[ "${KUBE_ENVIRONMENT_NAME}" = "minikube" ]]; then
+    echo "Nothing to do for minikube"
 else
     echo "KUBE_ENVIRONMENT_NAME not recognized"
     echo "value is <<${KUBE_ENVIRONMENT_NAME}>>. If empty it means it was not set"

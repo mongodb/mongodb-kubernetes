@@ -77,6 +77,12 @@ variables:
       - func: download_kube_tools
       - func: setup_building_host
 
+  - &setup_group_ibm
+    setup_group_can_fail_task: true
+    setup_group:
+      - func: clone
+      - func: setup_building_host_minikube
+
   - &setup_group_multi_cluster
     setup_group_can_fail_task: true
     setup_group:
@@ -134,7 +140,7 @@ variables:
 
   - &teardown_group
     teardown_group:
-      - func: prune_docker_resources
+      - func: teardown_kubernetes_environment
       - func: run_retry_script
 
   - &base_om7_dependency
@@ -1188,6 +1194,14 @@ task_groups:
       - e2e_om_ops_manager_backup
     <<: *teardown_group
 
+  - name: e2e_smoke_ibm_task_group
+    max_hosts: -1
+    <<: *setup_group_ibm
+    <<: *setup_and_teardown_task_cloudqa
+    tasks:
+      - e2e_replica_set
+    <<: *teardown_group
+
   - name: e2e_ops_manager_kind_5_0_only_task_group
     max_hosts: -1
     <<: *setup_group
@@ -1452,6 +1466,30 @@ buildvariants:
         variant: init_test_run
     tasks:
       - name: e2e_smoke_task_group
+
+  - name: e2e_smoke_ibm_power
+    display_name: e2e_smoke_ibm_power
+    tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
+    run_on:
+      - rhel9-power-large
+    allowed_requesters: [ "patch", "github_tag" ]
+#    depends_on:
+#      - name: build_test_image
+#        variant: init_test_run
+    tasks:
+      - name: e2e_smoke_ibm_task_group
+
+  - name: e2e_smoke_ibm_z
+    display_name: e2e_smoke_ibm_z
+    tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
+    run_on:
+      - rhel9-zseries-small
+    allowed_requesters: [ "patch", "github_tag" ]
+#    depends_on:
+#      - name: build_test_image
+#        variant: init_test_run
+    tasks:
+      - name: e2e_smoke_ibm_task_group
 
   - name: e2e_static_smoke
     display_name: e2e_static_smoke
