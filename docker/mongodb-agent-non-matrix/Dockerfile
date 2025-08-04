@@ -35,7 +35,6 @@ FROM registry.access.redhat.com/ubi9/ubi-minimal
 ARG TARGETARCH
 COPY --from=tools_downloader "/data/${TARGETARCH}/mongodb_tools.tgz" /tools/mongodb_tools.tgz
 COPY --from=agent_downloader "/data/${TARGETARCH}/mongodb_agent.tgz" /agent/mongodb_agent.tgz
-COPY ./docker/mongodb-kubernetes-init-database/content/LICENSE /data/LICENSE
 
 # Replace libcurl-minimal and curl-minimal with the full versions
 # https://bugzilla.redhat.com/show_bug.cgi?id=1994521
@@ -65,16 +64,12 @@ RUN mkdir -p /agent \
       && touch /var/log/mongodb-mms-automation/readiness.log \
       && chmod ugo+rw /var/log/mongodb-mms-automation/readiness.log
 
-
-COPY --from=base /data/mongodb-agent.tar.gz /agent
-COPY --from=base /data/mongodb-tools.tgz /agent
-COPY --from=base /data/LICENSE /licenses/LICENSE
-
 # Copy scripts to a safe location that won't be overwritten by volume mount
-COPY --from=base /opt/scripts/agent-launcher-shim.sh /usr/local/bin/agent-launcher-shim.sh
-COPY --from=base /opt/scripts/setup-agent-files.sh /usr/local/bin/setup-agent-files.sh
-COPY --from=base /opt/scripts/dummy-probe.sh /usr/local/bin/dummy-probe.sh
-COPY --from=base /opt/scripts/dummy-readinessprobe.sh /usr/local/bin/dummy-readinessprobe
+COPY ./docker/mongodb-agent/agent-launcher-shim.sh /usr/local/bin/agent-launcher-shim.sh
+COPY ./docker/mongodb-agent/setup-agent-files.sh /usr/local/bin/setup-agent-files.sh
+COPY ./docker/mongodb-agent/dummy-probe.sh /usr/local/bin/dummy-probe.sh
+COPY ./docker/mongodb-agent/dummy-readinessprobe.sh /usr/local/bin/dummy-readinessprobe
+COPY ./docker/mongodb-kubernetes-init-database/content/LICENSE /licenses/LICENSE
 
 RUN tar xfz /agent/mongodb_agent.tgz \
     && mv mongodb-mms-automation-agent-*/mongodb-mms-automation-agent /agent/mongodb-agent \
