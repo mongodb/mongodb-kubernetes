@@ -74,6 +74,10 @@ def test_generate_release_notes_1_2_4(git_repo: Repo):
 
 def checkout_and_assert_release_notes(git_repo: Repo, tag: str):
     git_repo.git.checkout(tag)
-    release_notes = generate_release_notes(git_repo.working_dir, DEFAULT_CHANGELOG_PATH)
+    release_notes = generate_release_notes(
+        repository_path=git_repo.working_dir,
+        changelog_sub_path=DEFAULT_CHANGELOG_PATH,
+        initial_version=DEFAULT_RELEASE_INITIAL_VERSION,
+    )
     with open(f"scripts/release/testdata/release_notes_{tag}.md") as file:
         assert release_notes == file.read()
