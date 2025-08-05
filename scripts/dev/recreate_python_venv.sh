@@ -7,8 +7,27 @@ set -Eeou pipefail
 source scripts/dev/set_env_context.sh
 
 install_pyenv() {
+    # Check if pyenv directory exists first
+    if [[ -d "${HOME}/.pyenv" ]]; then
+        echo "pyenv directory already exists, setting up environment..." >&2
+        export PYENV_ROOT="${HOME}/.pyenv"
+        export PATH="${PYENV_ROOT}/bin:${PATH}"
+        
+        # Initialize pyenv in current shell
+        if command -v pyenv &> /dev/null; then
+            eval "$(pyenv init --path)"
+            eval "$(pyenv init -)"
+            echo "pyenv already installed and initialized" >&2
+            return 0
+        else
+            echo "pyenv directory exists but binary not working, reinstalling..." >&2
+            rm -rf "${HOME}/.pyenv"
+        fi
+    fi
+    
+    # Check if pyenv command is available in PATH
     if command -v pyenv &> /dev/null; then
-        echo "pyenv already installed" >&2
+        echo "pyenv already available in PATH" >&2
         return 0
     fi
 
