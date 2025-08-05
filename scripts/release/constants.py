@@ -9,8 +9,8 @@ DEFAULT_REPOSITORY_PATH = "."
 
 
 def get_initial_version() -> str | None:
-    return os.environ[RELEASE_INITIAL_VERSION_ENV_VAR]
+    return os.getenv(RELEASE_INITIAL_VERSION_ENV_VAR)
 
 
 def get_initial_commit_sha() -> str | None:
-    return os.environ[RELEASE_INITIAL_COMMIT_SHA_ENV_VAR]
+    return os.getenv(RELEASE_INITIAL_COMMIT_SHA_ENV_VAR)
