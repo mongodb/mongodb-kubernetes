@@ -42,12 +42,14 @@ def mdbc(namespace: str) -> MongoDBCommunity:
         resource["spec"]["additionalMongodConfig"]["setParameter"] = {}
 
     # Update the setParameter section
-    resource["spec"]["additionalMongodConfig"]["setParameter"].update({
-        "mongotHost": mongot_host,
-        "searchIndexManagementHostAndPort": mongot_host,
-        "skipAuthenticationToSearchIndexManagementServer": False,
-        "searchTLSMode": "disabled",
-    })
+    resource["spec"]["additionalMongodConfig"]["setParameter"].update(
+        {
+            "mongotHost": mongot_host,
+            "searchIndexManagementHostAndPort": mongot_host,
+            "skipAuthenticationToSearchIndexManagementServer": False,
+            "searchTLSMode": "disabled",
+        }
+    )
 
     return resource
 
@@ -60,8 +62,7 @@ def mdbs(namespace: str, mdbc: MongoDBCommunity) -> MongoDBSearch:
     )
 
     seeds = [
-        f"{mdbc.name}-{i}.{mdbc.name}-svc.{namespace}.svc.cluster.local:27017"
-        for i in range(mdbc["spec"]["members"])
+        f"{mdbc.name}-{i}.{mdbc.name}-svc.{namespace}.svc.cluster.local:27017" for i in range(mdbc["spec"]["members"])
     ]
 
     if "source" not in resource["spec"]:

@@ -66,7 +66,7 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 }
 
 func getSourceMongoDBForSearch(ctx context.Context, kubeClient client.Client, search *searchv1.MongoDBSearch) (search_controller.SearchSourceDBResource, *mdbcv1.MongoDBCommunity, error) {
-	if search.Spec.Source != nil && search.Spec.Source.ExternalMongoDBSource != nil {
+	if search.IsExternalMongoDBSource() {
 		return search_controller.NewSearchSourceDBResourceFromExternal(search.Namespace, search.Spec.Source.ExternalMongoDBSource), nil, nil
 	}
 
@@ -80,7 +80,7 @@ func getSourceMongoDBForSearch(ctx context.Context, kubeClient client.Client, se
 	if err := kubeClient.Get(ctx, mdbcName, mdbc); err != nil {
 		return nil, nil, xerrors.Errorf("error getting MongoDBCommunity %s: %w", mdbcName, err)
 	}
-	return search_controller.NewSearchSourceDBResourceFromMongoDBCommunity(mdbc), nil, nil
+	return search_controller.NewSearchSourceDBResourceFromMongoDBCommunity(mdbc), mdbc, nil
 }
 
 func mdbcSearchIndexBuilder(rawObj client.Object) []string {
@@ -90,7 +90,7 @@ func mdbcSearchIndexBuilder(rawObj client.Object) []string {
 		return []string{}
 	}
 
-	return []string{mdbSearch.GetMongoDBResourceRef().Namespace + "/" + mdbSearch.GetMongoDBResourceRef().Name}
+	return []string{resourceRef.Namespace + "/" + resourceRef.Name}
 }
 
 func AddMongoDBSearchController(ctx context.Context, mgr manager.Manager, operatorSearchConfig search_controller.OperatorSearchConfig) error {
