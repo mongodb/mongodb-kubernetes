@@ -3,7 +3,7 @@ vars:
   s3_bucket: s3://enterprise-operator-dockerfiles/dockerfiles/mongodb-agent
 
 images:
-  - name: mongodb-agent
+  - name: mongodb-agent-ubi
     vars:
       context: .
       template_context: docker/mongodb-agent
