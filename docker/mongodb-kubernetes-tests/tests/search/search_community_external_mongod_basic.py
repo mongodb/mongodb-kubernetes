@@ -15,8 +15,8 @@ logger = test_logger.get_test_logger(__name__)
 ADMIN_USER_NAME = "mdb-admin-user"
 ADMIN_USER_PASSWORD = "mdb-admin-user-pass"
 
-MONGOT_USER_NAME = "mongot-user"
-MONGOT_USER_PASSWORD = "mongot-user-password"
+MONGOT_USER_NAME = "search-sync-source"
+MONGOT_USER_PASSWORD = "search-sync-source-password"
 
 USER_NAME = "mdb-user"
 USER_PASSWORD = "mdb-user-pass"
