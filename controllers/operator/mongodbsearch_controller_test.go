@@ -92,7 +92,7 @@ func buildExpectedMongotConfig(search *searchv1.MongoDBSearch, mdbc *mdbcv1.Mong
 		SyncSource: mongot.ConfigSyncSource{
 			ReplicaSet: mongot.ConfigReplicaSet{
 				HostAndPort:    hostAndPorts,
-				Username:       "mongot-user",
+				Username:       searchv1.MongotDefaultSyncSourceUsername,
 				PasswordFile:   "/tmp/sourceUserPassword",
 				TLS:            ptr.To(false),
 				ReadPreference: ptr.To("secondaryPreferred"),
