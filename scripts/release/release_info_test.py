@@ -1,9 +1,15 @@
 import json
 
+from git import Repo
+
 from scripts.release.release_info import create_release_info_json
 
 
-def test_create_release_info_json(readinessprobe_version, operator_version_upgrade_post_start_hook_version):
+def test_create_release_info_json(
+    git_repo: Repo, readinessprobe_version: str, operator_version_upgrade_post_start_hook_version: str
+):
+    git_repo.git.checkout("1.0.0")
+
     expected_json = {
         "images": {
             "mongodbOperator": {
@@ -51,6 +57,6 @@ def test_create_release_info_json(readinessprobe_version, operator_version_upgra
         "helm-charts": {"mongodb-kubernetes": {"repository": "quay.io/mongodb/helm-charts", "version": "1.0.0"}},
     }
     expected_release_info_json = json.dumps(expected_json, indent=2)
-    release_info_json = create_release_info_json("1.0.0")
+    release_info_json = create_release_info_json(git_repo.working_dir)
 
     assert release_info_json == expected_release_info_json
