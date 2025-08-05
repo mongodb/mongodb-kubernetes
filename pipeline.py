@@ -1040,19 +1040,19 @@ def build_image_generic(
     if with_image_base:
         image_base = "mongodb-kubernetes-"
 
+    if not multi_arch_args_list:
+        multi_arch_args_list = [extra_args or {}]
+    version = multi_arch_args_list[0].get("version", "")
+
+    if config.is_release_step_executed():
+        registry = f"{QUAY_REGISTRY_URL}/{image_base}{image_name}"
+    else:
+        registry = f"{config.base_repository}/{image_base}{image_name}"
+
+    if registry_address_override:
+        registry = registry_address_override
+
     try:
-        if not multi_arch_args_list:
-            multi_arch_args_list = [extra_args or {}]
-
-        version = multi_arch_args_list[0].get("version", "")
-        if config.is_release_step_executed():
-            registry = f"{QUAY_REGISTRY_URL}/{image_base}{image_name}"
-        else:
-            registry = f"{config.base_repository}/{image_base}{image_name}"
-
-        if registry_address_override:
-            registry = registry_address_override
-
         for args in multi_arch_args_list:  # in case we are building multiple architectures
             args["quay_registry"] = registry
             sonar_build_image(image_name, config, args, inventory_file, False)
@@ -1085,24 +1085,24 @@ def build_image_generic(
                         f"Skipping tagging and pushing {registry}:{version} as {latest_tag} tag; is_running_in_patch={is_running_in_patch()}, is_running_in_evg_pipeline={is_running_in_evg_pipeline()}"
                     )
 
-            # Sign and verify the context image if on releases if required.
-            if config.sign and config.is_release_step_executed():
-                sign_and_verify_context_image(registry, version)
+        # Sign and verify the context image if on releases if required.
+        if config.sign and config.is_release_step_executed():
+            sign_and_verify_context_image(registry, version)
 
-            span = trace.get_current_span()
-            span.set_attribute("mck.image.image_name", image_name)
-            span.set_attribute("mck.image.version", version)
-            span.set_attribute("mck.image.is_release", config.is_release_step_executed())
-            span.set_attribute("mck.image.is_multi_arch", is_multi_arch)
+        span = trace.get_current_span()
+        span.set_attribute("mck.image.image_name", image_name)
+        span.set_attribute("mck.image.version", version)
+        span.set_attribute("mck.image.is_release", config.is_release_step_executed())
+        span.set_attribute("mck.image.is_multi_arch", is_multi_arch)
 
-            if config.is_release_step_executed() and version and QUAY_REGISTRY_URL in registry:
-                logger.info(
-                    f"finished building context images, releasing them now via daily builds process for"
-                    f" image: {image_name} and version: {version}!"
-                )
-                if is_run_in_parallel:
-                    time.sleep(random.uniform(0, 5))
-                build_image_daily(image_name, version, version)(config)
+        if config.is_release_step_executed() and version and QUAY_REGISTRY_URL in registry:
+            logger.info(
+                f"finished building context images, releasing them now via daily builds process for"
+                f" image: {image_name} and version: {version}!"
+            )
+            if is_run_in_parallel:
+                time.sleep(random.uniform(0, 5))
+            build_image_daily(image_name, version, version)(config)
 
     except Exception as e:
         logger.error(f"Error during build_image_generic for image {image_name}: {e}")
