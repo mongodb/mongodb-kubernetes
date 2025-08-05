@@ -1,9 +1,9 @@
 import os
-from enum import StrEnum
 
 import semver
 from git import Commit, Repo, TagReference
 
+from scripts.release.build.build_info import BuildScenario
 from scripts.release.changelog import (
     DEFAULT_CHANGELOG_PATH,
     ChangeEntry,
@@ -13,33 +13,33 @@ from scripts.release.changelog import (
 
 COMMIT_SHA_LENGTH = 8
 
-class Environment(StrEnum):
-    DEV = "dev"
-    STAGING = "staging"
-    PROD = "prod"
 
-
-def get_version_for_environment(env: Environment, initial_commit_sha: str | None, initial_version: str,
-                                repository_path: str = ".",
-                                changelog_sub_path: str = DEFAULT_CHANGELOG_PATH) -> str:
+def get_version_for_build_scenario(
+    scenario: BuildScenario,
+    initial_commit_sha: str | None,
+    initial_version: str,
+    repository_path: str = ".",
+    changelog_sub_path: str = DEFAULT_CHANGELOG_PATH,
+) -> str:
     repo = Repo(repository_path)
 
-    match env:
-        case Environment.DEV:
+    match scenario:
+        case BuildScenario.PATCH:
             build_id = os.environ["BUILD_ID"]
             if not build_id:
-                raise ValueError(f"BUILD_ID environment variable is not set for {env} environment")
+                raise ValueError(f"BUILD_ID environment variable is not set for `{scenario}` scenario")
             return build_id
-        case Environment.STAGING:
+        case BuildScenario.STAGING:
             return repo.head.object.hexsha[:COMMIT_SHA_LENGTH]
-        case Environment.PROD:
+        case BuildScenario.RELEASE:
             return calculate_next_version(repo, changelog_sub_path, initial_commit_sha, initial_version)
 
-    raise ValueError(f"Unknown environment: {env}")
+    raise ValueError(f"Unknown scenario: {scenario}")
 
 
-def calculate_next_version(repo: Repo, changelog_sub_path: str, initial_commit_sha: str | None,
-                           initial_version: str) -> str:
+def calculate_next_version(
+    repo: Repo, changelog_sub_path: str, initial_commit_sha: str | None, initial_version: str
+) -> str:
     return calculate_next_version_with_changelog(repo, changelog_sub_path, initial_commit_sha, initial_version)[0]
 
 

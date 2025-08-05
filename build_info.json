@@ -1,7 +1,7 @@
 {
   "images": {
     "mongodbOperator": {
-      "dev": {
+      "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes",
         "platforms": [
           "linux/amd64"
@@ -14,7 +14,7 @@
           "linux/amd64"
         ]
       },
-      "prod": {
+      "release": {
         "repository": "quay.io/mongodb/mongodb-kubernetes",
         "platforms": [
           "linux/arm64",
@@ -23,7 +23,7 @@
       }
     },
     "initDatabase": {
-      "dev": {
+      "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-database",
         "platforms": [
           "linux/amd64"
@@ -36,7 +36,7 @@
           "linux/amd64"
         ]
       },
-      "prod": {
+      "release": {
         "repository": "quay.io/mongodb/mongodb-kubernetes-init-database",
         "platforms": [
           "linux/arm64",
@@ -45,7 +45,7 @@
       }
     },
     "initAppDb": {
-      "dev": {
+      "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-appdb",
         "platforms": [
           "linux/amd64"
@@ -58,7 +58,7 @@
           "linux/amd64"
         ]
       },
-      "prod": {
+      "release": {
         "repository": "quay.io/mongodb/mongodb-kubernetes-init-appdb",
         "platforms": [
           "linux/arm64",
@@ -67,7 +67,7 @@
       }
     },
     "initOpsManager": {
-      "dev": {
+      "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-ops-manager",
         "platforms": [
           "linux/amd64"
@@ -80,7 +80,7 @@
           "linux/amd64"
         ]
       },
-      "prod": {
+      "release": {
         "repository": "quay.io/mongodb/mongodb-kubernetes-init-ops-manager",
         "platforms": [
           "linux/arm64",
@@ -89,7 +89,7 @@
       }
     },
     "database": {
-      "dev": {
+      "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-database",
         "platforms": [
           "linux/amd64"
@@ -102,7 +102,7 @@
           "linux/amd64"
         ]
       },
-      "prod": {
+      "release": {
         "repository": "quay.io/mongodb/mongodb-kubernetes-database",
         "platforms": [
           "linux/arm64",
@@ -111,7 +111,7 @@
       }
     },
     "readinessprobe": {
-      "dev": {
+      "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-readinessprobe",
         "platforms": [
           "linux/amd64"
@@ -124,7 +124,7 @@
           "linux/amd64"
         ]
       },
-      "prod": {
+      "release": {
         "version": "1.0.22",
         "repository": "quay.io/mongodb/mongodb-kubernetes-readinessprobe",
         "platforms": [
@@ -134,7 +134,7 @@
       }
     },
     "operator-version-upgrade-post-start-hook": {
-      "dev": {
+      "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-operator-version-upgrade-post-start-hook",
         "platforms": [
           "linux/amd64"
@@ -147,7 +147,7 @@
           "linux/amd64"
         ]
       },
-      "prod": {
+      "release": {
         "version": "1.0.9",
         "repository": "quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook",
         "platforms": [
@@ -159,7 +159,7 @@
   },
   "binaries": {
     "kubectl-mongodb": {
-      "dev": {
+      "patch": {
         "s3-store": "s3://kubectl-mongodb/dev",
         "platforms": [
           "linux/amd64"
@@ -174,7 +174,7 @@
           "linux/arm64"
         ]
       },
-      "prod": {
+      "release": {
         "s3-store": "s3://kubectl-mongodb/prod",
         "platforms": [
           "darwin/amd64",
@@ -187,13 +187,13 @@
   },
   "helm-charts": {
     "mongodb-kubernetes": {
-      "dev": {
+      "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/helm-charts"
       },
       "staging": {
         "repository": "quay.io/mongodb/helm-charts-stg"
       },
-      "prod": {
+      "release": {
         "repository": "quay.io/mongodb/helm-charts"
       }
     }
