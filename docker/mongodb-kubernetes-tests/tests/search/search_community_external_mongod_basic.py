@@ -36,14 +36,18 @@ def mdbc(namespace: str) -> MongoDBCommunity:
     #     return resource
 
     mongot_host = f"{MDBC_RESOURCE_NAME}-search-svc.{namespace}.svc.cluster.local:27027"
-    resource.setdefault("spec", {}).setdefault("additionalMongodConfig", {}).setdefault("setParameter", {}).update(
-        {
-            "mongotHost": mongot_host,
-            "searchIndexManagementHostAndPort": mongot_host,
-            "skipAuthenticationToSearchIndexManagementServer": False,
-            "searchTLSMode": "disabled",
-        }
-    )
+    if "additionalMongodConfig" not in resource["spec"]:
+        resource["spec"]["additionalMongodConfig"] = {}
+    if "setParameter" not in resource["spec"]["additionalMongodConfig"]:
+        resource["spec"]["additionalMongodConfig"]["setParameter"] = {}
+
+    # Update the setParameter section
+    resource["spec"]["additionalMongodConfig"]["setParameter"].update({
+        "mongotHost": mongot_host,
+        "searchIndexManagementHostAndPort": mongot_host,
+        "skipAuthenticationToSearchIndexManagementServer": False,
+        "searchTLSMode": "disabled",
+    })
 
     return resource
 
@@ -59,7 +63,11 @@ def mdbs(namespace: str, mdbc: MongoDBCommunity) -> MongoDBSearch:
         f"{mdbc.name}-{i}.{mdbc.name}-svc.{namespace}.svc.cluster.local:27017"
         for i in range(mdbc["spec"]["members"])
     ]
-    resource.setdefault("spec", {})["source"] = {
+
+    if "source" not in resource["spec"]:
+        resource["spec"]["source"] = {}
+
+    resource["spec"]["source"] = {
         "external": {
             "hostAndPorts": seeds,
             "keyFileSecretRef": {"name": f"{mdbc.name}-keyfile"},

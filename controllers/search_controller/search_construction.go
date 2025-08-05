@@ -203,7 +203,6 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 				podSecurityContext,
 				podtemplatespec.WithPodLabels(labels),
 				podtemplatespec.WithVolumes(volumes),
-				//podtemplatespec.WithServiceAccount(sourceDBResource.DatabaseServiceName()),
 				podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
 				podtemplatespec.WithContainer(MongotContainerName, mongodbSearchContainer(mdbSearch, volumeMounts, searchImage)),
 			),

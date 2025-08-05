@@ -178,13 +178,17 @@ func (s *MongoDBSearch) GetOwnerReferences() []metav1.OwnerReference {
 	return []metav1.OwnerReference{ownerReference}
 }
 
-func (s *MongoDBSearch) GetMongoDBResourceRef() userv1.MongoDBResourceRef {
+func (s *MongoDBSearch) GetMongoDBResourceRef() *userv1.MongoDBResourceRef {
+	if s.IsExternalMongoDBSource() {
+		return nil
+	}
+
 	mdbResourceRef := userv1.MongoDBResourceRef{Namespace: s.Namespace, Name: s.Name}
 	if s.Spec.Source != nil && s.Spec.Source.MongoDBResourceRef != nil && s.Spec.Source.MongoDBResourceRef.Name != "" {
 		mdbResourceRef.Name = s.Spec.Source.MongoDBResourceRef.Name
 	}
 
-	return mdbResourceRef
+	return &mdbResourceRef
 }
 
 func (s *MongoDBSearch) GetMongotPort() int32 {
@@ -208,4 +212,8 @@ func (s *MongoDBSearch) TLSOperatorSecretNamespacedName() types.NamespacedName {
 
 func (s *MongoDBSearch) GetMongotHealthCheckPort() int32 {
 	return MongotDefautHealthCheckPort
+}
+
+func (s *MongoDBSearch) IsExternalMongoDBSource() bool {
+	return s.Spec.Source != nil && s.Spec.Source.ExternalMongoDBSource != nil
 }

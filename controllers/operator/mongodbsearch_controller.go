@@ -71,6 +71,10 @@ func getSourceMongoDBForSearch(ctx context.Context, kubeClient client.Client, se
 	}
 
 	sourceMongoDBResourceRef := search.GetMongoDBResourceRef()
+	if sourceMongoDBResourceRef == nil {
+		return nil, nil, xerrors.New("MongoDBSearch source MongoDB resource reference is not set")
+	}
+
 	mdbcName := types.NamespacedName{Namespace: search.GetNamespace(), Name: sourceMongoDBResourceRef.Name}
 	mdbc := &mdbcv1.MongoDBCommunity{}
 	if err := kubeClient.Get(ctx, mdbcName, mdbc); err != nil {
@@ -81,6 +85,11 @@ func getSourceMongoDBForSearch(ctx context.Context, kubeClient client.Client, se
 
 func mdbcSearchIndexBuilder(rawObj client.Object) []string {
 	mdbSearch := rawObj.(*searchv1.MongoDBSearch)
+	resourceRef := mdbSearch.GetMongoDBResourceRef()
+	if resourceRef == nil {
+		return []string{}
+	}
+
 	return []string{mdbSearch.GetMongoDBResourceRef().Namespace + "/" + mdbSearch.GetMongoDBResourceRef().Name}
 }
 
