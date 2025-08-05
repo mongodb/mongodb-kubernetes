@@ -2,6 +2,7 @@ import json
 
 from git import Repo
 
+from scripts.release.constants import DEFAULT_CHANGELOG_PATH
 from scripts.release.release_info import create_release_info_json
 
 
@@ -57,6 +58,8 @@ def test_create_release_info_json(
         "helm-charts": {"mongodb-kubernetes": {"repository": "quay.io/mongodb/helm-charts", "version": "1.0.0"}},
     }
     expected_release_info_json = json.dumps(expected_json, indent=2)
-    release_info_json = create_release_info_json(git_repo.working_dir)
+    release_info_json = create_release_info_json(
+        repository_path=git_repo.working_dir, changelog_sub_path=DEFAULT_CHANGELOG_PATH
+    )
 
     assert release_info_json == expected_release_info_json
