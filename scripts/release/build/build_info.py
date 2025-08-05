@@ -2,7 +2,8 @@ import json
 from typing import Dict
 
 from scripts.release.build.build_scenario import BuildScenario
-from scripts.release.constants import DEFAULT_REPOSITORY_PATH, DEFAULT_CHANGELOG_PATH, RELEASE_INITIAL_VERSION_ENV_VAR
+from scripts.release.constants import DEFAULT_REPOSITORY_PATH, DEFAULT_CHANGELOG_PATH, RELEASE_INITIAL_VERSION_ENV_VAR, \
+    get_initial_version, get_initial_commit_sha
 
 
 class ImageInfo(dict):
@@ -76,6 +77,11 @@ def load_build_info(scenario: BuildScenario,
     :param initial_version: Initial version to use if no previous version tag is found. If not provided, it will be determined based on `{RELEASE_INITIAL_VERSION_ENV_VAR}` environment variable.
     :return: BuildInfo object containing images, binaries, and helm charts information for specified scenario.
     """
+
+    if not initial_commit_sha:
+        initial_commit_sha = get_initial_commit_sha()
+    if not initial_version:
+        initial_version = get_initial_version()
 
     version = scenario.get_version(repository_path, changelog_sub_path, initial_commit_sha, initial_version)
 

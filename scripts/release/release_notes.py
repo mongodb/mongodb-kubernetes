@@ -20,8 +20,8 @@ from scripts.release.version import (
 def generate_release_notes(
     repository_path: str,
     changelog_sub_path: str,
-    initial_commit_sha: str | None,
-    initial_version: str,
+    initial_commit_sha: str = None,
+    initial_version: str = None,
 ) -> str:
     f"""Generate a release notes based on the changes since the previous version tag.
 
