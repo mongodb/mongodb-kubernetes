@@ -2,6 +2,7 @@ import json
 from typing import Dict
 
 from scripts.release.build.build_scenario import BuildScenario
+from scripts.release.constants import DEFAULT_REPOSITORY_PATH
 
 
 class ImageInfo(dict):
@@ -60,7 +61,9 @@ class BuildInfo(dict):
         }
 
 
-def load_build_info(scenario: BuildScenario, version: str) -> BuildInfo:
+def load_build_info(scenario: BuildScenario, repository_path: str = DEFAULT_REPOSITORY_PATH) -> BuildInfo:
+    version = scenario.get_version(repository_path)
+
     with open("build_info.json", "r") as f:
         build_info = json.load(f)
 

@@ -3,9 +3,10 @@ import pathlib
 
 from git import Repo
 
-from scripts.release.changelog import (
+from scripts.release.constants import (
     DEFAULT_CHANGELOG_PATH,
-    DEFAULT_INITIAL_GIT_TAG_VERSION,
+    DEFAULT_RELEASE_INITIAL_VERSION,
+    DEFAULT_REPOSITORY_PATH,
 )
 from scripts.release.version import calculate_next_version
 
@@ -17,7 +18,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-p",
         "--path",
-        default=".",
+        default=DEFAULT_REPOSITORY_PATH,
         metavar="",
         action="store",
         type=pathlib.Path,
@@ -43,11 +44,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "-v",
         "--initial-version",
-        default=DEFAULT_INITIAL_GIT_TAG_VERSION,
+        default=DEFAULT_RELEASE_INITIAL_VERSION,
         metavar="",
         action="store",
         type=str,
-        help=f"Version to use if no previous version tag is found. Default is '{DEFAULT_INITIAL_GIT_TAG_VERSION}'",
+        help=f"Version to use if no previous version tag is found. Default is '{DEFAULT_RELEASE_INITIAL_VERSION}'",
     )
     args = parser.parse_args()
 

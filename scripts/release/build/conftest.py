@@ -9,9 +9,9 @@ def get_manually_upgradable_versions() -> Dict[str, str]:
         build_info = json.load(f)
 
     return {
-        "readinessprobe": build_info["images"]["readinessprobe"]["prod"]["version"],
+        "readinessprobe": build_info["images"]["readinessprobe"]["release"]["version"],
         "operator_version_upgrade_post_start_hook": build_info["images"]["operator-version-upgrade-post-start-hook"][
-            "prod"
+            "release"
         ]["version"],
     }
 

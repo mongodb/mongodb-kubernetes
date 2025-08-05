@@ -3,11 +3,12 @@ import json
 import pathlib
 
 from scripts.release.build.build_info import load_build_info
-from scripts.release.version import BuildScenario
+from scripts.release.build.build_scenario import BuildScenario
+from scripts.release.constants import DEFAULT_REPOSITORY_PATH
 
 
-def create_release_info_json(version: str) -> str:
-    build_info = load_build_info(BuildScenario.RELEASE, version)
+def create_release_info_json(repository_path: str) -> str:
+    build_info = load_build_info(BuildScenario.RELEASE, repository_path)
 
     return json.dumps(build_info.to_json(), indent=2)
 
@@ -18,12 +19,13 @@ if __name__ == "__main__":
         formatter_class=argparse.RawTextHelpFormatter,
     )
     parser.add_argument(
-        "-v",
-        "--version",
+        "-p",
+        "--path",
+        default=DEFAULT_REPOSITORY_PATH,
         metavar="",
         action="store",
-        type=str,
-        help=f"Version to use for this release.",
+        type=pathlib.Path,
+        help="Path to the Git repository. Default is the current directory '.'",
     )
     parser.add_argument(
         "--output",
@@ -34,7 +36,7 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    release_info = create_release_info_json(args.version)
+    release_info = create_release_info_json(args.path)
 
     if args.output is not None:
         with open(args.output, "w") as file:

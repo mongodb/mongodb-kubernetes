@@ -1,50 +1,21 @@
-import os
-
 import semver
 from git import Commit, Repo, TagReference
 
-from scripts.release.build.build_info import BuildScenario
 from scripts.release.changelog import (
-    DEFAULT_CHANGELOG_PATH,
     ChangeEntry,
     ChangeKind,
     get_changelog_entries,
 )
 
-COMMIT_SHA_LENGTH = 8
-
-
-def get_version_for_build_scenario(
-    scenario: BuildScenario,
-    initial_commit_sha: str | None,
-    initial_version: str,
-    repository_path: str = ".",
-    changelog_sub_path: str = DEFAULT_CHANGELOG_PATH,
-) -> str:
-    repo = Repo(repository_path)
-
-    match scenario:
-        case BuildScenario.PATCH:
-            build_id = os.environ["BUILD_ID"]
-            if not build_id:
-                raise ValueError(f"BUILD_ID environment variable is not set for `{scenario}` scenario")
-            return build_id
-        case BuildScenario.STAGING:
-            return repo.head.object.hexsha[:COMMIT_SHA_LENGTH]
-        case BuildScenario.RELEASE:
-            return calculate_next_version(repo, changelog_sub_path, initial_commit_sha, initial_version)
-
-    raise ValueError(f"Unknown scenario: {scenario}")
-
 
 def calculate_next_version(
-    repo: Repo, changelog_sub_path: str, initial_commit_sha: str | None, initial_version: str
+    repo: Repo, changelog_sub_path: str, initial_commit_sha: str | None, initial_version: str | None
 ) -> str:
     return calculate_next_version_with_changelog(repo, changelog_sub_path, initial_commit_sha, initial_version)[0]
 
 
 def calculate_next_version_with_changelog(
-    repo: Repo, changelog_sub_path: str, initial_commit_sha: str | None, initial_version: str
+    repo: Repo, changelog_sub_path: str, initial_commit_sha: str | None, initial_version: str | None
 ) -> (str, list[ChangeEntry]):
     previous_version_tag, previous_version_commit = find_previous_version(repo, initial_commit_sha)
 
@@ -53,6 +24,8 @@ def calculate_next_version_with_changelog(
 
     # If there is no previous version tag, we start with the initial version tag
     if not previous_version_tag:
+        if not initial_version:
+            raise ValueError("No previous version tag found and no initial version provided.")
         version = initial_version
     else:
         version = increment_previous_version(previous_version_tag.name, changelog_kinds)

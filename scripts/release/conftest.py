@@ -5,7 +5,7 @@ import tempfile
 from _pytest.fixtures import fixture
 from git import Repo
 
-from scripts.release.changelog import DEFAULT_CHANGELOG_PATH
+from scripts.release.constants import DEFAULT_CHANGELOG_PATH
 
 
 @fixture(scope="session")
