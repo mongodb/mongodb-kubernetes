@@ -16,8 +16,9 @@ export CUSTOM_OM_VERSION
 
 export CUSTOM_MDB_VERSION=6.0.5-ent
 export CUSTOM_MDB_PREV_VERSION=5.0.7-ent
-export KUBE_ENVIRONMENT_NAME=minikube
-export CLUSTER_TYPE=minikube
+export KUBE_ENVIRONMENT_NAME=kind
+export CLUSTER_TYPE=kind
+
 
 # TODO: change once we have image building
 export BASE_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/lucian.tosa"

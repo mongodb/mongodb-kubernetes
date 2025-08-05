@@ -122,11 +122,3 @@ export cognito_workload_url="${cognito_workload_url}"
 export cognito_workload_user_id="${cognito_workload_user_id}"
 
 export MDB_UPDATE_LICENSES=true
-
-export BASE_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/lucian.tosa"
-export REGISTRY="${BASE_REPO_URL}"
-export INIT_DATABASE_IMAGE_REPOSITORY="${BASE_REPO_URL}/mongodb-kubernetes-init-database"
-export OPERATOR_REGISTRY=${BASE_REPO_URL}
-export DATABASE_REGISTRY=${BASE_REPO_URL}
-export INIT_DATABASE_REGISTRY=${BASE_REPO_URL}
-

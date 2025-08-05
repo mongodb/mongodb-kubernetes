@@ -1194,6 +1194,14 @@ task_groups:
       - e2e_om_ops_manager_backup
     <<: *teardown_group
 
+  - name: e2e_smoke_arm_task_group
+    max_hosts: -1
+    <<: *setup_group
+    <<: *setup_and_teardown_task
+    tasks:
+      - e2e_replica_set
+    <<: *teardown_group
+
   - name: e2e_smoke_ibm_task_group
     max_hosts: -1
     <<: *setup_group_ibm
@@ -1490,6 +1498,18 @@ buildvariants:
 #        variant: init_test_run
     tasks:
       - name: e2e_smoke_ibm_task_group
+
+  - name: e2e_smoke_arm
+    display_name: e2e_smoke_arm
+    tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
+    run_on:
+      - ubuntu2204-arm64-large
+    allowed_requesters: [ "patch", "github_tag" ]
+#    depends_on:
+#      - name: build_test_image
+#        variant: init_test_run
+    tasks:
+      - name: e2e_smoke_arm_task_group
 
   - name: e2e_static_smoke
     display_name: e2e_static_smoke
