@@ -1233,7 +1233,7 @@ def build_multi_arch_agent_in_sonar(
 
     build_image_generic(
         config=build_configuration,
-        image_name="mongodb-agent-ubi",
+        image_name="mongodb-agent",
         inventory_file="inventories/agent.yaml",
         multi_arch_args_list=joined_args,
         with_image_base=False,
