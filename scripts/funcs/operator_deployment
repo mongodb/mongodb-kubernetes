@@ -34,9 +34,9 @@ get_operator_helm_values() {
     "operator.telemetry.send.enabled=${MDB_OPERATOR_TELEMETRY_SEND_ENABLED:-false}"
     # lets collect and save in the configmap as frequently as we can
     "operator.telemetry.collection.frequency=${MDB_OPERATOR_TELEMETRY_COLLECTION_FREQUENCY:-1m}"
-    "search.community.version=${MDB_SEARCH_COMMUNITY_VERSION}"
-    "search.community.name=${MDB_SEARCH_COMMUNITY_NAME}"
     "search.community.repo=${MDB_SEARCH_COMMUNITY_REPO_URL}"
+    "search.community.name=${MDB_SEARCH_COMMUNITY_NAME}"
+    "search.community.version=${MDB_SEARCH_COMMUNITY_VERSION}"
   )
 
   if [[ "${MDB_OPERATOR_TELEMETRY_INSTALL_CLUSTER_ROLE_INSTALLATION:-}" != "" ]]; then
