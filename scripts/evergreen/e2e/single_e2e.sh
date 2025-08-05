@@ -213,75 +213,8 @@ run_tests() {
     echo
 
     # We need to make sure to access this file after the test has finished
-    # The /tmp/results directory is shared between containers via a volume
-    
-    echo "Attempting to copy myreport.xml (pytest XML report)..."
-    
-    # Try multiple approaches to get the XML file
-    xml_copied=false
-    
-    # Approach 1: Copy from keepalive container (should work since volume is shared)
-    echo "Attempt 1: Copying from keepalive container..."
-    if kubectl --context "${test_pod_context}" -n "${NAMESPACE}" cp "${TEST_APP_PODNAME}":/tmp/results/myreport.xml logs/myreport.xml -c keepalive 2>/dev/null; then
-        echo "Successfully copied myreport.xml from keepalive container"
-        xml_copied=true
-    else
-        echo "Failed to copy from keepalive container"
-    fi
-    
-    # Approach 2: Copy from test container (if still available)
-    if [[ "$xml_copied" == "false" ]]; then
-        echo "Attempt 2: Copying from test container..."
-        if kubectl --context "${test_pod_context}" -n "${NAMESPACE}" cp "${TEST_APP_PODNAME}":/tmp/results/myreport.xml logs/myreport.xml -c mongodb-enterprise-operator-tests 2>/dev/null; then
-            echo "Successfully copied myreport.xml from test container"
-            xml_copied=true
-        else
-            echo "Failed to copy from test container"
-        fi
-    fi
-    
-    # Approach 3: Try to debug and show what files exist
-    if [[ "$xml_copied" == "false" ]]; then
-        echo "Attempt 3: Debugging - checking what files exist..."
-        # Try to list files using the test container first
-        if kubectl --context "${test_pod_context}" -n "${NAMESPACE}" exec "${TEST_APP_PODNAME}" -c mongodb-enterprise-operator-tests -- ls -la /tmp/results/ 2>/dev/null; then
-            echo "Files found in /tmp/results/ from test container"
-        else
-            echo "Cannot list files from test container (likely terminated)"
-        fi
-        
-        # Try a wildcard copy to get any XML files
-        echo "Attempting wildcard copy of any XML files..."
-        kubectl --context "${test_pod_context}" -n "${NAMESPACE}" cp "${TEST_APP_PODNAME}":/tmp/results/ logs/tmp_results -c keepalive 2>/dev/null || true
-        if [[ -d logs/tmp_results ]]; then
-            echo "Contents of copied results directory:"
-            ls -la logs/tmp_results/ || true
-            # Move any XML files to the expected location
-            find logs/tmp_results/ -name "*.xml" -exec cp {} logs/myreport.xml \; 2>/dev/null && xml_copied=true
-            rm -rf logs/tmp_results
-        fi
-    fi
-    
-    if [[ "$xml_copied" == "true" ]]; then
-        echo "Successfully obtained myreport.xml"
-    else
-        echo "Failed to obtain myreport.xml through any method"
-    fi
-    
-    echo "Attempting to copy diagnostics..."
-    kubectl --context "${test_pod_context}" -n "${NAMESPACE}" cp "${TEST_APP_PODNAME}":/tmp/diagnostics logs -c keepalive || true
-
-    # Debug: Check what files were actually copied
-    echo "Contents of logs directory after copy attempts:"
-    ls -la logs/ || true
-    echo "Checking if myreport.xml exists and its size:"
-    if [[ -f logs/myreport.xml ]]; then
-        echo "myreport.xml exists, size: $(wc -c < logs/myreport.xml) bytes"
-        echo "First few lines of myreport.xml:"
-        head -5 logs/myreport.xml || true
-    else
-        echo "myreport.xml does not exist in logs directory"
-    fi
+    kubectl --context "${test_pod_context}" -n "${NAMESPACE}" -c keepalive cp "${TEST_APP_PODNAME}":/tmp/results/myreport.xml logs/myreport.xml
+    kubectl --context "${test_pod_context}" -n "${NAMESPACE}" -c keepalive cp "${TEST_APP_PODNAME}":/tmp/diagnostics logs
 
     status="$(kubectl --context "${test_pod_context}" get pod "${TEST_APP_PODNAME}" -n "${NAMESPACE}" -o jsonpath="{ .status }" | jq -r '.containerStatuses[] | select(.name == "mongodb-enterprise-operator-tests")'.state.terminated.reason)"
     [[ "${status}" == "Completed" ]]
