@@ -9,7 +9,7 @@ source scripts/funcs/printing
 source scripts/funcs/kubernetes
 
 # Parse command line arguments
-CONTAINER_RUNTIME="${1:-docker}"
+CONTAINER_RUNTIME="${CONTAINER_RUNTIME-"docker"}"
 
 # Validate and set up container runtime configuration
 setup_container_runtime() {

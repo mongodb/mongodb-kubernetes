@@ -50,7 +50,8 @@ run_setup_step "jq Setup" "scripts/evergreen/setup_jq.sh"
 
 run_setup_step "Minikube Host Setup with Container Runtime Detection" "scripts/minikube/setup_minikube_host.sh"
 
-run_setup_step "Container Registry Authentication" "scripts/dev/configure_docker_auth.sh podman"
+export CONTAINER_RUNTIME=podman
+run_setup_step "Container Registry Authentication" "scripts/dev/configure_docker_auth.sh"
 
 # The minikube cluster is already started by the setup_minikube_host.sh script
 echo ""
