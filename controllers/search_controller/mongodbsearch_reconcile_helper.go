@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/blang/semver"
 	"github.com/ghodss/yaml"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -82,7 +81,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	log = log.With("MongoDBSearch", r.mdbSearch.NamespacedName())
 	log.Infof("Reconciling MongoDBSearch")
 
-	if err := ValidateSearchSource(r.db); err != nil {
+	if err := r.db.ValidateMongoDBVersion(); err != nil {
 		return workflow.Failed(err)
 	}
 
@@ -390,17 +389,6 @@ func GetMongodConfigParameters(search *searchv1.MongoDBSearch) map[string]any {
 func mongotHostAndPort(search *searchv1.MongoDBSearch) string {
 	svcName := search.SearchServiceNamespacedName()
 	return fmt.Sprintf("%s.%s.svc.cluster.local:%d", svcName.Name, svcName.Namespace, search.GetMongotPort())
-}
-
-func ValidateSearchSource(db SearchSourceDBResource) error {
-	version, err := semver.ParseTolerant(db.GetMongoDBVersion())
-	if err != nil {
-		return xerrors.Errorf("error parsing MongoDB version '%s': %w", db.GetMongoDBVersion(), err)
-	} else if version.LT(semver.MustParse("8.0.10")) {
-		return xerrors.New("MongoDB version must be 8.0.10 or higher")
-	}
-
-	return nil
 }
 
 func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSource(ctx context.Context) error {

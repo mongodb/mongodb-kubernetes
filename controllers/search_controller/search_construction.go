@@ -9,6 +9,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 
+	"github.com/blang/semver"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
@@ -18,6 +19,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/probes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"golang.org/x/xerrors"
 )
 
 const (
@@ -34,10 +36,10 @@ const (
 // TODO check if we could use already existing interface (DbCommon, MongoDBStatefulSetOwner, etc.)
 type SearchSourceDBResource interface {
 	KeyfileSecretName() string
-	GetMongoDBVersion() string
 	IsSecurityTLSConfigEnabled() bool
 	TLSOperatorCASecretNamespacedName() types.NamespacedName
 	HostSeeds() []string
+	ValidateMongoDBVersion() error
 }
 
 func NewSearchSourceDBResourceFromMongoDBCommunity(mdbc *mdbcv1.MongoDBCommunity) SearchSourceDBResource {
@@ -54,16 +56,16 @@ type externalSearchResource struct {
 	spec      *searchv1.ExternalMongoDBSource
 }
 
+func (r *externalSearchResource) ValidateMongoDBVersion() error {
+	return nil
+}
+
 func (r *externalSearchResource) KeyfileSecretName() string {
 	if r.spec.KeyFileSecretKeyRef != nil {
 		return r.spec.KeyFileSecretKeyRef.Name
 	}
 
 	return ""
-}
-
-func (r *externalSearchResource) GetMongoDBVersion() string {
-	return "8.0.10" // replace this with a validate method that is always true for external mongodb
 }
 
 func (r *externalSearchResource) IsSecurityTLSConfigEnabled() bool {
@@ -84,6 +86,17 @@ func (r *externalSearchResource) HostSeeds() []string { return r.spec.HostAndPor
 
 type mdbcSearchResource struct {
 	db *mdbcv1.MongoDBCommunity
+}
+
+func (r *mdbcSearchResource) ValidateMongoDBVersion() error {
+	version, err := semver.ParseTolerant(r.db.GetMongoDBVersion())
+	if err != nil {
+		return xerrors.Errorf("error parsing MongoDB version '%s': %w", r.db.GetMongoDBVersion(), err)
+	} else if version.LT(semver.MustParse("8.0.10")) {
+		return xerrors.New("MongoDB version must be 8.0.10 or higher")
+	}
+
+	return nil
 }
 
 func (r *mdbcSearchResource) HostSeeds() []string {
@@ -123,9 +136,6 @@ func (r *mdbcSearchResource) DatabaseServiceName() string {
 }
 
 // replace with a validate method that is always true for external mongodb
-func (r *mdbcSearchResource) GetMongoDBVersion() string {
-	return r.db.Spec.Version
-}
 
 func (r *mdbcSearchResource) IsSecurityTLSConfigEnabled() bool {
 	return r.db.Spec.Security.TLS.Enabled

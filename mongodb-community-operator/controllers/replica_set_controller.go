@@ -716,7 +716,7 @@ func (r ReplicaSetReconciler) buildAutomationConfig(ctx context.Context, mdb mdb
 	// for the mongod automation config.
 	if len(searchList.Items) == 1 {
 		searchSource := search_controller.NewSearchSourceDBResourceFromMongoDBCommunity(&mdb)
-		if search_controller.ValidateSearchSource(searchSource) == nil {
+		if searchSource.ValidateMongoDBVersion() == nil {
 			search = &searchList.Items[0]
 		}
 	}
