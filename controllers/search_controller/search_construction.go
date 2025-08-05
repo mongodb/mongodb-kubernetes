@@ -1,12 +1,15 @@
 package search_controller
 
 import (
+	"fmt"
+
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 
+	"github.com/blang/semver"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
@@ -16,6 +19,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/probes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"golang.org/x/xerrors"
 )
 
 const (
@@ -31,25 +35,76 @@ const (
 //
 // TODO check if we could use already existing interface (DbCommon, MongoDBStatefulSetOwner, etc.)
 type SearchSourceDBResource interface {
-	Name() string
-	NamespacedName() types.NamespacedName
 	KeyfileSecretName() string
-	GetNamespace() string
-	HasSeparateDataAndLogsVolumes() bool
-	DatabaseServiceName() string
-	DatabasePort() int
-	GetMongoDBVersion() string
 	IsSecurityTLSConfigEnabled() bool
 	TLSOperatorCASecretNamespacedName() types.NamespacedName
-	Members() int
+	HostSeeds() []string
+	ValidateMongoDBVersion() error
 }
 
 func NewSearchSourceDBResourceFromMongoDBCommunity(mdbc *mdbcv1.MongoDBCommunity) SearchSourceDBResource {
 	return &mdbcSearchResource{db: mdbc}
 }
 
+func NewSearchSourceDBResourceFromExternal(namespace string, spec *searchv1.ExternalMongoDBSource) SearchSourceDBResource {
+	return &externalSearchResource{namespace: namespace, spec: spec}
+}
+
+// externalSearchResource implements SearchSourceDBResource for deployments managed outside the operator.
+type externalSearchResource struct {
+	namespace string
+	spec      *searchv1.ExternalMongoDBSource
+}
+
+func (r *externalSearchResource) ValidateMongoDBVersion() error {
+	return nil
+}
+
+func (r *externalSearchResource) KeyfileSecretName() string {
+	if r.spec.KeyFileSecretKeyRef != nil {
+		return r.spec.KeyFileSecretKeyRef.Name
+	}
+
+	return ""
+}
+
+func (r *externalSearchResource) IsSecurityTLSConfigEnabled() bool {
+	if r.spec.TLS != nil {
+		return r.spec.TLS.Enabled
+	}
+	return false
+}
+
+func (r *externalSearchResource) TLSOperatorCASecretNamespacedName() types.NamespacedName {
+	if r.spec.TLS != nil {
+		return types.NamespacedName{Name: r.spec.TLS.CASecretRef.Name, Namespace: r.namespace}
+	}
+	return types.NamespacedName{}
+}
+
+func (r *externalSearchResource) HostSeeds() []string { return r.spec.HostAndPorts }
+
 type mdbcSearchResource struct {
 	db *mdbcv1.MongoDBCommunity
+}
+
+func (r *mdbcSearchResource) ValidateMongoDBVersion() error {
+	version, err := semver.ParseTolerant(r.db.GetMongoDBVersion())
+	if err != nil {
+		return xerrors.Errorf("error parsing MongoDB version '%s': %w", r.db.GetMongoDBVersion(), err)
+	} else if version.LT(semver.MustParse("8.0.10")) {
+		return xerrors.New("MongoDB version must be 8.0.10 or higher")
+	}
+
+	return nil
+}
+
+func (r *mdbcSearchResource) HostSeeds() []string {
+	seeds := make([]string, r.db.Spec.Members)
+	for i := range seeds {
+		seeds[i] = fmt.Sprintf("%s-%d.%s.%s.svc.cluster.local:%d", r.db.Name, i, r.db.ServiceName(), r.db.Namespace, r.db.GetMongodConfiguration().GetDBPort())
+	}
+	return seeds
 }
 
 func (r *mdbcSearchResource) Members() int {
@@ -80,9 +135,7 @@ func (r *mdbcSearchResource) DatabaseServiceName() string {
 	return r.db.ServiceName()
 }
 
-func (r *mdbcSearchResource) GetMongoDBVersion() string {
-	return r.db.Spec.Version
-}
+// replace with a validate method that is always true for external mongodb
 
 func (r *mdbcSearchResource) IsSecurityTLSConfigEnabled() bool {
 	return r.db.Spec.Security.TLS.Enabled
@@ -161,7 +214,6 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 				podSecurityContext,
 				podtemplatespec.WithPodLabels(labels),
 				podtemplatespec.WithVolumes(volumes),
-				podtemplatespec.WithServiceAccount(sourceDBResource.DatabaseServiceName()),
 				podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
 				podtemplatespec.WithContainer(MongotContainerName, mongodbSearchContainer(mdbSearch, volumeMounts, searchImage)),
 			),

@@ -64,7 +64,7 @@ func TestMongoDBSearchReconcileHelper_ValidateSearchSource(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			db := NewSearchSourceDBResourceFromMongoDBCommunity(&c.mdbc)
-			err := ValidateSearchSource(db)
+			err := db.ValidateMongoDBVersion()
 			if c.expectedError == "" {
 				assert.NoError(t, err)
 			} else {
