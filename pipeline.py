@@ -70,7 +70,7 @@ def _setup_tracing():
         trace_id=int(trace_id, 16),
         span_id=int(parent_id, 16),
         is_remote=False,
-        # Magic number needed for our OTEL collector
+        # This flag ensures the span is sampled and sent to the collector
         trace_flags=TraceFlags(0x01),
     )
     ctx = trace.set_span_in_context(NonRecordingSpan(span_context))
@@ -1053,32 +1053,56 @@ def build_image_generic(
         if registry_address_override:
             registry = registry_address_override
 
-        for args in multi_arch_args_list:
+        for args in multi_arch_args_list:  # in case we are building multiple architectures
+            args["quay_registry"] = registry
             sonar_build_image(image_name, config, args, inventory_file, False)
-
         if is_multi_arch:
+            # we only push the manifests of the context images here,
+            # since daily rebuilds will push the manifests for the proper images later
             architectures = [v["architecture"] for v in multi_arch_args_list]
             create_and_push_manifest(registry, f"{version}-context", architectures=architectures)
             if not config.is_release_step_executed():
+                # Normally daily rebuild would create and push the manifests for the non-context images.
+                # But since we don't run daily rebuilds on ecr image builds, we can do that step instead here.
+                # We only need to push manifests for multi-arch images.
                 create_and_push_manifest(registry, version, architectures=architectures)
+                latest_tag = "latest"
+                if not is_running_in_patch() and is_running_in_evg_pipeline():
+                    logger.info(f"Tagging and pushing {registry}:{version} as {latest_tag}")
+                    try:
+                        client = docker.from_env()
+                        source_image = client.images.pull(f"{registry}:{version}")
+                        source_image.tag(registry, latest_tag)
+                        client.images.push(registry, tag=latest_tag)
+                        span = trace.get_current_span()
+                        span.set_attribute("mck.image.push_latest", f"{registry}:{latest_tag}")
+                        logger.info(f"Successfully tagged and pushed {registry}:{latest_tag}")
+                    except docker.errors.DockerException as e:
+                        logger.error(f"Failed to tag/push {latest_tag} image: {e}")
+                        raise
+                else:
+                    logger.info(
+                        f"Skipping tagging and pushing {registry}:{version} as {latest_tag} tag; is_running_in_patch={is_running_in_patch()}, is_running_in_evg_pipeline={is_running_in_evg_pipeline()}"
+                    )
 
-        if config.sign and config.is_release_step_executed():
-            sign_and_verify_context_image(registry, version)
+            # Sign and verify the context image if on releases if required.
+            if config.sign and config.is_release_step_executed():
+                sign_and_verify_context_image(registry, version)
 
-        span = trace.get_current_span()
-        span.set_attribute("mck.image.image_name", image_name)
-        span.set_attribute("mck.image.version", version)
-        span.set_attribute("mck.image.is_release", config.is_release_step_executed())
-        span.set_attribute("mck.image.is_multi_arch", is_multi_arch)
+            span = trace.get_current_span()
+            span.set_attribute("mck.image.image_name", image_name)
+            span.set_attribute("mck.image.version", version)
+            span.set_attribute("mck.image.is_release", config.is_release_step_executed())
+            span.set_attribute("mck.image.is_multi_arch", is_multi_arch)
 
-        if config.is_release_step_executed() and version and QUAY_REGISTRY_URL in registry:
-            logger.info(
-                f"finished building context images, releasing them now via daily builds process for"
-                f" image: {image_name} and version: {version}!"
-            )
-            if is_run_in_parallel:
-                time.sleep(random.uniform(0, 5))
-            build_image_daily(image_name, version, version)(config)
+            if config.is_release_step_executed() and version and QUAY_REGISTRY_URL in registry:
+                logger.info(
+                    f"finished building context images, releasing them now via daily builds process for"
+                    f" image: {image_name} and version: {version}!"
+                )
+                if is_run_in_parallel:
+                    time.sleep(random.uniform(0, 5))
+                build_image_daily(image_name, version, version)(config)
 
     except Exception as e:
         logger.error(f"Error during build_image_generic for image {image_name}: {e}")
@@ -1571,7 +1595,6 @@ def calculate_images_to_build(
 
 
 def main():
-    _setup_tracing()
     _setup_tracing()
 
     parser = argparse.ArgumentParser()

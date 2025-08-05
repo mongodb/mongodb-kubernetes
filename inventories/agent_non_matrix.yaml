@@ -1,0 +1,64 @@
+vars:
+  quay_registry: quay.io/mongodb/mongodb-agent-ubi
+  s3_bucket: s3://enterprise-operator-dockerfiles/dockerfiles/mongodb-agent
+
+images:
+  - name: mongodb-agent
+    vars:
+      context: .
+      template_context: docker/mongodb-agent-non-matrix
+
+    platform: linux/$(inputs.params.architecture)
+    stages:
+      - name: mongodb-agent-context
+        task_type: docker_build
+        dockerfile: docker/mongodb-agent-non-matrix/Dockerfile.builder
+        tags: [ "ubi" ]
+        buildargs:
+          agent_version: $(inputs.params.version)
+          tools_version: $(inputs.params.tools_version)
+          agent_distro: $(inputs.params.agent_distro)
+          tools_distro: $(inputs.params.tools_distro)
+
+        labels:
+          quay.expires-after: 48h
+
+        output:
+          - registry: $(inputs.params.registry)/mongodb-agent-ubi
+            tag: $(inputs.params.version)-context-$(inputs.params.architecture)
+
+      - name: mongodb-agent-build-context-release
+        task_type: docker_build
+        tags: ["release"]
+        dockerfile: docker/mongodb-agent-non-matrix/Dockerfile.builder
+        buildargs:
+          agent_version: $(inputs.params.version)
+          tools_version: $(inputs.params.tools_version)
+          agent_distro: $(inputs.params.agent_distro)
+          tools_distro: $(inputs.params.tools_distro)
+        output:
+          - registry: $(inputs.params.quay_registry)
+            tag: $(inputs.params.version)-context-$(inputs.params.architecture)
+
+      - name: mongodb-agent-build
+        task_type: docker_build
+        tags: [ "ubi" ]
+        buildargs:
+          imagebase: $(inputs.params.registry)/mongodb-agent-ubi:$(inputs.params.version)-context-$(inputs.params.architecture)
+          version:  $(inputs.params.version)
+        dockerfile: docker/mongodb-agent-non-matrix/Dockerfile.old
+
+        labels:
+          quay.expires-after: 48h
+
+        output:
+          - registry: $(inputs.params.registry)/mongodb-agent-ubi
+            tag: $(inputs.params.version)-$(inputs.params.architecture)
+          - registry: $(inputs.params.registry)/mongodb-agent-ubi
+            tag: latest-$(inputs.params.architecture)
+
+      - name: mongodb-agent-template-ubi
+        task_type: dockerfile_template
+        tags: ["release"]
+        output:
+          - dockerfile: $(inputs.params.s3_bucket)/$(inputs.params.version)/ubi/Dockerfile

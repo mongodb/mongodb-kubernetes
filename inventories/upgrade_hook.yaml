@@ -44,7 +44,7 @@ images:
         buildargs:
           imagebase: $(inputs.params.registry)/mongodb-kubernetes-operator-version-upgrade-post-start-hook:$(inputs.params.version_id)-context-$(inputs.params.architecture)
           version: $(inputs.params.version)
-        dockerfile: docker/mongodb-kubernetes-upgrade-hook/Dockerfile
+        dockerfile: docker/mongodb-kubernetes-upgrade-hook/Dockerfile.old
 
         labels:
           quay.expires-after: 48h
