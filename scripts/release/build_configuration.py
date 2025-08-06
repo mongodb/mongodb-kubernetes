@@ -15,7 +15,6 @@ class BuildConfiguration:
     platforms: Optional[List[str]] = None
     sign: bool = False
     all_agents: bool = False
-    debug: bool = True
 
     def is_release_step_executed(self) -> bool:
         return self.scenario == BuildScenario.RELEASE

@@ -191,7 +191,6 @@ def build_config_from_args(args):
         version=version,
         base_registry=registry,
         parallel=args.parallel,
-        debug=args.debug,  # TODO: is debug used ?
         platforms=platforms,
         sign=sign,
         all_agents=all_agents,
