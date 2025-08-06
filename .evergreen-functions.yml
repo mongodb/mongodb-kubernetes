@@ -540,6 +540,7 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/evergreen/run_python.sh scripts/release/pipeline_main.py --parallel ${image_name}
 
+  # TODO: CLOUDP-335471 ; once all image builds are made with the new atomic pipeline, remove the following function
   legacy_pipeline:
     - *switch_context
     - command: shell.exec
