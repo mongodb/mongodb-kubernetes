@@ -17,9 +17,6 @@ from opentelemetry import trace
 from packaging.version import Version
 
 from lib.base_logger import logger
-from scripts.evergreen.release.agent_matrix import (
-    get_supported_operator_versions,
-)
 from scripts.evergreen.release.images_signing import (
     sign_image,
     verify_signature,
@@ -32,7 +29,6 @@ from .build_images import process_image
 from .optimized_operator_build import build_operator_image_fast
 
 TRACER = trace.get_tracer("evergreen-agent")
-DEFAULT_NAMESPACE = "default"
 
 
 
@@ -507,10 +503,10 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         logger.info(f"running with factor of {max_workers}")
         print(f"======= Versions to build {agent_versions_to_build} =======")
-        for agent_version in agent_versions_to_build:
+        for idx, agent_version in enumerate(agent_versions_to_build):
             # We don't need to keep create and push the same image on every build.
             # It is enough to create and push the non-operator suffixed images only during releases to ecr and quay.
-            print(f"======= Building Agent {agent_version} =======")
+            print(f"======= Building Agent {agent_version} ({idx}/{len(agent_versions_to_build)})")
             _build_agent_operator(
                 agent_version,
                 build_configuration,
