@@ -525,57 +525,6 @@ def build_agent_pipeline(
     )
 
 
-def build_multi_arch_agent_in_sonar(
-    build_configuration: BuildConfiguration,
-    image_version,
-    tools_version,
-):
-    """
-    Creates the multi-arch non-operator suffixed version of the agent.
-    This is a drop-in replacement for the agent
-    release from MCO.
-    This should only be called during releases.
-    Which will lead to a release of the multi-arch
-    images to quay and ecr.
-    """
-
-    logger.info(f"building multi-arch base image for: {image_version}")
-    args = {
-        "version": image_version,
-        "tools_version": tools_version,
-    }
-
-    arch_arm = {
-        "agent_distro": "amzn2_aarch64",
-        "tools_distro": get_tools_distro(tools_version=tools_version)["arm"],
-        "architecture": "arm64",
-    }
-    arch_amd = {
-        "agent_distro": "rhel9_x86_64",
-        "tools_distro": get_tools_distro(tools_version=tools_version)["amd"],
-        "architecture": "amd64",
-    }
-
-    new_rhel_tool_version = "100.10.0"
-    if Version(tools_version) >= Version(new_rhel_tool_version):
-        arch_arm["tools_distro"] = "rhel93-aarch64"
-        arch_amd["tools_distro"] = "rhel93-x86_64"
-
-    joined_args = [args | arch_amd]
-
-    # Only include arm64 if we shouldn't skip it
-    if not should_skip_arm64():
-        joined_args.append(args | arch_arm)
-
-    build_image_generic(
-        image_name="mongodb-agent-ubi",
-        dockerfile_path="docker/mongodb-agent-non-matrix/Dockerfile",
-        build_configuration=build_configuration,
-        is_multi_arch=True,
-        multi_arch_args_list=joined_args,
-    )
-
-
 def build_agent_default_case(build_configuration: BuildConfiguration):
     """
     Build the agent only for the latest operator for patches and operator releases.
@@ -615,78 +564,6 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
                 build_configuration.version,
                 tasks_queue,
             )
-
-    queue_exception_handling(tasks_queue)
-
-
-def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
-    """
-    Build the agent matrix (operator version x agent version), triggered by PCT.
-
-    We have three cases where we need to build the agent:
-    - e2e test runs
-    - operator releases
-    - OM/CM bumps via PCT
-
-    We don’t require building a full matrix on e2e test runs and operator releases.
-    "Operator releases" and "e2e test runs" require only the latest operator x agents
-
-    In OM/CM bumps, we release a new agent which we potentially require to release to older operators as well.
-    This function takes care of that.
-    """
-    release = load_release_file()
-    is_release = build_configuration.is_release_step_executed()
-
-    if build_configuration.all_agents:
-        # We need to release [all agents x latest operator] on operator releases to make e2e tests work
-        # This was changed previously in https://github.com/mongodb/mongodb-kubernetes/pull/3960
-        agent_versions_to_build = gather_all_supported_agent_versions(release)
-    else:
-        # we only need to release the latest images, we don't need to re-push old images, as we don't clean them up anymore.
-        agent_versions_to_build = gather_latest_agent_versions(release)
-
-    legacy_agent_versions_to_build = release["supportedImages"]["mongodb-agent"]["versions"]
-
-    tasks_queue = Queue()
-    max_workers = 1
-    if build_configuration.parallel:
-        max_workers = None
-        if build_configuration.parallel_factor > 0:
-            max_workers = build_configuration.parallel_factor
-    with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        logger.info(f"running with factor of {max_workers}")
-
-        # We need to regularly push legacy agents, otherwise ecr lifecycle policy will expire them.
-        # We only need to push them once in a while to ecr, so no quay required
-        if not is_release:
-            for legacy_agent in legacy_agent_versions_to_build:
-                tasks_queue.put(
-                    executor.submit(
-                        build_multi_arch_agent_in_sonar,
-                        build_configuration,
-                        legacy_agent,
-                        # we assume that all legacy agents are build using that tools version
-                        "100.9.4",
-                    )
-                )
-
-        for agent_version in agent_versions_to_build:
-            # We don't need to keep create and push the same image on every build.
-            # It is enough to create and push the non-operator suffixed images only during releases to ecr and quay.
-            if build_configuration.is_release_step_executed() or build_configuration.all_agents:
-                tasks_queue.put(
-                    executor.submit(
-                        build_multi_arch_agent_in_sonar,
-                        build_configuration,
-                        agent_version[0],
-                        agent_version[1],
-                    )
-                )
-            for operator_version in get_supported_operator_versions():
-                logger.info(f"Building Agent versions: {agent_version} for Operator versions: {operator_version}")
-                _build_agent_operator(
-                    agent_version, build_configuration, executor, operator_version, tasks_queue, is_release
-                )
 
     queue_exception_handling(tasks_queue)
 

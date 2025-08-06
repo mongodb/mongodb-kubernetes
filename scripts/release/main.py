@@ -20,7 +20,6 @@ from lib.base_logger import logger
 from scripts.evergreen.release.images_signing import mongodb_artifactory_login
 from scripts.release.atomic_pipeline import (
     build_agent_default_case,
-    build_agent_on_agent_bump,
     build_CLI_SBOM,
     build_database_image,
     build_init_appdb,
@@ -61,7 +60,6 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         "upgrade-hook": build_upgrade_hook_image,
         "operator-quick": build_operator_image_patch,
         "database": build_database_image,
-        "agent-pct": build_agent_on_agent_bump,
         "agent": build_agent_default_case,
         #
         # Init images
