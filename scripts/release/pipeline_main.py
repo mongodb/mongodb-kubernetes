@@ -18,7 +18,6 @@ from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
 from lib.base_logger import logger
 from scripts.release.atomic_pipeline import (
     build_agent_default_case,
-    build_CLI_SBOM,
     build_database_image,
     build_init_appdb,
     build_init_database,
@@ -50,7 +49,6 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
     """Returns a dictionary of image names that can be built."""
 
     image_builders = {
-        "cli": build_CLI_SBOM,
         "test": build_tests_image,
         "operator": build_operator_image,
         "mco-test": build_mco_tests_image,

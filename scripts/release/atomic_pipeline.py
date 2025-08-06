@@ -222,29 +222,6 @@ def build_database_image(build_configuration: BuildConfiguration):
         extra_args=args,
     )
 
-
-def build_CLI_SBOM(build_configuration: BuildConfiguration):
-    if not is_running_in_evg_pipeline():
-        logger.info("Skipping SBOM Generation (enabled only for EVG)")
-        return
-
-    if build_configuration.platforms is None or len(build_configuration.platforms) == 0:
-        platforms = ["linux/amd64", "linux/arm64", "darwin/arm64", "darwin/amd64"]
-    elif "arm64" in build_configuration.platforms:
-        platforms = ["linux/arm64", "darwin/arm64"]
-    elif "amd64" in build_configuration.platforms:
-        platforms = ["linux/amd64", "darwin/amd64"]
-    else:
-        logger.error(f"Unrecognized architectures {build_configuration.platforms}. Skipping SBOM generation")
-        return
-
-    release = load_release_file()
-    version = release["mongodbOperator"]
-
-    for platform in platforms:
-        generate_sbom_for_cli(version, platform)
-
-
 @TRACER.start_as_current_span("sign_image_in_repositories")
 def sign_image_in_repositories(args: Dict[str, str], arch: str = None):
     span = trace.get_current_span()
