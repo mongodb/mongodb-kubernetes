@@ -18,8 +18,8 @@ from lib.base_logger import logger
 from scripts.release.atomic_pipeline import (
     build_agent_default_case,
     build_database_image,
-    build_init_appdb,
-    build_init_database,
+    build_init_appdb_image,
+    build_init_database_image,
     build_init_om_image,
     build_mco_tests_image,
     build_om_image,
@@ -59,8 +59,8 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         "agent-pct": build_agent_on_agent_bump,
         "agent": build_agent_default_case,
         # Init images
-        "init-appdb": build_init_appdb,  # working
-        "init-database": build_init_database,  # working
+        "init-appdb": build_init_appdb_image,  # working
+        "init-database": build_init_database_image,  # working
         "init-ops-manager": build_init_om_image,  # working
         # Ops Manager image
         "ops-manager": build_om_image,

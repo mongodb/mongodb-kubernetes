@@ -71,6 +71,18 @@ def test_load_build_info_patch(git_repo: Repo):
                 version=patch_id,
                 sign=False,
             ),
+            "agent": ImageInfo(
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent-ubi",
+                platforms=["linux/amd64"],
+                version="agent-version-from-release.json",
+                sign=False,
+            ),
+            "ops-manager": ImageInfo(
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-ops-manager",
+                platforms=["linux/amd64"],
+                version="om-version-from-release.json",
+                sign=False,
+            ),
         },
         binaries={
             "kubectl-mongodb": BinaryInfo(
@@ -153,6 +165,18 @@ def test_load_build_info_staging(git_repo: Repo):
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-operator-version-upgrade-post-start-hook",
                 platforms=["linux/arm64", "linux/amd64"],
                 version=expecter_commit_sha,
+                sign=True,
+            ),
+            "agent": ImageInfo(
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-agent-ubi",
+                platforms=["linux/arm64", "linux/amd64"],
+                version="agent-version-from-release.json",
+                sign=True,
+            ),
+            "ops-manager": ImageInfo(
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-enterprise-ops-manager",
+                platforms=["linux/arm64", "linux/amd64"],
+                version="om-version-from-release.json",
                 sign=True,
             ),
         },

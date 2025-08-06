@@ -233,6 +233,9 @@ def build_om_image(build_configuration: ImageBuildConfiguration):
     if om_version is None:
         raise ValueError("`om_version` should be defined.")
 
+    # Set the version in the build configuration (it is not provided in the build_configuration)
+    build_configuration.version = om_version
+
     om_download_url = os.environ.get("om_download_url", "")
     if om_download_url == "":
         om_download_url = find_om_url(om_version)
@@ -249,7 +252,7 @@ def build_om_image(build_configuration: ImageBuildConfiguration):
     )
 
 
-def build_init_appdb(build_configuration: ImageBuildConfiguration):
+def build_init_appdb_image(build_configuration: ImageBuildConfiguration):
     release = load_release_file()
     base_url = "https://fastdl.mongodb.org/tools/db/"
     mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
@@ -263,7 +266,7 @@ def build_init_appdb(build_configuration: ImageBuildConfiguration):
 
 
 # TODO: nam static: remove this once static containers becomes the default
-def build_init_database(build_configuration: ImageBuildConfiguration):
+def build_init_database_image(build_configuration: ImageBuildConfiguration):
     release = load_release_file()
     base_url = "https://fastdl.mongodb.org/tools/db/"
     mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
@@ -329,12 +332,10 @@ def build_agent_pipeline(
     args = {
         "version": image_version,
         "agent_version": agent_version,
-        "ubi_suffix": "-ubi",
         "release_version": image_version,
         "init_database_image": init_database_image,
         "mongodb_tools_url_ubi": mongodb_tools_url_ubi,
         "mongodb_agent_url_ubi": mongodb_agent_url_ubi,
-        "quay_registry": build_configuration_copy.registry,
     }
 
     pipeline_process_image(

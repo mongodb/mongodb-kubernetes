@@ -197,6 +197,42 @@
           "linux/amd64"
         ]
       }
+    },
+    "agent": {
+      "patch": {
+        "version": "agent-version-from-release.json",
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent-ubi",
+        "platforms": [
+          "linux/amd64"
+        ]
+      },
+      "staging": {
+        "version": "agent-version-from-release.json",
+        "sign": true,
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-agent-ubi",
+        "platforms": [
+          "linux/arm64",
+          "linux/amd64"
+        ]
+      }
+    },
+    "ops-manager": {
+      "patch": {
+        "version": "om-version-from-release.json",
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-ops-manager",
+        "platforms": [
+          "linux/amd64"
+        ]
+      },
+      "staging": {
+        "version": "om-version-from-release.json",
+        "sign": true,
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-enterprise-ops-manager",
+        "platforms": [
+          "linux/arm64",
+          "linux/amd64"
+        ]
+      }
     }
   },
   "binaries": {
