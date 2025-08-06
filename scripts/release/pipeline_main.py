@@ -133,13 +133,7 @@ def main():
         "--registry",
         help="Override the base registry instead of resolving from build scenario",
     )
-
-    # Agent specific arguments
-    parser.add_argument(
-        "--all-agents",
-        action="store_true",
-        help="Build all agent variants instead of only the latest.",
-    )
+    # For agent builds
     parser.add_argument(
         "--parallel-factor",
         default=0,
@@ -180,7 +174,6 @@ def build_config_from_args(args):
     version = args.version or build_context.get_version()
     registry = args.registry or build_context.get_base_registry()
     sign = args.sign or build_context.signing_enabled
-    all_agents = args.all_agents or bool(os.environ.get("all_agents", False))
 
     return BuildConfiguration(
         scenario=scenario,
@@ -189,7 +182,6 @@ def build_config_from_args(args):
         parallel=args.parallel,
         platforms=platforms,
         sign=sign,
-        all_agents=all_agents,
         parallel_factor=args.parallel_factor,
     )
 
