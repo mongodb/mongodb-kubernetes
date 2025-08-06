@@ -81,7 +81,7 @@ def build_image(image_name: str, build_configuration: ImageBuildConfiguration):
 def image_build_config_from_args(args) -> ImageBuildConfiguration:
     image = args.image
 
-    build_scenario = BuildScenario(args.scenario) or BuildScenario.infer_scenario_from_environment()
+    build_scenario = get_scenario_from_arg(args.scenario) or BuildScenario.infer_scenario_from_environment()
 
     build_info = load_build_info(build_scenario)
     image_build_info = build_info.images.get(image)
@@ -92,7 +92,7 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     # TODO: cover versions for agents and OM images
     version = args.version or image_build_info.version
     registry = args.registry or image_build_info.repository
-    platforms = get_platforms_from_arg(args) or image_build_info.platforms
+    platforms = get_platforms_from_arg(args.platform) or image_build_info.platforms
     sign = args.sign or image_build_info.sign
     # TODO: remove "all_agents" from context and environment variables support (not needed anymore)
     all_agents = args.all_agents or build_scenario.all_agents()
@@ -109,12 +109,22 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     )
 
 
-def get_platforms_from_arg(args):
+def get_scenario_from_arg(args_scenario: str) -> BuildScenario | None:
+    if args_scenario:
+        try:
+            return BuildScenario(args_scenario)
+        except ValueError as e:
+            raise ValueError(f"Invalid scenario '{args_scenario}': {e}")
+
+    return None
+
+
+def get_platforms_from_arg(args_platforms: str) -> list[str] | None:
     """Parse and validate the --platform argument"""
-    platforms = [p.strip() for p in args.platform.split(",")]
+    platforms = [p.strip() for p in args_platforms.split(",")]
     if any(p not in SUPPORTED_PLATFORMS for p in platforms):
         raise ValueError(
-            f"Unsupported platform in --platforms '{args.platform}'. Supported platforms: {', '.join(SUPPORTED_PLATFORMS)}"
+            f"Unsupported platform in --platforms '{args_platforms}'. Supported platforms: {', '.join(SUPPORTED_PLATFORMS)}"
         )
     return platforms
 
