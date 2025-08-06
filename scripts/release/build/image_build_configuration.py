@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import List, Optional
 
-from scripts.release.build_context import BuildScenario
+from scripts.release.build.build_scenario import BuildScenario
 
 SUPPORTED_PLATFORMS = ["linux/amd64", "linux/arm64"]
 

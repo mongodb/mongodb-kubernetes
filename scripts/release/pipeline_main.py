@@ -17,7 +17,6 @@ from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
 from lib.base_logger import logger
 from scripts.release.atomic_pipeline import (
     build_agent_default_case,
-    build_agent_on_agent_bump,
     build_database_image,
     build_init_appdb,
     build_init_database,
@@ -35,7 +34,7 @@ from scripts.release.build.image_build_configuration import (
     SUPPORTED_PLATFORMS,
     ImageBuildConfiguration,
 )
-from scripts.release.build_context import (
+from scripts.release.build.build_scenario import (
     BuildScenario,
 )
 

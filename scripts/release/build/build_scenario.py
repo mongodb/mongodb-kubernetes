@@ -27,12 +27,13 @@ class BuildScenario(StrEnum):
             # Release scenario and the git tag will be used for promotion process only
             scenario = BuildScenario.RELEASE
             logger.info(f"Build scenario: {scenario} (git_tag: {git_tag})")
-        elif is_patch:
+        elif is_patch or is_evg:
             scenario = BuildScenario.PATCH
             logger.info(f"Build scenario: {scenario} (patch_id: {patch_id})")
-        elif is_evg:
-            scenario = BuildScenario.STAGING
-            logger.info(f"Build scenario: {scenario} (patch_id: {patch_id})")
+        # TODO: Uncomment the following lines when starting to work on staging builds
+        # elif is_evg:
+        #     scenario = BuildScenario.STAGING
+        #     logger.info(f"Build scenario: {scenario} (patch_id: {patch_id})")
         else:
             scenario = BuildScenario.DEVELOPMENT
             logger.info(f"Build scenario: {scenario}")
@@ -45,10 +46,10 @@ class BuildScenario(StrEnum):
 
         match self:
             case BuildScenario.PATCH:
-                build_id = os.environ["BUILD_ID"]
-                if not build_id:
-                    raise ValueError(f"BUILD_ID environment variable is not set for `{self}` build scenario")
-                return build_id
+                patch_id = os.getenv("version_id")
+                if not patch_id:
+                    raise ValueError(f"version_id environment variable is not set for `{self}` build scenario")
+                return patch_id
             case BuildScenario.STAGING:
                 return repo.head.object.hexsha[:COMMIT_SHA_LENGTH]
             case BuildScenario.RELEASE:

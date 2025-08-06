@@ -9,7 +9,7 @@ import shutil
 from concurrent.futures import ProcessPoolExecutor
 from copy import copy
 from queue import Queue
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple
 
 import requests
 import semver
@@ -17,30 +17,15 @@ from opentelemetry import trace
 from packaging.version import Version
 
 from lib.base_logger import logger
-from scripts.evergreen.release.agent_matrix import (
-    get_supported_operator_versions,
-)
 from scripts.evergreen.release.images_signing import (
     sign_image,
     verify_signature,
 )
 from scripts.release.build.image_build_configuration import ImageBuildConfiguration
-
 from .build_images import process_image
 from .optimized_operator_build import build_operator_image_fast
 
 TRACER = trace.get_tracer("evergreen-agent")
-DEFAULT_NAMESPACE = "default"
-
-
-def make_list_of_str(value: Union[None, str, List[str]]) -> List[str]:
-    if value is None:
-        return []
-
-    if isinstance(value, str):
-        return [e.strip() for e in value.split(",")]
-
-    return value
 
 
 def get_tools_distro(tools_version: str) -> Dict[str, str]:
@@ -53,11 +38,6 @@ def get_tools_distro(tools_version: str) -> Dict[str, str]:
 
 def is_running_in_evg_pipeline():
     return os.getenv("RUNNING_IN_EVG", "") == "true"
-
-
-def is_running_in_patch():
-    is_patch = os.environ.get("is_patch")
-    return is_patch is not None and is_patch.lower() == "true"
 
 
 def load_release_file() -> Dict:
@@ -190,14 +170,6 @@ def build_database_image(build_configuration: ImageBuildConfiguration):
     )
 
 
-def should_skip_arm64():
-    """
-    Determines if arm64 builds should be skipped based on environment.
-    Returns True if running in Evergreen pipeline as a patch.
-    """
-    return is_running_in_evg_pipeline() and is_running_in_patch()
-
-
 @TRACER.start_as_current_span("sign_image_in_repositories")
 def sign_image_in_repositories(args: Dict[str, str], arch: str = None):
     span = trace.get_current_span()
@@ -289,7 +261,6 @@ def build_image_generic(
     dockerfile_path: str,
     build_configuration: ImageBuildConfiguration,
     extra_args: dict | None = None,
-    multi_arch_args_list: list[dict] | None = None,
 ):
     """
     Build one or more platform-specific images, then (optionally)
@@ -298,24 +269,20 @@ def build_image_generic(
 
     registry = build_configuration.registry
     image_name = build_configuration.image_name()
-    args_list = multi_arch_args_list or [extra_args or {}]
-    version = args_list[0].get("version", "")
-    platforms = [args.get("architecture") for args in args_list]
+    args_list = extra_args or {}
+    version = args_list.get("version", "")
 
-    for base_args in args_list:
-        # merge in the registry without mutating caller’s dict
-        build_args = {**base_args, "quay_registry": registry}
-        logger.debug(f"Build args: {build_args}")
+    # merge in the registry without mutating caller’s dict
+    build_args = {**args_list, "quay_registry": registry}
+    logger.debug(f"Build args: {build_args}")
 
-        # TODO: why are we iteration over platforms here? this should be multi-arch build
-        for arch in platforms:
-            logger.debug(f"Building {image_name} for arch={arch}")
-            logger.debug(f"build image generic - registry={registry}")
-            pipeline_process_image(
-                dockerfile_path=dockerfile_path,
-                build_configuration=build_configuration,
-                dockerfile_args=build_args,
-            )
+    logger.debug(f"Building {image_name} for platforms={build_configuration.platforms}")
+    logger.debug(f"build image generic - registry={registry}")
+    pipeline_process_image(
+        dockerfile_path=dockerfile_path,
+        build_configuration=build_configuration,
+        dockerfile_args=build_args,
+    )
 
     if build_configuration.sign:
         sign_image(registry, version)
@@ -352,26 +319,17 @@ def build_readiness_probe_image(build_configuration: ImageBuildConfiguration):
     Builds image used for readiness probe.
     """
 
-    version = build_configuration.version
     golang_version = os.getenv("GOLANG_VERSION", "1.24")
 
-    # Extract architectures from platforms for build args
-    architectures = [platform.split("/")[-1] for platform in build_configuration.platforms]
-    multi_arch_args_list = []
-
-    for arch in architectures:
-        arch_args = {
-            "version": version,
-            "GOLANG_VERSION": golang_version,
-            "architecture": arch,
-            "TARGETARCH": arch,  # TODO: redundant ?
-        }
-        multi_arch_args_list.append(arch_args)
+    extra_args = {
+        "version": build_configuration.version,
+        "GOLANG_VERSION": golang_version,
+    }
 
     build_image_generic(
         dockerfile_path="docker/mongodb-kubernetes-readinessprobe/Dockerfile",
         build_configuration=build_configuration,
-        multi_arch_args_list=multi_arch_args_list,
+        extra_args=extra_args,
     )
 
 
@@ -380,26 +338,17 @@ def build_upgrade_hook_image(build_configuration: ImageBuildConfiguration):
     Builds image used for version upgrade post-start hook.
     """
 
-    version = build_configuration.version
     golang_version = os.getenv("GOLANG_VERSION", "1.24")
 
-    # Extract architectures from platforms for build args
-    architectures = [platform.split("/")[-1] for platform in build_configuration.platforms]
-    multi_arch_args_list = []
-
-    for arch in architectures:
-        arch_args = {
-            "version": version,
-            "GOLANG_VERSION": golang_version,
-            "architecture": arch,
-            "TARGETARCH": arch,  # TODO: redundant ?
-        }
-        multi_arch_args_list.append(arch_args)
+    extra_args = {
+        "version": build_configuration.version,
+        "GOLANG_VERSION": golang_version,
+    }
 
     build_image_generic(
         dockerfile_path="docker/mongodb-kubernetes-upgrade-hook/Dockerfile",
         build_configuration=build_configuration,
-        multi_arch_args_list=multi_arch_args_list,
+        extra_args=extra_args,
     )
 
 
@@ -434,55 +383,6 @@ def build_agent_pipeline(
     )
 
 
-def build_multi_arch_agent_in_sonar(
-    build_configuration: ImageBuildConfiguration,
-    image_version,
-    tools_version,
-):
-    """
-    Creates the multi-arch non-operator suffixed version of the agent.
-    This is a drop-in replacement for the agent
-    release from MCO.
-    This should only be called during releases.
-    Which will lead to a release of the multi-arch
-    images to quay and ecr.
-    """
-
-    logger.info(f"building multi-arch base image for: {image_version}")
-    args = {
-        "version": image_version,
-        "tools_version": tools_version,
-    }
-
-    arch_arm = {
-        "agent_distro": "amzn2_aarch64",
-        "tools_distro": get_tools_distro(tools_version=tools_version)["arm"],
-        "architecture": "arm64",
-    }
-    arch_amd = {
-        "agent_distro": "rhel9_x86_64",
-        "tools_distro": get_tools_distro(tools_version=tools_version)["amd"],
-        "architecture": "amd64",
-    }
-
-    new_rhel_tool_version = "100.10.0"
-    if Version(tools_version) >= Version(new_rhel_tool_version):
-        arch_arm["tools_distro"] = "rhel93-aarch64"
-        arch_amd["tools_distro"] = "rhel93-x86_64"
-
-    joined_args = [args | arch_amd]
-
-    # Only include arm64 if we shouldn't skip it
-    if not should_skip_arm64():
-        joined_args.append(args | arch_arm)
-
-    build_image_generic(
-        dockerfile_path="docker/mongodb-agent-non-matrix/Dockerfile",
-        build_configuration=build_configuration,
-        multi_arch_args_list=joined_args,
-    )
-
-
 def build_agent_default_case(build_configuration: ImageBuildConfiguration):
     """
     Build the agent only for the latest operator for patches and operator releases.
@@ -511,10 +411,10 @@ def build_agent_default_case(build_configuration: ImageBuildConfiguration):
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         logger.info(f"running with factor of {max_workers}")
         print(f"======= Versions to build {agent_versions_to_build} =======")
-        for agent_version in agent_versions_to_build:
+        for idx, agent_version in enumerate(agent_versions_to_build):
             # We don't need to keep create and push the same image on every build.
             # It is enough to create and push the non-operator suffixed images only during releases to ecr and quay.
-            print(f"======= Building Agent {agent_version} =======")
+            print(f"======= Building Agent {agent_version} ({idx}/{len(agent_versions_to_build)})")
             _build_agent_operator(
                 agent_version,
                 build_configuration,
@@ -522,76 +422,6 @@ def build_agent_default_case(build_configuration: ImageBuildConfiguration):
                 build_configuration.version,
                 tasks_queue,
             )
-
-    queue_exception_handling(tasks_queue)
-
-
-def build_agent_on_agent_bump(build_configuration: ImageBuildConfiguration):
-    """
-    Build the agent matrix (operator version x agent version), triggered by PCT.
-
-    We have three cases where we need to build the agent:
-    - e2e test runs
-    - operator releases
-    - OM/CM bumps via PCT
-
-    We don’t require building a full matrix on e2e test runs and operator releases.
-    "Operator releases" and "e2e test runs" require only the latest operator x agents
-
-    In OM/CM bumps, we release a new agent which we potentially require to release to older operators as well.
-    This function takes care of that.
-    """
-    release = load_release_file()
-    is_release = build_configuration.is_release_scenario()
-
-    if build_configuration.all_agents:
-        # We need to release [all agents x latest operator] on operator releases to make e2e tests work
-        # This was changed previously in https://github.com/mongodb/mongodb-kubernetes/pull/3960
-        agent_versions_to_build = gather_all_supported_agent_versions(release)
-    else:
-        # we only need to release the latest images, we don't need to re-push old images, as we don't clean them up anymore.
-        agent_versions_to_build = gather_latest_agent_versions(release)
-
-    legacy_agent_versions_to_build = release["supportedImages"]["mongodb-agent"]["versions"]
-
-    tasks_queue = Queue()
-    max_workers = 1
-    if build_configuration.parallel:
-        max_workers = None
-        if build_configuration.parallel_factor > 0:
-            max_workers = build_configuration.parallel_factor
-    with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        logger.info(f"running with factor of {max_workers}")
-
-        # We need to regularly push legacy agents, otherwise ecr lifecycle policy will expire them.
-        # We only need to push them once in a while to ecr, so no quay required
-        if not is_release:
-            for legacy_agent in legacy_agent_versions_to_build:
-                tasks_queue.put(
-                    executor.submit(
-                        build_multi_arch_agent_in_sonar,
-                        build_configuration,
-                        legacy_agent,
-                        # we assume that all legacy agents are build using that tools version
-                        "100.9.4",
-                    )
-                )
-
-        for agent_version in agent_versions_to_build:
-            # We don't need to keep create and push the same image on every build.
-            # It is enough to create and push the non-operator suffixed images only during releases to ecr and quay.
-            if build_configuration.all_agents:
-                tasks_queue.put(
-                    executor.submit(
-                        build_multi_arch_agent_in_sonar,
-                        build_configuration,
-                        agent_version[0],
-                        agent_version[1],
-                    )
-                )
-            for operator_version in get_supported_operator_versions():
-                logger.info(f"Building Agent versions: {agent_version} for Operator versions: {operator_version}")
-                _build_agent_operator(agent_version, build_configuration, executor, operator_version, tasks_queue)
 
     queue_exception_handling(tasks_queue)
 
