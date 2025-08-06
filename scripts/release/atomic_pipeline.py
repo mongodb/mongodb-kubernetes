@@ -364,8 +364,6 @@ def build_image_generic(
     dockerfile_path: str,
     build_configuration: BuildConfiguration,
     extra_args: dict | None = None,
-    multi_arch_args_list: list[dict] | None = None,
-    is_multi_arch: bool = False,
 ):
     """
     Build one or more platform-specific images, then (optionally)
@@ -373,25 +371,22 @@ def build_image_generic(
     """
 
     registry = build_configuration.base_registry
-    args_list = multi_arch_args_list or [extra_args or {}]
-    version = args_list[0].get("version", "")
-    platforms = [args.get("architecture") for args in args_list]
+    args_list = extra_args or {}
+    version = args_list.get("version", "")
 
-    for base_args in args_list:
-        # merge in the registry without mutating caller’s dict
-        build_args = {**base_args, "quay_registry": registry}
-        logger.debug(f"Build args: {build_args}")
+    # merge in the registry without mutating caller’s dict
+    build_args = {**args_list, "quay_registry": registry}
+    logger.debug(f"Build args: {build_args}")
 
-        for arch in platforms:
-            logger.debug(f"Building {image_name} for arch={arch}")
-            logger.debug(f"build image generic - registry={registry}")
-            pipeline_process_image(
-                image_name=image_name,
-                dockerfile_path=dockerfile_path,
-                build_configuration=build_configuration,
-                dockerfile_args=build_args,
-                with_sbom=False,  # TODO: specify no SBOM, write folllow up tasks and todo
-            )
+    logger.debug(f"Building {image_name} for platforms={build_configuration.platforms}")
+    logger.debug(f"build image generic - registry={registry}")
+    pipeline_process_image(
+        image_name=image_name,
+        dockerfile_path=dockerfile_path,
+        build_configuration=build_configuration,
+        dockerfile_args=build_args,
+        with_sbom=False,  # TODO: specify no SBOM, write folllow up tasks and todo
+    )
 
     if build_configuration.sign:
         sign_image(registry, version)
@@ -441,41 +436,21 @@ def build_community_image(build_configuration: BuildConfiguration, image_type: s
         image_name = "mongodb-kubernetes-operator-version-upgrade-post-start-hook"
         dockerfile_path = "docker/mongodb-kubernetes-upgrade-hook/Dockerfile"
     else:
-        raise ValueError(f"Unsupported image type: {image_type}")
+        raise ValueError(f"Unsupported community image type: {image_type}")
 
     version = build_configuration.version
     golang_version = os.getenv("GOLANG_VERSION", "1.24")
 
-    # Use only amd64 if we should skip arm64 builds
-    if should_skip_arm64():
-        platforms = ["linux/amd64"]
-        logger.info("Skipping ARM64 builds for community image as this is running in EVG pipeline as a patch")
-    else:
-        platforms = build_configuration.platforms or ["linux/amd64", "linux/arm64"]
-
-    # Extract architectures from platforms for build args
-    architectures = [platform.split("/")[-1] for platform in platforms]
-    multi_arch_args_list = []
-
-    for arch in architectures:
-        arch_args = {
-            "version": version,
-            "GOLANG_VERSION": golang_version,
-            "architecture": arch,
-            "TARGETARCH": arch,  # TODO: redundant ?
-        }
-        multi_arch_args_list.append(arch_args)
-
-    # Create a copy of build_configuration with overridden platforms
-    build_config_copy = copy(build_configuration)
-    build_config_copy.platforms = platforms
+    extra_args = {
+        "version": version,
+        "GOLANG_VERSION": golang_version,
+    }
 
     build_image_generic(
         image_name=image_name,
         dockerfile_path=dockerfile_path,
-        build_configuration=build_config_copy,
-        multi_arch_args_list=multi_arch_args_list,
-        is_multi_arch=True,
+        build_configuration=build_configuration,
+        extra_args=extra_args,
     )
 
 
