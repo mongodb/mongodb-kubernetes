@@ -222,6 +222,7 @@ def build_database_image(build_configuration: BuildConfiguration):
         extra_args=args,
     )
 
+
 @TRACER.start_as_current_span("sign_image_in_repositories")
 def sign_image_in_repositories(args: Dict[str, str], arch: str = None):
     span = trace.get_current_span()
