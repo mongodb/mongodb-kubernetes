@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 
-"""This pipeline script knows about the details of our Docker images
-and where to fetch and calculate parameters. It uses Sonar.py
-to produce the final images."""
+"""This atomic_pipeline script knows about the details of our Docker images
+and where to fetch and calculate parameters."""
 import json
 import os
 import shutil
@@ -22,7 +21,8 @@ from scripts.evergreen.release.images_signing import (
     verify_signature,
 )
 from scripts.release.build.image_build_configuration import ImageBuildConfiguration
-from .build_images import process_image
+from scripts.release.build.image_build_process import build_image
+
 from .optimized_operator_build import build_operator_image_fast
 
 TRACER = trace.get_tracer("evergreen-agent")
@@ -34,10 +34,6 @@ def get_tools_distro(tools_version: str) -> Dict[str, str]:
     if Version(tools_version) >= Version(new_rhel_tool_version):
         return {"arm": "rhel93-aarch64", "amd": "rhel93-x86_64"}
     return default_distro
-
-
-def is_running_in_evg_pipeline():
-    return os.getenv("RUNNING_IN_EVG", "") == "true"
 
 
 def load_release_file() -> Dict:
@@ -59,27 +55,37 @@ def pipeline_process_image(
     if dockerfile_args:
         span.set_attribute("mck.build_args", str(dockerfile_args))
 
-    logger.info(f"Dockerfile args: {dockerfile_args}, for image: {image_name}")
-
     if not dockerfile_args:
         dockerfile_args = {}
-    logger.debug(f"Build args: {dockerfile_args}")
-    process_image(
+    logger.info(f"Dockerfile args: {dockerfile_args}, for image: {image_name}")
+
+    build_image(
         image_tag=build_configuration.version,
         dockerfile_path=dockerfile_path,
         dockerfile_args=dockerfile_args,
         registry=build_configuration.registry,
         platforms=build_configuration.platforms,
-        sign=build_configuration.sign,
         build_path=build_path,
     )
+
+    if build_configuration.sign:
+        pipeline_sign_image(
+            registry=build_configuration.registry,
+            version=build_configuration.version,
+        )
+
+
+@TRACER.start_as_current_span("sign_image_in_repositories")
+def pipeline_sign_image(registry: str, version: str):
+    logger.info("Signing image")
+    sign_image(registry, version)
+    verify_signature(registry, version)
 
 
 def build_tests_image(build_configuration: ImageBuildConfiguration):
     """
     Builds image used to run tests.
     """
-    image_name = "mongodb-kubernetes-tests"
 
     # helm directory needs to be copied over to the tests docker context.
     helm_src = "helm_chart"
@@ -170,20 +176,6 @@ def build_database_image(build_configuration: ImageBuildConfiguration):
     )
 
 
-@TRACER.start_as_current_span("sign_image_in_repositories")
-def sign_image_in_repositories(args: Dict[str, str], arch: str = None):
-    span = trace.get_current_span()
-    repository = args["quay_registry"] + args["ubi_suffix"]
-    tag = args["release_version"]
-    if arch:
-        tag = f"{tag}-{arch}"
-
-    span.set_attribute("mck.tag", tag)
-
-    sign_image(repository, tag)
-    verify_signature(repository, tag)
-
-
 def find_om_in_releases(om_version: str, releases: Dict[str, str]) -> Optional[str]:
     """
     There are a few alternatives out there that allow for json-path or xpath-type
@@ -257,43 +249,12 @@ def build_om_image(build_configuration: ImageBuildConfiguration):
     )
 
 
-def build_image_generic(
-    dockerfile_path: str,
-    build_configuration: ImageBuildConfiguration,
-    extra_args: dict | None = None,
-):
-    """
-    Build one or more platform-specific images, then (optionally)
-    push a manifest and sign the result.
-    """
-
-    registry = build_configuration.registry
-    image_name = build_configuration.image_name()
-    args_list = extra_args or {}
-    version = args_list.get("version", "")
-
-    # merge in the registry without mutating caller’s dict
-    build_args = {**args_list, "quay_registry": registry}
-    logger.debug(f"Build args: {build_args}")
-
-    logger.debug(f"Building {image_name} for platforms={build_configuration.platforms}")
-    logger.debug(f"build image generic - registry={registry}")
-    pipeline_process_image(
-        dockerfile_path=dockerfile_path,
-        build_configuration=build_configuration,
-        dockerfile_args=build_args,
-    )
-
-    if build_configuration.sign:
-        sign_image(registry, version)
-        verify_signature(registry, version)
-
-
 def build_init_appdb(build_configuration: ImageBuildConfiguration):
     release = load_release_file()
     base_url = "https://fastdl.mongodb.org/tools/db/"
     mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
     args = {"version": build_configuration.version, "mongodb_tools_url_ubi": mongodb_tools_url_ubi}
+
     pipeline_process_image(
         dockerfile_path="docker/mongodb-kubernetes-init-appdb/Dockerfile",
         build_configuration=build_configuration,
@@ -326,10 +287,10 @@ def build_readiness_probe_image(build_configuration: ImageBuildConfiguration):
         "GOLANG_VERSION": golang_version,
     }
 
-    build_image_generic(
+    pipeline_process_image(
         dockerfile_path="docker/mongodb-kubernetes-readinessprobe/Dockerfile",
         build_configuration=build_configuration,
-        extra_args=extra_args,
+        dockerfile_args=extra_args,
     )
 
 
@@ -345,10 +306,10 @@ def build_upgrade_hook_image(build_configuration: ImageBuildConfiguration):
         "GOLANG_VERSION": golang_version,
     }
 
-    build_image_generic(
+    pipeline_process_image(
         dockerfile_path="docker/mongodb-kubernetes-upgrade-hook/Dockerfile",
         build_configuration=build_configuration,
-        extra_args=extra_args,
+        dockerfile_args=extra_args,
     )
 
 
@@ -373,13 +334,13 @@ def build_agent_pipeline(
         "init_database_image": init_database_image,
         "mongodb_tools_url_ubi": mongodb_tools_url_ubi,
         "mongodb_agent_url_ubi": mongodb_agent_url_ubi,
-        "quay_registry": build_configuration.registry,
+        "quay_registry": build_configuration_copy.registry,
     }
 
-    build_image_generic(
+    pipeline_process_image(
         dockerfile_path="docker/mongodb-agent/Dockerfile",
         build_configuration=build_configuration_copy,
-        extra_args=args,
+        dockerfile_args=args,
     )
 
 

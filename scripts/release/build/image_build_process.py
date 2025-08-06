@@ -9,7 +9,6 @@ from python_on_whales.exceptions import DockerException
 
 import docker
 from lib.base_logger import logger
-from scripts.evergreen.release.images_signing import sign_image, verify_signature
 
 
 def ecr_login_boto3(region: str, account_id: str):
@@ -47,16 +46,16 @@ def ensure_buildx_builder(builder_name: str = "multiarch") -> str:
     :return: The builder name that was created or reused
     """
 
-    docker = python_on_whales.docker
+    docker_cmd = python_on_whales.docker
 
-    existing_builders = docker.buildx.list()
+    existing_builders = docker_cmd.buildx.list()
     if any(b.name == builder_name for b in existing_builders):
         logger.info(f"Builder '{builder_name}' already exists – reusing it.")
-        docker.buildx.use(builder_name)
+        docker_cmd.buildx.use(builder_name)
         return builder_name
 
     try:
-        docker.buildx.create(
+        docker_cmd.buildx.create(
             name=builder_name,
             driver="docker-container",
             use=True,
@@ -70,8 +69,8 @@ def ensure_buildx_builder(builder_name: str = "multiarch") -> str:
     return builder_name
 
 
-def build_image(
-    tag: str, dockerfile: str, path: str, args: Dict[str, str] = {}, push: bool = True, platforms: list[str] = None
+def docker_build_image(
+    tag: str, dockerfile: str, path: str, args: Dict[str, str], push: bool, platforms: list[str]
 ):
     """
     Build a Docker image using python_on_whales and Docker Buildx for multi-architecture support.
@@ -83,15 +82,11 @@ def build_image(
     :param push: Whether to push the image after building
     :param platforms: List of target platforms (e.g., ["linux/amd64", "linux/arm64"])
     """
-    docker = python_on_whales.docker
+    docker_cmd = python_on_whales.docker
 
     try:
         # Convert build args to the format expected by python_on_whales
-        build_args = {k: str(v) for k, v in args.items()} if args else {}
-
-        # Set default platforms if not specified
-        if platforms is None:
-            platforms = ["linux/amd64"]
+        build_args = {k: str(v) for k, v in args.items()}
 
         logger.info(f"Building image: {tag}")
         logger.info(f"Platforms: {platforms}")
@@ -107,9 +102,10 @@ def build_image(
         builder_name = ensure_buildx_builder("multiarch")
 
         # Build the image using buildx
-        docker.buildx.build(
+        docker_cmd.buildx.build(
             context_path=path,
             file=dockerfile,
+            # TODO: add tag for release builds (OLM immutable tag)
             tags=[tag],
             platforms=platforms,
             builder=builder_name,
@@ -126,15 +122,13 @@ def build_image(
         raise RuntimeError(f"Failed to build image {tag}: {str(e)}")
 
 
-def process_image(
+def build_image(
     image_tag: str,
     dockerfile_path: str,
     dockerfile_args: Dict[str, str],
     registry: str,
-    platforms: list[str] = None,
-    sign: bool = False,
-    build_path: str = ".",
-    push: bool = True,
+    platforms: list[str],
+    build_path: str,
 ):
     # Login to ECR
     ecr_login_boto3(region="us-east-1", account_id="268558157000")
@@ -142,16 +136,11 @@ def process_image(
     image_full_uri = f"{registry}:{image_tag}"
 
     # Build image with docker buildx
-    build_image(
+    docker_build_image(
         tag=image_full_uri,
         dockerfile=dockerfile_path,
         path=build_path,
         args=dockerfile_args,
-        push=push,
+        push=True,
         platforms=platforms,
     )
-
-    if sign:
-        logger.info("Signing image")
-        sign_image(docker_registry, image_tag)
-        verify_signature(docker_registry, image_tag)

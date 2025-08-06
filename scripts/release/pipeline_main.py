@@ -30,12 +30,12 @@ from scripts.release.atomic_pipeline import (
     build_upgrade_hook_image,
 )
 from scripts.release.build.build_info import load_build_info
+from scripts.release.build.build_scenario import (
+    BuildScenario,
+)
 from scripts.release.build.image_build_configuration import (
     SUPPORTED_PLATFORMS,
     ImageBuildConfiguration,
-)
-from scripts.release.build.build_scenario import (
-    BuildScenario,
 )
 
 """
