@@ -21,7 +21,6 @@ from scripts.evergreen.release.images_signing import (
     sign_image,
     verify_signature,
 )
-from scripts.evergreen.release.sbom import generate_sbom, generate_sbom_for_cli
 
 from .build_configuration import BuildConfiguration
 from .build_context import BuildScenario
@@ -59,7 +58,6 @@ def pipeline_process_image(
     build_configuration: BuildConfiguration,
     dockerfile_args: Dict[str, str] = None,
     build_path: str = ".",
-    with_sbom: bool = True,
 ):
     """Builds a Docker image with arguments defined in `args`."""
     span = trace.get_current_span()
@@ -82,46 +80,6 @@ def pipeline_process_image(
         sign=build_configuration.sign,
         build_path=build_path,
     )
-
-    if with_sbom:
-        produce_sbom(dockerfile_args)
-
-
-@TRACER.start_as_current_span("produce_sbom")
-def produce_sbom(args):
-    span = trace.get_current_span()
-    if not is_running_in_evg_pipeline():
-        logger.info("Skipping SBOM Generation (enabled only for EVG)")
-        return
-
-    try:
-        image_pull_spec = args["quay_registry"] + args.get("ubi_suffix", "")
-    except KeyError:
-        logger.error(f"Could not find image pull spec. Args: {args}")
-        logger.error(f"Skipping SBOM generation")
-        return
-
-    try:
-        image_tag = args["release_version"]
-        span.set_attribute("mck.release_version", image_tag)
-    except KeyError:
-        logger.error(f"Could not find image tag. Args: {args}")
-        logger.error(f"Skipping SBOM generation")
-        return
-
-    image_pull_spec = f"{image_pull_spec}:{image_tag}"
-    print(f"Producing SBOM for image: {image_pull_spec} args: {args}")
-
-    platform = "linux/amd64"
-    if "platform" in args:
-        if args["platform"] == "arm64":
-            platform = "linux/arm64"
-        elif args["platform"] == "amd64":
-            platform = "linux/amd64"
-        else:
-            raise ValueError(f"Unrecognized platform in {args}. Cannot proceed with SBOM generation")
-
-    generate_sbom(image_pull_spec, platform)
 
 
 def build_tests_image(build_configuration: BuildConfiguration):
@@ -338,7 +296,6 @@ def build_image_generic(
         dockerfile_path=dockerfile_path,
         build_configuration=build_configuration,
         dockerfile_args=build_args,
-        with_sbom=False,  # TODO: specify no SBOM, write folllow up tasks and todo
     )
 
     if build_configuration.sign:
