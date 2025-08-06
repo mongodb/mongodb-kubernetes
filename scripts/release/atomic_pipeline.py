@@ -9,7 +9,7 @@ import shutil
 from concurrent.futures import ProcessPoolExecutor
 from copy import copy
 from queue import Queue
-from typing import Callable, Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import requests
 import semver
@@ -35,14 +35,8 @@ TRACER = trace.get_tracer("evergreen-agent")
 DEFAULT_NAMESPACE = "default"
 
 
-def make_list_of_str(value: Union[None, str, List[str]]) -> List[str]:
-    if value is None:
-        return []
 
-    if isinstance(value, str):
-        return [e.strip() for e in value.split(",")]
 
-    return value
 
 
 def get_tools_distro(tools_version: str) -> Dict[str, str]:
@@ -55,11 +49,6 @@ def get_tools_distro(tools_version: str) -> Dict[str, str]:
 
 def is_running_in_evg_pipeline():
     return os.getenv("RUNNING_IN_EVG", "") == "true"
-
-
-def is_running_in_patch():
-    is_patch = os.environ.get("is_patch")
-    return is_patch is not None and is_patch.lower() == "true"
 
 
 def load_release_file() -> Dict:
@@ -207,7 +196,6 @@ def build_operator_image(build_configuration: BuildConfiguration):
         "version": build_configuration.version,
         "log_automation_config_diff": log_automation_config_diff,
         "test_suffix": test_suffix,
-        "debug": build_configuration.debug,
     }
 
     logger.info(f"Building Operator args: {args}")
@@ -230,7 +218,6 @@ def build_database_image(build_configuration: BuildConfiguration):
     """
     Builds a new database image.
     """
-    release = load_release_file()
     args = {"version": build_configuration.version}
     build_image_generic(
         image_name="mongodb-kubernetes-database",
@@ -260,14 +247,6 @@ def build_CLI_SBOM(build_configuration: BuildConfiguration):
 
     for platform in platforms:
         generate_sbom_for_cli(version, platform)
-
-
-def should_skip_arm64():
-    """
-    Determines if arm64 builds should be skipped based on environment.
-    Returns True if running in Evergreen pipeline as a patch.
-    """
-    return is_running_in_evg_pipeline() and is_running_in_patch()
 
 
 @TRACER.start_as_current_span("sign_image_in_repositories")

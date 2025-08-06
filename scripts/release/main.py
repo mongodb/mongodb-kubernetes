@@ -1,8 +1,7 @@
 import argparse
 import os
 import sys
-import time
-from typing import Callable, Dict, Iterable, List, Optional
+from typing import Callable, Dict
 
 from opentelemetry import context, trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
@@ -17,7 +16,6 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
 
 from lib.base_logger import logger
-from scripts.evergreen.release.images_signing import mongodb_artifactory_login
 from scripts.release.atomic_pipeline import (
     build_agent_default_case,
     build_CLI_SBOM,
