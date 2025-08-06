@@ -7,32 +7,35 @@ from scripts.release.constants import DEFAULT_REPOSITORY_PATH, DEFAULT_CHANGELOG
 
 
 class ImageInfo(dict):
-    def __init__(self, repository: str, platforms: list[str], version: str):
+    def __init__(self, repository: str, platforms: list[str], version: str, sign: bool):
         super().__init__()
         self.repository = repository
         self.platforms = platforms
         self.version = version
+        self.sign = sign
 
     def to_json(self):
         return {"repository": self.repository, "platforms": self.platforms, "version": self.version}
 
 
 class BinaryInfo(dict):
-    def __init__(self, s3_store: str, platforms: list[str], version: str):
+    def __init__(self, s3_store: str, platforms: list[str], version: str, sign: bool):
         super().__init__()
         self.s3_store = s3_store
         self.platforms = platforms
         self.version = version
+        self.sign = sign
 
     def to_json(self):
         return {"platforms": self.platforms, "version": self.version}
 
 
 class HelmChartInfo(dict):
-    def __init__(self, repository: str, version: str):
+    def __init__(self, repository: str, version: str, sign: bool):
         super().__init__()
         self.repository = repository
         self.version = version
+        self.sign = sign
 
     def to_json(self):
         return {"repository": self.repository, "version": self.version}
@@ -40,7 +43,7 @@ class HelmChartInfo(dict):
 
 class BuildInfo(dict):
     def __init__(
-        self, images: Dict[str, ImageInfo], binaries: Dict[str, BinaryInfo], helm_charts: Dict[str, HelmChartInfo]
+            self, images: Dict[str, ImageInfo], binaries: Dict[str, BinaryInfo], helm_charts: Dict[str, HelmChartInfo]
     ):
         super().__init__()
         self.images = images
@@ -100,7 +103,12 @@ def load_build_info(scenario: BuildScenario,
         if not image_version:
             image_version = version
 
-        images[name] = ImageInfo(repository=data["repository"], platforms=data["platforms"], version=image_version)
+        images[name] = ImageInfo(
+            repository=data["repository"],
+            platforms=data["platforms"],
+            version=image_version,
+            sign=data.get("sign", False),
+        )
 
     binaries = {}
     for name, env_data in build_info["binaries"].items():
@@ -109,7 +117,12 @@ def load_build_info(scenario: BuildScenario,
             # If no data is available for the scenario, skip this binary
             continue
 
-        binaries[name] = BinaryInfo(s3_store=data["s3-store"], platforms=data["platforms"], version=version)
+        binaries[name] = BinaryInfo(
+            s3_store=data["s3-store"],
+            platforms=data["platforms"],
+            version=version,
+            sign=data.get("sign", False),
+        )
 
     helm_charts = {}
     for name, env_data in build_info["helm-charts"].items():
@@ -118,6 +131,10 @@ def load_build_info(scenario: BuildScenario,
             # If no data is available for the scenario, skip this helm-chart
             continue
 
-        helm_charts[name] = HelmChartInfo(repository=data["repository"], version=version)
+        helm_charts[name] = HelmChartInfo(
+            repository=data["repository"],
+            version=version,
+            sign=data.get("sign", False),
+        )
 
     return BuildInfo(images=images, binaries=binaries, helm_charts=helm_charts)

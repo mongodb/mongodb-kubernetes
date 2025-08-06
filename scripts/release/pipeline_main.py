@@ -93,8 +93,7 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     version = args.version or image_build_info.version
     registry = args.registry or image_build_info.repository
     platforms = get_platforms_from_arg(args) or image_build_info.platforms
-    # TODO: add sign to build_info.json
-    sign = args.sign
+    sign = args.sign or image_build_info.sign
     # TODO: remove "all_agents" from context and environment variables support (not needed anymore)
     all_agents = args.all_agents or build_scenario.all_agents()
 

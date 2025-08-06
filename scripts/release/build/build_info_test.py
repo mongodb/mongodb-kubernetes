@@ -12,58 +12,79 @@ from scripts.release.build.build_scenario import BuildScenario
 
 
 def test_load_build_info_patch(git_repo: Repo):
-    build_id = "688364423f9b6c00072b3556"
-    os.environ["BUILD_ID"] = build_id
+    patch_id = "688364423f9b6c00072b3556"
+    os.environ["version_id"] = patch_id
 
     expected_build_info = BuildInfo(
         images={
-            "mongodbOperator": ImageInfo(
+            "operator": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes",
                 platforms=["linux/amd64"],
-                version=build_id,
+                version=patch_id,
+                sign=False,
             ),
-            "initDatabase": ImageInfo(
+            "init-database": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-database",
                 platforms=["linux/amd64"],
-                version=build_id,
+                version=patch_id,
+                sign=False,
             ),
-            "initAppDb": ImageInfo(
+            "init-appdb": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-appdb",
                 platforms=["linux/amd64"],
-                version=build_id,
+                version=patch_id,
+                sign=False,
             ),
-            "initOpsManager": ImageInfo(
+            "init-ops-manager": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-ops-manager",
                 platforms=["linux/amd64"],
-                version=build_id,
+                version=patch_id,
+                sign=False,
             ),
             "database": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-database",
                 platforms=["linux/amd64"],
-                version=build_id,
+                version=patch_id,
+                sign=False,
             ),
-            "readinessprobe": ImageInfo(
+            "mco-tests": ImageInfo(
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-community-tests",
+                platforms=["linux/amd64"],
+                version=patch_id,
+                sign=False,
+            ),
+            "meko-tests": ImageInfo(
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests",
+                platforms=["linux/amd64"],
+                version=patch_id,
+                sign=False,
+            ),
+            "readiness-probe": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-readinessprobe",
                 platforms=["linux/amd64"],
-                version=build_id,
+                version=patch_id,
+                sign=False,
             ),
-            "operator-version-upgrade-post-start-hook": ImageInfo(
+            "upgrade-hook": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-operator-version-upgrade-post-start-hook",
                 platforms=["linux/amd64"],
-                version=build_id,
+                version=patch_id,
+                sign=False,
             ),
         },
         binaries={
             "kubectl-mongodb": BinaryInfo(
                 s3_store="s3://kubectl-mongodb/dev",
                 platforms=["linux/amd64"],
-                version=build_id,
+                version=patch_id,
+                sign=False,
             )
         },
         helm_charts={
             "mongodb-kubernetes": HelmChartInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/helm-charts",
-                version=build_id,
+                version=patch_id,
+                sign=False,
             )
         },
     )
@@ -80,40 +101,59 @@ def test_load_build_info_staging(git_repo: Repo):
 
     expected_build_info = BuildInfo(
         images={
-            "mongodbOperator": ImageInfo(
-                repository="quay.io/mongodb/mongodb-kubernetes-stg",
+            "operator": ImageInfo(
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes",
                 platforms=["linux/arm64", "linux/amd64"],
                 version=expecter_commit_sha,
+                sign=True,
             ),
-            "initDatabase": ImageInfo(
-                repository="quay.io/mongodb/mongodb-kubernetes-init-database-stg",
+            "init-database": ImageInfo(
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-init-database",
                 platforms=["linux/arm64", "linux/amd64"],
                 version=expecter_commit_sha,
+                sign=True,
             ),
-            "initAppDb": ImageInfo(
-                repository="quay.io/mongodb/mongodb-kubernetes-init-appdb-stg",
+            "init-appdb": ImageInfo(
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-init-appdb",
                 platforms=["linux/arm64", "linux/amd64"],
                 version=expecter_commit_sha,
+                sign=True,
             ),
-            "initOpsManager": ImageInfo(
-                repository="quay.io/mongodb/mongodb-kubernetes-init-ops-manager-stg",
+            "init-ops-manager": ImageInfo(
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-init-ops-manager",
                 platforms=["linux/arm64", "linux/amd64"],
                 version=expecter_commit_sha,
+                sign=True,
             ),
             "database": ImageInfo(
-                repository="quay.io/mongodb/mongodb-kubernetes-database-stg",
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-database",
                 platforms=["linux/arm64", "linux/amd64"],
                 version=expecter_commit_sha,
+                sign=True,
             ),
-            "readinessprobe": ImageInfo(
-                repository="quay.io/mongodb/mongodb-kubernetes-readinessprobe-stg",
-                platforms=["linux/arm64", "linux/amd64"],
+            "mco-tests": ImageInfo(
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-community-tests",
+                platforms=["linux/amd64"],
                 version=expecter_commit_sha,
+                sign=False,
             ),
-            "operator-version-upgrade-post-start-hook": ImageInfo(
-                repository="quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook-stg",
+            "meko-tests": ImageInfo(
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests",
+                platforms=["linux/amd64"],
+                version=expecter_commit_sha,
+                sign=False,
+            ),
+            "readiness-probe": ImageInfo(
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-readinessprobe",
                 platforms=["linux/arm64", "linux/amd64"],
                 version=expecter_commit_sha,
+                sign=True,
+            ),
+            "upgrade-hook": ImageInfo(
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-operator-version-upgrade-post-start-hook",
+                platforms=["linux/arm64", "linux/amd64"],
+                version=expecter_commit_sha,
+                sign=True,
             ),
         },
         binaries={
@@ -121,12 +161,14 @@ def test_load_build_info_staging(git_repo: Repo):
                 s3_store="s3://kubectl-mongodb/staging",
                 platforms=["darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64"],
                 version=expecter_commit_sha,
+                sign=True,
             )
         },
         helm_charts={
             "mongodb-kubernetes": HelmChartInfo(
-                repository="quay.io/mongodb/helm-charts-stg",
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/helm-charts",
                 version=expecter_commit_sha,
+                sign=True,
             )
         },
     )
@@ -143,40 +185,47 @@ def test_load_build_info_release(git_repo: Repo, readinessprobe_version: str,
 
     expected_build_info = BuildInfo(
         images={
-            "mongodbOperator": ImageInfo(
+            "operator": ImageInfo(
                 repository="quay.io/mongodb/mongodb-kubernetes",
                 platforms=["linux/arm64", "linux/amd64"],
                 version=version,
+                sign=True,
             ),
-            "initDatabase": ImageInfo(
+            "init-database": ImageInfo(
                 repository="quay.io/mongodb/mongodb-kubernetes-init-database",
                 platforms=["linux/arm64", "linux/amd64"],
                 version=version,
+                sign=True,
             ),
-            "initAppDb": ImageInfo(
+            "init-appdb": ImageInfo(
                 repository="quay.io/mongodb/mongodb-kubernetes-init-appdb",
                 platforms=["linux/arm64", "linux/amd64"],
                 version=version,
+                sign=True,
             ),
-            "initOpsManager": ImageInfo(
+            "init-ops-manager": ImageInfo(
                 repository="quay.io/mongodb/mongodb-kubernetes-init-ops-manager",
                 platforms=["linux/arm64", "linux/amd64"],
                 version=version,
+                sign=True,
             ),
             "database": ImageInfo(
                 repository="quay.io/mongodb/mongodb-kubernetes-database",
                 platforms=["linux/arm64", "linux/amd64"],
                 version=version,
+                sign=True,
             ),
-            "readinessprobe": ImageInfo(
+            "readiness-probe": ImageInfo(
                 repository="quay.io/mongodb/mongodb-kubernetes-readinessprobe",
                 platforms=["linux/arm64", "linux/amd64"],
                 version=readinessprobe_version,
+                sign=True,
             ),
-            "operator-version-upgrade-post-start-hook": ImageInfo(
+            "upgrade-hook": ImageInfo(
                 repository="quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook",
                 platforms=["linux/arm64", "linux/amd64"],
                 version=operator_version_upgrade_post_start_hook_version,
+                sign=True,
             ),
         },
         binaries={
@@ -184,12 +233,14 @@ def test_load_build_info_release(git_repo: Repo, readinessprobe_version: str,
                 s3_store="s3://kubectl-mongodb/prod",
                 platforms=["darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64"],
                 version=version,
+                sign=True,
             )
         },
         helm_charts={
             "mongodb-kubernetes": HelmChartInfo(
                 repository="quay.io/mongodb/helm-charts",
                 version=version,
+                sign=True,
             )
         },
     )
