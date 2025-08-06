@@ -233,6 +233,12 @@ func CAConfigMapName(appDb om.AppDBSpec, log *zap.SugaredLogger) string {
 // and volumemounts for TLS.
 func tlsVolumes(appDb om.AppDBSpec, podVars *env.PodEnvVars, log *zap.SugaredLogger) podtemplatespec.Modification {
 	volumesToAdd, volumeMounts := getTLSVolumesAndVolumeMounts(appDb, podVars, log)
+
+	// Add agent API key volume mount if not using vault and monitoring is enabled
+	if !vault.IsVaultSecretBackend() && ShouldEnableMonitoring(podVars) {
+		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))
+	}
+
 	volumesFunc := func(spec *corev1.PodTemplateSpec) {
 		for _, v := range volumesToAdd {
 			podtemplatespec.WithVolume(v)(spec)

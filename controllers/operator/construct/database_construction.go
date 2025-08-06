@@ -494,6 +494,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 		shareProcessNs = func(sts *appsv1.StatefulSet) {
 			sts.Spec.Template.Spec.ShareProcessNamespace = ptr.To(true)
 		}
+		staticMods = append(staticMods, podtemplatespec.WithContainerByIndex(0, container.WithVolumeMounts(volumeMounts)))
 		staticMods = append(staticMods, podtemplatespec.WithContainerByIndex(1, container.WithVolumeMounts(volumeMounts)))
 		staticMods = append(staticMods, podtemplatespec.WithContainerByIndex(2, container.WithVolumeMounts(volumeMounts)))
 		databaseImage = opts.AgentImage
