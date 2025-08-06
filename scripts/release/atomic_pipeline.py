@@ -30,10 +30,6 @@ from .optimized_operator_build import build_operator_image_fast
 TRACER = trace.get_tracer("evergreen-agent")
 
 
-
-
-
-
 def get_tools_distro(tools_version: str) -> Dict[str, str]:
     new_rhel_tool_version = "100.10.0"
     default_distro = {"arm": "rhel90-aarch64", "amd": "rhel90-x86_64"}
