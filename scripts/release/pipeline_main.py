@@ -25,7 +25,6 @@ from scripts.release.atomic_pipeline import (
     build_mco_tests_image,
     build_om_image,
     build_operator_image,
-    build_operator_image_patch,
     build_readiness_probe_image,
     build_tests_image,
     build_upgrade_hook_image,
@@ -54,7 +53,6 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         "mco-test": build_mco_tests_image,
         "readiness-probe": build_readiness_probe_image,
         "upgrade-hook": build_upgrade_hook_image,
-        "operator-quick": build_operator_image_patch,
         "database": build_database_image,
         "agent": build_agent_default_case,
         #

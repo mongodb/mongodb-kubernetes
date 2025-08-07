@@ -25,7 +25,6 @@ from scripts.evergreen.release.images_signing import (
 from .build_configuration import BuildConfiguration
 from .build_context import BuildScenario
 from .build_images import process_image
-from .optimized_operator_build import build_operator_image_fast
 
 TRACER = trace.get_tracer("evergreen-agent")
 
@@ -157,11 +156,6 @@ def build_operator_image(build_configuration: BuildConfiguration):
         build_configuration=build_configuration,
         extra_args=args,
     )
-
-
-def build_operator_image_patch(build_configuration: BuildConfiguration):
-    if not build_operator_image_fast(build_configuration):
-        build_operator_image(build_configuration)
 
 
 def build_database_image(build_configuration: BuildConfiguration):

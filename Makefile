@@ -154,7 +154,7 @@ aws_cleanup:
 	@ scripts/evergreen/prepare_aws.sh
 
 build-and-push-operator-image: aws_login
-	@ scripts/evergreen/run_python.sh scripts/release/pipeline_main.py operator-quick
+	@ scripts/evergreen/run_python.sh scripts/release/pipeline_main.py operator
 
 build-and-push-database-image: aws_login
 	@ scripts/dev/build_push_database_image
