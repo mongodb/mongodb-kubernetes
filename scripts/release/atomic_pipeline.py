@@ -24,7 +24,7 @@ from scripts.evergreen.release.images_signing import (
 
 from .build_configuration import BuildConfiguration
 from .build_context import BuildScenario
-from .build_images import process_image
+from .build_images import build_image
 
 TRACER = trace.get_tracer("evergreen-agent")
 
@@ -233,7 +233,6 @@ def build_image_generic(
 
     registry = build_configuration.base_registry
     args_list = extra_args or {}
-    version = args_list.get("version", "")
 
     # merge in the registry without mutating caller's dict
     build_args = {**args_list, "quay_registry": registry}
@@ -246,20 +245,23 @@ def build_image_generic(
     logger.debug(f"Building {image_name} for platforms={build_configuration.platforms}")
     logger.debug(f"build image generic - registry={registry}")
     
-    process_image(
-        image_name,
-        image_tag=build_configuration.version,
-        dockerfile_path=dockerfile_path,
-        dockerfile_args=build_args,
-        base_registry=build_configuration.base_registry,
+    # Build docker registry URI and call build_image
+    docker_registry = f"{build_configuration.base_registry}/{image_name}"
+    image_full_uri = f"{docker_registry}:{build_configuration.version}"
+
+    build_image(
+        tag=image_full_uri,
+        dockerfile=dockerfile_path,
+        path=build_path,
+        args=build_args,
+        push=True,
         platforms=build_configuration.platforms,
-        sign=build_configuration.sign,
-        build_path=build_path,
     )
 
     if build_configuration.sign:
-        sign_image(registry, version)
-        verify_signature(registry, version)
+        logger.info("Signing image")
+        sign_image(docker_registry, build_configuration.version)
+        verify_signature(docker_registry, build_configuration.version)
 
 
 def build_init_appdb(build_configuration: BuildConfiguration):
