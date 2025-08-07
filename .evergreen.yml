@@ -91,6 +91,8 @@ variables:
       - func: download_kube_tools
       - func: switch_context
       - func: setup_building_host
+      - func: install_goreleaser
+      - func: install_macnotary
       - func: build_multi_cluster_binary
 
   - &setup_and_teardown_task_cloudqa
@@ -346,6 +348,8 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
+      - func: install_goreleaser
+      - func: install_macnotary
       - func: build_multi_cluster_binary
       - func: pipeline
         vars:
