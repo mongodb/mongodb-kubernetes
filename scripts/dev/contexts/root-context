@@ -73,6 +73,8 @@ if [[ "$(uname)" == "Linux" ]]; then
   export GOROOT=/opt/golang/go1.24
 fi
 
+export DEV_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
+export STAGING_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging"
 export MONGODB_REPO_URL="quay.io/mongodb"
 
 export SIGNING_PUBLIC_KEY_URL="https://cosign.mongodb.com/mongodb-enterprise-kubernetes-operator.pem"
