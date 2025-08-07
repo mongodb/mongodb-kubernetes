@@ -92,7 +92,6 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
         raise ValueError(f"Image '{image}' is not defined in the build info for scenario '{build_scenario}'")
 
     # Resolve final values with overrides
-    # TODO: cover versions for agents and OM images
     version = args.version or image_build_info.version
     registry = args.registry or image_build_info.repository
     platforms = get_platforms_from_arg(args.platform) or image_build_info.platforms
@@ -113,17 +112,19 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
 
 
 def get_scenario_from_arg(args_scenario: str) -> BuildScenario | None:
-    if args_scenario:
-        try:
-            return BuildScenario(args_scenario)
-        except ValueError as e:
-            raise ValueError(f"Invalid scenario '{args_scenario}': {e}")
+    if not args_scenario:
+        return None
 
-    return None
+    try:
+        return BuildScenario(args_scenario)
+    except ValueError as e:
+        raise ValueError(f"Invalid scenario '{args_scenario}': {e}")
 
 
 def get_platforms_from_arg(args_platforms: str) -> list[str] | None:
-    """Parse and validate the --platform argument"""
+    if not args_platforms:
+        return None
+
     platforms = [p.strip() for p in args_platforms.split(",")]
     if any(p not in SUPPORTED_PLATFORMS for p in platforms):
         raise ValueError(
