@@ -47,7 +47,7 @@ def load_release_file() -> Dict:
         return json.load(release)
 
 
-@TRACER.start_as_current_span("sonar_build_image")
+@TRACER.start_as_current_span("pipeline_process_image")
 def pipeline_process_image(
     image_name: str,
     dockerfile_path: str,
