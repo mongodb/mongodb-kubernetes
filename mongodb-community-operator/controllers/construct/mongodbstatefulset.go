@@ -403,6 +403,21 @@ func readinessProbeInit(volumeMount []corev1.VolumeMount, readinessProbeImage st
 func mongodbContainer(mongodbImage string, volumeMounts []corev1.VolumeMount, additionalMongoDBConfig mdbv1.MongodConfiguration) container.Modification {
 	filePath := additionalMongoDBConfig.GetDBDataDir() + "/" + automationMongodConfFileName
 	mongoDbCommand := fmt.Sprintf(`
+# Signal handler for graceful shutdown
+cleanup() {
+	echo "MongoDB container received SIGTERM, shutting down gracefully..."
+	if [ -n "$MONGOD_PID" ] && kill -0 "$MONGOD_PID" 2>/dev/null; then
+		echo "Sending SIGTERM to mongod process $MONGOD_PID"
+		kill -TERM "$MONGOD_PID"
+		wait "$MONGOD_PID"
+		echo "mongod process has exited"
+	fi
+	exit 0
+}
+
+# Set up signal handler
+trap cleanup SIGTERM
+
 if [ -e "/hooks/version-upgrade" ]; then
 	#run post-start hook to handle version changes (if exists)
     /hooks/version-upgrade
@@ -422,7 +437,12 @@ sleep 15
 
 # start mongod with this configuration
 echo "Starting mongod..."
-exec mongod -f %s;
+mongod -f %s &
+MONGOD_PID=$!
+echo "Started mongod with PID $MONGOD_PID"
+
+# Wait for mongod to finish
+wait "$MONGOD_PID"
 `, filePath, keyfileFilePath, filePath)
 
 	containerCommand := []string{
