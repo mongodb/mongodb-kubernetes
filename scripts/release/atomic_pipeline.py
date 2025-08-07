@@ -46,7 +46,6 @@ def load_release_file() -> Dict:
         return json.load(release)
 
 
-
 def build_tests_image(build_configuration: BuildConfiguration):
     """
     Builds image used to run tests.
@@ -236,15 +235,15 @@ def build_image(
 
     # merge in the registry without mutating caller's dict
     build_args = {**args_list, "quay_registry": registry}
-    
+
     if build_args:
         span.set_attribute("mck.build_args", str(build_args))
-    
+
     logger.info(f"Building {image_name}, dockerfile args: {build_args}")
     logger.debug(f"Build args: {build_args}")
     logger.debug(f"Building {image_name} for platforms={build_configuration.platforms}")
     logger.debug(f"build image generic - registry={registry}")
-    
+
     # Build docker registry URI and call build_image
     docker_registry = f"{build_configuration.base_registry}/{image_name}"
     image_full_uri = f"{docker_registry}:{build_configuration.version}"

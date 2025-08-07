@@ -84,7 +84,7 @@ def execute_docker_build(
     """
     # Login to ECR before building
     ecr_login_boto3(region="us-east-1", account_id="268558157000")
-    
+
     docker = python_on_whales.docker
 
     try:
@@ -126,5 +126,3 @@ def execute_docker_build(
     except Exception as e:
         logger.error(f"Failed to build image {tag}: {e}")
         raise RuntimeError(f"Failed to build image {tag}: {str(e)}")
-
-
