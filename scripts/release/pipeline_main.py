@@ -56,14 +56,13 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         "upgrade-hook": build_upgrade_hook_image,  # working, but still using single arch build
         "operator-quick": build_operator_image_patch,  # TODO: remove this image, it is not used anymore
         "database": build_database_image,  # working
-        "agent-pct": build_agent_on_agent_bump,
-        "agent": build_agent_default_case,
+        "agent": build_agent_default_case,  # working
         # Init images
         "init-appdb": build_init_appdb_image,  # working
         "init-database": build_init_database_image,  # working
         "init-ops-manager": build_init_om_image,  # working
         # Ops Manager image
-        "ops-manager": build_om_image,
+        "ops-manager": build_om_image,  # working
     }
 
     return image_builders
@@ -185,16 +184,7 @@ def main():
         "--registry",
         help="Override the base registry instead of resolving from build scenario",
     )
-    parser.add_argument(
-        "--sign", action="store_true", help="Force signing instead of resolving condition from build scenario"
-    )
-
-    # Agent specific arguments
-    parser.add_argument(
-        "--all-agents",
-        action="store_true",
-        help="Build all agent variants instead of only the latest",
-    )
+    # For agent builds
     parser.add_argument(
         "--parallel-factor",
         default=0,

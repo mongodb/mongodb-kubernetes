@@ -5,6 +5,7 @@ from lib.base_logger import logger
 from git import Repo
 
 from scripts.release.version import calculate_next_version
+from scripts.release.constants import triggered_by_git_tag, is_evg_patch, is_running_in_evg, get_version_id
 
 COMMIT_SHA_LENGTH = 8
 
@@ -18,10 +19,10 @@ class BuildScenario(StrEnum):
     @classmethod
     def infer_scenario_from_environment(cls) -> "BuildScenario":
         """Infer the build scenario from environment variables."""
-        git_tag = os.getenv("triggered_by_git_tag")
-        is_patch = os.getenv("is_patch", "false").lower() == "true"
-        is_evg = os.getenv("RUNNING_IN_EVG", "false").lower() == "true"
-        patch_id = os.getenv("version_id")
+        git_tag = triggered_by_git_tag()
+        is_patch = is_evg_patch()
+        is_evg = is_running_in_evg()
+        patch_id = get_version_id()
 
         if git_tag:
             # Release scenario and the git tag will be used for promotion process only
@@ -46,7 +47,7 @@ class BuildScenario(StrEnum):
 
         match self:
             case BuildScenario.PATCH:
-                patch_id = os.getenv("version_id")
+                patch_id = get_version_id()
                 if not patch_id:
                     raise ValueError(f"version_id environment variable is not set for `{self}` build scenario")
                 return patch_id

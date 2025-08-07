@@ -122,16 +122,10 @@ def build_mco_tests_image(build_configuration: ImageBuildConfiguration):
     """
     Builds image used to run community tests.
     """
-    golang_version = os.getenv("GOLANG_VERSION", "1.24")
-    if golang_version == "":
-        raise Exception("Missing GOLANG_VERSION environment variable")
-
-    buildargs = dict({"GOLANG_VERSION": golang_version})
 
     pipeline_process_image(
         dockerfile_path="docker/mongodb-community-tests/Dockerfile",
         build_configuration=build_configuration,
-        dockerfile_args=buildargs,
     )
 
 
@@ -139,8 +133,8 @@ def build_operator_image(build_configuration: ImageBuildConfiguration):
     """Calculates arguments required to build the operator image, and starts the build process."""
     # In evergreen, we can pass test_suffix env to publish the operator to a quay
     # repository with a given suffix.
-    test_suffix = os.environ.get("test_suffix", "")
-    log_automation_config_diff = os.environ.get("LOG_AUTOMATION_CONFIG_DIFF", "false")
+    test_suffix = os.getenv("test_suffix", "")
+    log_automation_config_diff = os.getenv("LOG_AUTOMATION_CONFIG_DIFF", "false")
 
     args = {
         "version": build_configuration.version,
@@ -283,17 +277,9 @@ def build_readiness_probe_image(build_configuration: ImageBuildConfiguration):
     Builds image used for readiness probe.
     """
 
-    golang_version = os.getenv("GOLANG_VERSION", "1.24")
-
-    extra_args = {
-        "version": build_configuration.version,
-        "GOLANG_VERSION": golang_version,
-    }
-
     pipeline_process_image(
         dockerfile_path="docker/mongodb-kubernetes-readinessprobe/Dockerfile",
         build_configuration=build_configuration,
-        dockerfile_args=extra_args,
     )
 
 
@@ -302,17 +288,9 @@ def build_upgrade_hook_image(build_configuration: ImageBuildConfiguration):
     Builds image used for version upgrade post-start hook.
     """
 
-    golang_version = os.getenv("GOLANG_VERSION", "1.24")
-
-    extra_args = {
-        "version": build_configuration.version,
-        "GOLANG_VERSION": golang_version,
-    }
-
     pipeline_process_image(
         dockerfile_path="docker/mongodb-kubernetes-upgrade-hook/Dockerfile",
         build_configuration=build_configuration,
-        dockerfile_args=extra_args,
     )
 
 
