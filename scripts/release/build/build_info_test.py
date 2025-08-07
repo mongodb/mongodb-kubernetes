@@ -103,7 +103,7 @@ def test_load_build_info_patch(git_repo: Repo):
 
     build_info = load_build_info(BuildScenario.PATCH, git_repo.working_dir)
 
-    assert build_info.__dict__() == expected_build_info.__dict__()
+    assert build_info == expected_build_info
 
 
 def test_load_build_info_staging(git_repo: Repo):
@@ -199,7 +199,7 @@ def test_load_build_info_staging(git_repo: Repo):
 
     build_info = load_build_info(BuildScenario.STAGING, git_repo.working_dir)
 
-    assert build_info.__dict__() == expected_build_info.__dict__()
+    assert build_info == expected_build_info
 
 
 def test_load_build_info_release(git_repo: Repo, readinessprobe_version: str,
@@ -271,4 +271,4 @@ def test_load_build_info_release(git_repo: Repo, readinessprobe_version: str,
 
     build_info = load_build_info(BuildScenario.RELEASE, git_repo.working_dir)
 
-    assert build_info.__dict__() == expected_build_info.__dict__()
+    assert build_info == expected_build_info

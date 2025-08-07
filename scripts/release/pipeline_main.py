@@ -84,7 +84,10 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     build_scenario = get_scenario_from_arg(args.scenario) or BuildScenario.infer_scenario_from_environment()
 
     build_info = load_build_info(build_scenario)
+    logger.info(f"image is {image}")
+    logger.info(f"images are {build_info.images}")
     image_build_info = build_info.images.get(image)
+    logger.info(f"image_build_info is {image_build_info}")
     if not image_build_info:
         raise ValueError(f"Image '{image}' is not defined in the build info for scenario '{build_scenario}'")
 

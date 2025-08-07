@@ -13,22 +13,22 @@ def test_create_release_info_json(
 
     expected_json = {
         "images": {
-            "mongodbOperator": {
+            "operator": {
                 "repository": "quay.io/mongodb/mongodb-kubernetes",
                 "platforms": ["linux/arm64", "linux/amd64"],
                 "version": "1.2.0",
             },
-            "initDatabase": {
+            "init-database": {
                 "repository": "quay.io/mongodb/mongodb-kubernetes-init-database",
                 "platforms": ["linux/arm64", "linux/amd64"],
                 "version": "1.2.0",
             },
-            "initAppDb": {
+            "init-appdb": {
                 "repository": "quay.io/mongodb/mongodb-kubernetes-init-appdb",
                 "platforms": ["linux/arm64", "linux/amd64"],
                 "version": "1.2.0",
             },
-            "initOpsManager": {
+            "init-ops-manager": {
                 "repository": "quay.io/mongodb/mongodb-kubernetes-init-ops-manager",
                 "platforms": ["linux/arm64", "linux/amd64"],
                 "version": "1.2.0",
@@ -38,12 +38,12 @@ def test_create_release_info_json(
                 "platforms": ["linux/arm64", "linux/amd64"],
                 "version": "1.2.0",
             },
-            "readinessprobe": {
+            "readiness-probe": {
                 "repository": "quay.io/mongodb/mongodb-kubernetes-readinessprobe",
                 "platforms": ["linux/arm64", "linux/amd64"],
                 "version": readinessprobe_version,
             },
-            "operator-version-upgrade-post-start-hook": {
+            "upgrade-hook": {
                 "repository": "quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook",
                 "platforms": ["linux/arm64", "linux/amd64"],
                 "version": operator_version_upgrade_post_start_hook_version,
