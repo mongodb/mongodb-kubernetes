@@ -109,10 +109,6 @@
         "cloud_manager": "13.37.0.9590-1",
         "cloud_manager_tools": "100.12.2",
         "ops_manager": {
-          "6.0.25": {
-            "agent_version": "12.0.33.7866-1",
-            "tools_version": "100.10.0"
-          },
           "6.0.26": {
             "agent_version": "12.0.34.7888-1",
             "tools_version": "100.10.0"
