@@ -54,7 +54,6 @@ tools.go
 deploy/
 config/manifests/
 public/
-!/public/tools/multicluster/go.mod
 
 # Documentation files
 docs/

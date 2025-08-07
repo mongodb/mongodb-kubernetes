@@ -63,27 +63,34 @@ func mergeBoth(structAsMap map[string]interface{}, unmodifiedOriginalMap map[str
 
 // merge takes a map dst (serialized from a struct) and a map src (the map from an unmodified deployment)
 // and merges them together based on a set of rules
-func merge(structAsMap, unmodifiedOriginalMap map[string]interface{}) {
-	for key, val := range unmodifiedOriginalMap {
-		if _, ok := structAsMap[key]; !ok {
-			switch val.(type) {
+func merge(dstMap, srcMap map[string]interface{}) {
+	for key, srcVal := range srcMap {
+		dstVal, ok := dstMap[key]
+		// if the key exists, but the value is nil it means that this is done by intention to delete the value.
+		// In this case we want to skip it and delete in the next step
+		if ok && dstVal == nil {
+			continue
+		}
+		// if the value does not exist in the dst map we need to populate it with the value from the src map
+		if !ok {
+			switch srcVal.(type) {
 			case []interface{}:
-				structAsMap[key] = make([]interface{}, 0)
+				dstMap[key] = make([]interface{}, 0)
 			default:
 				// if we don't know about this value, then we can just accept the value coming from the Automation Config
-				structAsMap[key] = val
+				dstMap[key] = srcVal
 			}
 		} else { // the value exists already in the map we have, we need to perform merge
-			mergeBoth(structAsMap, unmodifiedOriginalMap, key, val)
+			mergeBoth(dstMap, srcMap, key, srcVal)
 		}
 	}
 
 	// Delete any fields marked with "util.MergoDelete"
-	for key, val := range structAsMap {
+	for key, val := range dstMap {
 		// if we're explicitly sending a value of nil, it means we want to delete the corresponding entry.
 		// We don't want to ever send nil values.
 		if val == MergoDelete || val == nil {
-			delete(structAsMap, key)
+			delete(dstMap, key)
 		}
 	}
 }
