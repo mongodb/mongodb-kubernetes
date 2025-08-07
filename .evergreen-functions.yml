@@ -511,6 +511,21 @@ functions:
   build_multi_cluster_binary:
     - command: subprocess.exec
       params:
+        include_expansions_in_env:
+          - github_commit
+          - GRS_USERNAME
+          - GRS_PASSWORD
+          - PKCS11_URI
+          - ARTIFACTORY_URL
+          - ARTIFACTORY_PASSWORD
+          - SIGNING_IMAGE_URI
+          - macos_notary_keyid
+          - macos_notary_secret
+          - workdir
+          - triggered_by_git_tag
+        env:
+          MACOS_NOTARY_KEY: ${macos_notary_keyid}
+          MACOS_NOTARY_SECRET: ${macos_notary_secret}
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/dev/run_python.sh scripts/release/kubectl-mongodb/python/build_kubectl_plugin.py
   
