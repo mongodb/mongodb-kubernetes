@@ -171,20 +171,6 @@ def build_database_image(build_configuration: BuildConfiguration):
     )
 
 
-@TRACER.start_as_current_span("sign_image_in_repositories")
-def sign_image_in_repositories(args: Dict[str, str], arch: str = None):
-    span = trace.get_current_span()
-    repository = args["quay_registry"] + args["ubi_suffix"]
-    tag = args["release_version"]
-    if arch:
-        tag = f"{tag}-{arch}"
-
-    span.set_attribute("mck.tag", tag)
-
-    sign_image(repository, tag)
-    verify_signature(repository, tag)
-
-
 def find_om_in_releases(om_version: str, releases: Dict[str, str]) -> Optional[str]:
     """
     There are a few alternatives out there that allow for json-path or xpath-type
