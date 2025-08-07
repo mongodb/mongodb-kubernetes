@@ -338,7 +338,8 @@ def build_agent_default_case(build_configuration: ImageBuildConfiguration):
     tasks_queue = Queue()
     max_workers = 1
     if build_configuration.parallel:
-        max_workers = None
+        # TODO: remove this once we have a proper synchronization for buildx builder concurrent creation
+        max_workers = 1
         if build_configuration.parallel_factor > 0:
             max_workers = build_configuration.parallel_factor
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
@@ -435,7 +436,7 @@ def _build_agent_operator(
         f"https://downloads.mongodb.org/tools/db/mongodb-database-tools-{tools_distro}-{tools_version}.tgz"
     )
     mongodb_agent_url_ubi = f"https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod/mongodb-mms-automation-agent-{agent_version[0]}.{agent_distro}.tar.gz"
-    init_database_image = f"{build_configuration.registry}/mongodb-kubernetes-init-database:{operator_version}"
+    init_database_image = f"{build_configuration.base_registry()}/mongodb-kubernetes-init-database:{operator_version}"
 
     tasks_queue.put(
         executor.submit(

@@ -21,5 +21,8 @@ class ImageBuildConfiguration:
     def is_release_scenario(self) -> bool:
         return self.scenario == BuildScenario.RELEASE
 
+    def base_registry(self) -> str:
+        return self.registry.rpartition('/')[0]
+
     def image_name(self) -> str:
-        return self.registry.split('/')[-1]
+        return self.registry.rpartition('/')[2]
