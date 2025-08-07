@@ -2,16 +2,12 @@
 set -Eeou pipefail
 
 source scripts/dev/set_env_context.sh
+source scripts/funcs/install
 
 # Store the lowercase name of Operating System
 os=$(uname | tr '[:upper:]' '[:lower:]')
 # Detect architecture
-arch=$(uname -m)
-case ${arch} in
-    x86_64) arch_suffix="amd64" ;;
-    aarch64|arm64) arch_suffix="arm64" ;;
-    *) echo "Unsupported architecture: ${arch}" >&2; exit 1 ;;
-esac
+arch_suffix=$(detect_architecture)
 # This should be changed when needed
 latest_version="v0.27.0"
 

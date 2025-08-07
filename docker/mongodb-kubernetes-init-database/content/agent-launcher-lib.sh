@@ -91,15 +91,28 @@ download_agent() {
       AGENT_VERSION="${MDB_AGENT_VERSION}"
     fi
 
-    if [ "$(arch)" = "x86_64" ]; then
-        AGENT_FILE="mongodb-mms-automation-agent-${AGENT_VERSION}.linux_x86_64.tar.gz"
-    elif [ "$(arch)" = "arm64" ]; then
-        AGENT_FILE="mongodb-mms-automation-agent-${AGENT_VERSION}.amzn2_aarch64.tar.gz"
-    elif [ "$(arch)" = "ppc64le" ]; then
-        AGENT_FILE="mongodb-mms-automation-agent-${AGENT_VERSION}.rhel8_ppc64le.tar.gz"
-    elif [ "$(arch)" = "s390x" ]; then
-        AGENT_FILE="mongodb-mms-automation-agent-${AGENT_VERSION}.rhel7_s390x.tar.gz"
-    fi
+    # Detect architecture for agent download
+    local detected_arch
+    detected_arch=$(uname -m)
+
+    case "${detected_arch}" in
+        x86_64)
+            AGENT_FILE="mongodb-mms-automation-agent-${AGENT_VERSION}.linux_x86_64.tar.gz"
+            ;;
+        aarch64|arm64)
+            AGENT_FILE="mongodb-mms-automation-agent-${AGENT_VERSION}.amzn2_aarch64.tar.gz"
+            ;;
+        ppc64le)
+            AGENT_FILE="mongodb-mms-automation-agent-${AGENT_VERSION}.rhel8_ppc64le.tar.gz"
+            ;;
+        s390x)
+            AGENT_FILE="mongodb-mms-automation-agent-${AGENT_VERSION}.rhel7_s390x.tar.gz"
+            ;;
+        *)
+            script_log "Error: Unsupported architecture for MongoDB agent: ${detected_arch}"
+            exit 1
+            ;;
+    esac
 
     script_log "Downloading Agent version: ${AGENT_VERSION}"
     script_log "Downloading a Mongodb Agent from ${base_url:?}"

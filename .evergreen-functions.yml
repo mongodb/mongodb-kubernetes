@@ -231,7 +231,7 @@ functions:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       add_to_path:
         - ${workdir}/bin
-      binary: scripts/dev/configure_docker_auth.sh
+      binary: scripts/dev/configure_container_auth.sh
 
   setup_evg_host: &setup_evg_host
     command: subprocess.exec
@@ -280,10 +280,17 @@ functions:
         command: scripts/evergreen/setup_minikube_host.sh
 
   prune_docker_resources:
-    - command: subprocess.exec
+    - command: shell.exec
       type: setup
       params:
-        command: "docker system prune -a -f"
+        shell: bash
+        script: |
+          if command -v docker >/dev/null 2>&1; then
+            echo "Docker found, pruning docker resources..."
+            docker system prune -a -f
+          else
+            echo "Docker not found, skipping docker resource pruning"
+          fi
 
   # the task configures the set of tools necessary for any task working with K8 cluster:
   # installs kubectl, jq, kind (if necessary), configures docker authentication

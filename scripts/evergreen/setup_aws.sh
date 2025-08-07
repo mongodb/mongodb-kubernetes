@@ -2,34 +2,16 @@
 set -Eeou pipefail
 
 source scripts/dev/set_env_context.sh
+source scripts/funcs/install
 
-# Detect system architecture
-detect_architecture() {
-    local arch
-    arch=$(uname -m)
-    echo "Detected architecture: ${arch}" >&2
-    echo "${arch}"
-}
-
-# Install AWS CLI v2 via binary download (for x86_64 and aarch64)
+# Install AWS CLI v2 via binary download (for amd64 and arm64)
 install_aws_cli_binary() {
     local arch="$1"
     echo "Installing AWS CLI v2 via binary download for ${arch}..."
 
     # Map architecture names for AWS CLI download URLs
     local aws_arch
-    case "${arch}" in
-        x86_64)
-            aws_arch="x86_64"
-            ;;
-        aarch64|arm64)
-            aws_arch="aarch64"
-            ;;
-        *)
-            echo "Error: Unsupported architecture for binary installation: ${arch}" >&2
-            return 1
-            ;;
-    esac
+    aws_arch=$(uname -m)
 
     # Download and install AWS CLI v2
     local temp_dir
@@ -38,7 +20,7 @@ install_aws_cli_binary() {
 
     echo "Downloading AWS CLI v2 for ${aws_arch}..."
     curl -s "https://awscli.amazonaws.com/awscli-exe-linux-${aws_arch}.zip" -o "awscliv2.zip"
-    
+
     unzip -q awscliv2.zip
     sudo ./aws/install --update
 
@@ -97,11 +79,7 @@ install_aws_cli() {
     arch=$(detect_architecture)
 
     case "${arch}" in
-        ppc64le|s390x)
-            echo "IBM architecture detected (${arch}). Using pip installation..."
-            install_aws_cli_pip
-            ;;
-        x86_64|aarch64|arm64)
+        amd64|arm64)
             echo "Standard architecture detected (${arch}). Using binary installation..."
             install_aws_cli_binary "${arch}"
             ;;

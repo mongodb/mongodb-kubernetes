@@ -8,11 +8,9 @@ source scripts/funcs/checks
 source scripts/funcs/printing
 source scripts/funcs/kubernetes
 
-# Parse command line arguments
 CONTAINER_RUNTIME="${CONTAINER_RUNTIME-"docker"}"
 
-# Validate and set up container runtime configuration
-setup_container_runtime() {
+setup_validate_container_runtime() {
   case "${CONTAINER_RUNTIME}" in
     "podman")
       if ! command -v podman &> /dev/null; then
@@ -38,7 +36,6 @@ setup_container_runtime() {
       ;;
   esac
 
-  # Create config directory
   if [[ "$USE_SUDO" == "true" ]]; then
     sudo mkdir -p "$(dirname "${CONFIG_PATH}")"
   else
@@ -76,51 +73,20 @@ write_file() {
   fi
 }
 
-check_docker_daemon_is_running() {
-  if [[ "${CONTAINER_RUNTIME}" == "podman" ]]; then
-    # Podman doesn't require a daemon
-    echo "Using Podman (no daemon required)"
-    return 0
-  fi
-
-  if [[ "$(uname -s)" != "Linux" ]]; then
-    echo "Skipping docker daemon check when not running in Linux"
-    return 0
-  fi
-
-  if systemctl is-active --quiet docker; then
-      echo "Docker is already running."
-  else
-      echo "Docker is not running. Starting Docker..."
-      # Start the Docker daemon
-      sudo systemctl start docker
-      for _ in {1..15}; do
-        if systemctl is-active --quiet docker; then
-            echo "Docker started successfully."
-            return 0
-        fi
-        echo "Waiting for Docker to start..."
-        sleep 3
-      done
-  fi
-}
-
 remove_element() {
   local config_option="$1"
-  local tmpfile=$(mktemp)
+  local tmpfile
+  tmpfile=$(mktemp)
 
-  # Initialize config file if it doesn't exist
   if [[ ! -f "${CONFIG_PATH}" ]]; then
     write_file '{}' "${CONFIG_PATH}"
   fi
 
-  # Remove the specified element using jq
   exec_cmd jq 'del(.'"${config_option}"')' "${CONFIG_PATH}" > "${tmpfile}"
   exec_cmd cp "${tmpfile}" "${CONFIG_PATH}"
   rm "${tmpfile}"
 }
 
-# Container runtime login wrapper
 container_login() {
   local username="$1"
   local registry="$2"
@@ -132,21 +98,14 @@ container_login() {
   fi
 }
 
-# This is the script which performs container authentication to different registries that we use (so far ECR and RedHat)
-# As the result of this login the config file will have all the 'auth' information necessary to work with container registries
+setup_validate_container_runtime
 
-setup_container_runtime
-
-check_docker_daemon_is_running
-
-# Initialize config file if it doesn't exist
 if [[ ! -f "${CONFIG_PATH}" ]]; then
   write_file '{}' "${CONFIG_PATH}"
 fi
 
 if [[ -f "${CONFIG_PATH}" ]]; then
   if [[ "${RUNNING_IN_EVG:-"false"}" != "true" ]]; then
-    # Check if login is actually required by making a HEAD request to ECR using existing credentials
     echo "Checking if container registry credentials are valid..."
     ecr_auth=$(exec_cmd jq -r '.auths."268558157000.dkr.ecr.us-east-1.amazonaws.com".auth // empty' "${CONFIG_PATH}")
 

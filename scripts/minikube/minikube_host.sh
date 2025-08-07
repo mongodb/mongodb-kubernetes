@@ -12,15 +12,16 @@ test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
 
 source scripts/dev/set_env_context.sh
 source scripts/funcs/printing
+source scripts/funcs/install
 
-if [[ -z "${S390_HOST_NAME}" ]]; then
-  echo "S390_HOST_NAME env var is missing"
+if [[ -z "${MINIKUBE_HOST_NAME}" ]]; then
+  echo "MINIKUBE_HOST_NAME env var is missing"
   echo "Set it to your s390x host connection string (e.g., user@hostname)"
   exit 1
 fi
 
 get_host_url() {
-  echo "${S390_HOST_NAME}"
+  echo "${MINIKUBE_HOST_NAME}"
 }
 
 cmd=${1-""}
@@ -29,7 +30,7 @@ if [[ "${cmd}" != "" && "${cmd}" != "help" ]]; then
   host_url=$(get_host_url)
 fi
 
-kubeconfig_path="${HOME}/.operator-dev/s390-host.kubeconfig"
+kubeconfig_path="${HOME}/.operator-dev/minikube-host.kubeconfig"
 
 configure() {
   ssh -T -q "${host_url}" "sudo chown \$(whoami):\$(whoami) ~/.docker || true; mkdir -p ~/.docker"
@@ -102,10 +103,10 @@ get-kubeconfig() {
 }
 
 recreate-minikube-cluster() {
-  configure "$(uname -m)" 2>&1| prepend "minikube_host.sh configure"
-  echo "Recreating minikube cluster on ${S390_HOST_NAME} (${host_url})..."
+  configure "$(detect_architecture)" 2>&1| prepend "minikube_host.sh configure"
+  echo "Recreating minikube cluster on ${MINIKUBE_HOST_NAME} (${host_url})..."
   # shellcheck disable=SC2088
-  ssh -T "${host_url}" "cd ~/mongodb-kubernetes; export KUBE_ENVIRONMENT_NAME=minikube; minikube delete || true; minikube start --driver=podman --memory=8192mb --cpus=4"
+  ssh -T "${host_url}" "cd ~/mongodb-kubernetes; export KUBE_ENVIRONMENT_NAME=minikube; minikube delete || true; ./scripts/minikube/setup_minikube_host.sh"
   echo "Copying kubeconfig to ${kubeconfig_path}"
   get-kubeconfig
 }
@@ -175,7 +176,7 @@ usage() {
 
 PREREQUISITES:
   - s390x host with SSH access
-  - define S390_HOST_NAME env var (e.g., export S390_HOST_NAME=user@hostname)
+  - define MINIKUBE_HOST_NAME env var (e.g., export MINIKUBE_HOST_NAME=user@hostname)
   - SSH key-based authentication configured
 
 COMMANDS:
@@ -183,7 +184,7 @@ COMMANDS:
   sync                              rsync of project directory
   recreate-minikube-cluster          recreates minikube cluster and executes get-kubeconfig
   remote-prepare-local-e2e-run       executes prepare-local-e2e on the remote host
-  get-kubeconfig                     copies remote minikube kubeconfig locally to ~/.operator-dev/s390-host.kubeconfig
+  get-kubeconfig                     copies remote minikube kubeconfig locally to ~/.operator-dev/minikube-host.kubeconfig
   tunnel [args]                      creates ssh session with tunneling to all API servers
   ssh [args]                         creates ssh session passing optional arguments to ssh
   cmd [command with args]            execute command as if being on s390x host
@@ -191,7 +192,7 @@ COMMANDS:
   help                               this message
 
 EXAMPLES:
-  export S390_HOST_NAME=user@ibmz8
+  export MINIKUBE_HOST_NAME=user@ibmz8
   minikube_host.sh tunnel
   minikube_host.sh cmd 'make e2e test=replica_set'
 "

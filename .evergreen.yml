@@ -140,7 +140,7 @@ variables:
 
   - &teardown_group
     teardown_group:
-      - func: teardown_kubernetes_environment
+      - func: prune_docker_resources
       - func: run_retry_script
 
   - &base_om7_dependency

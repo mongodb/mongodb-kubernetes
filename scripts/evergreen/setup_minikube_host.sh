@@ -5,11 +5,12 @@
 # Can be run on static hosts for testing and verification
 
 source scripts/dev/set_env_context.sh
+source scripts/funcs/install
 set -Eeoux pipefail
 
 echo "=========================================="
 echo "Setting up minikube host with multi-architecture support"
-echo "Architecture: $(uname -m)"
+echo "Architecture: $(detect_architecture)"
 echo "OS: $(uname -s)"
 echo "=========================================="
 
@@ -51,7 +52,7 @@ run_setup_step "jq Setup" "scripts/evergreen/setup_jq.sh"
 run_setup_step "Minikube Host Setup with Container Runtime Detection" "scripts/minikube/setup_minikube_host.sh"
 
 export CONTAINER_RUNTIME=podman
-run_setup_step "Container Registry Authentication" "scripts/dev/configure_docker_auth.sh"
+run_setup_step "Container Registry Authentication" "scripts/dev/configure_container_auth.sh"
 
 # The minikube cluster is already started by the setup_minikube_host.sh script
 echo ""

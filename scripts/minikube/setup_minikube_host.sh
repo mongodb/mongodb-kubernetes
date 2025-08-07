@@ -2,6 +2,7 @@
 
 # this script downloads necessary tooling for alternative architectures (s390x, ppc64le) using minikube (similar to setup_evg_host.sh)
 source scripts/dev/set_env_context.sh
+source scripts/funcs/install
 
 set -Eeou pipefail
 
@@ -28,7 +29,7 @@ EOF
 }
 
 # retrieve arch variable off the shell command line
-ARCH=${1-"$(uname -m)"}
+ARCH=${1-"$(detect_architecture)"}
 
 echo "Setting up minikube host for architecture: ${ARCH}"
 

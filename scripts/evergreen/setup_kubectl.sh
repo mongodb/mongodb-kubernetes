@@ -2,32 +2,7 @@
 set -Eeou pipefail
 
 source scripts/dev/set_env_context.sh
-
-# Detect system architecture and map to kubectl/helm architecture names
-detect_architecture() {
-    local arch
-    arch=$(uname -m)
-    
-    case "${arch}" in
-        x86_64)
-            echo "amd64"
-            ;;
-        aarch64|arm64)
-            echo "arm64"
-            ;;
-        ppc64le)
-            echo "ppc64le"
-            ;;
-        s390x)
-            echo "s390x"
-            ;;
-        *)
-            echo "Unsupported architecture: ${arch}" >&2
-            echo "Supported architectures: x86_64 (amd64), aarch64 (arm64), ppc64le, s390x" >&2
-            exit 1
-            ;;
-    esac
-}
+source scripts/funcs/install
 
 # Detect the current architecture
 ARCH=$(detect_architecture)
