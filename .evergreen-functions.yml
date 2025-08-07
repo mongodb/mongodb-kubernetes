@@ -490,12 +490,53 @@ functions:
           - rh_pyxis
         binary: scripts/dev/run_python.sh scripts/preflight_images.py --image ${image_name} --submit "${preflight_submit}"
 
+  install_macnotary:
+    - command: shell.exec
+      type: setup
+      params:
+        include_expansions_in_env:
+          - notary_service_url
+        script: |
+          set -Eeu pipefail
+
+          curl "${notary_service_url}" --output macos-notary.zip
+          unzip -u macos-notary.zip
+          chmod 755 ./linux_amd64/macnotary
+
+  install_goreleaser:
+    - command: shell.exec
+      type: setup
+      include_expansions_in_env:
+        - goreleaser_pro_tar_gz
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        script: |
+          set -Eeu pipefail
+          curl -fL "${goreleaser_pro_tar_gz}" --output goreleaser_Linux_x86_64.tar.gz
+          tar -xf goreleaser_Linux_x86_64.tar.gz
+          chmod 755 ./goreleaser
+
   build_multi_cluster_binary:
     - command: subprocess.exec
       type: setup
       params:
+        include_expansions_in_env:
+          - github_commit
+          - GRS_USERNAME
+          - GRS_PASSWORD
+          - PKCS11_URI
+          - ARTIFACTORY_URL
+          - ARTIFACTORY_PASSWORD
+          - SIGNING_IMAGE_URI
+          - macos_notary_keyid
+          - macos_notary_secret
+          - workdir
+          - triggered_by_git_tag
+        env:
+          MACOS_NOTARY_KEY: ${macos_notary_keyid}
+          MACOS_NOTARY_SECRET: ${macos_notary_secret}
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/evergreen/build_multi_cluster_kubeconfig_creator.sh
+        binary: scripts/dev/run_python.sh scripts/release/kubectl-mongodb/python/build_kubectl_plugin.py
 
   build_and_push_appdb_database:
     - command: subprocess.exec

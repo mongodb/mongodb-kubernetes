@@ -83,6 +83,8 @@ variables:
       - func: clone
       - func: download_kube_tools
       - func: setup_building_host
+      - func: install_goreleaser
+      - func: install_macnotary
       - func: build_multi_cluster_binary
 
   - &setup_and_teardown_group_gke_code_snippets
@@ -92,6 +94,8 @@ variables:
       - func: setup_gcloud_cli
       - func: setup_mongosh
       - func: download_kube_tools
+      - func: install_goreleaser
+      - func: install_macnotary
       - func: build_multi_cluster_binary
     teardown_group:
       - func: upload_code_snippets_logs
@@ -394,6 +398,8 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
+      - func: install_goreleaser
+      - func: install_macnotary
       - func: build_multi_cluster_binary
       - func: pipeline
         vars:
