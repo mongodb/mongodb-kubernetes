@@ -46,36 +46,6 @@ def load_release_file() -> Dict:
         return json.load(release)
 
 
-@TRACER.start_as_current_span("pipeline_process_image")
-def pipeline_process_image(
-    image_name: str,
-    dockerfile_path: str,
-    build_configuration: BuildConfiguration,
-    dockerfile_args: Dict[str, str] = None,
-    build_path: str = ".",
-):
-    """Builds a Docker image with arguments defined in `args`."""
-    span = trace.get_current_span()
-    span.set_attribute("mck.image_name", image_name)
-    if dockerfile_args:
-        span.set_attribute("mck.build_args", str(dockerfile_args))
-
-    logger.info(f"Dockerfile args: {dockerfile_args}, for image: {image_name}")
-
-    if not dockerfile_args:
-        dockerfile_args = {}
-    logger.debug(f"Build args: {dockerfile_args}")
-    process_image(
-        image_name,
-        image_tag=build_configuration.version,
-        dockerfile_path=dockerfile_path,
-        dockerfile_args=dockerfile_args,
-        base_registry=build_configuration.base_registry,
-        platforms=build_configuration.platforms,
-        sign=build_configuration.sign,
-        build_path=build_path,
-    )
-
 
 def build_tests_image(build_configuration: BuildConfiguration):
     """
@@ -246,6 +216,7 @@ def build_om_image(build_configuration: BuildConfiguration):
     )
 
 
+@TRACER.start_as_current_span("build_image_generic")
 def build_image_generic(
     image_name: str,
     dockerfile_path: str,
@@ -256,22 +227,33 @@ def build_image_generic(
     """
     Build an image then (optionally) sign the result.
     """
+    # Tracing setup
+    span = trace.get_current_span()
+    span.set_attribute("mck.image_name", image_name)
 
     registry = build_configuration.base_registry
     args_list = extra_args or {}
     version = args_list.get("version", "")
 
-    # merge in the registry without mutating caller’s dict
+    # merge in the registry without mutating caller's dict
     build_args = {**args_list, "quay_registry": registry}
+    
+    if build_args:
+        span.set_attribute("mck.build_args", str(build_args))
+    
+    logger.info(f"Building {image_name}, dockerfile args: {build_args}")
     logger.debug(f"Build args: {build_args}")
-
     logger.debug(f"Building {image_name} for platforms={build_configuration.platforms}")
     logger.debug(f"build image generic - registry={registry}")
-    pipeline_process_image(
-        image_name=image_name,
+    
+    process_image(
+        image_name,
+        image_tag=build_configuration.version,
         dockerfile_path=dockerfile_path,
-        build_configuration=build_configuration,
         dockerfile_args=build_args,
+        base_registry=build_configuration.base_registry,
+        platforms=build_configuration.platforms,
+        sign=build_configuration.sign,
         build_path=build_path,
     )
 
