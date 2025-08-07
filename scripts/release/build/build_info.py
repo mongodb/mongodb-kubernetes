@@ -14,7 +14,7 @@ class ImageInfo:
     version: str
     sign: bool
 
-    def to_json(self):
+    def to_release_info_json(self):
         return {"repository": self.repository, "platforms": self.platforms, "version": self.version}
 
 
@@ -25,7 +25,7 @@ class BinaryInfo:
     version: str
     sign: bool
 
-    def to_json(self):
+    def to_release_info_json(self):
         return {"platforms": self.platforms, "version": self.version}
 
 
@@ -35,7 +35,7 @@ class HelmChartInfo:
     version: str
     sign: bool
 
-    def to_json(self):
+    def to_release_info_json(self):
         return {"repository": self.repository, "version": self.version}
 
 
@@ -45,11 +45,12 @@ class BuildInfo:
     binaries: Dict[str, BinaryInfo]
     helm_charts: Dict[str, HelmChartInfo]
 
-    def to_json(self):
+    def to_release_info_json(self):
         return {
-            "images": {name: images.to_json() for name, images in self.images.items()},
-            "binaries": {name: bin.to_json() for name, bin in self.binaries.items()},
-            "helm-charts": {name: chart.to_json() for name, chart in self.helm_charts.items()},
+            "images": {name: images.to_release_info_json() for name, images in self.images.items() if
+                       name not in ["agent", "ops-manager"]},
+            "binaries": {name: bin.to_release_info_json() for name, bin in self.binaries.items()},
+            "helm-charts": {name: chart.to_release_info_json() for name, chart in self.helm_charts.items()},
         }
 
 

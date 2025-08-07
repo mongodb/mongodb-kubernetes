@@ -212,6 +212,14 @@
           "linux/arm64",
           "linux/amd64"
         ]
+      },
+      "release": {
+        "sign": true,
+        "repository": "quay.io/mongodb/mongodb-agent-ubi",
+        "platforms": [
+          "linux/arm64",
+          "linux/amd64"
+        ]
       }
     },
     "ops-manager": {
@@ -227,7 +235,14 @@
         "sign": true,
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-enterprise-ops-manager",
         "platforms": [
-          "linux/arm64",
+          "linux/amd64"
+        ]
+      },
+      "release": {
+        "version": "om-version-from-release.json",
+        "sign": true,
+        "repository": "quay.io/mongodb/mongodb-enterprise-ops-manager",
+        "platforms": [
           "linux/amd64"
         ]
       }

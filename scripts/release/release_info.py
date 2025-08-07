@@ -22,7 +22,7 @@ def create_release_info_json(
         initial_version=initial_version,
     )
 
-    return json.dumps(build_info.to_json(), indent=2)
+    return json.dumps(build_info.to_release_info_json(), indent=2)
 
 
 if __name__ == "__main__":
