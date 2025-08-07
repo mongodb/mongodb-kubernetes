@@ -25,12 +25,12 @@ func TestCheckAutomationStatusIsGoal(t *testing.T) {
 					Processes: []ProcessStatus{
 						{
 							Name:                    "a",
-							Plan:                    []string{},
+							Plan:                    []string{"FCV"},
 							LastGoalVersionAchieved: 1,
 						},
 						{
 							Name:                    "b",
-							Plan:                    []string{},
+							Plan:                    []string{"FCV"},
 							LastGoalVersionAchieved: 1,
 						},
 					},
@@ -48,12 +48,12 @@ func TestCheckAutomationStatusIsGoal(t *testing.T) {
 					Processes: []ProcessStatus{
 						{
 							Name:                    "a",
-							Plan:                    []string{},
+							Plan:                    []string{"FCV"},
 							LastGoalVersionAchieved: 0,
 						},
 						{
 							Name:                    "b",
-							Plan:                    []string{},
+							Plan:                    []string{"FCV"},
 							LastGoalVersionAchieved: 1,
 						},
 					},
@@ -70,12 +70,12 @@ func TestCheckAutomationStatusIsGoal(t *testing.T) {
 					Processes: []ProcessStatus{
 						{
 							Name:                    "a",
-							Plan:                    []string{"something-else"},
+							Plan:                    []string{"FCV", "something-else"},
 							LastGoalVersionAchieved: 0,
 						},
 						{
 							Name:                    "b",
-							Plan:                    []string{automationAgentKubeUpgradePlan},
+							Plan:                    []string{"FCV", automationAgentKubeUpgradePlan},
 							LastGoalVersionAchieved: 1,
 						},
 					},
@@ -93,12 +93,12 @@ func TestCheckAutomationStatusIsGoal(t *testing.T) {
 					Processes: []ProcessStatus{
 						{
 							Name:                    "a",
-							Plan:                    []string{},
+							Plan:                    []string{"X", "Y"},
 							LastGoalVersionAchieved: 1,
 						},
 						{
 							Name:                    "b",
-							Plan:                    []string{},
+							Plan:                    []string{"Y", "Z"},
 							LastGoalVersionAchieved: 1,
 						},
 					},
@@ -122,7 +122,7 @@ func TestCheckAutomationStatusIsGoal(t *testing.T) {
 
 func TestCheckAutomationStatusIsGoal_AuthenticationTransitions(t *testing.T) {
 	logger := zap.NewNop().Sugar()
-	
+
 	tests := []struct {
 		name              string
 		automationStatus  *AutomationStatus
@@ -224,10 +224,10 @@ func TestCheckAutomationStatusIsGoal_AuthenticationTransitions(t *testing.T) {
 				tt.relevantProcesses,
 				logger,
 			)
-			
+
 			assert.Equal(t, tt.expectedReady, ready, "Ready state should match expected")
 			assert.Contains(t, message, tt.expectedMessage, "Message should contain expected text")
-			
+
 			if tt.expectedReady {
 				t.Logf("✅ Process correctly marked as ready: %s", message)
 			} else {
@@ -245,21 +245,21 @@ func TestIsAuthenticationTransitionMove(t *testing.T) {
 		"WaitForHealthy",
 		"InitiateReplSet",
 	}
-	
+
 	nonAuthMoves := []string{
 		"SomeOtherMove",
 		"CreateIndex",
 		"DropCollection",
 		"BackupDatabase",
 	}
-	
+
 	for _, move := range authMoves {
 		t.Run("auth_move_"+move, func(t *testing.T) {
-			assert.True(t, isAuthenticationTransitionMove(move), 
+			assert.True(t, isAuthenticationTransitionMove(move),
 				"Move %s should be recognized as authentication transition", move)
 		})
 	}
-	
+
 	for _, move := range nonAuthMoves {
 		t.Run("non_auth_move_"+move, func(t *testing.T) {
 			assert.False(t, isAuthenticationTransitionMove(move),
