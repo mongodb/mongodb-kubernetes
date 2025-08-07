@@ -1,11 +1,10 @@
-import os
 from enum import StrEnum
-from lib.base_logger import logger
 
 from git import Repo
 
-from scripts.release.version import calculate_next_version
+from lib.base_logger import logger
 from scripts.release.constants import triggered_by_git_tag, is_evg_patch, is_running_in_evg, get_version_id
+from scripts.release.version import calculate_next_version
 
 COMMIT_SHA_LENGTH = 8
 

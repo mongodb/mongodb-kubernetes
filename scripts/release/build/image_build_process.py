@@ -3,11 +3,11 @@ import base64
 from typing import Dict
 
 import boto3
+import docker
 import python_on_whales
 from botocore.exceptions import BotoCoreError, ClientError
 from python_on_whales.exceptions import DockerException
 
-import docker
 from lib.base_logger import logger
 
 

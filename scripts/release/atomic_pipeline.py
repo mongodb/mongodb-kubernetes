@@ -152,11 +152,6 @@ def build_operator_image(build_configuration: ImageBuildConfiguration):
     )
 
 
-def build_operator_image_patch(build_configuration: ImageBuildConfiguration):
-    if not build_operator_image_fast(build_configuration):
-        build_operator_image(build_configuration)
-
-
 def build_database_image(build_configuration: ImageBuildConfiguration):
     """
     Builds a new database image.

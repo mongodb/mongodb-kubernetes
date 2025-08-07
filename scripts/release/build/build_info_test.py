@@ -1,5 +1,7 @@
 import os
 
+from git import Repo
+
 from scripts.release.build.build_info import (
     BinaryInfo,
     BuildInfo,
@@ -7,7 +9,6 @@ from scripts.release.build.build_info import (
     ImageInfo,
     load_build_info,
 )
-from git import Repo
 from scripts.release.build.build_scenario import BuildScenario
 
 

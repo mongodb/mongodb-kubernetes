@@ -24,7 +24,6 @@ from scripts.release.atomic_pipeline import (
     build_mco_tests_image,
     build_om_image,
     build_operator_image,
-    build_operator_image_patch,
     build_readiness_probe_image,
     build_tests_image,
     build_upgrade_hook_image,
@@ -52,9 +51,8 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         "meko-tests": build_tests_image,  # working
         "operator": build_operator_image,  # working
         "mco-tests": build_mco_tests_image,  # working
-        "readiness-probe": build_readiness_probe_image,  # working, but still using single arch build
-        "upgrade-hook": build_upgrade_hook_image,  # working, but still using single arch build
-        "operator-quick": build_operator_image_patch,  # TODO: remove this image, it is not used anymore
+        "readiness-probe": build_readiness_probe_image,  # working
+        "upgrade-hook": build_upgrade_hook_image,  # working
         "database": build_database_image,  # working
         "agent": build_agent_default_case,  # working
         # Init images
