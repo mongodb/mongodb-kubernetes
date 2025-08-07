@@ -65,7 +65,7 @@ func TestManagedSecurityContext(t *testing.T) {
 
 func TestMongod_Container(t *testing.T) {
 	const mongodbImageMock = "fake-mongodbImage"
-	c := container.New(mongodbContainer(mongodbImageMock, []corev1.VolumeMount{}, mdbv1.NewMongodConfiguration()))
+	c := container.New(mongodbContainer(mongodbImageMock, []corev1.VolumeMount{}, mdbv1.NewMongodConfiguration(), false))
 
 	t.Run("Has correct Env vars", func(t *testing.T) {
 		assert.Len(t, c.Env, 1)

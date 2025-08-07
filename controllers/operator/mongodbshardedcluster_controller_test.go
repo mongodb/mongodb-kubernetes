@@ -1719,6 +1719,7 @@ func computeSingleClusterShardOverridesFromDistribution(shardOverridesDistributi
 }
 
 type SingleClusterShardedScalingTestCase struct {
+	name         string
 	scalingSteps []SingleClusterShardedScalingStep
 }
 
@@ -1787,6 +1788,88 @@ func SingleClusterShardedScalingWithOverridesTestCase(t *testing.T, tc SingleClu
 
 			// Verify scaled deployment
 			checkCorrectShardDistributionInStatefulSets(t, ctx, sc, clusterMapping, map[string]client.Client{multicluster.LegacyCentralClusterName: kubeClient}, expectedShardDistribution)
+		})
+	}
+}
+
+func TestSingleClusterShardedScalingWithOverrides(t *testing.T) {
+	scDefaultName := test.SCBuilderDefaultName + "-"
+	testCases := []SingleClusterShardedScalingTestCase{
+		{
+			name: "Basic sample test",
+			scalingSteps: []SingleClusterShardedScalingStep{
+				{
+					name:                 "Initial scaling",
+					shardCount:           3,
+					mongodsPerShardCount: 3,
+					shardOverrides: map[string]int{
+						scDefaultName + "0": 5,
+					},
+					expectedShardDistribution: []int{
+						5,
+						3,
+						3,
+					},
+				},
+				{
+					name:                 "Scale up mongodsPerShard",
+					shardCount:           3,
+					mongodsPerShardCount: 5,
+					shardOverrides: map[string]int{
+						scDefaultName + "0": 5,
+					},
+					expectedShardDistribution: []int{
+						5,
+						5,
+						5,
+					},
+				},
+			},
+		},
+		{
+			// This operation works in unit test only
+			// In e2e tests, the operator is waiting for uncreated hostnames to be ready
+			name: "Scale overrides up and down",
+			scalingSteps: []SingleClusterShardedScalingStep{
+				{
+					name:                 "Initial deployment",
+					shardCount:           4,
+					mongodsPerShardCount: 2,
+					shardOverrides: map[string]int{
+						scDefaultName + "0": 3,
+						scDefaultName + "1": 3,
+						scDefaultName + "3": 2,
+					},
+					expectedShardDistribution: []int{
+						3,
+						3,
+						2, // Not overridden
+						2,
+					},
+				},
+				{
+					name:                 "Scale overrides",
+					shardCount:           4,
+					mongodsPerShardCount: 2,
+					shardOverrides: map[string]int{
+						scDefaultName + "0": 2, // Scaled down
+						scDefaultName + "1": 2, // Scaled down
+						scDefaultName + "3": 3, // Scaled up
+					},
+					expectedShardDistribution: []int{
+						2, // Scaled down
+						2, // Scaled down
+						2, // Not overridden
+						3, // Scaled up
+					},
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			SingleClusterShardedScalingWithOverridesTestCase(t, tc)
 		})
 	}
 }

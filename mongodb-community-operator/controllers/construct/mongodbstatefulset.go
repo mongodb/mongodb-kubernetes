@@ -244,7 +244,7 @@ func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb MongoDBStatefulSe
 				podtemplatespec.WithVolume(keyFileVolume),
 				podtemplatespec.WithServiceAccount(mongodbDatabaseServiceAccountName),
 				podtemplatespec.WithContainer(AgentName, mongodbAgentContainer(mdb.AutomationConfigSecretName(), mongodbAgentVolumeMounts, agentLogLevel, agentLogFile, agentMaxLogFileDurationHours, agentImage)),
-				podtemplatespec.WithContainer(MongodbName, mongodbContainer(mongodbImage, mongodVolumeMounts, mdb.GetMongodConfiguration())),
+				podtemplatespec.WithContainer(MongodbName, mongodbContainer(mongodbImage, mongodVolumeMounts, mdb.GetMongodConfiguration(), !withInitContainers)),
 				withStaticContainerModification,
 				upgradeInitContainer,
 				readinessInitContainer,
@@ -400,24 +400,64 @@ func readinessProbeInit(volumeMount []corev1.VolumeMount, readinessProbeImage st
 	)
 }
 
-func mongodbContainer(mongodbImage string, volumeMounts []corev1.VolumeMount, additionalMongoDBConfig mdbv1.MongodConfiguration) container.Modification {
-	filePath := additionalMongoDBConfig.GetDBDataDir() + "/" + automationMongodConfFileName
-	mongoDbCommand := fmt.Sprintf(`
-# Signal handler for graceful shutdown
+// buildSignalHandling returns the signal handling setup for static architecture
+func buildSignalHandling() string {
+	return fmt.Sprintf(`
+# Signal handler for graceful shutdown in shared PID namespace
 cleanup() {
+	# Important! Keep this in sync with DefaultPodTerminationPeriodSeconds constant from constants.go
+	termination_timeout_seconds=%d
+
 	echo "MongoDB container received SIGTERM, shutting down gracefully..."
+
 	if [ -n "$MONGOD_PID" ] && kill -0 "$MONGOD_PID" 2>/dev/null; then
 		echo "Sending SIGTERM to mongod process $MONGOD_PID"
-		kill -TERM "$MONGOD_PID"
-		wait "$MONGOD_PID"
+		kill -15 "$MONGOD_PID"
+
+		echo "Waiting until mongod process is shutdown. Note, that if mongod process fails to shutdown in the time specified by the 'terminationGracePeriodSeconds' property (default ${termination_timeout_seconds} seconds) then the container will be killed by Kubernetes."
+
+		# Use the same robust waiting mechanism as agent-launcher-lib.sh
+		# We cannot use 'wait' for processes started in background, use spinning loop
+		while [ -e "/proc/${MONGOD_PID}" ]; do
+			sleep 0.1
+		done
+
 		echo "mongod process has exited"
 	fi
+
+	echo "MongoDB container shutdown complete"
 	exit 0
 }
 
-# Set up signal handler
+# Set up signal handler for static architecture
 trap cleanup SIGTERM
+`, util.DefaultPodTerminationPeriodSeconds)
+}
 
+// buildMongodExecution returns the mongod execution command based on architecture
+// in static we run /pause as pid1 and we need to ensure to redirect sigterm to the mongod process
+func buildMongodExecution(filePath string, isStatic bool) string {
+	if isStatic {
+		return fmt.Sprintf(`mongod -f %s &
+MONGOD_PID=$!
+echo "Started mongod with PID $MONGOD_PID"
+
+# Wait for mongod to finish
+wait "$MONGOD_PID"`, filePath)
+	}
+	return fmt.Sprintf("exec mongod -f %s", filePath)
+}
+
+// buildMongodbCommand constructs the complete MongoDB container command
+func buildMongodbCommand(filePath string, isStatic bool) string {
+	signalHandling := ""
+	if isStatic {
+		signalHandling = buildSignalHandling()
+	}
+
+	mongodExec := buildMongodExecution(filePath, isStatic)
+
+	return fmt.Sprintf(`%s
 if [ -e "/hooks/version-upgrade" ]; then
 	#run post-start hook to handle version changes (if exists)
     /hooks/version-upgrade
@@ -437,13 +477,13 @@ sleep 15
 
 # start mongod with this configuration
 echo "Starting mongod..."
-mongod -f %s &
-MONGOD_PID=$!
-echo "Started mongod with PID $MONGOD_PID"
+%s
+`, signalHandling, filePath, keyfileFilePath, mongodExec)
+}
 
-# Wait for mongod to finish
-wait "$MONGOD_PID"
-`, filePath, keyfileFilePath, filePath)
+func mongodbContainer(mongodbImage string, volumeMounts []corev1.VolumeMount, additionalMongoDBConfig mdbv1.MongodConfiguration, isStatic bool) container.Modification {
+	filePath := additionalMongoDBConfig.GetDBDataDir() + "/" + automationMongodConfFileName
+	mongoDbCommand := buildMongodbCommand(filePath, isStatic)
 
 	containerCommand := []string{
 		"/bin/sh",
