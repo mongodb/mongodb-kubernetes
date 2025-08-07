@@ -11,7 +11,7 @@ class BuildScenario(str, Enum):
 
     RELEASE = "release"  # Official release triggered by a git tag
     PATCH = "patch"  # CI build for a patch/pull request
-    STAGING = "staging"  # CI build from a merge to the master
+    STAGING = "staging"  # CI build from a merge to the master branch
     DEVELOPMENT = "development"  # Local build on a developer machine
 
     @classmethod
@@ -71,6 +71,7 @@ class BuildContext:
             return self.git_tag
         if self.patch_id:
             return self.patch_id
+        # Alternatively, we can fail here if no ID is explicitly defined
         return "latest"
 
     def get_base_registry(self) -> str:

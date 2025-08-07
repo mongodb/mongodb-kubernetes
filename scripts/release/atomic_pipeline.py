@@ -9,7 +9,7 @@ import shutil
 from concurrent.futures import ProcessPoolExecutor
 from copy import copy
 from queue import Queue
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple
 
 import requests
 import semver
@@ -202,7 +202,7 @@ def find_om_in_releases(om_version: str, releases: Dict[str, str]) -> Optional[s
 
 
 def get_om_releases() -> Dict[str, str]:
-    """Returns a dictionary representation of the Json document holdin all the OM
+    """Returns a dictionary representation of the Json document holding all the OM
     releases.
     """
     ops_manager_release_archive = (
@@ -267,8 +267,7 @@ def build_image_generic(
     extra_args: dict | None = None,
 ):
     """
-    Build one or more platform-specific images, then (optionally)
-    push a manifest and sign the result.
+    Build an image then (optionally) sign the result.
     """
 
     registry = build_configuration.base_registry
@@ -378,9 +377,6 @@ def build_agent_pipeline(
 ):
     build_configuration_copy = copy(build_configuration)
     build_configuration_copy.version = image_version
-    print(
-        f"======== Building agent pipeline for version {image_version}, build configuration version: {build_configuration.version}"
-    )
     args = {
         "version": image_version,
         "agent_version": agent_version,
@@ -404,7 +400,6 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
     """
     Build the agent only for the latest operator for patches and operator releases.
 
-    See more information in the function: build_agent_on_agent_bump
     """
     release = load_release_file()
 
@@ -426,12 +421,12 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
         if build_configuration.parallel_factor > 0:
             max_workers = build_configuration.parallel_factor
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        logger.info(f"running with factor of {max_workers}")
-        print(f"======= Versions to build {agent_versions_to_build} =======")
+        logger.info(f"Running with factor of {max_workers}")
+        logger.info(f"======= Agent versions to build {agent_versions_to_build} =======")
         for idx, agent_version in enumerate(agent_versions_to_build):
             # We don't need to keep create and push the same image on every build.
             # It is enough to create and push the non-operator suffixed images only during releases to ecr and quay.
-            print(f"======= Building Agent {agent_version} ({idx}/{len(agent_versions_to_build)})")
+            logger.info(f"======= Building Agent {agent_version} ({idx}/{len(agent_versions_to_build)})")
             _build_agent_operator(
                 agent_version,
                 build_configuration,
