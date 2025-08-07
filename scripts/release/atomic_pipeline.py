@@ -24,7 +24,7 @@ from scripts.evergreen.release.images_signing import (
 
 from .build_configuration import BuildConfiguration
 from .build_context import BuildScenario
-from .build_images import build_image
+from .build_images import execute_docker_build
 
 TRACER = trace.get_tracer("evergreen-agent")
 
@@ -76,7 +76,7 @@ def build_tests_image(build_configuration: BuildConfiguration):
 
     buildargs = {"PYTHON_VERSION": python_version}
 
-    build_image_generic(
+    build_image(
         image_name=image_name,
         dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
         build_configuration=build_configuration,
@@ -96,7 +96,7 @@ def build_mco_tests_image(build_configuration: BuildConfiguration):
 
     buildargs = {"GOLANG_VERSION": golang_version}
 
-    build_image_generic(
+    build_image(
         image_name=image_name,
         dockerfile_path="docker/mongodb-community-tests/Dockerfile",
         build_configuration=build_configuration,
@@ -120,7 +120,7 @@ def build_operator_image(build_configuration: BuildConfiguration):
     logger.info(f"Building Operator args: {args}")
 
     image_name = "mongodb-kubernetes"
-    build_image_generic(
+    build_image(
         image_name=image_name,
         dockerfile_path="docker/mongodb-kubernetes-operator/Dockerfile",
         build_configuration=build_configuration,
@@ -133,7 +133,7 @@ def build_database_image(build_configuration: BuildConfiguration):
     Builds a new database image.
     """
     args = {"version": build_configuration.version}
-    build_image_generic(
+    build_image(
         image_name="mongodb-kubernetes-database",
         dockerfile_path="docker/mongodb-kubernetes-database/Dockerfile",
         build_configuration=build_configuration,
@@ -184,7 +184,7 @@ def find_om_url(om_version: str) -> str:
 
 def build_init_om_image(build_configuration: BuildConfiguration):
     args = {"version": build_configuration.version}
-    build_image_generic(
+    build_image(
         image_name="mongodb-kubernetes-init-ops-manager",
         dockerfile_path="docker/mongodb-kubernetes-init-ops-manager/Dockerfile",
         build_configuration=build_configuration,
@@ -208,7 +208,7 @@ def build_om_image(build_configuration: BuildConfiguration):
         "om_download_url": om_download_url,
     }
 
-    build_image_generic(
+    build_image(
         image_name="mongodb-enterprise-ops-manager-ubi",
         dockerfile_path="docker/mongodb-enterprise-ops-manager/Dockerfile",
         build_configuration=build_configuration,
@@ -217,7 +217,7 @@ def build_om_image(build_configuration: BuildConfiguration):
 
 
 @TRACER.start_as_current_span("build_image_generic")
-def build_image_generic(
+def build_image(
     image_name: str,
     dockerfile_path: str,
     build_configuration: BuildConfiguration,
@@ -249,7 +249,7 @@ def build_image_generic(
     docker_registry = f"{build_configuration.base_registry}/{image_name}"
     image_full_uri = f"{docker_registry}:{build_configuration.version}"
 
-    build_image(
+    execute_docker_build(
         tag=image_full_uri,
         dockerfile=dockerfile_path,
         path=build_path,
@@ -269,7 +269,7 @@ def build_init_appdb(build_configuration: BuildConfiguration):
     base_url = "https://fastdl.mongodb.org/tools/db/"
     mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
     args = {"version": build_configuration.version, "mongodb_tools_url_ubi": mongodb_tools_url_ubi}
-    build_image_generic(
+    build_image(
         image_name="mongodb-kubernetes-init-appdb",
         dockerfile_path="docker/mongodb-kubernetes-init-appdb/Dockerfile",
         build_configuration=build_configuration,
@@ -283,7 +283,7 @@ def build_init_database(build_configuration: BuildConfiguration):
     base_url = "https://fastdl.mongodb.org/tools/db/"
     mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
     args = {"version": build_configuration.version, "mongodb_tools_url_ubi": mongodb_tools_url_ubi}
-    build_image_generic(
+    build_image(
         "mongodb-kubernetes-init-database",
         "docker/mongodb-kubernetes-init-database/Dockerfile",
         build_configuration=build_configuration,
@@ -317,7 +317,7 @@ def build_community_image(build_configuration: BuildConfiguration, image_type: s
         "GOLANG_VERSION": golang_version,
     }
 
-    build_image_generic(
+    build_image(
         image_name=image_name,
         dockerfile_path=dockerfile_path,
         build_configuration=build_configuration,
@@ -360,7 +360,7 @@ def build_agent_pipeline(
         "quay_registry": build_configuration.base_registry,
     }
 
-    build_image_generic(
+    build_image(
         image_name="mongodb-agent-ubi",
         dockerfile_path="docker/mongodb-agent/Dockerfile",
         build_configuration=build_configuration_copy,

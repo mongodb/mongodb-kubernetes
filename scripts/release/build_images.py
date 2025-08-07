@@ -69,7 +69,7 @@ def ensure_buildx_builder(builder_name: str = "multiarch") -> str:
     return builder_name
 
 
-def build_image(
+def execute_docker_build(
     tag: str, dockerfile: str, path: str, args: Dict[str, str] = {}, push: bool = True, platforms: list[str] = None
 ):
     """
