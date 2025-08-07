@@ -316,35 +316,6 @@ def build_upgrade_hook_image(build_configuration: ImageBuildConfiguration):
     )
 
 
-def build_agent_pipeline(
-    build_configuration: ImageBuildConfiguration,
-    image_version,
-    init_database_image,
-    mongodb_tools_url_ubi,
-    mongodb_agent_url_ubi: str,
-    agent_version,
-):
-    build_configuration_copy = copy(build_configuration)
-    build_configuration_copy.version = image_version
-    print(
-        f"======== Building agent pipeline for version {image_version}, build configuration version: {build_configuration.version}"
-    )
-    args = {
-        "version": image_version,
-        "agent_version": agent_version,
-        "release_version": image_version,
-        "init_database_image": init_database_image,
-        "mongodb_tools_url_ubi": mongodb_tools_url_ubi,
-        "mongodb_agent_url_ubi": mongodb_agent_url_ubi,
-    }
-
-    pipeline_process_image(
-        dockerfile_path="docker/mongodb-agent/Dockerfile",
-        build_configuration=build_configuration_copy,
-        dockerfile_args=args,
-    )
-
-
 def build_agent_default_case(build_configuration: ImageBuildConfiguration):
     """
     Build the agent only for the latest operator for patches and operator releases.
@@ -386,48 +357,6 @@ def build_agent_default_case(build_configuration: ImageBuildConfiguration):
             )
 
     queue_exception_handling(tasks_queue)
-
-
-def queue_exception_handling(tasks_queue):
-    exceptions_found = False
-    for task in tasks_queue.queue:
-        if task.exception() is not None:
-            exceptions_found = True
-            logger.fatal(f"The following exception has been found when building: {task.exception()}")
-    if exceptions_found:
-        raise Exception(
-            f"Exception(s) found when processing Agent images. \nSee also previous logs for more info\nFailing the build"
-        )
-
-
-def _build_agent_operator(
-    agent_version: Tuple[str, str],
-    build_configuration: ImageBuildConfiguration,
-    executor: ProcessPoolExecutor,
-    operator_version: str,
-    tasks_queue: Queue,
-):
-    agent_distro = "rhel9_x86_64"
-    tools_version = agent_version[1]
-    tools_distro = get_tools_distro(tools_version)["amd"]
-    image_version = f"{agent_version[0]}_{operator_version}"
-    mongodb_tools_url_ubi = (
-        f"https://downloads.mongodb.org/tools/db/mongodb-database-tools-{tools_distro}-{tools_version}.tgz"
-    )
-    mongodb_agent_url_ubi = f"https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod/mongodb-mms-automation-agent-{agent_version[0]}.{agent_distro}.tar.gz"
-    init_database_image = f"{build_configuration.registry}/mongodb-kubernetes-init-database:{operator_version}"
-
-    tasks_queue.put(
-        executor.submit(
-            build_agent_pipeline,
-            build_configuration,
-            image_version,
-            init_database_image,
-            mongodb_tools_url_ubi,
-            mongodb_agent_url_ubi,
-            agent_version[0],
-        )
-    )
 
 
 def gather_all_supported_agent_versions(release: Dict) -> List[Tuple[str, str]]:
@@ -489,3 +418,74 @@ def gather_latest_agent_versions(release: Dict) -> List[Tuple[str, str]]:
     agent_versions_to_build.append(("107.0.12.8669-1", "100.10.0"))
 
     return sorted(list(set(agent_versions_to_build)))
+
+
+def _build_agent_operator(
+    agent_version: Tuple[str, str],
+    build_configuration: ImageBuildConfiguration,
+    executor: ProcessPoolExecutor,
+    operator_version: str,
+    tasks_queue: Queue,
+):
+    agent_distro = "rhel9_x86_64"
+    tools_version = agent_version[1]
+    tools_distro = get_tools_distro(tools_version)["amd"]
+    image_version = f"{agent_version[0]}_{operator_version}"
+    mongodb_tools_url_ubi = (
+        f"https://downloads.mongodb.org/tools/db/mongodb-database-tools-{tools_distro}-{tools_version}.tgz"
+    )
+    mongodb_agent_url_ubi = f"https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod/mongodb-mms-automation-agent-{agent_version[0]}.{agent_distro}.tar.gz"
+    init_database_image = f"{build_configuration.registry}/mongodb-kubernetes-init-database:{operator_version}"
+
+    tasks_queue.put(
+        executor.submit(
+            build_agent_pipeline,
+            build_configuration,
+            image_version,
+            init_database_image,
+            mongodb_tools_url_ubi,
+            mongodb_agent_url_ubi,
+            agent_version[0],
+        )
+    )
+
+
+def build_agent_pipeline(
+    build_configuration: ImageBuildConfiguration,
+    image_version,
+    init_database_image,
+    mongodb_tools_url_ubi,
+    mongodb_agent_url_ubi: str,
+    agent_version,
+):
+    build_configuration_copy = copy(build_configuration)
+    build_configuration_copy.version = image_version
+    print(
+        f"======== Building agent pipeline for version {image_version}, build configuration version: {build_configuration.version}"
+    )
+    args = {
+        "version": image_version,
+        "agent_version": agent_version,
+        "release_version": image_version,
+        "init_database_image": init_database_image,
+        "mongodb_tools_url_ubi": mongodb_tools_url_ubi,
+        "mongodb_agent_url_ubi": mongodb_agent_url_ubi,
+    }
+
+    pipeline_process_image(
+        dockerfile_path="docker/mongodb-agent/Dockerfile",
+        build_configuration=build_configuration_copy,
+        dockerfile_args=args,
+    )
+
+
+def queue_exception_handling(tasks_queue):
+    exceptions_found = False
+    for task in tasks_queue.queue:
+        if task.exception() is not None:
+            exceptions_found = True
+            logger.fatal(f"The following exception has been found when building: {task.exception()}")
+    if exceptions_found:
+        raise Exception(
+            f"Exception(s) found when processing Agent images. \nSee also previous logs for more info\nFailing the build"
+        )

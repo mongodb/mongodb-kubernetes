@@ -74,7 +74,7 @@ def test_load_build_info_patch(git_repo: Repo):
             "agent": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent-ubi",
                 platforms=["linux/amd64"],
-                version="agent-version-from-release.json",
+                version=patch_id,
                 sign=False,
             ),
             "ops-manager": ImageInfo(
@@ -170,7 +170,7 @@ def test_load_build_info_staging(git_repo: Repo):
             "agent": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-agent-ubi",
                 platforms=["linux/arm64", "linux/amd64"],
-                version="agent-version-from-release.json",
+                version=expecter_commit_sha,
                 sign=True,
             ),
             "ops-manager": ImageInfo(
