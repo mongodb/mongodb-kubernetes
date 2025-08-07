@@ -166,7 +166,7 @@ def main():
     parser = argparse.ArgumentParser(description="Build container images.")
     parser.add_argument("image", help="Image to build.")  # Required
     parser.add_argument("--parallel", action="store_true", help="Build images in parallel.")
-    parser.add_argument("--debug", action="store_true", help="Enable debug logging.")
+    parser.add_argument("--sign", action="store_true", help="Sign images.")
     parser.add_argument(
         "--scenario",
         choices=list(BuildScenario),
