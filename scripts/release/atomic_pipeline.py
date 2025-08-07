@@ -354,7 +354,7 @@ def build_agent_default_case(build_configuration: ImageBuildConfiguration):
     release = load_release_file()
 
     # We need to release [all agents x latest operator] on operator releases
-    if build_configuration.all_agents:
+    if build_configuration.is_release_scenario():
         agent_versions_to_build = gather_all_supported_agent_versions(release)
     # We only need [latest agents (for each OM major version and for CM) x patch ID] for patches
     else:

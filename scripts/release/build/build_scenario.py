@@ -56,6 +56,3 @@ class BuildScenario(StrEnum):
                 return calculate_next_version(repo, changelog_sub_path, initial_commit_sha, initial_version)
 
         raise ValueError(f"Unknown build scenario: {self}")
-
-    def all_agents(self) -> bool:
-        return self == BuildScenario.RELEASE

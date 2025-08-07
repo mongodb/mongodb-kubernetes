@@ -96,8 +96,6 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     registry = args.registry or image_build_info.repository
     platforms = get_platforms_from_arg(args.platform) or image_build_info.platforms
     sign = args.sign or image_build_info.sign
-    # TODO: remove "all_agents" from context and environment variables support (not needed anymore)
-    all_agents = args.all_agents or build_scenario.all_agents()
 
     return ImageBuildConfiguration(
         scenario=build_scenario,
@@ -106,7 +104,6 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
         parallel=args.parallel,
         platforms=platforms,
         sign=sign,
-        all_agents=all_agents,
         parallel_factor=args.parallel_factor,
     )
 
