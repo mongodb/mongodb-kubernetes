@@ -86,14 +86,14 @@ func checkAutomationStatusIsGoal(as *AutomationStatus, relevantProcesses []strin
 	goalsNotAchievedMap := map[string]int{}
 	goalsAchievedMap := map[string]int{}
 	authTransitionInProgress := map[string]string{}
-	
+
 	for _, p := range as.Processes {
 		if !stringutil.Contains(relevantProcesses, p.Name) {
 			continue
 		}
 		if p.LastGoalVersionAchieved == as.GoalVersion {
 			goalsAchievedMap[p.Name] = p.LastGoalVersionAchieved
-			
+
 			// Check if authentication transitions are in the current plan
 			// If a process has reached goal version but still has auth-related moves in plan,
 			// it means authentication transition is likely in progress
@@ -122,9 +122,9 @@ func checkAutomationStatusIsGoal(as *AutomationStatus, relevantProcesses []strin
 		for processName, step := range authTransitionInProgress {
 			authTransitionMsgList = append(authTransitionMsgList, fmt.Sprintf("%s:%s", processName, step))
 		}
-		log.Infow("Authentication transitions still in progress, waiting for completion", 
+		log.Infow("Authentication transitions still in progress, waiting for completion",
 			"processes", authTransitionMsgList)
-		return false, fmt.Sprintf("authentication transitions in progress for %d processes: %s", 
+		return false, fmt.Sprintf("authentication transitions in progress for %d processes: %s",
 			len(authTransitionInProgress), authTransitionMsgList)
 	}
 
@@ -140,22 +140,17 @@ func checkAutomationStatusIsGoal(as *AutomationStatus, relevantProcesses []strin
 
 // isAuthenticationTransitionMove returns true if the given move is related to authentication transitions
 func isAuthenticationTransitionMove(move string) bool {
-	// Authentication-related moves that can appear in the automation plan
-	// Based on analysis of failed test showing auth transition in progress
-	authMoves := []string{
-		"RestartMongod",      // Often involved in authentication mode changes
-		"UpdateAuth",         // Direct authentication update moves
-		"UpdateConfig",       // Configuration updates that may include auth changes
-		"WaitForHealthy",     // Waiting for cluster health after auth changes
-		"InitiateReplSet",    // ReplicaSet initialization with authentication
+	authMoves := map[string]struct{}{
+		"RestartMongod":   {},
+		"UpdateAuth":      {},
+		"UpdateConfig":    {},
+		"WaitForHealthy":  {},
+		"InitiateReplSet": {},
 	}
-	
-	for _, authMove := range authMoves {
-		if move == authMove {
-			return true
-		}
-	}
-	return false
+
+	 _, ok := authMoves[move]
+
+	 return ok
 }
 
 func areAnyAgentsInKubeUpgradeMode(as *AutomationStatus, relevantProcesses []string, log *zap.SugaredLogger) bool {
