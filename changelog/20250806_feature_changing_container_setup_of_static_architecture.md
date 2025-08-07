@@ -1,6 +1,6 @@
 ---
 title: Changing container setup of static architecture
-kind: other
+kind: feature
 date: 2025-08-06
 ---
 
