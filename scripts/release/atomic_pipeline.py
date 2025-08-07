@@ -104,13 +104,13 @@ def build_tests_image(build_configuration: BuildConfiguration):
     if python_version == "":
         raise Exception("Missing PYTHON_VERSION environment variable")
 
-    buildargs = dict({"PYTHON_VERSION": python_version})
+    buildargs = {"PYTHON_VERSION": python_version}
 
-    pipeline_process_image(
-        image_name,
+    build_image_generic(
+        image_name=image_name,
         dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
         build_configuration=build_configuration,
-        dockerfile_args=buildargs,
+        extra_args=buildargs,
         build_path="docker/mongodb-kubernetes-tests",
     )
 
@@ -124,13 +124,13 @@ def build_mco_tests_image(build_configuration: BuildConfiguration):
     if golang_version == "":
         raise Exception("Missing GOLANG_VERSION environment variable")
 
-    buildargs = dict({"GOLANG_VERSION": golang_version})
+    buildargs = {"GOLANG_VERSION": golang_version}
 
-    pipeline_process_image(
-        image_name,
+    build_image_generic(
+        image_name=image_name,
         dockerfile_path="docker/mongodb-community-tests/Dockerfile",
         build_configuration=build_configuration,
-        dockerfile_args=buildargs,
+        extra_args=buildargs,
     )
 
 
@@ -265,6 +265,7 @@ def build_image_generic(
     dockerfile_path: str,
     build_configuration: BuildConfiguration,
     extra_args: dict | None = None,
+    build_path: str = ".",
 ):
     """
     Build an image then (optionally) sign the result.
@@ -285,6 +286,7 @@ def build_image_generic(
         dockerfile_path=dockerfile_path,
         build_configuration=build_configuration,
         dockerfile_args=build_args,
+        build_path=build_path,
     )
 
     if build_configuration.sign:
