@@ -1,7 +1,36 @@
 import semver
 from git import Commit, Repo, TagReference
 
-from scripts.release.changelog import ChangeKind
+from scripts.release.changelog import (
+    ChangeEntry,
+    ChangeKind,
+    get_changelog_entries,
+)
+
+
+def calculate_next_version(
+    repo: Repo, changelog_sub_path: str, initial_commit_sha: str | None, initial_version: str | None
+) -> str:
+    return calculate_next_version_with_changelog(repo, changelog_sub_path, initial_commit_sha, initial_version)[0]
+
+
+def calculate_next_version_with_changelog(
+    repo: Repo, changelog_sub_path: str, initial_commit_sha: str | None, initial_version: str | None
+) -> (str, list[ChangeEntry]):
+    previous_version_tag, previous_version_commit = find_previous_version(repo, initial_commit_sha)
+
+    changelog: list[ChangeEntry] = get_changelog_entries(previous_version_commit, repo, changelog_sub_path)
+    changelog_kinds = list(set(entry.kind for entry in changelog))
+
+    # If there is no previous version tag, we start with the initial version tag
+    if not previous_version_tag:
+        if not initial_version:
+            raise ValueError("No previous version tag found and no initial version provided.")
+        version = initial_version
+    else:
+        version = increment_previous_version(previous_version_tag.name, changelog_kinds)
+
+    return version, changelog
 
 
 def find_previous_version(repo: Repo, initial_commit_sha: str = None) -> (TagReference | None, Commit):
@@ -38,7 +67,7 @@ def find_previous_version_tag(repo: Repo) -> TagReference | None:
     return sorted_tags[0]
 
 
-def calculate_next_release_version(previous_version_str: str, changelog: list[ChangeKind]) -> str:
+def increment_previous_version(previous_version_str: str, changelog: list[ChangeKind]) -> str:
     previous_version = semver.VersionInfo.parse(previous_version_str)
 
     if ChangeKind.BREAKING in changelog:

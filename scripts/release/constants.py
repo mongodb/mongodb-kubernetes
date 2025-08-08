@@ -1,0 +1,16 @@
+import os
+
+RELEASE_INITIAL_VERSION_ENV_VAR = "RELEASE_INITIAL_VERSION"
+RELEASE_INITIAL_COMMIT_SHA_ENV_VAR = "RELEASE_INITIAL_COMMIT_SHA"
+
+DEFAULT_RELEASE_INITIAL_VERSION = "1.0.0"
+DEFAULT_CHANGELOG_PATH = "changelog/"
+DEFAULT_REPOSITORY_PATH = "."
+
+
+def get_initial_version() -> str | None:
+    return os.getenv(RELEASE_INITIAL_VERSION_ENV_VAR)
+
+
+def get_initial_commit_sha() -> str | None:
+    return os.getenv(RELEASE_INITIAL_COMMIT_SHA_ENV_VAR)
