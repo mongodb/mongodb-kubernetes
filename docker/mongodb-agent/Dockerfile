@@ -3,38 +3,20 @@
 ARG init_database_image
 FROM ${init_database_image} AS init_database
 
-FROM public.ecr.aws/docker/library/golang:1.24 AS dependency_downloader
-
-WORKDIR /go/src/github.com/mongodb/mongodb-kubernetes/
-
-COPY go.mod go.sum ./
-
-RUN go mod download
-
-FROM public.ecr.aws/docker/library/golang:1.24 AS readiness_builder
-
-WORKDIR /go/src/github.com/mongodb/mongodb-kubernetes/
-
-COPY --from=dependency_downloader /go/pkg /go/pkg
-COPY . /go/src/github.com/mongodb/mongodb-kubernetes
-
-RUN CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -o /readinessprobe ./mongodb-community-operator/cmd/readiness/main.go
-RUN CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -o /version-upgrade-hook ./mongodb-community-operator/cmd/versionhook/main.go
-
 FROM scratch AS base
 ARG mongodb_tools_url_ubi
 ARG mongodb_agent_url_ubi
 
-COPY --from=readiness_builder /readinessprobe /data/
-COPY --from=readiness_builder /version-upgrade-hook /data/
-
 ADD ${mongodb_tools_url_ubi} /data/mongodb_tools_ubi.tgz
 ADD ${mongodb_agent_url_ubi} /data/mongodb_agent_ubi.tgz
 
+COPY --from=init_database /readinessprobe /data/
+COPY --from=init_database /version-upgrade-hook /data/
 COPY --from=init_database /probes/probe.sh /data/probe.sh
 COPY --from=init_database /scripts/agent-launcher-lib.sh /data/
 COPY --from=init_database /scripts/agent-launcher.sh /data/
 COPY --from=init_database /licenses/LICENSE /data/
+COPY --from=init_database /delve /data/
 
 FROM registry.access.redhat.com/ubi9/ubi-minimal
 
@@ -54,6 +36,7 @@ COPY --from=base /data/version-upgrade-hook /opt/scripts/version-upgrade-hook
 COPY --from=base /data/agent-launcher-lib.sh /opt/scripts/agent-launcher-lib.sh
 COPY --from=base /data/agent-launcher.sh /opt/scripts/agent-launcher.sh
 COPY --from=base /data/LICENSE /licenses/LICENSE
+COPY --from=base /data/dlv c
 
 # Replace libcurl-minimal and curl-minimal with the full versions
 # https://bugzilla.redhat.com/show_bug.cgi?id=1994521
