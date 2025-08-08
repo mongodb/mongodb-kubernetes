@@ -92,6 +92,7 @@ def execute_docker_build(
     :param platforms: List of target platforms (e.g., ["linux/amd64", "linux/arm64"])
     """
     # Login to ECR before building
+    # TODO CLOUDP-335471: use env variables to configure AWS region and account ID
     ecr_login_boto3(region="us-east-1", account_id="268558157000")
 
     docker = python_on_whales.docker
