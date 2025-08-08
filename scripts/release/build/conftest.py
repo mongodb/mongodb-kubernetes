@@ -9,18 +9,16 @@ def get_manually_upgradable_versions() -> Dict[str, str]:
         build_info = json.load(f)
 
     return {
-        "readinessprobe": build_info["images"]["readinessprobe"]["release"]["version"],
-        "operator_version_upgrade_post_start_hook": build_info["images"]["operator-version-upgrade-post-start-hook"][
-            "release"
-        ]["version"],
+        "readiness-probe": build_info["images"]["readiness-probe"]["release"]["version"],
+        "upgrade-hook": build_info["images"]["upgrade-hook"]["release"]["version"],
     }
 
 
 @fixture(scope="module")
 def readinessprobe_version() -> str:
-    return get_manually_upgradable_versions()["readinessprobe"]
+    return get_manually_upgradable_versions()["readiness-probe"]
 
 
 @fixture(scope="module")
 def operator_version_upgrade_post_start_hook_version() -> str:
-    return get_manually_upgradable_versions()["operator_version_upgrade_post_start_hook"]
+    return get_manually_upgradable_versions()["upgrade-hook"]

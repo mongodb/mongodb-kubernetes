@@ -14,7 +14,7 @@ from pipeline import (
     is_version_in_range,
     operator_build_configuration,
 )
-from scripts.evergreen.release.images_signing import run_command_with_retries
+from scripts.release.build.image_signing import run_command_with_retries
 
 release_json = {
     "supportedImages": {

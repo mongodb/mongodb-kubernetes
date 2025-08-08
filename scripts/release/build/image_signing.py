@@ -215,7 +215,7 @@ def sign_image(repository: str, tag: str) -> None:
 
 
 @TRACER.start_as_current_span("verify_signature")
-def verify_signature(repository: str, tag: str) -> bool:
+def verify_signature(repository: str, tag: str):
     start_time = time.time()
     span = trace.get_current_span()
 
@@ -231,7 +231,7 @@ def verify_signature(repository: str, tag: str) -> bool:
         kubernetes_operator_public_key = r.text
     else:
         logger.error(f"Failed to retrieve the public key from {public_key_url}: Status code {r.status_code}")
-        return False
+        return
 
     public_key_var_name = "OPERATOR_PUBLIC_KEY"
     additional_args = [
