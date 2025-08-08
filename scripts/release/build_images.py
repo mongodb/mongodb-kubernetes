@@ -50,6 +50,7 @@ def ensure_buildx_builder(builder_name: str = DEFAULT_BUILDER_NAME) -> str:
 
     docker = python_on_whales.docker
 
+    logger.info(f"Ensuring buildx builder '{builder_name}' exists...")
     existing_builders = docker.buildx.list()
     if any(b.name == builder_name for b in existing_builders):
         logger.info(f"Builder '{builder_name}' already exists – reusing it.")
