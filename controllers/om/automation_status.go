@@ -148,9 +148,9 @@ func isAuthenticationTransitionMove(move string) bool {
 		"InitiateReplSet": {},
 	}
 
-	 _, ok := authMoves[move]
+	_, ok := authMoves[move]
 
-	 return ok
+	return ok
 }
 
 func areAnyAgentsInKubeUpgradeMode(as *AutomationStatus, relevantProcesses []string, log *zap.SugaredLogger) bool {
