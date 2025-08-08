@@ -58,7 +58,7 @@ main() {
     find_variant_arg="--task-name"
   fi
 
-  if ! contexts=$(scripts/evergreen/run_python.sh scripts/python/find_test_variants.py "${find_variant_arg}" "${test}"); then
+  if ! contexts=$(scripts/dev/run_python.sh scripts/python/find_test_variants.py "${find_variant_arg}" "${test}"); then
     echo "Couldn't find any test contexts running test: ${test}"
     echo "${contexts}"
     exit 1

@@ -4,7 +4,8 @@ WORKDIR /go/src
 ADD . .
 
 ARG TARGETARCH
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -a -o /data/scripts/readinessprobe ./mongodb-community-operator/cmd/readiness/main.go
+ARG TARGETOS
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -a -o /data/scripts/readinessprobe ./mongodb-community-operator/cmd/readiness/main.go
 
 FROM registry.access.redhat.com/ubi9/ubi-minimal
 
