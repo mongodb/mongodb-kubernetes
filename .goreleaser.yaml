@@ -51,9 +51,3 @@ release:
 
 git:
   tag_sort: -version:creatordate
-
-blobs:
-  - provider: s3
-    region: eu-north-1
-    bucket: mongodb-kubernetes-dev
-    directory: test-dir
