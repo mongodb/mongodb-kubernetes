@@ -69,7 +69,7 @@ def ensure_buildx_builder(builder_name: str = "multiarch") -> str:
     return builder_name
 
 
-def docker_build_image(
+def execute_docker_build(
     tag: str, dockerfile: str, path: str, args: Dict[str, str], push: bool, platforms: list[str]
 ):
     """
@@ -82,6 +82,9 @@ def docker_build_image(
     :param push: Whether to push the image after building
     :param platforms: List of target platforms (e.g., ["linux/amd64", "linux/arm64"])
     """
+    # Login to ECR before building
+    ecr_login_boto3(region="us-east-1", account_id="268558157000")
+
     docker_cmd = python_on_whales.docker
 
     try:
@@ -120,27 +123,3 @@ def docker_build_image(
     except Exception as e:
         logger.error(f"Failed to build image {tag}: {e}")
         raise RuntimeError(f"Failed to build image {tag}: {str(e)}")
-
-
-def build_image(
-    image_tag: str,
-    dockerfile_path: str,
-    dockerfile_args: Dict[str, str],
-    registry: str,
-    platforms: list[str],
-    build_path: str,
-):
-    # Login to ECR
-    ecr_login_boto3(region="us-east-1", account_id="268558157000")
-
-    image_full_uri = f"{registry}:{image_tag}"
-
-    # Build image with docker buildx
-    docker_build_image(
-        tag=image_full_uri,
-        dockerfile=dockerfile_path,
-        path=build_path,
-        args=dockerfile_args,
-        push=True,
-        platforms=platforms,
-    )

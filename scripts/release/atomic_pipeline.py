@@ -16,70 +16,57 @@ from opentelemetry import trace
 from packaging.version import Version
 
 from lib.base_logger import logger
-from scripts.evergreen.release.images_signing import (
+from scripts.release.build.image_build_configuration import ImageBuildConfiguration
+from scripts.release.build.image_build_process import execute_docker_build
+from scripts.release.build.image_signing import (
     sign_image,
     verify_signature,
 )
-from scripts.release.build.image_build_configuration import ImageBuildConfiguration
-from scripts.release.build.image_build_process import build_image
-
-from .optimized_operator_build import build_operator_image_fast
 
 TRACER = trace.get_tracer("evergreen-agent")
 
 
-def get_tools_distro(tools_version: str) -> Dict[str, str]:
-    new_rhel_tool_version = "100.10.0"
-    default_distro = {"arm": "rhel90-aarch64", "amd": "rhel90-x86_64"}
-    if Version(tools_version) >= Version(new_rhel_tool_version):
-        return {"arm": "rhel93-aarch64", "amd": "rhel93-x86_64"}
-    return default_distro
-
-
-def load_release_file() -> Dict:
-    with open("release.json") as release:
-        return json.load(release)
-
-
-@TRACER.start_as_current_span("sonar_build_image")
-def pipeline_process_image(
+@TRACER.start_as_current_span("build_image_generic")
+def build_image(
     dockerfile_path: str,
     build_configuration: ImageBuildConfiguration,
-    dockerfile_args: Dict[str, str] = None,
+    build_args: Dict[str, str] = None,
     build_path: str = ".",
 ):
-    """Builds a Docker image with arguments defined in `args`."""
+    """
+    Build an image then (optionally) sign the result.
+    """
     image_name = build_configuration.image_name()
     span = trace.get_current_span()
     span.set_attribute("mck.image_name", image_name)
-    if dockerfile_args:
-        span.set_attribute("mck.build_args", str(dockerfile_args))
 
-    if not dockerfile_args:
-        dockerfile_args = {}
-    logger.info(f"Dockerfile args: {dockerfile_args}, for image: {image_name}")
+    registry = build_configuration.base_registry
+    build_args = build_args or {}
 
-    build_image(
-        image_tag=build_configuration.version,
-        dockerfile_path=dockerfile_path,
-        dockerfile_args=dockerfile_args,
-        registry=build_configuration.registry,
+    if build_args:
+        span.set_attribute("mck.build_args", str(build_args))
+
+    logger.info(f"Building {image_name}, dockerfile args: {build_args}")
+    logger.debug(f"Build args: {build_args}")
+    logger.debug(f"Building {image_name} for platforms={build_configuration.platforms}")
+    logger.debug(f"build image generic - registry={registry}")
+
+    # Build docker registry URI and call build_image
+    image_full_uri = f"{build_configuration.registry}:{build_configuration.version}"
+
+    execute_docker_build(
+        tag=image_full_uri,
+        dockerfile=dockerfile_path,
+        path=build_path,
+        args=build_args,
+        push=True,
         platforms=build_configuration.platforms,
-        build_path=build_path,
     )
 
     if build_configuration.sign:
-        pipeline_sign_image(
-            registry=build_configuration.registry,
-            version=build_configuration.version,
-        )
-
-
-@TRACER.start_as_current_span("sign_image_in_repositories")
-def pipeline_sign_image(registry: str, version: str):
-    logger.info("Signing image")
-    sign_image(registry, version)
-    verify_signature(registry, version)
+        logger.info("Signing image")
+        sign_image(build_configuration.registry, build_configuration.version)
+        verify_signature(build_configuration.registry, build_configuration.version)
 
 
 def build_tests_image(build_configuration: ImageBuildConfiguration):
@@ -110,10 +97,10 @@ def build_tests_image(build_configuration: ImageBuildConfiguration):
 
     build_args = dict({"PYTHON_VERSION": python_version})
 
-    pipeline_process_image(
+    build_image(
         dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
         build_configuration=build_configuration,
-        dockerfile_args=build_args,
+        build_args=build_args,
         build_path="docker/mongodb-kubernetes-tests",
     )
 
@@ -123,7 +110,7 @@ def build_mco_tests_image(build_configuration: ImageBuildConfiguration):
     Builds image used to run community tests.
     """
 
-    pipeline_process_image(
+    build_image(
         dockerfile_path="docker/mongodb-community-tests/Dockerfile",
         build_configuration=build_configuration,
     )
@@ -144,11 +131,10 @@ def build_operator_image(build_configuration: ImageBuildConfiguration):
 
     logger.info(f"Building Operator args: {args}")
 
-    image_name = "mongodb-kubernetes"
-    pipeline_process_image(
+    build_image(
         dockerfile_path="docker/mongodb-kubernetes-operator/Dockerfile",
         build_configuration=build_configuration,
-        dockerfile_args=args,
+        build_args=args,
     )
 
 
@@ -158,10 +144,10 @@ def build_database_image(build_configuration: ImageBuildConfiguration):
     """
     args = {"version": build_configuration.version}
 
-    pipeline_process_image(
+    build_image(
         dockerfile_path="docker/mongodb-kubernetes-database/Dockerfile",
         build_configuration=build_configuration,
-        dockerfile_args=args,
+        build_args=args,
     )
 
 
@@ -182,7 +168,7 @@ def find_om_in_releases(om_version: str, releases: Dict[str, str]) -> Optional[s
 
 
 def get_om_releases() -> Dict[str, str]:
-    """Returns a dictionary representation of the Json document holdin all the OM
+    """Returns a dictionary representation of the Json document holding all the OM
     releases.
     """
     ops_manager_release_archive = (
@@ -208,10 +194,11 @@ def find_om_url(om_version: str) -> str:
 
 def build_init_om_image(build_configuration: ImageBuildConfiguration):
     args = {"version": build_configuration.version}
-    pipeline_process_image(
+
+    build_image(
         dockerfile_path="docker/mongodb-kubernetes-init-ops-manager/Dockerfile",
         build_configuration=build_configuration,
-        dockerfile_args=args,
+        build_args=args,
     )
 
 
@@ -234,10 +221,10 @@ def build_om_image(build_configuration: ImageBuildConfiguration):
         "om_download_url": om_download_url,
     }
 
-    pipeline_process_image(
+    build_image(
         dockerfile_path="docker/mongodb-enterprise-ops-manager/Dockerfile",
         build_configuration=build_configuration,
-        dockerfile_args=args,
+        build_args=args,
     )
 
 
@@ -247,10 +234,10 @@ def build_init_appdb_image(build_configuration: ImageBuildConfiguration):
     mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
     args = {"version": build_configuration.version, "mongodb_tools_url_ubi": mongodb_tools_url_ubi}
 
-    pipeline_process_image(
+    build_image(
         dockerfile_path="docker/mongodb-kubernetes-init-appdb/Dockerfile",
         build_configuration=build_configuration,
-        dockerfile_args=args,
+        build_args=args,
     )
 
 
@@ -260,10 +247,11 @@ def build_init_database_image(build_configuration: ImageBuildConfiguration):
     base_url = "https://fastdl.mongodb.org/tools/db/"
     mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
     args = {"version": build_configuration.version, "mongodb_tools_url_ubi": mongodb_tools_url_ubi}
-    pipeline_process_image(
+
+    build_image(
         "docker/mongodb-kubernetes-init-database/Dockerfile",
         build_configuration=build_configuration,
-        dockerfile_args=args,
+        build_args=args,
     )
 
 
@@ -272,7 +260,7 @@ def build_readiness_probe_image(build_configuration: ImageBuildConfiguration):
     Builds image used for readiness probe.
     """
 
-    pipeline_process_image(
+    build_image(
         dockerfile_path="docker/mongodb-kubernetes-readinessprobe/Dockerfile",
         build_configuration=build_configuration,
     )
@@ -283,7 +271,7 @@ def build_upgrade_hook_image(build_configuration: ImageBuildConfiguration):
     Builds image used for version upgrade post-start hook.
     """
 
-    pipeline_process_image(
+    build_image(
         dockerfile_path="docker/mongodb-kubernetes-upgrade-hook/Dockerfile",
         build_configuration=build_configuration,
     )
@@ -293,7 +281,6 @@ def build_agent_default_case(build_configuration: ImageBuildConfiguration):
     """
     Build the agent only for the latest operator for patches and operator releases.
 
-    See more information in the function: build_agent_on_agent_bump
     """
     release = load_release_file()
 
@@ -316,12 +303,12 @@ def build_agent_default_case(build_configuration: ImageBuildConfiguration):
         if build_configuration.parallel_factor > 0:
             max_workers = build_configuration.parallel_factor
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        logger.info(f"running with factor of {max_workers}")
-        print(f"======= Versions to build {agent_versions_to_build} =======")
+        logger.info(f"Running with factor of {max_workers}")
+        logger.info(f"======= Agent versions to build {agent_versions_to_build} =======")
         for idx, agent_version in enumerate(agent_versions_to_build):
             # We don't need to keep create and push the same image on every build.
             # It is enough to create and push the non-operator suffixed images only during releases to ecr and quay.
-            print(f"======= Building Agent {agent_version} ({idx}/{len(agent_versions_to_build)})")
+            logger.info(f"======= Building Agent {agent_version} ({idx}/{len(agent_versions_to_build)})")
             _build_agent_operator(
                 agent_version,
                 build_configuration,
@@ -446,10 +433,10 @@ def build_agent_pipeline(
         "mongodb_agent_url_ubi": mongodb_agent_url_ubi,
     }
 
-    pipeline_process_image(
+    build_image(
         dockerfile_path="docker/mongodb-agent/Dockerfile",
         build_configuration=build_configuration_copy,
-        dockerfile_args=args,
+        build_args=args,
     )
 
 
@@ -463,3 +450,16 @@ def queue_exception_handling(tasks_queue):
         raise Exception(
             f"Exception(s) found when processing Agent images. \nSee also previous logs for more info\nFailing the build"
         )
+
+
+def get_tools_distro(tools_version: str) -> Dict[str, str]:
+    new_rhel_tool_version = "100.10.0"
+    default_distro = {"arm": "rhel90-aarch64", "amd": "rhel90-x86_64"}
+    if Version(tools_version) >= Version(new_rhel_tool_version):
+        return {"arm": "rhel93-aarch64", "amd": "rhel93-x86_64"}
+    return default_distro
+
+
+def load_release_file() -> Dict:
+    with open("release.json") as release:
+        return json.load(release)
