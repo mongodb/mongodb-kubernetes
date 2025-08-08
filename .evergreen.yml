@@ -1700,6 +1700,12 @@ buildvariants:
     tasks:
       - name: generate_perf_tasks_30_thread
 
+  - name: kubectl_plugin_release
+    run_on:
+      - ubuntu2204-small
+    tasks:
+      - name: release_kubectl_plugin
+
   ### Prerequisites for E2E test suite
 
   - name: init_test_run
