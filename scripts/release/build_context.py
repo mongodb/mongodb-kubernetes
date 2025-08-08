@@ -69,6 +69,9 @@ class BuildContext:
         """Gets the version that will be used to tag the images."""
         if self.scenario == BuildScenario.RELEASE:
             return self.git_tag
+        if self.scenario == BuildScenario.STAGING:
+            # On master merges, always use "latest" (preserving legacy behavior)
+            return "latest"
         if self.patch_id:
             return self.patch_id
         # Alternatively, we can fail here if no ID is explicitly defined
@@ -77,7 +80,10 @@ class BuildContext:
     def get_base_registry(self) -> str:
         """Get the base registry URL for the current scenario."""
         # TODO CLOUDP-335471: when working on the promotion process, use the prod registry variable in RELEASE scenario
-        if self.scenario == BuildScenario.STAGING:
-            return os.environ.get("STAGING_REPO_URL")
-        else:
-            return os.environ.get("BASE_REPO_URL")
+        # TODO CLOUDP-335471: STAGING scenario should also push to STAGING_REPO_URL with version_id tag,
+        #                     in addition to the current ECR dev latest push (for backward compatibility)
+        #                     This will enable proper staging environment testing before production releases
+        
+        # For now, always use BASE_REPO_URL to preserve legacy behavior
+        # (STAGING pushes to ECR dev with "latest" tag)
+        return os.environ.get("BASE_REPO_URL")
