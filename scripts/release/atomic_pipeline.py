@@ -37,10 +37,6 @@ def get_tools_distro(tools_version: str) -> Dict[str, str]:
     return default_distro
 
 
-def is_running_in_evg_pipeline():
-    return os.getenv("RUNNING_IN_EVG", "") == "true"
-
-
 def load_release_file() -> Dict:
     with open("release.json") as release:
         return json.load(release)
