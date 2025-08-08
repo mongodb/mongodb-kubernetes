@@ -18,6 +18,7 @@ from packaging.version import Version
 
 from lib.base_logger import logger
 from scripts.evergreen.release.images_signing import (
+    mongodb_artifactory_login,
     sign_image,
     verify_signature,
 )
@@ -254,6 +255,8 @@ def build_image(
     )
 
     if build_configuration.sign:
+        logger.info("Logging in MongoDB Artifactory for Garasign image")
+        mongodb_artifactory_login()
         logger.info("Signing image")
         sign_image(docker_registry, build_configuration.version)
         verify_signature(docker_registry, build_configuration.version)
