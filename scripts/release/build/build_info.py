@@ -6,6 +6,18 @@ from scripts.release.build.build_scenario import BuildScenario
 from scripts.release.constants import DEFAULT_REPOSITORY_PATH, DEFAULT_CHANGELOG_PATH, RELEASE_INITIAL_VERSION_ENV_VAR, \
     get_initial_version, get_initial_commit_sha
 
+MEKO_TESTS_IMAGE = "meko-tests"
+OPERATOR_IMAGE = "operator"
+MCO_TESTS_IMAGE = "mco-tests"
+READINESS_PROBE_IMAGE = "readiness-probe"
+UPGRADE_HOOK_IMAGE = "upgrade-hook"
+DATABASE_IMAGE = "database"
+AGENT_IMAGE = "agent"
+INIT_APPDB_IMAGE = "init-appdb"
+INIT_DATABASE_IMAGE = "init-database"
+INIT_OPS_MANAGER_IMAGE = "init-ops-manager"
+OPS_MANAGER_IMAGE = "ops-manager"
+
 
 @dataclass
 class ImageInfo:
@@ -13,9 +25,6 @@ class ImageInfo:
     platforms: list[str]
     version: str
     sign: bool
-
-    def to_release_info_json(self):
-        return {"repository": self.repository, "platforms": self.platforms, "version": self.version}
 
 
 @dataclass
@@ -25,9 +34,6 @@ class BinaryInfo:
     version: str
     sign: bool
 
-    def to_release_info_json(self):
-        return {"platforms": self.platforms, "version": self.version}
-
 
 @dataclass
 class HelmChartInfo:
@@ -35,23 +41,12 @@ class HelmChartInfo:
     version: str
     sign: bool
 
-    def to_release_info_json(self):
-        return {"repository": self.repository, "version": self.version}
-
 
 @dataclass
 class BuildInfo:
     images: Dict[str, ImageInfo]
     binaries: Dict[str, BinaryInfo]
     helm_charts: Dict[str, HelmChartInfo]
-
-    def to_release_info_json(self):
-        return {
-            "images": {name: images.to_release_info_json() for name, images in self.images.items() if
-                       name not in ["agent", "ops-manager"]},
-            "binaries": {name: bin.to_release_info_json() for name, bin in self.binaries.items()},
-            "helm-charts": {name: chart.to_release_info_json() for name, chart in self.helm_charts.items()},
-        }
 
 
 def load_build_info(scenario: BuildScenario,

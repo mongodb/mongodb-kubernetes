@@ -28,7 +28,20 @@ from scripts.release.atomic_pipeline import (
     build_tests_image,
     build_upgrade_hook_image,
 )
-from scripts.release.build.build_info import load_build_info
+from scripts.release.build.build_info import (
+    AGENT_IMAGE,
+    DATABASE_IMAGE,
+    INIT_APPDB_IMAGE,
+    INIT_DATABASE_IMAGE,
+    INIT_OPS_MANAGER_IMAGE,
+    MCO_TESTS_IMAGE,
+    MEKO_TESTS_IMAGE,
+    OPERATOR_IMAGE,
+    OPS_MANAGER_IMAGE,
+    READINESS_PROBE_IMAGE,
+    UPGRADE_HOOK_IMAGE,
+    load_build_info,
+)
 from scripts.release.build.build_scenario import (
     BuildScenario,
 )
@@ -48,19 +61,19 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
     """Returns a dictionary of image names that can be built."""
 
     image_builders = {
-        "meko-tests": build_tests_image,  # working
-        "operator": build_operator_image,  # working
-        "mco-tests": build_mco_tests_image,  # working
-        "readiness-probe": build_readiness_probe_image,  # working
-        "upgrade-hook": build_upgrade_hook_image,  # working
-        "database": build_database_image,  # working
-        "agent": build_agent_default_case,  # working
+        MEKO_TESTS_IMAGE: build_tests_image,  # working
+        OPERATOR_IMAGE: build_operator_image,  # working
+        MCO_TESTS_IMAGE: build_mco_tests_image,  # working
+        READINESS_PROBE_IMAGE: build_readiness_probe_image,  # working
+        UPGRADE_HOOK_IMAGE: build_upgrade_hook_image,  # working
+        DATABASE_IMAGE: build_database_image,  # working
+        AGENT_IMAGE: build_agent_default_case,  # working
         # Init images
-        "init-appdb": build_init_appdb_image,  # working
-        "init-database": build_init_database_image,  # working
-        "init-ops-manager": build_init_om_image,  # working
+        INIT_APPDB_IMAGE: build_init_appdb_image,  # working
+        INIT_DATABASE_IMAGE: build_init_database_image,  # working
+        INIT_OPS_MANAGER_IMAGE: build_init_om_image,  # working
         # Ops Manager image
-        "ops-manager": build_om_image,  # working
+        OPS_MANAGER_IMAGE: build_om_image,  # working
     }
 
     return image_builders

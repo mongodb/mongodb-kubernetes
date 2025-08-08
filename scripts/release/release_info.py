@@ -2,13 +2,33 @@ import argparse
 import json
 import pathlib
 
-from scripts.release.build.build_info import load_build_info
+from scripts.release.build.build_info import (
+    DATABASE_IMAGE,
+    INIT_APPDB_IMAGE,
+    INIT_DATABASE_IMAGE,
+    INIT_OPS_MANAGER_IMAGE,
+    OPERATOR_IMAGE,
+    READINESS_PROBE_IMAGE,
+    UPGRADE_HOOK_IMAGE,
+    BuildInfo,
+    load_build_info,
+)
 from scripts.release.build.build_scenario import BuildScenario
 from scripts.release.constants import (
     DEFAULT_CHANGELOG_PATH,
     DEFAULT_RELEASE_INITIAL_VERSION,
     DEFAULT_REPOSITORY_PATH,
 )
+
+RELEASE_INFO_IMAGES_ORDERED = [
+    OPERATOR_IMAGE,
+    INIT_DATABASE_IMAGE,
+    INIT_APPDB_IMAGE,
+    INIT_OPS_MANAGER_IMAGE,
+    DATABASE_IMAGE,
+    READINESS_PROBE_IMAGE,
+    UPGRADE_HOOK_IMAGE,
+]
 
 
 def create_release_info_json(
@@ -22,7 +42,40 @@ def create_release_info_json(
         initial_version=initial_version,
     )
 
-    return json.dumps(build_info.to_release_info_json(), indent=2)
+    release_info_json = convert_to_release_info_json(build_info)
+
+    return json.dumps(release_info_json, indent=2)
+
+
+def convert_to_release_info_json(build_info: BuildInfo) -> dict:
+    output = {
+        "images": {},
+        "binaries": {},
+        "helm-charts": {},
+    }
+    # Filter (and order) images to include only those relevant for release info
+    images = {name: build_info.images[name] for name in RELEASE_INFO_IMAGES_ORDERED}
+
+    for name, image in images.items():
+        output["images"][name] = {
+            "repository": image.repository,
+            "platforms": image.platforms,
+            "version": image.version,
+        }
+
+    for name, binary in build_info.binaries.items():
+        output["binaries"][name] = {
+            "platforms": binary.platforms,
+            "version": binary.version,
+        }
+
+    for name, chart in build_info.helm_charts.items():
+        output["helm-charts"][name] = {
+            "repository": chart.repository,
+            "version": chart.version,
+        }
+
+    return output
 
 
 if __name__ == "__main__":
