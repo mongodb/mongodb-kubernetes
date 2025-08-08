@@ -181,7 +181,7 @@ build-and-push-images: build-and-push-operator-image appdb-init-image om-init-im
 build-and-push-init-images: appdb-init-image om-init-image database-init-image
 
 database-init-image:
-	@ scripts/dev/run_python.sh scripts/release/pipeline_main.puy init-database
+	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py init-database
 
 appdb-init-image:
 	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py init-appdb

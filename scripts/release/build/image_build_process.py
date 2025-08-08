@@ -10,6 +10,8 @@ from python_on_whales.exceptions import DockerException
 
 from lib.base_logger import logger
 
+DEFAULT_BUILDER_NAME = "multiarch"  # Default buildx builder name
+
 
 def ecr_login_boto3(region: str, account_id: str):
     """
@@ -38,9 +40,10 @@ def ecr_login_boto3(region: str, account_id: str):
     logger.debug(f"ECR login succeeded: {status}")
 
 
-def ensure_buildx_builder(builder_name: str = "multiarch") -> str:
+def ensure_buildx_builder(builder_name: str = DEFAULT_BUILDER_NAME) -> str:
     """
     Ensures a Docker Buildx builder exists for multi-platform builds.
+    This function is safe for concurrent execution across multiple processes.
 
     :param builder_name: Name for the buildx builder
     :return: The builder name that was created or reused
@@ -48,6 +51,7 @@ def ensure_buildx_builder(builder_name: str = "multiarch") -> str:
 
     docker_cmd = python_on_whales.docker
 
+    logger.info(f"Ensuring buildx builder '{builder_name}' exists...")
     existing_builders = docker_cmd.buildx.list()
     if any(b.name == builder_name for b in existing_builders):
         logger.info(f"Builder '{builder_name}' already exists – reusing it.")
@@ -63,6 +67,13 @@ def ensure_buildx_builder(builder_name: str = "multiarch") -> str:
         )
         logger.info(f"Created new buildx builder: {builder_name}")
     except DockerException as e:
+        # Check if this is a race condition (another process created the builder)
+        if hasattr(e, 'stderr') and 'existing instance for' in str(e.stderr):
+            logger.info(f"Builder '{builder_name}' was created by another process – using it.")
+            docker.buildx.use(builder_name)
+            return builder_name
+
+        # Otherwise, it's a real error
         logger.error(f"Failed to create buildx builder: {e}")
         raise
 
@@ -70,7 +81,13 @@ def ensure_buildx_builder(builder_name: str = "multiarch") -> str:
 
 
 def execute_docker_build(
-    tag: str, dockerfile: str, path: str, args: Dict[str, str], push: bool, platforms: list[str]
+        tag: str,
+        dockerfile: str,
+        path: str, args:
+        Dict[str, str],
+        push: bool,
+        platforms: list[str],
+        builder_name: str = DEFAULT_BUILDER_NAME,
 ):
     """
     Build a Docker image using python_on_whales and Docker Buildx for multi-architecture support.
@@ -83,6 +100,7 @@ def execute_docker_build(
     :param platforms: List of target platforms (e.g., ["linux/amd64", "linux/arm64"])
     """
     # Login to ECR before building
+    # TODO CLOUDP-335471: use env variables to configure AWS region and account ID
     ecr_login_boto3(region="us-east-1", account_id="268558157000")
 
     docker_cmd = python_on_whales.docker
@@ -101,8 +119,8 @@ def execute_docker_build(
         if len(platforms) > 1:
             logger.info(f"Multi-platform build for {len(platforms)} architectures")
 
-        # We need a special driver to handle multi-platform builds
-        builder_name = ensure_buildx_builder("multiarch")
+        # Ensure buildx builder exists (safe for concurrent execution)
+        ensure_buildx_builder(builder_name)
 
         # Build the image using buildx
         docker_cmd.buildx.build(

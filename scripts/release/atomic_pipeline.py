@@ -19,6 +19,7 @@ from lib.base_logger import logger
 from scripts.release.build.image_build_configuration import ImageBuildConfiguration
 from scripts.release.build.image_build_process import execute_docker_build
 from scripts.release.build.image_signing import (
+    mongodb_artifactory_login,
     sign_image,
     verify_signature,
 )
@@ -64,6 +65,8 @@ def build_image(
     )
 
     if build_configuration.sign:
+        logger.info("Logging in MongoDB Artifactory for Garasign image")
+        mongodb_artifactory_login()
         logger.info("Signing image")
         sign_image(build_configuration.registry, build_configuration.version)
         verify_signature(build_configuration.registry, build_configuration.version)
