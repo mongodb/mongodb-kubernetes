@@ -527,6 +527,18 @@ functions:
           - ${workdir}/bin
           - ${workdir}
 
+  build_test_image_ibm:
+    - *switch_context
+    - command: subprocess.exec
+      params:
+        shell: bash
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        include_expansions_in_env:
+          - version_id
+        add_to_path:
+          - ${workdir}/bin
+        binary: scripts/evergreen/e2e/build_e2e_image_ibm.sh
+
   pipeline:
     - *switch_context
     - command: shell.exec

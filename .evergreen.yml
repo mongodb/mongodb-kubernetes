@@ -82,6 +82,8 @@ variables:
     setup_group:
       - func: clone
       - func: setup_building_host_minikube
+      - func: build_multi_cluster_binary
+      - func: build_test_image_ibm
 
   - &setup_group_multi_cluster
     setup_group_can_fail_task: true
@@ -430,6 +432,14 @@ tasks:
       - func: pipeline
         vars:
           image_name: test
+
+
+  - name: build_test_image_ibm
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: build_multi_cluster_binary
+      - func: build_test_image_ibm
 
   - name: build_mco_test_image
     commands:

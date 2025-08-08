@@ -27,6 +27,21 @@ deploy_test_app() {
       tag="${OVERRIDE_VERSION_ID}"
     fi
 
+    local arch
+    arch=$(uname -m)
+
+    case "${arch}" in
+        ppc64le)
+            tag="${tag}-ppc64le"
+            ;;
+        s390x)
+            tag="${tag}-s390x"
+            ;;
+        *)
+            echo "Not IBM host, using default tag"
+            ;;
+    esac
+
     IS_PATCH="${IS_PATCH:-default_patch}"
     TASK_NAME="${TASK_NAME:-default_task}"
     EXECUTION="${EXECUTION:-default_execution}"
