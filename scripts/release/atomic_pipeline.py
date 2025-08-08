@@ -338,23 +338,22 @@ def build_upgrade_hook_image(build_configuration: BuildConfiguration):
 
 def build_agent_pipeline(
     build_configuration: BuildConfiguration,
-    image_version,
-    init_database_image,
-    mongodb_tools_url_ubi,
-    mongodb_agent_url_ubi: str,
-    agent_version,
+    operator_version: str,
+    agent_version: str,
+    agent_distro: str,
+    tools_version: str,
+    tools_distro: str,
 ):
+    image_version = f"{agent_version}_{operator_version}"
+
     build_configuration_copy = copy(build_configuration)
     build_configuration_copy.version = image_version
     args = {
         "version": image_version,
         "agent_version": agent_version,
-        "ubi_suffix": "-ubi",
-        "release_version": image_version,
-        "init_database_image": init_database_image,
-        "mongodb_tools_url_ubi": mongodb_tools_url_ubi,
-        "mongodb_agent_url_ubi": mongodb_agent_url_ubi,
-        "quay_registry": build_configuration.base_registry,
+        "agent_distro": agent_distro,
+        "tools_version": tools_version,
+        "tools_distro": tools_distro,
     }
 
     build_image(
@@ -392,15 +391,14 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         logger.info(f"Running with factor of {max_workers}")
         logger.info(f"======= Agent versions to build {agent_versions_to_build} =======")
-        for idx, agent_version in enumerate(agent_versions_to_build):
+        for idx, agent_tools_version in enumerate(agent_versions_to_build):
             # We don't need to keep create and push the same image on every build.
             # It is enough to create and push the non-operator suffixed images only during releases to ecr and quay.
-            logger.info(f"======= Building Agent {agent_version} ({idx}/{len(agent_versions_to_build)})")
+            logger.info(f"======= Building Agent {agent_tools_version} ({idx}/{len(agent_versions_to_build)})")
             _build_agent_operator(
-                agent_version,
+                agent_tools_version,
                 build_configuration,
                 executor,
-                build_configuration.version,
                 tasks_queue,
             )
 
@@ -420,31 +418,25 @@ def queue_exception_handling(tasks_queue):
 
 
 def _build_agent_operator(
-    agent_version: Tuple[str, str],
+    agent_tools_version: Tuple[str, str],
     build_configuration: BuildConfiguration,
     executor: ProcessPoolExecutor,
-    operator_version: str,
     tasks_queue: Queue,
 ):
+    agent_version = agent_tools_version[0]
     agent_distro = "rhel9_x86_64"
-    tools_version = agent_version[1]
+    tools_version = agent_tools_version[1]
     tools_distro = get_tools_distro(tools_version)["amd"]
-    image_version = f"{agent_version[0]}_{operator_version}"
-    mongodb_tools_url_ubi = (
-        f"https://downloads.mongodb.org/tools/db/mongodb-database-tools-{tools_distro}-{tools_version}.tgz"
-    )
-    mongodb_agent_url_ubi = f"https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod/mongodb-mms-automation-agent-{agent_version[0]}.{agent_distro}.tar.gz"
-    init_database_image = f"{build_configuration.base_registry}/mongodb-kubernetes-init-database:{operator_version}"
 
     tasks_queue.put(
         executor.submit(
             build_agent_pipeline,
             build_configuration,
-            image_version,
-            init_database_image,
-            mongodb_tools_url_ubi,
-            mongodb_agent_url_ubi,
-            agent_version[0],
+            build_configuration.version,
+            agent_version,
+            agent_distro,
+            tools_version,
+            tools_distro,
         )
     )
 
