@@ -75,13 +75,13 @@ operator: configure-operator build-and-push-operator-image
 
 # build-push, (todo) restart database
 database: aws_login
-	@ scripts/evergreen/run_python.sh scripts/release/pipeline_main.py database
+	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py database
 
 readiness_probe: aws_login
-	@ scripts/evergreen/run_python.sh scripts/release/pipeline_main.py readiness-probe
+	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py readiness-probe
 
 upgrade_hook: aws_login
-	@ scripts/evergreen/run_python.sh scripts/release/pipeline_main.py upgrade-hook
+	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py upgrade-hook
 
 # ensures cluster is up, cleans Kubernetes + OM, build-push-deploy operator,
 # push-deploy database, create secrets, config map, resources etc
@@ -90,7 +90,7 @@ full: build-and-push-images
 
 # build-push appdb image
 appdb: aws_login
-	@ scripts/evergreen/run_python.sh scripts/release/pipeline_main.py --include appdb
+	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py --include appdb
 
 # runs the e2e test: make e2e test=e2e_sharded_cluster_pv. The Operator is redeployed before the test, the namespace is cleaned.
 # The e2e test image is built and pushed together with all main ones (operator, database, init containers)
@@ -112,7 +112,7 @@ mco-e2e: aws_login build-and-push-mco-test-image
 
 generate-env-file: ## generates a local-test.env for local testing
 	mkdir -p .generated
-	{ scripts/evergreen/run_python.sh mongodb-community-operator/scripts/dev/get_e2e_env_vars.py ".generated/config.json" | tee >(cut -d' ' -f2 > .generated/mco-test.env) ;} > .generated/mco-test.export.env
+	{ scripts/dev/run_python.sh mongodb-community-operator/scripts/dev/get_e2e_env_vars.py ".generated/config.json" | tee >(cut -d' ' -f2 > .generated/mco-test.env) ;} > .generated/mco-test.export.env
 	. .generated/mco-test.export.env
 
 reset-helm-leftovers: ## sometimes you didn't cleanly uninstall a helm release, this cleans the existing helm artifacts
@@ -154,19 +154,19 @@ aws_cleanup:
 	@ scripts/evergreen/prepare_aws.sh
 
 build-and-push-operator-image: aws_login
-	@ scripts/evergreen/run_python.sh scripts/release/pipeline_main.py operator
+	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py operator
 
 build-and-push-database-image: aws_login
 	@ scripts/dev/build_push_database_image
 
 build-and-push-test-image: aws_login build-multi-cluster-binary
 	@ if [[ -z "$(local)" ]]; then \
-		scripts/evergreen/run_python.sh scripts/release/pipeline_main.py test; \
+		scripts/dev/run_python.sh scripts/release/pipeline_main.py test; \
 	fi
 
 build-and-push-mco-test-image: aws_login
 	@ if [[ -z "$(local)" ]]; then \
-		scripts/evergreen/run_python.sh scripts/release/pipeline_main.py mco-test; \
+		scripts/dev/run_python.sh scripts/release/pipeline_main.py mco-test; \
 	fi
 
 build-multi-cluster-binary:
@@ -181,27 +181,27 @@ build-and-push-images: build-and-push-operator-image appdb-init-image om-init-im
 build-and-push-init-images: appdb-init-image om-init-image database-init-image
 
 database-init-image:
-	@ scripts/evergreen/run_python.sh scripts/release/pipeline_main.puy init-database
+	@ scripts/dev/run_python.sh scripts/release/pipeline_main.puy init-database
 
 appdb-init-image:
-	@ scripts/evergreen/run_python.sh scripts/release/pipeline_main.py init-appdb
+	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py init-appdb
 
 # Not setting a parallel-factor will default to 0 which will lead to using all CPUs, that can cause docker to die.
 # Here we are defaulting to 6, a higher value might work for you.
 agent-image:
-	@ scripts/evergreen/run_python.sh scripts/release/pipeline_main.py --parallel --parallel-factor 6 agent
+	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py --parallel --parallel-factor 6 agent
 
 agent-image-slow:
-	@ scripts/evergreen/run_python.sh scripts/release/pipeline_main.py --parallel-factor 1 agent
+	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py --parallel-factor 1 agent
 
 operator-image:
-	@ scripts/evergreen/run_python.sh scripts/release/pipeline_main.py operator
+	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py operator
 
 om-init-image:
-	@ scripts/evergreen/run_python.sh scripts/release/pipeline_main.py init-ops-manager
+	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py init-ops-manager
 
 om-image:
-	@ scripts/evergreen/run_python.sh scripts/release/pipeline_main.py ops-manager
+	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py ops-manager
 
 configure-operator:
 	@ scripts/dev/configure_operator.sh
@@ -284,16 +284,16 @@ golang-tests-race:
 	USE_RACE=true scripts/evergreen/unit-tests.sh
 
 sbom-tests:
-	@ scripts/evergreen/run_python.sh -m pytest generate_ssdlc_report_test.py
+	@ scripts/dev/run_python.sh -m pytest generate_ssdlc_report_test.py
 
 # e2e tests are also in python and we will need to ignore them as they are in the docker/mongodb-kubernetes-tests folder
 # additionally, we have one lib which we want to test which is in the =docker/mongodb-kubernetes-tests folder.
 python-tests:
-	@ scripts/evergreen/run_python.sh -m pytest docker/mongodb-kubernetes-tests/kubeobject
-	@ scripts/evergreen/run_python.sh -m pytest --ignore=docker/mongodb-kubernetes-tests
+	@ scripts/dev/run_python.sh -m pytest docker/mongodb-kubernetes-tests/kubeobject
+	@ scripts/dev/run_python.sh -m pytest --ignore=docker/mongodb-kubernetes-tests
 
 generate-ssdlc-report:
-	@ scripts/evergreen/run_python.sh generate_ssdlc_report.py
+	@ scripts/dev/run_python.sh generate_ssdlc_report.py
 
 # test-race runs golang test with race enabled
 test-race: generate fmt vet manifests golang-tests-race
