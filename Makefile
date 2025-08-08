@@ -147,7 +147,7 @@ ac:
 # in parallel and both call 'aws_login') then Docker login may return an error "Error saving credentials:..The
 # specified item already exists in the keychain". Seems this allows to ignore the error
 aws_login:
-	@ scripts/dev/configure_docker_auth.sh
+	@ scripts/dev/configure_container_auth.sh
 
 # cleans up aws resources, including s3 buckets which are older than 5 hours
 aws_cleanup:
