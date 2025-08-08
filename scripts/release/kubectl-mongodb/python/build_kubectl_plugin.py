@@ -7,7 +7,10 @@ from botocore.exceptions import ClientError, NoCredentialsError, PartialCredenti
 
 # from lib.base_logger import logger
 
-S3_BUCKET_NAME = "mongodb-kubernetes-dev"
+DEV_S3_BUCKET_NAME = "mongodb-kubernetes-dev"
+STAGING_S3_BUCKET_NAME = "mongodb-kubernetes-staging"
+RELEASE_S3_BUCKET_NAME = "mongodb-kubernetes-release"
+
 AWS_REGION = "eu-north-1"
 S3_BUCKET_KUBECTL_PLUGIN_SUBPATH = "kubectl-mongodb"
 
@@ -62,10 +65,10 @@ def upload_artifacts_to_s3():
             local_path = os.path.join(root, filename)
             s3_key = s3_path(local_path)
 
-            print(f"Uploading artifact {local_path} to s3://{S3_BUCKET_NAME}/{s3_key}")
+            print(f"Uploading artifact {local_path} to s3://{DEV_S3_BUCKET_NAME}/{s3_key}")
 
             try:
-                s3_client.upload_file(local_path, S3_BUCKET_NAME, s3_key)
+                s3_client.upload_file(local_path, DEV_S3_BUCKET_NAME, s3_key)
                 print(f"Successfully uploaded the artifact {filename}")
                 uploaded_files += 1
             except Exception as e:
@@ -78,7 +81,9 @@ def upload_artifacts_to_s3():
 def s3_path(local_path: str):
     commit_sha = os.environ.get(COMMIT_SHA_ENV_VAR, "").strip()
     if commit_sha == "":
-        print(f"Error: The commit sha environment variable {COMMIT_SHA_ENV_VAR} is not set. It's required to form the S3 Path.")
+        print(
+            f"Error: The commit sha environment variable {COMMIT_SHA_ENV_VAR} is not set. It's required to form the S3 Path."
+        )
         sys.exit(1)
 
     return f"{S3_BUCKET_KUBECTL_PLUGIN_SUBPATH}/{commit_sha}/{local_path}"
@@ -91,7 +96,6 @@ def download_plugin_for_tests_image():
         print(f"An error occurred connecting to S3 to download kubectl plugin for tests image: {e}")
         return
 
-
     commit_sha = os.environ.get(COMMIT_SHA_ENV_VAR, "").strip()
     if commit_sha == "":
         print("Error: The commit sha environment variable is not set. It's required to form the S3 Path.")
@@ -100,18 +104,19 @@ def download_plugin_for_tests_image():
     local_file_path = "docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator_linux"
 
     bucket_path = f"{S3_BUCKET_KUBECTL_PLUGIN_SUBPATH}/{commit_sha}/dist/kubectl-mongodb_linux_amd64_v1/kubectl-mongodb"
-    print(f"Downloading s3://{S3_BUCKET_NAME}/{bucket_path} to {local_file_path}")
+    print(f"Downloading s3://{DEV_S3_BUCKET_NAME}/{bucket_path} to {local_file_path}")
 
     try:
-        s3_client.download_file(S3_BUCKET_NAME, bucket_path, local_file_path)
+        s3_client.download_file(DEV_S3_BUCKET_NAME, bucket_path, local_file_path)
         print(f"Successfully downloaded artifact to {local_file_path}")
     except ClientError as e:
-        if e.response['Error']['Code'] == '404':
-            print(f"ERROR: Artifact not found at s3://{S3_BUCKET_NAME}/{bucket_path} ")
+        if e.response["Error"]["Code"] == "404":
+            print(f"ERROR: Artifact not found at s3://{DEV_S3_BUCKET_NAME}/{bucket_path} ")
         else:
             print(f"ERROR: Failed to download artifact. S3 Client Error: {e}")
     except Exception as e:
         print(f"An unexpected error occurred during download: {e}")
+
 
 def main():
     run_goreleaser()
