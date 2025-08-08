@@ -543,6 +543,17 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/evergreen/run_python.sh scripts/release/kubectl-mongodb/python/build_kubectl_plugin.py
 
+  promote_kubectl_plugin_and_release:
+    - command: subprocess.exec
+      type: setup
+      params:
+        include_expansions_in_env:
+          - GH_TOKEN
+        env:
+          GH_TOKEN: ${GH_TOKEN}
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/evergreen/run_python.sh scripts/release/kubectl-mongodb/python/promote_kubectl_plugin.py --release_version ${release_version} --staging_commit ${staging_commit_sha}
+
   build_and_push_appdb_database:
     - command: subprocess.exec
       params:
