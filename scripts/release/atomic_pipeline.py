@@ -212,7 +212,7 @@ def build_om_image(build_configuration: BuildConfiguration):
     )
 
 
-@TRACER.start_as_current_span("build_image_generic")
+@TRACER.start_as_current_span("build_image")
 def build_image(
     image_name: str,
     dockerfile_path: str,
