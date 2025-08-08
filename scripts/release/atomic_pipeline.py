@@ -223,7 +223,6 @@ def build_image(
     """
     Build an image then (optionally) sign the result.
     """
-    # Tracing setup
     span = trace.get_current_span()
     span.set_attribute("mck.image_name", image_name)
 
