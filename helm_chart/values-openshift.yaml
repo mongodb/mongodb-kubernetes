@@ -30,7 +30,6 @@ operator:
   version: 1.2.0
 relatedImages:
   opsManager:
-  - 6.0.25
   - 6.0.26
   - 6.0.27
   - 7.0.11
