@@ -1,5 +1,8 @@
 # This file is the new Sonar
 import base64
+import fcntl
+import os
+import time
 from typing import Dict
 
 import boto3
@@ -123,7 +126,10 @@ def execute_docker_build(
         if len(platforms) > 1:
             logger.info(f"Multi-platform build for {len(platforms)} architectures")
 
-        # Build the image using buildx, builder must be already initialized
+        # Ensure buildx builder exists (safe for concurrent execution)
+        ensure_buildx_builder(builder_name)
+
+        # Build the image using buildx
         docker.buildx.build(
             context_path=path,
             file=dockerfile,
