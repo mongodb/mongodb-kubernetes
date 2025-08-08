@@ -43,6 +43,7 @@ def ecr_login_boto3(region: str, account_id: str):
 def ensure_buildx_builder(builder_name: str = DEFAULT_BUILDER_NAME) -> str:
     """
     Ensures a Docker Buildx builder exists for multi-platform builds.
+    This function is safe for concurrent execution across multiple processes.
 
     :param builder_name: Name for the buildx builder
     :return: The builder name that was created or reused
@@ -66,6 +67,13 @@ def ensure_buildx_builder(builder_name: str = DEFAULT_BUILDER_NAME) -> str:
         )
         logger.info(f"Created new buildx builder: {builder_name}")
     except DockerException as e:
+        # Check if this is a race condition (another process created the builder)
+        if hasattr(e, 'stderr') and 'existing instance for' in str(e.stderr):
+            logger.info(f"Builder '{builder_name}' was created by another process – using it.")
+            docker.buildx.use(builder_name)
+            return builder_name
+        
+        # Otherwise, it's a real error
         logger.error(f"Failed to create buildx builder: {e}")
         raise
 
