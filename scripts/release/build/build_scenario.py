@@ -28,7 +28,7 @@ class BuildScenario(StrEnum):
             scenario = BuildScenario.RELEASE
             logger.info(f"Build scenario: {scenario} (git_tag: {git_tag})")
         elif is_patch or is_evg:
-            scenario = BuildScenario.PATCH
+            scenario = BuildScenario.STAGING
             logger.info(f"Build scenario: {scenario} (patch_id: {patch_id})")
         # TODO: Uncomment the following lines when starting to work on staging builds
         # elif is_evg:
