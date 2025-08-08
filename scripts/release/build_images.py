@@ -10,6 +10,8 @@ from python_on_whales.exceptions import DockerException
 import docker
 from lib.base_logger import logger
 
+DEFAULT_BUILDER_NAME = "multiarch"  # Default buildx builder name
+
 
 def ecr_login_boto3(region: str, account_id: str):
     """
@@ -38,7 +40,7 @@ def ecr_login_boto3(region: str, account_id: str):
     logger.debug(f"ECR login succeeded: {status}")
 
 
-def ensure_buildx_builder(builder_name: str = "multiarch") -> str:
+def ensure_buildx_builder(builder_name: str = DEFAULT_BUILDER_NAME) -> str:
     """
     Ensures a Docker Buildx builder exists for multi-platform builds.
 
@@ -70,7 +72,13 @@ def ensure_buildx_builder(builder_name: str = "multiarch") -> str:
 
 
 def execute_docker_build(
-    tag: str, dockerfile: str, path: str, args: Dict[str, str] = {}, push: bool = True, platforms: list[str] = None
+    tag: str,
+    dockerfile: str,
+    path: str,
+    args: Dict[str, str] = {},
+    push: bool = True,
+    platforms: list[str] = None,
+    builder_name: str = DEFAULT_BUILDER_NAME,
 ):
     """
     Build a Docker image using python_on_whales and Docker Buildx for multi-architecture support.
@@ -105,10 +113,7 @@ def execute_docker_build(
         if len(platforms) > 1:
             logger.info(f"Multi-platform build for {len(platforms)} architectures")
 
-        # We need a special driver to handle multi-platform builds
-        builder_name = ensure_buildx_builder("multiarch")
-
-        # Build the image using buildx
+        # Build the image using buildx, builder must be already initialized
         docker.buildx.build(
             context_path=path,
             file=dockerfile,

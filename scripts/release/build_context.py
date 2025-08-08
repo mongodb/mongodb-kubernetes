@@ -83,7 +83,7 @@ class BuildContext:
         # TODO CLOUDP-335471: STAGING scenario should also push to STAGING_REPO_URL with version_id tag,
         #                     in addition to the current ECR dev latest push (for backward compatibility)
         #                     This will enable proper staging environment testing before production releases
-        
+
         # For now, always use BASE_REPO_URL to preserve legacy behavior
         # (STAGING pushes to ECR dev with "latest" tag)
         return os.environ.get("BASE_REPO_URL")
