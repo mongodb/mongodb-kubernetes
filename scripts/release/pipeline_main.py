@@ -17,7 +17,7 @@ from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
 
 from lib.base_logger import logger
 from scripts.release.atomic_pipeline import (
-    build_agent_default_case,
+    build_agent,
     build_database_image,
     build_init_appdb,
     build_init_database,
@@ -54,7 +54,7 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         "readiness-probe": build_readiness_probe_image,
         "upgrade-hook": build_upgrade_hook_image,
         "database": build_database_image,
-        "agent": build_agent_default_case,
+        "agent": build_agent,
         #
         # Init images
         "init-appdb": build_init_appdb,
