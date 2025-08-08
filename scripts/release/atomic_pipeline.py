@@ -53,10 +53,12 @@ def build_image(
     logger.debug(f"build image generic - registry={registry}")
 
     # Build docker registry URI and call build_image
-    image_full_uri = f"{build_configuration.registry}:{build_configuration.version}"
+    tags = [f"{build_configuration.registry}:{build_configuration.version}"]
+    if build_configuration.latest_tag:
+        tags.append(f"{build_configuration.registry}:{"latest"}")
 
     execute_docker_build(
-        tag=image_full_uri,
+        tags=tags,
         dockerfile=dockerfile_path,
         path=build_path,
         args=build_args,

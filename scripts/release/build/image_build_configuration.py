@@ -10,6 +10,7 @@ SUPPORTED_PLATFORMS = ["linux/amd64", "linux/arm64"]
 class ImageBuildConfiguration:
     scenario: BuildScenario
     version: str
+    latest_tag: bool
     registry: str
 
     parallel: bool = False

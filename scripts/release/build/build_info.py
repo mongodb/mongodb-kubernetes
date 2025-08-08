@@ -25,6 +25,7 @@ class ImageInfo:
     platforms: list[str]
     version: str
     sign: bool
+    latest_tag: bool
 
 
 @dataclass
@@ -92,6 +93,7 @@ def load_build_info(scenario: BuildScenario,
             platforms=data["platforms"],
             version=image_version,
             sign=data.get("sign", False),
+            latest_tag=data.get("latest-tag", False),
         )
 
     binaries = {}
