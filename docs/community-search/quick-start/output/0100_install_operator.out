@@ -1,12 +1,36 @@
 Release "mongodb-kubernetes" does not exist. Installing it now.
 NAME: mongodb-kubernetes
-LAST DEPLOYED: Tue Jul  8 07:04:51 2025
+LAST DEPLOYED: Mon Jul 28 15:07:59 2025
 NAMESPACE: mongodb
 STATUS: deployed
 REVISION: 1
 TEST SUITE: None
 USER-SUPPLIED VALUES:
-dummy: value
+database:
+  version: 68876175f5ad6d0007fdc1d4
+initAppDb:
+  version: 68876175f5ad6d0007fdc1d4
+initDatabase:
+  version: 68876175f5ad6d0007fdc1d4
+initOpsManager:
+  version: 68876175f5ad6d0007fdc1d4
+operator:
+  version: 68876175f5ad6d0007fdc1d4
+registry:
+  agent: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
+  appDb: quay.io/mongodb
+  database: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
+  imagePullSecrets: image-registries-secret
+  initAppDb: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
+  initDatabase: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
+  initOpsManager: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
+  operator: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
+  opsManager: quay.io/mongodb
+search:
+  community:
+    name: community
+    repo: 268558157000.dkr.ecr.eu-west-1.amazonaws.com/mongot
+    version: fbd60fb055dd500058edcb45677ea85d19421f47
 
 COMPUTED VALUES:
 agent:
@@ -39,17 +63,16 @@ community:
     version: 4.4.0
 database:
   name: mongodb-kubernetes-database
-  version: 1.2.0
-dummy: value
+  version: 68876175f5ad6d0007fdc1d4
 initAppDb:
   name: mongodb-kubernetes-init-appdb
-  version: 1.2.0
+  version: 68876175f5ad6d0007fdc1d4
 initDatabase:
   name: mongodb-kubernetes-init-database
-  version: 1.2.0
+  version: 68876175f5ad6d0007fdc1d4
 initOpsManager:
   name: mongodb-kubernetes-init-ops-manager
-  version: 1.2.0
+  version: 68876175f5ad6d0007fdc1d4
 managedSecurityContext: false
 mongodb:
   appdbAssumeOldFormat: false
@@ -96,7 +119,7 @@ operator:
   vaultSecretBackend:
     enabled: false
     tlsSecretRef: ""
-  version: 1.2.0
+  version: 68876175f5ad6d0007fdc1d4
   watchedResources:
   - mongodb
   - opsmanagers
@@ -112,24 +135,23 @@ readinessProbe:
   name: mongodb-kubernetes-readinessprobe
   version: 1.0.22
 registry:
-  agent: quay.io/mongodb
+  agent: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
   appDb: quay.io/mongodb
-  database: quay.io/mongodb
-  imagePullSecrets: null
-  initAppDb: quay.io/mongodb
-  initDatabase: quay.io/mongodb
-  initOpsManager: quay.io/mongodb
-  operator: quay.io/mongodb
+  database: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
+  imagePullSecrets: image-registries-secret
+  initAppDb: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
+  initDatabase: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
+  initOpsManager: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
+  operator: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
   opsManager: quay.io/mongodb
   pullPolicy: Always
   readinessProbe: quay.io/mongodb
   versionUpgradeHook: quay.io/mongodb
 search:
   community:
-    name: mongodb-search-community
-    repo: quay.io/mongodb
-    version: 1.47.0
-subresourceEnabled: true
+    name: community
+    repo: 268558157000.dkr.ecr.eu-west-1.amazonaws.com/mongot
+    version: fbd60fb055dd500058edcb45677ea85d19421f47
 versionUpgradeHook:
   name: mongodb-kubernetes-operator-version-upgrade-post-start-hook
   version: 1.0.9
@@ -143,6 +165,8 @@ kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-appdb
   namespace: mongodb
+imagePullSecrets:
+  - name: image-registries-secret
 ---
 # Source: mongodb-kubernetes/templates/database-roles.yaml
 apiVersion: v1
@@ -150,6 +174,8 @@ kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-database-pods
   namespace: mongodb
+imagePullSecrets:
+  - name: image-registries-secret
 ---
 # Source: mongodb-kubernetes/templates/database-roles.yaml
 apiVersion: v1
@@ -157,6 +183,8 @@ kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-ops-manager
   namespace: mongodb
+imagePullSecrets:
+  - name: image-registries-secret
 ---
 # Source: mongodb-kubernetes/templates/operator-sa.yaml
 apiVersion: v1
@@ -164,8 +192,10 @@ kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-operator
   namespace: mongodb
+imagePullSecrets:
+  - name: image-registries-secret
 ---
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
+# Source: mongodb-kubernetes/templates/operator-roles-clustermongodbroles.yaml
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -178,34 +208,7 @@ rules:
     resources:
       - clustermongodbroles
 ---
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
-kind: ClusterRole
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: mongodb-kubernetes-operator-mongodb-webhook
-rules:
-  - apiGroups:
-      - "admissionregistration.k8s.io"
-    resources:
-      - validatingwebhookconfigurations
-    verbs:
-      - get
-      - create
-      - update
-      - delete
-  - apiGroups:
-      - ""
-    resources:
-      - services
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - delete
----
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
+# Source: mongodb-kubernetes/templates/operator-roles-telemetry.yaml
 # Additional ClusterRole for clusterVersionDetection
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
@@ -233,7 +236,34 @@ rules:
     verbs:
       - list
 ---
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
+# Source: mongodb-kubernetes/templates/operator-roles-webhook.yaml
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-kubernetes-operator-mongodb-webhook
+rules:
+  - apiGroups:
+      - "admissionregistration.k8s.io"
+    resources:
+      - validatingwebhookconfigurations
+    verbs:
+      - get
+      - create
+      - update
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - delete
+---
+# Source: mongodb-kubernetes/templates/operator-roles-clustermongodbroles.yaml
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -247,21 +277,7 @@ subjects:
     name: mongodb-kubernetes-operator
     namespace: mongodb
 ---
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
-kind: ClusterRoleBinding
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: mongodb-kubernetes-operator-mongodb-webhook-binding
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: mongodb-kubernetes-operator-mongodb-webhook
-subjects:
-  - kind: ServiceAccount
-    name: mongodb-kubernetes-operator
-    namespace: mongodb
----
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
+# Source: mongodb-kubernetes/templates/operator-roles-telemetry.yaml
 # ClusterRoleBinding for clusterVersionDetection
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
@@ -271,6 +287,20 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: mongodb-kubernetes-operator-cluster-telemetry
+subjects:
+  - kind: ServiceAccount
+    name: mongodb-kubernetes-operator
+    namespace: mongodb
+---
+# Source: mongodb-kubernetes/templates/operator-roles-webhook.yaml
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-kubernetes-operator-mongodb-webhook-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mongodb-kubernetes-operator-mongodb-webhook
 subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
@@ -298,7 +328,7 @@ rules:
       - delete
       - get
 ---
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
+# Source: mongodb-kubernetes/templates/operator-roles-base.yaml
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -378,7 +408,14 @@ rules:
       - opsmanagers/status
       - mongodbmulticluster/status
       - mongodbsearch/status
-
+---
+# Source: mongodb-kubernetes/templates/operator-roles-pvc-resize.yaml
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-kubernetes-operator-pvc-resize
+  namespace: mongodb
+rules:
   - apiGroups:
       - ''
     resources:
@@ -406,7 +443,7 @@ subjects:
     name: mongodb-kubernetes-appdb
     namespace: mongodb
 ---
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
+# Source: mongodb-kubernetes/templates/operator-roles-base.yaml
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -416,6 +453,21 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: mongodb-kubernetes-operator
+subjects:
+  - kind: ServiceAccount
+    name: mongodb-kubernetes-operator
+    namespace: mongodb
+---
+# Source: mongodb-kubernetes/templates/operator-roles-pvc-resize.yaml
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-kubernetes-operator-pvc-resize-binding
+  namespace: mongodb
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mongodb-kubernetes-operator-pvc-resize
 subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
@@ -445,9 +497,11 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 2000
+      imagePullSecrets:
+        - name: image-registries-secret
       containers:
         - name: mongodb-kubernetes-operator
-          image: "quay.io/mongodb/mongodb-kubernetes:1.2.0"
+          image: "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes:68876175f5ad6d0007fdc1d4"
           imagePullPolicy: Always
           args:
             - -watch-resource=mongodb
@@ -488,31 +542,31 @@ spec:
               value: Always
             # Database
             - name: MONGODB_ENTERPRISE_DATABASE_IMAGE
-              value: quay.io/mongodb/mongodb-kubernetes-database
+              value: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-database
             - name: INIT_DATABASE_IMAGE_REPOSITORY
-              value: quay.io/mongodb/mongodb-kubernetes-init-database
+              value: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-database
             - name: INIT_DATABASE_VERSION
-              value: 1.2.0
+              value: 68876175f5ad6d0007fdc1d4
             - name: DATABASE_VERSION
-              value: 1.2.0
+              value: 68876175f5ad6d0007fdc1d4
             # Ops Manager
             - name: OPS_MANAGER_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-enterprise-ops-manager-ubi
             - name: INIT_OPS_MANAGER_IMAGE_REPOSITORY
-              value: quay.io/mongodb/mongodb-kubernetes-init-ops-manager
+              value: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-ops-manager
             - name: INIT_OPS_MANAGER_VERSION
-              value: 1.2.0
+              value: 68876175f5ad6d0007fdc1d4
             # AppDB
             - name: INIT_APPDB_IMAGE_REPOSITORY
-              value: quay.io/mongodb/mongodb-kubernetes-init-appdb
+              value: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-appdb
             - name: INIT_APPDB_VERSION
-              value: 1.2.0
+              value: 68876175f5ad6d0007fdc1d4
             - name: OPS_MANAGER_IMAGE_PULL_POLICY
               value: Always
             - name: AGENT_IMAGE
-              value: "quay.io/mongodb/mongodb-agent-ubi:108.0.2.8729-1"
+              value: "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent-ubi:108.0.2.8729-1"
             - name: MDB_AGENT_IMAGE_REPOSITORY
-              value: "quay.io/mongodb/mongodb-agent-ubi"
+              value: "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent-ubi"
             - name: MONGODB_IMAGE
               value: mongodb-enterprise-server
             - name: MONGODB_REPO_URL
@@ -521,6 +575,8 @@ spec:
               value: ubi8
             - name: PERFORM_FAILOVER
               value: 'true'
+            - name: IMAGE_PULL_SECRETS
+              value: image-registries-secret
             - name: MDB_MAX_CONCURRENT_RECONCILES
               value: "1"
             - name: POD_NAME
@@ -544,9 +600,9 @@ spec:
               value: "ubi8"
             # Community Env Vars End
             - name: MDB_SEARCH_COMMUNITY_REPO_URL
-              value: "quay.io/mongodb"
+              value: "268558157000.dkr.ecr.eu-west-1.amazonaws.com/mongot"
             - name: MDB_SEARCH_COMMUNITY_NAME
-              value: "mongodb-search-community"
+              value: "community"
             - name: MDB_SEARCH_COMMUNITY_VERSION
-              value: "1.47.0"
+              value: "fbd60fb055dd500058edcb45677ea85d19421f47"
 

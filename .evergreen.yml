@@ -686,6 +686,7 @@ task_groups:
     tasks:
       - e2e_community_replicaset_scale
       - e2e_search_community_basic
+      - e2e_search_community_tls
 
   # This is the task group that contains all the tests run in the e2e_mdb_kind_ubuntu_cloudqa build variant
   - name: e2e_mdb_kind_cloudqa_task_group
