@@ -2,6 +2,7 @@ from typing import Optional
 
 from kubetester import create_or_update_secret, try_load
 from kubetester.awss3client import AwsS3Client, s3_endpoint
+from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
@@ -77,13 +78,13 @@ def ops_manager(
 
     custom_certificate = {"name": S3_NOT_WORKING_CA, "key": "ca-pem"}
 
-    resource["spec"]["backup"]["s3Stores"][0]["name"] = S3_BLOCKSTORE_NAME
+    resource["spec"]["backup"]["s3Stores"][0]["name"] = KubernetesTester.random_k8s_name(S3_BLOCKSTORE_NAME)
     resource["spec"]["backup"]["s3Stores"][0]["s3SecretRef"]["name"] = S3_BLOCKSTORE_NAME + "-secret"
     resource["spec"]["backup"]["s3Stores"][0]["s3BucketEndpoint"] = s3_endpoint(AWS_REGION)
     resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket_blockstore
     resource["spec"]["backup"]["s3Stores"][0]["s3RegionOverride"] = AWS_REGION
     resource["spec"]["backup"]["s3Stores"][0]["customCertificateSecretRefs"] = [custom_certificate]
-    resource["spec"]["backup"]["s3OpLogStores"][0]["name"] = S3_OPLOG_NAME
+    resource["spec"]["backup"]["s3OpLogStores"][0]["name"] = KubernetesTester.random_k8s_name(S3_OPLOG_NAME)
     resource["spec"]["backup"]["s3OpLogStores"][0]["s3SecretRef"]["name"] = S3_OPLOG_NAME + "-secret"
     resource["spec"]["backup"]["s3OpLogStores"][0]["s3BucketEndpoint"] = s3_endpoint(AWS_REGION)
     resource["spec"]["backup"]["s3OpLogStores"][0]["s3BucketName"] = s3_bucket_oplog
@@ -138,9 +139,12 @@ class TestOpsManagerCreation:
         self,
         ops_manager: MongoDBOpsManager,
     ):
+        s3_blockstore_name = ops_manager["spec"]["backup"]["s3Stores"][0]["name"]
+        s3_oplog_name = ops_manager["spec"]["backup"]["s3OpLogStores"][0]["name"]
+
         om_tester = ops_manager.get_om_tester()
-        om_tester.assert_s3_stores([{"id": S3_BLOCKSTORE_NAME, "s3RegionOverride": AWS_REGION}])
-        om_tester.assert_oplog_s3_stores([{"id": S3_OPLOG_NAME, "s3RegionOverride": AWS_REGION}])
+        om_tester.assert_s3_stores([{"id": s3_blockstore_name, "s3RegionOverride": AWS_REGION}])
+        om_tester.assert_oplog_s3_stores([{"id": s3_oplog_name, "s3RegionOverride": AWS_REGION}])
 
         # verify that we were able to setup (and no error) certificates
         a = om_tester.get_s3_stores()
