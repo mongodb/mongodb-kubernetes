@@ -118,7 +118,7 @@ def build_operator_image(build_configuration: BuildConfiguration):
     image_name = "mongodb-kubernetes"
     build_image(
         image_name=image_name,
-        dockerfile_path="docker/mongodb-kubernetes-operator/Dockerfile",
+        dockerfile_path="docker/mongodb-kubernetes-operator/Dockerfile.atomic",
         build_configuration=build_configuration,
         extra_args=args,
     )
@@ -131,7 +131,7 @@ def build_database_image(build_configuration: BuildConfiguration):
     args = {"version": build_configuration.version}
     build_image(
         image_name="mongodb-kubernetes-database",
-        dockerfile_path="docker/mongodb-kubernetes-database/Dockerfile",
+        dockerfile_path="docker/mongodb-kubernetes-database/Dockerfile.atomic",
         build_configuration=build_configuration,
         extra_args=args,
     )
@@ -182,7 +182,7 @@ def build_init_om_image(build_configuration: BuildConfiguration):
     args = {"version": build_configuration.version}
     build_image(
         image_name="mongodb-kubernetes-init-ops-manager",
-        dockerfile_path="docker/mongodb-kubernetes-init-ops-manager/Dockerfile",
+        dockerfile_path="docker/mongodb-kubernetes-init-ops-manager/Dockerfile.atomic",
         build_configuration=build_configuration,
         extra_args=args,
     )
@@ -206,7 +206,7 @@ def build_om_image(build_configuration: BuildConfiguration):
 
     build_image(
         image_name="mongodb-enterprise-ops-manager-ubi",
-        dockerfile_path="docker/mongodb-enterprise-ops-manager/Dockerfile",
+        dockerfile_path="docker/mongodb-enterprise-ops-manager/Dockerfile.atomic",
         build_configuration=build_configuration,
         extra_args=args,
     )
@@ -268,7 +268,7 @@ def build_init_appdb(build_configuration: BuildConfiguration):
     args = {"version": build_configuration.version, "mongodb_tools_url_ubi": mongodb_tools_url_ubi}
     build_image(
         image_name="mongodb-kubernetes-init-appdb",
-        dockerfile_path="docker/mongodb-kubernetes-init-appdb/Dockerfile",
+        dockerfile_path="docker/mongodb-kubernetes-init-appdb/Dockerfile.atomic",
         build_configuration=build_configuration,
         extra_args=args,
     )
@@ -282,7 +282,7 @@ def build_init_database(build_configuration: BuildConfiguration):
     args = {"version": build_configuration.version, "mongodb_tools_url_ubi": mongodb_tools_url_ubi}
     build_image(
         "mongodb-kubernetes-init-database",
-        "docker/mongodb-kubernetes-init-database/Dockerfile",
+        "docker/mongodb-kubernetes-init-database/Dockerfile.atomic",
         build_configuration=build_configuration,
         extra_args=args,
     )
@@ -299,10 +299,10 @@ def build_community_image(build_configuration: BuildConfiguration, image_type: s
 
     if image_type == "readiness-probe":
         image_name = "mongodb-kubernetes-readinessprobe"
-        dockerfile_path = "docker/mongodb-kubernetes-readinessprobe/Dockerfile"
+        dockerfile_path = "docker/mongodb-kubernetes-readinessprobe/Dockerfile.atomic"
     elif image_type == "upgrade-hook":
         image_name = "mongodb-kubernetes-operator-version-upgrade-post-start-hook"
-        dockerfile_path = "docker/mongodb-kubernetes-upgrade-hook/Dockerfile"
+        dockerfile_path = "docker/mongodb-kubernetes-upgrade-hook/Dockerfile.atomic"
     else:
         raise ValueError(f"Unsupported community image type: {image_type}")
 
@@ -359,7 +359,7 @@ def build_agent_pipeline(
 
     build_image(
         image_name="mongodb-agent-ubi",
-        dockerfile_path="docker/mongodb-agent/Dockerfile",
+        dockerfile_path="docker/mongodb-agent/Dockerfile.atomic",
         build_configuration=build_configuration_copy,
         extra_args=args,
     )
