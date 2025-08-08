@@ -25,23 +25,91 @@ def main():
 
     args = parser.parse_args()
     download_artifacts_from_s3(args.release_version, args.staging_commit)
-    arcs = create_tarballs()
-    # promote to release s3 bucket
-    print(f"created archives are {arcs}")
-    upload_assets_to_github_release(arcs, args.release_version)
+
+    promote_to_release_bucket(args.staging_commit, args.release_version)
+
+    artifacts_tar = create_tarballs()
+
+    upload_assets_to_github_release(artifacts_tar, args.release_version)
 
 
-def s3_artifacts_path_to_local_path(commit_sha: str):
+def artifacts_source_dir_s3(commit_sha: str):
+    return f"{build_kubectl_plugin.S3_BUCKET_KUBECTL_PLUGIN_SUBPATH}/{commit_sha}/dist/"
+
+
+def artifacts_dest_dir_s3(release_verion: str):
+    return f"{build_kubectl_plugin.S3_BUCKET_KUBECTL_PLUGIN_SUBPATH}/{release_verion}/dist/"
+
+
+def promote_to_release_bucket(commit_sha: str, release_version: str):
+    try:
+        s3_client = boto3.client("s3", region_name=build_kubectl_plugin.AWS_REGION)
+    except (NoCredentialsError, PartialCredentialsError):
+        print("ERROR: AWS credentials not found. Please configure AWS credentials.")
+        sys.exit(1)
+    except Exception as e:
+        print(f"An error occurred connecting to S3: {e}")
+        sys.exit(1)
+
+    copy_count = 0
+    try:
+        paginator = s3_client.get_paginator("list_objects_v2")
+        pages = paginator.paginate(
+            Bucket=build_kubectl_plugin.DEV_S3_BUCKET_NAME, Prefix=artifacts_source_dir_s3(commit_sha)
+        )
+
+        for page in pages:
+            if "Contents" not in page:
+                break
+
+            for obj in page["Contents"]:
+                source_key = obj["Key"]
+
+                if source_key.endswith("/"):
+                    continue
+
+                # Determine the new key for the destination
+                relative_path = os.path.relpath(source_key, artifacts_source_dir_s3(commit_sha))
+
+                destination_dir = artifacts_dest_dir_s3(release_version)
+                destination_key = os.path.join(destination_dir, relative_path)
+
+                # Ensure forward slashes for S3 compatibility
+                destination_key = destination_key.replace(os.sep, "/")
+
+                print(f"Copying {source_key} to {destination_key}...")
+
+                # Prepare the source object for the copy operation
+                copy_source = {"Bucket": build_kubectl_plugin.DEV_S3_BUCKET_NAME, "Key": source_key}
+
+                # Perform the server-side copy
+                s3_client.copy_object(
+                    CopySource=copy_source, Bucket=build_kubectl_plugin.STAGING_S3_BUCKET_NAME, Key=destination_key
+                )
+                copy_count += 1
+
+    except ClientError as e:
+        print(f"ERROR: A client error occurred during the copy operation. Error: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        sys.exit(1)
+
+    if copy_count > 0:
+        print(f"Successfully copied {copy_count} object(s).")
+
+
+def s3_artifacts_path_to_local_path(release_version: str, commit_sha: str):
     return {
-        f"{build_kubectl_plugin.S3_BUCKET_KUBECTL_PLUGIN_SUBPATH}/{commit_sha}/dist/kubectl-mongodb_darwin_amd64_v1/": "kubectl-mongodb_darwin_amd64_v1",
-        f"{build_kubectl_plugin.S3_BUCKET_KUBECTL_PLUGIN_SUBPATH}/{commit_sha}/dist/kubectl-mongodb_darwin_arm64/": "kubectl-mongodb_darwin_arm64",
-        f"{build_kubectl_plugin.S3_BUCKET_KUBECTL_PLUGIN_SUBPATH}/{commit_sha}/dist/kubectl-mongodb_linux_amd64_v1/": "kubectl-mongodb_linux_amd64_v1",
-        f"{build_kubectl_plugin.S3_BUCKET_KUBECTL_PLUGIN_SUBPATH}/{commit_sha}/dist/kubectl-mongodb_linux_arm64/": "kubectl-mongodb_linux_arm64",
+        f"{build_kubectl_plugin.S3_BUCKET_KUBECTL_PLUGIN_SUBPATH}/{commit_sha}/dist/kubectl-mongodb_darwin_amd64_v1/": f"kubectl-mongodb_{release_version}_darwin_amd64",
+        f"{build_kubectl_plugin.S3_BUCKET_KUBECTL_PLUGIN_SUBPATH}/{commit_sha}/dist/kubectl-mongodb_darwin_arm64/": f"kubectl-mongodb_{release_version}_darwin_arm64",
+        f"{build_kubectl_plugin.S3_BUCKET_KUBECTL_PLUGIN_SUBPATH}/{commit_sha}/dist/kubectl-mongodb_linux_amd64_v1/": f"kubectl-mongodb_{release_version}_linux_amd64",
+        f"{build_kubectl_plugin.S3_BUCKET_KUBECTL_PLUGIN_SUBPATH}/{commit_sha}/dist/kubectl-mongodb_linux_arm64/": f"kubectl-mongodb_{release_version}_linux_arm64",
     }
 
 
 def download_artifacts_from_s3(release_version: str, commit_sha: str):
-    print(f"Starting download of artifacts from S3 bucket: {build_kubectl_plugin.DEV_S3_BUCKET_NAME}")
+    print(f"\nStarting download of artifacts from S3 bucket: {build_kubectl_plugin.DEV_S3_BUCKET_NAME}")
 
     try:
         s3_client = boto3.client("s3", region_name=build_kubectl_plugin.AWS_REGION)
@@ -52,24 +120,26 @@ def download_artifacts_from_s3(release_version: str, commit_sha: str):
         print(f"An error occurred connecting to S3: {e}")
         sys.exit(1)
 
-    artifacts_to_promote = s3_artifacts_path_to_local_path(commit_sha)
+    artifacts_to_promote = s3_artifacts_path_to_local_path(release_version, commit_sha)
 
     # Create the local temporary directory if it doesn't exist
     os.makedirs(LOCAL_ARTIFACTS_DIR, exist_ok=True)
 
     download_count = 0
     for s3_artifact_dir, local_subdir in artifacts_to_promote.items():
-        print(f"Copying from s3://{build_kubectl_plugin.DEV_S3_BUCKET_NAME}/{s3_artifact_dir} to {local_subdir}/")
         try:
             paginator = s3_client.get_paginator("list_objects_v2")
             pages = paginator.paginate(Bucket=build_kubectl_plugin.DEV_S3_BUCKET_NAME, Prefix=s3_artifact_dir)
 
             for page in pages:
+                # "Contents" corresponds to the directory in the S3 bucket
                 if "Contents" not in page:
                     continue
                 for obj in page["Contents"]:
+                    # obj is the S3 object in page["Contents"] directory
                     s3_key = obj["Key"]
                     if s3_key.endswith("/"):
+                        # it's a directory
                         continue
 
                     # Get the path of the file relative to its S3 prefix, this would mostly be the object name itself
@@ -94,7 +164,7 @@ def download_artifacts_from_s3(release_version: str, commit_sha: str):
 
 
 def create_tarballs():
-    print(f"Creating archives for subdirectories in {LOCAL_ARTIFACTS_DIR}")
+    print(f"\nCreating archives for subdirectories in {LOCAL_ARTIFACTS_DIR}")
     created_archives = []
     original_cwd = os.getcwd()
     try:
@@ -114,8 +184,6 @@ def create_tarballs():
     except Exception as e:
         print(f"ERROR: Failed to create tar.gz archives: {e}")
         return []
-    finally:
-        os.chdir(original_cwd)
 
     return created_archives
 
