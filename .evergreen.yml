@@ -478,9 +478,6 @@ tasks:
           skip_tags: ubuntu,release
 
   - name: build_agent_images_ubi
-    depends_on:
-      - name: build_init_database_image_ubi
-        variant: init_test_run
     commands:
       - func: clone
       - func: setup_building_host

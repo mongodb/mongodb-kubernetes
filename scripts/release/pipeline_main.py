@@ -34,6 +34,7 @@ from scripts.release.build_context import (
     BuildContext,
     BuildScenario,
 )
+from scripts.release.build_images import DEFAULT_BUILDER_NAME, ensure_buildx_builder
 
 """
 The goal of main.py, build_configuration.py and build_context.py is to provide a single source of truth for the build
@@ -145,6 +146,10 @@ def main():
     logger.info(f"Building image: {args.image}")
     logger.info(f"Build configuration: {build_config}")
 
+    # Create buildx builder
+    # It must be initialized here as opposed to in build_images.py so that parallel calls (such as agent builds) can access it
+    # and not face race conditions
+    ensure_buildx_builder(DEFAULT_BUILDER_NAME)
     build_image(args.image, build_config)
 
 

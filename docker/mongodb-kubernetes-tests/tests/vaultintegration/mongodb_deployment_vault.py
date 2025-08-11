@@ -357,7 +357,7 @@ def test_mdb_created(replica_set: MongoDB, namespace: str):
     for pod_name in get_pods(MDB_RESOURCE + "-{}", 3):
         pod = client.CoreV1Api().read_namespaced_pod(pod_name, namespace)
         if is_default_architecture_static():
-            assert len(pod.spec.containers) == 3
+            assert len(pod.spec.containers) == 4
         else:
             assert len(pod.spec.containers) == 2
 
