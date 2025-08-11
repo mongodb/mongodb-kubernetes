@@ -15,7 +15,6 @@ CUSTOM_OM_VERSION=$(grep -E "^\s*-\s*&ops_manager_70_latest\s+(\S+)\s+#" <"${scr
 export CUSTOM_OM_VERSION
 
 export CUSTOM_MDB_VERSION=6.0.5-ent
-export CUSTOM_MDB_PREV_VERSION=5.0.7-ent
 export KUBE_ENVIRONMENT_NAME=minikube
 export CLUSTER_TYPE=minikube
 export CONTAINER_RUNTIME=podman

@@ -1529,15 +1529,71 @@ buildvariants:
     tasks:
       - name: e2e_smoke_ibm_task_group
 
+  - name: e2e_static_smoke_ibm_z
+    display_name: e2e_static_smoke_ibm_z
+    tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
+    run_on:
+      - rhel9-zseries-small
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_init_appdb_images_ubi
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
+      - name: build_test_image_ibm
+        variant: init_test_run
+    tasks:
+      - name: e2e_smoke_ibm_task_group
+
+  - name: e2e_static_smoke_ibm_power
+    display_name: e2e_static_smoke_ibm_power
+    tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
+    run_on:
+      - rhel9-zseries-small
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_init_appdb_images_ubi
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
+      - name: build_test_image_ibm
+        variant: init_test_run
+    tasks:
+      - name: e2e_smoke_ibm_task_group
+
   - name: e2e_smoke_arm
     display_name: e2e_smoke_arm
     tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
     run_on:
       - ubuntu2204-arm64-large
     allowed_requesters: [ "patch", "github_tag" ]
-    depends_on:
-      - name: build_test_image
-        variant: init_test_run
+    <<: *base_no_om_image_dependency
+    tasks:
+      - name: e2e_smoke_arm_task_group
+
+  - name: e2e_static_smoke_arm
+    display_name: e2e_smoke_arm
+    tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
+    run_on:
+      - ubuntu2204-arm64-large
+    allowed_requesters: [ "patch", "github_tag" ]
+    <<: *base_no_om_image_dependency
     tasks:
       - name: e2e_smoke_arm_task_group
 

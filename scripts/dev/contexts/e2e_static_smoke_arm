@@ -14,10 +14,11 @@ export OPS_MANAGER_REGISTRY=268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
 CUSTOM_OM_VERSION=$(grep -E "^\s*-\s*&ops_manager_70_latest\s+(\S+)\s+#" <"${script_dir}"/../../../.evergreen.yml | awk '{print $3}')
 export CUSTOM_OM_VERSION
 
-export CUSTOM_MDB_VERSION=6.0.5-ent
-export KUBE_ENVIRONMENT_NAME=minikube
-export CLUSTER_TYPE=minikube
-export CONTAINER_RUNTIME=podman
+export CUSTOM_MDB_VERSION=7.0.22 # we only have ibm static images starting with 7.0.22
+export KUBE_ENVIRONMENT_NAME=kind
+export CLUSTER_TYPE=kind
+export MDB_DEFAULT_ARCHITECTURE=static
+
 
 # TODO: change once we have image building
 export BASE_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/lucian.tosa"
