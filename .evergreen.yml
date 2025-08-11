@@ -11,7 +11,7 @@ variables:
 
   - &ops_manager_70_latest 7.0.15 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_80_latest 8.0.11 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_80_latest 8.0.12 # The order/index is important, since these are anchors. Please do not change
 
   # The dependency unification between static and non-static is intentional here.
   # Even though some images are exclusive, in EVG they all are built once and in parallel.
@@ -431,7 +431,7 @@ tasks:
       - func: build_multi_cluster_binary
       - func: pipeline
         vars:
-          image_name: test
+          image_name: meko-tests
 
 
   - name: build_test_image_ibm
@@ -447,7 +447,7 @@ tasks:
       - func: setup_building_host
       - func: pipeline
         vars:
-          image_name: mco-test
+          image_name: mco-tests
 
   - name: build_operator_ubi
     commands:
