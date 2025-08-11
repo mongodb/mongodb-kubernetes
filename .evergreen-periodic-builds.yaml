@@ -18,6 +18,7 @@ variables:
       - func: quay_login
       - func: switch_context
 
+tasks:
   - name: periodic_teardown_task_group
     <<: *setup_group
     tasks:
