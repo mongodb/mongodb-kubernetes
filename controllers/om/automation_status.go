@@ -141,11 +141,8 @@ func checkAutomationStatusIsGoal(as *AutomationStatus, relevantProcesses []strin
 // isAuthenticationTransitionMove returns true if the given move is related to authentication transitions
 func isAuthenticationTransitionMove(move string) bool {
 	authMoves := map[string]struct{}{
-		"RestartMongod":   {},
-		"UpdateAuth":      {},
-		"UpdateConfig":    {},
-		"WaitForHealthy":  {},
-		"InitiateReplSet": {},
+		"UpdateAuth":     {},
+		"WaitAuthUpdate": {},
 	}
 
 	_, ok := authMoves[move]
