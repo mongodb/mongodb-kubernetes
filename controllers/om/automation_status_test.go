@@ -147,22 +147,6 @@ func TestCheckAutomationStatusIsGoal_AuthenticationTransitions(t *testing.T) {
 			expectedMessage:   "authentication transitions in progress for 1 processes",
 		},
 		{
-			name: "should wait for InitiateReplSet move to complete",
-			automationStatus: &AutomationStatus{
-				GoalVersion: 3,
-				Processes: []ProcessStatus{
-					{
-						Name:                    "rs0_0",
-						LastGoalVersionAchieved: 3,
-						Plan:                    []string{"InitiateReplSet"},
-					},
-				},
-			},
-			relevantProcesses: []string{"rs0_0"},
-			expectedReady:     false,
-			expectedMessage:   "authentication transitions in progress for 1 processes",
-		},
-		{
 			name: "should be ready when authentication transitions are complete",
 			automationStatus: &AutomationStatus{
 				GoalVersion: 5,
@@ -191,7 +175,7 @@ func TestCheckAutomationStatusIsGoal_AuthenticationTransitions(t *testing.T) {
 					{
 						Name:                    "rs0_1",
 						LastGoalVersionAchieved: 7,
-						Plan:                    []string{"RestartMongod"}, // Auth-related move in progress
+						Plan:                    []string{"WaitAuthUpdate"}, // Auth-related move in progress
 					},
 				},
 			},
@@ -239,11 +223,8 @@ func TestCheckAutomationStatusIsGoal_AuthenticationTransitions(t *testing.T) {
 
 func TestIsAuthenticationTransitionMove(t *testing.T) {
 	authMoves := []string{
-		"RestartMongod",
 		"UpdateAuth",
-		"UpdateConfig",
-		"WaitForHealthy",
-		"InitiateReplSet",
+		"WaitAuthUpdate",
 	}
 
 	nonAuthMoves := []string{
