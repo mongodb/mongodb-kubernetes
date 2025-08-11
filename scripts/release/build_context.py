@@ -17,6 +17,7 @@ class BuildScenario(str, Enum):
     @classmethod
     def infer_scenario_from_environment(cls) -> "BuildScenario":
         """Infer the build scenario from environment variables."""
+        # triggered_by_git_tag is the name of the tag that triggered this version, if applicable
         git_tag = os.getenv("triggered_by_git_tag")
         # is_patch is passed automatically by Evergreen.
         # It is "true" if the running task is in a patch build and undefined if it is not.
