@@ -22,10 +22,10 @@ from scripts.release.atomic_pipeline import (
     build_init_database_image,
     build_init_om_image,
     build_mco_tests_image,
+    build_meko_tests_image,
     build_om_image,
     build_operator_image,
     build_readiness_probe_image,
-    build_tests_image,
     build_upgrade_hook_image,
 )
 from scripts.release.build.build_info import (
@@ -65,7 +65,7 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
     """Returns a dictionary of image names that can be built."""
 
     image_builders = {
-        MEKO_TESTS_IMAGE: build_tests_image,
+        MEKO_TESTS_IMAGE: build_meko_tests_image,
         OPERATOR_IMAGE: build_operator_image,
         MCO_TESTS_IMAGE: build_mco_tests_image,
         READINESS_PROBE_IMAGE: build_readiness_probe_image,
@@ -110,11 +110,13 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     registry = args.registry or image_build_info.repository
     platforms = get_platforms_from_arg(args.platform) or image_build_info.platforms
     sign = args.sign or image_build_info.sign
+    dockerfile_path = image_build_info.dockerfile_path
 
     return ImageBuildConfiguration(
         scenario=build_scenario,
         version=version,
         registry=registry,
+        dockerfile_path=dockerfile_path,
         parallel=args.parallel,
         platforms=platforms,
         sign=sign,
