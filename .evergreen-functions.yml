@@ -16,6 +16,7 @@ variables:
       - PKCS11_URI
       - branch_name
       - build_id
+      - build_tag_type
       - build_variant
       - distro
       - e2e_cloud_qa_apikey_owner_ubi_cloudqa
@@ -36,7 +37,6 @@ variables:
       - otel_collector_endpoint
       - otel_parent_id
       - otel_trace_id
-      - pin_tag_at
       - registry
       - requester
       - skip_tags
