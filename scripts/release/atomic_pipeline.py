@@ -27,6 +27,47 @@ from scripts.release.build.image_signing import (
 TRACER = trace.get_tracer("evergreen-agent")
 
 
+def load_agent_build_info():
+    """Load agent platform mappings from build_info_agent.json"""
+    with open("build_info_agent.json", "r") as f:
+        return json.load(f)
+
+
+def generate_agent_build_args(platforms: List[str], agent_version: str, tools_version: str) -> Dict[str, str]:
+    """
+    Generate build arguments for agent image based on platform mappings.
+
+    Args:
+        platforms: List of platforms (e.g., ["linux/amd64", "linux/arm64"])
+        agent_version: MongoDB agent version
+        tools_version: MongoDB tools version
+
+    Returns:
+        Dictionary of build arguments for docker build
+    """
+    agent_info = load_agent_build_info()
+    build_args = {}
+
+    for platform in platforms:
+        if platform not in agent_info["platform_mappings"]:
+            logger.warning(f"Platform {platform} not found in agent mappings, skipping")
+            continue
+
+        mapping = agent_info["platform_mappings"][platform]
+        build_mapping = agent_info["build_arg_mappings"][platform]
+
+        # Generate agent build arg
+        agent_filename = f"{agent_info['base_names']['agent']}-{agent_version}.{mapping['agent_suffix']}"
+        build_args[build_mapping["agent_build_arg"]] = agent_filename
+
+        # Generate tools build arg
+        tools_suffix = mapping["tools_suffix"].replace("{TOOLS_VERSION}", tools_version)
+        tools_filename = f"{agent_info['base_names']['tools']}-{tools_suffix}"
+        build_args[build_mapping["tools_build_arg"]] = tools_filename
+
+    return build_args
+
+
 @TRACER.start_as_current_span("build_image")
 def build_image(
     dockerfile_path: str,
@@ -308,10 +349,8 @@ def build_agent_default_case(build_configuration: ImageBuildConfiguration):
         logger.info(f"Running with factor of {max_workers}")
         logger.info(f"======= Agent versions to build {agent_versions_to_build} =======")
         for idx, agent_tools_version in enumerate(agent_versions_to_build):
-            # We don't need to keep create and push the same image on every build.
-            # It is enough to create and push the non-operator suffixed images only during releases to ecr and quay.
             logger.info(f"======= Building Agent {agent_tools_version} ({idx}/{len(agent_versions_to_build)})")
-            _build_agent_operator(
+            _build_agent(
                 agent_tools_version,
                 build_configuration,
                 executor,
@@ -382,51 +421,47 @@ def gather_latest_agent_versions(release: Dict) -> List[Tuple[str, str]]:
     return sorted(list(set(agent_versions_to_build)))
 
 
-def _build_agent_operator(
+def _build_agent(
     agent_tools_version: Tuple[str, str],
     build_configuration: ImageBuildConfiguration,
     executor: ProcessPoolExecutor,
     tasks_queue: Queue,
 ):
     agent_version = agent_tools_version[0]
-    agent_distro = "rhel9_x86_64"
     tools_version = agent_tools_version[1]
-    tools_distro = get_tools_distro(tools_version)["amd"]
 
     tasks_queue.put(
         executor.submit(
             build_agent_pipeline,
             build_configuration,
-            build_configuration.version,
             agent_version,
-            agent_distro,
-            tools_version,
-            tools_distro,
+            tools_version
         )
     )
 
 
 def build_agent_pipeline(
     build_configuration: ImageBuildConfiguration,
-    operator_version: str,
     agent_version: str,
-    agent_distro: str,
     tools_version: str,
-    tools_distro: str,
 ):
-    image_version = f"{agent_version}_{operator_version}"
-
     build_configuration_copy = copy(build_configuration)
-    build_configuration_copy.version = image_version
+    build_configuration_copy.version = agent_version
     print(
-        f"======== Building agent pipeline for version {image_version}, build configuration version: {build_configuration.version}"
+        f"======== Building agent pipeline for version {agent_version}, build configuration version: {build_configuration.version}"
     )
+
+    # Generate platform-specific build arguments using the mapping
+    platform_build_args = generate_agent_build_args(
+        platforms=build_configuration.platforms,
+        agent_version=agent_version,
+        tools_version=tools_version
+    )
+
     args = {
-        "version": image_version,
+        "version": agent_version,
         "agent_version": agent_version,
-        "agent_distro": agent_distro,
-        "tools_version": tools_version,
-        "tools_distro": tools_distro,
+        **platform_build_args  # Add the platform-specific build args
     }
 
     build_image(
