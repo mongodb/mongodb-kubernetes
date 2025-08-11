@@ -84,6 +84,8 @@ class BuildContext:
         if self.patch_id:
             return self.patch_id
         # Alternatively, we can fail here if no ID is explicitly defined
+        # When working locally, "version_id" env variable is defined in the generated context file. It is "latest" by
+        # default, and can be overridden with OVERRIDE_VERSION_ID
         return "latest"
 
     def get_base_registry(self) -> str:
