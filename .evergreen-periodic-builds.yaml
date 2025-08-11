@@ -33,11 +33,3 @@ buildvariants:
       - ubuntu2204-small
     tasks:
       - name: periodic_teardown_task_group
-
-  - name: preflight_release_images_check_only
-    display_name: preflight_release_images_check_only
-    tags: [ "periodic_build" ]
-    run_on:
-      - rhel90-large
-    tasks:
-      - name: preflight_images_task_group
