@@ -83,7 +83,6 @@ variables:
       - func: clone
       - func: setup_building_host_minikube
       - func: build_multi_cluster_binary
-      - func: build_test_image_ibm
 
   - &setup_group_multi_cluster
     setup_group_can_fail_task: true
@@ -1489,7 +1488,19 @@ buildvariants:
       - rhel9-power-large
     allowed_requesters: [ "patch", "github_tag" ]
     depends_on:
-      - name: build_test_image
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_init_appdb_images_ubi
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
+      - name: build_test_image_ibm
         variant: init_test_run
     tasks:
       - name: e2e_smoke_ibm_task_group
@@ -1501,7 +1512,19 @@ buildvariants:
       - rhel9-zseries-small
     allowed_requesters: [ "patch", "github_tag" ]
     depends_on:
-      - name: build_test_image
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_init_appdb_images_ubi
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
+      - name: build_test_image_ibm
         variant: init_test_run
     tasks:
       - name: e2e_smoke_ibm_task_group
@@ -1730,6 +1753,7 @@ buildvariants:
       - name: build_agent_images_ubi
       - name: build_readiness_probe_image
       - name: build_upgrade_hook_image
+      - name: build_test_image_ibm # cross compilation with emulation for ibm machines are expensive
       - name: prepare_aws
 
   - name: init_release_agents_on_ecr

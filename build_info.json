@@ -4,7 +4,10 @@
       "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes",
         "platforms": [
-          "linux/amd64"
+          "linux/arm64",
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       },
       "staging": {
@@ -32,7 +35,10 @@
       "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-database",
         "platforms": [
-          "linux/amd64"
+          "linux/arm64",
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       },
       "staging": {
@@ -60,7 +66,10 @@
       "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-appdb",
         "platforms": [
-          "linux/amd64"
+          "linux/arm64",
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       },
       "staging": {
@@ -88,7 +97,10 @@
       "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-ops-manager",
         "platforms": [
-          "linux/amd64"
+          "linux/arm64",
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       },
       "staging": {
@@ -116,7 +128,10 @@
       "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-database",
         "platforms": [
-          "linux/amd64"
+          "linux/arm64",
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       },
       "staging": {
@@ -144,13 +159,19 @@
       "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests",
         "platforms": [
-          "linux/amd64"
+          "linux/arm64",
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       },
       "staging": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests",
         "platforms": [
-          "linux/amd64"
+          "linux/arm64",
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       }
     },
