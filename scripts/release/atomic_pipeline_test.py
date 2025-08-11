@@ -108,7 +108,7 @@ class TestAgentBuildMapping(unittest.TestCase):
 
         expected = {
             "mongodb_agent_version_amd64": "mongodb-mms-automation-agent-108.0.7.8810-1.linux_x86_64.tar.gz",
-            "mongodb_tools_version_amd64": "mongodb-database-tools-rhel93-x86_64-100.12.0.tgz"
+            "mongodb_tools_version_amd64": "mongodb-database-tools-rhel88-x86_64-100.12.0.tgz"
         }
 
         self.assertEqual(result, expected)
@@ -123,9 +123,9 @@ class TestAgentBuildMapping(unittest.TestCase):
 
         expected = {
             "mongodb_agent_version_amd64": "mongodb-mms-automation-agent-108.0.7.8810-1.linux_x86_64.tar.gz",
-            "mongodb_tools_version_amd64": "mongodb-database-tools-rhel93-x86_64-100.12.0.tgz",
+            "mongodb_tools_version_amd64": "mongodb-database-tools-rhel88-x86_64-100.12.0.tgz",
             "mongodb_agent_version_arm64": "mongodb-mms-automation-agent-108.0.7.8810-1.amzn2_aarch64.tar.gz",
-            "mongodb_tools_version_arm64": "mongodb-database-tools-rhel93-aarch64-100.12.0.tgz",
+            "mongodb_tools_version_arm64": "mongodb-database-tools-rhel88-aarch64-100.12.0.tgz",
             "mongodb_agent_version_s390x": "mongodb-mms-automation-agent-108.0.7.8810-1.rhel7_s390x.tar.gz",
             "mongodb_tools_version_s390x": "mongodb-database-tools-rhel9-s390x-100.12.0.tgz",
             "mongodb_agent_version_ppc64le": "mongodb-mms-automation-agent-108.0.7.8810-1.rhel8_ppc64le.tar.gz",
@@ -146,7 +146,7 @@ class TestAgentBuildMapping(unittest.TestCase):
         # Should only include known platform
         expected = {
             "mongodb_agent_version_amd64": "mongodb-mms-automation-agent-108.0.7.8810-1.linux_x86_64.tar.gz",
-            "mongodb_tools_version_amd64": "mongodb-database-tools-rhel93-x86_64-100.12.0.tgz"
+            "mongodb_tools_version_amd64": "mongodb-database-tools-rhel88-x86_64-100.12.0.tgz"
         }
 
         self.assertEqual(result, expected)
@@ -223,8 +223,8 @@ class TestAgentBuildMapping(unittest.TestCase):
         result = generate_tools_build_args(platforms, tools_version)
 
         expected = {
-            "mongodb_tools_version_amd64": "mongodb-database-tools-rhel93-x86_64-100.12.0.tgz",
-            "mongodb_tools_version_arm64": "mongodb-database-tools-rhel93-aarch64-100.12.0.tgz"
+            "mongodb_tools_version_amd64": "mongodb-database-tools-rhel88-x86_64-100.12.0.tgz",
+            "mongodb_tools_version_arm64": "mongodb-database-tools-rhel88-aarch64-100.12.0.tgz"
         }
 
         self.assertEqual(result, expected)
