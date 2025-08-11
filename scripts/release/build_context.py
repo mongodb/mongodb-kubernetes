@@ -18,8 +18,17 @@ class BuildScenario(str, Enum):
     def infer_scenario_from_environment(cls) -> "BuildScenario":
         """Infer the build scenario from environment variables."""
         git_tag = os.getenv("triggered_by_git_tag")
+        # is_patch is passed automatically by Evergreen.
+        # It is "true" if the running task is in a patch build and undefined if it is not.
+        # A patch build is a version not triggered by a commit to a repository.
+        # It either runs tasks on a base commit plus some diff if submitted by the CLI or on a git branch if created by
+        # a GitHub pull request.
         is_patch = os.getenv("is_patch", "false").lower() == "true"
+        # RUNNING_IN_EVG is set by us in evg-private-context
         is_evg = os.getenv("RUNNING_IN_EVG", "false").lower() == "true"
+        # version_id is the id of the task's version. It is generated automatically for each task run.
+        # For example: `6899b7e35bfaee00077db986` for a manual/PR patch,
+        # or `mongodb_kubernetes_5c5a3accb47bb411682b8c67f225b61f7ad5a619` for a master merge
         patch_id = os.getenv("version_id")
 
         if git_tag:
