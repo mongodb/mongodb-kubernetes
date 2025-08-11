@@ -91,6 +91,17 @@ rules:
       - opsmanagers/status
       - mongodbmulticluster/status
       - mongodbsearch/status
+  - apiGroups:
+      - ''
+    resources:
+      - persistentvolumeclaims
+    verbs:
+      - get
+      - delete
+      - list
+      - watch
+      - patch
+      - update
 {{- if eq $roleScope "ClusterRole" }}
   - apiGroups:
       - ''
