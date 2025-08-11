@@ -57,7 +57,7 @@ def load_build_info(scenario: BuildScenario,
     f"""
     Load build information based on the specified scenario.
 
-    :param scenario: BuildScenario enum value indicating the build scenario (e.g., PATCH, STAGING, RELEASE).
+    :param scenario: BuildScenario enum value indicating the build scenario (e.g. "development", "patch", "staging", "release"). "development" scenario will return build info for "patch" scenario.
     :param repository_path: Path to the Git repository. Default is the current directory `{DEFAULT_REPOSITORY_PATH}`.
     :param changelog_sub_path: Path to the changelog directory relative to the repository root. Default is '{DEFAULT_CHANGELOG_PATH}'.
     :param initial_commit_sha: SHA of the initial commit to start from if no previous version tag is found. If not provided, it will be determined based on `{RELEASE_INITIAL_VERSION_ENV_VAR} environment variable.
@@ -75,9 +75,14 @@ def load_build_info(scenario: BuildScenario,
     with open("build_info.json", "r") as f:
         build_info = json.load(f)
 
+    build_info_scenario = scenario
+    # For "development" builds, we use the "patch" scenario to get the build info
+    if scenario == BuildScenario.DEVELOPMENT:
+        build_info_scenario = BuildScenario.PATCH
+
     images = {}
     for name, env_data in build_info["images"].items():
-        data = env_data.get(scenario)
+        data = env_data.get(build_info_scenario)
         if not data:
             # If no data is available for the scenario, skip this image
             continue
@@ -96,7 +101,7 @@ def load_build_info(scenario: BuildScenario,
 
     binaries = {}
     for name, env_data in build_info["binaries"].items():
-        data = env_data.get(scenario)
+        data = env_data.get(build_info_scenario)
         if not data:
             # If no data is available for the scenario, skip this binary
             continue
@@ -110,7 +115,7 @@ def load_build_info(scenario: BuildScenario,
 
     helm_charts = {}
     for name, env_data in build_info["helm-charts"].items():
-        data = env_data.get(scenario)
+        data = env_data.get(build_info_scenario)
         if not data:
             # If no data is available for the scenario, skip this helm-chart
             continue
