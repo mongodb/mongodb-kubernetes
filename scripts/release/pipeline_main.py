@@ -65,19 +65,19 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
     """Returns a dictionary of image names that can be built."""
 
     image_builders = {
-        MEKO_TESTS_IMAGE: build_tests_image,  # working
-        OPERATOR_IMAGE: build_operator_image,  # working
-        MCO_TESTS_IMAGE: build_mco_tests_image,  # working
-        READINESS_PROBE_IMAGE: build_readiness_probe_image,  # working
-        UPGRADE_HOOK_IMAGE: build_upgrade_hook_image,  # working
-        DATABASE_IMAGE: build_database_image,  # working
-        AGENT_IMAGE: build_agent_default_case,  # working
+        MEKO_TESTS_IMAGE: build_tests_image,
+        OPERATOR_IMAGE: build_operator_image,
+        MCO_TESTS_IMAGE: build_mco_tests_image,
+        READINESS_PROBE_IMAGE: build_readiness_probe_image,
+        UPGRADE_HOOK_IMAGE: build_upgrade_hook_image,
+        DATABASE_IMAGE: build_database_image,
+        AGENT_IMAGE: build_agent_default_case,
         # Init images
-        INIT_APPDB_IMAGE: build_init_appdb_image,  # working
-        INIT_DATABASE_IMAGE: build_init_database_image,  # working
-        INIT_OPS_MANAGER_IMAGE: build_init_om_image,  # working
+        INIT_APPDB_IMAGE: build_init_appdb_image,
+        INIT_DATABASE_IMAGE: build_init_database_image,
+        INIT_OPS_MANAGER_IMAGE: build_init_om_image,
         # Ops Manager image
-        OPS_MANAGER_IMAGE: build_om_image,  # working
+        OPS_MANAGER_IMAGE: build_om_image,
     }
 
     return image_builders
@@ -189,7 +189,7 @@ def main():
     # Override arguments for build context and configuration
     parser.add_argument(
         "--platform",
-        help="Override the platforms instead of resolving from build scenario",
+        help="Override the platforms instead of resolving from build scenario. Multi-arch builds are comma-separated. Example: linux/amd64,linux/arm64",
     )
     parser.add_argument(
         "--version",

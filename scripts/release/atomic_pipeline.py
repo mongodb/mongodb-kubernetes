@@ -27,7 +27,7 @@ from scripts.release.build.image_signing import (
 TRACER = trace.get_tracer("evergreen-agent")
 
 
-@TRACER.start_as_current_span("build_image_generic")
+@TRACER.start_as_current_span("build_image")
 def build_image(
     dockerfile_path: str,
     build_configuration: ImageBuildConfiguration,
