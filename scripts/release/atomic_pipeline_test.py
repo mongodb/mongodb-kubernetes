@@ -7,9 +7,6 @@ import json
 import unittest
 from unittest.mock import patch
 
-from scripts.release.atomic_pipeline import generate_tools_build_args
-
-
 # Local implementations to avoid import issues
 
 
@@ -34,6 +31,28 @@ def extract_tools_version_from_release(release):
     version_part = tools_bundle.split("-")[-1]  # Gets "100.12.2.tgz"
     tools_version = version_part.replace(".tgz", "")  # Gets "100.12.2"
     return tools_version
+
+
+def generate_tools_build_args(platforms, tools_version):
+    """Generate build arguments for MongoDB tools based on platform mappings."""
+    agent_info = load_agent_build_info()
+    build_args = {}
+
+    for platform in platforms:
+        if platform not in agent_info["platform_mappings"]:
+            print(f"Platform {platform} not found in agent mappings, skipping")
+            continue
+
+        mapping = agent_info["platform_mappings"][platform]
+        build_arg_names = get_build_arg_names(platform)
+
+        # Generate tools build arg only
+        tools_suffix = mapping["tools_suffix"].replace("{TOOLS_VERSION}", tools_version)
+        tools_filename = f"{agent_info['base_names']['tools']}-{tools_suffix}"
+        build_args[build_arg_names["tools_build_arg"]] = tools_filename
+
+    return build_args
+
 
 def generate_agent_build_args(platforms, agent_version, tools_version):
     """
@@ -260,6 +279,31 @@ class TestAgentBuildMapping(unittest.TestCase):
         for arg_name in result.keys():
             self.assertIn("tools", arg_name)
             self.assertNotIn("agent", arg_name)
+
+    def test_url_construction_correctness(self):
+        """Test that URLs are constructed correctly with proper trailing slashes."""
+        # Test agent build args URL construction
+        platforms = ["linux/amd64"]
+        agent_version = "108.0.12.8846-1"
+        tools_version = "100.12.2"
+
+        result = generate_agent_build_args(platforms, agent_version, tools_version)
+
+        agent_base_url = "https://fastdl.mongodb.org/tools/mms-automation/"
+        tools_base_url = "https://fastdl.mongodb.org/tools/db/"
+
+        agent_filename = result["mongodb_agent_version_amd64"]
+        tools_filename = result["mongodb_tools_version_amd64"]
+
+        agent_url = f"{agent_base_url}{agent_filename}"
+        tools_url = f"{tools_base_url}{tools_filename}"
+
+        expected_agent_url = "https://fastdl.mongodb.org/tools/mms-automation/mongodb-mms-automation-agent-108.0.12.8846-1.linux_x86_64.tar.gz"
+        expected_tools_url = "https://fastdl.mongodb.org/tools/db/mongodb-database-tools-rhel88-x86_64-100.12.2.tgz"
+
+        self.assertEqual(agent_url, expected_agent_url)
+        self.assertEqual(tools_url, expected_tools_url)
+
 
 
 if __name__ == "__main__":

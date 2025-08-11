@@ -342,7 +342,6 @@ def build_om_image(build_configuration: ImageBuildConfiguration):
 def build_init_appdb_image(build_configuration: ImageBuildConfiguration):
     release = load_release_file()
     base_url = "https://fastdl.mongodb.org/tools/db/"
-    mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
 
     # Extract tools version and generate platform-specific build args
     tools_version = extract_tools_version_from_release(release)
@@ -353,7 +352,7 @@ def build_init_appdb_image(build_configuration: ImageBuildConfiguration):
 
     args = {
         "version": build_configuration.version,
-        "mongodb_tools_url": mongodb_tools_url_ubi,
+        "mongodb_tools_url": base_url,  # Base URL for platform-specific downloads
         **platform_build_args  # Add the platform-specific build args
     }
 
@@ -379,7 +378,6 @@ def build_init_database_image(build_configuration: ImageBuildConfiguration):
 
     args = {
         "version": build_configuration.version,
-        "mongodb_tools_url_ubi": mongodb_tools_url_ubi,
         "mongodb_tools_url": base_url,  # Add the base URL for the Dockerfile
         **platform_build_args  # Add the platform-specific build args
     }
@@ -553,6 +551,8 @@ def build_agent_pipeline(
     args = {
         "version": agent_version,
         "agent_version": agent_version,
+        "mongodb_agent_url": "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod", # TODO: migrate to build info,
+        "mongodb_tools_url": "https://fastdl.mongodb.org/tools/db",  # TODO: migrate to build info,
         **platform_build_args  # Add the platform-specific build args
     }
 
