@@ -1488,9 +1488,9 @@ buildvariants:
     run_on:
       - rhel9-power-large
     allowed_requesters: [ "patch", "github_tag" ]
-#    depends_on:
-#      - name: build_test_image
-#        variant: init_test_run
+    depends_on:
+      - name: build_test_image
+        variant: init_test_run
     tasks:
       - name: e2e_smoke_ibm_task_group
 
@@ -1500,9 +1500,9 @@ buildvariants:
     run_on:
       - rhel9-zseries-small
     allowed_requesters: [ "patch", "github_tag" ]
-#    depends_on:
-#      - name: build_test_image
-#        variant: init_test_run
+    depends_on:
+      - name: build_test_image
+        variant: init_test_run
     tasks:
       - name: e2e_smoke_ibm_task_group
 
@@ -1512,9 +1512,9 @@ buildvariants:
     run_on:
       - ubuntu2204-arm64-large
     allowed_requesters: [ "patch", "github_tag" ]
-#    depends_on:
-#      - name: build_test_image
-#        variant: init_test_run
+    depends_on:
+      - name: build_test_image
+        variant: init_test_run
     tasks:
       - name: e2e_smoke_arm_task_group
 

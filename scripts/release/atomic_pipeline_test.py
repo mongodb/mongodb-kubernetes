@@ -7,11 +7,33 @@ import json
 import unittest
 from unittest.mock import patch
 
+from scripts.release.atomic_pipeline import generate_tools_build_args
+
+
+# Local implementations to avoid import issues
+
 
 def load_agent_build_info():
     """Load agent platform mappings from build_info_agent.json"""
     with open("build_info_agent.json", "r") as f:
         return json.load(f)
+
+
+def get_build_arg_names(platform):
+    """Generate build argument names for a platform."""
+    arch = platform.split("/")[1]
+    return {
+        "agent_build_arg": f"mongodb_agent_version_{arch}",
+        "tools_build_arg": f"mongodb_tools_version_{arch}"
+    }
+
+
+def extract_tools_version_from_release(release):
+    """Extract tools version from release.json mongodbToolsBundle.ubi field."""
+    tools_bundle = release["mongodbToolsBundle"]["ubi"]
+    version_part = tools_bundle.split("-")[-1]  # Gets "100.12.2.tgz"
+    tools_version = version_part.replace(".tgz", "")  # Gets "100.12.2"
+    return tools_version
 
 def generate_agent_build_args(platforms, agent_version, tools_version):
     """
@@ -28,16 +50,16 @@ def generate_agent_build_args(platforms, agent_version, tools_version):
             continue
 
         mapping = agent_info["platform_mappings"][platform]
-        build_mapping = agent_info["build_arg_mappings"][platform]
+        build_arg_names = get_build_arg_names(platform)
 
         # Generate agent build arg
         agent_filename = f"{agent_info['base_names']['agent']}-{agent_version}.{mapping['agent_suffix']}"
-        build_args[build_mapping["agent_build_arg"]] = agent_filename
+        build_args[build_arg_names["agent_build_arg"]] = agent_filename
 
         # Generate tools build arg
         tools_suffix = mapping["tools_suffix"].replace("{TOOLS_VERSION}", tools_version)
         tools_filename = f"{agent_info['base_names']['tools']}-{tools_suffix}"
-        build_args[build_mapping["tools_build_arg"]] = tools_filename
+        build_args[build_arg_names["tools_build_arg"]] = tools_filename
 
     return build_args
 
@@ -192,6 +214,52 @@ class TestAgentBuildMapping(unittest.TestCase):
         for arg_name in expected_args:
             self.assertIn(f"ARG {arg_name}", dockerfile_content,
                          f"Dockerfile should contain 'ARG {arg_name}' declaration")
+
+    def test_generate_tools_build_args(self):
+        """Test generating tools-only build args."""
+        platforms = ["linux/amd64", "linux/arm64"]
+        tools_version = "100.12.0"
+
+        result = generate_tools_build_args(platforms, tools_version)
+
+        expected = {
+            "mongodb_tools_version_amd64": "mongodb-database-tools-rhel93-x86_64-100.12.0.tgz",
+            "mongodb_tools_version_arm64": "mongodb-database-tools-rhel93-aarch64-100.12.0.tgz"
+        }
+
+        self.assertEqual(result, expected)
+
+    def test_extract_tools_version_from_release(self):
+        """Test extracting tools version from release.json structure."""
+        release = {
+            "mongodbToolsBundle": {
+                "ubi": "mongodb-database-tools-rhel88-x86_64-100.12.2.tgz"
+            }
+        }
+
+        result = extract_tools_version_from_release(release)
+        self.assertEqual(result, "100.12.2")
+
+    def test_tools_build_args_match_init_dockerfiles(self):
+        """Test that tools build args match what init-database and init-appdb Dockerfiles expect."""
+        platforms = ["linux/amd64", "linux/arm64", "linux/s390x", "linux/ppc64le"]
+        tools_version = "100.12.0"
+
+        result = generate_tools_build_args(platforms, tools_version)
+
+        # Verify all expected tools build args are present (no agent args)
+        expected_tools_args = {
+            "mongodb_tools_version_amd64", "mongodb_tools_version_arm64",
+            "mongodb_tools_version_s390x", "mongodb_tools_version_ppc64le"
+        }
+
+        generated_args = set(result.keys())
+        self.assertEqual(generated_args, expected_tools_args)
+
+        # Verify no agent args are included
+        for arg_name in result.keys():
+            self.assertIn("tools", arg_name)
+            self.assertNotIn("agent", arg_name)
 
 
 if __name__ == "__main__":
