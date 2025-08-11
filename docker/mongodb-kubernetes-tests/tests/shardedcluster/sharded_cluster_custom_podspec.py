@@ -101,18 +101,24 @@ def test_stateful_sets_spec_updated(sc: MongoDB):
 
         if is_default_architecture_static():
             containers = shard0_sts.spec.template.spec.containers
-            assert len(containers) == 3
-            assert containers[0].name == "mongodb-agent"
-            assert containers[1].name == "mongodb-enterprise-database"
-            assert containers[2].name == "sharded-cluster-sidecar-override"
+            container_names = [container.name for container in containers]
+
+            assert len(containers) == 4
+            assert "mongodb-agent" in container_names
+            assert "mongodb-enterprise-database" in container_names
+            assert "mongodb-agent-operator-utilities" in container_names
+            assert "sharded-cluster-sidecar-override" in container_names
 
             containers = shard1_sts.spec.template.spec.containers
-            assert len(containers) == 3
-            assert containers[0].name == "mongodb-agent"
-            assert containers[1].name == "mongodb-enterprise-database"
-            assert containers[2].name == "sharded-cluster-sidecar"
+            container_names = [container.name for container in containers]
 
-            resources = containers[2].resources
+            assert len(containers) == 4
+            assert "mongodb-agent" in container_names
+            assert "mongodb-enterprise-database" in container_names
+            assert "mongodb-agent-operator-utilities" in container_names
+            assert "sharded-cluster-sidecar" in container_names
+
+            resources = containers[3].resources
         else:
             containers = shard1_sts.spec.template.spec.containers
             assert len(containers) == 2

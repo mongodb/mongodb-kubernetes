@@ -111,12 +111,13 @@ def test_platform_is_passed_to_docker_build(_docker_build, _docker_tag):
     _docker_build.assert_called()
 
 
-def test_get_docker_build_cli_args():
-    assert "docker buildx build --load --progress plain . -f dockerfile -t image:latest" == " ".join(
+@patch("sonar.builders.docker.shutil.which", return_value="/mock/path/to/docker")
+def test_get_docker_build_cli_args(mock_which):
+    assert "/mock/path/to/docker buildx build --load --progress plain . -f dockerfile -t image:latest" == " ".join(
         get_docker_build_cli_args(".", "dockerfile", "image:latest", None, None, None)
     )
     assert (
-        "docker buildx build --load --progress plain . -f dockerfile -t image:latest --build-arg a=1 --build-arg long_arg=long_value --label l1=v1 --label l2=v2 --platform linux/amd64"
+        "/mock/path/to/docker buildx build --load --progress plain . -f dockerfile -t image:latest --build-arg a=1 --build-arg long_arg=long_value --label l1=v1 --label l2=v2 --platform linux/amd64"
         == " ".join(
             get_docker_build_cli_args(
                 ".",

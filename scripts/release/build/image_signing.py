@@ -230,8 +230,7 @@ def verify_signature(repository: str, tag: str):
         # Access the content of the file
         kubernetes_operator_public_key = r.text
     else:
-        logger.error(f"Failed to retrieve the public key from {public_key_url}: Status code {r.status_code}")
-        return
+        raise Exception(f"Failed to retrieve the public key from {public_key_url}: Status code {r.status_code}")
 
     public_key_var_name = "OPERATOR_PUBLIC_KEY"
     additional_args = [
@@ -245,8 +244,7 @@ def verify_signature(repository: str, tag: str):
         run_command_with_retries(command, retries=10)
     except subprocess.CalledProcessError as e:
         # Fail the pipeline if verification fails
-        logger.error(f"Failed to verify signature for image {image}: {e.stderr}")
-        raise
+        raise Exception(f"Failed to verify signature for image {image}")
 
     end_time = time.time()
     duration = end_time - start_time

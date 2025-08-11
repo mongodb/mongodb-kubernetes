@@ -100,10 +100,10 @@ func WithDefaultConfigSrvStorageSize() func(options *construct.DatabaseStatefulS
 	}
 }
 
-// WithInitDatabaseNonStaticImage sets the InitDatabaseNonStaticImage field.
+// WithInitDatabaseNonStaticImage sets the InitDatabaseImage field.
 func WithInitDatabaseNonStaticImage(image string) func(*construct.DatabaseStatefulSetOptions) {
 	return func(opts *construct.DatabaseStatefulSetOptions) {
-		opts.InitDatabaseNonStaticImage = image
+		opts.InitDatabaseImage = image
 	}
 }
 

@@ -122,6 +122,8 @@ func appDbPodSpec(initContainerImage string, om om.MongoDBOpsManager) podtemplat
 		construct.AgentName,
 		container.WithResourceRequirements(buildRequirementsFromPodSpec(*appdbPodSpec)),
 	)
+	scriptsVolumeMount := statefulset.CreateVolumeMount("agent-scripts", "/opt/scripts", statefulset.WithReadOnly(false))
+	hooksVolumeMount := statefulset.CreateVolumeMount("hooks", "/hooks", statefulset.WithReadOnly(false))
 
 	initUpdateFunc := podtemplatespec.NOOP()
 	if !architectures.IsRunningStaticArchitecture(om.Annotations) {
@@ -130,8 +132,6 @@ func appDbPodSpec(initContainerImage string, om om.MongoDBOpsManager) podtemplat
 		// volumes of different containers.
 		initUpdateFunc = func(templateSpec *corev1.PodTemplateSpec) {
 			templateSpec.Spec.InitContainers = []corev1.Container{}
-			scriptsVolumeMount := statefulset.CreateVolumeMount("agent-scripts", "/opt/scripts", statefulset.WithReadOnly(false))
-			hooksVolumeMount := statefulset.CreateVolumeMount("hooks", "/hooks", statefulset.WithReadOnly(false))
 			podtemplatespec.WithInitContainer(InitAppDbContainerName, buildAppDBInitContainer(initContainerImage, []corev1.VolumeMount{scriptsVolumeMount, hooksVolumeMount}))(templateSpec)
 		}
 	}
@@ -233,6 +233,12 @@ func CAConfigMapName(appDb om.AppDBSpec, log *zap.SugaredLogger) string {
 // and volumemounts for TLS.
 func tlsVolumes(appDb om.AppDBSpec, podVars *env.PodEnvVars, log *zap.SugaredLogger) podtemplatespec.Modification {
 	volumesToAdd, volumeMounts := getTLSVolumesAndVolumeMounts(appDb, podVars, log)
+
+	// Add agent API key volume mount if not using vault and monitoring is enabled
+	if !vault.IsVaultSecretBackend() && ShouldEnableMonitoring(podVars) {
+		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))
+	}
+
 	volumesFunc := func(spec *corev1.PodTemplateSpec) {
 		for _, v := range volumesToAdd {
 			podtemplatespec.WithVolume(v)(spec)
@@ -380,7 +386,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	externalDomain := appDb.GetExternalDomainForMemberCluster(scaler.MemberClusterName())
 
 	if ShouldEnableMonitoring(podVars) {
-		monitoringModification = addMonitoringContainer(*appDb, *podVars, opts, externalDomain, log)
+		monitoringModification = addMonitoringContainer(*appDb, *podVars, opts, externalDomain, architectures.IsRunningStaticArchitecture(opsManager.Annotations), log)
 	} else {
 		// Otherwise, let's remove for now every podTemplateSpec related to monitoring
 		// We will apply them when enabling monitoring
@@ -390,7 +396,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	}
 
 	// We copy the Automation Agent command from community and add the agent startup parameters
-	automationAgentCommand := construct.AutomationAgentCommand(true, opsManager.Spec.AppDB.GetAgentLogLevel(), opsManager.Spec.AppDB.GetAgentLogFile(), opsManager.Spec.AppDB.GetAgentMaxLogFileDurationHours())
+	automationAgentCommand := construct.AutomationAgentCommand(architectures.IsRunningStaticArchitecture(opsManager.Annotations), true, opsManager.Spec.AppDB.GetAgentLogLevel(), opsManager.Spec.AppDB.GetAgentLogFile(), opsManager.Spec.AppDB.GetAgentMaxLogFileDurationHours())
 	idx := len(automationAgentCommand) - 1
 	automationAgentCommand[idx] += appDb.AutomationAgent.StartupParameters.ToCommandLineArgs()
 
@@ -403,13 +409,10 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		MountPath: "/var/lib/automation/config/acVersion",
 	}
 
-	// Here we ask to craete init containers which also creates required volumens.
+	// Here we ask to create init containers which also creates required volumes.
 	// Note that we provide empty images for init containers. They are not important
-	// at this stage beucase later we will define our own init containers for non-static architecture.
-	mod := construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, scaler, opts.MongodbImage, opts.AgentImage, "", "", true)
-	if architectures.IsRunningStaticArchitecture(opsManager.Annotations) {
-		mod = construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, scaler, opts.MongodbImage, opts.AgentImage, "", "", false)
-	}
+	// at this stage because later we will define our own init containers for non-static architecture.
+	mod := construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, scaler, opts.MongodbImage, opts.AgentImage, "", "", !architectures.IsRunningStaticArchitecture(opsManager.Annotations), opts.InitAppDBImage)
 
 	sts := statefulset.New(
 		mod,
@@ -493,7 +496,7 @@ func getVolumeMountIndexByName(mounts []corev1.VolumeMount, name string) int {
 // addMonitoringContainer returns a podtemplatespec modification that adds the monitoring container to the AppDB Statefulset.
 // Note that this replicates some code from the functions that do this for the base AppDB Statefulset. After many iterations
 // this was deemed to be an acceptable compromise to make code clearer and more maintainable.
-func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts AppDBStatefulSetOptions, externalDomain *string, log *zap.SugaredLogger) podtemplatespec.Modification {
+func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts AppDBStatefulSetOptions, externalDomain *string, isStatic bool, log *zap.SugaredLogger) podtemplatespec.Modification {
 	var monitoringAcVolume corev1.Volume
 	var monitoringACFunc podtemplatespec.Modification
 
@@ -516,7 +519,7 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 	}
 	// Construct the command by concatenating:
 	// 1. The base command - from community
-	command := construct.MongodbUserCommandWithAPIKeyExport
+	command := construct.GetMongodbUserCommandWithAPIKeyExport(isStatic)
 	command += "agent/mongodb-agent"
 	command += " -healthCheckFilePath=" + monitoringAgentHealthStatusFilePathValue
 	command += " -serveStatusPort=5001"

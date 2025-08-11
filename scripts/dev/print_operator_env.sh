@@ -100,6 +100,10 @@ OPERATOR_NAME=\"${OPERATOR_NAME}\"
   if [[ "${MDB_MAX_CONCURRENT_RECONCILES:-""}" != "" ]]; then
     echo "MDB_MAX_CONCURRENT_RECONCILES=${MDB_MAX_CONCURRENT_RECONCILES}"
   fi
+
+  if [[ "${OPERATOR_NAME:-""}" != "" ]]; then
+    echo "OPERATOR_NAME=${OPERATOR_NAME}"
+  fi
 }
 
 print_operator_env

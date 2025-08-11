@@ -27,7 +27,7 @@ from scripts.release.build.image_signing import (
 TRACER = trace.get_tracer("evergreen-agent")
 
 
-@TRACER.start_as_current_span("build_image_generic")
+@TRACER.start_as_current_span("build_image")
 def build_image(
     dockerfile_path: str,
     build_configuration: ImageBuildConfiguration,
@@ -137,7 +137,7 @@ def build_operator_image(build_configuration: ImageBuildConfiguration):
     logger.info(f"Building Operator args: {args}")
 
     build_image(
-        dockerfile_path="docker/mongodb-kubernetes-operator/Dockerfile",
+        dockerfile_path="docker/mongodb-kubernetes-operator/Dockerfile.atomic",
         build_configuration=build_configuration,
         build_args=args,
     )
@@ -150,7 +150,7 @@ def build_database_image(build_configuration: ImageBuildConfiguration):
     args = {"version": build_configuration.version}
 
     build_image(
-        dockerfile_path="docker/mongodb-kubernetes-database/Dockerfile",
+        dockerfile_path="docker/mongodb-kubernetes-database/Dockerfile.atomic",
         build_configuration=build_configuration,
         build_args=args,
     )
@@ -201,7 +201,7 @@ def build_init_om_image(build_configuration: ImageBuildConfiguration):
     args = {"version": build_configuration.version}
 
     build_image(
-        dockerfile_path="docker/mongodb-kubernetes-init-ops-manager/Dockerfile",
+        dockerfile_path="docker/mongodb-kubernetes-init-ops-manager/Dockerfile.atomic",
         build_configuration=build_configuration,
         build_args=args,
     )
@@ -227,7 +227,7 @@ def build_om_image(build_configuration: ImageBuildConfiguration):
     }
 
     build_image(
-        dockerfile_path="docker/mongodb-enterprise-ops-manager/Dockerfile",
+        dockerfile_path="docker/mongodb-enterprise-ops-manager/Dockerfile.atomic",
         build_configuration=build_configuration,
         build_args=args,
     )
@@ -240,7 +240,7 @@ def build_init_appdb_image(build_configuration: ImageBuildConfiguration):
     args = {"version": build_configuration.version, "mongodb_tools_url_ubi": mongodb_tools_url_ubi}
 
     build_image(
-        dockerfile_path="docker/mongodb-kubernetes-init-appdb/Dockerfile",
+        dockerfile_path="docker/mongodb-kubernetes-init-appdb/Dockerfile.atomic",
         build_configuration=build_configuration,
         build_args=args,
     )
@@ -254,7 +254,7 @@ def build_init_database_image(build_configuration: ImageBuildConfiguration):
     args = {"version": build_configuration.version, "mongodb_tools_url_ubi": mongodb_tools_url_ubi}
 
     build_image(
-        "docker/mongodb-kubernetes-init-database/Dockerfile",
+        "docker/mongodb-kubernetes-init-database/Dockerfile.atomic",
         build_configuration=build_configuration,
         build_args=args,
     )
@@ -266,7 +266,7 @@ def build_readiness_probe_image(build_configuration: ImageBuildConfiguration):
     """
 
     build_image(
-        dockerfile_path="docker/mongodb-kubernetes-readinessprobe/Dockerfile",
+        dockerfile_path="docker/mongodb-kubernetes-readinessprobe/Dockerfile.atomic",
         build_configuration=build_configuration,
     )
 
@@ -277,7 +277,7 @@ def build_upgrade_hook_image(build_configuration: ImageBuildConfiguration):
     """
 
     build_image(
-        dockerfile_path="docker/mongodb-kubernetes-upgrade-hook/Dockerfile",
+        dockerfile_path="docker/mongodb-kubernetes-upgrade-hook/Dockerfile.atomic",
         build_configuration=build_configuration,
     )
 
@@ -303,22 +303,20 @@ def build_agent_default_case(build_configuration: ImageBuildConfiguration):
     tasks_queue = Queue()
     max_workers = 1
     if build_configuration.parallel:
-        # TODO: remove this once we have a proper synchronization for buildx builder concurrent creation
-        max_workers = 1
+        max_workers = None
         if build_configuration.parallel_factor > 0:
             max_workers = build_configuration.parallel_factor
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         logger.info(f"Running with factor of {max_workers}")
         logger.info(f"======= Agent versions to build {agent_versions_to_build} =======")
-        for idx, agent_version in enumerate(agent_versions_to_build):
+        for idx, agent_tools_version in enumerate(agent_versions_to_build):
             # We don't need to keep create and push the same image on every build.
             # It is enough to create and push the non-operator suffixed images only during releases to ecr and quay.
-            logger.info(f"======= Building Agent {agent_version} ({idx}/{len(agent_versions_to_build)})")
+            logger.info(f"======= Building Agent {agent_tools_version} ({idx}/{len(agent_versions_to_build)})")
             _build_agent_operator(
-                agent_version,
+                agent_tools_version,
                 build_configuration,
                 executor,
-                build_configuration.version,
                 tasks_queue,
             )
 
@@ -387,43 +385,39 @@ def gather_latest_agent_versions(release: Dict) -> List[Tuple[str, str]]:
 
 
 def _build_agent_operator(
-    agent_version: Tuple[str, str],
+    agent_tools_version: Tuple[str, str],
     build_configuration: ImageBuildConfiguration,
     executor: ProcessPoolExecutor,
-    operator_version: str,
     tasks_queue: Queue,
 ):
+    agent_version = agent_tools_version[0]
     agent_distro = "rhel9_x86_64"
-    tools_version = agent_version[1]
+    tools_version = agent_tools_version[1]
     tools_distro = get_tools_distro(tools_version)["amd"]
-    image_version = f"{agent_version[0]}_{operator_version}"
-    mongodb_tools_url_ubi = (
-        f"https://downloads.mongodb.org/tools/db/mongodb-database-tools-{tools_distro}-{tools_version}.tgz"
-    )
-    mongodb_agent_url_ubi = f"https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod/mongodb-mms-automation-agent-{agent_version[0]}.{agent_distro}.tar.gz"
-    init_database_image = f"{build_configuration.base_registry()}/mongodb-kubernetes-init-database:{operator_version}"
 
     tasks_queue.put(
         executor.submit(
             build_agent_pipeline,
             build_configuration,
-            image_version,
-            init_database_image,
-            mongodb_tools_url_ubi,
-            mongodb_agent_url_ubi,
-            agent_version[0],
+            build_configuration.version,
+            agent_version,
+            agent_distro,
+            tools_version,
+            tools_distro,
         )
     )
 
 
 def build_agent_pipeline(
     build_configuration: ImageBuildConfiguration,
-    image_version,
-    init_database_image,
-    mongodb_tools_url_ubi,
-    mongodb_agent_url_ubi: str,
-    agent_version,
+    operator_version: str,
+    agent_version: str,
+    agent_distro: str,
+    tools_version: str,
+    tools_distro: str,
 ):
+    image_version = f"{agent_version}_{operator_version}"
+
     build_configuration_copy = copy(build_configuration)
     build_configuration_copy.version = image_version
     print(
@@ -432,14 +426,13 @@ def build_agent_pipeline(
     args = {
         "version": image_version,
         "agent_version": agent_version,
-        "release_version": image_version,
-        "init_database_image": init_database_image,
-        "mongodb_tools_url_ubi": mongodb_tools_url_ubi,
-        "mongodb_agent_url_ubi": mongodb_agent_url_ubi,
+        "agent_distro": agent_distro,
+        "tools_version": tools_version,
+        "tools_distro": tools_distro,
     }
 
     build_image(
-        dockerfile_path="docker/mongodb-agent/Dockerfile",
+        dockerfile_path="docker/mongodb-agent/Dockerfile.atomic",
         build_configuration=build_configuration_copy,
         build_args=args,
     )

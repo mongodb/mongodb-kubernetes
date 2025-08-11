@@ -148,11 +148,29 @@ func TestReplicaSetClusterReconcileContainerImagesWithStaticArchitecture(t *test
 	assert.NoError(t, err)
 
 	assert.Len(t, sts.Spec.Template.Spec.InitContainers, 0)
-	require.Len(t, sts.Spec.Template.Spec.Containers, 2)
+	require.Len(t, sts.Spec.Template.Spec.Containers, 3)
 
-	// Version from OM + operator version
-	assert.Equal(t, "quay.io/mongodb/mongodb-agent-ubi:12.0.30.7791-1_9.9.9-test", sts.Spec.Template.Spec.Containers[0].Image)
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE", sts.Spec.Template.Spec.Containers[1].Image)
+	// Version from OM
+	VerifyStaticContainers(t, sts.Spec.Template.Spec.Containers)
+}
+
+func VerifyStaticContainers(t *testing.T, containers []corev1.Container) {
+	agentContainerImage := findContainerImage(containers, util.AgentContainerName)
+	require.NotNil(t, agentContainerImage, "Agent container not found")
+	assert.Equal(t, "quay.io/mongodb/mongodb-agent-ubi:12.0.30.7791-1", agentContainerImage)
+
+	mongoContainerImage := findContainerImage(containers, util.DatabaseContainerName)
+	require.NotNil(t, mongoContainerImage, "MongoDB container not found")
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE", mongoContainerImage)
+}
+
+func findContainerImage(containers []corev1.Container, containerName string) string {
+	for _, container := range containers {
+		if container.Name == containerName {
+			return container.Image
+		}
+	}
+	return ""
 }
 
 func buildReplicaSetWithCustomProjectName(rsName string) (*mdbv1.MongoDB, *corev1.ConfigMap, string) {
@@ -538,9 +556,9 @@ func TestReplicaSetCustomPodSpecTemplateStatic(t *testing.T) {
 	assertPodSpecSts(t, &statefulSet, podSpec.NodeName, podSpec.Hostname, podSpec.RestartPolicy)
 
 	podSpecTemplate := statefulSet.Spec.Template.Spec
-	assert.Len(t, podSpecTemplate.Containers, 3, "Should have 3 containers now")
-	assert.Equal(t, util.AgentContainerName, podSpecTemplate.Containers[0].Name, "Database container should always be first")
-	assert.Equal(t, "my-custom-container", podSpecTemplate.Containers[2].Name, "Custom container should be second")
+	assert.Len(t, podSpecTemplate.Containers, 4, "Should have 4 containers now")
+	assert.Equal(t, util.AgentContainerName, podSpecTemplate.Containers[0].Name, "Agent container should be first alphabetically")
+	assert.Equal(t, "my-custom-container", podSpecTemplate.Containers[len(podSpecTemplate.Containers)-1].Name, "Custom container should be last")
 }
 
 func TestFeatureControlPolicyAndTagAddedWithNewerOpsManager(t *testing.T) {

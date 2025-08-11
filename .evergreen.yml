@@ -11,7 +11,7 @@ variables:
 
   - &ops_manager_70_latest 7.0.15 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_80_latest 8.0.11 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_80_latest 8.0.12 # The order/index is important, since these are anchors. Please do not change
 
   # The dependency unification between static and non-static is intentional here.
   # Even though some images are exclusive, in EVG they all are built once and in parallel.
@@ -462,9 +462,6 @@ tasks:
           skip_tags: ubuntu,release
 
   - name: build_agent_images_ubi
-    depends_on:
-      - name: build_init_database_image_ubi
-        variant: init_test_run
     commands:
       - func: clone
       - func: setup_building_host

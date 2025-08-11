@@ -128,11 +128,10 @@ func TestStandaloneClusterReconcileContainerImagesWithStaticArchitecture(t *test
 	assert.NoError(t, err)
 
 	assert.Len(t, sts.Spec.Template.Spec.InitContainers, 0)
-	require.Len(t, sts.Spec.Template.Spec.Containers, 2)
+	require.Len(t, sts.Spec.Template.Spec.Containers, 3)
 
-	// Version from OM + operator version
-	assert.Equal(t, "quay.io/mongodb/mongodb-agent-ubi:12.0.30.7791-1_9.9.9-test", sts.Spec.Template.Spec.Containers[0].Image)
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE", sts.Spec.Template.Spec.Containers[1].Image)
+	// Version from OM
+	VerifyStaticContainers(t, sts.Spec.Template.Spec.Containers)
 }
 
 // TestOnAddStandaloneWithDelay checks the reconciliation on standalone creation with some "delay" in getting

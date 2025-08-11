@@ -66,6 +66,19 @@ func WithContainerByIndex(index int, funcs ...func(container *corev1.Container))
 	}
 }
 
+// WithContainerByIndexIfExists applies the modifications to the container with the provided index
+// only if the container already exists. If the index is out of range, no changes are made.
+func WithContainerByIndexIfExists(index int, funcs ...func(container *corev1.Container)) func(podTemplateSpec *corev1.PodTemplateSpec) {
+	return func(podTemplateSpec *corev1.PodTemplateSpec) {
+		if index < len(podTemplateSpec.Spec.Containers) {
+			c := &podTemplateSpec.Spec.Containers[index]
+			for _, f := range funcs {
+				f(c)
+			}
+		}
+	}
+}
+
 // WithInitContainer applies the modifications to the init container with the provided name
 func WithInitContainer(name string, containerfunc func(*corev1.Container)) Modification {
 	return func(podTemplateSpec *corev1.PodTemplateSpec) {

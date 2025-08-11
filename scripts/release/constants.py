@@ -29,4 +29,8 @@ def is_running_in_evg() -> bool:
 
 
 def get_version_id() -> str | None:
+    """
+    Get the version ID from the environment variable. This is typically used for patch builds in the Evergreen CI system.
+    :return: version_id (patch ID) or None if not set
+    """
     return os.getenv("version_id")

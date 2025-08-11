@@ -117,12 +117,12 @@ spec:
           volumeMounts:
             - name: mongosh-versions
               mountPath: /mongodb-ops-manager/mongodb-releases/compass
-        - name: setting-up-mongosh-2-5-3
+        - name: setting-up-mongosh-2-5-6
           image: curlimages/curl:latest
           command:
             - sh
             - -c
-            - curl -LO https://downloads.mongodb.com/compass/mongosh-2.5.3-linux-x64-openssl11.tgz --output-dir /mongodb-ops-manager/mongodb-releases/compass && true
+            - curl -LO https://downloads.mongodb.com/compass/mongosh-2.5.6-linux-x64-openssl11.tgz --output-dir /mongodb-ops-manager/mongodb-releases/compass && true
           volumeMounts:
             - name: mongosh-versions
               mountPath: /mongodb-ops-manager/mongodb-releases/compass
