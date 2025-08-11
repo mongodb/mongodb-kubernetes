@@ -17,21 +17,36 @@ class BuildScenario(str, Enum):
     @classmethod
     def infer_scenario_from_environment(cls) -> "BuildScenario":
         """Infer the build scenario from environment variables."""
+        # triggered_by_git_tag is the name of the tag that triggered this version, if applicable. It will be None for
+        # all patches except when tagging a commit on GitHub
         git_tag = os.getenv("triggered_by_git_tag")
+        # is_patch is passed automatically by Evergreen.
+        # It is "true" if the running task is in a patch build and undefined if it is not.
+        # A patch build is a version not triggered by a commit to a repository.
+        # It either runs tasks on a base commit plus some diff if submitted by the CLI or on a git branch if created by
+        # a GitHub pull request.
         is_patch = os.getenv("is_patch", "false").lower() == "true"
+        # RUNNING_IN_EVG is set by us in evg-private-context
         is_evg = os.getenv("RUNNING_IN_EVG", "false").lower() == "true"
+        # version_id is the id of the task's version. It is generated automatically for each task run.
+        # For example: `6899b7e35bfaee00077db986` for a manual/PR patch,
+        # or `mongodb_kubernetes_5c5a3accb47bb411682b8c67f225b61f7ad5a619` for a master merge
         patch_id = os.getenv("version_id")
+
+        logger.debug(
+            f"Collected environment variables: git tag {git_tag}, is_patch {is_patch}, is_evg {is_evg}, patch_id {patch_id}"
+        )
 
         if git_tag:
             # Release scenario and the git tag will be used for promotion process only
             scenario = BuildScenario.RELEASE
-            logger.info(f"Build scenario: {scenario} (git_tag: {git_tag})")
+            logger.info(f"Build scenario: {scenario}, git_tag: {git_tag}")
         elif is_patch:
             scenario = BuildScenario.PATCH
-            logger.info(f"Build scenario: {scenario} (patch_id: {patch_id})")
+            logger.info(f"Build scenario: {scenario}, patch_id: {patch_id}")
         elif is_evg:
             scenario = BuildScenario.STAGING
-            logger.info(f"Build scenario: {scenario} (patch_id: {patch_id})")
+            logger.info(f"Build scenario: {scenario}, patch_id: {patch_id}")
         else:
             scenario = BuildScenario.DEVELOPMENT
             logger.info(f"Build scenario: {scenario}")
@@ -70,11 +85,15 @@ class BuildContext:
         if self.scenario == BuildScenario.RELEASE:
             return self.git_tag
         if self.scenario == BuildScenario.STAGING:
-            # On master merges, always use "latest" (preserving legacy behavior)
-            return "latest"
+            # On master merges, we need to build images with the patch_id as they are expected by tests. Later on,
+            # we will use commit SHA. Optionally, we may want to continue pushing to ECR registry with "latest", for
+            # local dev purposes.
+            return self.patch_id
         if self.patch_id:
             return self.patch_id
         # Alternatively, we can fail here if no ID is explicitly defined
+        # When working locally, "version_id" env variable is defined in the generated context file. It is "latest" by
+        # default, and can be overridden with OVERRIDE_VERSION_ID
         return "latest"
 
     def get_base_registry(self) -> str:
