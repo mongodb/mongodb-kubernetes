@@ -11,6 +11,99 @@ from scripts.release.build.build_info import (
 )
 from scripts.release.build.build_scenario import BuildScenario
 
+def test_load_build_info_development(git_repo: Repo):
+    version = "latest"
+
+    expected_build_info = BuildInfo(
+        images={
+            "operator": ImageInfo(
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes",
+                platforms=["linux/amd64"],
+                version=version,
+                sign=False,
+            ),
+            "init-database": ImageInfo(
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-database",
+                platforms=["linux/amd64"],
+                version=version,
+                sign=False,
+            ),
+            "init-appdb": ImageInfo(
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-appdb",
+                platforms=["linux/amd64"],
+                version=version,
+                sign=False,
+            ),
+            "init-ops-manager": ImageInfo(
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-ops-manager",
+                platforms=["linux/amd64"],
+                version=version,
+                sign=False,
+            ),
+            "database": ImageInfo(
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-database",
+                platforms=["linux/amd64"],
+                version=version,
+                sign=False,
+            ),
+            "mco-tests": ImageInfo(
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-community-tests",
+                platforms=["linux/amd64"],
+                version=version,
+                sign=False,
+            ),
+            "meko-tests": ImageInfo(
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests",
+                platforms=["linux/amd64"],
+                version=version,
+                sign=False,
+            ),
+            "readiness-probe": ImageInfo(
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-readinessprobe",
+                platforms=["linux/amd64"],
+                version=version,
+                sign=False,
+            ),
+            "upgrade-hook": ImageInfo(
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-operator-version-upgrade-post-start-hook",
+                platforms=["linux/amd64"],
+                version=version,
+                sign=False,
+            ),
+            "agent": ImageInfo(
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent-ubi",
+                platforms=["linux/amd64"],
+                version=version,
+                sign=False,
+            ),
+            "ops-manager": ImageInfo(
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-ops-manager",
+                platforms=["linux/amd64"],
+                version="om-version-from-release.json",
+                sign=False,
+            ),
+        },
+        binaries={
+            "kubectl-mongodb": BinaryInfo(
+                s3_store="s3://kubectl-mongodb/dev",
+                platforms=["linux/amd64"],
+                version=version,
+                sign=False,
+            )
+        },
+        helm_charts={
+            "mongodb-kubernetes": HelmChartInfo(
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/helm-charts",
+                version=version,
+                sign=False,
+            )
+        },
+    )
+
+    build_info = load_build_info(BuildScenario.DEVELOPMENT, git_repo.working_dir)
+
+    assert build_info == expected_build_info
+
 
 def test_load_build_info_patch(git_repo: Repo):
     patch_id = "688364423f9b6c00072b3556"

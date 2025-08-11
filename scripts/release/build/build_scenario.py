@@ -45,6 +45,10 @@ class BuildScenario(StrEnum):
         repo = Repo(repository_path)
 
         match self:
+            case BuildScenario.DEVELOPMENT:
+                # When working locally, "version_id" env variable is defined in the generated context file. It is "latest" by
+                # default, and can be overridden with OVERRIDE_VERSION_ID
+                return "latest"
             case BuildScenario.PATCH:
                 patch_id = get_version_id()
                 if not patch_id:
