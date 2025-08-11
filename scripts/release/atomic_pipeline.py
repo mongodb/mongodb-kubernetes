@@ -430,7 +430,7 @@ def build_agent_pipeline(
     }
 
     build_image(
-        dockerfile_path="docker/mongodb-agent/Dockerfile",
+        dockerfile_path="docker/mongodb-agent/Dockerfile.atomic",
         build_configuration=build_configuration_copy,
         build_args=args,
     )
