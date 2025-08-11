@@ -85,7 +85,9 @@ class BuildContext:
         if self.scenario == BuildScenario.RELEASE:
             return self.git_tag
         if self.scenario == BuildScenario.STAGING:
-            # On master merges, always use "latest" (preserving legacy behavior)
+            # On master merges, we need to build images with the patch_id as they are expected by tests. Later on,
+            # we will use commit SHA. Optionally, we may want to continue pushing to ECR registry with "latest", for
+            # local dev purposes.
             return self.patch_id
         if self.patch_id:
             return self.patch_id
