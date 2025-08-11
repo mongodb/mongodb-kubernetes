@@ -71,7 +71,7 @@ class BuildContext:
             return self.git_tag
         if self.scenario == BuildScenario.STAGING:
             # On master merges, always use "latest" (preserving legacy behavior)
-            return "latest"
+            return self.patch_id
         if self.patch_id:
             return self.patch_id
         # Alternatively, we can fail here if no ID is explicitly defined
