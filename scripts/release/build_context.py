@@ -33,7 +33,9 @@ class BuildScenario(str, Enum):
         # or `mongodb_kubernetes_5c5a3accb47bb411682b8c67f225b61f7ad5a619` for a master merge
         patch_id = os.getenv("version_id")
 
-        logger.debug(f"Collected environment variables: git tag {git_tag}, is_patch {is_patch}, is_evg {is_evg}, patch_id {patch_id}")
+        logger.debug(
+            f"Collected environment variables: git tag {git_tag}, is_patch {is_patch}, is_evg {is_evg}, patch_id {patch_id}"
+        )
 
         if git_tag:
             # Release scenario and the git tag will be used for promotion process only
