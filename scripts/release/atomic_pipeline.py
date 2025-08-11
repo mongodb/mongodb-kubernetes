@@ -301,8 +301,7 @@ def build_agent_default_case(build_configuration: ImageBuildConfiguration):
     tasks_queue = Queue()
     max_workers = 1
     if build_configuration.parallel:
-        # TODO: remove this once we have a proper synchronization for buildx builder concurrent creation
-        max_workers = 1
+        max_workers = None
         if build_configuration.parallel_factor > 0:
             max_workers = build_configuration.parallel_factor
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
