@@ -495,8 +495,4 @@ def gather_latest_agent_versions(release: Dict) -> List[Tuple[str, str]]:
             )
         )
 
-    # TODO: Remove this once we don't need to use OM 7.0.12 in the OM Multicluster DR tests
-    # https://jira.mongodb.org/browse/CLOUDP-297377
-    agent_versions_to_build.append(("107.0.12.8669-1", "100.10.0"))
-
     return sorted(list(set(agent_versions_to_build)))

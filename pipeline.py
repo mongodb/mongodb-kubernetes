@@ -1458,10 +1458,6 @@ def gather_latest_agent_versions(release: Dict, agent_to_build: str = "") -> Lis
             )
         )
 
-    # TODO: Remove this once we don't need to use OM 7.0.12 in the OM Multicluster DR tests
-    # https://jira.mongodb.org/browse/CLOUDP-297377
-    agent_versions_to_build.append(("107.0.12.8669-1", "100.10.0"))
-
     if agent_to_build != "":
         for agent_tuple in agent_versions_to_build:
             if agent_tuple[0] == agent_to_build:
