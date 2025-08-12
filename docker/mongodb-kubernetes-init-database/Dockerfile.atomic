@@ -57,14 +57,13 @@ COPY ./docker/mongodb-kubernetes-init-database/content/LICENSE /data/licenses/
 FROM registry.access.redhat.com/ubi8/ubi-minimal
 
 ARG TARGETARCH
-COPY --from=tools_downloader /data/${TARGETARCH}/mongodb_tools.tgz /tools/mongodb_tools.tgz
+
+# Copy the extracted tools from the downloader stage (tools are already extracted there)
+COPY --from=tools_downloader /tools/ /tools/
 
 RUN microdnf -y update --nodocs \
   && microdnf -y install --nodocs tar gzip \
   && microdnf clean all
-
-RUN tar xfz /tools/mongodb_tools.tgz --directory /tools \
-    && rm /tools/mongodb_tools.tgz
 
 COPY --from=base /data/readinessprobe /probes/readinessprobe
 COPY --from=base /data/probe.sh /probes/probe.sh

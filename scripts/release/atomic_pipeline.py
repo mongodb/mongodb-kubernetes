@@ -548,8 +548,7 @@ def build_agent_pipeline(
         tools_version=tools_version
     )
 
-    # Use centralized base URLs (without trailing slashes to avoid double slashes in Dockerfile)
-    agent_base_url = "https://fastdl.mongodb.org/tools/mms-automation"
+    agent_base_url = "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
     tools_base_url = "https://fastdl.mongodb.org/tools/db"
 
     args = {

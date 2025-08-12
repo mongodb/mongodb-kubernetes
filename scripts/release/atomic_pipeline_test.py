@@ -289,7 +289,7 @@ class TestAgentBuildMapping(unittest.TestCase):
 
         result = generate_agent_build_args(platforms, agent_version, tools_version)
 
-        agent_base_url = "https://fastdl.mongodb.org/tools/mms-automation"
+        agent_base_url = "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
         tools_base_url = "https://fastdl.mongodb.org/tools/db"
 
         agent_filename = result["mongodb_agent_version_amd64"]
@@ -299,7 +299,7 @@ class TestAgentBuildMapping(unittest.TestCase):
         agent_url = f"{agent_base_url}/{agent_filename}"
         tools_url = f"{tools_base_url}/{tools_filename}"
 
-        expected_agent_url = "https://fastdl.mongodb.org/tools/mms-automation/mongodb-mms-automation-agent-108.0.12.8846-1.linux_x86_64.tar.gz"
+        expected_agent_url = "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod/mongodb-mms-automation-agent-108.0.12.8846-1.linux_x86_64.tar.gz"
         expected_tools_url = "https://fastdl.mongodb.org/tools/db/mongodb-database-tools-rhel88-x86_64-100.12.2.tgz"
 
         self.assertEqual(agent_url, expected_agent_url)
