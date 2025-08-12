@@ -5,10 +5,11 @@ import (
 
 	"github.com/blang/semver"
 	"golang.org/x/xerrors"
-	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
