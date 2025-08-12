@@ -387,7 +387,6 @@ def _build_agent_operator(
         executor.submit(
             build_agent_pipeline,
             build_configuration,
-            build_configuration.version,
             agent_version,
             agent_distro,
             tools_version,
@@ -398,21 +397,17 @@ def _build_agent_operator(
 
 def build_agent_pipeline(
     build_configuration: ImageBuildConfiguration,
-    operator_version: str,
     agent_version: str,
     agent_distro: str,
     tools_version: str,
     tools_distro: str,
 ):
-    image_version = f"{agent_version}_{operator_version}"
-
     build_configuration_copy = copy(build_configuration)
-    build_configuration_copy.version = image_version
-    print(
-        f"======== Building agent pipeline for version {image_version}, build configuration version: {build_configuration.version}"
-    )
+    build_configuration_copy.version = agent_version
+
+    print(f"======== Building agent pipeline for version {agent_version}, tools version: {tools_version}")
     args = {
-        "version": image_version,
+        "version": agent_version,
         "agent_version": agent_version,
         "agent_distro": agent_distro,
         "tools_version": tools_version,
