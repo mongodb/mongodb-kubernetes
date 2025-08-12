@@ -11,6 +11,7 @@ from scripts.release.build.build_info import (
 )
 from scripts.release.build.build_scenario import BuildScenario
 
+
 def test_load_build_info_development(git_repo: Repo):
     version = "latest"
 
@@ -20,66 +21,77 @@ def test_load_build_info_development(git_repo: Repo):
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes",
                 platforms=["linux/amd64"],
                 version=version,
+                dockerfile_path="docker/mongodb-kubernetes-operator/Dockerfile.atomic",
                 sign=False,
             ),
             "init-database": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-database",
                 platforms=["linux/amd64"],
                 version=version,
+                dockerfile_path="docker/mongodb-kubernetes-init-database/Dockerfile.atomic",
                 sign=False,
             ),
             "init-appdb": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-appdb",
                 platforms=["linux/amd64"],
                 version=version,
+                dockerfile_path="docker/mongodb-kubernetes-init-appdb/Dockerfile.atomic",
                 sign=False,
             ),
             "init-ops-manager": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-ops-manager",
                 platforms=["linux/amd64"],
                 version=version,
+                dockerfile_path="docker/mongodb-kubernetes-init-ops-manager/Dockerfile.atomic",
                 sign=False,
             ),
             "database": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-database",
                 platforms=["linux/amd64"],
                 version=version,
+                dockerfile_path="docker/mongodb-kubernetes-database/Dockerfile.atomic",
                 sign=False,
             ),
             "mco-tests": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-community-tests",
                 platforms=["linux/amd64"],
                 version=version,
+                dockerfile_path="docker/mongodb-community-tests/Dockerfile",
                 sign=False,
             ),
             "meko-tests": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests",
                 platforms=["linux/amd64"],
                 version=version,
+                dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
                 sign=False,
             ),
             "readiness-probe": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-readinessprobe",
                 platforms=["linux/amd64"],
                 version=version,
+                dockerfile_path="docker/mongodb-kubernetes-readinessprobe/Dockerfile.atomic",
                 sign=False,
             ),
             "upgrade-hook": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-operator-version-upgrade-post-start-hook",
                 platforms=["linux/amd64"],
                 version=version,
+                dockerfile_path="docker/mongodb-kubernetes-upgrade-hook/Dockerfile.atomic",
                 sign=False,
             ),
             "agent": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent-ubi",
                 platforms=["linux/amd64"],
                 version=version,
+                dockerfile_path="docker/mongodb-agent/Dockerfile.atomic",
                 sign=False,
             ),
             "ops-manager": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-ops-manager",
                 platforms=["linux/amd64"],
                 version="om-version-from-release.json",
+                dockerfile_path="docker/mongodb-enterprise-ops-manager/Dockerfile.atomic",
                 sign=False,
             ),
         },
