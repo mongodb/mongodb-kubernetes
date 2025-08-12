@@ -289,14 +289,15 @@ class TestAgentBuildMapping(unittest.TestCase):
 
         result = generate_agent_build_args(platforms, agent_version, tools_version)
 
-        agent_base_url = "https://fastdl.mongodb.org/tools/mms-automation/"
-        tools_base_url = "https://fastdl.mongodb.org/tools/db/"
+        agent_base_url = "https://fastdl.mongodb.org/tools/mms-automation"
+        tools_base_url = "https://fastdl.mongodb.org/tools/db"
 
         agent_filename = result["mongodb_agent_version_amd64"]
         tools_filename = result["mongodb_tools_version_amd64"]
 
-        agent_url = f"{agent_base_url}{agent_filename}"
-        tools_url = f"{tools_base_url}{tools_filename}"
+        # Test URL construction (what happens in Dockerfile: ${base_url}/${filename})
+        agent_url = f"{agent_base_url}/{agent_filename}"
+        tools_url = f"{tools_base_url}/{tools_filename}"
 
         expected_agent_url = "https://fastdl.mongodb.org/tools/mms-automation/mongodb-mms-automation-agent-108.0.12.8846-1.linux_x86_64.tar.gz"
         expected_tools_url = "https://fastdl.mongodb.org/tools/db/mongodb-database-tools-rhel88-x86_64-100.12.2.tgz"
@@ -304,6 +305,13 @@ class TestAgentBuildMapping(unittest.TestCase):
         self.assertEqual(agent_url, expected_agent_url)
         self.assertEqual(tools_url, expected_tools_url)
 
+        # Verify no double slashes (common mistake)
+        self.assertNotIn("//", agent_url.replace("https://", ""))
+        self.assertNotIn("//", tools_url.replace("https://", ""))
+
+        # Verify base URLs do NOT end with slash (to avoid double slashes in Dockerfile)
+        self.assertFalse(agent_base_url.endswith("/"))
+        self.assertFalse(tools_base_url.endswith("/"))
 
 
 if __name__ == "__main__":

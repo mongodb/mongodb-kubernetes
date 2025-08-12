@@ -1485,6 +1485,7 @@ buildvariants:
     display_name: e2e_smoke_ibm_power
     tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
     run_on:
+      - rhel9-power-small
       - rhel9-power-large
     allowed_requesters: [ "patch", "github_tag" ]
     depends_on:
@@ -1501,7 +1502,7 @@ buildvariants:
       - name: build_agent_images_ubi
         variant: init_test_run
       - name: build_test_image_ibm
-        variant: init_test_run_ibm
+        variant: init_test_run_ibm_power
     tasks:
       - name: e2e_smoke_ibm_task_group
 
@@ -1510,6 +1511,7 @@ buildvariants:
     tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
     run_on:
       - rhel9-zseries-small
+      - rhel9-zseries-large
     allowed_requesters: [ "patch", "github_tag" ]
     depends_on:
       - name: build_operator_ubi
@@ -1525,7 +1527,7 @@ buildvariants:
       - name: build_agent_images_ubi
         variant: init_test_run
       - name: build_test_image_ibm
-        variant: init_test_run_ibm
+        variant: init_test_run_ibm_z
     tasks:
       - name: e2e_smoke_ibm_task_group
 
@@ -1753,11 +1755,21 @@ buildvariants:
       - name: build_upgrade_hook_image
       - name: prepare_aws
 
-  - name: init_test_run_ibm
-    display_name: init_test_run_ibm
+  - name: init_test_run_ibm_power
+    display_name: init_test_run_ibm_power
     max_hosts: -1
     run_on:
-      - ubuntu2204-small
+      - rhel9-power-small
+      - rhel9-power-large
+    tasks:
+      - name: build_test_image_ibm
+
+  - name: init_test_run_ibm_z
+    display_name: init_test_run_ibm_z
+    max_hosts: -1
+    run_on:
+      - rhel9-zseries-small
+      - rhel9-zseries-large
     tasks:
       - name: build_test_image_ibm
 
