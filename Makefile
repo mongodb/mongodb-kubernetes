@@ -60,7 +60,7 @@ precommit:
 	@ .githooks/pre-commit
 
 precommit-with-licenses:
-	@ MDB_UPDATE_LICENSE=true .githooks/pre-commit
+	@ MDB_UPDATE_LICENSES=true .githooks/pre-commit
 
 switch:
 	@ scripts/dev/switch_context.sh $(context) $(additional_override)
