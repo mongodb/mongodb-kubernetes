@@ -44,7 +44,7 @@ from lib.base_logger import logger
 from lib.sonar.sonar import process_image
 from scripts.evergreen.release.agent_matrix import (
     get_supported_operator_versions,
-    get_supported_version_for_image_matrix_handling,
+    get_supported_version_for_image,
 )
 from scripts.evergreen.release.sbom import generate_sbom, generate_sbom_for_cli
 from scripts.release.build.image_signing import (
@@ -839,7 +839,7 @@ def build_image_daily(
 
     @TRACER.start_as_current_span("inner")
     def inner(build_configuration: BuildConfiguration):
-        supported_versions = get_supported_version_for_image_matrix_handling(image_name)
+        supported_versions = get_supported_version_for_image(image_name)
         variants = get_supported_variants_for_image(image_name)
 
         args = args_for_daily_image(image_name)
