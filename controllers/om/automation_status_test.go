@@ -75,7 +75,7 @@ func TestCheckAutomationStatusIsGoal(t *testing.T) {
 						},
 						{
 							Name:                    "b",
-							Plan:                    []string{"FCV", automationAgentKubeUpgradePlan},
+							Plan:                    []string{"FCV", automationAgentKubeUpgradeMove},
 							LastGoalVersionAchieved: 1,
 						},
 					},
