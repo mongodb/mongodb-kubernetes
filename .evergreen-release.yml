@@ -10,11 +10,9 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
-      - func: setup_docker_sbom
-      - func: legacy_pipeline
+      - func: release_pipeline
         vars:
           image_name: operator
-          include_tags: release
 
   # Releases init images to Quay
   - name: release_init_appdb
@@ -24,11 +22,9 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
-      - func: setup_docker_sbom
-      - func: legacy_pipeline
+      - func: release_pipeline
         vars:
           image_name: init-appdb
-          include_tags: release
 
   - name: release_init_database
     tags: [ "image_release" ]
@@ -37,11 +33,9 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
-      - func: setup_docker_sbom
-      - func: legacy_pipeline
+      - func: release_pipeline
         vars:
           image_name: init-database
-          include_tags: release
 
   - name: release_init_ops_manager
     tags: [ "image_release" ]
@@ -50,11 +44,9 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
-      - func: setup_docker_sbom
-      - func: legacy_pipeline
+      - func: release_pipeline
         vars:
           image_name: init-ops-manager
-          include_tags: release
 
   - name: release_database
     tags: [ "image_release" ]
@@ -63,13 +55,13 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
-      - func: setup_docker_sbom
-      - func: legacy_pipeline
+      - func: release_pipeline
         vars:
           image_name: database
 
   - name: prepare_and_upload_openshift_bundles
     tags: [ "openshift_bundles" ]
+    allowed_requesters: [ "patch", "github_tag" ]
     commands:
       - func: clone
       - func: setup_aws
@@ -84,6 +76,7 @@ tasks:
 
   - name: run_conditionally_prepare_and_upload_openshift_bundles
     tags: [ "openshift_bundles" ]
+    allowed_requesters: [ "patch", "github_tag" ]
     commands:
       - func: clone
       - func: run_task_conditionally
