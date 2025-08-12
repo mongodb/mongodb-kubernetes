@@ -21,7 +21,7 @@ variables:
 tasks:
   - name: periodic_build_operator
     commands:
-      - func: pipeline
+      - func: legacy_pipeline
         vars:
           image_name: operator-daily
 
@@ -35,49 +35,49 @@ tasks:
 
   - name: periodic_build_init_appdb
     commands:
-      - func: pipeline
+      - func: legacy_pipeline
         vars:
           image_name: init-appdb-daily
 
   - name: periodic_build_init_database
     commands:
-      - func: pipeline
+      - func: legacy_pipeline
         vars:
           image_name: init-database-daily
 
   - name: periodic_build_init_opsmanager
     commands:
-      - func: pipeline
+      - func: legacy_pipeline
         vars:
           image_name: init-ops-manager-daily
 
   - name: periodic_build_database
     commands:
-      - func: pipeline
+      - func: legacy_pipeline
         vars:
           image_name: database-daily
 
   - name: periodic_build_sbom_cli
     commands:
-      - func: pipeline
+      - func: legacy_pipeline
         vars:
           image_name: cli
 
   - name: periodic_build_ops_manager_6
     commands:
-      - func: pipeline
+      - func: legacy_pipeline
         vars:
           image_name: ops-manager-6-daily
 
   - name: periodic_build_ops_manager_7
     commands:
-      - func: pipeline
+      - func: legacy_pipeline
         vars:
           image_name: ops-manager-7-daily
 
   - name: periodic_build_ops_manager_8
     commands:
-      - func: pipeline
+      - func: legacy_pipeline
         vars:
           image_name: ops-manager-8-daily
 
@@ -91,7 +91,7 @@ tasks:
     exec_timeout_secs: 43200
     commands:
       - func: enable_QEMU
-      - func: pipeline
+      - func: legacy_pipeline
         vars:
           image_name: mongodb-agent-daily
 
@@ -99,7 +99,7 @@ tasks:
     exec_timeout_secs: 43200
     commands:
       - func: enable_QEMU
-      - func: pipeline
+      - func: legacy_pipeline
         vars:
           image_name: mongodb-agent-1-daily
 
@@ -123,19 +123,19 @@ tasks:
   - name: periodic_build_community_operator
     commands:
       - func: enable_QEMU
-      - func: pipeline
+      - func: legacy_pipeline
         vars:
           image_name: mongodb-kubernetes-operator-daily
 
   - name: periodic_build_readiness_probe
     commands:
-      - func: pipeline
+      - func: legacy_pipeline
         vars:
           image_name: readinessprobe-daily
 
   - name: periodic_build_version_upgrade_post_start_hook
     commands:
-      - func: pipeline
+      - func: legacy_pipeline
         vars:
           image_name: operator-version-upgrade-post-start-hook-daily
 

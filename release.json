@@ -38,7 +38,6 @@
     "ops-manager": {
       "ssdlc_name": "MongoDB Controllers for Kubernetes Enterprise Ops Manager",
       "versions": [
-        "6.0.25",
         "6.0.26",
         "6.0.27",
         "7.0.11",
@@ -46,6 +45,7 @@
         "7.0.13",
         "7.0.14",
         "7.0.15",
+        "7.0.17",
         "8.0.0",
         "8.0.1",
         "8.0.2",
@@ -54,7 +54,8 @@
         "8.0.5",
         "8.0.6",
         "8.0.7",
-        "8.0.11"
+        "8.0.11",
+        "8.0.12"
       ],
       "variants": [
         "ubi"
@@ -108,10 +109,6 @@
         "cloud_manager": "13.37.0.9590-1",
         "cloud_manager_tools": "100.12.2",
         "ops_manager": {
-          "6.0.25": {
-            "agent_version": "12.0.33.7866-1",
-            "tools_version": "100.10.0"
-          },
           "6.0.26": {
             "agent_version": "12.0.34.7888-1",
             "tools_version": "100.10.0"
@@ -139,6 +136,10 @@
           "7.0.15": {
             "agent_version": "107.0.15.8741-1",
             "tools_version": "100.11.0"
+          },
+          "7.0.17": {
+            "agent_version": "107.0.17.8771-1",
+            "tools_version": "100.12.2"
           },
           "8.0.0": {
             "agent_version": "108.0.0.8694-1",
@@ -174,6 +175,10 @@
           },
           "8.0.11": {
             "agent_version": "108.0.11.8830-1",
+            "tools_version": "100.12.2"
+          },
+          "8.0.12": {
+            "agent_version": "108.0.12.8846-1",
             "tools_version": "100.12.2"
           }
         }
