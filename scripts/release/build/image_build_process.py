@@ -101,7 +101,7 @@ def execute_docker_build(
         # Convert build args to the format expected by python_on_whales
         build_args = {k: str(v) for k, v in args.items()}
 
-        logger.info(f"Building image: {tags}")
+        logger.info(f"Building images: {tags}")
         logger.info(f"Platforms: {platforms}")
         logger.info(f"Dockerfile: {dockerfile}")
         logger.info(f"Build context: {path}")
