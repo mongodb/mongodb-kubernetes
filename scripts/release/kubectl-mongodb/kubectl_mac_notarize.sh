@@ -33,7 +33,7 @@ if [[ -f "./dist/kubectl-mongodb_darwin_amd64_v1/kubectl-mongodb" && -f "./dist/
   unzip -l ./dist/kubectl-mongodb_macos_signed.zip
   echo "done"
 
-  echo "running unzip -t to verify that the op zip file of macnotary is correct"
+  echo "running unzip -t ./dist/kubectl-mongodb_macos_signed.zip to verify that the op zip file of macnotary is correct"
   unzip -t ./dist/kubectl-mongodb_macos_signed.zip
   echo "done"
 
