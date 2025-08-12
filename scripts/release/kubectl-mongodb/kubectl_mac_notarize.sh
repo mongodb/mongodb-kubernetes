@@ -29,7 +29,7 @@ if [[ -f "./dist/kubectl-mongodb_darwin_amd64_v1/kubectl-mongodb" && -f "./dist/
 		-b com.mongodb.mongodb-kubectl-mongodb \
 		-o ./dist/kubectl-mongodb_macos_signed.zip
 
-  echo "printing output zip file content"
+  echo "printing output zip file content, unzip -l ./dist/kubectl-mongodb_macos_signed.zip"
   unzip -l ./dist/kubectl-mongodb_macos_signed.zip
   echo "done"
 
