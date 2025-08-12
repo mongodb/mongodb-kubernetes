@@ -436,7 +436,7 @@ tasks:
   - name: build_test_image_ibm
     commands:
       - func: clone
-      - func: setup_building_host
+      - func: setup_building_host_minikube
       - func: build_multi_cluster_binary
       - func: build_test_image_ibm
 
