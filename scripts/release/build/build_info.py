@@ -24,8 +24,9 @@ class ImageInfo:
     repository: str
     platforms: list[str]
     version: str
-    sign: bool
-    latest_tag: bool
+    sign: bool = False
+    latest_tag: bool = False
+    olm_tag: bool = False
 
 
 @dataclass
@@ -33,14 +34,14 @@ class BinaryInfo:
     s3_store: str
     platforms: list[str]
     version: str
-    sign: bool
+    sign: bool = False
 
 
 @dataclass
 class HelmChartInfo:
     repository: str
     version: str
-    sign: bool
+    sign: bool = False
 
 
 @dataclass
@@ -99,6 +100,7 @@ def load_build_info(scenario: BuildScenario,
             version=image_version,
             sign=data.get("sign", False),
             latest_tag=data.get("latest-tag", False),
+            olm_tag=data.get("olm-tag", False),
         )
 
     binaries = {}

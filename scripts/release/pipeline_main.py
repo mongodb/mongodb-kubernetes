@@ -108,6 +108,7 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     # Resolve final values with overrides
     version = args.version or image_build_info.version
     latest_tag = image_build_info.latest_tag
+    olm_tag = image_build_info.olm_tag
     registry = args.registry or image_build_info.repository
     platforms = get_platforms_from_arg(args.platform) or image_build_info.platforms
     sign = args.sign or image_build_info.sign
@@ -116,6 +117,7 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
         scenario=build_scenario,
         version=version,
         latest_tag=latest_tag,
+        olm_tag=olm_tag,
         registry=registry,
         parallel=args.parallel,
         platforms=platforms,
