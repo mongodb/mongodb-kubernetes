@@ -43,7 +43,6 @@ import docker
 from lib.base_logger import logger
 from lib.sonar.sonar import process_image
 from scripts.evergreen.release.agent_matrix import (
-    get_supported_operator_versions,
     get_supported_version_for_image,
 )
 from scripts.evergreen.release.sbom import generate_sbom, generate_sbom_for_cli
@@ -1515,19 +1514,6 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         ),
         "mongodb-kubernetes-operator-daily": build_image_daily("mongodb-kubernetes-operator"),
     }
-
-    # since we only support the last 3 operator versions, we can build the following names which each matches to an
-    # operator version we support and rebuild:
-    # - mongodb-agent-daily-1
-    # - mongodb-agent-daily-2
-    # - mongodb-agent-daily-3
-    # get_supported_operator_versions returns the last three supported operator versions in a sorted manner
-    i = 1
-    for operator_version in get_supported_operator_versions():
-        image_builders[f"mongodb-agent-{i}-daily"] = build_image_daily(
-            "mongodb-agent", operator_version=operator_version
-        )
-        i += 1
 
     return image_builders
 

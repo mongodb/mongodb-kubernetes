@@ -10,27 +10,20 @@ def get_release() -> Dict[str, str]:
 
 
 def build_agent_gather_versions(release: Dict[str, str]):
-    # This is a list of a tuples - agent version and corresponding tools version
-    agent_versions_to_be_build = list()
-    agent_versions_to_be_build.append(
-        release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager"],
-    )
+    agent_versions = set()
+
+    # Add cloud manager version
+    cloud_manager = release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager"]
+    agent_versions.add(cloud_manager)
+
+    # Add ops manager versions
     for _, om in release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"].items():
-        agent_versions_to_be_build.append(om["agent_version"])
-    return agent_versions_to_be_build
+        agent_versions.add(om["agent_version"])
+
+    return sorted(list(agent_versions))
 
 
 def get_supported_version_for_image(image: str) -> List[str]:
     if image == "mongodb-agent":
         return build_agent_gather_versions(get_release())
     return sorted(get_release()["supportedImages"][image]["versions"])
-
-
-def get_supported_operator_versions(supported_versions: int = DEFAULT_SUPPORTED_OPERATOR_VERSIONS):
-    operator_versions = list(get_release()["supportedImages"]["mongodb-kubernetes"]["versions"])
-    operator_versions.sort(key=lambda s: list(map(int, s.split("."))))
-
-    if len(operator_versions) <= supported_versions:
-        return operator_versions
-
-    return operator_versions[-supported_versions:]
