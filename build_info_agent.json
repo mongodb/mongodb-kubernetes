@@ -2,11 +2,11 @@
   "platform_mappings": {
     "linux/amd64": {
       "agent_suffix": "linux_x86_64.tar.gz",
-      "tools_suffix": "rhel88-x86_64-{TOOLS_VERSION}.tgz"
+      "tools_suffix": "rhel93-x86_64-{TOOLS_VERSION}.tgz"
     },
     "linux/arm64": {
       "agent_suffix": "amzn2_aarch64.tar.gz",
-      "tools_suffix": "rhel88-aarch64-{TOOLS_VERSION}.tgz"
+      "tools_suffix": "rhel93-aarch64-{TOOLS_VERSION}.tgz"
     },
     "linux/s390x": {
       "agent_suffix": "rhel7_s390x.tar.gz",
