@@ -1,8 +1,6 @@
-import json
 import os
 import shutil
 import tempfile
-from typing import Dict
 
 from _pytest.fixtures import fixture
 from git import Repo
@@ -169,9 +167,9 @@ def add_file(repo_path: str, src_file_path: str, dst_file_path: str | None = Non
 
 @fixture(scope="module")
 def readinessprobe_version() -> str:
-    return get_manually_upgradable_versions()["readinessprobe"]
+    return get_manually_upgradable_versions()["readiness-probe"]
 
 
 @fixture(scope="module")
 def operator_version_upgrade_post_start_hook_version() -> str:
-    return get_manually_upgradable_versions()["operator_version_upgrade_post_start_hook"]
+    return get_manually_upgradable_versions()["upgrade-hook"]

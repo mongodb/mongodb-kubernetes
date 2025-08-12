@@ -1,6 +1,5 @@
 import argparse
 import os
-import sys
 from typing import Callable, Dict
 
 from opentelemetry import context, trace
@@ -19,8 +18,8 @@ from lib.base_logger import logger
 from scripts.release.atomic_pipeline import (
     build_agent_default_case,
     build_database_image,
-    build_init_appdb,
-    build_init_database,
+    build_init_appdb_image,
+    build_init_database_image,
     build_init_om_image,
     build_mco_tests_image,
     build_om_image,
@@ -29,49 +28,120 @@ from scripts.release.atomic_pipeline import (
     build_tests_image,
     build_upgrade_hook_image,
 )
-from scripts.release.build_configuration import BuildConfiguration
-from scripts.release.build_context import (
-    BuildContext,
+from scripts.release.build.build_info import (
+    AGENT_IMAGE,
+    DATABASE_IMAGE,
+    INIT_APPDB_IMAGE,
+    INIT_DATABASE_IMAGE,
+    INIT_OPS_MANAGER_IMAGE,
+    MCO_TESTS_IMAGE,
+    MEKO_TESTS_IMAGE,
+    OPERATOR_IMAGE,
+    OPS_MANAGER_IMAGE,
+    READINESS_PROBE_IMAGE,
+    UPGRADE_HOOK_IMAGE,
+    load_build_info,
+)
+from scripts.release.build.build_scenario import (
     BuildScenario,
 )
-from scripts.release.build_images import DEFAULT_BUILDER_NAME, ensure_buildx_builder
+from scripts.release.build.image_build_configuration import (
+    SUPPORTED_PLATFORMS,
+    ImageBuildConfiguration,
+)
+from scripts.release.build.image_build_process import (
+    DEFAULT_BUILDER_NAME,
+    ensure_buildx_builder,
+)
 
 """
-The goal of main.py, build_configuration.py and build_context.py is to provide a single source of truth for the build
+The goal of main.py, image_build_configuration.py and build_context.py is to provide a single source of truth for the build
 configuration. All parameters that depend on the the build environment (local dev, evg, etc) should be resolved here and
 not in the pipeline.
 """
-
-SUPPORTED_PLATFORMS = ["linux/amd64", "linux/arm64"]
 
 
 def get_builder_function_for_image_name() -> Dict[str, Callable]:
     """Returns a dictionary of image names that can be built."""
 
     image_builders = {
-        "test": build_tests_image,
-        "operator": build_operator_image,
-        "mco-test": build_mco_tests_image,
-        "readiness-probe": build_readiness_probe_image,
-        "upgrade-hook": build_upgrade_hook_image,
-        "database": build_database_image,
-        "agent": build_agent_default_case,
-        #
+        MEKO_TESTS_IMAGE: build_tests_image,
+        OPERATOR_IMAGE: build_operator_image,
+        MCO_TESTS_IMAGE: build_mco_tests_image,
+        READINESS_PROBE_IMAGE: build_readiness_probe_image,
+        UPGRADE_HOOK_IMAGE: build_upgrade_hook_image,
+        DATABASE_IMAGE: build_database_image,
+        AGENT_IMAGE: build_agent_default_case,
         # Init images
-        "init-appdb": build_init_appdb,
-        "init-database": build_init_database,
-        "init-ops-manager": build_init_om_image,
-        #
+        INIT_APPDB_IMAGE: build_init_appdb_image,
+        INIT_DATABASE_IMAGE: build_init_database_image,
+        INIT_OPS_MANAGER_IMAGE: build_init_om_image,
         # Ops Manager image
-        "ops-manager": build_om_image,
+        OPS_MANAGER_IMAGE: build_om_image,
     }
 
     return image_builders
 
 
-def build_image(image_name: str, build_configuration: BuildConfiguration):
+def build_image(image_name: str, build_configuration: ImageBuildConfiguration):
     """Builds one of the supported images by its name."""
+    if image_name not in get_builder_function_for_image_name():
+        raise ValueError(
+            f"Image '{image_name}' is not supported. Supported images: {', '.join(get_builder_function_for_image_name().keys())}"
+        )
     get_builder_function_for_image_name()[image_name](build_configuration)
+
+
+def image_build_config_from_args(args) -> ImageBuildConfiguration:
+    image = args.image
+
+    build_scenario = get_scenario_from_arg(args.scenario) or BuildScenario.infer_scenario_from_environment()
+
+    build_info = load_build_info(build_scenario)
+    logger.info(f"image is {image}")
+    logger.info(f"images are {build_info.images}")
+    image_build_info = build_info.images.get(image)
+    logger.info(f"image_build_info is {image_build_info}")
+    if not image_build_info:
+        raise ValueError(f"Image '{image}' is not defined in the build info for scenario '{build_scenario}'")
+
+    # Resolve final values with overrides
+    version = args.version or image_build_info.version
+    registry = args.registry or image_build_info.repository
+    platforms = get_platforms_from_arg(args.platform) or image_build_info.platforms
+    sign = args.sign or image_build_info.sign
+
+    return ImageBuildConfiguration(
+        scenario=build_scenario,
+        version=version,
+        registry=registry,
+        parallel=args.parallel,
+        platforms=platforms,
+        sign=sign,
+        parallel_factor=args.parallel_factor,
+    )
+
+
+def get_scenario_from_arg(args_scenario: str) -> BuildScenario | None:
+    if not args_scenario:
+        return None
+
+    try:
+        return BuildScenario(args_scenario)
+    except ValueError as e:
+        raise ValueError(f"Invalid scenario '{args_scenario}': {e}")
+
+
+def get_platforms_from_arg(args_platforms: str) -> list[str] | None:
+    if not args_platforms:
+        return None
+
+    platforms = [p.strip() for p in args_platforms.split(",")]
+    if any(p not in SUPPORTED_PLATFORMS for p in platforms):
+        raise ValueError(
+            f"Unsupported platform in --platforms '{args_platforms}'. Supported platforms: {', '.join(SUPPORTED_PLATFORMS)}"
+        )
+    return platforms
 
 
 def _setup_tracing():
@@ -106,12 +176,10 @@ def _setup_tracing():
 
 
 def main():
-
     _setup_tracing()
     parser = argparse.ArgumentParser(description="Build container images.")
     parser.add_argument("image", help="Image to build.")  # Required
     parser.add_argument("--parallel", action="store_true", help="Build images in parallel.")
-    parser.add_argument("--debug", action="store_true", help="Enable debug logging.")
     parser.add_argument("--sign", action="store_true", help="Sign images.")
     parser.add_argument(
         "--scenario",
@@ -121,8 +189,7 @@ def main():
     # Override arguments for build context and configuration
     parser.add_argument(
         "--platform",
-        default="linux/amd64",
-        help="Target platforms for multi-arch builds (comma-separated). Example: linux/amd64,linux/arm64. Defaults to linux/amd64.",
+        help="Override the platforms instead of resolving from build scenario. Multi-arch builds are comma-separated. Example: linux/amd64,linux/arm64",
     )
     parser.add_argument(
         "--version",
@@ -142,7 +209,7 @@ def main():
 
     args = parser.parse_args()
 
-    build_config = build_config_from_args(args)
+    build_config = image_build_config_from_args(args)
     logger.info(f"Building image: {args.image}")
     logger.info(f"Build configuration: {build_config}")
 
@@ -151,42 +218,6 @@ def main():
     # and not face race conditions
     ensure_buildx_builder(DEFAULT_BUILDER_NAME)
     build_image(args.image, build_config)
-
-
-def build_config_from_args(args):
-    # Validate that the image name is supported
-    supported_images = get_builder_function_for_image_name().keys()
-    if args.image not in supported_images:
-        logger.error(f"Unsupported image '{args.image}'. Supported images: {', '.join(supported_images)}")
-        sys.exit(1)
-
-    # Parse platform argument (comma-separated)
-    platforms = [p.strip() for p in args.platform.split(",")]
-    if any(p not in SUPPORTED_PLATFORMS for p in platforms):
-        logger.error(
-            f"Unsupported platform in '{args.platform}'. Supported platforms: {', '.join(SUPPORTED_PLATFORMS)}"
-        )
-        sys.exit(1)
-
-    # Centralized configuration management with overrides
-    build_scenario = args.scenario or BuildScenario.infer_scenario_from_environment()
-    build_context = BuildContext.from_scenario(build_scenario)
-
-    # Resolve final values with overrides
-    scenario = args.scenario or build_context.scenario
-    version = args.version or build_context.get_version()
-    registry = args.registry or build_context.get_base_registry()
-    sign = args.sign or build_context.signing_enabled
-
-    return BuildConfiguration(
-        scenario=scenario,
-        version=version,
-        base_registry=registry,
-        parallel=args.parallel,
-        platforms=platforms,
-        sign=sign,
-        parallel_factor=args.parallel_factor,
-    )
 
 
 if __name__ == "__main__":

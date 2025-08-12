@@ -423,7 +423,7 @@ tasks:
       - func: build_multi_cluster_binary
       - func: pipeline
         vars:
-          image_name: test
+          image_name: meko-tests
 
   - name: build_mco_test_image
     commands:
@@ -431,7 +431,7 @@ tasks:
       - func: setup_building_host
       - func: pipeline
         vars:
-          image_name: mco-test
+          image_name: mco-tests
 
   - name: build_operator_ubi
     commands:
