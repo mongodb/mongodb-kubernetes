@@ -3,11 +3,11 @@ import base64
 from typing import Dict
 
 import boto3
+import docker
 import python_on_whales
 from botocore.exceptions import BotoCoreError, ClientError
 from python_on_whales.exceptions import DockerException
 
-import docker
 from lib.base_logger import logger
 
 DEFAULT_BUILDER_NAME = "multiarch"  # Default buildx builder name
@@ -48,17 +48,17 @@ def ensure_buildx_builder(builder_name: str = DEFAULT_BUILDER_NAME) -> str:
     :return: The builder name that was created or reused
     """
 
-    docker = python_on_whales.docker
+    docker_cmd = python_on_whales.docker
 
     logger.info(f"Ensuring buildx builder '{builder_name}' exists...")
-    existing_builders = docker.buildx.list()
+    existing_builders = docker_cmd.buildx.list()
     if any(b.name == builder_name for b in existing_builders):
         logger.info(f"Builder '{builder_name}' already exists – reusing it.")
-        docker.buildx.use(builder_name)
+        docker_cmd.buildx.use(builder_name)
         return builder_name
 
     try:
-        docker.buildx.create(
+        docker_cmd.buildx.create(
             name=builder_name,
             driver="docker-container",
             use=True,
@@ -73,13 +73,13 @@ def ensure_buildx_builder(builder_name: str = DEFAULT_BUILDER_NAME) -> str:
 
 
 def execute_docker_build(
-    tag: str,
-    dockerfile: str,
-    path: str,
-    args: Dict[str, str] = {},
-    push: bool = True,
-    platforms: list[str] = None,
-    builder_name: str = DEFAULT_BUILDER_NAME,
+        tag: str,
+        dockerfile: str,
+        path: str, args:
+        Dict[str, str],
+        push: bool,
+        platforms: list[str],
+        builder_name: str = DEFAULT_BUILDER_NAME,
 ):
     """
     Build a Docker image using python_on_whales and Docker Buildx for multi-architecture support.
@@ -90,20 +90,17 @@ def execute_docker_build(
     :param args: Build arguments dictionary
     :param push: Whether to push the image after building
     :param platforms: List of target platforms (e.g., ["linux/amd64", "linux/arm64"])
+    :param builder_name: Name of the buildx builder to use
     """
     # Login to ECR before building
     # TODO CLOUDP-335471: use env variables to configure AWS region and account ID
     ecr_login_boto3(region="us-east-1", account_id="268558157000")
 
-    docker = python_on_whales.docker
+    docker_cmd = python_on_whales.docker
 
     try:
         # Convert build args to the format expected by python_on_whales
-        build_args = {k: str(v) for k, v in args.items()} if args else {}
-
-        # Set default platforms if not specified
-        if platforms is None:
-            platforms = ["linux/amd64"]
+        build_args = {k: str(v) for k, v in args.items()}
 
         logger.info(f"Building image: {tag}")
         logger.info(f"Platforms: {platforms}")
@@ -116,9 +113,10 @@ def execute_docker_build(
             logger.info(f"Multi-platform build for {len(platforms)} architectures")
 
         # Build the image using buildx, builder must be already initialized
-        docker.buildx.build(
+        docker_cmd.buildx.build(
             context_path=path,
             file=dockerfile,
+            # TODO: add tag for release builds (OLM immutable tag)
             tags=[tag],
             platforms=platforms,
             builder=builder_name,

@@ -11,7 +11,7 @@ import json
 import sys
 from typing import List
 
-from agent_matrix import get_supported_version_for_image_matrix_handling
+from agent_matrix import get_supported_version_for_image
 from helm_files_handler import (
     get_value_in_yaml_file,
     set_value_in_yaml_file,
@@ -80,7 +80,7 @@ def update_helm_charts(operator_version, release):
     set_value_in_yaml_file(
         "helm_chart/values-openshift.yaml",
         "relatedImages.agent",
-        filterNonReleaseOut(get_supported_version_for_image_matrix_handling("mongodb-agent")),
+        filterNonReleaseOut(get_supported_version_for_image("mongodb-agent")),
     )
     set_value_in_yaml_file("helm_chart/values-openshift.yaml", "operator.version", operator_version)
     set_value_in_yaml_file("helm_chart/values.yaml", "operator.version", operator_version)
