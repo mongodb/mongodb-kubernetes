@@ -90,6 +90,7 @@ def execute_docker_build(
     :param args: Build arguments dictionary
     :param push: Whether to push the image after building
     :param platforms: List of target platforms (e.g., ["linux/amd64", "linux/arm64"])
+    :param builder_name: Name of the buildx builder to use
     """
     # Login to ECR before building
     # TODO CLOUDP-335471: use env variables to configure AWS region and account ID
