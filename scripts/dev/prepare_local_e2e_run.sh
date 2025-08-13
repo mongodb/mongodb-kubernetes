@@ -49,7 +49,7 @@ ensure_namespace "${NAMESPACE}" 2>&1 | prepend "ensure_namespace"
 
 echo "Deleting ~/.docker/.config.json and re-creating it"
 rm ~/.docker/config.json || true
-scripts/dev/configure_docker_auth.sh 2>&1 | prepend "configure_docker_auth"
+scripts/dev/configure_container_auth.sh 2>&1 | prepend "configure_docker_auth"
 
 echo "Configuring operator"
 scripts/evergreen/e2e/configure_operator.sh 2>&1 | prepend "configure_operator"
@@ -59,6 +59,11 @@ prepare_operator_config_map "$(kubectl config current-context)" 2>&1 | prepend "
 
 rm -rf docker/mongodb-kubernetes-tests/helm_chart
 cp -rf helm_chart docker/mongodb-kubernetes-tests/helm_chart
+
+rm -rf docker/mongodb-kubernetes-tests/public
+cp -rf public docker/mongodb-kubernetes-tests/public
+cp release.json docker/mongodb-kubernetes-tests/release.json
+cp requirements.txt docker/mongodb-kubernetes-tests/requirements.txt
 
 # shellcheck disable=SC2154
 if [[ "${KUBE_ENVIRONMENT_NAME}" == "multi" ]]; then

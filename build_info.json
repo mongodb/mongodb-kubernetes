@@ -13,7 +13,9 @@
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes",
         "platforms": [
           "linux/arm64",
-          "linux/amd64"
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       },
       "release": {
@@ -21,7 +23,9 @@
         "repository": "quay.io/mongodb/mongodb-kubernetes",
         "platforms": [
           "linux/arm64",
-          "linux/amd64"
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       }
     },
@@ -55,7 +59,9 @@
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-init-database",
         "platforms": [
           "linux/arm64",
-          "linux/amd64"
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       },
       "release": {
@@ -63,7 +69,9 @@
         "repository": "quay.io/mongodb/mongodb-kubernetes-init-database",
         "platforms": [
           "linux/arm64",
-          "linux/amd64"
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       }
     },
@@ -80,7 +88,9 @@
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-init-appdb",
         "platforms": [
           "linux/arm64",
-          "linux/amd64"
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       },
       "release": {
@@ -88,7 +98,9 @@
         "repository": "quay.io/mongodb/mongodb-kubernetes-init-appdb",
         "platforms": [
           "linux/arm64",
-          "linux/amd64"
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       }
     },
@@ -105,7 +117,9 @@
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-init-ops-manager",
         "platforms": [
           "linux/arm64",
-          "linux/amd64"
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       },
       "release": {
@@ -113,7 +127,9 @@
         "repository": "quay.io/mongodb/mongodb-kubernetes-init-ops-manager",
         "platforms": [
           "linux/arm64",
-          "linux/amd64"
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       }
     },
@@ -130,7 +146,9 @@
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-database",
         "platforms": [
           "linux/arm64",
-          "linux/amd64"
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       },
       "release": {
@@ -138,7 +156,9 @@
         "repository": "quay.io/mongodb/mongodb-kubernetes-database",
         "platforms": [
           "linux/arm64",
-          "linux/amd64"
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       }
     },
@@ -147,12 +167,14 @@
       "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests",
         "platforms": [
+          "linux/arm64",
           "linux/amd64"
         ]
       },
       "staging": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests",
         "platforms": [
+          "linux/arm64",
           "linux/amd64"
         ]
       }
@@ -185,7 +207,9 @@
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-readinessprobe",
         "platforms": [
           "linux/arm64",
-          "linux/amd64"
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       },
       "release": {
@@ -194,7 +218,9 @@
         "repository": "quay.io/mongodb/mongodb-kubernetes-readinessprobe",
         "platforms": [
           "linux/arm64",
-          "linux/amd64"
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       }
     },
@@ -211,7 +237,9 @@
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-operator-version-upgrade-post-start-hook",
         "platforms": [
           "linux/arm64",
-          "linux/amd64"
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       },
       "release": {
@@ -220,7 +248,9 @@
         "repository": "quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook",
         "platforms": [
           "linux/arm64",
-          "linux/amd64"
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       }
     },
@@ -237,7 +267,9 @@
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-agent-ubi",
         "platforms": [
           "linux/arm64",
-          "linux/amd64"
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       },
       "release": {
@@ -245,7 +277,9 @@
         "repository": "quay.io/mongodb/mongodb-agent-ubi",
         "platforms": [
           "linux/arm64",
-          "linux/amd64"
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       }
     },

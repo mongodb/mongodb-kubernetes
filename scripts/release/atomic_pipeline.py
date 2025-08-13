@@ -27,7 +27,111 @@ from scripts.release.build.image_signing import (
 TRACER = trace.get_tracer("evergreen-agent")
 
 
-@TRACER.start_as_current_span("build_image")
+def load_agent_build_info():
+    """Load agent platform mappings from build_info_agent.json"""
+    with open("build_info_agent.json", "r") as f:
+        return json.load(f)
+
+
+def extract_tools_version_from_release(release: Dict) -> str:
+    """
+    Extract tools version from release.json mongodbToolsBundle.ubi field.
+
+    Args:
+        release: Release dictionary from release.json
+
+    Returns:
+        Tools version string (e.g., "100.12.2")
+    """
+    tools_bundle = release["mongodbToolsBundle"]["ubi"]
+    # Extract version from filename like "mongodb-database-tools-rhel88-x86_64-100.12.2.tgz"
+    # The version is the last part before .tgz
+    version_part = tools_bundle.split("-")[-1]  # Gets "100.12.2.tgz"
+    tools_version = version_part.replace(".tgz", "")  # Gets "100.12.2"
+    return tools_version
+
+
+def get_build_arg_names(platform: str) -> Dict[str, str]:
+    """
+    Generate build argument names for a platform.
+
+    Args:
+        platform: Platform string (e.g., "linux/amd64")
+
+    Returns:
+        Dictionary with agent_build_arg and tools_build_arg keys
+    """
+    # Extract architecture from platform (e.g., "amd64" from "linux/amd64")
+    arch = platform.split("/")[1]
+
+    return {"agent_build_arg": f"mongodb_agent_version_{arch}", "tools_build_arg": f"mongodb_tools_version_{arch}"}
+
+
+def generate_tools_build_args(platforms: List[str], tools_version: str) -> Dict[str, str]:
+    """
+    Generate build arguments for MongoDB tools based on platform mappings.
+
+    Args:
+        platforms: List of platforms (e.g., ["linux/amd64", "linux/arm64"])
+        tools_version: MongoDB tools version
+
+    Returns:
+        Dictionary of build arguments for docker build (tools only)
+    """
+    agent_info = load_agent_build_info()
+    build_args = {}
+
+    for platform in platforms:
+        if platform not in agent_info["platform_mappings"]:
+            logger.warning(f"Platform {platform} not found in agent mappings, skipping")
+            continue
+
+        mapping = agent_info["platform_mappings"][platform]
+        build_arg_names = get_build_arg_names(platform)
+
+        # Generate tools build arg only
+        tools_suffix = mapping["tools_suffix"].replace("{TOOLS_VERSION}", tools_version)
+        tools_filename = f"{agent_info['base_names']['tools']}-{tools_suffix}"
+        build_args[build_arg_names["tools_build_arg"]] = tools_filename
+
+    return build_args
+
+
+def generate_agent_build_args(platforms: List[str], agent_version: str, tools_version: str) -> Dict[str, str]:
+    """
+    Generate build arguments for agent image based on platform mappings.
+
+    Args:
+        platforms: List of platforms (e.g., ["linux/amd64", "linux/arm64"])
+        agent_version: MongoDB agent version
+        tools_version: MongoDB tools version
+
+    Returns:
+        Dictionary of build arguments for docker build
+    """
+    agent_info = load_agent_build_info()
+    build_args = {}
+
+    for platform in platforms:
+        if platform not in agent_info["platform_mappings"]:
+            logger.warning(f"Platform {platform} not found in agent mappings, skipping")
+            continue
+
+        mapping = agent_info["platform_mappings"][platform]
+        build_arg_names = get_build_arg_names(platform)
+
+        # Generate agent build arg
+        agent_filename = f"{agent_info['base_names']['agent']}-{agent_version}.{mapping['agent_suffix']}"
+        build_args[build_arg_names["agent_build_arg"]] = agent_filename
+
+        # Generate tools build arg
+        tools_suffix = mapping["tools_suffix"].replace("{TOOLS_VERSION}", tools_version)
+        tools_filename = f"{agent_info['base_names']['tools']}-{tools_suffix}"
+        build_args[build_arg_names["tools_build_arg"]] = tools_filename
+
+    return build_args
+
+
 def build_image(
     build_configuration: ImageBuildConfiguration,
     build_args: Dict[str, str] = None,
@@ -230,9 +334,19 @@ def build_om_image(build_configuration: ImageBuildConfiguration):
 
 def build_init_appdb_image(build_configuration: ImageBuildConfiguration):
     release = load_release_file()
-    base_url = "https://fastdl.mongodb.org/tools/db/"
-    mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
-    args = {"version": build_configuration.version, "mongodb_tools_url_ubi": mongodb_tools_url_ubi}
+    base_url = "https://fastdl.mongodb.org/tools/db"
+
+    # Extract tools version and generate platform-specific build args
+    tools_version = extract_tools_version_from_release(release)
+    platform_build_args = generate_tools_build_args(
+        platforms=build_configuration.platforms, tools_version=tools_version
+    )
+
+    args = {
+        "version": build_configuration.version,
+        "mongodb_tools_url": base_url,  # Base URL for platform-specific downloads
+        **platform_build_args,  # Add the platform-specific build args
+    }
 
     build_image(
         build_configuration=build_configuration,
@@ -243,9 +357,20 @@ def build_init_appdb_image(build_configuration: ImageBuildConfiguration):
 # TODO: nam static: remove this once static containers becomes the default
 def build_init_database_image(build_configuration: ImageBuildConfiguration):
     release = load_release_file()
-    base_url = "https://fastdl.mongodb.org/tools/db/"
+    base_url = "https://fastdl.mongodb.org/tools/db"
     mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
-    args = {"version": build_configuration.version, "mongodb_tools_url_ubi": mongodb_tools_url_ubi}
+
+    # Extract tools version and generate platform-specific build args
+    tools_version = extract_tools_version_from_release(release)
+    platform_build_args = generate_tools_build_args(
+        platforms=build_configuration.platforms, tools_version=tools_version
+    )
+
+    args = {
+        "version": build_configuration.version,
+        "mongodb_tools_url": base_url,  # Add the base URL for the Dockerfile
+        **platform_build_args,  # Add the platform-specific build args
+    }
 
     build_image(
         build_configuration=build_configuration,
@@ -301,10 +426,8 @@ def build_agent_default_case(build_configuration: ImageBuildConfiguration):
         logger.info(f"Running with factor of {max_workers}")
         logger.info(f"======= Agent versions to build {agent_versions_to_build} =======")
         for idx, agent_tools_version in enumerate(agent_versions_to_build):
-            # We don't need to keep create and push the same image on every build.
-            # It is enough to create and push the non-operator suffixed images only during releases to ecr and quay.
             logger.info(f"======= Building Agent {agent_tools_version} ({idx}/{len(agent_versions_to_build)})")
-            _build_agent_operator(
+            _build_agent(
                 agent_tools_version,
                 build_configuration,
                 executor,
@@ -371,46 +494,45 @@ def gather_latest_agent_versions(release: Dict) -> List[Tuple[str, str]]:
     return sorted(list(set(agent_versions_to_build)))
 
 
-def _build_agent_operator(
+def _build_agent(
     agent_tools_version: Tuple[str, str],
     build_configuration: ImageBuildConfiguration,
     executor: ProcessPoolExecutor,
     tasks_queue: Queue,
 ):
     agent_version = agent_tools_version[0]
-    agent_distro = "rhel9_x86_64"
     tools_version = agent_tools_version[1]
-    tools_distro = get_tools_distro(tools_version)["amd"]
 
-    tasks_queue.put(
-        executor.submit(
-            build_agent_pipeline,
-            build_configuration,
-            agent_version,
-            agent_distro,
-            tools_version,
-            tools_distro,
-        )
-    )
+    tasks_queue.put(executor.submit(build_agent_pipeline, build_configuration, agent_version, tools_version))
 
 
 def build_agent_pipeline(
     build_configuration: ImageBuildConfiguration,
     agent_version: str,
-    agent_distro: str,
     tools_version: str,
-    tools_distro: str,
 ):
     build_configuration_copy = copy(build_configuration)
     build_configuration_copy.version = agent_version
+    print(
+        f"======== Building agent pipeline for version {agent_version}, build configuration version: {build_configuration.version}"
+    )
 
-    print(f"======== Building agent pipeline for version {agent_version}, tools version: {tools_version}")
+    # Generate platform-specific build arguments using the mapping
+    platform_build_args = generate_agent_build_args(
+        platforms=build_configuration.platforms, agent_version=agent_version, tools_version=tools_version
+    )
+
+    agent_base_url = (
+        "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
+    )
+    tools_base_url = "https://fastdl.mongodb.org/tools/db"
+
     args = {
         "version": agent_version,
         "agent_version": agent_version,
-        "agent_distro": agent_distro,
-        "tools_version": tools_version,
-        "tools_distro": tools_distro,
+        "mongodb_agent_url": agent_base_url,
+        "mongodb_tools_url": tools_base_url,
+        **platform_build_args,  # Add the platform-specific build args
     }
 
     build_image(

@@ -16,14 +16,21 @@ echo "Building multi cluster kube config creation tool."
 
 project_dir="$(pwd)"
 pushd cmd/kubectl-mongodb
-GOOS="${OS}" GOARCH="${ARCH}" CGO_ENABLED=0 go build -buildvcs=false -o "${project_dir}/docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator" main.go
-GOOS="linux" GOARCH="amd64" CGO_ENABLED=0 go build -buildvcs=false -o "${project_dir}/docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator_linux" main.go
+GOOS="${OS}" GOARCH="${ARCH}" CGO_ENABLED=0 go build -buildvcs=false -o "${project_dir}/docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator" main.go &
+
+GOOS="linux" GOARCH="amd64" CGO_ENABLED=0 go build -buildvcs=false -o "${project_dir}/docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator_amd64" main.go &
+GOOS="linux" GOARCH="s390x" CGO_ENABLED=0 go build -buildvcs=false -o "${project_dir}/docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator_s390x" main.go &
+GOOS="linux" GOARCH="ppc64le" CGO_ENABLED=0 go build -buildvcs=false -o "${project_dir}/docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator_ppc64le" main.go &
+GOOS="linux" GOARCH="arm64" CGO_ENABLED=0 go build -buildvcs=false -o "${project_dir}/docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator_arm64" main.go &
+wait
 popd
 chmod +x docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator
 
-# this one is used for the dockerfile to build the test image running on linux, this script might create 2 times
-# the same binary, but on the average case it creates one for linux and one for darwin-arm
-chmod +x docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator_linux
+# these are used in the dockerfile
+chmod +x docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator_amd64
+chmod +x docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator_s390x
+chmod +x docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator_ppc64le
+chmod +x docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator_arm64
 
 mkdir -p bin || true
 cp docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator bin/kubectl-mongodb || true
