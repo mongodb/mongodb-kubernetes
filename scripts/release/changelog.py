@@ -6,8 +6,6 @@ from enum import StrEnum
 import frontmatter
 from git import Commit, Repo
 
-DEFAULT_CHANGELOG_PATH = "changelog/"
-DEFAULT_INITIAL_GIT_TAG_VERSION = "1.0.0"
 FILENAME_DATE_FORMAT = "%Y%m%d"
 FRONTMATTER_DATE_FORMAT = "%Y-%m-%d"
 MAX_TITLE_LENGTH = 50

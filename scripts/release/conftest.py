@@ -5,7 +5,8 @@ import tempfile
 from _pytest.fixtures import fixture
 from git import Repo
 
-from scripts.release.changelog import DEFAULT_CHANGELOG_PATH
+from scripts.release.build.conftest import get_manually_upgradable_versions
+from scripts.release.constants import DEFAULT_CHANGELOG_PATH
 
 
 @fixture(scope="session")
@@ -162,3 +163,13 @@ def add_file(repo_path: str, src_file_path: str, dst_file_path: str | None = Non
     src_path = os.path.join("scripts/release/testdata", src_file_path)
 
     return shutil.copy(src_path, dst_path)
+
+
+@fixture(scope="module")
+def readinessprobe_version() -> str:
+    return get_manually_upgradable_versions()["readiness-probe"]
+
+
+@fixture(scope="module")
+def operator_version_upgrade_post_start_hook_version() -> str:
+    return get_manually_upgradable_versions()["upgrade-hook"]

@@ -5,23 +5,23 @@ from git import Repo
 from jinja2 import Template
 
 from scripts.release.changelog import (
-    DEFAULT_CHANGELOG_PATH,
-    DEFAULT_INITIAL_GIT_TAG_VERSION,
-    ChangeEntry,
     ChangeKind,
-    get_changelog_entries,
+)
+from scripts.release.constants import (
+    DEFAULT_CHANGELOG_PATH,
+    DEFAULT_RELEASE_INITIAL_VERSION,
+    DEFAULT_REPOSITORY_PATH,
 )
 from scripts.release.version import (
-    calculate_next_release_version,
-    find_previous_version,
+    calculate_next_version_with_changelog,
 )
 
 
 def generate_release_notes(
     repository_path: str,
     changelog_sub_path: str,
-    initial_commit_sha: str | None,
-    initial_version: str,
+    initial_commit_sha: str = None,
+    initial_version: str = None,
 ) -> str:
     f"""Generate a release notes based on the changes since the previous version tag.
 
@@ -55,23 +55,6 @@ def generate_release_notes(
     return template.render(parameters)
 
 
-def calculate_next_version_with_changelog(
-    repo: Repo, changelog_sub_path: str, initial_commit_sha: str | None, initial_version: str
-) -> (str, list[ChangeEntry]):
-    previous_version_tag, previous_version_commit = find_previous_version(repo, initial_commit_sha)
-
-    changelog: list[ChangeEntry] = get_changelog_entries(previous_version_commit, repo, changelog_sub_path)
-    changelog_kinds = list(set(entry.kind for entry in changelog))
-
-    # If there is no previous version tag, we start with the initial version tag
-    if not previous_version_tag:
-        version = initial_version
-    else:
-        version = calculate_next_release_version(previous_version_tag.name, changelog_kinds)
-
-    return version, changelog
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Generate release notes based on the changes since the previous version tag.",
@@ -80,7 +63,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-p",
         "--path",
-        default=".",
+        default=DEFAULT_REPOSITORY_PATH,
         metavar="",
         action="store",
         type=pathlib.Path,
@@ -106,11 +89,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "-v",
         "--initial-version",
-        default=DEFAULT_INITIAL_GIT_TAG_VERSION,
+        default=DEFAULT_RELEASE_INITIAL_VERSION,
         metavar="",
         action="store",
         type=str,
-        help=f"Version to use if no previous version tag is found. Default is '{DEFAULT_INITIAL_GIT_TAG_VERSION}'",
+        help=f"Version to use if no previous version tag is found. Default is '{DEFAULT_RELEASE_INITIAL_VERSION}'",
     )
     parser.add_argument(
         "--output",
