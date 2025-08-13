@@ -4,8 +4,11 @@
       "dockerfile-path": "docker/mongodb-kubernetes-operator/Dockerfile.atomic",
       "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes",
-        "platforms": [
-          "linux/amd64"
+         "platforms": [
+          "linux/arm64",
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       },
       "staging": {
@@ -33,8 +36,11 @@
       "dockerfile-path": "docker/mongodb-kubernetes-init-database/Dockerfile.atomic",
       "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-database",
-        "platforms": [
-          "linux/amd64"
+         "platforms": [
+          "linux/arm64",
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       },
       "staging": {
@@ -62,8 +68,11 @@
       "dockerfile-path": "docker/mongodb-kubernetes-init-appdb/Dockerfile.atomic",
       "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-appdb",
-        "platforms": [
-          "linux/amd64"
+         "platforms": [
+          "linux/arm64",
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       },
       "staging": {
@@ -91,8 +100,11 @@
       "dockerfile-path": "docker/mongodb-kubernetes-init-ops-manager/Dockerfile.atomic",
       "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-ops-manager",
-        "platforms": [
-          "linux/amd64"
+         "platforms": [
+          "linux/arm64",
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       },
       "staging": {
@@ -120,8 +132,11 @@
       "dockerfile-path": "docker/mongodb-kubernetes-database/Dockerfile.atomic",
       "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-database",
-        "platforms": [
-          "linux/amd64"
+         "platforms": [
+          "linux/arm64",
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       },
       "staging": {
@@ -181,8 +196,11 @@
       "dockerfile-path": "docker/mongodb-kubernetes-readinessprobe/Dockerfile.atomic",
       "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-readinessprobe",
-        "platforms": [
-          "linux/amd64"
+         "platforms": [
+          "linux/arm64",
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       },
       "staging": {
@@ -211,8 +229,11 @@
       "dockerfile-path": "docker/mongodb-kubernetes-upgrade-hook/Dockerfile.atomic",
       "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-operator-version-upgrade-post-start-hook",
-        "platforms": [
-          "linux/amd64"
+         "platforms": [
+          "linux/arm64",
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       },
       "staging": {
@@ -241,8 +262,11 @@
       "dockerfile-path": "docker/mongodb-agent/Dockerfile.atomic",
       "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent-ubi",
-        "platforms": [
-          "linux/amd64"
+         "platforms": [
+          "linux/arm64",
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       },
       "staging": {
