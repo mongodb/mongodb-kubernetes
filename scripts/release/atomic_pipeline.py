@@ -27,29 +27,6 @@ from scripts.release.build.image_signing import (
 TRACER = trace.get_tracer("evergreen-agent")
 
 
-@TRACER.start_as_current_span("build_image")
-def build_image(
-    build_configuration: ImageBuildConfiguration,
-    build_args: Dict[str, str] = None,
-    build_path: str = ".",
-):
-    """
-    Build an image then (optionally) sign the result.
-    """
-    image_name = build_configuration.image_name()
-    span = trace.get_current_span()
-    span.set_attribute("mck.image_name", image_name)
-
-    base_registry = build_configuration.base_registry()
-    build_args = build_args or {}
-
-    if build_args:
-        span.set_attribute("mck.build_args", str(build_args))
-    span.set_attribute("mck.registry", base_registry)
-    span.set_attribute("mck.platforms", build_configuration.platforms)
-
-    # Build docker registry URI and call build_image
-    image_full_uri = f"{build_configuration.registry}:{build_configuration.version}"
 def load_agent_build_info():
     """Load agent platform mappings from build_info_agent.json"""
     with open("build_info_agent.json", "r") as f:
@@ -556,7 +533,6 @@ def build_agent_pipeline(
     }
 
     build_image(
-        dockerfile_path="docker/mongodb-agent/Dockerfile.atomic",
         build_configuration=build_configuration_copy,
         build_args=args,
     )
