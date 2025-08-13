@@ -24,6 +24,12 @@ def test_load_build_info_development(git_repo: Repo):
                 dockerfile_path="docker/mongodb-kubernetes-operator/Dockerfile.atomic",
                 sign=False,
             ),
+            "operator-race": ImageInfo(
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes",
+                platforms=["linux/amd64"],
+                version=version,
+                sign=False,
+            ),
             "init-database": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-database",
                 platforms=["linux/amd64"],
@@ -130,6 +136,12 @@ def test_load_build_info_patch(git_repo: Repo):
                 dockerfile_path="docker/mongodb-kubernetes-operator/Dockerfile.atomic",
                 sign=False,
             ),
+            "operator-race": ImageInfo(
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes",
+                platforms=["linux/amd64"],
+                version=patch_id,
+                sign=False,
+            ),
             "init-database": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-database",
                 platforms=["linux/amd64"],
@@ -226,15 +238,21 @@ def test_load_build_info_patch(git_repo: Repo):
 def test_load_build_info_staging(git_repo: Repo):
     initial_commit = list(git_repo.iter_commits(reverse=True))[4]
     git_repo.git.checkout(initial_commit)
-    expecter_commit_sha = initial_commit.hexsha[:8]
+    expected_commit_sha = initial_commit.hexsha[:8]
 
     expected_build_info = BuildInfo(
         images={
             "operator": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes",
                 platforms=["linux/arm64", "linux/amd64"],
-                version=expecter_commit_sha,
+                version=expected_commit_sha,
                 dockerfile_path="docker/mongodb-kubernetes-operator/Dockerfile.atomic",
+                sign=True,
+            ),
+            "operator-race": ImageInfo(
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes",
+                platforms=["linux/arm64", "linux/amd64"],
+                version=expected_commit_sha,
                 sign=True,
             ),
             "init-database": ImageInfo(
@@ -312,14 +330,14 @@ def test_load_build_info_staging(git_repo: Repo):
             "kubectl-mongodb": BinaryInfo(
                 s3_store="s3://kubectl-mongodb/staging",
                 platforms=["darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64"],
-                version=expecter_commit_sha,
+                version=expected_commit_sha,
                 sign=True,
             )
         },
         helm_charts={
             "mongodb-kubernetes": HelmChartInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/helm-charts",
-                version=expecter_commit_sha,
+                version=expected_commit_sha,
                 sign=True,
             )
         },
@@ -330,8 +348,9 @@ def test_load_build_info_staging(git_repo: Repo):
     assert build_info == expected_build_info
 
 
-def test_load_build_info_release(git_repo: Repo, readinessprobe_version: str,
-                                 operator_version_upgrade_post_start_hook_version: str):
+def test_load_build_info_release(
+    git_repo: Repo, readinessprobe_version: str, operator_version_upgrade_post_start_hook_version: str
+):
     version = "1.2.0"
     git_repo.git.checkout(version)
 
