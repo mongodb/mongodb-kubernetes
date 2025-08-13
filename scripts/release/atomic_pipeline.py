@@ -550,14 +550,6 @@ def queue_exception_handling(tasks_queue):
         )
 
 
-def get_tools_distro(tools_version: str) -> Dict[str, str]:
-    new_rhel_tool_version = "100.10.0"
-    default_distro = {"arm": "rhel90-aarch64", "amd": "rhel90-x86_64"}
-    if Version(tools_version) >= Version(new_rhel_tool_version):
-        return {"arm": "rhel93-aarch64", "amd": "rhel93-x86_64"}
-    return default_distro
-
-
 def load_release_file() -> Dict:
     with open("release.json") as release:
         return json.load(release)
