@@ -33,8 +33,7 @@ variables:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
-      - name: build_agent_images_ubi
-        variant: init_test_run
+
 
   - &base_no_om_image_dependency
     depends_on:
@@ -52,8 +51,7 @@ variables:
         variant: init_test_run
       - name: build_init_appdb_images_ubi
         variant: init_test_run
-      - name: build_agent_images_ubi
-        variant: init_test_run
+
 
   - &community_dependency
     depends_on:
@@ -61,8 +59,7 @@ variables:
         variant: init_test_run
       - name: build_test_image
         variant: init_test_run
-      - name: build_agent_images_ubi
-        variant: init_test_run
+
       - name: build_readiness_probe_image
         variant: init_test_run
       - name: build_upgrade_hook_image
@@ -160,8 +157,7 @@ variables:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
-      - name: build_agent_images_ubi
-        variant: init_test_run
+
 
   - &base_om7_dependency_with_race
     depends_on:
@@ -179,8 +175,7 @@ variables:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
-      - name: build_agent_images_ubi
-        variant: init_test_run
+
 
   - &base_om8_dependency
     depends_on:
@@ -198,8 +193,7 @@ variables:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
-      - name: build_agent_images_ubi
-        variant: init_test_run
+
 
 parameters:
   - key: evergreen_retry
@@ -1372,8 +1366,7 @@ buildvariants:
         variant: init_test_run
       - name: build_init_database_image_ubi
         variant: init_test_run
-      - name: build_agent_images_ubi
-        variant: init_test_run
+
     tasks:
       - name: e2e_custom_domain_task_group
 
@@ -1407,8 +1400,7 @@ buildvariants:
         variant: init_test_run
       - name: build_init_database_image_ubi
         variant: init_test_run
-      - name: build_agent_images_ubi
-        variant: init_test_run
+
     run_on:
       - ubuntu2204-small
     tasks:
@@ -1524,8 +1516,7 @@ buildvariants:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
-      - name: build_agent_images_ubi
-        variant: init_test_run
+
       - name: build_test_image_ibm
         variant: init_test_run_ibm_power
     tasks:
@@ -1549,8 +1540,7 @@ buildvariants:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
-      - name: build_agent_images_ubi
-        variant: init_test_run
+
       - name: build_test_image_ibm
         variant: init_test_run_ibm_z
     tasks:
@@ -1574,8 +1564,7 @@ buildvariants:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
-      - name: build_agent_images_ubi
-        variant: init_test_run
+
       - name: build_test_image_ibm
         variant: init_test_run_ibm_z
     tasks:
@@ -1599,8 +1588,7 @@ buildvariants:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
-      - name: build_agent_images_ubi
-        variant: init_test_run
+
       - name: build_test_image_ibm
         variant: init_test_run_ibm_power
     tasks:
@@ -1765,8 +1753,7 @@ buildvariants:
         variant: init_tests_with_olm
       - name: build_init_database_image_ubi
         variant: init_test_run
-      - name: build_agent_images_ubi
-        variant: init_test_run
+
     tasks:
       - name: e2e_kind_olm_group
 
@@ -1888,8 +1875,7 @@ buildvariants:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
-      - name: build_agent_images_ubi
-        variant: init_test_run
+
     run_on:
       - ubuntu2204-small
     tasks:
