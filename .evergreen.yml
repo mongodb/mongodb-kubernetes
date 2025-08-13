@@ -1494,7 +1494,7 @@ buildvariants:
     run_on:
       - rhel9-power-small
       - rhel9-power-large
-    allowed_requesters: [ "patch", "github_tag" ]
+    allowed_requesters: [ "github_tag" ]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1519,7 +1519,7 @@ buildvariants:
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large
-    allowed_requesters: [ "patch", "github_tag" ]
+    allowed_requesters: [ "github_tag" ]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
