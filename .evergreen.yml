@@ -1558,7 +1558,7 @@ buildvariants:
       - name: build_agent_images_ubi
         variant: init_test_run
       - name: build_test_image_ibm
-        variant: init_test_run
+        variant: init_test_run_ibm_z
     tasks:
       - name: e2e_smoke_ibm_task_group
 
@@ -1582,7 +1582,7 @@ buildvariants:
       - name: build_agent_images_ubi
         variant: init_test_run
       - name: build_test_image_ibm
-        variant: init_test_run
+        variant: init_test_run_ibm_power
     tasks:
       - name: e2e_smoke_ibm_task_group
 
