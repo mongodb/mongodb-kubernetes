@@ -18,13 +18,3 @@ export CUSTOM_MDB_VERSION=7.0.22 # we only have ibm static images starting with 
 export KUBE_ENVIRONMENT_NAME=kind
 export CLUSTER_TYPE=kind
 export MDB_DEFAULT_ARCHITECTURE=static
-
-
-# TODO: change once we have image building
-export BASE_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/lucian.tosa"
-export REGISTRY="${BASE_REPO_URL}"
-export INIT_DATABASE_IMAGE_REPOSITORY="${BASE_REPO_URL}/mongodb-kubernetes-init-database"
-export OPERATOR_REGISTRY=${BASE_REPO_URL}
-export DATABASE_REGISTRY=${BASE_REPO_URL}
-export INIT_DATABASE_REGISTRY=${BASE_REPO_URL}
-
