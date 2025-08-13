@@ -262,13 +262,13 @@ functions:
   # Configures docker authentication to ECR and RH registries.
   setup_building_host:
     - *switch_context
-    - *setup_aws
-    - *configure_docker_auth
-    - *setup_evg_host
     - *python_venv
+    - *setup_aws
+    - *setup_evg_host
+    - *configure_docker_auth
 
   # This differs for normal evg_host as we require minikube instead of kind for
-  # IBM machines and install aws cli via pip instead
+  # IBM machines also install aws cli via pip instead and use podman
   setup_building_host_minikube:
     - *switch_context
     - command: subprocess.exec

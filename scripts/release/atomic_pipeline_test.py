@@ -19,10 +19,7 @@ def load_agent_build_info():
 def get_build_arg_names(platform):
     """Generate build argument names for a platform."""
     arch = platform.split("/")[1]
-    return {
-        "agent_build_arg": f"mongodb_agent_version_{arch}",
-        "tools_build_arg": f"mongodb_tools_version_{arch}"
-    }
+    return {"agent_build_arg": f"mongodb_agent_version_{arch}", "tools_build_arg": f"mongodb_tools_version_{arch}"}
 
 
 def extract_tools_version_from_release(release):
@@ -87,21 +84,21 @@ def _parse_dockerfile_build_args(dockerfile_path):
     """Parse Dockerfile to extract expected build arguments using proper parsing."""
     build_args = set()
 
-    with open(dockerfile_path, 'r') as f:
+    with open(dockerfile_path, "r") as f:
         lines = f.readlines()
 
     for line in lines:
         line = line.strip()
         # Skip comments and empty lines
-        if not line or line.startswith('#'):
+        if not line or line.startswith("#"):
             continue
 
         # Parse ARG instructions
-        if line.startswith('ARG '):
+        if line.startswith("ARG "):
             arg_part = line[4:].strip()  # Remove 'ARG '
 
             # Handle ARG with default values (ARG name=default)
-            arg_name = arg_part.split('=')[0].strip()
+            arg_name = arg_part.split("=")[0].strip()
 
             build_args.add(arg_name)
 
@@ -127,7 +124,7 @@ class TestAgentBuildMapping(unittest.TestCase):
 
         expected = {
             "mongodb_agent_version_amd64": "mongodb-mms-automation-agent-108.0.7.8810-1.linux_x86_64.tar.gz",
-            "mongodb_tools_version_amd64": "mongodb-database-tools-rhel88-x86_64-100.12.0.tgz"
+            "mongodb_tools_version_amd64": "mongodb-database-tools-rhel88-x86_64-100.12.0.tgz",
         }
 
         self.assertEqual(result, expected)
@@ -148,12 +145,12 @@ class TestAgentBuildMapping(unittest.TestCase):
             "mongodb_agent_version_s390x": "mongodb-mms-automation-agent-108.0.7.8810-1.rhel7_s390x.tar.gz",
             "mongodb_tools_version_s390x": "mongodb-database-tools-rhel9-s390x-100.12.0.tgz",
             "mongodb_agent_version_ppc64le": "mongodb-mms-automation-agent-108.0.7.8810-1.rhel8_ppc64le.tar.gz",
-            "mongodb_tools_version_ppc64le": "mongodb-database-tools-rhel9-ppc64le-100.12.0.tgz"
+            "mongodb_tools_version_ppc64le": "mongodb-database-tools-rhel9-ppc64le-100.12.0.tgz",
         }
 
         self.assertEqual(result, expected)
 
-    @patch('builtins.print')
+    @patch("builtins.print")
     def test_generate_agent_build_args_unknown_platform(self, mock_print):
         """Test handling of unknown platforms."""
         platforms = ["linux/amd64", "linux/unknown"]
@@ -165,7 +162,7 @@ class TestAgentBuildMapping(unittest.TestCase):
         # Should only include known platform
         expected = {
             "mongodb_agent_version_amd64": "mongodb-mms-automation-agent-108.0.7.8810-1.linux_x86_64.tar.gz",
-            "mongodb_tools_version_amd64": "mongodb-database-tools-rhel88-x86_64-100.12.0.tgz"
+            "mongodb_tools_version_amd64": "mongodb-database-tools-rhel88-x86_64-100.12.0.tgz",
         }
 
         self.assertEqual(result, expected)
@@ -186,10 +183,14 @@ class TestAgentBuildMapping(unittest.TestCase):
         # Define the expected build args based on the platforms we support
         # This is cleaner than parsing the Dockerfile and more explicit about our expectations
         expected_dockerfile_args = {
-            "mongodb_agent_version_amd64", "mongodb_agent_version_arm64",
-            "mongodb_agent_version_s390x", "mongodb_agent_version_ppc64le",
-            "mongodb_tools_version_amd64", "mongodb_tools_version_arm64",
-            "mongodb_tools_version_s390x", "mongodb_tools_version_ppc64le"
+            "mongodb_agent_version_amd64",
+            "mongodb_agent_version_arm64",
+            "mongodb_agent_version_s390x",
+            "mongodb_agent_version_ppc64le",
+            "mongodb_tools_version_amd64",
+            "mongodb_tools_version_arm64",
+            "mongodb_tools_version_s390x",
+            "mongodb_tools_version_ppc64le",
         }
 
         # Generate build args for all platforms
@@ -201,8 +202,11 @@ class TestAgentBuildMapping(unittest.TestCase):
         generated_build_args = set(result.keys())
 
         # Verify that we generate exactly the build args the Dockerfile expects
-        self.assertEqual(generated_build_args, expected_dockerfile_args,
-                        f"Generated build args {generated_build_args} don't match expected {expected_dockerfile_args}")
+        self.assertEqual(
+            generated_build_args,
+            expected_dockerfile_args,
+            f"Generated build args {generated_build_args} don't match expected {expected_dockerfile_args}",
+        )
 
         # Verify the format of generated filenames matches what Dockerfile expects
         for arg_name, filename in result.items():
@@ -218,21 +222,26 @@ class TestAgentBuildMapping(unittest.TestCase):
         dockerfile_path = "docker/mongodb-agent/Dockerfile.atomic"
 
         # Read the Dockerfile content
-        with open(dockerfile_path, 'r') as f:
+        with open(dockerfile_path, "r") as f:
             dockerfile_content = f.read()
 
         # Define the expected build args
         expected_args = [
-            "mongodb_agent_version_amd64", "mongodb_agent_version_arm64",
-            "mongodb_agent_version_s390x", "mongodb_agent_version_ppc64le",
-            "mongodb_tools_version_amd64", "mongodb_tools_version_arm64",
-            "mongodb_tools_version_s390x", "mongodb_tools_version_ppc64le"
+            "mongodb_agent_version_amd64",
+            "mongodb_agent_version_arm64",
+            "mongodb_agent_version_s390x",
+            "mongodb_agent_version_ppc64le",
+            "mongodb_tools_version_amd64",
+            "mongodb_tools_version_arm64",
+            "mongodb_tools_version_s390x",
+            "mongodb_tools_version_ppc64le",
         ]
 
         # Verify each expected arg is declared in the Dockerfile
         for arg_name in expected_args:
-            self.assertIn(f"ARG {arg_name}", dockerfile_content,
-                         f"Dockerfile should contain 'ARG {arg_name}' declaration")
+            self.assertIn(
+                f"ARG {arg_name}", dockerfile_content, f"Dockerfile should contain 'ARG {arg_name}' declaration"
+            )
 
     def test_generate_tools_build_args(self):
         """Test generating tools-only build args."""
@@ -243,18 +252,14 @@ class TestAgentBuildMapping(unittest.TestCase):
 
         expected = {
             "mongodb_tools_version_amd64": "mongodb-database-tools-rhel88-x86_64-100.12.0.tgz",
-            "mongodb_tools_version_arm64": "mongodb-database-tools-rhel88-aarch64-100.12.0.tgz"
+            "mongodb_tools_version_arm64": "mongodb-database-tools-rhel88-aarch64-100.12.0.tgz",
         }
 
         self.assertEqual(result, expected)
 
     def test_extract_tools_version_from_release(self):
         """Test extracting tools version from release.json structure."""
-        release = {
-            "mongodbToolsBundle": {
-                "ubi": "mongodb-database-tools-rhel88-x86_64-100.12.2.tgz"
-            }
-        }
+        release = {"mongodbToolsBundle": {"ubi": "mongodb-database-tools-rhel88-x86_64-100.12.2.tgz"}}
 
         result = extract_tools_version_from_release(release)
         self.assertEqual(result, "100.12.2")
@@ -268,8 +273,10 @@ class TestAgentBuildMapping(unittest.TestCase):
 
         # Verify all expected tools build args are present (no agent args)
         expected_tools_args = {
-            "mongodb_tools_version_amd64", "mongodb_tools_version_arm64",
-            "mongodb_tools_version_s390x", "mongodb_tools_version_ppc64le"
+            "mongodb_tools_version_amd64",
+            "mongodb_tools_version_arm64",
+            "mongodb_tools_version_s390x",
+            "mongodb_tools_version_ppc64le",
         }
 
         generated_args = set(result.keys())
@@ -289,7 +296,9 @@ class TestAgentBuildMapping(unittest.TestCase):
 
         result = generate_agent_build_args(platforms, agent_version, tools_version)
 
-        agent_base_url = "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
+        agent_base_url = (
+            "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
+        )
         tools_base_url = "https://fastdl.mongodb.org/tools/db"
 
         agent_filename = result["mongodb_agent_version_amd64"]

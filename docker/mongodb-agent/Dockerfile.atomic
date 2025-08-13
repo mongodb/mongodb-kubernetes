@@ -1,5 +1,6 @@
 FROM registry.access.redhat.com/ubi8/ubi-minimal AS tools_downloader
 
+ARG TARGETPLATFORM
 ARG mongodb_tools_url
 ARG mongodb_tools_version_s390x
 ARG mongodb_tools_version_ppc64le
@@ -24,6 +25,7 @@ RUN tar xfz /tools/mongodb_tools.tgz --directory /tools \
 
 FROM registry.access.redhat.com/ubi8/ubi-minimal AS agent_downloader
 
+ARG TARGETPLATFORM
 ARG mongodb_agent_url
 ARG mongodb_agent_version_s390x
 ARG mongodb_agent_version_ppc64le

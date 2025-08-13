@@ -36,7 +36,7 @@ setup_validate_container_runtime() {
       ;;
   esac
 
-  if [[ "$USE_SUDO" == "true" ]]; then
+  if [[ "${USE_SUDO}" == "true" ]]; then
     sudo mkdir -p "$(dirname "${CONFIG_PATH}")"
   else
     mkdir -p "$(dirname "${CONFIG_PATH}")"
@@ -45,8 +45,8 @@ setup_validate_container_runtime() {
 
 # Wrapper function to execute commands with or without sudo
 exec_cmd() {
-  if [[ "$USE_SUDO" == "true" ]]; then
-    sudo env PATH="$PATH" "$@"
+  if [[ "${USE_SUDO}" == "true" ]]; then
+    sudo env PATH="${PATH}" "$@"
   else
     "$@"
   fi
@@ -55,10 +55,10 @@ exec_cmd() {
 # Wrapper function to read files with or without sudo
 read_file() {
   local file="$1"
-  if [[ "$USE_SUDO" == "true" ]]; then
-    sudo cat "$file"
+  if [[ "${USE_SUDO}" == "true" ]]; then
+    sudo cat "${file}"
   else
-    cat "$file"
+    cat "${file}"
   fi
 }
 
@@ -66,10 +66,10 @@ read_file() {
 write_file() {
   local content="$1"
   local file="$2"
-  if [[ "$USE_SUDO" == "true" ]]; then
-    echo "$content" | sudo tee "$file" > /dev/null
+  if [[ "${USE_SUDO}" == "true" ]]; then
+    echo "${content}" | sudo tee "${file}" > /dev/null
   else
-    echo "$content" > "$file"
+    echo "${content}" > "${file}"
   fi
 }
 

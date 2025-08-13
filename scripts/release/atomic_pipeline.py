@@ -64,10 +64,7 @@ def get_build_arg_names(platform: str) -> Dict[str, str]:
     # Extract architecture from platform (e.g., "amd64" from "linux/amd64")
     arch = platform.split("/")[1]
 
-    return {
-        "agent_build_arg": f"mongodb_agent_version_{arch}",
-        "tools_build_arg": f"mongodb_tools_version_{arch}"
-    }
+    return {"agent_build_arg": f"mongodb_agent_version_{arch}", "tools_build_arg": f"mongodb_tools_version_{arch}"}
 
 
 def generate_tools_build_args(platforms: List[str], tools_version: str) -> Dict[str, str]:
@@ -346,14 +343,13 @@ def build_init_appdb_image(build_configuration: ImageBuildConfiguration):
     # Extract tools version and generate platform-specific build args
     tools_version = extract_tools_version_from_release(release)
     platform_build_args = generate_tools_build_args(
-        platforms=build_configuration.platforms,
-        tools_version=tools_version
+        platforms=build_configuration.platforms, tools_version=tools_version
     )
 
     args = {
         "version": build_configuration.version,
         "mongodb_tools_url": base_url,  # Base URL for platform-specific downloads
-        **platform_build_args  # Add the platform-specific build args
+        **platform_build_args,  # Add the platform-specific build args
     }
 
     build_image(
@@ -372,14 +368,13 @@ def build_init_database_image(build_configuration: ImageBuildConfiguration):
     # Extract tools version and generate platform-specific build args
     tools_version = extract_tools_version_from_release(release)
     platform_build_args = generate_tools_build_args(
-        platforms=build_configuration.platforms,
-        tools_version=tools_version
+        platforms=build_configuration.platforms, tools_version=tools_version
     )
 
     args = {
         "version": build_configuration.version,
         "mongodb_tools_url": base_url,  # Add the base URL for the Dockerfile
-        **platform_build_args  # Add the platform-specific build args
+        **platform_build_args,  # Add the platform-specific build args
     }
 
     build_image(
@@ -520,14 +515,7 @@ def _build_agent(
     agent_version = agent_tools_version[0]
     tools_version = agent_tools_version[1]
 
-    tasks_queue.put(
-        executor.submit(
-            build_agent_pipeline,
-            build_configuration,
-            agent_version,
-            tools_version
-        )
-    )
+    tasks_queue.put(executor.submit(build_agent_pipeline, build_configuration, agent_version, tools_version))
 
 
 def build_agent_pipeline(
@@ -543,12 +531,12 @@ def build_agent_pipeline(
 
     # Generate platform-specific build arguments using the mapping
     platform_build_args = generate_agent_build_args(
-        platforms=build_configuration.platforms,
-        agent_version=agent_version,
-        tools_version=tools_version
+        platforms=build_configuration.platforms, agent_version=agent_version, tools_version=tools_version
     )
 
-    agent_base_url = "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
+    agent_base_url = (
+        "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
+    )
     tools_base_url = "https://fastdl.mongodb.org/tools/db"
 
     args = {
@@ -556,7 +544,7 @@ def build_agent_pipeline(
         "agent_version": agent_version,
         "mongodb_agent_url": agent_base_url,
         "mongodb_tools_url": tools_base_url,
-        **platform_build_args  # Add the platform-specific build args
+        **platform_build_args,  # Add the platform-specific build args
     }
 
     build_image(
