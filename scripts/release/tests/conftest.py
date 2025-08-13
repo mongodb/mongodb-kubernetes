@@ -161,7 +161,7 @@ def add_file(repo_path: str, src_file_path: str, dst_file_path: str | None = Non
         dst_file_path = src_file_path
 
     dst_path = os.path.join(repo_path, dst_file_path)
-    src_path = os.path.join("scripts/release/testdata", src_file_path)
+    src_path = os.path.join("scripts/release/tests/testdata", src_file_path)
 
     return shutil.copy(src_path, dst_path)
 
