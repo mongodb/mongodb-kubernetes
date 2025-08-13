@@ -13,6 +13,7 @@ class ImageBuildConfiguration:
     latest_tag: bool
     olm_tag: bool
     registry: str
+    dockerfile_path: str
 
     parallel: bool = False
     parallel_factor: int = 0

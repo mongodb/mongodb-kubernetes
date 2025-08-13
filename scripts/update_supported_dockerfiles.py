@@ -9,7 +9,7 @@ from typing import Dict, List
 
 import requests
 from evergreen.release.agent_matrix import (
-    get_supported_version_for_image_matrix_handling,
+    get_supported_version_for_image,
 )
 from git import Repo
 from requests import Response
@@ -50,7 +50,7 @@ def get_supported_variants_for_image(image: str) -> List[str]:
 def get_supported_version_for_image(image: str) -> List[str]:
     image = get_image_name(image)
 
-    return get_supported_version_for_image_matrix_handling(image)
+    return get_supported_version_for_image(image)
 
 
 def get_image_name(image):

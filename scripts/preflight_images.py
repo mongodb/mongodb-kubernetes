@@ -16,7 +16,7 @@ from typing import Dict, Tuple
 
 import requests
 from evergreen.release.agent_matrix import (
-    get_supported_version_for_image_matrix_handling,
+    get_supported_version_for_image,
 )
 
 LOGLEVEL = os.environ.get("LOGLEVEL", "INFO").upper()
@@ -236,7 +236,7 @@ def main() -> int:
         )
     else:
         # these are the images we own, we preflight all of them as long as we officially support them in release.json
-        versions = get_supported_version_for_image_matrix_handling(args.image)
+        versions = get_supported_version_for_image(args.image)
 
     # only preflight the current agent version and the subset of agent images suffixed with the current operator version
     if args.image == "mongodb-agent":

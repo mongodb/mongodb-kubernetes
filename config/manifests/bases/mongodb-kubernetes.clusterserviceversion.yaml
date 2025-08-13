@@ -456,5 +456,5 @@ spec:
   maturity: stable
   provider:
     name: MongoDB, Inc
-  version: 0.0.0
   replaces: mongodb-kubernetes.v1.1.0
+  version: 0.0.0
