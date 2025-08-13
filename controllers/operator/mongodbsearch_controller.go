@@ -51,31 +51,46 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		return result, err
 	}
 
-	sourceResource, err := getSourceMongoDBForSearch(ctx, r.kubeClient, mdbSearch)
+	sourceResource, mdbc, err := getSourceMongoDBForSearch(ctx, r.kubeClient, mdbSearch)
 	if err != nil {
 		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, err
 	}
 
-	r.mdbcWatcher.Watch(ctx, sourceResource.NamespacedName(), request.NamespacedName)
+	if mdbc != nil {
+		r.mdbcWatcher.Watch(ctx, mdbc.NamespacedName(), request.NamespacedName)
+	}
 
 	reconcileHelper := search_controller.NewMongoDBSearchReconcileHelper(kubernetesClient.NewClient(r.kubeClient), mdbSearch, sourceResource, r.operatorSearchConfig)
 
 	return reconcileHelper.Reconcile(ctx, log).ReconcileResult()
 }
 
-func getSourceMongoDBForSearch(ctx context.Context, kubeClient client.Client, search *searchv1.MongoDBSearch) (search_controller.SearchSourceDBResource, error) {
+func getSourceMongoDBForSearch(ctx context.Context, kubeClient client.Client, search *searchv1.MongoDBSearch) (search_controller.SearchSourceDBResource, *mdbcv1.MongoDBCommunity, error) {
+	if search.IsExternalMongoDBSource() {
+		return search_controller.NewSearchSourceDBResourceFromExternal(search.Namespace, search.Spec.Source.ExternalMongoDBSource), nil, nil
+	}
+
 	sourceMongoDBResourceRef := search.GetMongoDBResourceRef()
+	if sourceMongoDBResourceRef == nil {
+		return nil, nil, xerrors.New("MongoDBSearch source MongoDB resource reference is not set")
+	}
+
 	mdbcName := types.NamespacedName{Namespace: search.GetNamespace(), Name: sourceMongoDBResourceRef.Name}
 	mdbc := &mdbcv1.MongoDBCommunity{}
 	if err := kubeClient.Get(ctx, mdbcName, mdbc); err != nil {
-		return nil, xerrors.Errorf("error getting MongoDBCommunity %s: %w", mdbcName, err)
+		return nil, nil, xerrors.Errorf("error getting MongoDBCommunity %s: %w", mdbcName, err)
 	}
-	return search_controller.NewSearchSourceDBResourceFromMongoDBCommunity(mdbc), nil
+	return search_controller.NewSearchSourceDBResourceFromMongoDBCommunity(mdbc), mdbc, nil
 }
 
 func mdbcSearchIndexBuilder(rawObj client.Object) []string {
 	mdbSearch := rawObj.(*searchv1.MongoDBSearch)
-	return []string{mdbSearch.GetMongoDBResourceRef().Namespace + "/" + mdbSearch.GetMongoDBResourceRef().Name}
+	resourceRef := mdbSearch.GetMongoDBResourceRef()
+	if resourceRef == nil {
+		return []string{}
+	}
+
+	return []string{resourceRef.Namespace + "/" + resourceRef.Name}
 }
 
 func AddMongoDBSearchController(ctx context.Context, mgr manager.Manager, operatorSearchConfig search_controller.OperatorSearchConfig) error {
