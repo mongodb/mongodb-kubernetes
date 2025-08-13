@@ -14,6 +14,7 @@ class BuildScenario(StrEnum):
     PATCH = "patch"  # CI build for a patch/pull request
     STAGING = "staging"  # CI build from a merge to the master
     DEVELOPMENT = "development"  # Local build on a developer machine
+    DEFAULT = "default"  # Use auto-detection from environment
 
     @classmethod
     def infer_scenario_from_environment(cls) -> "BuildScenario":

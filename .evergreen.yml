@@ -188,6 +188,10 @@ parameters:
     value: ""
     description: "Patch id to reuse images from other Evergreen build"
 
+  - key: OVERRIDE_BUILD_SCENARIO
+    value: "default"
+    description: "Override the build scenario for pipeline_main.py"
+
   - key: code_snippets_teardown
     value: "true"
     description: set this to false if you would like to keep the clusters created during code snippets tests

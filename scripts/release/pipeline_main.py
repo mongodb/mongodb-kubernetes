@@ -128,6 +128,10 @@ def get_scenario_from_arg(args_scenario: str) -> BuildScenario | None:
     if not args_scenario:
         return None
 
+    # Handle "default" as a special case to trigger auto-detection
+    if args_scenario == "default":
+        return None
+
     try:
         return BuildScenario(args_scenario)
     except ValueError as e:
