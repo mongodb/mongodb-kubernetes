@@ -11,6 +11,7 @@ class ImageBuildConfiguration:
     scenario: BuildScenario
     version: str
     registry: str
+    dockerfile_path: str
 
     parallel: bool = False
     parallel_factor: int = 0

@@ -24,6 +24,7 @@ class ImageInfo:
     repository: str
     platforms: list[str]
     version: str
+    dockerfile_path: str
     sign: bool
 
 
@@ -57,7 +58,7 @@ def load_build_info(scenario: BuildScenario,
     f"""
     Load build information based on the specified scenario.
 
-    :param scenario: BuildScenario enum value indicating the build scenario (e.g., PATCH, STAGING, RELEASE).
+    :param scenario: BuildScenario enum value indicating the build scenario (e.g. "development", "patch", "staging", "release"). "development" scenario will return build info for "patch" scenario.
     :param repository_path: Path to the Git repository. Default is the current directory `{DEFAULT_REPOSITORY_PATH}`.
     :param changelog_sub_path: Path to the changelog directory relative to the repository root. Default is '{DEFAULT_CHANGELOG_PATH}'.
     :param initial_commit_sha: SHA of the initial commit to start from if no previous version tag is found. If not provided, it will be determined based on `{RELEASE_INITIAL_VERSION_ENV_VAR} environment variable.
@@ -75,50 +76,56 @@ def load_build_info(scenario: BuildScenario,
     with open("build_info.json", "r") as f:
         build_info = json.load(f)
 
+    build_info_scenario = scenario
+    # For "development" builds, we use the "patch" scenario to get the build info
+    if scenario == BuildScenario.DEVELOPMENT:
+        build_info_scenario = BuildScenario.PATCH
+
     images = {}
-    for name, env_data in build_info["images"].items():
-        data = env_data.get(scenario)
-        if not data:
-            # If no data is available for the scenario, skip this image
+    for name, data in build_info["images"].items():
+        scenario_data = data.get(build_info_scenario)
+        if not scenario_data:
+            # If no scenario_data is available for the scenario, skip this image
             continue
 
         # Only update the image_version if it is not already set in the build_info.json file
-        image_version = data.get("version")
+        image_version = scenario_data.get("version")
         if not image_version:
             image_version = version
 
         images[name] = ImageInfo(
-            repository=data["repository"],
-            platforms=data["platforms"],
+            repository=scenario_data["repository"],
+            platforms=scenario_data["platforms"],
             version=image_version,
-            sign=data.get("sign", False),
+            dockerfile_path=data["dockerfile-path"],
+            sign=scenario_data.get("sign", False),
         )
 
     binaries = {}
-    for name, env_data in build_info["binaries"].items():
-        data = env_data.get(scenario)
-        if not data:
-            # If no data is available for the scenario, skip this binary
+    for name, data in build_info["binaries"].items():
+        scenario_data = data.get(build_info_scenario)
+        if not scenario_data:
+            # If no scenario_data is available for the scenario, skip this binary
             continue
 
         binaries[name] = BinaryInfo(
-            s3_store=data["s3-store"],
-            platforms=data["platforms"],
+            s3_store=scenario_data["s3-store"],
+            platforms=scenario_data["platforms"],
             version=version,
-            sign=data.get("sign", False),
+            sign=scenario_data.get("sign", False),
         )
 
     helm_charts = {}
-    for name, env_data in build_info["helm-charts"].items():
-        data = env_data.get(scenario)
-        if not data:
-            # If no data is available for the scenario, skip this helm-chart
+    for name, data in build_info["helm-charts"].items():
+        scenario_data = data.get(build_info_scenario)
+        if not scenario_data:
+            # If no scenario_data is available for the scenario, skip this helm-chart
             continue
 
         helm_charts[name] = HelmChartInfo(
-            repository=data["repository"],
+            repository=scenario_data["repository"],
             version=version,
-            sign=data.get("sign", False),
+            sign=scenario_data.get("sign", False),
         )
 
     return BuildInfo(images=images, binaries=binaries, helm_charts=helm_charts)
