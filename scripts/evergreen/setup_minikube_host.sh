@@ -6,7 +6,7 @@
 
 source scripts/dev/set_env_context.sh
 source scripts/funcs/install
-set -Eeoux pipefail
+set -Eeou pipefail
 
 echo "=========================================="
 echo "Setting up minikube host with multi-architecture support"
@@ -49,19 +49,17 @@ run_setup_step "kubectl and helm Setup" "scripts/evergreen/setup_kubectl.sh"
 
 run_setup_step "jq Setup" "scripts/evergreen/setup_jq.sh"
 
-run_setup_step "Minikube Host Setup with Container Runtime Detection" "scripts/minikube/setup_minikube_host.sh"
-
+if [[ "${SKIP_MINIKUBE_SETUP:-}" != "true" ]]; then
+  run_setup_step "Minikube Host Setup with Container Runtime Detection" "scripts/minikube/setup_minikube_host.sh"
+else
+  echo "⏭️ Skipping Minikube setup as SKIP_MINIKUBE_SETUP=true"
+fi
 export CONTAINER_RUNTIME=podman
 run_setup_step "Container Registry Authentication" "scripts/dev/configure_container_auth.sh"
 
-# The minikube cluster is already started by the setup_minikube_host.sh script
-echo ""
-echo ">>> Minikube cluster startup completed by setup_minikube_host.sh"
-echo "✅ Minikube cluster is ready for use"
-
 echo ""
 echo "=========================================="
-echo "✅ Minikube host setup completed successfully!"
+echo "✅ host setup completed successfully!"
 echo "=========================================="
 echo ""
 echo "Installed tools summary:"
@@ -70,7 +68,5 @@ echo "- AWS CLI: $(aws --version 2>/dev/null || echo 'Not found')"
 echo "- kubectl: $(kubectl version --client 2>/dev/null || echo 'Not found')"
 echo "- helm: $(helm version --short 2>/dev/null || echo 'Not found')"
 echo "- jq: $(jq --version 2>/dev/null || echo 'Not found')"
-echo "- Container Runtime: $(command -v podman &>/dev/null && echo "Podman $(podman --version 2>/dev/null)" || command -v docker &>/dev/null && echo "Docker $(docker --version 2>/dev/null)" || echo "Not found")"
-echo "- Minikube: $(./bin/minikube version --short 2>/dev/null || echo 'Not found')"
 echo ""
-echo "Setup complete! Host is ready for minikube operations."
+echo "Setup complete! Host is ready for operations."

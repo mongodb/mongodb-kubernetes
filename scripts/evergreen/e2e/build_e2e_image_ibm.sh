@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 source scripts/dev/set_env_context.sh
 
+# we need to use podman here and a special script as ibm machines don't have docker
+
 cp -rf public docker/mongodb-kubernetes-tests/public
 cp release.json docker/mongodb-kubernetes-tests/release.json
 cp requirements.txt docker/mongodb-kubernetes-tests/requirements.txt

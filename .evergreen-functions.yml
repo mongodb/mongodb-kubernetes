@@ -262,13 +262,13 @@ functions:
   # Configures docker authentication to ECR and RH registries.
   setup_building_host:
     - *switch_context
-    - *setup_aws
-    - *configure_docker_auth
-    - *setup_evg_host
     - *python_venv
+    - *setup_aws
+    - *setup_evg_host
+    - *configure_docker_auth
 
   # This differs for normal evg_host as we require minikube instead of kind for
-  # IBM machines and install aws cli via pip instead
+  # IBM machines also install aws cli via pip instead and use podman
   setup_building_host_minikube:
     - *switch_context
     - command: subprocess.exec
@@ -352,7 +352,7 @@ functions:
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: |
-          scripts/evergreen/run_python.sh scripts/evergreen/e2e/setup_cloud_qa.py create
+          scripts/dev/run_python.sh scripts/evergreen/e2e/setup_cloud_qa.py create
     # The additional switch is needed, since we now have created the needed OM exports.
     - *switch_context
 
@@ -363,7 +363,7 @@ functions:
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: |
-          scripts/evergreen/run_python.sh scripts/evergreen/e2e/setup_cloud_qa.py delete
+          scripts/dev/run_python.sh scripts/evergreen/e2e/setup_cloud_qa.py delete
 
   dump_diagnostic_information_from_all_namespaces:
     - command: subprocess.exec

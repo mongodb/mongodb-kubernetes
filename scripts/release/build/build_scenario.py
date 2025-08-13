@@ -54,5 +54,7 @@ class BuildScenario(StrEnum):
                 return repo.head.object.hexsha[:COMMIT_SHA_LENGTH]
             case BuildScenario.RELEASE:
                 return calculate_next_version(repo, changelog_sub_path, initial_commit_sha, initial_version)
+            case BuildScenario.DEVELOPMENT:
+                return "test"
 
         raise ValueError(f"Unknown build scenario: {self}")

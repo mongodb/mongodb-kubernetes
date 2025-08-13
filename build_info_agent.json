@@ -5,7 +5,7 @@
       "tools_suffix": "rhel93-x86_64-{TOOLS_VERSION}.tgz"
     },
     "linux/arm64": {
-      "agent_suffix": "amzn2_aarch64.tar.gz", 
+      "agent_suffix": "amzn2_aarch64.tar.gz",
       "tools_suffix": "rhel93-aarch64-{TOOLS_VERSION}.tgz"
     },
     "linux/s390x": {

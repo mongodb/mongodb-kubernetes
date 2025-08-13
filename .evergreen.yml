@@ -432,11 +432,18 @@ tasks:
         vars:
           image_name: meko-tests
 
-
   - name: build_test_image_ibm
     commands:
       - func: clone
-      - func: setup_building_host
+      - command: subprocess.exec
+        type: setup
+        params:
+          env:
+            SKIP_MINIKUBE_SETUP: "true"
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          add_to_path:
+            - ${workdir}/bin
+          command: scripts/evergreen/setup_minikube_host.sh
       - func: build_multi_cluster_binary
       - func: build_test_image_ibm
 
@@ -1485,6 +1492,7 @@ buildvariants:
     display_name: e2e_smoke_ibm_power
     tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
     run_on:
+      - rhel9-power-small
       - rhel9-power-large
     allowed_requesters: [ "patch", "github_tag" ]
     depends_on:
@@ -1501,7 +1509,7 @@ buildvariants:
       - name: build_agent_images_ubi
         variant: init_test_run
       - name: build_test_image_ibm
-        variant: init_test_run
+        variant: init_test_run_ibm_power
     tasks:
       - name: e2e_smoke_ibm_task_group
 
@@ -1510,6 +1518,7 @@ buildvariants:
     tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
     run_on:
       - rhel9-zseries-small
+      - rhel9-zseries-large
     allowed_requesters: [ "patch", "github_tag" ]
     depends_on:
       - name: build_operator_ubi
@@ -1525,7 +1534,7 @@ buildvariants:
       - name: build_agent_images_ubi
         variant: init_test_run
       - name: build_test_image_ibm
-        variant: init_test_run
+        variant: init_test_run_ibm_z
     tasks:
       - name: e2e_smoke_ibm_task_group
 
@@ -1578,16 +1587,6 @@ buildvariants:
       - name: e2e_smoke_ibm_task_group
 
   - name: e2e_smoke_arm
-    display_name: e2e_smoke_arm
-    tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
-    run_on:
-      - ubuntu2204-arm64-large
-    allowed_requesters: [ "patch", "github_tag" ]
-    <<: *base_no_om_image_dependency
-    tasks:
-      - name: e2e_smoke_arm_task_group
-
-  - name: e2e_static_smoke_arm
     display_name: e2e_smoke_arm
     tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
     run_on:
@@ -1809,8 +1808,25 @@ buildvariants:
       - name: build_agent_images_ubi
       - name: build_readiness_probe_image
       - name: build_upgrade_hook_image
-      - name: build_test_image_ibm # cross compilation with emulation for ibm machines are expensive
       - name: prepare_aws
+
+  - name: init_test_run_ibm_power
+    display_name: init_test_run_ibm_power
+    max_hosts: -1
+    run_on:
+      - rhel9-power-small
+      - rhel9-power-large
+    tasks:
+      - name: build_test_image_ibm
+
+  - name: init_test_run_ibm_z
+    display_name: init_test_run_ibm_z
+    max_hosts: -1
+    run_on:
+      - rhel9-zseries-small
+      - rhel9-zseries-large
+    tasks:
+      - name: build_test_image_ibm
 
   - name: init_release_agents_on_ecr
     display_name: init_release_agents_on_ecr

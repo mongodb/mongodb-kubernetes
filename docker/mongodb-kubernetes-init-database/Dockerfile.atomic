@@ -1,18 +1,30 @@
-FROM scratch AS tools_downloader
+FROM registry.access.redhat.com/ubi8/ubi-minimal AS tools_downloader
 
 ARG mongodb_tools_url
-
-ARG mongodb_tools_version_amd64
-ADD "${mongodb_tools_url}/${mongodb_tools_version_amd64}" /data/amd64/mongodb_tools.tgz
-
-ARG mongodb_tools_version_arm64
-ADD "${mongodb_tools_url}/${mongodb_tools_version_arm64}" /data/arm64/mongodb_tools.tgz
-
 ARG mongodb_tools_version_s390x
-ADD "${mongodb_tools_url}/${mongodb_tools_version_s390x}" /data/s390x/mongodb_tools.tgz
-
 ARG mongodb_tools_version_ppc64le
-ADD "${mongodb_tools_url}/${mongodb_tools_version_ppc64le}" /data/ppc64le/mongodb_tools.tgz
+ARG mongodb_tools_version_amd64
+ARG mongodb_tools_version_arm64
+
+RUN microdnf -y update --nodocs \
+  && microdnf -y install --nodocs tar gzip curl \
+  && microdnf clean all
+
+RUN case ${TARGETPLATFORM} in \
+     "linux/amd64")   export MONGODB_TOOLS_VERSION=${mongodb_tools_version_amd64}    ;; \
+     "linux/arm64")   export MONGODB_TOOLS_VERSION=${mongodb_tools_version_arm64}    ;; \
+     "linux/s390x")   export MONGODB_TOOLS_VERSION=${mongodb_tools_version_s390x}    ;; \
+     "linux/ppc64le") export MONGODB_TOOLS_VERSION=${mongodb_tools_version_ppc64le}  ;; \
+  esac \
+    && mkdir -p /tools \
+    && if [ -n "$MONGODB_TOOLS_VERSION" ];   then \
+         curl -o /tools/mongodb_tools.tgz "${mongodb_tools_url}/${MONGODB_TOOLS_VERSION}"; \
+       fi
+
+RUN if [ -f "/tools/mongodb_tools.tgz" ]; then \
+      tar xfz /tools/mongodb_tools.tgz --directory /tools \
+      && rm /tools/mongodb_tools.tgz; \
+    fi
 
 FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/golang:1.24 AS readiness_builder
 
@@ -45,14 +57,13 @@ COPY ./docker/mongodb-kubernetes-init-database/content/LICENSE /data/licenses/
 FROM registry.access.redhat.com/ubi8/ubi-minimal
 
 ARG TARGETARCH
-COPY --from=tools_downloader /data/${TARGETARCH}/mongodb_tools.tgz /tools/mongodb_tools.tgz
+
+# Copy the extracted tools from the downloader stage (tools are already extracted there)
+COPY --from=tools_downloader /tools/ /tools/
 
 RUN microdnf -y update --nodocs \
   && microdnf -y install --nodocs tar gzip \
   && microdnf clean all
-
-RUN tar xfz /tools/mongodb_tools.tgz --directory /tools \
-    && rm /tools/mongodb_tools.tgz
 
 COPY --from=base /data/readinessprobe /probes/readinessprobe
 COPY --from=base /data/probe.sh /probes/probe.sh
