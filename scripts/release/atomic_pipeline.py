@@ -542,6 +542,7 @@ def _build_agent(
 
     tasks_queue.put(executor.submit(build_agent_pipeline, build_configuration, agent_version, tools_version))
 
+
 def build_agent_pipeline(
     build_configuration: ImageBuildConfiguration,
     agent_version: str,
@@ -579,6 +580,7 @@ def build_agent_pipeline(
     except Exception as e:
         logger.error(f"Error building agent pipeline for version {agent_version}: {str(e)}")
         raise
+
 
 def queue_exception_handling(tasks_queue):
     exceptions_found = False
