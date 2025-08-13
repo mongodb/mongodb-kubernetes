@@ -29,7 +29,6 @@ TRACER = trace.get_tracer("evergreen-agent")
 
 @TRACER.start_as_current_span("build_image")
 def build_image(
-    dockerfile_path: str,
     build_configuration: ImageBuildConfiguration,
     build_args: Dict[str, str] = None,
     build_path: str = ".",
@@ -41,23 +40,24 @@ def build_image(
     span = trace.get_current_span()
     span.set_attribute("mck.image_name", image_name)
 
-    registry = build_configuration.base_registry
+    base_registry = build_configuration.base_registry()
     build_args = build_args or {}
 
     if build_args:
         span.set_attribute("mck.build_args", str(build_args))
-
-    logger.info(f"Building {image_name}, dockerfile args: {build_args}")
-    logger.debug(f"Build args: {build_args}")
-    logger.debug(f"Building {image_name} for platforms={build_configuration.platforms}")
-    logger.debug(f"build image generic - registry={registry}")
+    span.set_attribute("mck.registry", base_registry)
+    span.set_attribute("mck.platforms", build_configuration.platforms)
 
     # Build docker registry URI and call build_image
     image_full_uri = f"{build_configuration.registry}:{build_configuration.version}"
 
+    logger.info(
+        f"Building {image_full_uri} for platforms={build_configuration.platforms}, dockerfile args: {build_args}"
+    )
+
     execute_docker_build(
         tag=image_full_uri,
-        dockerfile=dockerfile_path,
+        dockerfile=build_configuration.dockerfile_path,
         path=build_path,
         args=build_args,
         push=True,
@@ -72,7 +72,7 @@ def build_image(
         verify_signature(build_configuration.registry, build_configuration.version)
 
 
-def build_tests_image(build_configuration: ImageBuildConfiguration):
+def build_meko_tests_image(build_configuration: ImageBuildConfiguration):
     """
     Builds image used to run tests.
     """
@@ -101,7 +101,6 @@ def build_tests_image(build_configuration: ImageBuildConfiguration):
     build_args = dict({"PYTHON_VERSION": python_version})
 
     build_image(
-        dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
         build_configuration=build_configuration,
         build_args=build_args,
         build_path="docker/mongodb-kubernetes-tests",
@@ -114,7 +113,6 @@ def build_mco_tests_image(build_configuration: ImageBuildConfiguration):
     """
 
     build_image(
-        dockerfile_path="docker/mongodb-community-tests/Dockerfile",
         build_configuration=build_configuration,
     )
 
@@ -135,7 +133,6 @@ def build_operator_image(build_configuration: ImageBuildConfiguration):
     logger.info(f"Building Operator args: {args}")
 
     build_image(
-        dockerfile_path="docker/mongodb-kubernetes-operator/Dockerfile.atomic",
         build_configuration=build_configuration,
         build_args=args,
     )
@@ -148,7 +145,6 @@ def build_database_image(build_configuration: ImageBuildConfiguration):
     args = {"version": build_configuration.version}
 
     build_image(
-        dockerfile_path="docker/mongodb-kubernetes-database/Dockerfile.atomic",
         build_configuration=build_configuration,
         build_args=args,
     )
@@ -199,7 +195,6 @@ def build_init_om_image(build_configuration: ImageBuildConfiguration):
     args = {"version": build_configuration.version}
 
     build_image(
-        dockerfile_path="docker/mongodb-kubernetes-init-ops-manager/Dockerfile.atomic",
         build_configuration=build_configuration,
         build_args=args,
     )
@@ -225,7 +220,6 @@ def build_om_image(build_configuration: ImageBuildConfiguration):
     }
 
     build_image(
-        dockerfile_path="docker/mongodb-enterprise-ops-manager/Dockerfile.atomic",
         build_configuration=build_configuration,
         build_args=args,
     )
@@ -238,7 +232,6 @@ def build_init_appdb_image(build_configuration: ImageBuildConfiguration):
     args = {"version": build_configuration.version, "mongodb_tools_url_ubi": mongodb_tools_url_ubi}
 
     build_image(
-        dockerfile_path="docker/mongodb-kubernetes-init-appdb/Dockerfile.atomic",
         build_configuration=build_configuration,
         build_args=args,
     )
@@ -252,7 +245,6 @@ def build_init_database_image(build_configuration: ImageBuildConfiguration):
     args = {"version": build_configuration.version, "mongodb_tools_url_ubi": mongodb_tools_url_ubi}
 
     build_image(
-        "docker/mongodb-kubernetes-init-database/Dockerfile.atomic",
         build_configuration=build_configuration,
         build_args=args,
     )
@@ -264,7 +256,6 @@ def build_readiness_probe_image(build_configuration: ImageBuildConfiguration):
     """
 
     build_image(
-        dockerfile_path="docker/mongodb-kubernetes-readinessprobe/Dockerfile.atomic",
         build_configuration=build_configuration,
     )
 
@@ -275,7 +266,6 @@ def build_upgrade_hook_image(build_configuration: ImageBuildConfiguration):
     """
 
     build_image(
-        dockerfile_path="docker/mongodb-kubernetes-upgrade-hook/Dockerfile.atomic",
         build_configuration=build_configuration,
     )
 
@@ -421,7 +411,6 @@ def build_agent_pipeline(
     }
 
     build_image(
-        dockerfile_path="docker/mongodb-agent/Dockerfile.atomic",
         build_configuration=build_configuration_copy,
         build_args=args,
     )
