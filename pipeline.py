@@ -43,8 +43,7 @@ import docker
 from lib.base_logger import logger
 from lib.sonar.sonar import process_image
 from scripts.evergreen.release.agent_matrix import (
-    get_supported_operator_versions,
-    get_supported_version_for_image_matrix_handling,
+    get_supported_version_for_image,
 )
 from scripts.evergreen.release.sbom import generate_sbom, generate_sbom_for_cli
 from scripts.release.build.image_signing import (
@@ -839,7 +838,7 @@ def build_image_daily(
 
     @TRACER.start_as_current_span("inner")
     def inner(build_configuration: BuildConfiguration):
-        supported_versions = get_supported_version_for_image_matrix_handling(image_name)
+        supported_versions = get_supported_version_for_image(image_name)
         variants = get_supported_variants_for_image(image_name)
 
         args = args_for_daily_image(image_name)
@@ -1458,10 +1457,6 @@ def gather_latest_agent_versions(release: Dict, agent_to_build: str = "") -> Lis
             )
         )
 
-    # TODO: Remove this once we don't need to use OM 7.0.12 in the OM Multicluster DR tests
-    # https://jira.mongodb.org/browse/CLOUDP-297377
-    agent_versions_to_build.append(("107.0.12.8669-1", "100.10.0"))
-
     if agent_to_build != "":
         for agent_tuple in agent_versions_to_build:
             if agent_tuple[0] == agent_to_build:
@@ -1515,19 +1510,6 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         ),
         "mongodb-kubernetes-operator-daily": build_image_daily("mongodb-kubernetes-operator"),
     }
-
-    # since we only support the last 3 operator versions, we can build the following names which each matches to an
-    # operator version we support and rebuild:
-    # - mongodb-agent-daily-1
-    # - mongodb-agent-daily-2
-    # - mongodb-agent-daily-3
-    # get_supported_operator_versions returns the last three supported operator versions in a sorted manner
-    i = 1
-    for operator_version in get_supported_operator_versions():
-        image_builders[f"mongodb-agent-{i}-daily"] = build_image_daily(
-            "mongodb-agent", operator_version=operator_version
-        )
-        i += 1
 
     return image_builders
 
