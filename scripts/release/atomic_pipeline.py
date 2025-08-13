@@ -117,17 +117,20 @@ def build_mco_tests_image(build_configuration: ImageBuildConfiguration):
     )
 
 
-def build_operator_image(build_configuration: ImageBuildConfiguration):
+def build_operator_image(build_configuration: ImageBuildConfiguration, with_race_detection: bool = False):
     """Calculates arguments required to build the operator image, and starts the build process."""
     # In evergreen, we can pass test_suffix env to publish the operator to a quay
     # repository with a given suffix.
     test_suffix = os.getenv("test_suffix", "")
     log_automation_config_diff = os.getenv("LOG_AUTOMATION_CONFIG_DIFF", "false")
 
+    build_configuration.version = f"{build_configuration.version}{'-race' if with_race_detection else ''}"
+
     args = {
         "version": build_configuration.version,
         "log_automation_config_diff": log_automation_config_diff,
         "test_suffix": test_suffix,
+        "use_race": "true" if with_race_detection else "false",
     }
 
     logger.info(f"Building Operator args: {args}")
