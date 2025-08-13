@@ -218,7 +218,7 @@ patch_aliases:
     task: ".*"
   - alias: "release"
     variant_tags: [ "release", "e2e_smoke_release_test_suite" ]
-    task_tags: [ "image_release", "image_preflight", "openshift_bundles", "code_snippets", "patch-run" ]
+    task_tags: [ "image_release", "binary_release", "image_preflight", "openshift_bundles", "code_snippets", "patch-run" ]
   - alias: "smoke_test_release"
     variant_tags: [ "e2e_smoke_release_test_suite" ]
     task_tags: [ "patch-run" ]
@@ -249,7 +249,7 @@ github_checks_aliases:
 git_tag_aliases:
   - git_tag: "^(\\d+\\.)?(\\d+\\.)?(\\d+)$"
     variant_tags: [ "release", "e2e_smoke_release_test_suite" ]
-    task_tags: [ "image_release", "image_preflight", "openshift_bundles", "code_snippets", "patch-run" ]
+    task_tags: [ "image_release", "image_preflight", "binary_release", "openshift_bundles", "code_snippets", "patch-run" ]
 
 tasks:
   - name: unit_tests_golang

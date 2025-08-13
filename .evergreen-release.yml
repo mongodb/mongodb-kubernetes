@@ -85,6 +85,15 @@ tasks:
           variant: prepare_openshift_bundles
           task: prepare_and_upload_openshift_bundles
 
+  - name: release_kubectl_mongodb_plugin
+    allowed_requesters: [ "patch", "github_tag" ]
+    tags: [ "binary_release" ]
+    commands:
+      - func: clone
+      - func: install_goreleaser
+      - func: install_macos_notarization_service
+      - func: release_kubectl_mongodb_plugin
+
 ### Release build variants
 buildvariants:
 
@@ -166,3 +175,12 @@ buildvariants:
         variant: release_images
     tasks:
       - name: e2e_smoke_task_group
+
+  - name: release_kubectl_mongodb_plugin
+    display_name: release_kubectl_mongodb_plugin
+    tags: [ "release" ]
+    run_on:
+      - ubuntu2204-small
+    allowed_requesters: [ "patch", "github_tag" ]
+    tasks:
+      - name: release_kubectl_mongodb_plugin
