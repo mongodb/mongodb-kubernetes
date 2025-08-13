@@ -135,7 +135,7 @@ buildvariants:
       - name: "*"
         variant: preflight_release_images
     run_on:
-      - ubuntu2204-large
+      - release-ubuntu2204-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     tasks:
       - name: run_conditionally_prepare_and_upload_openshift_bundles
 
@@ -180,7 +180,7 @@ buildvariants:
     display_name: release_kubectl_mongodb_plugin
     tags: [ "release" ]
     run_on:
-      - ubuntu2204-small
+      - release-ubuntu2204-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     allowed_requesters: [ "patch", "github_tag" ]
     tasks:
       - name: release_kubectl_mongodb_plugin
