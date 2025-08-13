@@ -39,6 +39,7 @@ run_setup_step() {
 }
 
 # Setup Python environment (needed for AWS CLI pip installation)
+export GRPC_PYTHON_BUILD_SYSTEM_OPENSSL=1
 export SKIP_INSTALL_REQUIREMENTS=true
 run_setup_step "Python Virtual Environment" "scripts/dev/recreate_python_venv.sh"
 
@@ -48,8 +49,11 @@ run_setup_step "kubectl and helm Setup" "scripts/evergreen/setup_kubectl.sh"
 
 run_setup_step "jq Setup" "scripts/evergreen/setup_jq.sh"
 
-run_setup_step "Minikube Host Setup with Container Runtime Detection" "scripts/minikube/setup_minikube_host.sh"
-
+if [[ "${SKIP_MINIKUBE_SETUP:-}" != "true" ]]; then
+  run_setup_step "Minikube Host Setup with Container Runtime Detection" "scripts/minikube/setup_minikube_host.sh"
+else
+  echo "⏭️ Skipping Minikube setup as SKIP_MINIKUBE_SETUP=true"
+fi
 export CONTAINER_RUNTIME=podman
 run_setup_step "Container Registry Authentication" "scripts/dev/configure_container_auth.sh"
 

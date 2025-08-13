@@ -435,9 +435,15 @@ tasks:
   - name: build_test_image_ibm
     commands:
       - func: clone
-      - func: python_venv
-      - func: setup_aws
-      - func: download_kube_tools
+      - command: subprocess.exec
+        type: setup
+        params:
+          env:
+            SKIP_MINIKUBE_SETUP: "true"
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          add_to_path:
+            - ${workdir}/bin
+          command: scripts/evergreen/setup_minikube_host.sh
       - func: build_multi_cluster_binary
       - func: build_test_image_ibm
 
