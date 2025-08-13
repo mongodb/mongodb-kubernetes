@@ -1543,6 +1543,7 @@ buildvariants:
     tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
     run_on:
       - rhel9-zseries-small
+      - rhel9-zseries-large
     allowed_requesters: [ "patch", "github_tag" ]
     depends_on:
       - name: build_operator_ubi
@@ -1566,7 +1567,8 @@ buildvariants:
     display_name: e2e_static_smoke_ibm_power
     tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
     run_on:
-      - rhel9-zseries-small
+      - rhel9-power-small
+      - rhel9-power-large
     allowed_requesters: [ "patch", "github_tag" ]
     depends_on:
       - name: build_operator_ubi
