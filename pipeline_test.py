@@ -163,9 +163,6 @@ def test_build_latest_agent_versions():
     latest_agents = gather_latest_agent_versions(release_json)
     expected_agents = [
         ("107.0.11.8645-1", "100.10.0"),
-        # TODO: Remove this once we don't need to use OM 7.0.12 in the OM Multicluster DR tests
-        # https://jira.mongodb.org/browse/CLOUDP-297377
-        ("107.0.12.8669-1", "100.10.0"),
         ("12.0.31.7825-1", "100.9.4"),
         ("13.19.0.8937-1", "100.9.4"),
     ]

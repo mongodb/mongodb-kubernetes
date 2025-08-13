@@ -22,10 +22,10 @@ from scripts.release.atomic_pipeline import (
     build_init_database_image,
     build_init_om_image,
     build_mco_tests_image,
+    build_meko_tests_image,
     build_om_image,
     build_operator_image,
     build_readiness_probe_image,
-    build_tests_image,
     build_upgrade_hook_image,
 )
 from scripts.release.build.build_info import (
@@ -65,7 +65,7 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
     """Returns a dictionary of image names that can be built."""
 
     image_builders = {
-        MEKO_TESTS_IMAGE: build_tests_image,
+        MEKO_TESTS_IMAGE: build_meko_tests_image,
         OPERATOR_IMAGE: build_operator_image,
         MCO_TESTS_IMAGE: build_mco_tests_image,
         READINESS_PROBE_IMAGE: build_readiness_probe_image,
@@ -95,7 +95,7 @@ def build_image(image_name: str, build_configuration: ImageBuildConfiguration):
 def image_build_config_from_args(args) -> ImageBuildConfiguration:
     image = args.image
 
-    build_scenario = get_scenario_from_arg(args.scenario) or BuildScenario.infer_scenario_from_environment()
+    build_scenario = get_scenario_from_arg(args.build_scenario) or BuildScenario.infer_scenario_from_environment()
 
     build_info = load_build_info(build_scenario)
     logger.info(f"image is {image}")
@@ -110,11 +110,13 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     registry = args.registry or image_build_info.repository
     platforms = get_platforms_from_arg(args.platform) or image_build_info.platforms
     sign = args.sign or image_build_info.sign
+    dockerfile_path = image_build_info.dockerfile_path
 
     return ImageBuildConfiguration(
         scenario=build_scenario,
         version=version,
         registry=registry,
+        dockerfile_path=dockerfile_path,
         parallel=args.parallel,
         platforms=platforms,
         sign=sign,
@@ -177,34 +179,75 @@ def _setup_tracing():
 
 def main():
     _setup_tracing()
-    parser = argparse.ArgumentParser(description="Build container images.")
-    parser.add_argument("image", help="Image to build.")  # Required
-    parser.add_argument("--parallel", action="store_true", help="Build images in parallel.")
-    parser.add_argument("--sign", action="store_true", help="Sign images.")
-    parser.add_argument(
-        "--scenario",
-        choices=list(BuildScenario),
-        help=f"Override the build scenario instead of inferring from environment. Options: release, patch, master, development",
+    supported_images = list(get_builder_function_for_image_name().keys())
+    supported_scenarios = list(BuildScenario)
+
+    parser = argparse.ArgumentParser(
+        description="""Builder tool for container images. It allows to push and sign images with multiple architectures using Docker Buildx.
+By default build information is read from 'build_info.json' file in the project root directory based on the build scenario.
+It can be inferred from the environment variables or overridden with the '--build-scenario' option.""",
     )
-    # Override arguments for build context and configuration
     parser.add_argument(
+        "image",
+        metavar="image",
+        action="store",
+        type=str,
+        choices=supported_images,
+        help=f"Image name to build. Supported images: {", ".join(supported_images)}",
+    )
+    parser.add_argument(
+        "-b",
+        "--build-scenario",
+        metavar="",
+        action="store",
+        type=str,
+        choices=supported_scenarios,
+        help=f"""Override the build scenario instead of inferring from environment. Options: {", ".join(supported_scenarios)}.
+Default is to infer from environment variables. For '{BuildScenario.DEVELOPMENT}' the '{BuildScenario.PATCH}' scenario is used to read values from 'build_info.json'""",
+    )
+    parser.add_argument(
+        "-p",
         "--platform",
+        metavar="",
+        action="store",
+        type=str,
         help="Override the platforms instead of resolving from build scenario. Multi-arch builds are comma-separated. Example: linux/amd64,linux/arm64",
     )
     parser.add_argument(
+        "-v",
         "--version",
-        help="Override the version/tag instead of resolving from build scenario",
+        metavar="",
+        action="store",
+        type=str,
+        help="Override the version/tag instead of resolving from build scenario. Default is to infer from environment variables based on the selected scenario.",
     )
     parser.add_argument(
+        "-r",
         "--registry",
+        metavar="",
+        action="store",
+        type=str,
         help="Override the base registry instead of resolving from build scenario",
+    )
+    parser.add_argument(
+        "-s",
+        "--sign",
+        action="store_true",
+        help="If set force image signing. Default is to infer from build scenario.",
     )
     # For agent builds
     parser.add_argument(
+        "--parallel",
+        action="store_true",
+        help="Build agent images in parallel.",
+    )
+    parser.add_argument(
         "--parallel-factor",
+        metavar="",
         default=0,
+        action="store",
         type=int,
-        help="Number of builds to run in parallel, defaults to number of cores",
+        help="Number of agent builds to run in parallel, defaults to number of cores",
     )
 
     args = parser.parse_args()
