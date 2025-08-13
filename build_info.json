@@ -26,6 +26,7 @@
       }
     },
     "operator-race": {
+      "dockerfile-path": "docker/mongodb-kubernetes-operator/Dockerfile.atomic",
       "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes",
         "platforms": [
