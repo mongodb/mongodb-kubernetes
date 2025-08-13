@@ -67,9 +67,47 @@ def get_build_arg_names(platform: str) -> Dict[str, str]:
     return {"agent_build_arg": f"mongodb_agent_version_{arch}", "tools_build_arg": f"mongodb_tools_version_{arch}"}
 
 
+def get_tools_distro_for_platform(platform: str, tools_version: str) -> str:
+    """
+    Get the appropriate RHEL distro suffix for a platform and tools version.
+
+    Args:
+        platform: Platform string (e.g., "linux/amd64")
+        tools_version: MongoDB tools version
+
+    Returns:
+        RHEL distro suffix (e.g., "rhel93-x86_64", "rhel9-s390x")
+    """
+    arch = platform.split("/")[1]
+
+    # Version-aware RHEL selection based on availability
+    if arch in ["amd64", "arm64"]:
+        # For amd64/arm64, use rhel93 for versions >= 100.10.0, otherwise rhel90
+        new_rhel_tool_version = "100.10.0"
+        if Version(tools_version) >= Version(new_rhel_tool_version):
+            arch_suffix = "x86_64" if arch == "amd64" else "aarch64"
+            return f"rhel93-{arch_suffix}"
+        else:
+            arch_suffix = "x86_64" if arch == "amd64" else "aarch64"
+            return f"rhel90-{arch_suffix}"
+    elif arch in ["s390x", "ppc64le"]:
+        # For s390x/ppc64le, use rhel9 for versions >= 100.12.0, otherwise rhel8x
+        new_rhel_tool_version = "100.12.0"
+        if Version(tools_version) >= Version(new_rhel_tool_version):
+            return f"rhel9-{arch}"
+        else:
+            # Fallback to older RHEL versions for older tools
+            if arch == "s390x":
+                return f"rhel83-{arch}"
+            else:  # ppc64le
+                return f"rhel81-{arch}"
+    else:
+        raise ValueError(f"Unsupported architecture: {arch}")
+
+
 def generate_tools_build_args(platforms: List[str], tools_version: str) -> Dict[str, str]:
     """
-    Generate build arguments for MongoDB tools based on platform mappings.
+    Generate build arguments for MongoDB tools based on platform mappings and version-aware RHEL selection.
 
     Args:
         platforms: List of platforms (e.g., ["linux/amd64", "linux/arm64"])
@@ -86,12 +124,11 @@ def generate_tools_build_args(platforms: List[str], tools_version: str) -> Dict[
             logger.warning(f"Platform {platform} not found in agent mappings, skipping")
             continue
 
-        mapping = agent_info["platform_mappings"][platform]
         build_arg_names = get_build_arg_names(platform)
 
-        # Generate tools build arg only
-        tools_suffix = mapping["tools_suffix"].replace("{TOOLS_VERSION}", tools_version)
-        tools_filename = f"{agent_info['base_names']['tools']}-{tools_suffix}"
+        # Use version-aware RHEL selection instead of static mapping
+        tools_distro = get_tools_distro_for_platform(platform, tools_version)
+        tools_filename = f"{agent_info['base_names']['tools']}-{tools_distro}-{tools_version}.tgz"
         build_args[build_arg_names["tools_build_arg"]] = tools_filename
 
     return build_args
@@ -99,7 +136,7 @@ def generate_tools_build_args(platforms: List[str], tools_version: str) -> Dict[
 
 def generate_agent_build_args(platforms: List[str], agent_version: str, tools_version: str) -> Dict[str, str]:
     """
-    Generate build arguments for agent image based on platform mappings.
+    Generate build arguments for agent image based on platform mappings and version-aware RHEL selection.
 
     Args:
         platforms: List of platforms (e.g., ["linux/amd64", "linux/arm64"])
@@ -124,9 +161,9 @@ def generate_agent_build_args(platforms: List[str], agent_version: str, tools_ve
         agent_filename = f"{agent_info['base_names']['agent']}-{agent_version}.{mapping['agent_suffix']}"
         build_args[build_arg_names["agent_build_arg"]] = agent_filename
 
-        # Generate tools build arg
-        tools_suffix = mapping["tools_suffix"].replace("{TOOLS_VERSION}", tools_version)
-        tools_filename = f"{agent_info['base_names']['tools']}-{tools_suffix}"
+        # Generate tools build arg using version-aware RHEL selection
+        tools_distro = get_tools_distro_for_platform(platform, tools_version)
+        tools_filename = f"{agent_info['base_names']['tools']}-{tools_distro}-{tools_version}.tgz"
         build_args[build_arg_names["tools_build_arg"]] = tools_filename
 
     return build_args
@@ -502,41 +539,43 @@ def _build_agent(
 
     tasks_queue.put(executor.submit(build_agent_pipeline, build_configuration, agent_version, tools_version))
 
-
 def build_agent_pipeline(
     build_configuration: ImageBuildConfiguration,
     agent_version: str,
     tools_version: str,
 ):
-    build_configuration_copy = copy(build_configuration)
-    build_configuration_copy.version = agent_version
-    print(
-        f"======== Building agent pipeline for version {agent_version}, build configuration version: {build_configuration.version}"
-    )
+    try:
+        build_configuration_copy = copy(build_configuration)
+        build_configuration_copy.version = agent_version
+        print(
+            f"======== Building agent pipeline for version {agent_version}, build configuration version: {build_configuration.version}"
+        )
 
-    # Generate platform-specific build arguments using the mapping
-    platform_build_args = generate_agent_build_args(
-        platforms=build_configuration.platforms, agent_version=agent_version, tools_version=tools_version
-    )
+        # Generate platform-specific build arguments using the mapping
+        platform_build_args = generate_agent_build_args(
+            platforms=build_configuration.platforms, agent_version=agent_version, tools_version=tools_version
+        )
 
-    agent_base_url = (
-        "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
-    )
-    tools_base_url = "https://fastdl.mongodb.org/tools/db"
+        agent_base_url = (
+            "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
+        )
+        tools_base_url = "https://fastdl.mongodb.org/tools/db"
 
-    args = {
-        "version": agent_version,
-        "agent_version": agent_version,
-        "mongodb_agent_url": agent_base_url,
-        "mongodb_tools_url": tools_base_url,
-        **platform_build_args,  # Add the platform-specific build args
-    }
+        args = {
+            "version": agent_version,
+            "agent_version": agent_version,
+            "mongodb_agent_url": agent_base_url,
+            "mongodb_tools_url": tools_base_url,
+            **platform_build_args,  # Add the platform-specific build args
+        }
 
-    build_image(
-        build_configuration=build_configuration_copy,
-        build_args=args,
-    )
-
+        build_image(
+            build_configuration=build_configuration_copy,
+            build_args=args,
+        )
+    except Exception as e:
+        logger.error(f"Error building agent pipeline for version {agent_version}: {str(e)}")
+        raise
 
 def queue_exception_handling(tasks_queue):
     exceptions_found = False
