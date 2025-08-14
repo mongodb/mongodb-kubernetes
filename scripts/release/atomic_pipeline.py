@@ -16,6 +16,7 @@ from opentelemetry import trace
 from packaging.version import Version
 
 from lib.base_logger import logger
+from scripts.detect_ops_manager_changes import detect_ops_manager_changes
 from scripts.release.build.image_build_configuration import ImageBuildConfiguration
 from scripts.release.build.image_build_process import execute_docker_build
 from scripts.release.build.image_signing import (
@@ -278,18 +279,12 @@ def build_agent_default_case(build_configuration: ImageBuildConfiguration):
     Build the agent only for the latest operator for patches and operator releases.
 
     """
-    release = load_release_file()
+    agent_versions_to_build = detect_ops_manager_changes()
+    if not agent_versions_to_build:
+        logger.info("No changes detected, skipping agent build")
+        return
 
-    # We need to release [all agents x latest operator] on operator releases
-    if build_configuration.is_release_scenario():
-        agent_versions_to_build = gather_all_supported_agent_versions(release)
-    # We only need [latest agents (for each OM major version and for CM) x patch ID] for patches
-    else:
-        agent_versions_to_build = gather_latest_agent_versions(release)
-
-    logger.info(
-        f"Building Agent versions: {agent_versions_to_build} for Operator versions: {build_configuration.version}"
-    )
+    logger.info(f"Building Agent versions: {agent_versions_to_build}")
 
     tasks_queue = Queue()
     max_workers = 1
@@ -304,7 +299,7 @@ def build_agent_default_case(build_configuration: ImageBuildConfiguration):
             # We don't need to keep create and push the same image on every build.
             # It is enough to create and push the non-operator suffixed images only during releases to ecr and quay.
             logger.info(f"======= Building Agent {agent_tools_version} ({idx}/{len(agent_versions_to_build)})")
-            _build_agent_operator(
+            _build_agents(
                 agent_tools_version,
                 build_configuration,
                 executor,
@@ -314,64 +309,7 @@ def build_agent_default_case(build_configuration: ImageBuildConfiguration):
     queue_exception_handling(tasks_queue)
 
 
-def gather_all_supported_agent_versions(release: Dict) -> List[Tuple[str, str]]:
-    # This is a list of a tuples - agent version and corresponding tools version
-    agent_versions_to_build = list()
-    agent_versions_to_build.append(
-        (
-            release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager"],
-            release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager_tools"],
-        )
-    )
-    for _, om in release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"].items():
-        agent_versions_to_build.append((om["agent_version"], om["tools_version"]))
-
-    # lets not build the same image multiple times
-    return sorted(list(set(agent_versions_to_build)))
-
-
-def gather_latest_agent_versions(release: Dict) -> List[Tuple[str, str]]:
-    """
-    This function is used when we release a new agent via OM bump.
-    That means we will need to release that agent with all supported operators.
-    Since we don’t want to release all agents again, we only release the latest, which will contain the newly added one
-    :return: the latest agent for each major version
-    """
-    agent_versions_to_build = list()
-    agent_versions_to_build.append(
-        (
-            release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager"],
-            release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager_tools"],
-        )
-    )
-
-    latest_versions = {}
-
-    for version in release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"].keys():
-        parsed_version = semver.VersionInfo.parse(version)
-        major_version = parsed_version.major
-        if major_version in latest_versions:
-            latest_parsed_version = semver.VersionInfo.parse(str(latest_versions[major_version]))
-            latest_versions[major_version] = max(parsed_version, latest_parsed_version)
-        else:
-            latest_versions[major_version] = version
-
-    for major_version, latest_version in latest_versions.items():
-        agent_versions_to_build.append(
-            (
-                release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"][str(latest_version)][
-                    "agent_version"
-                ],
-                release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"][str(latest_version)][
-                    "tools_version"
-                ],
-            )
-        )
-
-    return sorted(list(set(agent_versions_to_build)))
-
-
-def _build_agent_operator(
+def _build_agents(
     agent_tools_version: Tuple[str, str],
     build_configuration: ImageBuildConfiguration,
     executor: ProcessPoolExecutor,
