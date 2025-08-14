@@ -1,4 +1,5 @@
 import random
+import shutil
 import subprocess
 from typing import Dict, Optional
 
@@ -101,7 +102,12 @@ def get_docker_build_cli_args(
     labels=Optional[Dict[str, str]],
     platform=Optional[str],
 ):
-    args = ["docker", "buildx", "build", "--load", "--progress", "plain", path, "-f", dockerfile, "-t", tag]
+    # Find docker executable dynamically to work across different environments
+    docker_cmd = shutil.which("docker")
+    if docker_cmd is None:
+        raise Exception("Docker executable not found in PATH")
+
+    args = [docker_cmd, "buildx", "build", "--load", "--progress", "plain", path, "-f", dockerfile, "-t", tag]
     if buildargs is not None:
         for k, v in buildargs.items():
             args.append("--build-arg")
@@ -174,13 +180,17 @@ def check_registry_image_exists(repository, tag):
 
 @TRACER.start_as_current_span("docker_push")
 def docker_push(registry: str, tag: str):
+    docker_cmd = shutil.which("docker")
+    if docker_cmd is None:
+        raise Exception("Docker executable not found in PATH")
+
     def inner_docker_push(should_raise=False):
 
         # We can't use docker-py here
         # as it doesn't support DOCKER_CONTENT_TRUST
         # env variable, which could be needed
         cp = subprocess.run(
-            ["docker", "push", f"{registry}:{tag}"],
+            [docker_cmd, "push", f"{registry}:{tag}"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )

@@ -1,10 +1,9 @@
 from git import Repo
 
-from scripts.release.changelog import (
+from scripts.release.constants import (
     DEFAULT_CHANGELOG_PATH,
-    DEFAULT_INITIAL_GIT_TAG_VERSION,
+    DEFAULT_RELEASE_INITIAL_VERSION,
 )
-from scripts.release.conftest import git_repo
 from scripts.release.release_notes import generate_release_notes
 
 
@@ -12,9 +11,11 @@ def test_generate_release_notes_before_1_0_0(git_repo: Repo):
     initial_commit = list(git_repo.iter_commits(reverse=True))[0]
     git_repo.git.checkout(initial_commit)
     release_notes = generate_release_notes(
-        git_repo.working_dir, DEFAULT_CHANGELOG_PATH, None, DEFAULT_INITIAL_GIT_TAG_VERSION
+        repository_path=git_repo.working_dir,
+        changelog_sub_path=DEFAULT_CHANGELOG_PATH,
+        initial_version=DEFAULT_RELEASE_INITIAL_VERSION,
     )
-    with open("scripts/release/testdata/release_notes_1.0.0_empty.md") as file:
+    with open("scripts/release/tests/testdata/release_notes_1.0.0_empty.md") as file:
         assert release_notes == file.read()
 
 
@@ -73,7 +74,9 @@ def test_generate_release_notes_1_2_4(git_repo: Repo):
 def checkout_and_assert_release_notes(git_repo: Repo, tag: str):
     git_repo.git.checkout(tag)
     release_notes = generate_release_notes(
-        git_repo.working_dir, DEFAULT_CHANGELOG_PATH, None, DEFAULT_INITIAL_GIT_TAG_VERSION
+        repository_path=git_repo.working_dir,
+        changelog_sub_path=DEFAULT_CHANGELOG_PATH,
+        initial_version=DEFAULT_RELEASE_INITIAL_VERSION,
     )
-    with open(f"scripts/release/testdata/release_notes_{tag}.md") as file:
+    with open(f"scripts/release/tests/testdata/release_notes_{tag}.md") as file:
         assert release_notes == file.read()
