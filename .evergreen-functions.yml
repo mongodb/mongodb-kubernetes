@@ -546,7 +546,7 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         env:
           git_tag: ${triggered_by_git_tag}
-        binary: scripts/dev/run_python.sh scripts/release/pipeline_main.py ${image_name} --build-scenario release --version ${git_tag}
+        binary: scripts/dev/run_python.sh scripts/release/pipeline_main.py ${image_name} --build-scenario release ${git_tag|--version ${git_tag}}
 
   # TODO: CLOUDP-335471 ; once all image builds are made with the new atomic pipeline, remove the following function
   legacy_pipeline:
