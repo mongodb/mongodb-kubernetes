@@ -11,6 +11,7 @@ class ImageBuildConfiguration:
     scenario: BuildScenario
     version: str
     latest_tag: bool
+    olm_tag: bool
     registry: str
     dockerfile_path: str
 

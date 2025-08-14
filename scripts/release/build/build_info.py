@@ -31,8 +31,9 @@ class ImageInfo:
     platforms: list[str]
     version: str
     dockerfile_path: str
-    sign: bool
-    latest_tag: bool
+    sign: bool = False
+    latest_tag: bool = False
+    olm_tag: bool = False
 
 
 @dataclass
@@ -40,14 +41,14 @@ class BinaryInfo:
     s3_store: str
     platforms: list[str]
     version: str
-    sign: bool
+    sign: bool = False
 
 
 @dataclass
 class HelmChartInfo:
     repository: str
     version: str
-    sign: bool
+    sign: bool = False
 
 
 @dataclass
@@ -109,6 +110,7 @@ def load_build_info(
             dockerfile_path=data["dockerfile-path"],
             sign=scenario_data.get("sign", False),
             latest_tag=scenario_data.get("latest-tag", False),
+            olm_tag=scenario_data.get("olm-tag", False),
         )
 
     binaries = {}

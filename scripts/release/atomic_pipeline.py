@@ -2,6 +2,7 @@
 
 """This atomic_pipeline script knows about the details of our Docker images
 and where to fetch and calculate parameters."""
+import datetime
 import json
 import os
 import shutil
@@ -52,6 +53,9 @@ def build_image(
     tags = [f"{build_configuration.registry}:{build_configuration.version}"]
     if build_configuration.latest_tag:
         tags.append(f"{build_configuration.registry}:{"latest"}")
+    if build_configuration.olm_tag:
+        olm_version_tag = create_olm_version_tag(build_configuration.version)
+        tags.append(f"{build_configuration.registry}:{olm_version_tag}")
 
     execute_docker_build(
         tags=tags,
@@ -440,3 +444,8 @@ def get_tools_distro(tools_version: str) -> Dict[str, str]:
 def load_release_file() -> Dict:
     with open("release.json") as release:
         return json.load(release)
+
+
+def create_olm_version_tag(version: str) -> str:
+    timestamp_suffix = "%Y%m%d%H%M%S".format(datetime.datetime.now())
+    return f"{version}-olm-{timestamp_suffix}"
