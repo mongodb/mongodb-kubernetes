@@ -38,9 +38,8 @@ STAGING_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging"
 COMMIT_SHA_SHORT=$(git rev-parse --short=8 HEAD)
 
 if [ "${is_patch:-false}" = "true" ]; then
-  echo "is_patch is set, setting BASE_REPO_URL=${STAGING_REPO_URL}"
-  export BASE_REPO_URL="${STAGING_REPO_URL}"
-  export OVERRIDE_VERSION_ID="${COMMIT_SHA_SHORT}"
+  echo "is_patch is set, setting BASE_REPO_URL=${DEV_REPO_URL}"
+  export BASE_REPO_URL="${DEV_REPO_URL}"
 else
   echo "is_patch is not set, setting BASE_REPO_URL=${STAGING_REPO_URL}, OVERRIDE_VERSION_ID=${COMMIT_SHA_SHORT}"
   export BASE_REPO_URL="${STAGING_REPO_URL}"

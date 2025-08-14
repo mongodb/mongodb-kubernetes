@@ -118,9 +118,9 @@ variables:
       - func: setup_cloud_qa
     teardown_task_can_fail_task: true
     teardown_task:
+      - func: teardown_cloud_qa
       - func: upload_e2e_logs
       - func: teardown_kubernetes_environment
-      - func: teardown_cloud_qa
 
   - &setup_and_teardown_task
     setup_task_can_fail_task: true
@@ -143,6 +143,25 @@ variables:
       - name: build_om_images
         variant: build_om70_images
       - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_init_appdb_images_ubi
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
+
+  - &base_om7_dependency_with_race
+    depends_on:
+      - name: build_om_images
+        variant: build_om70_images
+      - name: build_operator_race_ubi
         variant: init_test_run
       - name: build_init_database_image_ubi
         variant: init_test_run
@@ -375,6 +394,14 @@ tasks:
       - func: pipeline
         vars:
           image_name: operator
+
+  - name: build_operator_race_ubi
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: operator-race
 
   - name: build_init_om_images_ubi
     commands:
@@ -1323,7 +1350,7 @@ buildvariants:
     tags: [ "e2e_test_suite" ]
     run_on:
       - ubuntu1804-xlarge
-    <<: *base_om7_dependency
+    <<: *base_om7_dependency_with_race
     tasks:
       - name: e2e_operator_race_with_telemetry_task_group
 
@@ -1518,6 +1545,7 @@ buildvariants:
       - ubuntu2204-small
     tasks:
       - name: build_operator_ubi
+      - name: build_operator_race_ubi
       - name: build_test_image
       - name: build_mco_test_image
       - name: build_init_appdb_images_ubi
