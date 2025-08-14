@@ -356,10 +356,9 @@ tasks:
       - func: setup_building_host
       - func: quay_login
       - func: setup_docker_sbom
-      - func: legacy_pipeline
+      - func: pipeline
         vars:
-          image_name: agent-pct
-          include_tags: release
+          image_name: agent
 
   - name: run_precommit_and_push
     tags: ["patch-run"]
@@ -378,18 +377,6 @@ tasks:
             - GH_TOKEN
           working_dir: src/github.com/mongodb/mongodb-kubernetes
           binary: scripts/evergreen/precommit_bump.sh
-
-  - name: release_agents_on_ecr
-    # this enables us to run this variant either manually (patch) which pct does or during an OM bump (github_pr)
-    allowed_requesters: [ "patch", "github_pr" ]
-    priority: 70
-    commands:
-      - func: clone
-      - func: setup_building_host
-      - func: legacy_pipeline
-        vars:
-          image_name: agent-pct
-          skip_tags: release
 
   - name: release_all_agents_on_ecr
     # this enables us to run this manually (patch) and release all agent versions to ECR to verify
@@ -1560,6 +1547,8 @@ buildvariants:
         variant: init_test_run
       - name: prepare_and_upload_openshift_bundles_for_e2e
         variant: init_tests_with_olm
+      - name: build_agent_images_ubi
+        variant: init_test_run
     tasks:
       - name: e2e_kind_olm_group
 
@@ -1582,6 +1571,8 @@ buildvariants:
       - name: prepare_and_upload_openshift_bundles_for_e2e
         variant: init_tests_with_olm
       - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_agent_images_ubi
         variant: init_test_run
 
     tasks:
