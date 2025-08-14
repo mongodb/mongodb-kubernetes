@@ -8,7 +8,7 @@ import sys
 from typing import Dict, List
 
 import requests
-from evergreen.release.agent_matrix import (
+from scripts.evergreen.release.agent_matrix import (
     get_supported_version_for_image,
 )
 from git import Repo
@@ -42,7 +42,7 @@ def get_supported_variants_for_image(image: str) -> List[str]:
     return get_release()["supportedImages"][image]["variants"]
 
 
-def get_supported_version(image: str) -> List[str]:
+def get_supported_version_for_image_mck(image: str) -> List[str]:
     image = get_image_name(image)
 
     return get_supported_version_for_image(image)
@@ -84,7 +84,7 @@ def save_supported_dockerfiles():
     """
     for image in SUPPORTED_IMAGES:
         print("Image:", image)
-        versions = get_supported_version(image)
+        versions = get_supported_version_for_image_mck(image)
         for version in versions:
             for variant in get_supported_variants_for_image(image):
                 response = download_dockerfile_from_s3(image, version, variant)
