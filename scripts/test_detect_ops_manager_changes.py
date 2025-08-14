@@ -127,8 +127,7 @@ class TestDetectOpsManagerChanges(unittest.TestCase):
             patch("detect_ops_manager_changes.load_release_json_from_master", return_value=self.master_release_data),
         ):
 
-            has_changes, changed_agents = detect_ops_manager_changes()
-            self.assertFalse(has_changes)
+            changed_agents = detect_ops_manager_changes()
             self.assertEqual(changed_agents, [])
 
     def test_new_ops_manager_version_added(self):
@@ -144,8 +143,7 @@ class TestDetectOpsManagerChanges(unittest.TestCase):
             patch("detect_ops_manager_changes.load_release_json_from_master", return_value=self.master_release_data),
         ):
 
-            has_changes, changed_agents = detect_ops_manager_changes()
-            self.assertTrue(has_changes)
+            changed_agents = detect_ops_manager_changes()
             self.assertIn(("108.0.0.8694-1", "100.10.0"), changed_agents)
 
     def test_ops_manager_version_modified(self):
@@ -160,8 +158,7 @@ class TestDetectOpsManagerChanges(unittest.TestCase):
             patch("detect_ops_manager_changes.load_release_json_from_master", return_value=self.master_release_data),
         ):
 
-            has_changes, changed_agents = detect_ops_manager_changes()
-            self.assertTrue(has_changes)
+            changed_agents = detect_ops_manager_changes()
             self.assertIn(("12.0.35.7911-1", "100.10.0"), changed_agents)
 
     def test_cloud_manager_changed(self):
@@ -174,8 +171,7 @@ class TestDetectOpsManagerChanges(unittest.TestCase):
             patch("detect_ops_manager_changes.load_release_json_from_master", return_value=self.master_release_data),
         ):
 
-            has_changes, changed_agents = detect_ops_manager_changes()
-            self.assertTrue(has_changes)
+            changed_agents = detect_ops_manager_changes()
             self.assertIn(("13.38.0.9600-1", "100.12.2"), changed_agents)
 
     def test_cloud_manager_tools_changed(self):
@@ -188,8 +184,7 @@ class TestDetectOpsManagerChanges(unittest.TestCase):
             patch("detect_ops_manager_changes.load_release_json_from_master", return_value=self.master_release_data),
         ):
 
-            has_changes, changed_agents = detect_ops_manager_changes()
-            self.assertTrue(has_changes)
+            changed_agents = detect_ops_manager_changes()
             self.assertIn(("13.37.0.9590-1", "100.13.0"), changed_agents)
 
     def test_ops_manager_version_removed(self):
@@ -202,8 +197,8 @@ class TestDetectOpsManagerChanges(unittest.TestCase):
             patch("detect_ops_manager_changes.load_release_json_from_master", return_value=self.master_release_data),
         ):
 
-            has_changes, changed_agents = detect_ops_manager_changes()
-            self.assertTrue(has_changes)
+            changed_agents = detect_ops_manager_changes()
+            self.assertEqual(changed_agents, [])
 
     def test_both_om_and_cm_changed(self):
         """Test detection when both OM version and cloud manager are changed"""
@@ -219,8 +214,7 @@ class TestDetectOpsManagerChanges(unittest.TestCase):
             patch("detect_ops_manager_changes.load_release_json_from_master", return_value=self.master_release_data),
         ):
 
-            has_changes, changed_agents = detect_ops_manager_changes()
-            self.assertTrue(has_changes)
+            changed_agents = detect_ops_manager_changes()
             self.assertIn(("108.0.0.8694-1", "100.10.0"), changed_agents)
             self.assertIn(("13.38.0.9600-1", "100.12.2"), changed_agents)
             self.assertEqual(len(changed_agents), 2)
@@ -232,8 +226,7 @@ class TestDetectOpsManagerChanges(unittest.TestCase):
             patch("detect_ops_manager_changes.load_release_json_from_master", return_value=self.master_release_data),
         ):
 
-            has_changes, changed_agents = detect_ops_manager_changes()
-            self.assertFalse(has_changes)
+            changed_agents = detect_ops_manager_changes()
             self.assertEqual(changed_agents, [])
 
     def test_base_release_load_failure_fail_safe(self):
@@ -243,8 +236,7 @@ class TestDetectOpsManagerChanges(unittest.TestCase):
             patch("detect_ops_manager_changes.load_release_json_from_master", return_value=None),
         ):
 
-            has_changes, changed_agents = detect_ops_manager_changes()
-            self.assertTrue(has_changes)
+            changed_agents = detect_ops_manager_changes()
             self.assertEqual(changed_agents, [])
 
 

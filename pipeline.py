@@ -1242,11 +1242,7 @@ def build_multi_arch_agent_in_sonar(
     )
 
 
-def build_agent_default_case(build_configuration: BuildConfiguration):
-    """
-    Build the agent only for the latest operator for patches and operator releases.
-
-    """
+def build_agent(build_configuration: BuildConfiguration):
     agent_versions_to_build = detect_ops_manager_changes()
     if not agent_versions_to_build:
         logger.info("No changes detected, skipping agent build")
@@ -1348,8 +1344,8 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         "upgrade-hook": build_upgrade_hook_image,
         "operator-quick": build_operator_image_patch,
         "database": build_database_image,
-        "agent-pct": build_agent_default_case,
-        "agent": build_agent_default_case,
+        "agent-pct": build_agent,
+        "agent": build_agent,
         #
         # Init images
         "init-appdb": build_init_appdb,

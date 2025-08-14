@@ -20,7 +20,7 @@ def get_content_from_git(commit: str, file_path: str) -> Optional[str]:
         return None
 
 
-def load_base_release_json() -> Optional[Dict]:
+def load_release_json_from_master() -> Optional[Dict]:
     base_revision = "origin/master"
 
     content = get_content_from_git(base_revision, "release.json")
@@ -81,13 +81,13 @@ def detect_ops_manager_changes() -> List[Tuple[str, str]]:
         print("ERROR: Could not load current local release.json")
         return []
 
-    base_release = load_base_release_json()
-    if not base_release:
+    master_release = load_release_json_from_master()
+    if not master_release:
         print("WARNING: Could not load base release.json, assuming changes exist")
         return []
 
     current_mapping = extract_ops_manager_mapping(current_release)
-    base_mapping = extract_ops_manager_mapping(base_release)
+    base_mapping = extract_ops_manager_mapping(master_release)
 
     if current_mapping != base_mapping:
         return get_changed_agents(current_mapping, base_mapping)

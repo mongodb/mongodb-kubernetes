@@ -34,7 +34,6 @@ variables:
       - name: build_init_om_images_ubi
         variant: init_test_run
 
-
   - &base_no_om_image_dependency
     depends_on:
       - name: build_om_images
@@ -51,7 +50,6 @@ variables:
         variant: init_test_run
       - name: build_init_appdb_images_ubi
         variant: init_test_run
-
 
   - &community_dependency
     depends_on:
@@ -151,7 +149,6 @@ variables:
       - name: build_init_om_images_ubi
         variant: init_test_run
 
-
   - &base_om7_dependency_with_race
     depends_on:
       - name: build_om_images
@@ -168,7 +165,6 @@ variables:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
-
 
   - &base_om8_dependency
     depends_on:
