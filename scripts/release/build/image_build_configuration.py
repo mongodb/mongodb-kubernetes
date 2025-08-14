@@ -22,7 +22,7 @@ class ImageBuildConfiguration:
         return self.scenario == BuildScenario.RELEASE
 
     def base_registry(self) -> str:
-        return self.registry.rpartition('/')[0]
+        return self.registry.rpartition("/")[0]
 
     def image_name(self) -> str:
-        return self.registry.rpartition('/')[2]
+        return self.registry.rpartition("/")[2]
