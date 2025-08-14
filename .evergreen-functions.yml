@@ -538,7 +538,7 @@ functions:
         shell: bash
         <<: *e2e_include_expansions_in_env
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/dev/run_python.sh scripts/release/pipeline_main.py --parallel ${image_name}
+        binary: scripts/dev/run_python.sh scripts/release/pipeline_main.py --parallel ${image_name} ${all_agents|--all-agents}
 
   # TODO: CLOUDP-335471 ; once all image builds are made with the new atomic pipeline, remove the following function
   legacy_pipeline:

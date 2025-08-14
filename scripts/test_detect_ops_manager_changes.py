@@ -14,8 +14,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from detect_ops_manager_changes import (
     detect_ops_manager_changes,
     extract_ops_manager_mapping,
+    get_all_agents_for_rebuild,
     get_content_from_git,
+    get_dev_context_agents,
+    get_om_version_from_evergreen,
+    get_tools_version_for_agent,
     load_current_release_json,
+    scan_dev_contexts_for_agents,
 )
 
 
@@ -52,6 +57,13 @@ class TestDetectOpsManagerChanges(unittest.TestCase):
                 }
             }
         }
+
+        self.evergreen_content = """
+variables:
+  - &ops_manager_60_latest 6.0.27 # The order/index is important
+  - &ops_manager_70_latest 7.0.17 # The order/index is important
+  - &ops_manager_80_latest 8.0.12 # The order/index is important
+"""
 
     def test_extract_ops_manager_mapping_valid(self):
         """Test extracting opsManagerMapping from valid release data"""

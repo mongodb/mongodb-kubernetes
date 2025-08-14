@@ -392,19 +392,15 @@ tasks:
           skip_tags: release
 
   - name: release_all_agents_on_ecr
-    # this enables us to run this manually (patch) and release all agent versions to ECR
-    # it's needed during operator new version release process - e2e tests (especially olm tests)
-    # will look for agent with new operator version suffix, but during PR checks we only build
-    # agent versions for most recent major OM versions and the tests will fail. Before running the PR
-    # we have to manually release all agents to ECR by triggering this patch
+    # this enables us to run this manually (patch) and release all agent versions to ECR to verify
+    # Dockerfile, script changes etc.
     allowed_requesters: [ "patch" ]
     commands:
       - func: clone
       - func: setup_building_host
-      - func: legacy_pipeline
+      - func: pipeline
         vars:
-          image_name: agent-pct
-          skip_tags: release
+          image_name: agent
           all_agents: true
 
   - name: build_test_image
