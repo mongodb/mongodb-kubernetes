@@ -1807,18 +1807,6 @@ buildvariants:
     tasks:
       - name: build_test_image_ibm
 
-  - name: init_release_agents_on_ecr
-    display_name: init_release_agents_on_ecr
-    # this enables us to run this variant either manually (patch) which pct does or during an OM bump (github_pr)
-    allowed_requesters: [ "patch", "github_pr" ]
-    tags: [ "release_agents_on_ecr" ]
-    # We want that to run first and finish asap. Digest pinning depends on this to succeed.
-    priority: 70
-    run_on:
-      - ubuntu2204-large
-    tasks:
-      - name: release_agents_on_ecr_conditional
-
   - name: run_pre_commit
     priority: 70
     display_name: run_pre_commit
