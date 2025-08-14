@@ -8,21 +8,23 @@ import shutil
 from concurrent.futures import ProcessPoolExecutor
 from copy import copy
 from queue import Queue
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import requests
-import semver
 from opentelemetry import trace
 from packaging.version import Version
 
 from lib.base_logger import logger
-from scripts.detect_ops_manager_changes import detect_ops_manager_changes
 from scripts.release.build.image_build_configuration import ImageBuildConfiguration
 from scripts.release.build.image_build_process import execute_docker_build
 from scripts.release.build.image_signing import (
     mongodb_artifactory_login,
     sign_image,
     verify_signature,
+)
+from scripts.release.detect_ops_manager_changes import (
+    detect_ops_manager_changes,
+    get_all_agents_for_rebuild,
 )
 
 TRACER = trace.get_tracer("evergreen-agent")
@@ -274,12 +276,18 @@ def build_upgrade_hook_image(build_configuration: ImageBuildConfiguration):
     )
 
 
-def build_agent_default_case(build_configuration: ImageBuildConfiguration):
+def build_agent(build_configuration: ImageBuildConfiguration):
     """
     Build the agent only for the latest operator for patches and operator releases.
 
     """
-    agent_versions_to_build = detect_ops_manager_changes()
+    if build_configuration.all_agents:
+        agent_versions_to_build = get_all_agents_for_rebuild()
+        logger.info("building all agents")
+    else:
+        agent_versions_to_build = detect_ops_manager_changes()
+        logger.info("building agents for changed OM versions")
+
     if not agent_versions_to_build:
         logger.info("No changes detected, skipping agent build")
         return

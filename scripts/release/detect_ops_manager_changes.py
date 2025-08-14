@@ -5,6 +5,7 @@ Relies on git origin/master vs local release.json
 """
 import json
 import os
+import re
 import subprocess
 import sys
 from typing import Dict, List, Optional, Tuple
@@ -72,6 +73,58 @@ def get_changed_agents(current_mapping: Dict, base_mapping: Dict) -> List[Tuple[
     return list(set(added_agents))
 
 
+def get_tools_version_for_agent(agent_version: str) -> str:
+    """Get tools version for a given agent version from release.json"""
+    release_data = load_current_release_json()
+    if not release_data:
+        return "100.12.2"  # Default fallback
+
+    ops_manager_mapping = extract_ops_manager_mapping(release_data)
+    ops_manager_versions = ops_manager_mapping.get("ops_manager", {})
+
+    # Search through all OM versions to find matching agent version
+    for om_version, agent_tools in ops_manager_versions.items():
+        if agent_tools.get("agent_version") == agent_version:
+            return agent_tools.get("tools_version", "100.12.2")
+
+    # Check cloud_manager tools version as fallback
+    return ops_manager_mapping.get("cloud_manager_tools", "100.12.2")
+
+
+def get_all_agents_for_rebuild() -> List[Tuple[str, str]]:
+    """Returns list of (agent_version, tools_version) tuples for all agents in release.json"""
+    agents = []
+
+    release_data = load_current_release_json()
+    if not release_data:
+        print("ERROR: Could not load release.json")
+        return []
+
+    ops_manager_mapping = extract_ops_manager_mapping(release_data)
+
+    # Get all ops_manager agents
+    ops_manager_versions = ops_manager_mapping.get("ops_manager", {})
+    for om_version, agent_tools in ops_manager_versions.items():
+        agent_version = agent_tools.get("agent_version")
+        tools_version = agent_tools.get("tools_version")
+        if agent_version and tools_version:
+            agents.append((agent_version, tools_version))
+
+    # Get cloud_manager agent
+    cloud_manager_agent = ops_manager_mapping.get("cloud_manager")
+    cloud_manager_tools = ops_manager_mapping.get("cloud_manager_tools")
+    if cloud_manager_agent and cloud_manager_tools:
+        agents.append((cloud_manager_agent, cloud_manager_tools))
+
+    # Get the main agent version from release.json root
+    main_agent_version = release_data.get("agentVersion")
+    if main_agent_version:
+        tools_version = get_tools_version_for_agent(main_agent_version)
+        agents.append((main_agent_version, tools_version))
+
+    return list(set(agents))  # Remove duplicates
+
+
 def detect_ops_manager_changes() -> List[Tuple[str, str]]:
     """Returns (has_changes, changed_agents_list)"""
     print("=== Detecting OM Mapping Changes (Local vs Base) ===")
@@ -93,17 +146,3 @@ def detect_ops_manager_changes() -> List[Tuple[str, str]]:
         return get_changed_agents(current_mapping, base_mapping)
     else:
         return []
-
-
-if __name__ == "__main__":
-    if not os.path.exists("release.json"):
-        print("ERROR: release.json not found. Are you in the project root?")
-        sys.exit(2)
-
-    agents = detect_ops_manager_changes()
-    if agents:
-        print(f"Changed agents: {agents}")
-        sys.exit(0)
-    else:
-        print("Skipping agent release")
-        sys.exit(1)
