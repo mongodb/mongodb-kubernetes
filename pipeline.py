@@ -1310,7 +1310,7 @@ def queue_exception_handling(tasks_queue):
 
 def _build_agents(
     agent_tools_version: Tuple[str, str],
-    build_configuration: ImageBuildConfiguration,
+    build_configuration: BuildConfiguration,
     executor: ProcessPoolExecutor,
     tasks_queue: Queue,
 ):
