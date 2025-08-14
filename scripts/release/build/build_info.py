@@ -3,11 +3,17 @@ from dataclasses import dataclass
 from typing import Dict
 
 from scripts.release.build.build_scenario import BuildScenario
-from scripts.release.constants import DEFAULT_REPOSITORY_PATH, DEFAULT_CHANGELOG_PATH, RELEASE_INITIAL_VERSION_ENV_VAR, \
-    get_initial_version, get_initial_commit_sha
+from scripts.release.constants import (
+    DEFAULT_REPOSITORY_PATH,
+    DEFAULT_CHANGELOG_PATH,
+    RELEASE_INITIAL_VERSION_ENV_VAR,
+    get_initial_version,
+    get_initial_commit_sha,
+)
 
 MEKO_TESTS_IMAGE = "meko-tests"
 OPERATOR_IMAGE = "operator"
+OPERATOR_RACE_IMAGE = "operator-race"
 MCO_TESTS_IMAGE = "mco-tests"
 READINESS_PROBE_IMAGE = "readiness-probe"
 UPGRADE_HOOK_IMAGE = "upgrade-hook"
@@ -50,11 +56,13 @@ class BuildInfo:
     helm_charts: Dict[str, HelmChartInfo]
 
 
-def load_build_info(scenario: BuildScenario,
-                    repository_path: str = DEFAULT_REPOSITORY_PATH,
-                    changelog_sub_path: str = DEFAULT_CHANGELOG_PATH,
-                    initial_commit_sha: str = None,
-                    initial_version: str = None) -> BuildInfo:
+def load_build_info(
+    scenario: BuildScenario,
+    repository_path: str = DEFAULT_REPOSITORY_PATH,
+    changelog_sub_path: str = DEFAULT_CHANGELOG_PATH,
+    initial_commit_sha: str = None,
+    initial_version: str = None,
+) -> BuildInfo:
     f"""
     Load build information based on the specified scenario.
 

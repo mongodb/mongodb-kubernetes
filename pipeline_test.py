@@ -7,8 +7,6 @@ import pytest
 
 from pipeline import (
     calculate_images_to_build,
-    gather_all_supported_agent_versions,
-    gather_latest_agent_versions,
     get_versions_to_rebuild,
     get_versions_to_rebuild_per_operator_version,
     is_version_in_range,
@@ -157,23 +155,6 @@ def test_is_release_step_executed(description, case):
     config.include_tags = case["include_tags"]
     result = config.is_release_step_executed()
     assert result == case["expected"], f"Test failed: {description}. Expected {case['expected']}, got {result}."
-
-
-def test_build_latest_agent_versions():
-    latest_agents = gather_latest_agent_versions(release_json)
-    expected_agents = [
-        ("107.0.11.8645-1", "100.10.0"),
-        ("12.0.31.7825-1", "100.9.4"),
-        ("13.19.0.8937-1", "100.9.4"),
-    ]
-    assert latest_agents == expected_agents
-
-
-def test_get_versions_to_rebuild_same_version():
-    supported_versions = gather_all_supported_agent_versions(release_json)
-    agents = get_versions_to_rebuild(supported_versions, "6.0.0_1.26.0", "6.0.0_1.26.0")
-    assert len(agents) == 1
-    assert agents[0] == "6.0.0_1.26.0"
 
 
 def test_get_versions_to_rebuild_multiple_versions():

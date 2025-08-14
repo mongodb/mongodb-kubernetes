@@ -19,6 +19,15 @@ variables:
       - func: switch_context
 
 tasks:
+  - name: periodic_teardown_aws
+    commands:
+      - func: cleanup_aws
+
+  - name: periodic_teardown_cloudqa
+    commands:
+      - func: teardown_cloud_qa_all
+
+task_groups:
   - name: periodic_teardown_task_group
     <<: *setup_group
     tasks:

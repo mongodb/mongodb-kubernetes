@@ -1,5 +1,6 @@
 import argparse
 import os
+from functools import partial
 from typing import Callable, Dict
 
 from opentelemetry import context, trace
@@ -16,7 +17,7 @@ from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
 
 from lib.base_logger import logger
 from scripts.release.atomic_pipeline import (
-    build_agent_default_case,
+    build_agent,
     build_database_image,
     build_init_appdb_image,
     build_init_database_image,
@@ -37,6 +38,7 @@ from scripts.release.build.build_info import (
     MCO_TESTS_IMAGE,
     MEKO_TESTS_IMAGE,
     OPERATOR_IMAGE,
+    OPERATOR_RACE_IMAGE,
     OPS_MANAGER_IMAGE,
     READINESS_PROBE_IMAGE,
     UPGRADE_HOOK_IMAGE,
@@ -67,11 +69,12 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
     image_builders = {
         MEKO_TESTS_IMAGE: build_meko_tests_image,
         OPERATOR_IMAGE: build_operator_image,
+        OPERATOR_RACE_IMAGE: partial(build_operator_image, with_race_detection=True),
         MCO_TESTS_IMAGE: build_mco_tests_image,
         READINESS_PROBE_IMAGE: build_readiness_probe_image,
         UPGRADE_HOOK_IMAGE: build_upgrade_hook_image,
         DATABASE_IMAGE: build_database_image,
-        AGENT_IMAGE: build_agent_default_case,
+        AGENT_IMAGE: build_agent,
         # Init images
         INIT_APPDB_IMAGE: build_init_appdb_image,
         INIT_DATABASE_IMAGE: build_init_database_image,
@@ -96,7 +99,6 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     image = args.image
 
     build_scenario = get_scenario_from_arg(args.build_scenario) or BuildScenario.infer_scenario_from_environment()
-
     build_info = load_build_info(build_scenario)
     logger.info(f"image is {image}")
     logger.info(f"images are {build_info.images}")
@@ -121,6 +123,7 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
         platforms=platforms,
         sign=sign,
         parallel_factor=args.parallel_factor,
+        all_agents=args.all_agents,
     )
 
 
@@ -248,6 +251,11 @@ Default is to infer from environment variables. For '{BuildScenario.DEVELOPMENT}
         action="store",
         type=int,
         help="Number of agent builds to run in parallel, defaults to number of cores",
+    )
+    parser.add_argument(
+        "--all-agents",
+        action="store_true",
+        help="Build all agent images.",
     )
 
     args = parser.parse_args()

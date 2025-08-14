@@ -8,10 +8,9 @@ import shutil
 from concurrent.futures import ProcessPoolExecutor
 from copy import copy
 from queue import Queue
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import requests
-import semver
 from opentelemetry import trace
 from packaging.version import Version
 
@@ -22,6 +21,10 @@ from scripts.release.build.image_signing import (
     mongodb_artifactory_login,
     sign_image,
     verify_signature,
+)
+from scripts.release.detect_ops_manager_changes import (
+    detect_ops_manager_changes,
+    get_all_agents_for_rebuild,
 )
 
 TRACER = trace.get_tracer("evergreen-agent")
@@ -51,25 +54,19 @@ def extract_tools_version_from_release(release: Dict) -> str:
     return tools_version
 
 
-def get_build_arg_names(platform: str) -> Dict[str, str]:
-    """
-    Generate build argument names for a platform.
+def get_tools_distro(platform: str, tools_version: str) -> str:
+    new_rhel_tool_version = "100.10.0"
+    agent_info = load_agent_build_info()
+    suffix_mapping = agent_info["platform_mappings"][platform]
 
-    Args:
-        platform: Platform string (e.g., "linux/amd64")
-
-    Returns:
-        Dictionary with agent_build_arg and tools_build_arg keys
-    """
-    # Extract architecture from platform (e.g., "amd64" from "linux/amd64")
-    arch = platform.split("/")[1]
-
-    return {"agent_build_arg": f"mongodb_agent_version_{arch}", "tools_build_arg": f"mongodb_tools_version_{arch}"}
+    if Version(tools_version) >= Version(new_rhel_tool_version):
+        return suffix_mapping["tools_suffix"]
+    return suffix_mapping["tools_suffix_old"]
 
 
 def generate_tools_build_args(platforms: List[str], tools_version: str) -> Dict[str, str]:
     """
-    Generate build arguments for MongoDB tools based on platform mappings.
+    Generate build arguments for MongoDB tools based on platform mappings and version-aware RHEL selection.
 
     Args:
         platforms: List of platforms (e.g., ["linux/amd64", "linux/arm64"])
@@ -86,20 +83,16 @@ def generate_tools_build_args(platforms: List[str], tools_version: str) -> Dict[
             logger.warning(f"Platform {platform} not found in agent mappings, skipping")
             continue
 
-        mapping = agent_info["platform_mappings"][platform]
-        build_arg_names = get_build_arg_names(platform)
-
-        # Generate tools build arg only
-        tools_suffix = mapping["tools_suffix"].replace("{TOOLS_VERSION}", tools_version)
+        tools_suffix = get_tools_distro(platform, tools_version).replace("{TOOLS_VERSION}", tools_version)
         tools_filename = f"{agent_info['base_names']['tools']}-{tools_suffix}"
-        build_args[build_arg_names["tools_build_arg"]] = tools_filename
+        build_args[f"mongodb_tools_version_{platform}"] = tools_filename
 
     return build_args
 
 
 def generate_agent_build_args(platforms: List[str], agent_version: str, tools_version: str) -> Dict[str, str]:
     """
-    Generate build arguments for agent image based on platform mappings.
+    Generate build arguments for agent image based on platform mappings and version-aware RHEL selection.
 
     Args:
         platforms: List of platforms (e.g., ["linux/amd64", "linux/arm64"])
@@ -113,21 +106,19 @@ def generate_agent_build_args(platforms: List[str], agent_version: str, tools_ve
     build_args = {}
 
     for platform in platforms:
+        platform = platform.split("/")[1]
         if platform not in agent_info["platform_mappings"]:
             logger.warning(f"Platform {platform} not found in agent mappings, skipping")
             continue
 
         mapping = agent_info["platform_mappings"][platform]
-        build_arg_names = get_build_arg_names(platform)
 
-        # Generate agent build arg
         agent_filename = f"{agent_info['base_names']['agent']}-{agent_version}.{mapping['agent_suffix']}"
-        build_args[build_arg_names["agent_build_arg"]] = agent_filename
+        build_args[f"mongodb_agent_version_{platform}"] = agent_filename
 
-        # Generate tools build arg
-        tools_suffix = mapping["tools_suffix"].replace("{TOOLS_VERSION}", tools_version)
+        tools_suffix = get_tools_distro(platform, tools_version).replace("{TOOLS_VERSION}", tools_version)
         tools_filename = f"{agent_info['base_names']['tools']}-{tools_suffix}"
-        build_args[build_arg_names["tools_build_arg"]] = tools_filename
+        build_args[f"mongodb_tools_version_{platform}"] = tools_filename
 
     return build_args
 
@@ -221,17 +212,20 @@ def build_mco_tests_image(build_configuration: ImageBuildConfiguration):
     )
 
 
-def build_operator_image(build_configuration: ImageBuildConfiguration):
+def build_operator_image(build_configuration: ImageBuildConfiguration, with_race_detection: bool = False):
     """Calculates arguments required to build the operator image, and starts the build process."""
     # In evergreen, we can pass test_suffix env to publish the operator to a quay
     # repository with a given suffix.
     test_suffix = os.getenv("test_suffix", "")
     log_automation_config_diff = os.getenv("LOG_AUTOMATION_CONFIG_DIFF", "false")
 
+    build_configuration.version = f"{build_configuration.version}{'-race' if with_race_detection else ''}"
+
     args = {
         "version": build_configuration.version,
         "log_automation_config_diff": log_automation_config_diff,
         "test_suffix": test_suffix,
+        "use_race": "true" if with_race_detection else "false",
     }
 
     logger.info(f"Building Operator args: {args}")
@@ -351,11 +345,9 @@ def build_init_appdb_image(build_configuration: ImageBuildConfiguration):
     )
 
 
-# TODO: nam static: remove this once static containers becomes the default
 def build_init_database_image(build_configuration: ImageBuildConfiguration):
     release = load_release_file()
     base_url = "https://fastdl.mongodb.org/tools/db"
-    mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
 
     # Extract tools version and generate platform-specific build args
     tools_version = extract_tools_version_from_release(release)
@@ -395,23 +387,23 @@ def build_upgrade_hook_image(build_configuration: ImageBuildConfiguration):
     )
 
 
-def build_agent_default_case(build_configuration: ImageBuildConfiguration):
+def build_agent(build_configuration: ImageBuildConfiguration):
     """
     Build the agent only for the latest operator for patches and operator releases.
 
     """
-    release = load_release_file()
-
-    # We need to release [all agents x latest operator] on operator releases
-    if build_configuration.is_release_scenario():
-        agent_versions_to_build = gather_all_supported_agent_versions(release)
-    # We only need [latest agents (for each OM major version and for CM) x patch ID] for patches
+    if build_configuration.all_agents:
+        agent_versions_to_build = get_all_agents_for_rebuild()
+        logger.info("building all agents")
     else:
-        agent_versions_to_build = gather_latest_agent_versions(release)
+        agent_versions_to_build = detect_ops_manager_changes()
+        logger.info("building agents for changed OM versions")
 
-    logger.info(
-        f"Building Agent versions: {agent_versions_to_build} for Operator versions: {build_configuration.version}"
-    )
+    if not agent_versions_to_build:
+        logger.info("No changes detected, skipping agent build")
+        return
+
+    logger.info(f"Building Agent versions: {agent_versions_to_build}")
 
     tasks_queue = Queue()
     max_workers = 1
@@ -423,8 +415,10 @@ def build_agent_default_case(build_configuration: ImageBuildConfiguration):
         logger.info(f"Running with factor of {max_workers}")
         logger.info(f"======= Agent versions to build {agent_versions_to_build} =======")
         for idx, agent_tools_version in enumerate(agent_versions_to_build):
+            # We don't need to keep create and push the same image on every build.
+            # It is enough to create and push the non-operator suffixed images only during releases to ecr and quay.
             logger.info(f"======= Building Agent {agent_tools_version} ({idx}/{len(agent_versions_to_build)})")
-            _build_agent(
+            _build_agents(
                 agent_tools_version,
                 build_configuration,
                 executor,
@@ -433,74 +427,11 @@ def build_agent_default_case(build_configuration: ImageBuildConfiguration):
 
     queue_exception_handling(tasks_queue)
 
+    logger.info(f"Building Agent version: {agent_version_to_build}")
+    agent_version = agent_version_to_build[0]
+    tools_version = agent_version_to_build[1]
 
-def gather_all_supported_agent_versions(release: Dict) -> List[Tuple[str, str]]:
-    # This is a list of a tuples - agent version and corresponding tools version
-    agent_versions_to_build = list()
-    agent_versions_to_build.append(
-        (
-            release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager"],
-            release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager_tools"],
-        )
-    )
-    for _, om in release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"].items():
-        agent_versions_to_build.append((om["agent_version"], om["tools_version"]))
-
-    # lets not build the same image multiple times
-    return sorted(list(set(agent_versions_to_build)))
-
-
-def gather_latest_agent_versions(release: Dict) -> List[Tuple[str, str]]:
-    """
-    This function is used when we release a new agent via OM bump.
-    That means we will need to release that agent with all supported operators.
-    Since we don’t want to release all agents again, we only release the latest, which will contain the newly added one
-    :return: the latest agent for each major version
-    """
-    agent_versions_to_build = list()
-    agent_versions_to_build.append(
-        (
-            release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager"],
-            release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager_tools"],
-        )
-    )
-
-    latest_versions = {}
-
-    for version in release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"].keys():
-        parsed_version = semver.VersionInfo.parse(version)
-        major_version = parsed_version.major
-        if major_version in latest_versions:
-            latest_parsed_version = semver.VersionInfo.parse(str(latest_versions[major_version]))
-            latest_versions[major_version] = max(parsed_version, latest_parsed_version)
-        else:
-            latest_versions[major_version] = version
-
-    for major_version, latest_version in latest_versions.items():
-        agent_versions_to_build.append(
-            (
-                release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"][str(latest_version)][
-                    "agent_version"
-                ],
-                release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"][str(latest_version)][
-                    "tools_version"
-                ],
-            )
-        )
-
-    return sorted(list(set(agent_versions_to_build)))
-
-
-def _build_agent(
-    agent_tools_version: Tuple[str, str],
-    build_configuration: ImageBuildConfiguration,
-    executor: ProcessPoolExecutor,
-    tasks_queue: Queue,
-):
-    agent_version = agent_tools_version[0]
-    tools_version = agent_tools_version[1]
-
-    tasks_queue.put(executor.submit(build_agent_pipeline, build_configuration, agent_version, tools_version))
+    build_agent_pipeline(build_configuration, agent_version, tools_version)
 
 
 def build_agent_pipeline(
@@ -508,34 +439,36 @@ def build_agent_pipeline(
     agent_version: str,
     tools_version: str,
 ):
-    build_configuration_copy = copy(build_configuration)
-    build_configuration_copy.version = agent_version
-    print(
-        f"======== Building agent pipeline for version {agent_version}, build configuration version: {build_configuration.version}"
-    )
+    try:
+        build_configuration_copy = copy(build_configuration)
+        build_configuration_copy.version = agent_version
+        print(f"======== Building agent pipeline for version {agent_version}")
 
-    # Generate platform-specific build arguments using the mapping
-    platform_build_args = generate_agent_build_args(
-        platforms=build_configuration.platforms, agent_version=agent_version, tools_version=tools_version
-    )
+        # Generate platform-specific build arguments using the mapping
+        platform_build_args = generate_agent_build_args(
+            platforms=build_configuration.platforms, agent_version=agent_version, tools_version=tools_version
+        )
 
-    agent_base_url = (
-        "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
-    )
-    tools_base_url = "https://fastdl.mongodb.org/tools/db"
+        agent_base_url = (
+            "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
+        )
+        tools_base_url = "https://fastdl.mongodb.org/tools/db"
 
-    args = {
-        "version": agent_version,
-        "agent_version": agent_version,
-        "mongodb_agent_url": agent_base_url,
-        "mongodb_tools_url": tools_base_url,
-        **platform_build_args,  # Add the platform-specific build args
-    }
+        args = {
+            "version": agent_version,
+            "agent_version": agent_version,
+            "mongodb_agent_url": agent_base_url,
+            "mongodb_tools_url": tools_base_url,
+            **platform_build_args,  # Add the platform-specific build args
+        }
 
-    build_image(
-        build_configuration=build_configuration_copy,
-        build_args=args,
-    )
+        build_image(
+            build_configuration=build_configuration_copy,
+            build_args=args,
+        )
+    except Exception as e:
+        logger.error(f"Error building agent pipeline for version {agent_version}: {str(e)}")
+        raise
 
 
 def queue_exception_handling(tasks_queue):
@@ -548,14 +481,6 @@ def queue_exception_handling(tasks_queue):
         raise Exception(
             f"Exception(s) found when processing Agent images. \nSee also previous logs for more info\nFailing the build"
         )
-
-
-def get_tools_distro(tools_version: str) -> Dict[str, str]:
-    new_rhel_tool_version = "100.10.0"
-    default_distro = {"arm": "rhel90-aarch64", "amd": "rhel90-x86_64"}
-    if Version(tools_version) >= Version(new_rhel_tool_version):
-        return {"arm": "rhel93-aarch64", "amd": "rhel93-x86_64"}
-    return default_distro
 
 
 def load_release_file() -> Dict:
