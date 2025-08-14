@@ -128,8 +128,14 @@ variables:
     def test_no_changes_detected(self):
         """Test when no changes are detected"""
         with (
-            patch("scripts.release.detect_ops_manager_changes.load_current_release_json", return_value=self.current_release_data),
-            patch("scripts.release.detect_ops_manager_changes.load_release_json_from_master", return_value=self.master_release_data),
+            patch(
+                "scripts.release.detect_ops_manager_changes.load_current_release_json",
+                return_value=self.current_release_data,
+            ),
+            patch(
+                "scripts.release.detect_ops_manager_changes.load_release_json_from_master",
+                return_value=self.master_release_data,
+            ),
         ):
 
             changed_agents = detect_ops_manager_changes()
@@ -144,8 +150,13 @@ variables:
         }
 
         with (
-            patch("scripts.release.detect_ops_manager_changes.load_current_release_json", return_value=modified_current),
-            patch("scripts.release.detect_ops_manager_changes.load_release_json_from_master", return_value=self.master_release_data),
+            patch(
+                "scripts.release.detect_ops_manager_changes.load_current_release_json", return_value=modified_current
+            ),
+            patch(
+                "scripts.release.detect_ops_manager_changes.load_release_json_from_master",
+                return_value=self.master_release_data,
+            ),
         ):
 
             changed_agents = detect_ops_manager_changes()
@@ -159,8 +170,13 @@ variables:
         ] = "12.0.35.7911-1"
 
         with (
-            patch("scripts.release.detect_ops_manager_changes.load_current_release_json", return_value=modified_current),
-            patch("scripts.release.detect_ops_manager_changes.load_release_json_from_master", return_value=self.master_release_data),
+            patch(
+                "scripts.release.detect_ops_manager_changes.load_current_release_json", return_value=modified_current
+            ),
+            patch(
+                "scripts.release.detect_ops_manager_changes.load_release_json_from_master",
+                return_value=self.master_release_data,
+            ),
         ):
 
             changed_agents = detect_ops_manager_changes()
@@ -172,8 +188,13 @@ variables:
         modified_current["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager"] = "13.38.0.9600-1"
 
         with (
-            patch("scripts.release.detect_ops_manager_changes.load_current_release_json", return_value=modified_current),
-            patch("scripts.release.detect_ops_manager_changes.load_release_json_from_master", return_value=self.master_release_data),
+            patch(
+                "scripts.release.detect_ops_manager_changes.load_current_release_json", return_value=modified_current
+            ),
+            patch(
+                "scripts.release.detect_ops_manager_changes.load_release_json_from_master",
+                return_value=self.master_release_data,
+            ),
         ):
 
             changed_agents = detect_ops_manager_changes()
@@ -185,8 +206,13 @@ variables:
         modified_current["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager_tools"] = "100.13.0"
 
         with (
-            patch("scripts.release.detect_ops_manager_changes.load_current_release_json", return_value=modified_current),
-            patch("scripts.release.detect_ops_manager_changes.load_release_json_from_master", return_value=self.master_release_data),
+            patch(
+                "scripts.release.detect_ops_manager_changes.load_current_release_json", return_value=modified_current
+            ),
+            patch(
+                "scripts.release.detect_ops_manager_changes.load_release_json_from_master",
+                return_value=self.master_release_data,
+            ),
         ):
 
             changed_agents = detect_ops_manager_changes()
@@ -198,8 +224,13 @@ variables:
         del modified_current["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"]["7.0.11"]
 
         with (
-            patch("scripts.release.detect_ops_manager_changes.load_current_release_json", return_value=modified_current),
-            patch("scripts.release.detect_ops_manager_changes.load_release_json_from_master", return_value=self.master_release_data),
+            patch(
+                "scripts.release.detect_ops_manager_changes.load_current_release_json", return_value=modified_current
+            ),
+            patch(
+                "scripts.release.detect_ops_manager_changes.load_release_json_from_master",
+                return_value=self.master_release_data,
+            ),
         ):
 
             changed_agents = detect_ops_manager_changes()
@@ -215,8 +246,13 @@ variables:
         modified_current["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager"] = "13.38.0.9600-1"
 
         with (
-            patch("scripts.release.detect_ops_manager_changes.load_current_release_json", return_value=modified_current),
-            patch("scripts.release.detect_ops_manager_changes.load_release_json_from_master", return_value=self.master_release_data),
+            patch(
+                "scripts.release.detect_ops_manager_changes.load_current_release_json", return_value=modified_current
+            ),
+            patch(
+                "scripts.release.detect_ops_manager_changes.load_release_json_from_master",
+                return_value=self.master_release_data,
+            ),
         ):
 
             changed_agents = detect_ops_manager_changes()
@@ -228,7 +264,10 @@ variables:
         """Test handling when current release.json cannot be loaded"""
         with (
             patch("scripts.release.detect_ops_manager_changes.load_current_release_json", return_value=None),
-            patch("scripts.release.detect_ops_manager_changes.load_release_json_from_master", return_value=self.master_release_data),
+            patch(
+                "scripts.release.detect_ops_manager_changes.load_release_json_from_master",
+                return_value=self.master_release_data,
+            ),
         ):
 
             changed_agents = detect_ops_manager_changes()
@@ -237,7 +276,10 @@ variables:
     def test_base_release_load_failure_fail_safe(self):
         """Test fail-safe behavior when base release.json cannot be loaded"""
         with (
-            patch("scripts.release.detect_ops_manager_changes.load_current_release_json", return_value=self.current_release_data),
+            patch(
+                "scripts.release.detect_ops_manager_changes.load_current_release_json",
+                return_value=self.current_release_data,
+            ),
             patch("scripts.release.detect_ops_manager_changes.load_release_json_from_master", return_value=None),
         ):
 
