@@ -42,7 +42,6 @@ from packaging.version import Version
 import docker
 from lib.base_logger import logger
 from lib.sonar.sonar import process_image
-from scripts.detect_ops_manager_changes import detect_ops_manager_changes
 from scripts.evergreen.release.agent_matrix import (
     get_supported_version_for_image,
 )
@@ -52,6 +51,7 @@ from scripts.release.build.image_signing import (
     sign_image,
     verify_signature,
 )
+from scripts.release.detect_ops_manager_changes import detect_ops_manager_changes
 
 TRACER = trace.get_tracer("evergreen-agent")
 

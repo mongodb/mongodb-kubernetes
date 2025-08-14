@@ -15,16 +15,16 @@ from opentelemetry import trace
 from packaging.version import Version
 
 from lib.base_logger import logger
-from scripts.detect_ops_manager_changes import (
-    detect_ops_manager_changes,
-    get_all_agents_for_rebuild,
-)
 from scripts.release.build.image_build_configuration import ImageBuildConfiguration
 from scripts.release.build.image_build_process import execute_docker_build
 from scripts.release.build.image_signing import (
     mongodb_artifactory_login,
     sign_image,
     verify_signature,
+)
+from scripts.release.detect_ops_manager_changes import (
+    detect_ops_manager_changes,
+    get_all_agents_for_rebuild,
 )
 
 TRACER = trace.get_tracer("evergreen-agent")
