@@ -356,7 +356,7 @@ tasks:
       - func: setup_building_host
       - func: quay_login
       - func: setup_docker_sbom
-      - func: pipeline
+      - func: release_pipeline
         vars:
           image_name: agent
 

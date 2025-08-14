@@ -517,22 +517,6 @@ functions:
           # docker buildx needs the moby/buildkit image when setting up a builder so we pull it from our mirror
           docker buildx create --driver=docker-container --driver-opt=image=268558157000.dkr.ecr.eu-west-1.amazonaws.com/docker-hub-mirrors/moby/buildkit:buildx-stable-1 --use
           docker buildx inspect --bootstrap
-    - command: ec2.assume_role
-      display_name: Assume IAM role with permissions to pull Kondukto API token
-      params:
-        role_arn: ${kondukto_role_arn}
-    - command: shell.exec
-      display_name: Pull Kondukto API token from AWS Secrets Manager and write it to file
-      params:
-        silent: true
-        shell: bash
-        include_expansions_in_env: [AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN]
-        script: |
-          set -e
-          # use AWS CLI to get the Kondukto API token from AWS Secrets Manager
-          kondukto_token=$(aws secretsmanager get-secret-value --secret-id "kondukto-token" --region "us-east-1" --query 'SecretString' --output text)
-          # write the KONDUKTO_TOKEN environment variable to Silkbomb environment file
-          echo "KONDUKTO_TOKEN=$kondukto_token" > ${workdir}/silkbomb.env
     - command: subprocess.exec
       retry_on_failure: true
       type: setup
@@ -541,6 +525,28 @@ functions:
         <<: *e2e_include_expansions_in_env
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/dev/run_python.sh scripts/release/pipeline_main.py --parallel ${image_name} ${all_agents}
+
+  release_pipeline:
+    - *switch_context
+    - command: shell.exec
+      type: setup
+      params:
+        shell: bash
+        script: |
+          # Docker Hub workaround
+          # docker buildx needs the moby/buildkit image when setting up a builder so we pull it from our mirror
+          docker buildx create --driver=docker-container --driver-opt=image=268558157000.dkr.ecr.eu-west-1.amazonaws.com/docker-hub-mirrors/moby/buildkit:buildx-stable-1 --use
+          docker buildx inspect --bootstrap
+    - command: subprocess.exec
+      retry_on_failure: true
+      type: setup
+      params:
+        shell: bash
+        <<: *e2e_include_expansions_in_env
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        env:
+          git_tag: ${triggered_by_git_tag}
+        binary: scripts/dev/run_python.sh scripts/release/pipeline_main.py ${image_name} --build-scenario release --version ${git_tag}
 
   # TODO: CLOUDP-335471 ; once all image builds are made with the new atomic pipeline, remove the following function
   legacy_pipeline:
