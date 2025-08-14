@@ -8,11 +8,12 @@ import sys
 from typing import Dict, List
 
 import requests
+from git import Repo
+from requests import Response
+
 from scripts.evergreen.release.agent_matrix import (
     get_supported_version_for_image,
 )
-from git import Repo
-from requests import Response
 
 
 def get_repo_root():
