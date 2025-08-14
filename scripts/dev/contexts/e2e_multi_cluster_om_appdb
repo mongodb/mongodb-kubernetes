@@ -8,11 +8,6 @@ script_dir=$(dirname "${script_name}")
 source "${script_dir}/root-context"
 source "${script_dir}/variables/om70"
 
-# TODO Remove this once the startup script for OM can handle skipping preflight checks.
-# As it stands now, OM 7.0.13 will fail the preflight checks in a disaster recovery scenario.
-# https://jira.mongodb.org/browse/CLOUDP-297377
-export CUSTOM_OM_VERSION=7.0.12
-
 export KUBE_ENVIRONMENT_NAME=multi
 export CLUSTER_NAME="kind-e2e-cluster-1"
 export MEMBER_CLUSTERS="kind-e2e-cluster-1 kind-e2e-cluster-2 kind-e2e-cluster-3"
@@ -20,3 +15,11 @@ export CENTRAL_CLUSTER=kind-e2e-cluster-1
 export TEST_POD_CLUSTER=kind-e2e-cluster-1
 export test_pod_cluster=kind-e2e-cluster-1
 export ops_manager_version="${CUSTOM_OM_VERSION}"
+
+# MCK is capable of deploying a webhook (optional).
+# To do so it needs know which pods to select for routing traffic
+# in the Service and operator name currently serves as a selector.
+# This value must be different for multi cluster setup,
+# but we can unify once we are done with unified operator
+# installation for both multicluster and single cluster setups.
+export OPERATOR_NAME="mongodb-kubernetes-operator-multi-cluster"

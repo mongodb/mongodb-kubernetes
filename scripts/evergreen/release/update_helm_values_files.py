@@ -11,7 +11,7 @@ import json
 import sys
 from typing import List
 
-from agent_matrix import get_supported_version_for_image_matrix_handling
+from agent_matrix import get_supported_version_for_image
 from helm_files_handler import (
     get_value_in_yaml_file,
     set_value_in_yaml_file,
@@ -57,9 +57,13 @@ def main() -> int:
 
 
 def update_standalone(operator_version):
-    update_standalone_installer("public/mongodb-kubernetes.yaml", operator_version),
-    update_standalone_installer("public/mongodb-kubernetes-openshift.yaml", operator_version),
-    update_standalone_installer("public/mongodb-kubernetes-multi-cluster.yaml", operator_version),
+    file_paths = [
+        "public/mongodb-kubernetes.yaml",
+        "public/mongodb-kubernetes-openshift.yaml",
+        "public/mongodb-kubernetes-multi-cluster.yaml",
+    ]
+    for file_path in file_paths:
+        update_standalone_installer(file_path, operator_version)
 
 
 def update_helm_charts(operator_version, release):
@@ -76,7 +80,7 @@ def update_helm_charts(operator_version, release):
     set_value_in_yaml_file(
         "helm_chart/values-openshift.yaml",
         "relatedImages.agent",
-        filterNonReleaseOut(get_supported_version_for_image_matrix_handling("mongodb-agent")),
+        filterNonReleaseOut(get_supported_version_for_image("mongodb-agent")),
     )
     set_value_in_yaml_file("helm_chart/values-openshift.yaml", "operator.version", operator_version)
     set_value_in_yaml_file("helm_chart/values.yaml", "operator.version", operator_version)

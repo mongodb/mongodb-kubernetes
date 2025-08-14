@@ -210,13 +210,13 @@ prepare_multi_cluster_e2e_run() {
     fi
 
     (
-      cd public/tools/multicluster/
+      cd cmd/kubectl-mongodb
       GOOS=darwin GOARCH="${goarch}" go build -o "${MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH}" main.go
     )
     PATH=${PATH}:docker/mongodb-kubernetes-tests
   else
     (
-      cd public/tools/multicluster/
+      cd cmd/kubectl-mongodb
       # shellcheck disable=SC2030
       export PATH=${GOROOT}:${PATH}
       GOOS=linux GOARCH=amd64 go build -o "${MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH}" main.go

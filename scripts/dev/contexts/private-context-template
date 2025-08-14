@@ -99,3 +99,6 @@ export e2e_cloud_qa_user_owner_static_2="${OM_USER}"
 
 # TODO to be removed at public preview stage of community-search
 export COMMUNITY_PRIVATE_PREVIEW_PULLSECRET_DOCKERCONFIGJSON="<dockerconfigjson secret>"
+
+# uncomment to enable license update with pre-commit script
+# export MDB_UPDATE_LICENSES=true

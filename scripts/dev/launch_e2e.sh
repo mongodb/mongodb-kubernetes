@@ -2,6 +2,7 @@
 
 set -Eeou pipefail
 
+test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
 
 # The script launches e2e test. Note, that the Operator and necessary resources are deployed
 # inside the test
@@ -49,5 +50,3 @@ else
 fi
 
 title "E2e test ${test} is finished"
-
-

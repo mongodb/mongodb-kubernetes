@@ -6,10 +6,11 @@ from kubetester import create_secret, delete_secret, get_statefulset, read_secre
 from kubetester.certs import Certificate
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import is_default_architecture_static
-from kubetester.mongodb import MongoDB, Phase, get_pods
+from kubetester.kubetester import get_pods, is_default_architecture_static
+from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pytest import fixture, mark
 
 from ..conftest import APPDB_SA_NAME, DATABASE_SA_NAME, OM_SA_NAME, OPERATOR_NAME
@@ -312,7 +313,7 @@ def test_mdb_created(replica_set: MongoDB, namespace: str):
     for pod_name in get_pods(MDB_RESOURCE + "-{}", 3):
         pod = client.CoreV1Api().read_namespaced_pod(pod_name, namespace)
         if is_default_architecture_static():
-            assert len(pod.spec.containers) == 3
+            assert len(pod.spec.containers) == 4
         else:
             assert len(pod.spec.containers) == 2
 

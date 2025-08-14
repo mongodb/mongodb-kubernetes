@@ -79,6 +79,71 @@ class TestWebhookValidation(KubernetesTester):
             exception_reason="'spec.members' must be specified if type of MongoDB is ReplicaSet",
         )
 
+    def test_oidc_auth_with_mongodb_non_enterprise(self):
+        resource = yaml.safe_load(open(yaml_fixture("invalid_oidc_mongodb_non_enterprise.yaml")))
+        self.create_custom_resource_from_object(
+            self.get_namespace(),
+            resource,
+            exception_reason="Cannot enable OIDC authentication with MongoDB Community Builds",
+        )
+
+    def test_oidc_auth_with_single_method(self):
+        resource = yaml.safe_load(open(yaml_fixture("invalid_oidc_single_auth.yaml")))
+        self.create_custom_resource_from_object(
+            self.get_namespace(),
+            resource,
+            exception_reason="OIDC authentication cannot be used as the only authentication mechanism",
+        )
+
+    def test_oidc_auth_with_duplicate_config_name(self):
+        resource = yaml.safe_load(open(yaml_fixture("invalid_oidc_duplicate_config_name.yaml")))
+        self.create_custom_resource_from_object(
+            self.get_namespace(),
+            resource,
+            exception_reason="OIDC provider config name OIDC-test is not unique",
+        )
+
+    def test_oidc_auth_with_multiple_workforce(self):
+        resource = yaml.safe_load(open(yaml_fixture("invalid_oidc_multiple_workforce.yaml")))
+        self.create_custom_resource_from_object(
+            self.get_namespace(),
+            resource,
+            exception_reason="Only one OIDC provider config can be configured with Workforce Identity Federation. "
+            + "The following configs are configured with Workforce Identity Federation: OIDC-test, OIDC-test-2",
+        )
+
+    def test_oidc_auth_with_invalid_uri(self):
+        resource = yaml.safe_load(open(yaml_fixture("invalid_oidc_invalid_uri.yaml")))
+        self.create_custom_resource_from_object(
+            self.get_namespace(),
+            resource,
+            exception_reason='Invalid IssuerURI in OIDC provider config \\"OIDC-test\\": invalid URL scheme (http or https): ',
+        )
+
+    def test_oidc_auth_with_invalid_clientid(self):
+        resource = yaml.safe_load(open(yaml_fixture("invalid_oidc_invalid_clientid.yaml")))
+        self.create_custom_resource_from_object(
+            self.get_namespace(),
+            resource,
+            exception_reason='ClientId has to be specified in OIDC provider config \\"OIDC-test\\" with Workforce Identity Federation',
+        )
+
+    def test_oidc_auth_with_missing_groupclaim(self):
+        resource = yaml.safe_load(open(yaml_fixture("invalid_oidc_missing_groupclaim.yaml")))
+        self.create_custom_resource_from_object(
+            self.get_namespace(),
+            resource,
+            exception_reason='GroupsClaim has to be specified in OIDC provider config \\"OIDC-test\\" when using Group Membership authorization',
+        )
+
+    def test_oidc_auth_with_no_providers(self):
+        resource = yaml.safe_load(open(yaml_fixture("invalid_oidc_no_providers.yaml")))
+        self.create_custom_resource_from_object(
+            self.get_namespace(),
+            resource,
+            exception_reason="At least one OIDC provider config needs to be specified when OIDC authentication is enabled",
+        )
+
     def test_replicaset_members_is_specified_without_webhook(self):
         self._assert_validates_without_webhook(
             "mdbpolicy.mongodb.com",

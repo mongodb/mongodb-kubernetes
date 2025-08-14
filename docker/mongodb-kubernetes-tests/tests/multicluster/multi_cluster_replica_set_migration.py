@@ -7,10 +7,11 @@ from kubetester import try_load
 from kubetester.kubetester import assert_statefulset_architecture
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import get_default_architecture
-from kubetester.mongodb import Phase
-from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
+from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.mongotester import MongoDBBackgroundTester
+from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 from tests.multicluster.conftest import cluster_spec_list
 
 MDBM_RESOURCE = "multi-replica-set-migration"

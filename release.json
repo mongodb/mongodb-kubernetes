@@ -1,12 +1,12 @@
 {
   "mongodbToolsBundle": {
-    "ubi": "mongodb-database-tools-rhel88-x86_64-100.12.0.tgz"
+    "ubi": "mongodb-database-tools-rhel88-x86_64-100.12.2.tgz"
   },
-  "mongodbOperator": "1.0.1",
-  "initDatabaseVersion": "1.0.1",
-  "initOpsManagerVersion": "1.0.1",
-  "initAppDbVersion": "1.0.1",
-  "databaseImageVersion": "1.0.1",
+  "mongodbOperator": "1.2.0",
+  "initDatabaseVersion": "1.2.0",
+  "initOpsManagerVersion": "1.2.0",
+  "initAppDbVersion": "1.2.0",
+  "databaseImageVersion": "1.2.0",
   "agentVersion": "108.0.2.8729-1",
   "openshift": {
     "minimumSupportedVersion": "4.6"
@@ -38,16 +38,24 @@
     "ops-manager": {
       "ssdlc_name": "MongoDB Controllers for Kubernetes Enterprise Ops Manager",
       "versions": [
-        "6.0.25",
         "6.0.26",
         "6.0.27",
+        "7.0.11",
         "7.0.12",
         "7.0.13",
         "7.0.14",
         "7.0.15",
+        "7.0.17",
+        "8.0.0",
+        "8.0.1",
+        "8.0.2",
+        "8.0.3",
+        "8.0.4",
         "8.0.5",
         "8.0.6",
-        "8.0.7"
+        "8.0.7",
+        "8.0.11",
+        "8.0.12"
       ],
       "variants": [
         "ubi"
@@ -57,8 +65,9 @@
       "Description": "We support 3 last versions, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "ssdlc_name": "MongoDB Controllers for Kubernetes Operator",
       "versions": [
-        "1.0.0",
-        "1.0.1"
+        "1.0.1",
+        "1.1.0",
+        "1.2.0"
       ],
       "variants": [
         "ubi"
@@ -97,19 +106,23 @@
       ],
       "opsManagerMapping": {
         "Description": "These are the agents from which we start supporting static containers.",
-        "cloud_manager": "13.34.0.9465-1",
-        "cloud_manager_tools": "100.12.0",
+        "cloud_manager": "13.37.0.9590-1",
+        "cloud_manager_tools": "100.12.2",
         "ops_manager": {
-          "6.0.25": {
-            "agent_version": "12.0.33.7866-1",
-            "tools_version": "100.10.0"
-          },
           "6.0.26": {
             "agent_version": "12.0.34.7888-1",
             "tools_version": "100.10.0"
           },
           "6.0.27": {
             "agent_version": "12.0.35.7911-1",
+            "tools_version": "100.10.0"
+          },
+          "7.0.11": {
+            "agent_version": "107.0.11.8645-1",
+            "tools_version": "100.10.0"
+          },
+          "7.0.12": {
+            "agent_version": "107.0.12.8669-1",
             "tools_version": "100.10.0"
           },
           "7.0.13": {
@@ -124,6 +137,30 @@
             "agent_version": "107.0.15.8741-1",
             "tools_version": "100.11.0"
           },
+          "7.0.17": {
+            "agent_version": "107.0.17.8771-1",
+            "tools_version": "100.12.2"
+          },
+          "8.0.0": {
+            "agent_version": "108.0.0.8694-1",
+            "tools_version": "100.10.0"
+          },
+          "8.0.1": {
+            "agent_version": "108.0.1.8718-1",
+            "tools_version": "100.10.0"
+          },
+          "8.0.2": {
+            "agent_version": "108.0.2.8729-1",
+            "tools_version": "100.10.0"
+          },
+          "8.0.3": {
+            "agent_version": "108.0.3.8758-1",
+            "tools_version": "100.10.0"
+          },
+          "8.0.4": {
+            "agent_version": "108.0.4.8770-1",
+            "tools_version": "100.10.0"
+          },
           "8.0.5": {
             "agent_version": "108.0.4.8770-1",
             "tools_version": "100.11.0"
@@ -135,6 +172,14 @@
           "8.0.7": {
             "agent_version": "108.0.7.8810-1",
             "tools_version": "100.12.0"
+          },
+          "8.0.11": {
+            "agent_version": "108.0.11.8830-1",
+            "tools_version": "100.12.2"
+          },
+          "8.0.12": {
+            "agent_version": "108.0.12.8846-1",
+            "tools_version": "100.12.2"
           }
         }
       },
@@ -146,8 +191,9 @@
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "ssdlc_name": "MongoDB Controllers for Kubernetes Init Ops Manager",
       "versions": [
-        "1.0.0",
-        "1.0.1"
+        "1.0.1",
+        "1.1.0",
+        "1.2.0"
       ],
       "variants": [
         "ubi"
@@ -157,8 +203,9 @@
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "ssdlc_name": "MongoDB Controllers for Kubernetes Init Database",
       "versions": [
-        "1.0.0",
-        "1.0.1"
+        "1.0.1",
+        "1.1.0",
+        "1.2.0"
       ],
       "variants": [
         "ubi"
@@ -168,8 +215,9 @@
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "ssdlc_name": "MongoDB Controllers for Kubernetes Init AppDB",
       "versions": [
-        "1.0.0",
-        "1.0.1"
+        "1.0.1",
+        "1.1.0",
+        "1.2.0"
       ],
       "variants": [
         "ubi"
@@ -179,8 +227,9 @@
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "ssdlc_name": "MongoDB Controllers for Kubernetes Database",
       "versions": [
-        "1.0.0",
-        "1.0.1"
+        "1.0.1",
+        "1.1.0",
+        "1.2.0"
       ],
       "variants": [
         "ubi"

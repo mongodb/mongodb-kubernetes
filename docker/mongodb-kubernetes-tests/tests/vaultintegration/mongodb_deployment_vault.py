@@ -6,7 +6,6 @@ import pytest
 from kubernetes import client
 from kubernetes.client.rest import ApiException
 from kubetester import (
-    MongoDB,
     create_configmap,
     delete_secret,
     get_statefulset,
@@ -21,10 +20,11 @@ from kubetester.certs import (
 from kubetester.http import https_endpoint_is_reachable
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import is_default_architecture_static
-from kubetester.mongodb import Phase, get_pods
+from kubetester.kubetester import get_pods, is_default_architecture_static
+from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 from pytest import fixture, mark
 
 from ..conftest import DATABASE_SA_NAME, OPERATOR_NAME
@@ -357,7 +357,7 @@ def test_mdb_created(replica_set: MongoDB, namespace: str):
     for pod_name in get_pods(MDB_RESOURCE + "-{}", 3):
         pod = client.CoreV1Api().read_namespaced_pod(pod_name, namespace)
         if is_default_architecture_static():
-            assert len(pod.spec.containers) == 3
+            assert len(pod.spec.containers) == 4
         else:
             assert len(pod.spec.containers) == 2
 

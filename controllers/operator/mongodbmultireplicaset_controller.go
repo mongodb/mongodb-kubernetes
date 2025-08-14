@@ -33,6 +33,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
 	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
@@ -80,6 +81,7 @@ type ReconcileMongoDbMultiReplicaSet struct {
 	memberClusterClientsMap       map[string]kubernetesClient.Client // holds the client for each of the memberclusters(where the MongoDB ReplicaSet is deployed)
 	memberClusterSecretClientsMap map[string]secrets.SecretClient
 	forceEnterprise               bool
+	enableClusterMongoDBRoles     bool
 
 	imageUrls                         images.ImageUrls
 	initDatabaseNonStaticImageVersion string
@@ -88,7 +90,7 @@ type ReconcileMongoDbMultiReplicaSet struct {
 
 var _ reconcile.Reconciler = &ReconcileMongoDbMultiReplicaSet{}
 
-func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, omFunc om.ConnectionFactory, memberClustersMap map[string]client.Client) *ReconcileMongoDbMultiReplicaSet {
+func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, enableClusterMongoDBRoles bool, omFunc om.ConnectionFactory, memberClustersMap map[string]client.Client) *ReconcileMongoDbMultiReplicaSet {
 	clientsMap := make(map[string]kubernetesClient.Client)
 	secretClientsMap := make(map[string]secrets.SecretClient)
 
@@ -110,6 +112,7 @@ func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.
 		imageUrls:                         imageUrls,
 		initDatabaseNonStaticImageVersion: initDatabaseNonStaticImageVersion,
 		databaseNonStaticImageVersion:     databaseNonStaticImageVersion,
+		enableClusterMongoDBRoles:         enableClusterMongoDBRoles,
 	}
 }
 
@@ -198,8 +201,13 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return r.updateStatus(ctx, &mrs, status, log)
 	}
 
+	finalMemberIds, err := om.GetReplicaSetMemberIds(conn)
+	if err != nil {
+		return r.updateStatus(ctx, &mrs, workflow.Failed(err), log)
+	}
+
 	mrs.Status.FeatureCompatibilityVersion = mrs.CalculateFeatureCompatibilityVersion()
-	if err := r.saveLastAchievedSpec(ctx, mrs); err != nil {
+	if err := r.saveLastAchievedSpec(ctx, mrs, finalMemberIds); err != nil {
 		return r.updateStatus(ctx, &mrs, workflow.Failed(xerrors.Errorf("Failed to set annotation: %w", err)), log)
 	}
 
@@ -360,7 +368,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileMemberResources(ctx context.C
 		}
 	}
 	// Ensure custom roles are created in OM
-	if status := ensureRoles(mrs.GetSecurity().Roles, conn, log); !status.IsOK() {
+	if status := r.ensureRoles(ctx, mrs.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, conn, kube.ObjectKeyFromApiObject(mrs), log); !status.IsOK() {
 		return status
 	}
 
@@ -624,7 +632,7 @@ func getMembersForClusterSpecItemThisReconciliation(mrs *mdbmultiv1.MongoDBMulti
 }
 
 // saveLastAchievedSpec updates the MongoDBMultiCluster resource with the spec that was just achieved.
-func (r *ReconcileMongoDbMultiReplicaSet) saveLastAchievedSpec(ctx context.Context, mrs mdbmultiv1.MongoDBMultiCluster) error {
+func (r *ReconcileMongoDbMultiReplicaSet) saveLastAchievedSpec(ctx context.Context, mrs mdbmultiv1.MongoDBMultiCluster, rsMemberIds map[string]map[string]int) error {
 	clusterSpecs, err := mrs.GetClusterSpecItems()
 	if err != nil {
 		return err
@@ -652,6 +660,16 @@ func (r *ReconcileMongoDbMultiReplicaSet) saveLastAchievedSpec(ctx context.Conte
 	annotationsToAdd[util.LastAchievedSpec] = string(achievedSpecBytes)
 	if string(clusterNumBytes) != "null" {
 		annotationsToAdd[mdbmultiv1.LastClusterNumMapping] = string(clusterNumBytes)
+	}
+
+	if len(rsMemberIds) > 0 {
+		rsMemberIdsBytes, err := json.Marshal(rsMemberIds)
+		if err != nil {
+			return err
+		}
+		if len(rsMemberIdsBytes) > 0 {
+			annotationsToAdd[util.LastAchievedRsMemberIds] = string(rsMemberIdsBytes)
+		}
 	}
 
 	return annotations.SetAnnotations(ctx, &mrs, annotationsToAdd, r.client)
@@ -696,6 +714,15 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 	}
 
 	processIds := getReplicaSetProcessIdsFromReplicaSets(mrs.Name, existingDeployment)
+
+	// If there is no replicaset configuration saved in OM, it might be a new project, so we check the ids saved in annotation
+	// A project migration can happen if .spec.opsManager.configMapRef is changed, or the original configMap has been modified.
+	if len(processIds) == 0 {
+		processIds, err = getReplicaSetProcessIdsFromAnnotation(mrs)
+		if err != nil {
+			return xerrors.Errorf("failed to get member ids from annotation: %w", err)
+		}
+	}
 	log.Debugf("Existing process Ids: %+v", processIds)
 
 	certificateFileName := ""
@@ -789,6 +816,17 @@ func getReplicaSetProcessIdsFromReplicaSets(replicaSetName string, deployment om
 	}
 
 	return processIds
+}
+
+func getReplicaSetProcessIdsFromAnnotation(mrs mdbmultiv1.MongoDBMultiCluster) (map[string]int, error) {
+	if processIdsStr, ok := mrs.Annotations[util.LastAchievedRsMemberIds]; ok {
+		processIds := make(map[string]map[string]int)
+		if err := json.Unmarshal([]byte(processIdsStr), &processIds); err != nil {
+			return map[string]int{}, err
+		}
+		return processIds[mrs.Name], nil
+	}
+	return make(map[string]int), nil
 }
 
 func getSRVService(mrs *mdbmultiv1.MongoDBMultiCluster) corev1.Service {
@@ -1072,9 +1110,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileOMCAConfigMap(ctx context.Con
 
 // AddMultiReplicaSetController creates a new MongoDbMultiReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, memberClustersMap map[string]cluster.Cluster) error {
+func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, enableClusterMongoDBRoles bool, memberClustersMap map[string]cluster.Cluster) error {
 	// Create a new controller
-	reconciler := newMultiClusterReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, om.NewOpsManagerConnection, multicluster.ClustersMapToClientMap(memberClustersMap))
+	reconciler := newMultiClusterReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, om.NewOpsManagerConnection, multicluster.ClustersMapToClientMap(memberClustersMap))
 	c, err := controller.New(util.MongoDbMultiClusterController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err
@@ -1111,6 +1149,14 @@ func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imag
 		&watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: reconciler.resourceWatcher}))
 	if err != nil {
 		return err
+	}
+
+	if enableClusterMongoDBRoles {
+		err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &rolev1.ClusterMongoDBRole{},
+			&watch.ResourcesHandler{ResourceType: watch.ClusterMongoDBRole, ResourceWatcher: reconciler.resourceWatcher}))
+		if err != nil {
+			return err
+		}
 	}
 
 	// register watcher across member clusters

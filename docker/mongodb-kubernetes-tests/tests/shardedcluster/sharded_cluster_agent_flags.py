@@ -1,7 +1,8 @@
 from kubetester import find_fixture, try_load
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
 from tests.pod_logs import (

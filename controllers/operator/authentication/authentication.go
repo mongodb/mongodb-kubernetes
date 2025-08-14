@@ -7,6 +7,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/oidc"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -16,6 +17,7 @@ type AuthResource interface {
 	GetNamespace() string
 	GetSecurity() *mdbv1.Security
 	IsLDAPEnabled() bool
+	IsOIDCEnabled() bool
 	GetLDAP(password, caContents string) *ldap.Ldap
 }
 
@@ -51,6 +53,8 @@ type Options struct {
 	// Ldap is the LDAP configuration that will be passed to the Automation Config.
 	// Only required if LDAP is configured as an authentication mechanism
 	Ldap *ldap.Ldap
+
+	OIDCProviderConfigs []oidc.ProviderConfig
 
 	AutoUser string
 
@@ -260,6 +264,7 @@ func enableAgentAuthentication(conn om.Connection, opts Options, log *zap.Sugare
 
 	// we then configure the agent authentication for that type
 	mechanism := convertToMechanismOrPanic(opts.AgentMechanism, ac)
+
 	if err := ensureAgentAuthenticationIsConfigured(conn, opts, ac, mechanism, log); err != nil {
 		return xerrors.Errorf("error ensuring agent authentication is configured: %w", err)
 	}
@@ -320,7 +325,7 @@ func removeUnsupportedDeploymentMechanisms(conn om.Connection, opts Options, log
 	unsupportedMechanisms := mechanismsToDisable(automationConfigAuthMechanisms)
 
 	log.Infow("Removing unsupported deployment authentication mechanisms", "Mechanisms", unsupportedMechanisms)
-	if err := ensureDeploymentMechanismsAreDisabled(conn, ac, unsupportedMechanisms, opts, log); err != nil {
+	if err := ensureDeploymentMechanismsAreDisabled(conn, ac, unsupportedMechanisms, log); err != nil {
 		return xerrors.Errorf("error ensuring deployment mechanisms are disabled: %w", err)
 	}
 
@@ -397,10 +402,10 @@ func ensureDeploymentMechanisms(conn om.Connection, ac *om.AutomationConfig, mec
 
 // ensureDeploymentMechanismsAreDisabled configures the given AutomationConfig to allow deployments to
 // authenticate using the specified mechanisms
-func ensureDeploymentMechanismsAreDisabled(conn om.Connection, ac *om.AutomationConfig, mechanismsToDisable MechanismList, opts Options, log *zap.SugaredLogger) error {
+func ensureDeploymentMechanismsAreDisabled(conn om.Connection, ac *om.AutomationConfig, mechanismsToDisable MechanismList, log *zap.SugaredLogger) error {
 	deploymentMechanismsToDisable := make([]Mechanism, 0)
 	for _, mechanism := range mechanismsToDisable {
-		if mechanism.IsDeploymentAuthenticationConfigured(ac, opts) {
+		if mechanism.IsDeploymentAuthenticationEnabled(ac) {
 			deploymentMechanismsToDisable = append(deploymentMechanismsToDisable, mechanism)
 		}
 	}

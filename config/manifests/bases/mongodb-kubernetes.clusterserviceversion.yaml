@@ -6,11 +6,11 @@ metadata:
     capabilities: Deep Insights
     categories: Database
     certified: "true"
-    containerImage: quay.io/mongodb/mongodb-kubernetes:1.0.1
+    containerImage: quay.io/mongodb/mongodb-kubernetes:1.2.0
     createdAt: ""
-    description: The MongoDB Controllers for Kubernetes enable easy deploys of MongoDB
-      into Kubernetes clusters, using our management, monitoring and backup platforms,
-      Ops Manager and Cloud Manager.
+    description: The MongoDB Controllers for Kubernetes enable easy deploys of 
+      MongoDB into Kubernetes clusters, using our management, monitoring and 
+      backup platforms, Ops Manager and Cloud Manager.
     features.operators.openshift.io/disconnected: "true"
     features.operators.openshift.io/fips-compliant: "false"
     features.operators.openshift.io/proxy-aware: "false"
@@ -51,7 +51,8 @@ spec:
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
         - urn:alm:descriptor:com.tectonic.ui:fieldGroup:ClusterConfiguration
-      - description: In a Replica Set deployment type, specifies the amount of members.
+      - description: In a Replica Set deployment type, specifies the amount of 
+          members.
         displayName: Members of a Replica Set
         path: members
         x-descriptors:
@@ -65,7 +66,8 @@ spec:
       - description: Project configuration for this deployment
         displayName: Ops Manager project configuration
         path: opsManager
-      - description: Name of the ConfigMap with the configuration for this project
+      - description: Name of the ConfigMap with the configuration for this 
+          project
         displayName: Ops Manager Project Configuration
         path: opsManager.configMapRef.name
         x-descriptors:
@@ -164,7 +166,8 @@ spec:
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
         - urn:alm:descriptor:com.tectonic.ui:fieldGroup:ClusterConfiguration
-      - description: In a Replica Set deployment type, specifies the amount of members.
+      - description: In a Replica Set deployment type, specifies the amount of 
+          members.
         displayName: Members of a Replica Set
         path: members
         x-descriptors:
@@ -178,7 +181,8 @@ spec:
       - description: Project configuration for this deployment
         displayName: Ops Manager project configuration
         path: opsManager
-      - description: Name of the ConfigMap with the configuration for this project
+      - description: Name of the ConfigMap with the configuration for this 
+          project
         displayName: Ops Manager Project Configuration
         path: opsManager.configMapRef.name
         x-descriptors:
@@ -190,8 +194,8 @@ spec:
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
         - urn:alm:descriptor:com.tectonic.ui:fieldGroup:ClusterConfiguration
-      - description: Optional. Specify whether to duplicate service objects among
-          different Kubernetes clusters.
+      - description: Optional. Specify whether to duplicate service objects 
+          among different Kubernetes clusters.
         displayName: Duplicate Service Objects
         path: duplicateServiceObjects
         x-descriptors:
@@ -252,7 +256,8 @@ spec:
         path: passwordSecretKeyRef.name
         x-descriptors:
         - urn:alm:descriptor:io.kubernetes:Secret
-      - displayName: Name of the MongoDB resource to which this user is associated.
+      - displayName: Name of the MongoDB resource to which this user is 
+          associated.
         path: mongodbResourceRef.name
         x-descriptors:
         - urn:alm:descriptor:io.kubernetes:mongodb
@@ -308,8 +313,8 @@ spec:
         x-descriptors:
         - urn:alm:descriptor:io.kubernetes:Secret
         - urn:alm:descriptor:com.tectonic.ui:fieldGroup:OpsManagerConfiguration
-      - displayName: Secret to enable TLS for Ops Manager allowing it to serve traffic
-          over HTTPS.
+      - displayName: Secret to enable TLS for Ops Manager allowing it to serve 
+          traffic over HTTPS.
         path: security.tls.secretRef.name
         x-descriptors:
         - urn:alm:descriptor:io.kubernetes:Secret
@@ -319,8 +324,8 @@ spec:
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:number
         - urn:alm:descriptor:com.tectonic.ui:fieldGroup:ApplicationDatabase
-      - displayName: Secret containing the TLS certificate signed by known or custom
-          CA.
+      - displayName: Secret containing the TLS certificate signed by known or 
+          custom CA.
         path: applicationDatabase.security.tls.secretRef.name
         x-descriptors:
         - urn:alm:descriptor:io.kubernetes:Secret
@@ -451,5 +456,5 @@ spec:
   maturity: stable
   provider:
     name: MongoDB, Inc
+  replaces: mongodb-kubernetes.v1.1.0
   version: 0.0.0
-  replaces: mongodb-kubernetes.v1.0.0

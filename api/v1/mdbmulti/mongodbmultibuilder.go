@@ -46,7 +46,7 @@ func DefaultMultiReplicaSetBuilder() *MultiReplicaSetBuilder {
 				Authentication: &mdbv1.Authentication{
 					Modes: []mdbv1.AuthMode{},
 				},
-				Roles: []mdbv1.MongoDbRole{},
+				Roles: []mdbv1.MongoDBRole{},
 			},
 			DuplicateServiceObjects: util.BooleanRef(false),
 		},
@@ -70,6 +70,14 @@ func (m *MultiReplicaSetBuilder) SetVersion(version string) *MultiReplicaSetBuil
 
 func (m *MultiReplicaSetBuilder) SetSecurity(s *mdbv1.Security) *MultiReplicaSetBuilder {
 	m.Spec.Security = s
+	return m
+}
+
+func (m *MultiReplicaSetBuilder) SetRoleRefs(roleRefs []mdbv1.MongoDBRoleRef) *MultiReplicaSetBuilder {
+	if m.Spec.Security == nil {
+		m.Spec.Security = &mdbv1.Security{}
+	}
+	m.Spec.Security.RoleRefs = roleRefs
 	return m
 }
 

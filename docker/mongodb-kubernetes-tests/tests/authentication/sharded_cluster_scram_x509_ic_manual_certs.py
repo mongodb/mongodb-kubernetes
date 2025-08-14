@@ -1,6 +1,7 @@
 from kubetester.certs import SetProperties, create_mongodb_tls_certs
 from kubetester.kubetester import fixture as _fixture
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
+from kubetester.phase import Phase
 from pytest import fixture, mark
 
 MDB_RESOURCE = "sharded-cluster-scram-sha-256"

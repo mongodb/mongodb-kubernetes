@@ -13,10 +13,10 @@ To enable the manual disaster recovery using the CLI, this sample provides a [Jo
 The RBAC settings for the operator are typically creating using the CLI. In cases, where it is not possible, you can adjust and apply the YAML files from the [rbac](./resources/rbac) directory.
 
 ### Build the multi-cluster CLI image
-You can build a minimal image containing the CLI executable using the `Dockerfile` [provided in this repo](./../../tools/multicluster/Dockerfile).
+You can build a minimal image containing the CLI executable using the `Dockerfile` [provided in this path](../../../cmd/kubectl-mongodb/Dockerfile).
 ``` shell
 git clone https://github.com/mongodb/mongodb-kubernetes
-cd mongodb-kubernetes/public/tools/multicluster
-docker build . -t "your-registry/multi-cluster-cli:latest"
+cd mongodb-kubernetes/
+docker build . -t "your-registry/multi-cluster-cli:latest" -f cmd/kubectl-mongodb/Dockerfile
 docker push "your-registry/multi-cluster-cli:latest"
 ```

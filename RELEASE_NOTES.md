@@ -1,6 +1,43 @@
 [//]: # (Consider renaming or removing the header for next release, otherwise it appears as duplicate in the published release, e.g: https://github.com/mongodb/mongodb-enterprise-kubernetes/releases/tag/1.22.0 )
 <!-- Next Release -->
 
+# MCK 1.3.0 Release Notes
+
+## Other Changes
+* Optional permissions for `PersistentVolumeClaim` moved to a separate role. When managing the operator with Helm it is possible to disable permissions for `PersistentVolumeClaim` resources by setting `operator.enablePVCResize` value to `false` (`true` by default). When enabled, previously these permissions were part of the primary operator role. With this change, permissions have a separate role.
+* `subresourceEnabled` Helm value was removed. This setting used to be `true` by default and made it possible to exclude subresource permissions from the operator role by specifying `false` as the value. We are removing this configuration option, making the operator roles always have subresource permissions. This setting was introduced as a temporary solution for [this](https://bugzilla.redhat.com/show_bug.cgi?id=1803171) OpenShift issue. The issue has since been resolved and the setting is no longer needed.
+
+
+<!-- Past Releases -->
+
+# MCK 1.2.0 Release Notes
+
+## New Features
+
+* Added new **ClusterMongoDBRole** CRD to support reusable roles across multiple MongoDB clusters.
+  * This allows users to define roles once and reuse them in multiple **MongoDB** or **MongoDBMultiCluster** resources. The role can be referenced through the `.spec.security.roleRefs` field. Note that only one of `.spec.security.roles` and `.spec.security.roleRefs` can be used at a time.
+  * **ClusterMongoDBRole** resources are treated by the operator as a custom role templates that are only used when referenced by the database resources.
+  * The new resource is watched by default by the operator. This means that the operator will require a new **ClusterRole** and **ClusterRoleBinding** to be created in the cluster. **ClusterRole** and **ClusterRoleBinding** resources are created by default with the helm chart or the kubectl mongodb plugin.
+    * To disable this behavior in the helm chart, set the `operator.enableClusterMongoDBRoles` value to `false`. This will disable the creation of the necessary RBAC resources for the **ClusterMongoDBRole** resource, as well as disable the watch for this resource.
+    * To not install the necessary **ClusterRole** and **ClusterRoleBinding** with the kubectl mongodb plugin set the `--create-mongodb-roles-cluster-role` to false.
+  * The new **ClusterMongoDBRole** resource is designed to be read-only, meaning it can be used by MongoDB deployments managed by different operators.
+  * The **ClusterMongoDBRole** resource can be deleted at any time, but the operator will not delete any roles that were created using this resource. To properly remove access, you must **manually** remove the reference to the **ClusterMongoDBRole** in the **MongoDB** or **MongoDBMultiCluster** resources.
+  * The reference documentation for this resource can be found here: **TODO** (link to documentation)
+  * For more information please see: **TODO** (link to documentation)
+* **MongoDB**, **MongoDBMulti**: Added support for OpenID Connect (OIDC) user authentication.
+  * OIDC authentication can be configured with `spec.security.authentication.modes=OIDC` and `spec.security.authentication.oidcProviderConfigs` settings.
+  * Minimum MongoDB version requirements:
+    * `7.0.11`, `8.0.0`
+    * Only supported with MongoDB Enterprise Server
+  * For more information please see:
+    * [Secure Client Authentication with OIDC](https://www.mongodb.com/docs/kubernetes/upcoming/tutorial/secure-client-connections/) # TODO
+    * [Manage Database Users using OIDC](https://www.mongodb.com/docs/kubernetes/upcoming/manage-users/) # TODO
+    * [Authentication and Authorization with OIDC/OAuth 2.0](https://www.mongodb.com/docs/manual/core/oidc/security-oidc/)
+
+## Bug Fixes
+* Fixed an issue where moving a **MongoDBMultiCluster** resource to a new project (or a new OM instance) would leave the deployment in a failed state.
+
+
 # MCK 1.1.0 Release Notes
 
 ## New Features
@@ -12,9 +49,7 @@
     * minimum MongoDB Community version: 8.0.
     * TLS must be disabled in MongoDB (communication between mongot and mongod is in plaintext for now).
 
-<!-- Past Releases -->
 # MCK 1.0.1 Release Notes
-
 
 ## Bug Fixes
 * Fix missing agent images in the operator bundle in OpenShift catalog and operatorhub.io.

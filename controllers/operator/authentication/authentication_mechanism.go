@@ -21,6 +21,7 @@ type Mechanism interface {
 	// called directly after deserializing the response from OM which should not contain the util.MergoDelete value in any field.
 	IsAgentAuthenticationConfigured(ac *om.AutomationConfig, opts Options) bool
 	IsDeploymentAuthenticationConfigured(ac *om.AutomationConfig, opts Options) bool
+	IsDeploymentAuthenticationEnabled(ac *om.AutomationConfig) bool
 	GetName() MechanismName
 }
 
@@ -33,6 +34,7 @@ const (
 	ScramSha1   MechanismName = "SCRAM-SHA-1"
 	MongoDBX509 MechanismName = "MONGODB-X509"
 	LDAPPlain   MechanismName = "PLAIN"
+	MongoDBOIDC MechanismName = "MONGODB-OIDC"
 
 	// MongoDBCR is an umbrella term for SCRAM-SHA-1 and MONGODB-CR for legacy reasons, once MONGODB-CR
 	// is enabled, users can auth with SCRAM-SHA-1 credentials
@@ -64,7 +66,7 @@ func (m MechanismList) Contains(mechanismName MechanismName) bool {
 
 // supportedMechanisms returns a list of all supported authentication mechanisms
 // that can be configured by the Operator
-var supportedMechanisms = []MechanismName{ScramSha256, MongoDBCR, MongoDBX509, LDAPPlain}
+var supportedMechanisms = []MechanismName{ScramSha256, MongoDBCR, MongoDBX509, LDAPPlain, MongoDBOIDC}
 
 // mechanismsToDisable returns mechanisms which need to be disabled
 // based on the currently supported authentication mechanisms and the desiredMechanisms
@@ -101,6 +103,8 @@ func convertToMechanismOrPanic(mechanismModeInCR string, ac *om.AutomationConfig
 		return getMechanismByName(MongoDBCR)
 	case util.SCRAMSHA256:
 		return getMechanismByName(ScramSha256)
+	case util.OIDC:
+		return getMechanismByName(MongoDBOIDC)
 	case util.SCRAM:
 		// if we have already configured authentication, and it has been set to MONGODB-CR/SCRAM-SHA-1
 		// we can not transition. This needs to be done in the UI
@@ -129,6 +133,8 @@ func getMechanismByName(name MechanismName) Mechanism {
 		return &connectionX509{}
 	case LDAPPlain:
 		return &ldapAuthMechanism{}
+	case MongoDBOIDC:
+		return &oidcAuthMechanism{}
 	}
 
 	panic(xerrors.Errorf("unknown mechanism name %s", name))

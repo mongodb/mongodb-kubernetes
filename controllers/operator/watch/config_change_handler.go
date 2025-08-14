@@ -14,15 +14,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	corev1 "k8s.io/api/core/v1"
+
+	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
 )
 
 // Type is an enum for all kubernetes types watched by controller for changes for configuration
 type Type string
 
 const (
-	ConfigMap Type = "ConfigMap"
-	Secret    Type = "Secret"
-	MongoDB   Type = "MongoDB"
+	ConfigMap          Type = "ConfigMap"
+	Secret             Type = "Secret"
+	MongoDB            Type = "MongoDB"
+	ClusterMongoDBRole Type = "ClusterMongoDBRole"
 )
 
 // the Object watched by controller. Includes its type and namespace+name
@@ -71,19 +74,23 @@ func shouldHandleUpdate(e event.UpdateEvent) bool {
 }
 
 func (c *ResourcesHandler) doHandle(namespace, name string, q workqueue.RateLimitingInterface) {
-	configMapOrSecret := Object{
+	object := Object{
 		ResourceType: c.ResourceType,
 		Resource:     types.NamespacedName{Name: name, Namespace: namespace},
 	}
 
-	for _, v := range c.ResourceWatcher.GetWatchedResources()[configMapOrSecret] {
-		zap.S().Infof("%s has been modified -> triggering reconciliation for dependent Resource %s", configMapOrSecret, v)
+	for _, v := range c.ResourceWatcher.GetWatchedResources()[object] {
+		zap.S().Infof("%s has been modified -> triggering reconciliation for dependent Resource %s", object, v)
 		q.Add(reconcile.Request{NamespacedName: v})
 	}
 }
 
 // Seems we don't need to react on config map/secret removal..
-func (c *ResourcesHandler) Delete(ctx context.Context, _ event.DeleteEvent, _ workqueue.RateLimitingInterface) {
+func (c *ResourcesHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.RateLimitingInterface) {
+	switch v := e.Object.(type) {
+	case *rolev1.ClusterMongoDBRole:
+		c.doHandle(v.GetNamespace(), v.GetName(), q)
+	}
 }
 
 func (c *ResourcesHandler) Generic(ctx context.Context, _ event.GenericEvent, _ workqueue.RateLimitingInterface) {

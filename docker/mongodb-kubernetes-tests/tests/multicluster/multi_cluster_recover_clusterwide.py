@@ -16,9 +16,10 @@ from kubetester import (
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import run_periodically
-from kubetester.mongodb import Phase
-from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
+from kubetester.mongodb_multi import MongoDBMulti
+from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import (
     MULTI_CLUSTER_OPERATOR_NAME,

@@ -5,9 +5,10 @@ from kubetester import wait_until
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.ldap import LDAPUser, OpenLDAP
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser, Role, generic_user
 from kubetester.mongotester import ShardedClusterTester
+from kubetester.phase import Phase
 from pytest import fixture, mark
 
 

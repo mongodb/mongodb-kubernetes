@@ -3,8 +3,9 @@ from kubetester import try_load
 from kubetester.certs import create_sharded_cluster_certs, create_x509_agent_tls_certs
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.kubetester import is_multi_cluster
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 from tests.shardedcluster.conftest import enable_multi_cluster_deployment
 
 MDB_RESOURCE_NAME = "test-x509-sc"

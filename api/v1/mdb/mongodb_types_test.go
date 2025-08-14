@@ -61,6 +61,88 @@ func TestGetAgentAuthentication(t *testing.T) {
 	assert.Equal(t, util.X509, sec.GetAgentMechanism("SCRAM-SHA-256"), "transitioning from SCRAM -> X509 is allowed")
 }
 
+func TestGetAuthenticationIsEnabledMethods(t *testing.T) {
+	tests := []struct {
+		name           string
+		authentication *Authentication
+		expectedX509   bool
+		expectedLDAP   bool
+		expectedOIDC   bool
+	}{
+		{
+			name:           "Nil authentication",
+			authentication: nil,
+			expectedX509:   false,
+			expectedLDAP:   false,
+			expectedOIDC:   false,
+		},
+		{
+			name:           "Empty authentication",
+			authentication: newAuthentication(),
+			expectedX509:   false,
+			expectedLDAP:   false,
+			expectedOIDC:   false,
+		},
+		{
+			name: "Empty authentication mode list",
+			authentication: &Authentication{
+				Enabled: true,
+			},
+			expectedX509: false,
+			expectedLDAP: false,
+			expectedOIDC: false,
+		},
+		{
+			name: "Authentication with x509 only",
+			authentication: &Authentication{
+				Enabled: true,
+				Modes:   []AuthMode{util.X509},
+			},
+			expectedX509: true,
+			expectedLDAP: false,
+			expectedOIDC: false,
+		},
+		{
+			name: "Authentication with LDAP only",
+			authentication: &Authentication{
+				Enabled: true,
+				Modes:   []AuthMode{util.LDAP},
+			},
+			expectedX509: false,
+			expectedLDAP: true,
+			expectedOIDC: false,
+		},
+		{
+			name: "Authentication with OIDC only",
+			authentication: &Authentication{
+				Enabled: true,
+				Modes:   []AuthMode{util.OIDC},
+			},
+			expectedX509: false,
+			expectedLDAP: false,
+			expectedOIDC: true,
+		},
+		{
+			name: "Authentication with multiple modes",
+			authentication: &Authentication{
+				Enabled: true,
+				Modes:   []AuthMode{util.X509, util.LDAP, util.OIDC, util.SCRAM},
+			},
+			expectedX509: true,
+			expectedLDAP: true,
+			expectedOIDC: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			auth := test.authentication
+			assert.Equal(t, test.expectedX509, auth.IsX509Enabled())
+			assert.Equal(t, test.expectedLDAP, auth.IsLDAPEnabled())
+			assert.Equal(t, test.expectedOIDC, auth.IsOIDCEnabled())
+		})
+	}
+}
+
 func TestMinimumMajorVersion(t *testing.T) {
 	mdbSpec := MongoDbSpec{
 		DbCommonSpec: DbCommonSpec{

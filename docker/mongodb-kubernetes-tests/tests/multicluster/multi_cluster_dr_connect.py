@@ -5,9 +5,9 @@ from typing import Dict
 import kubernetes
 import pytest
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 
 TEST_DATA = {"_id": "unique_id", "name": "John", "address": "Highway 37", "age": 30}
 

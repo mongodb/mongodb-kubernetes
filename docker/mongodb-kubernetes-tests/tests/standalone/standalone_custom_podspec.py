@@ -2,7 +2,8 @@ from kubetester.custom_podspec import assert_stateful_set_podspec
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import is_default_architecture_static
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
+from kubetester.phase import Phase
 from pytest import fixture, mark
 
 
@@ -25,16 +26,18 @@ def test_stateful_set_spec_updated(standalone, namespace):
     assert_stateful_set_podspec(sts.spec.template.spec, weight=50, topology_key="mykey", grace_period_seconds=10)
 
     containers = sts.spec.template.spec.containers
+    container_names = [container.name for container in containers]
 
     if is_default_architecture_static():
-        assert len(containers) == 3
-        assert containers[0].name == "mongodb-agent"
-        assert containers[1].name == "mongodb-enterprise-database"
-        assert containers[2].name == "standalone-sidecar"
+        assert len(containers) == 4
+        assert "mongodb-agent" in container_names
+        assert "mongodb-enterprise-database" in container_names
+        assert "mongodb-agent-operator-utilities" in container_names
+        assert "standalone-sidecar" in container_names
     else:
         assert len(containers) == 2
-        assert containers[0].name == "mongodb-enterprise-database"
-        assert containers[1].name == "standalone-sidecar"
+        assert "standalone-sidecar" in container_names
+        assert "mongodb-enterprise-database" in container_names
 
     labels = sts.spec.template.metadata.labels
     assert labels["label1"] == "value1"

@@ -197,7 +197,7 @@ func TestShardedClusterRace(t *testing.T) {
 		WithObjects(mock.GetDefaultResources()...).
 		Build()
 
-	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, nil, omConnectionFactory.GetConnectionFunc)
+	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, nil, omConnectionFactory.GetConnectionFunc)
 
 	testConcurrentReconciles(ctx, t, fakeClient, reconciler, sc1, sc2, sc3)
 }
@@ -319,11 +319,10 @@ func TestShardedClusterReconcileContainerImagesWithStaticArchitecture(t *testing
 			assert.NoError(t, err)
 
 			assert.Len(t, sts.Spec.Template.Spec.InitContainers, 0)
-			require.Len(t, sts.Spec.Template.Spec.Containers, 2)
+			require.Len(t, sts.Spec.Template.Spec.Containers, 3)
 
-			// Version from OM + operator version
-			assert.Equal(t, "quay.io/mongodb/mongodb-agent-ubi:12.0.30.7791-1_9.9.9-test", sts.Spec.Template.Spec.Containers[0].Image)
-			assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE", sts.Spec.Template.Spec.Containers[1].Image)
+			// Version from OM
+			VerifyStaticContainers(t, sts.Spec.Template.Spec.Containers)
 		})
 	}
 }
@@ -928,22 +927,22 @@ func TestShardedCustomPodSpecTemplate(t *testing.T) {
 	assertPodSpecSts(t, &statefulSetScConfig, configSrvPodSpec.NodeName, configSrvPodSpec.Hostname, configSrvPodSpec.RestartPolicy)
 
 	podSpecTemplateSc0 := statefulSetSc0.Spec.Template.Spec
-	assert.Len(t, podSpecTemplateSc0.Containers, 2, "Should have 2 containers now")
+	assert.Len(t, podSpecTemplateSc0.Containers, 2, "Should have 3 containers now")
 	assert.Equal(t, util.DatabaseContainerName, podSpecTemplateSc0.Containers[0].Name, "Database container should always be first")
 	assert.Equal(t, "my-custom-container-sc", podSpecTemplateSc0.Containers[1].Name, "Custom container should be second")
 
 	podSpecTemplateSc1 := statefulSetSc1.Spec.Template.Spec
-	assert.Len(t, podSpecTemplateSc1.Containers, 2, "Should have 2 containers now")
+	assert.Len(t, podSpecTemplateSc1.Containers, 2, "Should have 3 containers now")
 	assert.Equal(t, util.DatabaseContainerName, podSpecTemplateSc1.Containers[0].Name, "Database container should always be first")
 	assert.Equal(t, "my-custom-container-sc", podSpecTemplateSc1.Containers[1].Name, "Custom container should be second")
 
 	podSpecTemplateMongoS := statefulSetMongoS.Spec.Template.Spec
-	assert.Len(t, podSpecTemplateMongoS.Containers, 2, "Should have 2 containers now")
+	assert.Len(t, podSpecTemplateMongoS.Containers, 2, "Should have 3 containers now")
 	assert.Equal(t, util.DatabaseContainerName, podSpecTemplateMongoS.Containers[0].Name, "Database container should always be first")
 	assert.Equal(t, "my-custom-container-mongos", podSpecTemplateMongoS.Containers[1].Name, "Custom container should be second")
 
 	podSpecTemplateScConfig := statefulSetScConfig.Spec.Template.Spec
-	assert.Len(t, podSpecTemplateScConfig.Containers, 2, "Should have 2 containers now")
+	assert.Len(t, podSpecTemplateScConfig.Containers, 2, "Should have 3 containers now")
 	assert.Equal(t, util.DatabaseContainerName, podSpecTemplateScConfig.Containers[0].Name, "Database container should always be first")
 	assert.Equal(t, "my-custom-container-config", podSpecTemplateScConfig.Containers[1].Name, "Custom container should be second")
 }
@@ -1027,24 +1026,24 @@ func TestShardedCustomPodStaticSpecTemplate(t *testing.T) {
 	assertPodSpecSts(t, &statefulSetScConfig, configSrvPodSpec.NodeName, configSrvPodSpec.Hostname, configSrvPodSpec.RestartPolicy)
 
 	podSpecTemplateSc0 := statefulSetSc0.Spec.Template.Spec
-	assert.Len(t, podSpecTemplateSc0.Containers, 3, "Should have 2 containers now")
-	assert.Equal(t, util.AgentContainerName, podSpecTemplateSc0.Containers[0].Name, "Database container should always be first")
-	assert.Equal(t, "my-custom-container-sc", podSpecTemplateSc0.Containers[2].Name, "Custom container should be second")
+	assert.Len(t, podSpecTemplateSc0.Containers, 4, "Should have 4 containers (3 base + 1 custom)")
+	assert.Equal(t, util.AgentContainerName, podSpecTemplateSc0.Containers[0].Name, "Agent container should be first alphabetically")
+	assert.Equal(t, "my-custom-container-sc", podSpecTemplateSc0.Containers[len(podSpecTemplateSc0.Containers)-1].Name, "Custom container should be last")
 
 	podSpecTemplateSc1 := statefulSetSc1.Spec.Template.Spec
-	assert.Len(t, podSpecTemplateSc1.Containers, 3, "Should have 2 containers now")
-	assert.Equal(t, util.AgentContainerName, podSpecTemplateSc1.Containers[0].Name, "Database container should always be first")
-	assert.Equal(t, "my-custom-container-sc", podSpecTemplateSc1.Containers[2].Name, "Custom container should be second")
+	assert.Len(t, podSpecTemplateSc1.Containers, 4, "Should have 4 containers (3 base + 1 custom)")
+	assert.Equal(t, util.AgentContainerName, podSpecTemplateSc1.Containers[0].Name, "Agent container should be first alphabetically")
+	assert.Equal(t, "my-custom-container-sc", podSpecTemplateSc1.Containers[len(podSpecTemplateSc1.Containers)-1].Name, "Custom container should be last")
 
 	podSpecTemplateMongoS := statefulSetMongoS.Spec.Template.Spec
-	assert.Len(t, podSpecTemplateMongoS.Containers, 3, "Should have 2 containers now")
-	assert.Equal(t, util.AgentContainerName, podSpecTemplateMongoS.Containers[0].Name, "Database container should always be first")
-	assert.Equal(t, "my-custom-container-mongos", podSpecTemplateMongoS.Containers[2].Name, "Custom container should be second")
+	assert.Len(t, podSpecTemplateMongoS.Containers, 4, "Should have 4 containers (3 base + 1 custom)")
+	assert.Equal(t, util.AgentContainerName, podSpecTemplateMongoS.Containers[0].Name, "Agent container should be first alphabetically")
+	assert.Equal(t, "my-custom-container-mongos", podSpecTemplateMongoS.Containers[len(podSpecTemplateMongoS.Containers)-1].Name, "Custom container should be last")
 
 	podSpecTemplateScConfig := statefulSetScConfig.Spec.Template.Spec
-	assert.Len(t, podSpecTemplateScConfig.Containers, 3, "Should have 2 containers now")
-	assert.Equal(t, util.AgentContainerName, podSpecTemplateScConfig.Containers[0].Name, "Database container should always be first")
-	assert.Equal(t, "my-custom-container-config", podSpecTemplateScConfig.Containers[2].Name, "Custom container should be second")
+	assert.Len(t, podSpecTemplateScConfig.Containers, 4, "Should have 4 containers (3 base + 1 custom)")
+	assert.Equal(t, util.AgentContainerName, podSpecTemplateScConfig.Containers[0].Name, "Agent container should be first alphabetically")
+	assert.Equal(t, "my-custom-container-config", podSpecTemplateScConfig.Containers[len(podSpecTemplateScConfig.Containers)-1].Name, "Custom container should be last")
 }
 
 func TestFeatureControlsNoAuth(t *testing.T) {
@@ -1052,7 +1051,7 @@ func TestFeatureControlsNoAuth(t *testing.T) {
 	sc := test.DefaultClusterBuilder().RemoveAuth().Build()
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, sc)
-	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, nil, omConnectionFactory.GetConnectionFunc)
+	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, nil, omConnectionFactory.GetConnectionFunc)
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, fakeClient)
 
@@ -1253,7 +1252,7 @@ func TestFeatureControlsAuthEnabled(t *testing.T) {
 	sc := test.DefaultClusterBuilder().Build()
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, sc)
-	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, nil, omConnectionFactory.GetConnectionFunc)
+	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, nil, omConnectionFactory.GetConnectionFunc)
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, fakeClient)
 
@@ -1690,8 +1689,8 @@ func defaultClusterReconciler(ctx context.Context, imageUrls images.ImageUrls, i
 }
 
 func newShardedClusterReconcilerFromResource(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, kubeClient kubernetesClient.Client, omConnectionFactory *om.CachedOMConnectionFactory) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, error) {
-	r := newShardedClusterReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc)
-	reconcileHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, sc, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, zap.S())
+	r := newShardedClusterReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc)
+	reconcileHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, sc, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, zap.S())
 	if err != nil {
 		return nil, nil, err
 	}

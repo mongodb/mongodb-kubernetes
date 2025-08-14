@@ -3,8 +3,9 @@ import logging
 import kubernetes
 from kubetester import find_fixture, try_load
 from kubetester.kubetester import ensure_ent_version, skip_if_local
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import get_member_cluster_names, update_coredns_hosts
 from tests.shardedcluster.conftest import (

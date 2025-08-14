@@ -5,13 +5,17 @@ import yaml
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 VERSION_NOT_IN_WEB_SERVER = "4.2.1"
+
+# If this test is failing after an OM Bump, ensure that the nginx deployment fixture contains the associated mongosh
+# version. More details in this ticket: https://jira.mongodb.org/browse/CLOUDP-332640
 
 
 def add_mdb_version_to_deployment(deployment: Dict[str, Any], version: str):

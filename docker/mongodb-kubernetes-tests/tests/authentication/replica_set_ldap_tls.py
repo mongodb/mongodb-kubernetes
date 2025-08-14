@@ -1,10 +1,10 @@
-import time
 from typing import Dict
 
 from kubetester import create_or_update_secret, find_fixture, wait_until
 from kubetester.ldap import LDAP_AUTHENTICATION_MECHANISM, LDAPUser, OpenLDAP
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser, Role, generic_user
+from kubetester.phase import Phase
 from pytest import fixture, mark
 
 
@@ -144,5 +144,15 @@ def test_remove_ldap_settings(replica_set: MongoDB):
     replica_set["spec"]["security"]["authentication"]["ldap"] = None
     replica_set["spec"]["security"]["authentication"]["modes"] = ["SCRAM"]
     replica_set.update()
+
+    def wait_for_ac_pushed() -> bool:
+        ac = replica_set.get_automation_config_tester()
+        try:
+            ac.assert_authentication_mechanism_disabled(LDAP_AUTHENTICATION_MECHANISM, check_auth_mechanism=False)
+            return True
+        except AssertionError:
+            return False
+
+    wait_until(wait_for_ac_pushed, timeout=400)
 
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)

@@ -4,10 +4,12 @@ from typing import Optional
 from kubetester.certs import create_ops_manager_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.conftest import create_appdb_certs, is_multi_cluster
+from tests.common.cert.cert_issuer import create_appdb_certs
+from tests.conftest import is_multi_cluster
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 

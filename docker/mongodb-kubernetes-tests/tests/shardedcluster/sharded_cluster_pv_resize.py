@@ -1,8 +1,9 @@
-from kubetester import MongoDB, try_load
+from kubetester import try_load
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import Phase
+from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
 from tests.shardedcluster.conftest import (

@@ -6,9 +6,9 @@ from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
 from kubetester.helm import helm_template
 from kubetester.kubetester import create_testing_namespace
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import Phase
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import (
     get_central_cluster_client,

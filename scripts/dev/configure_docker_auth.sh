@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 set -Eeou pipefail
+test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
 
 source scripts/dev/set_env_context.sh
 source scripts/funcs/checks
@@ -44,13 +45,22 @@ remove_element() {
 check_docker_daemon_is_running
 
 if [[ -f ~/.docker/config.json ]]; then
-  if [[ "${RUNNING_IN_EVG:-""}" == "true" ]]; then
-    # when running locally we don't need to docker login all the time - we can do it once in 11 hours (ECR tokens expire each 12 hours)
-    if [[ -n "$(find ~/.docker/config.json -mmin -360 -type f)" ]] &&
-      grep "quay.io" -q ~/.docker/config.json && # TODO to be removed at public preview stage of community-search
-      grep "268558157000" -q ~/.docker/config.json; then
-      echo "Docker credentials are up to date - not performing the new login!"
-      exit
+  if [[ "${RUNNING_IN_EVG:-"false"}" != "true" ]]; then
+    # Check if login is actually required by making a HEAD request to ECR using existing Docker config
+    echo "Checking if Docker credentials are valid..."
+    ecr_auth=$(jq -r '.auths."268558157000.dkr.ecr.us-east-1.amazonaws.com".auth // empty' ~/.docker/config.json)
+
+    if [[ -n "${ecr_auth}" ]]; then
+      http_status=$(curl --head -s -o /dev/null -w "%{http_code}" --max-time 3 "https://268558157000.dkr.ecr.us-east-1.amazonaws.com/v2/dev/mongodb-kubernetes/manifests/latest" \
+        -H "Authorization: Basic ${ecr_auth}" 2>/dev/null || echo "error/timeout")
+
+      if [[ "${http_status}" != "401" && "${http_status}" != "403" && "${http_status}" != "error/timeout" ]]; then
+        echo "Docker credentials are up to date - not performing the new login!"
+        exit
+      fi
+      echo "Docker login required (HTTP status: ${http_status})"
+    else
+      echo "No ECR credentials found in Docker config - login required"
     fi
   fi
 

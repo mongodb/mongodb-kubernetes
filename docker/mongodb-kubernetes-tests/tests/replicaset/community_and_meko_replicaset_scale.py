@@ -1,8 +1,9 @@
 from kubetester import create_or_update_secret, try_load
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubetester.mongodb_community import MongoDBCommunity
 from kubetester.operator import Operator
+from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
 

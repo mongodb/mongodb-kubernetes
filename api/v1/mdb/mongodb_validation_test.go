@@ -8,6 +8,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -197,6 +198,396 @@ func TestReplicasetFCV(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestOIDCAuthValidation(t *testing.T) {
+	tests := []struct {
+		name                 string
+		auth                 *Authentication
+		expectedErrorMessage string
+		expectedWarning      status.Warning
+	}{
+		{
+			name: "Authentication disabled",
+			auth: &Authentication{
+				Enabled: false,
+			},
+		},
+		{
+			name: "OIDC not enabled",
+			auth: &Authentication{
+				Enabled: true,
+				Modes:   []AuthMode{util.SCRAMSHA256},
+			},
+		},
+		{
+			name: "OIDC cannot be only authentication mode enabled",
+			auth: &Authentication{
+				Enabled: true,
+				Modes:   []AuthMode{util.OIDC},
+			},
+			expectedErrorMessage: "OIDC authentication cannot be used as the only authentication mechanism",
+		},
+		{
+			name: "Agent authentication mode not specified, but required",
+			auth: &Authentication{
+				Enabled: true,
+				Modes:   []AuthMode{util.OIDC, util.SCRAMSHA256},
+			},
+			expectedErrorMessage: "spec.security.authentication.agents.mode must be specified if more than one entry is present in spec.security.authentication.modes",
+		},
+		{
+			name: "OIDC enabled but without provider configs",
+			auth: &Authentication{
+				Enabled: true,
+				Agents:  AgentAuthentication{Mode: util.SCRAMSHA256},
+				Modes:   []AuthMode{util.OIDC, util.SCRAMSHA256},
+			},
+			expectedErrorMessage: "At least one OIDC provider config needs to be specified when OIDC authentication is enabled",
+		},
+		{
+			name: "Multiple non unique configuration names",
+			auth: &Authentication{
+				Enabled: true,
+				Agents:  AgentAuthentication{Mode: util.SCRAMSHA256},
+				Modes:   []AuthMode{util.OIDC, util.SCRAMSHA256},
+				OIDCProviderConfigs: []OIDCProviderConfig{
+					{
+						ConfigurationName:   "provider",
+						IssuerURI:           "https://example1.com",
+						AuthorizationMethod: OIDCAuthorizationMethodWorkforceIdentityFederation,
+						ClientId:            ptr.To("clientId1"),
+					},
+					{
+						ConfigurationName:   "provider",
+						IssuerURI:           "https://example2.com",
+						AuthorizationMethod: OIDCAuthorizationMethodWorkforceIdentityFederation,
+						ClientId:            ptr.To("clientId2"),
+					},
+				},
+			},
+			expectedErrorMessage: "OIDC provider config name provider is not unique",
+		},
+		{
+			name: "Multiple Workforce Identity Federation configs",
+			auth: &Authentication{
+				Enabled: true,
+				Agents:  AgentAuthentication{Mode: util.SCRAMSHA256},
+				Modes:   []AuthMode{util.OIDC, util.SCRAMSHA256},
+				OIDCProviderConfigs: []OIDCProviderConfig{
+					{
+						ConfigurationName:   "test-provider1",
+						IssuerURI:           "https://example1.com",
+						AuthorizationMethod: OIDCAuthorizationMethodWorkforceIdentityFederation,
+						ClientId:            ptr.To("clientId1"),
+					},
+					{
+						ConfigurationName:   "test-provider2",
+						IssuerURI:           "https://example2.com",
+						AuthorizationMethod: OIDCAuthorizationMethodWorkforceIdentityFederation,
+						ClientId:            ptr.To("clientId2"),
+					},
+				},
+			},
+			expectedErrorMessage: "Only one OIDC provider config can be configured with Workforce Identity Federation. The following configs are configured with Workforce Identity Federation: test-provider1, test-provider2",
+		},
+		{
+			name: "Multiple Workload Identity Federation configs",
+			auth: &Authentication{
+				Enabled: true,
+				Agents:  AgentAuthentication{Mode: util.SCRAMSHA256},
+				Modes:   []AuthMode{util.OIDC, util.SCRAMSHA256},
+				OIDCProviderConfigs: []OIDCProviderConfig{
+					{
+						ConfigurationName:   "test-provider-workforce1",
+						IssuerURI:           "https://example1.com",
+						AuthorizationMethod: OIDCAuthorizationMethodWorkforceIdentityFederation,
+						ClientId:            ptr.To("clientId1"),
+					},
+					{
+						ConfigurationName:   "test-provider-workload2",
+						IssuerURI:           "https://example2.com",
+						AuthorizationMethod: OIDCAuthorizationMethodWorkloadIdentityFederation,
+					},
+					{
+						ConfigurationName:   "test-provider-workload3",
+						IssuerURI:           "https://example3.com",
+						AuthorizationMethod: OIDCAuthorizationMethodWorkloadIdentityFederation,
+					},
+				},
+			},
+		},
+		{
+			name: "Invalid issuer URI",
+			auth: &Authentication{
+				Enabled: true,
+				Agents:  AgentAuthentication{Mode: util.SCRAMSHA256},
+				Modes:   []AuthMode{util.OIDC, util.SCRAMSHA256},
+				OIDCProviderConfigs: []OIDCProviderConfig{
+					{
+						ConfigurationName: "test-provider",
+						IssuerURI:         "invalid-uri",
+					},
+				},
+			},
+			expectedErrorMessage: "Invalid IssuerURI in OIDC provider config \"test-provider\": missing URL scheme: invalid-uri",
+		},
+		{
+			name: "Non-HTTPS issuer URI - warning",
+			auth: &Authentication{
+				Enabled: true,
+				Agents:  AgentAuthentication{Mode: util.SCRAMSHA256},
+				Modes:   []AuthMode{util.OIDC, util.SCRAMSHA256},
+				OIDCProviderConfigs: []OIDCProviderConfig{
+					{
+						ConfigurationName: "test-provider",
+						IssuerURI:         "http://example.com",
+					},
+				},
+			},
+			expectedWarning: "IssuerURI http://example.com in OIDC provider config \"test-provider\" in not secure endpoint",
+		},
+		{
+			name: "Workforce Identity Federation without ClientId",
+			auth: &Authentication{
+				Enabled: true,
+				Agents:  AgentAuthentication{Mode: util.SCRAMSHA256},
+				Modes:   []AuthMode{util.OIDC, util.SCRAMSHA256},
+				OIDCProviderConfigs: []OIDCProviderConfig{
+					{
+						ConfigurationName:   "test-provider",
+						IssuerURI:           "https://example.com",
+						AuthorizationMethod: OIDCAuthorizationMethodWorkforceIdentityFederation,
+					},
+				},
+			},
+			expectedErrorMessage: "ClientId has to be specified in OIDC provider config \"test-provider\" with Workforce Identity Federation",
+		},
+		{
+			name: "Workload Identity Federation with ClientId - warning",
+			auth: &Authentication{
+				Enabled: true,
+				Agents:  AgentAuthentication{Mode: util.SCRAMSHA256},
+				Modes:   []AuthMode{util.OIDC, util.SCRAMSHA256},
+				OIDCProviderConfigs: []OIDCProviderConfig{
+					{
+						ConfigurationName:   "test-provider",
+						IssuerURI:           "https://example.com",
+						AuthorizationMethod: OIDCAuthorizationMethodWorkloadIdentityFederation,
+						ClientId:            ptr.To("clientId"),
+					},
+				},
+			},
+			expectedWarning: "ClientId will be ignored in OIDC provider config \"test-provider\" with Workload Identity Federation",
+		},
+		{
+			name: "Workload Identity Federation with RequestedScopes - warning",
+			auth: &Authentication{
+				Enabled: true,
+				Agents:  AgentAuthentication{Mode: util.SCRAMSHA256},
+				Modes:   []AuthMode{util.OIDC, util.SCRAMSHA256},
+				OIDCProviderConfigs: []OIDCProviderConfig{
+					{
+						ConfigurationName:   "test-provider",
+						IssuerURI:           "https://example.com",
+						AuthorizationMethod: OIDCAuthorizationMethodWorkloadIdentityFederation,
+						RequestedScopes:     []string{"openid", "email"},
+					},
+				},
+			},
+			expectedWarning: "RequestedScopes will be ignored in OIDC provider config \"test-provider\" with Workload Identity Federation",
+		},
+		{
+			name: "Group Membership authorization without GroupsClaim",
+			auth: &Authentication{
+				Enabled: true,
+				Agents:  AgentAuthentication{Mode: util.SCRAMSHA256},
+				Modes:   []AuthMode{util.OIDC, util.SCRAMSHA256},
+				OIDCProviderConfigs: []OIDCProviderConfig{
+					{
+						ConfigurationName: "test-provider1",
+						IssuerURI:         "https://example.com",
+						AuthorizationType: OIDCAuthorizationTypeGroupMembership,
+						GroupsClaim:       ptr.To("groups"),
+					},
+					{
+						ConfigurationName: "test-provider2",
+						IssuerURI:         "https://example.com",
+						AuthorizationType: OIDCAuthorizationTypeGroupMembership,
+					},
+				},
+			},
+			expectedErrorMessage: "GroupsClaim has to be specified in OIDC provider config \"test-provider2\" when using Group Membership authorization",
+		},
+		{
+			name: "User ID authorization with GroupsClaim - warning",
+			auth: &Authentication{
+				Enabled: true,
+				Agents:  AgentAuthentication{Mode: util.SCRAMSHA256},
+				Modes:   []AuthMode{util.OIDC, util.SCRAMSHA256},
+				OIDCProviderConfigs: []OIDCProviderConfig{
+					{
+						ConfigurationName: "test-provider1",
+						IssuerURI:         "https://example.com",
+						AuthorizationType: OIDCAuthorizationTypeUserID,
+						GroupsClaim:       ptr.To("groups"),
+						UserClaim:         "sub",
+					},
+					{
+						ConfigurationName: "test-provider2",
+						IssuerURI:         "https://example.com",
+						AuthorizationType: OIDCAuthorizationTypeUserID,
+						UserClaim:         "sub",
+					},
+				},
+			},
+			expectedWarning: "GroupsClaim will be ignored in OIDC provider config \"test-provider1\" when using User ID authorization",
+		},
+		{
+			name: "Valid OIDC configuration",
+			auth: &Authentication{
+				Enabled: true,
+				Agents:  AgentAuthentication{Mode: util.MONGODBCR},
+				Modes:   []AuthMode{util.OIDC, util.MONGODBCR},
+				OIDCProviderConfigs: []OIDCProviderConfig{
+					{
+						ConfigurationName: "test-provider1",
+						IssuerURI:         "https://example.com",
+						AuthorizationType: OIDCAuthorizationTypeGroupMembership,
+						GroupsClaim:       ptr.To("groups"),
+					},
+					{
+						ConfigurationName: "test-provider2",
+						IssuerURI:         "https://example.com",
+						AuthorizationType: OIDCAuthorizationTypeGroupMembership,
+						GroupsClaim:       ptr.To("groups"),
+					},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rs := NewReplicaSetBuilder().
+				SetSecurityTLSEnabled().
+				SetVersion("8.0.5-ent").
+				Build()
+
+			rs.Spec.CloudManagerConfig = &PrivateCloudConfig{
+				ConfigMapRef: ConfigMapRef{Name: "cloud-manager"},
+			}
+			rs.Spec.Security.Authentication = tt.auth
+
+			err := rs.ProcessValidationsOnReconcile(nil)
+
+			if tt.expectedErrorMessage != "" {
+				assert.NotNil(t, err)
+				assert.Equal(t, tt.expectedErrorMessage, err.Error())
+			} else {
+				assert.Nil(t, err)
+			}
+
+			if tt.expectedWarning != "" {
+				warnings := rs.GetStatusWarnings()
+				assert.Contains(t, warnings, tt.expectedWarning)
+			}
+		})
+	}
+}
+
+func TestOIDCProviderConfigUniqueIssuerURIValidation(t *testing.T) {
+	tests := []struct {
+		name           string
+		mongoVersion   string
+		configs        []OIDCProviderConfig
+		expectedResult v1.ValidationResult
+	}{
+		{
+			name:         "MongoDB 7.0.11 with duplicate issuer URIs - error",
+			mongoVersion: "7.0.11",
+			configs: []OIDCProviderConfig{
+				{
+					ConfigurationName: "config1",
+					IssuerURI:         "https://provider.com",
+					Audience:          "audience1",
+				},
+				{
+					ConfigurationName: "config2",
+					IssuerURI:         "https://provider.com",
+					Audience:          "audience2",
+				},
+			},
+			expectedResult: v1.ValidationError("OIDC provider configs %q and %q have duplicate IssuerURI: %s",
+				"config1", "config2", "https://provider.com"),
+		},
+		{
+			name:         "MongoDB 8.0 with duplicate issuer+audience combinations - warning",
+			mongoVersion: "8.0.0",
+			configs: []OIDCProviderConfig{
+				{
+					ConfigurationName: "config1",
+					IssuerURI:         "https://provider.com",
+					Audience:          "audience1",
+				},
+				{
+					ConfigurationName: "config2",
+					IssuerURI:         "https://provider.com",
+					Audience:          "audience1",
+				},
+			},
+			expectedResult: v1.ValidationWarning("OIDC provider configs %q and %q have duplicate IssuerURI and Audience combination",
+				"config1", "config2"),
+		},
+		{
+			name:         "MongoDB 8.0 with unique issuer+audience combinations",
+			mongoVersion: "8.0.0",
+			configs: []OIDCProviderConfig{
+				{
+					ConfigurationName: "config1",
+					IssuerURI:         "https://provider.com",
+					Audience:          "audience1",
+				},
+				{
+					ConfigurationName: "config2",
+					IssuerURI:         "https://provider.com",
+					Audience:          "audience2",
+				},
+			},
+			expectedResult: v1.ValidationSuccess(),
+		},
+		{
+			name:         "MongoDB enterprise version with -ent suffix",
+			mongoVersion: "7.0.11-ent",
+			configs: []OIDCProviderConfig{
+				{
+					ConfigurationName: "config1",
+					IssuerURI:         "https://provider-1.com",
+					Audience:          "audience1",
+				},
+				{
+					ConfigurationName: "config2",
+					IssuerURI:         "https://provider-2.com",
+					Audience:          "audience2",
+				},
+			},
+			expectedResult: v1.ValidationSuccess(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validationFunc := oidcProviderConfigUniqueIssuerURIValidation(tt.configs)
+
+			dbSpec := DbCommonSpec{
+				Version: tt.mongoVersion,
+			}
+
+			result := validationFunc(dbSpec)
+
+			assert.Equal(t, tt.expectedResult, result)
 		})
 	}
 }

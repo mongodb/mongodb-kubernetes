@@ -1,8 +1,9 @@
 import pytest
 from kubernetes.client.rest import ApiException
-from kubetester import MongoDB, read_service, wait_for_webhook
+from kubetester import read_service, wait_for_webhook
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import get_default_architecture
+from kubetester.mongodb import MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
 from tests.conftest import OPERATOR_NAME
 from tests.olm.olm_test_commons import (
