@@ -59,12 +59,15 @@ variables:
         variant: init_test_run
       - name: build_test_image
         variant: init_test_run
-
+      - name: build_agent_images_ubi
+        variant: init_test_run
       - name: build_readiness_probe_image
         variant: init_test_run
       - name: build_upgrade_hook_image
         variant: init_test_run
       - name: build_mco_test_image
+        variant: init_test_run
+      - name: build_agent_images_ubi
         variant: init_test_run
 
   - &setup_group
@@ -121,9 +124,9 @@ variables:
       - func: setup_cloud_qa
     teardown_task_can_fail_task: true
     teardown_task:
+      - func: teardown_cloud_qa
       - func: upload_e2e_logs
       - func: teardown_kubernetes_environment
-      - func: teardown_cloud_qa
 
   - &setup_and_teardown_task
     setup_task_can_fail_task: true
@@ -348,19 +351,6 @@ tasks:
           image_name: init-ops-manager
           include_tags: release
 
-  - name: release_agent_operator_release
-    tags: [ "image_release" ]
-    allowed_requesters: [ "patch", "github_tag" ]
-    commands:
-      - func: clone
-      - func: setup_building_host
-      - func: quay_login
-      - func: setup_docker_sbom
-      - func: legacy_pipeline
-        vars:
-          image_name: agent
-          include_tags: release
-
   # pct only triggers this variant once a new agent image is out
   - name: release_agent
     # this enables us to run this variant either manually (patch) which pct does or during an OM bump (github_pr)
@@ -393,21 +383,6 @@ tasks:
           working_dir: src/github.com/mongodb/mongodb-kubernetes
           binary: scripts/evergreen/precommit_bump.sh
 
-  # Pct only triggers this variant once a new agent image is out
-  # these releases the agent with the operator suffix (not patch id) on ecr to allow for digest pinning to pass.
-  # For this to work, we rely on skip_tags which is used to determine whether
-  # we want to release on quay or not, in this case - ecr instead.
-  # We rely on the init_database from ecr for the agent x operator images.
-  # This runs on agent releases that are not concurrent with operator releases.
-  - name: release_agents_on_ecr_conditional
-    commands:
-      - func: clone
-      - func: run_task_conditionally
-        vars:
-          condition_script: scripts/evergreen/should_release_agents_on_ecr.sh
-          variant: init_release_agents_on_ecr
-          task: release_agents_on_ecr
-
   - name: release_agents_on_ecr
     # this enables us to run this variant either manually (patch) which pct does or during an OM bump (github_pr)
     allowed_requesters: [ "patch", "github_pr" ]
@@ -421,20 +396,16 @@ tasks:
           skip_tags: release
 
   - name: release_all_agents_on_ecr
-    # this enables us to run this manually (patch) and release all agent versions to ECR
-    # it's needed during operator new version release process - e2e tests (especially olm tests)
-    # will look for agent with new operator version suffix, but during PR checks we only build
-    # agent versions for most recent major OM versions and the tests will fail. Before running the PR
-    # we have to manually release all agents to ECR by triggering this patch
+    # this enables us to run this manually (patch) and release all agent versions to ECR to verify
+    # Dockerfile, script changes etc.
     allowed_requesters: [ "patch" ]
     commands:
       - func: clone
       - func: setup_building_host
-      - func: legacy_pipeline
+      - func: pipeline
         vars:
-          image_name: agent-pct
-          skip_tags: release
-          all_agents: true
+          image_name: agent
+          all_agents: "--all-agents"
 
   - name: build_test_image
     commands:
@@ -1961,13 +1932,6 @@ buildvariants:
       - name: release_init_database
       - name: release_init_ops_manager
       - name: release_database
-      # Once we release the operator, we will also release the init databases, we require them to be out first
-      # such that we can reference them and retrieve those binaries.
-      # Since we immediately run daily rebuild after creating the image, we can ensure that the init_database is out
-      # such that the agent image build can use it.
-      - name: release_agent_operator_release
-        depends_on:
-          - name: release_init_database
 
   - name: preflight_release_images
     display_name: preflight_release_images
@@ -1999,13 +1963,13 @@ buildvariants:
 
     # It will be called by pct while bumping the agent cloud manager image
   - name: release_agent
-    display_name: (Static Containers) Release Agent matrix
+    display_name: release_agent
     tags: [ "release_agent" ]
     run_on:
       - release-ubuntu2204-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     depends_on:
-      - variant: init_release_agents_on_ecr
-        name: '*'
+      - variant: init_test_run
+        name: build_agent_images_ubi # this ensures the agent gets released to ECR as well
       - variant: e2e_multi_cluster_kind
         name: '*'
       - variant: e2e_static_multi_cluster_2_clusters

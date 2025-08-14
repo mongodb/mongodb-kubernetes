@@ -8,10 +8,9 @@ import shutil
 from concurrent.futures import ProcessPoolExecutor
 from copy import copy
 from queue import Queue
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import requests
-import semver
 from opentelemetry import trace
 from packaging.version import Version
 
@@ -22,6 +21,10 @@ from scripts.release.build.image_signing import (
     mongodb_artifactory_login,
     sign_image,
     verify_signature,
+)
+from scripts.release.detect_ops_manager_changes import (
+    detect_ops_manager_changes,
+    get_all_agents_for_rebuild,
 )
 
 TRACER = trace.get_tracer("evergreen-agent")
@@ -384,62 +387,51 @@ def build_upgrade_hook_image(build_configuration: ImageBuildConfiguration):
     )
 
 
-def build_agent_default_case(build_configuration: ImageBuildConfiguration):
+def build_agent(build_configuration: ImageBuildConfiguration):
     """
     Build the agent only for the latest operator for patches and operator releases.
 
     """
-    release = load_release_file()
-    # TODO: only one agent is required, the one we have pushed as part of om bump
-    agent_version_to_build = gather_latest_agent_versions(release)[-1]
+    if build_configuration.all_agents:
+        agent_versions_to_build = get_all_agents_for_rebuild()
+        logger.info("building all agents")
+    else:
+        agent_versions_to_build = detect_ops_manager_changes()
+        logger.info("building agents for changed OM versions")
+
+    if not agent_versions_to_build:
+        logger.info("No changes detected, skipping agent build")
+        return
+
+    logger.info(f"Building Agent versions: {agent_versions_to_build}")
+
+    tasks_queue = Queue()
+    max_workers = 1
+    if build_configuration.parallel:
+        max_workers = None
+        if build_configuration.parallel_factor > 0:
+            max_workers = build_configuration.parallel_factor
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        logger.info(f"Running with factor of {max_workers}")
+        logger.info(f"======= Agent versions to build {agent_versions_to_build} =======")
+        for idx, agent_tools_version in enumerate(agent_versions_to_build):
+            # We don't need to keep create and push the same image on every build.
+            # It is enough to create and push the non-operator suffixed images only during releases to ecr and quay.
+            logger.info(f"======= Building Agent {agent_tools_version} ({idx}/{len(agent_versions_to_build)})")
+            _build_agents(
+                agent_tools_version,
+                build_configuration,
+                executor,
+                tasks_queue,
+            )
+
+    queue_exception_handling(tasks_queue)
 
     logger.info(f"Building Agent version: {agent_version_to_build}")
     agent_version = agent_version_to_build[0]
     tools_version = agent_version_to_build[1]
 
     build_agent_pipeline(build_configuration, agent_version, tools_version)
-
-#  TODO: refactor me to only release the agent that is being used
-def gather_latest_agent_versions(release: Dict) -> List[Tuple[str, str]]:
-    """
-    This function is used when we release a new agent via OM bump.
-    That means we will need to release that agent with all supported operators.
-    Since we don’t want to release all agents again, we only release the latest, which will contain the newly added one
-    :return: the latest agent for each major version
-    """
-    agent_versions_to_build = list()
-    agent_versions_to_build.append(
-        (
-            release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager"],
-            release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager_tools"],
-        )
-    )
-
-    latest_versions = {}
-
-    for version in release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"].keys():
-        parsed_version = semver.VersionInfo.parse(version)
-        major_version = parsed_version.major
-        if major_version in latest_versions:
-            latest_parsed_version = semver.VersionInfo.parse(str(latest_versions[major_version]))
-            latest_versions[major_version] = max(parsed_version, latest_parsed_version)
-        else:
-            latest_versions[major_version] = version
-
-    for major_version, latest_version in latest_versions.items():
-        agent_versions_to_build.append(
-            (
-                release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"][str(latest_version)][
-                    "agent_version"
-                ],
-                release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"][str(latest_version)][
-                    "tools_version"
-                ],
-            )
-        )
-
-    return sorted(list(set(agent_versions_to_build)))
-
 
 def build_agent_pipeline(
     build_configuration: ImageBuildConfiguration,
