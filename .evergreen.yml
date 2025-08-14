@@ -401,7 +401,7 @@ tasks:
       - func: pipeline
         vars:
           image_name: agent
-          all_agents: true
+          all_agents: "--all-agents"
 
   - name: build_test_image
     commands:
