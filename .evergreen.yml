@@ -33,6 +33,8 @@ variables:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
 
   - &base_no_om_image_dependency
     depends_on:
@@ -50,6 +52,8 @@ variables:
         variant: init_test_run
       - name: build_init_appdb_images_ubi
         variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
 
   - &community_dependency
     depends_on:
@@ -57,7 +61,6 @@ variables:
         variant: init_test_run
       - name: build_test_image
         variant: init_test_run
-
       - name: build_readiness_probe_image
         variant: init_test_run
       - name: build_upgrade_hook_image
@@ -148,6 +151,8 @@ variables:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
 
   - &base_om7_dependency_with_race
     depends_on:
@@ -164,6 +169,8 @@ variables:
       - name: build_init_appdb_images_ubi
         variant: init_test_run
       - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: build_agent_images_ubi
         variant: init_test_run
 
   - &base_om8_dependency
@@ -182,7 +189,8 @@ variables:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
-
+      - name: build_agent_images_ubi
+        variant: init_test_run
 
 parameters:
   - key: evergreen_retry
