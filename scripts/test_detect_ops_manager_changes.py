@@ -14,13 +14,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from detect_ops_manager_changes import (
     detect_ops_manager_changes,
     extract_ops_manager_mapping,
-    get_all_agents_for_rebuild,
     get_content_from_git,
-    get_dev_context_agents,
-    get_om_version_from_evergreen,
-    get_tools_version_for_agent,
     load_current_release_json,
-    scan_dev_contexts_for_agents,
 )
 
 
