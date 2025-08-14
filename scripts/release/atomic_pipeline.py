@@ -433,6 +433,7 @@ def build_agent(build_configuration: ImageBuildConfiguration):
 
     build_agent_pipeline(build_configuration, agent_version, tools_version)
 
+
 def build_agent_pipeline(
     build_configuration: ImageBuildConfiguration,
     agent_version: str,
