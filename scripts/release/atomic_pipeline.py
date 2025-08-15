@@ -49,14 +49,12 @@ def build_image(
     span.set_attribute("mck.platforms", build_configuration.platforms)
 
     # Build docker registry URI and call build_image
-    image_full_uri = f"{build_configuration.registry}:{build_configuration.version}"
-
-    logger.info(
-        f"Building {image_full_uri} for platforms={build_configuration.platforms}, dockerfile args: {build_args}"
-    )
+    tags = [f"{build_configuration.registry}:{build_configuration.version}"]
+    if build_configuration.latest_tag:
+        tags.append(f"{build_configuration.registry}:{"latest"}")
 
     execute_docker_build(
-        tag=image_full_uri,
+        tags=tags,
         dockerfile=build_configuration.dockerfile_path,
         path=build_path,
         args=build_args,

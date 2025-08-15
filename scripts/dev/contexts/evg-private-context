@@ -33,7 +33,18 @@ else
 fi
 export NAMESPACE
 
-export BASE_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
+DEV_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
+STAGING_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging"
+COMMIT_SHA_SHORT=$(git rev-parse --short=8 HEAD)
+
+if [ "${is_patch:-false}" = "true" ]; then
+  echo "is_patch is set, setting BASE_REPO_URL=${DEV_REPO_URL}"
+  export BASE_REPO_URL="${DEV_REPO_URL}"
+else
+  echo "is_patch is not set, setting BASE_REPO_URL=${STAGING_REPO_URL}, OVERRIDE_VERSION_ID=${COMMIT_SHA_SHORT}"
+  export BASE_REPO_URL="${STAGING_REPO_URL}"
+  export OVERRIDE_VERSION_ID="${COMMIT_SHA_SHORT}"
+fi
 
 export REGISTRY="${BASE_REPO_URL}"
 export QUAY_REGISTRY=quay.io/mongodb
@@ -107,8 +118,8 @@ export CODE_SNIPPETS_COMMIT_OUTPUT=${code_snippets_commit_output:-"false"}
 
 # MCO
 # shellcheck disable=SC2154
-export READINESS_PROBE_IMAGE="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-readinessprobe:${version_id}"
-export VERSION_UPGRADE_HOOK_IMAGE="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-operator-version-upgrade-post-start-hook:${version_id}"
+export READINESS_PROBE_IMAGE="${REGISTRY}/mongodb-kubernetes-readinessprobe:${version_id}"
+export VERSION_UPGRADE_HOOK_IMAGE="${REGISTRY}/mongodb-kubernetes-operator-version-upgrade-post-start-hook:${version_id}"
 
 # TODO to be removed at public preview stage of community-search
 export COMMUNITY_PRIVATE_PREVIEW_PULLSECRET_DOCKERCONFIGJSON="${community_private_preview_pullsecret_dockerconfigjson}"
