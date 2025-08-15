@@ -15,8 +15,10 @@ class SearchTester(MongoTester):
     def __init__(
         self,
         connection_string: str,
+        use_ssl: bool = False,
+        ca_path: str | None = None,
     ):
-        super().__init__(connection_string, False)
+        super().__init__(connection_string, use_ssl, ca_path)
 
     def mongorestore_from_url(self, archive_url: str, ns_include: str, mongodb_tools_dir: str = ""):
         logger.debug(f"running mongorestore from {archive_url}")
@@ -26,6 +28,10 @@ class SearchTester(MongoTester):
             logger.debug(f"Downloaded sample file from {archive_url} to {sample_file.name} (size: {size})")
             mongorestore_path = os.path.join(mongodb_tools_dir, "mongorestore")
             mongorestore_cmd = f"{mongorestore_path} --archive={sample_file.name} --verbose=1 --drop --nsInclude {ns_include} --uri={self.cnx_string}"
+            if self.default_opts.get("tls", False):
+                mongorestore_cmd += " --ssl"
+            if ca_path := self.default_opts.get("tlsCAFile"):
+                mongorestore_cmd += " --sslCAFile=" + ca_path
             process_run_and_check(mongorestore_cmd.split())
 
     def create_search_index(self, database_name: str, collection_name: str):
@@ -49,6 +55,10 @@ class SearchTester(MongoTester):
 
     def search_indexes_ready(self, database_name: str, collection_name: str):
         search_indexes = self.get_search_indexes(database_name, collection_name)
+        if len(search_indexes) == 0:
+            logger.error(f"There are no search indexes available in {database_name}.{collection_name}")
+            return False
+
         for idx in search_indexes:
             if idx.get("status") != "READY":
                 logger.debug(f"{database_name}/{collection_name}: search index {idx} is not ready")
