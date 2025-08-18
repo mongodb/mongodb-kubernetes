@@ -72,9 +72,11 @@ def generate_tools_build_args(platforms: List[str], tools_version: str) -> Dict[
 
         mapping = agent_info["platform_mappings"][platform]
 
+        arch = platform.split("/")[-1]
+
         tools_suffix = mapping["tools_suffix"].replace("{TOOLS_VERSION}", tools_version)
         tools_filename = f"{agent_info['base_names']['tools']}-{tools_suffix}"
-        build_args[f"mongodb_tools_version_{platform}"] = tools_filename
+        build_args[f"mongodb_tools_version_{arch}"] = tools_filename
 
     return build_args
 
@@ -101,12 +103,14 @@ def generate_agent_build_args(platforms: List[str], agent_version: str, tools_ve
 
         mapping = agent_info["platform_mappings"][platform]
 
+        arch = platform.split("/")[-1]
+
         agent_filename = f"{agent_info['base_names']['agent']}-{agent_version}.{mapping['agent_suffix']}"
-        build_args[f"mongodb_agent_version_{platform}"] = agent_filename
+        build_args[f"mongodb_agent_version_{arch}"] = agent_filename
 
         tools_suffix = mapping["tools_suffix"].replace("{TOOLS_VERSION}", tools_version)
         tools_filename = f"{agent_info['base_names']['tools']}-{tools_suffix}"
-        build_args[f"mongodb_tool_version_{platform}"] = tools_filename
+        build_args[f"mongodb_tools_version_{arch}"] = tools_filename
 
     return build_args
 
