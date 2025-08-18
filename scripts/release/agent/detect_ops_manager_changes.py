@@ -135,7 +135,7 @@ def get_all_agents_for_rebuild() -> List[Tuple[str, str]]:
 
 
 def get_currently_used_agents() -> List[Tuple[str, str]]:
-    """Returns list of (agent_version, tools_version) tuples for agents currently used in contexts"""
+    """Returns list of (agent_version, tools_version) tuples for agents currently used in contexts and cloudmanager agent from release.json"""
     logger.info("Getting currently used agents from contexts")
     agents = []
 
@@ -184,6 +184,13 @@ def get_currently_used_agents() -> List[Tuple[str, str]]:
 
                 except Exception as e:
                     logger.debug(f"Error reading context file {context_file}: {e}")
+
+        # Also add the cloudmanager agent from release.json
+        cloud_manager_agent = ops_manager_mapping.get("cloud_manager")
+        cloud_manager_tools = ops_manager_mapping.get("cloud_manager_tools")
+        if cloud_manager_agent and cloud_manager_tools:
+            agents.append((cloud_manager_agent, cloud_manager_tools))
+            logger.info(f"Found cloudmanager agent from release.json: {cloud_manager_agent}")
 
         # Also add the main agentVersion from release.json
         main_agent_version = release_data.get("agentVersion")
