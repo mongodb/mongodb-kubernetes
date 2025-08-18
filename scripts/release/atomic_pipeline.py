@@ -14,6 +14,7 @@ import requests
 from opentelemetry import trace
 
 from lib.base_logger import logger
+from scripts.release.agent.validation import validate_agent_version_exists, validate_tools_version_exists,load_agent_build_info
 from scripts.release.build.image_build_configuration import ImageBuildConfiguration
 from scripts.release.build.image_build_process import execute_docker_build
 from scripts.release.build.image_signing import (
@@ -21,7 +22,7 @@ from scripts.release.build.image_signing import (
     sign_image,
     verify_signature,
 )
-from scripts.release.detect_ops_manager_changes import (
+from scripts.release.agent.detect_ops_manager_changes import (
     detect_ops_manager_changes,
     get_currently_used_agents,
     get_all_agents_for_rebuild,
@@ -30,18 +31,9 @@ from scripts.release.detect_ops_manager_changes import (
 TRACER = trace.get_tracer("evergreen-agent")
 
 
-def load_agent_build_info():
-    """Load agent platform mappings from build_info_agent.json"""
-    with open("build_info_agent.json", "r") as f:
-        return json.load(f)
-
-
 def extract_tools_version_from_release(release: Dict) -> str:
     """
     Extract tools version from release.json mongodbToolsBundle.ubi field.
-
-    Args:
-        release: Release dictionary from release.json
 
     Returns:
         Tools version string (e.g., "100.12.2")
@@ -52,22 +44,6 @@ def extract_tools_version_from_release(release: Dict) -> str:
     version_part = tools_bundle.split("-")[-1]  # Gets "100.12.2.tgz"
     tools_version = version_part.replace(".tgz", "")  # Gets "100.12.2"
     return tools_version
-
-
-def get_build_arg_names(platform: str) -> Dict[str, str]:
-    """
-    Generate build argument names for a platform.
-
-    Args:
-        platform: Platform string (e.g., "linux/amd64")
-
-    Returns:
-        Dictionary with agent_build_arg and tools_build_arg keys
-    """
-    # Extract architecture from platform (e.g., "amd64" from "linux/amd64")
-    arch = platform.split("/")[1]
-
-    return {"agent_build_arg": f"mongodb_agent_version_{arch}", "tools_build_arg": f"mongodb_tools_version_{arch}"}
 
 
 def generate_tools_build_args(platforms: List[str], tools_version: str) -> Dict[str, str]:
@@ -90,12 +66,11 @@ def generate_tools_build_args(platforms: List[str], tools_version: str) -> Dict[
             continue
 
         mapping = agent_info["platform_mappings"][platform]
-        build_arg_names = get_build_arg_names(platform)
+        arch = platform.split("/")[-1]
 
-        # Generate tools build arg only
         tools_suffix = mapping["tools_suffix"].replace("{TOOLS_VERSION}", tools_version)
         tools_filename = f"{agent_info['base_names']['tools']}-{tools_suffix}"
-        build_args[build_arg_names["tools_build_arg"]] = tools_filename
+        build_args[f"mongodb_tool_version_{arch}"] = tools_filename
 
     return build_args
 
@@ -121,14 +96,14 @@ def generate_agent_build_args(platforms: List[str], agent_version: str, tools_ve
             continue
 
         mapping = agent_info["platform_mappings"][platform]
-        build_arg_names = get_build_arg_names(platform)
+        arch = platform.split("/")[-1]
 
         agent_filename = f"{agent_info['base_names']['agent']}-{agent_version}.{mapping['agent_suffix']}"
-        build_args[build_arg_names["agent_build_arg"]] = agent_filename
+        build_args[f"mongodb_agent_version_{arch}"] = agent_filename
 
         tools_suffix = mapping["tools_suffix"].replace("{TOOLS_VERSION}", tools_version)
         tools_filename = f"{agent_info['base_names']['tools']}-{tools_suffix}"
-        build_args[build_arg_names["tools_build_arg"]] = tools_filename
+        build_args[f"mongodb_tool_version_{arch}"] = tools_filename
 
     return build_args
 
@@ -339,6 +314,12 @@ def build_init_appdb_image(build_configuration: ImageBuildConfiguration):
 
     # Extract tools version and generate platform-specific build args
     tools_version = extract_tools_version_from_release(release)
+
+    # Validate that the tools version exists before attempting to build
+    if not validate_tools_version_exists(tools_version, build_configuration.platforms):
+        logger.warning(f"Skipping build for init-appdb - tools version {tools_version} not found in repository")
+        return
+
     platform_build_args = generate_tools_build_args(
         platforms=build_configuration.platforms, tools_version=tools_version
     )
@@ -359,10 +340,15 @@ def build_init_appdb_image(build_configuration: ImageBuildConfiguration):
 def build_init_database_image(build_configuration: ImageBuildConfiguration):
     release = load_release_file()
     base_url = "https://fastdl.mongodb.org/tools/db"
-    mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
 
     # Extract tools version and generate platform-specific build args
     tools_version = extract_tools_version_from_release(release)
+
+    # Validate that the tools version exists before attempting to build
+    if not validate_tools_version_exists(tools_version, build_configuration.platforms):
+        logger.warning(f"Skipping build for init-database - tools version {tools_version} not found in repository")
+        return
+
     platform_build_args = generate_tools_build_args(
         platforms=build_configuration.platforms, tools_version=tools_version
     )
@@ -429,14 +415,36 @@ def build_agent(build_configuration: ImageBuildConfiguration):
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         logger.info(f"Running with factor of {max_workers}")
         logger.info(f"======= Agent versions to build {agent_versions_to_build} =======")
+
+        successful_builds = []
+        skipped_builds = []
+
         for idx, agent_tools_version in enumerate(agent_versions_to_build):
-            logger.info(f"======= Building Agent {agent_tools_version} ({idx}/{len(agent_versions_to_build)})")
+            agent_version = agent_tools_version[0]
+            tools_version = agent_tools_version[1]
+            logger.info(f"======= Building Agent {agent_tools_version} ({idx + 1}/{len(agent_versions_to_build)})")
+
+            if not validate_agent_version_exists(agent_version, build_configuration.platforms):
+                logger.warning(f"Skipping agent version {agent_version} - not found in repository")
+                skipped_builds.append(agent_tools_version)
+                continue
+
+            if not validate_tools_version_exists(tools_version, build_configuration.platforms):
+                logger.warning(f"Skipping agent version {agent_version} - tools version {tools_version} not found in repository")
+                skipped_builds.append(agent_tools_version)
+                continue
+
+            successful_builds.append(agent_tools_version)
             _build_agent(
                 agent_tools_version,
                 build_configuration,
                 executor,
                 tasks_queue,
             )
+
+    logger.info(f"Build summary: {len(successful_builds)} successful, {len(skipped_builds)} skipped")
+    if skipped_builds:
+        logger.info(f"Skipped versions: {skipped_builds}")
 
     queue_exception_handling(tasks_queue)
 
@@ -464,6 +472,7 @@ def build_agent_pipeline(
         f"======== Building agent pipeline for version {agent_version}, build configuration version: {build_configuration.version}"
     )
 
+    # Note: Validation is now done earlier in the build_agent function
     # Generate platform-specific build arguments using the mapping
     platform_build_args = generate_agent_build_args(
         platforms=build_configuration.platforms, agent_version=agent_version, tools_version=tools_version

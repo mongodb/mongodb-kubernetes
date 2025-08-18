@@ -397,6 +397,18 @@ tasks:
           image_name: agent
           all_agents: "--all-agents"
 
+  - name: release_all_currently_used_agents_on_ecr
+    # this enables us to run this manually (patch) and release all agent versions to ECR to verify
+    # Dockerfile, script changes etc.
+    allowed_requesters: [ "patch" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: agent
+          all_agents: "--current-agents"
+
   - name: build_test_image
     commands:
       - func: clone
@@ -1926,6 +1938,16 @@ buildvariants:
       - ubuntu2204-large
     tasks:
       - name: release_all_agents_on_ecr
+
+    # Only called manually, It's used for testing the task release_agents_on_ecr in case the release.json
+    # has not changed, and you still want to push the images to ecr.
+  - name: manual_ecr_release_agent_currently_used
+    display_name: manual_ecr_release_agent_currently_used
+    tags: [ "release_all_agents_manually" ]
+    run_on:
+      - ubuntu2204-large
+    tasks:
+      - name: release_all_currently_used_agents_on_ecr
 
     # These variants are used to test the code snippets and each one can be used in patches
     # Prerelease is especially used when the repo is tagged

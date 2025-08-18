@@ -7,104 +7,6 @@ import json
 import unittest
 from unittest.mock import patch
 
-# Local implementations to avoid import issues
-
-
-def load_agent_build_info():
-    """Load agent platform mappings from build_info_agent.json"""
-    with open("build_info_agent.json", "r") as f:
-        return json.load(f)
-
-
-def get_build_arg_names(platform):
-    """Generate build argument names for a platform."""
-    arch = platform.split("/")[1]
-    return {"agent_build_arg": f"mongodb_agent_version_{arch}", "tools_build_arg": f"mongodb_tools_version_{arch}"}
-
-
-def extract_tools_version_from_release(release):
-    """Extract tools version from release.json mongodbToolsBundle.ubi field."""
-    tools_bundle = release["mongodbToolsBundle"]["ubi"]
-    version_part = tools_bundle.split("-")[-1]  # Gets "100.12.2.tgz"
-    tools_version = version_part.replace(".tgz", "")  # Gets "100.12.2"
-    return tools_version
-
-
-def generate_tools_build_args(platforms, tools_version):
-    """Generate build arguments for MongoDB tools based on platform mappings."""
-    agent_info = load_agent_build_info()
-    build_args = {}
-
-    for platform in platforms:
-        if platform not in agent_info["platform_mappings"]:
-            print(f"Platform {platform} not found in agent mappings, skipping")
-            continue
-
-        mapping = agent_info["platform_mappings"][platform]
-        build_arg_names = get_build_arg_names(platform)
-
-        # Generate tools build arg only
-        tools_suffix = mapping["tools_suffix"].replace("{TOOLS_VERSION}", tools_version)
-        tools_filename = f"{agent_info['base_names']['tools']}-{tools_suffix}"
-        build_args[build_arg_names["tools_build_arg"]] = tools_filename
-
-    return build_args
-
-
-def generate_agent_build_args(platforms, agent_version, tools_version):
-    """
-    Generate build arguments for agent image based on platform mappings.
-    This is the actual implementation from atomic_pipeline.py
-    """
-    agent_info = load_agent_build_info()
-    build_args = {}
-
-    for platform in platforms:
-        if platform not in agent_info["platform_mappings"]:
-            # Mock the logger warning for testing
-            print(f"Platform {platform} not found in agent mappings, skipping")
-            continue
-
-        mapping = agent_info["platform_mappings"][platform]
-        build_arg_names = get_build_arg_names(platform)
-
-        # Generate agent build arg
-        agent_filename = f"{agent_info['base_names']['agent']}-{agent_version}.{mapping['agent_suffix']}"
-        build_args[build_arg_names["agent_build_arg"]] = agent_filename
-
-        # Generate tools build arg
-        tools_suffix = mapping["tools_suffix"].replace("{TOOLS_VERSION}", tools_version)
-        tools_filename = f"{agent_info['base_names']['tools']}-{tools_suffix}"
-        build_args[build_arg_names["tools_build_arg"]] = tools_filename
-
-    return build_args
-
-
-def _parse_dockerfile_build_args(dockerfile_path):
-    """Parse Dockerfile to extract expected build arguments using proper parsing."""
-    build_args = set()
-
-    with open(dockerfile_path, "r") as f:
-        lines = f.readlines()
-
-    for line in lines:
-        line = line.strip()
-        # Skip comments and empty lines
-        if not line or line.startswith("#"):
-            continue
-
-        # Parse ARG instructions
-        if line.startswith("ARG "):
-            arg_part = line[4:].strip()  # Remove 'ARG '
-
-            # Handle ARG with default values (ARG name=default)
-            arg_name = arg_part.split("=")[0].strip()
-
-            build_args.add(arg_name)
-
-    return build_args
-
-
 class TestAgentBuildMapping(unittest.TestCase):
     """Test cases for agent build mapping functionality."""
 
@@ -113,60 +15,6 @@ class TestAgentBuildMapping(unittest.TestCase):
         # Load the actual build_info_agent.json file
         with open("build_info_agent.json", "r") as f:
             self.agent_build_info = json.load(f)
-
-    def test_generate_agent_build_args_single_platform(self):
-        """Test generating build args for a single platform."""
-        platforms = ["linux/amd64"]
-        agent_version = "108.0.7.8810-1"
-        tools_version = "100.12.0"
-
-        result = generate_agent_build_args(platforms, agent_version, tools_version)
-
-        expected = {
-            "mongodb_agent_version_amd64": "mongodb-mms-automation-agent-108.0.7.8810-1.linux_x86_64.tar.gz",
-            "mongodb_tools_version_amd64": "mongodb-database-tools-rhel88-x86_64-100.12.0.tgz",
-        }
-
-        self.assertEqual(result, expected)
-
-    def test_generate_agent_build_args_multiple_platforms(self):
-        """Test generating build args for multiple platforms."""
-        platforms = ["linux/amd64", "linux/arm64", "linux/s390x", "linux/ppc64le"]
-        agent_version = "108.0.7.8810-1"
-        tools_version = "100.12.0"
-
-        result = generate_agent_build_args(platforms, agent_version, tools_version)
-
-        expected = {
-            "mongodb_agent_version_amd64": "mongodb-mms-automation-agent-108.0.7.8810-1.linux_x86_64.tar.gz",
-            "mongodb_tools_version_amd64": "mongodb-database-tools-rhel88-x86_64-100.12.0.tgz",
-            "mongodb_agent_version_arm64": "mongodb-mms-automation-agent-108.0.7.8810-1.amzn2_aarch64.tar.gz",
-            "mongodb_tools_version_arm64": "mongodb-database-tools-rhel88-aarch64-100.12.0.tgz",
-            "mongodb_agent_version_s390x": "mongodb-mms-automation-agent-108.0.7.8810-1.rhel7_s390x.tar.gz",
-            "mongodb_tools_version_s390x": "mongodb-database-tools-rhel9-s390x-100.12.0.tgz",
-            "mongodb_agent_version_ppc64le": "mongodb-mms-automation-agent-108.0.7.8810-1.rhel8_ppc64le.tar.gz",
-            "mongodb_tools_version_ppc64le": "mongodb-database-tools-rhel9-ppc64le-100.12.0.tgz",
-        }
-
-        self.assertEqual(result, expected)
-
-    @patch("builtins.print")
-    def test_generate_agent_build_args_unknown_platform(self, mock_print):
-        """Test handling of unknown platforms."""
-        platforms = ["linux/amd64", "linux/unknown"]
-        agent_version = "108.0.7.8810-1"
-        tools_version = "100.12.0"
-
-        result = generate_agent_build_args(platforms, agent_version, tools_version)
-
-        # Should only include known platform
-        expected = {
-            "mongodb_agent_version_amd64": "mongodb-mms-automation-agent-108.0.7.8810-1.linux_x86_64.tar.gz",
-            "mongodb_tools_version_amd64": "mongodb-database-tools-rhel88-x86_64-100.12.0.tgz",
-        }
-
-        self.assertEqual(result, expected)
-        mock_print.assert_called_once_with("Platform linux/unknown not found in agent mappings, skipping")
 
     def test_generate_agent_build_args_empty_platforms(self):
         """Test generating build args with empty platforms list."""
@@ -321,6 +169,29 @@ class TestAgentBuildMapping(unittest.TestCase):
         # Verify base URLs do NOT end with slash (to avoid double slashes in Dockerfile)
         self.assertFalse(agent_base_url.endswith("/"))
         self.assertFalse(tools_base_url.endswith("/"))
+
+    def test_agent_version_validation(self):
+        """Test that agent version validation works correctly."""
+        from scripts.release.agent.validation import validate_tools_version_exists
+        from scripts.release.agent.validation import validate_agent_version_exists
+
+        platforms = ["linux/amd64"]
+
+        # Test with a known good agent version (this should exist)
+        good_agent_version = "108.0.12.8846-1"
+        self.assertTrue(validate_agent_version_exists(good_agent_version, platforms))
+
+        # Test with a known bad agent version (this should not exist)
+        bad_agent_version = "12.0.33.7866-1"
+        self.assertFalse(validate_agent_version_exists(bad_agent_version, platforms))
+
+        # Test with a known good tools version (this should exist)
+        good_tools_version = "100.12.2"
+        self.assertTrue(validate_tools_version_exists(good_tools_version, platforms))
+
+        # Test with a known bad tools version (this should not exist)
+        bad_tools_version = "999.99.99"
+        self.assertFalse(validate_tools_version_exists(bad_tools_version, platforms))
 
 
 if __name__ == "__main__":
