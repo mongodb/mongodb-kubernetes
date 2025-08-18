@@ -8,7 +8,7 @@ import shutil
 from concurrent.futures import ProcessPoolExecutor
 from copy import copy
 from queue import Queue
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import requests
 from opentelemetry import trace
@@ -123,11 +123,9 @@ def generate_agent_build_args(platforms: List[str], agent_version: str, tools_ve
         mapping = agent_info["platform_mappings"][platform]
         build_arg_names = get_build_arg_names(platform)
 
-        # Generate agent build arg
         agent_filename = f"{agent_info['base_names']['agent']}-{agent_version}.{mapping['agent_suffix']}"
         build_args[build_arg_names["agent_build_arg"]] = agent_filename
 
-        # Generate tools build arg
         tools_suffix = mapping["tools_suffix"].replace("{TOOLS_VERSION}", tools_version)
         tools_filename = f"{agent_info['base_names']['tools']}-{tools_suffix}"
         build_args[build_arg_names["tools_build_arg"]] = tools_filename
@@ -497,14 +495,6 @@ def queue_exception_handling(tasks_queue):
         raise Exception(
             f"Exception(s) found when processing Agent images. \nSee also previous logs for more info\nFailing the build"
         )
-
-
-def get_tools_distro(tools_version: str) -> Dict[str, str]:
-    new_rhel_tool_version = "100.10.0"
-    default_distro = {"arm": "rhel90-aarch64", "amd": "rhel90-x86_64"}
-    if Version(tools_version) >= Version(new_rhel_tool_version):
-        return {"arm": "rhel93-aarch64", "amd": "rhel93-x86_64"}
-    return default_distro
 
 
 def load_release_file() -> Dict:
