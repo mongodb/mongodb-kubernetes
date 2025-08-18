@@ -96,46 +96,174 @@ def _is_later_agent_version(version1: str, version2: str) -> bool:
 
 
 def get_changed_agents(current_mapping: Dict, base_mapping: Dict) -> List[Tuple[str, str]]:
-    """
-    Returns list of (agent_version, tools_version) tuples for added/changed agents.
-
-    For ops_manager: only returns newly added versions (not modified existing ones)
-    For cloud_manager: only returns if current version is higher than base version
-    """
+    """Returns list of (agent_version, tools_version) tuples for added/changed agents"""
     added_agents = []
 
     current_om_mapping = current_mapping.get("ops_manager", {})
     master_om_mapping = base_mapping.get("ops_manager", {})
 
-    # For ops_manager: only include newly added versions, not modified existing ones
     for om_version, agent_tools_version in current_om_mapping.items():
-        if om_version not in master_om_mapping:
-            # This is a new OM version, include it
+        if om_version not in master_om_mapping or master_om_mapping[om_version] != agent_tools_version:
             added_agents.append((agent_tools_version["agent_version"], agent_tools_version["tools_version"]))
-            logger.info(f"New OM version {om_version} added with agent {agent_tools_version['agent_version']}")
 
-    # For cloud_manager: only include if current version is higher than master version
     current_cm = current_mapping.get("cloud_manager")
     master_cm = base_mapping.get("cloud_manager")
     current_cm_tools = current_mapping.get("cloud_manager_tools")
     master_cm_tools = base_mapping.get("cloud_manager_tools")
 
-    if current_cm and master_cm and current_cm != master_cm:
-        if _is_later_agent_version(current_cm, master_cm):
-            logger.info(f"Cloud manager agent upgraded from {master_cm} to {current_cm}")
-            added_agents.append((current_cm, current_cm_tools))
-        else:
-            logger.info(f"Cloud manager agent version {current_cm} is not higher than {master_cm}, skipping")
-    elif current_cm and not master_cm:
-        # Cloud manager was added for the first time
-        logger.info(f"Cloud manager agent {current_cm} added for the first time")
-        added_agents.append((current_cm, current_cm_tools))
-    elif current_cm_tools != master_cm_tools and current_cm == master_cm:
-        # Only tools version changed, include it
-        logger.info(f"Cloud manager tools version changed from {master_cm_tools} to {current_cm_tools}")
+    if current_cm != master_cm or current_cm_tools != master_cm_tools:
         added_agents.append((current_cm, current_cm_tools))
 
     return list(set(added_agents))
+
+
+def get_tools_version_for_agent(agent_version: str) -> str:
+    """Get tools version for a given agent version from release.json"""
+    release_data = load_current_release_json()
+    if not release_data:
+        return "100.12.2"  # Default fallback
+
+    ops_manager_mapping = extract_ops_manager_mapping(release_data)
+    ops_manager_versions = ops_manager_mapping.get("ops_manager", {})
+
+    # Search through all OM versions to find matching agent version
+    for om_version, agent_tools in ops_manager_versions.items():
+        if agent_tools.get("agent_version") == agent_version:
+            return agent_tools.get("tools_version", "100.12.2")
+
+    # Check cloud_manager tools version as fallback
+    return ops_manager_mapping.get("cloud_manager_tools", "100.12.2")
+
+
+def get_all_agents_for_rebuild() -> List[Tuple[str, str]]:
+    """Returns list of (agent_version, tools_version) tuples for all agents in release.json"""
+    agents = []
+
+    release_data = load_current_release_json()
+    if not release_data:
+        logger.error("Could not load release.json")
+        return []
+
+    ops_manager_mapping = extract_ops_manager_mapping(release_data)
+
+    # Get all ops_manager agents
+    ops_manager_versions = ops_manager_mapping.get("ops_manager", {})
+    for om_version, agent_tools in ops_manager_versions.items():
+        agent_version = agent_tools.get("agent_version")
+        tools_version = agent_tools.get("tools_version")
+        if agent_version and tools_version:
+            agents.append((agent_version, tools_version))
+
+    # Get cloud_manager agent
+    cloud_manager_agent = ops_manager_mapping.get("cloud_manager")
+    cloud_manager_tools = ops_manager_mapping.get("cloud_manager_tools")
+    if cloud_manager_agent and cloud_manager_tools:
+        agents.append((cloud_manager_agent, cloud_manager_tools))
+
+    # Get the main agent version from release.json root
+    main_agent_version = release_data.get("agentVersion")
+    if main_agent_version:
+        tools_version = get_tools_version_for_agent(main_agent_version)
+        agents.append((main_agent_version, tools_version))
+
+    return list(set(agents))
+
+
+def get_currently_used_agents() -> List[Tuple[str, str]]:
+    """Returns list of (agent_version, tools_version) tuples for agents currently used in contexts and cloudmanager agent from release.json"""
+    logger.info("Getting currently used agents from contexts")
+    agents = []
+
+    try:
+        release_data = load_current_release_json()
+        if not release_data:
+            logger.error("Could not load release.json")
+            return []
+
+        ops_manager_mapping = extract_ops_manager_mapping(release_data)
+        ops_manager_versions = ops_manager_mapping.get("ops_manager", {})
+
+        # Search all context files
+        context_pattern = "scripts/dev/contexts/**/*"
+        context_files = glob.glob(context_pattern, recursive=True)
+
+        for context_file in context_files:
+            if os.path.isfile(context_file):
+                try:
+                    with open(context_file, "r") as f:
+                        content = f.read()
+
+                        # Extract AGENT_VERSION from the context file
+                        for line in content.split("\n"):
+                            if line.startswith("export AGENT_VERSION="):
+                                agent_version = line.split("=")[1].strip()
+                                tools_version = get_tools_version_for_agent(agent_version)
+                                agents.append((agent_version, tools_version))
+                                logger.info(f"Found agent {agent_version} in {context_file}")
+                                break
+
+                        # Extract CUSTOM_OM_VERSION and map to agent version
+                        for line in content.split("\n"):
+                            if line.startswith("export CUSTOM_OM_VERSION="):
+                                om_version = line.split("=")[1].strip()
+                                if om_version in ops_manager_versions:
+                                    agent_tools = ops_manager_versions[om_version]
+                                    agent_version = agent_tools.get("agent_version")
+                                    tools_version = agent_tools.get("tools_version")
+                                    if agent_version and tools_version:
+                                        agents.append((agent_version, tools_version))
+                                        logger.info(
+                                            f"Found OM version {om_version} -> agent {agent_version} in {context_file}"
+                                        )
+                                break
+
+                except Exception as e:
+                    logger.debug(f"Error reading context file {context_file}: {e}")
+
+        # Also add the cloudmanager agent from release.json
+        cloud_manager_agent = ops_manager_mapping.get("cloud_manager")
+        cloud_manager_tools = ops_manager_mapping.get("cloud_manager_tools")
+        if cloud_manager_agent and cloud_manager_tools:
+            agents.append((cloud_manager_agent, cloud_manager_tools))
+            logger.info(f"Found cloudmanager agent from release.json: {cloud_manager_agent}")
+
+        # Also add the main agentVersion from release.json
+        main_agent_version = release_data.get("agentVersion")
+        if main_agent_version:
+            tools_version = get_tools_version_for_agent(main_agent_version)
+            agents.append((main_agent_version, tools_version))
+            logger.info(f"Found main agent version from release.json: {main_agent_version}")
+
+        unique_agents = list(set(agents))
+        logger.info(f"Found {len(unique_agents)} currently used agents")
+        return unique_agents
+
+    except Exception as e:
+        logger.error(f"Error getting currently used agents: {e}")
+        return []
+
+
+def detect_ops_manager_changes() -> List[Tuple[str, str]]:
+    """Returns (has_changes, changed_agents_list)"""
+    logger.info("=== Detecting OM Mapping Changes (Local vs Base) ===")
+
+    current_release = load_current_release_json()
+    if not current_release:
+        logger.error("Could not load current local release.json")
+        return []
+
+    master_release = load_release_json_from_master()
+    if not master_release:
+        logger.warning("Could not load base release.json, assuming changes exist")
+        return []
+
+    current_mapping = extract_ops_manager_mapping(current_release)
+    base_mapping = extract_ops_manager_mapping(master_release)
+
+    if current_mapping != base_mapping:
+        return get_changed_agents(current_mapping, base_mapping)
+    else:
+        return []
 
 
 def get_tools_version_for_agent(agent_version: str) -> str:

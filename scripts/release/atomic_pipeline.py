@@ -21,6 +21,8 @@ from scripts.release.agent.detect_ops_manager_changes import (
     get_currently_used_agents,
 )
 from scripts.release.agent.validation import (
+    get_available_platforms_for_agent,
+    get_available_platforms_for_tools,
     load_agent_build_info,
     validate_agent_version_exists,
     validate_tools_version_exists,
@@ -429,22 +431,39 @@ def build_agent(build_configuration: ImageBuildConfiguration):
             tools_version = agent_tools_version[1]
             logger.info(f"======= Building Agent {agent_tools_version} ({idx + 1}/{len(agent_versions_to_build)})")
 
-            if not validate_agent_version_exists(agent_version, build_configuration.platforms):
-                logger.warning(f"Skipping agent version {agent_version} - not found in repository")
+            available_agent_platforms = get_available_platforms_for_agent(agent_version, build_configuration.platforms)
+            if not available_agent_platforms:
+                logger.warning(f"Skipping agent version {agent_version} - not found in repository for any platform")
                 skipped_builds.append(agent_tools_version)
                 continue
 
-            if not validate_tools_version_exists(tools_version, build_configuration.platforms):
+            available_tools_platforms = get_available_platforms_for_tools(tools_version, build_configuration.platforms)
+            if not available_tools_platforms:
                 logger.warning(
-                    f"Skipping agent version {agent_version} - tools version {tools_version} not found in repository"
+                    f"Skipping agent version {agent_version} - tools version {tools_version} not found in repository for any platform"
                 )
                 skipped_builds.append(agent_tools_version)
                 continue
+
+            available_platforms = list(set(available_agent_platforms) & set(available_tools_platforms))
+            if not available_platforms:
+                logger.warning(
+                    f"Skipping agent version {agent_version} - no common platforms available for both agent and tools"
+                )
+                skipped_builds.append(agent_tools_version)
+                continue
+
+            if available_platforms != build_configuration.platforms:
+                logger.info(
+                    f"Building agent {agent_version} for available platforms: {available_platforms} "
+                    f"(skipping: {set(build_configuration.platforms) - set(available_platforms)})"
+                )
 
             successful_builds.append(agent_tools_version)
             _build_agent(
                 agent_tools_version,
                 build_configuration,
+                available_platforms,
                 executor,
                 tasks_queue,
             )
@@ -459,22 +478,27 @@ def build_agent(build_configuration: ImageBuildConfiguration):
 def _build_agent(
     agent_tools_version: Tuple[str, str],
     build_configuration: ImageBuildConfiguration,
+    available_platforms: List[str],
     executor: ProcessPoolExecutor,
     tasks_queue: Queue,
 ):
     agent_version = agent_tools_version[0]
     tools_version = agent_tools_version[1]
 
-    tasks_queue.put(executor.submit(build_agent_pipeline, build_configuration, agent_version, tools_version))
+    tasks_queue.put(
+        executor.submit(build_agent_pipeline, build_configuration, agent_version, tools_version, available_platforms)
+    )
 
 
 def build_agent_pipeline(
     build_configuration: ImageBuildConfiguration,
     agent_version: str,
     tools_version: str,
+    available_platforms: List[str],
 ):
     build_configuration_copy = copy(build_configuration)
     build_configuration_copy.version = agent_version
+    build_configuration_copy.platforms = available_platforms  # Use only available platforms
     print(
         f"======== Building agent pipeline for version {agent_version}, build configuration version: {build_configuration.version}"
     )
@@ -482,7 +506,7 @@ def build_agent_pipeline(
     # Note: Validation is now done earlier in the build_agent function
     # Generate platform-specific build arguments using the mapping
     platform_build_args = generate_agent_build_args(
-        platforms=build_configuration.platforms, agent_version=agent_version, tools_version=tools_version
+        platforms=available_platforms, agent_version=agent_version, tools_version=tools_version
     )
 
     agent_base_url = (
