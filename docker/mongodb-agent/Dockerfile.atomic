@@ -92,10 +92,10 @@ RUN mkdir -p /agent \
 
 # Copy scripts to a safe location that won't be overwritten by volume mount
 COPY ./docker/mongodb-kubernetes-init-database/content/LICENSE /data/LICENSE
-COPY ./docker/mongodb-agent/agent-launcher-shim.sh /opt/scripts/agent-launcher-shim.sh
-COPY ./docker/mongodb-agent/setup-agent-files.sh /opt/scripts/setup-agent-files.sh
-COPY ./docker/mongodb-agent/dummy-probe.sh /opt/scripts/dummy-probe.sh
-COPY ./docker/mongodb-agent/dummy-readinessprobe.sh /opt/scripts/dummy-readinessprobe.sh
+COPY ./docker/mongodb-agent/agent-launcher-shim.sh /usr/local/bin/agent-launcher-shim.sh
+COPY ./docker/mongodb-agent/setup-agent-files.sh /usr/local/bin/setup-agent-files.sh
+COPY ./docker/mongodb-agent/dummy-probe.sh /usr/local/bin/dummy-probe.sh
+COPY ./docker/mongodb-agent/dummy-readinessprobe.sh /usr/local/bin/dummy-readinessprobe.sh
 
 # Set up directories and permissions (agent and tools are already extracted in downloader stages)
 RUN mkdir -p /var/lib/automation/config \
