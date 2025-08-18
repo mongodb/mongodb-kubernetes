@@ -4,11 +4,17 @@ Detects changes to opsManagerMapping in release.json for triggering agent releas
 Relies on git origin/master vs local release.json
 """
 import json
-import os
-import re
+import logging
 import subprocess
 import sys
 from typing import Dict, List, Optional, Tuple
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
+logger = logging.getLogger(__name__)
 
 
 def get_content_from_git(commit: str, file_path: str) -> Optional[str]:
@@ -17,7 +23,8 @@ def get_content_from_git(commit: str, file_path: str) -> Optional[str]:
             ["git", "show", f"{commit}:{file_path}"], capture_output=True, text=True, check=True, timeout=30
         )
         return result.stdout
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        logger.error(f"Failed to get {file_path} from git commit {commit}: {e}")
         return None
 
 
@@ -26,13 +33,13 @@ def load_release_json_from_master() -> Optional[Dict]:
 
     content = get_content_from_git(base_revision, "release.json")
     if not content:
-        print(f"Could not retrieve release.json from {base_revision}")
+        logger.error(f"Could not retrieve release.json from {base_revision}")
         return None
 
     try:
         return json.loads(content)
     except json.JSONDecodeError as e:
-        print(f"Invalid JSON in base release.json: {e}")
+        logger.error(f"Invalid JSON in base release.json: {e}")
         return None
 
 
@@ -41,7 +48,7 @@ def load_current_release_json() -> Optional[Dict]:
         with open("release.json", "r") as f:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError) as e:
-        print(f"Could not load current release.json: {e}")
+        logger.error(f"Could not load current release.json: {e}")
         return None
 
 
@@ -97,7 +104,7 @@ def get_all_agents_for_rebuild() -> List[Tuple[str, str]]:
 
     release_data = load_current_release_json()
     if not release_data:
-        print("ERROR: Could not load release.json")
+        logger.error("Could not load release.json")
         return []
 
     ops_manager_mapping = extract_ops_manager_mapping(release_data)
@@ -122,21 +129,21 @@ def get_all_agents_for_rebuild() -> List[Tuple[str, str]]:
         tools_version = get_tools_version_for_agent(main_agent_version)
         agents.append((main_agent_version, tools_version))
 
-    return list(set(agents))  # Remove duplicates
+    return list(set(agents))
 
 
 def detect_ops_manager_changes() -> List[Tuple[str, str]]:
     """Returns (has_changes, changed_agents_list)"""
-    print("=== Detecting OM Mapping Changes (Local vs Base) ===")
+    logger.info("=== Detecting OM Mapping Changes (Local vs Base) ===")
 
     current_release = load_current_release_json()
     if not current_release:
-        print("ERROR: Could not load current local release.json")
+        logger.error("Could not load current local release.json")
         return []
 
     master_release = load_release_json_from_master()
     if not master_release:
-        print("WARNING: Could not load base release.json, assuming changes exist")
+        logger.warning("Could not load base release.json, assuming changes exist")
         return []
 
     current_mapping = extract_ops_manager_mapping(current_release)
