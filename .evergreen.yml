@@ -1520,7 +1520,7 @@ buildvariants:
     display_name: e2e_multi_cluster_om_appdb
     tags: [ "e2e_test_suite" ]
     run_on:
-      - ubuntu2204-medium-high-memory
+      - ubuntu2204-large
     <<: *base_om6_dependency
     tasks:
       - name: e2e_multi_cluster_om_appdb_task_group
@@ -1529,7 +1529,7 @@ buildvariants:
     display_name: e2e_static_multi_cluster_om_appdb
     tags: [ "e2e_test_suite" ]
     run_on:
-      - ubuntu2204-medium-high-memory
+      - ubuntu2204-large
     <<: *base_om6_dependency
     tasks:
       - name: e2e_static_multi_cluster_om_appdb_task_group
