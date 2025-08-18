@@ -1203,7 +1203,6 @@ def build_multi_arch_agent_in_sonar(
     """
 
     logger.info(f"building multi-arch base image for: {image_version}")
-    is_release = build_configuration.is_release_step_executed()
     args = {
         "version": image_version,
         "tools_version": tools_version,
@@ -1233,7 +1232,7 @@ def build_multi_arch_agent_in_sonar(
 
     build_image_generic(
         config=build_configuration,
-        image_name="mongodb-agent-ubi",
+        image_name="mongodb-agent",
         inventory_file="inventories/agent.yaml",
         multi_arch_args_list=joined_args,
         with_image_base=False,
@@ -1315,18 +1314,14 @@ def _build_agents(
     tasks_queue: Queue,
 ):
     agent_version = agent_tools_version[0]
-    agent_distro = "rhel9_x86_64"
     tools_version = agent_tools_version[1]
-    tools_distro = get_tools_distro(tools_version)["amd"]
 
     tasks_queue.put(
         executor.submit(
             build_multi_arch_agent_in_sonar,
             build_configuration,
             agent_version,
-            agent_distro,
             tools_version,
-            tools_distro,
         )
     )
 

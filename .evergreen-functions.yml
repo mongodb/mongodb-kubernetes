@@ -526,28 +526,6 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/dev/run_python.sh scripts/release/pipeline_main.py --parallel ${image_name} ${all_agents}
 
-  release_pipeline:
-    - *switch_context
-    - command: shell.exec
-      type: setup
-      params:
-        shell: bash
-        script: |
-          # Docker Hub workaround
-          # docker buildx needs the moby/buildkit image when setting up a builder so we pull it from our mirror
-          docker buildx create --driver=docker-container --driver-opt=image=268558157000.dkr.ecr.eu-west-1.amazonaws.com/docker-hub-mirrors/moby/buildkit:buildx-stable-1 --use
-          docker buildx inspect --bootstrap
-    - command: subprocess.exec
-      retry_on_failure: true
-      type: setup
-      params:
-        shell: bash
-        <<: *e2e_include_expansions_in_env
-        working_dir: src/github.com/mongodb/mongodb-kubernetes
-        env:
-          git_tag: ${triggered_by_git_tag}
-        binary: scripts/dev/run_python.sh scripts/release/pipeline_main.py ${image_name} --build-scenario release ${git_tag|--version ${git_tag}}
-
   # TODO: CLOUDP-335471 ; once all image builds are made with the new atomic pipeline, remove the following function
   legacy_pipeline:
     - *switch_context
