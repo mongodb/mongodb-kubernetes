@@ -60,23 +60,79 @@ def extract_ops_manager_mapping(release_data: Dict) -> Dict:
     return release_data.get("supportedImages", {}).get("mongodb-agent", {}).get("opsManagerMapping", {})
 
 
+def _is_later_agent_version(version1: str, version2: str) -> bool:
+    """
+    Compare two agent versions and return True if version1 is later than version2.
+    Agent versions are in format like "13.37.0.9590-1" or "108.0.12.8846-1"
+    """
+    if not version1 or not version2:
+        return False
+
+    def split_version(version: str) -> List[int]:
+        """Split version string into numeric parts, ignoring suffix after '-'"""
+        parts = []
+        version_part = version.split("-")[0]  # Remove suffix like "-1"
+        for part in version_part.split("."):
+            try:
+                parts.append(int(part))
+            except ValueError:
+                # If we can't parse a part as int, skip it
+                continue
+        return parts
+
+    v1_parts = split_version(version1)
+    v2_parts = split_version(version2)
+
+    # Compare each part
+    max_len = max(len(v1_parts), len(v2_parts))
+    for i in range(max_len):
+        v1_part = v1_parts[i] if i < len(v1_parts) else 0
+        v2_part = v2_parts[i] if i < len(v2_parts) else 0
+
+        if v1_part != v2_part:
+            return v1_part > v2_part
+
+    return False  # Versions are equal
+
+
 def get_changed_agents(current_mapping: Dict, base_mapping: Dict) -> List[Tuple[str, str]]:
-    """Returns list of (agent_version, tools_version) tuples for added/changed agents"""
+    """
+    Returns list of (agent_version, tools_version) tuples for added/changed agents.
+
+    For ops_manager: only returns newly added versions (not modified existing ones)
+    For cloud_manager: only returns if current version is higher than base version
+    """
     added_agents = []
 
     current_om_mapping = current_mapping.get("ops_manager", {})
     master_om_mapping = base_mapping.get("ops_manager", {})
 
+    # For ops_manager: only include newly added versions, not modified existing ones
     for om_version, agent_tools_version in current_om_mapping.items():
-        if om_version not in master_om_mapping or master_om_mapping[om_version] != agent_tools_version:
+        if om_version not in master_om_mapping:
+            # This is a new OM version, include it
             added_agents.append((agent_tools_version["agent_version"], agent_tools_version["tools_version"]))
+            logger.info(f"New OM version {om_version} added with agent {agent_tools_version['agent_version']}")
 
+    # For cloud_manager: only include if current version is higher than master version
     current_cm = current_mapping.get("cloud_manager")
     master_cm = base_mapping.get("cloud_manager")
     current_cm_tools = current_mapping.get("cloud_manager_tools")
     master_cm_tools = base_mapping.get("cloud_manager_tools")
 
-    if current_cm != master_cm or current_cm_tools != master_cm_tools:
+    if current_cm and master_cm and current_cm != master_cm:
+        if _is_later_agent_version(current_cm, master_cm):
+            logger.info(f"Cloud manager agent upgraded from {master_cm} to {current_cm}")
+            added_agents.append((current_cm, current_cm_tools))
+        else:
+            logger.info(f"Cloud manager agent version {current_cm} is not higher than {master_cm}, skipping")
+    elif current_cm and not master_cm:
+        # Cloud manager was added for the first time
+        logger.info(f"Cloud manager agent {current_cm} added for the first time")
+        added_agents.append((current_cm, current_cm_tools))
+    elif current_cm_tools != master_cm_tools and current_cm == master_cm:
+        # Only tools version changed, include it
+        logger.info(f"Cloud manager tools version changed from {master_cm_tools} to {current_cm_tools}")
         added_agents.append((current_cm, current_cm_tools))
 
     return list(set(added_agents))
