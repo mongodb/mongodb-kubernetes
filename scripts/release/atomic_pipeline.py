@@ -8,10 +8,9 @@ import shutil
 from concurrent.futures import ProcessPoolExecutor
 from copy import copy
 from queue import Queue
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import requests
-import semver
 from opentelemetry import trace
 from packaging.version import Version
 
@@ -22,6 +21,10 @@ from scripts.release.build.image_signing import (
     mongodb_artifactory_login,
     sign_image,
     verify_signature,
+)
+from scripts.release.detect_ops_manager_changes import (
+    detect_ops_manager_changes,
+    get_all_agents_for_rebuild,
 )
 
 TRACER = trace.get_tracer("evergreen-agent")
@@ -221,17 +224,20 @@ def build_mco_tests_image(build_configuration: ImageBuildConfiguration):
     )
 
 
-def build_operator_image(build_configuration: ImageBuildConfiguration):
+def build_operator_image(build_configuration: ImageBuildConfiguration, with_race_detection: bool = False):
     """Calculates arguments required to build the operator image, and starts the build process."""
     # In evergreen, we can pass test_suffix env to publish the operator to a quay
     # repository with a given suffix.
     test_suffix = os.getenv("test_suffix", "")
     log_automation_config_diff = os.getenv("LOG_AUTOMATION_CONFIG_DIFF", "false")
 
+    build_configuration.version = f"{build_configuration.version}{'-race' if with_race_detection else ''}"
+
     args = {
         "version": build_configuration.version,
         "log_automation_config_diff": log_automation_config_diff,
         "test_suffix": test_suffix,
+        "use_race": "true" if with_race_detection else "false",
     }
 
     logger.info(f"Building Operator args: {args}")
@@ -395,23 +401,23 @@ def build_upgrade_hook_image(build_configuration: ImageBuildConfiguration):
     )
 
 
-def build_agent_default_case(build_configuration: ImageBuildConfiguration):
+def build_agent(build_configuration: ImageBuildConfiguration):
     """
     Build the agent only for the latest operator for patches and operator releases.
 
     """
-    release = load_release_file()
-
-    # We need to release [all agents x latest operator] on operator releases
-    if build_configuration.is_release_scenario():
-        agent_versions_to_build = gather_all_supported_agent_versions(release)
-    # We only need [latest agents (for each OM major version and for CM) x patch ID] for patches
+    if build_configuration.all_agents:
+        agent_versions_to_build = get_all_agents_for_rebuild()
+        logger.info("building all agents")
     else:
-        agent_versions_to_build = gather_latest_agent_versions(release)
+        agent_versions_to_build = detect_ops_manager_changes()
+        logger.info("building agents for changed OM versions")
 
-    logger.info(
-        f"Building Agent versions: {agent_versions_to_build} for Operator versions: {build_configuration.version}"
-    )
+    if not agent_versions_to_build:
+        logger.info("No changes detected, skipping agent build")
+        return
+
+    logger.info(f"Building Agent versions: {agent_versions_to_build}")
 
     tasks_queue = Queue()
     max_workers = 1
@@ -432,63 +438,6 @@ def build_agent_default_case(build_configuration: ImageBuildConfiguration):
             )
 
     queue_exception_handling(tasks_queue)
-
-
-def gather_all_supported_agent_versions(release: Dict) -> List[Tuple[str, str]]:
-    # This is a list of a tuples - agent version and corresponding tools version
-    agent_versions_to_build = list()
-    agent_versions_to_build.append(
-        (
-            release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager"],
-            release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager_tools"],
-        )
-    )
-    for _, om in release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"].items():
-        agent_versions_to_build.append((om["agent_version"], om["tools_version"]))
-
-    # lets not build the same image multiple times
-    return sorted(list(set(agent_versions_to_build)))
-
-
-def gather_latest_agent_versions(release: Dict) -> List[Tuple[str, str]]:
-    """
-    This function is used when we release a new agent via OM bump.
-    That means we will need to release that agent with all supported operators.
-    Since we don’t want to release all agents again, we only release the latest, which will contain the newly added one
-    :return: the latest agent for each major version
-    """
-    agent_versions_to_build = list()
-    agent_versions_to_build.append(
-        (
-            release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager"],
-            release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager_tools"],
-        )
-    )
-
-    latest_versions = {}
-
-    for version in release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"].keys():
-        parsed_version = semver.VersionInfo.parse(version)
-        major_version = parsed_version.major
-        if major_version in latest_versions:
-            latest_parsed_version = semver.VersionInfo.parse(str(latest_versions[major_version]))
-            latest_versions[major_version] = max(parsed_version, latest_parsed_version)
-        else:
-            latest_versions[major_version] = version
-
-    for major_version, latest_version in latest_versions.items():
-        agent_versions_to_build.append(
-            (
-                release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"][str(latest_version)][
-                    "agent_version"
-                ],
-                release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"][str(latest_version)][
-                    "tools_version"
-                ],
-            )
-        )
-
-    return sorted(list(set(agent_versions_to_build)))
 
 
 def _build_agent(

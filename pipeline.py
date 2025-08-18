@@ -51,6 +51,7 @@ from scripts.release.build.image_signing import (
     sign_image,
     verify_signature,
 )
+from scripts.release.detect_ops_manager_changes import detect_ops_manager_changes
 
 TRACER = trace.get_tracer("evergreen-agent")
 
@@ -1202,7 +1203,6 @@ def build_multi_arch_agent_in_sonar(
     """
 
     logger.info(f"building multi-arch base image for: {image_version}")
-    is_release = build_configuration.is_release_step_executed()
     args = {
         "version": image_version,
         "tools_version": tools_version,
@@ -1232,7 +1232,7 @@ def build_multi_arch_agent_in_sonar(
 
     build_image_generic(
         config=build_configuration,
-        image_name="mongodb-agent-ubi",
+        image_name="mongodb-agent",
         inventory_file="inventories/agent.yaml",
         multi_arch_args_list=joined_args,
         with_image_base=False,
@@ -1241,22 +1241,11 @@ def build_multi_arch_agent_in_sonar(
     )
 
 
-def build_agent_default_case(build_configuration: BuildConfiguration):
-    """
-    Build the agent only for the latest operator for patches and operator releases.
-
-    See more information in the function: build_agent_on_agent_bump
-    """
-    release_json = get_release()
-
-    is_release = build_configuration.is_release_step_executed()
-
-    # We need to release [all agents x latest operator] on operator releases
-    if is_release:
-        agent_versions_to_build = gather_all_supported_agent_versions(release_json)
-    # We only need [latest agents (for each OM major version and for CM) x patch ID] for patches
-    else:
-        agent_versions_to_build = gather_latest_agent_versions(release_json, build_configuration.agent_to_build)
+def build_agent(build_configuration: BuildConfiguration):
+    agent_versions_to_build = detect_ops_manager_changes()
+    if not agent_versions_to_build:
+        logger.info("No changes detected, skipping agent build")
+        return
 
     logger.info(f"Building Agent versions: {agent_versions_to_build}")
 
@@ -1267,83 +1256,17 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
         if build_configuration.parallel_factor > 0:
             max_workers = build_configuration.parallel_factor
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        logger.info(f"running with factor of {max_workers}")
-        for agent_version in agent_versions_to_build:
+        logger.info(f"Running with factor of {max_workers}")
+        for idx, agent_tools_version in enumerate(agent_versions_to_build):
             # We don't need to keep create and push the same image on every build.
             # It is enough to create and push the non-operator suffixed images only during releases to ecr and quay.
-            if build_configuration.is_release_step_executed() or build_configuration.all_agents:
-                tasks_queue.put(
-                    executor.submit(
-                        build_multi_arch_agent_in_sonar,
-                        build_configuration,
-                        agent_version[0],
-                        agent_version[1],
-                    )
-                )
-            _add_to_agent_queue(agent_version, build_configuration, executor, tasks_queue)
-
-    queue_exception_handling(tasks_queue)
-
-
-def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
-    """
-    Build the agent matrix (operator version x agent version), triggered by PCT.
-
-    We have three cases where we need to build the agent:
-    - e2e test runs
-    - operator releases
-    - OM/CM bumps via PCT
-
-    In OM/CM bumps, we release a new agent.
-    """
-    release_json = get_release()
-    is_release = build_configuration.is_release_step_executed()
-
-    if build_configuration.all_agents:
-        agent_versions_to_build = gather_all_supported_agent_versions(release_json)
-    else:
-        # we only need to release the latest images, we don't need to re-push old images, as we don't clean them up anymore.
-        agent_versions_to_build = gather_latest_agent_versions(release_json, build_configuration.agent_to_build)
-
-    legacy_agent_versions_to_build = release_json["supportedImages"]["mongodb-agent"]["versions"]
-
-    tasks_queue = Queue()
-    max_workers = 1
-    if build_configuration.parallel:
-        max_workers = None
-        if build_configuration.parallel_factor > 0:
-            max_workers = build_configuration.parallel_factor
-    with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        logger.info(f"running with factor of {max_workers}")
-
-        # We need to regularly push legacy agents, otherwise ecr lifecycle policy will expire them.
-        # We only need to push them once in a while to ecr, so no quay required
-        if not is_release:
-            for legacy_agent in legacy_agent_versions_to_build:
-                tasks_queue.put(
-                    executor.submit(
-                        build_multi_arch_agent_in_sonar,
-                        build_configuration,
-                        legacy_agent,
-                        # we assume that all legacy agents are build using that tools version
-                        "100.9.4",
-                    )
-                )
-
-        for agent_version in agent_versions_to_build:
-            # We don't need to keep create and push the same image on every build.
-            # It is enough to create and push the non-operator suffixed images only during releases to ecr and quay.
-            if build_configuration.is_release_step_executed() or build_configuration.all_agents:
-                tasks_queue.put(
-                    executor.submit(
-                        build_multi_arch_agent_in_sonar,
-                        build_configuration,
-                        agent_version[0],
-                        agent_version[1],
-                    )
-                )
-            logger.info(f"Building Agent versions: {agent_version}")
-            _add_to_agent_queue(agent_version, build_configuration, executor, tasks_queue)
+            logger.info(f"======= Building Agent {agent_tools_version} ({idx}/{len(agent_versions_to_build)})")
+            _build_agents(
+                agent_tools_version,
+                build_configuration,
+                executor,
+                tasks_queue,
+            )
 
     queue_exception_handling(tasks_queue)
 
@@ -1384,85 +1307,23 @@ def queue_exception_handling(tasks_queue):
         )
 
 
-def _add_to_agent_queue(
-    agent_version: Tuple[str, str],
+def _build_agents(
+    agent_tools_version: Tuple[str, str],
     build_configuration: BuildConfiguration,
     executor: ProcessPoolExecutor,
     tasks_queue: Queue,
 ):
-    tools_version = agent_version[1]
-    image_version = f"{agent_version[0]}"
+    agent_version = agent_tools_version[0]
+    tools_version = agent_tools_version[1]
 
     tasks_queue.put(
         executor.submit(
             build_multi_arch_agent_in_sonar,
             build_configuration,
-            image_version,
+            agent_version,
             tools_version,
         )
     )
-
-
-def gather_all_supported_agent_versions(release: Dict) -> List[Tuple[str, str]]:
-    # This is a list of a tuples - agent version and corresponding tools version
-    agent_versions_to_build = list()
-    agent_versions_to_build.append(
-        (
-            release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager"],
-            release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager_tools"],
-        )
-    )
-    for _, om in release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"].items():
-        agent_versions_to_build.append((om["agent_version"], om["tools_version"]))
-
-    # lets not build the same image multiple times
-    return sorted(list(set(agent_versions_to_build)))
-
-
-def gather_latest_agent_versions(release: Dict, agent_to_build: str = "") -> List[Tuple[str, str]]:
-    """
-    This function is used when we release a new agent via OM bump.
-    That means we will need to release that agent with all supported operators.
-    Since we don't want to release all agents again, we only release the latest, which will contain the newly added one
-    :return: the latest agent for each major version
-    """
-    agent_versions_to_build = list()
-    agent_versions_to_build.append(
-        (
-            release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager"],
-            release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager_tools"],
-        )
-    )
-
-    latest_versions = {}
-
-    for version in release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"].keys():
-        parsed_version = semver.VersionInfo.parse(version)
-        major_version = parsed_version.major
-        if major_version in latest_versions:
-            latest_parsed_version = semver.VersionInfo.parse(str(latest_versions[major_version]))
-            latest_versions[major_version] = max(parsed_version, latest_parsed_version)
-        else:
-            latest_versions[major_version] = version
-
-    for major_version, latest_version in latest_versions.items():
-        agent_versions_to_build.append(
-            (
-                release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"][str(latest_version)][
-                    "agent_version"
-                ],
-                release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"][str(latest_version)][
-                    "tools_version"
-                ],
-            )
-        )
-
-    if agent_to_build != "":
-        for agent_tuple in agent_versions_to_build:
-            if agent_tuple[0] == agent_to_build:
-                return [agent_tuple]
-
-    return sorted(list(set(agent_versions_to_build)))
 
 
 def get_builder_function_for_image_name() -> Dict[str, Callable]:
@@ -1478,8 +1339,8 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         "upgrade-hook": build_upgrade_hook_image,
         "operator-quick": build_operator_image_patch,
         "database": build_database_image,
-        "agent-pct": build_agent_on_agent_bump,
-        "agent": build_agent_default_case,
+        "agent-pct": build_agent,
+        "agent": build_agent,
         #
         # Init images
         "init-appdb": build_init_appdb,

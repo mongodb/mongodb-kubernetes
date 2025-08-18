@@ -29,6 +29,23 @@
         ]
       }
     },
+    "operator-race": {
+      "dockerfile-path": "docker/mongodb-kubernetes-operator/Dockerfile.atomic",
+      "patch": {
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes",
+        "platforms": [
+          "linux/amd64"
+        ]
+      },
+      "staging": {
+        "sign": true,
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes",
+        "platforms": [
+          "linux/arm64",
+          "linux/amd64"
+        ]
+      }
+    },
     "init-database": {
       "dockerfile-path": "docker/mongodb-kubernetes-init-database/Dockerfile.atomic",
       "patch": {
