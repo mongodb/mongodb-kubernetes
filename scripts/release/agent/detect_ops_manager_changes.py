@@ -159,25 +159,27 @@ def get_currently_used_agents() -> List[Tuple[str, str]]:
                         content = f.read()
 
                         # Extract AGENT_VERSION from the context file
-                        for line in content.split('\n'):
-                            if line.startswith('export AGENT_VERSION='):
-                                agent_version = line.split('=')[1].strip()
+                        for line in content.split("\n"):
+                            if line.startswith("export AGENT_VERSION="):
+                                agent_version = line.split("=")[1].strip()
                                 tools_version = get_tools_version_for_agent(agent_version)
                                 agents.append((agent_version, tools_version))
                                 logger.info(f"Found agent {agent_version} in {context_file}")
                                 break
 
                         # Extract CUSTOM_OM_VERSION and map to agent version
-                        for line in content.split('\n'):
-                            if line.startswith('export CUSTOM_OM_VERSION='):
-                                om_version = line.split('=')[1].strip()
+                        for line in content.split("\n"):
+                            if line.startswith("export CUSTOM_OM_VERSION="):
+                                om_version = line.split("=")[1].strip()
                                 if om_version in ops_manager_versions:
                                     agent_tools = ops_manager_versions[om_version]
                                     agent_version = agent_tools.get("agent_version")
                                     tools_version = agent_tools.get("tools_version")
                                     if agent_version and tools_version:
                                         agents.append((agent_version, tools_version))
-                                        logger.info(f"Found OM version {om_version} -> agent {agent_version} in {context_file}")
+                                        logger.info(
+                                            f"Found OM version {om_version} -> agent {agent_version} in {context_file}"
+                                        )
                                 break
 
                 except Exception as e:

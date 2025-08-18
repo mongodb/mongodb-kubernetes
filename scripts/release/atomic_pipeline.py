@@ -5,6 +5,7 @@ and where to fetch and calculate parameters."""
 import json
 import os
 import shutil
+import sys
 from concurrent.futures import ProcessPoolExecutor
 from copy import copy
 from queue import Queue
@@ -14,18 +15,22 @@ import requests
 from opentelemetry import trace
 
 from lib.base_logger import logger
-from scripts.release.agent.validation import validate_agent_version_exists, validate_tools_version_exists,load_agent_build_info
+from scripts.release.agent.detect_ops_manager_changes import (
+    detect_ops_manager_changes,
+    get_all_agents_for_rebuild,
+    get_currently_used_agents,
+)
+from scripts.release.agent.validation import (
+    load_agent_build_info,
+    validate_agent_version_exists,
+    validate_tools_version_exists,
+)
 from scripts.release.build.image_build_configuration import ImageBuildConfiguration
 from scripts.release.build.image_build_process import execute_docker_build
 from scripts.release.build.image_signing import (
     mongodb_artifactory_login,
     sign_image,
     verify_signature,
-)
-from scripts.release.agent.detect_ops_manager_changes import (
-    detect_ops_manager_changes,
-    get_currently_used_agents,
-    get_all_agents_for_rebuild,
 )
 
 TRACER = trace.get_tracer("evergreen-agent")
@@ -61,16 +66,16 @@ def generate_tools_build_args(platforms: List[str], tools_version: str) -> Dict[
     build_args = {}
 
     for platform in platforms:
-        if platform not in agent_info["platform_mappings"]:
-            logger.warning(f"Platform {platform} not found in agent mappings, skipping")
-            continue
-
-        mapping = agent_info["platform_mappings"][platform]
         arch = platform.split("/")[-1]
+        if arch not in agent_info["platform_mappings"]:
+            logger.error(f"Platform {arch} not found in agent mappings, skipping")
+            sys.exit(1)
+
+        mapping = agent_info["platform_mappings"][arch]
 
         tools_suffix = mapping["tools_suffix"].replace("{TOOLS_VERSION}", tools_version)
         tools_filename = f"{agent_info['base_names']['tools']}-{tools_suffix}"
-        build_args[f"mongodb_tool_version_{arch}"] = tools_filename
+        build_args[f"mongodb_tools_version_{arch}"] = tools_filename
 
     return build_args
 
@@ -91,12 +96,12 @@ def generate_agent_build_args(platforms: List[str], agent_version: str, tools_ve
     build_args = {}
 
     for platform in platforms:
-        if platform not in agent_info["platform_mappings"]:
+        arch = platform.split("/")[-1]
+        if arch not in agent_info["platform_mappings"]:
             logger.warning(f"Platform {platform} not found in agent mappings, skipping")
             continue
 
-        mapping = agent_info["platform_mappings"][platform]
-        arch = platform.split("/")[-1]
+        mapping = agent_info["platform_mappings"][arch]
 
         agent_filename = f"{agent_info['base_names']['agent']}-{agent_version}.{mapping['agent_suffix']}"
         build_args[f"mongodb_agent_version_{arch}"] = agent_filename
@@ -312,7 +317,6 @@ def build_init_appdb_image(build_configuration: ImageBuildConfiguration):
     release = load_release_file()
     base_url = "https://fastdl.mongodb.org/tools/db"
 
-    # Extract tools version and generate platform-specific build args
     tools_version = extract_tools_version_from_release(release)
 
     # Validate that the tools version exists before attempting to build
@@ -341,7 +345,6 @@ def build_init_database_image(build_configuration: ImageBuildConfiguration):
     release = load_release_file()
     base_url = "https://fastdl.mongodb.org/tools/db"
 
-    # Extract tools version and generate platform-specific build args
     tools_version = extract_tools_version_from_release(release)
 
     # Validate that the tools version exists before attempting to build
@@ -430,7 +433,9 @@ def build_agent(build_configuration: ImageBuildConfiguration):
                 continue
 
             if not validate_tools_version_exists(tools_version, build_configuration.platforms):
-                logger.warning(f"Skipping agent version {agent_version} - tools version {tools_version} not found in repository")
+                logger.warning(
+                    f"Skipping agent version {agent_version} - tools version {tools_version} not found in repository"
+                )
                 skipped_builds.append(agent_tools_version)
                 continue
 

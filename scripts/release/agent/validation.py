@@ -41,7 +41,9 @@ def validate_agent_version_exists(agent_version: str, platforms: List[str]) -> b
             # Use HEAD request to check if URL exists without downloading the file
             response = requests.head(agent_url, timeout=30)
             if response.status_code != 200:
-                logger.warning(f"Agent version {agent_version} not found for platform {platform} at {agent_url} (HTTP {response.status_code})")
+                logger.warning(
+                    f"Agent version {agent_version} not found for platform {platform} at {agent_url} (HTTP {response.status_code})"
+                )
                 return False
             logger.debug(f"Agent version {agent_version} validated for platform {platform}")
         except requests.RequestException as e:
@@ -80,7 +82,9 @@ def validate_tools_version_exists(tools_version: str, platforms: List[str]) -> b
             # Use HEAD request to check if URL exists without downloading the file
             response = requests.head(tools_url, timeout=30)
             if response.status_code != 200:
-                logger.warning(f"Tools version {tools_version} not found for platform {platform} at {tools_url} (HTTP {response.status_code})")
+                logger.warning(
+                    f"Tools version {tools_version} not found for platform {platform} at {tools_url} (HTTP {response.status_code})"
+                )
                 return False
             logger.debug(f"Tools version {tools_version} validated for platform {platform}")
         except requests.RequestException as e:
