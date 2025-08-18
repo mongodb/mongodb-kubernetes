@@ -356,7 +356,7 @@ tasks:
       - func: setup_building_host
       - func: quay_login
       - func: setup_docker_sbom
-      - func: release_pipeline
+      - func: legacy_pipeline
         vars:
           image_name: agent
 
@@ -1787,17 +1787,17 @@ buildvariants:
     tags: [ "release_agent" ]
     run_on:
       - release-ubuntu2204-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
-    depends_on:
-      - variant: init_test_run
-        name: build_agent_images_ubi # this ensures the agent gets released to ECR as well
-      - variant: e2e_multi_cluster_kind
-        name: '*'
-      - variant: e2e_static_multi_cluster_2_clusters
-        name: '*'
-      - variant: e2e_mdb_kind_ubi_cloudqa
-        name: '*'
-      - variant: e2e_static_mdb_kind_ubi_cloudqa
-        name: '*'
+#    depends_on:
+##      - variant: init_test_run
+##        name: build_agent_images_ubi # this ensures the agent gets released to ECR as well
+##      - variant: e2e_multi_cluster_kind
+##        name: '*'
+##      - variant: e2e_static_multi_cluster_2_clusters
+##        name: '*'
+##      - variant: e2e_mdb_kind_ubi_cloudqa
+##        name: '*'
+##      - variant: e2e_static_mdb_kind_ubi_cloudqa
+##        name: '*'
     tasks:
       - name: release_agent
 
