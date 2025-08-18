@@ -12,7 +12,6 @@ from typing import Dict, List, Optional, Tuple
 
 import requests
 from opentelemetry import trace
-from packaging.version import Version
 
 from lib.base_logger import logger
 from scripts.release.build.image_build_configuration import ImageBuildConfiguration
@@ -24,6 +23,7 @@ from scripts.release.build.image_signing import (
 )
 from scripts.release.detect_ops_manager_changes import (
     detect_ops_manager_changes,
+    get_currently_used_agents,
     get_all_agents_for_rebuild,
 )
 
@@ -407,6 +407,9 @@ def build_agent(build_configuration: ImageBuildConfiguration):
     if build_configuration.all_agents:
         agent_versions_to_build = get_all_agents_for_rebuild()
         logger.info("building all agents")
+    elif build_configuration.currently_used_agents:
+        agent_versions_to_build = get_currently_used_agents()
+        logger.info("building current used agents")
     else:
         agent_versions_to_build = detect_ops_manager_changes()
         logger.info("building agents for changed OM versions")
