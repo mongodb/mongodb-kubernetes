@@ -1,5 +1,6 @@
 import json
-from typing import List
+import sys
+from typing import Callable, List
 
 import requests
 
@@ -10,6 +11,60 @@ def load_agent_build_info():
     """Load agent platform mappings from build_info_agent.json"""
     with open("build_info_agent.json", "r") as f:
         return json.load(f)
+
+
+def _validate_version_exists(
+    version: str,
+    platforms: List[str],
+    base_url: str,
+    filename_builder: Callable[[dict, str, str], str],
+    version_type: str,
+) -> bool:
+    """
+    Generic validation function for checking if a version exists for all specified platforms.
+
+    Args:
+        version: Version to validate
+        platforms: List of platforms to check
+        base_url: Base URL for downloads
+        filename_builder: Function that builds filename from (agent_info, version, platform)
+        version_type: Type of version being validated (for logging)
+        platform_not_found_action: Action when platform not found ("exit" or "continue")
+
+    Returns:
+        True if version exists for all platforms, False otherwise
+    """
+    agent_info = load_agent_build_info()
+
+    for platform in platforms:
+        if platform not in agent_info["platform_mappings"]:
+                logger.error(f"Platform {platform} not found in agent mappings, skipping validation")
+                sys.exit(1)
+
+        filename = filename_builder(agent_info, version, platform)
+        url = f"{base_url}/{filename}"
+
+        try:
+            # Use HEAD request to check if URL exists without downloading the file
+            response = requests.head(url, timeout=30)
+            if response.status_code != 200:
+                logger.warning(
+                    f"{version_type.title()} version {version} not found for platform {platform} at {url} (HTTP {response.status_code})"
+                )
+                return False
+            logger.debug(f"{version_type.title()} version {version} validated for platform {platform}")
+        except requests.RequestException as e:
+            logger.warning(f"Failed to validate {version_type} version {version} for platform {platform}: {e}")
+            return False
+
+    logger.info(f"{version_type.title()} version {version} validated for all platforms: {platforms}")
+    return True
+
+
+def _build_agent_filename(agent_info: dict, agent_version: str, platform: str) -> str:
+    """Build agent filename for a given platform and version."""
+    mapping = agent_info["platform_mappings"][platform]
+    return f"{agent_info['base_names']['agent']}-{agent_version}.{mapping['agent_suffix']}"
 
 
 def validate_agent_version_exists(agent_version: str, platforms: List[str]) -> bool:
@@ -23,35 +78,24 @@ def validate_agent_version_exists(agent_version: str, platforms: List[str]) -> b
     Returns:
         True if agent version exists for all platforms, False otherwise
     """
-    agent_info = load_agent_build_info()
     agent_base_url = (
         "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
     )
 
-    for platform in platforms:
-        if platform not in agent_info["platform_mappings"]:
-            logger.warning(f"Platform {platform} not found in agent mappings, skipping validation")
-            continue
+    return _validate_version_exists(
+        version=agent_version,
+        platforms=platforms,
+        base_url=agent_base_url,
+        filename_builder=_build_agent_filename,
+        version_type="agent",
+    )
 
-        mapping = agent_info["platform_mappings"][platform]
-        agent_filename = f"{agent_info['base_names']['agent']}-{agent_version}.{mapping['agent_suffix']}"
-        agent_url = f"{agent_base_url}/{agent_filename}"
 
-        try:
-            # Use HEAD request to check if URL exists without downloading the file
-            response = requests.head(agent_url, timeout=30)
-            if response.status_code != 200:
-                logger.warning(
-                    f"Agent version {agent_version} not found for platform {platform} at {agent_url} (HTTP {response.status_code})"
-                )
-                return False
-            logger.debug(f"Agent version {agent_version} validated for platform {platform}")
-        except requests.RequestException as e:
-            logger.warning(f"Failed to validate agent version {agent_version} for platform {platform}: {e}")
-            return False
-
-    logger.info(f"Agent version {agent_version} validated for all platforms: {platforms}")
-    return True
+def _build_tools_filename(agent_info: dict, tools_version: str, platform: str) -> str:
+    """Build tools filename for a given platform and version."""
+    mapping = agent_info["platform_mappings"][platform]
+    tools_suffix = mapping["tools_suffix"].replace("{TOOLS_VERSION}", tools_version)
+    return f"{agent_info['base_names']['tools']}-{tools_suffix}"
 
 
 def validate_tools_version_exists(tools_version: str, platforms: List[str]) -> bool:
@@ -65,31 +109,12 @@ def validate_tools_version_exists(tools_version: str, platforms: List[str]) -> b
     Returns:
         True if tools version exists for all platforms, False otherwise
     """
-    agent_info = load_agent_build_info()
     tools_base_url = "https://fastdl.mongodb.org/tools/db"
 
-    for platform in platforms:
-        if platform not in agent_info["platform_mappings"]:
-            logger.warning(f"Platform {platform} not found in agent mappings, skipping tools validation")
-            continue
-
-        mapping = agent_info["platform_mappings"][platform]
-        tools_suffix = mapping["tools_suffix"].replace("{TOOLS_VERSION}", tools_version)
-        tools_filename = f"{agent_info['base_names']['tools']}-{tools_suffix}"
-        tools_url = f"{tools_base_url}/{tools_filename}"
-
-        try:
-            # Use HEAD request to check if URL exists without downloading the file
-            response = requests.head(tools_url, timeout=30)
-            if response.status_code != 200:
-                logger.warning(
-                    f"Tools version {tools_version} not found for platform {platform} at {tools_url} (HTTP {response.status_code})"
-                )
-                return False
-            logger.debug(f"Tools version {tools_version} validated for platform {platform}")
-        except requests.RequestException as e:
-            logger.warning(f"Failed to validate tools version {tools_version} for platform {platform}: {e}")
-            return False
-
-    logger.info(f"Tools version {tools_version} validated for all platforms: {platforms}")
-    return True
+    return _validate_version_exists(
+        version=tools_version,
+        platforms=platforms,
+        base_url=tools_base_url,
+        filename_builder=_build_tools_filename,
+        version_type="tools",
+    )

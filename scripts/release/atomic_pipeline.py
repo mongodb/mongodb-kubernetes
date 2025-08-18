@@ -66,16 +66,15 @@ def generate_tools_build_args(platforms: List[str], tools_version: str) -> Dict[
     build_args = {}
 
     for platform in platforms:
-        arch = platform.split("/")[-1]
-        if arch not in agent_info["platform_mappings"]:
-            logger.error(f"Platform {arch} not found in agent mappings, skipping")
+        if platform not in agent_info["platform_mappings"]:
+            logger.error(f"Platform {platform} not found in agent mappings, skipping")
             sys.exit(1)
 
-        mapping = agent_info["platform_mappings"][arch]
+        mapping = agent_info["platform_mappings"][platform]
 
         tools_suffix = mapping["tools_suffix"].replace("{TOOLS_VERSION}", tools_version)
         tools_filename = f"{agent_info['base_names']['tools']}-{tools_suffix}"
-        build_args[f"mongodb_tools_version_{arch}"] = tools_filename
+        build_args[f"mongodb_tools_version_{platform}"] = tools_filename
 
     return build_args
 
@@ -96,19 +95,18 @@ def generate_agent_build_args(platforms: List[str], agent_version: str, tools_ve
     build_args = {}
 
     for platform in platforms:
-        arch = platform.split("/")[-1]
-        if arch not in agent_info["platform_mappings"]:
+        if platform not in agent_info["platform_mappings"]:
             logger.warning(f"Platform {platform} not found in agent mappings, skipping")
             continue
 
-        mapping = agent_info["platform_mappings"][arch]
+        mapping = agent_info["platform_mappings"][platform]
 
         agent_filename = f"{agent_info['base_names']['agent']}-{agent_version}.{mapping['agent_suffix']}"
-        build_args[f"mongodb_agent_version_{arch}"] = agent_filename
+        build_args[f"mongodb_agent_version_{platform}"] = agent_filename
 
         tools_suffix = mapping["tools_suffix"].replace("{TOOLS_VERSION}", tools_version)
         tools_filename = f"{agent_info['base_names']['tools']}-{tools_suffix}"
-        build_args[f"mongodb_tool_version_{arch}"] = tools_filename
+        build_args[f"mongodb_tool_version_{platform}"] = tools_filename
 
     return build_args
 
