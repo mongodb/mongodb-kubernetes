@@ -38,8 +38,8 @@ def _validate_version_exists(
 
     for platform in platforms:
         if platform not in agent_info["platform_mappings"]:
-                logger.error(f"Platform {platform} not found in agent mappings, skipping validation")
-                sys.exit(1)
+            logger.error(f"Platform {platform} not found in agent mappings, skipping validation")
+            sys.exit(1)
 
         filename = filename_builder(agent_info, version, platform)
         url = f"{base_url}/{filename}"
