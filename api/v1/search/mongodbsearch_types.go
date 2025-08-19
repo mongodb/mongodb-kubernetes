@@ -69,7 +69,7 @@ type ExternalMongoDBSource struct {
 type ExternalMongodTLS struct {
 	Enabled bool `json:"enabled"`
 	// +optional
-	CASecretRef *userv1.SecretKeyRef `json:"caSecretRef,omitempty"`
+	CA *corev1.LocalObjectReference `json:"ca,omitempty"`
 }
 
 type Security struct {

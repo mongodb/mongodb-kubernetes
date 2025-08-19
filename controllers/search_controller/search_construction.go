@@ -69,16 +69,17 @@ func (r *externalSearchResource) KeyfileSecretName() string {
 }
 
 func (r *externalSearchResource) IsSecurityTLSConfigEnabled() bool {
-	if r.spec.TLS != nil {
-		return r.spec.TLS.Enabled
-	}
-	return false
+	return r.spec.TLS != nil && r.spec.TLS.Enabled
 }
 
 func (r *externalSearchResource) TLSOperatorCASecretNamespacedName() types.NamespacedName {
-	if r.spec.TLS != nil {
-		return types.NamespacedName{Name: r.spec.TLS.CASecretRef.Name, Namespace: r.namespace}
+	if r.spec.TLS != nil && r.spec.TLS.CA != nil {
+		return types.NamespacedName{
+			Name:      r.spec.TLS.CA.Name,
+			Namespace: r.namespace,
+		}
 	}
+
 	return types.NamespacedName{}
 }
 
@@ -134,8 +135,6 @@ func (r *mdbcSearchResource) HasSeparateDataAndLogsVolumes() bool {
 func (r *mdbcSearchResource) DatabaseServiceName() string {
 	return r.db.ServiceName()
 }
-
-// replace with a validate method that is always true for external mongodb
 
 func (r *mdbcSearchResource) IsSecurityTLSConfigEnabled() bool {
 	return r.db.Spec.Security.TLS.Enabled

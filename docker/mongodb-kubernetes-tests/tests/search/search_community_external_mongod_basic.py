@@ -32,8 +32,8 @@ def mdbc(namespace: str) -> MongoDBCommunity:
         namespace=namespace,
     )
 
-    # if try_load(resource):
-    #     return resource
+    if try_load(resource):
+        return resource
 
     mongot_host = f"{MDBC_RESOURCE_NAME}-search-svc.{namespace}.svc.cluster.local:27027"
     if "additionalMongodConfig" not in resource["spec"]:
@@ -41,7 +41,6 @@ def mdbc(namespace: str) -> MongoDBCommunity:
     if "setParameter" not in resource["spec"]["additionalMongodConfig"]:
         resource["spec"]["additionalMongodConfig"]["setParameter"] = {}
 
-    # Update the setParameter section
     resource["spec"]["additionalMongodConfig"]["setParameter"].update(
         {
             "mongotHost": mongot_host,

@@ -1,5 +1,5 @@
 import pymongo
-from kubetester import create_or_update_secret, try_load
+from kubetester import create_or_update_secret, create_object_from_dict, try_load
 from kubetester.certs import create_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb_community import MongoDBCommunity
@@ -25,6 +25,7 @@ USER_PASSWORD = "mdb-user-pass"
 
 MDBC_RESOURCE_NAME = "mdbc-rs"
 TLS_SECRET_NAME = "tls-secret"
+TLS_CA_CONFIGMAP_NAME = "tls-ca-configmap"
 TLS_CA_SECRET_NAME = "tls-ca-secret"
 MDBS_TLS_SECRET_NAME = "mdbs-tls-secret"
 
@@ -83,7 +84,7 @@ def mdbs(namespace: str, mdbc: MongoDBCommunity) -> MongoDBSearch:
             "keyFileSecretRef": {"name": f"{mdbc.name}-keyfile"},
             "tls": {
                 "enabled": True,
-                "caSecretRef": {"name": TLS_CA_SECRET_NAME, "key": "ca.crt"},
+                "ca": {"name": TLS_CA_CONFIGMAP_NAME},
             },
         }
     }
@@ -130,7 +131,16 @@ def test_install_tls_secrets_and_configmaps(
     )
 
     ca = open(issuer_ca_filepath).read()
+
     create_or_update_secret(namespace=namespace, name=TLS_CA_SECRET_NAME, data={"ca.crt": ca})
+
+    ca_configmap = {
+        "apiVersion": "v1",
+        "kind": "ConfigMap",
+        "metadata": {"name": TLS_CA_CONFIGMAP_NAME, "namespace": namespace},
+        "data": {"ca.crt": ca},
+    }
+    create_object_from_dict(ca_configmap, namespace)
 
 
 @mark.e2e_search_external_tls
