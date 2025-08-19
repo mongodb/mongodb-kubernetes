@@ -85,7 +85,7 @@ def test_load_build_info_development():
         },
         binaries={
             "kubectl-mongodb": BinaryInfo(
-                s3_store="s3://kubectl-mongodb/dev",
+                s3_store="mongodb-kubernetes-dev",
                 platforms=["linux/amd64"],
             )
         },
@@ -179,7 +179,7 @@ def test_load_build_info_patch():
         },
         binaries={
             "kubectl-mongodb": BinaryInfo(
-                s3_store="s3://kubectl-mongodb/dev",
+                s3_store="mongodb-kubernetes-dev",
                 platforms=["linux/amd64"],
             )
         },
@@ -293,9 +293,10 @@ def test_load_build_info_staging():
         },
         binaries={
             "kubectl-mongodb": BinaryInfo(
-                s3_store="s3://kubectl-mongodb/staging",
+                s3_store="mongodb-kubernetes-staging",
                 platforms=["darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64"],
-                sign=True,
+                version=expected_commit_sha,
+                sign=False,
             )
         },
         helm_charts={
@@ -397,7 +398,7 @@ def test_load_build_info_release():
         },
         binaries={
             "kubectl-mongodb": BinaryInfo(
-                s3_store="s3://kubectl-mongodb/prod",
+                s3_store="mongodb-kubernetes-release",
                 platforms=["darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64"],
                 sign=True,
             )
