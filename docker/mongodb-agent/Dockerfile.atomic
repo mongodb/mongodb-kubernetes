@@ -95,7 +95,7 @@ COPY ./docker/mongodb-kubernetes-init-database/content/LICENSE /data/LICENSE
 COPY ./docker/mongodb-agent/agent-launcher-shim.sh /usr/local/bin/agent-launcher-shim.sh
 COPY ./docker/mongodb-agent/setup-agent-files.sh /usr/local/bin/setup-agent-files.sh
 COPY ./docker/mongodb-agent/dummy-probe.sh /usr/local/bin/dummy-probe.sh
-COPY ./docker/mongodb-agent/dummy-readinessprobe.sh /usr/local/bin/dummy-readinessprobe.sh
+COPY ./docker/mongodb-agent/dummy-readinessprobe /usr/local/bin/dummy-readinessprobe
 
 # Set up directories and permissions (agent and tools are already extracted in downloader stages)
 RUN mkdir -p /var/lib/automation/config \
