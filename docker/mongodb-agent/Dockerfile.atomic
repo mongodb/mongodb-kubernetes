@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi9/ubi-minimal:9.0.0 AS tools_downloader
+FROM registry.access.redhat.com/ubi9/ubi-minimal AS tools_downloader
 
 ARG TARGETPLATFORM
 ARG mongodb_tools_url
@@ -23,7 +23,7 @@ RUN case ${TARGETPLATFORM} in \
 RUN tar xfz /tools/mongodb_tools.tgz --directory /tools \
     && rm /tools/mongodb_tools.tgz
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal:9.0.0 AS agent_downloader
+FROM registry.access.redhat.com/ubi9/ubi-minimal AS agent_downloader
 
 ARG TARGETPLATFORM
 ARG mongodb_agent_url
@@ -51,7 +51,7 @@ RUN tar xfz /agent/mongodb_agent.tgz \
     && rm /agent/mongodb_agent.tgz \
     && rm -r mongodb-mms-automation-agent-*
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal:9.0.0
+FROM registry.access.redhat.com/ubi9/ubi-minimal
 
 ARG TARGETARCH
 
