@@ -1,22 +1,22 @@
 {
   "platform_mappings": {
     "linux/amd64": {
-      "agent_suffix": "linux_x86_64.tar.gz",
+      "agent_suffixes": ["linux_x86_64.tar.gz"],
       "tools_suffix": "rhel93-x86_64-{TOOLS_VERSION}.tgz",
       "tools_suffix_old": "rhel90-x86_64-{TOOLS_VERSION}.tgz"
     },
     "linux/arm64": {
-      "agent_suffix": "amzn2_aarch64.tar.gz",
+      "agent_suffixes": ["amzn2_aarch64.tar.gz"],
       "tools_suffix": "rhel93-aarch64-{TOOLS_VERSION}.tgz",
       "tools_suffix_old": "rhel90-aarch64-{TOOLS_VERSION}.tgz"
     },
     "linux/s390x": {
-      "agent_suffix": "rhel7_s390x.tar.gz",
+      "agent_suffixes": ["rhel7_s390x.tar.gz", "rhel8_s390x.tar.gz", "rhel9_s390x.tar.gz"],
       "tools_suffix": "rhel9-s390x-{TOOLS_VERSION}.tgz",
       "tools_suffix_old": "rhel83-s390x-{TOOLS_VERSION}.tgz"
     },
     "linux/ppc64le": {
-      "agent_suffix": "rhel8_ppc64le.tar.gz",
+      "agent_suffixes": ["rhel8_ppc64le.tar.gz", "rhel7_ppc64le.tar.gz", "rhel9_ppc64le.tar.gz"],
       "tools_suffix": "rhel9-ppc64le-{TOOLS_VERSION}.tgz",
       "tools_suffix_old": "rhel81-ppc64le-{TOOLS_VERSION}.tgz"
     }

@@ -61,51 +61,32 @@ def _validate_version_exists(
     return True
 
 
-def _build_agent_filename(agent_info: dict, agent_version: str, platform: str) -> str:
-    """Build agent filename for a given platform and version."""
+def _build_agent_filenames(agent_info: dict, agent_version: str, platform: str) -> List[str]:
+    """Build all possible agent filenames for a given platform and version."""
     mapping = agent_info["platform_mappings"][platform]
-    return f"{agent_info['base_names']['agent']}-{agent_version}.{mapping['agent_suffix']}"
+    filenames = []
+    for agent_suffix in mapping["agent_suffixes"]:
+        filename = f"{agent_info['base_names']['agent']}-{agent_version}.{agent_suffix}"
+        filenames.append(filename)
+    return filenames
 
 
-def validate_agent_version_exists(agent_version: str, platforms: List[str]) -> bool:
-    """
-    Validate that the agent version exists for all specified platforms by checking URLs.
-
-    Args:
-        agent_version: MongoDB agent version to validate
-        platforms: List of platforms to check
-
-    Returns:
-        True if agent version exists for all platforms, False otherwise
-    """
-    agent_base_url = (
-        "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
-    )
-
-    return _validate_version_exists(
-        version=agent_version,
-        platforms=platforms,
-        base_url=agent_base_url,
-        filename_builder=_build_agent_filename,
-        version_type="agent",
-    )
-
-
-def _get_available_platforms(
+def _get_available_platforms_with_fallback(
     version: str,
     platforms: List[str],
     base_url: str,
-    filename_builder: Callable[[dict, str, str], str],
+    filenames_builder: Callable[[dict, str, str], List[str]],
     version_type: str,
 ) -> List[str]:
     """
-    Generic function to get the list of platforms where a version is actually available.
+    Generic function to get the list of platforms where a version is actually available,
+    trying multiple filename possibilities for each platform.
 
     Args:
         version: Version to check
         platforms: List of platforms to check
         base_url: Base URL for downloads
-        filename_builder: Function that builds filename from (agent_info, version, platform)
+        filenames_builder: Function that builds list of filenames from (agent_info, version, platform)
         version_type: Type of version being validated (for logging)
 
     Returns:
@@ -119,20 +100,34 @@ def _get_available_platforms(
             logger.warning(f"Platform {platform} not found in agent mappings, skipping")
             continue
 
-        filename = filename_builder(agent_info, version, platform)
-        url = f"{base_url}/{filename}"
+        filenames = filenames_builder(agent_info, version, platform)
+        platform_found = False
 
-        try:
-            response = requests.head(url, timeout=30)
-            if response.status_code == 200:
-                available_platforms.append(platform)
-                logger.debug(f"{version_type.title()} version {version} available for platform {platform}")
-            else:
-                logger.warning(
-                    f"{version_type.title()} version {version} not found for platform {platform} at {url} (HTTP {response.status_code})"
+        for filename in filenames:
+            url = f"{base_url}/{filename}"
+
+            try:
+                response = requests.head(url, timeout=30)
+                if response.status_code == 200:
+                    available_platforms.append(platform)
+                    logger.debug(
+                        f"{version_type.title()} version {version} available for platform {platform} using {filename}"
+                    )
+                    platform_found = True
+                    break
+                else:
+                    logger.debug(
+                        f"{version_type.title()} version {version} not found for platform {platform} at {url} (HTTP {response.status_code})"
+                    )
+            except requests.RequestException as e:
+                logger.debug(
+                    f"Failed to validate {version_type} version {version} for platform {platform} at {url}: {e}"
                 )
-        except requests.RequestException as e:
-            logger.warning(f"Failed to validate {version_type} version {version} for platform {platform}: {e}")
+
+        if not platform_found:
+            logger.warning(
+                f"{version_type.title()} version {version} not found for platform {platform} (tried {len(filenames)} possibilities)"
+            )
 
     return available_platforms
 
@@ -140,6 +135,7 @@ def _get_available_platforms(
 def get_available_platforms_for_agent(agent_version: str, platforms: List[str]) -> List[str]:
     """
     Get the list of platforms where the agent version is actually available.
+    Tries multiple RHEL versions for each platform to find working binaries.
 
     Args:
         agent_version: MongoDB agent version to check
@@ -152,47 +148,114 @@ def get_available_platforms_for_agent(agent_version: str, platforms: List[str]) 
         "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
     )
 
-    return _get_available_platforms(
+    return _get_available_platforms_with_fallback(
         version=agent_version,
         platforms=platforms,
         base_url=agent_base_url,
-        filename_builder=_build_agent_filename,
+        filenames_builder=_build_agent_filenames,
         version_type="agent",
     )
 
 
-def _build_tools_filename(agent_info: dict, tools_version: str, platform: str) -> str:
-    """Build tools filename for a given platform and version."""
+def _build_tools_filenames(agent_info: dict, tools_version: str, platform: str) -> List[str]:
+    """Build all possible tools filenames for a given platform and version."""
     mapping = agent_info["platform_mappings"][platform]
+    filenames = []
+
+    # Try the current tools suffix first
     tools_suffix = mapping["tools_suffix"].replace("{TOOLS_VERSION}", tools_version)
-    return f"{agent_info['base_names']['tools']}-{tools_suffix}"
+    filenames.append(f"{agent_info['base_names']['tools']}-{tools_suffix}")
+
+    # Try the old tools suffix as fallback
+    if "tools_suffix_old" in mapping:
+        tools_suffix_old = mapping["tools_suffix_old"].replace("{TOOLS_VERSION}", tools_version)
+        filenames.append(f"{agent_info['base_names']['tools']}-{tools_suffix_old}")
+
+    return filenames
 
 
-def validate_tools_version_exists(tools_version: str, platforms: List[str]) -> bool:
+def get_working_agent_filename(agent_version: str, platform: str) -> str:
     """
-    Validate that the tools version exists for all specified platforms by checking URLs.
+    Get the actual working agent filename for a specific platform and version.
+    Tries multiple RHEL versions and returns the first one that works.
 
     Args:
-        tools_version: MongoDB tools version to validate
-        platforms: List of platforms to check
+        agent_version: MongoDB agent version to check
+        platform: Platform to check
 
     Returns:
-        True if tools version exists for all platforms, False otherwise
+        The working filename, or the first filename if none work
+    """
+    agent_base_url = (
+        "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
+    )
+
+    agent_info = load_agent_build_info()
+
+    if platform not in agent_info["platform_mappings"]:
+        logger.warning(f"Platform {platform} not found in agent mappings")
+        return ""
+
+    filenames = _build_agent_filenames(agent_info, agent_version, platform)
+
+    for filename in filenames:
+        url = f"{agent_base_url}/{filename}"
+
+        try:
+            response = requests.head(url, timeout=30)
+            if response.status_code == 200:
+                logger.debug(f"Found working agent filename for {platform}: {filename}")
+                return filename
+        except requests.RequestException:
+            continue
+
+    # If none work, return empty string to indicate platform should be skipped
+    logger.warning(f"No working agent filename found for {platform}, platform will be skipped")
+    return ""
+
+
+def get_working_tools_filename(tools_version: str, platform: str) -> str:
+    """
+    Get the actual working tools filename for a specific platform and version.
+    Tries multiple RHEL versions and returns the first one that works.
+
+    Args:
+        tools_version: MongoDB tools version to check
+        platform: Platform to check
+
+    Returns:
+        The working filename, or the first filename if none work
     """
     tools_base_url = "https://fastdl.mongodb.org/tools/db"
 
-    return _validate_version_exists(
-        version=tools_version,
-        platforms=platforms,
-        base_url=tools_base_url,
-        filename_builder=_build_tools_filename,
-        version_type="tools",
-    )
+    agent_info = load_agent_build_info()
+
+    if platform not in agent_info["platform_mappings"]:
+        logger.warning(f"Platform {platform} not found in agent mappings")
+        return ""
+
+    filenames = _build_tools_filenames(agent_info, tools_version, platform)
+
+    for filename in filenames:
+        url = f"{tools_base_url}/{filename}"
+
+        try:
+            response = requests.head(url, timeout=30)
+            if response.status_code == 200:
+                logger.debug(f"Found working tools filename for {platform}: {filename}")
+                return filename
+        except requests.RequestException:
+            continue
+
+    # If none work, return empty string to indicate platform should be skipped
+    logger.warning(f"No working tools filename found for {platform}, platform will be skipped")
+    return ""
 
 
 def get_available_platforms_for_tools(tools_version: str, platforms: List[str]) -> List[str]:
     """
     Get the list of platforms where the tools version is actually available.
+    Tries multiple RHEL versions for each platform to find working binaries.
 
     Args:
         tools_version: MongoDB tools version to check
@@ -203,10 +266,10 @@ def get_available_platforms_for_tools(tools_version: str, platforms: List[str]) 
     """
     tools_base_url = "https://fastdl.mongodb.org/tools/db"
 
-    return _get_available_platforms(
+    return _get_available_platforms_with_fallback(
         version=tools_version,
         platforms=platforms,
         base_url=tools_base_url,
-        filename_builder=_build_tools_filename,
+        filenames_builder=_build_tools_filenames,
         version_type="tools",
     )
