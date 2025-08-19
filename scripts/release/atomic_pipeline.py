@@ -5,6 +5,7 @@ and where to fetch and calculate parameters."""
 import json
 import os
 import shutil
+import sys
 from concurrent.futures import ProcessPoolExecutor
 from copy import copy
 from queue import Queue
@@ -14,18 +15,24 @@ import requests
 from opentelemetry import trace
 
 from lib.base_logger import logger
-from scripts.release.agent.validation import validate_agent_version_exists, validate_tools_version_exists,load_agent_build_info
+from scripts.release.agent.detect_ops_manager_changes import (
+    detect_ops_manager_changes,
+    get_all_agents_for_rebuild,
+    get_currently_used_agents,
+)
+from scripts.release.agent.validation import (
+    get_available_platforms_for_agent,
+    get_available_platforms_for_tools,
+    get_working_agent_filename,
+    get_working_tools_filename,
+    load_agent_build_info,
+)
 from scripts.release.build.image_build_configuration import ImageBuildConfiguration
 from scripts.release.build.image_build_process import execute_docker_build
 from scripts.release.build.image_signing import (
     mongodb_artifactory_login,
     sign_image,
     verify_signature,
-)
-from scripts.release.agent.detect_ops_manager_changes import (
-    detect_ops_manager_changes,
-    get_currently_used_agents,
-    get_all_agents_for_rebuild,
 )
 
 TRACER = trace.get_tracer("evergreen-agent")
@@ -62,15 +69,16 @@ def generate_tools_build_args(platforms: List[str], tools_version: str) -> Dict[
 
     for platform in platforms:
         if platform not in agent_info["platform_mappings"]:
-            logger.warning(f"Platform {platform} not found in agent mappings, skipping")
-            continue
+            logger.error(f"Platform {platform} not found in agent mappings, skipping")
+            sys.exit(1)
 
         mapping = agent_info["platform_mappings"][platform]
+
         arch = platform.split("/")[-1]
 
         tools_suffix = mapping["tools_suffix"].replace("{TOOLS_VERSION}", tools_version)
         tools_filename = f"{agent_info['base_names']['tools']}-{tools_suffix}"
-        build_args[f"mongodb_tool_version_{arch}"] = tools_filename
+        build_args[f"mongodb_tools_version_{arch}"] = tools_filename
 
     return build_args
 
@@ -95,15 +103,20 @@ def generate_agent_build_args(platforms: List[str], agent_version: str, tools_ve
             logger.warning(f"Platform {platform} not found in agent mappings, skipping")
             continue
 
-        mapping = agent_info["platform_mappings"][platform]
         arch = platform.split("/")[-1]
 
-        agent_filename = f"{agent_info['base_names']['agent']}-{agent_version}.{mapping['agent_suffix']}"
-        build_args[f"mongodb_agent_version_{arch}"] = agent_filename
+        agent_filename = get_working_agent_filename(agent_version, platform)
+        tools_filename = get_working_tools_filename(tools_version, platform)
 
-        tools_suffix = mapping["tools_suffix"].replace("{TOOLS_VERSION}", tools_version)
-        tools_filename = f"{agent_info['base_names']['tools']}-{tools_suffix}"
-        build_args[f"mongodb_tool_version_{arch}"] = tools_filename
+        # Only add build args if we have valid filenames
+        if agent_filename and tools_filename:
+            build_args[f"mongodb_agent_version_{arch}"] = agent_filename
+            build_args[f"mongodb_tools_version_{arch}"] = tools_filename
+            logger.debug(f"Added build args for {platform}: agent={agent_filename}, tools={tools_filename}")
+        else:
+            logger.warning(f"Skipping build args for {platform} - missing agent or tools filename")
+            logger.debug(f"  agent_filename: {agent_filename}")
+            logger.debug(f"  tools_filename: {tools_filename}")
 
     return build_args
 
@@ -290,7 +303,6 @@ def build_om_image(build_configuration: ImageBuildConfiguration):
     if om_version is None:
         raise ValueError("`om_version` should be defined.")
 
-    # Set the version in the build configuration (it is not provided in the build_configuration)
     build_configuration.version = om_version
 
     om_download_url = os.environ.get("om_download_url", "")
@@ -312,11 +324,9 @@ def build_init_appdb_image(build_configuration: ImageBuildConfiguration):
     release = load_release_file()
     base_url = "https://fastdl.mongodb.org/tools/db"
 
-    # Extract tools version and generate platform-specific build args
     tools_version = extract_tools_version_from_release(release)
 
-    # Validate that the tools version exists before attempting to build
-    if not validate_tools_version_exists(tools_version, build_configuration.platforms):
+    if not get_available_platforms_for_tools(tools_version, build_configuration.platforms):
         logger.warning(f"Skipping build for init-appdb - tools version {tools_version} not found in repository")
         return
 
@@ -336,16 +346,14 @@ def build_init_appdb_image(build_configuration: ImageBuildConfiguration):
     )
 
 
-# TODO: nam static: remove this once static containers becomes the default
 def build_init_database_image(build_configuration: ImageBuildConfiguration):
     release = load_release_file()
     base_url = "https://fastdl.mongodb.org/tools/db"
 
-    # Extract tools version and generate platform-specific build args
     tools_version = extract_tools_version_from_release(release)
 
     # Validate that the tools version exists before attempting to build
-    if not validate_tools_version_exists(tools_version, build_configuration.platforms):
+    if not get_available_platforms_for_tools(tools_version, build_configuration.platforms):
         logger.warning(f"Skipping build for init-database - tools version {tools_version} not found in repository")
         return
 
@@ -424,20 +432,39 @@ def build_agent(build_configuration: ImageBuildConfiguration):
             tools_version = agent_tools_version[1]
             logger.info(f"======= Building Agent {agent_tools_version} ({idx + 1}/{len(agent_versions_to_build)})")
 
-            if not validate_agent_version_exists(agent_version, build_configuration.platforms):
-                logger.warning(f"Skipping agent version {agent_version} - not found in repository")
+            available_agent_platforms = get_available_platforms_for_agent(agent_version, build_configuration.platforms)
+            available_tools_platforms = get_available_platforms_for_tools(tools_version, build_configuration.platforms)
+
+            available_platforms = list(set(available_agent_platforms) & set(available_tools_platforms))
+
+            # Check if amd64 is available - if not, skip the entire build
+            if "linux/amd64" not in available_platforms:
+                logger.warning(
+                    f"Skipping agent version {agent_version} - amd64 platform not available (required platform)"
+                )
+                if available_platforms:
+                    logger.info(f"  Other available platforms were: {available_platforms}")
                 skipped_builds.append(agent_tools_version)
                 continue
 
-            if not validate_tools_version_exists(tools_version, build_configuration.platforms):
-                logger.warning(f"Skipping agent version {agent_version} - tools version {tools_version} not found in repository")
+            if not available_platforms:
+                logger.warning(
+                    f"Skipping agent version {agent_version} - no platforms available for both agent and tools"
+                )
                 skipped_builds.append(agent_tools_version)
                 continue
+
+            if available_platforms != build_configuration.platforms:
+                logger.info(
+                    f"Building agent {agent_version} for available platforms: {available_platforms} "
+                    f"(skipping: {set(build_configuration.platforms) - set(available_platforms)})"
+                )
 
             successful_builds.append(agent_tools_version)
             _build_agent(
                 agent_tools_version,
                 build_configuration,
+                available_platforms,
                 executor,
                 tasks_queue,
             )
@@ -452,22 +479,27 @@ def build_agent(build_configuration: ImageBuildConfiguration):
 def _build_agent(
     agent_tools_version: Tuple[str, str],
     build_configuration: ImageBuildConfiguration,
+    available_platforms: List[str],
     executor: ProcessPoolExecutor,
     tasks_queue: Queue,
 ):
     agent_version = agent_tools_version[0]
     tools_version = agent_tools_version[1]
 
-    tasks_queue.put(executor.submit(build_agent_pipeline, build_configuration, agent_version, tools_version))
+    tasks_queue.put(
+        executor.submit(build_agent_pipeline, build_configuration, agent_version, tools_version, available_platforms)
+    )
 
 
 def build_agent_pipeline(
     build_configuration: ImageBuildConfiguration,
     agent_version: str,
     tools_version: str,
+    available_platforms: List[str],
 ):
     build_configuration_copy = copy(build_configuration)
     build_configuration_copy.version = agent_version
+    build_configuration_copy.platforms = available_platforms  # Use only available platforms
     print(
         f"======== Building agent pipeline for version {agent_version}, build configuration version: {build_configuration.version}"
     )
@@ -475,7 +507,7 @@ def build_agent_pipeline(
     # Note: Validation is now done earlier in the build_agent function
     # Generate platform-specific build arguments using the mapping
     platform_build_args = generate_agent_build_args(
-        platforms=build_configuration.platforms, agent_version=agent_version, tools_version=tools_version
+        platforms=available_platforms, agent_version=agent_version, tools_version=tools_version
     )
 
     agent_base_url = (

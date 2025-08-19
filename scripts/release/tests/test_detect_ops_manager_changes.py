@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
 """
-Tests for scripts.release.detect_ops_manager_changes.py
+Tests for scripts.release.agent.detect_ops_manager_changes.py
 """
 import json
-import os
 import subprocess
-import sys
 import unittest
 from unittest.mock import MagicMock, mock_open, patch
 
-from scripts.release.detect_ops_manager_changes import (
+from scripts.release.agent.detect_ops_manager_changes import (
     detect_ops_manager_changes,
     extract_ops_manager_mapping,
     get_content_from_git,
@@ -129,11 +127,11 @@ variables:
         """Test when no changes are detected"""
         with (
             patch(
-                "scripts.release.detect_ops_manager_changes.load_current_release_json",
+                "scripts.release.agent.detect_ops_manager_changes.load_current_release_json",
                 return_value=self.current_release_data,
             ),
             patch(
-                "scripts.release.detect_ops_manager_changes.load_release_json_from_master",
+                "scripts.release.agent.detect_ops_manager_changes.load_release_json_from_master",
                 return_value=self.master_release_data,
             ),
         ):
@@ -151,10 +149,11 @@ variables:
 
         with (
             patch(
-                "scripts.release.detect_ops_manager_changes.load_current_release_json", return_value=modified_current
+                "scripts.release.agent.detect_ops_manager_changes.load_current_release_json",
+                return_value=modified_current,
             ),
             patch(
-                "scripts.release.detect_ops_manager_changes.load_release_json_from_master",
+                "scripts.release.agent.detect_ops_manager_changes.load_release_json_from_master",
                 return_value=self.master_release_data,
             ),
         ):
@@ -163,7 +162,7 @@ variables:
             self.assertIn(("108.0.0.8694-1", "100.10.0"), changed_agents)
 
     def test_ops_manager_version_modified(self):
-        """Test detection when OM version is modified"""
+        """Test that modifying existing OM version is NOT detected (only new versions are detected)"""
         modified_current = json.loads(json.dumps(self.current_release_data))
         modified_current["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"]["6.0.26"][
             "agent_version"
@@ -171,16 +170,18 @@ variables:
 
         with (
             patch(
-                "scripts.release.detect_ops_manager_changes.load_current_release_json", return_value=modified_current
+                "scripts.release.agent.detect_ops_manager_changes.load_current_release_json",
+                return_value=modified_current,
             ),
             patch(
-                "scripts.release.detect_ops_manager_changes.load_release_json_from_master",
+                "scripts.release.agent.detect_ops_manager_changes.load_release_json_from_master",
                 return_value=self.master_release_data,
             ),
         ):
 
             changed_agents = detect_ops_manager_changes()
-            self.assertIn(("12.0.35.7911-1", "100.10.0"), changed_agents)
+            # Modified existing OM versions should NOT be detected
+            self.assertEqual(changed_agents, [])
 
     def test_cloud_manager_changed(self):
         """Test detection when cloud_manager is changed"""
@@ -189,10 +190,11 @@ variables:
 
         with (
             patch(
-                "scripts.release.detect_ops_manager_changes.load_current_release_json", return_value=modified_current
+                "scripts.release.agent.detect_ops_manager_changes.load_current_release_json",
+                return_value=modified_current,
             ),
             patch(
-                "scripts.release.detect_ops_manager_changes.load_release_json_from_master",
+                "scripts.release.agent.detect_ops_manager_changes.load_release_json_from_master",
                 return_value=self.master_release_data,
             ),
         ):
@@ -207,16 +209,38 @@ variables:
 
         with (
             patch(
-                "scripts.release.detect_ops_manager_changes.load_current_release_json", return_value=modified_current
+                "scripts.release.agent.detect_ops_manager_changes.load_current_release_json",
+                return_value=modified_current,
             ),
             patch(
-                "scripts.release.detect_ops_manager_changes.load_release_json_from_master",
+                "scripts.release.agent.detect_ops_manager_changes.load_release_json_from_master",
                 return_value=self.master_release_data,
             ),
         ):
 
             changed_agents = detect_ops_manager_changes()
             self.assertIn(("13.37.0.9590-1", "100.13.0"), changed_agents)
+
+    def test_cloud_manager_downgrade_not_detected(self):
+        """Test that cloud manager downgrade is NOT detected"""
+        modified_current = json.loads(json.dumps(self.current_release_data))
+        # Downgrade from 13.37.0.9590-1 to 13.36.0.9500-1
+        modified_current["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager"] = "13.36.0.9500-1"
+
+        with (
+            patch(
+                "scripts.release.agent.detect_ops_manager_changes.load_current_release_json",
+                return_value=modified_current,
+            ),
+            patch(
+                "scripts.release.agent.detect_ops_manager_changes.load_release_json_from_master",
+                return_value=self.master_release_data,
+            ),
+        ):
+
+            changed_agents = detect_ops_manager_changes()
+            # Downgrade should NOT be detected
+            self.assertEqual(changed_agents, [])
 
     def test_ops_manager_version_removed(self):
         """Test detection when OM version is removed"""
@@ -225,10 +249,11 @@ variables:
 
         with (
             patch(
-                "scripts.release.detect_ops_manager_changes.load_current_release_json", return_value=modified_current
+                "scripts.release.agent.detect_ops_manager_changes.load_current_release_json",
+                return_value=modified_current,
             ),
             patch(
-                "scripts.release.detect_ops_manager_changes.load_release_json_from_master",
+                "scripts.release.agent.detect_ops_manager_changes.load_release_json_from_master",
                 return_value=self.master_release_data,
             ),
         ):
@@ -247,10 +272,11 @@ variables:
 
         with (
             patch(
-                "scripts.release.detect_ops_manager_changes.load_current_release_json", return_value=modified_current
+                "scripts.release.agent.detect_ops_manager_changes.load_current_release_json",
+                return_value=modified_current,
             ),
             patch(
-                "scripts.release.detect_ops_manager_changes.load_release_json_from_master",
+                "scripts.release.agent.detect_ops_manager_changes.load_release_json_from_master",
                 return_value=self.master_release_data,
             ),
         ):
@@ -263,9 +289,9 @@ variables:
     def test_current_release_load_failure(self):
         """Test handling when current release.json cannot be loaded"""
         with (
-            patch("scripts.release.detect_ops_manager_changes.load_current_release_json", return_value=None),
+            patch("scripts.release.agent.detect_ops_manager_changes.load_current_release_json", return_value=None),
             patch(
-                "scripts.release.detect_ops_manager_changes.load_release_json_from_master",
+                "scripts.release.agent.detect_ops_manager_changes.load_release_json_from_master",
                 return_value=self.master_release_data,
             ),
         ):
@@ -277,10 +303,10 @@ variables:
         """Test fail-safe behavior when base release.json cannot be loaded"""
         with (
             patch(
-                "scripts.release.detect_ops_manager_changes.load_current_release_json",
+                "scripts.release.agent.detect_ops_manager_changes.load_current_release_json",
                 return_value=self.current_release_data,
             ),
-            patch("scripts.release.detect_ops_manager_changes.load_release_json_from_master", return_value=None),
+            patch("scripts.release.agent.detect_ops_manager_changes.load_release_json_from_master", return_value=None),
         ):
 
             changed_agents = detect_ops_manager_changes()
