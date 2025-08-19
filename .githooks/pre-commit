@@ -117,9 +117,9 @@ function update_release_json() {
 }
 
 function regenerate_public_rbac_multi_cluster() {
-    if echo "$git_last_changed" | grep -q 'public/tools/multicluster'; then
+    if echo "$git_last_changed" | grep -q -e 'cmd/kubectl-mongodb' -e 'pkg/kubectl-mongodb'; then
       echo 'regenerating multicluster RBAC public example'
-      pushd public/tools/multicluster
+      pushd pkg/kubectl-mongodb/common/
       EXPORT_RBAC_SAMPLES="true" go test ./... -run TestPrintingOutRolesServiceAccountsAndRoleBindings
       popd
       git add public/samples/multi-cluster-cli-gitops

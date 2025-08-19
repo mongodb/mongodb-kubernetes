@@ -13,7 +13,7 @@ def render(path: str, template_name: str, parameters: Dict[str, str]) -> str:
     """
     env = jinja2.Environment(loader=jinja2.FileSystemLoader(path), undefined=jinja2.StrictUndefined)
 
-    template = "Dockerfile"
+    template = "Dockerfile.old"
     if template_name is not None:
         template = "Dockerfile.{}".format(template_name)
 
