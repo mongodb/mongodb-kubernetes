@@ -1701,6 +1701,7 @@ buildvariants:
       - name: generate_perf_tasks_30_thread
 
   - name: kubectl_plugin_release
+    display_name: kubectl_plugin_release
     run_on:
       - ubuntu2204-small
     tasks:
