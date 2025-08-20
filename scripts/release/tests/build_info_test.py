@@ -274,7 +274,7 @@ def test_load_build_info_staging(git_repo: Repo):
             ),
             "init-ops-manager": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-init-ops-manager",
-                platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
+                platforms=["linux/amd64"],
                 version=expected_commit_sha,
                 dockerfile_path="docker/mongodb-kubernetes-init-ops-manager/Dockerfile.atomic",
                 sign=True,
@@ -382,7 +382,7 @@ def test_load_build_info_release(
             ),
             "init-ops-manager": ImageInfo(
                 repository="quay.io/mongodb/mongodb-kubernetes-init-ops-manager",
-                platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
+                platforms=["linux/amd64"],
                 version=version,
                 dockerfile_path="docker/mongodb-kubernetes-init-ops-manager/Dockerfile.atomic",
                 sign=True,
