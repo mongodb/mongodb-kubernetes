@@ -18,19 +18,19 @@ builds:
       - ppc64le
     hooks:
       # This will notarize Apple binaries and replace goreleaser bins with the notarized ones
-#      post:
-#        - cmd: ./scripts/release/kubectl-mongodb/kubectl_mac_notarize.sh
-#          output: true
-#        - cmd: ./scripts/release/kubectl-mongodb/sign.sh {{ .Path }}
-#          env:
-#            - GRS_USERNAME={{ .Env.GRS_USERNAME }}
-#            - GRS_PASSWORD={{ .Env.GRS_PASSWORD }}
-#            - PKCS11_URI={{ .Env.PKCS11_URI }}
-#            - ARTIFACTORY_URL={{ .Env.ARTIFACTORY_URL }}
-#            - SIGNING_IMAGE_URI={{ .Env.SIGNING_IMAGE_URI }}
-#            - ARTIFACTORY_USERNAME=mongodb-enterprise-kubernetes-operator
-#            - ARTIFACTORY_PASSWORD={{ .Env.ARTIFACTORY_PASSWORD }}
-#        - cmd: ./scripts/release/kubectl-mongodb/verify.sh {{ .Path }} && echo "VERIFIED OK"
+      post:
+        - cmd: ./scripts/release/kubectl-mongodb/kubectl_mac_notarize.sh
+          output: true
+        - cmd: ./scripts/release/kubectl-mongodb/sign.sh {{ .Path }}
+          env:
+            - GRS_USERNAME={{ .Env.GRS_USERNAME }}
+            - GRS_PASSWORD={{ .Env.GRS_PASSWORD }}
+            - PKCS11_URI={{ .Env.PKCS11_URI }}
+            - ARTIFACTORY_URL={{ .Env.ARTIFACTORY_URL }}
+            - SIGNING_IMAGE_URI={{ .Env.SIGNING_IMAGE_URI }}
+            - ARTIFACTORY_USERNAME=mongodb-enterprise-kubernetes-operator
+            - ARTIFACTORY_PASSWORD={{ .Env.ARTIFACTORY_PASSWORD }}
+        - cmd: ./scripts/release/kubectl-mongodb/verify.sh {{ .Path }} && echo "VERIFIED OK"
 
 archives:
   - format: tar.gz
@@ -53,9 +53,3 @@ release:
 
 git:
   tag_sort: -version:creatordate
-
-blobs:
-  - provider: s3
-    region: eu-north-1
-    bucket: mongodb-kubernetes-dev
-    directory: test-dir
