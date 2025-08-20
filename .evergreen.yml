@@ -398,13 +398,14 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
+      - func: install_macnotary
       - command: github.generate_token
         params:
           expansion_name: GH_TOKEN
       - func: promote_kubectl_plugin_and_release
         vars:
-          release_version: 1.3.3
-          staging_commit_sha: b29fb4ace63eec7102f8f034fd6c553b5d75c1a1
+          release_version: 6.0.0
+          staging_commit_sha: 68a45e3b9f9b2b000754926f
 
   - name: build_test_image
     commands:
@@ -1637,6 +1638,7 @@ buildvariants:
       - name: generate_perf_tasks_30_thread
 
   - name: kubectl_plugin_release
+    display_name: kubectl_plugin_release
     run_on:
       - ubuntu2204-small
     tasks:
