@@ -409,7 +409,7 @@ def test_load_build_info_release(
                 sign=True,
             ),
             "agent": ImageInfo(
-                repository="quay.io/mongodb/mongodb-agent-ubi",
+                repository="quay.io/mongodb/mongodb-agent",
                 platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 version=version,
                 dockerfile_path="docker/mongodb-agent/Dockerfile.atomic",

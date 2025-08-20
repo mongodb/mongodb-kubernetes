@@ -442,7 +442,7 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 				Containers: []corev1.Container{
 					{
 						Name:  "mongodb-agent",
-						Image: "quay.io/mongodb/mongodb-agent-ubi:10",
+						Image: "quay.io/mongodb/mongodb-agent:10",
 					},
 					{
 						Name:  "mongod",
@@ -450,7 +450,7 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 					},
 					{
 						Name:  "mongodb-agent-monitoring",
-						Image: "quay.io/mongodb/mongodb-agent-ubi:20",
+						Image: "quay.io/mongodb/mongodb-agent:20",
 					},
 				},
 			},
@@ -466,7 +466,7 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 		foundImages := 0
 		for _, c := range appDbSts.Spec.Template.Spec.Containers {
 			if c.Name == "mongodb-agent" {
-				assert.Equal(t, "quay.io/mongodb/mongodb-agent-ubi:10", c.Image)
+				assert.Equal(t, "quay.io/mongodb/mongodb-agent:10", c.Image)
 				foundImages += 1
 			}
 			if c.Name == "mongod" {
@@ -474,7 +474,7 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 				foundImages += 1
 			}
 			if c.Name == "mongodb-agent-monitoring" {
-				assert.Equal(t, "quay.io/mongodb/mongodb-agent-ubi:20", c.Image)
+				assert.Equal(t, "quay.io/mongodb/mongodb-agent:20", c.Image)
 				foundImages += 1
 			}
 		}
@@ -492,7 +492,7 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 		foundImages := 0
 		for _, c := range appDbSts.Spec.Template.Spec.Containers {
 			if c.Name == "mongodb-agent" {
-				assert.Equal(t, "quay.io/mongodb/mongodb-agent-ubi:10", c.Image)
+				assert.Equal(t, "quay.io/mongodb/mongodb-agent:10", c.Image)
 				foundImages += 1
 			}
 			if c.Name == "mongod" {
@@ -500,7 +500,7 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 				foundImages += 1
 			}
 			if c.Name == "mongodb-agent-monitoring" {
-				assert.Equal(t, "quay.io/mongodb/mongodb-agent-ubi:20", c.Image)
+				assert.Equal(t, "quay.io/mongodb/mongodb-agent:20", c.Image)
 				foundImages += 1
 			}
 		}

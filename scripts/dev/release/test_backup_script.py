@@ -46,7 +46,7 @@ def get_test_csv():
                                                     },
                                                     {
                                                         "name": "RELATED_IMAGE_AGENT",
-                                                        "value": "quay.io/mongodb/mongodb-agent-ubi@sha256:ghi789jkl012",
+                                                        "value": "quay.io/mongodb/mongodb-agent@sha256:ghi789jkl012",
                                                     },
                                                     {"name": "REGULAR_ENV_VAR", "value": "not-an-image"},
                                                 ],
@@ -61,7 +61,7 @@ def get_test_csv():
             },
             "relatedImages": [
                 {"name": "database-image", "image": "quay.io/mongodb/mongodb-enterprise-server@sha256:def456ghi789"},
-                {"name": "agent-image", "image": "quay.io/mongodb/mongodb-agent-ubi@sha256:ghi789jkl012"},
+                {"name": "agent-image", "image": "quay.io/mongodb/mongodb-agent@sha256:ghi789jkl012"},
                 {"name": "ops-manager-image", "image": "quay.io/mongodb/ops-manager@sha256:jkl012mno345"},
             ],
         },
@@ -73,7 +73,7 @@ def test_parse_image_url():
     """Test URL parsing for digest-pinned images."""
     test_cases = [
         ("quay.io/mongodb/operator@sha256:abc123", ("quay.io", "mongodb/operator", "sha256:abc123")),
-        ("quay.io/mongodb/mongodb-agent-ubi@sha256:def456", ("quay.io", "mongodb/mongodb-agent-ubi", "sha256:def456")),
+        ("quay.io/mongodb/mongodb-agent@sha256:def456", ("quay.io", "mongodb/mongodb-agent", "sha256:def456")),
         ("docker.io/library/nginx@sha256:123456", ("docker.io", "library/nginx", "sha256:123456")),
     ]
 
@@ -103,8 +103,8 @@ def test_backup_tag_generation():
     """Test backup tag generation."""
     test_cases = [
         ("quay.io/mongodb/operator@sha256:abc123", "1.31.0", "1.0.0"),
-        ("quay.io/mongodb/mongodb-agent-ubi@sha256:def456", "107.0.12.8669-1", "1.2.0"),
-        ("quay.io/mongodb/mongodb-agent-ubi@sha256:ghi789", "12.0.33.7866_1.1.1.0", "1.2.0"),
+        ("quay.io/mongodb/mongodb-agent@sha256:def456", "107.0.12.8669-1", "1.2.0"),
+        ("quay.io/mongodb/mongodb-agent@sha256:ghi789", "12.0.33.7866_1.1.1.0", "1.2.0"),
         ("quay.io/mongodb/mongodb-enterprise-server@sha256:jkl012", "4.4.15-ubi8", "1.0.0"),
     ]
 
@@ -143,7 +143,7 @@ def test_csv_parsing():
         # Should find 3 unique images from relatedImages section
         expected_image_urls = {
             "quay.io/mongodb/mongodb-enterprise-server@sha256:def456ghi789",
-            "quay.io/mongodb/mongodb-agent-ubi@sha256:ghi789jkl012",
+            "quay.io/mongodb/mongodb-agent@sha256:ghi789jkl012",
             "quay.io/mongodb/ops-manager@sha256:jkl012mno345",
         }
         assert (
@@ -158,7 +158,7 @@ def test_csv_parsing():
         # Format: quay.io/mongodb/{repo_name}:{original_tag}_openshift_{version}
         expected_tags = {
             "quay.io/mongodb/mongodb-enterprise-server@sha256:def456ghi789": ("mongodb-enterprise-server", "1.0.0"),
-            "quay.io/mongodb/mongodb-agent-ubi@sha256:ghi789jkl012": ("mongodb-agent-ubi", "1.0.0"),
+            "quay.io/mongodb/mongodb-agent@sha256:ghi789jkl012": ("mongodb-agent-ubi", "1.0.0"),
             "quay.io/mongodb/ops-manager@sha256:jkl012mno345": ("ops-manager", "1.0.0"),
         }
 

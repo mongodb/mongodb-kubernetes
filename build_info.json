@@ -267,7 +267,7 @@
       },
       "release": {
         "sign": true,
-        "repository": "quay.io/mongodb/mongodb-agent-ubi",
+        "repository": "quay.io/mongodb/mongodb-agent",
         "platforms": [
           "linux/arm64",
           "linux/amd64",
