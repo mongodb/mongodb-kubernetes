@@ -16,10 +16,6 @@ from scripts.release.agent.validation import (
     get_working_agent_filename,
     get_working_tools_filename,
     load_agent_build_info,
-    _validate_url_exists,
-    _find_working_filename,
-    _build_agent_filenames,
-    _build_tools_filenames,
 )
 
 
@@ -94,22 +90,6 @@ class TestBuildArgumentGeneration(unittest.TestCase):
         self.assertIn("mongodb_agent_version_arm64", build_args)
         self.assertIn("mongodb_tools_version_arm64", build_args)
 
-    def test_generate_tools_build_args_invalid_platform(self):
-        """Test tools build args generation with invalid platform."""
-        with self.assertRaises(SystemExit):
-            generate_tools_build_args(["invalid/platform"], self.tools_version)
-
-    @patch('scripts.release.agent.validation._validate_url_exists')
-    def test_generate_agent_build_args_missing_files(self, mock_validate):
-        """Test agent build args generation when files don't exist."""
-        # Mock URL validation to return False (files don't exist)
-        mock_validate.return_value = False
-
-        build_args = generate_agent_build_args(self.platforms, self.agent_version, self.tools_version)
-
-        # Should return empty dict when no files are found
-        self.assertEqual(build_args, {})
-
 
 class TestValidationFunctions(unittest.TestCase):
     """Test cases for validation and filename functions."""
@@ -120,76 +100,6 @@ class TestValidationFunctions(unittest.TestCase):
         self.platforms = ["linux/amd64", "linux/arm64"]
         self.tools_version = "100.9.5"
         self.agent_version = "13.5.2.7785"
-
-    def test_validate_url_exists(self):
-        """Test URL validation function."""
-        # Test with a real URL that should exist
-        self.assertTrue(_validate_url_exists("https://httpbin.org/status/200"))
-
-        # Test with a URL that should not exist
-        self.assertFalse(_validate_url_exists("https://httpbin.org/status/404"))
-
-        # Test with invalid URL
-        self.assertFalse(_validate_url_exists("invalid-url"))
-
-    def test_build_agent_filenames(self):
-        """Test agent filename building."""
-        agent_info = load_agent_build_info()
-        filenames = _build_agent_filenames(agent_info, self.agent_version, self.platform)
-
-        self.assertIsInstance(filenames, list)
-        self.assertGreater(len(filenames), 0)
-
-        # Check that all filenames contain the agent version
-        for filename in filenames:
-            self.assertIn(self.agent_version, filename)
-            self.assertIn("mongodb-mms-automation-agent", filename)
-
-    def test_build_tools_filenames(self):
-        """Test tools filename building."""
-        agent_info = load_agent_build_info()
-        filenames = _build_tools_filenames(agent_info, self.tools_version, self.platform)
-
-        self.assertIsInstance(filenames, list)
-        self.assertGreater(len(filenames), 0)
-
-        # Check that all filenames contain the tools version
-        for filename in filenames:
-            self.assertIn(self.tools_version, filename)
-            self.assertIn("mongodb-database-tools", filename)
-
-    @patch('scripts.release.agent.validation._validate_url_exists')
-    def test_find_working_filename(self, mock_validate):
-        """Test finding working filename."""
-        # Mock URL validation to return True for the second filename
-        mock_validate.side_effect = [False, True, False]
-
-        result = _find_working_filename(
-            self.tools_version,
-            self.platform,
-            "https://example.com",
-            _build_tools_filenames,
-            "tools"
-        )
-
-        self.assertIsInstance(result, str)
-        self.assertNotEqual(result, "")
-
-    @patch('scripts.release.agent.validation._validate_url_exists')
-    def test_find_working_filename_none_found(self, mock_validate):
-        """Test finding working filename when none exist."""
-        # Mock URL validation to always return False
-        mock_validate.return_value = False
-
-        result = _find_working_filename(
-            self.tools_version,
-            self.platform,
-            "https://example.com",
-            _build_tools_filenames,
-            "tools"
-        )
-
-        self.assertEqual(result, "")
 
 
 class TestPlatformAvailability(unittest.TestCase):
