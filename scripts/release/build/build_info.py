@@ -32,6 +32,7 @@ class ImageInfo:
     version: str
     dockerfile_path: str
     sign: bool
+    latest_tag: bool
 
 
 @dataclass
@@ -107,6 +108,7 @@ def load_build_info(
             version=image_version,
             dockerfile_path=data["dockerfile-path"],
             sign=scenario_data.get("sign", False),
+            latest_tag=scenario_data.get("latest-tag", False),
         )
 
     binaries = {}
