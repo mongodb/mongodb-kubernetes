@@ -10,11 +10,11 @@ dummy: value
 
 COMPUTED VALUES:
 agent:
-  name: mongodb-agent-ubi
+  name: mongodb-agent
   version: 108.0.2.8729-1
 community:
   agent:
-    name: mongodb-agent-ubi
+    name: mongodb-agent
     version: 108.0.2.8729-1
   mongodb:
     imageType: ubi8
