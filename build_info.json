@@ -250,7 +250,7 @@
     "agent": {
       "dockerfile-path": "docker/mongodb-agent/Dockerfile.atomic",
       "patch": {
-        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent-ubi",
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent",
          "platforms": [
           "linux/amd64"
         ]

@@ -88,7 +88,7 @@ def test_load_build_info_development(git_repo: Repo):
                 sign=False,
             ),
             "agent": ImageInfo(
-                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent-ubi",
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent",
                 platforms=["linux/amd64"],
                 version=version,
                 dockerfile_path="docker/mongodb-agent/Dockerfile.atomic",
@@ -201,7 +201,7 @@ def test_load_build_info_patch(git_repo: Repo):
                 sign=False,
             ),
             "agent": ImageInfo(
-                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent-ubi",
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent",
                 platforms=["linux/amd64"],
                 version=patch_id,
                 dockerfile_path="docker/mongodb-agent/Dockerfile.atomic",
