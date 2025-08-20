@@ -51,7 +51,6 @@ def extract_tools_version_from_release(release: Dict) -> str:
     return tools_version
 
 
-
 def build_image(
     build_configuration: ImageBuildConfiguration,
     build_args: Dict[str, str] = None,
@@ -366,7 +365,9 @@ def build_agent(build_configuration: ImageBuildConfiguration):
             available_tools_platforms = get_available_platforms_for_tools(tools_version, build_configuration.platforms)
             available_platforms = list(set(available_agent_platforms) & set(available_tools_platforms))
 
-            logger.info(f"======= Building Agent {agent_tools_version} for platforms: {available_platforms}, ({idx + 1}/{len(agent_versions_to_build)})")
+            logger.info(
+                f"======= Building Agent {agent_tools_version} for platforms: {available_platforms}, ({idx + 1}/{len(agent_versions_to_build)})"
+            )
 
             # Check if amd64 is available - if not, skip the entire build
             if "linux/amd64" not in available_platforms:

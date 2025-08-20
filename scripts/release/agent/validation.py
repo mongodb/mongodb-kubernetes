@@ -12,6 +12,7 @@ def _load_agent_build_info():
     with open("build_info_agent.json", "r") as f:
         return json.load(f)
 
+
 class PlatformConfiguration:
     """Unified platform configuration management for agent builds and validation."""
 
@@ -95,6 +96,7 @@ class PlatformConfiguration:
 
 # Global instance for backward compatibility and ease of use
 _platform_config = PlatformConfiguration()
+
 
 def load_agent_build_info():
     """Load agent platform mappings from build_info_agent.json"""
