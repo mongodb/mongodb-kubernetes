@@ -3,12 +3,15 @@ package telemetry
 import (
 	"context"
 	"errors"
+	"runtime"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -23,6 +26,8 @@ import (
 	mockClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+
+	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -1330,4 +1335,94 @@ func TestAddSearchEvents(t *testing.T) {
 			assert.ElementsMatch(t, expectedEvents, events, "Should return the expected events")
 		})
 	}
+}
+
+func TestCollectOperatorSnapshot(t *testing.T) {
+	tests := map[string]struct {
+		memberClusterMap map[string]ConfigClient
+		expectedProps    OperatorUsageSnapshotProperties
+	}{
+		"single cluster": {
+			memberClusterMap: map[string]ConfigClient{},
+			expectedProps: OperatorUsageSnapshotProperties{
+				OperatorID:           testOperatorUUID,
+				OperatorType:         MEKO,
+				OperatorArchitecture: runtime.GOARCH,
+				OperatorOS:           runtime.GOOS,
+			},
+		},
+		"multi cluster": {
+			memberClusterMap: map[string]ConfigClient{
+				"cluster1": &mockConfigClient{clusterUUID: "cluster-uuid-1"},
+				"cluster2": &mockConfigClient{clusterUUID: "cluster-uuid-2"},
+			},
+			expectedProps: OperatorUsageSnapshotProperties{
+				OperatorID:           testOperatorUUID,
+				OperatorType:         MEKO,
+				OperatorArchitecture: runtime.GOARCH,
+				OperatorOS:           runtime.GOOS,
+			},
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			kubeSystemNamespace := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "kube-system",
+					UID:  types.UID("operator-cluster-uuid"),
+				},
+			}
+
+			k8sClient := mock.NewEmptyFakeClientBuilder().WithObjects(kubeSystemNamespace).Build()
+			mgr := mockClient.NewManagerWithClient(k8sClient)
+
+			ctx := context.Background()
+
+			events := collectOperatorSnapshot(ctx, test.memberClusterMap, mgr, testOperatorUUID, "", "")
+
+			require.Len(t, events, 1, "expected exactly one operator event")
+			event := events[0]
+
+			assert.Equal(t, Operators, event.Source)
+			require.NotNil(t, event.Timestamp, "event timestamp is nil")
+
+			assert.Equal(t, runtime.GOARCH, event.Properties["operatorArchitecture"])
+			assert.Equal(t, runtime.GOOS, event.Properties["operatorOS"])
+			assert.Equal(t, testOperatorUUID, event.Properties["operatorID"])
+			assert.Equal(t, string(MEKO), event.Properties["operatorType"])
+
+			assert.Contains(t, event.Properties, "kubernetesClusterID")
+			assert.Contains(t, event.Properties, "kubernetesClusterIDs")
+			assert.Contains(t, event.Properties, "operatorVersion")
+		})
+	}
+}
+
+// mockConfigClient is a simple mock implementation of ConfigClient for testing
+type mockConfigClient struct {
+	clusterUUID string
+}
+
+func (m *mockConfigClient) GetConfig() *rest.Config {
+	return &rest.Config{}
+}
+
+func (m *mockConfigClient) GetAPIReader() kubeclient.Reader {
+	uuid := m.clusterUUID
+	if uuid == "" {
+		uuid = "default-cluster-uuid"
+	}
+
+	kubeSystemNamespace := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "kube-system",
+			UID:  types.UID(uuid),
+		},
+	}
+
+	k8sClient := mock.NewEmptyFakeClientBuilder().WithObjects(kubeSystemNamespace).Build()
+	return k8sClient
 }
