@@ -1,5 +1,5 @@
 import pymongo
-from kubetester import create_or_update_secret, create_object_from_dict, try_load
+from kubetester import create_or_update_configmap, create_or_update_secret, try_load
 from kubetester.certs import create_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb_community import MongoDBCommunity
@@ -134,13 +134,7 @@ def test_install_tls_secrets_and_configmaps(
 
     create_or_update_secret(namespace=namespace, name=TLS_CA_SECRET_NAME, data={"ca.crt": ca})
 
-    ca_configmap = {
-        "apiVersion": "v1",
-        "kind": "ConfigMap",
-        "metadata": {"name": TLS_CA_CONFIGMAP_NAME, "namespace": namespace},
-        "data": {"ca.crt": ca},
-    }
-    create_object_from_dict(ca_configmap, namespace)
+    create_or_update_configmap(namespace, TLS_CA_CONFIGMAP_NAME, {"ca.crt": ca})
 
 
 @mark.e2e_search_external_tls
