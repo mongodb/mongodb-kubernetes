@@ -356,9 +356,10 @@ tasks:
       - func: setup_building_host
       - func: quay_login
       - func: setup_docker_sbom
-      - func: legacy_pipeline
+      - func: pipeline
         vars:
           image_name: agent
+          build_scenario: --build-scenario manual_release
 
   - name: run_precommit_and_push
     tags: ["patch-run"]
@@ -543,10 +544,10 @@ tasks:
       - func: setup_building_host
       - func: quay_login
       - func: setup_docker_sbom
-      - func: legacy_pipeline
+      - func: pipeline
         vars:
           image_name: ops-manager
-          include_tags: release
+          build_scenario: --build-scenario manual_release
 
   - name: prepare_and_upload_openshift_bundles_for_e2e
     commands:
