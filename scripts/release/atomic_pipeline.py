@@ -5,7 +5,6 @@ and where to fetch and calculate parameters."""
 import json
 import os
 import shutil
-import sys
 from concurrent.futures import ProcessPoolExecutor
 from copy import copy
 from queue import Queue
@@ -21,11 +20,10 @@ from scripts.release.agent.detect_ops_manager_changes import (
     get_currently_used_agents,
 )
 from scripts.release.agent.validation import (
+    generate_agent_build_args,
+    generate_tools_build_args,
     get_available_platforms_for_agent,
     get_available_platforms_for_tools,
-    get_working_agent_filename,
-    get_working_tools_filename,
-    load_agent_build_info,
 )
 from scripts.release.build.image_build_configuration import ImageBuildConfiguration
 from scripts.release.build.image_build_process import execute_docker_build
@@ -52,73 +50,6 @@ def extract_tools_version_from_release(release: Dict) -> str:
     tools_version = version_part.replace(".tgz", "")  # Gets "100.12.2"
     return tools_version
 
-
-def generate_tools_build_args(platforms: List[str], tools_version: str) -> Dict[str, str]:
-    """
-    Generate build arguments for MongoDB tools based on platform mappings.
-
-    Args:
-        platforms: List of platforms (e.g., ["linux/amd64", "linux/arm64"])
-        tools_version: MongoDB tools version
-
-    Returns:
-        Dictionary of build arguments for docker build (tools only)
-    """
-    agent_info = load_agent_build_info()
-    build_args = {}
-
-    for platform in platforms:
-        if platform not in agent_info["platform_mappings"]:
-            logger.error(f"Platform {platform} not found in agent mappings, skipping")
-            sys.exit(1)
-
-        mapping = agent_info["platform_mappings"][platform]
-
-        arch = platform.split("/")[-1]
-
-        tools_suffix = mapping["tools_suffix"].replace("{TOOLS_VERSION}", tools_version)
-        tools_filename = f"{agent_info['base_names']['tools']}-{tools_suffix}"
-        build_args[f"mongodb_tools_version_{arch}"] = tools_filename
-
-    return build_args
-
-
-def generate_agent_build_args(platforms: List[str], agent_version: str, tools_version: str) -> Dict[str, str]:
-    """
-    Generate build arguments for agent image based on platform mappings.
-
-    Args:
-        platforms: List of platforms (e.g., ["linux/amd64", "linux/arm64"])
-        agent_version: MongoDB agent version
-        tools_version: MongoDB tools version
-
-    Returns:
-        Dictionary of build arguments for docker build
-    """
-    agent_info = load_agent_build_info()
-    build_args = {}
-
-    for platform in platforms:
-        if platform not in agent_info["platform_mappings"]:
-            logger.warning(f"Platform {platform} not found in agent mappings, skipping")
-            continue
-
-        arch = platform.split("/")[-1]
-
-        agent_filename = get_working_agent_filename(agent_version, platform)
-        tools_filename = get_working_tools_filename(tools_version, platform)
-
-        # Only add build args if we have valid filenames
-        if agent_filename and tools_filename:
-            build_args[f"mongodb_agent_version_{arch}"] = agent_filename
-            build_args[f"mongodb_tools_version_{arch}"] = tools_filename
-            logger.debug(f"Added build args for {platform}: agent={agent_filename}, tools={tools_filename}")
-        else:
-            logger.warning(f"Skipping build args for {platform} - missing agent or tools filename")
-            logger.debug(f"  agent_filename: {agent_filename}")
-            logger.debug(f"  tools_filename: {tools_filename}")
-
-    return build_args
 
 
 def build_image(
@@ -430,12 +361,12 @@ def build_agent(build_configuration: ImageBuildConfiguration):
         for idx, agent_tools_version in enumerate(agent_versions_to_build):
             agent_version = agent_tools_version[0]
             tools_version = agent_tools_version[1]
-            logger.info(f"======= Building Agent {agent_tools_version} ({idx + 1}/{len(agent_versions_to_build)})")
 
             available_agent_platforms = get_available_platforms_for_agent(agent_version, build_configuration.platforms)
             available_tools_platforms = get_available_platforms_for_tools(tools_version, build_configuration.platforms)
-
             available_platforms = list(set(available_agent_platforms) & set(available_tools_platforms))
+
+            logger.info(f"======= Building Agent {agent_tools_version} for platforms: {available_platforms}, ({idx + 1}/{len(agent_versions_to_build)})")
 
             # Check if amd64 is available - if not, skip the entire build
             if "linux/amd64" not in available_platforms:

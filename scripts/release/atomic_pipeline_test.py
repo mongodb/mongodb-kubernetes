@@ -1,15 +1,30 @@
 #!/usr/bin/env python3
 """
-Test for agent build mapping functionality in atomic_pipeline.py
+Test for agent build mapping functionality and validation functions.
 """
 
 import json
 import unittest
 from unittest.mock import patch
 
+from scripts.release.agent.validation import (
+    PlatformConfiguration,
+    generate_agent_build_args,
+    generate_tools_build_args,
+    get_available_platforms_for_agent,
+    get_available_platforms_for_tools,
+    get_working_agent_filename,
+    get_working_tools_filename,
+    load_agent_build_info,
+    _validate_url_exists,
+    _find_working_filename,
+    _build_agent_filenames,
+    _build_tools_filenames,
+)
 
-class TestAgentBuildMapping(unittest.TestCase):
-    """Test cases for agent build mapping functionality."""
+
+class TestPlatformConfiguration(unittest.TestCase):
+    """Test cases for PlatformConfiguration class."""
 
     def setUp(self):
         """Set up test fixtures."""
@@ -17,30 +32,253 @@ class TestAgentBuildMapping(unittest.TestCase):
         with open("build_info_agent.json", "r") as f:
             self.agent_build_info = json.load(f)
 
-    def test_agent_version_validation(self):
-        """Test that agent version validation works correctly."""
-        from scripts.release.agent.validation import (
-            validate_agent_version_exists,
-            validate_tools_version_exists,
+    def test_platform_configuration_initialization(self):
+        """Test that PlatformConfiguration initializes correctly."""
+        config = PlatformConfiguration()
+        self.assertIsNotNone(config.agent_info)
+        self.assertIn("platforms", config.agent_info)
+        self.assertIn("base_names", config.agent_info)
+
+    def test_load_agent_build_info(self):
+        """Test that load_agent_build_info returns correct structure."""
+        agent_info = load_agent_build_info()
+        self.assertIn("platforms", agent_info)
+        self.assertIn("base_names", agent_info)
+
+        # Check that expected platforms exist
+        expected_platforms = ["linux/amd64", "linux/arm64", "linux/s390x", "linux/ppc64le"]
+        for platform in expected_platforms:
+            self.assertIn(platform, agent_info["platforms"])
+
+        # Check base names
+        self.assertEqual(agent_info["base_names"]["agent"], "mongodb-mms-automation-agent")
+        self.assertEqual(agent_info["base_names"]["tools"], "mongodb-database-tools")
+
+
+class TestBuildArgumentGeneration(unittest.TestCase):
+    """Test cases for build argument generation functions."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.platforms = ["linux/amd64", "linux/arm64"]
+        self.tools_version = "100.9.5"
+        self.agent_version = "13.5.2.7785"
+
+    @patch('scripts.release.agent.validation._validate_url_exists')
+    def test_generate_tools_build_args(self, mock_validate):
+        """Test tools build args generation."""
+        # Mock URL validation to return True for tools
+        mock_validate.return_value = True
+
+        build_args = generate_tools_build_args(self.platforms, self.tools_version)
+
+        # Check that build args are generated for each platform
+        self.assertIn("mongodb_tools_version_amd64", build_args)
+        self.assertIn("mongodb_tools_version_arm64", build_args)
+
+        # Check that filenames contain the version
+        self.assertIn(self.tools_version, build_args["mongodb_tools_version_amd64"])
+        self.assertIn(self.tools_version, build_args["mongodb_tools_version_arm64"])
+
+    @patch('scripts.release.agent.validation._validate_url_exists')
+    def test_generate_agent_build_args(self, mock_validate):
+        """Test agent build args generation."""
+        # Mock URL validation to return True for both agent and tools
+        mock_validate.return_value = True
+
+        build_args = generate_agent_build_args(self.platforms, self.agent_version, self.tools_version)
+
+        # Check that build args are generated for each platform
+        self.assertIn("mongodb_agent_version_amd64", build_args)
+        self.assertIn("mongodb_tools_version_amd64", build_args)
+        self.assertIn("mongodb_agent_version_arm64", build_args)
+        self.assertIn("mongodb_tools_version_arm64", build_args)
+
+    def test_generate_tools_build_args_invalid_platform(self):
+        """Test tools build args generation with invalid platform."""
+        with self.assertRaises(SystemExit):
+            generate_tools_build_args(["invalid/platform"], self.tools_version)
+
+    @patch('scripts.release.agent.validation._validate_url_exists')
+    def test_generate_agent_build_args_missing_files(self, mock_validate):
+        """Test agent build args generation when files don't exist."""
+        # Mock URL validation to return False (files don't exist)
+        mock_validate.return_value = False
+
+        build_args = generate_agent_build_args(self.platforms, self.agent_version, self.tools_version)
+
+        # Should return empty dict when no files are found
+        self.assertEqual(build_args, {})
+
+
+class TestValidationFunctions(unittest.TestCase):
+    """Test cases for validation and filename functions."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.platform = "linux/amd64"
+        self.platforms = ["linux/amd64", "linux/arm64"]
+        self.tools_version = "100.9.5"
+        self.agent_version = "13.5.2.7785"
+
+    def test_validate_url_exists(self):
+        """Test URL validation function."""
+        # Test with a real URL that should exist
+        self.assertTrue(_validate_url_exists("https://httpbin.org/status/200"))
+
+        # Test with a URL that should not exist
+        self.assertFalse(_validate_url_exists("https://httpbin.org/status/404"))
+
+        # Test with invalid URL
+        self.assertFalse(_validate_url_exists("invalid-url"))
+
+    def test_build_agent_filenames(self):
+        """Test agent filename building."""
+        agent_info = load_agent_build_info()
+        filenames = _build_agent_filenames(agent_info, self.agent_version, self.platform)
+
+        self.assertIsInstance(filenames, list)
+        self.assertGreater(len(filenames), 0)
+
+        # Check that all filenames contain the agent version
+        for filename in filenames:
+            self.assertIn(self.agent_version, filename)
+            self.assertIn("mongodb-mms-automation-agent", filename)
+
+    def test_build_tools_filenames(self):
+        """Test tools filename building."""
+        agent_info = load_agent_build_info()
+        filenames = _build_tools_filenames(agent_info, self.tools_version, self.platform)
+
+        self.assertIsInstance(filenames, list)
+        self.assertGreater(len(filenames), 0)
+
+        # Check that all filenames contain the tools version
+        for filename in filenames:
+            self.assertIn(self.tools_version, filename)
+            self.assertIn("mongodb-database-tools", filename)
+
+    @patch('scripts.release.agent.validation._validate_url_exists')
+    def test_find_working_filename(self, mock_validate):
+        """Test finding working filename."""
+        # Mock URL validation to return True for the second filename
+        mock_validate.side_effect = [False, True, False]
+
+        result = _find_working_filename(
+            self.tools_version,
+            self.platform,
+            "https://example.com",
+            _build_tools_filenames,
+            "tools"
         )
 
+        self.assertIsInstance(result, str)
+        self.assertNotEqual(result, "")
+
+    @patch('scripts.release.agent.validation._validate_url_exists')
+    def test_find_working_filename_none_found(self, mock_validate):
+        """Test finding working filename when none exist."""
+        # Mock URL validation to always return False
+        mock_validate.return_value = False
+
+        result = _find_working_filename(
+            self.tools_version,
+            self.platform,
+            "https://example.com",
+            _build_tools_filenames,
+            "tools"
+        )
+
+        self.assertEqual(result, "")
+
+
+class TestPlatformAvailability(unittest.TestCase):
+    """Test cases for platform availability functions."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.platforms = ["linux/amd64", "linux/arm64"]
+        self.tools_version = "100.9.5"
+        self.agent_version = "13.5.2.7785"
+
+    @patch('scripts.release.agent.validation._validate_url_exists')
+    def test_get_available_platforms_for_tools(self, mock_validate):
+        """Test getting available platforms for tools."""
+        # Mock URL validation to return True for amd64, False for arm64
+        mock_validate.side_effect = [False, True, False, False]  # Try current and old suffixes for each platform
+
+        available_platforms = get_available_platforms_for_tools(self.tools_version, self.platforms)
+
+        self.assertIsInstance(available_platforms, list)
+        self.assertIn("linux/amd64", available_platforms)
+        self.assertNotIn("linux/arm64", available_platforms)
+
+    @patch('scripts.release.agent.validation._validate_url_exists')
+    def test_get_available_platforms_for_agent(self, mock_validate):
+        """Test getting available platforms for agent."""
+        # Mock URL validation to return True for amd64, False for arm64
+        mock_validate.side_effect = [True, False]  # One call per platform
+
+        available_platforms = get_available_platforms_for_agent(self.agent_version, self.platforms)
+
+        self.assertIsInstance(available_platforms, list)
+        self.assertIn("linux/amd64", available_platforms)
+        self.assertNotIn("linux/arm64", available_platforms)
+
+    @patch('scripts.release.agent.validation._validate_url_exists')
+    def test_get_working_agent_filename(self, mock_validate):
+        """Test getting working agent filename."""
+        mock_validate.return_value = True
+
+        filename = get_working_agent_filename(self.agent_version, "linux/amd64")
+
+        self.assertIsInstance(filename, str)
+        if filename:  # Only check if filename is found
+            self.assertIn(self.agent_version, filename)
+            self.assertIn("mongodb-mms-automation-agent", filename)
+
+    @patch('scripts.release.agent.validation._validate_url_exists')
+    def test_get_working_tools_filename(self, mock_validate):
+        """Test getting working tools filename."""
+        mock_validate.return_value = True
+
+        filename = get_working_tools_filename(self.tools_version, "linux/amd64")
+
+        self.assertIsInstance(filename, str)
+        if filename:  # Only check if filename is found
+            self.assertIn(self.tools_version, filename)
+            self.assertIn("mongodb-database-tools", filename)
+
+    def test_get_working_filename_invalid_platform(self):
+        """Test getting working filename with invalid platform."""
+        filename = get_working_agent_filename(self.agent_version, "invalid/platform")
+        self.assertEqual(filename, "")
+
+        filename = get_working_tools_filename(self.tools_version, "invalid/platform")
+        self.assertEqual(filename, "")
+
+
+class TestIntegration(unittest.TestCase):
+    """Integration tests that test the actual functions."""
+
+    @patch('scripts.release.agent.validation._validate_url_exists')
+    def test_end_to_end_build_args_generation(self, mock_validate):
+        """Test end-to-end build args generation as used in atomic_pipeline."""
+        # Mock URL validation to return True
+        mock_validate.return_value = True
+
         platforms = ["linux/amd64"]
+        tools_version = "100.9.5"
+        agent_version = "13.5.2.7785"
 
-        # Test with a known good agent version (this should exist)
-        good_agent_version = "108.0.12.8846-1"
-        self.assertTrue(validate_agent_version_exists(good_agent_version, platforms))
+        # Test tools build args
+        tools_args = generate_tools_build_args(platforms, tools_version)
+        self.assertIn("mongodb_tools_version_amd64", tools_args)
 
-        # Test with a known bad agent version (this should not exist)
-        bad_agent_version = "12.0.33.7866-1"
-        self.assertFalse(validate_agent_version_exists(bad_agent_version, platforms))
-
-        # Test with a known good tools version (this should exist)
-        good_tools_version = "100.12.2"
-        self.assertTrue(validate_tools_version_exists(good_tools_version, platforms))
-
-        # Test with a known bad tools version (this should not exist)
-        bad_tools_version = "999.99.99"
-        self.assertFalse(validate_tools_version_exists(bad_tools_version, platforms))
+        # Test agent build args
+        agent_args = generate_agent_build_args(platforms, agent_version, tools_version)
+        self.assertIn("mongodb_agent_version_amd64", agent_args)
+        self.assertIn("mongodb_tools_version_amd64", agent_args)
 
 
 if __name__ == "__main__":

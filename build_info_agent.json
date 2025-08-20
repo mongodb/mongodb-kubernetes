@@ -1,5 +1,5 @@
 {
-  "platform_mappings": {
+  "platforms": {
     "linux/amd64": {
       "agent_suffixes": ["linux_x86_64.tar.gz"],
       "tools_suffix": "rhel93-x86_64-{TOOLS_VERSION}.tgz",
