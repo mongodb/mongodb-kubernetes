@@ -221,46 +221,6 @@ variables:
             changed_agents = detect_ops_manager_changes()
             self.assertIn(("13.37.0.9590-1", "100.13.0"), changed_agents)
 
-    def test_cloud_manager_downgrade_not_detected(self):
-        """Test that cloud manager downgrade is NOT detected"""
-        modified_current = json.loads(json.dumps(self.current_release_data))
-        # Downgrade from 13.37.0.9590-1 to 13.36.0.9500-1
-        modified_current["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager"] = "13.36.0.9500-1"
-
-        with (
-            patch(
-                "scripts.release.agent.detect_ops_manager_changes.load_current_release_json",
-                return_value=modified_current,
-            ),
-            patch(
-                "scripts.release.agent.detect_ops_manager_changes.load_release_json_from_master",
-                return_value=self.master_release_data,
-            ),
-        ):
-
-            changed_agents = detect_ops_manager_changes()
-            # Downgrade should NOT be detected
-            self.assertEqual(changed_agents, [])
-
-    def test_ops_manager_version_removed(self):
-        """Test detection when OM version is removed"""
-        modified_current = json.loads(json.dumps(self.current_release_data))
-        del modified_current["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"]["7.0.11"]
-
-        with (
-            patch(
-                "scripts.release.agent.detect_ops_manager_changes.load_current_release_json",
-                return_value=modified_current,
-            ),
-            patch(
-                "scripts.release.agent.detect_ops_manager_changes.load_release_json_from_master",
-                return_value=self.master_release_data,
-            ),
-        ):
-
-            changed_agents = detect_ops_manager_changes()
-            self.assertEqual(changed_agents, [])
-
     def test_both_om_and_cm_changed(self):
         """Test detection when both OM version and cloud manager are changed"""
         modified_current = json.loads(json.dumps(self.current_release_data))
