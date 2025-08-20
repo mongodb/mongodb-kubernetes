@@ -86,9 +86,11 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Failed(err)
 	}
 
-	if err := r.ValidateSearchImageVersion(); err != nil {
+	searchImageVersion := r.getMongotVersion()
+	if err := r.ValidateSearchImageVersion(searchImageVersion); err != nil {
 		return workflow.Failed(err)
 	}
+	r.mdbSearch.Status.Version = searchImageVersion
 
 	if err := r.ValidateSingleMongoDBSearchForSearchSource(ctx); err != nil {
 		return workflow.Failed(err)
@@ -428,9 +430,7 @@ func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSourc
 	return nil
 }
 
-func (r *MongoDBSearchReconcileHelper) ValidateSearchImageVersion() error {
-	version := r.getMongotImage()
-
+func (r *MongoDBSearchReconcileHelper) ValidateSearchImageVersion(version string) error {
 	if strings.Contains(version, unsupportedSearchVersion) {
 		return xerrors.Errorf(unsupportedSearchVersionErrorFmt, unsupportedSearchVersion)
 	}
@@ -438,7 +438,7 @@ func (r *MongoDBSearchReconcileHelper) ValidateSearchImageVersion() error {
 	return nil
 }
 
-func (r *MongoDBSearchReconcileHelper) getMongotImage() string {
+func (r *MongoDBSearchReconcileHelper) getMongotVersion() string {
 	version := strings.TrimSpace(r.mdbSearch.Spec.Version)
 	if version != "" {
 		return version
@@ -454,9 +454,22 @@ func (r *MongoDBSearchReconcileHelper) getMongotImage() string {
 
 	for _, container := range r.mdbSearch.Spec.StatefulSetConfiguration.SpecWrapper.Spec.Template.Spec.Containers {
 		if container.Name == MongotContainerName {
-			return container.Image
+			return extractImageTag(container.Image)
 		}
 	}
 
 	return ""
+}
+
+func extractImageTag(image string) string {
+	if image == "" {
+		return ""
+	}
+
+	lastColonIndex := strings.LastIndex(image, ":")
+	if lastColonIndex == -1 {
+		return ""
+	}
+
+	return image[lastColonIndex+1:]
 }
