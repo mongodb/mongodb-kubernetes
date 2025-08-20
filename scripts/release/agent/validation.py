@@ -8,14 +8,11 @@ from lib.base_logger import logger
 
 
 def _load_agent_build_info():
-    """Load agent platform mappings from build_info_agent.json"""
     with open("build_info_agent.json", "r") as f:
         return json.load(f)
 
 
 class PlatformConfiguration:
-    """Unified platform configuration management for agent builds and validation."""
-
     def __init__(self):
         self._agent_info = None
 
@@ -43,7 +40,7 @@ class PlatformConfiguration:
         for platform in platforms:
             if platform not in self.agent_info["platforms"]:
                 logger.error(f"Platform {platform} not found in agent mappings, skipping")
-                sys.exit(1)
+                continue
 
             arch = platform.split("/")[-1]
 
@@ -53,7 +50,7 @@ class PlatformConfiguration:
                 build_args[f"mongodb_tools_version_{arch}"] = tools_filename
             else:
                 logger.error(f"No working tools filename found for platform {platform}")
-                sys.exit(1)
+                continue
 
         return build_args
 
@@ -123,17 +120,18 @@ def _build_agent_filenames(agent_info: dict, agent_version: str, platform: str) 
     return filenames
 
 
+def _build_tools_filenames(agent_info: dict, tools_version: str, platform: str) -> List[str]:
+    """Build all possible tools filenames for a given platform and version."""
+    mapping = agent_info["platforms"][platform]
+    filenames = []
+    for tools_suffix_template in mapping["tools_suffixes"]:
+        tools_suffix = tools_suffix_template.replace("{TOOLS_VERSION}", tools_version)
+        filenames.append(f"{agent_info['base_names']['tools']}-{tools_suffix}")
+
+    return filenames
+
+
 def _validate_url_exists(url: str, timeout: int = 30) -> bool:
-    """
-    Check if a URL exists by making a HEAD request.
-
-    Args:
-        url: URL to check
-        timeout: Request timeout in seconds
-
-    Returns:
-        True if URL exists (HTTP 200), False otherwise
-    """
     try:
         response = requests.head(url, timeout=timeout)
         return response.status_code == 200
@@ -238,23 +236,6 @@ def get_available_platforms_for_agent(agent_version: str, platforms: List[str]) 
         filenames_builder=_build_agent_filenames,
         version_type="agent",
     )
-
-
-def _build_tools_filenames(agent_info: dict, tools_version: str, platform: str) -> List[str]:
-    """Build all possible tools filenames for a given platform and version."""
-    mapping = agent_info["platforms"][platform]
-    filenames = []
-
-    # Try the current tools suffix first
-    tools_suffix = mapping["tools_suffix"].replace("{TOOLS_VERSION}", tools_version)
-    filenames.append(f"{agent_info['base_names']['tools']}-{tools_suffix}")
-
-    # Try the old tools suffix as fallback
-    if "tools_suffix_old" in mapping:
-        tools_suffix_old = mapping["tools_suffix_old"].replace("{TOOLS_VERSION}", tools_version)
-        filenames.append(f"{agent_info['base_names']['tools']}-{tools_suffix_old}")
-
-    return filenames
 
 
 def get_working_agent_filename(agent_version: str, platform: str) -> str:
