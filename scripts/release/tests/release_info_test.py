@@ -30,7 +30,7 @@ def test_create_release_info_json(
             },
             "init-ops-manager": {
                 "repository": "quay.io/mongodb/mongodb-kubernetes-init-ops-manager",
-                "platforms": ["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
+                "platforms": ["linux/amd64"],
                 "version": "1.2.0",
             },
             "database": {
