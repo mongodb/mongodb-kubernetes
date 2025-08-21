@@ -103,7 +103,7 @@ def load_build_info(
             image_version = version
 
         images[name] = ImageInfo(
-            repositories=scenario_data["repository"],
+            repositories=scenario_data["repositories"],
             platforms=scenario_data["platforms"],
             version=image_version,
             dockerfile_path=data["dockerfile-path"],
@@ -132,7 +132,7 @@ def load_build_info(
             continue
 
         helm_charts[name] = HelmChartInfo(
-            repository=scenario_data["repository"],
+            repository=scenario_data["repositories"],
             version=version,
             sign=scenario_data.get("sign", False),
         )

@@ -109,7 +109,10 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
 
     # Resolve final values with overrides
     version = args.version or image_build_info.version
-    registries = [args.registry] or image_build_info.repositories
+    if args.registry:
+        registries = [args.registry]
+    else:
+        registries = image_build_info.repositories
     platforms = get_platforms_from_arg(args.platform) or image_build_info.platforms
     sign = args.sign or image_build_info.sign
     dockerfile_path = image_build_info.dockerfile_path
