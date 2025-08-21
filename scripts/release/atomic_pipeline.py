@@ -37,7 +37,7 @@ def build_image(
     build_path: str = ".",
 ):
     """
-    Build an image (optionally) sign, then tag and push to all repositories in the registry list.
+    Build an image, sign (optionally) it, then tag and push to all repositories in the registry list.
     """
     image_name = build_configuration.image_name()
     span = trace.get_current_span()
