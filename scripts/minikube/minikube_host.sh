@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
 
-# This is a helper script for running tests on s390x Hosts.
-# It allows to configure minikube clusters and expose remote API servers on a local machine to
-# enable local development while running minikube cluster on s390x instance.
-# Run "minikube_host.sh help" command to see the full usage.
-# Similar to evg_host.sh but uses minikube instead of kind.
+# This is a helper script for running tests on IBM Hosts using RHEL and Minikube.
 
 set -Eeou pipefail
 
@@ -16,7 +12,7 @@ source scripts/funcs/install
 
 if [[ -z "${MINIKUBE_HOST_NAME}" ]]; then
   echo "MINIKUBE_HOST_NAME env var is missing"
-  echo "Set it to your s390x host connection string (e.g., user@hostname)"
+  echo "Set it to your IBM RHEL Host host connection string (e.g., user@hostname)"
   exit 1
 fi
 
@@ -35,7 +31,7 @@ kubeconfig_path="${HOME}/.operator-dev/minikube-host.kubeconfig"
 configure() {
   ssh -T -q "${host_url}" "sudo chown \$(whoami):\$(whoami) ~/.docker || true; mkdir -p ~/.docker"
   if [[ -f "${HOME}/.docker/config.json" ]]; then
-    echo "Copying local ~/.docker/config.json authorization credentials to s390x host"
+    echo "Copying local ~/.docker/config.json authorization credentials to IBM RHEL Host host"
     jq '. | with_entries(select(.key == "auths"))' "${HOME}/.docker/config.json" | ssh -T -q "${host_url}" 'cat > ~/.docker/config.json'
   fi
 
@@ -79,7 +75,7 @@ remote-prepare-local-e2e-run() {
 
 get-kubeconfig() {
   # For minikube, we need to get the kubeconfig and certificates
-  echo "Getting kubeconfig from minikube on s390x host..."
+  echo "Getting kubeconfig from minikube on IBM RHEL Host host..."
 
   # Create local minikube directory structure
   mkdir -p "${HOME}/.minikube"
@@ -100,15 +96,6 @@ get-kubeconfig() {
   sed -i '' "s|https://192.168.[0-9]*.[0-9]*:\([0-9]*\)|https://127.0.0.1:\1|g" "${kubeconfig_path}"
 
   echo "Copied minikube kubeconfig and certificates to ${kubeconfig_path}"
-}
-
-recreate-minikube-cluster() {
-  configure "$(detect_architecture)" 2>&1| prepend "minikube_host.sh configure"
-  echo "Recreating minikube cluster on ${MINIKUBE_HOST_NAME} (${host_url})..."
-  # shellcheck disable=SC2088
-  ssh -T "${host_url}" "cd ~/mongodb-kubernetes; export KUBE_ENVIRONMENT_NAME=minikube; minikube delete || true; ./scripts/minikube/setup_minikube_host.sh"
-  echo "Copying kubeconfig to ${kubeconfig_path}"
-  get-kubeconfig
 }
 
 tunnel() {
@@ -175,20 +162,19 @@ usage() {
   minikube_host.sh <command>
 
 PREREQUISITES:
-  - s390x host with SSH access
+  - IBM RHEL Host host with SSH access
   - define MINIKUBE_HOST_NAME env var (e.g., export MINIKUBE_HOST_NAME=user@hostname)
   - SSH key-based authentication configured
 
 COMMANDS:
   configure <architecture>           installs on a host: calls sync, switches context, installs necessary software (auto-detects arch)
   sync                              rsync of project directory
-  recreate-minikube-cluster          recreates minikube cluster and executes get-kubeconfig
   remote-prepare-local-e2e-run       executes prepare-local-e2e on the remote host
   get-kubeconfig                     copies remote minikube kubeconfig locally to ~/.operator-dev/minikube-host.kubeconfig
   tunnel [args]                      creates ssh session with tunneling to all API servers
   ssh [args]                         creates ssh session passing optional arguments to ssh
-  cmd [command with args]            execute command as if being on s390x host
-  upload-my-ssh-private-key          uploads your ssh keys (~/.ssh/id_rsa) to s390x host
+  cmd [command with args]            execute command as if being on IBM RHEL Host host
+  upload-my-ssh-private-key          uploads your ssh keys (~/.ssh/id_rsa) to IBM RHEL Host host
   help                               this message
 
 EXAMPLES:
@@ -200,7 +186,6 @@ EXAMPLES:
 
 case ${cmd} in
 configure) configure "$@" ;;
-recreate-minikube-cluster) recreate-minikube-cluster "$@" ;;
 get-kubeconfig) get-kubeconfig ;;
 remote-prepare-local-e2e-run) remote-prepare-local-e2e-run ;;
 ssh) ssh_to_host "$@" ;;
