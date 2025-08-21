@@ -10,6 +10,7 @@ from copy import copy
 from queue import Queue
 from typing import Dict, List, Optional, Tuple
 
+import python_on_whales
 import requests
 from opentelemetry import trace
 
@@ -55,29 +56,30 @@ def build_image(
     build_path: str = ".",
 ):
     """
-    Build an image then (optionally) sign the result.
+    Build an image (optionally) sign, then tag and push to all repositories in the registry list.
     """
     image_name = build_configuration.image_name()
     span = trace.get_current_span()
     span.set_attribute("mck.image_name", image_name)
 
-    base_registry = build_configuration.base_registry()
+    registries = build_configuration.get_registries
+
     build_args = build_args or {}
 
     if build_args:
         span.set_attribute("mck.build_args", str(build_args))
-    span.set_attribute("mck.registry", base_registry)
+    span.set_attribute("mck.registries", str(registries))
     span.set_attribute("mck.platforms", build_configuration.platforms)
 
-    # Build docker registry URI and call build_image
-    image_full_uri = f"{build_configuration.registry}:{build_configuration.version}"
+    # Build the image once with all repository tags
+    all_tags = [f"{registry}:{build_configuration.version}" for registry in build_configuration.registry]
 
     logger.info(
-        f"Building {image_full_uri} for platforms={build_configuration.platforms}, dockerfile args: {build_args}"
+        f"Building image with tags {all_tags} for platforms={build_configuration.platforms}, dockerfile args: {build_args}"
     )
 
     execute_docker_build(
-        tag=image_full_uri,
+        tags=all_tags,
         dockerfile=build_configuration.dockerfile_path,
         path=build_path,
         args=build_args,
@@ -89,8 +91,9 @@ def build_image(
         logger.info("Logging in MongoDB Artifactory for Garasign image")
         mongodb_artifactory_login()
         logger.info("Signing image")
-        sign_image(build_configuration.registry, build_configuration.version)
-        verify_signature(build_configuration.registry, build_configuration.version)
+        for registry in build_configuration.registry:
+            sign_image(registry, build_configuration.version)
+            verify_signature(registry, build_configuration.version)
 
 
 def build_meko_tests_image(build_configuration: ImageBuildConfiguration):
