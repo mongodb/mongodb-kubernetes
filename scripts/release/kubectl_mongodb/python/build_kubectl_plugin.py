@@ -103,7 +103,9 @@ def download_plugin_for_tests_image(build_scenario: BuildScenario, s3_bucket: st
         logger.debug(f"An error occurred connecting to S3 to download kubectl plugin for tests image: {e}")
         return
 
-    plugin_path = f"{S3_BUCKET_KUBECTL_PLUGIN_SUBPATH}/{version}/dist/kubectl-mongodb_linux_amd64_v1/kubectl-mongodb"
+    plugin_path = (
+        f"{S3_BUCKET_KUBECTL_PLUGIN_SUBPATH}/{version}/dist/kubectl-mongodb_linux_amd64_v1/kubectl-mongodb"
+    )
 
     logger.info(f"Downloading s3://{s3_bucket}/{plugin_path} to {LOCAL_KUBECTL_PLUGIN_PATH}")
     try:
@@ -119,7 +121,6 @@ def download_plugin_for_tests_image(build_scenario: BuildScenario, s3_bucket: st
             logger.debug(f"ERROR: Failed to download artifact. S3 Client Error: {e}")
     except Exception as e:
         logger.debug(f"An unexpected error occurred during download: {e}")
-
 
 
 def main():

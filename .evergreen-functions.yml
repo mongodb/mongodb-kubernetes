@@ -536,7 +536,7 @@ functions:
           MACOS_NOTARY_KEY: ${macos_notary_keyid}
           MACOS_NOTARY_SECRET: ${macos_notary_secret}
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/dev/run_python.sh scripts/release/kubectl-mongodb/python/build_kubectl_plugin.py
+        binary: scripts/dev/run_python.sh scripts/release/kubectl_mongodb/python/build_kubectl_plugin.py
 
   promote_kubectl_plugin_and_release:
     - command: subprocess.exec
@@ -560,7 +560,7 @@ functions:
           MACOS_NOTARY_KEY: ${macos_notary_keyid}
           MACOS_NOTARY_SECRET: ${macos_notary_secret}
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/dev/run_python.sh scripts/release/kubectl-mongodb/python/promote_kubectl_plugin.py --release_version ${release_version} --staging_commit ${staging_commit_sha}
+        binary: scripts/dev/run_python.sh scripts/release/kubectl_mongodb/python/promote_kubectl_plugin.py --release_version ${release_version} --staging_commit ${staging_commit_sha}
 
   build_and_push_appdb_database:
     - command: subprocess.exec

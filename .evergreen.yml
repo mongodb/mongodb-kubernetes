@@ -404,7 +404,7 @@ tasks:
           expansion_name: GH_TOKEN
       - func: promote_kubectl_plugin_and_release
         vars:
-          release_version: 6.0.0
+          release_version: 9.0.9
           staging_commit_sha: 68a45e3b9f9b2b000754926f
 
   - name: build_test_image
