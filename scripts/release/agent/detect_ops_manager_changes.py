@@ -60,41 +60,6 @@ def extract_ops_manager_mapping(release_data: Dict) -> Dict:
     return release_data.get("supportedImages", {}).get("mongodb-agent", {}).get("opsManagerMapping", {})
 
 
-def _is_later_agent_version(version1: str, version2: str) -> bool:
-    """
-    Compare two agent versions and return True if version1 is later than version2.
-    Agent versions are in format like "13.37.0.9590-1" or "108.0.12.8846-1"
-    """
-    if not version1 or not version2:
-        return False
-
-    def split_version(version: str) -> List[int]:
-        """Split version string into numeric parts, ignoring suffix after '-'"""
-        parts = []
-        version_part = version.split("-")[0]  # Remove suffix like "-1"
-        for part in version_part.split("."):
-            try:
-                parts.append(int(part))
-            except ValueError:
-                # If we can't parse a part as int, skip it
-                continue
-        return parts
-
-    v1_parts = split_version(version1)
-    v2_parts = split_version(version2)
-
-    # Compare each part
-    max_len = max(len(v1_parts), len(v2_parts))
-    for i in range(max_len):
-        v1_part = v1_parts[i] if i < len(v1_parts) else 0
-        v2_part = v2_parts[i] if i < len(v2_parts) else 0
-
-        if v1_part != v2_part:
-            return v1_part > v2_part
-
-    return False  # Versions are equal
-
-
 def get_changed_agents(current_mapping: Dict, base_mapping: Dict) -> List[Tuple[str, str]]:
     """Returns list of (agent_version, tools_version) tuples for added/changed agents"""
     added_agents = []

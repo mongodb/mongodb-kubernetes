@@ -3,52 +3,15 @@
 Test for agent build mapping functionality and validation functions.
 """
 
-import json
 import unittest
 from unittest.mock import patch
 
 from scripts.release.agent.validation import (
-    PlatformConfiguration,
     generate_agent_build_args,
     generate_tools_build_args,
-    get_available_platforms_for_agent,
-    get_available_platforms_for_tools,
     get_working_agent_filename,
     get_working_tools_filename,
-    load_agent_build_info,
 )
-
-
-class TestPlatformConfiguration(unittest.TestCase):
-    """Test cases for PlatformConfiguration class."""
-
-    def setUp(self):
-        """Set up test fixtures."""
-        # Load the actual build_info_agent.json file
-        with open("build_info_agent.json", "r") as f:
-            self.agent_build_info = json.load(f)
-
-    def test_platform_configuration_initialization(self):
-        """Test that PlatformConfiguration initializes correctly."""
-        config = PlatformConfiguration()
-        self.assertIsNotNone(config.agent_info)
-        self.assertIn("platforms", config.agent_info)
-        self.assertIn("base_names", config.agent_info)
-
-    def test_load_agent_build_info(self):
-        """Test that load_agent_build_info returns correct structure."""
-        agent_info = load_agent_build_info()
-        self.assertIn("platforms", agent_info)
-        self.assertIn("base_names", agent_info)
-
-        # Check that expected platforms exist
-        expected_platforms = ["linux/amd64", "linux/arm64", "linux/s390x", "linux/ppc64le"]
-        for platform in expected_platforms:
-            self.assertIn(platform, agent_info["platforms"])
-
-        # Check base names
-        self.assertEqual(agent_info["base_names"]["agent"], "mongodb-mms-automation-agent")
-        self.assertEqual(agent_info["base_names"]["tools"], "mongodb-database-tools")
 
 
 class TestBuildArgumentGeneration(unittest.TestCase):
@@ -110,30 +73,6 @@ class TestPlatformAvailability(unittest.TestCase):
         self.platforms = ["linux/amd64", "linux/arm64"]
         self.tools_version = "100.9.5"
         self.agent_version = "13.5.2.7785"
-
-    @patch("scripts.release.agent.validation._validate_url_exists")
-    def test_get_available_platforms_for_tools(self, mock_validate):
-        """Test getting available platforms for tools."""
-        # Mock URL validation to return True for amd64, False for arm64
-        mock_validate.side_effect = [False, True, False, False]  # Try current and old suffixes for each platform
-
-        available_platforms = get_available_platforms_for_tools(self.tools_version, self.platforms)
-
-        self.assertIsInstance(available_platforms, list)
-        self.assertIn("linux/amd64", available_platforms)
-        self.assertNotIn("linux/arm64", available_platforms)
-
-    @patch("scripts.release.agent.validation._validate_url_exists")
-    def test_get_available_platforms_for_agent(self, mock_validate):
-        """Test getting available platforms for agent."""
-        # Mock URL validation to return True for amd64, False for arm64
-        mock_validate.side_effect = [True, False]  # One call per platform
-
-        available_platforms = get_available_platforms_for_agent(self.agent_version, self.platforms)
-
-        self.assertIsInstance(available_platforms, list)
-        self.assertIn("linux/amd64", available_platforms)
-        self.assertNotIn("linux/arm64", available_platforms)
 
     @patch("scripts.release.agent.validation._validate_url_exists")
     def test_get_working_agent_filename(self, mock_validate):
