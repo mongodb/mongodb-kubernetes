@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi9/ubi-minimal AS tools_downloader
+FROM  --platform=${BUILDPLATFORM} registry.access.redhat.com/ubi9/ubi-minimal AS tools_downloader
 
 ARG TARGETPLATFORM
 ARG mongodb_tools_url
@@ -23,7 +23,7 @@ RUN case ${TARGETPLATFORM} in \
 RUN tar xfz /tools/mongodb_tools.tgz --directory /tools \
     && rm /tools/mongodb_tools.tgz
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal AS agent_downloader
+FROM --platform=${BUILDPLATFORM} registry.access.redhat.com/ubi9/ubi-minimal AS agent_downloader
 
 ARG TARGETPLATFORM
 ARG mongodb_agent_url
@@ -52,15 +52,6 @@ RUN tar xfz /agent/mongodb_agent.tgz \
     && rm -r mongodb-mms-automation-agent-*
 
 FROM registry.access.redhat.com/ubi9/ubi-minimal
-
-ARG TARGETARCH
-
-# Create directories first
-RUN mkdir -p /tools /agent
-
-# Copy the extracted tools and agent from the downloader stages
-COPY --from=tools_downloader "/tools/" /tools/
-COPY --from=agent_downloader "/agent/" /agent/
 
 # Replace libcurl-minimal and curl-minimal with the full versions
 # https://bugzilla.redhat.com/show_bug.cgi?id=1994521
@@ -96,6 +87,13 @@ COPY ./docker/mongodb-agent/dummy-readinessprobe /usr/local/bin/dummy-readinessp
 # Set up directories and permissions (agent and tools are already extracted in downloader stages)
 RUN mkdir -p /var/lib/automation/config \
     && chmod -R +r /var/lib/automation/config
+
+# Create directories first
+RUN mkdir -p /tools /agent
+
+# Copy the extracted tools and agent from the downloader stages
+COPY --from=tools_downloader "/tools/" /tools/
+COPY --from=agent_downloader "/agent/" /agent/
 
 ARG version
 

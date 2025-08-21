@@ -60,11 +60,6 @@ prepare_operator_config_map "$(kubectl config current-context)" 2>&1 | prepend "
 rm -rf docker/mongodb-kubernetes-tests/helm_chart
 cp -rf helm_chart docker/mongodb-kubernetes-tests/helm_chart
 
-rm -rf docker/mongodb-kubernetes-tests/public
-cp -rf public docker/mongodb-kubernetes-tests/public
-cp release.json docker/mongodb-kubernetes-tests/release.json
-cp requirements.txt docker/mongodb-kubernetes-tests/requirements.txt
-
 # shellcheck disable=SC2154
 if [[ "${KUBE_ENVIRONMENT_NAME}" == "multi" ]]; then
   prepare_multi_cluster_e2e_run 2>&1 | prepend "prepare_multi_cluster_e2e_run"

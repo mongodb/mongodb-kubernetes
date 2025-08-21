@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi8/ubi-minimal AS tools_downloader
+FROM --platform=${BUILDPLATFORM} registry.access.redhat.com/ubi8/ubi-minimal AS tools_downloader
 
 ARG mongodb_tools_url
 ARG mongodb_tools_version_s390x
@@ -34,7 +34,7 @@ COPY go.mod go.sum ./
 
 RUN go mod download
 
-COPY mongodb-community-operator /go/src/github.com/mongodb/mongodb-kubernetes/mongodb-community-operator
+COPY mongodb-community-operator ./mongodb-community-operator
 
 ARG TARGETOS
 ARG TARGETARCH
@@ -53,22 +53,19 @@ COPY ./docker/mongodb-kubernetes-init-database/content/agent-launcher.sh /data/s
 
 COPY ./docker/mongodb-kubernetes-init-database/content/LICENSE /data/licenses/
 
-#TODO ubi9?
 FROM registry.access.redhat.com/ubi8/ubi-minimal
-
-ARG TARGETARCH
 
 # Copy the extracted tools from the downloader stage (tools are already extracted there)
 COPY --from=tools_downloader /tools/ /tools/
-
-RUN microdnf -y update --nodocs \
-  && microdnf -y install --nodocs tar gzip \
-  && microdnf clean all
 
 COPY --from=base /data/readinessprobe /probes/readinessprobe
 COPY --from=base /data/probe.sh /probes/probe.sh
 COPY --from=base /data/scripts/ /scripts/
 COPY --from=base /data/licenses /licenses/
+
+RUN microdnf -y update --nodocs \
+    && microdnf -y install --nodocs tar gzip \
+    && microdnf clean all
 
 ARG version
 LABEL name="MongoDB Kubernetes Init Database" \

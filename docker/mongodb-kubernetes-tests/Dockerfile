@@ -21,24 +21,25 @@ RUN python3 -m venv /venv && . /venv/bin/activate && pip install --upgrade pip &
 FROM scratch AS tools_downloader
 
 ARG mongodb_tools_url="https://fastdl.mongodb.org/tools/db"
-
 ARG mongodb_tools_version_amd64="mongodb-database-tools-rhel93-x86_64-100.12.0.tgz"
-ADD "${mongodb_tools_url}/${mongodb_tools_version_amd64}" /data/amd64/mongodb_tools.tgz
-
 ARG mongodb_tools_version_arm64="mongodb-database-tools-rhel93-aarch64-100.12.0.tgz"
-ADD "${mongodb_tools_url}/${mongodb_tools_version_arm64}" /data/arm64/mongodb_tools.tgz
-
 ARG mongodb_tools_version_s390x="mongodb-database-tools-rhel9-s390x-100.12.0.tgz"
-ADD "${mongodb_tools_url}/${mongodb_tools_version_s390x}" /data/s390x/mongodb_tools.tgz
-
 ARG mongodb_tools_version_ppc64le="mongodb-database-tools-rhel9-ppc64le-100.12.0.tgz"
-ADD "${mongodb_tools_url}/${mongodb_tools_version_ppc64le}" /data/ppc64le/mongodb_tools.tgz
+
+RUN case ${TARGETPLATFORM} in \
+     "linux/amd64")   export MONGODB_TOOLS_VERSION=${mongodb_tools_version_amd64}    ;; \
+     "linux/arm64")   export MONGODB_TOOLS_VERSION=${mongodb_tools_version_arm64}    ;; \
+     "linux/s390x")   export MONGODB_TOOLS_VERSION=${mongodb_tools_version_s390x}    ;; \
+     "linux/ppc64le") export MONGODB_TOOLS_VERSION=${mongodb_tools_version_ppc64le}  ;; \
+  esac \
+    && mkdir -p /tools \
+    && curl -o /tools/mongodb_tools.tgz "${mongodb_tools_url}/${MONGODB_TOOLS_VERSION}"
 
 
 FROM public.ecr.aws/docker/library/python:${PYTHON_VERSION}-slim
 
 ARG TARGETARCH
-COPY --from=tools_downloader "/data/${TARGETARCH}/mongodb_tools.tgz" /tmp/mongodb-tools.tgz
+COPY --from=tools_downloader /tools/mongodb_tools.tgz /tmp/mongodb-tools.tgz
 
 RUN apt-get -qq update \
     && apt-get -y -qq install \
