@@ -75,8 +75,8 @@ def ensure_buildx_builder(builder_name: str = DEFAULT_BUILDER_NAME) -> str:
 def execute_docker_build(
         tag: str,
         dockerfile: str,
-        path: str, args:
-        Dict[str, str],
+        path: str,
+        args: Dict[str, str],
         push: bool,
         platforms: list[str],
         builder_name: str = DEFAULT_BUILDER_NAME,
@@ -131,8 +131,8 @@ def execute_docker_build(
             push=push,
             provenance=False,  # To not get an untagged image for single platform builds
             pull=False,  # Don't always pull base images
-            cache_from=[f"type=registry,ref={cache_registry}"],
-            cache_to=[f"type=registry,ref={cache_registry},mode=max"],
+            cache_from=f"type=registry,ref={cache_registry}",
+            cache_to=f"type=registry,ref={cache_registry},mode=max",
         )
 
         logger.info(f"Successfully built {'and pushed' if push else ''} {tag}")
