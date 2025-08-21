@@ -13,6 +13,18 @@ from lib.base_logger import logger
 DEFAULT_BUILDER_NAME = "multiarch"  # Default buildx builder name
 
 
+def ensure_ecr_cache_repository(repository_name: str, region: str = "us-east-1"):
+    ecr_client = boto3.client("ecr", region_name=region)
+    try:
+        ecr_client.create_repository(repositoryName=repository_name)
+        logger.info(f"Created ECR repository: {repository_name}")
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'RepositoryAlreadyExistsException':
+            logger.debug(f"ECR cache repository already exists: {repository_name}")
+        else:
+            logger.warning(f"Failed to create ECR cache repository {repository_name}: {e}")
+
+
 def ecr_login_boto3(region: str, account_id: str):
     """
     Fetches an auth token from ECR via boto3 and logs
@@ -107,6 +119,8 @@ def execute_docker_build(
         cache_image_name = registry_name.split("/")[-1]
         # TODO CLOUDP-335471: use env variables to configure AWS region and account ID
         cache_registry = f"268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cache/{cache_image_name}"
+
+        ensure_ecr_cache_repository(cache_registry)
 
         logger.info(f"Building image: {tag}")
         logger.info(f"Platforms: {platforms}")
