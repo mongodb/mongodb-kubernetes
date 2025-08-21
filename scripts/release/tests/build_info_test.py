@@ -306,7 +306,7 @@ def test_load_build_info_staging(git_repo: Repo):
             ),
             "readiness-probe": ImageInfo(
                 repository=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-readinessprobe"],
-                platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
+                platforms=["linux/arm64", "linux/amd64"],
                 version=expected_commit_sha,
                 dockerfile_path="docker/mongodb-kubernetes-readinessprobe/Dockerfile.atomic",
                 sign=True,
@@ -315,7 +315,7 @@ def test_load_build_info_staging(git_repo: Repo):
                 repository=[
                     "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-operator-version-upgrade-post-start-hook"
                 ],
-                platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
+                platforms=["linux/arm64", "linux/amd64"],
                 version=expected_commit_sha,
                 dockerfile_path="docker/mongodb-kubernetes-upgrade-hook/Dockerfile.atomic",
                 sign=True,
@@ -402,14 +402,14 @@ def test_load_build_info_release(
             ),
             "readiness-probe": ImageInfo(
                 repository=["quay.io/mongodb/mongodb-kubernetes-readinessprobe"],
-                platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
+                platforms=["linux/arm64", "linux/amd64"],
                 version=readinessprobe_version,
                 dockerfile_path="docker/mongodb-kubernetes-readinessprobe/Dockerfile.atomic",
                 sign=True,
             ),
             "upgrade-hook": ImageInfo(
                 repository=["quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook"],
-                platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
+                platforms=["linux/arm64", "linux/amd64"],
                 version=operator_version_upgrade_post_start_hook_version,
                 dockerfile_path="docker/mongodb-kubernetes-upgrade-hook/Dockerfile.atomic",
                 sign=True,
