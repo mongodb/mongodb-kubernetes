@@ -98,6 +98,17 @@ functions:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       command: scripts/dev/recreate_python_venv.sh
 
+  docker_buildkit: &docker_buildkit
+    command: shell.exec
+    type: setup
+    params:
+      shell: bash
+      script: |
+        # Docker Hub workaround
+        # docker buildx needs the moby/buildkit image when setting up a builder so we pull it from our mirror
+        docker buildx create --driver=docker-container --driver-opt=image=268558157000.dkr.ecr.eu-west-1.amazonaws.com/docker-hub-mirrors/moby/buildkit:buildx-stable-1 --use
+        docker buildx inspect --bootstrap
+
   "clone":
     - command: subprocess.exec
       type: setup
@@ -543,15 +554,7 @@ functions:
 
   pipeline:
     - *switch_context
-    - command: shell.exec
-      type: setup
-      params:
-        shell: bash
-        script: |
-          # Docker Hub workaround
-          # docker buildx needs the moby/buildkit image when setting up a builder so we pull it from our mirror
-          docker buildx create --driver=docker-container --driver-opt=image=268558157000.dkr.ecr.eu-west-1.amazonaws.com/docker-hub-mirrors/moby/buildkit:buildx-stable-1 --use
-          docker buildx inspect --bootstrap
+    - *docker_buildkit
     - command: subprocess.exec
       retry_on_failure: true
       type: setup
@@ -561,18 +564,22 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/dev/run_python.sh scripts/release/pipeline_main.py --parallel ${image_name} ${all_agents} ${build_scenario}
 
-  # TODO: CLOUDP-335471 ; once all image builds are made with the new atomic pipeline, remove the following function
-  legacy_pipeline:
+  pipeline_migrate_agents:
     - *switch_context
-    - command: shell.exec
+    - *docker_buildkit
+    - command: subprocess.exec
+      retry_on_failure: false
       type: setup
       params:
         shell: bash
-        script: |
-          # Docker Hub workaround
-          # docker buildx needs the moby/buildkit image when setting up a builder so we pull it from our mirror
-          docker buildx create --driver=docker-container --driver-opt=image=268558157000.dkr.ecr.eu-west-1.amazonaws.com/docker-hub-mirrors/moby/buildkit:buildx-stable-1 --use
-          docker buildx inspect --bootstrap
+        <<: *e2e_include_expansions_in_env
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/release/pipeline_migrate_agent.sh
+
+  # TODO: CLOUDP-335471 ; once all image builds are made with the new atomic pipeline, remove the following function
+  legacy_pipeline:
+    - *switch_context
+    - *docker_buildkit
     - command: ec2.assume_role
       display_name: Assume IAM role with permissions to pull Kondukto API token
       params:

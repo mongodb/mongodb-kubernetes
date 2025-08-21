@@ -356,6 +356,15 @@ tasks:
           image_name: agent
           build_scenario: --build-scenario manual_release
 
+  - name: migrate_all_agents
+    # this enables us to run this variant manually to build all the agents for the new registry
+    allowed_requesters: [ "patch" ]
+    # TODO: add quay login back
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline_migrate_agents
+
   - name: run_precommit_and_push
     tags: ["patch-run"]
     commands:
@@ -2097,3 +2106,11 @@ buildvariants:
     tasks:
       - name: publish_ops_manager
       - name: release_agent
+
+  - name: publish_agent_images_manual
+    display_name: publish_agent_images_manual
+    allowed_requesters: [ "patch" ]
+    run_on:
+      - ubuntu2204-large
+    tasks:
+      - name: migrate_all_agents

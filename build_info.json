@@ -173,7 +173,6 @@
       "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests",
         "platforms": [
-          "linux/arm64",
           "linux/amd64"
         ]
       },
