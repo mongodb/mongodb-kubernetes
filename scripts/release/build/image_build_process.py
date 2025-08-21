@@ -102,10 +102,19 @@ def execute_docker_build(
         # Convert build args to the format expected by python_on_whales
         build_args = {k: str(v) for k, v in args.items()}
 
+        # Extract registry name from tag for cache configuration
+        # tag format is "registry:version", we need the registry part
+        registry_name = tag.split(":")[0] if ":" in tag else tag
+        # Extract just the image name from the full registry path
+        # e.g., "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes" -> "mongodb-kubernetes"
+        cache_image_name = registry_name.split("/")[-1]
+        cache_registry = f"268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cache/{cache_image_name}"
+
         logger.info(f"Building image: {tag}")
         logger.info(f"Platforms: {platforms}")
         logger.info(f"Dockerfile: {dockerfile}")
         logger.info(f"Build context: {path}")
+        logger.info(f"Cache registry: {cache_registry}")
         logger.debug(f"Build args: {build_args}")
 
         # Use buildx for multi-platform builds
@@ -124,6 +133,8 @@ def execute_docker_build(
             push=push,
             provenance=False,  # To not get an untagged image for single platform builds
             pull=False,  # Don't always pull base images
+            cache_from=[f"type=registry,ref={cache_registry}"],
+            cache_to=[f"type=registry,ref={cache_registry},mode=max"],
         )
 
         logger.info(f"Successfully built {'and pushed' if push else ''} {tag}")
