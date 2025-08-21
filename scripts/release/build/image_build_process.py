@@ -105,6 +105,7 @@ def execute_docker_build(
         registry_name = tag.split(":")[0] if ":" in tag else tag
         # e.g., "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes" -> "mongodb-kubernetes"
         cache_image_name = registry_name.split("/")[-1]
+        # TODO CLOUDP-335471: use env variables to configure AWS region and account ID
         cache_registry = f"268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cache/{cache_image_name}"
 
         logger.info(f"Building image: {tag}")
