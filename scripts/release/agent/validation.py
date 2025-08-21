@@ -26,7 +26,8 @@ class PlatformConfiguration:
     def generate_tools_build_args(self, platforms: List[str], tools_version: str) -> Dict[str, str]:
         """
         Generate build arguments for MongoDB tools based on platform mappings.
-        Uses the same validation logic to ensure consistency.
+        The build arguments are based on the agent build info by verifying different
+        filename possibilities for each platform.
 
         Args:
             platforms: List of platforms (e.g., ["linux/amd64", "linux/arm64"])
@@ -82,7 +83,9 @@ class PlatformConfiguration:
             if agent_filename and tools_filename:
                 build_args[f"mongodb_agent_version_{arch}"] = agent_filename
                 build_args[f"mongodb_tools_version_{arch}"] = tools_filename
-                logger.debug(f"Added build args for {platform}: agent={agent_filename}, tools={tools_filename}")
+                logger.debug(
+                    f"Validated agent and tools versions for {platform}: agent={agent_filename}, tools={tools_filename}"
+                )
             else:
                 logger.warning(f"Skipping build args for {platform} - missing agent or tools filename")
                 logger.debug(f"  agent_filename: {agent_filename}")
@@ -93,11 +96,6 @@ class PlatformConfiguration:
 
 # Global instance for backward compatibility and ease of use
 _platform_config = PlatformConfiguration()
-
-
-def load_agent_build_info():
-    """Load agent platform mappings from build_info_agent.json"""
-    return _platform_config.agent_info
 
 
 def generate_tools_build_args(platforms: List[str], tools_version: str) -> Dict[str, str]:
@@ -179,7 +177,7 @@ def _find_working_filename(
     return ""
 
 
-def _get_available_platforms_with_fallback(
+def _get_available_platforms(
     version: str,
     platforms: List[str],
     base_url: str,
@@ -211,31 +209,6 @@ def _get_available_platforms_with_fallback(
             )
 
     return available_platforms
-
-
-def get_available_platforms_for_agent(agent_version: str, platforms: List[str]) -> List[str]:
-    """
-    Get the list of platforms where the agent version is actually available.
-    Tries multiple RHEL versions for each platform to find working binaries.
-
-    Args:
-        agent_version: MongoDB agent version to check
-        platforms: List of platforms to check
-
-    Returns:
-        List of platforms where the agent version exists
-    """
-    agent_base_url = (
-        "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
-    )
-
-    return _get_available_platforms_with_fallback(
-        version=agent_version,
-        platforms=platforms,
-        base_url=agent_base_url,
-        filenames_builder=_build_agent_filenames,
-        version_type="agent",
-    )
 
 
 def get_working_agent_filename(agent_version: str, platform: str) -> str:
@@ -272,26 +245,3 @@ def get_working_tools_filename(tools_version: str, platform: str) -> str:
     tools_base_url = "https://fastdl.mongodb.org/tools/db"
 
     return _find_working_filename(tools_version, platform, tools_base_url, _build_tools_filenames, "tools")
-
-
-def get_available_platforms_for_tools(tools_version: str, platforms: List[str]) -> List[str]:
-    """
-    Get the list of platforms where the tools version is actually available.
-    Tries multiple RHEL versions for each platform to find working binaries.
-
-    Args:
-        tools_version: MongoDB tools version to check
-        platforms: List of platforms to check
-
-    Returns:
-        List of platforms where the tools version exists
-    """
-    tools_base_url = "https://fastdl.mongodb.org/tools/db"
-
-    return _get_available_platforms_with_fallback(
-        version=tools_version,
-        platforms=platforms,
-        base_url=tools_base_url,
-        filenames_builder=_build_tools_filenames,
-        version_type="tools",
-    )

@@ -174,21 +174,6 @@ start_minikube_cluster() {
 setup_podman() {
   echo "Setting up podman for ${ARCH}..."
 
-  # Check if podman is already available
-  if command -v podman &> /dev/null; then
-    echo "✅ Podman already installed"
-
-    # Diagnose podman state
-    echo "=== Podman Diagnostics ==="
-    echo "User: $(whoami), UID: $(id -u)"
-    echo "User namespace support: $(cat /proc/self/uid_map 2>/dev/null || echo 'not available')"
-    echo "Systemctl user status:"
-    systemctl --user status podman.socket 2>/dev/null || echo "podman.socket not active"
-    echo "Running 'sudo podman info' command..."
-    sudo podman info 2>&1
-  fi
-
-
   # Configure podman to use cgroupfs instead of systemd in CI
   mkdir -p ~/.config/containers
   cat > ~/.config/containers/containers.conf << EOF
