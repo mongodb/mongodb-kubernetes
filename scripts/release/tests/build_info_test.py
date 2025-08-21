@@ -401,10 +401,7 @@ def test_load_build_info_release(
                 sign=True,
             ),
             "readiness-probe": ImageInfo(
-                repository=[
-                    "quay.io/mongodb/mongodb-kubernetes-readinessprobe",
-                    "268558157000.dkr.ecr.us-east-1.amazonaws.com/backup/mongodb-kubernetes-readinessprobe",
-                ],
+                repository=["quay.io/mongodb/mongodb-kubernetes-readinessprobe"],
                 platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 version=readinessprobe_version,
                 dockerfile_path="docker/mongodb-kubernetes-readinessprobe/Dockerfile.atomic",
@@ -418,7 +415,7 @@ def test_load_build_info_release(
                 sign=True,
             ),
             "agent": ImageInfo(
-                repository=["quay.io/mongodb/mongodb-agent-ubi"],
+                repository=["quay.io/mongodb/mongodb-agent-ubi", "quay.io/mongodb/mongodb-agent"],
                 platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 version=version,
                 dockerfile_path="docker/mongodb-agent/Dockerfile.atomic",
