@@ -35,7 +35,7 @@ echo "Setting up minikube host for architecture: ${ARCH}"
 
 download_minikube() {
   echo "Downloading minikube for ${ARCH}..."
-  scripts/minikube/install-minikube.sh
+  scripts/minikube/install_minikube.sh
 }
 
 # Setup local registry and build custom kicbase image for ppc64le with crictl
