@@ -408,20 +408,6 @@ def test_load_build_info_release(
                 dockerfile_path="docker/mongodb-kubernetes-upgrade-hook/Dockerfile.atomic",
                 sign=True,
             ),
-            "agent": ImageInfo(
-                repository="quay.io/mongodb/mongodb-agent-ubi",
-                platforms=["linux/arm64", "linux/amd64"],
-                version=version,
-                dockerfile_path="docker/mongodb-agent/Dockerfile.atomic",
-                sign=True,
-            ),
-            "ops-manager": ImageInfo(
-                repository="quay.io/mongodb/mongodb-enterprise-ops-manager",
-                platforms=["linux/amd64"],
-                version="om-version-from-release.json",
-                dockerfile_path="docker/mongodb-enterprise-ops-manager/Dockerfile.atomic",
-                sign=True,
-            ),
         },
         binaries={
             "kubectl-mongodb": BinaryInfo(
@@ -441,5 +427,35 @@ def test_load_build_info_release(
     )
 
     build_info = load_build_info(BuildScenario.RELEASE, git_repo.working_dir)
+
+    assert build_info == expected_build_info
+
+
+def test_load_build_info_manual_release(git_repo: Repo):
+    version = "1.2.0"
+    git_repo.git.checkout(version)
+
+    expected_build_info = BuildInfo(
+        images={
+            "agent": ImageInfo(
+                repository="quay.io/mongodb/mongodb-agent-ubi",
+                platforms=["linux/arm64", "linux/amd64"],
+                version=None,  # Version is None for manual_release scenario
+                dockerfile_path="docker/mongodb-agent/Dockerfile.atomic",
+                sign=True,
+            ),
+            "ops-manager": ImageInfo(
+                repository="quay.io/mongodb/mongodb-enterprise-ops-manager",
+                platforms=["linux/amd64"],
+                version=None,  # Version is None for manual_release scenario
+                dockerfile_path="docker/mongodb-enterprise-ops-manager/Dockerfile.atomic",
+                sign=True,
+            ),
+        },
+        binaries={},
+        helm_charts={},
+    )
+
+    build_info = load_build_info(BuildScenario.MANUAL_RELEASE, git_repo.working_dir)
 
     assert build_info == expected_build_info
