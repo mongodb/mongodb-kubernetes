@@ -33,8 +33,6 @@ variables:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
-      - name: build_agent_images_ubi
-        variant: init_test_run
 
   - &base_no_om_image_dependency
     depends_on:
@@ -52,8 +50,6 @@ variables:
         variant: init_test_run
       - name: build_init_appdb_images_ubi
         variant: init_test_run
-      - name: build_agent_images_ubi
-        variant: init_test_run
 
   - &community_dependency
     depends_on:
@@ -66,8 +62,6 @@ variables:
       - name: build_upgrade_hook_image
         variant: init_test_run
       - name: build_mco_test_image
-        variant: init_test_run
-      - name: build_agent_images_ubi
         variant: init_test_run
 
   - &setup_group
@@ -153,8 +147,6 @@ variables:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
-      - name: build_agent_images_ubi
-        variant: init_test_run
 
   - &base_om7_dependency_with_race
     depends_on:
@@ -172,8 +164,6 @@ variables:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
-      - name: build_agent_images_ubi
-        variant: init_test_run
 
   - &base_om8_dependency
     depends_on:
@@ -190,8 +180,6 @@ variables:
       - name: build_init_appdb_images_ubi
         variant: init_test_run
       - name: build_init_om_images_ubi
-        variant: init_test_run
-      - name: build_agent_images_ubi
         variant: init_test_run
 
 parameters:
@@ -356,9 +344,10 @@ tasks:
       - func: setup_building_host
       - func: quay_login
       - func: setup_docker_sbom
-      - func: legacy_pipeline
+      - func: pipeline
         vars:
           image_name: agent
+          build_scenario: --build-scenario manual_release
 
   - name: run_precommit_and_push
     tags: ["patch-run"]
@@ -543,10 +532,10 @@ tasks:
       - func: setup_building_host
       - func: quay_login
       - func: setup_docker_sbom
-      - func: legacy_pipeline
+      - func: pipeline
         vars:
           image_name: ops-manager
-          include_tags: release
+          build_scenario: --build-scenario manual_release
 
   - name: prepare_and_upload_openshift_bundles_for_e2e
     commands:
@@ -1547,8 +1536,6 @@ buildvariants:
         variant: init_test_run
       - name: prepare_and_upload_openshift_bundles_for_e2e
         variant: init_tests_with_olm
-      - name: build_agent_images_ubi
-        variant: init_test_run
     tasks:
       - name: e2e_kind_olm_group
 
@@ -1572,9 +1559,6 @@ buildvariants:
         variant: init_tests_with_olm
       - name: build_init_database_image_ubi
         variant: init_test_run
-      - name: build_agent_images_ubi
-        variant: init_test_run
-
     tasks:
       - name: e2e_kind_olm_group
 

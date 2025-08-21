@@ -11,6 +11,7 @@ COMMIT_SHA_LENGTH = 8
 
 class BuildScenario(StrEnum):
     RELEASE = "release"  # Official release triggered by a git tag
+    MANUAL_RELEASE = "manual_release"  # Manual release, not part of operator release cycle
     PATCH = "patch"  # CI build for a patch/pull request
     STAGING = "staging"  # CI build from a merge to the master
     DEVELOPMENT = "development"  # Local build on a developer machine
@@ -58,5 +59,9 @@ class BuildScenario(StrEnum):
                 return repo.head.object.hexsha[:COMMIT_SHA_LENGTH]
             case BuildScenario.RELEASE:
                 return calculate_next_version(repo, changelog_sub_path, initial_commit_sha, initial_version)
+            case BuildScenario.MANUAL_RELEASE:
+                # For manual releases, version must be provided externally (e.g., for ops-manager via om_version env var,
+                # for agent via release.json). Return None to indicate version will be set by image-specific logic.
+                return None
 
         raise ValueError(f"Unknown build scenario: {self}")

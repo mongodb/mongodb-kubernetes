@@ -240,7 +240,7 @@
           "linux/amd64"
         ]
       },
-      "release": {
+      "manual_release": {
         "sign": true,
         "repository": ["quay.io/mongodb/mongodb-agent-ubi"],
         "platforms": [
@@ -266,8 +266,7 @@
           "linux/amd64"
         ]
       },
-      "release": {
-        "version": "om-version-from-release.json",
+      "manual_release": {
         "sign": true,
         "repository": ["quay.io/mongodb/mongodb-enterprise-ops-manager"],
         "platforms": [

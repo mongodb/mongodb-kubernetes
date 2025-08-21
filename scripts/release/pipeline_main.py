@@ -114,6 +114,11 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     sign = args.sign or image_build_info.sign
     dockerfile_path = image_build_info.dockerfile_path
 
+    # Validate version - only ops-manager and agent can have None version as the versions are managed by the agent
+    # and om methods themselves, which are externally retrieved - om_version env var and release.json respectively
+    if version is None and image not in ["ops-manager", "agent"]:
+        raise ValueError(f"Version cannot be empty for {image}.")
+
     return ImageBuildConfiguration(
         scenario=build_scenario,
         version=version,

@@ -80,6 +80,7 @@ def load_build_info(
         initial_version = get_initial_version()
 
     version = scenario.get_version(repository_path, changelog_sub_path, initial_commit_sha, initial_version)
+    # For manual_release, version can be None and will be set by image-specific logic
 
     with open("build_info.json", "r") as f:
         build_info = json.load(f)
@@ -98,7 +99,7 @@ def load_build_info(
 
         # Only update the image_version if it is not already set in the build_info.json file
         image_version = scenario_data.get("version")
-        if not image_version:
+        if not image_version and version is not None:
             image_version = version
 
         images[name] = ImageInfo(
