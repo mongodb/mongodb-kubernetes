@@ -102,10 +102,7 @@ def execute_docker_build(
         # Convert build args to the format expected by python_on_whales
         build_args = {k: str(v) for k, v in args.items()}
 
-        # Extract registry name from tag for cache configuration
-        # tag format is "registry:version", we need the registry part
         registry_name = tag.split(":")[0] if ":" in tag else tag
-        # Extract just the image name from the full registry path
         # e.g., "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes" -> "mongodb-kubernetes"
         cache_image_name = registry_name.split("/")[-1]
         cache_registry = f"268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cache/{cache_image_name}"
