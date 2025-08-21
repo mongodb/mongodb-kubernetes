@@ -27,7 +27,7 @@ OPS_MANAGER_IMAGE = "ops-manager"
 
 @dataclass
 class ImageInfo:
-    repository: List[str]
+    repositories: List[str]
     platforms: list[str]
     version: str
     dockerfile_path: str
@@ -103,7 +103,7 @@ def load_build_info(
             image_version = version
 
         images[name] = ImageInfo(
-            repository=scenario_data["repository"],
+            repositories=scenario_data["repository"],
             platforms=scenario_data["platforms"],
             version=image_version,
             dockerfile_path=data["dockerfile-path"],

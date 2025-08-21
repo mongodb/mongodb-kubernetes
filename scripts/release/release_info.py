@@ -58,7 +58,7 @@ def convert_to_release_info_json(build_info: BuildInfo) -> dict:
 
     for name, image in images.items():
         output["images"][name] = {
-            "repository": image.repository,
+            "repository": image.repositories,
             "platforms": image.platforms,
             "version": image.version,
         }

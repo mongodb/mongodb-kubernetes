@@ -53,7 +53,7 @@ def build_image(
     span.set_attribute("mck.platforms", build_configuration.platforms)
 
     # Build the image once with all repository tags
-    all_tags = [f"{registry}:{build_configuration.version}" for registry in build_configuration.registry]
+    all_tags = [f"{registry}:{build_configuration.version}" for registry in build_configuration.registries]
 
     logger.info(
         f"Building image with tags {all_tags} for platforms={build_configuration.platforms}, dockerfile args: {build_args}"
@@ -72,7 +72,7 @@ def build_image(
         logger.info("Logging in MongoDB Artifactory for Garasign image")
         mongodb_artifactory_login()
         logger.info("Signing image")
-        for registry in build_configuration.registry:
+        for registry in build_configuration.registries:
             sign_image(registry, build_configuration.version)
             verify_signature(registry, build_configuration.version)
 
