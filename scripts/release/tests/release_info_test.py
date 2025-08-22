@@ -40,12 +40,12 @@ def test_create_release_info_json(
             },
             "readiness-probe": {
                 "repositories": ["quay.io/mongodb/mongodb-kubernetes-readinessprobe"],
-                "platforms": ["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
+                "platforms": ["linux/arm64", "linux/amd64"],
                 "version": readinessprobe_version,
             },
             "upgrade-hook": {
                 "repositories": ["quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook"],
-                "platforms": ["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
+                "platforms": ["linux/arm64", "linux/amd64"],
                 "version": operator_version_upgrade_post_start_hook_version,
             },
         },
