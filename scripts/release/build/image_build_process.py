@@ -122,7 +122,7 @@ def execute_docker_build(
         # TODO CLOUDP-335471: use env variables to configure AWS region and account ID
         cache_repo_name = f"dev/cache/{cache_image_name}"
         cache_registry = f"268558157000.dkr.ecr.us-east-1.amazonaws.com/{cache_repo_name}"
-        cache_from = [f"type=registry,ref={f"{cache_registry}:cache"}"]
+        cache_from = f"type=registry,ref={f"{cache_registry}:cache"}"
 
         cache_to = {
             "type": "registry",
