@@ -14,18 +14,17 @@ DEFAULT_BUILDER_NAME = "multiarch"  # Default buildx builder name
 
 
 def ensure_ecr_cache_repository(repository_name: str, region: str = "us-east-1"):
-    logger.info(f"Attempting to create ECR cache repository: {repository_name}")
     ecr_client = boto3.client("ecr", region_name=region)
     try:
         _ = ecr_client.create_repository(repositoryName=repository_name)
-        logger.info(f"TEMP: Successfully created ECR cache repository: {repository_name}")
+        logger.info(f"Successfully created ECR cache repository: {repository_name}")
     except ClientError as e:
         error_code = e.response['Error']['Code']
         if error_code == 'RepositoryAlreadyExistsException':
-            logger.info(f"TEMP: ECR cache repository already exists: {repository_name}")
+            logger.info(f"ECR cache repository already exists: {repository_name}")
         else:
-            logger.error(f"TEMP: Failed to create ECR cache repository {repository_name}: {error_code} - {e}")
-            raise  # Re-raise to see if this is causing the build to fail
+            logger.error(f"Failed to create ECR cache repository {repository_name}: {error_code} - {e}")
+            raise
 
 
 def ecr_login_boto3(region: str, account_id: str):
