@@ -10,7 +10,7 @@ SUPPORTED_PLATFORMS = ["linux/amd64", "linux/arm64"]
 class ImageBuildConfiguration:
     scenario: BuildScenario
     version: str
-    registry: List[str]
+    registries: List[str]
     dockerfile_path: str
 
     parallel: bool = False
@@ -24,8 +24,8 @@ class ImageBuildConfiguration:
         return self.scenario == BuildScenario.RELEASE
 
     def image_name(self) -> str:
-        return self.registry[0].rpartition("/")[2]
+        return self.registries[0].rpartition("/")[2]
 
     def get_registries(self) -> List[str]:
         """Return list of registries."""
-        return self.registry
+        return self.registries
