@@ -14,15 +14,18 @@ DEFAULT_BUILDER_NAME = "multiarch"  # Default buildx builder name
 
 
 def ensure_ecr_cache_repository(repository_name: str, region: str = "us-east-1"):
+    logger.info(f"Attempting to create ECR cache repository: {repository_name}")
     ecr_client = boto3.client("ecr", region_name=region)
     try:
-        ecr_client.create_repository(repositoryName=repository_name)
-        logger.info(f"Created ECR repository: {repository_name}")
+        _ = ecr_client.create_repository(repositoryName=repository_name)
+        logger.info(f"TEMP: Successfully created ECR cache repository: {repository_name}")
     except ClientError as e:
-        if e.response['Error']['Code'] == 'RepositoryAlreadyExistsException':
-            logger.debug(f"ECR cache repository already exists: {repository_name}")
+        error_code = e.response['Error']['Code']
+        if error_code == 'RepositoryAlreadyExistsException':
+            logger.info(f"TEMP: ECR cache repository already exists: {repository_name}")
         else:
-            logger.warning(f"Failed to create ECR cache repository {repository_name}: {e}")
+            logger.error(f"TEMP: Failed to create ECR cache repository {repository_name}: {error_code} - {e}")
+            raise  # Re-raise to see if this is causing the build to fail
 
 
 def ecr_login_boto3(region: str, account_id: str):
@@ -120,7 +123,8 @@ def execute_docker_build(
         # TODO CLOUDP-335471: use env variables to configure AWS region and account ID
         cache_registry = f"268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cache/{cache_image_name}"
 
-        ensure_ecr_cache_repository(cache_registry)
+        cache_repo_name = f"dev/cache/{cache_image_name}"
+        ensure_ecr_cache_repository(cache_repo_name)
 
         logger.info(f"Building image: {tag}")
         logger.info(f"Platforms: {platforms}")
