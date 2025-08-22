@@ -5,10 +5,7 @@
       "patch": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes"],
          "platforms": [
-           "linux/arm64",
-           "linux/amd64",
-           "linux/s390x",
-           "linux/ppc64le"
+           "linux/amd64"
         ]
       },
       "staging": {
@@ -53,10 +50,7 @@
       "patch": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-database"],
          "platforms": [
-           "linux/arm64",
-           "linux/amd64",
-           "linux/s390x",
-           "linux/ppc64le"
+           "linux/amd64"
          ]
       },
       "staging": {
@@ -137,10 +131,7 @@
       "patch": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-database"],
          "platforms": [
-           "linux/arm64",
-           "linux/amd64",
-           "linux/s390x",
-           "linux/ppc64le"
+           "linux/amd64"
         ]
       },
       "staging": {
@@ -254,10 +245,7 @@
       "patch": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent-ubi"],
          "platforms": [
-           "linux/arm64",
-           "linux/amd64",
-           "linux/s390x",
-           "linux/ppc64le"
+           "linux/amd64"
         ]
       },
       "staging": {
