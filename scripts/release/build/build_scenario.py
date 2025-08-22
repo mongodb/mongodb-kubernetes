@@ -29,12 +29,12 @@ class BuildScenario(StrEnum):
             # Release scenario and the git tag will be used for promotion process only
             scenario = BuildScenario.RELEASE
             logger.info(f"Build scenario: {scenario} (git_tag: {git_tag})")
-        elif is_patch or is_evg:
-            scenario = BuildScenario.PATCH
-            logger.info(f"Build scenario: {scenario} (patch_id: {patch_id})")
         elif is_evg and not is_patch:
             scenario = BuildScenario.STAGING
             logger.info(f"Build scenario: {scenario} (version_id: {get_staging_version_id(repository_path)}")
+        elif is_patch or is_evg:
+            scenario = BuildScenario.PATCH
+            logger.info(f"Build scenario: {scenario} (patch_id: {patch_id})")
         else:
             scenario = BuildScenario.DEVELOPMENT
             logger.info(f"Build scenario: {scenario}")
