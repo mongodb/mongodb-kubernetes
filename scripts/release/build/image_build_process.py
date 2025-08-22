@@ -1,6 +1,6 @@
 # This file is the new Sonar
 import base64
-from typing import Dict
+from typing import Dict, List
 
 import boto3
 import docker
@@ -9,6 +9,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 from python_on_whales.exceptions import DockerException
 
 from lib.base_logger import logger
+from scripts.release.branch_detection import get_cache_scope, get_current_branch
 
 DEFAULT_BUILDER_NAME = "multiarch"  # Default buildx builder name
 
@@ -25,6 +26,61 @@ def ensure_ecr_cache_repository(repository_name: str, region: str = "us-east-1")
         else:
             logger.error(f"Failed to create ECR cache repository {repository_name}: {error_code} - {e}")
             raise
+
+
+def build_cache_configuration(base_registry: str):
+    """
+    Build cache configuration for branch/arch-scoped BuildKit remote cache.
+
+    Implements the cache strategy:
+    - Per-image cache repo: …/dev/cache/<image>
+    - Per-branch run with read precedence: branch → master → shared
+    - Write to branch scope, and also to master if on master branch
+    - Use BuildKit registry cache exporter with mode=max, oci-mediatypes=true, image-manifest=true
+
+    :param base_registry:
+    :return: tuple of (cache_from_list, cache_to_list, repositories_to_ensure)
+    """
+    cache_scope = get_cache_scope()
+    logger.info(f"Building cache configuration for {cache_scope}")
+    current_branch = get_current_branch()
+
+    # Build cache references with read precedence: branch → master → shared
+    cache_from_refs = []
+    cache_to_refs = []
+
+    # Read precedence: branch-arch → master-arch → shared-arch
+    branch_arch_ref = f"{base_registry}:{cache_scope}"
+    master_arch_ref = f"{base_registry}:master"
+    shared_arch_ref = f"{base_registry}:shared"
+
+    # Add to cache_from in order of precedence
+    if cache_scope != "master":
+        cache_from_refs.append(f"type=registry,ref={branch_arch_ref}")
+        cache_from_refs.append(f"type=registry,ref={master_arch_ref}")
+    else:
+        cache_from_refs.append(f"type=registry,ref={master_arch_ref}")
+    cache_from_refs.append(f"type=registry,ref={shared_arch_ref}")
+
+    cache_to_refs.append({
+        "type": "registry",
+        "ref": branch_arch_ref,
+        "mode": "max",
+        "oci-mediatypes": "true",
+        "image-manifest": "true"
+    })
+
+    if current_branch == "master" and branch_arch_ref != master_arch_ref:
+        cache_to_refs.append({
+            "type": "registry",
+            "ref": master_arch_ref,
+            "mode": "max",
+            "oci-mediatypes": "true",
+            "image-manifest": "true"
+        })
+
+
+    return cache_from_refs, cache_to_refs
 
 
 def ecr_login_boto3(region: str, account_id: str):
@@ -119,30 +175,31 @@ def execute_docker_build(
         registry_name = tag.split(":")[0] if ":" in tag else tag
         # e.g., "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes" -> "mongodb-kubernetes"
         cache_image_name = registry_name.split("/")[-1]
+
+        # Base cache repository name
+        base_cache_repo = f"dev/cache/{cache_image_name}"
+
+        # Build branch/arch-scoped cache configuration
+        base_registry = f"268558157000.dkr.ecr.us-east-1.amazonaws.com/{base_cache_repo}"
+
         # TODO CLOUDP-335471: use env variables to configure AWS region and account ID
-        cache_repo_name = f"dev/cache/{cache_image_name}"
-        cache_registry = f"268558157000.dkr.ecr.us-east-1.amazonaws.com/{cache_repo_name}"
-        cache_from = f"type=registry,ref={f"{cache_registry}:cache"}"
+        cache_from_refs, cache_to_refs = build_cache_configuration(
+            base_registry
+        )
 
-        cache_to = {
-            "type": "registry",
-            "ref": f"{cache_registry}:cache",
-            "mode": "max",
-            "oci-mediatypes": "true",
-            "image-manifest": "true"
-        }
-
-        ensure_ecr_cache_repository(cache_repo_name)
+        # ensure_ecr_cache_repository(base_cache_repo)
 
         logger.info(f"Building image: {tag}")
         logger.info(f"Platforms: {platforms}")
         logger.info(f"Dockerfile: {dockerfile}")
         logger.info(f"Build context: {path}")
-        logger.info(f"Cache registry: {cache_registry}")
-        logger.info(f"Cache to: {cache_to}")
+        logger.info(f"Cache scope: {get_cache_scope()}")
+        logger.info(f"Current branch: {get_current_branch()}")
+        logger.info(f"Cache from sources: {len(cache_from_refs)} refs")
+        logger.info(f"Cache to targets: {len(cache_to_refs)} refs")
         logger.debug(f"Build args: {build_args}")
-        logger.debug(f"Cache from: {cache_from}")
-        logger.debug(f"Cache to: {cache_to}")
+        logger.debug(f"Cache from: {cache_from_refs}")
+        logger.debug(f"Cache to: {cache_to_refs}")
 
         # Use buildx for multi-platform builds
         if len(platforms) > 1:
@@ -160,8 +217,8 @@ def execute_docker_build(
             push=push,
             provenance=False,  # To not get an untagged image for single platform builds
             pull=False,  # Don't always pull base images
-            cache_from=cache_from,
-            cache_to=cache_to,
+            cache_from=cache_from_refs,
+            cache_to=cache_to_refs,
         )
 
         logger.info(f"Successfully built {'and pushed' if push else ''} {tag}")
