@@ -131,7 +131,7 @@ def execute_docker_build(
             arch = platform.split('/')[-1]
             platform_cache = f"{cache_registry}:{arch}"
             cache_from_sources.append(f"type=registry,ref={platform_cache}")
-            cache_to_sources.append(f"type=registry,ref={platform_cache},mode=max")
+            cache_to_sources = [f"type=registry,ref={cache_registry}:{arch},mode=max,oci-mediatypes=true,image-manifest=true"]
 
         cache_repo_name = f"dev/cache/{cache_image_name}"
         ensure_ecr_cache_repository(cache_repo_name)
