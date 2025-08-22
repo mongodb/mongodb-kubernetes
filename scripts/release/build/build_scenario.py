@@ -31,10 +31,9 @@ class BuildScenario(StrEnum):
         elif is_patch or is_evg:
             scenario = BuildScenario.PATCH
             logger.info(f"Build scenario: {scenario} (patch_id: {patch_id})")
-        # TODO: Uncomment the following lines when starting to work on staging builds
-        # elif is_evg:
-        #     scenario = BuildScenario.STAGING
-        #     logger.info(f"Build scenario: {scenario} (patch_id: {patch_id})")
+        elif is_evg:
+            scenario = BuildScenario.STAGING
+            logger.info(f"Build scenario: {scenario} (patch_id: {patch_id})")
         else:
             scenario = BuildScenario.DEVELOPMENT
             logger.info(f"Build scenario: {scenario}")
