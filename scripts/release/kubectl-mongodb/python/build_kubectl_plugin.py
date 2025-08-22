@@ -19,7 +19,7 @@ S3_BUCKET_KUBECTL_PLUGIN_SUBPATH = KUBECTL_PLUGIN_BINARY_NAME
 
 GORELEASER_DIST_DIR = "dist"
 
-# LOCAL_KUBECTL_PLUGIN_PATH the full filename where tests image expects the kuebctl-mongodb binary to be available
+# LOCAL_KUBECTL_PLUGIN_PATH is the full filename where tests image expects the kuebctl-mongodb binary to be available
 LOCAL_KUBECTL_PLUGIN_PATH = "docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator_linux"
 
 
@@ -81,6 +81,7 @@ def upload_artifacts_to_s3(s3_bucket: str, version: str):
                 uploaded_files += 1
             except Exception as e:
                 logger.debug(f"ERROR: Failed to upload file {filename}: {e}")
+                sys.exit(1)
 
     if uploaded_files > 0:
         logger.info(f"Successfully uploaded {uploaded_files} kubectl-mongodb plugin artifacts to S3.")
@@ -101,7 +102,7 @@ def download_plugin_for_tests_image(build_scenario: BuildScenario, s3_bucket: st
         s3_client = boto3.client("s3", region_name=AWS_REGION)
     except Exception as e:
         logger.debug(f"An error occurred connecting to S3 to download kubectl plugin for tests image: {e}")
-        return
+        sys.exit(1)
 
     plugin_path = f"{S3_BUCKET_KUBECTL_PLUGIN_SUBPATH}/{version}/dist/kubectl-mongodb_linux_amd64_v1/kubectl-mongodb"
 
@@ -117,8 +118,10 @@ def download_plugin_for_tests_image(build_scenario: BuildScenario, s3_bucket: st
             logger.debug(f"ERROR: Artifact not found at s3://{s3_bucket}/{plugin_path} ")
         else:
             logger.debug(f"ERROR: Failed to download artifact. S3 Client Error: {e}")
+        sys.exit(1)
     except Exception as e:
         logger.debug(f"An unexpected error occurred during download: {e}")
+        sys.exit(1)
 
 
 def main():
