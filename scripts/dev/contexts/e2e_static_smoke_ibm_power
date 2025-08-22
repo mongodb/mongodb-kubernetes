@@ -14,4 +14,4 @@ CUSTOM_OM_VERSION=$(grep -E "^\s*-\s*&ops_manager_70_latest\s+(\S+)\s+#" <"${scr
 export CUSTOM_OM_VERSION
 export MDB_DEFAULT_ARCHITECTURE=static
 # MDB doesn't support power for 7.x.x on RHEL9
-export CUSTOM_MDB_VERSION=8.0.12
+export CUSTOM_MDB_VERSION=8.0.12-ent
