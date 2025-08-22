@@ -185,7 +185,7 @@ def execute_docker_build(
             base_registry
         )
 
-        ensure_ecr_cache_repository(base_cache_repo)
+        # ensure_ecr_cache_repository(base_cache_repo)
 
         logger.info(f"Building image: {tag}")
         logger.info(f"Platforms: {platforms}")

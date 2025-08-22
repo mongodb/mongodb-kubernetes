@@ -21,10 +21,13 @@ def get_current_branch() -> Optional[str]:
             ["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True, check=True
         )
         branch = result.stdout.strip()
-        if branch and branch != "HEAD":
+        if branch == "HEAD":
+            return "master"
+        if branch != "":
             return branch
     except (subprocess.CalledProcessError, FileNotFoundError):
         return "master"
+    return "master"
 
 def get_cache_scope() -> str:
     """
