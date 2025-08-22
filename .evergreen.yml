@@ -351,9 +351,10 @@ tasks:
       - func: setup_building_host
       - func: quay_login
       - func: setup_docker_sbom
-      - func: legacy_pipeline
+      - func: pipeline
         vars:
           image_name: agent
+          build_scenario: --build-scenario manual_release
 
   - name: run_precommit_and_push
     tags: ["patch-run"]
@@ -565,10 +566,10 @@ tasks:
       - func: setup_building_host
       - func: quay_login
       - func: setup_docker_sbom
-      - func: legacy_pipeline
+      - func: pipeline
         vars:
           image_name: ops-manager
-          include_tags: release
+          build_scenario: --build-scenario manual_release
 
   - name: prepare_and_upload_openshift_bundles_for_e2e
     commands:
@@ -1288,7 +1289,7 @@ buildvariants:
     display_name: e2e_mdb_kind_ubi_cloudqa
     tags: [ "e2e_test_suite", "cloudqa" ]
     run_on:
-      - ubuntu2204-large
+      - ubuntu2204-medium
     <<: *base_no_om_image_dependency
     tasks:
       - name: e2e_mdb_kind_cloudqa_task_group
@@ -1306,7 +1307,7 @@ buildvariants:
     display_name: e2e_static_mdb_kind_ubi_cloudqa
     tags: [ "e2e_test_suite", "cloudqa" ]
     run_on:
-      - ubuntu2204-large
+      - ubuntu2204-medium
     <<: *base_no_om_image_dependency
     tasks:
       - name: e2e_mdb_kind_cloudqa_task_group
@@ -1408,7 +1409,7 @@ buildvariants:
     display_name: e2e_static_om70_kind_ubi
     tags: [ "e2e_test_suite" ]
     run_on:
-      - ubuntu2204-large
+      - ubuntu2204-medium
     <<: *base_om7_dependency
     tasks:
       - name: e2e_static_ops_manager_kind_only_task_group
@@ -1431,7 +1432,7 @@ buildvariants:
     display_name: e2e_static_om80_kind_ubi
     tags: [ "e2e_test_suite" ]
     run_on:
-      - ubuntu2204-large
+      - ubuntu2204-medium
     <<: *base_om8_dependency
     tasks:
       - name: e2e_static_ops_manager_kind_only_task_group
