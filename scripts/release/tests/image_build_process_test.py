@@ -18,9 +18,7 @@ class TestBuildCacheConfiguration:
         cache_from, cache_to = build_cache_configuration(base_registry)
 
         # Should read from master only
-        expected_from = [
-            {"type": "registry", "ref": f"{base_registry}:master"}
-        ]
+        expected_from = [{"type": "registry", "ref": f"{base_registry}:master"}]
         assert cache_from == expected_from
 
         # Should write to master
@@ -40,7 +38,7 @@ class TestBuildCacheConfiguration:
         # Should read from branch and master
         expected_from = [
             {"type": "registry", "ref": f"{base_registry}:feature-new-cache"},
-            {"type": "registry", "ref": f"{base_registry}:master"}
+            {"type": "registry", "ref": f"{base_registry}:master"},
         ]
         assert cache_from == expected_from
 

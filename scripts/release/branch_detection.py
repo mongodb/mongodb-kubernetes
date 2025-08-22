@@ -29,6 +29,7 @@ def get_current_branch() -> Optional[str]:
         return "master"
     return "master"
 
+
 def get_cache_scope() -> str:
     """
     Get the cache scope for BuildKit remote cache.

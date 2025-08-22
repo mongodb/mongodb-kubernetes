@@ -141,7 +141,7 @@ def ensure_buildx_builder(builder_name: str = DEFAULT_BUILDER_NAME) -> str:
 
 
 def execute_docker_build(
-        tag: str,
+        tags: list[str],
         dockerfile: str,
         path: str,
         args: Dict[str, str],
@@ -152,7 +152,7 @@ def execute_docker_build(
     """
     Build a Docker image using python_on_whales and Docker Buildx for multi-architecture support.
 
-    :param tag: Image tag (name:tag)
+    :param tags: List of image tags [(name:tag)]
     :param dockerfile: Name or relative path of the Dockerfile within `path`
     :param path: Build context path (directory with the Dockerfile)
     :param args: Build arguments dictionary
@@ -187,7 +187,7 @@ def execute_docker_build(
 
         # ensure_ecr_cache_repository(base_cache_repo)
 
-        logger.info(f"Building image: {tag}")
+        logger.info(f"Building image: {tags}")
         logger.info(f"Platforms: {platforms}")
         logger.info(f"Dockerfile: {dockerfile}")
         logger.info(f"Build context: {path}")
@@ -207,7 +207,7 @@ def execute_docker_build(
             context_path=path,
             file=dockerfile,
             # TODO: add tag for release builds (OLM immutable tag)
-            tags=[tag],
+            tags=tags,
             platforms=platforms,
             builder=builder_name,
             build_args=build_args,
@@ -218,8 +218,8 @@ def execute_docker_build(
             cache_to=cache_to_refs,
         )
 
-        logger.info(f"Successfully built {'and pushed' if push else ''} {tag}")
+        logger.info(f"Successfully built {'and pushed' if push else ''} {tags}")
 
     except Exception as e:
-        logger.error(f"Failed to build image {tag}: {e}")
-        raise RuntimeError(f"Failed to build image {tag}: {str(e)}")
+        logger.error(f"Failed to build image {tags}: {e}")
+        raise RuntimeError(f"Failed to build image {tags}: {str(e)}")

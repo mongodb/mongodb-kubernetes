@@ -19,10 +19,7 @@ class TestGetCurrentBranch:
 
         assert result == "master"
         mock_run.assert_called_once_with(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True,
-            text=True,
-            check=True
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True, check=True
         )
 
     @patch("subprocess.run")
@@ -34,10 +31,7 @@ class TestGetCurrentBranch:
 
         assert result == "feature/new-cache"
         mock_run.assert_called_once_with(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True,
-            text=True,
-            check=True
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True, check=True
         )
 
     @patch("subprocess.run")
@@ -80,7 +74,6 @@ class TestGetCurrentBranch:
 class TestGetCacheScope:
     """Test cache scope generation for different scenarios."""
 
-
     @patch("scripts.release.branch_detection.get_current_branch")
     def test_feature_branch(self, mock_branch):
         """Test cache scope for feature branch."""
@@ -98,7 +91,6 @@ class TestGetCacheScope:
         result = get_cache_scope()
 
         assert result == "feature-new_cache-123"
-
 
     @patch("scripts.release.branch_detection.get_current_branch")
     def test_complex_branch_name(self, mock_branch):
