@@ -1,6 +1,6 @@
 import json
 from dataclasses import dataclass
-from typing import Dict
+from typing import Dict, List
 
 from scripts.release.build.build_scenario import BuildScenario
 from scripts.release.constants import (
@@ -27,7 +27,7 @@ OPS_MANAGER_IMAGE = "ops-manager"
 
 @dataclass
 class ImageInfo:
-    repository: str
+    repositories: List[str]
     platforms: list[str]
     version: str
     dockerfile_path: str
@@ -44,7 +44,7 @@ class BinaryInfo:
 
 @dataclass
 class HelmChartInfo:
-    repository: str
+    repository: List[str]
     version: str
     sign: bool
 
@@ -103,7 +103,7 @@ def load_build_info(
             image_version = version
 
         images[name] = ImageInfo(
-            repository=scenario_data["repository"],
+            repositories=scenario_data["repositories"],
             platforms=scenario_data["platforms"],
             version=image_version,
             dockerfile_path=data["dockerfile-path"],
@@ -132,7 +132,7 @@ def load_build_info(
             continue
 
         helm_charts[name] = HelmChartInfo(
-            repository=scenario_data["repository"],
+            repository=scenario_data["repositories"],
             version=version,
             sign=scenario_data.get("sign", False),
         )
