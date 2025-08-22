@@ -170,22 +170,7 @@ def execute_docker_build(
         # Convert build args to the format expected by python_on_whales
         build_args = {k: str(v) for k, v in args.items()}
 
-        registry_name = tag.split(":")[0] if ":" in tag else tag
-        # e.g., "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes" -> "mongodb-kubernetes"
-        cache_image_name = registry_name.split("/")[-1]
-
-        # Base cache repository name
-        base_cache_repo = f"dev/cache/{cache_image_name}"
-
-        # Build branch/arch-scoped cache configuration
-        base_registry = f"268558157000.dkr.ecr.us-east-1.amazonaws.com/{base_cache_repo}"
-
-        # TODO CLOUDP-335471: use env variables to configure AWS region and account ID
-        cache_from_refs, cache_to_refs = build_cache_configuration(
-            base_registry
-        )
-
-        # ensure_ecr_cache_repository(base_cache_repo)
+        cache_from_refs, cache_to_refs = _build_cache(tags)
 
         logger.info(f"Building image: {tags}")
         logger.info(f"Platforms: {platforms}")
@@ -223,3 +208,27 @@ def execute_docker_build(
     except Exception as e:
         logger.error(f"Failed to build image {tags}: {e}")
         raise RuntimeError(f"Failed to build image {tags}: {str(e)}")
+
+
+def _build_cache(tags):
+    # Filter tags to only include ECR ones (containing ".dkr.ecr.")
+    ecr_tags = [tag for tag in tags if ".dkr.ecr." in tag]
+    if not ecr_tags:
+        return [], {}
+    primary_tag = ecr_tags[0]
+    # Extract the repository URL without tag (e.g., "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes:1.0.0" -> "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes")
+    repository_url = primary_tag.split(":")[0] if ":" in primary_tag else primary_tag
+    # Extract just the image name from the repository URL (e.g., "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes" -> "mongodb-kubernetes")
+    cache_image_name = repository_url.split("/")[-1]
+    # Base cache repository name
+    base_cache_repo = f"dev/cache/{cache_image_name}"
+    # Build branch/arch-scoped cache configuration
+    base_registry = f"268558157000.dkr.ecr.us-east-1.amazonaws.com/{base_cache_repo}"
+
+    ensure_ecr_cache_repository(base_cache_repo)
+
+    # TODO CLOUDP-335471: use env variables to configure AWS region and account ID
+    cache_from_refs, cache_to_refs = build_cache_configuration(
+        base_registry
+    )
+    return cache_from_refs, cache_to_refs
