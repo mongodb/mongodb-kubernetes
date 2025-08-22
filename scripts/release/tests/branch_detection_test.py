@@ -1,23 +1,23 @@
 import os
 import subprocess
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from scripts.release.branch_detection import (
-    get_current_branch,
     get_cache_scope,
+    get_current_branch,
+    get_version_id,
     is_evg_patch,
     is_running_in_evg,
-    get_version_id,
 )
 
 
 class TestGetCurrentBranch:
     """Test branch detection logic for different scenarios."""
 
-    @patch('scripts.release.branch_detection.is_running_in_evg')
-    @patch('subprocess.run')
+    @patch("scripts.release.branch_detection.is_running_in_evg")
+    @patch("subprocess.run")
     def test_local_development_master_branch(self, mock_run, mock_is_evg):
         """Test local development on master branch."""
         mock_is_evg.return_value = False
@@ -27,14 +27,11 @@ class TestGetCurrentBranch:
 
         assert result == "master"
         mock_run.assert_called_once_with(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True,
-            text=True,
-            check=True
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True, check=True
         )
 
-    @patch('scripts.release.branch_detection.is_running_in_evg')
-    @patch('subprocess.run')
+    @patch("scripts.release.branch_detection.is_running_in_evg")
+    @patch("subprocess.run")
     def test_local_development_feature_branch(self, mock_run, mock_is_evg):
         """Test local development on feature branch."""
         mock_is_evg.return_value = False
@@ -44,8 +41,8 @@ class TestGetCurrentBranch:
 
         assert result == "feature/new-cache"
 
-    @patch('scripts.release.branch_detection.is_running_in_evg')
-    @patch('subprocess.run')
+    @patch("scripts.release.branch_detection.is_running_in_evg")
+    @patch("subprocess.run")
     def test_local_development_detached_head(self, mock_run, mock_is_evg):
         """Test local development in detached HEAD state."""
         mock_is_evg.return_value = False
@@ -55,8 +52,8 @@ class TestGetCurrentBranch:
 
         assert result == "master"  # fallback to master
 
-    @patch('scripts.release.branch_detection.is_running_in_evg')
-    @patch('subprocess.run')
+    @patch("scripts.release.branch_detection.is_running_in_evg")
+    @patch("subprocess.run")
     def test_local_development_git_error(self, mock_run, mock_is_evg):
         """Test local development when git command fails."""
         mock_is_evg.return_value = False
@@ -66,9 +63,9 @@ class TestGetCurrentBranch:
 
         assert result == "master"  # fallback to master
 
-    @patch('scripts.release.branch_detection.is_running_in_evg')
-    @patch('scripts.release.branch_detection.is_evg_patch')
-    @patch('subprocess.run')
+    @patch("scripts.release.branch_detection.is_running_in_evg")
+    @patch("scripts.release.branch_detection.is_evg_patch")
+    @patch("subprocess.run")
     def test_evergreen_non_patch_build(self, mock_run, mock_is_patch, mock_is_evg):
         """Test Evergreen non-patch build."""
         mock_is_evg.return_value = True
@@ -79,9 +76,9 @@ class TestGetCurrentBranch:
 
         assert result == "master"
 
-    @patch('scripts.release.branch_detection.is_running_in_evg')
-    @patch('scripts.release.branch_detection.is_evg_patch')
-    @patch('subprocess.run')
+    @patch("scripts.release.branch_detection.is_running_in_evg")
+    @patch("scripts.release.branch_detection.is_evg_patch")
+    @patch("subprocess.run")
     def test_evergreen_patch_build_branch_detection(self, mock_run, mock_is_patch, mock_is_evg):
         """Test Evergreen patch build with successful branch detection."""
         mock_is_evg.return_value = True
@@ -89,17 +86,20 @@ class TestGetCurrentBranch:
 
         # Mock git for-each-ref output
         mock_run.side_effect = [
-            MagicMock(stdout="origin/feature/cache-improvement abc123\norigin/evg-pr-test-123 abc123\norigin/main def456\n", returncode=0),
-            MagicMock(stdout="abc123\n", returncode=0)
+            MagicMock(
+                stdout="origin/feature/cache-improvement abc123\norigin/evg-pr-test-123 abc123\norigin/main def456\n",
+                returncode=0,
+            ),
+            MagicMock(stdout="abc123\n", returncode=0),
         ]
 
         result = get_current_branch()
 
         assert result == "feature/cache-improvement"
 
-    @patch('scripts.release.branch_detection.is_running_in_evg')
-    @patch('scripts.release.branch_detection.is_evg_patch')
-    @patch('subprocess.run')
+    @patch("scripts.release.branch_detection.is_running_in_evg")
+    @patch("scripts.release.branch_detection.is_evg_patch")
+    @patch("subprocess.run")
     def test_evergreen_patch_build_fallback(self, mock_run, mock_is_patch, mock_is_evg):
         """Test Evergreen patch build fallback when branch detection fails."""
         mock_is_evg.return_value = True
@@ -114,9 +114,9 @@ class TestGetCurrentBranch:
 class TestGetCacheScope:
     """Test cache scope generation for different scenarios."""
 
-    @patch('scripts.release.branch_detection.get_current_branch')
-    @patch('scripts.release.branch_detection.is_evg_patch')
-    @patch('scripts.release.branch_detection.get_version_id')
+    @patch("scripts.release.branch_detection.get_current_branch")
+    @patch("scripts.release.branch_detection.is_evg_patch")
+    @patch("scripts.release.branch_detection.get_version_id")
     def test_master_branch_non_patch(self, mock_version_id, mock_is_patch, mock_branch):
         """Test cache scope for master branch non-patch build."""
         mock_branch.return_value = "master"
@@ -127,9 +127,9 @@ class TestGetCacheScope:
 
         assert result == "master"
 
-    @patch('scripts.release.branch_detection.get_current_branch')
-    @patch('scripts.release.branch_detection.is_evg_patch')
-    @patch('scripts.release.branch_detection.get_version_id')
+    @patch("scripts.release.branch_detection.get_current_branch")
+    @patch("scripts.release.branch_detection.is_evg_patch")
+    @patch("scripts.release.branch_detection.get_version_id")
     def test_feature_branch_non_patch(self, mock_version_id, mock_is_patch, mock_branch):
         """Test cache scope for feature branch non-patch build."""
         mock_branch.return_value = "feature/new-cache"
@@ -140,9 +140,9 @@ class TestGetCacheScope:
 
         assert result == "feature-new-cache"
 
-    @patch('scripts.release.branch_detection.get_current_branch')
-    @patch('scripts.release.branch_detection.is_evg_patch')
-    @patch('scripts.release.branch_detection.get_version_id')
+    @patch("scripts.release.branch_detection.get_current_branch")
+    @patch("scripts.release.branch_detection.is_evg_patch")
+    @patch("scripts.release.branch_detection.get_version_id")
     def test_patch_build_with_version_id(self, mock_version_id, mock_is_patch, mock_branch):
         """Test cache scope for patch build with version ID."""
         mock_branch.return_value = "feature/new-cache"
@@ -153,9 +153,9 @@ class TestGetCacheScope:
 
         assert result == "feature-new-cache-6899b7e3"
 
-    @patch('scripts.release.branch_detection.get_current_branch')
-    @patch('scripts.release.branch_detection.is_evg_patch')
-    @patch('scripts.release.branch_detection.get_version_id')
+    @patch("scripts.release.branch_detection.get_current_branch")
+    @patch("scripts.release.branch_detection.is_evg_patch")
+    @patch("scripts.release.branch_detection.get_version_id")
     def test_patch_build_without_version_id(self, mock_version_id, mock_is_patch, mock_branch):
         """Test cache scope for patch build without version ID."""
         mock_branch.return_value = "feature/new-cache"
@@ -166,9 +166,9 @@ class TestGetCacheScope:
 
         assert result == "feature-new-cache"
 
-    @patch('scripts.release.branch_detection.get_current_branch')
-    @patch('scripts.release.branch_detection.is_evg_patch')
-    @patch('scripts.release.branch_detection.get_version_id')
+    @patch("scripts.release.branch_detection.get_current_branch")
+    @patch("scripts.release.branch_detection.is_evg_patch")
+    @patch("scripts.release.branch_detection.get_version_id")
     def test_branch_name_sanitization(self, mock_version_id, mock_is_patch, mock_branch):
         """Test branch name sanitization for cache scope."""
         mock_branch.return_value = "Feature/NEW_cache@123"
@@ -179,9 +179,9 @@ class TestGetCacheScope:
 
         assert result == "feature-new_cache-123"
 
-    @patch('scripts.release.branch_detection.get_current_branch')
-    @patch('scripts.release.branch_detection.is_evg_patch')
-    @patch('scripts.release.branch_detection.get_version_id')
+    @patch("scripts.release.branch_detection.get_current_branch")
+    @patch("scripts.release.branch_detection.is_evg_patch")
+    @patch("scripts.release.branch_detection.get_version_id")
     def test_dependabot_branch(self, mock_version_id, mock_is_patch, mock_branch):
         """Test cache scope for dependabot branch."""
         mock_branch.return_value = "dependabot/npm_and_yarn/lodash-4.17.21"

@@ -1,6 +1,6 @@
 # This file is the new Sonar
 import base64
-from typing import Dict, List
+from typing import Dict, List, Any
 
 import boto3
 import docker
@@ -28,59 +28,57 @@ def ensure_ecr_cache_repository(repository_name: str, region: str = "us-east-1")
             raise
 
 
-def build_cache_configuration(base_registry: str):
+def build_cache_configuration(base_registry: str) -> tuple[list[Any], dict[str, str]]:
     """
-    Build cache configuration for branch/arch-scoped BuildKit remote cache.
+    Build cache configuration for branch-scoped BuildKit remote cache.
 
     Implements the cache strategy:
     - Per-image cache repo: …/dev/cache/<image>
-    - Per-branch run with read precedence: branch → master → shared
-    - Write to branch scope, and also to master if on master branch
+    - Per-branch run with read precedence: branch → master
+    - Write to branch scope only
     - Use BuildKit registry cache exporter with mode=max, oci-mediatypes=true, image-manifest=true
 
-    :param base_registry:
-    :return: tuple of (cache_from_list, cache_to_list, repositories_to_ensure)
+    :param base_registry: Base registry URL for cache (e.g., "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cache/mongodb-kubernetes")
     """
     cache_scope = get_cache_scope()
-    logger.info(f"Building cache configuration for {cache_scope}")
-    current_branch = get_current_branch()
 
-    # Build cache references with read precedence: branch → master → shared
+    # Build cache references with read precedence: branch → master
     cache_from_refs = []
-    cache_to_refs = []
 
-    # Read precedence: branch-arch → master-arch → shared-arch
-    branch_arch_ref = f"{base_registry}:{cache_scope}"
-    master_arch_ref = f"{base_registry}:master"
-    shared_arch_ref = f"{base_registry}:shared"
+    # Read precedence: branch → master
+    branch_ref = f"{base_registry}:{cache_scope}"
+    master_ref = f"{base_registry}:master"
 
     # Add to cache_from in order of precedence
     if cache_scope != "master":
-        cache_from_refs.append(f"type=registry,ref={branch_arch_ref}")
-        cache_from_refs.append(f"type=registry,ref={master_arch_ref}")
+        cache_from_refs.append({"type": "registry", "ref": branch_ref})
+        cache_from_refs.append({"type": "registry", "ref": master_ref})
     else:
-        cache_from_refs.append(f"type=registry,ref={master_arch_ref}")
-    cache_from_refs.append(f"type=registry,ref={shared_arch_ref}")
+        cache_from_refs.append({"type": "registry", "ref": master_ref})
 
-    cache_to_refs.append({
+    cache_to_refs = {
         "type": "registry",
-        "ref": branch_arch_ref,
+        "ref": branch_ref,
         "mode": "max",
         "oci-mediatypes": "true",
         "image-manifest": "true"
-    })
-
-    if current_branch == "master" and branch_arch_ref != master_arch_ref:
-        cache_to_refs.append({
-            "type": "registry",
-            "ref": master_arch_ref,
-            "mode": "max",
-            "oci-mediatypes": "true",
-            "image-manifest": "true"
-        })
-
+    }
 
     return cache_from_refs, cache_to_refs
+
+
+def ensure_all_cache_repositories(cache_image_names: List[str], region: str = "us-east-1"):
+    """
+    Ensure all cache repositories exist for the given image names.
+
+    This is useful for pre-creating repositories before builds start.
+
+    :param cache_image_names: List of image names (e.g., ["mongodb-kubernetes", "init-database"])
+    :param region: AWS region for ECR
+    """
+    for image_name in cache_image_names:
+        cache_repo_name = f"dev/cache/{image_name}"
+        ensure_ecr_cache_repository(cache_repo_name, region)
 
 
 def ecr_login_boto3(region: str, account_id: str):
@@ -187,7 +185,7 @@ def execute_docker_build(
             base_registry
         )
 
-        # ensure_ecr_cache_repository(base_cache_repo)
+        ensure_ecr_cache_repository(base_cache_repo)
 
         logger.info(f"Building image: {tag}")
         logger.info(f"Platforms: {platforms}")
@@ -205,7 +203,6 @@ def execute_docker_build(
         if len(platforms) > 1:
             logger.info(f"Multi-platform build for {len(platforms)} architectures")
 
-        # Build the image using buildx, builder must be already initialized
         docker_cmd.buildx.build(
             context_path=path,
             file=dockerfile,
