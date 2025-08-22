@@ -4,7 +4,7 @@
       "dockerfile-path": "docker/mongodb-kubernetes-operator/Dockerfile.atomic",
       "patch": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes"],
-         "platforms": [
+        "platforms": [
            "linux/amd64"
         ]
       },
@@ -49,7 +49,7 @@
       "dockerfile-path": "docker/mongodb-kubernetes-init-database/Dockerfile.atomic",
       "patch": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-database"],
-         "platforms": [
+        "platforms": [
            "linux/amd64"
          ]
       },
@@ -78,7 +78,7 @@
       "dockerfile-path": "docker/mongodb-kubernetes-init-appdb/Dockerfile.atomic",
       "patch": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-appdb"],
-         "platforms": [
+        "platforms": [
           "linux/amd64"
         ]
       },
@@ -107,7 +107,7 @@
       "dockerfile-path": "docker/mongodb-kubernetes-init-ops-manager/Dockerfile.atomic",
       "patch": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-ops-manager"],
-         "platforms": [
+        "platforms": [
           "linux/amd64"
         ]
       },
@@ -130,7 +130,7 @@
       "dockerfile-path": "docker/mongodb-kubernetes-database/Dockerfile.atomic",
       "patch": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-database"],
-         "platforms": [
+        "platforms": [
            "linux/amd64"
         ]
       },
@@ -190,7 +190,7 @@
       "dockerfile-path": "docker/mongodb-kubernetes-readinessprobe/Dockerfile.atomic",
       "patch": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-readinessprobe"],
-         "platforms": [
+        "platforms": [
           "linux/amd64"
         ]
       },
@@ -218,7 +218,7 @@
       "dockerfile-path": "docker/mongodb-kubernetes-upgrade-hook/Dockerfile.atomic",
       "patch": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-operator-version-upgrade-post-start-hook"],
-         "platforms": [
+        "platforms": [
           "linux/amd64"
         ]
       },
@@ -244,7 +244,7 @@
       "dockerfile-path": "docker/mongodb-agent/Dockerfile.atomic",
       "patch": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent-ubi"],
-         "platforms": [
+        "platforms": [
            "linux/amd64"
         ]
       },
