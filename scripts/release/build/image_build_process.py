@@ -120,7 +120,18 @@ def execute_docker_build(
         # e.g., "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes" -> "mongodb-kubernetes"
         cache_image_name = registry_name.split("/")[-1]
         # TODO CLOUDP-335471: use env variables to configure AWS region and account ID
+
         cache_registry = f"268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cache/{cache_image_name}"
+        cache_from_sources = []
+        cache_to_sources = []
+
+        for platform in platforms:
+            # Use multiple cache sources for better cache hit rate, and write to all platform-specific caches
+            # to avoid race conditions between concurrent multi-arch builds
+            arch = platform.split('/')[-1]
+            platform_cache = f"{cache_registry}:{arch}"
+            cache_from_sources.append(f"type=registry,ref={platform_cache}")
+            cache_to_sources.append(f"type=registry,ref={platform_cache},mode=max")
 
         cache_repo_name = f"dev/cache/{cache_image_name}"
         ensure_ecr_cache_repository(cache_repo_name)
@@ -130,7 +141,11 @@ def execute_docker_build(
         logger.info(f"Dockerfile: {dockerfile}")
         logger.info(f"Build context: {path}")
         logger.info(f"Cache registry: {cache_registry}")
+        logger.info(f"Cache from sources: {len(cache_from_sources)} sources")
+        logger.info(f"Cache to sources: {len(cache_to_sources)} sources")
         logger.debug(f"Build args: {build_args}")
+        logger.debug(f"Cache from: {cache_from_sources}")
+        logger.debug(f"Cache to: {cache_to_sources}")
 
         # Use buildx for multi-platform builds
         if len(platforms) > 1:
@@ -148,8 +163,8 @@ def execute_docker_build(
             push=push,
             provenance=False,  # To not get an untagged image for single platform builds
             pull=False,  # Don't always pull base images
-            cache_from=f"type=registry,ref={cache_registry}",
-            cache_to=f"type=registry,ref={cache_registry},mode=max",
+            cache_from=cache_from_sources,
+            cache_to=cache_to_sources,
         )
 
         logger.info(f"Successfully built {'and pushed' if push else ''} {tag}")
