@@ -221,6 +221,10 @@ def download_artifacts_from_s3(release_version: str, commit_sha: str):
             logger.debug(f"ERROR: Failed to list or download from prefix '{s3_artifact_dir}'. S3 Client Error: {e}")
             return False
 
+    if download_count == 0:
+        logger.info(f"Couldn't download artifacts from staging S3 bucket {STAGING_S3_BUCKET_NAME}, please verify that artifacts are available under dir: {commit_sha}")
+        sys.exit(1)
+
     logger.info("All the artifacts have been downloaded successfully.")
     return True
 
