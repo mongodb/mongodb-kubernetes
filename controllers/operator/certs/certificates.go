@@ -309,14 +309,16 @@ func ValidateCertificates(ctx context.Context, secretGetter secret.Getter, name,
 
 // VerifyAndEnsureClientCertificatesForAgentsAndTLSType ensures that agent certs are present and correct, and returns whether they are of the kubernetes.io/tls type.
 // If the secret is of type kubernetes.io/tls, it creates a new secret containing the concatenation fo the tls.crt and tls.key fields
-func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx context.Context, secretReadClient, secretWriteClient secrets.SecretClient, secret types.NamespacedName) error {
+func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx context.Context, secretReadClient, secretWriteClient secrets.SecretClient, secret types.NamespacedName, log *zap.SugaredLogger) error {
 	needToCreatePEM := false
 	var secretData map[string][]byte
 	var s corev1.Secret
 	var err error
+	var databaseSecretPath string
 
 	if vault.IsVaultSecretBackend() {
 		needToCreatePEM = true
+		databaseSecretPath = secretReadClient.VaultClient.DatabaseSecretPath()
 		secretData, err = secretReadClient.VaultClient.ReadSecretBytes(fmt.Sprintf("%s/%s/%s", secretReadClient.VaultClient.DatabaseSecretPath(), secret.Namespace, secret.Name))
 		if err != nil {
 			return err
@@ -338,11 +340,8 @@ func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx context.Context, s
 			return err
 		}
 
-		dataMap := map[string]string{
-			util.AutomationAgentPemSecretKey: data,
-		}
-
-		return CreateOrUpdatePEMSecret(ctx, secretWriteClient, secret, dataMap, []metav1.OwnerReference{}, Database)
+		secretHash := enterprisepem.ReadHashFromSecret(ctx, secretReadClient, secret.Namespace, secret.Name, databaseSecretPath, log)
+		return CreateOrUpdatePEMSecretWithPreviousCert(ctx, secretWriteClient, secret, secretHash, data, []metav1.OwnerReference{}, Database)
 	}
 
 	return validatePemSecret(s, util.AutomationAgentPemSecretKey, nil)
