@@ -632,7 +632,7 @@ func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(ctx context.
 			return workflow.Failed(xerrors.Errorf("Authentication mode for project is x509 but this MDB resource is not TLS enabled"))
 		}
 		agentSecretName := security.AgentClientCertificateSecretName(configurator.GetName()).Name
-		err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, configurator.GetSecretReadClient(), configurator.GetSecretWriteClient(), kube.ObjectKey(configurator.GetNamespace(), agentSecretName))
+		err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, configurator.GetSecretReadClient(), configurator.GetSecretWriteClient(), kube.ObjectKey(configurator.GetNamespace(), agentSecretName), log)
 		if err != nil {
 			return workflow.Failed(err)
 		}
