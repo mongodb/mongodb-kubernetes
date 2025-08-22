@@ -19,8 +19,7 @@ def get_current_branch() -> Optional[str]:
 
     In Evergreen CI:
     - For patch builds: tries to detect the original branch (not evg-pr-test-* branches)
-    - For master builds: returns the actual branch name
-    - Falls back to 'master' if detection fails
+    - For master builds: returns master
 
     :return: branch name or 'master' as fallback
     """
