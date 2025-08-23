@@ -5,6 +5,7 @@ include:
   - filename: .evergreen-functions.yml
   - filename: .evergreen-tasks.yml
   - filename: .evergreen-mco.yml
+  - filename: .evergreen-snippets.yml
 
 variables:
   - &ops_manager_60_latest 6.0.27 # The order/index is important, since these are anchors. Please do not change
@@ -79,32 +80,6 @@ variables:
       - func: setup_building_host
       - func: build_multi_cluster_binary
 
-  - &setup_and_teardown_group_gke_code_snippets
-    setup_task_can_fail_task: true
-    setup_group:
-      - func: clone
-      - func: setup_gcloud_cli
-      - func: setup_mongosh
-      - func: download_kube_tools
-      - func: build_multi_cluster_binary
-    teardown_group:
-      - func: upload_code_snippets_logs
-
-  - &setup_and_teardown_group_kind_code_snippets
-    setup_task_can_fail_task: true
-    setup_group:
-      - func: clone
-      - func: cleanup_exec_environment
-      - func: download_kube_tools
-      - func: configure_docker_auth
-      - func: setup_kubernetes_environment
-      - func: setup_cloud_qa
-    teardown_task:
-      - func: upload_e2e_logs
-      - func: upload_code_snippets_logs
-      - func: teardown_kubernetes_environment
-      - func: teardown_cloud_qa
-
   - &setup_and_teardown_task_cloudqa
     setup_task_can_fail_task: true
     setup_task:
@@ -168,6 +143,7 @@ variables:
       - name: build_init_om_images_ubi
         variant: init_test_run
 
+  # Any change to base_om8_dependency should be reflected to its copy in .evergreen-snippets.yml
   - &base_om8_dependency
     depends_on:
       - name: build_om_images
@@ -626,20 +602,6 @@ task_groups:
       - unit_tests_golang
       - unit_tests_python
       - sbom_tests
-
-  - name: gke_code_snippets_task_group
-    <<: *setup_and_teardown_group_gke_code_snippets
-    max_hosts: -1
-    tasks:
-      - task_gke_multi_cluster_snippets
-      - task_gke_multi_cluster_no_mesh_snippets
-
-  - name: kind_code_snippets_task_group
-    <<: *setup_and_teardown_group_kind_code_snippets
-    max_hosts: -1
-    tasks:
-      - task_kind_search_community_snippets
-      - task_kind_search_enterprise_snippets
 
   # Task group for deploying mongodbcommunity resources and testing the (former) MCO
   - name: e2e_mdb_community_task_group
@@ -1801,65 +1763,6 @@ buildvariants:
       - ubuntu2204-large
     tasks:
       - name: release_all_agents_on_ecr
-
-    # These variants are used to test the code snippets and each one can be used in patches
-    # Prerelease is especially used when the repo is tagged
-    # More details in the TD: https://docs.google.com/document/d/1fuTxfRtP8QPtn7sKYxQM_AGcD6xycTZH8svngGxyKhc/edit?tab=t.0#bookmark=id.e8uva0393mbe
-  - name: public_gke_code_snippets
-    display_name: public_gke_code_snippets
-    allowed_requesters: ["patch"]
-    run_on:
-      - ubuntu2204-small
-    tasks:
-      - name: gke_code_snippets_task_group
-
-  - name: prerelease_gke_code_snippets
-    display_name: prerelease_gke_code_snippets
-    tags: [ "release" ]
-    allowed_requesters: ["patch", "github_tag"]
-    depends_on:
-      - variant: release_images
-        name: '*'
-        patch_optional: true
-    run_on:
-      - ubuntu2204-small
-    tasks:
-      - name: gke_code_snippets_task_group
-
-  - name: private_gke_code_snippets
-    display_name: private_gke_code_snippets
-    allowed_requesters: ["patch"]
-    run_on:
-      - ubuntu2204-small
-    <<: *base_om8_dependency
-    tasks:
-      - name: gke_code_snippets_task_group
-
-  - name: private_kind_code_snippets
-    display_name: private_kind_code_snippets
-    tags: [ "e2e_test_suite" ]
-    allowed_requesters: ["patch", "github_pr"]
-    run_on:
-      - ubuntu2204-large
-    <<: *base_om8_dependency
-    tasks:
-      - name: kind_code_snippets_task_group
-
-  - name: prerelease_kind_code_snippets
-    display_name: prerelease_kind_code_snippets
-    allowed_requesters: ["patch"]
-    run_on:
-      - ubuntu2204-large
-    tasks:
-      - name: kind_code_snippets_task_group
-
-  - name: public_kind_code_snippets
-    display_name: public_kind_code_snippets
-    allowed_requesters: ["patch"]
-    run_on:
-      - ubuntu2204-large
-    tasks:
-      - name: kind_code_snippets_task_group
 
   ### Build variants for manual patch only
 
