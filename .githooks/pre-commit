@@ -150,10 +150,6 @@ function check_incorrect_makefile_variable_brackets() {
   fi
 }
 
-function validate_snippets() {
-  echo scripts/code_snippets/validate_snippets.py
-}
-
 # Helper function to capture background job PID with job name
 capture_bg_job() {
   local job_name="$1"
@@ -198,9 +194,6 @@ function pre_commit() {
 
   time start_shellcheck 2>&1 | prepend "shellcheck" &
   capture_bg_job "shellcheck"
-
-  time validate_snippets 2>&1 | prepend "validate_snippets" &
-  capture_bg_job "validate_snippets"
 
   time regenerate_public_rbac_multi_cluster 2>&1 | prepend "regenerate_public_rbac_multi_cluster" &
   capture_bg_job "regenerate_public_rbac_multi_cluster"
