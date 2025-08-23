@@ -336,6 +336,7 @@ functions:
     - command: shell.exec
       type: setup
       params:
+        continue_on_err: true
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: |
@@ -392,7 +393,7 @@ functions:
         add_to_path:
           - ${workdir}/bin
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/evergreen/run_python.sh scripts/update_supported_dockerfiles.py
+        binary: scripts/dev/run_python.sh scripts/update_supported_dockerfiles.py
     - command: subprocess.exec
       type: setup
       params:
@@ -420,6 +421,7 @@ functions:
   upload_e2e_logs:
     - command: s3.put
       params:
+        continue_on_err: true
         aws_key: ${enterprise_aws_access_key_id}
         aws_secret: ${enterprise_aws_secret_access_key}
         local_files_include_filter:
@@ -486,7 +488,7 @@ functions:
         include_expansions_in_env:
           - image_version
           - rh_pyxis
-        binary: scripts/evergreen/run_python.sh scripts/preflight_images.py --image ${image_name} --submit "${preflight_submit}"
+        binary: scripts/dev/run_python.sh scripts/preflight_images.py --image ${image_name} --submit "${preflight_submit}"
 
   build_multi_cluster_binary:
     - command: subprocess.exec
@@ -505,6 +507,27 @@ functions:
           - ${workdir}
 
   pipeline:
+    - *switch_context
+    - command: shell.exec
+      type: setup
+      params:
+        shell: bash
+        script: |
+          # Docker Hub workaround
+          # docker buildx needs the moby/buildkit image when setting up a builder so we pull it from our mirror
+          docker buildx create --driver=docker-container --driver-opt=image=268558157000.dkr.ecr.eu-west-1.amazonaws.com/docker-hub-mirrors/moby/buildkit:buildx-stable-1 --use
+          docker buildx inspect --bootstrap
+    - command: subprocess.exec
+      retry_on_failure: true
+      type: setup
+      params:
+        shell: bash
+        <<: *e2e_include_expansions_in_env
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/dev/run_python.sh scripts/release/pipeline_main.py --parallel ${image_name} ${all_agents} ${build_scenario}
+
+  # TODO: CLOUDP-335471 ; once all image builds are made with the new atomic pipeline, remove the following function
+  legacy_pipeline:
     - *switch_context
     - command: shell.exec
       type: setup
@@ -538,7 +561,7 @@ functions:
         shell: bash
         <<: *e2e_include_expansions_in_env
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/evergreen/run_python.sh pipeline.py --include ${image_name} --parallel --sign
+        binary: scripts/dev/run_python.sh pipeline.py --include ${image_name} --parallel --sign
 
   teardown_cloud_qa_all:
     - *switch_context
@@ -549,7 +572,7 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: |
           source .generated/context.export.env
-          scripts/evergreen/run_python.sh scripts/evergreen/e2e/setup_cloud_qa.py delete_all
+          scripts/dev/run_python.sh scripts/evergreen/e2e/setup_cloud_qa.py delete_all
 
   # Updates current expansions with variables from release.json file.
   # Use e.g. ${mongoDbOperator} afterwards.
@@ -596,7 +619,7 @@ functions:
         add_to_path:
           - ${workdir}/bin
         # Below script deletes agent images created for an Evergreen patch older than 1 day
-        command: scripts/evergreen/run_python.sh scripts/evergreen/periodic-cleanup-aws.py
+        command: scripts/dev/run_python.sh scripts/evergreen/periodic-cleanup-aws.py
 
   ### Test Functions ###
 
@@ -695,7 +718,7 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: |
           source .generated/context.export.env
-          scripts/evergreen/run_python.sh scripts/evergreen/e2e/performance/create_variants.py ${variant} ${size}> evergreen_tasks.json
+          scripts/dev/run_python.sh scripts/evergreen/e2e/performance/create_variants.py ${variant} ${size}> evergreen_tasks.json
           echo "tasks to run:"
           cat evergreen_tasks.json
     - command: generate.tasks

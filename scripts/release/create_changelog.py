@@ -3,12 +3,12 @@ import datetime
 import os
 
 from scripts.release.changelog import (
-    DEFAULT_CHANGELOG_PATH,
     FRONTMATTER_DATE_FORMAT,
     ChangeKind,
     get_changelog_filename,
     parse_change_date,
 )
+from scripts.release.constants import DEFAULT_CHANGELOG_PATH
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
