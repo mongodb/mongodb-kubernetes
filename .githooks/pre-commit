@@ -127,49 +127,112 @@ function regenerate_public_rbac_multi_cluster() {
 }
 
 function update_licenses() {
-    echo 'regenerating licenses'
-    time scripts/evergreen/update_licenses.sh 2>&1 | prepend "update_licenses"
-    git add LICENSE-THIRD-PARTY
+    if [[ "${MDB_UPDATE_LICENSES:-""}" == "true" ]]; then
+      echo 'regenerating licenses'
+      time scripts/evergreen/update_licenses.sh 2>&1 | prepend "update_licenses"
+      git add LICENSE-THIRD-PARTY
+    fi
 }
 
 function check_erroneous_kubebuilder_annotations() {
   # Makes sure there are not erroneous kubebuilder annotations that can
   # end up in CRDs as descriptions.
   if grep "// kubebuilder" ./* -r --exclude-dir=vendor --include=\*.go; then
-    echo "Found an erroneous kubebuilder annotation"
+    echo -e "${RED}Found an erroneous kubebuilder annotation${NO_COLOR}"
     exit 1
   fi
 }
 
 function check_incorrect_makefile_variable_brackets() {
   if find . -name "Makefile" | grep -v vendor | xargs grep "\${"; then
-    echo 'ERROR: Makefiles should NEVER contain curly brackets variables'
+    echo -e "${RED}ERROR: Makefiles should NEVER contain curly brackets variables${NO_COLOR}"
     exit 1
   fi
 }
 
+function validate_snippets() {
+  echo scripts/code_snippets/validate_snippets.py
+}
+
+# Helper function to capture background job PID with job name
+capture_bg_job() {
+  local job_name="$1"
+  local job_pid=$!
+  bg_job_pids+=("${job_pid}")
+  bg_job_pids_with_names+=("${job_pid}:${job_name}")
+  echo "Started ${job_name} with PID: ${job_pid}"
+}
+
+get_job_name() {
+  local search_pid="$1"
+  local match
+  match=$(printf '%s\n' "${bg_job_pids_with_names[@]}" | grep "^${search_pid}:")
+  echo "${match#*:}"  # Remove everything up to and including the colon
+}
+
 function pre_commit() {
-  if [[ "${MDB_UPDATE_LICENSES:-""}" == "true" ]]; then
-    ( (time update_licenses) 2>&1 | prepend "update_licenses" ) &
-  fi
-  ( (time scripts/evergreen/lint_code.sh) 2>&1 | prepend "lint_code.sh" ) &
-  ( (time start_shellcheck) 2>&1 | prepend "shellcheck" ) &
+  # Array to store background job PIDs
+  # IMPORTANT: ensure each task is executed in it's own subshell following the pattern:
+  #    time new_check 2>&1 | prepend "new_check" &
+  #    capture_bg_job "new_check"
 
-  # Update release.json first in case there is a newer version
-  (time update_release_json) 2>&1 | prepend "update_release_json"
-  # We need to generate the values files first
-  (time update_values_yaml_files) 2>&1 | prepend "update_values_yaml_files"
-  # The values files are used for generating the standalone yaml
-  (time generate_standalone_yaml) 2>&1 | prepend "generate_standalone_yaml"
+  # those bg_job_ vars are global and capture_bg_job is appending to them on each call
+  bg_job_pids=()
+  bg_job_pids_with_names=()
 
-  ( (time regenerate_public_rbac_multi_cluster) 2>&1 | prepend "regenerate_public_rbac_multi_cluster" ) &
+  {
+    # Update release.json first in case there is a newer version
+    time update_release_json
+    # We need to generate the values files first
+    time update_values_yaml_files
+    # The values files are used for generating the standalone yaml
+    time generate_standalone_yaml
+  } 2>&1 | prepend "update_jobs" &
+  capture_bg_job "update_jobs"
+
+  time update_licenses 2>&1 | prepend "update_licenses" &
+  capture_bg_job "update_licenses"
+
+  time scripts/evergreen/lint_code.sh 2>&1 | prepend "lint_code.sh" &
+  capture_bg_job "lint_code.sh"
+
+  time start_shellcheck 2>&1 | prepend "shellcheck" &
+  capture_bg_job "shellcheck"
+
+  time validate_snippets 2>&1 | prepend "validate_snippets" &
+  capture_bg_job "validate_snippets"
+
+  time regenerate_public_rbac_multi_cluster 2>&1 | prepend "regenerate_public_rbac_multi_cluster" &
+  capture_bg_job "regenerate_public_rbac_multi_cluster"
 
   # Run black and isort on python files that have changed
-  ( (time python_formatting) 2>&1 | prepend "python_formatting") &
+  time python_formatting 2>&1 | prepend "python_formatting" &
+  capture_bg_job "python_formatting"
 
-  ( (time check_erroneous_kubebuilder_annotations) 2>&1 | prepend "check_erroneous_kubebuilder_annotations" ) &
+  time check_erroneous_kubebuilder_annotations 2>&1 | prepend "check_erroneous_kubebuilder_annotations" &
+  capture_bg_job "check_erroneous_kubebuilder_annotations"
 
-  wait
+  # add any other checks above
+
+  # Wait for all background jobs and check their exit codes
+  failures=()
+  for pid in "${bg_job_pids[@]}"; do
+    wait "${pid}" || {
+      job_name=$(get_job_name "${pid}")
+      failures+=("    ${RED}${job_name} (PID ${pid})${NO_COLOR}")
+    }
+  done
+
+  if [[ ${#failures[@]} -gt 0 ]]; then
+    echo -e "${RED}Some checks have failed:${NO_COLOR}"
+    for failure in "${failures[@]}"; do
+      echo -e "$failure"
+    done
+    echo -e "${RED}To see the details look for the job's logs by it's prefixed name (e.g. \"shellcheck:\").${NO_COLOR}"
+    exit 1
+  fi
+
+  echo -e "${GREEN}pre-commit: All checks passed!${NO_COLOR}"
 }
 
 # Function to run shellcheck on a single file
@@ -177,27 +240,22 @@ run_shellcheck() {
   local file="$1"
   echo "Running shellcheck on $file"
   if ! shellcheck --color=always -x "$file" -e SC2154 -e SC1091 -e SC1090 -e SC2148 -o require-variable-braces -P "scripts"; then
-    echo "shellcheck failed on $file"
+    echo -e "${RED}shellcheck failed on $file${NO_COLOR}"
     exit 1
   fi
 }
+# Export function so it's available in subshells
+export -f run_shellcheck
 
 start_shellcheck() {
-  files_1=$(find scripts -type f -name "*.sh")
-  files_2=$(find scripts/dev/contexts -type f | grep -v private-context)
-  files_3=$(find scripts/funcs -type f)
-  files_4=$(find public/architectures -type f -name "*.sh")
-  files=$(echo -e "$files_1\n$files_2\n$files_3\n$files_4")
-  # Process each file in parallel
-  for file in $files; do
-    run_shellcheck "$file" &
-  done
-
-  # Wait for all background jobs
-  for job in $(jobs -p); do
-    wait "$job" || exit 1
-  done
-
+  # shellcheck disable=SC2016
+  {
+    find scripts -type f -name "*.sh"
+    find scripts/dev/contexts -type f | grep -v private-context
+    find scripts/funcs -type f
+    find public/architectures -type f -name "*.sh"
+    find docs/ -type f -name "*.sh"
+  } | xargs -I {} -P 20 bash -c 'run_shellcheck "$1"' _ {}
 }
 
 cmd=${1:-"pre-commit"}
