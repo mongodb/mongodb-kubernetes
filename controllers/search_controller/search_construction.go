@@ -9,7 +9,6 @@ import (
 
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
@@ -31,69 +30,16 @@ const (
 //
 // TODO check if we could use already existing interface (DbCommon, MongoDBStatefulSetOwner, etc.)
 type SearchSourceDBResource interface {
-	Name() string
+	GetName() string
 	NamespacedName() types.NamespacedName
 	KeyfileSecretName() string
 	GetNamespace() string
-	HasSeparateDataAndLogsVolumes() bool
 	DatabaseServiceName() string
 	DatabasePort() int
-	GetMongoDBVersion() string
 	IsSecurityTLSConfigEnabled() bool
 	TLSOperatorCASecretNamespacedName() types.NamespacedName
 	Members() int
-}
-
-func NewSearchSourceDBResourceFromMongoDBCommunity(mdbc *mdbcv1.MongoDBCommunity) SearchSourceDBResource {
-	return &mdbcSearchResource{db: mdbc}
-}
-
-type mdbcSearchResource struct {
-	db *mdbcv1.MongoDBCommunity
-}
-
-func (r *mdbcSearchResource) Members() int {
-	return r.db.Spec.Members
-}
-
-func (r *mdbcSearchResource) Name() string {
-	return r.db.Name
-}
-
-func (r *mdbcSearchResource) NamespacedName() types.NamespacedName {
-	return r.db.NamespacedName()
-}
-
-func (r *mdbcSearchResource) KeyfileSecretName() string {
-	return r.db.GetAgentKeyfileSecretNamespacedName().Name
-}
-
-func (r *mdbcSearchResource) GetNamespace() string {
-	return r.db.Namespace
-}
-
-func (r *mdbcSearchResource) HasSeparateDataAndLogsVolumes() bool {
-	return r.db.HasSeparateDataAndLogsVolumes()
-}
-
-func (r *mdbcSearchResource) DatabaseServiceName() string {
-	return r.db.ServiceName()
-}
-
-func (r *mdbcSearchResource) GetMongoDBVersion() string {
-	return r.db.Spec.Version
-}
-
-func (r *mdbcSearchResource) IsSecurityTLSConfigEnabled() bool {
-	return r.db.Spec.Security.TLS.Enabled
-}
-
-func (r *mdbcSearchResource) DatabasePort() int {
-	return r.db.GetMongodConfiguration().GetDBPort()
-}
-
-func (r *mdbcSearchResource) TLSOperatorCASecretNamespacedName() types.NamespacedName {
-	return r.db.TLSOperatorCASecretNamespacedName()
+	Validate() error
 }
 
 // ReplicaSetOptions returns a set of options which will configure a ReplicaSet StatefulSet
