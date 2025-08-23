@@ -34,14 +34,14 @@ func TestMongoDBSearchReconcileHelper_ValidateSearchSource(t *testing.T) {
 					Version: "4.4.0",
 				},
 			},
-			expectedError: "MongoDB version must be 8.0 or higher",
+			expectedError: "MongoDB version must be 8.0.10 or higher",
 		},
 		{
 			name: "Valid version",
 			mdbc: mdbcv1.MongoDBCommunity{
 				ObjectMeta: mdbcMeta,
 				Spec: mdbcv1.MongoDBCommunitySpec{
-					Version: "8.0",
+					Version: "8.0.10",
 				},
 			},
 		},
@@ -50,7 +50,7 @@ func TestMongoDBSearchReconcileHelper_ValidateSearchSource(t *testing.T) {
 			mdbc: mdbcv1.MongoDBCommunity{
 				ObjectMeta: mdbcMeta,
 				Spec: mdbcv1.MongoDBCommunitySpec{
-					Version: "8.0",
+					Version: "8.0.10",
 					Security: mdbcv1.Security{
 						TLS: mdbcv1.TLS{
 							Enabled: true,
@@ -58,7 +58,6 @@ func TestMongoDBSearchReconcileHelper_ValidateSearchSource(t *testing.T) {
 					},
 				},
 			},
-			expectedError: "MongoDBSearch does not support TLS-enabled sources",
 		},
 	}
 

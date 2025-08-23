@@ -5,7 +5,7 @@ set -eou pipefail
 script_name=$(readlink -f "${BASH_SOURCE[0]}")
 script_dir=$(dirname "${script_name}")
 
-source scripts/code_snippets/sample_test_runner.sh
+source "${script_dir}/../../../scripts/code_snippets/sample_test_runner.sh"
 
 cd "${script_dir}"
 
@@ -16,8 +16,6 @@ run 0046_create_image_pull_secrets.sh
 
 run_for_output 090_helm_add_mogodb_repo.sh
 run_for_output 0100_install_operator.sh
-run_for_output 0200_configure_community_search_pullsecret.sh
-run_for_output 0210_verify_community_search_pullsecret.sh
 run 0305_create_mongodb_community_user_secrets.sh
 run 0310_create_mongodb_community_resource.sh
 run 0315_wait_for_community_resource.sh

@@ -5,7 +5,9 @@ source scripts/dev/set_env_context.sh
 
 dump_logs() {
   source scripts/evergreen/e2e/dump_diagnostic_information.sh
-  dump_all_non_default_namespaces "$@"
+  if [[ "${SKIP_DUMP:-"false"}" != "true" ]]; then
+    dump_all_non_default_namespaces "$@"
+  fi
 }
 trap dump_logs EXIT
 
