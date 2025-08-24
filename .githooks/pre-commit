@@ -148,7 +148,13 @@ function check_incorrect_makefile_variable_brackets() {
   fi
 }
 
+function validate_snippets() {
+  scripts/code_snippets/validate_snippets.py
+}
+
 function pre_commit() {
+  validate_snippets | prepend "validate_snippets"
+
   if [[ "${MDB_UPDATE_LICENSES:-""}" == "true" ]]; then
     ( (time update_licenses) 2>&1 | prepend "update_licenses" ) &
   fi

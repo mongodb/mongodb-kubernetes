@@ -13,7 +13,7 @@ if [[ "${CODE_SNIPPETS_COMMIT_OUTPUT:-"false"}" == "true" ]]; then
   git add scripts/code_snippets/tests/outputs/test_*
   git commit -m "Update code snippets outputs"
   git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/mongodb/mongodb-kubernetes.git"
-  git push origin "${branch}"
+  #git push origin "${branch}"
 else
   echo "Not pushing output files"
 fi
