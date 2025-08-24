@@ -12,38 +12,62 @@ mkdir -p "${_SNIPPETS_OUTPUT_DIR}"
 function cleanup() {
   if [ "${code_snippets_teardown:-true}" = true ]; then
     echo "Deleting clusters"
-    ./public/architectures/setup-multi-cluster/setup-gke/teardown.sh
+    ./public/architectures/setup-multi-cluster/ra-01-setup-gke/teardown.sh
   elif [ "${code_snippets_reset:-false}" = true ]; then
       echo "Deleting resources, keeping the clusters"
-      ./public/architectures/ops-manager-multi-cluster/teardown.sh &
-      ./public/architectures/mongodb-sharded-multi-cluster/teardown.sh &
-      ./public/architectures/mongodb-replicaset-multi-cluster/teardown.sh &
+      ./public/architectures/ra-06-ops-manager-multi-cluster/teardown.sh &
+      ./public/architectures/ra-08-mongodb-sharded-multi-cluster/teardown.sh &
+      ./public/architectures/ra-07-mongodb-replicaset-multi-cluster/teardown.sh &
       wait
 
-      ./public/architectures/setup-multi-cluster/setup-operator/teardown.sh
+      ./public/architectures/setup-multi-cluster/ra-02-setup-operator/teardown.sh
   else
     echo "Not deleting anything"
   fi
 }
-trap cleanup EXIT
 
-source public/architectures/setup-multi-cluster/setup-gke/env_variables.sh
-./public/architectures/setup-multi-cluster/setup-gke/test.sh
+dump_logs() {
+  scripts/evergreen/e2e/dump_diagnostic_information_from_all_namespaces.sh "${K8S_CLUSTER_0_CONTEXT_NAME}"
+  scripts/evergreen/e2e/dump_diagnostic_information_from_all_namespaces.sh "${K8S_CLUSTER_1_CONTEXT_NAME}"
+  scripts/evergreen/e2e/dump_diagnostic_information_from_all_namespaces.sh "${K8S_CLUSTER_2_CONTEXT_NAME}"
+}
 
-source public/architectures/setup-multi-cluster/setup-operator/env_variables.sh
-./public/architectures/setup-multi-cluster/setup-operator/test.sh
+cmd=${1:-""}
+if [[ "${cmd}" == "dump_logs" ]]; then
+  source public/architectures/setup-multi-cluster/ra-01-setup-gke/env_variables.sh
+  dump_logs
+  exit 0
+elif [[ "${cmd}" == "cleanup" ]]; then
+  source public/architectures/setup-multi-cluster/ra-01-setup-gke/env_variables.sh
+  cleanup
+  exit 0
+fi
+# if no cmd, proceed with the test normally
+function on_exit() {
+  dump_logs
+  cleanup
+}
 
-./public/architectures/setup-multi-cluster/setup-istio/test.sh
+trap on_exit EXIT
 
-./public/architectures/setup-multi-cluster/verify-connectivity/test.sh
 
-./public/architectures/setup-multi-cluster/setup-cert-manager/test.sh
+source public/architectures/setup-multi-cluster/ra-01-setup-gke/env_variables.sh
+./public/architectures/setup-multi-cluster/ra-01-setup-gke/test.sh
 
-source public/architectures/ops-manager-multi-cluster/env_variables.sh
-./public/architectures/ops-manager-multi-cluster/test.sh
+source public/architectures/setup-multi-cluster/ra-02-setup-operator/env_variables.sh
+./public/architectures/setup-multi-cluster/ra-02-setup-operator/test.sh
 
-source public/architectures/mongodb-replicaset-multi-cluster/env_variables.sh
-./public/architectures/mongodb-replicaset-multi-cluster/test.sh
+./public/architectures/setup-multi-cluster/ra-03-setup-istio/test.sh
 
-source public/architectures/mongodb-sharded-multi-cluster/env_variables.sh
-./public/architectures/mongodb-sharded-multi-cluster/test.sh
+./public/architectures/setup-multi-cluster/ra-04-verify-connectivity/test.sh
+
+./public/architectures/setup-multi-cluster/ra-05-setup-cert-manager/test.sh
+
+source public/architectures/ra-06-ops-manager-multi-cluster/env_variables.sh
+./public/architectures/ra-06-ops-manager-multi-cluster/test.sh
+
+source public/architectures/ra-07-mongodb-replicaset-multi-cluster/env_variables.sh
+./public/architectures/ra-07-mongodb-replicaset-multi-cluster/test.sh
+
+source public/architectures/ra-08-mongodb-sharded-multi-cluster/env_variables.sh
+./public/architectures/ra-08-mongodb-sharded-multi-cluster/test.sh

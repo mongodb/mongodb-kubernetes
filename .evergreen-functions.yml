@@ -793,7 +793,7 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/code_snippets/sample_commit_output.sh
 
-  # it executes a script by convention: ./scripts/code_snippets/${task_name}_test.sh
+  # it executes a script by convention: ./scripts/code_snippets/tests/${task_name}
   test_code_snippets:
     - *switch_context
     - command: shell.exec
@@ -806,4 +806,4 @@ functions:
           - code_snippets_reset
           - task_name
         script: |
-          ./scripts/code_snippets/${task_name}_test.sh
+          ./scripts/code_snippets/tests/${task_name}

@@ -54,10 +54,10 @@ def verify_snippets_files_are_unique():
             print()
 
     if duplicates_found:
-        print("Please rename duplicate files to ensure uniqueness across all snippet directories.")
+        print("Failure - please rename duplicate files to ensure uniqueness across all snippet directories.")
         return False
     else:
-        print("All snippet files have unique names across directories.")
+        print("OK - all snippets have unique names across directories.")
         return True
 
 
