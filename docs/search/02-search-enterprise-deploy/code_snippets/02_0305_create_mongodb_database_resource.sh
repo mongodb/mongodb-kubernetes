@@ -1,9 +1,9 @@
-kubectl apply --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" -f - <<EOF
+kubectl apply --context "${K8S_CTX}" -n "${MDB_NS}" -f - <<EOF
 ---
 apiVersion: mongodb.com/v1
 kind: MongoDB
 metadata:
-  name: mdb-rs
+  name: ${MDB_RESOURCE_NAME}
 spec:
   members: 3
   version: ${MDB_VERSION}

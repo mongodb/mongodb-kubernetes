@@ -1,7 +1,7 @@
-export K8S_CLUSTER_0_CONTEXT_NAME="kind-kind"
+export K8S_CTX="kind-kind"
 
 # patch id from evergreen patch
-version_id="688d3c049457710007a030a0"
+version_id="688de361d940720007dc0267"
 
 search_image_repo="268558157000.dkr.ecr.eu-west-1.amazonaws.com/mongot"
 search_image_hash="fbd60fb055dd500058edcb45677ea85d19421f47"
@@ -32,5 +32,5 @@ SCRIPT_DIR="$(cd "$(dirname "${SCRIPT_PATH}")" && pwd)"
 
 OPERATOR_ADDITIONAL_HELM_VALUES="$(echo -n "${helm_values[@]}" | tr ' ' ',')"
 export OPERATOR_ADDITIONAL_HELM_VALUES
-OPERATOR_HELM_CHART="$(realpath "${SCRIPT_DIR}/../../../../helm_chart")"
+OPERATOR_HELM_CHART="$(realpath "${SCRIPT_DIR}/../../helm_chart")"
 export OPERATOR_HELM_CHART

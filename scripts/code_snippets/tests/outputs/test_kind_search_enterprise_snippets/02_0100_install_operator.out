@@ -1,35 +1,52 @@
 Release "mongodb-kubernetes" does not exist. Installing it now.
 NAME: mongodb-kubernetes
-LAST DEPLOYED: Fri Aug  1 22:48:48 2025
-NAMESPACE: mongodb-test
+LAST DEPLOYED: Sun Aug 24 14:01:47 2025
+NAMESPACE: ls
 STATUS: deployed
 REVISION: 1
 TEST SUITE: None
 USER-SUPPLIED VALUES:
+agent:
+  version: 108.0.2.8729-1
 database:
-  version: 688cf772f2350700075c5909
+  name: mongodb-kubernetes-database
+  version: 68876175f5ad6d0007fdc1d4
 initAppDb:
-  version: 688cf772f2350700075c5909
+  version: 68876175f5ad6d0007fdc1d4
 initDatabase:
-  version: 688cf772f2350700075c5909
+  version: 68876175f5ad6d0007fdc1d4
 initOpsManager:
-  version: 688cf772f2350700075c5909
+  version: 68876175f5ad6d0007fdc1d4
+managedSecurityContext: false
+mongodb:
+  imageType: ubi9
+  name: mongodb-enterprise-server
 operator:
-  version: 688cf772f2350700075c5909
+  enablePVCResize: true
+  maxConcurrentReconciles: 10
+  mdbDefaultArchitecture: non-static
+  telemetry:
+    collection:
+      frequency: 1m
+    send:
+      enabled: false
+  version: 68876175f5ad6d0007fdc1d4
+opsManager:
+  name: mongodb-enterprise-ops-manager-ubi
 registry:
   agent: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
   appDb: quay.io/mongodb
   database: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
-  imagePullSecrets: image-registries-secret2
+  imagePullSecrets: image-registries-secret
   initAppDb: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
   initDatabase: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
   initOpsManager: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
   operator: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
-  opsManager: quay.io/mongodb
+  opsManager: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
 search:
   community:
-    name: community
-    repo: 268558157000.dkr.ecr.eu-west-1.amazonaws.com/mongot
+    name: mongot/community
+    repo: 268558157000.dkr.ecr.eu-west-1.amazonaws.com
     version: fbd60fb055dd500058edcb45677ea85d19421f47
 
 COMPUTED VALUES:
@@ -63,20 +80,20 @@ community:
     version: 4.4.0
 database:
   name: mongodb-kubernetes-database
-  version: 688cf772f2350700075c5909
+  version: 68876175f5ad6d0007fdc1d4
 initAppDb:
   name: mongodb-kubernetes-init-appdb
-  version: 688cf772f2350700075c5909
+  version: 68876175f5ad6d0007fdc1d4
 initDatabase:
   name: mongodb-kubernetes-init-database
-  version: 688cf772f2350700075c5909
+  version: 68876175f5ad6d0007fdc1d4
 initOpsManager:
   name: mongodb-kubernetes-init-ops-manager
-  version: 688cf772f2350700075c5909
+  version: 68876175f5ad6d0007fdc1d4
 managedSecurityContext: false
 mongodb:
   appdbAssumeOldFormat: false
-  imageType: ubi8
+  imageType: ubi9
   name: mongodb-enterprise-server
   repo: quay.io/mongodb
 multiCluster:
@@ -94,7 +111,7 @@ operator:
   enableClusterMongoDBRoles: true
   enablePVCResize: true
   env: prod
-  maxConcurrentReconciles: 1
+  maxConcurrentReconciles: 10
   mdbDefaultArchitecture: non-static
   name: mongodb-kubernetes-operator
   nodeSelector: {}
@@ -111,15 +128,16 @@ operator:
     collection:
       clusters: {}
       deployments: {}
-      frequency: 1h
+      frequency: 1m
       operators: {}
     send:
+      enabled: false
       frequency: 168h
   tolerations: []
   vaultSecretBackend:
     enabled: false
     tlsSecretRef: ""
-  version: 688cf772f2350700075c5909
+  version: 68876175f5ad6d0007fdc1d4
   watchedResources:
   - mongodb
   - opsmanagers
@@ -138,19 +156,19 @@ registry:
   agent: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
   appDb: quay.io/mongodb
   database: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
-  imagePullSecrets: image-registries-secret2
+  imagePullSecrets: image-registries-secret
   initAppDb: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
   initDatabase: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
   initOpsManager: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
   operator: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
-  opsManager: quay.io/mongodb
+  opsManager: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
   pullPolicy: Always
   readinessProbe: quay.io/mongodb
   versionUpgradeHook: quay.io/mongodb
 search:
   community:
-    name: community
-    repo: 268558157000.dkr.ecr.eu-west-1.amazonaws.com/mongot
+    name: mongot/community
+    repo: 268558157000.dkr.ecr.eu-west-1.amazonaws.com
     version: fbd60fb055dd500058edcb45677ea85d19421f47
 versionUpgradeHook:
   name: mongodb-kubernetes-operator-version-upgrade-post-start-hook
@@ -164,42 +182,42 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-appdb
-  namespace: mongodb-test
+  namespace: ls
 imagePullSecrets:
-  - name: image-registries-secret2
+  - name: image-registries-secret
 ---
 # Source: mongodb-kubernetes/templates/database-roles.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-database-pods
-  namespace: mongodb-test
+  namespace: ls
 imagePullSecrets:
-  - name: image-registries-secret2
+  - name: image-registries-secret
 ---
 # Source: mongodb-kubernetes/templates/database-roles.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-ops-manager
-  namespace: mongodb-test
+  namespace: ls
 imagePullSecrets:
-  - name: image-registries-secret2
+  - name: image-registries-secret
 ---
 # Source: mongodb-kubernetes/templates/operator-sa.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-operator
-  namespace: mongodb-test
+  namespace: ls
 imagePullSecrets:
-  - name: image-registries-secret2
+  - name: image-registries-secret
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-clustermongodbroles.yaml
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-kubernetes-operator-mongodb-test-cluster-mongodb-role
+  name: mongodb-kubernetes-operator-ls-cluster-mongodb-role
 rules:
   - apiGroups:
       - mongodb.com
@@ -267,22 +285,22 @@ rules:
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-kubernetes-operator-mongodb-test-cluster-mongodb-role-binding
+  name: mongodb-kubernetes-operator-ls-cluster-mongodb-role-binding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: mongodb-kubernetes-operator-mongodb-test-cluster-mongodb-role
+  name: mongodb-kubernetes-operator-ls-cluster-mongodb-role
 subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
-    namespace: mongodb-test
+    namespace: ls
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-telemetry.yaml
 # ClusterRoleBinding for clusterVersionDetection
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-kubernetes-operator-mongodb-test-cluster-telemetry-binding
+  name: mongodb-kubernetes-operator-ls-cluster-telemetry-binding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -290,13 +308,13 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
-    namespace: mongodb-test
+    namespace: ls
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-webhook.yaml
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-kubernetes-operator-mongodb-test-webhook-binding
+  name: mongodb-kubernetes-operator-ls-webhook-binding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -304,14 +322,14 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
-    namespace: mongodb-test
+    namespace: ls
 ---
 # Source: mongodb-kubernetes/templates/database-roles.yaml
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: mongodb-kubernetes-appdb
-  namespace: mongodb-test
+  namespace: ls
 rules:
   - apiGroups:
       - ''
@@ -333,7 +351,7 @@ kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: mongodb-kubernetes-operator
-  namespace: mongodb-test
+  namespace: ls
 rules:
   - apiGroups:
       - ''
@@ -414,7 +432,7 @@ kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: mongodb-kubernetes-operator-pvc-resize
-  namespace: mongodb-test
+  namespace: ls
 rules:
   - apiGroups:
       - ''
@@ -433,7 +451,7 @@ kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: mongodb-kubernetes-appdb
-  namespace: mongodb-test
+  namespace: ls
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -441,14 +459,14 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-appdb
-    namespace: mongodb-test
+    namespace: ls
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-base.yaml
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: mongodb-kubernetes-operator
-  namespace: mongodb-test
+  namespace: ls
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -456,14 +474,14 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
-    namespace: mongodb-test
+    namespace: ls
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-pvc-resize.yaml
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: mongodb-kubernetes-operator-pvc-resize-binding
-  namespace: mongodb-test
+  namespace: ls
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -471,14 +489,14 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
-    namespace: mongodb-test
+    namespace: ls
 ---
 # Source: mongodb-kubernetes/templates/operator.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: mongodb-kubernetes-operator
-  namespace: mongodb-test
+  namespace: ls
 spec:
   replicas: 1
   selector:
@@ -498,10 +516,10 @@ spec:
         runAsNonRoot: true
         runAsUser: 2000
       imagePullSecrets:
-        - name: image-registries-secret2
+        - name: image-registries-secret
       containers:
         - name: mongodb-kubernetes-operator
-          image: "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes:688cf772f2350700075c5909"
+          image: "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes:68876175f5ad6d0007fdc1d4"
           imagePullPolicy: Always
           args:
             - -watch-resource=mongodb
@@ -533,7 +551,9 @@ spec:
                 fieldRef:
                   fieldPath: metadata.namespace
             - name: MDB_OPERATOR_TELEMETRY_COLLECTION_FREQUENCY
-              value: "1h"
+              value: "1m"
+            - name: MDB_OPERATOR_TELEMETRY_SEND_ENABLED
+              value: "false"
             - name: MDB_OPERATOR_TELEMETRY_SEND_FREQUENCY
               value: "168h"
             - name: CLUSTER_CLIENT_TIMEOUT
@@ -546,21 +566,21 @@ spec:
             - name: INIT_DATABASE_IMAGE_REPOSITORY
               value: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-database
             - name: INIT_DATABASE_VERSION
-              value: 688cf772f2350700075c5909
+              value: 68876175f5ad6d0007fdc1d4
             - name: DATABASE_VERSION
-              value: 688cf772f2350700075c5909
+              value: 68876175f5ad6d0007fdc1d4
             # Ops Manager
             - name: OPS_MANAGER_IMAGE_REPOSITORY
-              value: quay.io/mongodb/mongodb-enterprise-ops-manager-ubi
+              value: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-ops-manager-ubi
             - name: INIT_OPS_MANAGER_IMAGE_REPOSITORY
               value: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-ops-manager
             - name: INIT_OPS_MANAGER_VERSION
-              value: 688cf772f2350700075c5909
+              value: 68876175f5ad6d0007fdc1d4
             # AppDB
             - name: INIT_APPDB_IMAGE_REPOSITORY
               value: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-appdb
             - name: INIT_APPDB_VERSION
-              value: 688cf772f2350700075c5909
+              value: 68876175f5ad6d0007fdc1d4
             - name: OPS_MANAGER_IMAGE_PULL_POLICY
               value: Always
             - name: AGENT_IMAGE
@@ -572,13 +592,13 @@ spec:
             - name: MONGODB_REPO_URL
               value: quay.io/mongodb
             - name: MDB_IMAGE_TYPE
-              value: ubi8
+              value: ubi9
             - name: PERFORM_FAILOVER
               value: 'true'
             - name: IMAGE_PULL_SECRETS
-              value: image-registries-secret2
+              value: image-registries-secret
             - name: MDB_MAX_CONCURRENT_RECONCILES
-              value: "1"
+              value: "10"
             - name: POD_NAME
               valueFrom:
                 fieldRef:
@@ -600,9 +620,9 @@ spec:
               value: "ubi8"
             # Community Env Vars End
             - name: MDB_SEARCH_COMMUNITY_REPO_URL
-              value: "268558157000.dkr.ecr.eu-west-1.amazonaws.com/mongot"
+              value: "268558157000.dkr.ecr.eu-west-1.amazonaws.com"
             - name: MDB_SEARCH_COMMUNITY_NAME
-              value: "community"
+              value: "mongot/community"
             - name: MDB_SEARCH_COMMUNITY_VERSION
               value: "fbd60fb055dd500058edcb45677ea85d19421f47"
 
