@@ -1,0 +1,20 @@
+
+MongoDBCommunity resource
+NAME      PHASE     VERSION
+mdbc-rs   Running   8.0.10
+
+MongoDBSearch resource
+NAME      PHASE     AGE
+mdbc-rs   Running   5m33s
+
+Pods running in cluster kind-kind
+NAME                                           READY   STATUS    RESTARTS        AGE
+mdb-debug-mdbc-rs-0-0                          1/1     Running   0               7m12s
+mdb-debug-mdbc-rs-1-0                          1/1     Running   0               7m11s
+mdb-debug-mdbc-rs-2-0                          1/1     Running   0               7m11s
+mdb-debug-mdbc-rs-search-0-0                   1/1     Running   0               5m33s
+mdbc-rs-0                                      2/2     Running   1 (31s ago)     8m17s
+mdbc-rs-1                                      2/2     Running   1 (3m8s ago)    7m3s
+mdbc-rs-2                                      2/2     Running   1 (109s ago)    6m14s
+mdbc-rs-search-0                               1/1     Running   4 (4m17s ago)   5m34s
+mongodb-kubernetes-operator-696b5dd864-kpgkl   1/1     Running   0               8m25s
