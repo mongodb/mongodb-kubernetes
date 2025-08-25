@@ -144,7 +144,7 @@ initAppDb:
 
 agent:
   name: mongodb-agent-ubi
-  version: 108.0.2.8729-1
+  version: 108.0.12.8846-1
 
 # This is only used by the MongoDBCommunity resource reconciler - START
 versionUpgradeHook:
