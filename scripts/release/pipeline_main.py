@@ -17,7 +17,7 @@ from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
 
 from lib.base_logger import logger
 from scripts.release.atomic_pipeline import (
-    build_agent_default_case,
+    build_agent,
     build_database_image,
     build_init_appdb_image,
     build_init_database_image,
@@ -74,7 +74,7 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         READINESS_PROBE_IMAGE: build_readiness_probe_image,
         UPGRADE_HOOK_IMAGE: build_upgrade_hook_image,
         DATABASE_IMAGE: build_database_image,
-        AGENT_IMAGE: build_agent_default_case,
+        AGENT_IMAGE: build_agent,
         # Init images
         INIT_APPDB_IMAGE: build_init_appdb_image,
         INIT_DATABASE_IMAGE: build_init_database_image,
@@ -109,20 +109,30 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
 
     # Resolve final values with overrides
     version = args.version or image_build_info.version
-    registry = args.registry or image_build_info.repository
+    if args.registry:
+        registries = [args.registry]
+    else:
+        registries = image_build_info.repositories
     platforms = get_platforms_from_arg(args.platform) or image_build_info.platforms
     sign = args.sign or image_build_info.sign
     dockerfile_path = image_build_info.dockerfile_path
 
+    # Validate version - only ops-manager and agent can have None version as the versions are managed by the agent
+    # and om methods themselves, which are externally retrieved - om_version env var and release.json respectively
+    if version is None and image not in ["ops-manager", "agent"]:
+        raise ValueError(f"Version cannot be empty for {image}.")
+
     return ImageBuildConfiguration(
         scenario=build_scenario,
         version=version,
-        registry=registry,
+        registries=registries,
         dockerfile_path=dockerfile_path,
         parallel=args.parallel,
         platforms=platforms,
         sign=sign,
         parallel_factor=args.parallel_factor,
+        all_agents=args.all_agents,
+        currently_used_agents=args.current_agents,
     )
 
 
@@ -250,6 +260,16 @@ Default is to infer from environment variables. For '{BuildScenario.DEVELOPMENT}
         action="store",
         type=int,
         help="Number of agent builds to run in parallel, defaults to number of cores",
+    )
+    parser.add_argument(
+        "--all-agents",
+        action="store_true",
+        help="Build all agent images.",
+    )
+    parser.add_argument(
+        "--current-agents",
+        action="store_true",
+        help="Build all currently used agent images.",
     )
 
     args = parser.parse_args()

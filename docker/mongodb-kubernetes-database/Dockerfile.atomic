@@ -4,16 +4,6 @@ COPY ./docker/mongodb-kubernetes-database/LICENSE /data/licenses/mongodb-kuberne
 
 FROM registry.access.redhat.com/ubi8/ubi-minimal
 
-ARG VERSION
-
-LABEL name="MongoDB Kubernetes Database" \
-      version="${VERSION}" \
-      summary="MongoDB Kubernetes Database Image" \
-      description="MongoDB Kubernetes Database Image" \
-      vendor="MongoDB" \
-      release="1" \
-      maintainer="support@mongodb.com"
-
 ENV MMS_HOME=/mongodb-automation
 ENV MMS_LOG_DIR=/var/log/mongodb-mms-automation
 
@@ -56,6 +46,16 @@ RUN mkdir -p "${MMS_LOG_DIR}" \
         && chmod 0775 /journal \
         && mkdir -p "${MMS_HOME}" \
         && chmod -R 0775 "${MMS_HOME}"
+
+ARG VERSION
+
+LABEL name="MongoDB Kubernetes Database" \
+      version="${VERSION}" \
+      summary="MongoDB Kubernetes Database Image" \
+      description="MongoDB Kubernetes Database Image" \
+      vendor="MongoDB" \
+      release="1" \
+      maintainer="support@mongodb.com"
 
 # USER needs to be set for this image to pass RedHat verification. Some customers have these requirements as well
 # It does not matter what number it is, as long as it is set to something.

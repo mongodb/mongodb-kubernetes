@@ -79,7 +79,7 @@ func (m *MockedManager) GetAdmissionDecoder() admission.Decoder {
 
 // GetAPIReader returns the client reader
 func (m *MockedManager) GetAPIReader() k8sClient.Reader {
-	return nil
+	return m.Client
 }
 
 // GetClient returns a client configured with the Config

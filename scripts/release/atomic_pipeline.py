@@ -10,12 +10,20 @@ from copy import copy
 from queue import Queue
 from typing import Dict, List, Optional, Tuple
 
+import python_on_whales
 import requests
-import semver
 from opentelemetry import trace
-from packaging.version import Version
 
 from lib.base_logger import logger
+from scripts.release.agent.detect_ops_manager_changes import (
+    detect_ops_manager_changes,
+    get_all_agents_for_rebuild,
+    get_currently_used_agents,
+)
+from scripts.release.agent.validation import (
+    generate_agent_build_args,
+    generate_tools_build_args,
+)
 from scripts.release.build.image_build_configuration import ImageBuildConfiguration
 from scripts.release.build.image_build_process import execute_docker_build
 from scripts.release.build.image_signing import (
@@ -27,36 +35,51 @@ from scripts.release.build.image_signing import (
 TRACER = trace.get_tracer("evergreen-agent")
 
 
-@TRACER.start_as_current_span("build_image")
+def extract_tools_version_from_release(release: Dict) -> str:
+    """
+    Extract tools version from release.json mongodbToolsBundle.ubi field.
+
+    Returns:
+        Tools version string (e.g., "100.12.2")
+    """
+    tools_bundle = release["mongodbToolsBundle"]["ubi"]
+    # Extract version from filename like "mongodb-database-tools-rhel88-x86_64-100.12.2.tgz"
+    # The version is the last part before .tgz
+    version_part = tools_bundle.split("-")[-1]  # Gets "100.12.2.tgz"
+    tools_version = version_part.replace(".tgz", "")  # Gets "100.12.2"
+    return tools_version
+
+
 def build_image(
     build_configuration: ImageBuildConfiguration,
     build_args: Dict[str, str] = None,
     build_path: str = ".",
 ):
     """
-    Build an image then (optionally) sign the result.
+    Build an image, sign (optionally) it, then tag and push to all repositories in the registry list.
     """
     image_name = build_configuration.image_name()
     span = trace.get_current_span()
     span.set_attribute("mck.image_name", image_name)
 
-    base_registry = build_configuration.base_registry()
+    registries = build_configuration.get_registries
+
     build_args = build_args or {}
 
     if build_args:
         span.set_attribute("mck.build_args", str(build_args))
-    span.set_attribute("mck.registry", base_registry)
+    span.set_attribute("mck.registries", str(registries))
     span.set_attribute("mck.platforms", build_configuration.platforms)
 
-    # Build docker registry URI and call build_image
-    image_full_uri = f"{build_configuration.registry}:{build_configuration.version}"
+    # Build the image once with all repository tags
+    all_tags = [f"{registry}:{build_configuration.version}" for registry in build_configuration.registries]
 
     logger.info(
-        f"Building {image_full_uri} for platforms={build_configuration.platforms}, dockerfile args: {build_args}"
+        f"Building image with tags {all_tags} for platforms={build_configuration.platforms}, dockerfile args: {build_args}"
     )
 
     execute_docker_build(
-        tag=image_full_uri,
+        tags=all_tags,
         dockerfile=build_configuration.dockerfile_path,
         path=build_path,
         args=build_args,
@@ -68,8 +91,9 @@ def build_image(
         logger.info("Logging in MongoDB Artifactory for Garasign image")
         mongodb_artifactory_login()
         logger.info("Signing image")
-        sign_image(build_configuration.registry, build_configuration.version)
-        verify_signature(build_configuration.registry, build_configuration.version)
+        for registry in build_configuration.registries:
+            sign_image(registry, build_configuration.version)
+            verify_signature(registry, build_configuration.version)
 
 
 def build_meko_tests_image(build_configuration: ImageBuildConfiguration):
@@ -210,7 +234,6 @@ def build_om_image(build_configuration: ImageBuildConfiguration):
     if om_version is None:
         raise ValueError("`om_version` should be defined.")
 
-    # Set the version in the build configuration (it is not provided in the build_configuration)
     build_configuration.version = om_version
 
     om_download_url = os.environ.get("om_download_url", "")
@@ -230,9 +253,22 @@ def build_om_image(build_configuration: ImageBuildConfiguration):
 
 def build_init_appdb_image(build_configuration: ImageBuildConfiguration):
     release = load_release_file()
-    base_url = "https://fastdl.mongodb.org/tools/db/"
-    mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
-    args = {"version": build_configuration.version, "mongodb_tools_url_ubi": mongodb_tools_url_ubi}
+    base_url = "https://fastdl.mongodb.org/tools/db"
+
+    tools_version = extract_tools_version_from_release(release)
+
+    platform_build_args = generate_tools_build_args(
+        platforms=build_configuration.platforms, tools_version=tools_version
+    )
+    if not platform_build_args:
+        logger.warning(f"Skipping build for init-appdb - tools version {tools_version} not found in repository")
+        return
+
+    args = {
+        "version": build_configuration.version,
+        "mongodb_tools_url": base_url,  # Base URL for platform-specific downloads
+        **platform_build_args,  # Add the platform-specific build args
+    }
 
     build_image(
         build_configuration=build_configuration,
@@ -240,12 +276,24 @@ def build_init_appdb_image(build_configuration: ImageBuildConfiguration):
     )
 
 
-# TODO: nam static: remove this once static containers becomes the default
 def build_init_database_image(build_configuration: ImageBuildConfiguration):
     release = load_release_file()
-    base_url = "https://fastdl.mongodb.org/tools/db/"
-    mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
-    args = {"version": build_configuration.version, "mongodb_tools_url_ubi": mongodb_tools_url_ubi}
+    base_url = "https://fastdl.mongodb.org/tools/db"
+
+    tools_version = extract_tools_version_from_release(release)
+
+    platform_build_args = generate_tools_build_args(
+        platforms=build_configuration.platforms, tools_version=tools_version
+    )
+    if not platform_build_args:
+        logger.warning(f"Skipping build for init-database - tools version {tools_version} not found in repository")
+        return
+
+    args = {
+        "version": build_configuration.version,
+        "mongodb_tools_url": base_url,  # Add the base URL for the Dockerfile
+        **platform_build_args,  # Add the platform-specific build args
+    }
 
     build_image(
         build_configuration=build_configuration,
@@ -273,23 +321,26 @@ def build_upgrade_hook_image(build_configuration: ImageBuildConfiguration):
     )
 
 
-def build_agent_default_case(build_configuration: ImageBuildConfiguration):
+def build_agent(build_configuration: ImageBuildConfiguration):
     """
     Build the agent only for the latest operator for patches and operator releases.
 
     """
-    release = load_release_file()
-
-    # We need to release [all agents x latest operator] on operator releases
-    if build_configuration.is_release_scenario():
-        agent_versions_to_build = gather_all_supported_agent_versions(release)
-    # We only need [latest agents (for each OM major version and for CM) x patch ID] for patches
+    if build_configuration.all_agents:
+        agent_versions_to_build = get_all_agents_for_rebuild()
+        logger.info("building all agents")
+    elif build_configuration.currently_used_agents:
+        agent_versions_to_build = get_currently_used_agents()
+        logger.info("building current used agents")
     else:
-        agent_versions_to_build = gather_latest_agent_versions(release)
+        agent_versions_to_build = detect_ops_manager_changes()
+        logger.info("building agents for changed OM versions")
 
-    logger.info(
-        f"Building Agent versions: {agent_versions_to_build} for Operator versions: {build_configuration.version}"
-    )
+    if not agent_versions_to_build:
+        logger.info("No changes detected, skipping agent build")
+        return
+
+    logger.info(f"Building Agent versions: {agent_versions_to_build}")
 
     tasks_queue = Queue()
     max_workers = 1
@@ -300,13 +351,12 @@ def build_agent_default_case(build_configuration: ImageBuildConfiguration):
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         logger.info(f"Running with factor of {max_workers}")
         logger.info(f"======= Agent versions to build {agent_versions_to_build} =======")
+
         for idx, agent_tools_version in enumerate(agent_versions_to_build):
-            # We don't need to keep create and push the same image on every build.
-            # It is enough to create and push the non-operator suffixed images only during releases to ecr and quay.
-            logger.info(f"======= Building Agent {agent_tools_version} ({idx}/{len(agent_versions_to_build)})")
-            _build_agent_operator(
+            _build_agent(
                 agent_tools_version,
                 build_configuration,
+                build_configuration.platforms,
                 executor,
                 tasks_queue,
             )
@@ -314,103 +364,49 @@ def build_agent_default_case(build_configuration: ImageBuildConfiguration):
     queue_exception_handling(tasks_queue)
 
 
-def gather_all_supported_agent_versions(release: Dict) -> List[Tuple[str, str]]:
-    # This is a list of a tuples - agent version and corresponding tools version
-    agent_versions_to_build = list()
-    agent_versions_to_build.append(
-        (
-            release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager"],
-            release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager_tools"],
-        )
-    )
-    for _, om in release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"].items():
-        agent_versions_to_build.append((om["agent_version"], om["tools_version"]))
-
-    # lets not build the same image multiple times
-    return sorted(list(set(agent_versions_to_build)))
-
-
-def gather_latest_agent_versions(release: Dict) -> List[Tuple[str, str]]:
-    """
-    This function is used when we release a new agent via OM bump.
-    That means we will need to release that agent with all supported operators.
-    Since we don’t want to release all agents again, we only release the latest, which will contain the newly added one
-    :return: the latest agent for each major version
-    """
-    agent_versions_to_build = list()
-    agent_versions_to_build.append(
-        (
-            release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager"],
-            release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager_tools"],
-        )
-    )
-
-    latest_versions = {}
-
-    for version in release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"].keys():
-        parsed_version = semver.VersionInfo.parse(version)
-        major_version = parsed_version.major
-        if major_version in latest_versions:
-            latest_parsed_version = semver.VersionInfo.parse(str(latest_versions[major_version]))
-            latest_versions[major_version] = max(parsed_version, latest_parsed_version)
-        else:
-            latest_versions[major_version] = version
-
-    for major_version, latest_version in latest_versions.items():
-        agent_versions_to_build.append(
-            (
-                release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"][str(latest_version)][
-                    "agent_version"
-                ],
-                release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"][str(latest_version)][
-                    "tools_version"
-                ],
-            )
-        )
-
-    return sorted(list(set(agent_versions_to_build)))
-
-
-def _build_agent_operator(
+def _build_agent(
     agent_tools_version: Tuple[str, str],
     build_configuration: ImageBuildConfiguration,
+    available_platforms: List[str],
     executor: ProcessPoolExecutor,
     tasks_queue: Queue,
 ):
     agent_version = agent_tools_version[0]
-    agent_distro = "rhel9_x86_64"
     tools_version = agent_tools_version[1]
-    tools_distro = get_tools_distro(tools_version)["amd"]
 
     tasks_queue.put(
-        executor.submit(
-            build_agent_pipeline,
-            build_configuration,
-            agent_version,
-            agent_distro,
-            tools_version,
-            tools_distro,
-        )
+        executor.submit(build_agent_pipeline, build_configuration, agent_version, tools_version, available_platforms)
     )
 
 
 def build_agent_pipeline(
     build_configuration: ImageBuildConfiguration,
     agent_version: str,
-    agent_distro: str,
     tools_version: str,
-    tools_distro: str,
+    available_platforms: List[str],
 ):
     build_configuration_copy = copy(build_configuration)
     build_configuration_copy.version = agent_version
+    build_configuration_copy.platforms = available_platforms  # Use only available platforms
+    print(
+        f"======== Building agent pipeline for version {agent_version}, build configuration version: {build_configuration.version}"
+    )
 
-    print(f"======== Building agent pipeline for version {agent_version}, tools version: {tools_version}")
+    platform_build_args = generate_agent_build_args(
+        platforms=available_platforms, agent_version=agent_version, tools_version=tools_version
+    )
+
+    agent_base_url = (
+        "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
+    )
+    tools_base_url = "https://fastdl.mongodb.org/tools/db"
+
     args = {
         "version": agent_version,
         "agent_version": agent_version,
-        "agent_distro": agent_distro,
-        "tools_version": tools_version,
-        "tools_distro": tools_distro,
+        "mongodb_agent_url": agent_base_url,
+        "mongodb_tools_url": tools_base_url,
+        **platform_build_args,  # Add the platform-specific build args
     }
 
     build_image(
@@ -429,14 +425,6 @@ def queue_exception_handling(tasks_queue):
         raise Exception(
             f"Exception(s) found when processing Agent images. \nSee also previous logs for more info\nFailing the build"
         )
-
-
-def get_tools_distro(tools_version: str) -> Dict[str, str]:
-    new_rhel_tool_version = "100.10.0"
-    default_distro = {"arm": "rhel90-aarch64", "amd": "rhel90-x86_64"}
-    if Version(tools_version) >= Version(new_rhel_tool_version):
-        return {"arm": "rhel93-aarch64", "amd": "rhel93-x86_64"}
-    return default_distro
 
 
 def load_release_file() -> Dict:
