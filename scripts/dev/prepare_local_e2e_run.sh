@@ -49,7 +49,7 @@ ensure_namespace "${NAMESPACE}" 2>&1 | prepend "ensure_namespace"
 
 echo "Deleting ~/.docker/.config.json and re-creating it"
 rm ~/.docker/config.json || true
-scripts/dev/configure_docker_auth.sh 2>&1 | prepend "configure_docker_auth"
+scripts/dev/configure_container_auth.sh 2>&1 | prepend "configure_docker_auth"
 
 echo "Configuring operator"
 scripts/evergreen/e2e/configure_operator.sh 2>&1 | prepend "configure_operator"

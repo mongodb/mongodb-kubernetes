@@ -57,4 +57,3 @@ Migration from [MongoDB Community Operator](https://github.com/mongodb/mongodb-k
 See our detailed migration guides:
 - [Migrating from MongoDB Community Operator](docs/migration/community-operator-migration.md)
 - [Migrating from MongoDB Enterprise Kubernetes Operator](https://www.mongodb.com/docs/kubernetes/current/tutorial/migrate-to-mck/)
-

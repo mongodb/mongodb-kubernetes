@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+export ops_manager_version="cloud_qa"
+
+export CUSTOM_MDB_VERSION=7.0.22-ent # we only have ibm static images starting with 7.0.22
+export KUBE_ENVIRONMENT_NAME=minikube
+export CLUSTER_TYPE=minikube
+export CONTAINER_RUNTIME=podman
