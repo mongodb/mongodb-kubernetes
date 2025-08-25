@@ -88,14 +88,11 @@ COPY ./docker/mongodb-agent/setup-agent-files.sh /usr/local/bin/setup-agent-file
 COPY ./docker/mongodb-agent/dummy-probe.sh /usr/local/bin/dummy-probe.sh
 COPY ./docker/mongodb-agent/dummy-readinessprobe /usr/local/bin/dummy-readinessprobe
 
-# Set up directories and permissions (agent and tools are already extracted in downloader stages)
 RUN mkdir -p /var/lib/automation/config \
     && chmod -R +r /var/lib/automation/config
 
-# Create directories first
 RUN mkdir -p /tools /agent
 
-# Copy the extracted tools and agent from the downloader stages
 COPY --from=tools_downloader "/tools/" /tools/
 COPY --from=agent_downloader "/agent/" /agent/
 

@@ -539,7 +539,7 @@ functions:
           - version_id
         add_to_path:
           - ${workdir}/bin
-        binary: scripts/evergreen/e2e/build_e2e_image_ibm.sh
+        binary: scripts/evergreen/e2e/build_tests_image_ibm.sh
 
   pipeline:
     - *switch_context

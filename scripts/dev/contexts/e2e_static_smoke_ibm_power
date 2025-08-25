@@ -8,7 +8,7 @@ script_dir=$(dirname "${script_name}")
 source "${script_dir}/root-context"
 source "${script_dir}/variables/e2e_ibm_smoke_base"
 
-# This is required to be able to rebuild the om image and use that image which has been rebuild
+# This is required to be able to rebuild the om image and use that image which has been rebuilt
 export OPS_MANAGER_REGISTRY=268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
 CUSTOM_OM_VERSION=$(grep -E "^\s*-\s*&ops_manager_70_latest\s+(\S+)\s+#" <"${script_dir}"/../../../.evergreen.yml | awk '{print $3}')
 export CUSTOM_OM_VERSION
