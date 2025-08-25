@@ -4212,6 +4212,51 @@ spec:
                 type: object
               source:
                 properties:
+                  external:
+                    properties:
+                      hostAndPorts:
+                        items:
+                          type: string
+                        type: array
+                      keyFileSecretRef:
+                        description: |-
+                          SecretKeyRef is a reference to a value in a given secret in the same
+                          namespace. Based on:
+                          https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.15/#secretkeyselector-v1-core
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                        required:
+                          - name
+                        type: object
+                      tls:
+                        properties:
+                          ca:
+                            description: |-
+                              LocalObjectReference contains enough information to let you locate the
+                              referenced object inside the same namespace.
+                            properties:
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  TODO: Add other useful fields. apiVersion, kind, uid?
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                  TODO: Drop `kubebuilder:default` when controller-gen doesn't need it https://github.com/kubernetes-sigs/kubebuilder/issues/3896.
+                                type: string
+                            type: object
+                            x-kubernetes-map-type: atomic
+                          enabled:
+                            type: boolean
+                        required:
+                          - enabled
+                        type: object
+                    type: object
                   mongodbResourceRef:
                     properties:
                       name:
@@ -4239,8 +4284,8 @@ spec:
                 type: object
               statefulSet:
                 description: |-
-                  StatefulSetConfiguration holds the optional custom StatefulSet
-                  that should be merged into the operator created one.
+                  StatefulSetSpec which the operator will apply to the MongoDB Search StatefulSet at the end of the reconcile loop. Use to provide necessary customizations,
+                  which aren't exposed as fields in the MongoDBSearch.spec.
                 properties:
                   metadata:
                     description: StatefulSetMetadataWrapper is a wrapper around Labels
@@ -4262,6 +4307,9 @@ spec:
                 - spec
                 type: object
               version:
+                description: Optional version of MongoDB Search component (mongot).
+                  If not set, then the operator will set the most appropriate version
+                  of MongoDB Search.
                 type: string
             type: object
           status:

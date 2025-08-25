@@ -1,5 +1,5 @@
 import pymongo
-from kubetester import create_or_update_configmap, create_or_update_secret, try_load
+from kubetester import create_or_update_secret, try_load
 from kubetester.certs import create_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb_community import MongoDBCommunity
@@ -24,8 +24,8 @@ USER_NAME = "mdb-user"
 USER_PASSWORD = "mdb-user-pass"
 
 MDBC_RESOURCE_NAME = "mdbc-rs"
+MDBS_RESOURCE_NAME = "mdbs"
 TLS_SECRET_NAME = "tls-secret"
-TLS_CA_CONFIGMAP_NAME = "tls-ca-configmap"
 TLS_CA_SECRET_NAME = "tls-ca-secret"
 MDBS_TLS_SECRET_NAME = "mdbs-tls-secret"
 
@@ -33,7 +33,7 @@ MDBS_TLS_SECRET_NAME = "mdbs-tls-secret"
 @fixture(scope="function")
 def mdbc(namespace: str) -> MongoDBCommunity:
     resource = MongoDBCommunity.from_yaml(
-        yaml_fixture("community-replicaset-sample-mflix.yaml"),
+        yaml_fixture("community-replicaset-sample-mflix-external.yaml"),
         name=MDBC_RESOURCE_NAME,
         namespace=namespace,
     )
@@ -41,7 +41,7 @@ def mdbc(namespace: str) -> MongoDBCommunity:
     if try_load(resource):
         return resource
 
-    mongot_host = f"{MDBC_RESOURCE_NAME}-search-svc.{namespace}.svc.cluster.local:27027"
+    mongot_host = f"{MDBS_RESOURCE_NAME}-search-svc.{namespace}.svc.cluster.local:27027"
     if "additionalMongodConfig" not in resource["spec"]:
         resource["spec"]["additionalMongodConfig"] = {}
     if "setParameter" not in resource["spec"]["additionalMongodConfig"]:
@@ -55,12 +55,6 @@ def mdbc(namespace: str) -> MongoDBCommunity:
         }
     )
 
-    resource["spec"]["security"]["tls"] = {
-        "enabled": True,
-        "certificateKeySecretRef": {"name": TLS_SECRET_NAME},
-        "caCertificateSecretRef": {"name": TLS_SECRET_NAME},
-    }
-
     return resource
 
 
@@ -68,30 +62,12 @@ def mdbc(namespace: str) -> MongoDBCommunity:
 def mdbs(namespace: str, mdbc: MongoDBCommunity) -> MongoDBSearch:
     resource = MongoDBSearch.from_yaml(
         yaml_fixture("search-minimal.yaml"),
+        name=MDBS_RESOURCE_NAME,
         namespace=namespace,
     )
 
     if try_load(resource):
         return resource
-
-    seeds = [
-        f"{mdbc.name}-{i}.{mdbc.name}-svc.{namespace}.svc.cluster.local:27017" for i in range(mdbc["spec"]["members"])
-    ]
-
-    resource["spec"]["source"] = {
-        "external": {
-            "hostAndPorts": seeds,
-            "keyFileSecretRef": {"name": f"{mdbc.name}-keyfile"},
-            "tls": {
-                "enabled": True,
-                "ca": {"name": TLS_CA_CONFIGMAP_NAME},
-            },
-        }
-    }
-
-    if "spec" not in resource:
-        resource["spec"] = {}
-    resource["spec"]["security"] = {"tls": {"enabled": True, "certificateKeySecretRef": {"name": MDBS_TLS_SECRET_NAME}}}
 
     return resource
 
@@ -109,7 +85,9 @@ def test_install_secrets(namespace: str, mdbs: MongoDBSearch):
         namespace=namespace, name=f"{ADMIN_USER_NAME}-password", data={"password": ADMIN_USER_PASSWORD}
     )
     create_or_update_secret(
-        namespace=namespace, name=f"{mdbs.name}-{MONGOT_USER_NAME}-password", data={"password": MONGOT_USER_PASSWORD}
+        namespace=namespace,
+        name=f"{MDBC_RESOURCE_NAME}-{MONGOT_USER_NAME}-password",
+        data={"password": MONGOT_USER_PASSWORD},
     )
 
 
@@ -132,19 +110,44 @@ def test_install_tls_secrets_and_configmaps(
 
     ca = open(issuer_ca_filepath).read()
 
-    create_or_update_secret(namespace=namespace, name=TLS_CA_SECRET_NAME, data={"ca.crt": ca})
-
-    create_or_update_configmap(namespace, TLS_CA_CONFIGMAP_NAME, {"ca.crt": ca})
+    ca_secret_name = f"{mdbc.name}-ca"
+    create_or_update_secret(namespace=namespace, name=ca_secret_name, data={"ca.crt": ca})
 
 
 @mark.e2e_search_external_tls
 def test_create_database_resource(mdbc: MongoDBCommunity):
+    mdbc["spec"]["security"]["tls"] = {
+        "enabled": True,
+        "certificateKeySecretRef": {"name": TLS_SECRET_NAME},
+        "caCertificateSecretRef": {"name": TLS_SECRET_NAME},
+    }
+
     mdbc.update()
     mdbc.assert_reaches_phase(Phase.Running, timeout=1000)
 
 
 @mark.e2e_search_external_tls
 def test_create_search_resource(mdbs: MongoDBSearch, mdbc: MongoDBCommunity):
+    seeds = [
+        f"{mdbc.name}-{i}.{mdbc.name}-svc.{mdbc.namespace}.svc.cluster.local:27017"
+        for i in range(mdbc["spec"]["members"])
+    ]
+
+    mdbs["spec"]["source"] = {
+        "external": {
+            "hostAndPorts": seeds,
+            "keyFileSecretRef": {"name": f"{mdbc.name}-keyfile"},
+            "tls": {
+                "enabled": True,
+                "ca": {"name": f"{mdbc.name}-ca"},
+            },
+        },
+        "passwordSecretRef": {"name": f"{MDBC_RESOURCE_NAME}-{MONGOT_USER_NAME}-password", "key": "password"},
+        "username": MONGOT_USER_NAME,
+    }
+
+    mdbs["spec"]["security"] = {"tls": {"enabled": True, "certificateKeySecretRef": {"name": MDBS_TLS_SECRET_NAME}}}
+
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=300)
 

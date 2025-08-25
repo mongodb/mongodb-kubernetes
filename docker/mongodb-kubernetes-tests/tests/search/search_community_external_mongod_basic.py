@@ -22,12 +22,13 @@ USER_NAME = "mdb-user"
 USER_PASSWORD = "mdb-user-pass"
 
 MDBC_RESOURCE_NAME = "mdbc-rs"
+MDBS_RESOURCE_NAME = "mdbs"
 
 
 @fixture(scope="function")
 def mdbc(namespace: str) -> MongoDBCommunity:
     resource = MongoDBCommunity.from_yaml(
-        yaml_fixture("community-replicaset-sample-mflix.yaml"),
+        yaml_fixture("community-replicaset-sample-mflix-external.yaml"),
         name=MDBC_RESOURCE_NAME,
         namespace=namespace,
     )
@@ -35,7 +36,7 @@ def mdbc(namespace: str) -> MongoDBCommunity:
     if try_load(resource):
         return resource
 
-    mongot_host = f"{MDBC_RESOURCE_NAME}-search-svc.{namespace}.svc.cluster.local:27027"
+    mongot_host = f"{MDBS_RESOURCE_NAME}-search-svc.{namespace}.svc.cluster.local:27027"
     if "additionalMongodConfig" not in resource["spec"]:
         resource["spec"]["additionalMongodConfig"] = {}
     if "setParameter" not in resource["spec"]["additionalMongodConfig"]:
@@ -57,6 +58,7 @@ def mdbc(namespace: str) -> MongoDBCommunity:
 def mdbs(namespace: str, mdbc: MongoDBCommunity) -> MongoDBSearch:
     resource = MongoDBSearch.from_yaml(
         yaml_fixture("search-minimal.yaml"),
+        name=MDBS_RESOURCE_NAME,
         namespace=namespace,
     )
 
@@ -64,15 +66,18 @@ def mdbs(namespace: str, mdbc: MongoDBCommunity) -> MongoDBSearch:
         f"{mdbc.name}-{i}.{mdbc.name}-svc.{namespace}.svc.cluster.local:27017" for i in range(mdbc["spec"]["members"])
     ]
 
-    if "source" not in resource["spec"]:
-        resource["spec"]["source"] = {}
-
-    resource["spec"]["source"] = {
-        "external": {
-            "hostAndPorts": seeds,
-            "keyFileSecretRef": {"name": f"{mdbc.name}-keyfile"},
+    resource["spec"] = {
+        "source": {
+            "external": {
+                "hostAndPorts": seeds,
+                "keyFileSecretRef": {"name": f"{mdbc.name}-keyfile", "key": "keyfile"},
+                "tls": {"enabled": False},
+            },
+            "passwordSecretRef": {"name": f"{MDBC_RESOURCE_NAME}-{MONGOT_USER_NAME}-password", "key": "password"},
+            "username": MONGOT_USER_NAME,
         }
     }
+
     return resource
 
 
@@ -88,8 +93,11 @@ def test_install_secrets(namespace: str, mdbs: MongoDBSearch):
     create_or_update_secret(
         namespace=namespace, name=f"{ADMIN_USER_NAME}-password", data={"password": ADMIN_USER_PASSWORD}
     )
+
     create_or_update_secret(
-        namespace=namespace, name=f"{mdbs.name}-{MONGOT_USER_NAME}-password", data={"password": MONGOT_USER_PASSWORD}
+        namespace=namespace,
+        name=f"{MDBC_RESOURCE_NAME}-{MONGOT_USER_NAME}-password",
+        data={"password": MONGOT_USER_PASSWORD},
     )
 
 
@@ -102,7 +110,7 @@ def test_create_database_resource(mdbc: MongoDBCommunity):
 @mark.e2e_search_external_basic
 def test_create_search_resource(mdbs: MongoDBSearch, mdbc: MongoDBCommunity):
     mdbs.update()
-    mdbs.assert_reaches_phase(Phase.Running, timeout=300)
+    mdbs.assert_reaches_phase(Phase.Running, timeout=1000)
 
 
 @mark.e2e_search_external_basic
@@ -125,11 +133,6 @@ def test_search_restore_sample_database(sample_movies_helper: SampleMoviesSearch
 @mark.e2e_search_external_basic
 def test_search_create_search_index(sample_movies_helper: SampleMoviesSearchHelper):
     sample_movies_helper.create_search_index()
-
-
-# @mark.e2e_search_external_basic
-# def test_search_wait_for_search_indexes(sample_movies_helper: SampleMoviesSearchHelper):
-#     sample_movies_helper.wait_for_search_indexes()
 
 
 @mark.e2e_search_external_basic
