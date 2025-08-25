@@ -46,7 +46,7 @@ setup_local_registry_and_custom_image() {
     # Check if local registry is running (with fallback for namespace issues)
     registry_running=false
     if curl -s http://localhost:5000/v2/_catalog >/dev/null 2>&1; then
-      echo "Registry detected via HTTP check (podman ps failed)"
+      echo "Registry detected via HTTP check"
       registry_running=true
     fi
 
@@ -54,9 +54,9 @@ setup_local_registry_and_custom_image() {
       echo "Starting local container registry on port 5000..."
 
       # Clean up any existing registry first
-      sudo podman rm -f registry 2>/dev/null || true
+      podman rm -f registry 2>/dev/null || true
 
-      if ! sudo podman run -d -p 5000:5000 --name registry --restart=always docker.io/library/registry:2; then
+      if ! podman run -d -p 5000:5000 --name registry --restart=always docker.io/library/registry:2; then
         echo "❌ Failed to start local registry - trying alternative approach"
         exit 1
       fi
@@ -73,7 +73,7 @@ setup_local_registry_and_custom_image() {
       echo "✅ Local registry already running"
     fi
 
-    # Configure podman to trust local registry (both user and root level for minikube)
+    # Configure podman to trust local registry
     echo "Configuring registries.conf to trust local registry..."
 
     # User-level config
@@ -84,15 +84,7 @@ location = "localhost:5000"
 insecure = true
 EOF
 
-    # Root-level config (since minikube uses sudo podman)
-    sudo mkdir -p /root/.config/containers
-    sudo tee /root/.config/containers/registries.conf << 'EOF' >/dev/null
-[[registry]]
-location = "localhost:5000"
-insecure = true
-EOF
-
-    echo "✅ Registry configuration created for both user and root"
+    echo "✅ Registry configuration created"
     custom_image_tag="localhost:5000/kicbase:v0.0.47"
 
     # Determine image tag
@@ -120,11 +112,11 @@ RUN if [ "$(uname -m)" = "ppc64le" ]; then \
 EOF
 
     cd "${PROJECT_DIR:-.}/scripts/minikube/kicbase"
-    sudo podman build -t "${custom_image_tag}" . || {
+    podman build -t "${custom_image_tag}" . || {
       echo "Failed to build custom image"
       return 1
     }
-    sudo podman push "${custom_image_tag}" --tls-verify=false || {
+    podman push "${custom_image_tag}" --tls-verify=false || {
       echo "Failed to push to registry"
       return 1
     }
@@ -172,19 +164,28 @@ start_minikube_cluster() {
 }
 
 setup_podman() {
-  echo "Setting up podman for ${ARCH}..."
+  echo "Setting up rootless podman for ${ARCH}..."
 
-  # Configure podman to use cgroupfs instead of systemd in CI
+  # Configure podman for rootless operation
   mkdir -p ~/.config/containers
   cat > ~/.config/containers/containers.conf << EOF
 [containers]
 cgroup_manager = "cgroupfs"
 events_logger = "file"
+netns = "host"
 
 [engine]
 cgroup_manager = "cgroupfs"
+events_logger = "file"
+runtime = "crun"
 EOF
 
+  # Enable lingering for the current user to allow rootless containers to persist
+  if command -v loginctl &> /dev/null; then
+    loginctl enable-linger "${USER}" 2>/dev/null || true
+  fi
+
+  echo "✅ Rootless podman configured"
 }
 
 # Setup podman and container runtime
@@ -231,7 +232,7 @@ echo "=========================================="
 echo "✅ Setup Summary"
 echo "=========================================="
 echo "Architecture: ${ARCH}"
-echo "Container Runtime: podman"
+echo "Container Runtime: rootless podman"
 echo "Minikube Driver: podman"
 echo "Minikube: Default cluster"
 echo "Minikube: ${minikube_version}"
