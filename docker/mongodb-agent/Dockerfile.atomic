@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi9/ubi-minimal AS tools_downloader
+FROM  --platform=${BUILDPLATFORM} registry.access.redhat.com/ubi9/ubi-minimal AS tools_downloader
 
 ARG TARGETPLATFORM
 ARG mongodb_tools_url
@@ -23,7 +23,7 @@ RUN case ${TARGETPLATFORM} in \
 RUN tar xfz /tools/mongodb_tools.tgz --directory /tools \
     && rm /tools/mongodb_tools.tgz
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal AS agent_downloader
+FROM --platform=${BUILDPLATFORM} registry.access.redhat.com/ubi9/ubi-minimal AS agent_downloader
 
 ARG TARGETPLATFORM
 ARG mongodb_agent_url
@@ -53,18 +53,13 @@ RUN tar xfz /agent/mongodb_agent.tgz \
 
 FROM registry.access.redhat.com/ubi9/ubi-minimal
 
-ARG TARGETARCH
-
-# Create directories first
-RUN mkdir -p /tools /agent
-
-# Copy the extracted tools and agent from the downloader stages
-COPY --from=tools_downloader "/tools/" /tools/
-COPY --from=agent_downloader "/agent/" /agent/
-
 # Replace libcurl-minimal and curl-minimal with the full versions
 # https://bugzilla.redhat.com/show_bug.cgi?id=1994521
-RUN  microdnf install -y libssh libpsl libbrotli
+RUN  microdnf install -y libssh libpsl libbrotli \
+    && microdnf download curl libcurl \
+    && rpm -Uvh --nodeps --replacefiles "*curl*$( uname -i ).rpm" \
+    && microdnf remove -y libcurl-minimal curl-minimal
+
 RUN microdnf install -y --disableplugin=subscription-manager --setopt=install_weak_deps=0 nss_wrapper
 # Copy-pasted from https://www.mongodb.com/docs/manual/tutorial/install-mongodb-enterprise-on-red-hat-tarball/
 RUN microdnf install -y --disableplugin=subscription-manager \
@@ -93,9 +88,13 @@ COPY ./docker/mongodb-agent/setup-agent-files.sh /usr/local/bin/setup-agent-file
 COPY ./docker/mongodb-agent/dummy-probe.sh /usr/local/bin/dummy-probe.sh
 COPY ./docker/mongodb-agent/dummy-readinessprobe /usr/local/bin/dummy-readinessprobe
 
-# Set up directories and permissions (agent and tools are already extracted in downloader stages)
 RUN mkdir -p /var/lib/automation/config \
     && chmod -R +r /var/lib/automation/config
+
+RUN mkdir -p /tools /agent
+
+COPY --from=tools_downloader "/tools/" /tools/
+COPY --from=agent_downloader "/agent/" /agent/
 
 ARG version
 

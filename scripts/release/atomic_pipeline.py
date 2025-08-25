@@ -10,6 +10,7 @@ from copy import copy
 from queue import Queue
 from typing import Dict, List, Optional, Tuple
 
+import python_on_whales
 import requests
 from opentelemetry import trace
 
@@ -22,8 +23,6 @@ from scripts.release.agent.detect_ops_manager_changes import (
 from scripts.release.agent.validation import (
     generate_agent_build_args,
     generate_tools_build_args,
-    get_available_platforms_for_agent,
-    get_available_platforms_for_tools,
 )
 from scripts.release.build.image_build_configuration import ImageBuildConfiguration
 from scripts.release.build.image_build_process import execute_docker_build
@@ -57,29 +56,30 @@ def build_image(
     build_path: str = ".",
 ):
     """
-    Build an image then (optionally) sign the result.
+    Build an image, sign (optionally) it, then tag and push to all repositories in the registry list.
     """
     image_name = build_configuration.image_name()
     span = trace.get_current_span()
     span.set_attribute("mck.image_name", image_name)
 
-    base_registry = build_configuration.base_registry()
+    registries = build_configuration.get_registries
+
     build_args = build_args or {}
 
     if build_args:
         span.set_attribute("mck.build_args", str(build_args))
-    span.set_attribute("mck.registry", base_registry)
+    span.set_attribute("mck.registries", str(registries))
     span.set_attribute("mck.platforms", build_configuration.platforms)
 
-    # Build docker registry URI and call build_image
-    image_full_uri = f"{build_configuration.registry}:{build_configuration.version}"
+    # Build the image once with all repository tags
+    all_tags = [f"{registry}:{build_configuration.version}" for registry in build_configuration.registries]
 
     logger.info(
-        f"Building {image_full_uri} for platforms={build_configuration.platforms}, dockerfile args: {build_args}"
+        f"Building image with tags {all_tags} for platforms={build_configuration.platforms}, dockerfile args: {build_args}"
     )
 
     execute_docker_build(
-        tag=image_full_uri,
+        tags=all_tags,
         dockerfile=build_configuration.dockerfile_path,
         path=build_path,
         args=build_args,
@@ -91,8 +91,9 @@ def build_image(
         logger.info("Logging in MongoDB Artifactory for Garasign image")
         mongodb_artifactory_login()
         logger.info("Signing image")
-        sign_image(build_configuration.registry, build_configuration.version)
-        verify_signature(build_configuration.registry, build_configuration.version)
+        for registry in build_configuration.registries:
+            sign_image(registry, build_configuration.version)
+            verify_signature(registry, build_configuration.version)
 
 
 def build_meko_tests_image(build_configuration: ImageBuildConfiguration):
@@ -256,13 +257,12 @@ def build_init_appdb_image(build_configuration: ImageBuildConfiguration):
 
     tools_version = extract_tools_version_from_release(release)
 
-    if not get_available_platforms_for_tools(tools_version, build_configuration.platforms):
-        logger.warning(f"Skipping build for init-appdb - tools version {tools_version} not found in repository")
-        return
-
     platform_build_args = generate_tools_build_args(
         platforms=build_configuration.platforms, tools_version=tools_version
     )
+    if not platform_build_args:
+        logger.warning(f"Skipping build for init-appdb - tools version {tools_version} not found in repository")
+        return
 
     args = {
         "version": build_configuration.version,
@@ -282,14 +282,12 @@ def build_init_database_image(build_configuration: ImageBuildConfiguration):
 
     tools_version = extract_tools_version_from_release(release)
 
-    # Validate that the tools version exists before attempting to build
-    if not get_available_platforms_for_tools(tools_version, build_configuration.platforms):
-        logger.warning(f"Skipping build for init-database - tools version {tools_version} not found in repository")
-        return
-
     platform_build_args = generate_tools_build_args(
         platforms=build_configuration.platforms, tools_version=tools_version
     )
+    if not platform_build_args:
+        logger.warning(f"Skipping build for init-database - tools version {tools_version} not found in repository")
+        return
 
     args = {
         "version": build_configuration.version,
@@ -354,56 +352,14 @@ def build_agent(build_configuration: ImageBuildConfiguration):
         logger.info(f"Running with factor of {max_workers}")
         logger.info(f"======= Agent versions to build {agent_versions_to_build} =======")
 
-        successful_builds = []
-        skipped_builds = []
-
         for idx, agent_tools_version in enumerate(agent_versions_to_build):
-            agent_version = agent_tools_version[0]
-            tools_version = agent_tools_version[1]
-
-            available_agent_platforms = get_available_platforms_for_agent(agent_version, build_configuration.platforms)
-            available_tools_platforms = get_available_platforms_for_tools(tools_version, build_configuration.platforms)
-            available_platforms = list(set(available_agent_platforms) & set(available_tools_platforms))
-
-            logger.info(
-                f"======= Building Agent {agent_tools_version} for platforms: {available_platforms}, ({idx + 1}/{len(agent_versions_to_build)})"
-            )
-
-            # Check if amd64 is available - if not, skip the entire build
-            if "linux/amd64" not in available_platforms:
-                logger.warning(
-                    f"Skipping agent version {agent_version} - amd64 platform not available (required platform)"
-                )
-                if available_platforms:
-                    logger.info(f"  Other available platforms were: {available_platforms}")
-                skipped_builds.append(agent_tools_version)
-                continue
-
-            if not available_platforms:
-                logger.warning(
-                    f"Skipping agent version {agent_version} - no platforms available for both agent and tools"
-                )
-                skipped_builds.append(agent_tools_version)
-                continue
-
-            if available_platforms != build_configuration.platforms:
-                logger.info(
-                    f"Building agent {agent_version} for available platforms: {available_platforms} "
-                    f"(skipping: {set(build_configuration.platforms) - set(available_platforms)})"
-                )
-
-            successful_builds.append(agent_tools_version)
             _build_agent(
                 agent_tools_version,
                 build_configuration,
-                available_platforms,
+                build_configuration.platforms,
                 executor,
                 tasks_queue,
             )
-
-    logger.info(f"Build summary: {len(successful_builds)} successful, {len(skipped_builds)} skipped")
-    if skipped_builds:
-        logger.info(f"Skipped versions: {skipped_builds}")
 
     queue_exception_handling(tasks_queue)
 
@@ -436,8 +392,6 @@ def build_agent_pipeline(
         f"======== Building agent pipeline for version {agent_version}, build configuration version: {build_configuration.version}"
     )
 
-    # Note: Validation is now done earlier in the build_agent function
-    # Generate platform-specific build arguments using the mapping
     platform_build_args = generate_agent_build_args(
         platforms=available_platforms, agent_version=agent_version, tools_version=tools_version
     )

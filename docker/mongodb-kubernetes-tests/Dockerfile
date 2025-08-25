@@ -34,7 +34,6 @@ ADD "${mongodb_tools_url}/${mongodb_tools_version_s390x}" /data/s390x/mongodb_to
 ARG mongodb_tools_version_ppc64le="mongodb-database-tools-rhel9-ppc64le-100.12.0.tgz"
 ADD "${mongodb_tools_url}/${mongodb_tools_version_ppc64le}" /data/ppc64le/mongodb_tools.tgz
 
-
 FROM public.ecr.aws/docker/library/python:${PYTHON_VERSION}-slim
 
 ARG TARGETARCH

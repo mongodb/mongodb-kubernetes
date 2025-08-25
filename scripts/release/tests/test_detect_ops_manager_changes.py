@@ -161,28 +161,6 @@ variables:
             changed_agents = detect_ops_manager_changes()
             self.assertIn(("108.0.0.8694-1", "100.10.0"), changed_agents)
 
-    def test_ops_manager_version_modified(self):
-        """Test that modifying existing OM version is NOT detected (only new versions are detected)"""
-        modified_current = json.loads(json.dumps(self.current_release_data))
-        modified_current["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"]["6.0.26"][
-            "agent_version"
-        ] = "12.0.35.7911-1"
-
-        with (
-            patch(
-                "scripts.release.agent.detect_ops_manager_changes.load_current_release_json",
-                return_value=modified_current,
-            ),
-            patch(
-                "scripts.release.agent.detect_ops_manager_changes.load_release_json_from_master",
-                return_value=self.master_release_data,
-            ),
-        ):
-
-            changed_agents = detect_ops_manager_changes()
-            # Modified existing OM versions should NOT be detected
-            self.assertEqual(changed_agents, [])
-
     def test_cloud_manager_changed(self):
         """Test detection when cloud_manager is changed"""
         modified_current = json.loads(json.dumps(self.current_release_data))

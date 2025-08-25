@@ -87,7 +87,7 @@ remove_element() {
   rm "${tmpfile}"
 }
 
-container_login() {
+registry_login() {
   local username="$1"
   local registry="$2"
 
@@ -139,7 +139,7 @@ fi
 
 echo "$(aws --version)}"
 
-aws ecr get-login-password --region "us-east-1" | container_login "AWS" "268558157000.dkr.ecr.us-east-1.amazonaws.com"
+aws ecr get-login-password --region "us-east-1" | registry_login "AWS" "268558157000.dkr.ecr.us-east-1.amazonaws.com"
 
 # by default docker tries to store credentials in an external storage (e.g. OS keychain) - not in the config.json
 # We need to store it as base64 string in config.json instead so we need to remove the "credsStore" element
@@ -148,10 +148,10 @@ if [[ "${CONTAINER_RUNTIME}" == "docker" ]] && exec_cmd grep -q "credsStore" "${
   remove_element "credsStore"
 
   # login again to store the credentials into the config.json
-  aws ecr get-login-password --region "us-east-1" | container_login "AWS" "268558157000.dkr.ecr.us-east-1.amazonaws.com"
+  aws ecr get-login-password --region "us-east-1" | registry_login "AWS" "268558157000.dkr.ecr.us-east-1.amazonaws.com"
 fi
 
-aws ecr get-login-password --region "eu-west-1" | container_login "AWS" "268558157000.dkr.ecr.eu-west-1.amazonaws.com"
+aws ecr get-login-password --region "eu-west-1" | registry_login "AWS" "268558157000.dkr.ecr.eu-west-1.amazonaws.com"
 
 if [[ -n "${COMMUNITY_PRIVATE_PREVIEW_PULLSECRET_DOCKERCONFIGJSON:-}" ]]; then
   # log in to quay.io for the mongodb/mongodb-search-community private repo

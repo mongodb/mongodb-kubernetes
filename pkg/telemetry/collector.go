@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -182,6 +183,8 @@ func collectOperatorSnapshot(ctx context.Context, memberClusterMap map[string]Co
 		OperatorID:           operatorUUID,
 		OperatorVersion:      versionutil.StaticContainersOperatorVersion(),
 		OperatorType:         MEKO,
+		OperatorArchitecture: runtime.GOARCH,
+		OperatorOS:           runtime.GOOS,
 	}
 
 	event := createEvent(operatorEvent, time.Now(), Operators)

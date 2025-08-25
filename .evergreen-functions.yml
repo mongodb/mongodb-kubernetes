@@ -539,19 +539,10 @@ functions:
           - version_id
         add_to_path:
           - ${workdir}/bin
-        binary: scripts/evergreen/e2e/build_e2e_image_ibm.sh
+        binary: scripts/evergreen/e2e/build_tests_image_ibm.sh
 
   pipeline:
     - *switch_context
-    - command: shell.exec
-      type: setup
-      params:
-        shell: bash
-        script: |
-          # Docker Hub workaround
-          # docker buildx needs the moby/buildkit image when setting up a builder so we pull it from our mirror
-          docker buildx create --driver=docker-container --driver-opt=image=268558157000.dkr.ecr.eu-west-1.amazonaws.com/docker-hub-mirrors/moby/buildkit:buildx-stable-1 --use
-          docker buildx inspect --bootstrap
     - command: subprocess.exec
       retry_on_failure: true
       type: setup
@@ -559,7 +550,7 @@ functions:
         shell: bash
         <<: *e2e_include_expansions_in_env
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/dev/run_python.sh scripts/release/pipeline_main.py --parallel ${image_name} ${all_agents}
+        binary: scripts/dev/run_python.sh scripts/release/pipeline_main.py --parallel ${image_name} ${all_agents} ${build_scenario}
 
   # TODO: CLOUDP-335471 ; once all image builds are made with the new atomic pipeline, remove the following function
   legacy_pipeline:

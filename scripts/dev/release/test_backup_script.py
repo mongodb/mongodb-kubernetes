@@ -158,7 +158,7 @@ def test_csv_parsing():
         # Format: quay.io/mongodb/{repo_name}:{original_tag}_openshift_{version}
         expected_tags = {
             "quay.io/mongodb/mongodb-enterprise-server@sha256:def456ghi789": ("mongodb-enterprise-server", "1.0.0"),
-            "quay.io/mongodb/mongodb-agent@sha256:ghi789jkl012": ("mongodb-agent-ubi", "1.0.0"),
+            "quay.io/mongodb/mongodb-agent@sha256:ghi789jkl012": ("mongodb-agent", "1.0.0"),
             "quay.io/mongodb/ops-manager@sha256:jkl012mno345": ("ops-manager", "1.0.0"),
         }
 
