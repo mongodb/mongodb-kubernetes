@@ -26,8 +26,25 @@ function cleanup() {
   fi
 }
 
+dump_logs() {
+  scripts/evergreen/e2e/dump_diagnostic_information_from_all_namespaces.sh "${K8S_CLUSTER_0_CONTEXT_NAME}"
+  scripts/evergreen/e2e/dump_diagnostic_information_from_all_namespaces.sh "${K8S_CLUSTER_1_CONTEXT_NAME}"
+  scripts/evergreen/e2e/dump_diagnostic_information_from_all_namespaces.sh "${K8S_CLUSTER_2_CONTEXT_NAME}"
+}
+
+cmd=${1:-""}
+if [[ "${cmd}" == "dump_logs" ]]; then
+  source public/architectures/setup-multi-cluster/ra-01-setup-gke/env_variables.sh
+  dump_logs
+  exit 0
+elif [[ "${cmd}" == "cleanup" ]]; then
+  source public/architectures/setup-multi-cluster/ra-01-setup-gke/env_variables.sh
+  cleanup
+  exit 0
+fi
+# if no cmd, proceed with the test normally
 function on_exit() {
-  scripts/evergreen/e2e/dump_diagnostic_information_from_all_namespaces.sh
+  dump_logs
   cleanup
 }
 

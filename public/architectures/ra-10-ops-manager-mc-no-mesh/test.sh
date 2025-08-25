@@ -12,6 +12,8 @@ pushd "${script_dir}"
 prepare_snippets
 
 run ra-10_0100_generate_certs.sh
+sleep 10 # wait for cert-manager to generate secrets
+
 run ra-10_0110_add_cert_to_gcp.sh
 
 run_for_output ra-10_0150_om_load_balancer.sh

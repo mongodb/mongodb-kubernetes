@@ -1,1 +1,0 @@
-export K8S_CTX="${CLUSTER_NAME}"

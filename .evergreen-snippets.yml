@@ -66,12 +66,6 @@ tasks:
       - func: test_code_snippets
       - func: sample_commit_output
 
-  - name: test_kind_search_enterprise_snippets.sh
-    tags: [ "code_snippets", "patch-run" ]
-    commands:
-      - func: test_code_snippets
-      - func: sample_commit_output
-
 task_groups:
   - name: gke_code_snippets_task_group
     <<: *setup_and_teardown_group_gke_code_snippets
@@ -85,7 +79,6 @@ task_groups:
     max_hosts: -1
     tasks:
       - test_kind_search_community_snippets.sh
-      - test_kind_search_enterprise_snippets.sh
 
 buildvariants:
   # These variants are used to test the code snippets and each one can be used in patches
@@ -117,7 +110,7 @@ buildvariants:
     allowed_requesters: [ "patch" ]
     run_on:
       - ubuntu2204-small
-#    <<: *base_om8_dependency
+    <<: *base_om8_dependency
     tasks:
       - name: gke_code_snippets_task_group
 

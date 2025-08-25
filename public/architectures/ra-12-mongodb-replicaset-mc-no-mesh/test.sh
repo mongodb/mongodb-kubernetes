@@ -11,12 +11,12 @@ pushd "${script_dir}"
 
 prepare_snippets
 
-run 1050_generate_certs.sh
-run 1100_mongodb_replicaset_multi_cluster.sh
-run 1110_mongodb_replicaset_multi_cluster_wait_for_running_state.sh
+run ra-12_1050_generate_certs.sh
+run ra-12_1100_mongodb_replicaset_multi_cluster.sh
+run ra-12_1110_mongodb_replicaset_multi_cluster_wait_for_running_state.sh
 
-run 1200_create_mongodb_user.sh
+run ra-12_1200_create_mongodb_user.sh
 sleep 10
-run_for_output 1210_verify_mongosh_connection.sh
+run_for_output ra-12_1210_verify_mongosh_connection.sh
 
 popd
