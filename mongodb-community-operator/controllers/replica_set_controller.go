@@ -89,6 +89,9 @@ func NewReconciler(mgr manager.Manager, mongodbRepoUrl, mongodbImage, mongodbIma
 
 func findMdbcForSearch(ctx context.Context, rawObj k8sClient.Object) []reconcile.Request {
 	mdbSearch := rawObj.(*searchv1.MongoDBSearch)
+	if mdbSearch.GetMongoDBResourceRef() == nil {
+		return nil
+	}
 	return []reconcile.Request{
 		{NamespacedName: types.NamespacedName{Namespace: mdbSearch.GetMongoDBResourceRef().Namespace, Name: mdbSearch.GetMongoDBResourceRef().Name}},
 	}
@@ -713,7 +716,7 @@ func (r ReplicaSetReconciler) buildAutomationConfig(ctx context.Context, mdb mdb
 	// for the mongod automation config.
 	if len(searchList.Items) == 1 {
 		searchSource := search_controller.NewSearchSourceDBResourceFromMongoDBCommunity(&mdb)
-		if search_controller.ValidateSearchSource(searchSource) == nil {
+		if searchSource.ValidateMongoDBVersion() == nil {
 			search = &searchList.Items[0]
 		}
 	}
@@ -834,7 +837,8 @@ func getMongodConfigModification(mdb mdbv1.MongoDBCommunity) automationconfig.Mo
 // getMongodConfigModification will merge the additional configuration in the CRD
 // into the configuration set up by the operator.
 func getMongodConfigSearchModification(search *searchv1.MongoDBSearch) automationconfig.Modification {
-	if search == nil {
+	// Condition for skipping add parameter if it is external mongod
+	if search == nil || search.IsExternalMongoDBSource() {
 		return automationconfig.NOOP()
 	}
 

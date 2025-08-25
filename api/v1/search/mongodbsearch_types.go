@@ -52,9 +52,24 @@ type MongoDBSource struct {
 	// +optional
 	MongoDBResourceRef *userv1.MongoDBResourceRef `json:"mongodbResourceRef,omitempty"`
 	// +optional
+	ExternalMongoDBSource *ExternalMongoDBSource `json:"external,omitempty"`
+	// +optional
 	PasswordSecretRef *userv1.SecretKeyRef `json:"passwordSecretRef,omitempty"`
 	// +optional
 	Username *string `json:"username,omitempty"`
+}
+
+type ExternalMongoDBSource struct {
+	HostAndPorts        []string             `json:"hostAndPorts,omitempty"`
+	KeyFileSecretKeyRef *userv1.SecretKeyRef `json:"keyFileSecretRef,omitempty"` // This is the mongod credential used to connect to the external MongoDB deployment
+	// +optional
+	TLS *ExternalMongodTLS `json:"tls,omitempty"` // TLS configuration for the external MongoDB deployment
+}
+
+type ExternalMongodTLS struct {
+	Enabled bool `json:"enabled"`
+	// +optional
+	CA *corev1.LocalObjectReference `json:"ca,omitempty"`
 }
 
 type Security struct {
@@ -170,13 +185,17 @@ func (s *MongoDBSearch) GetOwnerReferences() []metav1.OwnerReference {
 	return []metav1.OwnerReference{ownerReference}
 }
 
-func (s *MongoDBSearch) GetMongoDBResourceRef() userv1.MongoDBResourceRef {
+func (s *MongoDBSearch) GetMongoDBResourceRef() *userv1.MongoDBResourceRef {
+	if s.IsExternalMongoDBSource() {
+		return nil
+	}
+
 	mdbResourceRef := userv1.MongoDBResourceRef{Namespace: s.Namespace, Name: s.Name}
 	if s.Spec.Source != nil && s.Spec.Source.MongoDBResourceRef != nil && s.Spec.Source.MongoDBResourceRef.Name != "" {
 		mdbResourceRef.Name = s.Spec.Source.MongoDBResourceRef.Name
 	}
 
-	return mdbResourceRef
+	return &mdbResourceRef
 }
 
 func (s *MongoDBSearch) GetMongotPort() int32 {
@@ -200,4 +219,8 @@ func (s *MongoDBSearch) TLSOperatorSecretNamespacedName() types.NamespacedName {
 
 func (s *MongoDBSearch) GetMongotHealthCheckPort() int32 {
 	return MongotDefautHealthCheckPort
+}
+
+func (s *MongoDBSearch) IsExternalMongoDBSource() bool {
+	return s.Spec.Source != nil && s.Spec.Source.ExternalMongoDBSource != nil
 }
