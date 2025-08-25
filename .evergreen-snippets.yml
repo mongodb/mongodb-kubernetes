@@ -119,7 +119,7 @@ buildvariants:
     allowed_requesters: [ "patch" ]
     run_on:
       - ubuntu2204-small
-    <<: *base_om8_dependency
+#    <<: *base_om8_dependency
     tasks:
       - name: gke_code_snippets_task_group
 
