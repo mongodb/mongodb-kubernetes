@@ -543,15 +543,6 @@ functions:
 
   pipeline:
     - *switch_context
-    - command: shell.exec
-      type: setup
-      params:
-        shell: bash
-        script: |
-          # Docker Hub workaround
-          # docker buildx needs the moby/buildkit image when setting up a builder so we pull it from our mirror
-          docker buildx create --driver=docker-container --driver-opt=image=268558157000.dkr.ecr.eu-west-1.amazonaws.com/docker-hub-mirrors/moby/buildkit:buildx-stable-1 --use
-          docker buildx inspect --bootstrap
     - command: subprocess.exec
       retry_on_failure: true
       type: setup

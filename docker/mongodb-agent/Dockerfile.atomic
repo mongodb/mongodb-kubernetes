@@ -55,7 +55,11 @@ FROM registry.access.redhat.com/ubi9/ubi-minimal
 
 # Replace libcurl-minimal and curl-minimal with the full versions
 # https://bugzilla.redhat.com/show_bug.cgi?id=1994521
-RUN  microdnf install -y libssh libpsl libbrotli
+RUN  microdnf install -y libssh libpsl libbrotli \
+    && microdnf download curl libcurl \
+    && rpm -Uvh --nodeps --replacefiles "*curl*$( uname -i ).rpm" \
+    && microdnf remove -y libcurl-minimal curl-minimal
+
 RUN microdnf install -y --disableplugin=subscription-manager --setopt=install_weak_deps=0 nss_wrapper
 # Copy-pasted from https://www.mongodb.com/docs/manual/tutorial/install-mongodb-enterprise-on-red-hat-tarball/
 RUN microdnf install -y --disableplugin=subscription-manager \
