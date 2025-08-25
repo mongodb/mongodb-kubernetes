@@ -2,6 +2,8 @@ package operator
 
 import (
 	"context"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"go.uber.org/zap"
 	"k8s.io/client-go/util/workqueue"
@@ -18,7 +20,7 @@ type MongoDBUserEventHandler struct {
 	}
 }
 
-func (eh *MongoDBUserEventHandler) Delete(ctx context.Context, e event.DeleteEvent, _ workqueue.RateLimitingInterface) {
+func (eh *MongoDBUserEventHandler) Delete(ctx context.Context, e event.TypedDeleteEvent[client.Object], _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	zap.S().Infow("Cleaning up MongoDBUser resource", "resource", e.Object)
 	logger := zap.S().With("resource", kube.ObjectKey(e.Object.GetNamespace(), e.Object.GetName()))
 	if err := eh.reconciler.delete(ctx, e.Object, logger); err != nil {
