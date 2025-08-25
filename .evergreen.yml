@@ -359,10 +359,10 @@ tasks:
   - name: migrate_all_agents
     # this enables us to run this variant manually to build all the agents for the new registry
     allowed_requesters: [ "patch" ]
-    # TODO: add quay login back
     commands:
       - func: clone
       - func: setup_building_host
+      - func: quay_login
       - func: pipeline_migrate_agents
 
   - name: run_precommit_and_push
