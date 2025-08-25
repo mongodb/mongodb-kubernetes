@@ -493,8 +493,11 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			return workflow.Failed(err)
 		}
 
+		agentCertSecretName := mrs.GetSecurity().AgentClientCertificateSecretName(mrs.Name).Name
+
 		// get cert hash of tls secret if it exists
 		certHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, mrs.Namespace, mrsConfig.CertSecretName, "", log)
+		agentCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, mrs.Namespace, agentCertSecretName, "", log)
 		internalCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, mrs.Namespace, mrsConfig.InternalClusterSecretName, "", log)
 		log.Debugf("Creating StatefulSet %s with %d replicas in cluster: %s", mrs.MultiStatefulsetName(clusterNum), replicasThisReconciliation, item.ClusterName)
 
@@ -524,6 +527,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			PodEnvVars(newPodVars(conn, projectConfig, mrs.Spec.LogLevel)),
 			CurrentAgentAuthMechanism(currentAgentAuthMode),
 			CertificateHash(certHash),
+			AgentCertificateHash(agentCertHash),
 			InternalClusterHash(internalCertHash),
 			WithLabels(mrs.GetOwnerLabels()),
 			WithAdditionalMongodConfig(mrs.Spec.GetAdditionalMongodConfig()),
