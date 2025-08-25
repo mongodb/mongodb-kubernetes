@@ -1595,7 +1595,7 @@ buildvariants:
 
   - name: e2e_multi_cluster_kind
     display_name: e2e_multi_cluster_kind
-    tags: [ "e2e_test_suite" ]
+    tags: [ "e2e_test_suite", "cloudqa"]
     run_on:
       - ubuntu2204-large
     <<: *base_om6_dependency
@@ -1604,7 +1604,7 @@ buildvariants:
 
   - name: e2e_static_multi_cluster_kind
     display_name: e2e_static_multi_cluster_kind
-    tags: [ "e2e_test_suite" ]
+    tags: [ "e2e_test_suite", "cloudqa"]
     run_on:
       - ubuntu2204-large
     <<: *base_om6_dependency
@@ -1613,7 +1613,7 @@ buildvariants:
 
   - name: e2e_multi_cluster_2_clusters
     display_name: e2e_multi_cluster_2_clusters
-    tags: [ "e2e_test_suite" ]
+    tags: [ "e2e_test_suite", "cloudqa"]
     run_on:
       - ubuntu2204-large
     <<: *base_om6_dependency
@@ -1622,7 +1622,7 @@ buildvariants:
 
   - name: e2e_static_multi_cluster_2_clusters
     display_name: e2e_static_multi_cluster_2_clusters
-    tags: [ "e2e_test_suite" ]
+    tags: [ "e2e_test_suite", "cloudqa"]
     run_on:
       - ubuntu2204-large
     <<: *base_om6_dependency
