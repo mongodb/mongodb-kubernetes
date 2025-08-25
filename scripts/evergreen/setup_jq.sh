@@ -7,7 +7,9 @@
 
 set -Eeou pipefail
 
-source scripts/dev/set_env_context.sh
 source scripts/funcs/install
 
-download_and_install_binary "${PROJECT_DIR:-.}/bin" jq "https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64"
+jq_arch=$(detect_architecture "jq")
+echo "Detected architecture: ${jq_arch}"
+
+download_and_install_binary "${PROJECT_DIR:-${workdir}}/bin" jq "https://github.com/stedolan/jq/releases/download/jq-1.8.1/jq-linux-${jq_arch}"

@@ -109,7 +109,10 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
 
     # Resolve final values with overrides
     version = args.version or image_build_info.version
-    registry = args.registry or image_build_info.repository
+    if args.registry:
+        registries = [args.registry]
+    else:
+        registries = image_build_info.repositories
     platforms = get_platforms_from_arg(args.platform) or image_build_info.platforms
     sign = args.sign or image_build_info.sign
     dockerfile_path = image_build_info.dockerfile_path
@@ -122,13 +125,14 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     return ImageBuildConfiguration(
         scenario=build_scenario,
         version=version,
-        registry=registry,
+        registries=registries,
         dockerfile_path=dockerfile_path,
         parallel=args.parallel,
         platforms=platforms,
         sign=sign,
         parallel_factor=args.parallel_factor,
         all_agents=args.all_agents,
+        currently_used_agents=args.current_agents,
     )
 
 
@@ -261,6 +265,11 @@ Default is to infer from environment variables. For '{BuildScenario.DEVELOPMENT}
         "--all-agents",
         action="store_true",
         help="Build all agent images.",
+    )
+    parser.add_argument(
+        "--current-agents",
+        action="store_true",
+        help="Build all currently used agent images.",
     )
 
     args = parser.parse_args()
