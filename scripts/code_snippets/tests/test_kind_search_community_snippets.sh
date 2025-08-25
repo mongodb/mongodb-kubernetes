@@ -14,7 +14,12 @@ mkdir -p "${_SNIPPETS_OUTPUT_DIR}"
 dump_logs() {
   source scripts/evergreen/e2e/dump_diagnostic_information.sh
   if [[ "${SKIP_DUMP:-"false"}" != "true" ]]; then
-    dump_all_non_default_namespaces "$@"
+    # If no context provided, use current context
+    if [ $# -eq 0 ]; then
+      dump_all_non_default_namespaces "$(kubectl config current-context)"
+    else
+      dump_all_non_default_namespaces "$@"
+    fi
   echo
   fi
 }
