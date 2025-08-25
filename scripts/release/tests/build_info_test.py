@@ -257,7 +257,7 @@ def test_load_build_info_staging(git_repo: Repo):
             ),
             "operator-race": ImageInfo(
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes"],
-                platforms=["linux/arm64", "linux/amd64"],
+                platforms=["linux/amd64"],
                 version=expected_commit_sha,
                 dockerfile_path="docker/mongodb-kubernetes-operator/Dockerfile.atomic",
                 sign=True,
