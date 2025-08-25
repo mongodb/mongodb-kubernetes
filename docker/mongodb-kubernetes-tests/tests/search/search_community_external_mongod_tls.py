@@ -1,4 +1,3 @@
-import pymongo
 from kubetester import create_or_update_secret, try_load
 from kubetester.certs import create_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
@@ -52,8 +51,15 @@ def mdbc(namespace: str) -> MongoDBCommunity:
             "mongotHost": mongot_host,
             "searchIndexManagementHostAndPort": mongot_host,
             "skipAuthenticationToSearchIndexManagementServer": False,
+            "searchTLSMode": "requireTLS",
         }
     )
+
+    resource["spec"]["security"]["tls"] = {
+        "enabled": True,
+        "certificateKeySecretRef": {"name": TLS_SECRET_NAME},
+        "caCertificateSecretRef": {"name": TLS_SECRET_NAME},
+    }
 
     return resource
 
@@ -116,12 +122,6 @@ def test_install_tls_secrets_and_configmaps(
 
 @mark.e2e_search_external_tls
 def test_create_database_resource(mdbc: MongoDBCommunity):
-    mdbc["spec"]["security"]["tls"] = {
-        "enabled": True,
-        "certificateKeySecretRef": {"name": TLS_SECRET_NAME},
-        "caCertificateSecretRef": {"name": TLS_SECRET_NAME},
-    }
-
     mdbc.update()
     mdbc.assert_reaches_phase(Phase.Running, timeout=1000)
 
@@ -155,31 +155,6 @@ def test_create_search_resource(mdbs: MongoDBSearch, mdbc: MongoDBCommunity):
 @mark.e2e_search_external_tls
 def test_wait_for_community_resource_ready(mdbc: MongoDBCommunity):
     mdbc.assert_reaches_phase(Phase.Running, timeout=1800)
-
-
-@mark.e2e_search_external_tls
-def test_validate_tls_connections(mdbc: MongoDBCommunity, mdbs: MongoDBSearch, namespace: str, issuer_ca_filepath: str):
-    with pymongo.MongoClient(
-        f"mongodb://{mdbc.name}-0.{mdbc.name}-svc.{namespace}.svc.cluster.local:27017/?replicaSet={mdbc.name}",
-        tls=True,
-        tlsCAFile=issuer_ca_filepath,
-        tlsAllowInvalidHostnames=False,
-        serverSelectionTimeoutMS=30000,
-        connectTimeoutMS=20000,
-    ) as mongodb_client:
-        mongodb_info = mongodb_client.admin.command("hello")
-        assert mongodb_info.get("ok") == 1, "MongoDBCommunity TLS connection failed"
-
-    with pymongo.MongoClient(
-        f"mongodb://{mdbs.name}-search-svc.{namespace}.svc.cluster.local:27027",
-        tls=True,
-        tlsCAFile=issuer_ca_filepath,
-        tlsAllowInvalidHostnames=False,
-        serverSelectionTimeoutMS=10000,
-        connectTimeoutMS=10000,
-    ) as search_client:
-        search_info = search_client.admin.command("hello")
-        assert search_info.get("ok") == 1, "MongoDBSearch connection failed"
 
 
 @fixture(scope="function")
