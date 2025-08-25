@@ -541,6 +541,17 @@ functions:
           - ${workdir}/bin
         binary: scripts/evergreen/e2e/build_tests_image_ibm.sh
 
+  pipeline_migrate_agents:
+    - *switch_context
+    - command: subprocess.exec
+      retry_on_failure: false
+      type: setup
+      params:
+        shell: bash
+        <<: *e2e_include_expansions_in_env
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/release/pipeline_migrate_agent.sh
+
   pipeline:
     - *switch_context
     - command: subprocess.exec
