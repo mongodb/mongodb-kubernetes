@@ -163,18 +163,9 @@ lint_code() {
   scripts/evergreen/lint_code.sh
 }
 
-# bg_job_ vars are global; capture_bg_job function is appending to them on each call
+# bg_job_ vars are global; run_job_in_background function is appending to them on each call
 bg_job_pids=()
 bg_job_pids_with_names=()
-
-# Helper function to capture background job PID with job name
-capture_bg_job() {
-  local job_name="$1"
-  local job_pid=$!
-  bg_job_pids+=("${job_pid}")
-  bg_job_pids_with_names+=("${job_pid}:${job_name}")
-  echo "Started ${job_name} with PID: ${job_pid}"
-}
 
 get_job_name() {
   local search_pid="$1"
@@ -189,7 +180,11 @@ get_job_name() {
 run_job_in_background() {
   job_name=$1
   time ${job_name} 2>&1 | prepend "${job_name}" &
-  capture_bg_job "${job_name}"
+
+  local job_pid=$!
+  bg_job_pids+=("${job_pid}")
+  bg_job_pids_with_names+=("${job_pid}:${job_name}")
+  echo "Started ${job_name} with PID: ${job_pid}"
 }
 
 # Waits for all background jobs stored in bg_job_pids and check their exit codes.
