@@ -71,6 +71,13 @@ variables:
       - func: download_kube_tools
       - func: setup_building_host
 
+  - &setup_group_ibm
+    setup_group_can_fail_task: true
+    setup_group:
+      - func: clone
+      - func: setup_building_host_minikube
+      - func: build_multi_cluster_binary
+
   - &setup_group_multi_cluster
     setup_group_can_fail_task: true
     setup_group:
@@ -379,6 +386,18 @@ tasks:
           image_name: agent
           all_agents: "--all-agents"
 
+  - name: release_all_currently_used_agents_on_ecr
+    # this enables us to run this manually (patch) and release all agent versions to ECR to verify
+    # Dockerfile, script changes etc.
+    allowed_requesters: [ "patch" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: agent
+          all_agents: "--current-agents"
+
   - name: build_test_image
     commands:
       - func: clone
@@ -387,6 +406,21 @@ tasks:
       - func: pipeline
         vars:
           image_name: meko-tests
+
+  - name: build_test_image_ibm
+    commands:
+      - func: clone
+      - command: subprocess.exec
+        type: setup
+        params:
+          env:
+            SKIP_MINIKUBE_SETUP: "true"
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          add_to_path:
+            - ${workdir}/bin
+          command: scripts/evergreen/setup_minikube_host.sh
+      - func: build_multi_cluster_binary
+      - func: build_test_image_ibm
 
   - name: build_mco_test_image
     commands:
@@ -1147,6 +1181,22 @@ task_groups:
       - e2e_om_ops_manager_backup
     <<: *teardown_group
 
+  - name: e2e_smoke_arm_task_group
+    max_hosts: -1
+    <<: *setup_group
+    <<: *setup_and_teardown_task_cloudqa
+    tasks:
+      - e2e_replica_set
+    <<: *teardown_group
+
+  - name: e2e_smoke_ibm_task_group
+    max_hosts: -1
+    <<: *setup_group_ibm
+    <<: *setup_and_teardown_task_cloudqa
+    tasks:
+      - e2e_replica_set
+    <<: *teardown_group
+
   - name: e2e_ops_manager_kind_5_0_only_task_group
     max_hosts: -1
     <<: *setup_group
@@ -1410,6 +1460,118 @@ buildvariants:
     tasks:
       - name: e2e_smoke_task_group
 
+  - name: e2e_smoke_ibm_power
+    display_name: e2e_smoke_ibm_power
+    tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
+    run_on:
+      - rhel9-power-small
+      - rhel9-power-large
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_init_appdb_images_ubi
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: build_test_image_ibm
+        variant: init_test_run_ibm_power
+    tasks:
+      - name: e2e_smoke_ibm_task_group
+
+  - name: e2e_smoke_ibm_z
+    display_name: e2e_smoke_ibm_z
+    tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
+    run_on:
+      - rhel9-zseries-small
+      - rhel9-zseries-large
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_init_appdb_images_ubi
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: build_test_image_ibm
+        variant: init_test_run_ibm_z
+    tasks:
+      - name: e2e_smoke_ibm_task_group
+
+  - name: e2e_smoke_arm
+    display_name: e2e_smoke_arm
+    tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
+    run_on:
+      - ubuntu2204-arm64-large
+    allowed_requesters: [ "patch", "github_tag" ]
+    <<: *base_no_om_image_dependency
+    tasks:
+      - name: e2e_smoke_arm_task_group
+
+  - name: e2e_static_smoke_arm
+    display_name: e2e_smoke_arm
+    tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
+    run_on:
+      - ubuntu2204-arm64-large
+    allowed_requesters: [ "patch", "github_tag" ]
+    <<: *base_no_om_image_dependency
+    tasks:
+      - name: e2e_smoke_arm_task_group
+
+  - name: e2e_static_smoke_ibm_z
+    display_name: e2e_static_smoke_ibm_z
+    tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
+    run_on:
+      - rhel9-zseries-small
+      - rhel9-zseries-large
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_init_appdb_images_ubi
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: build_test_image_ibm
+        variant: init_test_run_ibm_z
+    tasks:
+      - name: e2e_smoke_ibm_task_group
+
+  - name: e2e_static_smoke_ibm_power
+    display_name: e2e_static_smoke_ibm_power
+    tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
+    run_on:
+      - rhel9-power-small
+      - rhel9-power-large
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_init_appdb_images_ubi
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: build_test_image_ibm
+        variant: init_test_run_ibm_power
+    tasks:
+      - name: e2e_smoke_ibm_task_group
+
   - name: e2e_static_smoke
     display_name: e2e_static_smoke
     tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
@@ -1623,6 +1785,24 @@ buildvariants:
       - name: build_upgrade_hook_image
       - name: prepare_aws
 
+  - name: init_test_run_ibm_power
+    display_name: init_test_run_ibm_power
+    max_hosts: -1
+    run_on:
+      - rhel9-power-small
+      - rhel9-power-large
+    tasks:
+      - name: build_test_image_ibm
+
+  - name: init_test_run_ibm_z
+    display_name: init_test_run_ibm_z
+    max_hosts: -1
+    run_on:
+      - rhel9-zseries-small
+      - rhel9-zseries-large
+    tasks:
+      - name: build_test_image_ibm
+
   - name: run_pre_commit
     priority: 70
     display_name: run_pre_commit
@@ -1794,6 +1974,16 @@ buildvariants:
       - ubuntu2204-large
     tasks:
       - name: release_all_agents_on_ecr
+
+    # Only called manually, It's used for testing the task release_agents_on_ecr in case the release.json
+    # has not changed, and you still want to push the images to ecr.
+  - name: manual_ecr_release_agent_currently_used
+    display_name: manual_ecr_release_agent_currently_used
+    tags: [ "release_all_agents_manually" ]
+    run_on:
+      - ubuntu2204-large
+    tasks:
+      - name: release_all_currently_used_agents_on_ecr
 
     # These variants are used to test the code snippets and each one can be used in patches
     # Prerelease is especially used when the repo is tagged

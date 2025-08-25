@@ -51,10 +51,22 @@ functions:
 
   ### Setup Functions ###
 
+  setup_jq: &setup_jq
+    command: subprocess.exec
+    type: setup
+    params:
+      <<: *e2e_include_expansions_in_env
+      add_to_path:
+        - ${workdir}/bin
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      binary: scripts/evergreen/setup_jq.sh
+
   setup_context: &setup_context # Running the first switch is important to fill the workdir and other important initial env vars
     command: shell.exec
     type: setup
     params:
+      add_to_path:
+        - ${workdir}/bin
       shell: bash
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       <<: *e2e_include_expansions_in_env
@@ -103,6 +115,7 @@ functions:
       type: setup
       params:
         command: "git config --global user.email 'kubernetes-hosted-team@mongodb.com'"
+    - *setup_jq # we need jq in the context
     - *setup_context
 
   setup_kubectl: &setup_kubectl
@@ -111,13 +124,6 @@ functions:
     params:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       binary: scripts/evergreen/setup_kubectl.sh
-
-  setup_jq: &setup_jq
-    command: subprocess.exec
-    type: setup
-    params:
-      working_dir: src/github.com/mongodb/mongodb-kubernetes
-      binary: scripts/evergreen/setup_jq.sh
 
   setup_shellcheck:
     command: subprocess.exec
@@ -225,7 +231,7 @@ functions:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       add_to_path:
         - ${workdir}/bin
-      binary: scripts/dev/configure_docker_auth.sh
+      binary: scripts/dev/configure_container_auth.sh
 
   setup_evg_host: &setup_evg_host
     command: subprocess.exec
@@ -256,16 +262,35 @@ functions:
   # Configures docker authentication to ECR and RH registries.
   setup_building_host:
     - *switch_context
-    - *setup_aws
-    - *configure_docker_auth
-    - *setup_evg_host
     - *python_venv
+    - *setup_aws
+    - *setup_evg_host
+    - *configure_docker_auth
 
-  prune_docker_resources:
+  # This differs for normal evg_host as we require minikube instead of kind for
+  # IBM machines also install aws cli via pip instead and use podman
+  setup_building_host_minikube:
+    - *switch_context
     - command: subprocess.exec
       type: setup
       params:
-        command: "docker system prune -a -f"
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        add_to_path:
+          - ${workdir}/bin
+        command: scripts/evergreen/setup_minikube_host.sh
+
+  prune_docker_resources:
+    - command: shell.exec
+      type: setup
+      params:
+        shell: bash
+        script: |
+          if command -v docker >/dev/null 2>&1; then
+            echo "Docker found, pruning docker resources..."
+            docker system prune -a -f
+          else
+            echo "Docker not found, skipping docker resource pruning"
+          fi
 
   # the task configures the set of tools necessary for any task working with K8 cluster:
   # installs kubectl, jq, kind (if necessary), configures docker authentication
@@ -327,8 +352,7 @@ functions:
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: |
-          source .generated/context.export.env
-          scripts/evergreen/e2e/setup_cloud_qa.py create
+          scripts/dev/run_python.sh scripts/evergreen/e2e/setup_cloud_qa.py create
     # The additional switch is needed, since we now have created the needed OM exports.
     - *switch_context
 
@@ -340,8 +364,7 @@ functions:
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: |
-          source .generated/context.export.env
-          scripts/evergreen/e2e/setup_cloud_qa.py delete
+          scripts/dev/run_python.sh scripts/evergreen/e2e/setup_cloud_qa.py delete
 
   dump_diagnostic_information_from_all_namespaces:
     - command: subprocess.exec
@@ -506,17 +529,20 @@ functions:
           - ${workdir}/bin
           - ${workdir}
 
-  pipeline:
+  build_test_image_ibm:
     - *switch_context
-    - command: shell.exec
-      type: setup
+    - command: subprocess.exec
       params:
         shell: bash
-        script: |
-          # Docker Hub workaround
-          # docker buildx needs the moby/buildkit image when setting up a builder so we pull it from our mirror
-          docker buildx create --driver=docker-container --driver-opt=image=268558157000.dkr.ecr.eu-west-1.amazonaws.com/docker-hub-mirrors/moby/buildkit:buildx-stable-1 --use
-          docker buildx inspect --bootstrap
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        include_expansions_in_env:
+          - version_id
+        add_to_path:
+          - ${workdir}/bin
+        binary: scripts/evergreen/e2e/build_tests_image_ibm.sh
+
+  pipeline:
+    - *switch_context
     - command: subprocess.exec
       retry_on_failure: true
       type: setup

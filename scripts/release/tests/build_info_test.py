@@ -250,28 +250,28 @@ def test_load_build_info_staging(git_repo: Repo):
         images={
             "operator": ImageInfo(
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes"],
-                platforms=["linux/arm64", "linux/amd64"],
+                platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 version=expected_commit_sha,
                 dockerfile_path="docker/mongodb-kubernetes-operator/Dockerfile.atomic",
                 sign=True,
             ),
             "operator-race": ImageInfo(
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes"],
-                platforms=["linux/arm64", "linux/amd64"],
+                platforms=["linux/amd64"],
                 version=expected_commit_sha,
                 dockerfile_path="docker/mongodb-kubernetes-operator/Dockerfile.atomic",
                 sign=True,
             ),
             "init-database": ImageInfo(
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-init-database"],
-                platforms=["linux/arm64", "linux/amd64"],
+                platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 version=expected_commit_sha,
                 dockerfile_path="docker/mongodb-kubernetes-init-database/Dockerfile.atomic",
                 sign=True,
             ),
             "init-appdb": ImageInfo(
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-init-appdb"],
-                platforms=["linux/arm64", "linux/amd64"],
+                platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 version=expected_commit_sha,
                 dockerfile_path="docker/mongodb-kubernetes-init-appdb/Dockerfile.atomic",
                 sign=True,
@@ -280,14 +280,14 @@ def test_load_build_info_staging(git_repo: Repo):
                 repositories=[
                     "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-init-ops-manager"
                 ],
-                platforms=["linux/arm64", "linux/amd64"],
+                platforms=["linux/amd64"],
                 version=expected_commit_sha,
                 dockerfile_path="docker/mongodb-kubernetes-init-ops-manager/Dockerfile.atomic",
                 sign=True,
             ),
             "database": ImageInfo(
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-database"],
-                platforms=["linux/arm64", "linux/amd64"],
+                platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 version=expected_commit_sha,
                 dockerfile_path="docker/mongodb-kubernetes-database/Dockerfile.atomic",
                 sign=True,
@@ -301,7 +301,7 @@ def test_load_build_info_staging(git_repo: Repo):
             ),
             "meko-tests": ImageInfo(
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"],
-                platforms=["linux/amd64"],
+                platforms=["linux/arm64", "linux/amd64"],
                 version=expected_commit_sha,
                 dockerfile_path="docker/mongodb-kubernetes-tests/Dockerfile",
                 sign=False,
@@ -324,7 +324,7 @@ def test_load_build_info_staging(git_repo: Repo):
             ),
             "agent": ImageInfo(
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-agent-ubi"],
-                platforms=["linux/arm64", "linux/amd64"],
+                platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 version=expected_commit_sha,
                 dockerfile_path="docker/mongodb-agent/Dockerfile.atomic",
                 sign=True,
@@ -369,35 +369,35 @@ def test_load_build_info_release(
         images={
             "operator": ImageInfo(
                 repositories=["quay.io/mongodb/mongodb-kubernetes"],
-                platforms=["linux/arm64", "linux/amd64"],
+                platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 version=version,
                 dockerfile_path="docker/mongodb-kubernetes-operator/Dockerfile.atomic",
                 sign=True,
             ),
             "init-database": ImageInfo(
                 repositories=["quay.io/mongodb/mongodb-kubernetes-init-database"],
-                platforms=["linux/arm64", "linux/amd64"],
+                platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 version=version,
                 dockerfile_path="docker/mongodb-kubernetes-init-database/Dockerfile.atomic",
                 sign=True,
             ),
             "init-appdb": ImageInfo(
                 repositories=["quay.io/mongodb/mongodb-kubernetes-init-appdb"],
-                platforms=["linux/arm64", "linux/amd64"],
+                platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 version=version,
                 dockerfile_path="docker/mongodb-kubernetes-init-appdb/Dockerfile.atomic",
                 sign=True,
             ),
             "init-ops-manager": ImageInfo(
                 repositories=["quay.io/mongodb/mongodb-kubernetes-init-ops-manager"],
-                platforms=["linux/arm64", "linux/amd64"],
+                platforms=["linux/amd64"],
                 version=version,
                 dockerfile_path="docker/mongodb-kubernetes-init-ops-manager/Dockerfile.atomic",
                 sign=True,
             ),
             "database": ImageInfo(
                 repositories=["quay.io/mongodb/mongodb-kubernetes-database"],
-                platforms=["linux/arm64", "linux/amd64"],
+                platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 version=version,
                 dockerfile_path="docker/mongodb-kubernetes-database/Dockerfile.atomic",
                 sign=True,
@@ -446,8 +446,8 @@ def test_load_build_info_manual_release(git_repo: Repo):
     expected_build_info = BuildInfo(
         images={
             "agent": ImageInfo(
-                repositories=["quay.io/mongodb/mongodb-agent-ubi"],
-                platforms=["linux/arm64", "linux/amd64"],
+                repositories=["quay.io/mongodb/mongodb-agent-ubi", "quay.io/mongodb/mongodb-agent"],
+                platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 version=None,  # Version is None for manual_release scenario
                 dockerfile_path="docker/mongodb-agent/Dockerfile.atomic",
                 sign=True,
