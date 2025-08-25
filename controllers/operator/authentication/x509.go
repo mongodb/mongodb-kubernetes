@@ -29,7 +29,7 @@ func (x *connectionX509) EnableAgentAuthentication(conn om.Connection, opts Opti
 		auth.KeyFile = util.AutomationAgentKeyFilePathInContainer
 		auth.KeyFileWindows = util.AutomationAgentWindowsKeyFilePath
 		ac.AgentSSL = &om.AgentSSL{
-			AutoPEMKeyFilePath:    util.AutomationAgentPemFilePath,
+			AutoPEMKeyFilePath:    opts.AutoPEMKeyFilePath,
 			CAFilePath:            opts.CAFilePath,
 			ClientCertificateMode: opts.ClientCertificates,
 		}
@@ -46,7 +46,7 @@ func (x *connectionX509) EnableAgentAuthentication(conn om.Connection, opts Opti
 
 	log.Info("Configuring backup agent user")
 	err = conn.ReadUpdateBackupAgentConfig(func(config *om.BackupAgentConfig) error {
-		config.EnableX509Authentication(opts.AutomationSubject)
+		config.EnableX509Authentication(opts.AutomationSubject, opts.AutoPEMKeyFilePath)
 		config.SetLdapGroupDN(opts.AutoLdapGroupDN)
 		return nil
 	}, log)
@@ -56,7 +56,7 @@ func (x *connectionX509) EnableAgentAuthentication(conn om.Connection, opts Opti
 
 	log.Info("Configuring monitoring agent user")
 	return conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
-		config.EnableX509Authentication(opts.AutomationSubject)
+		config.EnableX509Authentication(opts.AutomationSubject, opts.AutoPEMKeyFilePath)
 		config.SetLdapGroupDN(opts.AutoLdapGroupDN)
 		return nil
 	}, log)

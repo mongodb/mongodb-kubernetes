@@ -200,12 +200,15 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 
 	tlsCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, rs.Namespace, rsCertsConfig.CertSecretName, databaseSecretPath, log)
 	internalClusterCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, rs.Namespace, rsCertsConfig.InternalClusterSecretName, databaseSecretPath, log)
+	agentCertSecretName := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name)
+	agentCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, rs.Namespace, agentCertSecretName, databaseSecretPath, log)
 
 	rsConfig := construct.ReplicaSetOptions(
 		PodEnvVars(newPodVars(conn, projectConfig, rs.Spec.LogLevel)),
 		CurrentAgentAuthMechanism(currentAgentAuthMode),
 		CertificateHash(tlsCertHash),
 		InternalClusterHash(internalClusterCertHash),
+		AgentCertificateHash(agentCertHash),
 		PrometheusTLSCertHash(prometheusCertHash),
 		WithVaultConfig(vaultConfig),
 		WithLabels(rs.Labels),
@@ -233,8 +236,10 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		}
 	}
 
-	agentCertSecretSelector := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name)
-	agentCertSecretSelector.Name += certs.OperatorGeneratedCertSuffix
+	agentCertSecretSelector := corev1.SecretKeySelector{
+		LocalObjectReference: corev1.LocalObjectReference{Name: agentCertSecretName + certs.OperatorGeneratedCertSuffix},
+		Key:                  agentCertHash,
+	}
 
 	internalClusterCertPath := ""
 	if internalClusterCertHash != "" {
@@ -457,6 +462,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 	replicaSet := replicaset.BuildFromStatefulSetWithReplicas(r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, set, rs.GetSpec(), updatedMembers, rs.CalculateFeatureCompatibilityVersion(), tlsCertPath)
 	processNames := replicaSet.GetProcessNames()
 
+	// TODO: Move hash reads somewhere up the call stack
 	status, additionalReconciliationRequired := r.updateOmAuthentication(ctx, conn, processNames, rs, agentCertSecretSelector, caFilePath, internalClusterCertPath, isRecovering, log)
 	if !status.IsOK() && !isRecovering {
 		return status

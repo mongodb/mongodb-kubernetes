@@ -124,7 +124,6 @@ const (
 
 	AutomationAgentName         = "mms-automation-agent"
 	AutomationAgentPemSecretKey = AutomationAgentName + "-pem"
-	AutomationAgentPemFilePath  = PvcMmsHomeMountPath + "/" + AgentSecretName + "/" + AutomationAgentPemSecretKey
 
 	// Key used in concatenated pem secrets to denote the hash of the latest certificate
 	LatestHashSecretKey   = "latestHash"

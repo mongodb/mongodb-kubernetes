@@ -95,6 +95,7 @@ type DatabaseStatefulSetOptions struct {
 	PodVars                 *env.PodEnvVars
 	CurrentAgentAuthMode    string
 	CertificateHash         string
+	AgentCertificateHash    string
 	PrometheusTLSCertHash   string
 	InternalClusterHash     string
 	ServicePort             int32
@@ -376,7 +377,7 @@ func buildVaultDatabaseSecretsToInject(mdb databaseStatefulSetSource, opts Datab
 	secretsToInject := vault.DatabaseSecretsToInject{Config: opts.VaultConfig}
 
 	if mdb.GetSecurity().ShouldUseX509(opts.CurrentAgentAuthMode) || mdb.GetSecurity().ShouldUseClientCertificates() {
-		secretName := mdb.GetSecurity().AgentClientCertificateSecretName(mdb.GetName()).Name
+		secretName := mdb.GetSecurity().AgentClientCertificateSecretName(mdb.GetName())
 		secretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
 		secretsToInject.AgentCerts = secretName
 	}

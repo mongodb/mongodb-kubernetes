@@ -179,6 +179,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	if mrs.Spec.Security.IsTLSEnabled() {
 		certSecretName := mrs.Spec.GetSecurity().MemberCertificateSecretName(mrs.Name)
 		internalClusterCertSecretName := mrs.Spec.GetSecurity().InternalClusterAuthSecretName(mrs.Name)
+		// TOOD: check if it makes sense to define funcs reading hash in the common controller.
 		tlsCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, mrs.Namespace, certSecretName, "", log)
 		internalClusterCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, mrs.Namespace, internalClusterCertSecretName, "", log)
 
@@ -493,8 +494,11 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			return workflow.Failed(err)
 		}
 
+		agentCertSecretName := mrs.GetSecurity().AgentClientCertificateSecretName(mrs.Name)
+
 		// get cert hash of tls secret if it exists
 		certHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, mrs.Namespace, mrsConfig.CertSecretName, "", log)
+		agentCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, mrs.Namespace, agentCertSecretName, "", log)
 		internalCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, mrs.Namespace, mrsConfig.InternalClusterSecretName, "", log)
 		log.Debugf("Creating StatefulSet %s with %d replicas in cluster: %s", mrs.MultiStatefulsetName(clusterNum), replicasThisReconciliation, item.ClusterName)
 
@@ -524,6 +528,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			PodEnvVars(newPodVars(conn, projectConfig, mrs.Spec.LogLevel)),
 			CurrentAgentAuthMechanism(currentAgentAuthMode),
 			CertificateHash(certHash),
+			AgentCertificateHash(agentCertHash),
 			InternalClusterHash(internalCertHash),
 			WithLabels(mrs.GetOwnerLabels()),
 			WithAdditionalMongodConfig(mrs.Spec.GetAdditionalMongodConfig()),
@@ -758,7 +763,13 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
 
 	agentCertSecretName := mrs.GetSecurity().AgentClientCertificateSecretName(mrs.GetName())
-	status, additionalReconciliationRequired := r.updateOmAuthentication(ctx, conn, rs.GetProcessNames(), &mrs, agentCertSecretName, caFilePath, internalClusterCertPath, isRecovering, log)
+	// TODO: Move hash reads somewhere up the call stack
+	agentCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, mrs.Namespace, agentCertSecretName, "", log)
+	agentCertSecretSelector := corev1.SecretKeySelector{
+		LocalObjectReference: corev1.LocalObjectReference{Name: agentCertSecretName},
+		Key:                  agentCertHash,
+	}
+	status, additionalReconciliationRequired := r.updateOmAuthentication(ctx, conn, rs.GetProcessNames(), &mrs, agentCertSecretSelector, caFilePath, internalClusterCertPath, isRecovering, log)
 	if !status.IsOK() && !isRecovering {
 		return xerrors.Errorf("failed to enable Authentication for MongoDB Multi Replicaset")
 	}
