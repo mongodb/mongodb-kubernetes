@@ -1,0 +1,3 @@
+Checking cross-cluster DNS resolution and connectivity from echoserver2-0 in gke_scratch-kubernetes-team_europe-central2-c_k8s-mdb-2-68876175f5ad6d0007fdc1d4-31160 to echoserver1-0
+SUCCESS
+test
