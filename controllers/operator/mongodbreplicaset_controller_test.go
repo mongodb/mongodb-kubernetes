@@ -129,7 +129,7 @@ func TestReplicaSetClusterReconcileContainerImagesWithStaticArchitecture(t *test
 	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0_ubi9", mcoConstruct.MongodbImageEnv)
 
 	imageUrlsMock := images.ImageUrls{
-		architectures.MdbAgentImageRepo: "quay.io/mongodb/mongodb-agent-ubi",
+		architectures.MdbAgentImageRepo: "quay.io/mongodb/mongodb-agent",
 		mcoConstruct.MongodbImageEnv:    "quay.io/mongodb/mongodb-enterprise-server",
 		databaseRelatedImageEnv:         "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE",
 	}
@@ -157,7 +157,7 @@ func TestReplicaSetClusterReconcileContainerImagesWithStaticArchitecture(t *test
 func VerifyStaticContainers(t *testing.T, containers []corev1.Container) {
 	agentContainerImage := findContainerImage(containers, util.AgentContainerName)
 	require.NotNil(t, agentContainerImage, "Agent container not found")
-	assert.Equal(t, "quay.io/mongodb/mongodb-agent-ubi:12.0.30.7791-1", agentContainerImage)
+	assert.Equal(t, "quay.io/mongodb/mongodb-agent:12.0.30.7791-1", agentContainerImage)
 
 	mongoContainerImage := findContainerImage(containers, util.DatabaseContainerName)
 	require.NotNil(t, mongoContainerImage, "MongoDB container not found")
