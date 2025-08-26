@@ -202,7 +202,7 @@ wait_for_all_background_jobs() {
       for failure in "${failures[@]}"; do
         echo -e "$failure"
       done
-      echo -e "${RED}To see the details look for the job's logs by it's prefixed name (e.g. \"shellcheck:\").${NO_COLOR}"
+      echo -e "${RED}To see the details look for the job's logs by it's prefixed name (e.g. \"shellcheck failed\").${NO_COLOR}"
       return 1
     fi
 
@@ -229,7 +229,6 @@ pre_commit() {
 # Function to run shellcheck on a single file
 run_shellcheck() {
   local file="$1"
-  echo "Running shellcheck on $file"
 
   local diff_output
   diff_output=$(shellcheck -f diff "$file" -e SC2154 -e SC1091 -e SC1090 -e SC2148 -o require-variable-braces -P "scripts" 2>&1)
