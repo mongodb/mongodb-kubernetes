@@ -58,8 +58,8 @@ install_aws_cli_pip() {
     ${pip_cmd} install --user awscli
 
     # Add ~/.local/bin to PATH if not already there (where pip --user installs)
-    if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
-        export PATH="$HOME/.local/bin:$PATH"
+    if [[ ":${PATH}:" != *":${HOME}/.local/bin:"* ]]; then
+        export PATH="${HOME}/.local/bin:${PATH}"
         echo "Added ~/.local/bin to PATH"
     fi
 

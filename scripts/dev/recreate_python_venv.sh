@@ -77,7 +77,8 @@ ensure_required_python() {
             # Install python3-venv package for Debian/Ubuntu systems if needed
             if command -v apt-get &> /dev/null; then
                 echo "Installing python3-venv package for venv support..." >&2
-                sudo apt-get update -qq && sudo apt-get install -y python3-venv || true
+                sudo apt-get update -qq || true
+                sudo apt-get install -y python3-venv || true
             fi
             return 0
         fi
