@@ -29,7 +29,7 @@ EOF
 }
 
 # retrieve arch variable off the shell command line
-ARCH=${1-"$(detect_architecture)"}
+ARCH="$(detect_architecture)"
 
 echo "Setting up minikube host for architecture: ${ARCH}"
 
@@ -50,7 +50,7 @@ setup_local_registry_and_custom_image() {
       registry_running=true
     fi
 
-    if ! $registry_running; then
+    if ! ${registry_running}; then
       echo "Starting local container registry on port 5000..."
 
       # Clean up any existing registry first
@@ -63,7 +63,7 @@ setup_local_registry_and_custom_image() {
 
       # Wait for registry to be ready
       echo "Waiting for registry to be ready..."
-      for i in {1..30}; do
+      for _ in {1..30}; do
         if curl -s http://localhost:5000/v2/_catalog >/dev/null 2>&1; then
           break
         fi

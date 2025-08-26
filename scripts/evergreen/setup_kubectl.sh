@@ -22,7 +22,7 @@ mv kubectl "${bindir}"
 echo "Downloading helm for ${ARCH}"
 helm_archive="${tmpdir}/helm.tgz"
 helm_version="v3.17.1"
-curl -s https://get.helm.sh/helm-${helm_version}-linux-${ARCH}.tar.gz --output "${helm_archive}"
+curl -s https://get.helm.sh/helm-${helm_version}-linux-"${ARCH}".tar.gz --output "${helm_archive}"
 
 tar xfz "${helm_archive}" -C "${tmpdir}" &> /dev/null
 mv "${tmpdir}/linux-${ARCH}/helm" "${bindir}"
