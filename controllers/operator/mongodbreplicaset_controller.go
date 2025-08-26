@@ -238,6 +238,8 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 
 	// TODO: copy maybe?
 	agentCertSecretSelector.Name += certs.OperatorGeneratedCertSuffix
+	// TODO: make rs.GetSecurity().AgentClientCertificateSecretName(rs.Name) return only name and add hash later.
+	agentCertSecretSelector.Key = agentCertHash
 
 	internalClusterCertPath := ""
 	if internalClusterCertHash != "" {
