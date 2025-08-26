@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/blang/semver"
 	"github.com/ghodss/yaml"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -82,7 +81,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	log = log.With("MongoDBSearch", r.mdbSearch.NamespacedName())
 	log.Infof("Reconciling MongoDBSearch")
 
-	if err := ValidateSearchSource(r.db); err != nil {
+	if err := r.db.ValidateMongoDBVersion(); err != nil {
 		return workflow.Failed(err)
 	}
 
@@ -123,7 +122,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Failed(err)
 	}
 
-	if statefulSetStatus := statefulset.GetStatefulSetStatus(ctx, r.db.NamespacedName().Namespace, r.mdbSearch.StatefulSetNamespacedName().Name, r.client); !statefulSetStatus.IsOK() {
+	if statefulSetStatus := statefulset.GetStatefulSetStatus(ctx, r.mdbSearch.Namespace, r.mdbSearch.StatefulSetNamespacedName().Name, r.client); !statefulSetStatus.IsOK() {
 		return statefulSetStatus
 	}
 
@@ -334,10 +333,7 @@ func buildSearchHeadlessService(search *searchv1.MongoDBSearch) corev1.Service {
 
 func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResource) mongot.Modification {
 	return func(config *mongot.Config) {
-		var hostAndPorts []string
-		for i := range db.Members() {
-			hostAndPorts = append(hostAndPorts, fmt.Sprintf("%s-%d.%s.%s.svc.cluster.local:%d", db.Name(), i, db.DatabaseServiceName(), db.GetNamespace(), db.DatabasePort()))
-		}
+		hostAndPorts := db.HostSeeds()
 
 		config.SyncSource = mongot.ConfigSyncSource{
 			ReplicaSet: mongot.ConfigReplicaSet{
@@ -395,23 +391,17 @@ func mongotHostAndPort(search *searchv1.MongoDBSearch) string {
 	return fmt.Sprintf("%s.%s.svc.cluster.local:%d", svcName.Name, svcName.Namespace, search.GetMongotPort())
 }
 
-func ValidateSearchSource(db SearchSourceDBResource) error {
-	version, err := semver.ParseTolerant(db.GetMongoDBVersion())
-	if err != nil {
-		return xerrors.Errorf("error parsing MongoDB version '%s': %w", db.GetMongoDBVersion(), err)
-	} else if version.LT(semver.MustParse("8.0.10")) {
-		return xerrors.New("MongoDB version must be 8.0.10 or higher")
+func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSource(ctx context.Context) error {
+	if r.mdbSearch.Spec.Source != nil && r.mdbSearch.Spec.Source.ExternalMongoDBSource != nil {
+		return nil
 	}
 
-	return nil
-}
-
-func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSource(ctx context.Context) error {
+	ref := r.mdbSearch.GetMongoDBResourceRef()
 	searchList := &searchv1.MongoDBSearchList{}
 	if err := r.client.List(ctx, searchList, &client.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector(MongoDBSearchIndexFieldName, r.db.GetNamespace()+"/"+r.db.Name()),
+		FieldSelector: fields.OneTermEqualSelector(MongoDBSearchIndexFieldName, ref.Namespace+"/"+ref.Name),
 	}); err != nil {
-		return xerrors.Errorf("Error listing MongoDBSearch resources for search source '%s': %w", r.db.Name(), err)
+		return xerrors.Errorf("Error listing MongoDBSearch resources for search source '%s': %w", ref.Name, err)
 	}
 
 	if len(searchList.Items) > 1 {
@@ -420,7 +410,7 @@ func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSourc
 			resourceNames[i] = search.Name
 		}
 		return xerrors.Errorf(
-			"Found multiple MongoDBSearch resources for search source '%s': %s", r.db.Name(),
+			"Found multiple MongoDBSearch resources for search source '%s': %s", ref.Name,
 			strings.Join(resourceNames, ", "),
 		)
 	}
