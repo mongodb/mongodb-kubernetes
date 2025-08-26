@@ -97,7 +97,7 @@ def get_supported_images(release: Dict) -> dict[str, SupportedImage]:
     supported_images = convert_to_image_names(supported_images)
     supported_images["mongodb-agent-ubi"] = SupportedImage(
         get_supported_version_for_image("mongodb-agent"),
-        "mongodb-agent-ubi",
+        "mongodb-agent",
         "quay.io/mongodb/mongodb-agent",
         release["supportedImages"]["mongodb-agent"]["ssdlc_name"],
         list(),

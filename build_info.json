@@ -250,7 +250,7 @@
       },
       "staging": {
         "sign": true,
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-agent-ubi"],
+        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-agent"],
         "platforms": [
           "linux/arm64",
           "linux/amd64",
