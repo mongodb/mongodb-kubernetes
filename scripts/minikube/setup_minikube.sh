@@ -50,7 +50,7 @@ setup_local_registry_and_custom_image() {
       registry_running=true
     fi
 
-    if ! $registry_running; then
+    if ! ${registry_running}; then
       echo "Starting local container registry on port 5000..."
 
       # Clean up any existing registry first

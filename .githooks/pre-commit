@@ -230,9 +230,21 @@ pre_commit() {
 run_shellcheck() {
   local file="$1"
   echo "Running shellcheck on $file"
-  if ! shellcheck --color=always -x "$file" -e SC2154 -e SC1091 -e SC1090 -e SC2148 -o require-variable-braces -P "scripts"; then
+
+  # Try to auto-fix issues
+  local diff_output
+  diff_output=$(shellcheck -f diff "$file" -e SC2154 -e SC1091 -e SC1090 -e SC2148 -o require-variable-braces -P "scripts" 2>&1)
+
+  if [[ "$diff_output" == *"Issues were detected, but none were auto-fixable"* ]]; then
     echo -e "${RED}shellcheck failed on $file${NO_COLOR}"
-    exit 1
+    echo "$file" >> "${SHELLCHECK_FAILED_FILE}"
+    return 1
+  elif echo "$diff_output" | git apply --allow-empty; then
+    echo "Applied auto-fixes for $file"
+  else
+    echo -e "${RED}shellcheck failed on $file${NO_COLOR}"
+    echo "$file" >> "${SHELLCHECK_FAILED_FILE}"
+    return 1
   fi
 }
 
@@ -240,6 +252,11 @@ run_shellcheck() {
 export -f run_shellcheck
 
 start_shellcheck() {
+  # Create temporary file to track failed files
+  local failed_file
+  failed_file=$(mktemp)
+  export SHELLCHECK_FAILED_FILE="$failed_file"
+
   # shellcheck disable=SC2016
   {
     find scripts -type f -name "*.sh"
@@ -247,7 +264,20 @@ start_shellcheck() {
     find scripts/funcs -type f
     find public/architectures -type f -name "*.sh"
     find docs/ -type f -name "*.sh"
-  } | xargs -I {} -P 20 bash -c 'run_shellcheck "$1"' _ {}
+  } | xargs -I {} -P 20 bash -c 'run_shellcheck "$1" || true' _ {}
+
+  # Show summary of failed files
+  if [[ -s "$failed_file" ]]; then
+    echo -e "\n${RED}Shellcheck failed on the following files:${NO_COLOR}"
+    while read -r file; do
+      echo -e "  ${RED}✗${NO_COLOR} $file"
+    done < "$failed_file"
+    echo -e "\n${RED}Total: $(wc -l < "$failed_file") file(s) failed shellcheck${NO_COLOR}"
+    rm -f "$failed_file"
+    exit 1
+  fi
+
+  rm -f "$failed_file"
 }
 
 cmd=${1:-"pre-commit"}
