@@ -27,6 +27,21 @@ deploy_test_app() {
       tag="${OVERRIDE_VERSION_ID}"
     fi
 
+    local arch
+    arch=$(uname -m)
+
+    case "${arch}" in
+        ppc64le)
+            tag="${tag}-ppc64le"
+            ;;
+        s390x)
+            tag="${tag}-s390x"
+            ;;
+        *)
+            echo "Not IBM host, using default tag"
+            ;;
+    esac
+
     IS_PATCH="${IS_PATCH:-default_patch}"
     TASK_NAME="${TASK_NAME:-default_task}"
     EXECUTION="${EXECUTION:-default_execution}"
@@ -213,8 +228,8 @@ run_tests() {
     echo
 
     # We need to make sure to access this file after the test has finished
-    kubectl --context "${test_pod_context}" -n "${NAMESPACE}" cp "${TEST_APP_PODNAME}":/tmp/results/myreport.xml logs/myreport.xml
-    kubectl --context "${test_pod_context}" -n "${NAMESPACE}" cp "${TEST_APP_PODNAME}":/tmp/diagnostics logs
+    kubectl --context "${test_pod_context}" -n "${NAMESPACE}" -c keepalive cp "${TEST_APP_PODNAME}":/tmp/results/myreport.xml logs/myreport.xml
+    kubectl --context "${test_pod_context}" -n "${NAMESPACE}" -c keepalive cp "${TEST_APP_PODNAME}":/tmp/diagnostics logs
 
     status="$(kubectl --context "${test_pod_context}" get pod "${TEST_APP_PODNAME}" -n "${NAMESPACE}" -o jsonpath="{ .status }" | jq -r '.containerStatuses[] | select(.name == "mongodb-enterprise-operator-tests")'.state.terminated.reason)"
     [[ "${status}" == "Completed" ]]
