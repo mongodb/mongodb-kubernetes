@@ -1764,16 +1764,6 @@ buildvariants:
     tasks:
       - name: release_all_agents_on_ecr
 
-    # Only called manually, It's used for testing the task release_agents_on_ecr in case the release.json
-    # has not changed, and you still want to push the images to ecr.
-  - name: manual_ecr_release_agent_currently_used
-    display_name: manual_ecr_release_agent_currently_used
-    tags: [ "release_all_agents_manually" ]
-    run_on:
-      - ubuntu2204-large
-    tasks:
-      - name: release_all_currently_used_agents_on_ecr
-
   ### Build variants for manual patch only
 
   - name: backup_csv_images
