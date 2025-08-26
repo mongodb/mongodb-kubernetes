@@ -56,7 +56,7 @@ github.com/ryanuber/go-glob,v1.0.0,https://github.com/ryanuber/go-glob/blob/v1.0
 github.com/spf13/cast,v1.9.2,https://github.com/spf13/cast/blob/v1.9.2/LICENSE,MIT
 github.com/spf13/pflag,v1.0.6,https://github.com/spf13/pflag/blob/v1.0.6/LICENSE,BSD-3-Clause
 github.com/stretchr/objx,v0.5.2,https://github.com/stretchr/objx/blob/v0.5.2/LICENSE,MIT
-github.com/stretchr/testify/assert,v1.10.0,https://github.com/stretchr/testify/blob/v1.10.0/LICENSE,MIT
+github.com/stretchr/testify/assert,v1.11.0,https://github.com/stretchr/testify/blob/v1.11.0/LICENSE,MIT
 github.com/vmihailenco/msgpack/v5,v5.4.1,https://github.com/vmihailenco/msgpack/blob/v5.4.1/LICENSE,BSD-2-Clause
 github.com/vmihailenco/tagparser/v2,v2.0.0,https://github.com/vmihailenco/tagparser/blob/v2.0.0/LICENSE,BSD-2-Clause
 github.com/xdg/stringprep,v1.0.3,https://github.com/xdg/stringprep/blob/v1.0.3/LICENSE,Apache-2.0
