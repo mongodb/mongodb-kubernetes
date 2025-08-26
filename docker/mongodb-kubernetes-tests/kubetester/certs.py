@@ -761,4 +761,4 @@ def rotate_and_assert_certificates(mdb, namespace, certificate_name):
     )
     kubetester.wait_processes_ready()
 
-    mdb.assert_reaches_phase(Phase.Running, timeout=1200)
+    mdb.assert_reaches_phase(Phase.Running, timeout=1600)

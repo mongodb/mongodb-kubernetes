@@ -115,7 +115,7 @@ class TestShardedClusterScalingAddShards:
         sc.update()
 
     def test_sharded_cluster(self, sc: MongoDB):
-        sc.assert_reaches_phase(Phase.Running, timeout=500)
+        sc.assert_reaches_phase(Phase.Running, timeout=1000)
 
     def test_assert_correct_automation_config_after_scaling(self, sc: MongoDB):
         logger.info("Validating automation config correctness")

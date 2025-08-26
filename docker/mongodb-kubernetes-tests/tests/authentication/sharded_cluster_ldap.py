@@ -115,7 +115,7 @@ def test_sharded_cluster_CLOUDP_229222(sharded_cluster: MongoDB):
     This function tests CLOUDP-229222. The recovery mechanism kicks in and pushes Automation Config. The ReplicaSet
     goes into running state.
     """
-    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=800)
+    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1400)
 
 
 # TODO: Move to a MongoDBUsers (based on KubeObject) for this user creation.

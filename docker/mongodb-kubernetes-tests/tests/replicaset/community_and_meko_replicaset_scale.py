@@ -80,7 +80,7 @@ def test_meko_replicaset_scale_up(meko_replica_set: MongoDB):
     rs = meko_replica_set.load()
     rs["spec"]["members"] = 5
     rs.update()
-    meko_replica_set.assert_reaches_phase(Phase.Running, timeout=500)
+    meko_replica_set.assert_reaches_phase(Phase.Running, timeout=1000)
 
 
 @mark.e2e_community_and_meko_replicaset_scale

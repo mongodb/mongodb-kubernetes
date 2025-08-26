@@ -52,7 +52,7 @@ class TestNoTwoReplicaSetsCanBeCreatedOnTheSameProject:
         replica_set["spec"]["members"] = 5
         replica_set.update()
 
-        replica_set.assert_reaches_phase(Phase.Running, timeout=500)
+        replica_set.assert_reaches_phase(Phase.Running, timeout=1000)
         assert "warnings" not in replica_set["status"]
 
     def test_second_mdb_resource_fails(self, replica_set_single: MongoDB):

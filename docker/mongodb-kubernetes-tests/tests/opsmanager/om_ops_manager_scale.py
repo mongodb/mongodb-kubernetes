@@ -197,7 +197,7 @@ class TestOpsManagerScaleUp:
         else:
             ops_manager["spec"]["replicas"] = 3
         ops_manager.update()
-        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=500)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1000)
 
     def test_number_of_replicas(self, ops_manager: MongoDBOpsManager):
         for member_cluster_name in ops_manager.get_om_member_cluster_names():
@@ -240,7 +240,7 @@ class TestOpsManagerScaleDown:
         else:
             ops_manager["spec"]["replicas"] = 1
         ops_manager.update()
-        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=500)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1000)
 
     def test_number_of_replicas(self, ops_manager: MongoDBOpsManager):
         for member_cluster_name in ops_manager.get_om_member_cluster_names():

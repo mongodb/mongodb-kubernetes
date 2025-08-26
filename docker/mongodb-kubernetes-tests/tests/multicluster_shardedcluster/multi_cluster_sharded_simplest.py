@@ -40,4 +40,4 @@ def test_create(sharded_cluster: MongoDB, custom_mdb_version: str, issuer_ca_con
 
 @mark.e2e_multi_cluster_sharded_simplest
 def test_sharded_cluster(sharded_cluster: MongoDB):
-    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=900)
+    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1400)

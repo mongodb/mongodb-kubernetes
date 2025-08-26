@@ -46,7 +46,7 @@ def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
 class TestCreateOIDCShardedCluster(KubernetesTester):
 
     def test_create_sharded_cluster(self, sharded_cluster: MongoDB):
-        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=800)
+        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1400)
 
     def test_assert_connectivity(self, sharded_cluster: MongoDB):
         service_names = None

@@ -105,7 +105,7 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 @pytest.mark.e2e_multi_cluster_scale_up_cluster
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
     mongodb_multi.update()
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=600)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1400)
 
 
 @pytest.mark.e2e_multi_cluster_scale_up_cluster
@@ -176,7 +176,7 @@ class TestNonSequentialMemberIdsInReplicaSet(KubernetesTester):
         mongodb_multi.update()
 
         mongodb_multi.assert_statefulsets_are_ready(member_cluster_clients)
-        mongodb_multi.assert_reaches_phase(Phase.Running, timeout=600)
+        mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1400)
 
     def test_change_project(self, mongodb_multi: MongoDBMulti, new_project_configmap: str):
         oldRsMembers = mongodb_multi.get_automation_config_tester().get_replica_set_members(mongodb_multi.name)

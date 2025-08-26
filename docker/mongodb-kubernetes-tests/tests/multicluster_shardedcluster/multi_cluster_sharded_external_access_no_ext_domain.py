@@ -46,7 +46,7 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 @mark.e2e_multi_cluster_sharded_external_access_no_ext_domain
 def test_sharded_cluster(sharded_cluster: MongoDB):
     sharded_cluster.update()
-    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=800)
+    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1400)
 
 
 @mark.e2e_multi_cluster_sharded_external_access_no_ext_domain

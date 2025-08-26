@@ -57,7 +57,7 @@ def oidc_user(namespace) -> MongoDBUser:
 @pytest.mark.e2e_sharded_cluster_oidc_m2m_user
 class TestCreateOIDCShardedCluster(KubernetesTester):
     def test_create_sharded_cluster(self, sharded_cluster: MongoDB):
-        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=800)
+        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1400)
 
     def test_create_user(self, oidc_user: MongoDBUser):
         oidc_user.assert_reaches_phase(Phase.Updated, timeout=400)

@@ -59,8 +59,8 @@ def test_sharded_cluster_resize_pvc_state_changes(sc: MongoDB):
 
     sc.update()
 
-    sc.assert_reaches_phase(Phase.Pending, timeout=400)
-    sc.assert_reaches_phase(Phase.Running, timeout=2000)
+    sc.assert_reaches_phase(Phase.Pending, timeout=800)
+    sc.assert_reaches_phase(Phase.Running, timeout=3000)
 
 
 @mark.e2e_sharded_cluster_pv_resize

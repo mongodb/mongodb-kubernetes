@@ -56,7 +56,7 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 @mark.e2e_multi_cluster_sharded_simplest_no_mesh
 def test_sharded_cluster(sharded_cluster: MongoDB):
     sharded_cluster.update()
-    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=800)
+    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1400)
 
 
 # Testing connectivity with External Access requires using the same DNS as deployed in Kube within

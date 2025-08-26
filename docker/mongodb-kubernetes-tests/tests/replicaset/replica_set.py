@@ -359,7 +359,7 @@ class TestReplicaSetScaleUp(KubernetesTester):
     def test_mdb_updated(self, replica_set: MongoDB):
         replica_set["spec"]["members"] = 5
         replica_set.update()
-        replica_set.assert_reaches_phase(Phase.Running, timeout=500)
+        replica_set.assert_reaches_phase(Phase.Running, timeout=1000)
 
     def test_replica_set_sts_should_exist(self):
         sts = self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)

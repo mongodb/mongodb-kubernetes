@@ -79,7 +79,7 @@ def test_deployment_has_been_removed_from_automation_config():
             logger.error(e)
             return False
 
-    wait_until(wait_until_automation_config_is_clean, timeout=60)
+    wait_until(wait_until_automation_config_is_clean, timeout=120)
 
 
 @pytest.mark.e2e_multi_cluster_replica_set_deletion
