@@ -2107,8 +2107,8 @@ buildvariants:
       - name: publish_ops_manager
       - name: release_agent
 
-  - name: publish_agent_images_manual
-    display_name: publish_agent_images_manual
+  - name: migrate_all_agents
+    display_name: migrate_all_agents
     allowed_requesters: [ "patch" ]
     run_on:
       - ubuntu2204-large
