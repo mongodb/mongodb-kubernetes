@@ -202,7 +202,7 @@ wait_for_all_background_jobs() {
       for failure in "${failures[@]}"; do
         echo -e "$failure"
       done
-      echo -e "${RED}To see the details look for the job's logs by it's prefixed name (e.g. \"shellcheck failed\").${NO_COLOR}"
+      echo -e "${RED}To see the details look/filter for the job's logs by it's prefixed name (e.g. \"start_shellcheck:\", \"lint_code:\", \"shellcheck failed\").${NO_COLOR}") 
       return 1
     fi
 
