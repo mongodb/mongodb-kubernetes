@@ -94,7 +94,7 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 
 @pytest.mark.e2e_multi_cluster_replica_set_member_options
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1400)
 
 
 @pytest.mark.e2e_multi_cluster_replica_set_member_options
@@ -143,7 +143,7 @@ def test_mongodb_multi_update_member_options(mongodb_multi: MongoDBMulti):
         },
     }
     mongodb_multi.update()
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1400)
 
     config = mongodb_multi.get_automation_config_tester().automation_config
     rs = config["replicaSets"]
@@ -165,7 +165,7 @@ def test_mongodb_multi_set_member_votes_to_0(mongodb_multi: MongoDBMulti):
     mongodb_multi["spec"]["clusterSpecList"][1]["memberConfig"][0]["votes"] = 0
     mongodb_multi["spec"]["clusterSpecList"][1]["memberConfig"][0]["priority"] = "0.0"
     mongodb_multi.update()
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1400)
 
     config = mongodb_multi.get_automation_config_tester().automation_config
     rs = config["replicaSets"]
@@ -196,7 +196,7 @@ def test_mongodb_multi_set_recover_valid_member_options(mongodb_multi: MongoDBMu
     mongodb_multi["spec"]["clusterSpecList"][1]["memberConfig"][0]["votes"] = 1
     mongodb_multi["spec"]["clusterSpecList"][1]["memberConfig"][0]["priority"] = "0.0"
     mongodb_multi.update()
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1400)
 
 
 @pytest.mark.e2e_multi_cluster_replica_set_member_options

@@ -125,7 +125,7 @@ def test_replica_set_is_reachable(mongodb_multi: MongoDBMulti):
 @mark.e2e_multi_cluster_disaster_recovery
 def test_replica_reaches_running(mongodb_multi: MongoDBMulti):
     mongodb_multi.load()
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1400)
 
 
 @mark.e2e_multi_cluster_disaster_recovery

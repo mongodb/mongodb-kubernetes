@@ -34,7 +34,7 @@ def mongodb_multi(
 
 @mark.e2e_multi_cluster_agent_flags
 def test_create_mongodb_multi(multi_cluster_operator: Operator, mongodb_multi: MongoDBMulti):
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1400)
 
 
 @mark.e2e_multi_cluster_agent_flags

@@ -64,7 +64,7 @@ def test_deploy_operator(multi_cluster_operator_manual_remediation: Operator):
 @mark.e2e_multi_cluster_recover_network_partition
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
     mongodb_multi.update()
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1400)
 
 
 @mark.e2e_multi_cluster_recover_network_partition

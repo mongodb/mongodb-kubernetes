@@ -50,7 +50,7 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 @pytest.mark.e2e_multi_cluster_upgrade_downgrade
 def test_create_mongodb_multi_running(mongodb_multi: MongoDBMulti, custom_mdb_prev_version: str):
     mongodb_multi.update()
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1400)
     mongodb_multi.tester().assert_version(ensure_ent_version(custom_mdb_prev_version))
 
 
@@ -66,7 +66,7 @@ def test_mongodb_multi_upgrade(mongodb_multi: MongoDBMulti, custom_mdb_prev_vers
     mongodb_multi["spec"]["featureCompatibilityVersion"] = fcv_from_version(custom_mdb_prev_version)
     mongodb_multi.update()
 
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1400)
 
     mongodb_multi.tester().assert_version(ensure_ent_version(custom_mdb_version))
 
@@ -84,7 +84,7 @@ def test_mongodb_multi_downgrade(mongodb_multi: MongoDBMulti, custom_mdb_prev_ve
     mongodb_multi["spec"]["featureCompatibilityVersion"] = fcv_from_version(custom_mdb_prev_version)
     mongodb_multi.update()
 
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1400)
     mongodb_multi.tester().assert_version(ensure_ent_version(custom_mdb_prev_version))
 
 

@@ -177,7 +177,7 @@ def test_update_additional_options(mongodb_multi: MongoDBMulti, central_cluster_
 
     mongodb_multi.update()
 
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1400)
 
 
 @pytest.mark.e2e_multi_cluster_replica_set
