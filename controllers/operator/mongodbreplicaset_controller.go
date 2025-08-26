@@ -360,12 +360,12 @@ func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls
 	// watch for changes to replica set MongoDB resources
 	eventHandler := ResourceEventHandler{deleter: reconciler}
 	// Watch for changes to primary resource MongoDbReplicaSet
-	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &eventHandler, watch.PredicatesForMongoDB[client.Object](mdbv1.ReplicaSet)))
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &eventHandler, watch.PredicatesForMongoDB(mdbv1.ReplicaSet)))
 	if err != nil {
 		return err
 	}
 
-	err = c.Watch(source.Channel[client.Object](OmUpdateChannel, &handler.EnqueueRequestForObject{}, source.WithPredicates[client.Object, reconcile.Request](watch.PredicatesForMongoDB[client.Object](mdbv1.ReplicaSet))))
+	err = c.Watch(source.Channel(OmUpdateChannel, &handler.EnqueueRequestForObject{}, source.WithPredicates[client.Object, reconcile.Request](watch.PredicatesForMongoDB(mdbv1.ReplicaSet))))
 	if err != nil {
 		return xerrors.Errorf("not able to setup OmUpdateChannel to listent to update events from OM: %s", err)
 	}

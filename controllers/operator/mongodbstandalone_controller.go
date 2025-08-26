@@ -61,15 +61,15 @@ func AddStandaloneController(ctx context.Context, mgr manager.Manager, imageUrls
 
 	// watch for changes to standalone MongoDB resources
 	eventHandler := ResourceEventHandler{deleter: reconciler}
-	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &eventHandler, watch.PredicatesForMongoDB[client.Object](mdbv1.Standalone)))
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &eventHandler, watch.PredicatesForMongoDB(mdbv1.Standalone)))
 	if err != nil {
 		return err
 	}
 
 	err = c.Watch(
-		source.Channel[client.Object](OmUpdateChannel,
+		source.Channel(OmUpdateChannel,
 			&handler.EnqueueRequestForObject{},
-			source.WithPredicates[client.Object, reconcile.Request](watch.PredicatesForMongoDB[client.Object](mdbv1.Standalone)),
+			source.WithPredicates[client.Object, reconcile.Request](watch.PredicatesForMongoDB(mdbv1.Standalone)),
 		))
 	if err != nil {
 		return xerrors.Errorf("not able to setup OmUpdateChannel to listent to update events from OM: %s", err)

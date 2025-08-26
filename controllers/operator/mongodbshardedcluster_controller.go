@@ -1651,12 +1651,12 @@ func AddShardedClusterController(ctx context.Context, mgr manager.Manager, image
 
 	// watch for changes to sharded cluster MongoDB resources
 	eventHandler := ResourceEventHandler{deleter: reconciler}
-	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &eventHandler, watch.PredicatesForMongoDB[client.Object](mdbv1.ShardedCluster)))
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &eventHandler, watch.PredicatesForMongoDB(mdbv1.ShardedCluster)))
 	if err != nil {
 		return err
 	}
 
-	err = c.Watch(source.Channel[client.Object](OmUpdateChannel, &handler.EnqueueRequestForObject{}, source.WithPredicates[client.Object, reconcile.Request](watch.PredicatesForMongoDB[client.Object](mdbv1.ShardedCluster))))
+	err = c.Watch(source.Channel(OmUpdateChannel, &handler.EnqueueRequestForObject{}, source.WithPredicates[client.Object, reconcile.Request](watch.PredicatesForMongoDB(mdbv1.ShardedCluster))))
 	if err != nil {
 		return xerrors.Errorf("not able to setup OmUpdateChannel to listent to update events from OM: %s", err)
 	}

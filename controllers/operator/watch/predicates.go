@@ -3,7 +3,6 @@ package watch
 import (
 	"reflect"
 
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
@@ -75,7 +74,7 @@ func PredicatesForOpsManager() predicate.Funcs {
 	}
 }
 
-func PredicatesForMongoDB[T client.Object](resourceType mdbv1.ResourceType) predicate.Funcs {
+func PredicatesForMongoDB(resourceType mdbv1.ResourceType) predicate.Funcs {
 	return predicate.Funcs{
 		CreateFunc: func(createEvent event.CreateEvent) bool {
 			resource := createEvent.Object.(*mdbv1.MongoDB)
