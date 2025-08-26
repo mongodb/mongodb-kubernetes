@@ -106,26 +106,26 @@ dump_objects() {
         return
     fi
 
-      # Capture output first to check if it contains actual resources
-      local temp_output
-      temp_output=$(kubectl --context="${context}" -n "${namespace}" ${action} "${object}" 2>&1)
+    # Capture output first to check if it contains actual resources
+    local temp_output
+    temp_output=$(kubectl --context="${context}" -n "${namespace}" ${action} "${object}" 2>&1)
 
-      # Check if output contains actual resources (not just empty list)
-      # Skip if it's an empty YAML list (contains "items: []")
-      if printf '%s\n' "${temp_output}" | grep -Fq "items: []"; then
-          # Empty list, don't create file
-          return
-      fi
+    # Check if output contains actual resources (not just empty list)
+    # Skip if it's an empty YAML list (contains "items: []")
+    if printf '%s\n' "${temp_output}" | grep -Fq "items: []"; then
+        # Empty list, don't create file
+        return
+    fi
 
-      if [[ -n "${out_file}" ]]; then
-        {
-          header "${msg}"
-          echo "${temp_output}"
-        } > "${out_file}"
-      else
+    if [[ -n "${out_file}" ]]; then
+      {
         header "${msg}"
-        kubectl --context="${context}" -n "${namespace}" ${action} "${object}" 2>&1
-      fi
+        echo "${temp_output}"
+      } > "${out_file}"
+    else
+      header "${msg}"
+      kubectl --context="${context}" -n "${namespace}" ${action} "${object}" 2>&1
+    fi
 }
 
 # get_operator_managed_pods returns a list of names of the Pods that are managed
