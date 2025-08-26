@@ -243,11 +243,11 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		}
 	}
 
-	agentCertSecretName := s.GetSecurity().AgentClientCertificateSecretName(s.Name).Name
+	agentCertSecretSelector := s.GetSecurity().AgentClientCertificateSecretName(s.Name).Name
 
 	standaloneOpts := construct.StandaloneOptions(
 		CertificateHash(pem.ReadHashFromSecret(ctx, r.SecretClient, s.Namespace, standaloneCertSecretName, databaseSecretPath, log)),
-		AgentCertificateHash(pem.ReadHashFromSecret(ctx, r.SecretClient, s.Namespace, agentCertSecretName, databaseSecretPath, log)),
+		AgentCertificateHash(pem.ReadHashFromSecret(ctx, r.SecretClient, s.Namespace, agentCertSecretSelector, databaseSecretPath, log)),
 		CurrentAgentAuthMechanism(currentAgentAuthMode),
 		PodEnvVars(podVars),
 		WithVaultConfig(vaultConfig),

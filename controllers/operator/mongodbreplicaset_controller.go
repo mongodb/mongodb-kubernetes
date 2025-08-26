@@ -200,8 +200,8 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 
 	tlsCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, rs.Namespace, rsCertsConfig.CertSecretName, databaseSecretPath, log)
 	internalClusterCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, rs.Namespace, rsCertsConfig.InternalClusterSecretName, databaseSecretPath, log)
-	agentCertSecretName := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name).Name
-	agentCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, rs.Namespace, agentCertSecretName, databaseSecretPath, log)
+	agentCertSecretSelector := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name)
+	agentCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, rs.Namespace, agentCertSecretSelector.Name, databaseSecretPath, log)
 
 	rsConfig := construct.ReplicaSetOptions(
 		PodEnvVars(newPodVars(conn, projectConfig, rs.Spec.LogLevel)),
@@ -236,7 +236,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		}
 	}
 
-	agentCertSecretSelector := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name)
+	// TODO: copy maybe?
 	agentCertSecretSelector.Name += certs.OperatorGeneratedCertSuffix
 
 	internalClusterCertPath := ""
