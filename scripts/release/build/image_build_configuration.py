@@ -18,6 +18,7 @@ class ImageBuildConfiguration:
     platforms: Optional[List[str]] = None
     sign: bool = False
     all_agents: bool = False
+    currently_used_agents: bool = False
 
     def is_release_scenario(self) -> bool:
         return self.scenario == BuildScenario.RELEASE

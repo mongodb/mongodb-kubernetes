@@ -15,27 +15,27 @@ def test_create_release_info_json(
         "images": {
             "operator": {
                 "repositories": ["quay.io/mongodb/mongodb-kubernetes"],
-                "platforms": ["linux/arm64", "linux/amd64"],
+                "platforms": ["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 "version": "1.2.0",
             },
             "init-database": {
                 "repositories": ["quay.io/mongodb/mongodb-kubernetes-init-database"],
-                "platforms": ["linux/arm64", "linux/amd64"],
+                "platforms": ["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 "version": "1.2.0",
             },
             "init-appdb": {
                 "repositories": ["quay.io/mongodb/mongodb-kubernetes-init-appdb"],
-                "platforms": ["linux/arm64", "linux/amd64"],
+                "platforms": ["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 "version": "1.2.0",
             },
             "init-ops-manager": {
                 "repositories": ["quay.io/mongodb/mongodb-kubernetes-init-ops-manager"],
-                "platforms": ["linux/arm64", "linux/amd64"],
+                "platforms": ["linux/amd64"],
                 "version": "1.2.0",
             },
             "database": {
                 "repositories": ["quay.io/mongodb/mongodb-kubernetes-database"],
-                "platforms": ["linux/arm64", "linux/amd64"],
+                "platforms": ["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 "version": "1.2.0",
             },
             "readiness-probe": {

@@ -2,6 +2,7 @@
 
 set -Eeou pipefail
 
+source scripts/dev/set_env_context.sh
 source scripts/funcs/kubernetes
 
 # Path to the deploy script

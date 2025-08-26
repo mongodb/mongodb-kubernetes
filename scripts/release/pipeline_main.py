@@ -132,6 +132,7 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
         sign=sign,
         parallel_factor=args.parallel_factor,
         all_agents=args.all_agents,
+        currently_used_agents=args.current_agents,
     )
 
 
@@ -264,6 +265,11 @@ Default is to infer from environment variables. For '{BuildScenario.DEVELOPMENT}
         "--all-agents",
         action="store_true",
         help="Build all agent images.",
+    )
+    parser.add_argument(
+        "--current-agents",
+        action="store_true",
+        help="Build all currently used agent images.",
     )
 
     args = parser.parse_args()
