@@ -30,6 +30,33 @@ from scripts.evergreen.release.agent_matrix import (
     LATEST_OPERATOR_VERSION,
     get_supported_version_for_image,
 )
+from scripts.release.build.build_info import (
+    AGENT_IMAGE,
+    DATABASE_IMAGE,
+    INIT_APPDB_IMAGE,
+    INIT_DATABASE_IMAGE,
+    INIT_OPS_MANAGER_IMAGE,
+    OPERATOR_IMAGE,
+    OPS_MANAGER_IMAGE,
+    READINESS_PROBE_IMAGE,
+    UPGRADE_HOOK_IMAGE,
+    load_build_info,
+)
+from scripts.release.build.build_scenario import BuildScenario
+
+# Mapping from release.json supportedImages keys to build_info.json image names
+# This is the minimal necessary mapping since release.json and build_info.json use different naming schemes
+RELEASE_TO_BUILD_INFO_IMAGE_MAPPING = {
+    "mongodb-agent": AGENT_IMAGE,
+    "mongodb-kubernetes": OPERATOR_IMAGE,
+    "ops-manager": OPS_MANAGER_IMAGE,
+    "init-ops-manager": INIT_OPS_MANAGER_IMAGE,
+    "init-database": INIT_DATABASE_IMAGE,
+    "init-appdb": INIT_APPDB_IMAGE,
+    "database": DATABASE_IMAGE,
+    "readinessprobe": READINESS_PROBE_IMAGE,
+    "operator-version-upgrade-post-start-hook": UPGRADE_HOOK_IMAGE
+}
 
 NUMBER_OF_THREADS = 15
 S3_BUCKET = "kubernetes-operators-sboms"
@@ -77,7 +104,10 @@ def get_release() -> Dict:
         return json.load(release)
 
 
-def get_supported_images(release: Dict) -> dict[str, SupportedImage]:
+
+
+
+def get_supported_images(release: Dict, build_info) -> dict[str, SupportedImage]:
     logger.debug(f"Getting list of supported images")
     supported_images: Dict[str, SupportedImage] = dict()
     for supported_image in release["supportedImages"]:
@@ -88,24 +118,43 @@ def get_supported_images(release: Dict) -> dict[str, SupportedImage]:
                     subreport = Subreport.OPERATOR
                     if supported_image == "ops-manager":
                         subreport = Subreport.OPS_MANAGER
+
+                    # Get platforms from build_info, fallback to default
+                    build_info_image_name = RELEASE_TO_BUILD_INFO_IMAGE_MAPPING.get(supported_image, supported_image)
+                    if build_info_image_name in build_info.images:
+                        platforms = build_info.images[build_info_image_name].platforms
+                    else:
+                        platforms = ["linux/amd64"]  # Default fallback
+
                     supported_images[supported_image] = SupportedImage(
-                        list(), supported_image, "", ssdlc_name, list(), ["linux/amd64"], subreport
+                        list(), supported_image, "", ssdlc_name, list(), platforms, subreport
                     )
                 supported_images[supported_image].versions.append(tag)
 
     supported_images = filter_out_unsupported_images(supported_images)
     supported_images = convert_to_image_names(supported_images)
+    if AGENT_IMAGE in build_info.images:
+        agent_platforms = build_info.images[AGENT_IMAGE].platforms
+    else:
+        # Fallback to existing hardcoded values
+        agent_platforms = ["linux/amd64", "linux/arm64"]
+
     supported_images["mongodb-agent-ubi"] = SupportedImage(
         get_supported_version_for_image("mongodb-agent"),
         "mongodb-agent",
         "quay.io/mongodb/mongodb-agent",
         release["supportedImages"]["mongodb-agent"]["ssdlc_name"],
         list(),
-        # Once MCK supports both architectures, this should be re-enabled.
-        # ["linux/amd64", "linux/arm64"],
-        ["linux/amd64"],
+        agent_platforms,
         Subreport.AGENT,
     )
+
+    # Get platforms for kubectl-mongodb binary from build_info
+    if "kubectl-mongodb" in build_info.binaries:
+        cli_platforms = build_info.binaries["kubectl-mongodb"].platforms
+    else:
+        # Fallback to existing hardcoded values
+        cli_platforms = ["linux/amd64", "linux/arm64", "darwin/amd64", "darwin/arm64"]
 
     supported_images["mongodb-kubernetes-cli"] = SupportedImage(
         [release["mongodbOperator"]],
@@ -113,7 +162,7 @@ def get_supported_images(release: Dict) -> dict[str, SupportedImage]:
         "mongodb-kubernetes-cli",
         "MongoDB Controllers for Kubernetes CLI",
         list(),
-        ["linux/amd64", "linux/arm64", "darwin/amd64", "darwin/arm64"],
+        cli_platforms,
         Subreport.OPERATOR,
     )
 
@@ -237,9 +286,12 @@ def generate_ssdlc_report(ignore_sbom_download_errors: bool = False):
     """
     logger.info(f"Producing SSDLC report for more manual edits")
     release = get_release()
+    # Load build_info to get the platforms we actually release
+    # Use MANUAL_RELEASE scenario to avoid git version calculation requirements
+    build_info = load_build_info(BuildScenario.MANUAL_RELEASE)
 
     operator_version = release["mongodbOperator"]
-    supported_images = get_supported_images(release)
+    supported_images = get_supported_images(release, build_info)
     report_path = os.getcwd() + "/ssdlc-report/MCK-" + operator_version
 
     try:
