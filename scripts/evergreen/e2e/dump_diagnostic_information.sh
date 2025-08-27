@@ -108,7 +108,7 @@ dump_objects() {
 
     # Capture output first to check if it contains actual resources
     local temp_output
-    temp_output=$(kubectl --context="${context}" -n "${namespace}" ${action} "${object}" 2>&1)
+    temp_output=$(kubectl --context="${context}" -n "${namespace}" "${action}" "${object}" 2>&1)
 
     # Check if output contains actual resources (not just empty list)
     # Skip if it's an empty YAML list (contains "items: []")
@@ -124,7 +124,7 @@ dump_objects() {
       } > "${out_file}"
     else
       header "${msg}"
-      kubectl --context="${context}" -n "${namespace}" ${action} "${object}" 2>&1
+      kubectl --context="${context}" -n "${namespace}" "${action}" "${object}" 2>&1
     fi
 }
 
