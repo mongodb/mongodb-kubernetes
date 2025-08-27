@@ -153,10 +153,6 @@
             "agent_version": "108.0.3.8758-1",
             "tools_version": "100.10.0"
           },
-          "8.0.4": {
-            "agent_version": "108.0.4.8770-1",
-            "tools_version": "100.10.0"
-          },
           "8.0.5": {
             "agent_version": "108.0.4.8770-1",
             "tools_version": "100.11.0"
