@@ -421,6 +421,9 @@ func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls
 	err = c.Watch(source.Kind(mgr.GetCache(), &searchv1.MongoDBSearch{},
 		handler.TypedEnqueueRequestsFromMapFunc(func(ctx context.Context, search *searchv1.MongoDBSearch) []reconcile.Request {
 			source := search.GetMongoDBResourceRef()
+			if source == nil {
+				return []reconcile.Request{}
+			}
 			return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: source.Namespace, Name: source.Name}}}
 		})))
 	if err != nil {

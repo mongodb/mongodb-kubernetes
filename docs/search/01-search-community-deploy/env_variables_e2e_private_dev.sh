@@ -1,7 +1,7 @@
 export K8S_CTX="kind-kind"
 
 # patch id from evergreen patch
-version_id="688de361d940720007dc0267"
+version_id="68b05bc033f868000714f715"
 
 search_image_repo="268558157000.dkr.ecr.eu-west-1.amazonaws.com/mongot"
 search_image_hash="fbd60fb055dd500058edcb45677ea85d19421f47"
