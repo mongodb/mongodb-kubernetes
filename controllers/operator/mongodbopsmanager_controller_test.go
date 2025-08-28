@@ -551,7 +551,7 @@ func TestOpsManagerReconcileContainerImagesWithStaticArchitecture(t *testing.T) 
 
 		// AppDB images
 		mongodbRelatedImageEnv:          "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA",
-		architectures.MdbAgentImageRepo: "quay.io/mongodb/mongodb-agent-ubi",
+		architectures.MdbAgentImageRepo: "quay.io/mongodb/mongodb-agent",
 	}
 
 	ctx := context.Background()

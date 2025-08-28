@@ -148,12 +148,12 @@ def parse_image_url(image_url: str) -> tuple[str, str, str]:
     """Parse a digest-pinned image URL into registry, repository, and digest components.
 
     Args:
-        image_url: The digest-pinned image URL (e.g., 'quay.io/mongodb/mongodb-agent-ubi@sha256:abc123')
+        image_url: The digest-pinned image URL (e.g., 'quay.io/mongodb/mongodb-agent@sha256:abc123')
 
     Returns:
         A tuple of (registry, repository, digest)
         - registry: The registry part (e.g., 'quay.io')
-        - repository: The repository path (e.g., 'mongodb/mongodb-agent-ubi')
+        - repository: The repository path (e.g., 'mongodb/mongodb-agent')
         - digest: The image digest (e.g., 'sha256:abc123')
     """
 
@@ -186,7 +186,7 @@ def generate_backup_tag(original_image: str, original_tag: str, mck_version: str
     """
     try:
         # Extract the repository name (last part of the image path)
-        # Example: 'quay.io/mongodb/mongodb-agent-ubi' -> 'mongodb-agent-ubi'
+        # Example: 'quay.io/mongodb/mongodb-agent' -> 'mongodb-agent-ubi'
         repo_name = original_image.split("@")[0].split("/")[-1]
         return f"quay.io/mongodb/{repo_name}:{original_tag}_openshift_{mck_version}"
     except Exception as e:
