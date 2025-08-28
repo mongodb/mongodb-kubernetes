@@ -20,27 +20,12 @@ func NewEnterpriseResourceSearchSource(mdb *mdbv1.MongoDB) SearchSourceDBResourc
 	return EnterpriseResourceSearchSource{mdb}
 }
 
-func (r EnterpriseResourceSearchSource) NamespacedName() types.NamespacedName {
-	return types.NamespacedName{
-		Name:      r.Name,
-		Namespace: r.Namespace,
+func (r EnterpriseResourceSearchSource) HostSeeds() []string {
+	seeds := make([]string, r.Spec.Members)
+	for i := range seeds {
+		seeds[i] = fmt.Sprintf("%s-%d.%s.%s.svc.cluster.local:%d", r.Name, i, r.ServiceName(), r.Namespace, r.Spec.GetAdditionalMongodConfig().GetPortOrDefault())
 	}
-}
-
-func (r EnterpriseResourceSearchSource) Members() int {
-	return r.Spec.Replicas()
-}
-
-func (r EnterpriseResourceSearchSource) GetMongoDBVersion() string {
-	return r.Spec.GetMongoDBVersion()
-}
-
-func (r EnterpriseResourceSearchSource) DatabasePort() int {
-	return int(r.MongoDB.Spec.GetAdditionalMongodConfig().GetPortOrDefault())
-}
-
-func (r EnterpriseResourceSearchSource) DatabaseServiceName() string {
-	return r.ServiceName()
+	return seeds
 }
 
 func (r EnterpriseResourceSearchSource) KeyfileSecretName() string {

@@ -1,9 +1,12 @@
-FROM public.ecr.aws/docker/library/golang:1.24 AS base
+FROM --platform=${BUILDPLATFORM} public.ecr.aws/docker/library/golang:1.24 AS base
 
 WORKDIR /go/src
 ADD ./docker/mongodb-kubernetes-init-ops-manager .
-RUN CGO_ENABLED=0 go build -a -buildvcs=false -o /data/scripts/mmsconfiguration ./mmsconfiguration
-RUN CGO_ENABLED=0 go build -a -buildvcs=false -o /data/scripts/backup-daemon-readiness-probe ./backupdaemon_readinessprobe/
+
+ARG TARGETOS
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -a -buildvcs=false -o /data/scripts/mmsconfiguration ./mmsconfiguration
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -a -buildvcs=false -o /data/scripts/backup-daemon-readiness-probe ./backupdaemon_readinessprobe/
 
 COPY ./docker/mongodb-kubernetes-init-ops-manager/scripts/docker-entry-point.sh /data/scripts/
 COPY ./docker/mongodb-kubernetes-init-ops-manager/scripts/backup-daemon-liveness-probe.sh /data/scripts/
