@@ -594,7 +594,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 
 		appdbOpts.LegacyMonitoringAgentImage = images.ContainerImage(r.imageUrls, mcoConstruct.AgentImageEnv, legacyMonitoringAgentVersion)
 
-		// AgentImageEnv contains the full container image uri e.g. quay.io/mongodb/mongodb-agent-ubi:107.0.0.8502-1
+		// AgentImageEnv contains the full container image uri e.g. quay.io/mongodb/mongodb-agent:107.0.0.8502-1
 		// In non-static containers we don't ask OM for the correct version, therefore we just rely on the provided
 		// environment variable.
 		appdbOpts.AgentImage = r.imageUrls[mcoConstruct.AgentImageEnv]

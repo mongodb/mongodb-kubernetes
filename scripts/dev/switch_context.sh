@@ -105,17 +105,17 @@ if [[ -n "${PROJECT_DIR:-}" && -x "${PROJECT_DIR}/bin/kubectl" ]]; then
     KUBECTL_CMD="${PROJECT_DIR}/bin/kubectl"
 fi
 
-if [[ "$KUBECTL_CMD" != "kubectl" ]] || which kubectl > /dev/null; then
+if [[ "${KUBECTL_CMD}" != "kubectl" ]] || which kubectl > /dev/null; then
     if [ "${CLUSTER_NAME-}" ]; then
         # The convention: the cluster name must match the name of kubectl context
         # We expect this not to be true if kubernetes cluster is still to be created (minikube/kops)
-        if ! "$KUBECTL_CMD" config use-context "${CLUSTER_NAME}"; then
+        if ! "${KUBECTL_CMD}" config use-context "${CLUSTER_NAME}"; then
             echo "Warning: failed to switch kubectl context to: ${CLUSTER_NAME}"
             echo "Does a matching Kubernetes context exist?"
         fi
 
         # Setting the default namespace for current context
-        "$KUBECTL_CMD" config set-context "$("$KUBECTL_CMD" config current-context)" "--namespace=${NAMESPACE}" &>/dev/null || true
+        "${KUBECTL_CMD}" config set-context "$("${KUBECTL_CMD}" config current-context)" "--namespace=${NAMESPACE}" &>/dev/null || true
 
         # shellcheck disable=SC2153
         echo "Current context: ${context} (kubectl context: ${CLUSTER_NAME}), namespace=${NAMESPACE}"
