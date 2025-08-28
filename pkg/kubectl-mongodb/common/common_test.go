@@ -811,7 +811,6 @@ func assertCentralRolesAreCorrect(t *testing.T, ctx context.Context, clientMap m
 
 	assert.True(t, errors.IsNotFound(err))
 	assert.Equal(t, &rbacv1.ClusterRole{}, cr)
-	// assert.Nil(t, cr)
 
 	expectedRole := buildCentralEntityRole(flags.CentralClusterNamespace)
 	role, err := client.RbacV1().Roles(flags.CentralClusterNamespace).Get(ctx, expectedRole.Name, metav1.GetOptions{})
