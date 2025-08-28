@@ -294,7 +294,7 @@ func TestShardedClusterReconcileContainerImagesWithStaticArchitecture(t *testing
 	sc := test.DefaultClusterBuilder().SetVersion("8.0.0").SetShardCountSpec(1).Build()
 
 	imageUrlsMock := images.ImageUrls{
-		architectures.MdbAgentImageRepo: "quay.io/mongodb/mongodb-agent-ubi",
+		architectures.MdbAgentImageRepo: "quay.io/mongodb/mongodb-agent",
 		mcoConstruct.MongodbImageEnv:    "quay.io/mongodb/mongodb-enterprise-server",
 		databaseRelatedImageEnv:         "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE",
 	}

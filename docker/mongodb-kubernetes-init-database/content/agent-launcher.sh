@@ -206,10 +206,10 @@ else
     ln -sf "${MONGOD_ROOT}/bin/mongod" ${mdb_downloads_dir}/mongod/bin/mongod
     ln -sf "${MONGOD_ROOT}/bin/mongos" ${mdb_downloads_dir}/mongod/bin/mongos
 
-    ln -sf "/tools/mongodump" ${mdb_downloads_dir}/mongod/bin/mongodump
-    ln -sf "/tools/mongorestore" ${mdb_downloads_dir}/mongod/bin/mongorestore
-    ln -sf "/tools/mongoexport" ${mdb_downloads_dir}/mongod/bin/mongoexport
-    ln -sf "/tools/mongoimport" ${mdb_downloads_dir}/mongod/bin/mongoimport
+    for tool in mongoimport mongodump mongorestore mongoexport; do
+      [ -e "/tools/${tool}" ] || { echo "/tools/${tool} not found"; exit 1; }
+      ln -sf "/tools/${tool}" ${mdb_downloads_dir}/mongod/bin/${tool}
+    done
   else
     echo "Mongod PID not found within the specified time."
     exit 1

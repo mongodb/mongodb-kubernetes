@@ -33,7 +33,7 @@ chmod +x docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator_s390x
 chmod +x docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator_ppc64le
 chmod +x docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator_arm64
 
-cp docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator_${ARCH} docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator || true
+cp docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator_"${ARCH}" docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator || true
 
 mkdir -p bin || true
 cp docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator bin/kubectl-mongodb || true
