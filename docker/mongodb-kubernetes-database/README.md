@@ -40,9 +40,6 @@ For building the MongoDB Database image locally use the example command:
 
 ```bash
 VERSION="1.3.0"
-BASE_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/lucian.tosa/"
-docker buildx build --load --progress plain --platform linux/amd64,linux/arm64,linux/s390x,linux/ppc64le . -f docker/mongodb-kubernetes-database/Dockerfile -t "${BASE_REPO_URL}mongodb-kubernetes-database:${VERSION}" \
+docker buildx build --load --progress plain . -f docker/mongodb-kubernetes-database/Dockerfile -t "${BASE_REPO_URL}mongodb-kubernetes-database:${VERSION}" \
  --build-arg VERSION="${VERSION}"
-
-docker push "${BASE_REPO_URL}mongodb-kubernetes-database:${VERSION}"
 ```

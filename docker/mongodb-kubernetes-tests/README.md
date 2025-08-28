@@ -111,7 +111,6 @@ to call a particular E2E task we are interested in.
 ```bash
 make prepare-local-e2e
 cd docker/mongodb-kubernetes-tests
-BASE_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/lucian.tosa/"
 docker buildx build --progress plain --platform linux/amd64,linux/arm64,linux/s390x,linux/ppc64le . -f Dockerfile -t "${BASE_REPO_URL}mongodb-kubernetes-tests:evergreen" \
  --build-arg PYTHON_VERSION="3.13"
 
