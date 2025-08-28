@@ -90,7 +90,7 @@ def test_load_build_info_development(git_repo: Repo):
                 sign=False,
             ),
             "agent": ImageInfo(
-                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent-ubi"],
+                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent"],
                 platforms=["linux/amd64"],
                 version=version,
                 dockerfile_path="docker/mongodb-agent/Dockerfile.atomic",
@@ -205,7 +205,7 @@ def test_load_build_info_patch(git_repo: Repo):
                 sign=False,
             ),
             "agent": ImageInfo(
-                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent-ubi"],
+                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent"],
                 platforms=["linux/amd64"],
                 version=patch_id,
                 dockerfile_path="docker/mongodb-agent/Dockerfile.atomic",
@@ -323,7 +323,7 @@ def test_load_build_info_staging(git_repo: Repo):
                 sign=True,
             ),
             "agent": ImageInfo(
-                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-agent-ubi"],
+                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-agent"],
                 platforms=["linux/arm64", "linux/amd64", "linux/s390x", "linux/ppc64le"],
                 version=expected_commit_sha,
                 dockerfile_path="docker/mongodb-agent/Dockerfile.atomic",

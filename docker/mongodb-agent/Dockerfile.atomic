@@ -20,8 +20,11 @@ RUN case ${TARGETPLATFORM} in \
     && mkdir -p /tools \
     && curl -o /tools/mongodb_tools.tgz "${mongodb_tools_url}/${MONGODB_TOOLS_VERSION}"
 
-RUN tar xfz /tools/mongodb_tools.tgz --directory /tools \
-    && rm /tools/mongodb_tools.tgz
+RUN tar xfz /tools/mongodb_tools.tgz \
+    && mv mongodb-database-tools-*/bin/* /tools \
+    && chmod +x /tools/* \
+    && rm /tools/mongodb_tools.tgz \
+    && rm -r mongodb-database-tools-*
 
 FROM --platform=${BUILDPLATFORM} registry.access.redhat.com/ubi9/ubi-minimal AS agent_downloader
 

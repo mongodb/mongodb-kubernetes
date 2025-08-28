@@ -1,18 +1,11 @@
 Release "mongodb-kubernetes" does not exist. Installing it now.
 NAME: mongodb-kubernetes
-<<<<<<<< HEAD:docs/community-search/quick-start/output/0100_install_operator.out
 LAST DEPLOYED: Tue Jul  8 07:04:51 2025
-========
-LAST DEPLOYED: Sat Aug 23 12:17:51 2025
->>>>>>>> 6309cff6f (Refactor of existing snippets on master):scripts/code_snippets/tests/outputs/test_kind_search_community_snippets/01_0100_install_operator.out
 NAMESPACE: mongodb
 STATUS: deployed
 REVISION: 1
 TEST SUITE: None
 USER-SUPPLIED VALUES:
-<<<<<<<< HEAD:docs/community-search/quick-start/output/0100_install_operator.out
-dummy: value
-========
 agent:
   version: 108.0.2.8729-1
 database:
@@ -55,15 +48,13 @@ search:
     name: mongot/community
     repo: 268558157000.dkr.ecr.eu-west-1.amazonaws.com
     version: fbd60fb055dd500058edcb45677ea85d19421f47
->>>>>>>> 6309cff6f (Refactor of existing snippets on master):scripts/code_snippets/tests/outputs/test_kind_search_community_snippets/01_0100_install_operator.out
-
 COMPUTED VALUES:
 agent:
-  name: mongodb-agent-ubi
+  name: mongodb-agent
   version: 108.0.2.8729-1
 community:
   agent:
-    name: mongodb-agent-ubi
+    name: mongodb-agent
     version: 108.0.2.8729-1
   mongodb:
     imageType: ubi8
@@ -176,16 +167,9 @@ registry:
   versionUpgradeHook: quay.io/mongodb
 search:
   community:
-<<<<<<<< HEAD:docs/community-search/quick-start/output/0100_install_operator.out
     name: mongodb-search-community
     repo: quay.io/mongodb
     version: 1.47.0
-subresourceEnabled: true
-========
-    name: mongot/community
-    repo: 268558157000.dkr.ecr.eu-west-1.amazonaws.com
-    version: fbd60fb055dd500058edcb45677ea85d19421f47
->>>>>>>> 6309cff6f (Refactor of existing snippets on master):scripts/code_snippets/tests/outputs/test_kind_search_community_snippets/01_0100_install_operator.out
 versionUpgradeHook:
   name: mongodb-kubernetes-operator-version-upgrade-post-start-hook
   version: 1.0.9
@@ -568,9 +552,9 @@ spec:
             - name: OPS_MANAGER_IMAGE_PULL_POLICY
               value: Always
             - name: AGENT_IMAGE
-              value: "quay.io/mongodb/mongodb-agent-ubi:108.0.2.8729-1"
+              value: "quay.io/mongodb/mongodb-agent:108.0.2.8729-1"
             - name: MDB_AGENT_IMAGE_REPOSITORY
-              value: "quay.io/mongodb/mongodb-agent-ubi"
+              value: "quay.io/mongodb/mongodb-agent"
             - name: MONGODB_IMAGE
               value: mongodb-enterprise-server
             - name: MONGODB_REPO_URL
@@ -589,7 +573,7 @@ spec:
               value: mongodb-kubernetes-operator
             # Community Env Vars Start
             - name: MDB_COMMUNITY_AGENT_IMAGE
-              value: "quay.io/mongodb/mongodb-agent-ubi:108.0.2.8729-1"
+              value: "quay.io/mongodb/mongodb-agent:108.0.2.8729-1"
             - name: VERSION_UPGRADE_HOOK_IMAGE
               value: "quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook:1.0.9"
             - name: READINESS_PROBE_IMAGE
@@ -602,15 +586,9 @@ spec:
               value: "ubi8"
             # Community Env Vars End
             - name: MDB_SEARCH_COMMUNITY_REPO_URL
-<<<<<<<< HEAD:docs/community-search/quick-start/output/0100_install_operator.out
-              value: "quay.io/mongodb"
-            - name: MDB_SEARCH_COMMUNITY_NAME
-              value: "mongodb-search-community"
-========
               value: "268558157000.dkr.ecr.eu-west-1.amazonaws.com"
             - name: MDB_SEARCH_COMMUNITY_NAME
               value: "mongot/community"
->>>>>>>> 6309cff6f (Refactor of existing snippets on master):scripts/code_snippets/tests/outputs/test_kind_search_community_snippets/01_0100_install_operator.out
             - name: MDB_SEARCH_COMMUNITY_VERSION
               value: "1.47.0"
 
