@@ -15,65 +15,6 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 )
 
-func TestMongoDBSearchReconcileHelper_ValidateSearchSource(t *testing.T) {
-	mdbcMeta := metav1.ObjectMeta{
-		Name:      "test-mongodb",
-		Namespace: "test",
-	}
-
-	cases := []struct {
-		name          string
-		mdbc          mdbcv1.MongoDBCommunity
-		expectedError string
-	}{
-		{
-			name: "Invalid version",
-			mdbc: mdbcv1.MongoDBCommunity{
-				ObjectMeta: mdbcMeta,
-				Spec: mdbcv1.MongoDBCommunitySpec{
-					Version: "4.4.0",
-				},
-			},
-			expectedError: "MongoDB version must be 8.0.10 or higher",
-		},
-		{
-			name: "Valid version",
-			mdbc: mdbcv1.MongoDBCommunity{
-				ObjectMeta: mdbcMeta,
-				Spec: mdbcv1.MongoDBCommunitySpec{
-					Version: "8.0.10",
-				},
-			},
-		},
-		{
-			name: "TLS enabled",
-			mdbc: mdbcv1.MongoDBCommunity{
-				ObjectMeta: mdbcMeta,
-				Spec: mdbcv1.MongoDBCommunitySpec{
-					Version: "8.0.10",
-					Security: mdbcv1.Security{
-						TLS: mdbcv1.TLS{
-							Enabled: true,
-						},
-					},
-				},
-			},
-		},
-	}
-
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			db := NewSearchSourceDBResourceFromMongoDBCommunity(&c.mdbc)
-			err := db.ValidateMongoDBVersion()
-			if c.expectedError == "" {
-				assert.NoError(t, err)
-			} else {
-				assert.EqualError(t, err, c.expectedError)
-			}
-		})
-	}
-}
-
 func TestMongoDBSearchReconcileHelper_ValidateSingleMongoDBSearchForSearchSource(t *testing.T) {
 	mdbSearchSpec := searchv1.MongoDBSearchSpec{
 		Source: &searchv1.MongoDBSource{
@@ -144,7 +85,7 @@ func TestMongoDBSearchReconcileHelper_ValidateSingleMongoDBSearchForSearchSource
 				clientBuilder.WithObjects(v)
 			}
 
-			helper := NewMongoDBSearchReconcileHelper(kubernetesClient.NewClient(clientBuilder.Build()), mdbSearch, NewSearchSourceDBResourceFromMongoDBCommunity(mdbc), OperatorSearchConfig{})
+			helper := NewMongoDBSearchReconcileHelper(kubernetesClient.NewClient(clientBuilder.Build()), mdbSearch, NewCommunityResourceSearchSource(mdbc), OperatorSearchConfig{})
 			err := helper.ValidateSingleMongoDBSearchForSearchSource(t.Context())
 			if c.expectedError == "" {
 				assert.NoError(t, err)
