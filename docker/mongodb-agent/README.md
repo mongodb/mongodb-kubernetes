@@ -8,12 +8,11 @@ binaries from there. Then we continue with the other steps to fully build the im
 For building the MongoDB Agent image locally use the example command:
 
 ```bash
-VERSION="evergreen"
+VERSION="1.3.0"
 AGENT_VERSION="108.0.7.8810-1"
 TOOLS_VERSION="100.12.0"
 MONGODB_TOOLS_URL="https://downloads.mongodb.org/tools/db"
 MONGODB_AGENT_URL="https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
-BASE_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/lucian.tosa/"
 INIT_DATABASE_IMAGE="${BASE_REPO_URL}mongodb-kubernetes-init-database:${VERSION}"
 MONGODB_AGENT_BASE="mongodb-mms-automation-agent"
 MONGODB_DATABASE_TOOLS_BASE="mongodb-database-tools"
