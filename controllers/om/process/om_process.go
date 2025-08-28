@@ -8,22 +8,15 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
-func CreateMongodProcessesWithLimit(mongoDBImage string, forceEnterprise bool, set appsv1.StatefulSet, dbSpec mdbv1.DbSpec, limit int, fcv string) []om.Process {
+func CreateMongodProcessesWithLimit(mongoDBImage string, forceEnterprise bool, set appsv1.StatefulSet, dbSpec mdbv1.DbSpec, limit int, fcv string, tlsCertPath string) []om.Process {
 	hostnames, names := dns.GetDnsForStatefulSetReplicasSpecified(set, dbSpec.GetClusterDomain(), limit, dbSpec.GetExternalDomain())
 	processes := make([]om.Process, len(hostnames))
 
-	certificateFileName := ""
-	if certificateHash, ok := set.Annotations[certs.CertHashAnnotationKey]; ok {
-		certificateFileName = fmt.Sprintf("%s/%s", util.TLSCertMountPath, certificateHash)
-	}
-
 	for idx, hostname := range hostnames {
-		processes[idx] = om.NewMongodProcess(names[idx], hostname, mongoDBImage, forceEnterprise, dbSpec.GetAdditionalMongodConfig(), dbSpec, certificateFileName, set.Annotations, fcv)
+		processes[idx] = om.NewMongodProcess(names[idx], hostname, mongoDBImage, forceEnterprise, dbSpec.GetAdditionalMongodConfig(), dbSpec, tlsCertPath, set.Annotations, fcv)
 	}
 
 	return processes
