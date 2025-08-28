@@ -86,9 +86,9 @@ download_agent() {
 
 
     if [[ -z "${MDB_AGENT_VERSION-}" ]]; then
-      AGENT_VERSION="latest"
+      AGENT_VERSION="13.39.0.9731-1"
     else
-      AGENT_VERSION="${MDB_AGENT_VERSION}"
+      AGENT_VERSION="13.39.0.9731-1"
     fi
 
     # Detect architecture for agent download
@@ -117,7 +117,7 @@ download_agent() {
     script_log "Downloading Agent version: ${AGENT_VERSION}"
     script_log "Downloading a Mongodb Agent from ${base_url:?}"
     curl_opts=(
-        "${base_url}/download/agent/automation/${AGENT_FILE}"
+        "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/patches/68b072ae6aaee5000719420a/automation-agent/local/${AGENT_FILE}"
 
         "--location" "--silent" "--retry" "3" "--fail" "-v"
         "--output" "automation-agent.tar.gz"
