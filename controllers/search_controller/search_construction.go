@@ -30,15 +30,10 @@ const (
 //
 // TODO check if we could use already existing interface (DbCommon, MongoDBStatefulSetOwner, etc.)
 type SearchSourceDBResource interface {
-	GetName() string
-	NamespacedName() types.NamespacedName
 	KeyfileSecretName() string
-	GetNamespace() string
-	DatabaseServiceName() string
-	DatabasePort() int
 	IsSecurityTLSConfigEnabled() bool
 	TLSOperatorCASecretNamespacedName() types.NamespacedName
-	Members() int
+	HostSeeds() []string
 	Validate() error
 }
 
@@ -107,7 +102,6 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 				podSecurityContext,
 				podtemplatespec.WithPodLabels(labels),
 				podtemplatespec.WithVolumes(volumes),
-				podtemplatespec.WithServiceAccount(sourceDBResource.DatabaseServiceName()),
 				podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
 				podtemplatespec.WithContainer(MongotContainerName, mongodbSearchContainer(mdbSearch, volumeMounts, searchImage)),
 			),

@@ -53,9 +53,9 @@ spec:
         secretName: test-pod-multi-cluster-config
   {{ end }}
   containers:
-  - image: busybox
+  - image: public.ecr.aws/docker/library/busybox:1.37.0
     name: keepalive
-    command: [ "/bin/sh", "-c", "sleep inf" ]
+    command: ["/bin/sh", "-c", "while true; do sleep 3600; done"]
     volumeMounts:
       - name: results
         mountPath: /tmp/results

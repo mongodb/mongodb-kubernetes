@@ -98,14 +98,39 @@ create_image_registries_secret() {
     context=$1
     namespace=$2
     secret_name=$3
+    
+    # Detect the correct config file path based on container runtime
+    local config_file
+    local temp_config_file=""
+    if command -v podman &> /dev/null && (podman info &> /dev/null || sudo podman info &> /dev/null); then
+      # For Podman, use root's auth.json since minikube uses sudo podman
+      config_file="/root/.config/containers/auth.json"
+      echo "Using Podman config: ${config_file}"
+      
+      # Create a temporary copy that the current user can read
+      temp_config_file=$(mktemp)
+      sudo cp "${config_file}" "${temp_config_file}"
+      sudo chown "$(whoami):$(whoami)" "${temp_config_file}"
+      config_file="${temp_config_file}"
+    else
+      # For Docker, use standard docker config
+      config_file="${HOME}/.docker/config.json"
+      echo "Using Docker config: ${config_file}"
+    fi
+    
     # shellcheck disable=SC2154
     if kubectl --context "${context}" get namespace "${namespace}"; then
       kubectl --context "${context}" -n "${namespace}" delete secret "${secret_name}" --ignore-not-found
       echo "${context}: Creating ${namespace}/${secret_name} pull secret"
       kubectl --context "${context}" -n "${namespace}" create secret generic "${secret_name}" \
-        --from-file=.dockerconfigjson="${HOME}/.docker/config.json" --type=kubernetes.io/dockerconfigjson
+        --from-file=.dockerconfigjson="${config_file}" --type=kubernetes.io/dockerconfigjson
     else
       echo "Skipping creating pull secret in ${context}/${namespace}. The namespace doesn't exist yet."
+    fi
+    
+    # Clean up temporary file
+    if [[ -n "${temp_config_file}" ]] && [[ -f "${temp_config_file}" ]]; then
+      rm -f "${temp_config_file}"
     fi
   }
 
