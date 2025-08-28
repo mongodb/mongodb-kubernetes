@@ -18,14 +18,14 @@ fi
 
 mkdir -p "$(go env GOPATH)/bin"
 
-function update_mco_tests() {
+update_mco_tests() {
   echo "Regenerating MCO evergreen tests configuration"
   python scripts/evergreen/e2e/mco/create_mco_tests.py >.evergreen-mco.yml
   git add .evergreen-mco.yml
 }
 
 # Generates a yaml file to install the operator from the helm sources.
-function generate_standalone_yaml() {
+generate_standalone_yaml() {
   HELM_OPTS=$@
 
   charttmpdir=$(mktemp -d 2>/dev/null || mktemp -d -t 'charttmpdir')
@@ -73,7 +73,7 @@ function generate_standalone_yaml() {
 
 }
 
-function python_formatting() {
+python_formatting() {
   # installing Black
   if ! command -v "black" >/dev/null; then
     pip install -r requirements.txt
@@ -85,7 +85,7 @@ function python_formatting() {
   black .
 }
 
-function generate_manifests() {
+generate_manifests() {
   make manifests
 
   git add config/crd/bases
@@ -93,7 +93,7 @@ function generate_manifests() {
   git add public/crds.yaml
 }
 
-function update_values_yaml_files() {
+update_values_yaml_files() {
   # ensure that all helm values files are up to date.
   # shellcheck disable=SC2154
   python scripts/evergreen/release/update_helm_values_files.py
@@ -107,7 +107,7 @@ function update_values_yaml_files() {
   git add go.sum
 }
 
-function update_release_json() {
+update_release_json() {
   # ensure that release.json is up 2 date
   # shellcheck disable=SC2154
   python scripts/evergreen/release/update_release.py
@@ -116,7 +116,7 @@ function update_release_json() {
   git add release.json
 }
 
-function regenerate_public_rbac_multi_cluster() {
+regenerate_public_rbac_multi_cluster() {
     if echo "$git_last_changed" | grep -q -e 'cmd/kubectl-mongodb' -e 'pkg/kubectl-mongodb'; then
       echo 'regenerating multicluster RBAC public example'
       pushd pkg/kubectl-mongodb/common/
@@ -126,7 +126,7 @@ function regenerate_public_rbac_multi_cluster() {
     fi
 }
 
-function update_licenses() {
+update_licenses() {
     if [[ "${MDB_UPDATE_LICENSES:-""}" == "true" ]]; then
       echo 'regenerating licenses'
       time scripts/evergreen/update_licenses.sh 2>&1 | prepend "update_licenses"
@@ -134,7 +134,7 @@ function update_licenses() {
     fi
 }
 
-function check_erroneous_kubebuilder_annotations() {
+check_erroneous_kubebuilder_annotations() {
   # Makes sure there are not erroneous kubebuilder annotations that can
   # end up in CRDs as descriptions.
   if grep "// kubebuilder" ./* -r --exclude-dir=vendor --include=\*.go; then
@@ -143,25 +143,33 @@ function check_erroneous_kubebuilder_annotations() {
   fi
 }
 
-function check_incorrect_makefile_variable_brackets() {
+check_incorrect_makefile_variable_brackets() {
   if find . -name "Makefile" | grep -v vendor | xargs grep "\${"; then
     echo -e "${RED}ERROR: Makefiles should NEVER contain curly brackets variables${NO_COLOR}"
     exit 1
   fi
 }
 
-function validate_snippets() {
-  echo scripts/code_snippets/validate_snippets.py
+update_jobs() {
+     # Update release.json first in case there is a newer version
+    time update_release_json
+    # We need to generate the values files first
+    time update_values_yaml_files
+    # The values files are used for generating the standalone yaml
+    time generate_standalone_yaml
 }
 
-# Helper function to capture background job PID with job name
-capture_bg_job() {
-  local job_name="$1"
-  local job_pid=$!
-  bg_job_pids+=("${job_pid}")
-  bg_job_pids_with_names+=("${job_pid}:${job_name}")
-  echo "Started ${job_name} with PID: ${job_pid}"
+lint_code() {
+  scripts/evergreen/lint_code.sh
 }
+
+function validate_snippets() {
+  scripts/code_snippets/validate_snippets.py
+}
+
+# bg_job_ vars are global; run_job_in_background function is appending to them on each call
+bg_job_pids=()
+bg_job_pids_with_names=()
 
 get_job_name() {
   local search_pid="$1"
@@ -170,81 +178,77 @@ get_job_name() {
   echo "${match#*:}"  # Remove everything up to and including the colon
 }
 
-function pre_commit() {
-  # Array to store background job PIDs
-  # IMPORTANT: ensure each task is executed in it's own subshell following the pattern:
-  #    time new_check 2>&1 | prepend "new_check" &
-  #    capture_bg_job "new_check"
+# Executes function given on the first argument as background job.
+# It's ensuring logs are properly prefixed by the name and
+# the job's pid is captured in bg_jobs array in order to wait for completion.
+run_job_in_background() {
+  job_name=$1
+  time ${job_name} 2>&1 | prepend "${job_name}" &
 
-  # those bg_job_ vars are global and capture_bg_job is appending to them on each call
-  bg_job_pids=()
-  bg_job_pids_with_names=()
+  local job_pid=$!
+  bg_job_pids+=("${job_pid}")
+  bg_job_pids_with_names+=("${job_pid}:${job_name}")
+  echo "Started ${job_name} with PID: ${job_pid}"
+}
 
-  {
-    # Update release.json first in case there is a newer version
-    time update_release_json
-    # We need to generate the values files first
-    time update_values_yaml_files
-    # The values files are used for generating the standalone yaml
-    time generate_standalone_yaml
-  } 2>&1 | prepend "update_jobs" &
-  capture_bg_job "update_jobs"
-
-  time update_licenses 2>&1 | prepend "update_licenses" &
-  capture_bg_job "update_licenses"
-
-  time scripts/evergreen/lint_code.sh 2>&1 | prepend "lint_code.sh" &
-  capture_bg_job "lint_code.sh"
-
-  time start_shellcheck 2>&1 | prepend "shellcheck" &
-  capture_bg_job "shellcheck"
-
-  time validate_snippets 2>&1 | prepend "validate_snippets" &
-  capture_bg_job "validate_snippets"
-
-  time regenerate_public_rbac_multi_cluster 2>&1 | prepend "regenerate_public_rbac_multi_cluster" &
-  capture_bg_job "regenerate_public_rbac_multi_cluster"
-
-  # Run black and isort on python files that have changed
-  time python_formatting 2>&1 | prepend "python_formatting" &
-  capture_bg_job "python_formatting"
-
-  time check_erroneous_kubebuilder_annotations 2>&1 | prepend "check_erroneous_kubebuilder_annotations" &
-  capture_bg_job "check_erroneous_kubebuilder_annotations"
-
-  # add any other checks above
-
-  # Wait for all background jobs and check their exit codes
-  failures=()
-  for pid in "${bg_job_pids[@]}"; do
-    wait "${pid}" || {
-      job_name=$(get_job_name "${pid}")
-      failures+=("    ${RED}${job_name} (PID ${pid})${NO_COLOR}")
-    }
-  done
-
-  if [[ ${#failures[@]} -gt 0 ]]; then
-    echo -e "${RED}Some checks have failed:${NO_COLOR}"
-    for failure in "${failures[@]}"; do
-      echo -e "$failure"
+# Waits for all background jobs stored in bg_job_pids and check their exit codes.
+wait_for_all_background_jobs() {
+    failures=()
+    for pid in "${bg_job_pids[@]}"; do
+      wait "${pid}" || {
+        job_name=$(get_job_name "${pid}")
+        failures+=("    ${RED}${job_name} (PID ${pid})${NO_COLOR}")
+      }
     done
-    echo -e "${RED}To see the details look for the job's logs by it's prefixed name (e.g. \"shellcheck:\").${NO_COLOR}"
-    exit 1
-  fi
 
-  echo -e "${GREEN}pre-commit: All checks passed!${NO_COLOR}"
+    if [[ ${#failures[@]} -gt 0 ]]; then
+      echo -e "${RED}Some checks have failed:${NO_COLOR}"
+      for failure in "${failures[@]}"; do
+        echo -e "$failure"
+      done
+      echo -e "${RED}To see the details look/filter for the job's logs by it's prefixed name (e.g. \"start_shellcheck:\", \"lint_code:\", \"shellcheck failed\").${NO_COLOR}"
+      return 1
+    fi
+
+    return 0
+}
+
+pre_commit() {
+  run_job_in_background "update_jobs"
+  run_job_in_background "update_licenses"
+  run_job_in_background "lint_code"
+  run_job_in_background "start_shellcheck"
+  run_job_in_background "regenerate_public_rbac_multi_cluster"
+  run_job_in_background "python_formatting"
+  run_job_in_background "check_erroneous_kubebuilder_annotations"
+  run_job_in_background "validate_snippets"
+
+  if wait_for_all_background_jobs; then
+    echo -e "${GREEN}pre-commit: All checks passed!${NO_COLOR}"
+    return 0
+  else
+    return 1
+  fi
 }
 
 # Function to run shellcheck on a single file
 run_shellcheck() {
   local file="$1"
-  echo "Running shellcheck on $file"
-  if ! shellcheck --color=always -x "$file" -e SC2154 -e SC1091 -e SC1090 -e SC2148 -o require-variable-braces -P "scripts"; then
+
+  local diff_output
+  diff_output=$(shellcheck -f diff "$file" -e SC2154 -e SC1091 -e SC1090 -e SC2148 -o require-variable-braces -P "scripts" 2>&1)
+
+  if [[ -n "$diff_output" && "$diff_output" != *"Issues were detected, but none were auto-fixable"* ]]; then
+    echo "$diff_output" | git apply
+    echo "Applied auto-fixes for $file"
+  elif [[ "$diff_output" == *"Issues were detected, but none were auto-fixable"* ]]; then
     echo -e "${RED}shellcheck failed on $file${NO_COLOR}"
-    exit 1
+    shellcheck --color=always -x "$file" -e SC2154 -e SC1091 -e SC1090 -e SC2148 -o require-variable-braces -P "scripts"
+    return 1
   fi
 }
-# Export function so it's available in subshells
+
+# Export function so it's available in subshells (for xargs)
 export -f run_shellcheck
 
 start_shellcheck() {
@@ -268,5 +272,5 @@ elif [[ "${cmd}" == "pre-commit" ]]; then
 elif [[ "${cmd}" == "shellcheck" ]]; then
   start_shellcheck
 elif [[ "${cmd}" == "lint" ]]; then
-  source scripts/evergreen/lint_code.sh
+  lint_code
 fi

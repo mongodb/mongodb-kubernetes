@@ -1,6 +1,7 @@
 package search_controller
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/blang/semver"
@@ -19,36 +20,20 @@ type CommunitySearchSource struct {
 	*mdbcv1.MongoDBCommunity
 }
 
-func (r *CommunitySearchSource) Members() int {
-	return r.Spec.Members
-}
-
-func (r *CommunitySearchSource) GetName() string {
-	return r.Name
-}
-
-func (r *CommunitySearchSource) NamespacedName() types.NamespacedName {
-	return r.MongoDBCommunity.NamespacedName()
+func (r *CommunitySearchSource) HostSeeds() []string {
+	seeds := make([]string, r.Spec.Members)
+	for i := range seeds {
+		seeds[i] = fmt.Sprintf("%s-%d.%s.%s.svc.cluster.local:%d", r.Name, i, r.ServiceName(), r.Namespace, r.GetMongodConfiguration().GetDBPort())
+	}
+	return seeds
 }
 
 func (r *CommunitySearchSource) KeyfileSecretName() string {
 	return r.MongoDBCommunity.GetAgentKeyfileSecretNamespacedName().Name
 }
 
-func (r *CommunitySearchSource) GetNamespace() string {
-	return r.Namespace
-}
-
-func (r *CommunitySearchSource) DatabaseServiceName() string {
-	return r.ServiceName()
-}
-
 func (r *CommunitySearchSource) IsSecurityTLSConfigEnabled() bool {
 	return r.Spec.Security.TLS.Enabled
-}
-
-func (r *CommunitySearchSource) DatabasePort() int {
-	return r.MongoDBCommunity.GetMongodConfiguration().GetDBPort()
 }
 
 func (r *CommunitySearchSource) TLSOperatorCASecretNamespacedName() types.NamespacedName {

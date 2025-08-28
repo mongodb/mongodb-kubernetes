@@ -37,6 +37,7 @@ get_operator_helm_values() {
     "search.community.repo=${MDB_SEARCH_COMMUNITY_REPO_URL}"
     "search.community.name=${MDB_SEARCH_COMMUNITY_NAME}"
     "search.community.version=${MDB_SEARCH_COMMUNITY_VERSION}"
+    "community.registry.agent=${AGENT_BASE_REGISTRY:-${REGISTRY}}"
   )
 
   if [[ "${MDB_OPERATOR_TELEMETRY_INSTALL_CLUSTER_ROLE_INSTALLATION:-}" != "" ]]; then
