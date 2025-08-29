@@ -15,4 +15,4 @@ runs:
         echo "Finished initializing to the ${{inputs.context-name}}"
         while read line; do
           echo "$line" >> $GITHUB_ENV
-        done < .generated/context.env
+        done < .generated/context.env | tail -n +5
