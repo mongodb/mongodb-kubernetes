@@ -23,7 +23,8 @@ runs:
         cp scripts/dev/contexts/gha-private-context scripts/dev/contexts/private-context
         scripts/dev/switch_context.sh ${{inputs.context-name}}
         echo "Finished initializing to the ${{inputs.context-name}}"
-        source .generated/context.export.env
-        echo "python-version=$(echo $PYTHON_VERSION)" >> $GITHUB_OUTPUT
-        echo "initial-commit-sha=$(echo $INITIAL_COMMIT_SHA)" >> $GITHUB_OUTPUT
-        echo "initial-version=$(echo $INITIAL_VERSION)" >> $GITHUB_OUTPUT
+        source .generated/context.env
+        printenv
+        echo "python-version=$(echo ${PYTHON_VERSION})" | tee $GITHUB_OUTPUT
+        echo "initial-commit-sha=$(echo ${INITIAL_COMMIT_SHA})" | tee $GITHUB_OUTPUT
+        echo "initial-version=$(echo ${INITIAL_VERSION})" | tee $GITHUB_OUTPUT
