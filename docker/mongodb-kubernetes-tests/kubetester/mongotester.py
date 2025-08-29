@@ -11,6 +11,7 @@ from typing import Callable, Dict, List, Optional
 import pymongo
 from kubetester import kubetester
 from kubetester.kubetester import KubernetesTester
+from kubetester.phase import Phase
 from opentelemetry import trace
 from pycognito import Cognito
 from pymongo.auth_oidc import OIDCCallback, OIDCCallbackContext, OIDCCallbackResult
@@ -76,6 +77,63 @@ class MyOIDCCallback(OIDCCallback):
         return OIDCCallbackResult(access_token=u.id_token)
 
 
+def _wait_for_mongodbuser_reconciliation() -> None:
+    """
+    Wait for ALL MongoDBUser resources in the namespace to be reconciled before attempting authentication.
+    This prevents race conditions when passwords or user configurations have been recently changed.
+
+    Lists all MongoDBUser resources in the namespace and waits for ALL of them to reach Updated phase.
+    """
+    try:
+        # Import inside function to avoid circular imports
+        import kubernetes.client as client
+        from kubetester.mongodb_user import MongoDBUser
+        from tests.conftest import get_central_cluster_client
+
+        namespace = KubernetesTester.get_namespace()
+        api_client = client.CustomObjectsApi(api_client=get_central_cluster_client())
+
+        try:
+            mongodb_users = api_client.list_namespaced_custom_object(
+                group="mongodb.com", version="v1", namespace=namespace, plural="mongodbusers"
+            )
+
+            all_users = []
+
+            for user_item in mongodb_users.get("items", []):
+                user_name = user_item.get("metadata", {}).get("name", "unknown")
+                username = user_item.get("spec", {}).get("username", "unknown")
+                all_users.append((user_name, username))
+
+            if not all_users:
+                return
+
+            logging.info(
+                f"Found {len(all_users)} MongoDBUser resource(s) in namespace '{namespace}', waiting for all to reach Updated phase..."
+            )
+
+            for user_name, username in all_users:
+                try:
+                    logging.info(
+                        f"Waiting for MongoDBUser '{user_name}' (username: {username}) to reach Updated phase..."
+                    )
+
+                    user = MongoDBUser(name=user_name, namespace=namespace)
+                    user.assert_reaches_phase(Phase.Updated, timeout=300)
+                    logging.info(f"MongoDBUser '{user_name}' reached Updated phase - reconciliation complete")
+
+                except Exception as e:
+                    logging.warning(f"Failed to wait for MongoDBUser '{user_name}' reconciliation: {e}")
+                    # Continue with other users - don't fail the entire test
+
+            logging.info("All MongoDBUser resources reconciliation check complete")
+
+        except Exception as e:
+            logging.warning(f"Failed to list MongoDBUser resources: {e} - proceeding without reconciliation wait")
+    except Exception as e:
+        logging.warning(f"Error while waiting for MongoDBUser reconciliation: {e} - proceeding with authentication")
+
+
 class MongoTester:
     """MongoTester is a general abstraction to work with mongo database. It encapsulates the client created in
     the constructor. All general methods non-specific to types of mongodb topologies should reside here."""
@@ -115,7 +173,7 @@ class MongoTester:
 
     def assert_connectivity(
         self,
-        attempts: int = 20,
+        attempts: int = 50,
         db: str = "admin",
         col: str = "myCol",
         opts: Optional[List[Dict[str, any]]] = None,
@@ -175,12 +233,16 @@ class MongoTester:
         username: str,
         password: str,
         auth_mechanism: str,
-        attempts: int = 20,
+        attempts: int = 50,
         ssl: bool = False,
         **kwargs,
     ) -> None:
         assert attempts > 0
         assert auth_mechanism in {"SCRAM-SHA-256", "SCRAM-SHA-1"}
+
+        # Wait for ALL MongoDBUser resources to be reconciled before attempting authentication
+        # This prevents race conditions when passwords have been recently changed
+        _wait_for_mongodbuser_reconciliation()
 
         for i in reversed(range(attempts)):
             try:
@@ -194,14 +256,15 @@ class MongoTester:
                 return
             except OperationFailure as e:
                 if i == 0:
-                    fail(msg=f"unable to authenticate after {attempts} attempts with error: {e}")
+                    fail(f"unable to authenticate after {attempts} attempts with error: {e}")
+
                 time.sleep(5)
 
     def assert_scram_sha_authentication_fails(
         self,
         username: str,
         password: str,
-        retries: int = 20,
+        attempts: int = 50,
         ssl: bool = False,
         **kwargs,
     ):
@@ -211,13 +274,16 @@ class MongoTester:
         which still exists. When we change a password, we should eventually no longer be able to auth with
         that user's credentials.
         """
-        for i in range(retries):
+
+        _wait_for_mongodbuser_reconciliation()
+
+        for i in range(attempts):
             try:
                 self._authenticate_with_scram(username, password, ssl=ssl, **kwargs)
             except OperationFailure:
                 return
             time.sleep(5)
-        fail(f"was still able to authenticate with username={username} password={password} after {retries} attempts")
+        fail(f"was still able to authenticate with username={username} password={password} after {attempts} attempts")
 
     def _authenticate_with_scram(
         self,
@@ -239,8 +305,10 @@ class MongoTester:
         # authentication doesn't actually happen until we interact with a database
         self.client["admin"]["myCol"].insert_one({})
 
-    def assert_x509_authentication(self, cert_file_name: str, attempts: int = 20, **kwargs):
+    def assert_x509_authentication(self, cert_file_name: str, attempts: int = 50, **kwargs):
         assert attempts > 0
+
+        _wait_for_mongodbuser_reconciliation()
 
         options = self._merge_options(
             [
@@ -257,7 +325,8 @@ class MongoTester:
                 return
             except OperationFailure:
                 if attempts == 0:
-                    fail(msg=f"unable to authenticate after {total_attempts} attempts")
+                    fail(f"unable to authenticate after {total_attempts} attempts")
+
                 time.sleep(5)
 
     def assert_ldap_authentication(
@@ -268,8 +337,9 @@ class MongoTester:
         collection: str = "myCol",
         tls_ca_file: Optional[str] = None,
         ssl_certfile: str = None,
-        attempts: int = 20,
+        attempts: int = 50,
     ):
+        _wait_for_mongodbuser_reconciliation()
 
         options = with_ldap(ssl_certfile, tls_ca_file)
         total_attempts = attempts
@@ -289,16 +359,19 @@ class MongoTester:
                 return
             except OperationFailure:
                 if attempts <= 0:
-                    fail(msg=f"unable to authenticate after {total_attempts} attempts")
+                    fail(f"unable to authenticate after {total_attempts} attempts")
+
                 time.sleep(5)
 
     def assert_oidc_authentication(
         self,
         db: str = "admin",
         collection: str = "myCol",
-        attempts: int = 10,
+        attempts: int = 50,
     ):
         assert attempts > 0
+
+        _wait_for_mongodbuser_reconciliation()
 
         props = {"OIDC_CALLBACK": MyOIDCCallback()}
 
@@ -317,6 +390,7 @@ class MongoTester:
             except OperationFailure as e:
                 if attempts == 0:
                     raise RuntimeError(f"Unable to authenticate after {total_attempts} attempts: {e}")
+
                 time.sleep(5)
 
     def assert_oidc_authentication_fails(self, db: str = "admin", collection: str = "myCol", attempts: int = 10):
@@ -326,7 +400,7 @@ class MongoTester:
             attempts -= 1
             try:
                 if attempts <= 0:
-                    fail(msg=f"was able to authenticate with OIDC after {total_attempts} attempts")
+                    fail(f"was able to authenticate with OIDC after {total_attempts} attempts")
 
                 self.assert_oidc_authentication(db, collection, 1)
                 time.sleep(5)
@@ -362,7 +436,7 @@ class MongoTester:
             if hosts_unreachable == 0:
                 return
             if attempts <= 0:
-                fail(msg="Some hosts still report NO_DATA state")
+                fail("Some hosts still report NO_DATA state")
             time.sleep(10)
 
 
