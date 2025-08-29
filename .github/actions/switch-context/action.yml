@@ -1,4 +1,4 @@
-name: 'Switch context'
+name: 'Switch context and export all environment variables'
 inputs:
   context-name:
     description: 'Context name to switch to'
