@@ -141,6 +141,11 @@ echo "$(aws --version)}"
 
 aws ecr get-login-password --region "us-east-1" | registry_login "AWS" "268558157000.dkr.ecr.us-east-1.amazonaws.com"
 
+if [[ "${MDB_SEARCH_AWS_SSO_LOGIN}" == "true" ]]; then
+  aws sso login --profile devprod-platforms-ecr-user
+  aws --profile devprod-platforms-ecr-user  ecr get-login-password --region us-east-1 | registry_login "AWS" "901841024863.dkr.ecr.us-east-1.amazonaws.com"
+fi
+
 # by default docker tries to store credentials in an external storage (e.g. OS keychain) - not in the config.json
 # We need to store it as base64 string in config.json instead so we need to remove the "credsStore" element
 # This is Docker-specific behavior, Podman stores credentials directly in auth.json
