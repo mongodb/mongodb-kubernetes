@@ -23,7 +23,7 @@ if [ "${initial_index_state}" != "${final_index_state}" ]; then
   echo "Final index state:"
   echo "${final_index_state}"
 
-  echo "We have files that differ after running pre-commit, please run the make target precommit-with-licenses locally"
+  echo "We have files that differ after running pre-commit, please run make precommit-with-licenses locally"
   echo "Full diff: "
   git diff --cached --diff-filter=AM
   echo "The following files differ: "
