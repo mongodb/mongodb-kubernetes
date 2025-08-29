@@ -132,12 +132,22 @@ class TestReplicaSetIsUpdatedWithNewUser(KubernetesTester):
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
 class TestCanChangePassword(KubernetesTester):
-    def test_user_can_authenticate_with_new_password(
-        self, scram_user: MongoDBUser, namespace: str, replica_set: MongoDB
-    ):
+    def test_user_can_authenticate_with_new_password(self, namespace: str, replica_set: MongoDB):
+        initial_tester = replica_set.get_automation_config_tester()
+        initial_version = initial_tester.automation_config.get("version", 0)
+
         new_password = "my-new-password7"
         update_secret(namespace, PASSWORD_SECRET_NAME, {"password": new_password})
-        scram_user.assert_reaches_phase(Phase.Updated)
+
+        def ac_updated() -> bool:
+            try:
+                tester = replica_set.get_automation_config_tester()
+                current_version = tester.automation_config.get("version", 0)
+                return current_version > initial_version
+            except Exception:
+                return False
+
+        wait_until(ac_updated, timeout=600)
 
         replica_set.tester().assert_scram_sha_authentication(
             password=new_password,
