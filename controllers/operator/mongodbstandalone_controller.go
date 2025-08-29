@@ -243,8 +243,11 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		}
 	}
 
+	agentCertSecretSelector := s.GetSecurity().AgentClientCertificateSecretName(s.Name).Name
+
 	standaloneOpts := construct.StandaloneOptions(
 		CertificateHash(pem.ReadHashFromSecret(ctx, r.SecretClient, s.Namespace, standaloneCertSecretName, databaseSecretPath, log)),
+		AgentCertificateHash(pem.ReadHashFromSecret(ctx, r.SecretClient, s.Namespace, agentCertSecretSelector, databaseSecretPath, log)),
 		CurrentAgentAuthMechanism(currentAgentAuthMode),
 		PodEnvVars(podVars),
 		WithVaultConfig(vaultConfig),
@@ -320,6 +323,8 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, con
 	}
 
 	agentCertSecretSelector := s.GetSecurity().AgentClientCertificateSecretName(s.Name)
+	// TODO: Add a key
+	// TODO: Make sc.GetSecurity().AgentClientCertificateSecretName(sc.Name) return only name
 
 	// TODO standalone PR
 	status, additionalReconciliationRequired := r.updateOmAuthentication(ctx, conn, []string{set.Name}, s, agentCertSecretSelector, "", "", isRecovering, log)

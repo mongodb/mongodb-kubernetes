@@ -95,6 +95,7 @@ type DatabaseStatefulSetOptions struct {
 	PodVars                 *env.PodEnvVars
 	CurrentAgentAuthMode    string
 	CertificateHash         string
+	AgentCertificateHash    string
 	PrometheusTLSCertHash   string
 	InternalClusterHash     string
 	ServicePort             int32
@@ -466,13 +467,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 		appLabelKey: opts.ServiceName,
 	}
 
-	annotationFunc := statefulset.WithAnnotations(defaultStatefulSetAnnotations(opts.CertificateHash))
 	podTemplateAnnotationFunc := podtemplatespec.NOOP()
-
-	annotationFunc = statefulset.Apply(
-		annotationFunc,
-		statefulset.WithAnnotations(map[string]string{util.InternalCertAnnotationKey: opts.InternalClusterHash}),
-	)
 
 	if vault.IsVaultSecretBackend() {
 		podTemplateAnnotationFunc = podtemplatespec.Apply(podTemplateAnnotationFunc, podtemplatespec.WithAnnotations(secretsToInject.DatabaseAnnotations(mdb.GetNamespace())))
@@ -530,7 +525,6 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 		statefulset.WithServiceName(opts.ServiceName),
 		statefulset.WithReplicas(opts.Replicas),
 		statefulset.WithOwnerReference(opts.OwnerReference),
-		annotationFunc,
 		volumeClaimFuncs,
 		shareProcessNs,
 		statefulset.WithPodSpecTemplate(podtemplatespec.Apply(podTemplateModifications...)),
@@ -1055,12 +1049,6 @@ func DatabaseStartupProbe() probes.Modification {
 		probes.WithSuccessThreshold(1),
 		probes.WithFailureThreshold(10),
 	)
-}
-
-func defaultStatefulSetAnnotations(certHash string) map[string]string {
-	return map[string]string{
-		certs.CertHashAnnotationKey: certHash,
-	}
 }
 
 // TODO: temprorary duplication to avoid circular imports
