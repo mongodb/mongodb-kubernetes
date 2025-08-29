@@ -40,7 +40,7 @@ def replica_set(namespace: str, custom_mdb_version) -> MongoDB:
     return resource.update()
 
 
-@fixture(scope="module")
+@fixture(scope="function")
 def scram_user(namespace: str) -> MongoDBUser:
     resource = MongoDBUser.from_yaml(find_fixture("scram-sha-user.yaml"), namespace=namespace)
 
@@ -53,13 +53,13 @@ def scram_user(namespace: str) -> MongoDBUser:
     return resource.update()
 
 
-@fixture(scope="module")
+@fixture(scope="function")
 def standard_secret(replica_set: MongoDB):
     secret_name = "{}-{}-{}".format(replica_set.name, USER_NAME, USER_DATABASE)
     return read_secret(replica_set.namespace, secret_name)
 
 
-@fixture(scope="module")
+@fixture(scope="function")
 def connection_string_secret(replica_set: MongoDB):
     return read_secret(replica_set.namespace, CONNECTION_STRING_SECRET_NAME)
 
