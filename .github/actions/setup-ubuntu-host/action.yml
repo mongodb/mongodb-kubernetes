@@ -9,7 +9,7 @@ runs:
     - name: setup python
       uses: actions/setup-python@v5
       with:
-        python-version: ${{inputs.python-version}}
+        python-version: '${{ inputs.python-version }}'
         cache: 'pip' # caching pip dependencies
     - name: Install dependencies
       shell: bash
