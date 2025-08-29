@@ -7,7 +7,7 @@
   "initOpsManagerVersion": "1.2.0",
   "initAppDbVersion": "1.2.0",
   "databaseImageVersion": "1.2.0",
-  "agentVersion": "108.0.2.8729-1",
+  "agentVersion": "108.0.12.8846-1",
   "openshift": {
     "minimumSupportedVersion": "4.6"
   },

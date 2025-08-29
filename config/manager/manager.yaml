@@ -87,7 +87,7 @@ spec:
             - name: OPS_MANAGER_IMAGE_PULL_POLICY
               value: Always
             - name: AGENT_IMAGE
-              value: "quay.io/mongodb/mongodb-agent:108.0.2.8729-1"
+              value: "quay.io/mongodb/mongodb-agent:108.0.12.8846-1"
             - name: MDB_AGENT_IMAGE_REPOSITORY
               value: "quay.io/mongodb/mongodb-agent"
             - name: MONGODB_IMAGE
