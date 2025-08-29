@@ -12,3 +12,5 @@ source "${script_dir}/e2e_mdb_community"
 
 export NAMESPACE=mongodb
 export CODE_SNIPPETS_FLAVOR=e2e_private
+
+export ops_manager_version="cloud_qa"
