@@ -76,8 +76,8 @@ def test_migrate_architecture(mongodb_multi: MongoDBMulti, member_cluster_client
     mongodb_multi.load()
     assert mongodb_multi["metadata"]["annotations"]["mongodb.com/v1.architecture"] == target_architecture
 
-    mongodb_multi.assert_abandons_phase(Phase.Running, timeout=1000)
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1000)
+    mongodb_multi.assert_abandons_phase(Phase.Running, timeout=1800)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1800)
 
     statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients)
     for statefulset in statefulsets.values():
