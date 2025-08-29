@@ -365,7 +365,7 @@ func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls
 		return err
 	}
 
-	err = c.Watch(source.Channel[client.Object](OmUpdateChannel, &handler.EnqueueRequestForObject{}, source.WithPredicates(watch.PredicatesForMongoDB(mdbv1.ReplicaSet))))
+	err = c.Watch(source.Channel(OmUpdateChannel, &handler.EnqueueRequestForObject{}, source.WithPredicates[client.Object, reconcile.Request](watch.PredicatesForMongoDB(mdbv1.ReplicaSet))))
 	if err != nil {
 		return xerrors.Errorf("not able to setup OmUpdateChannel to listent to update events from OM: %s", err)
 	}

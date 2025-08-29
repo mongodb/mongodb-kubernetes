@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllertest"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -42,11 +42,11 @@ func TestWatcher(t *testing.T) {
 
 	t.Run("Non-watched object", func(t *testing.T) {
 		watcher := New()
-		queue := controllertest.Queue{Interface: workqueue.New()}
+		queue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
 
 		watcher.Create(ctx, event.CreateEvent{
 			Object: obj,
-		}, &queue)
+		}, queue)
 
 		// Ensure no reconciliation is queued if object is not watched.
 		assert.Equal(t, 0, queue.Len())
@@ -54,13 +54,13 @@ func TestWatcher(t *testing.T) {
 
 	t.Run("Multiple objects to reconcile", func(t *testing.T) {
 		watcher := New()
-		queue := controllertest.Queue{Interface: workqueue.New()}
+		queue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
 		watcher.Watch(ctx, objNsName, mdb1.NamespacedName())
 		watcher.Watch(ctx, objNsName, mdb2.NamespacedName())
 
 		watcher.Create(ctx, event.CreateEvent{
 			Object: obj,
-		}, &queue)
+		}, queue)
 
 		// Ensure multiple reconciliations are enqueued.
 		assert.Equal(t, 2, queue.Len())
@@ -68,49 +68,49 @@ func TestWatcher(t *testing.T) {
 
 	t.Run("Create event", func(t *testing.T) {
 		watcher := New()
-		queue := controllertest.Queue{Interface: workqueue.New()}
+		queue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
 		watcher.Watch(ctx, objNsName, mdb1.NamespacedName())
 
 		watcher.Create(ctx, event.CreateEvent{
 			Object: obj,
-		}, &queue)
+		}, queue)
 
 		assert.Equal(t, 1, queue.Len())
 	})
 
 	t.Run("Update event", func(t *testing.T) {
 		watcher := New()
-		queue := controllertest.Queue{Interface: workqueue.New()}
+		queue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
 		watcher.Watch(ctx, objNsName, mdb1.NamespacedName())
 
 		watcher.Update(ctx, event.UpdateEvent{
 			ObjectOld: obj,
 			ObjectNew: obj,
-		}, &queue)
+		}, queue)
 
 		assert.Equal(t, 1, queue.Len())
 	})
 
 	t.Run("Delete event", func(t *testing.T) {
 		watcher := New()
-		queue := controllertest.Queue{Interface: workqueue.New()}
+		queue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
 		watcher.Watch(ctx, objNsName, mdb1.NamespacedName())
 
 		watcher.Delete(ctx, event.DeleteEvent{
 			Object: obj,
-		}, &queue)
+		}, queue)
 
 		assert.Equal(t, 1, queue.Len())
 	})
 
 	t.Run("Generic event", func(t *testing.T) {
 		watcher := New()
-		queue := controllertest.Queue{Interface: workqueue.New()}
+		queue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
 		watcher.Watch(ctx, objNsName, mdb1.NamespacedName())
 
 		watcher.Generic(ctx, event.GenericEvent{
 			Object: obj,
-		}, &queue)
+		}, queue)
 
 		assert.Equal(t, 1, queue.Len())
 	})

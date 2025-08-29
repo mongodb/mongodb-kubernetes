@@ -5,6 +5,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -45,26 +46,26 @@ func (w ResourceWatcher) Watch(ctx context.Context, watchedName, dependentName t
 	w.watched[watchedName] = append(existing, dependentName)
 }
 
-func (w ResourceWatcher) Create(ctx context.Context, event event.CreateEvent, queue workqueue.RateLimitingInterface) {
+func (w ResourceWatcher) Create(ctx context.Context, event event.TypedCreateEvent[client.Object], queue workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	w.handleEvent(event.Object, queue)
 }
 
-func (w ResourceWatcher) Update(ctx context.Context, event event.UpdateEvent, queue workqueue.RateLimitingInterface) {
+func (w ResourceWatcher) Update(ctx context.Context, event event.TypedUpdateEvent[client.Object], queue workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	w.handleEvent(event.ObjectOld, queue)
 }
 
-func (w ResourceWatcher) Delete(ctx context.Context, event event.DeleteEvent, queue workqueue.RateLimitingInterface) {
+func (w ResourceWatcher) Delete(ctx context.Context, event event.TypedDeleteEvent[client.Object], queue workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	w.handleEvent(event.Object, queue)
 }
 
-func (w ResourceWatcher) Generic(ctx context.Context, event event.GenericEvent, queue workqueue.RateLimitingInterface) {
+func (w ResourceWatcher) Generic(ctx context.Context, event event.TypedGenericEvent[client.Object], queue workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	w.handleEvent(event.Object, queue)
 }
 
 // handleEvent is called when an event is received for an object.
 // It will check if the object is being watched and trigger a reconciliation for
 // the dependent object.
-func (w ResourceWatcher) handleEvent(meta metav1.Object, queue workqueue.RateLimitingInterface) {
+func (w ResourceWatcher) handleEvent(meta metav1.Object, queue workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	changedObjectName := types.NamespacedName{
 		Name:      meta.GetName(),
 		Namespace: meta.GetNamespace(),

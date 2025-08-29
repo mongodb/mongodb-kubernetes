@@ -324,7 +324,7 @@ func TestKubeConfigSecret_IsNotCreated_InMemberClusters(t *testing.T) {
 		memberClient := clientMap[memberCluster]
 		kubeConfigSecret, err := memberClient.CoreV1().Secrets(flags.CentralClusterNamespace).Get(ctx, KubeConfigSecretName, metav1.GetOptions{})
 		assert.True(t, errors.IsNotFound(err))
-		assert.Nil(t, kubeConfigSecret)
+		assert.Equal(t, &corev1.Secret{}, kubeConfigSecret)
 	}
 }
 
@@ -756,7 +756,7 @@ func assertClusterRoleMembers(t *testing.T, ctx context.Context, clientMap map[s
 			assert.Equal(t, expectedClusterRole, *role)
 		} else {
 			assert.Error(t, err)
-			assert.Nil(t, role)
+			assert.Equal(t, &rbacv1.ClusterRole{}, role)
 		}
 	}
 }
@@ -785,7 +785,7 @@ func assertMemberRolesAreCorrect(t *testing.T, ctx context.Context, clientMap ma
 			assert.Equal(t, expectedRole, *role)
 		} else {
 			assert.Error(t, err)
-			assert.Nil(t, role)
+			assert.Equal(t, &rbacv1.Role{}, role)
 		}
 	}
 }
@@ -810,7 +810,7 @@ func assertCentralRolesAreCorrect(t *testing.T, ctx context.Context, clientMap m
 	cr, err := client.RbacV1().ClusterRoles().Get(ctx, clusterRole.Name, metav1.GetOptions{})
 
 	assert.True(t, errors.IsNotFound(err))
-	assert.Nil(t, cr)
+	assert.Equal(t, &rbacv1.ClusterRole{}, cr)
 
 	expectedRole := buildCentralEntityRole(flags.CentralClusterNamespace)
 	role, err := client.RbacV1().Roles(flags.CentralClusterNamespace).Get(ctx, expectedRole.Name, metav1.GetOptions{})
@@ -821,7 +821,7 @@ func assertCentralRolesAreCorrect(t *testing.T, ctx context.Context, clientMap m
 		assert.Equal(t, expectedRole, *role)
 	} else {
 		assert.Error(t, err)
-		assert.Nil(t, role)
+		assert.Equal(t, &rbacv1.Role{}, role)
 	}
 }
 
