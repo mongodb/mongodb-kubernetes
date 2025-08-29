@@ -48,14 +48,15 @@ install_aws_cli_pip() {
         return 1
     fi
 
-    # Use pip3 if available, otherwise pip
-    local pip_cmd="pip3"
-    if ! command -v pip3 &> /dev/null; then
-        pip_cmd="pip"
+    # Check if AWS CLI exists and works before installing
+    if command -v aws &> /dev/null && aws --version &> /dev/null 2>&1; then
+        echo "AWS CLI is already installed and working:"
+        aws --version
+        return 0
     fi
 
-    echo "Installing AWS CLI using ${pip_cmd}..."
-    ${pip_cmd} install --user awscli
+    echo "Installing AWS CLI using pip3..."
+    pip3 install --user awscli
 
     # Add ~/.local/bin to PATH if not already there (where pip --user installs)
     if [[ ":${PATH}:" != *":${HOME}/.local/bin:"* ]]; then
@@ -64,11 +65,11 @@ install_aws_cli_pip() {
     fi
 
     # Verify installation
-    if command -v aws &> /dev/null; then
+    if command -v aws &> /dev/null && aws --version &> /dev/null 2>&1; then
         echo "AWS CLI v1 installed successfully:"
         aws --version
     else
-        echo "Error: AWS CLI v1 installation failed or not found in PATH" >&2
+        echo "Error: AWS CLI v1 installation failed" >&2
         return 1
     fi
 }
