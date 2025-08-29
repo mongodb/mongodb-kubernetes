@@ -5,6 +5,7 @@ from kubetester import (
     create_secret,
     find_fixture,
     read_secret,
+    try_load,
     update_secret,
     wait_until,
 )
@@ -22,7 +23,16 @@ USER_PASSWORD = "my-password"
 USER_DATABASE = "admin"
 
 
-@fixture(scope="module")
+def create_password_secret(namespace: str) -> str:
+    create_or_update_secret(
+        namespace,
+        PASSWORD_SECRET_NAME,
+        {"password": USER_PASSWORD},
+    )
+    return PASSWORD_SECRET_NAME
+
+
+@fixture(scope="function")
 def replica_set(namespace: str, custom_mdb_version) -> MongoDB:
     resource = MongoDB.from_yaml(
         find_fixture("replica-set-scram-sha-256.yaml"),
@@ -36,21 +46,16 @@ def replica_set(namespace: str, custom_mdb_version) -> MongoDB:
         "enabled": True,
         "modes": ["SCRAM"],
     }
-
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="function")
 def scram_user(namespace: str) -> MongoDBUser:
     resource = MongoDBUser.from_yaml(find_fixture("scram-sha-user.yaml"), namespace=namespace)
 
-    create_or_update_secret(
-        KubernetesTester.get_namespace(),
-        resource.get_secret_name(),
-        {"password": USER_PASSWORD},
-    )
-
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="function")
@@ -67,6 +72,7 @@ def connection_string_secret(replica_set: MongoDB):
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
 class TestReplicaSetCreation(KubernetesTester):
     def test_replica_set_created(self, replica_set: MongoDB):
+        replica_set.create()
         replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
     def test_replica_set_connectivity(self, replica_set: MongoDB):
@@ -82,7 +88,9 @@ class TestReplicaSetCreation(KubernetesTester):
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
-def test_create_user(scram_user: MongoDBUser):
+def test_create_user(scram_user: MongoDBUser, namespace: str):
+    create_password_secret(namespace)
+    scram_user.create()
     scram_user.assert_reaches_phase(Phase.Updated)
 
 
@@ -124,10 +132,15 @@ class TestReplicaSetIsUpdatedWithNewUser(KubernetesTester):
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
 class TestCanChangePassword(KubernetesTester):
-    def test_user_can_authenticate_with_new_password(self, namespace: str, replica_set: MongoDB):
-        update_secret(namespace, PASSWORD_SECRET_NAME, {"password": "my-new-password7"})
+    def test_user_can_authenticate_with_new_password(
+        self, scram_user: MongoDBUser, namespace: str, replica_set: MongoDB
+    ):
+        new_password = "my-new-password7"
+        update_secret(namespace, PASSWORD_SECRET_NAME, {"password": new_password})
+        scram_user.assert_reaches_phase(Phase.Updated)
+
         replica_set.tester().assert_scram_sha_authentication(
-            password="my-new-password7",
+            password=new_password,
             username="mms-user-1",
             auth_mechanism="SCRAM-SHA-256",
         )
