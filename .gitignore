@@ -56,6 +56,7 @@ bundle
 .DS_Store
 cover.out
 result.suite
+*result.xml
 # loadtesting binary
 production_notes/cmd/runtest/runtest
 production_notes/helm_charts/opsmanager/charts/
