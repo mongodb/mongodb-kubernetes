@@ -456,6 +456,7 @@ functions:
         content_type: text/plain
     - command: attach.xunit_results
       params:
+        continue_on_err: true
         file: "src/github.com/mongodb/mongodb-kubernetes/logs/myreport.xml"
 
   upload_e2e_logs_gotest:

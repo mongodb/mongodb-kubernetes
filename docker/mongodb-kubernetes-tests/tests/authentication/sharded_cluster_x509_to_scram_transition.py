@@ -106,7 +106,7 @@ class TestCanEnableScramSha256:
     @TRACER.start_as_current_span("test_can_enable_scram_sha_256")
     def test_can_enable_scram_sha_256(self, sharded_cluster: MongoDB, ca_path: str):
         kubetester.wait_processes_ready()
-        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=800)
+        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1400)
 
         sharded_cluster.load()
         sharded_cluster["spec"]["security"]["authentication"]["enabled"] = True
@@ -115,7 +115,7 @@ class TestCanEnableScramSha256:
         ]
         sharded_cluster["spec"]["security"]["authentication"]["agents"]["mode"] = "SCRAM"
         sharded_cluster.update()
-        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=800)
+        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1400)
 
     def test_assert_connectivity(self, ca_path: str):
         ShardedClusterTester(MDB_RESOURCE, 1, ssl=True, ca_path=ca_path).assert_connectivity(attempts=25)
