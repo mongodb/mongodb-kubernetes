@@ -8,11 +8,8 @@ from typing import Callable, Dict, List, Optional
 
 import kubernetes.client
 import requests
-from kubernetes.client.rest import ApiException
-from opentelemetry import trace
-from requests.auth import HTTPDigestAuth
-
 from kubeobject import CustomObject
+from kubernetes.client.rest import ApiException
 from kubetester import (
     create_configmap,
     create_or_update_secret,
@@ -30,6 +27,8 @@ from kubetester.mongodb_utils_state import in_desired_state
 from kubetester.mongotester import MongoTester, MultiReplicaSetTester, ReplicaSetTester
 from kubetester.omtester import OMContext, OMTester
 from kubetester.phase import Phase
+from opentelemetry import trace
+from requests.auth import HTTPDigestAuth
 from tests import test_logger
 from tests.common.multicluster.multicluster_utils import (
     multi_cluster_pod_names,
