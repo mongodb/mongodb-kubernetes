@@ -29,14 +29,14 @@ jobs:
       - name: Setup host
         uses: ./.github/actions/setup-ubuntu-host
         with:
-          python-version: '${{ steps.switch_context.outputs.python-version }}'
+          python-version: '${{ env.PYTHON_VERSION }}'
       - name: Generate Release Notes
         run: python -m scripts.release.release_notes -s $INITIAL_COMMIT_SHA -v $INITIAL_VERSION -o release_notes_tmp.md
         env:
           # We can not use environments set via GitHub UI because they will
           # not be available in the pull requests running from forks.
-          INITIAL_COMMIT_SHA: '${{ steps.switch_context.outputs.initial-commit-sha }}'
-          INITIAL_VERSION: '${{ steps.switch_context.outputs.initial-version}}'
+          INITIAL_COMMIT_SHA: '${{ env.INITIAL_COMMIT_SHA }}'
+          INITIAL_VERSION: '${{ env.INITIAL_VERSION }}'
       - name: Add disclaimer to release notes preview
         run: |
           echo -e "_:warning: (this preview might not be accurate if the PR is not rebased on current master branch)_\n" > release_notes_preview.md
