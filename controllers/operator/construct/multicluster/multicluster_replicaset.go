@@ -7,7 +7,6 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
@@ -65,9 +64,9 @@ func WithStsOverride(stsOverride *appsv1.StatefulSetSpec) func(options *construc
 	}
 }
 
-func WithAnnotations(resourceName string, certHash string) func(options *construct.DatabaseStatefulSetOptions) {
+func WithAnnotations(resourceName string) func(options *construct.DatabaseStatefulSetOptions) {
 	return func(options *construct.DatabaseStatefulSetOptions) {
-		options.Annotations = statefulSetAnnotations(resourceName, certHash)
+		options.Annotations = statefulSetAnnotations(resourceName)
 	}
 }
 
@@ -75,10 +74,9 @@ func statefulSetName(mdbmName string, clusterNum int) string {
 	return fmt.Sprintf("%s-%d", mdbmName, clusterNum)
 }
 
-func statefulSetAnnotations(mdbmName string, certHash string) map[string]string {
+func statefulSetAnnotations(mdbmName string) map[string]string {
 	return map[string]string{
 		handler.MongoDBMultiResourceAnnotation: mdbmName,
-		certs.CertHashAnnotationKey:            certHash,
 	}
 }
 

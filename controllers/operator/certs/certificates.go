@@ -31,7 +31,6 @@ type certDestination string
 
 const (
 	OperatorGeneratedCertSuffix = "-pem"
-	CertHashAnnotationKey       = "certHash"
 
 	Unused     = "unused"
 	Database   = "database"
