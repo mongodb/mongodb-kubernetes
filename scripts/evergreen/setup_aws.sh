@@ -49,9 +49,8 @@ install_aws_cli_pip() {
     fi
 
     # Check if AWS CLI exists and works before installing
-    if command -v aws &> /dev/null && aws --version &> /dev/null 2>&1; then
-        echo "AWS CLI is already installed and working:"
-        aws --version
+    if command -v aws &> /dev/null ; then
+        echo "AWS CLI is already installed and working"
         return 0
     fi
 
@@ -65,9 +64,8 @@ install_aws_cli_pip() {
     fi
 
     # Verify installation
-    if command -v aws &> /dev/null && aws --version &> /dev/null 2>&1; then
-        echo "AWS CLI v1 installed successfully:"
-        aws --version
+    if command -v aws &> /dev/null; then
+        echo "AWS CLI v1 installed successfully"
     else
         echo "Error: AWS CLI v1 installation failed" >&2
         return 1
