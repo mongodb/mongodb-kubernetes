@@ -1,6 +1,10 @@
 package search_controller
 
 import (
+	"fmt"
+
+	"github.com/blang/semver"
+	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
@@ -19,7 +23,9 @@ import (
 )
 
 const (
-	MongotContainerName = "mongot"
+	MongotContainerName      = "mongot"
+	SearchLivenessProbePath  = "/health"
+	SearchReadinessProbePath = "/health" // Todo: Update this when search GA is available
 )
 
 // SearchSourceDBResource is an object wrapping a MongoDBCommunity object
@@ -29,23 +35,81 @@ const (
 //
 // TODO check if we could use already existing interface (DbCommon, MongoDBStatefulSetOwner, etc.)
 type SearchSourceDBResource interface {
-	Name() string
-	NamespacedName() types.NamespacedName
 	KeyfileSecretName() string
-	GetNamespace() string
-	HasSeparateDataAndLogsVolumes() bool
-	DatabaseServiceName() string
-	DatabasePort() int
-	GetMongoDBVersion() string
 	IsSecurityTLSConfigEnabled() bool
+	TLSOperatorCASecretNamespacedName() types.NamespacedName
+	HostSeeds() []string
+	ValidateMongoDBVersion() error
 }
 
 func NewSearchSourceDBResourceFromMongoDBCommunity(mdbc *mdbcv1.MongoDBCommunity) SearchSourceDBResource {
 	return &mdbcSearchResource{db: mdbc}
 }
 
+func NewSearchSourceDBResourceFromExternal(namespace string, spec *searchv1.ExternalMongoDBSource) SearchSourceDBResource {
+	return &externalSearchResource{namespace: namespace, spec: spec}
+}
+
+// externalSearchResource implements SearchSourceDBResource for deployments managed outside the operator.
+type externalSearchResource struct {
+	namespace string
+	spec      *searchv1.ExternalMongoDBSource
+}
+
+func (r *externalSearchResource) ValidateMongoDBVersion() error {
+	return nil
+}
+
+func (r *externalSearchResource) KeyfileSecretName() string {
+	if r.spec.KeyFileSecretKeyRef != nil {
+		return r.spec.KeyFileSecretKeyRef.Name
+	}
+
+	return ""
+}
+
+func (r *externalSearchResource) IsSecurityTLSConfigEnabled() bool {
+	return r.spec.TLS != nil && r.spec.TLS.Enabled
+}
+
+func (r *externalSearchResource) TLSOperatorCASecretNamespacedName() types.NamespacedName {
+	if r.spec.TLS != nil && r.spec.TLS.CA != nil {
+		return types.NamespacedName{
+			Name:      r.spec.TLS.CA.Name,
+			Namespace: r.namespace,
+		}
+	}
+
+	return types.NamespacedName{}
+}
+
+func (r *externalSearchResource) HostSeeds() []string { return r.spec.HostAndPorts }
+
 type mdbcSearchResource struct {
 	db *mdbcv1.MongoDBCommunity
+}
+
+func (r *mdbcSearchResource) ValidateMongoDBVersion() error {
+	version, err := semver.ParseTolerant(r.db.GetMongoDBVersion())
+	if err != nil {
+		return xerrors.Errorf("error parsing MongoDB version '%s': %w", r.db.GetMongoDBVersion(), err)
+	} else if version.LT(semver.MustParse("8.0.10")) {
+		return xerrors.New("MongoDB version must be 8.0.10 or higher")
+	}
+
+	return nil
+}
+
+func (r *mdbcSearchResource) HostSeeds() []string {
+	seeds := make([]string, r.db.Spec.Members)
+	for i := range seeds {
+		seeds[i] = fmt.Sprintf("%s-%d.%s.%s.svc.cluster.local:%d", r.db.Name, i, r.db.ServiceName(), r.db.Namespace, r.db.GetMongodConfiguration().GetDBPort())
+	}
+	return seeds
+}
+
+func (r *mdbcSearchResource) Members() int {
+	return r.db.Spec.Members
 }
 
 func (r *mdbcSearchResource) Name() string {
@@ -72,10 +136,6 @@ func (r *mdbcSearchResource) DatabaseServiceName() string {
 	return r.db.ServiceName()
 }
 
-func (r *mdbcSearchResource) GetMongoDBVersion() string {
-	return r.db.Spec.Version
-}
-
 func (r *mdbcSearchResource) IsSecurityTLSConfigEnabled() bool {
 	return r.db.Spec.Security.TLS.Enabled
 }
@@ -84,8 +144,12 @@ func (r *mdbcSearchResource) DatabasePort() int {
 	return r.db.GetMongodConfiguration().GetDBPort()
 }
 
+func (r *mdbcSearchResource) TLSOperatorCASecretNamespacedName() types.NamespacedName {
+	return r.db.TLSOperatorCASecretNamespacedName()
+}
+
 // ReplicaSetOptions returns a set of options which will configure a ReplicaSet StatefulSet
-func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBResource SearchSourceDBResource, searchImage string, mongotConfigHash string) statefulset.Modification {
+func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBResource SearchSourceDBResource, searchImage string) statefulset.Modification {
 	labels := map[string]string{
 		"app": mdbSearch.SearchServiceNamespacedName().Name,
 	}
@@ -95,14 +159,18 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 
 	dataVolumeName := "data"
 	keyfileVolumeName := "keyfile"
+	sourceUserPasswordVolumeName := "password"
 	mongotConfigVolumeName := "config"
 
 	pvcVolumeMount := statefulset.CreateVolumeMount(dataVolumeName, "/mongot/data", statefulset.WithSubPath("data"))
 
-	keyfileVolume := statefulset.CreateVolumeFromSecret("keyfile", sourceDBResource.KeyfileSecretName())
+	keyfileVolume := statefulset.CreateVolumeFromSecret(keyfileVolumeName, sourceDBResource.KeyfileSecretName())
 	keyfileVolumeMount := statefulset.CreateVolumeMount(keyfileVolumeName, "/mongot/keyfile", statefulset.WithReadOnly(true))
 
-	mongotConfigVolume := statefulset.CreateVolumeFromConfigMap("config", mdbSearch.MongotConfigConfigMapNamespacedName().Name)
+	sourceUserPasswordVolume := statefulset.CreateVolumeFromSecret(sourceUserPasswordVolumeName, mdbSearch.SourceUserPasswordSecretRef().Name)
+	sourceUserPasswordVolumeMount := statefulset.CreateVolumeMount(sourceUserPasswordVolumeName, "/mongot/sourceUserPassword", statefulset.WithReadOnly(true))
+
+	mongotConfigVolume := statefulset.CreateVolumeFromConfigMap(mongotConfigVolumeName, mdbSearch.MongotConfigConfigMapNamespacedName().Name)
 	mongotConfigVolumeMount := statefulset.CreateVolumeMount(mongotConfigVolumeName, "/mongot/config", statefulset.WithReadOnly(true))
 
 	var persistenceConfig *common.PersistenceConfig
@@ -120,12 +188,14 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 		keyfileVolumeMount,
 		tmpVolumeMount,
 		mongotConfigVolumeMount,
+		sourceUserPasswordVolumeMount,
 	}
 
 	volumes := []corev1.Volume{
 		tmpVolume,
 		keyfileVolume,
 		mongotConfigVolume,
+		sourceUserPasswordVolume,
 	}
 
 	stsModifications := []statefulset.Modification{
@@ -142,11 +212,7 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 			podtemplatespec.Apply(
 				podSecurityContext,
 				podtemplatespec.WithPodLabels(labels),
-				podtemplatespec.WithAnnotations(map[string]string{
-					"mongotConfigHash": mongotConfigHash,
-				}),
 				podtemplatespec.WithVolumes(volumes),
-				podtemplatespec.WithServiceAccount(sourceDBResource.DatabaseServiceName()),
 				podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
 				podtemplatespec.WithContainer(MongotContainerName, mongodbSearchContainer(mdbSearch, volumeMounts, searchImage)),
 			),
@@ -170,19 +236,62 @@ func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, volumeMounts []co
 		container.WithName(MongotContainerName),
 		container.WithImage(searchImage),
 		container.WithImagePullPolicy(corev1.PullAlways),
-		container.WithReadinessProbe(probes.Apply(
-			probes.WithTCPSocket("", intstr.FromInt32(mdbSearch.GetMongotPort())),
-			probes.WithInitialDelaySeconds(20),
-			probes.WithPeriodSeconds(10),
-		)),
+		container.WithLivenessProbe(mongotLivenessProbe(mdbSearch)),
+		container.WithReadinessProbe(mongotReadinessProbe(mdbSearch)),
 		container.WithResourceRequirements(createSearchResourceRequirements(mdbSearch.Spec.ResourceRequirements)),
 		container.WithVolumeMounts(volumeMounts),
 		container.WithCommand([]string{"sh"}),
 		container.WithArgs([]string{
 			"-c",
-			"/mongot-community/mongot --config /mongot/config/config.yml",
+			`
+cp /mongot/keyfile/keyfile /tmp/keyfile
+chown 2000:2000 /tmp/keyfile
+chmod 0600 /tmp/keyfile
+
+cp /mongot/sourceUserPassword/password /tmp/sourceUserPassword
+chown 2000:2000 /tmp/sourceUserPassword
+chmod 0600 /tmp/sourceUserPassword
+
+/mongot-community/mongot --config /mongot/config/config.yml
+`,
 		}),
 		containerSecurityContext,
+	)
+}
+
+func mongotLivenessProbe(search *searchv1.MongoDBSearch) func(*corev1.Probe) {
+	return probes.Apply(
+		probes.WithHandler(corev1.ProbeHandler{
+			HTTPGet: &corev1.HTTPGetAction{
+				Scheme: corev1.URISchemeHTTP,
+				Port:   intstr.FromInt32(search.GetMongotHealthCheckPort()),
+				Path:   SearchLivenessProbePath,
+			},
+		}),
+		probes.WithInitialDelaySeconds(10),
+		probes.WithPeriodSeconds(10),
+		probes.WithTimeoutSeconds(5),
+		probes.WithSuccessThreshold(1),
+		probes.WithFailureThreshold(10),
+	)
+}
+
+// mongotReadinessProbe just uses the endpoint intended for liveness checks;
+// readiness check endpoint may be available in search GA.
+func mongotReadinessProbe(search *searchv1.MongoDBSearch) func(*corev1.Probe) {
+	return probes.Apply(
+		probes.WithHandler(corev1.ProbeHandler{
+			HTTPGet: &corev1.HTTPGetAction{
+				Scheme: corev1.URISchemeHTTP,
+				Port:   intstr.FromInt32(search.GetMongotHealthCheckPort()),
+				Path:   SearchReadinessProbePath,
+			},
+		}),
+		probes.WithInitialDelaySeconds(20),
+		probes.WithPeriodSeconds(10),
+		probes.WithTimeoutSeconds(5),
+		probes.WithSuccessThreshold(1),
+		probes.WithFailureThreshold(3),
 	)
 }
 
