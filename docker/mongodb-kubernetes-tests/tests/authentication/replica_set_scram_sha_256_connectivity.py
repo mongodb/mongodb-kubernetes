@@ -72,7 +72,7 @@ def connection_string_secret(replica_set: MongoDB):
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
 class TestReplicaSetCreation(KubernetesTester):
     def test_replica_set_created(self, replica_set: MongoDB):
-        replica_set.create()
+        replica_set.update()
         replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
     def test_replica_set_connectivity(self, replica_set: MongoDB):
@@ -90,7 +90,7 @@ class TestReplicaSetCreation(KubernetesTester):
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
 def test_create_user(scram_user: MongoDBUser, namespace: str):
     create_password_secret(namespace)
-    scram_user.create()
+    scram_user.update()
     scram_user.assert_reaches_phase(Phase.Updated)
 
 
