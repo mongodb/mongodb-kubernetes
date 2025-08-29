@@ -1029,6 +1029,8 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
                 # This can be an intermediate error, right before we check for this secret we create it.
                 # The cluster might just be slow
                 "failed to locate the api key secret",
+                # etcd might be slow
+                "etcdserver: request timed out",
             )
 
             start_time = time.time()
