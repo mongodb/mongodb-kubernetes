@@ -19,7 +19,7 @@ require (
 	github.com/spf13/cast v1.9.2
 	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/objx v0.5.2
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.0
 	github.com/xdg/stringprep v1.0.3
 	github.com/yudai/gojsondiff v1.0.0
 	go.mongodb.org/atlas v0.38.0
