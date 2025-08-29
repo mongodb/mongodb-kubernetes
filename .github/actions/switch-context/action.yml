@@ -1,0 +1,28 @@
+name: 'Switch context'
+inputs:
+  context-name:
+    description: 'Context name to switch to'
+    required: true
+  outputs:
+    python-version:
+      description: 'Python version'
+      value: string
+    initial-commit-sha:
+      description: 'Initial commit sha for calculating changelog diffs'
+      value: string
+    initial-version:
+      description: 'Initial version to release if no tag exists yet'
+      value: string
+runs:
+  using: "composite"
+  steps:
+    - name: Switch context
+      shell: bash
+      run: |
+        echo "Initializing context files"
+        cp scripts/dev/contexts/gha-private-context scripts/dev/contexts/private-context
+        scripts/dev/switch_context.sh ${{inputs.context-name}}
+        echo "Finished initializing to the ${{inputs.context-name}}"
+        echo "python-version=$(echo $PYTHON_VERSION)" >> $GITHUB_OUTPUT
+        echo "initial-commit-sha=$(echo $INITIAL_COMMIT_SHA)" >> $GITHUB_OUTPUT
+        echo "initial-version=$(echo $INITIAL_VERSION)" >> $GITHUB_OUTPUT
