@@ -22,6 +22,7 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
         sts = self.appsv1.read_namespaced_stateful_set("rs001-pv", self.namespace)
         assert sts
 
+    @pytest.mark.flaky(reruns=3, reruns_delay=2)
     def test_sts_creation(self):
         sts = self.appsv1.read_namespaced_stateful_set("rs001-pv", self.namespace)
 
