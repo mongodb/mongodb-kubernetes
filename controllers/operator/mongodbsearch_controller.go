@@ -59,6 +59,21 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 
 	r.watch.AddWatchedResourceIfNotAdded(searchSource.KeyfileSecretName(), mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
 
+	// Watch for changes in database source CA certificate secrets or configmaps
+	tlsSourceConfig := searchSource.TLSConfig()
+	if tlsSourceConfig != nil {
+		for wType, resources := range tlsSourceConfig.ResourcesToWatch {
+			for _, resource := range resources {
+				r.watch.AddWatchedResourceIfNotAdded(resource.Name, resource.Namespace, wType, mdbSearch.NamespacedName())
+			}
+		}
+	}
+
+	// Watch our own TLS certificate secret for changes
+	if mdbSearch.Spec.Security.TLS.Enabled {
+		r.watch.AddWatchedResourceIfNotAdded(mdbSearch.Spec.Security.TLS.CertificateKeySecret.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
+	}
+
 	reconcileHelper := search_controller.NewMongoDBSearchReconcileHelper(kubernetesClient.NewClient(r.kubeClient), mdbSearch, searchSource, r.operatorSearchConfig)
 
 	return reconcileHelper.Reconcile(ctx, log).ReconcileResult()

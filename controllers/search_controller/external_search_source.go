@@ -4,6 +4,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
+	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 )
 
 func NewExternalSearchSource(namespace string, spec *searchv1.ExternalMongoDBSource) SearchSourceDBResource {
@@ -20,27 +22,28 @@ func (r *externalSearchResource) Validate() error {
 	return nil
 }
 
+func (r *externalSearchResource) TLSConfig() *TLSSourceConfig {
+	if r.spec.TLS == nil || !r.spec.TLS.Enabled {
+		return nil
+	}
+
+	return &TLSSourceConfig{
+		CAFileName: "ca.crt",
+		CAVolume:   statefulset.CreateVolumeFromSecret("ca", r.spec.TLS.CA.Name),
+		ResourcesToWatch: map[watch.Type][]types.NamespacedName{
+			watch.Secret: {
+				{Namespace: r.namespace, Name: r.spec.TLS.CA.Name},
+			},
+		},
+	}
+}
+
 func (r *externalSearchResource) KeyfileSecretName() string {
 	if r.spec.KeyFileSecretKeyRef != nil {
 		return r.spec.KeyFileSecretKeyRef.Name
 	}
 
 	return ""
-}
-
-func (r *externalSearchResource) IsSecurityTLSConfigEnabled() bool {
-	return r.spec.TLS != nil && r.spec.TLS.Enabled
-}
-
-func (r *externalSearchResource) TLSOperatorCASecretNamespacedName() types.NamespacedName {
-	if r.spec.TLS != nil && r.spec.TLS.CA != nil {
-		return types.NamespacedName{
-			Name:      r.spec.TLS.CA.Name,
-			Namespace: r.namespace,
-		}
-	}
-
-	return types.NamespacedName{}
 }
 
 func (r *externalSearchResource) HostSeeds() []string { return r.spec.HostAndPorts }

@@ -8,7 +8,11 @@ import (
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
 
+	corev1 "k8s.io/api/core/v1"
+
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -32,12 +36,27 @@ func (r *CommunitySearchSource) KeyfileSecretName() string {
 	return r.MongoDBCommunity.GetAgentKeyfileSecretNamespacedName().Name
 }
 
-func (r *CommunitySearchSource) IsSecurityTLSConfigEnabled() bool {
-	return r.Spec.Security.TLS.Enabled
-}
+func (r *CommunitySearchSource) TLSConfig() *TLSSourceConfig {
+	if !r.Spec.Security.TLS.Enabled {
+		return nil
+	}
 
-func (r *CommunitySearchSource) TLSOperatorCASecretNamespacedName() types.NamespacedName {
-	return r.MongoDBCommunity.TLSOperatorCASecretNamespacedName()
+	var volume corev1.Volume
+	watchedResources := make(map[watch.Type][]types.NamespacedName)
+
+	if r.Spec.Security.TLS.CaCertificateSecret != nil {
+		volume = statefulset.CreateVolumeFromSecret("ca", r.Spec.Security.TLS.CaCertificateSecret.Name)
+		watchedResources[watch.Secret] = []types.NamespacedName{r.TLSCaCertificateSecretNamespacedName()}
+	} else {
+		volume = statefulset.CreateVolumeFromConfigMap("ca", r.Spec.Security.TLS.CaConfigMap.Name)
+		watchedResources[watch.ConfigMap] = []types.NamespacedName{r.TLSConfigMapNamespacedName()}
+	}
+
+	return &TLSSourceConfig{
+		CAFileName:       "ca.crt",
+		CAVolume:         volume,
+		ResourcesToWatch: watchedResources,
+	}
 }
 
 func (r *CommunitySearchSource) Validate() error {

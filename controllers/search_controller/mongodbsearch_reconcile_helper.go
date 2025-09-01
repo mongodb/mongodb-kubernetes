@@ -261,20 +261,9 @@ func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Contex
 }
 
 func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context) (mongot.Modification, statefulset.Modification, error) {
-	if !r.db.IsSecurityTLSConfigEnabled() {
+	tlsSourceConfig := r.db.TLSConfig()
+	if tlsSourceConfig == nil {
 		return mongot.NOOP(), statefulset.NOOP(), nil
-	}
-
-	caSecretName := r.db.TLSOperatorCASecretNamespacedName()
-	caSecret := &corev1.Secret{}
-	if err := r.client.Get(ctx, caSecretName, caSecret); err != nil {
-		return nil, nil, xerrors.Errorf("error getting CA Secret %s: %w", caSecretName, err)
-	}
-
-	// HACK: find a better way of getting the CA file name
-	var caFileName string
-	for k := range caSecret.Data {
-		caFileName = k
 	}
 
 	mongotModification := func(config *mongot.Config) {
@@ -282,7 +271,7 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 	}
 
 	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
-	caVolume := statefulset.CreateVolumeFromSecret("ca", caSecretName.Name)
+	caVolume := tlsSourceConfig.CAVolume
 	trustStoreVolume := statefulset.CreateVolumeFromEmptyDir("cacerts")
 	statefulsetModification := statefulset.WithPodSpecTemplate(podtemplatespec.Apply(
 		podtemplatespec.WithVolume(caVolume),
@@ -300,7 +289,7 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 				fmt.Sprintf(`
 cp /mongot-community/bin/jdk/lib/security/cacerts /java/trust-store/cacerts
 /mongot-community/bin/jdk/bin/keytool -keystore /java/trust-store/cacerts -storepass changeit -noprompt -trustcacerts -importcert -alias mongodcert -file %s/%s
-							`, tls.CAMountPath, caFileName),
+							`, tls.CAMountPath, tlsSourceConfig.CAFileName),
 			}),
 		)),
 		podtemplatespec.WithContainer(MongotContainerName, container.Apply(

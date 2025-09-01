@@ -1306,3 +1306,8 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_search_enterprise_tls
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
