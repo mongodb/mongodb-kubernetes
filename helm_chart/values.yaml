@@ -143,8 +143,8 @@ initAppDb:
   version: 1.2.0
 
 agent:
-  name: mongodb-agent-ubi
-  version: 108.0.2.8729-1
+  name: mongodb-agent
+  version: 108.0.12.8846-1
 
 # This is only used by the MongoDBCommunity resource reconciler - START
 versionUpgradeHook:
@@ -176,7 +176,7 @@ registry:
   appDb: quay.io/mongodb
   agent: quay.io/mongodb
 
-# This is only used by the MongoDBCommunity resource reconciler - START
+  # This is only used by the MongoDBCommunity resource reconciler - START
   versionUpgradeHook: quay.io/mongodb
   readinessProbe: quay.io/mongodb
 # This is only used by the MongoDBCommunity resource reconciler - END
@@ -196,7 +196,7 @@ community:
     name: mongodb-community-server
     imageType: ubi8
   agent:
-    name: mongodb-agent-ubi
+    name: mongodb-agent
     version: 108.0.2.8729-1
   registry:
     agent: quay.io/mongodb
@@ -215,8 +215,8 @@ community:
       certificateKeySecretRef: tls-certificate
       caCertificateSecretRef: tls-ca-key-pair
       certManager:
-        certDuration: 8760h   # 365 days
-        renewCertBefore: 720h   # 30 days
+        certDuration: 8760h # 365 days
+        renewCertBefore: 720h # 30 days
 
 # MongoDBSearch settings
 search:

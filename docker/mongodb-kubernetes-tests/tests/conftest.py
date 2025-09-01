@@ -1684,6 +1684,26 @@ def pytest_sessionfinish(session, exitstatus):
                     ev = tester.get_project_events().json()["results"]
                     with open(f"/tmp/diagnostics/{project_id}-events.json", "w", encoding="utf-8") as f:
                         json.dump(ev, f, ensure_ascii=False, indent=4)
+
+                    if exitstatus != 0:
+                        try:
+                            automation_config_tester = tester.get_automation_config_tester()
+                            automation_config = automation_config_tester.automation_config
+                            if not automation_config:
+                                continue
+
+                            # Remove mongoDbVersions field as it's too large
+                            if "mongoDbVersions" in automation_config:
+                                del automation_config["mongoDbVersions"]
+
+                            with open(
+                                f"/tmp/diagnostics/{project_id}-automation-config.json", "w", encoding="utf-8"
+                            ) as f:
+                                json.dump(automation_config, f, ensure_ascii=False, indent=4)
+
+                            logging.info(f"Saved automation config for project {project_id}")
+                        except Exception as e:
+                            logging.warning(f"Failed to collect automation config for project {project_id}: {e}")
                 else:
                     logging.info("om is not healthy - not collecting events information")
 

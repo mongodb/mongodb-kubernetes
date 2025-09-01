@@ -1084,14 +1084,14 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		return workflowStatus
 	}
 
-	agentCertSecretName := sc.GetSecurity().AgentClientCertificateSecretName(sc.Name).Name
+	agentCertSecretSelector := sc.GetSecurity().AgentClientCertificateSecretName(sc.Name)
 
 	opts = deploymentOptions{
-		podEnvVars:           podEnvVars,
-		currentAgentAuthMode: currentAgentAuthMode,
-		caFilePath:           caFilePath,
-		agentCertSecretName:  agentCertSecretName,
-		prometheusCertHash:   prometheusCertHash,
+		podEnvVars:              podEnvVars,
+		currentAgentAuthMode:    currentAgentAuthMode,
+		caFilePath:              caFilePath,
+		agentCertSecretSelector: agentCertSecretSelector,
+		prometheusCertHash:      prometheusCertHash,
 	}
 	allConfigs := r.getAllConfigs(ctx, *sc, opts, log)
 
@@ -1789,14 +1789,14 @@ func (r *ShardedClusterReconcileHelper) prepareScaleDownShardedCluster(omClient 
 
 // deploymentOptions contains fields required for creating the OM deployment for the Sharded Cluster.
 type deploymentOptions struct {
-	podEnvVars           *env.PodEnvVars
-	currentAgentAuthMode string
-	caFilePath           string
-	agentCertSecretName  string
-	certTLSType          map[string]bool
-	finalizing           bool
-	processNames         []string
-	prometheusCertHash   string
+	podEnvVars              *env.PodEnvVars
+	currentAgentAuthMode    string
+	caFilePath              string
+	agentCertSecretSelector corev1.SecretKeySelector
+	certTLSType             map[string]bool
+	finalizing              bool
+	processNames            []string
+	prometheusCertHash      string
 }
 
 // updateOmDeploymentShardedCluster performs OM registration operation for the sharded cluster. So the changes will be finally propagated
@@ -1950,7 +1950,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 
 	logDiffOfProcessNames(opts.processNames, healthyProcessesToWaitForReadyState, log.With("ctx", "updateOmAuthentication"))
 
-	workflowStatus, additionalReconciliationRequired := r.commonController.updateOmAuthentication(ctx, conn, healthyProcessesToWaitForReadyState, sc, opts.agentCertSecretName, opts.caFilePath, "", isRecovering, log)
+	workflowStatus, additionalReconciliationRequired := r.commonController.updateOmAuthentication(ctx, conn, healthyProcessesToWaitForReadyState, sc, opts.agentCertSecretSelector, opts.caFilePath, "", isRecovering, log)
 	if !workflowStatus.IsOK() {
 		if !isRecovering {
 			return nil, false, workflowStatus

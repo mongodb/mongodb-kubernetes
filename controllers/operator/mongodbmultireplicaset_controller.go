@@ -758,9 +758,8 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 
 	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
 
-	// We do not provide an agentCertSecretName on purpose because then we will default to the non pem secret on the central cluster.
-	// Below method has special code handling reading certificates from the central cluster in that case.
-	status, additionalReconciliationRequired := r.updateOmAuthentication(ctx, conn, rs.GetProcessNames(), &mrs, "", caFilePath, internalClusterPath, isRecovering, log)
+	agentCertSecretName := mrs.GetSecurity().AgentClientCertificateSecretName(mrs.GetName())
+	status, additionalReconciliationRequired := r.updateOmAuthentication(ctx, conn, rs.GetProcessNames(), &mrs, agentCertSecretName, caFilePath, internalClusterPath, isRecovering, log)
 	if !status.IsOK() && !isRecovering {
 		return xerrors.Errorf("failed to enable Authentication for MongoDB Multi Replicaset")
 	}

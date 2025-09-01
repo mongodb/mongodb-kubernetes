@@ -46,12 +46,12 @@ from scripts.evergreen.release.agent_matrix import (
     get_supported_version_for_image,
 )
 from scripts.evergreen.release.sbom import generate_sbom, generate_sbom_for_cli
+from scripts.release.agent.detect_ops_manager_changes import detect_ops_manager_changes
 from scripts.release.build.image_signing import (
     mongodb_artifactory_login,
     sign_image,
     verify_signature,
 )
-from scripts.release.detect_ops_manager_changes import detect_ops_manager_changes
 
 TRACER = trace.get_tracer("evergreen-agent")
 

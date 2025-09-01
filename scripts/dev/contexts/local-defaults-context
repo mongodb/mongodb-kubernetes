@@ -39,9 +39,9 @@ export MONGODB_REPO_URL="${QUAY_REGISTRY}"
 export APPDB_REGISTRY="${QUAY_REGISTRY}"
 export MONGODB_ENTERPRISE_DATABASE_IMAGE="${INIT_IMAGES_REGISTRY}/mongodb-kubernetes-database"
 export MDB_AGENT_IMAGE_OPERATOR_VERSION=latest
-export MDB_AGENT_IMAGE_REPOSITORY="${BASE_REPO_URL_SHARED}/mongodb-agent-ubi"
+export MDB_AGENT_IMAGE_REPOSITORY="${BASE_REPO_URL_SHARED}/mongodb-agent"
 export AGENT_BASE_REGISTRY=${BASE_REPO_URL_SHARED}
-export AGENT_IMAGE="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent-ubi:12.0.30.7791-1"
+export AGENT_IMAGE="${MDB_AGENT_IMAGE_REPOSITORY}:12.0.35.7911-1"
 
 # these are needed to deploy OM
 export INIT_APPDB_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-kubernetes-init-appdb"
