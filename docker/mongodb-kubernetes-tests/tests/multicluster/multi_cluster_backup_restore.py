@@ -25,6 +25,7 @@ from kubetester.omtester import OMTester
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
+import pytest
 from pytest import fixture, mark
 from tests.conftest import (
     assert_data_got_restored,
@@ -474,17 +475,9 @@ class TestBackupForMongodb:
 
     @skip_if_local
     @mark.e2e_multi_cluster_backup_restore
+    @pytest.mark.flaky(reruns=16, reruns_delay=6)
     def test_add_test_data(self, mongodb_multi_one_collection):
-        max_attempts = 100
-        while max_attempts > 0:
-            try:
-                mongodb_multi_one_collection.insert_one(TEST_DATA)
-                return
-            except Exception as e:
-                print(e)
-                max_attempts -= 1
-                time.sleep(6)
-        raise Exception("❌ Failed to insert test data after multiple attempts")
+        mongodb_multi_one_collection.insert_one(TEST_DATA)
 
     @mark.e2e_multi_cluster_backup_restore
     def test_mdb_backed_up(self, project_one: OMTester):
