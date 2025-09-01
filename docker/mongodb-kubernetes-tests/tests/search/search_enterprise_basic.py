@@ -164,7 +164,7 @@ def test_search_restore_sample_database(mdb: MongoDB):
 
 
 @mark.e2e_search_enterprise_basic
-def test_search_create_search_index(sample_movies_helper: SampleMoviesSearchHelper):
+def test_search_create_search_index():
     sample_movies_helper = movies_search_helper.SampleMoviesSearchHelper(
         SearchTester(get_connection_string(mdb, USER_NAME, USER_PASSWORD))
     )
@@ -172,7 +172,7 @@ def test_search_create_search_index(sample_movies_helper: SampleMoviesSearchHelp
 
 
 @mark.e2e_search_enterprise_basic
-def test_search_assert_search_query(sample_movies_helper: SampleMoviesSearchHelper):
+def test_search_assert_search_query():
     sample_movies_helper = movies_search_helper.SampleMoviesSearchHelper(
         SearchTester(get_connection_string(mdb, USER_NAME, USER_PASSWORD))
     )
