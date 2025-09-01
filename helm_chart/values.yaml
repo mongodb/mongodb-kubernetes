@@ -144,7 +144,7 @@ initAppDb:
 
 agent:
   name: mongodb-agent
-  version: 108.0.2.8729-1
+  version: 108.0.12.8846-1
 
 # This is only used by the MongoDBCommunity resource reconciler - START
 versionUpgradeHook:
@@ -176,7 +176,7 @@ registry:
   appDb: quay.io/mongodb
   agent: quay.io/mongodb
 
-# This is only used by the MongoDBCommunity resource reconciler - START
+  # This is only used by the MongoDBCommunity resource reconciler - START
   versionUpgradeHook: quay.io/mongodb
   readinessProbe: quay.io/mongodb
 # This is only used by the MongoDBCommunity resource reconciler - END
@@ -215,8 +215,8 @@ community:
       certificateKeySecretRef: tls-certificate
       caCertificateSecretRef: tls-ca-key-pair
       certManager:
-        certDuration: 8760h   # 365 days
-        renewCertBefore: 720h   # 30 days
+        certDuration: 8760h # 365 days
+        renewCertBefore: 720h # 30 days
 
 # MongoDBSearch settings
 search:

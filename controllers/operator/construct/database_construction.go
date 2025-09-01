@@ -466,7 +466,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 		appLabelKey: opts.ServiceName,
 	}
 
-	annotationFunc := statefulset.WithAnnotations(defaultPodAnnotations(opts.CertificateHash))
+	annotationFunc := statefulset.WithAnnotations(defaultStatefulSetAnnotations(opts.CertificateHash))
 	podTemplateAnnotationFunc := podtemplatespec.NOOP()
 
 	annotationFunc = statefulset.Apply(
@@ -1057,11 +1057,8 @@ func DatabaseStartupProbe() probes.Modification {
 	)
 }
 
-func defaultPodAnnotations(certHash string) map[string]string {
+func defaultStatefulSetAnnotations(certHash string) map[string]string {
 	return map[string]string{
-		// This annotation is necessary to trigger a pod restart
-		// if the certificate secret is out of date. This happens if
-		// existing certificates have been replaced/rotated/renewed.
 		certs.CertHashAnnotationKey: certHash,
 	}
 }
