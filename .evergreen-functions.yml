@@ -725,6 +725,7 @@ functions:
           make test-race
     - command: gotest.parse_files
       params:
+        files: [ "src/github.com/mongodb/mongodb-kubernetes/*.suite", "src/github.com/mongodb/mongodb-kubernetes/docker/mongodb-kubernetes-init-ops-manager/mmsconfiguration/*.suite" ]
 
   test_helm_unit:
     - command: shell.exec
@@ -735,7 +736,6 @@ functions:
         script: |
           source .generated/context.export.env
           make helm-tests
-        files: [ "src/github.com/mongodb/mongodb-kubernetes/*.suite", "src/github.com/mongodb/mongodb-kubernetes/docker/mongodb-kubernetes-init-ops-manager/mmsconfiguration/*.suite" ]
 
   test_python_unit:
     - command: shell.exec
