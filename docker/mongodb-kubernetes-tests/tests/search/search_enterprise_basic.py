@@ -155,27 +155,27 @@ def test_wait_for_database_resource_ready(mdb: MongoDB):
         ), "mongot parameters not found in mongod config"
 
 
-@fixture(scope="function")
-def sample_movies_helper(request, mdb: MongoDB) -> SampleMoviesSearchHelper:
-    credentials = (USER_NAME, USER_PASSWORD)
-    if request.node.get_closest_marker("use_admin_user"):
-        credentials = (ADMIN_USER_NAME, ADMIN_USER_PASSWORD)
-    return movies_search_helper.SampleMoviesSearchHelper(SearchTester(get_connection_string(mdb, *credentials)))
-
-
 @mark.e2e_search_enterprise_basic
-@mark.use_admin_user
-def test_search_restore_sample_database(sample_movies_helper: SampleMoviesSearchHelper):
+def test_search_restore_sample_database(mdb: MongoDB):
+    sample_movies_helper = movies_search_helper.SampleMoviesSearchHelper(
+        SearchTester(get_connection_string(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD))
+    )
     sample_movies_helper.restore_sample_database()
 
 
 @mark.e2e_search_enterprise_basic
 def test_search_create_search_index(sample_movies_helper: SampleMoviesSearchHelper):
+    sample_movies_helper = movies_search_helper.SampleMoviesSearchHelper(
+        SearchTester(get_connection_string(mdb, USER_NAME, USER_PASSWORD))
+    )
     sample_movies_helper.create_search_index()
 
 
 @mark.e2e_search_enterprise_basic
 def test_search_assert_search_query(sample_movies_helper: SampleMoviesSearchHelper):
+    sample_movies_helper = movies_search_helper.SampleMoviesSearchHelper(
+        SearchTester(get_connection_string(mdb, USER_NAME, USER_PASSWORD))
+    )
     sample_movies_helper.assert_search_query(retry_timeout=60)
 
 
