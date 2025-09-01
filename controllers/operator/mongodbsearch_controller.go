@@ -19,11 +19,10 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/search_controller"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/watch"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -31,18 +30,14 @@ import (
 
 type MongoDBSearchReconciler struct {
 	kubeClient           kubernetesClient.Client
-	mdbcWatcher          watch.ResourceWatcher
-	mdbWatcher           watch.ResourceWatcher
-	secretWatcher        watch.ResourceWatcher
+	watch                *watch.ResourceWatcher
 	operatorSearchConfig search_controller.OperatorSearchConfig
 }
 
 func newMongoDBSearchReconciler(client client.Client, operatorSearchConfig search_controller.OperatorSearchConfig) *MongoDBSearchReconciler {
 	return &MongoDBSearchReconciler{
 		kubeClient:           kubernetesClient.NewClient(client),
-		mdbcWatcher:          watch.New(),
-		mdbWatcher:           watch.New(),
-		secretWatcher:        watch.New(),
+		watch:                watch.NewResourceWatcher(),
 		operatorSearchConfig: operatorSearchConfig,
 	}
 }
@@ -62,7 +57,7 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, err
 	}
 
-	r.secretWatcher.Watch(ctx, kube.ObjectKey(mdbSearch.GetNamespace(), searchSource.KeyfileSecretName()), mdbSearch.NamespacedName())
+	r.watch.AddWatchedResourceIfNotAdded(searchSource.KeyfileSecretName(), mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
 
 	reconcileHelper := search_controller.NewMongoDBSearchReconcileHelper(kubernetesClient.NewClient(r.kubeClient), mdbSearch, searchSource, r.operatorSearchConfig)
 
@@ -88,7 +83,7 @@ func (r *MongoDBSearchReconciler) getSourceMongoDBForSearch(ctx context.Context,
 			return nil, xerrors.Errorf("error getting MongoDB %s: %w", sourceName, err)
 		}
 	} else {
-		r.mdbWatcher.Watch(ctx, sourceName, search.NamespacedName())
+		r.watch.AddWatchedResourceIfNotAdded(sourceMongoDBResourceRef.Name, sourceMongoDBResourceRef.Namespace, watch.MongoDB, search.NamespacedName())
 		return search_controller.NewEnterpriseResourceSearchSource(mdb), nil
 	}
 
@@ -98,7 +93,7 @@ func (r *MongoDBSearchReconciler) getSourceMongoDBForSearch(ctx context.Context,
 			return nil, xerrors.Errorf("error getting MongoDBCommunity %s: %w", sourceName, err)
 		}
 	} else {
-		r.mdbcWatcher.Watch(ctx, sourceName, search.NamespacedName())
+		r.watch.AddWatchedResourceIfNotAdded(sourceMongoDBResourceRef.Name, sourceMongoDBResourceRef.Namespace, "MongoDBCommunity", search.NamespacedName())
 		return search_controller.NewCommunityResourceSearchSource(mdbc), nil
 	}
 
@@ -125,9 +120,9 @@ func AddMongoDBSearchController(ctx context.Context, mgr manager.Manager, operat
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}). // nolint:forbidigo
 		For(&searchv1.MongoDBSearch{}).
-		Watches(&mdbv1.MongoDB{}, r.mdbWatcher).
-		Watches(&mdbcv1.MongoDBCommunity{}, r.mdbcWatcher).
-		Watches(&corev1.Secret{}, r.secretWatcher).
+		Watches(&mdbv1.MongoDB{}, &watch.ResourcesHandler{ResourceType: watch.MongoDB, ResourceWatcher: r.watch}).
+		Watches(&mdbcv1.MongoDBCommunity{}, &watch.ResourcesHandler{ResourceType: "MongoDBCommunity", ResourceWatcher: r.watch}).
+		Watches(&corev1.Secret{}, &watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: r.watch}).
 		Owns(&appsv1.StatefulSet{}).
 		Owns(&corev1.Secret{}).
 		Complete(r)
