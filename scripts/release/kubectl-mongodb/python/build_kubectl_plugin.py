@@ -118,7 +118,7 @@ def download_plugin_for_tests_image(build_scenario: BuildScenario, s3_bucket: st
         sys.exit(1)
 
     plugin_path = f"{S3_BUCKET_KUBECTL_PLUGIN_SUBPATH}/{version}/dist/kubectl-mongodb_linux_amd64_v1/kubectl-mongodb"
-    for plugin_path, local_path in s3_and_local_plugin_path(version).items:
+    for plugin_path, local_path in s3_and_local_plugin_path(version).items():
         logger.info(f"Downloading s3://{s3_bucket}/{plugin_path} to {local_path}")
         try:
             s3_client.download_file(s3_bucket, plugin_path, local_path)
