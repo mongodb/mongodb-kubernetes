@@ -7,7 +7,7 @@ source scripts/funcs/kubernetes
 # shellcheck disable=SC2154
 bindir="${PROJECT_DIR}/bin"
 
-if [[ "${KUBE_ENVIRONMENT_NAME}" == "vanilla" || ("${KUBE_ENVIRONMENT_NAME}" == "multi" && "${CLUSTER_TYPE}" == "kops") ]]; then
+if [[ "${KUBE_ENVIRONMENT_NAME}" == "vanilla" || ("${KUBE_ENVIRONMENT_NAME}" == "multi" && "${CLUSTER_TYPE}" == "minikube") ]]; then
     export AWS_ACCESS_KEY_ID="${mms_eng_test_aws_access_key:?}"
     export AWS_SECRET_ACCESS_KEY="${mms_eng_test_aws_secret:?}"
     export AWS_DEFAULT_REGION="${mms_eng_test_aws_region:?}"
@@ -30,6 +30,8 @@ elif [ "${KUBE_ENVIRONMENT_NAME}" = "kind" ] || [ "${KUBE_ENVIRONMENT_NAME}" = "
     scripts/dev/recreate_kind_cluster.sh "kind"
 elif [[ "${KUBE_ENVIRONMENT_NAME}" = "multi" && "${CLUSTER_TYPE}" == "kind" ]]; then
     scripts/dev/recreate_kind_clusters.sh
+elif [[ "${KUBE_ENVIRONMENT_NAME}" = "minikube" ]]; then
+    echo "Nothing to do for minikube"
 else
     echo "KUBE_ENVIRONMENT_NAME not recognized"
     echo "value is <<${KUBE_ENVIRONMENT_NAME}>>. If empty it means it was not set"

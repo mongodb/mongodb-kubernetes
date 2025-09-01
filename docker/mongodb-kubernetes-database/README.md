@@ -39,7 +39,7 @@ this images with.
 For building the MongoDB Database image locally use the example command:
 
 ```bash
-VERSION="1.0.1"
-docker buildx build --load --progress plain . -f docker/mongodb-kubernetes-database/Dockerfile -t "mongodb-kubernetes-database:${VERSION}" \
+VERSION="1.3.0"
+docker buildx build --load --progress plain . -f docker/mongodb-kubernetes-database/Dockerfile -t "${BASE_REPO_URL}mongodb-kubernetes-database:${VERSION}" \
  --build-arg VERSION="${VERSION}"
 ```

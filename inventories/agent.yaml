@@ -1,5 +1,5 @@
 vars:
-  quay_registry: quay.io/mongodb/mongodb-agent-ubi
+  quay_registry: quay.io/mongodb/mongodb-agent
   s3_bucket: s3://enterprise-operator-dockerfiles/dockerfiles/mongodb-agent
 
 images:

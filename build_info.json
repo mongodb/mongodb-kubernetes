@@ -5,7 +5,7 @@
       "patch": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes"],
         "platforms": [
-          "linux/amd64"
+           "linux/amd64"
         ]
       },
       "staging": {
@@ -13,7 +13,9 @@
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes"],
         "platforms": [
           "linux/arm64",
-          "linux/amd64"
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       },
       "release": {
@@ -21,7 +23,9 @@
         "repositories": ["quay.io/mongodb/mongodb-kubernetes"],
         "platforms": [
           "linux/arm64",
-          "linux/amd64"
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       }
     },
@@ -37,7 +41,6 @@
         "sign": true,
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes"],
         "platforms": [
-          "linux/arm64",
           "linux/amd64"
         ]
       }
@@ -47,15 +50,17 @@
       "patch": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-database"],
         "platforms": [
-          "linux/amd64"
-        ]
+           "linux/amd64"
+         ]
       },
       "staging": {
         "sign": true,
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-init-database"],
         "platforms": [
           "linux/arm64",
-          "linux/amd64"
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       },
       "release": {
@@ -63,7 +68,9 @@
         "repositories": ["quay.io/mongodb/mongodb-kubernetes-init-database"],
         "platforms": [
           "linux/arm64",
-          "linux/amd64"
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       }
     },
@@ -80,7 +87,9 @@
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-init-appdb"],
         "platforms": [
           "linux/arm64",
-          "linux/amd64"
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       },
       "release": {
@@ -88,7 +97,9 @@
         "repositories": ["quay.io/mongodb/mongodb-kubernetes-init-appdb"],
         "platforms": [
           "linux/arm64",
-          "linux/amd64"
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       }
     },
@@ -104,7 +115,6 @@
         "sign": true,
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-init-ops-manager"],
         "platforms": [
-          "linux/arm64",
           "linux/amd64"
         ]
       },
@@ -112,7 +122,6 @@
         "sign": true,
         "repositories": ["quay.io/mongodb/mongodb-kubernetes-init-ops-manager"],
         "platforms": [
-          "linux/arm64",
           "linux/amd64"
         ]
       }
@@ -122,7 +131,7 @@
       "patch": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-database"],
         "platforms": [
-          "linux/amd64"
+           "linux/amd64"
         ]
       },
       "staging": {
@@ -130,7 +139,9 @@
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-database"],
         "platforms": [
           "linux/arm64",
-          "linux/amd64"
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       },
       "release": {
@@ -138,7 +149,9 @@
         "repositories": ["quay.io/mongodb/mongodb-kubernetes-database"],
         "platforms": [
           "linux/arm64",
-          "linux/amd64"
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       }
     },
@@ -153,6 +166,7 @@
       "staging": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-tests"],
         "platforms": [
+          "linux/arm64",
           "linux/amd64"
         ]
       }
@@ -191,7 +205,9 @@
       "release": {
         "version": "1.0.22",
         "sign": true,
-        "repositories": ["quay.io/mongodb/mongodb-kubernetes-readinessprobe"],
+        "repositories": [
+          "quay.io/mongodb/mongodb-kubernetes-readinessprobe"
+        ],
         "platforms": [
           "linux/arm64",
           "linux/amd64"
@@ -227,25 +243,29 @@
     "agent": {
       "dockerfile-path": "docker/mongodb-agent/Dockerfile.atomic",
       "patch": {
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent-ubi"],
+        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent"],
         "platforms": [
-          "linux/amd64"
+           "linux/amd64"
         ]
       },
       "staging": {
         "sign": true,
-        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-agent-ubi"],
+        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-agent"],
         "platforms": [
           "linux/arm64",
-          "linux/amd64"
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       },
       "manual_release": {
         "sign": true,
-        "repositories": ["quay.io/mongodb/mongodb-agent-ubi"],
+        "repositories": ["quay.io/mongodb/mongodb-agent-ubi", "quay.io/mongodb/mongodb-agent"],
         "platforms": [
           "linux/arm64",
-          "linux/amd64"
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
         ]
       }
     },

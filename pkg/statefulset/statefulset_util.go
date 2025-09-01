@@ -19,7 +19,6 @@ import (
 	apiEquality "k8s.io/apimachinery/pkg/api/equality"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/inspect"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
@@ -120,14 +119,6 @@ func CreateOrUpdateStatefulset(ctx context.Context, getUpdateCreator kubernetesC
 		}
 		log.Debug("Created StatefulSet")
 		return statefulSetToCreate, nil
-	}
-	// preserve existing certificate hash if new one is not statefulSetToCreate
-	existingCertHash, okExisting := existingStatefulSet.Spec.Template.Annotations[certs.CertHashAnnotationKey]
-	if newCertHash, okNew := statefulSetToCreate.Spec.Template.Annotations[certs.CertHashAnnotationKey]; existingCertHash != "" && newCertHash == "" && okExisting && okNew {
-		if statefulSetToCreate.Spec.Template.Annotations == nil {
-			statefulSetToCreate.Spec.Template.Annotations = map[string]string{}
-		}
-		statefulSetToCreate.Spec.Template.Annotations[certs.CertHashAnnotationKey] = existingCertHash
 	}
 
 	// there already exists a pvc size annotation, that means we did resize at least once
