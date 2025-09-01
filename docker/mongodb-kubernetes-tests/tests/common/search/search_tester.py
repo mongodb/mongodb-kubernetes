@@ -34,17 +34,6 @@ class SearchTester(MongoTester):
                 mongorestore_cmd += " --sslCAFile=" + ca_path
             process_run_and_check(mongorestore_cmd.split(), capture_output=True)
 
-    def assert_search_enabled(self):
-        try:
-            result = self.client.admin.command("getCmdLineOpts")
-            setParameter = result.get("parsed", {}).get("setParameter", {})
-            assert (
-                "mongotHost" in setParameter and "searchIndexManagementHostAndPort" in setParameter
-            ), "mongot parameters not found in mongod config"
-        except Exception as e:
-            logger.error(f"Error checking if search is enabled: {e}")
-            raise
-
     def create_search_index(self, database_name: str, collection_name: str):
         database = self.client[database_name]
         collection = database[collection_name]

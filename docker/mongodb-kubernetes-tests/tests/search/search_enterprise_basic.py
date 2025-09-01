@@ -1,4 +1,6 @@
+import yaml
 from kubetester import create_or_update_secret, try_load
+from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
@@ -140,7 +142,17 @@ def test_create_search_resource(mdbs: MongoDBSearch):
 def test_wait_for_database_resource_ready(mdb: MongoDB):
     mdb.assert_abandons_phase(Phase.Running, timeout=1800)
     mdb.assert_reaches_phase(Phase.Running, timeout=1800)
-    SearchTester(get_connection_string(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD)).assert_search_enabled()
+
+    for idx in range(mdb.get_members()):
+        mongod_config = yaml.safe_load(
+            KubernetesTester.run_command_in_pod_container(
+                f"{mdb.name}-{idx}", mdb.namespace, ["cat", "/data/automation-mongod.conf"]
+            )
+        )
+        setParameter = mongod_config.get("setParameter", {})
+        assert (
+            "mongotHost" in setParameter and "searchIndexManagementHostAndPort" in setParameter
+        ), "mongot parameters not found in mongod config"
 
 
 @fixture(scope="function")
