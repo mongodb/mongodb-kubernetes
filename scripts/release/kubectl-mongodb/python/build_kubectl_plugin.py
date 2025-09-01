@@ -19,10 +19,6 @@ S3_BUCKET_KUBECTL_PLUGIN_SUBPATH = KUBECTL_PLUGIN_BINARY_NAME
 
 GORELEASER_DIST_DIR = "dist"
 
-# LOCAL_KUBECTL_PLUGIN_PATH is the full filename where tests image expects the kuebctl-mongodb binary to be available
-LOCAL_KUBECTL_PLUGIN_PATH = "docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator_linux"
-
-
 def run_goreleaser():
     try:
         command = ["./goreleaser", "build", "--snapshot", "--clean", "--skip", "post-hooks"]
@@ -101,8 +97,19 @@ def s3_path(local_path: str, version: str):
     return f"{S3_BUCKET_KUBECTL_PLUGIN_SUBPATH}/{version}/{local_path}"
 
 
-# download_plugin_for_tests_image downloads just the linux amd64 version of the binary and places it
-# at the location LOCAL_KUBECTL_PLUGIN_PATH.
+def s3_and_local_plugin_path(version: str) -> dict[str, str]:
+    s3_common_path = f"{S3_BUCKET_KUBECTL_PLUGIN_SUBPATH}/{version}/dist"
+    local_common_path = "docker/mongodb-kubernetes-tests"
+    # path in s3 : local path
+    return {
+        f"{s3_common_path}/kubectl-mongodb_linux_amd64_v1/kubectl-mongodb":  f"{local_common_path}/multi-cluster-kube-config-creator_amd64",
+        f"{s3_common_path}/kubectl-mongodb_linux_arm64/kubectl-mongodb":  f"{local_common_path}/multi-cluster-kube-config-creator_arm64",
+        f"{s3_common_path}/kubectl-mongodb_linux_ppc64le/kubectl-mongodb":  f"{local_common_path}/multi-cluster-kube-config-creator_ppc64le",
+        f"{s3_common_path}/kubectl-mongodb_linux_s390x/kubectl-mongodb":  f"{local_common_path}/multi-cluster-kube-config-creator_s390x",
+    }
+
+# download_plugin_for_tests_image downloads the plugin for all the architectures and places them to the paths configured in 
+# s3_and_local_plugin_path
 def download_plugin_for_tests_image(build_scenario: BuildScenario, s3_bucket: str, version: str):
     try:
         s3_client = boto3.client("s3", region_name=AWS_REGION)
@@ -111,23 +118,23 @@ def download_plugin_for_tests_image(build_scenario: BuildScenario, s3_bucket: st
         sys.exit(1)
 
     plugin_path = f"{S3_BUCKET_KUBECTL_PLUGIN_SUBPATH}/{version}/dist/kubectl-mongodb_linux_amd64_v1/kubectl-mongodb"
+    for plugin_path, local_path in s3_and_local_plugin_path(version).items:
+        logger.info(f"Downloading s3://{s3_bucket}/{plugin_path} to {local_path}")
+        try:
+            s3_client.download_file(s3_bucket, plugin_path, local_path)
+            # change the file's permissions to make file executable
+            os.chmod(local_path, 0o755)
 
-    logger.info(f"Downloading s3://{s3_bucket}/{plugin_path} to {LOCAL_KUBECTL_PLUGIN_PATH}")
-    try:
-        s3_client.download_file(s3_bucket, plugin_path, LOCAL_KUBECTL_PLUGIN_PATH)
-        # change the file's permissions to make file executable
-        os.chmod(LOCAL_KUBECTL_PLUGIN_PATH, 0o755)
-
-        logger.info(f"Successfully downloaded artifact to {LOCAL_KUBECTL_PLUGIN_PATH}")
-    except ClientError as e:
-        if e.response["Error"]["Code"] == "404":
-            logger.debug(f"ERROR: Artifact not found at s3://{s3_bucket}/{plugin_path} ")
-        else:
-            logger.debug(f"ERROR: Failed to download artifact. S3 Client Error: {e}")
-        sys.exit(1)
-    except Exception as e:
-        logger.debug(f"An unexpected error occurred during download: {e}")
-        sys.exit(1)
+            logger.info(f"Successfully downloaded artifact to {local_path}")
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "404":
+                logger.debug(f"ERROR: Artifact not found at s3://{s3_bucket}/{plugin_path} ")
+            else:
+                logger.debug(f"ERROR: Failed to download artifact. S3 Client Error: {e}")
+            sys.exit(1)
+        except Exception as e:
+            logger.debug(f"An unexpected error occurred during download: {e}")
+            sys.exit(1)
 
 
 def main():
@@ -138,9 +145,9 @@ def main():
 
     upload_artifacts_to_s3(kubectl_plugin_build_info.s3_store, kubectl_plugin_build_info.version)
 
-    # download_plugin_for_tests_image(
-    #     build_scenario, kubectl_plugin_build_info.s3_store, kubectl_plugin_build_info.version
-    # )
+    download_plugin_for_tests_image(
+        build_scenario, kubectl_plugin_build_info.s3_store, kubectl_plugin_build_info.version
+    )
 
 
 if __name__ == "__main__":
