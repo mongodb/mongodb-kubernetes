@@ -1475,7 +1475,7 @@ buildvariants:
     run_on:
       - rhel9-power-small
       - rhel9-power-large
-    allowed_requesters: [ "patch", "github_tag" ]
+    allowed_requesters: [ "patch", "github_tag" , "commit"]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1498,7 +1498,7 @@ buildvariants:
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large
-    allowed_requesters: [ "patch", "github_tag" ]
+    allowed_requesters: [ "patch", "github_tag", "commit"]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1520,7 +1520,7 @@ buildvariants:
     tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite" ]
     run_on:
       - ubuntu2204-arm64-large
-    allowed_requesters: [ "patch", "github_tag" ]
+    allowed_requesters: [ "patch", "github_tag", "commit"]
     <<: *base_no_om_image_dependency
     tasks:
       - name: e2e_smoke_arm_task_group
@@ -1530,7 +1530,7 @@ buildvariants:
     tags: [ "e2e_test_suite", "e2e_smoke_release_test_suite", "static" ]
     run_on:
       - ubuntu2204-arm64-large
-    allowed_requesters: [ "patch", "github_tag" ]
+    allowed_requesters: [ "patch", "github_tag", "commit"]
     <<: *base_no_om_image_dependency
     tasks:
       - name: e2e_smoke_arm_task_group
@@ -1541,7 +1541,7 @@ buildvariants:
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large
-    allowed_requesters: [ "patch", "github_tag" ]
+    allowed_requesters: [ "patch", "github_tag", "commit"]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1564,7 +1564,7 @@ buildvariants:
     run_on:
       - rhel9-power-small
       - rhel9-power-large
-    allowed_requesters: [ "patch", "github_tag" ]
+    allowed_requesters: [ "patch", "github_tag", "commit"]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
