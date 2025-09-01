@@ -22,10 +22,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: '0'
+      - name: Switch to root context
+        id: switch_context
+        uses: ./.github/actions/switch-context
+        with:
+          context-name: 'root-context'
       - name: Setup host
         uses: ./.github/actions/setup-ubuntu-host
         with:
-          python-version: '${{ vars.PYTHON_VERSION }}'
+          python-version: ${{ env.PYTHON_VERSION }}
       - name: Check if changelog entry file was added in this PR
         run: |
           set -o pipefail

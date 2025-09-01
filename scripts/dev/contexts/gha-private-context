@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+export NAMESPACE=""
+export CLUSTER_NAME=""
+export LOCAL_OPERATOR="false"
+export BASE_REPO_URL=""
