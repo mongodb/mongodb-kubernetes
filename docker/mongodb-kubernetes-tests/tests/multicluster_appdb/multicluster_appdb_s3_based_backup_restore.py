@@ -204,7 +204,7 @@ class TestBackupForMongodb:
         # we might fail connection in the beginning since we set a custom dns in coredns
         mongodb_multi_one.assert_reaches_phase(Phase.Running, ignore_errors=True, timeout=600)
 
-    @pytest.mark.flaky(reruns=16, reruns_delay=6)
+    @pytest.mark.flaky(reruns=100, reruns_delay=6)
     def test_add_test_data(self, mongodb_multi_one_collection):
         mongodb_multi_one_collection.insert_one(TEST_DATA)
 

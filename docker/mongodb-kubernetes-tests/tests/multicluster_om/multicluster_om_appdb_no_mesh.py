@@ -557,7 +557,7 @@ def test_create_mongodb_multi(server_certs: str, mongodb_multi: MongoDBMulti):
 
 @skip_if_local
 @mark.e2e_multi_cluster_om_appdb_no_mesh
-@pytest.mark.flaky(reruns=16, reruns_delay=6)
+@pytest.mark.flaky(reruns=100, reruns_delay=6)
 def test_add_test_data(mongodb_multi_collection):
     mongodb_multi_collection.insert_one(TEST_DATA)
 

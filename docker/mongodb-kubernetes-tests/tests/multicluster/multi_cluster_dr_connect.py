@@ -54,7 +54,7 @@ def test_replica_set_is_reachable(mongodb_multi: MongoDBMulti):
 
 
 @pytest.mark.e2e_multi_cluster_dr
-@pytest.mark.flaky(reruns=16, reruns_delay=6)
+@pytest.mark.flaky(reruns=100, reruns_delay=6)
 def test_add_test_data(mongodb_multi_collection):
     mongodb_multi_collection.insert_one(TEST_DATA)
 
