@@ -18,6 +18,4 @@ export CUSTOM_OM_VERSION
 export CUSTOM_MDB_PREV_VERSION=6.0.16
 export CUSTOM_MDB_VERSION=7.0.5
 
-export MDB_SEARCH_COMMUNITY_VERSION="fbd60fb055dd500058edcb45677ea85d19421f47" # Nolan's fixes
-export MDB_SEARCH_COMMUNITY_NAME="mongot/community"
-export MDB_SEARCH_COMMUNITY_REPO_URL="268558157000.dkr.ecr.eu-west-1.amazonaws.com"
+source "${script_dir}/variables/mongodb_search_dev"
