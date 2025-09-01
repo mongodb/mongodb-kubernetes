@@ -2,7 +2,6 @@ from unittest.mock import patch
 
 from scripts.release.build.image_build_process import (
     build_cache_configuration,
-    ensure_all_cache_repositories,
 )
 
 

@@ -67,20 +67,6 @@ def build_cache_configuration(base_registry: str) -> tuple[list[Any], dict[str, 
     return cache_from_refs, cache_to_refs
 
 
-def ensure_all_cache_repositories(cache_image_names: List[str], region: str = "us-east-1"):
-    """
-    Ensure all cache repositories exist for the given image names.
-
-    This is useful for pre-creating repositories before builds start.
-
-    :param cache_image_names: List of image names (e.g., ["mongodb-kubernetes", "init-database"])
-    :param region: AWS region for ECR
-    """
-    for image_name in cache_image_names:
-        cache_repo_name = f"dev/cache/{image_name}"
-        ensure_ecr_cache_repository(cache_repo_name, region)
-
-
 def ecr_login_boto3(region: str, account_id: str):
     """
     Fetches an auth token from ECR via boto3 and logs
