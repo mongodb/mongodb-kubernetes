@@ -5,6 +5,7 @@ from typing import Dict, List, Optional
 import kubernetes
 import kubernetes.client
 import pymongo
+import pytest
 from kubernetes import client
 from kubetester import (
     create_or_update_configmap,
@@ -25,7 +26,6 @@ from kubetester.omtester import OMTester
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
-import pytest
 from pytest import fixture, mark
 from tests.conftest import (
     assert_data_got_restored,
