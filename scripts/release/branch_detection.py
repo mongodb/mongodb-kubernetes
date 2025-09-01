@@ -14,19 +14,40 @@ def get_current_branch() -> Optional[str]:
     """
     Detect the current git branch for cache scoping.
 
+    In CI environments like Evergreen, git rev-parse --abbrev-ref HEAD returns
+    auto-generated branch names like evg-pr-testing-<hash>. This function finds the original branch name by
+    looking for remote branches that point to the current commit.
+
     :return: branch name or 'master' as fallback
     """
     try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True, check=True
+        # Find the original branch (same commit, but not the evg-pr-test-* branch which evg creates)
+        current_commit_result = subprocess.run(
+            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True
         )
-        branch = result.stdout.strip()
-        if branch == "HEAD":
-            return "master"
-        if branch != "":
-            return branch
+        current_commit = current_commit_result.stdout.strip()
+
+        # Get all remote branches with their commit hashes
+        remote_branches_result = subprocess.run(
+            ["git", "for-each-ref", "--format=%(refname:short) %(objectname)", "refs/remotes/origin"],
+            capture_output=True, text=True, check=True
+        )
+
+        # Find branches that point to the current commit, excluding auto-generated CI branches
+        for line in remote_branches_result.stdout.strip().split('\n'):
+            if not line:
+                continue
+            parts = line.split()
+            if len(parts) >= 2:
+                branch_name, commit_hash = parts[0], parts[1]
+                if commit_hash == current_commit and not "evg-pr-test" in branch_name:
+                    # Remove 'origin/' prefix
+                    original_branch = branch_name.replace('origin/', '', 1)
+                    if original_branch:
+                        return original_branch
     except (subprocess.CalledProcessError, FileNotFoundError):
-        return "master"
+        return 'master'
+
     return "master"
 
 
