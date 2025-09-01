@@ -158,7 +158,13 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 	ctx := context.Background()
 	search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
 	mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
-	reconciler, c := newSearchReconciler(mdbc, search)
+
+	operatorConfig := search_controller.OperatorSearchConfig{
+		SearchRepo:    "test-repo",
+		SearchName:    "test-search",
+		SearchVersion: "1.28.7",
+	}
+	reconciler, c := newSearchReconcilerWithOperatorConfig(mdbc, operatorConfig, search)
 
 	res, err := reconciler.Reconcile(
 		ctx,
@@ -183,6 +189,12 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 	sts := &appsv1.StatefulSet{}
 	err = c.Get(ctx, search.StatefulSetNamespacedName(), sts)
 	assert.NoError(t, err)
+
+	// TODO: Cover more version test cases in refactor
+	updated := &searchv1.MongoDBSearch{}
+	err = c.Get(ctx, types.NamespacedName{Name: search.Name, Namespace: search.Namespace}, updated)
+	assert.NoError(t, err)
+	assert.Equal(t, "1.28.7", updated.Status.Version, "Status.Version should be populated with the operator version")
 
 	queue := controllertest.Queue{Interface: workqueue.New()}
 	reconciler.mdbcWatcher.Create(ctx, event.CreateEvent{Object: mdbc}, &queue)
