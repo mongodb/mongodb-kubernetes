@@ -407,7 +407,7 @@ func getSubjectFromCertificate(cert string) (string, error) {
 // enables/disables authentication. If the authentication can't be fully configured, a boolean value indicating that
 // an additional reconciliation needs to be queued up to fully make the authentication changes is returned.
 // Note: updateOmAuthentication needs to be called before reconciling other auth related settings.
-func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, conn om.Connection, processNames []string, ar authentication.AuthResource, agentCertSecretName string, caFilepath string, clusterFilePath string, isRecovering bool, log *zap.SugaredLogger) (status workflow.Status, multiStageReconciliation bool) {
+func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, conn om.Connection, processNames []string, ar authentication.AuthResource, agentCertSecretSelector corev1.SecretKeySelector, caFilepath string, clusterFilePath string, isRecovering bool, log *zap.SugaredLogger) (status workflow.Status, multiStageReconciliation bool) {
 	// don't touch authentication settings if resource has not been configured with them
 	if ar.GetSecurity() == nil || ar.GetSecurity().Authentication == nil {
 		return workflow.OK(), false
@@ -480,17 +480,13 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 
 	log.Debugf("Using authentication options %+v", authentication.Redact(authOpts))
 
-	agentSecretSelector := ar.GetSecurity().AgentClientCertificateSecretName(ar.GetName())
-	if agentCertSecretName != "" {
-		agentSecretSelector.Name = agentCertSecretName
-	}
 	wantToEnableAuthentication := ar.GetSecurity().Authentication.Enabled
 	if wantToEnableAuthentication && canConfigureAuthentication(ac, ar.GetSecurity().Authentication.GetModes(), log) {
 		log.Info("Configuring authentication for MongoDB resource")
 
 		if ar.GetSecurity().ShouldUseX509(ac.Auth.AutoAuthMechanism) || ar.GetSecurity().ShouldUseClientCertificates() {
 			agentSecret := &corev1.Secret{}
-			if err := r.client.Get(ctx, kube.ObjectKey(ar.GetNamespace(), agentSecretSelector.Name), agentSecret); client.IgnoreNotFound(err) != nil {
+			if err := r.client.Get(ctx, kube.ObjectKey(ar.GetNamespace(), agentCertSecretSelector.Name), agentSecret); client.IgnoreNotFound(err) != nil {
 				return workflow.Failed(err), false
 			}
 			// If the agent secret is of type TLS, we can find the certificate under the standard key,
@@ -500,10 +496,10 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 			//
 			// Important: In multi cluster it is working with the TLS secret in the central cluster, hence below selector update.
 			if agentSecret.Type == corev1.SecretTypeTLS {
-				agentSecretSelector.Key = corev1.TLSCertKey
+				agentCertSecretSelector.Key = corev1.TLSCertKey
 			}
 
-			authOpts, err = r.configureAgentSubjects(ctx, ar.GetNamespace(), agentSecretSelector, authOpts, log)
+			authOpts, err = r.configureAgentSubjects(ctx, ar.GetNamespace(), agentCertSecretSelector, authOpts, log)
 			if err != nil {
 				return workflow.Failed(xerrors.Errorf("error configuring agent subjects: %w", err)), false
 			}
@@ -534,17 +530,17 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 		return workflow.OK(), true
 	} else {
 		agentSecret := &corev1.Secret{}
-		if err := r.client.Get(ctx, kube.ObjectKey(ar.GetNamespace(), agentSecretSelector.Name), agentSecret); client.IgnoreNotFound(err) != nil {
+		if err := r.client.Get(ctx, kube.ObjectKey(ar.GetNamespace(), agentCertSecretSelector.Name), agentSecret); client.IgnoreNotFound(err) != nil {
 			return workflow.Failed(err), false
 		}
 
 		if agentSecret.Type == corev1.SecretTypeTLS {
-			agentSecretSelector.Name = fmt.Sprintf("%s%s", agentSecretSelector.Name, certs.OperatorGeneratedCertSuffix)
+			agentCertSecretSelector.Name = fmt.Sprintf("%s%s", agentCertSecretSelector.Name, certs.OperatorGeneratedCertSuffix)
 		}
 
 		// Should not fail if the Secret object with agent certs is not found.
 		// It will only exist on x509 client auth enabled deployments.
-		userOpts, err := r.readAgentSubjectsFromSecret(ctx, ar.GetNamespace(), agentSecretSelector, log)
+		userOpts, err := r.readAgentSubjectsFromSecret(ctx, ar.GetNamespace(), agentCertSecretSelector, log)
 		err = client.IgnoreNotFound(err)
 		if err != nil {
 			return workflow.Failed(err), true

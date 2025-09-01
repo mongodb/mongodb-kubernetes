@@ -4,7 +4,7 @@ import json
 import re
 import time
 from base64 import b64decode
-from typing import Any, Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 import kubernetes.client
 import requests
@@ -13,7 +13,6 @@ from kubernetes.client.rest import ApiException
 from kubetester import (
     create_configmap,
     create_or_update_secret,
-    read_configmap,
     read_secret,
 )
 from kubetester.automation_config_tester import AutomationConfigTester
@@ -1029,6 +1028,8 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
                 # This can be an intermediate error, right before we check for this secret we create it.
                 # The cluster might just be slow
                 "failed to locate the api key secret",
+                # etcd might be slow
+                "etcdserver: request timed out",
             )
 
             start_time = time.time()
