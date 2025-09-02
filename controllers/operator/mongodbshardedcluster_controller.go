@@ -2045,7 +2045,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 	}
 
 	// Save final process IDs to deployment state for persistence across reconciliation cycles
-	if err := r.saveFinalProcessIdsToDeploymentState(conn, sc); err != nil {
+	if err := r.saveFinalProcessIdsToDeploymentState(conn); err != nil {
 		log.Warnf("Failed to save process IDs to deployment state: %v", err)
 		// Don't fail the reconciliation for this, just log the warning
 	}
@@ -2055,26 +2055,13 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 
 // saveFinalProcessIdsToDeploymentState saves the final process IDs from the OM deployment
 // to the deployment state for persistence across reconciliation cycles.
-func (r *ShardedClusterReconcileHelper) saveFinalProcessIdsToDeploymentState(conn om.Connection, sc *mdbv1.MongoDB) error {
-	finalDeployment, err := conn.ReadDeployment()
+func (r *ShardedClusterReconcileHelper) saveFinalProcessIdsToDeploymentState(conn om.Connection) error {
+	finalProcessIds, err := om.GetReplicaSetMemberIds(conn)
 	if err != nil {
 		return err
 	}
 
-	// Save config server process IDs
-	configRsProcessIds := getReplicaSetProcessIdsFromReplicaSets(sc.ConfigRsName(), finalDeployment)
-	if len(configRsProcessIds) > 0 {
-		saveReplicaSetProcessIdsToDeploymentState(sc.ConfigRsName(), configRsProcessIds, r.deploymentState)
-	}
-
-	// Save shard process IDs
-	for shardIdx := 0; shardIdx < sc.Spec.ShardCount; shardIdx++ {
-		shardRsName := sc.ShardRsName(shardIdx)
-		shardProcessIds := getReplicaSetProcessIdsFromReplicaSets(shardRsName, finalDeployment)
-		if len(shardProcessIds) > 0 {
-			saveReplicaSetProcessIdsToDeploymentState(shardRsName, shardProcessIds, r.deploymentState)
-		}
-	}
+	saveReplicaSetProcessIdsToDeploymentState(finalProcessIds, r.deploymentState)
 
 	return nil
 }
@@ -2292,13 +2279,13 @@ func getReplicaSetProcessIdsFromDeploymentState(replicaSetName string, deploymen
 
 // saveReplicaSetProcessIdsToDeploymentState saves process IDs to the deployment state
 // for persistence across reconciliation cycles.
-func saveReplicaSetProcessIdsToDeploymentState(replicaSetName string, processIds map[string]int, deploymentState *ShardedClusterDeploymentState) {
+func saveReplicaSetProcessIdsToDeploymentState(processIds map[string]map[string]int, deploymentState *ShardedClusterDeploymentState) {
 	if deploymentState.ProcessIds == nil {
 		deploymentState.ProcessIds = make(map[string]map[string]int)
 	}
 
 	if len(processIds) > 0 {
-		deploymentState.ProcessIds[replicaSetName] = processIds
+		deploymentState.ProcessIds = processIds
 	}
 }
 
@@ -2309,7 +2296,7 @@ func buildReplicaSetFromProcesses(name string, members []om.Process, mdb *mdbv1.
 
 	existingProcessIds := getReplicaSetProcessIdsFromReplicaSets(replicaSet.Name(), deployment)
 
-	// If there is no replicaset configuration saved in OM, it might be a new project, so we check the ids saved in deployment state
+	// If there is no configuration saved in OM, it might be a new project, so we check the ids saved in the state map
 	// A project migration can happen if .spec.opsManager.configMapRef is changed, or the original configMap has been modified.
 	if len(existingProcessIds) == 0 {
 		existingProcessIds = getReplicaSetProcessIdsFromDeploymentState(replicaSet.Name(), deploymentState)

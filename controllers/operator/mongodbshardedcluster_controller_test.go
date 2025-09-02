@@ -1928,42 +1928,39 @@ func TestProcessIdPersistence(t *testing.T) {
 		assert.NotNil(t, deploymentState.ProcessIds)
 		assert.Equal(t, 0, len(deploymentState.ProcessIds))
 
-		// Test 2: Save process IDs for config server
-		configServerProcessIds := map[string]int{
-			"test-configsrv-0": 0,
-			"test-configsrv-1": 1,
-			"test-configsrv-2": 2,
+		// Test 2: Save process IDs for config server and shards (simulating GetReplicaSetMemberIds result)
+		allProcessIds := map[string]map[string]int{
+			"test-configsrv": {
+				"test-configsrv-0": 0,
+				"test-configsrv-1": 1,
+				"test-configsrv-2": 2,
+			},
+			"test-shard-0": {
+				"test-shard-0-0": 3,
+				"test-shard-0-1": 4,
+				"test-shard-0-2": 5,
+			},
+			"test-shard-1": {
+				"test-shard-1-0": 6,
+				"test-shard-1-1": 7,
+			},
 		}
-		saveReplicaSetProcessIdsToDeploymentState("test-configsrv", configServerProcessIds, deploymentState)
-		assert.Equal(t, 1, len(deploymentState.ProcessIds))
-		assert.Equal(t, configServerProcessIds, deploymentState.ProcessIds["test-configsrv"])
-
-		// Test 3: Save process IDs for multiple shards
-		shard0ProcessIds := map[string]int{
-			"test-shard-0-0": 3,
-			"test-shard-0-1": 4,
-			"test-shard-0-2": 5,
-		}
-		shard1ProcessIds := map[string]int{
-			"test-shard-1-0": 6,
-			"test-shard-1-1": 7,
-		}
-		saveReplicaSetProcessIdsToDeploymentState("test-shard-0", shard0ProcessIds, deploymentState)
-		saveReplicaSetProcessIdsToDeploymentState("test-shard-1", shard1ProcessIds, deploymentState)
+		saveReplicaSetProcessIdsToDeploymentState(allProcessIds, deploymentState)
 
 		assert.Equal(t, 3, len(deploymentState.ProcessIds))
-		assert.Equal(t, shard0ProcessIds, deploymentState.ProcessIds["test-shard-0"])
-		assert.Equal(t, shard1ProcessIds, deploymentState.ProcessIds["test-shard-1"])
+		assert.Equal(t, allProcessIds["test-configsrv"], deploymentState.ProcessIds["test-configsrv"])
+		assert.Equal(t, allProcessIds["test-shard-0"], deploymentState.ProcessIds["test-shard-0"])
+		assert.Equal(t, allProcessIds["test-shard-1"], deploymentState.ProcessIds["test-shard-1"])
 
 		// Test 4: Retrieve process IDs (simulating migration scenario)
 		retrievedConfigIds := getReplicaSetProcessIdsFromDeploymentState("test-configsrv", deploymentState)
-		assert.Equal(t, configServerProcessIds, retrievedConfigIds)
+		assert.Equal(t, allProcessIds["test-configsrv"], retrievedConfigIds)
 
 		retrievedShard0Ids := getReplicaSetProcessIdsFromDeploymentState("test-shard-0", deploymentState)
-		assert.Equal(t, shard0ProcessIds, retrievedShard0Ids)
+		assert.Equal(t, allProcessIds["test-shard-0"], retrievedShard0Ids)
 
 		retrievedShard1Ids := getReplicaSetProcessIdsFromDeploymentState("test-shard-1", deploymentState)
-		assert.Equal(t, shard1ProcessIds, retrievedShard1Ids)
+		assert.Equal(t, allProcessIds["test-shard-1"], retrievedShard1Ids)
 
 		// Test 5: Retrieve non-existent replica set (should return empty map)
 		emptyIds := getReplicaSetProcessIdsFromDeploymentState("non-existent", deploymentState)
@@ -1981,16 +1978,18 @@ func TestProcessIdPersistence(t *testing.T) {
 		assert.Equal(t, 0, len(emptyIds))
 
 		// Should initialize ProcessIds when saving
-		processIds := map[string]int{"test-process": 1}
-		saveReplicaSetProcessIdsToDeploymentState("test-rs", processIds, deploymentState)
+		allProcessIds := map[string]map[string]int{
+			"test-rs": {"test-process": 1},
+		}
+		saveReplicaSetProcessIdsToDeploymentState(allProcessIds, deploymentState)
 		assert.NotNil(t, deploymentState.ProcessIds)
-		assert.Equal(t, processIds, deploymentState.ProcessIds["test-rs"])
+		assert.Equal(t, allProcessIds["test-rs"], deploymentState.ProcessIds["test-rs"])
 
 		// Test edge case: empty process IDs (should not save)
-		emptyProcessIds := map[string]int{}
-		saveReplicaSetProcessIdsToDeploymentState("empty-rs", emptyProcessIds, deploymentState)
-		_, exists := deploymentState.ProcessIds["empty-rs"]
-		assert.False(t, exists, "Empty process IDs should not be saved")
+		emptyProcessIds := map[string]map[string]int{}
+		saveReplicaSetProcessIdsToDeploymentState(emptyProcessIds, deploymentState)
+		// Should still have the original data
+		assert.Equal(t, allProcessIds["test-rs"], deploymentState.ProcessIds["test-rs"])
 	})
 
 	t.Run("TestProcessIdPersistence_JSONSerialization", func(t *testing.T) {
@@ -1998,18 +1997,19 @@ func TestProcessIdPersistence(t *testing.T) {
 		originalState := NewShardedClusterDeploymentState()
 
 		// Add test data
-		configProcessIds := map[string]int{
-			"config-0": 0,
-			"config-1": 1,
-			"config-2": 2,
-		}
-		shardProcessIds := map[string]int{
-			"shard-0-0": 3,
-			"shard-0-1": 4,
+		allProcessIds := map[string]map[string]int{
+			"test-config": {
+				"config-0": 0,
+				"config-1": 1,
+				"config-2": 2,
+			},
+			"test-shard-0": {
+				"shard-0-0": 3,
+				"shard-0-1": 4,
+			},
 		}
 
-		saveReplicaSetProcessIdsToDeploymentState("test-config", configProcessIds, originalState)
-		saveReplicaSetProcessIdsToDeploymentState("test-shard-0", shardProcessIds, originalState)
+		saveReplicaSetProcessIdsToDeploymentState(allProcessIds, originalState)
 
 		// Serialize to JSON
 		jsonData, err := json.Marshal(originalState)
@@ -2027,10 +2027,10 @@ func TestProcessIdPersistence(t *testing.T) {
 		assert.Equal(t, originalState.ProcessIds, restoredState.ProcessIds)
 
 		restoredConfigIds := getReplicaSetProcessIdsFromDeploymentState("test-config", &restoredState)
-		assert.Equal(t, configProcessIds, restoredConfigIds)
+		assert.Equal(t, allProcessIds["test-config"], restoredConfigIds)
 
 		restoredShardIds := getReplicaSetProcessIdsFromDeploymentState("test-shard-0", &restoredState)
-		assert.Equal(t, shardProcessIds, restoredShardIds)
+		assert.Equal(t, allProcessIds["test-shard-0"], restoredShardIds)
 	})
 
 	t.Run("TestBuildReplicaSetFromProcesses_WithProcessIdPersistence", func(t *testing.T) {
@@ -2073,11 +2073,13 @@ func TestProcessIdPersistence(t *testing.T) {
 		deploymentState := NewShardedClusterDeploymentState()
 
 		// Pre-populate deployment state with saved process IDs
-		savedProcessIds := map[string]int{
-			"test-shard-0-0": 10,
-			"test-shard-0-1": 11,
+		savedProcessIds := map[string]map[string]int{
+			"test-shard-0": {
+				"test-shard-0-0": 10,
+				"test-shard-0-1": 11,
+			},
 		}
-		saveReplicaSetProcessIdsToDeploymentState("test-shard-0", savedProcessIds, deploymentState)
+		saveReplicaSetProcessIdsToDeploymentState(savedProcessIds, deploymentState)
 
 		// Build replica set - should use saved process IDs
 		rsWithProcesses, err := buildReplicaSetFromProcesses(
@@ -2122,7 +2124,7 @@ func TestProcessIdPersistence(t *testing.T) {
 		}
 
 		// Test saving final process IDs with empty deployment (no error expected)
-		err := helper.saveFinalProcessIdsToDeploymentState(mockConn, sc)
+		err := helper.saveFinalProcessIdsToDeploymentState(mockConn)
 		assert.NoError(t, err)
 
 		// Verify that no process IDs were saved (since deployment is empty)
