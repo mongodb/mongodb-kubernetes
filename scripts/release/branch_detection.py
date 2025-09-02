@@ -22,19 +22,19 @@ def get_current_branch() -> Optional[str]:
     """
     try:
         # Find the original branch (same commit, but not the evg-pr-test-* branch which evg creates)
-        current_commit_result = subprocess.run(
-            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True
-        )
+        current_commit_result = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True)
         current_commit = current_commit_result.stdout.strip()
 
         # Get all remote branches with their commit hashes
         remote_branches_result = subprocess.run(
             ["git", "for-each-ref", "--format=%(refname:short) %(objectname)", "refs/remotes/origin"],
-            capture_output=True, text=True, check=True
+            capture_output=True,
+            text=True,
+            check=True,
         )
 
         # Find branches that point to the current commit, excluding auto-generated CI branches
-        for line in remote_branches_result.stdout.strip().split('\n'):
+        for line in remote_branches_result.stdout.strip().split("\n"):
             if not line:
                 continue
             parts = line.split()
@@ -42,11 +42,11 @@ def get_current_branch() -> Optional[str]:
                 branch_name, commit_hash = parts[0], parts[1]
                 if commit_hash == current_commit and not "evg-pr-test" in branch_name:
                     # Remove 'origin/' prefix
-                    original_branch = branch_name.replace('origin/', '', 1)
+                    original_branch = branch_name.replace("origin/", "", 1)
                     if original_branch:
                         return original_branch
     except (subprocess.CalledProcessError, FileNotFoundError):
-        return 'master'
+        return "master"
 
     return "master"
 

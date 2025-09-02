@@ -13,12 +13,16 @@ class TestGetCurrentBranch:
     @patch("subprocess.run")
     def test_ci_environment_with_original_branch(self, mock_run):
         """Test detection of original branch in CI environment like Evergreen."""
+
         # Mock the sequence of git commands
         def side_effect(cmd, **kwargs):
             if cmd == ["git", "rev-parse", "HEAD"]:
                 return MagicMock(stdout="4cecea664abcd1234567890\n", returncode=0)
             elif cmd == ["git", "for-each-ref", "--format=%(refname:short) %(objectname)", "refs/remotes/origin"]:
-                return MagicMock(stdout="origin/master 1234567890abcdef\norigin/add-caching 4cecea664abcd1234567890\norigin/evg-pr-test-12345 4cecea664abcd1234567890\n", returncode=0)
+                return MagicMock(
+                    stdout="origin/master 1234567890abcdef\norigin/add-caching 4cecea664abcd1234567890\norigin/evg-pr-test-12345 4cecea664abcd1234567890\n",
+                    returncode=0,
+                )
             elif cmd == ["git", "rev-parse", "--abbrev-ref", "HEAD"]:
                 return MagicMock(stdout="evg-pr-test-12345\n", returncode=0)
             return MagicMock(stdout="", returncode=1)
@@ -32,6 +36,7 @@ class TestGetCurrentBranch:
     @patch("subprocess.run")
     def test_master_branch_fallback(self, mock_run):
         """Test detection of master branch using fallback method."""
+
         # Mock the sequence where sophisticated method fails but fallback works
         def side_effect(cmd, **kwargs):
             if cmd == ["git", "rev-parse", "HEAD"]:
@@ -51,6 +56,7 @@ class TestGetCurrentBranch:
     @patch("subprocess.run")
     def test_detached_head_fallback(self, mock_run):
         """Test detection when in detached HEAD state using fallback."""
+
         # Mock the sequence where sophisticated method fails and fallback returns HEAD
         def side_effect(cmd, **kwargs):
             if cmd == ["git", "rev-parse", "HEAD"]:
@@ -70,6 +76,7 @@ class TestGetCurrentBranch:
     @patch("subprocess.run")
     def test_ci_branch_filtered_out_in_fallback(self, mock_run):
         """Test that CI auto-generated branches are filtered out in fallback."""
+
         # Mock the sequence where sophisticated method fails and fallback returns CI branch
         def side_effect(cmd, **kwargs):
             if cmd == ["git", "rev-parse", "HEAD"]:
