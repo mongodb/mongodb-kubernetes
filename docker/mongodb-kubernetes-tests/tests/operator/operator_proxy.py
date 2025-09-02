@@ -1,6 +1,5 @@
 import os
 
-import yaml
 from kubernetes import client
 from kubetester import create_or_update_configmap
 from kubetester.create_or_replace_from_yaml import (
@@ -12,7 +11,6 @@ from kubetester.kubetester import get_pods
 from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
 from kubetester.phase import Phase
-from oauthlib.oauth1.rfc5849.endpoints import resource
 from pytest import fixture, mark
 
 MDB_RESOURCE = "replica-set"
@@ -45,7 +43,7 @@ def operator_with_proxy(namespace: str, operator_installation_config: dict[str, 
     os.environ["HTTP_PROXY"] = os.environ["HTTPS_PROXY"] = squid_proxy
     helm_args = operator_installation_config.copy()
     helm_args["customEnvVars"] += (
-        f"\&MDB_PROPAGATE_PROXY_ENV=true" + f"\&HTTP_PROXY={squid_proxy}" + f"\&HTTPS_PROXY={squid_proxy}"
+        f"\&MDB_PROPAGATE_PROXY_ENV=true" + f"\&HTTP_PROXY={squid_proxy}" + f"\&HTTPS_PROXY={squid_proxy}" + "\&NO_PROXY=cloud-qa.mongodb.com"
     )
     return Operator(namespace=namespace, helm_args=helm_args).install()
 
@@ -78,7 +76,7 @@ def test_proxy_logs_requests(namespace: str):
     pod_name = proxy_pods[0].metadata.name
     container_name = "squid"
     pod_logs = KubernetesTester.read_pod_logs(namespace, pod_name, container_name)
-    assert "cloud-qa.mongodb.com" in pod_logs
+    assert "cloud-qa.mongodb.com" not in pod_logs
     assert "api-agents-qa.mongodb.com" in pod_logs
     assert "api-backup-qa.mongodb.com" in pod_logs
 
