@@ -45,7 +45,7 @@ metrics_server_version="v0.7.2"
 
 reg_name='kind-registry'
 reg_port='5000'
-kind_image="${registry}/kindest/node:v1.32.2@sha256:f226345927d7e348497136874b6d207e0b32cc52154ad8323129352923a3142f"
+kind_image="${registry}/kindest/node:v1.33.2@sha256:c55080dc5be4f2cc242e6966fdf97bb62282e1cd818a28223cf536db8b0fddf4"
 
 usage() {
   echo "Deploy local registry and create kind cluster configured to use this registry. Local Docker registry is deployed at localhost:5000.

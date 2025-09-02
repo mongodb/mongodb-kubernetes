@@ -8,11 +8,12 @@ import sys
 from typing import Dict, List
 
 import requests
-from evergreen.release.agent_matrix import (
-    get_supported_version_for_image,
-)
 from git import Repo
 from requests import Response
+
+from scripts.evergreen.release.agent_matrix import (
+    get_supported_version_for_image,
+)
 
 
 def get_repo_root():
@@ -23,12 +24,7 @@ def get_repo_root():
 
 SUPPORTED_IMAGES = (
     "mongodb-agent",
-    "mongodb-kubernetes-database",
-    "mongodb-kubernetes-init-database",
-    "mongodb-kubernetes-init-appdb",
     "mongodb-enterprise-ops-manager",
-    "mongodb-kubernetes-init-ops-manager",
-    "mongodb-kubernetes",
 )
 
 URL_LOCATION_BASE = "https://enterprise-operator-dockerfiles.s3.amazonaws.com/dockerfiles"
@@ -47,7 +43,7 @@ def get_supported_variants_for_image(image: str) -> List[str]:
     return get_release()["supportedImages"][image]["variants"]
 
 
-def get_supported_version_for_image(image: str) -> List[str]:
+def get_supported_version_for_image_mck(image: str) -> List[str]:
     image = get_image_name(image)
 
     return get_supported_version_for_image(image)
@@ -89,7 +85,7 @@ def save_supported_dockerfiles():
     """
     for image in SUPPORTED_IMAGES:
         print("Image:", image)
-        versions = get_supported_version_for_image(image)
+        versions = get_supported_version_for_image_mck(image)
         for version in versions:
             for variant in get_supported_variants_for_image(image):
                 response = download_dockerfile_from_s3(image, version, variant)

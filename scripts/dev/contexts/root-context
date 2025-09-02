@@ -131,3 +131,7 @@ fi
 # but we can unify once we are done with unified operator
 # installation for both multicluster and single cluster setups.
 export OPERATOR_NAME="mongodb-kubernetes-operator"
+
+# Variables used for release process
+export INITIAL_COMMIT_SHA="9ed5f98fc70c5b3442f633d2393265fb8a2aba0c"
+export INITIAL_VERSION="1.3.0"
