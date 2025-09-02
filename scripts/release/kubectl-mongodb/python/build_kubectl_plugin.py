@@ -16,6 +16,7 @@ S3_BUCKET_KUBECTL_PLUGIN_SUBPATH = KUBECTL_PLUGIN_BINARY_NAME
 
 GORELEASER_DIST_DIR = "dist"
 
+
 def run_goreleaser():
     try:
         command = ["goreleaser", "build", "--snapshot", "--clean", "--skip", "post-hooks"]
