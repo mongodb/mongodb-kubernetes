@@ -1,4 +1,4 @@
-suite: test webhook consistent clusterrole and binding namecomm
+suite: test webhook consistent clusterrole and binding
 templates:
   - operator-roles-webhook.yaml
 tests:
@@ -15,14 +15,17 @@ tests:
       - isKind:
           of: ClusterRoleBinding
         documentIndex: 1
-      # The key fix: both should use the same dynamic name
       - equal:
           path: metadata.name
-          value: mongodb-kubernetes-operator-NAMESPACE-webhook
+          value: mongodb-kubernetes-operator-NAMESPACE-webhook-cr
         documentIndex: 0
       - equal:
+          path: metadata.name
+          value: mongodb-kubernetes-operator-NAMESPACE-webhook-crb
+        documentIndex: 1
+      - equal:
           path: roleRef.name
-          value: mongodb-kubernetes-operator-NAMESPACE-webhook
+          value: mongodb-kubernetes-operator-NAMESPACE-webhook-cr
         documentIndex: 1
 
   # Test that different installations get unique names (prevents conflicts)
@@ -35,12 +38,15 @@ tests:
     release:
       namespace: custom-ns
     asserts:
-      # Verify the naming pattern: {operator.name}-{namespace}-webhook
       - equal:
           path: metadata.name
-          value: my-operator-custom-ns-webhook
+          value: my-operator-custom-ns-webhook-cr
         documentIndex: 0
       - equal:
+          path: metadata.name
+          value: my-operator-custom-ns-webhook-crb
+        documentIndex: 1
+      - equal:
           path: roleRef.name
-          value: my-operator-custom-ns-webhook
+          value: my-operator-custom-ns-webhook-cr
         documentIndex: 1
