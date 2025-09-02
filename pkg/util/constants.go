@@ -281,10 +281,6 @@ const (
 	TLSCertMountPath = PvcMmsHomeMountPath + "/tls"
 	TLSCaMountPath   = PvcMmsHomeMountPath + "/tls/ca"
 
-	// TODO: remove this from here and move it to the certs package
-	// This currently creates an import cycle
-	InternalCertAnnotationKey = "internalCertHash"
-
 	// Annotation keys used by the operator
 	LastAchievedSpec        = "mongodb.com/v1.lastSuccessfulConfiguration"
 	LastAchievedRsMemberIds = "mongodb.com/v1.lastAchievedRsMemberIds"
