@@ -9,6 +9,7 @@ import (
 
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
@@ -31,10 +32,15 @@ const (
 // TODO check if we could use already existing interface (DbCommon, MongoDBStatefulSetOwner, etc.)
 type SearchSourceDBResource interface {
 	KeyfileSecretName() string
-	IsSecurityTLSConfigEnabled() bool
-	TLSOperatorCASecretNamespacedName() types.NamespacedName
+	TLSConfig() *TLSSourceConfig
 	HostSeeds() []string
 	Validate() error
+}
+
+type TLSSourceConfig struct {
+	CAFileName       string
+	CAVolume         corev1.Volume
+	ResourcesToWatch map[watch.Type][]types.NamespacedName
 }
 
 // ReplicaSetOptions returns a set of options which will configure a ReplicaSet StatefulSet

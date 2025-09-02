@@ -49,6 +49,8 @@ spec:
           spec:
             properties:
               persistence:
+                description: Configure MongoDB Search's persistent volume. If not
+                  defined, the operator will request 10GB of storage.
                 properties:
                   multiple:
                     properties:
@@ -95,7 +97,8 @@ spec:
                     type: object
                 type: object
               resourceRequirements:
-                description: ResourceRequirements describes the compute resource requirements.
+                description: Configure resource requests and limits for the MongoDB
+                  Search pods.
                 properties:
                   claims:
                     description: |-
@@ -150,6 +153,8 @@ spec:
                     type: object
                 type: object
               security:
+                description: Configure security settings of the MongoDB Search server
+                  that MongoDB database is connecting to when performing search queries.
                 properties:
                   tls:
                     properties:
@@ -181,6 +186,8 @@ spec:
                     type: object
                 type: object
               source:
+                description: MongoDB database connection details from which MongoDB
+                  Search will synchronize data to build indexes.
                 properties:
                   external:
                     properties:
@@ -199,7 +206,7 @@ spec:
                           name:
                             type: string
                         required:
-                          - name
+                        - name
                         type: object
                       tls:
                         properties:
@@ -224,7 +231,7 @@ spec:
                           enabled:
                             type: boolean
                         required:
-                          - enabled
+                        - enabled
                         type: object
                     type: object
                   mongodbResourceRef:
@@ -254,8 +261,8 @@ spec:
                 type: object
               statefulSet:
                 description: |-
-                  StatefulSetConfiguration holds the optional custom StatefulSet
-                  that should be merged into the operator created one.
+                  StatefulSetSpec which the operator will apply to the MongoDB Search StatefulSet at the end of the reconcile loop. Use to provide necessary customizations,
+                  which aren't exposed as fields in the MongoDBSearch.spec.
                 properties:
                   metadata:
                     description: StatefulSetMetadataWrapper is a wrapper around Labels
@@ -277,6 +284,9 @@ spec:
                 - spec
                 type: object
               version:
+                description: Optional version of MongoDB Search component (mongot).
+                  If not set, then the operator will set the most appropriate version
+                  of MongoDB Search.
                 type: string
             type: object
           status:

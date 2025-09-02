@@ -9,6 +9,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
+	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -28,16 +30,24 @@ func (r EnterpriseResourceSearchSource) HostSeeds() []string {
 	return seeds
 }
 
+func (r EnterpriseResourceSearchSource) TLSConfig() *TLSSourceConfig {
+	if !r.Spec.Security.IsTLSEnabled() {
+		return nil
+	}
+
+	return &TLSSourceConfig{
+		CAFileName: "ca-pem",
+		CAVolume:   statefulset.CreateVolumeFromConfigMap("ca", r.Spec.Security.TLSConfig.CA),
+		ResourcesToWatch: map[watch.Type][]types.NamespacedName{
+			watch.ConfigMap: {
+				{Namespace: r.Namespace, Name: r.Spec.Security.TLSConfig.CA},
+			},
+		},
+	}
+}
+
 func (r EnterpriseResourceSearchSource) KeyfileSecretName() string {
 	return fmt.Sprintf("%s-keyfile", r.Name)
-}
-
-func (r EnterpriseResourceSearchSource) IsSecurityTLSConfigEnabled() bool {
-	return r.Spec.Security.IsTLSEnabled()
-}
-
-func (r EnterpriseResourceSearchSource) TLSOperatorCASecretNamespacedName() types.NamespacedName {
-	return types.NamespacedName{}
 }
 
 func (r EnterpriseResourceSearchSource) Validate() error {
