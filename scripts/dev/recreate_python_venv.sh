@@ -7,6 +7,13 @@ set -Eeou pipefail
 source scripts/dev/set_env_context.sh
 
 install_pyenv() {
+      # Install python3-venv package for Debian/Ubuntu systems if needed
+      if command -v apt-get &> /dev/null; then
+          echo "Installing python3-venv package for venv support..." >&2
+          sudo apt-get update -qq || true
+          sudo apt-get install -y python3-venv || true
+      fi
+
     # Check if pyenv directory exists first
     if [[ -d "${HOME}/.pyenv" ]]; then
         echo "pyenv directory already exists, setting up environment..." >&2
@@ -54,38 +61,22 @@ install_pyenv() {
 }
 
 ensure_required_python() {
-    local required_version="${PYTHON_VERSION:-3.13}"
-    local major_minor
-    major_minor=$(echo "${required_version}" | grep -oE '^[0-9]+\.[0-9]+')
+    local required_version="${PYTHON_VERSION:-3.13.7}"
 
-    echo "Setting up Python ${required_version} (${major_minor}.x)..." >&2
+    echo "Setting up Python ${required_version}..." >&2
 
-    # Always install pyenv first
     if ! install_pyenv; then
         echo "Error: Failed to install pyenv" >&2
         return 1
     fi
 
-    # Install latest version in the required series
-    local latest_version
-    latest_version=$(pyenv install --list | grep -E "^[[:space:]]*${major_minor}\.[0-9]+$" | tail -1 | xargs)
-    if [[ -n "${latest_version}" ]]; then
-        echo "Installing Python ${latest_version} via pyenv..." >&2
-        # Use --skip-existing to avoid errors if version already exists
-        if pyenv install --skip-existing "${latest_version}"; then
-            pyenv global "${latest_version}"
-            # Install python3-venv package for Debian/Ubuntu systems if needed
-            if command -v apt-get &> /dev/null; then
-                echo "Installing python3-venv package for venv support..." >&2
-                sudo apt-get update -qq || true
-                sudo apt-get install -y python3-venv || true
-            fi
-            return 0
-        fi
+    # Install specific pinned version for consistency across runs
+    echo "Installing Python ${required_version} via pyenv..." >&2
+    # Use --skip-existing to avoid errors if version already exists
+    if pyenv install --skip-existing "${required_version}"; then
+        pyenv global "${required_version}"
+        return 0
     fi
-
-    echo "Error: Unable to install Python ${major_minor} via pyenv" >&2
-    return 1
 }
 
 if [[ -d "${PROJECT_DIR}"/venv ]]; then
