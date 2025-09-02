@@ -43,7 +43,10 @@ def operator_with_proxy(namespace: str, operator_installation_config: dict[str, 
     os.environ["HTTP_PROXY"] = os.environ["HTTPS_PROXY"] = squid_proxy
     helm_args = operator_installation_config.copy()
     helm_args["customEnvVars"] += (
-        f"\&MDB_PROPAGATE_PROXY_ENV=true" + f"\&HTTP_PROXY={squid_proxy}" + f"\&HTTPS_PROXY={squid_proxy}" + "\&NO_PROXY=cloud-qa.mongodb.com"
+        f"\&MDB_PROPAGATE_PROXY_ENV=true"
+        + f"\&HTTP_PROXY={squid_proxy}"
+        + f"\&HTTPS_PROXY={squid_proxy}"
+        + "\&NO_PROXY=cloud-qa.mongodb.com"
     )
     return Operator(namespace=namespace, helm_args=helm_args).install()
 

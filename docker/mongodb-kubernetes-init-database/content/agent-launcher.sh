@@ -145,11 +145,6 @@ else
 fi
 
 
-
-if [[ -n "${HTTP_PROXY-}" ]]; then
-    agentOpts+=("-httpProxy=${HTTP_PROXY}")
-fi
-
 if [[ -n "${SSL_TRUSTED_MMS_SERVER_CERTIFICATE-}" ]]; then
     agentOpts+=("-httpsCAFile=${SSL_TRUSTED_MMS_SERVER_CERTIFICATE}")
 fi
