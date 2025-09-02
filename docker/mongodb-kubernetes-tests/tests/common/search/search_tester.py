@@ -32,7 +32,7 @@ class SearchTester(MongoTester):
                 mongorestore_cmd += " --ssl"
             if ca_path := self.default_opts.get("tlsCAFile"):
                 mongorestore_cmd += " --sslCAFile=" + ca_path
-            process_run_and_check(mongorestore_cmd.split())
+            process_run_and_check(mongorestore_cmd.split(), capture_output=True)
 
     def create_search_index(self, database_name: str, collection_name: str):
         database = self.client[database_name]

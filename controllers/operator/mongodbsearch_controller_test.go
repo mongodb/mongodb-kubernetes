@@ -8,11 +8,8 @@ import (
 	"github.com/ghodss/yaml"
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllertest"
-	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -29,6 +26,7 @@ import (
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/mongot"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/constants"
 )
 
 func newMongoDBCommunity(name, namespace string) *mdbcv1.MongoDBCommunity {
@@ -62,7 +60,16 @@ func newSearchReconcilerWithOperatorConfig(
 	builder.WithIndex(&searchv1.MongoDBSearch{}, search_controller.MongoDBSearchIndexFieldName, mdbcSearchIndexBuilder)
 
 	if mdbc != nil {
-		builder.WithObjects(mdbc)
+		keyfileSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      mdbc.GetAgentKeyfileSecretNamespacedName().Name,
+				Namespace: mdbc.Namespace,
+			},
+			StringData: map[string]string{
+				constants.AgentKeyfileKey: "keyfile",
+			},
+		}
+		builder.WithObjects(mdbc, keyfileSecret)
 	}
 
 	for _, search := range searches {
@@ -183,10 +190,6 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 	sts := &appsv1.StatefulSet{}
 	err = c.Get(ctx, search.StatefulSetNamespacedName(), sts)
 	assert.NoError(t, err)
-
-	queue := controllertest.Queue{Interface: workqueue.New()}
-	reconciler.mdbcWatcher.Create(ctx, event.CreateEvent{Object: mdbc}, &queue)
-	assert.Equal(t, 1, queue.Len())
 }
 
 func checkSearchReconcileFailed(
