@@ -301,7 +301,7 @@ test-race: generate fmt vet manifests golang-tests-race
 test: generate fmt vet manifests golang-tests
 
 # helm-tests will run helm chart unit tests
-helm-tests: ## Run helm chart unit tests
+helm-tests:
 	@echo "Running helm chart unit tests..."
 	@if ! helm plugin list | grep -q unittest; then \
 		echo "Installing helm-unittest plugin..."; \
