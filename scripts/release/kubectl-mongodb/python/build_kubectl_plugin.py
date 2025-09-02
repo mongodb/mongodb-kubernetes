@@ -19,6 +19,7 @@ S3_BUCKET_KUBECTL_PLUGIN_SUBPATH = KUBECTL_PLUGIN_BINARY_NAME
 
 GORELEASER_DIST_DIR = "dist"
 
+
 def run_goreleaser():
     try:
         command = ["./goreleaser", "build", "--snapshot", "--clean", "--skip", "post-hooks"]
@@ -68,7 +69,7 @@ def upload_artifacts_to_s3(s3_bucket: str, version: str):
     for subdir in os.listdir(GORELEASER_DIST_DIR):
         subdir_path = os.path.join(GORELEASER_DIST_DIR, subdir)
         if not os.path.isdir(subdir_path):
-            continue # not a directory
+            continue  # not a directory
 
         for filename in os.listdir(subdir_path):
             local_file_path = os.path.join(subdir_path, filename)
@@ -102,13 +103,14 @@ def s3_and_local_plugin_path(version: str) -> dict[str, str]:
     local_common_path = "docker/mongodb-kubernetes-tests"
     # path in s3 : local path
     return {
-        f"{s3_common_path}/kubectl-mongodb_linux_amd64_v1/kubectl-mongodb":  f"{local_common_path}/multi-cluster-kube-config-creator_amd64",
-        f"{s3_common_path}/kubectl-mongodb_linux_arm64/kubectl-mongodb":  f"{local_common_path}/multi-cluster-kube-config-creator_arm64",
-        f"{s3_common_path}/kubectl-mongodb_linux_ppc64le/kubectl-mongodb":  f"{local_common_path}/multi-cluster-kube-config-creator_ppc64le",
-        f"{s3_common_path}/kubectl-mongodb_linux_s390x/kubectl-mongodb":  f"{local_common_path}/multi-cluster-kube-config-creator_s390x",
+        f"{s3_common_path}/kubectl-mongodb_linux_amd64_v1/kubectl-mongodb": f"{local_common_path}/multi-cluster-kube-config-creator_amd64",
+        f"{s3_common_path}/kubectl-mongodb_linux_arm64/kubectl-mongodb": f"{local_common_path}/multi-cluster-kube-config-creator_arm64",
+        f"{s3_common_path}/kubectl-mongodb_linux_ppc64le/kubectl-mongodb": f"{local_common_path}/multi-cluster-kube-config-creator_ppc64le",
+        f"{s3_common_path}/kubectl-mongodb_linux_s390x/kubectl-mongodb": f"{local_common_path}/multi-cluster-kube-config-creator_s390x",
     }
 
-# download_plugin_for_tests_image downloads the plugin for all the architectures and places them to the paths configured in 
+
+# download_plugin_for_tests_image downloads the plugin for all the architectures and places them to the paths configured in
 # s3_and_local_plugin_path
 def download_plugin_for_tests_image(build_scenario: BuildScenario, s3_bucket: str, version: str):
     try:
