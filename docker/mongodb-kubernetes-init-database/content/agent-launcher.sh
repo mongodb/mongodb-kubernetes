@@ -144,11 +144,11 @@ else
     script_log "Mongodb Agent is configured to run in \"headless\" mode using local config file"
 fi
 
-
-
-if [[ -n "${HTTP_PROXY-}" ]]; then
-    agentOpts+=("-httpProxy=${HTTP_PROXY}")
-fi
+# We never set the -httpProxy flag.
+# Without the flag, the agent relies solely on standard environment variables (HTTP_PROXY, HTTPS_PROXY, NO_PROXY).
+# This avoids conflicts between environment settings and agent CLI parameters.
+# For reference, see the agent implementation:
+# https://github.com/10gen/mms-automation/blob/19f44a18cc089ec3734e2b496fdde82b124cd945/go_planner/src/com.tengen/cm/backup/commonbackup/connections.go#L158
 
 if [[ -n "${SSL_TRUSTED_MMS_SERVER_CERTIFICATE-}" ]]; then
     agentOpts+=("-httpsCAFile=${SSL_TRUSTED_MMS_SERVER_CERTIFICATE}")
