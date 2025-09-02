@@ -105,8 +105,7 @@ type ShardedClusterDeploymentState struct {
 	LastAchievedSpec      *mdbv1.MongoDbSpec   `json:"lastAchievedSpec"`
 	Status                *mdbv1.MongoDbStatus `json:"status"`
 	// ProcessIds stores process IDs for replica sets to handle migration scenarios
-	// where process IDs have length 0. The key is the replica set name, and the value
-	// is a map of process name to process ID.
+	// where process IDs have length 0.
 	ProcessIds om.ReplicaSetToProcessIds `json:"processIds,omitempty"`
 }
 
@@ -2047,14 +2046,11 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 	// Save final process IDs to deployment state for persistence across reconciliation cycles
 	if err := r.saveFinalProcessIdsToDeploymentState(conn); err != nil {
 		log.Warnf("Failed to save process IDs to deployment state: %v", err)
-		// Don't fail the reconciliation for this, just log the warning
 	}
 
 	return finalProcesses, shardsRemoving, workflow.OK()
 }
 
-// saveFinalProcessIdsToDeploymentState saves the final process IDs from the OM deployment
-// to the deployment state for persistence across reconciliation cycles.
 func (r *ShardedClusterReconcileHelper) saveFinalProcessIdsToDeploymentState(conn om.Connection) error {
 	finalProcessIds, err := om.GetReplicaSetMemberIds(conn)
 	if err != nil {
