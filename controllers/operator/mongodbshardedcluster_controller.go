@@ -107,7 +107,7 @@ type ShardedClusterDeploymentState struct {
 	// ProcessIds stores process IDs for replica sets to handle migration scenarios
 	// where process IDs have length 0. The key is the replica set name, and the value
 	// is a map of process name to process ID.
-	ProcessIds map[string]map[string]int `json:"processIds,omitempty"`
+	ProcessIds om.ReplicaSetToProcessIds `json:"processIds,omitempty"`
 }
 
 // updateStatusFromResourceStatus updates the status in the deployment state with values from the resource status with additional ensurance that no data is accidentally lost.
@@ -130,7 +130,7 @@ func NewShardedClusterDeploymentState() *ShardedClusterDeploymentState {
 		CommonDeploymentState: CommonDeploymentState{ClusterMapping: map[string]int{}},
 		LastAchievedSpec:      &mdbv1.MongoDbSpec{},
 		Status:                &mdbv1.MongoDbStatus{},
-		ProcessIds:            map[string]map[string]int{},
+		ProcessIds:            om.ReplicaSetToProcessIds{},
 	}
 }
 
@@ -2265,23 +2265,19 @@ func createMongodProcessForShardedCluster(mongoDBImage string, forceEnterprise b
 
 // getReplicaSetProcessIdsFromDeploymentState retrieves process IDs from the deployment state
 // when they are empty (length 0), indicating a cluster migration scenario.
-func getReplicaSetProcessIdsFromDeploymentState(replicaSetName string, deploymentState *ShardedClusterDeploymentState) map[string]int {
-	if deploymentState.ProcessIds == nil {
-		return make(map[string]int)
-	}
-
+func getReplicaSetProcessIdsFromDeploymentState(replicaSetName string, deploymentState *ShardedClusterDeploymentState) om.ProcessNameToId {
 	if processIds, ok := deploymentState.ProcessIds[replicaSetName]; ok {
 		return processIds
 	}
 
-	return make(map[string]int)
+	return om.ProcessNameToId{}
 }
 
 // saveReplicaSetProcessIdsToDeploymentState saves process IDs to the deployment state
 // for persistence across reconciliation cycles.
-func saveReplicaSetProcessIdsToDeploymentState(processIds map[string]map[string]int, deploymentState *ShardedClusterDeploymentState) {
+func saveReplicaSetProcessIdsToDeploymentState(processIds om.ReplicaSetToProcessIds, deploymentState *ShardedClusterDeploymentState) {
 	if deploymentState.ProcessIds == nil {
-		deploymentState.ProcessIds = make(map[string]map[string]int)
+		deploymentState.ProcessIds = om.ReplicaSetToProcessIds{}
 	}
 
 	if len(processIds) > 0 {

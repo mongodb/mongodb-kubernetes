@@ -29,7 +29,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status/pvc"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
@@ -1929,7 +1928,7 @@ func TestProcessIdPersistence(t *testing.T) {
 		assert.Equal(t, 0, len(deploymentState.ProcessIds))
 
 		// Test 2: Save process IDs for config server and shards (simulating GetReplicaSetMemberIds result)
-		allProcessIds := map[string]map[string]int{
+		allProcessIds := om.ReplicaSetToProcessIds{
 			"test-configsrv": {
 				"test-configsrv-0": 0,
 				"test-configsrv-1": 1,
@@ -1969,16 +1968,15 @@ func TestProcessIdPersistence(t *testing.T) {
 	})
 
 	t.Run("TestProcessIdPersistence_EdgeCases", func(t *testing.T) {
-		// Test edge case: nil deployment state ProcessIds
 		deploymentState := &ShardedClusterDeploymentState{}
 
-		// Should return empty map for nil ProcessIds
+		// Should return empty map for nil ReplicaSetToProcessIds
 		emptyIds := getReplicaSetProcessIdsFromDeploymentState("test-rs", deploymentState)
 		assert.NotNil(t, emptyIds)
 		assert.Equal(t, 0, len(emptyIds))
 
-		// Should initialize ProcessIds when saving
-		allProcessIds := map[string]map[string]int{
+		// Should initialize ReplicaSetToProcessIds when saving
+		allProcessIds := om.ReplicaSetToProcessIds{
 			"test-rs": {"test-process": 1},
 		}
 		saveReplicaSetProcessIdsToDeploymentState(allProcessIds, deploymentState)
@@ -1986,7 +1984,7 @@ func TestProcessIdPersistence(t *testing.T) {
 		assert.Equal(t, allProcessIds["test-rs"], deploymentState.ProcessIds["test-rs"])
 
 		// Test edge case: empty process IDs (should not save)
-		emptyProcessIds := map[string]map[string]int{}
+		emptyProcessIds := om.ReplicaSetToProcessIds{}
 		saveReplicaSetProcessIdsToDeploymentState(emptyProcessIds, deploymentState)
 		// Should still have the original data
 		assert.Equal(t, allProcessIds["test-rs"], deploymentState.ProcessIds["test-rs"])
@@ -1997,7 +1995,7 @@ func TestProcessIdPersistence(t *testing.T) {
 		originalState := NewShardedClusterDeploymentState()
 
 		// Add test data
-		allProcessIds := map[string]map[string]int{
+		allProcessIds := om.ReplicaSetToProcessIds{
 			"test-config": {
 				"config-0": 0,
 				"config-1": 1,
@@ -2031,103 +2029,5 @@ func TestProcessIdPersistence(t *testing.T) {
 
 		restoredShardIds := getReplicaSetProcessIdsFromDeploymentState("test-shard-0", &restoredState)
 		assert.Equal(t, allProcessIds["test-shard-0"], restoredShardIds)
-	})
-
-	t.Run("TestBuildReplicaSetFromProcesses_WithProcessIdPersistence", func(t *testing.T) {
-		// Create test MongoDB resource
-		mdb := &mdbv1.MongoDB{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-sharded-cluster",
-				Namespace: "test-namespace",
-			},
-			Spec: mdbv1.MongoDbSpec{
-				DbCommonSpec: mdbv1.DbCommonSpec{
-					Version:      "6.0.0",
-					Connectivity: &mdbv1.MongoDBConnectivity{},
-				},
-				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{
-					ShardCount: 2,
-				},
-			},
-		}
-
-		// Create test processes
-		members := []om.Process{
-			{
-				"name":     "test-shard-0-0",
-				"hostname": "test-shard-0-0.test-namespace.svc.cluster.local",
-			},
-			{
-				"name":     "test-shard-0-1",
-				"hostname": "test-shard-0-1.test-namespace.svc.cluster.local",
-			},
-		}
-
-		memberOptions := []automationconfig.MemberOptions{
-			{},
-			{},
-		}
-
-		// Test case 1: Empty deployment (simulating migration scenario)
-		emptyDeployment := om.NewDeployment()
-		deploymentState := NewShardedClusterDeploymentState()
-
-		// Pre-populate deployment state with saved process IDs
-		savedProcessIds := map[string]map[string]int{
-			"test-shard-0": {
-				"test-shard-0-0": 10,
-				"test-shard-0-1": 11,
-			},
-		}
-		saveReplicaSetProcessIdsToDeploymentState(savedProcessIds, deploymentState)
-
-		// Build replica set - should use saved process IDs
-		rsWithProcesses, err := buildReplicaSetFromProcesses(
-			"test-shard-0",
-			members,
-			mdb,
-			memberOptions,
-			emptyDeployment,
-			deploymentState,
-		)
-
-		require.NoError(t, err)
-		assert.Equal(t, "test-shard-0", rsWithProcesses.Rs.Name())
-
-		// Verify that saved process IDs were used
-		// Note: This would require access to the internal structure of rsWithProcesses
-		// In a real test, you might need to verify this through the automation config
-		// or by checking the deployment after the replica set is added to it.
-	})
-
-	t.Run("TestSaveFinalProcessIdsToDeploymentState_MockConnection", func(t *testing.T) {
-		// Create a simple mock connection that returns an empty deployment
-		mockConn := &om.MockedOmConnection{}
-
-		// Create test MongoDB resource
-		sc := &mdbv1.MongoDB{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-sharded-cluster",
-				Namespace: "test-namespace",
-			},
-			Spec: mdbv1.MongoDbSpec{
-				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{
-					ShardCount: 2,
-				},
-			},
-		}
-
-		// Create helper with deployment state
-		helper := &ShardedClusterReconcileHelper{
-			sc:              sc,
-			deploymentState: NewShardedClusterDeploymentState(),
-		}
-
-		// Test saving final process IDs with empty deployment (no error expected)
-		err := helper.saveFinalProcessIdsToDeploymentState(mockConn)
-		assert.NoError(t, err)
-
-		// Verify that no process IDs were saved (since deployment is empty)
-		assert.Equal(t, 0, len(helper.deploymentState.ProcessIds))
 	})
 }

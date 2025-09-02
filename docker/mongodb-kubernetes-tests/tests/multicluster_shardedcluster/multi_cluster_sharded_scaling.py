@@ -1,11 +1,20 @@
-from pytest import fixture, mark
-
-from kubetester import find_fixture, try_load, create_or_update_configmap, read_configmap, random_k8s_name
+from kubetester import (
+    create_or_update_configmap,
+    find_fixture,
+    random_k8s_name,
+    read_configmap,
+    try_load,
+)
 from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
 from kubetester.phase import Phase
+from pytest import fixture, mark
 from tests import test_logger
-from tests.conftest import get_member_cluster_names, read_deployment_state, get_central_cluster_client
+from tests.conftest import (
+    get_central_cluster_client,
+    get_member_cluster_names,
+    read_deployment_state,
+)
 from tests.multicluster.conftest import cluster_spec_list
 from tests.multicluster_shardedcluster import (
     assert_config_srv_sts_members_count,
@@ -128,6 +137,7 @@ class TestShardedClusterScalingDownscaleToZero:
         assert_shard_sts_members_count(sc, [[0, 2, 1]])
         assert_config_srv_sts_members_count(sc, [1, 1, 1])
         assert_mongos_sts_members_count(sc, [1, 0, 0])
+
 
 # From here on, the tests are for verifying that we can change the project of the MongoDB sharded cluster resource
 # and that process IDs are correctly persisted during migration scenarios.
