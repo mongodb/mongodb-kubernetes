@@ -171,12 +171,32 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return r.updateStatus(ctx, &mrs, workflow.Failed(err), log)
 	}
 
+	// If tls is enabled we need to configure the "processes" array in opsManager/Cloud Manager with the
+	// correct tlsCertPath, with the new tls design, this path has the certHash in it(so that cert can be rotated
+	// without pod restart).
+	tlsCertPath := ""
+	internalClusterCertPath := ""
+	if mrs.Spec.Security.IsTLSEnabled() {
+		certSecretName := mrs.Spec.GetSecurity().MemberCertificateSecretName(mrs.Name)
+		internalClusterCertSecretName := mrs.Spec.GetSecurity().InternalClusterAuthSecretName(mrs.Name)
+		tlsCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, mrs.Namespace, certSecretName, "", log)
+		internalClusterCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, mrs.Namespace, internalClusterCertSecretName, "", log)
+
+		if internalClusterCertHash != "" {
+			internalClusterCertPath = fmt.Sprintf("%s%s", util.InternalClusterAuthMountPath, internalClusterCertHash)
+		}
+
+		if tlsCertHash != "" {
+			tlsCertPath = fmt.Sprintf("%s/%s", util.TLSCertMountPath, tlsCertHash)
+		}
+	}
+
 	// Recovery prevents some deadlocks that can occur during reconciliation, e.g. the setting of an incorrect automation
 	// configuration and a subsequent attempt to overwrite it later, the operator would be stuck in Pending phase.
 	// See CLOUDP-189433 and CLOUDP-229222 for more details.
 	if recovery.ShouldTriggerRecovery(mrs.Status.Phase != mdbstatus.PhaseRunning, mrs.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", mrs.Namespace, mrs.Name, mrs.Status.Phase, mrs.Status.LastTransition)
-		automationConfigError := r.updateOmDeploymentRs(ctx, conn, mrs, true, log)
+		automationConfigError := r.updateOmDeploymentRs(ctx, conn, mrs, tlsCertPath, internalClusterCertPath, true, log)
 		reconcileStatus := r.reconcileMemberResources(ctx, &mrs, log, conn, projectConfig)
 		if !reconcileStatus.IsOK() {
 			log.Errorf("Recovery failed because of reconcile errors, %v", reconcileStatus)
@@ -188,7 +208,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 
 	status := workflow.RunInGivenOrder(publishAutomationConfigFirst,
 		func() workflow.Status {
-			if err := r.updateOmDeploymentRs(ctx, conn, mrs, false, log); err != nil {
+			if err := r.updateOmDeploymentRs(ctx, conn, mrs, tlsCertPath, internalClusterCertPath, false, log); err != nil {
 				return workflow.Failed(err)
 			}
 			return workflow.OK()
@@ -499,7 +519,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			mconstruct.WithClusterNum(clusterNum),
 			Replicas(replicasThisReconciliation),
 			mconstruct.WithStsOverride(&stsOverride),
-			mconstruct.WithAnnotations(mrs.Name, certHash),
+			mconstruct.WithAnnotations(mrs.Name),
 			mconstruct.WithServiceName(mrs.MultiHeadlessServiceName(clusterNum)),
 			PodEnvVars(newPodVars(conn, projectConfig, mrs.Spec.LogLevel)),
 			CurrentAgentAuthMechanism(currentAgentAuthMode),
@@ -677,7 +697,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) saveLastAchievedSpec(ctx context.Conte
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
-func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Context, conn om.Connection, mrs mdbmultiv1.MongoDBMultiCluster, isRecovering bool, log *zap.SugaredLogger) error {
+func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Context, conn om.Connection, mrs mdbmultiv1.MongoDBMultiCluster, tlsCertPath, internalClusterCertPath string, isRecovering bool, log *zap.SugaredLogger) error {
 	reachableHostnames := make([]string, 0)
 
 	clusterSpecList, err := mrs.GetClusterSpecItems()
@@ -725,28 +745,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 	}
 	log.Debugf("Existing process Ids: %+v", processIds)
 
-	certificateFileName := ""
-	internalClusterPath := ""
-
-	// If tls is enabled we need to configure the "processes" array in opsManager/Cloud Manager with the
-	// correct certFilePath, with the new tls design, this path has the certHash in it(so that cert can be rotated
-	// without pod restart), we can get the cert hash from any of the statefulset, here we pick the statefulset in the first cluster.
-	if mrs.Spec.Security.IsTLSEnabled() {
-		firstStatefulSet, err := r.firstStatefulSet(ctx, &mrs)
-		if err != nil {
-			return err
-		}
-
-		if hash := firstStatefulSet.Annotations[util.InternalCertAnnotationKey]; hash != "" {
-			internalClusterPath = fmt.Sprintf("%s%s", util.InternalClusterAuthMountPath, hash)
-		}
-
-		if certificateHash := firstStatefulSet.Annotations[certs.CertHashAnnotationKey]; certificateHash != "" {
-			certificateFileName = fmt.Sprintf("%s/%s", util.TLSCertMountPath, certificateHash)
-		}
-	}
-
-	processes, err := process.CreateMongodProcessesWithLimitMulti(r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, mrs, certificateFileName)
+	processes, err := process.CreateMongodProcessesWithLimitMulti(r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, mrs, tlsCertPath)
 	if err != nil && !isRecovering {
 		return err
 	}
@@ -759,7 +758,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
 
 	agentCertSecretName := mrs.GetSecurity().AgentClientCertificateSecretName(mrs.GetName())
-	status, additionalReconciliationRequired := r.updateOmAuthentication(ctx, conn, rs.GetProcessNames(), &mrs, agentCertSecretName, caFilePath, internalClusterPath, isRecovering, log)
+	status, additionalReconciliationRequired := r.updateOmAuthentication(ctx, conn, rs.GetProcessNames(), &mrs, agentCertSecretName, caFilePath, internalClusterCertPath, isRecovering, log)
 	if !status.IsOK() && !isRecovering {
 		return xerrors.Errorf("failed to enable Authentication for MongoDB Multi Replicaset")
 	}
@@ -768,7 +767,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
-			return ReconcileReplicaSetAC(ctx, d, mrs.Spec.DbCommonSpec, lastMongodbConfig, mrs.Name, rs, caFilePath, internalClusterPath, nil, log)
+			return ReconcileReplicaSetAC(ctx, d, mrs.Spec.DbCommonSpec, lastMongodbConfig, mrs.Name, rs, caFilePath, internalClusterCertPath, nil, log)
 		},
 		log,
 	)
