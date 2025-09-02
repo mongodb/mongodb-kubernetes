@@ -184,7 +184,7 @@ def test_wait_for_database_resource_ready(mdb: MongoDB):
         ), "mongot parameters not found in mongod config"
 
 
-@mark.e2e_search_community_tls
+@mark.e2e_search_enterprise_tls
 def test_validate_tls_connections(mdb: MongoDB, mdbs: MongoDBSearch, namespace: str, issuer_ca_filepath: str):
     with pymongo.MongoClient(
         f"mongodb://{mdb.name}-0.{mdb.name}-svc.{namespace}.svc.cluster.local:27017/?replicaSet={mdb.name}",
