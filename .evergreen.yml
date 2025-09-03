@@ -275,6 +275,11 @@ tasks:
     commands:
       - func: "test_python_unit"
 
+  - name: unit_tests_helm
+    tags: [ "unit_tests" ]
+    commands:
+      - func: "test_helm_unit"
+
   - name: sbom_tests
     tags: [ "unit_tests" ]
     # The SBOM tests run only on commit builds. Running this on patches might cause false-positive failures
@@ -665,6 +670,7 @@ task_groups:
       - lint_repo
       - unit_tests_golang
       - unit_tests_python
+      - unit_tests_helm
       - sbom_tests
 
   - name: gke_code_snippets_task_group
