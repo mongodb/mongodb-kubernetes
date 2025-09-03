@@ -17,6 +17,7 @@ export INIT_IMAGES_REGISTRY="${QUAY_REGISTRY}"
 export INIT_APPDB_REGISTRY="${QUAY_REGISTRY}"
 export INIT_DATABASE_REGISTRY="${QUAY_REGISTRY}"
 # Since we're sourcing this as an initial step, the jq might not be there. That's why we need bash magic here.
+# TODO: provide version overrides from the root-context based on the scenario
 OPERATOR_VERSION="$(grep -o '"mongodbOperator": "[^"]*' release.json | grep -o '[^"]*$')"
 if [[ "${RELEASE_OPERATOR_VERSION:-}" != "" ]]; then
   OPERATOR_VERSION="${RELEASE_OPERATOR_VERSION}"

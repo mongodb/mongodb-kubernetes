@@ -319,7 +319,7 @@ tasks:
       - func: pipeline_migrate_agents
 
   - name: run_precommit_and_push
-    tags: ["patch-run"]
+    tags: [ "patch-run" ]
     commands:
       - func: clone
       - func: python_venv
@@ -1187,7 +1187,7 @@ buildvariants:
     display_name: "unit_tests"
     tags: [ "unit_tests" ]
     run_on:
-      - ubuntu2204-small
+      - ubuntu2204-small #TODO: Uses older ubuntu2204, because for some reason on ubuntu2404 the helm binary is not found
     tasks:
       - name: "unit_task_group"
 
@@ -1203,7 +1203,7 @@ buildvariants:
   # MongoDBCommunity build variant
   - name: e2e_mdb_community
     display_name: e2e_mdb_community
-    tags: [ "e2e_test_suite"]
+    tags: [ "e2e_test_suite" ]
     run_on:
       - ubuntu2404-large
     <<: *community_dependency
@@ -1380,7 +1380,7 @@ buildvariants:
     run_on:
       - rhel9-power-small
       - rhel9-power-large
-    allowed_requesters: [ "patch", "commit"]
+    allowed_requesters: [ "patch", "commit" ]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1403,7 +1403,7 @@ buildvariants:
     run_on:
       - rhel9-power-small
       - rhel9-power-large
-    allowed_requesters: [ "patch", "commit"]
+    allowed_requesters: [ "patch", "commit" ]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1426,7 +1426,7 @@ buildvariants:
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large
-    allowed_requesters: [ "patch", "commit"]
+    allowed_requesters: [ "patch", "commit" ]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1449,7 +1449,7 @@ buildvariants:
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large
-    allowed_requesters: [ "patch", "commit"]
+    allowed_requesters: [ "patch", "commit" ]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1471,7 +1471,7 @@ buildvariants:
     tags: [ "e2e_test_suite" ]
     run_on:
       - ubuntu2404-arm64-large
-    allowed_requesters: [ "patch", "commit"]
+    allowed_requesters: [ "patch", "commit" ]
     <<: *base_no_om_image_dependency
     tasks:
       - name: e2e_smoke_arm_task_group
@@ -1481,14 +1481,14 @@ buildvariants:
     tags: [ "e2e_test_suite", "static" ]
     run_on:
       - ubuntu2404-arm64-large
-    allowed_requesters: [ "patch", "commit"]
+    allowed_requesters: [ "patch", "commit" ]
     <<: *base_no_om_image_dependency
     tasks:
       - name: e2e_smoke_arm_task_group
 
   - name: e2e_multi_cluster_kind
     display_name: e2e_multi_cluster_kind
-    tags: [ "e2e_test_suite", "cloudqa", "cloudqa_non_static"]
+    tags: [ "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om6_dependency
@@ -1497,7 +1497,7 @@ buildvariants:
 
   - name: e2e_static_multi_cluster_kind
     display_name: e2e_static_multi_cluster_kind
-    tags: [ "e2e_test_suite", "cloudqa", "static"]
+    tags: [ "e2e_test_suite", "cloudqa", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om6_dependency
@@ -1506,7 +1506,7 @@ buildvariants:
 
   - name: e2e_multi_cluster_2_clusters
     display_name: e2e_multi_cluster_2_clusters
-    tags: [ "e2e_test_suite", "cloudqa", "cloudqa_non_static"]
+    tags: [ "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om6_dependency
@@ -1515,7 +1515,7 @@ buildvariants:
 
   - name: e2e_static_multi_cluster_2_clusters
     display_name: e2e_static_multi_cluster_2_clusters
-    tags: [ "e2e_test_suite", "cloudqa", "static"]
+    tags: [ "e2e_test_suite", "cloudqa", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om6_dependency
@@ -1629,7 +1629,7 @@ buildvariants:
     # This variants runs the tests from MCO with the MEKO operator binary
   - name: e2e_mco_tests
     display_name: "e2e_mco_tests"
-    tags: [ "e2e_mco_test_suite"]
+    tags: [ "e2e_mco_test_suite" ]
     <<: *community_dependency
     run_on:
       - ubuntu2004-large
@@ -1836,7 +1836,7 @@ buildvariants:
     # More details in the TD: https://docs.google.com/document/d/1fuTxfRtP8QPtn7sKYxQM_AGcD6xycTZH8svngGxyKhc/edit?tab=t.0#bookmark=id.e8uva0393mbe
   - name: public_gke_code_snippets
     display_name: public_gke_code_snippets
-    allowed_requesters: ["patch"]
+    allowed_requesters: [ "patch" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -1844,7 +1844,7 @@ buildvariants:
 
   - name: private_gke_code_snippets
     display_name: private_gke_code_snippets
-    allowed_requesters: ["patch"]
+    allowed_requesters: [ "patch" ]
     run_on:
       - ubuntu2404-small
     <<: *base_om8_dependency
@@ -1854,7 +1854,7 @@ buildvariants:
   - name: private_kind_code_snippets
     display_name: private_kind_code_snippets
     tags: [ "e2e_test_suite" ]
-    allowed_requesters: ["patch", "github_pr"]
+    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om8_dependency
@@ -1863,7 +1863,7 @@ buildvariants:
 
   - name: prerelease_kind_code_snippets
     display_name: prerelease_kind_code_snippets
-    allowed_requesters: ["patch"]
+    allowed_requesters: [ "patch" ]
     run_on:
       - ubuntu2404-large
     tasks:
@@ -1871,7 +1871,7 @@ buildvariants:
 
   - name: public_kind_code_snippets
     display_name: public_kind_code_snippets
-    allowed_requesters: ["patch"]
+    allowed_requesters: [ "patch" ]
     run_on:
       - ubuntu2404-large
     tasks:
