@@ -11,7 +11,6 @@ from copy import copy
 from queue import Queue
 from typing import Dict, List, Optional, Tuple
 
-import python_on_whales
 import requests
 from opentelemetry import trace
 
