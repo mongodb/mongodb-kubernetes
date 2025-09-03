@@ -122,7 +122,8 @@ const (
 	MmsPemKeyFileDirInContainer  = "/opt/mongodb/mms/secrets"
 	AppDBMmsCaFileDirInContainer = "/opt/mongodb/mms/ca/"
 
-	AutomationAgentName         = "mms-automation-agent"
+	AutomationAgentName = "mms-automation-agent"
+	// TODO: Remove this one
 	AutomationAgentPemSecretKey = AutomationAgentName + "-pem"
 
 	// Key used in concatenated pem secrets to denote the hash of the latest certificate
