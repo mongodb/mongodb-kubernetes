@@ -6,5 +6,3 @@ script_name=$(readlink -f "${BASH_SOURCE[0]}")
 script_dir=$(dirname "${script_name}")
 
 source "${script_dir}/root-context"
-
-export include_tags=release
