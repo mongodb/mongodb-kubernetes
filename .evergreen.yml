@@ -410,6 +410,19 @@ tasks:
         vars:
           image_name: agent
           all_agents: "--current-agents"
+          
+  - name: release_kubectl_plugin
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: install_macnotary
+      - command: github.generate_token
+        params:
+          expansion_name: GH_TOKEN
+      - func: promote_kubectl_plugin_and_release
+        vars:
+          release_version: 10.0.5
+          staging_commit_sha: 68b868714f3de400074793bb
 
   - name: build_test_image
     commands:
@@ -1778,6 +1791,13 @@ buildvariants:
     <<: *base_om7_dependency
     tasks:
       - name: generate_perf_tasks_30_thread
+
+  - name: kubectl_plugin_release
+    display_name: kubectl_plugin_release
+    run_on:
+      - ubuntu2204-small
+    tasks:
+      - name: release_kubectl_plugin
 
   ### Prerequisites for E2E test suite
 

@@ -6,6 +6,7 @@ import boto3
 from botocore.exceptions import ClientError, NoCredentialsError, PartialCredentialsError
 
 from lib.base_logger import logger
+from scripts.release.kubectl_mongodb.python.consts import *
 from scripts.release.build.build_info import (
     load_build_info,
 )
@@ -13,12 +14,7 @@ from scripts.release.build.build_scenario import (
     BuildScenario,
 )
 
-AWS_REGION = "eu-north-1"
-KUBECTL_PLUGIN_BINARY_NAME = "kubectl-mongodb"
 S3_BUCKET_KUBECTL_PLUGIN_SUBPATH = KUBECTL_PLUGIN_BINARY_NAME
-
-GORELEASER_DIST_DIR = "dist"
-
 
 def run_goreleaser():
     try:
