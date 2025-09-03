@@ -1187,7 +1187,7 @@ buildvariants:
     display_name: "unit_tests"
     tags: [ "unit_tests" ]
     run_on:
-      - ubuntu2404-small
+      - ubuntu2204-small
     tasks:
       - name: "unit_task_group"
 
