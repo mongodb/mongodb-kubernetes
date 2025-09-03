@@ -766,7 +766,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 	// TODO: Move hash reads somewhere up the call stack
 	agentCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, mrs.Namespace, agentCertSecretName, "", log)
 	agentCertSecretSelector := corev1.SecretKeySelector{
-		LocalObjectReference: corev1.LocalObjectReference{Name: agentCertSecretName},
+		LocalObjectReference: corev1.LocalObjectReference{Name: agentCertSecretName + certs.OperatorGeneratedCertSuffix},
 		Key:                  agentCertHash,
 	}
 	status, additionalReconciliationRequired := r.updateOmAuthentication(ctx, conn, rs.GetProcessNames(), &mrs, agentCertSecretSelector, caFilePath, internalClusterCertPath, isRecovering, log)

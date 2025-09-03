@@ -325,7 +325,7 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, con
 	agentCertSecretName := s.GetSecurity().AgentClientCertificateSecretName(s.Name)
 	agentCertHash := pem.ReadHashFromSecret(ctx, r.SecretClient, s.Namespace, agentCertSecretName, "", log)
 	agentCertSecretSelector := corev1.SecretKeySelector{
-		LocalObjectReference: corev1.LocalObjectReference{Name: agentCertSecretName},
+		LocalObjectReference: corev1.LocalObjectReference{Name: agentCertSecretName + certs.OperatorGeneratedCertSuffix},
 		Key:                  agentCertHash,
 	}
 

@@ -1087,7 +1087,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 	agentCertSecretName := sc.GetSecurity().AgentClientCertificateSecretName(sc.Name)
 	agentCertHash := enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, agentCertSecretName, "", log)
 	agentCertSecretSelector := corev1.SecretKeySelector{
-		LocalObjectReference: corev1.LocalObjectReference{Name: agentCertSecretName},
+		LocalObjectReference: corev1.LocalObjectReference{Name: agentCertSecretName + certs.OperatorGeneratedCertSuffix},
 		Key:                  agentCertHash,
 	}
 
