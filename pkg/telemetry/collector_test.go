@@ -2,7 +2,9 @@ package telemetry
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"reflect"
 	"runtime"
 	"testing"
 	"time"
@@ -1277,7 +1279,7 @@ func TestAddSearchEvents(t *testing.T) {
 		name        string
 		searchItems []searchv1.MongoDBSearch
 		events      []DeploymentUsageSnapshotProperties
-		mockGet     func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error
+		sources     map[reflect.Type][]client.Object
 	}{
 		{
 			name: "External source",
@@ -1292,9 +1294,6 @@ func TestAddSearchEvents(t *testing.T) {
 				Type:                     "Search",
 				IsRunningEnterpriseImage: false,
 			}},
-			mockGet: func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-				return errors.New("not found")
-			},
 		},
 		{
 			name: "Enterprise static and non-static",
@@ -1306,23 +1305,8 @@ func TestAddSearchEvents(t *testing.T) {
 				{DeploymentUID: "search-static", OperatorID: operatorUUID, Architecture: string(architectures.Static), IsMultiCluster: false, Type: "Search", IsRunningEnterpriseImage: true},
 				{DeploymentUID: "search-nonstatic", OperatorID: operatorUUID, Architecture: string(architectures.NonStatic), IsMultiCluster: false, Type: "Search", IsRunningEnterpriseImage: true},
 			},
-			mockGet: func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-				switch o := obj.(type) {
-				case *mdbv1.MongoDB:
-					if key.Name == "mdb-static" {
-						*o = *mdbStatic
-						return nil
-					}
-					if key.Name == "mdb-nonstatic" {
-						*o = *mdbNonStatic
-						return nil
-					}
-					return errors.New("not found")
-				case *mcov1.MongoDBCommunity:
-					return errors.New("not found")
-				default:
-					return errors.New("unexpected type")
-				}
+			sources: map[reflect.Type][]client.Object{
+				reflect.TypeOf(&mdbv1.MongoDB{}): {mdbStatic, mdbNonStatic},
 			},
 		},
 		{
@@ -1331,19 +1315,8 @@ func TestAddSearchEvents(t *testing.T) {
 				{ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-community"), Name: "search-community", Namespace: "default"}, Spec: searchv1.MongoDBSearchSpec{Source: &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "community-db"}}}},
 			},
 			events: []DeploymentUsageSnapshotProperties{{DeploymentUID: "search-community", OperatorID: operatorUUID, Architecture: "static", IsMultiCluster: false, Type: "Search", IsRunningEnterpriseImage: false}},
-			mockGet: func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-				switch o := obj.(type) {
-				case *mdbv1.MongoDB:
-					return errors.New("not found")
-				case *mcov1.MongoDBCommunity:
-					if key.Name == "community-db" {
-						*o = *community
-						return nil
-					}
-					return errors.New("not found")
-				default:
-					return errors.New("unexpected type")
-				}
+			sources: map[reflect.Type][]client.Object{
+				reflect.TypeOf(&mcov1.MongoDBCommunity{}): {community},
 			},
 		},
 		{
@@ -1352,17 +1325,11 @@ func TestAddSearchEvents(t *testing.T) {
 				{ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-missing"), Name: "search-missing", Namespace: "default"}, Spec: searchv1.MongoDBSearchSpec{Source: &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "does-not-exist"}}}},
 			},
 			events: []DeploymentUsageSnapshotProperties{},
-			mockGet: func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-				return errors.New("not found")
-			},
 		},
 		{
 			name:        "No search resources",
 			searchItems: []searchv1.MongoDBSearch{},
 			events:      []DeploymentUsageSnapshotProperties{},
-			mockGet: func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-				return errors.New("not found")
-			},
 		},
 	}
 
@@ -1375,7 +1342,19 @@ func TestAddSearchEvents(t *testing.T) {
 					}
 					return nil
 				},
-				MockGet: tc.mockGet,
+				MockGet: func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					objects := tc.sources[reflect.TypeOf(obj)]
+					for _, o := range objects {
+						if o.GetName() == key.Name && o.GetNamespace() == key.Namespace {
+							// copy the arranged object into the obj pointer like controller-runtime's pkg/client/fake does
+							bytes, _ := json.Marshal(o)
+							json.Unmarshal(bytes, obj)
+							return nil
+						}
+					}
+
+					return errors.New("not found")
+				},
 			}
 
 			events := addSearchEvents(context.Background(), mc, operatorUUID, now)
