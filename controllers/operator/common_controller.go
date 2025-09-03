@@ -598,7 +598,7 @@ func (r *ReconcileCommonController) readAgentSubjectsFromSecret(ctx context.Cont
 }
 
 func (r *ReconcileCommonController) clearProjectAuthenticationSettings(ctx context.Context, conn om.Connection, mdb *mdbv1.MongoDB, processNames []string, log *zap.SugaredLogger) error {
-	agentCertSecretName := mdb.Spec.Security.AgentClientCertificateSecretName(mdb.Name)
+	agentCertSecretName := mdb.Spec.GetSecurity().AgentClientCertificateSecretName(mdb.Name)
 
 	agentSecret := &corev1.Secret{}
 	if err := r.client.Get(ctx, kube.ObjectKey(mdb.Namespace, agentCertSecretName), agentSecret); client.IgnoreNotFound(err) != nil {
