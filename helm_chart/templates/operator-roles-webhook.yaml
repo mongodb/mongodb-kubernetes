@@ -1,12 +1,13 @@
 
 {{/* This cluster role and binding is necessary to allow the operator to automatically register ValidatingWebhookConfiguration. */}}
 {{- if and .Values.operator.webhook.registerConfiguration .Values.operator.webhook.installClusterRole }}
-{{- if not (lookup "rbac.authorization.k8s.io/v1" "ClusterRole" "" "mongodb-kubernetes-operator-mongodb-webhook") }}
+{{- $webhookClusterRoleName := printf "%s-%s-webhook-cr" .Values.operator.name (include "mongodb-kubernetes-operator.namespace" .) }}
+{{- $webhookClusterRoleBindingName := printf "%s-%s-webhook-crb" .Values.operator.name (include "mongodb-kubernetes-operator.namespace" .) }}
 ---
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: {{.Values.operator.baseName}}-operator-mongodb-webhook
+  name: {{ $webhookClusterRoleName }}
 rules:
   - apiGroups:
       - "admissionregistration.k8s.io"
@@ -28,17 +29,16 @@ rules:
       - create
       - update
       - delete
-{{- end }}
 ---
 
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: {{ .Values.operator.name }}-{{ include "mongodb-kubernetes-operator.namespace" . }}-webhook-binding
+  name: {{ $webhookClusterRoleBindingName }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{.Values.operator.baseName}}-operator-mongodb-webhook
+  name: {{ $webhookClusterRoleName }}
 subjects:
   - kind: ServiceAccount
     name: {{ .Values.operator.name }}
