@@ -6,6 +6,29 @@ test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
 source scripts/dev/set_env_context.sh
 source scripts/funcs/kubernetes
 
+usage() {
+  echo "Deploy local registry and create kind cluster configured to use this registry. Local Docker registry is deployed at localhost:5000.
+
+Usage:
+  setup_kind_cluster.sh [-n <cluster_name>] [-r]
+  setup_kind_cluster.sh [-h]
+  setup_kind_cluster.sh [-n <cluster_name>] [-e] [-r]
+
+Options:
+  -n <cluster_name>    (optional) Set kind cluster name to <cluster_name>. Creates kubeconfig in ~/.kube/<cluster_name>. The default name is 'kind' if not set.
+  -e                   (optional) Export newly created kind cluster's credentials to ~/.kube/<cluster_name> and set current kubectl context.
+  -h                   (optional) Shows this screen.
+  -r                   (optional) Recreate cluster if needed
+  -p <pod network>     (optional) Network reserved for Pods, e.g. 10.244.0.0/16
+  -s <service network> (optional) Network reserved for Services, e.g. 10.96.0.0/16
+  -l <LB IP range>     (optional) MetalLB IP range, e.g. 172.18.255.200-172.18.255.250
+  -c <cluster domain>  (optional) Cluster domain. If not supplied, cluster.local will be used
+  -g                   (optional) Run docker registry before installing kind
+  -k                   (optional) Create docker network before installing kind
+"
+  exit 0
+}
+
 cluster_name=${CLUSTER_NAME:-"kind"}
 cluster_domain="cluster.local"
 export_kubeconfig=0
@@ -46,29 +69,6 @@ metrics_server_version="v0.7.2"
 reg_name='kind-registry'
 reg_port='5000'
 kind_image="${registry}/kindest/node:v1.33.2@sha256:c55080dc5be4f2cc242e6966fdf97bb62282e1cd818a28223cf536db8b0fddf4"
-
-usage() {
-  echo "Deploy local registry and create kind cluster configured to use this registry. Local Docker registry is deployed at localhost:5000.
-
-Usage:
-  setup_kind_cluster.sh [-n <cluster_name>] [-r]
-  setup_kind_cluster.sh [-h]
-  setup_kind_cluster.sh [-n <cluster_name>] [-e] [-r]
-
-Options:
-  -n <cluster_name>    (optional) Set kind cluster name to <cluster_name>. Creates kubeconfig in ~/.kube/<cluster_name>. The default name is 'kind' if not set.
-  -e                   (optional) Export newly created kind cluster's credentials to ~/.kube/<cluster_name> and set current kubectl context.
-  -h                   (optional) Shows this screen.
-  -r                   (optional) Recreate cluster if needed
-  -p <pod network>     (optional) Network reserved for Pods, e.g. 10.244.0.0/16
-  -s <service network> (optional) Network reserved for Services, e.g. 10.96.0.0/16
-  -l <LB IP range>     (optional) MetalLB IP range, e.g. 172.18.255.200-172.18.255.250
-  -c <cluster domain>  (optional) Cluster domain. If not supplied, cluster.local will be used
-  -g                   (optional) Run docker registry before installing kind
-  -k                   (optional) Create docker network before installing kind
-"
-  exit 0
-}
 
 kind_delete_cluster() {
   kind delete cluster --name "${cluster_name}" || true

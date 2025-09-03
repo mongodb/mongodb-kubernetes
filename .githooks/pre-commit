@@ -163,6 +163,10 @@ lint_code() {
   scripts/evergreen/lint_code.sh
 }
 
+function validate_snippets() {
+  scripts/code_snippets/validate_snippets.py
+}
+
 # bg_job_ vars are global; run_job_in_background function is appending to them on each call
 bg_job_pids=()
 bg_job_pids_with_names=()
@@ -217,6 +221,7 @@ pre_commit() {
   run_job_in_background "regenerate_public_rbac_multi_cluster"
   run_job_in_background "python_formatting"
   run_job_in_background "check_erroneous_kubebuilder_annotations"
+  run_job_in_background "validate_snippets"
 
   if wait_for_all_background_jobs; then
     echo -e "${GREEN}pre-commit: All checks passed!${NO_COLOR}"
