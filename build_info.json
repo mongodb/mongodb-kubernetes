@@ -5,7 +5,7 @@
       "patch": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes"],
         "platforms": [
-           "linux/amd64"
+          "linux/amd64"
         ]
       },
       "staging": {
@@ -20,6 +20,7 @@
       },
       "release": {
         "sign": true,
+        "olm-tag": true,
         "repositories": ["quay.io/mongodb/mongodb-kubernetes"],
         "platforms": [
           "linux/arm64",
@@ -50,11 +51,12 @@
       "patch": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-database"],
         "platforms": [
-           "linux/amd64"
-         ]
+          "linux/amd64"
+        ]
       },
       "staging": {
         "sign": true,
+        "latest-tag": true,
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-init-database"],
         "platforms": [
           "linux/arm64",
@@ -65,6 +67,7 @@
       },
       "release": {
         "sign": true,
+        "olm-tag": true,
         "repositories": ["quay.io/mongodb/mongodb-kubernetes-init-database"],
         "platforms": [
           "linux/arm64",
@@ -84,6 +87,7 @@
       },
       "staging": {
         "sign": true,
+        "latest-tag": true,
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-init-appdb"],
         "platforms": [
           "linux/arm64",
@@ -94,6 +98,7 @@
       },
       "release": {
         "sign": true,
+        "olm-tag": true,
         "repositories": ["quay.io/mongodb/mongodb-kubernetes-init-appdb"],
         "platforms": [
           "linux/arm64",
@@ -113,6 +118,7 @@
       },
       "staging": {
         "sign": true,
+        "latest-tag": true,
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-init-ops-manager"],
         "platforms": [
           "linux/amd64"
@@ -120,6 +126,7 @@
       },
       "release": {
         "sign": true,
+        "olm-tag": true,
         "repositories": ["quay.io/mongodb/mongodb-kubernetes-init-ops-manager"],
         "platforms": [
           "linux/amd64"
@@ -131,11 +138,12 @@
       "patch": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-database"],
         "platforms": [
-           "linux/amd64"
+          "linux/amd64"
         ]
       },
       "staging": {
         "sign": true,
+        "latest-tag": true,
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-database"],
         "platforms": [
           "linux/arm64",
@@ -146,6 +154,7 @@
       },
       "release": {
         "sign": true,
+        "olm-tag": true,
         "repositories": ["quay.io/mongodb/mongodb-kubernetes-database"],
         "platforms": [
           "linux/arm64",
@@ -196,6 +205,7 @@
       },
       "staging": {
         "sign": true,
+        "latest-tag": true,
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-readinessprobe"],
         "platforms": [
           "linux/arm64",
@@ -205,6 +215,7 @@
       "release": {
         "version": "1.0.22",
         "sign": true,
+        "olm-tag": true,
         "repositories": [
           "quay.io/mongodb/mongodb-kubernetes-readinessprobe"
         ],
@@ -224,6 +235,7 @@
       },
       "staging": {
         "sign": true,
+        "latest-tag": true,
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-operator-version-upgrade-post-start-hook"],
         "platforms": [
           "linux/arm64",
@@ -233,6 +245,7 @@
       "release": {
         "version": "1.0.9",
         "sign": true,
+        "olm-tag": true,
         "repositories": ["quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook"],
         "platforms": [
           "linux/arm64",
@@ -245,7 +258,7 @@
       "patch": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent"],
         "platforms": [
-           "linux/amd64"
+          "linux/amd64"
         ]
       },
       "staging": {
@@ -260,6 +273,7 @@
       },
       "manual_release": {
         "sign": true,
+        "olm-tag": true,
         "repositories": ["quay.io/mongodb/mongodb-agent-ubi", "quay.io/mongodb/mongodb-agent"],
         "platforms": [
           "linux/arm64",
@@ -288,6 +302,7 @@
       },
       "manual_release": {
         "sign": true,
+        "olm-tag": true,
         "repositories": ["quay.io/mongodb/mongodb-enterprise-ops-manager"],
         "platforms": [
           "linux/amd64"

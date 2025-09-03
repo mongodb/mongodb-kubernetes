@@ -29,24 +29,26 @@ OPS_MANAGER_IMAGE = "ops-manager"
 class ImageInfo:
     repositories: List[str]
     platforms: list[str]
-    version: str
+    version: str | None
     dockerfile_path: str
-    sign: bool
+    sign: bool = False
+    latest_tag: bool = False
+    olm_tag: bool = False
 
 
 @dataclass
 class BinaryInfo:
     s3_store: str
     platforms: list[str]
-    version: str
-    sign: bool
+    version: str | None
+    sign: bool = False
 
 
 @dataclass
 class HelmChartInfo:
-    repository: List[str]
-    version: str
-    sign: bool
+    repositories: List[str]
+    version: str | None
+    sign: bool = False
 
 
 @dataclass
@@ -108,6 +110,8 @@ def load_build_info(
             version=image_version,
             dockerfile_path=data["dockerfile-path"],
             sign=scenario_data.get("sign", False),
+            latest_tag=scenario_data.get("latest-tag", False),
+            olm_tag=scenario_data.get("olm-tag", False),
         )
 
     binaries = {}
@@ -132,7 +136,7 @@ def load_build_info(
             continue
 
         helm_charts[name] = HelmChartInfo(
-            repository=scenario_data["repositories"],
+            repositories=scenario_data["repositories"],
             version=version,
             sign=scenario_data.get("sign", False),
         )
