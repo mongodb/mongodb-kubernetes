@@ -1,6 +1,6 @@
 Release "mongodb-kubernetes-operator-multi-cluster" does not exist. Installing it now.
 NAME: mongodb-kubernetes-operator-multi-cluster
-LAST DEPLOYED: Tue Jul  8 07:13:27 2025
+LAST DEPLOYED: Wed Sep  3 10:34:32 2025
 NAMESPACE: mongodb-operator
 STATUS: deployed
 REVISION: 1
@@ -9,9 +9,9 @@ USER-SUPPLIED VALUES:
 dummy: value
 multiCluster:
   clusters:
-  - gke_scratch-kubernetes-team_europe-central2-a_k8s-mdb-0-686cc1e099f9ef000722c191-862
-  - gke_scratch-kubernetes-team_europe-central2-b_k8s-mdb-1-686cc1e099f9ef000722c191-862
-  - gke_scratch-kubernetes-team_europe-central2-c_k8s-mdb-2-686cc1e099f9ef000722c191-862
+  - gke_scratch-kubernetes-team_europe-central2-a_k8s-mdb-0-68b813ee3b600e0007ae757e-19437
+  - gke_scratch-kubernetes-team_europe-central2-b_k8s-mdb-1-68b813ee3b600e0007ae757e-19437
+  - gke_scratch-kubernetes-team_europe-central2-c_k8s-mdb-2-68b813ee3b600e0007ae757e-19437
 namespace: mongodb-operator
 operator:
   createOperatorServiceAccount: false
@@ -24,7 +24,7 @@ operator:
 COMPUTED VALUES:
 agent:
   name: mongodb-agent
-  version: 108.0.2.8729-1
+  version: 108.0.12.8846-1
 community:
   agent:
     name: mongodb-agent
@@ -72,9 +72,9 @@ mongodb:
 multiCluster:
   clusterClientTimeout: 10
   clusters:
-  - gke_scratch-kubernetes-team_europe-central2-a_k8s-mdb-0-686cc1e099f9ef000722c191-862
-  - gke_scratch-kubernetes-team_europe-central2-b_k8s-mdb-1-686cc1e099f9ef000722c191-862
-  - gke_scratch-kubernetes-team_europe-central2-c_k8s-mdb-2-686cc1e099f9ef000722c191-862
+  - gke_scratch-kubernetes-team_europe-central2-a_k8s-mdb-0-68b813ee3b600e0007ae757e-19437
+  - gke_scratch-kubernetes-team_europe-central2-b_k8s-mdb-1-68b813ee3b600e0007ae757e-19437
+  - gke_scratch-kubernetes-team_europe-central2-c_k8s-mdb-2-68b813ee3b600e0007ae757e-19437
   kubeConfigSecretName: mongodb-enterprise-operator-multi-cluster-kubeconfig
   performFailOver: true
 namespace: mongodb-operator
@@ -148,7 +148,6 @@ search:
     name: mongodb-search-community
     repo: quay.io/mongodb
     version: 1.47.0
-subresourceEnabled: true
 versionUpgradeHook:
   name: mongodb-kubernetes-operator-version-upgrade-post-start-hook
   version: 1.0.9
@@ -156,34 +155,7 @@ versionUpgradeHook:
 HOOKS:
 MANIFEST:
 ---
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
-kind: ClusterRole
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: mongodb-kubernetes-operator-mongodb-webhook
-rules:
-  - apiGroups:
-      - "admissionregistration.k8s.io"
-    resources:
-      - validatingwebhookconfigurations
-    verbs:
-      - get
-      - create
-      - update
-      - delete
-  - apiGroups:
-      - ""
-    resources:
-      - services
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - delete
----
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
+# Source: mongodb-kubernetes/templates/operator-roles-telemetry.yaml
 # Additional ClusterRole for clusterVersionDetection
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
@@ -211,21 +183,34 @@ rules:
     verbs:
       - list
 ---
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
-kind: ClusterRoleBinding
+# Source: mongodb-kubernetes/templates/operator-roles-webhook.yaml
+kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-kubernetes-operator-multi-cluster-mongodb-operator-webhook-binding
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
   name: mongodb-kubernetes-operator-mongodb-webhook
-subjects:
-  - kind: ServiceAccount
-    name: mongodb-kubernetes-operator-multi-cluster
-    namespace: mongodb-operator
+rules:
+  - apiGroups:
+      - "admissionregistration.k8s.io"
+    resources:
+      - validatingwebhookconfigurations
+    verbs:
+      - get
+      - create
+      - update
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - delete
 ---
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
+# Source: mongodb-kubernetes/templates/operator-roles-telemetry.yaml
 # ClusterRoleBinding for clusterVersionDetection
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
@@ -235,6 +220,20 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: mongodb-kubernetes-operator-multi-cluster-cluster-telemetry
+subjects:
+  - kind: ServiceAccount
+    name: mongodb-kubernetes-operator-multi-cluster
+    namespace: mongodb-operator
+---
+# Source: mongodb-kubernetes/templates/operator-roles-webhook.yaml
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-kubernetes-operator-multi-cluster-mongodb-operator-webhook-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mongodb-kubernetes-operator-mongodb-webhook
 subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator-multi-cluster
@@ -331,7 +330,7 @@ spec:
             - name: OPS_MANAGER_IMAGE_PULL_POLICY
               value: Always
             - name: AGENT_IMAGE
-              value: "quay.io/mongodb/mongodb-agent:108.0.2.8729-1"
+              value: "quay.io/mongodb/mongodb-agent:108.0.12.8846-1"
             - name: MDB_AGENT_IMAGE_REPOSITORY
               value: "quay.io/mongodb/mongodb-agent"
             - name: MONGODB_IMAGE
