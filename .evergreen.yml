@@ -1304,7 +1304,7 @@ buildvariants:
     display_name: e2e_om60_kind_ubi
     tags: [ "pr_patch", "staging", "e2e_test_suite" ]
     run_on:
-      - ubuntu2404-medium-high-memory
+      - ubuntu2204-medium-high-memory
     <<: *base_om6_dependency
     tasks:
       - name: e2e_ops_manager_kind_only_task_group
@@ -1326,7 +1326,7 @@ buildvariants:
     display_name: e2e_om70_kind_ubi
     tags: [ "pr_patch", "staging", "e2e_test_suite", "patch" ]
     run_on:
-      - ubuntu2404-medium-high-memory
+      - ubuntu2204-medium-high-memory
     <<: *base_om7_dependency
     tasks:
       - name: e2e_ops_manager_kind_only_task_group
@@ -1349,7 +1349,7 @@ buildvariants:
     display_name: e2e_om80_kind_ubi
     tags: [ "pr_patch", "staging", "e2e_test_suite" ]
     run_on:
-      - ubuntu2404-medium-high-memory
+      - ubuntu2204-medium-high-memory
     <<: *base_om8_dependency
     tasks:
       - name: e2e_ops_manager_kind_only_task_group
