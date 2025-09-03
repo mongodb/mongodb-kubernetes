@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/golang:1.24 AS builder
+FROM --platform=${BUILDPLATFORM} public.ecr.aws/docker/library/golang:1.24 AS builder
 
 ARG BUILDARCH
 ADD "https://github.com/stedolan/jq/releases/download/jq-1.8.1/jq-linux-${BUILDARCH}" /usr/local/bin/jq
