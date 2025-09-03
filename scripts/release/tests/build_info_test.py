@@ -40,7 +40,6 @@ def test_load_build_info_development(git_repo: Repo):
                 platforms=["linux/amd64"],
                 version=version,
                 dockerfile_path="docker/mongodb-kubernetes-init-appdb/Dockerfile.atomic",
-
             ),
             "init-ops-manager": ImageInfo(
                 repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-ops-manager"],
