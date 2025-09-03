@@ -370,19 +370,43 @@ func addSearchEvents(ctx context.Context, operatorClusterClient kubeclient.Clien
 
 	if err := operatorClusterClient.List(ctx, searchList); err != nil {
 		Logger.Warnf("failed to fetch MongoDBSearchList from Kubernetes: %v", err)
-	} else {
-		for _, item := range searchList.Items {
-			properties := DeploymentUsageSnapshotProperties{
-				DeploymentUID:            string(item.UID),
-				OperatorID:               operatorUUID,
-				Architecture:             string(architectures.Static), // Community Search is always static
-				IsMultiCluster:           false,                        // Community Search doesn't support multi-cluster
-				Type:                     "Search",
-				IsRunningEnterpriseImage: false, // Community search doesn't run enterprise
+		return nil
+	}
+
+	for _, item := range searchList.Items {
+		var architecture string
+		var isEnterprise bool
+		source := item.GetMongoDBResourceRef()
+		if source == nil {
+			architecture = "External"
+			isEnterprise = false // no way to tell what the external mongod edition is
+		} else {
+			mdb := &mdbv1.MongoDB{}
+			sourceKey := kubeclient.ObjectKey{Namespace: source.Namespace, Name: source.Name}
+			if err := operatorClusterClient.Get(ctx, sourceKey, mdb); err == nil {
+				architecture = string(architectures.GetArchitecture(mdb.Annotations))
+				isEnterprise = true
+			} else {
+				mdbc := &mcov1.MongoDBCommunity{}
+				if err := operatorClusterClient.Get(ctx, sourceKey, mdbc); err == nil {
+					architecture = "static" // Community doesn't support static architecture
+					isEnterprise = false
+				} else {
+					continue // likely the database resource doesn't exist yet, skip telemetry for this item for now
+				}
 			}
-			if event := createEvent(properties, now, Deployments); event != nil {
-				events = append(events, *event)
-			}
+		}
+
+		properties := DeploymentUsageSnapshotProperties{
+			DeploymentUID:            string(item.UID),
+			OperatorID:               operatorUUID,
+			Architecture:             architecture,
+			IsMultiCluster:           false, // Search doesn't support multi-cluster
+			Type:                     "Search",
+			IsRunningEnterpriseImage: isEnterprise,
+		}
+		if event := createEvent(properties, now, Deployments); event != nil {
+			events = append(events, *event)
 		}
 	}
 	return events
