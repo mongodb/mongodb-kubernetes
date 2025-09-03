@@ -1287,7 +1287,7 @@ func TestAddSearchEvents(t *testing.T) {
 			events: []DeploymentUsageSnapshotProperties{{
 				DeploymentUID:            "search-external",
 				OperatorID:               operatorUUID,
-				Architecture:             "External",
+				Architecture:             "external",
 				IsMultiCluster:           false,
 				Type:                     "Search",
 				IsRunningEnterpriseImage: false,
