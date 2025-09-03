@@ -11,21 +11,11 @@ from botocore.exceptions import ClientError, NoCredentialsError, PartialCredenti
 from github import Github, GithubException
 
 from lib.base_logger import logger
+from scripts.release.kubectl_mongodb.python.consts import *
 
 GITHUB_TOKEN = os.environ.get("GH_TOKEN")
-GITHUB_REPO = "mongodb/mongodb-kubernetes"
 
-AWS_REGION = "eu-north-1"
-
-STAGING_S3_BUCKET_NAME = "mongodb-kubernetes-dev"
-RELEASE_S3_BUCKET_NAME = "mongodb-kubernetes-staging"
-
-KUBECTL_PLUGIN_BINARY_NAME = "kubectl-mongodb"
 S3_BUCKET_KUBECTL_PLUGIN_SUBPATH = KUBECTL_PLUGIN_BINARY_NAME
-
-LOCAL_ARTIFACTS_DIR = "artifacts"
-CHECKSUMS_PATH = f"{LOCAL_ARTIFACTS_DIR}/checksums.txt"
-
 
 def main():
     parser = argparse.ArgumentParser()
@@ -51,6 +41,28 @@ def main():
 
     upload_assets_to_github_release(artifacts, args.release_version)
 
+# get_commit_from_tag gets the commit associated with a release tag, so that we can use that
+# commit to pull the artifacts from staging bucket.
+def get_commit_from_tag(tag: str) -> str:
+    try:
+        subprocess.run(
+            ["git", "fetch", "--tags"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+
+        result = subprocess.run(
+            ["git", "rev-parse", f"{tag}^{{commit}}"], # git rev-parse v1.1.1^{commit}
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        return result.stdout.strip()
+
+    except subprocess.CalledProcessError as e:
+        logger.info(f"Failed to get commit for tag: {tag}, err: {e.stderr.strip()}")
+        sys.exit(1)
 
 # generate_checksums generates checksums for the artifacts that we are going to upload to github release as assets.
 # It's formatted: checksum  artifact_name
@@ -151,20 +163,15 @@ def sign_and_verify_artifacts():
                         sys.exit(1)
 
 
-def artifacts_source_dir_s3(commit_sha: str):
-    return f"{S3_BUCKET_KUBECTL_PLUGIN_SUBPATH}/{commit_sha}/dist/"
-
-
-def artifacts_dest_dir_s3(release_verion: str):
-    return f"{S3_BUCKET_KUBECTL_PLUGIN_SUBPATH}/{release_verion}/dist/"
-
-
 def s3_artifacts_path_to_local_path(release_version: str, commit_sha: str):
+    s3_common_path = f"{S3_BUCKET_KUBECTL_PLUGIN_SUBPATH}/{commit_sha}/dist"
     return {
-        f"{S3_BUCKET_KUBECTL_PLUGIN_SUBPATH}/{commit_sha}/dist/kubectl-mongodb_darwin_amd64_v1/": f"kubectl-mongodb_{release_version}_darwin_amd64",
-        f"{S3_BUCKET_KUBECTL_PLUGIN_SUBPATH}/{commit_sha}/dist/kubectl-mongodb_darwin_arm64/": f"kubectl-mongodb_{release_version}_darwin_arm64",
-        f"{S3_BUCKET_KUBECTL_PLUGIN_SUBPATH}/{commit_sha}/dist/kubectl-mongodb_linux_amd64_v1/": f"kubectl-mongodb_{release_version}_linux_amd64",
-        f"{S3_BUCKET_KUBECTL_PLUGIN_SUBPATH}/{commit_sha}/dist/kubectl-mongodb_linux_arm64/": f"kubectl-mongodb_{release_version}_linux_arm64",
+        f"{s3_common_path}/kubectl-mongodb_darwin_amd64_v1/": f"kubectl-mongodb_{release_version}_darwin_amd64",
+        f"{s3_common_path}/kubectl-mongodb_darwin_arm64/": f"kubectl-mongodb_{release_version}_darwin_arm64",
+        f"{s3_common_path}/kubectl-mongodb_linux_amd64_v1/": f"kubectl-mongodb_{release_version}_linux_amd64",
+        f"{s3_common_path}/kubectl-mongodb_linux_arm64/": f"kubectl-mongodb_{release_version}_linux_arm64",
+        f"{s3_common_path}/kubectl-mongodb_linux_ppc64le/": f"kubectl-mongodb_{release_version}_linux_ppc64le",
+        f"{s3_common_path}/kubectl-mongodb_linux_s390x/": f"kubectl-mongodb_{release_version}_linux_s390x",
     }
 
 
