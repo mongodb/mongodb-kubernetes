@@ -389,7 +389,7 @@ func addSearchEvents(ctx context.Context, operatorClusterClient kubeclient.Clien
 			} else {
 				mdbc := &mcov1.MongoDBCommunity{}
 				if err := operatorClusterClient.Get(ctx, sourceKey, mdbc); err == nil {
-					architecture = "static" // Community doesn't support static architecture
+					architecture = "static" // Community is always static
 					isEnterprise = false
 				} else {
 					continue // likely the database resource doesn't exist yet, skip telemetry for this item for now
