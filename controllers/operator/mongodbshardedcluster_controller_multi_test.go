@@ -1088,7 +1088,10 @@ func TestMigrateToNewDeploymentState(t *testing.T) {
 	err = kubeClient.Get(ctx, types.NamespacedName{Name: configMapName, Namespace: sc.Namespace}, stateConfigMap)
 	require.NoError(t, err)
 
-	expectedDeploymentState := generateExpectedDeploymentState(t, sc)
+	memberIds, err := om.GetReplicaSetMemberIds(omConnectionFactory.GetConnection())
+	require.NoError(t, err)
+
+	expectedDeploymentState := generateExpectedDeploymentState(t, sc, memberIds)
 	require.Contains(t, stateConfigMap.Data, stateKey)
 	require.JSONEq(t, expectedDeploymentState, stateConfigMap.Data[stateKey])
 
@@ -3587,18 +3590,19 @@ func getMultiClusterFQDN(stsName string, namespace string, clusterIdx int, podId
 	return fmt.Sprintf("%s-svc.%s.svc.%s", getPodName(stsName, clusterIdx, podIdx), namespace, clusterDomain)
 }
 
-func generateExpectedDeploymentState(t *testing.T, sc *mdbv1.MongoDB) string {
+func generateExpectedDeploymentState(t *testing.T, sc *mdbv1.MongoDB, memberIds map[string]map[string]int) string {
 	lastSpec, _ := sc.GetLastSpec()
 	expectedState := ShardedClusterDeploymentState{
 		CommonDeploymentState: CommonDeploymentState{
 			ClusterMapping: map[string]int{},
 		},
-		LastAchievedSpec: lastSpec,
-		Status:           &sc.Status,
+		LastAchievedRsMemberIds: memberIds,
+		LastAchievedSpec:        lastSpec,
+		Status:                  &sc.Status,
 	}
-	lastSpecBytes, err := json.Marshal(expectedState)
+	expectedStateBytes, err := json.Marshal(expectedState)
 	require.NoError(t, err)
-	return string(lastSpecBytes)
+	return string(expectedStateBytes)
 }
 
 func loadMongoDBResource(resourceYamlPath string) (*mdbv1.MongoDB, error) {

@@ -101,9 +101,10 @@ func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, 
 }
 
 type ShardedClusterDeploymentState struct {
-	CommonDeploymentState `json:",inline"`
-	LastAchievedSpec      *mdbv1.MongoDbSpec   `json:"lastAchievedSpec"`
-	Status                *mdbv1.MongoDbStatus `json:"status"`
+	CommonDeploymentState   `json:",inline"`
+	LastAchievedRsMemberIds map[string]map[string]int `json:"lastAchievedRsMemberIds"`
+	LastAchievedSpec        *mdbv1.MongoDbSpec        `json:"lastAchievedSpec"`
+	Status                  *mdbv1.MongoDbStatus      `json:"status"`
 }
 
 // updateStatusFromResourceStatus updates the status in the deployment state with values from the resource status with additional ensurance that no data is accidentally lost.
@@ -984,6 +985,13 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	if err := annotations.SetAnnotations(ctx, sc, annotationsToAdd, r.commonController.client); err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
+
+	// Save replicasets member ids in deployment state
+	finalProcessIds, err := om.GetReplicaSetMemberIds(conn)
+	if err != nil {
+		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
+	}
+	r.deploymentState.LastAchievedRsMemberIds = finalProcessIds
 
 	// Save last achieved spec in state
 	r.deploymentState.LastAchievedSpec = &sc.Spec
@@ -1923,7 +1931,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 	}
 
 	configSrvProcesses, configSrvMemberOptions := r.createDesiredConfigSrvProcessesAndMemberOptions(configSrvMemberCertPath)
-	configRs, _ := buildReplicaSetFromProcesses(sc.ConfigRsName(), configSrvProcesses, sc, configSrvMemberOptions, existingDeployment)
+	configRs, _ := buildReplicaSetFromProcesses(sc.ConfigRsName(), configSrvProcesses, sc, configSrvMemberOptions, existingDeployment, r.deploymentState.LastAchievedRsMemberIds[sc.ConfigRsName()])
 
 	// Shards
 	shards := make([]om.ReplicaSetWithProcesses, sc.Spec.ShardCount)
@@ -1934,7 +1942,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 		shardInternalClusterPaths = append(shardInternalClusterPaths, fmt.Sprintf("%s/%s", util.InternalClusterAuthMountPath, shardOptions.InternalClusterHash))
 		shardMemberCertPath := fmt.Sprintf("%s/%s", util.TLSCertMountPath, shardOptions.CertificateHash)
 		desiredShardProcesses, desiredShardMemberOptions := r.createDesiredShardProcessesAndMemberOptions(shardIdx, shardMemberCertPath)
-		shards[shardIdx], _ = buildReplicaSetFromProcesses(r.sc.ShardRsName(shardIdx), desiredShardProcesses, sc, desiredShardMemberOptions, existingDeployment)
+		shards[shardIdx], _ = buildReplicaSetFromProcesses(r.sc.ShardRsName(shardIdx), desiredShardProcesses, sc, desiredShardMemberOptions, existingDeployment, r.deploymentState.LastAchievedRsMemberIds[r.sc.ShardRsName(shardIdx)])
 	}
 
 	// updateOmAuthentication normally takes care of the certfile rotation code, but since sharded-cluster is special pertaining multiple clusterfiles, we code this part here for now.
@@ -2241,10 +2249,15 @@ func createMongodProcessForShardedCluster(mongoDBImage string, forceEnterprise b
 
 // buildReplicaSetFromProcesses creates the 'ReplicaSetWithProcesses' with specified processes. This is of use only
 // for sharded cluster (config server, shards)
-func buildReplicaSetFromProcesses(name string, members []om.Process, mdb *mdbv1.MongoDB, memberOptions []automationconfig.MemberOptions, deployment om.Deployment) (om.ReplicaSetWithProcesses, error) {
+func buildReplicaSetFromProcesses(name string, members []om.Process, mdb *mdbv1.MongoDB, memberOptions []automationconfig.MemberOptions, deployment om.Deployment, savedProcessIds map[string]int) (om.ReplicaSetWithProcesses, error) {
 	replicaSet := om.NewReplicaSet(name, mdb.Spec.GetMongoDBVersion())
 
 	existingProcessIds := getReplicaSetProcessIdsFromReplicaSets(replicaSet.Name(), deployment)
+	// If there is no replicaset configuration saved in OM, it might be a new project, so we check the ids saved in deployment state
+	if len(existingProcessIds) == 0 {
+		existingProcessIds = savedProcessIds
+	}
+
 	var rsWithProcesses om.ReplicaSetWithProcesses
 	if mdb.Spec.IsMultiCluster() {
 		// we're passing nil as connectivity argument as in sharded clusters horizons don't make much sense as we don't expose externally individual shards
