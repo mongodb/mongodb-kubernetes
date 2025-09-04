@@ -76,6 +76,9 @@ ensure_required_python() {
     if pyenv install --skip-existing "${required_version}"; then
         pyenv global "${required_version}"
         return 0
+    else
+        echo "Error: Failed to install Python ${required_version} via pyenv" >&2
+        return 1
     fi
 }
 
@@ -88,7 +91,7 @@ fi
 # Ensure required Python version is available
 ensure_required_python
 
-python3 -m venv venv
+python -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
 
@@ -102,5 +105,4 @@ else
 fi
 
 echo "Python venv was recreated successfully."
-echo "Current python path: $(which python)"
-python --version
+echo "Using Python: $(which python) ($(python --version))" >&2
