@@ -215,7 +215,6 @@ parameters:
     value: "false"
     description: set this to true if you would like the pipeline to automatically push a branch with updated snippets outputs
 
-
 # Triggered manually or by PCT.
 patch_aliases:
   - alias: "periodic_builds"
@@ -307,7 +306,6 @@ tasks:
       - func: pipeline
         vars:
           image_name: agent
-          #TODO: make sure this works and is not overridden by evg_private_context (it should not be)
           build_scenario: manual_release
 
   - name: migrate_all_agents
