@@ -311,7 +311,6 @@ tasks:
       - func: pipeline
         vars:
           image_name: agent
-          #TODO: make sure this works and is not overridden by evg_private_context (it should not be)
           build_scenario: manual_release
 
   - name: migrate_all_agents

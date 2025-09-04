@@ -46,7 +46,7 @@ variables:
       - RELEASE_INITIAL_VERSION
       - RELEASE_INITIAL_COMMIT_SHA
       - RELEASE_OPERATOR_VERSION
-      - BUILD_SCENARIO
+      - build_scenario
 
 functions:
 
@@ -556,19 +556,21 @@ functions:
 
   pipeline:
     - *switch_context
-    - command: subprocess.exec
+    - command: shell.exec
       retry_on_failure: true
       type: setup
       params:
         shell: bash
         <<: *e2e_include_expansions_in_env
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/dev/run_python.sh scripts/release/pipeline_main.py ${image_name} --build-scenario ${build_scenario|*BUILD_SCENARIO} --parallel ${all_agents}
+        script: |
+          source .generated/context.export.env
+          scripts/dev/run_python.sh scripts/release/pipeline_main.py ${image_name} --build-scenario $BUILD_SCENARIO --parallel ${all_agents}
 
   # TODO: this function is very similar to pipeline and it will joined with it in the future
   release_operator_pipeline:
     - *switch_context
-    - command: subprocess.exec
+    - command: shell.exec
       retry_on_failure: true
       type: setup
       params:
@@ -576,7 +578,9 @@ functions:
         <<: *e2e_include_expansions_in_env
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         # By default, use the git tag that triggered the task which can be overridden with RELEASE_OPERATOR_VERSION
-        binary: scripts/dev/run_python.sh scripts/release/pipeline_main.py ${image_name} --build-scenario release --version ${RELEASE_OPERATOR_VERSION|*triggered_by_git_tag}
+        script: |
+          source .generated/context.export.env
+          scripts/dev/run_python.sh scripts/release/pipeline_main.py ${image_name} --build-scenario release --version ${RELEASE_OPERATOR_VERSION|*triggered_by_git_tag}
 
   teardown_cloud_qa_all:
     - *switch_context

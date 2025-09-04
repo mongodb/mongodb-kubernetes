@@ -103,7 +103,10 @@ export MDB_UPDATE_LICENSES=true
 BUILD_SCENARIO_RELEASE="release" # Official release triggered by a git tag
 BUILD_SCENARIO_STAGING="staging" # CI build from a merge to the master
 BUILD_SCENARIO_PATCH="patch" # CI build for a patch/pull request
-if [ -n "${BUILD_SCENARIO-}" ]; then
+if [ -n "${build_scenario-}" ]; then
+  echo "Build scenario has been set via pipeline function param, not overriding it"
+  export BUILD_SCENARIO="${build_scenario}"
+elif [ -n "${BUILD_SCENARIO-}" ]; then
   echo "Build scenario has been set externally, not overriding it"
 elif [ "${GIT_TAG}" ]; then
   export BUILD_SCENARIO=$BUILD_SCENARIO_RELEASE
