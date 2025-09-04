@@ -1,0 +1,45 @@
+%%{
+  init: {
+    'logLevel': 'debug',
+    'theme': 'dark',
+    'gitGraph': {
+      'showBranches': true,
+      'mainBranchName': 'master',
+      'parallelCommits': 'true'
+    }
+  }
+}%%
+gitGraph
+    commit id: "initial commit"
+    commit id: "release notes prelude MCK" tag: "1.0.0"
+    commit id: "olm missing images fix"
+    commit id: "fix watched list in helm" tag: "1.0.1"
+    commit id: "private search preview"
+    commit id: "add limitations in changelog for private search preview" tag: "1.1.0"
+    commit id: "OIDC integration" tag: "1.2.0"
+    branch release-1.x
+    commit id: "Static architecture as default"
+    commit id: "Ops Manager no service mesh support"
+    commit id: "Fixes for static architecture"
+    commit id: "Release notes prelude for static architecture" tag: "2.0.0"
+    checkout release-1.x
+    commit id: "Cherry-pick: Fixes for static architecture" tag: "1.2.1"
+    checkout master
+    commit id: "placeholder fix"
+    commit id: "fix clusterspeclist validation" tag: "2.0.1"
+    checkout release-1.x
+    commit id: "Cherry-pick: placeholder fix"
+    commit id: "Cherry-pick: fix clusterspeclist validation" tag: "1.2.2"
+    checkout master
+    commit id: "fix proxy env var validation" tag: "2.0.2"
+    branch release-2.x
+    checkout release-1.x
+    commit id: "Cherry-pick: fix proxy env var validation" tag: "1.2.3"
+    checkout master
+    commit id: "Moved MongoDBMulti into single MongoDB resource"
+    commit id: "Public search support"
+    commit id: "MongoDBUser phase update fix" tag: "3.0.0"
+    checkout release-2.x
+    commit id: "cherry-pick from master: MongoDBUser phase update fix" tag: "2.0.3"
+    checkout release-1.x
+    commit id: "cherry-pick from release-2.x: MongoDBUser phase update fix" tag: "1.2.4"

@@ -1,0 +1,36 @@
+---
+config:
+  flowchart:
+    htmlLabels: true
+---
+flowchart TD
+%% ─────────────── Build stage ───────────────
+    subgraph Build["Build"]
+        CONTAINER_IMAGES["<b>Build Container Images</b><br>Arch: multi<br>Signing: yes<br>Tag: <code>commit_sha</code><br>Registry: quay.io staging"]
+        KUBECTL_MONGODB["<b>Build kubectl-mongodb</b><br>Arch: multi<br>Signing: yes<br>Tag: <code>commit_sha</code><br>Store: S3 staging/commit_sha<br>"]
+        HELM_CHARTS["<b>Helm charts</b><br>Signing: yes<br>Tag: <code>commit_sha</code><br>Registry: OCI quay.io staging"]
+        OLM_BUNDLES["<b>Openshift Bundles</b><br>Preflight: yes<br>Tag: <code>commit_sha</code><br>Store: S3 staging/commit_sha"]
+        RELEASE_NOTES["<b>Generate Release Notes</b><br>Store: S3 staging/commit_sha"]
+        RELATED_VERSIONS_JSON["<b>Generate related_versions.json</b><br>Store: S3 staging/commit_sha"]
+    end
+
+%% ─────────────── Test stage ───────────────
+    subgraph Testing["Testing"]
+        TESTS["<b>Run e2e tests</b>"]
+        CODE_SNIPPETS["<b>Run code snippets</b><br>Save outputs: yes<br>Store: S3 staging/commit_sha"]
+        OLM_TESTS["<b>Run OLM e2e tests</b>"]
+    end
+
+%% ─────────────── SBOM Generation ───────────────
+    subgraph SBOM ["SBOM Generation"]
+        IMAGE_SBOM["<b>Images SBOM</b><br/>CycloneDX"]
+        KUBECTL_SBOM["<b>Kubectl SBOM</b>"]
+        AUGUMENTED_SBOM["<b>Augment SBOMs</b><br/>with&nbsp;Kondukto<br>Store: S3 staging/commit_sha"]
+    end
+
+%% ─────────────── Dependencies ───────────────
+    CONTAINER_IMAGES --> TESTS & OLM_TESTS & IMAGE_SBOM & CODE_SNIPPETS
+    KUBECTL_MONGODB --> TESTS & KUBECTL_SBOM & CODE_SNIPPETS
+    IMAGE_SBOM & KUBECTL_SBOM --> AUGUMENTED_SBOM
+    HELM_CHARTS --> TESTS & CODE_SNIPPETS
+    OLM_BUNDLES --> OLM_TESTS
