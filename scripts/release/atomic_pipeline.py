@@ -126,7 +126,7 @@ def build_meko_tests_image(build_configuration: ImageBuildConfiguration):
     shutil.copyfile("release.json", "docker/mongodb-kubernetes-tests/release.json")
     shutil.copyfile("requirements.txt", requirements_dest)
 
-    python_version = os.getenv("PYTHON_VERSION", "3.13")
+    python_version = os.getenv("PYTHON_VERSION", "3.13.7")
     if python_version == "":
         raise Exception("Missing PYTHON_VERSION environment variable")
 
