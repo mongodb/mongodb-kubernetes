@@ -1,5 +1,4 @@
 export K8S_CTX="${CLUSTER_NAME}"
-export PROJECT_DIR="/Users/anand.singh/workspace/repos/mongodb-kubernetes"
 source "${PROJECT_DIR}/scripts/funcs/operator_deployment"
 source "${PROJECT_DIR}/scripts/dev/contexts/e2e_mdb_community"
 OPERATOR_ADDITIONAL_HELM_VALUES="$(get_operator_helm_values | tr ' ' ',')"

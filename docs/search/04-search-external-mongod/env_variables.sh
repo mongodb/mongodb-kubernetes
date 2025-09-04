@@ -1,4 +1,4 @@
-export K8S_CTX="kind-kind"
+export K8S_CTX="<your kubernetes context here>"
 
 export MDB_NS="mongodb"
 

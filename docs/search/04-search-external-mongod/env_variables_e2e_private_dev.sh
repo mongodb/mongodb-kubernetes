@@ -1,4 +1,4 @@
-export K8S_CTX="kind-kind"
+export K8S_CTX="<your kubernetes context here>"
 
 # patch id from evergreen patch
 version_id="68b4b75ce38b3500071ac47e"
