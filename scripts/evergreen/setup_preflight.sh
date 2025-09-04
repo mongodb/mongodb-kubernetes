@@ -8,7 +8,7 @@ bindir="${PROJECT_DIR:?}/bin"
 mkdir -p "${bindir}"
 
 echo "Downloading preflight binary"
-preflight_version="1.12.1"
+preflight_version="1.14.1"
 curl -s --retry 3 --fail-with-body -o preflight -LO "https://github.com/redhat-openshift-ecosystem/openshift-preflight/releases/download/${preflight_version}/preflight-linux-amd64"
 chmod +x preflight
 mv preflight "${bindir}"

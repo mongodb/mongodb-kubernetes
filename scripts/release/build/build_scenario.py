@@ -3,7 +3,8 @@ from enum import StrEnum
 from git import Repo
 
 from lib.base_logger import logger
-from scripts.release.constants import triggered_by_git_tag, is_evg_patch, is_running_in_evg, get_version_id
+from scripts.release.constants import triggered_by_git_tag, is_evg_patch, is_running_in_evg, get_version_id, \
+    get_github_commit
 from scripts.release.version import calculate_next_version
 
 COMMIT_SHA_LENGTH = 8
@@ -23,6 +24,7 @@ class BuildScenario(StrEnum):
         is_patch = is_evg_patch()
         is_evg = is_running_in_evg()
         patch_id = get_version_id()
+        commit_sha = get_github_commit()
 
         if git_tag:
             # Release scenario and the git tag will be used for promotion process only
@@ -34,7 +36,7 @@ class BuildScenario(StrEnum):
         # TODO: Uncomment the following lines when starting to work on staging builds
         # elif is_evg:
         #     scenario = BuildScenario.STAGING
-        #     logger.info(f"Build scenario: {scenario} (patch_id: {patch_id})")
+        #     logger.info(f"Build scenario: {scenario} (commit_sha: {commit_sha[:COMMIT_SHA_LENGTH]})")
         else:
             scenario = BuildScenario.DEVELOPMENT
             logger.info(f"Build scenario: {scenario}")
