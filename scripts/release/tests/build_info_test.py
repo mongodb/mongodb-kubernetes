@@ -94,7 +94,7 @@ def test_load_build_info_development(git_repo: Repo):
         },
         binaries={
             "kubectl-mongodb": BinaryInfo(
-                s3_store="s3://kubectl-mongodb/dev",
+                s3_store="mongodb-kubernetes-dev",
                 platforms=["linux/amd64"],
                 version=version,
             )
@@ -195,7 +195,7 @@ def test_load_build_info_patch(git_repo: Repo):
         },
         binaries={
             "kubectl-mongodb": BinaryInfo(
-                s3_store="s3://kubectl-mongodb/dev",
+                s3_store="mongodb-kubernetes-dev",
                 platforms=["linux/amd64"],
                 version=patch_id,
             )
@@ -315,10 +315,10 @@ def test_load_build_info_staging(git_repo: Repo):
         },
         binaries={
             "kubectl-mongodb": BinaryInfo(
-                s3_store="s3://kubectl-mongodb/staging",
+                s3_store="mongodb-kubernetes-staging",
                 platforms=["darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64"],
                 version=expected_commit_sha,
-                sign=True,
+                sign=False,
             )
         },
         helm_charts={
@@ -402,7 +402,7 @@ def test_load_build_info_release(
         },
         binaries={
             "kubectl-mongodb": BinaryInfo(
-                s3_store="s3://kubectl-mongodb/prod",
+                s3_store="mongodb-kubernetes-release",
                 platforms=["darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64"],
                 version=version,
                 sign=True,
