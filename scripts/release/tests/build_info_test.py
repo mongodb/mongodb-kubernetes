@@ -306,7 +306,9 @@ def test_load_build_info_staging(git_repo: Repo):
                 sign=True,
             ),
             "ops-manager": ImageInfo(
-                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-enterprise-ops-manager-ubi"],
+                repositories=[
+                    "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-enterprise-ops-manager-ubi"
+                ],
                 platforms=["linux/amd64"],
                 version="om-version-from-release.json",
                 dockerfile_path="docker/mongodb-enterprise-ops-manager/Dockerfile.atomic",
