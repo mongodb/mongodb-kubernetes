@@ -129,6 +129,7 @@ dump_pod_logs() {
         kubectl logs -n "${namespace}" "${pod}" -c "mongodb-agent-monitoring" > "logs/${prefix}${pod}-monitoring-agent-stdout.log" || true
         kubectl logs -n "${namespace}" "${pod}" -c "mongod" > "logs/${prefix}${pod}-mongod-container.log" || true
         kubectl logs -n "${namespace}" "${pod}" -c "mongodb-agent" > "logs/${prefix}${pod}-mongodb-agent-container.log" || true
+        kubectl logs -n "${namespace}" "${pod}" -c "mongodb-agent-operator-utilities" > "logs/${prefix}${pod}-mongodb-utilities-container.log" || true
         kubectl cp "${namespace}/${pod}:/var/log/mongodb-mms-automation/mongodb.log" "logs/${prefix}${pod}-mongodb.log" &> /dev/null || true
 
         # note that this file may get empty if the logs have already grew too much - seems it's better to have it explicitly empty then just omit
