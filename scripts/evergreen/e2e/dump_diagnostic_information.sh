@@ -172,22 +172,21 @@ dump_pod_logs() {
 
         # note that this file may get empty if the logs have already grew too much - seems it's better to have it explicitly empty then just omit
         kubectl --context="${context}" logs -n "${namespace}" "${pod}" | jq -c -r 'select( .logType == "agent-launcher-script") | .contents' 2> /dev/null > "logs/${prefix}${pod}-launcher.log"
-    else
-        # for all other pods we want each log per container from kubectl
-        for container in $(kubectl --context="${context}" get pods -n "${namespace}" "${pod}" -o jsonpath='{.spec.containers[*].name}'); do
-            echo "Writing log file for pod ${pod} - container ${container} to logs/${prefix}${pod}-${container}.log"
-            kubectl --context="${context}" logs -n "${namespace}" "${pod}" -c "${container}" > "logs/${prefix}${pod}-${container}.log"
-
-            # Check if the container has restarted by examining its restart count
-            restartCount=$(kubectl --context="${context}" get pod -n "${namespace}" "${pod}" -o jsonpath="{.status.containerStatuses[?(@.name=='${container}')].restartCount}")
-
-            if [ "${restartCount}" -gt 0 ]; then
-                echo "Writing log file for restarted ${pod} - container ${container} to logs/${prefix}${pod}-${container}-previous.log"
-                kubectl --context="${context}" logs --previous -n "${namespace}" "${pod}" -c "${container}" > "logs/${prefix}${pod}-${container}-previous.log" || true
-            fi
-
-        done
     fi
+
+    for container in $(kubectl --context="${context}" get pods -n "${namespace}" "${pod}" -o jsonpath='{.spec.containers[*].name}'); do
+        echo "Writing log file for pod ${pod} - container ${container} to logs/${prefix}${pod}-${container}.log"
+        kubectl --context="${context}" logs -n "${namespace}" "${pod}" -c "${container}" > "logs/${prefix}${pod}-${container}.log"
+
+        # Check if the container has restarted by examining its restart count
+        restartCount=$(kubectl --context="${context}" get pod -n "${namespace}" "${pod}" -o jsonpath="{.status.containerStatuses[?(@.name=='${container}')].restartCount}")
+
+        if [ "${restartCount}" -gt 0 ]; then
+            echo "Writing log file for restarted ${pod} - container ${container} to logs/${prefix}${pod}-${container}-previous.log"
+            kubectl --context="${context}" logs --previous -n "${namespace}" "${pod}" -c "${container}" > "logs/${prefix}${pod}-${container}-previous.log" || true
+        fi
+
+    done
 
     if kubectl --context="${context}" exec "${pod}" -n "${namespace}" -- ls /var/log/mongodb-mms-automation/automation-agent-stderr.log &>/dev/null; then
         kubectl --context="${context}" cp "${namespace}/${pod}:/var/log/mongodb-mms-automation/automation-agent-stderr.log" "logs/${prefix}${pod}-agent-stderr.log" &> /dev/null
