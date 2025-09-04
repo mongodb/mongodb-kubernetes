@@ -20,8 +20,13 @@ install_pyenv() {
         export PYENV_ROOT="${HOME}/.pyenv"
         export PATH="${PYENV_ROOT}/bin:${PATH}"
 
-        # Initialize pyenv in current shell
-        if command -v pyenv &> /dev/null; then
+        # Fix permissions on pyenv binary if needed
+        if [[ -f "${PYENV_ROOT}/bin/pyenv" ]]; then
+            chmod +x "${PYENV_ROOT}/bin/pyenv"
+        fi
+
+        # Test if pyenv actually works
+        if command -v pyenv &> /dev/null && pyenv --version &> /dev/null; then
             eval "$(pyenv init --path)"
             eval "$(pyenv init -)"
             echo "pyenv already installed and initialized" >&2
@@ -46,6 +51,11 @@ install_pyenv() {
         export PYENV_ROOT="${HOME}/.pyenv"
         export PATH="${PYENV_ROOT}/bin:${PATH}"
 
+        # Fix permissions on pyenv binary if needed
+        if [[ -f "${PYENV_ROOT}/bin/pyenv" ]]; then
+            chmod +x "${PYENV_ROOT}/bin/pyenv"
+        fi
+
         # Initialize pyenv in current shell
         if command -v pyenv &> /dev/null; then
             eval "$(pyenv init --path)"
@@ -61,9 +71,28 @@ install_pyenv() {
 }
 
 ensure_required_python() {
-    local required_version="${PYTHON_VERSION:-3.13.7}"
+    # If PYTHON_VERSION is set (e.g., "3.13"), find the latest patch version
+    # If not set, default to a specific version for consistency
+    local base_version="${PYTHON_VERSION:-3.13}"
+    local required_version
 
-    echo "Setting up Python ${required_version}..." >&2
+    # If PYTHON_VERSION contains a patch version (e.g., "3.13.7"), use it as-is
+    if [[ "${base_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        required_version="${base_version}"
+    else
+        # For major.minor versions (e.g., "3.13"), use a specific patch version
+        case "${base_version}" in
+            "3.13")
+                required_version="3.13.7"
+                ;;
+            *)
+                # Default fallback - try to find latest available version
+                required_version="${base_version}.0"
+                ;;
+        esac
+    fi
+
+    echo "Setting up Python ${required_version} (base version: ${base_version})..." >&2
 
     if ! install_pyenv; then
         echo "Error: Failed to install pyenv" >&2
@@ -75,7 +104,11 @@ ensure_required_python() {
     # Use --skip-existing to avoid errors if version already exists
     if pyenv install --skip-existing "${required_version}"; then
         pyenv global "${required_version}"
+        echo "Python ${required_version} installed and set as global version" >&2
         return 0
+    else
+        echo "Error: Failed to install Python ${required_version}" >&2
+        return 1
     fi
 }
 
@@ -88,7 +121,24 @@ fi
 # Ensure required Python version is available
 ensure_required_python
 
-python3 -m venv venv
+# Ensure we're using the pyenv-managed Python for venv creation
+if command -v pyenv &> /dev/null; then
+    # Initialize pyenv in current shell to ensure we use the right Python
+    eval "$(pyenv init --path)"
+    eval "$(pyenv init -)"
+
+    # Verify we're using the expected Python version
+    current_python=$(python --version 2>&1 | awk '{print $2}')
+    echo "Using Python version: ${current_python}" >&2
+    echo "Python path: $(which python)" >&2
+
+    # Use the pyenv-managed python explicitly
+    python -m venv venv
+else
+    # Fallback to python3 if pyenv is not available
+    echo "pyenv not available, using system python3" >&2
+    python3 -m venv venv
+fi
 source venv/bin/activate
 pip install --upgrade pip
 

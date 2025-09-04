@@ -1034,7 +1034,7 @@ func DatabaseReadinessProbe() probes.Modification {
 	return probes.Apply(
 		probes.WithExecCommand([]string{databaseReadinessProbeCommand}),
 		probes.WithFailureThreshold(4),
-		probes.WithInitialDelaySeconds(5),
+		probes.WithInitialDelaySeconds(30), // TODO increase for static
 		probes.WithPeriodSeconds(5),
 	)
 }

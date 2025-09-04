@@ -5,6 +5,12 @@ set -Eeou pipefail
 source scripts/dev/set_env_context.sh
 source scripts/funcs/printing
 
+# Initialize pyenv if available to ensure consistent Python environment
+if command -v pyenv &> /dev/null; then
+    eval "$(pyenv init --path)"
+    eval "$(pyenv init -)"
+fi
+
 # shellcheck disable=SC2154
 if [ -f "${PROJECT_DIR}/venv/bin/activate" ]; then
     source "${PROJECT_DIR}/venv/bin/activate"

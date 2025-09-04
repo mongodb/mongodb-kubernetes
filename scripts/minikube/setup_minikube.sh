@@ -171,24 +171,6 @@ start_minikube_cluster() {
   fi
 }
 
-setup_podman() {
-  echo "Setting up podman for ${ARCH}..."
-
-  # Configure podman to use cgroupfs instead of systemd in CI
-  mkdir -p ~/.config/containers
-  cat > ~/.config/containers/containers.conf << EOF
-[containers]
-cgroup_manager = "cgroupfs"
-events_logger = "file"
-
-[engine]
-cgroup_manager = "cgroupfs"
-EOF
-
-}
-
-# Setup podman and container runtime
-setup_podman
 set_limits
 download_minikube
 
@@ -231,7 +213,6 @@ echo "=========================================="
 echo "✅ Setup Summary"
 echo "=========================================="
 echo "Architecture: ${ARCH}"
-echo "Container Runtime: podman"
 echo "Minikube Driver: podman"
 echo "Minikube: Default cluster"
 echo "Minikube: ${minikube_version}"

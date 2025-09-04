@@ -49,6 +49,8 @@ run_setup_step "kubectl and helm Setup" "scripts/evergreen/setup_kubectl.sh"
 
 run_setup_step "jq Setup" "scripts/evergreen/setup_jq.sh"
 
+run_setup_step "IBM Container Runtime Setup" "scripts/dev/setup_ibm_container_runtime.sh"
+
 if [[ "${SKIP_MINIKUBE_SETUP:-}" != "true" ]]; then
   run_setup_step "Minikube Host Setup with Container Runtime Detection" "scripts/minikube/setup_minikube.sh"
 else
@@ -63,6 +65,7 @@ echo "✅ host setup completed successfully!"
 echo "=========================================="
 echo ""
 echo "Installed tools summary:"
+echo "Container Runtime: podman"
 echo "- Python: $(python --version 2>/dev/null || python3 --version 2>/dev/null || echo 'Not found')"
 echo "- AWS CLI: $(aws --version 2>/dev/null || echo 'Not found')"
 echo "- kubectl: $(kubectl version --client 2>/dev/null || echo 'Not found')"
