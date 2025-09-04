@@ -15,6 +15,11 @@ fi
 
 CONTAINER_RUNTIME="${CONTAINER_RUNTIME-"docker"}"
 
+# Registry URLs
+ECR_EU_WEST="268558157000.dkr.ecr.eu-west-1.amazonaws.com"
+ECR_US_EAST="268558157000.dkr.ecr.us-east-1.amazonaws.com"
+ECR_SEARCH_US_EAST="901841024863.dkr.ecr.us-east-1.amazonaws.com"
+
 setup_validate_container_runtime() {
   case "${CONTAINER_RUNTIME}" in
     "podman")
@@ -109,26 +114,44 @@ if [[ ! -f "${CONFIG_PATH}" ]]; then
   write_file '{}' "${CONFIG_PATH}"
 fi
 
-if [[ -f "${CONFIG_PATH}" ]]; then
-  if [[ "${RUNNING_IN_EVG:-"false"}" != "true" ]]; then
-    echo "Checking if container registry credentials are valid..."
-    ecr_auth=$(exec_cmd jq -r '.auths."268558157000.dkr.ecr.us-east-1.amazonaws.com".auth // empty' "${CONFIG_PATH}")
+check_if_login_required() {
+  echo "Checking if container registry credentials are valid..."
+
+  check_registry_credentials() {
+    registry_url=$1
+    image_path=$1
+    image_tag=$2
+    # shellcheck disable=SC2016
+    ecr_auth=$(exec_cmd jq -r --arg registry "${registry_url}" '.auths.[$registry].auth // empty' "${CONFIG_PATH}")
 
     if [[ -n "${ecr_auth}" ]]; then
-      http_status=$(curl --head -s -o /dev/null -w "%{http_code}" --max-time 3 "https://268558157000.dkr.ecr.us-east-1.amazonaws.com/v2/dev/mongodb-kubernetes/manifests/latest" \
+      http_status=$(curl --head -s -o /dev/null -w "%{http_code}" --max-time 3 "https://${registry_url}/v2/${image_path}/manifest/${image_tag}" \
         -H "Authorization: Basic ${ecr_auth}" 2>/dev/null || echo "error/timeout")
 
       if [[ "${http_status}" != "401" && "${http_status}" != "403" && "${http_status}" != "error/timeout" ]]; then
         echo "Container registry credentials are up to date - not performing the new login!"
-        exit
+        return 0
       fi
-      echo "Container login required (HTTP status: ${http_status})"
+      echo -e "${RED}Container login required (HTTP status: ${http_status})${NO_COLOR}"
     else
-      echo "No ECR credentials found in container config - login required"
+      echo -e "${RED}No ECR credentials found in container config - login required${NO_COLOR}"
     fi
+
+    return 0
+  }
+
+  check_registry_credentials "${ECR_EU_WEST}" "mongot/community" "1.47.0" | prepend "${ECR_EU_WEST}" || return 1
+  check_registry_credentials "${ECR_US_EAST}" "dev/mongodb-kubernetes" "latest" | prepend "${ECR_US_EAST}" || return 1
+  if [[ "${MDB_SEARCH_AWS_SSO_LOGIN:-"false"}" == "true" ]]; then
+    check_registry_credentials "${ECR_SEARCH_US_EAST}" "mongot-community/rapid-releases" "latest" | prepend "${ECR_SEARCH_US_EAST}" || return 1
   fi
 
+  return 0
+}
+
+login_to_registries() {
   title "Performing container login to ECR registries"
+  echo "$(aws --version)}"
 
   # There could be some leftovers on Evergreen (Docker-specific, skip for Podman)
   if [[ "${CONTAINER_RUNTIME}" == "docker" ]]; then
@@ -139,34 +162,41 @@ if [[ -f "${CONFIG_PATH}" ]]; then
       remove_element "credHelpers"
     fi
   fi
-fi
 
+  aws ecr get-login-password --region "us-east-1" | registry_login "AWS" "${ECR_US_EAST}"
 
-echo "$(aws --version)}"
+  if [[ "${MDB_SEARCH_AWS_SSO_LOGIN:-"false"}" == "true" ]]; then
+    aws sso login --profile devprod-platforms-ecr-user
+    aws --profile devprod-platforms-ecr-user  ecr get-login-password --region us-east-1 | registry_login "AWS" "${ECR_SEARCH_US_EAST}"
+  fi
 
-aws ecr get-login-password --region "us-east-1" | registry_login "AWS" "268558157000.dkr.ecr.us-east-1.amazonaws.com"
+  # by default docker tries to store credentials in an external storage (e.g. OS keychain) - not in the config.json
+  # We need to store it as base64 string in config.json instead so we need to remove the "credsStore" element
+  # This is Docker-specific behavior, Podman stores credentials directly in auth.json
+  if [[ "${CONTAINER_RUNTIME}" == "docker" ]] && exec_cmd grep -q "credsStore" "${CONFIG_PATH}"; then
+    remove_element "credsStore"
 
-# by default docker tries to store credentials in an external storage (e.g. OS keychain) - not in the config.json
-# We need to store it as base64 string in config.json instead so we need to remove the "credsStore" element
-# This is Docker-specific behavior, Podman stores credentials directly in auth.json
-if [[ "${CONTAINER_RUNTIME}" == "docker" ]] && exec_cmd grep -q "credsStore" "${CONFIG_PATH}"; then
-  remove_element "credsStore"
+    # login again to store the credentials into the config.json
+    aws ecr get-login-password --region "us-east-1" | registry_login "AWS" "${ECR_US_EAST}"
+  fi
 
-  # login again to store the credentials into the config.json
-  aws ecr get-login-password --region "us-east-1" | registry_login "AWS" "268558157000.dkr.ecr.us-east-1.amazonaws.com"
-fi
+  aws ecr get-login-password --region "eu-west-1" | registry_login "AWS" "${ECR_EU_WEST}"
 
-aws ecr get-login-password --region "eu-west-1" | registry_login "AWS" "268558157000.dkr.ecr.eu-west-1.amazonaws.com"
+  if [[ -n "${PRERELEASE_PULLSECRET_DOCKERCONFIGJSON:-}" ]]; then
+    # log in to quay.io for the mongodb/mongodb-search-community private repo
+    # TODO remove once we switch to the official repo in Public Preview
+    quay_io_auth_file=$(mktemp)
+    config_tmp=$(mktemp)
+    echo "${PRERELEASE_PULLSECRET_DOCKERCONFIGJSON}" | base64 -d > "${quay_io_auth_file}"
+    exec_cmd jq -s '.[0] * .[1]' "${quay_io_auth_file}" "${CONFIG_PATH}" > "${config_tmp}"
+    exec_cmd mv "${config_tmp}" "${CONFIG_PATH}"
+    rm "${quay_io_auth_file}"
+  fi
+}
 
-if [[ -n "${PRERELEASE_PULLSECRET_DOCKERCONFIGJSON:-}" ]]; then
-  # log in to quay.io for the mongodb/mongodb-search-community private repo
-  # TODO remove once we switch to the official repo in Public Preview
-  quay_io_auth_file=$(mktemp)
-  config_tmp=$(mktemp)
-  echo "${PRERELEASE_PULLSECRET_DOCKERCONFIGJSON}" | base64 -d > "${quay_io_auth_file}"
-  exec_cmd jq -s '.[0] * .[1]' "${quay_io_auth_file}" "${CONFIG_PATH}" > "${config_tmp}"
-  exec_cmd mv "${config_tmp}" "${CONFIG_PATH}"
-  rm "${quay_io_auth_file}"
+if [[ "${RUNNING_IN_EVG:-"false"}" != "true" ]]; then
+  check_if_login_required
+  login_to_registries
 fi
 
 create_image_registries_secret
