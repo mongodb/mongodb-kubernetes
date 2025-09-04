@@ -238,13 +238,6 @@ def main() -> int:
         # these are the images we own, we preflight all of them as long as we officially support them in release.json
         versions = get_supported_version_for_image(args.image)
 
-    # only preflight the current agent version and the subset of agent images suffixed with the current operator version
-    if args.image == "mongodb-agent":
-        release = get_release()
-        operator_version = release["mongodbOperator"]
-        versions = list(filter(lambda version: version.endswith(f"_{operator_version}"), versions))
-        versions.append(release["agentVersion"])
-
     # Attempt to run a pre-flight check on a single version of the image
     if image_version is not None:
         return preflight_single_image(args, image_version, submit, versions)

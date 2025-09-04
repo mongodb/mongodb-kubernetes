@@ -109,6 +109,8 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
 
     # Resolve final values with overrides
     version = args.version or image_build_info.version
+    latest_tag = image_build_info.latest_tag
+    olm_tag = image_build_info.olm_tag
     if args.registry:
         registries = [args.registry]
     else:
@@ -125,6 +127,8 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     return ImageBuildConfiguration(
         scenario=build_scenario,
         version=version,
+        latest_tag=latest_tag,
+        olm_tag=olm_tag,
         registries=registries,
         dockerfile_path=dockerfile_path,
         parallel=args.parallel,

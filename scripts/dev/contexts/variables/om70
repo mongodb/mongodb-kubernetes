@@ -18,5 +18,5 @@ export AGENT_IMAGE="${MDB_AGENT_IMAGE_REPOSITORY}:${AGENT_VERSION}"
 
 export CUSTOM_APPDB_VERSION=7.0.18-ent
 export TEST_MODE=opsmanager
-export OPS_MANAGER_REGISTRY=268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
-export APPDB_REGISTRY=268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
+export OPS_MANAGER_REGISTRY="${BASE_REPO_URL}"
+export APPDB_REGISTRY="${BASE_REPO_URL}"
