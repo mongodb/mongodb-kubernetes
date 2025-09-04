@@ -307,7 +307,8 @@ tasks:
       - func: pipeline
         vars:
           image_name: agent
-          build_scenario: --build-scenario manual_release
+          #TODO: make sure this works and is not overridden by evg_private_context (it should not be)
+          build_scenario: manual_release
 
   - name: migrate_all_agents
     # this enables us to run this variant manually to build all the agents for the new registry
@@ -518,7 +519,7 @@ tasks:
       - func: pipeline
         vars:
           image_name: ops-manager
-          build_scenario: --build-scenario manual_release
+          build_scenario: manual_release
 
   - name: prepare_and_upload_openshift_bundles_for_e2e
     commands:
