@@ -100,9 +100,9 @@ export MDB_UPDATE_LICENSES=true
 
 # Set BUILD_SCENARIO based on evergreen variables
 # BUILD_SCENARIO can be overridden externally if needed
-BUILD_SCENARIO_RELEASE="release"  # Official release triggered by a git tag
-BUILD_SCENARIO_STAGING="staging"  # CI build from a merge to the master
-BUILD_SCENARIO_PATCH="patch"  # CI build for a patch/pull request
+BUILD_SCENARIO_RELEASE="release" # Official release triggered by a git tag
+BUILD_SCENARIO_STAGING="staging" # CI build from a merge to the master
+BUILD_SCENARIO_PATCH="patch" # CI build for a patch/pull request
 if [ "${BUILD_SCENARIO}" ]; then
   echo "Build scenario has been set externally, not overriding it"
 elif [ "${GIT_TAG}" ]; then
@@ -114,21 +114,25 @@ else
 fi
 echo "Setting BUILD_SCENARIO=${BUILD_SCENARIO}"
 
-# Set BASE_REPO_URL based on build scenario
+# Set BASE_REPO_URL and version_id based on build scenario
 PATCH_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
 STAGING_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging"
 RELEASE_REPO_URL="quay.io/mongodb"
 case $BUILD_SCENARIO in
   "${BUILD_SCENARIO_RELEASE}")
     export BASE_REPO_URL="${RELEASE_REPO_URL}"
+    export version_id="${GIT_TAG}"
     ;;
 
   "${BUILD_SCENARIO_STAGING}")
+    COMMIT_SHA_SHORT=$(git rev-parse --short=8 HEAD)
     export BASE_REPO_URL="${STAGING_REPO_URL}"
+    export version_id="${COMMIT_SHA_SHORT}"
     ;;
 
   "${BUILD_SCENARIO_PATCH}")
     export BASE_REPO_URL="${PATCH_REPO_URL}"
+    #Don't change version_id for patch builds, it should be set by evergreen
     ;;
 
   *)
@@ -137,17 +141,6 @@ case $BUILD_SCENARIO in
     ;;
 esac
 echo "Setting BASE_REPO_URL=${BASE_REPO_URL} for ${BUILD_SCENARIO} build scenario"
-
-COMMIT_SHA_SHORT=$(git rev-parse --short=8 HEAD)
-
-if [ "${is_patch:-false}" = "true" ]; then
-  echo "is_patch is set, setting BASE_REPO_URL=${DEV_REPO_URL}"
-  export BASE_REPO_URL="${DEV_REPO_URL}"
-else
-  echo "is_patch is not set, setting BASE_REPO_URL=${STAGING_REPO_URL}, OVERRIDE_VERSION_ID=${COMMIT_SHA_SHORT}"
-  export BASE_REPO_URL="${STAGING_REPO_URL}"
-  export OVERRIDE_VERSION_ID="${COMMIT_SHA_SHORT}"
-fi
 
 ### Registries and images
 export REGISTRY="${BASE_REPO_URL}"
