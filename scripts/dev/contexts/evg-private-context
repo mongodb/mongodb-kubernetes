@@ -33,38 +33,6 @@ else
 fi
 export NAMESPACE
 
-DEV_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
-STAGING_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging"
-COMMIT_SHA_SHORT=$(git rev-parse --short=8 HEAD)
-
-if [ "${is_patch:-false}" = "true" ]; then
-  echo "is_patch is set, setting BASE_REPO_URL=${DEV_REPO_URL}"
-  export BASE_REPO_URL="${DEV_REPO_URL}"
-else
-  echo "is_patch is not set, setting BASE_REPO_URL=${STAGING_REPO_URL}, OVERRIDE_VERSION_ID=${COMMIT_SHA_SHORT}"
-  export BASE_REPO_URL="${STAGING_REPO_URL}"
-  export OVERRIDE_VERSION_ID="${COMMIT_SHA_SHORT}"
-fi
-
-export REGISTRY="${BASE_REPO_URL}"
-export QUAY_REGISTRY=quay.io/mongodb
-export OPERATOR_REGISTRY=${REGISTRY}
-export INIT_IMAGES_REGISTRY=${INIT_IMAGES_REGISTRY:-${REGISTRY}}
-export INIT_APPDB_REGISTRY=${INIT_IMAGES_REGISTRY}
-export INIT_OPS_MANAGER_REGISTRY=${INIT_IMAGES_REGISTRY-"${QUAY_REGISTRY}"}
-export INIT_DATABASE_REGISTRY=${INIT_IMAGES_REGISTRY:-"${QUAY_REGISTRY}"}
-export DATABASE_REGISTRY=${INIT_IMAGES_REGISTRY:-"${QUAY_REGISTRY}"}
-export OPS_MANAGER_REGISTRY=${QUAY_REGISTRY}
-export APPDB_REGISTRY=${QUAY_REGISTRY}
-export MONGODB_ENTERPRISE_DATABASE_IMAGE="${INIT_IMAGES_REGISTRY}/mongodb-kubernetes-database"
-export INIT_DATABASE_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-kubernetes-init-database"
-export MDB_AGENT_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-agent"
-
-# these are needed to deploy OM
-export INIT_APPDB_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-kubernetes-init-appdb"
-export OPS_MANAGER_IMAGE_REPOSITORY="${QUAY_REGISTRY}/mongodb-enterprise-ops-manager-ubi"
-export INIT_OPS_MANAGER_IMAGE_REPOSITORY=${INIT_IMAGES_REGISTRY}/mongodb-kubernetes-init-ops-manager
-
 export CLUSTER_TYPE="kind"
 # Empty sting means that we're not using it.
 export EVG_HOST_NAME=""
@@ -105,6 +73,7 @@ export IS_PATCH="${is_patch:-"unknown"}"
 export BUILD_ID="${build_id:-"unknown"}"
 export EXECUTION="${execution:-"unknown"}"
 export BUILD_VARIANT="${build_variant:-"unknown"}"
+export GIT_TAG="${triggered_by_git_tag:-}"
 
 # var used in pipeline.py to determine if we're running on EVG host
 # used to discern between local pipeline image build and the build in pipeline
@@ -115,11 +84,6 @@ export DELETE_KIND_NETWORK="true"
 # code_snippets_commit_output can be set in evergreen patch by --param code_snippets_commit_output=true
 # it's also set explicitly in public_*_snippets variants
 export CODE_SNIPPETS_COMMIT_OUTPUT=${code_snippets_commit_output:-"false"}
-
-# MCO
-# shellcheck disable=SC2154
-export READINESS_PROBE_IMAGE="${BASE_REPO_URL}/mongodb-kubernetes-readinessprobe:${version_id}"
-export VERSION_UPGRADE_HOOK_IMAGE="${BASE_REPO_URL}/mongodb-kubernetes-operator-version-upgrade-post-start-hook:${version_id}"
 
 # TODO to be removed at public preview stage of community-search
 export COMMUNITY_PRIVATE_PREVIEW_PULLSECRET_DOCKERCONFIGJSON="${community_private_preview_pullsecret_dockerconfigjson}"
@@ -133,3 +97,78 @@ export cognito_workload_url="${cognito_workload_url}"
 export cognito_workload_user_id="${cognito_workload_user_id}"
 
 export MDB_UPDATE_LICENSES=true
+
+# Set BUILD_SCENARIO based on evergreen variables
+# BUILD_SCENARIO can be overridden externally if needed
+BUILD_SCENARIO_RELEASE="release"  # Official release triggered by a git tag
+BUILD_SCENARIO_STAGING="staging"  # CI build from a merge to the master
+BUILD_SCENARIO_PATCH="patch"  # CI build for a patch/pull request
+if [ "${BUILD_SCENARIO}" ]; then
+  echo "Build scenario has been set externally, not overriding it"
+elif [ "${GIT_TAG}" ]; then
+  export BUILD_SCENARIO=$BUILD_SCENARIO_RELEASE
+elif [ "${IS_PATCH}" = "true" ]; then
+  export BUILD_SCENARIO=$BUILD_SCENARIO_PATCH
+else
+  export BUILD_SCENARIO=$BUILD_SCENARIO_STAGING
+fi
+echo "Setting BUILD_SCENARIO=${BUILD_SCENARIO}"
+
+# Set BASE_REPO_URL based on build scenario
+PATCH_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
+STAGING_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging"
+RELEASE_REPO_URL="quay.io/mongodb"
+case $BUILD_SCENARIO in
+  "${BUILD_SCENARIO_RELEASE}")
+    export BASE_REPO_URL="${RELEASE_REPO_URL}"
+    ;;
+
+  "${BUILD_SCENARIO_STAGING}")
+    export BASE_REPO_URL="${STAGING_REPO_URL}"
+    ;;
+
+  "${BUILD_SCENARIO_PATCH}")
+    export BASE_REPO_URL="${PATCH_REPO_URL}"
+    ;;
+
+  *)
+    echo "Unknown BUILD_SCENARIO=${BUILD_SCENARIO}, exiting"
+    exit 1
+    ;;
+esac
+echo "Setting BASE_REPO_URL=${BASE_REPO_URL} for ${BUILD_SCENARIO} build scenario"
+
+COMMIT_SHA_SHORT=$(git rev-parse --short=8 HEAD)
+
+if [ "${is_patch:-false}" = "true" ]; then
+  echo "is_patch is set, setting BASE_REPO_URL=${DEV_REPO_URL}"
+  export BASE_REPO_URL="${DEV_REPO_URL}"
+else
+  echo "is_patch is not set, setting BASE_REPO_URL=${STAGING_REPO_URL}, OVERRIDE_VERSION_ID=${COMMIT_SHA_SHORT}"
+  export BASE_REPO_URL="${STAGING_REPO_URL}"
+  export OVERRIDE_VERSION_ID="${COMMIT_SHA_SHORT}"
+fi
+
+### Registries and images
+export REGISTRY="${BASE_REPO_URL}"
+export QUAY_REGISTRY="quay.io/mongodb"
+export OPERATOR_REGISTRY=${REGISTRY}
+export INIT_IMAGES_REGISTRY=${INIT_IMAGES_REGISTRY:-${REGISTRY}}
+
+# Specific registries for different images, can be overridden if needed
+export INIT_APPDB_REGISTRY=${INIT_IMAGES_REGISTRY}
+export INIT_APPDB_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-kubernetes-init-appdb"
+export INIT_OPS_MANAGER_REGISTRY=${INIT_IMAGES_REGISTRY}
+export INIT_OPS_MANAGER_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-kubernetes-init-ops-manager"
+export INIT_DATABASE_REGISTRY=${INIT_IMAGES_REGISTRY}
+export INIT_DATABASE_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-kubernetes-init-database"
+export DATABASE_REGISTRY=${INIT_IMAGES_REGISTRY}
+export MONGODB_ENTERPRISE_DATABASE_IMAGE="${DATABASE_REGISTRY}/mongodb-kubernetes-database"
+export OPS_MANAGER_REGISTRY=${QUAY_REGISTRY}
+export OPS_MANAGER_IMAGE_REPOSITORY="${OPS_MANAGER_REGISTRY}/mongodb-enterprise-ops-manager"
+export MDB_AGENT_IMAGE_REPOSITORY="${QUAY_REGISTRY}/mongodb-agent"
+
+# MCO
+# shellcheck disable=SC2154
+export READINESS_PROBE_IMAGE="${REGISTRY}/mongodb-kubernetes-readinessprobe:${version_id}"
+export VERSION_UPGRADE_HOOK_IMAGE="${REGISTRY}/mongodb-kubernetes-operator-version-upgrade-post-start-hook:${version_id}"

@@ -173,7 +173,6 @@ registry:
   initOpsManager: quay.io/mongodb
   opsManager: quay.io/mongodb
   initAppDb: quay.io/mongodb
-  appDb: quay.io/mongodb
   agent: quay.io/mongodb
 
   # This is only used by the MongoDBCommunity resource reconciler - START

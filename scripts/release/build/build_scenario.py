@@ -2,9 +2,7 @@ from enum import StrEnum
 
 from git import Repo
 
-from lib.base_logger import logger
-from scripts.release.constants import triggered_by_git_tag, is_evg_patch, is_running_in_evg, get_version_id, \
-    get_github_commit
+from scripts.release.constants import get_version_id
 from scripts.release.version import calculate_next_version
 
 COMMIT_SHA_LENGTH = 8
@@ -16,31 +14,6 @@ class BuildScenario(StrEnum):
     PATCH = "patch"  # CI build for a patch/pull request
     STAGING = "staging"  # CI build from a merge to the master
     DEVELOPMENT = "development"  # Local build on a developer machine
-
-    @classmethod
-    def infer_scenario_from_environment(cls) -> "BuildScenario":
-        """Infer the build scenario from environment variables."""
-        git_tag = triggered_by_git_tag()
-        is_patch = is_evg_patch()
-        is_evg = is_running_in_evg()
-        patch_id = get_version_id()
-        commit_sha = get_github_commit()
-
-        if git_tag:
-            # Release scenario and the git tag will be used for promotion process only
-            scenario = BuildScenario.RELEASE
-            logger.info(f"Build scenario: {scenario} (git_tag: {git_tag})")
-        elif is_patch and is_evg:
-            scenario = BuildScenario.PATCH
-            logger.info(f"Build scenario: {scenario} (patch_id: {patch_id})")
-        elif is_evg:
-            scenario = BuildScenario.STAGING
-            logger.info(f"Build scenario: {scenario} (commit_sha: {commit_sha[:COMMIT_SHA_LENGTH]})")
-        else:
-            scenario = BuildScenario.DEVELOPMENT
-            logger.info(f"Build scenario: {scenario}")
-
-        return scenario
 
     def get_version(self, repository_path: str, changelog_sub_path: str, initial_commit_sha: str = None,
                     initial_version: str = None) -> str:
