@@ -208,7 +208,6 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		CurrentAgentAuthMechanism(currentAgentAuthMode),
 		CertificateHash(tlsCertHash),
 		InternalClusterHash(internalClusterCertHash),
-		AgentCertificateHash(agentCertHash),
 		PrometheusTLSCertHash(prometheusCertHash),
 		WithVaultConfig(vaultConfig),
 		WithLabels(rs.Labels),

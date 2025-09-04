@@ -1087,7 +1087,8 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 	agentCertSecretName := sc.GetSecurity().AgentClientCertificateSecretName(sc.Name)
 	agentCertHash := enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, agentCertSecretName, "", log)
 	agentCertSecretSelector := corev1.SecretKeySelector{
-		LocalObjectReference: corev1.LocalObjectReference{Name: agentCertSecretName + certs.OperatorGeneratedCertSuffix},
+		// TODO: If we add certs.OperatorGeneratedCertSuffix to the name here - multicluster won't work. Unify it.
+		LocalObjectReference: corev1.LocalObjectReference{Name: agentCertSecretName},
 		Key:                  agentCertHash,
 	}
 
@@ -2285,8 +2286,6 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 		PodEnvVars(opts.podEnvVars),
 		CurrentAgentAuthMechanism(opts.currentAgentAuthMode),
 		CertificateHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, certSecretName, databaseSecretPath, log)),
-		// TODO: Check if it is necessary. Can we just use opts?
-		AgentCertificateHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, opts.agentCertSecretSelector.Name, databaseSecretPath, log)),
 		InternalClusterHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, internalClusterSecretName, databaseSecretPath, log)),
 		PrometheusTLSCertHash(opts.prometheusCertHash),
 		WithVaultConfig(vaultConfig),
@@ -2318,8 +2317,6 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 		PodEnvVars(opts.podEnvVars),
 		CurrentAgentAuthMechanism(opts.currentAgentAuthMode),
 		CertificateHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, certSecretName, vaultConfig.DatabaseSecretPath, log)),
-		// TODO: Check if it is necessary. Can we just use opts?
-		AgentCertificateHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, opts.agentCertSecretSelector.Name, vaultConfig.DatabaseSecretPath, log)),
 		InternalClusterHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, internalClusterSecretName, vaultConfig.DatabaseSecretPath, log)),
 		PrometheusTLSCertHash(opts.prometheusCertHash),
 		WithVaultConfig(vaultConfig),
@@ -2350,8 +2347,6 @@ func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc 
 		PodEnvVars(opts.podEnvVars),
 		CurrentAgentAuthMechanism(opts.currentAgentAuthMode),
 		CertificateHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, certSecretName, databaseSecretPath, log)),
-		// TODO: Check if it is necessary. Can we just use opts?
-		AgentCertificateHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, opts.agentCertSecretSelector.Name, databaseSecretPath, log)),
 		InternalClusterHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, internalClusterSecretName, databaseSecretPath, log)),
 		PrometheusTLSCertHash(opts.prometheusCertHash),
 		WithVaultConfig(vaultConfig),

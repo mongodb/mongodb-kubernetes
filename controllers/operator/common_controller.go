@@ -490,6 +490,10 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 			if err := r.client.Get(ctx, kube.ObjectKey(ar.GetNamespace(), agentCertSecretSelector.Name), agentSecret); client.IgnoreNotFound(err) != nil {
 				return workflow.Failed(err), false
 			}
+			// TODO: Review this. Can this be moved to a function? Multi-cluster key override is annoying - is it still necesssary?
+			// Must be before we override agentCertSecretSelector.Key for multicluster
+			authOpts.AutoPEMKeyFilePath = util.PvcMmsHomeMountPath + "/" + util.AgentSecretName + "/" + agentCertSecretSelector.Key
+
 			// If the agent secret is of type TLS, we can find the certificate under the standard key,
 			// otherwise the concatenated PEM secret would contain the certificate and keys under the selector's
 			// Key identifying the agent.
@@ -505,8 +509,6 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 				return workflow.Failed(xerrors.Errorf("error configuring agent subjects: %w", err)), false
 			}
 			authOpts.AgentsShouldUseClientAuthentication = ar.GetSecurity().ShouldUseClientCertificates()
-			// TODO: Review this. Can this be moved to a function? Multi-cluster key override is annoying - is it still necesssary?
-			authOpts.AutoPEMKeyFilePath = util.PvcMmsHomeMountPath + "/" + util.AgentSecretName + "/" + agentCertSecretSelector.Key
 		}
 		if ar.GetSecurity().ShouldUseLDAP(ac.Auth.AutoAuthMechanism) {
 			secretRef := ar.GetSecurity().Authentication.Agents.AutomationPasswordSecretRef

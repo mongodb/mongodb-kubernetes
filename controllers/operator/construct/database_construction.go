@@ -95,7 +95,6 @@ type DatabaseStatefulSetOptions struct {
 	PodVars                 *env.PodEnvVars
 	CurrentAgentAuthMode    string
 	CertificateHash         string
-	AgentCertificateHash    string
 	PrometheusTLSCertHash   string
 	InternalClusterHash     string
 	ServicePort             int32

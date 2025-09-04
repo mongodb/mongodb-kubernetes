@@ -494,11 +494,8 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			return workflow.Failed(err)
 		}
 
-		agentCertSecretName := mrs.GetSecurity().AgentClientCertificateSecretName(mrs.Name)
-
 		// get cert hash of tls secret if it exists
 		certHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, mrs.Namespace, mrsConfig.CertSecretName, "", log)
-		agentCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, mrs.Namespace, agentCertSecretName, "", log)
 		internalCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, mrs.Namespace, mrsConfig.InternalClusterSecretName, "", log)
 		log.Debugf("Creating StatefulSet %s with %d replicas in cluster: %s", mrs.MultiStatefulsetName(clusterNum), replicasThisReconciliation, item.ClusterName)
 
@@ -528,7 +525,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			PodEnvVars(newPodVars(conn, projectConfig, mrs.Spec.LogLevel)),
 			CurrentAgentAuthMechanism(currentAgentAuthMode),
 			CertificateHash(certHash),
-			AgentCertificateHash(agentCertHash),
 			InternalClusterHash(internalCertHash),
 			WithLabels(mrs.GetOwnerLabels()),
 			WithAdditionalMongodConfig(mrs.Spec.GetAdditionalMongodConfig()),
@@ -766,7 +762,8 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 	// TODO: Move hash reads somewhere up the call stack
 	agentCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, mrs.Namespace, agentCertSecretName, "", log)
 	agentCertSecretSelector := corev1.SecretKeySelector{
-		LocalObjectReference: corev1.LocalObjectReference{Name: agentCertSecretName + certs.OperatorGeneratedCertSuffix},
+		// TODO: If we add certs.OperatorGeneratedCertSuffix to the name here - multicluster won't work. Unify it.
+		LocalObjectReference: corev1.LocalObjectReference{Name: agentCertSecretName},
 		Key:                  agentCertHash,
 	}
 	status, additionalReconciliationRequired := r.updateOmAuthentication(ctx, conn, rs.GetProcessNames(), &mrs, agentCertSecretSelector, caFilePath, internalClusterCertPath, isRecovering, log)
