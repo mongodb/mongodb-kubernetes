@@ -123,6 +123,8 @@ const (
 	AppDBMmsCaFileDirInContainer = "/opt/mongodb/mms/ca/"
 
 	AutomationAgentName = "mms-automation-agent"
+	// AgentCertMountPath defines where in the Pod the ca cert will be mounted.
+	AgentCertMountPath = PvcMmsHomeMountPath + "/" + AgentSecretName
 	// TODO: Remove this one
 	AutomationAgentPemSecretKey = AutomationAgentName + "-pem"
 

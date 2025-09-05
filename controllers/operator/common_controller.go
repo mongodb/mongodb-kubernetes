@@ -492,7 +492,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 			}
 			// TODO: Review this. Can this be moved to a function? Multi-cluster key override is annoying - is it still necesssary?
 			// Must be before we override agentCertSecretSelector.Key for multicluster
-			authOpts.AutoPEMKeyFilePath = util.PvcMmsHomeMountPath + "/" + util.AgentSecretName + "/" + agentCertSecretSelector.Key
+			authOpts.AutoPEMKeyFilePath = util.AgentCertMountPath + "/" + agentCertSecretSelector.Key
 
 			// If the agent secret is of type TLS, we can find the certificate under the standard key,
 			// otherwise the concatenated PEM secret would contain the certificate and keys under the selector's

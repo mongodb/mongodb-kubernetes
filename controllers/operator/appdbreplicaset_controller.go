@@ -541,7 +541,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	agentCertSecretName := opsManager.Spec.AppDB.GetSecurity().AgentClientCertificateSecretName(opsManager.Name)
 	agentCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, opsManager.Namespace, agentCertSecretName, "", log)
 	// TODO: Review this. Can this be moved to a function?
-	autoPEMKeyFilePath := util.PvcMmsHomeMountPath + "/" + util.AgentSecretName + "/" + agentCertHash
+	autoPEMKeyFilePath := util.AgentCertMountPath + "/" + agentCertHash
 
 	podVars, err := r.tryConfigureMonitoringInOpsManager(ctx, opsManager, opsManagerUserPassword, autoPEMKeyFilePath, log)
 	// it's possible that Ops Manager will not be available when we attempt to configure AppDB monitoring
