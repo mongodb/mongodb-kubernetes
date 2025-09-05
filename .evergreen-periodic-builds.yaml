@@ -2,11 +2,6 @@ include:
   - filename: .evergreen-functions.yml
   - filename: .evergreen-tasks.yml
 
-parameters:
-  - key: pin_tag_at
-    value: 00:00
-    description: Pin tags at this time of the day. Midnight by default.
-
 variables:
   - &setup_group
     setup_group_can_fail_task: true
