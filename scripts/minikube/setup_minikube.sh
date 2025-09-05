@@ -149,6 +149,7 @@ start_minikube_cluster() {
   "${PROJECT_DIR:-.}/bin/minikube" delete 2>/dev/null || true
 
   local start_args=("--driver=podman")
+  start_args+=("--cpus=4" "--memory=8g")
 
   if [[ "${ARCH}" == "ppc64le" ]]; then
     echo "Using custom kicbase image for ppc64le with crictl..."
