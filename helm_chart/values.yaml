@@ -199,7 +199,6 @@ community:
     version: 108.0.2.8729-1
   registry:
     agent: quay.io/mongodb
-  name: mongodb-database
   resource:
     name: mongodb-replica-set
     version: 4.4.0
