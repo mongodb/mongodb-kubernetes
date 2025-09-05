@@ -4,7 +4,8 @@ include:
 tasks:
   - name: build_test_image_for_smoke_tests
     display_name: build_test_image_for_smoke_tests
-    tags: [ "e2e_smoke_release_test_suite" ]
+    tags: [ "image_release" ]
+    allowed_requesters: [ "patch", "github_tag" ]
     commands:
       - func: clone
       - func: setup_building_host
