@@ -1,0 +1,16 @@
+# user performing search queries
+apiVersion: mongodb.com/v1
+kind: MongoDBUser
+metadata:
+  name: mdb-user
+spec:
+  username: mdb-user
+  db: admin
+  mongodbResourceRef:
+    name: mdb-rs
+  passwordSecretKeyRef:
+    name: mdb-user-password
+    key: password
+  roles:
+  - name: readWrite
+    db: sample_mflix

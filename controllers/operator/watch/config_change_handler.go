@@ -14,8 +14,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	corev1 "k8s.io/api/core/v1"
-
-	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
 )
 
 // Type is an enum for all kubernetes types watched by controller for changes for configuration
@@ -87,10 +85,14 @@ func (c *ResourcesHandler) doHandle(namespace, name string, q workqueue.TypedRat
 
 // Seems we don't need to react on config map/secret removal..
 func (c *ResourcesHandler) Delete(ctx context.Context, e event.TypedDeleteEvent[client.Object], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	switch v := e.Object.(type) {
-	case *rolev1.ClusterMongoDBRole:
-		c.doHandle(v.GetNamespace(), v.GetName(), q)
+	switch e.Object.(type) {
+	case *corev1.ConfigMap:
+		return
+	case *corev1.Secret:
+		return
 	}
+
+	c.doHandle(e.Object.GetNamespace(), e.Object.GetName(), q)
 }
 
 func (c *ResourcesHandler) Generic(context.Context, event.TypedGenericEvent[client.Object], workqueue.TypedRateLimitingInterface[reconcile.Request]) {

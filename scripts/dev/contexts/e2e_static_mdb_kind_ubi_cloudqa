@@ -17,3 +17,5 @@ export CUSTOM_OM_VERSION
 
 export CUSTOM_MDB_PREV_VERSION=6.0.16
 export CUSTOM_MDB_VERSION=7.0.5
+
+source "${script_dir}/variables/mongodb_search_dev"
