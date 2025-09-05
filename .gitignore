@@ -42,7 +42,6 @@ public/architectures/**/certs/*
 public/architectures/**/secrets/*
 
 docker/mongodb-kubernetes-appdb/content/readinessprobe
-mongodb-kubernetes
 docker/mongodb-kubernetes-operator/content/mongodb-kubernetes-operator.tar
 docker/mongodb-kubernetes-tests/helm_chart/
 docker/mongodb-kubernetes-tests/public/
