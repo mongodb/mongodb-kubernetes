@@ -1316,4 +1316,3 @@ tasks:
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
-
