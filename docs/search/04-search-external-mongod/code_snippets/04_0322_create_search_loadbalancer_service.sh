@@ -16,10 +16,10 @@ YAML
 echo "Waiting for external IP to be assigned to service ${MDB_SEARCH_HOSTNAME}..."
 TIMEOUT=120  # 2 minutes timeout
 ELAPSED=0
-while [ $ELAPSED -lt $TIMEOUT ]; do
+while [ ${ELAPSED} -lt ${TIMEOUT} ]; do
   EXTERNAL_IP=$(kubectl get service "${MDB_SEARCH_HOSTNAME}" --context "${K8S_CTX}" -n "${MDB_NS}" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
-  if [ -n "$EXTERNAL_IP" ] && [ "$EXTERNAL_IP" != "null" ]; then
-    echo "External IP assigned: $EXTERNAL_IP"
+  if [ -n "${EXTERNAL_IP}" ] && [ "${EXTERNAL_IP}" != "null" ]; then
+    echo "External IP assigned: ${EXTERNAL_IP}"
     break
   fi
   echo "Still waiting for external IP assignment... (${ELAPSED}s/${TIMEOUT}s)"
@@ -27,7 +27,7 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
   ELAPSED=$((ELAPSED + 5))
 done
 
-if [ $ELAPSED -ge $TIMEOUT ]; then
+if [ ${ELAPSED} -ge ${TIMEOUT} ]; then
   echo "ERROR: Timeout reached (${TIMEOUT}s) while waiting for external IP assignment"
   echo "LoadBalancer service may take longer to provision or there may be an issue"
   exit 1
