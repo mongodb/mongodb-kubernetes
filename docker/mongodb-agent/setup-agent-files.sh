@@ -38,18 +38,17 @@ link_agent_scripts() {
   done
 }
 
-# Link probe scripts from init container, replacing dummy ones
-link_probe_scripts() {
+# Verify probe scripts are available in init container
+verify_probe_scripts() {
   local init_probes_dir="$1"
 
-  echo "Linking probe scripts..."
+  echo "Verifying probe scripts are available in init container..."
   for probe in probe.sh readinessprobe; do
     if [[ -f "$init_probes_dir/$probe" ]]; then
-      ln -sf "$init_probes_dir/$probe" "$SCRIPTS_DIR/$probe"
-      echo "Replaced dummy $probe with real one"
+      echo "Verified $probe exists in init container"
     else
-      echo "WARNING: $probe not found in init container"
-      exit 1
+      echo "WARNING: $probe not found in init container at $init_probes_dir/$probe"
+      echo "Dynamic probe scripts will handle runtime discovery"
     fi
   done
 }
@@ -79,13 +78,14 @@ main() {
 
     # Link scripts from init container
     link_agent_scripts "$init_scripts"
-    link_probe_scripts "$init_probes"
+    verify_probe_scripts "$init_probes"
 
     echo "File setup completed successfully"
     exit 0
   else
-    echo "No init container found"
-    exit 1
+    echo "WARNING: No init container found during setup"
+    echo "Dynamic probe scripts will attempt runtime discovery when called"
+    exit 0
   fi
 }
 
