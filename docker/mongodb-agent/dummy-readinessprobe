@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+# Dynamic readiness probe that locates and executes the actual probe from init-database container
 
 # Function to find the init-database container PID
 find_init_container() {

@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+# Dynamic liveness probe that locates and executes the actual probe from init-database container
 
 find_init_container() {
   local pid
