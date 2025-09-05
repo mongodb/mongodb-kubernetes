@@ -61,7 +61,13 @@ install_pyenv() {
 }
 
 ensure_required_python() {
-    local required_version="${PYTHON_VERSION:-3.13.7}"
+    if [[ -z "${PYTHON_VERSION:-}" ]]; then
+        echo "Error: PYTHON_VERSION environment variable is not set or empty" >&2
+        echo "PYTHON_VERSION should be set in root-context" >&2
+        return 1
+    fi
+
+    local required_version="${PYTHON_VERSION}"
 
     echo "Setting up Python ${required_version}..." >&2
 
@@ -73,14 +79,14 @@ ensure_required_python() {
     # Check if the required version is already installed
     if pyenv versions --bare | grep -q "^${required_version}$"; then
         echo "Python ${required_version} already installed via pyenv" >&2
-        pyenv global "${required_version}"
+        pyenv shell "${required_version}"
         return 0
     fi
 
     # Its not installed!
     echo "Installing Python ${required_version} via pyenv..." >&2
     if pyenv install "${required_version}"; then
-        pyenv global "${required_version}"
+        pyenv shell "${required_version}"
         return 0
     else
         echo "Error: Failed to install Python ${required_version} via pyenv" >&2
