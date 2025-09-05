@@ -23,6 +23,14 @@ if [[ -z "${required_version:-}" ]]; then
   exit 1
 fi
 
-pyenv shell "${required_version}"
+current_python_version=$(python --version 2>&1 | awk '{print $2}')
+if [[ "${current_python_version}" != "${required_version}" ]]; then
+  echo -e "${RED}Detected mismatched version of python in your venv (detected version: ${current_python_version}).${NO_COLOR}"
+  echo -e "${RED}Please re-run scripts/dev/install.sh or recreate venv using Python ${PYTHON_VERSION} manually by running (scripts/dev/recreate_python_venv.sh).${NO_COLOR}"
+  echo "which python: $(which python)"
+  echo "python --version:"
+  python --version
+  exit 1
+fi
 
 python "$@"
