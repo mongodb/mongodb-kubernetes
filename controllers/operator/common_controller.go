@@ -30,6 +30,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
+	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
@@ -231,7 +232,7 @@ func (r *ReconcileCommonController) SetupCommonWatchers(watcherResource WatcherR
 		} else {
 			secretNames = []string{security.MemberCertificateSecretName(resourceNameForSecret)}
 			if security.ShouldUseX509("") {
-				secretNames = append(secretNames, security.AgentClientCertificateSecretName(resourceNameForSecret).Name)
+				secretNames = append(secretNames, security.AgentClientCertificateSecretName(resourceNameForSecret))
 			}
 		}
 		r.resourceWatcher.RegisterWatchedTLSResources(objectToReconcile, security.TLSConfig.CA, secretNames)
@@ -489,6 +490,10 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 			if err := r.client.Get(ctx, kube.ObjectKey(ar.GetNamespace(), agentCertSecretSelector.Name), agentSecret); client.IgnoreNotFound(err) != nil {
 				return workflow.Failed(err), false
 			}
+			// TODO: Review this. Can this be moved to a function? Multi-cluster key override is annoying - is it still necesssary?
+			// Must be before we override agentCertSecretSelector.Key for multicluster
+			authOpts.AutoPEMKeyFilePath = util.AgentCertMountPath + "/" + agentCertSecretSelector.Key
+
 			// If the agent secret is of type TLS, we can find the certificate under the standard key,
 			// otherwise the concatenated PEM secret would contain the certificate and keys under the selector's
 			// Key identifying the agent.
@@ -595,16 +600,22 @@ func (r *ReconcileCommonController) readAgentSubjectsFromSecret(ctx context.Cont
 }
 
 func (r *ReconcileCommonController) clearProjectAuthenticationSettings(ctx context.Context, conn om.Connection, mdb *mdbv1.MongoDB, processNames []string, log *zap.SugaredLogger) error {
-	secretKeySelector := mdb.Spec.Security.AgentClientCertificateSecretName(mdb.Name)
+	agentCertSecretName := mdb.Spec.GetSecurity().AgentClientCertificateSecretName(mdb.Name)
+
 	agentSecret := &corev1.Secret{}
-	if err := r.client.Get(ctx, kube.ObjectKey(mdb.Namespace, secretKeySelector.Name), agentSecret); client.IgnoreNotFound(err) != nil {
+	if err := r.client.Get(ctx, kube.ObjectKey(mdb.Namespace, agentCertSecretName), agentSecret); client.IgnoreNotFound(err) != nil {
 		return nil
 	}
 
 	if agentSecret.Type == corev1.SecretTypeTLS {
-		secretKeySelector.Name = fmt.Sprintf("%s%s", secretKeySelector.Name, certs.OperatorGeneratedCertSuffix)
+		agentCertSecretName = fmt.Sprintf("%s%s", agentCertSecretName, certs.OperatorGeneratedCertSuffix)
 	}
 
+	agentCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, mdb.Namespace, agentCertSecretName, "", log)
+	secretKeySelector := corev1.SecretKeySelector{
+		LocalObjectReference: corev1.LocalObjectReference{Name: agentCertSecretName},
+		Key:                  agentCertHash,
+	}
 	userOpts, err := r.readAgentSubjectsFromSecret(ctx, mdb.Namespace, secretKeySelector, log)
 	err = client.IgnoreNotFound(err)
 	if err != nil {
@@ -631,8 +642,8 @@ func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(ctx context.
 		if !security.IsTLSEnabled() {
 			return workflow.Failed(xerrors.Errorf("Authentication mode for project is x509 but this MDB resource is not TLS enabled"))
 		}
-		agentSecretName := security.AgentClientCertificateSecretName(configurator.GetName()).Name
-		err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, configurator.GetSecretReadClient(), configurator.GetSecretWriteClient(), kube.ObjectKey(configurator.GetNamespace(), agentSecretName))
+		agentSecretName := security.AgentClientCertificateSecretName(configurator.GetName())
+		err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, configurator.GetSecretReadClient(), configurator.GetSecretWriteClient(), kube.ObjectKey(configurator.GetNamespace(), agentSecretName), log)
 		if err != nil {
 			return workflow.Failed(err)
 		}

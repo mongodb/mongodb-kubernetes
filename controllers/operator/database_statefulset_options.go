@@ -54,6 +54,13 @@ func CertificateHash(hash string) func(options *construct.DatabaseStatefulSetOpt
 	}
 }
 
+// AgentCertsHash will assign the given AgentCertsHash during StatefulSet construction.
+func AgentCertsHash(hash string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.AgentCertsHash = hash
+	}
+}
+
 // InternalClusterHash will assign the given InternalClusterHash during StatefulSet construction.
 func InternalClusterHash(hash string) func(options *construct.DatabaseStatefulSetOptions) {
 	return func(options *construct.DatabaseStatefulSetOptions) {

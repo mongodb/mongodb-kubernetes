@@ -319,7 +319,12 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, con
 		return workflow.Failed(err)
 	}
 
-	agentCertSecretSelector := s.GetSecurity().AgentClientCertificateSecretName(s.Name)
+	agentCertSecretName := s.GetSecurity().AgentClientCertificateSecretName(s.Name)
+	agentCertHash := pem.ReadHashFromSecret(ctx, r.SecretClient, s.Namespace, agentCertSecretName, "", log)
+	agentCertSecretSelector := corev1.SecretKeySelector{
+		LocalObjectReference: corev1.LocalObjectReference{Name: agentCertSecretName + certs.OperatorGeneratedCertSuffix},
+		Key:                  agentCertHash,
+	}
 
 	// TODO standalone PR
 	status, additionalReconciliationRequired := r.updateOmAuthentication(ctx, conn, []string{set.Name}, s, agentCertSecretSelector, "", "", isRecovering, log)

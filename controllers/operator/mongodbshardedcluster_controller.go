@@ -1084,7 +1084,13 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		return workflowStatus
 	}
 
-	agentCertSecretSelector := sc.GetSecurity().AgentClientCertificateSecretName(sc.Name)
+	agentCertSecretName := sc.GetSecurity().AgentClientCertificateSecretName(sc.Name)
+	agentCertHash := enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, agentCertSecretName, "", log)
+	agentCertSecretSelector := corev1.SecretKeySelector{
+		// TODO: If we add certs.OperatorGeneratedCertSuffix to the name here - multicluster won't work. Unify it.
+		LocalObjectReference: corev1.LocalObjectReference{Name: agentCertSecretName},
+		Key:                  agentCertHash,
+	}
 
 	opts = deploymentOptions{
 		podEnvVars:              podEnvVars,
@@ -2280,6 +2286,7 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 		PodEnvVars(opts.podEnvVars),
 		CurrentAgentAuthMechanism(opts.currentAgentAuthMode),
 		CertificateHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, certSecretName, databaseSecretPath, log)),
+		AgentCertsHash(opts.agentCertSecretSelector.Key),
 		InternalClusterHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, internalClusterSecretName, databaseSecretPath, log)),
 		PrometheusTLSCertHash(opts.prometheusCertHash),
 		WithVaultConfig(vaultConfig),
@@ -2311,6 +2318,7 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 		PodEnvVars(opts.podEnvVars),
 		CurrentAgentAuthMechanism(opts.currentAgentAuthMode),
 		CertificateHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, certSecretName, vaultConfig.DatabaseSecretPath, log)),
+		AgentCertsHash(opts.agentCertSecretSelector.Key),
 		InternalClusterHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, internalClusterSecretName, vaultConfig.DatabaseSecretPath, log)),
 		PrometheusTLSCertHash(opts.prometheusCertHash),
 		WithVaultConfig(vaultConfig),
@@ -2341,6 +2349,7 @@ func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc 
 		PodEnvVars(opts.podEnvVars),
 		CurrentAgentAuthMechanism(opts.currentAgentAuthMode),
 		CertificateHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, certSecretName, databaseSecretPath, log)),
+		AgentCertsHash(opts.agentCertSecretSelector.Key),
 		InternalClusterHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, internalClusterSecretName, databaseSecretPath, log)),
 		PrometheusTLSCertHash(opts.prometheusCertHash),
 		WithVaultConfig(vaultConfig),

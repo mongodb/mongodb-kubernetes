@@ -538,7 +538,12 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 		return result.OK()
 	}
 
-	podVars, err := r.tryConfigureMonitoringInOpsManager(ctx, opsManager, opsManagerUserPassword, log)
+	agentCertSecretName := opsManager.Spec.AppDB.GetSecurity().AgentClientCertificateSecretName(opsManager.Name)
+	agentCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, opsManager.Namespace, agentCertSecretName, "", log)
+	// TODO: Review this. Can this be moved to a function?
+	autoPEMKeyFilePath := util.AgentCertMountPath + "/" + agentCertHash
+
+	podVars, err := r.tryConfigureMonitoringInOpsManager(ctx, opsManager, opsManagerUserPassword, autoPEMKeyFilePath, log)
 	// it's possible that Ops Manager will not be available when we attempt to configure AppDB monitoring
 	// in Ops Manager. This is not a blocker to continue with the rest of the reconciliation.
 	if err != nil {
@@ -1621,7 +1626,7 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDbAgentApiKey(ctx context.Context, o
 
 // tryConfigureMonitoringInOpsManager attempts to configure monitoring in Ops Manager. This might not be possible if Ops Manager
 // has not been created yet, if that is the case, an empty PodVars will be returned.
-func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx context.Context, opsManager *omv1.MongoDBOpsManager, opsManagerUserPassword string, log *zap.SugaredLogger) (env.PodEnvVars, error) {
+func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx context.Context, opsManager *omv1.MongoDBOpsManager, opsManagerUserPassword string, autoPEMKeyFilePath string, log *zap.SugaredLogger) (env.PodEnvVars, error) {
 	var operatorVaultSecretPath string
 	if r.VaultClient != nil {
 		operatorVaultSecretPath = r.VaultClient.OperatorSecretPath()
@@ -1660,6 +1665,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 		Mechanisms:         []string{util.SCRAM},
 		ClientCertificates: util.OptionalClientCertficates,
 		AutoUser:           util.AutomationAgentUserName,
+		AutoPEMKeyFilePath: autoPEMKeyFilePath,
 		CAFilePath:         util.CAFilePathInContainer,
 	}
 	err = authentication.Configure(conn, opts, false, log)
