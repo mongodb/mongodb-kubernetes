@@ -47,10 +47,10 @@ RUN mkdir -p "${MMS_LOG_DIR}" \
         && mkdir -p "${MMS_HOME}" \
         && chmod -R 0775 "${MMS_HOME}"
 
-ARG VERSION
+ARG version
 
 LABEL name="MongoDB Kubernetes Database" \
-      version="${VERSION}" \
+      version="${version}" \
       summary="MongoDB Kubernetes Database Image" \
       description="MongoDB Kubernetes Database Image" \
       vendor="MongoDB" \
