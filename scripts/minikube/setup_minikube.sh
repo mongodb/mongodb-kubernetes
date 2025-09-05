@@ -13,9 +13,9 @@ set_limits() {
   echo "Increasing fs.inotify.max_user_watches"
   sudo sysctl -w fs.inotify.max_user_watches=10485760
 
-  echo "Increasing the number of open files"
+  echo "Increasing the number of open files and processes"
   nofile_max=$(cat /proc/sys/fs/nr_open)
-  nproc_max=$(ulimit -u)
+  nproc_max=65536
   sudo tee -a /etc/security/limits.conf <<EOF
   root hard nofile ${nofile_max}
   root hard nproc ${nproc_max}
@@ -26,6 +26,11 @@ set_limits() {
   * soft nofile ${nofile_max}
   * soft nproc ${nproc_max}
 EOF
+
+  echo "Setting kernel thread limits"
+  sudo sysctl -w kernel.threads-max=131072
+  sudo sysctl -w kernel.pid_max=131072
+  sudo sysctl -w vm.max_map_count=262144
 }
 
 # retrieve arch variable off the shell command line
