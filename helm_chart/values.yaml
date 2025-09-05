@@ -173,7 +173,6 @@ registry:
   initOpsManager: quay.io/mongodb
   opsManager: quay.io/mongodb
   initAppDb: quay.io/mongodb
-  appDb: quay.io/mongodb
   agent: quay.io/mongodb
 
   # This is only used by the MongoDBCommunity resource reconciler - START
@@ -200,7 +199,6 @@ community:
     version: 108.0.2.8729-1
   registry:
     agent: quay.io/mongodb
-  name: mongodb-database
   resource:
     name: mongodb-replica-set
     version: 4.4.0
