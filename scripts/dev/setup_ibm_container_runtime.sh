@@ -15,33 +15,22 @@ fi
 current_version=$(crun --version | head -n1)
 echo "✅ Using crun: ${current_version}"
 
-# Check if we have a reasonably recent version (1.10+)
-crun_major=$(echo "${current_version}" | grep -oE '[0-9]+\.[0-9]+' | cut -d. -f1)
-crun_minor=$(echo "${current_version}" | grep -oE '[0-9]+\.[0-9]+' | cut -d. -f2)
-
-if [[ ${crun_major} -lt 1 ]] || [[ ${crun_major} -eq 1 && ${crun_minor} -lt 10 ]]; then
-  echo "⚠️ Warning: crun version ${current_version} is older than recommended (1.10+)"
-  echo "   This may cause compatibility issues with minikube"
-fi
-
 # Clean up any existing conflicting configurations
 echo "Cleaning up existing container configurations..."
 rm -f ~/.config/containers/containers.conf 2>/dev/null || true
 sudo rm -f /root/.config/containers/containers.conf 2>/dev/null || true
 sudo rm -f /etc/containers/containers.conf 2>/dev/null || true
 
-# Configure containers.conf with proper crun settings
+# Configure containers.conf with minimal, compatible settings
 crun_path=$(which crun)
 echo "Using crun path: ${crun_path}"
 
+# Use minimal configuration that works across all crun versions
 config="[containers]
 cgroup_manager = \"cgroupfs\"
 
 [engine]
-runtime = \"crun\"
-
-[engine.runtimes]
-crun = [\"${crun_path}\", \"--systemd-cgroup=false\"]"
+runtime = \"crun\""
 
 # User config
 mkdir -p ~/.config/containers
@@ -50,3 +39,5 @@ echo "$config" > ~/.config/containers/containers.conf
 # System config
 sudo mkdir -p /root/.config/containers
 echo "$config" | sudo tee /root/.config/containers/containers.conf >/dev/null
+
+echo "✅ Configured crun"
