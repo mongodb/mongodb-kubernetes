@@ -79,14 +79,14 @@ ensure_required_python() {
     # Check if the required version is already installed
     if pyenv versions --bare | grep -q "^${required_version}$"; then
         echo "Python ${required_version} already installed via pyenv" >&2
-        pyenv shell "${required_version}"
+        pyenv global "${required_version}"
         return 0
     fi
 
     # Its not installed!
     echo "Installing Python ${required_version} via pyenv..." >&2
     if pyenv install "${required_version}"; then
-        pyenv shell "${required_version}"
+        pyenv global "${required_version}"
         return 0
     else
         echo "Error: Failed to install Python ${required_version} via pyenv" >&2
