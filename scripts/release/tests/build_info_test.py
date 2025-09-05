@@ -86,7 +86,7 @@ def test_load_build_info_development(git_repo: Repo):
                 dockerfile_path="docker/mongodb-agent/Dockerfile",
             ),
             "ops-manager": ImageInfo(
-                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-ops-manager"],
+                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-ops-manager-ubi"],
                 platforms=["linux/amd64"],
                 version="om-version-from-release.json",
                 dockerfile_path="docker/mongodb-enterprise-ops-manager/Dockerfile",
@@ -187,7 +187,7 @@ def test_load_build_info_patch(git_repo: Repo):
                 dockerfile_path="docker/mongodb-agent/Dockerfile",
             ),
             "ops-manager": ImageInfo(
-                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-ops-manager"],
+                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-ops-manager-ubi"],
                 platforms=["linux/amd64"],
                 version="om-version-from-release.json",
                 dockerfile_path="docker/mongodb-enterprise-ops-manager/Dockerfile",
@@ -306,7 +306,9 @@ def test_load_build_info_staging(git_repo: Repo):
                 sign=True,
             ),
             "ops-manager": ImageInfo(
-                repositories=["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-enterprise-ops-manager"],
+                repositories=[
+                    "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-enterprise-ops-manager-ubi"
+                ],
                 platforms=["linux/amd64"],
                 version="om-version-from-release.json",
                 dockerfile_path="docker/mongodb-enterprise-ops-manager/Dockerfile",
@@ -437,7 +439,7 @@ def test_load_build_info_manual_release(git_repo: Repo):
                 sign=True,
             ),
             "ops-manager": ImageInfo(
-                repositories=["quay.io/mongodb/mongodb-enterprise-ops-manager"],
+                repositories=["quay.io/mongodb/mongodb-enterprise-ops-manager-ubi"],
                 platforms=["linux/amd64"],
                 version=None,  # Version is None for manual_release scenario
                 dockerfile_path="docker/mongodb-enterprise-ops-manager/Dockerfile",
