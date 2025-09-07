@@ -15,5 +15,5 @@ export CUSTOM_MDB_PREV_VERSION=5.0.7
 
 export CUSTOM_APPDB_VERSION=6.0.21-ent
 export TEST_MODE=opsmanager
-export OPS_MANAGER_REGISTRY=268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
-export APPDB_REGISTRY=268558157000.dkr.ecr.us-east-1.amazonaws.com/dev
+export OPS_MANAGER_REGISTRY="${BASE_REPO_URL}"
+export APPDB_REGISTRY="${BASE_REPO_URL}"

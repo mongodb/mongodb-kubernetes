@@ -55,9 +55,6 @@ export MDB_OM_VERSION_MAPPING_PATH="${PROJECT_DIR}/release.json"
 export ENV_FILE="${PROJECT_DIR}/.ops-manager-env"
 export NAMESPACE_FILE="${PROJECT_DIR}/.namespace"
 
-# TO ensure we don't release by accident via pipeline.py
-export skip_tags="release"
-
 # This setting is set if you want to remove your namespaces after running the tests
 export ALWAYS_REMOVE_TESTING_NAMESPACE="true"
 

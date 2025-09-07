@@ -8,8 +8,8 @@ SCRIPTS_DIR="/opt/scripts"
 # readiness always returns failure
 setup_dummy_probes() {
   echo "Setting up dummy probe scripts..."
-  cp /usr/local/bin/dummy-probe.sh "$SCRIPTS_DIR/probe.sh"
-  cp /usr/local/bin/dummy-readinessprobe "$SCRIPTS_DIR/readinessprobe"
+  cp --remove-destination /usr/local/bin/dummy-probe.sh "$SCRIPTS_DIR/probe.sh"
+  cp --remove-destination /usr/local/bin/dummy-readinessprobe "$SCRIPTS_DIR/readinessprobe"
   echo "Dummy probe scripts ready"
 }
 

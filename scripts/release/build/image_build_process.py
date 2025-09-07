@@ -116,7 +116,6 @@ def execute_docker_build(
         docker_cmd.buildx.build(
             context_path=path,
             file=dockerfile,
-            # TODO: add tag for release builds (OLM immutable tag)
             tags=tags,
             platforms=platforms,
             builder=builder_name,
