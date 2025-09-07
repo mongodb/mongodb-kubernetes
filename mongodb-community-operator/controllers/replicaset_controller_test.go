@@ -357,7 +357,7 @@ func TestBuildStatefulSet_ConfiguresUpdateStrategyCorrectly(t *testing.T) {
 		mdb.Spec.Version = "4.0.0"
 		mdb.Annotations[annotations.LastAppliedMongoDBVersion] = "4.0.0"
 		sts := appsv1.StatefulSet{}
-		buildStatefulSetModificationFunction(mdb, "fake-mongodbImage", AgentImage, "fake-versionUpgradeHookImage", "fake-readinessProbeImage")(&sts)
+		buildBaseStatefulSetModificationFunction(mdb, "fake-mongodbImage", AgentImage, "fake-versionUpgradeHookImage", "fake-readinessProbeImage", false)(&sts)
 		assert.Equal(t, appsv1.RollingUpdateStatefulSetStrategyType, sts.Spec.UpdateStrategy.Type)
 	})
 	t.Run("On No Version Change, First Version", func(t *testing.T) {
@@ -365,7 +365,7 @@ func TestBuildStatefulSet_ConfiguresUpdateStrategyCorrectly(t *testing.T) {
 		mdb.Spec.Version = "4.0.0"
 		delete(mdb.Annotations, annotations.LastAppliedMongoDBVersion)
 		sts := appsv1.StatefulSet{}
-		buildStatefulSetModificationFunction(mdb, "fake-mongodbImage", AgentImage, "fake-versionUpgradeHookImage", "fake-readinessProbeImage")(&sts)
+		buildBaseStatefulSetModificationFunction(mdb, "fake-mongodbImage", AgentImage, "fake-versionUpgradeHookImage", "fake-readinessProbeImage", false)(&sts)
 		assert.Equal(t, appsv1.RollingUpdateStatefulSetStrategyType, sts.Spec.UpdateStrategy.Type)
 	})
 	t.Run("On Version Change", func(t *testing.T) {
@@ -382,7 +382,7 @@ func TestBuildStatefulSet_ConfiguresUpdateStrategyCorrectly(t *testing.T) {
 
 		mdb.Annotations[annotations.LastAppliedMongoDBVersion] = string(bytes)
 		sts := appsv1.StatefulSet{}
-		buildStatefulSetModificationFunction(mdb, "fake-mongodbImage", AgentImage, "fake-versionUpgradeHookImage", "fake-readinessProbeImage")(&sts)
+		buildBaseStatefulSetModificationFunction(mdb, "fake-mongodbImage", AgentImage, "fake-versionUpgradeHookImage", "fake-readinessProbeImage", false)(&sts)
 		assert.Equal(t, appsv1.OnDeleteStatefulSetStrategyType, sts.Spec.UpdateStrategy.Type)
 	})
 }
