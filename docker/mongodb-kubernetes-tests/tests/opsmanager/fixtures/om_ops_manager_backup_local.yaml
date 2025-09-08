@@ -1,0 +1,144 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBOpsManager
+metadata:
+  name: om-backup
+spec:
+  replicas: 1
+  version: 6.0.13
+  adminCredentials: ops-manager-admin-secret
+  backup:
+    enabled: true
+    headDB:
+      storage: 500M
+    opLogStores:
+      - name: oplog1
+        mongodbResourceRef:
+          name: my-mongodb-oplog
+    blockStores:
+      - name: blockStore1
+        mongodbResourceRef:
+          name: my-mongodb-blockstore
+    s3Stores:
+      - name: s3Store1
+        mongodbResourceRef:
+          name: my-mongodb-s3
+        s3SecretRef:
+          name: my-s3-secret
+        pathStyleAccessEnabled: true
+        s3BucketEndpoint: s3.us-east-1.amazonaws.com
+        s3BucketName: test-bucket
+    statefulSet:
+      spec:
+        template:
+          spec:
+            volumes:
+              - name: mongodb-versions
+                persistentVolumeClaim:
+                  claimName: mongodb-versions-claim
+            containers:
+              - name: mongodb-backup-daemon
+                resources:
+                  requests:
+                    memory: 10G
+                  limits:
+                    memory: 10G
+                volumeMounts:
+                  - name: mongodb-versions
+                    mountPath: /mongodb-ops-manager/mongodb-releases
+
+  statefulSet:
+    spec:
+      template:
+        spec:
+          volumes:
+            - name: mongodb-versions
+              persistentVolumeClaim:
+                claimName: mongodb-versions-claim
+          containers:
+            - name: mongodb-ops-manager
+              volumeMounts:
+                - name: mongodb-versions
+                  mountPath: /mongodb-ops-manager/mongodb-releases
+          initContainers:
+            - name: setting-up-rhel-mongodb-4-2-8
+              image: curlimages/curl:latest
+              command:
+                - curl
+                - -L
+                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel80-4.2.8.tgz
+                - -o
+                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel80-4.2.8.tgz
+              volumeMounts:
+                - name: mongodb-versions
+                  mountPath: /mongodb-ops-manager/mongodb-releases
+            - name: setting-up-rhel-mongodb-6-0-21
+              image: curlimages/curl:latest
+              command:
+                - curl
+                - -L
+                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel8-6.0.21.tgz
+                - -o
+                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel8-6.0.21.tgz
+              volumeMounts:
+                - name: mongodb-versions
+                  mountPath: /mongodb-ops-manager/mongodb-releases
+            - name: setting-up-rhel-mongodb-7-0
+              image: curlimages/curl:latest
+              command:
+                - curl
+                - -L
+                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel8-7.0.18.tgz
+                - -o
+                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel8-7.0.18.tgz
+              volumeMounts:
+                - name: mongodb-versions
+                  mountPath: /mongodb-ops-manager/mongodb-releases
+            - name: setting-up-rhel-mongodb-7-0-ent
+              image: curlimages/curl:latest
+              command:
+                - curl
+                - -L
+                - https://downloads.mongodb.com/linux/mongodb-linux-x86_64-enterprise-rhel8-7.0.18.tgz
+                - -o
+                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-enterprise-rhel8-7.0.18.tgz
+            - name: setting-up-rhel9-mongodb-7-0-ent
+              image: curlimages/curl:latest
+              command:
+                - curl
+                - -L
+                - https://downloads.mongodb.com/linux/mongodb-linux-x86_64-enterprise-rhel90-7.0.18.tgz
+                - -o
+                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-enterprise-rhel90-7.0.18.tgz
+              volumeMounts:
+                - name: mongodb-versions
+                  mountPath: /mongodb-ops-manager/mongodb-releases
+            - name: setting-up-rhel-mongodb-8-0
+              image: curlimages/curl:latest
+              command:
+                - curl
+                - -L
+                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel8-8.0.6.tgz
+                - -o
+                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel8-8.0.6.tgz
+              volumeMounts:
+                - name: mongodb-versions
+                  mountPath: /mongodb-ops-manager/mongodb-releases
+
+  applicationDatabase:
+    members: 3
+    version: 6.0.5-ent
+
+  # Dev: adding this just to avoid wizard when opening OM UI
+  # (note, that to debug issues in OM you need to add 'spec.externalConnectivity.type=NodePort'
+  # and specify some port: 'port: 32400'. Don't forget to open it in AWS)
+  configuration:
+    automation.versions.source: local
+    mms.adminEmailAddr: cloud-manager-support@mongodb.com
+    mms.fromEmailAddr: cloud-manager-support@mongodb.com
+    mms.ignoreInitialUiSetup: "true"
+    mms.mail.hostname: email-smtp.us-east-1.amazonaws.com
+    mms.mail.port: "465"
+    mms.mail.ssl: "true"
+    mms.mail.transport: smtp
+    mms.minimumTLSVersion: TLSv1.2
+    mms.replyToEmailAddr: cloud-manager-support@mongodb.com
