@@ -174,10 +174,6 @@ parameters:
     value: "true"
     description: set this to false to suppress retries on failure
 
-  - key: pin_tag_at
-    value: 10:00
-    description: Pin tags at this time of the day. Midnight by default for periodic and 10 for releases.
-
   - key: OVERRIDE_VERSION_ID
     value: ""
     description: "Patch id to reuse images from other Evergreen build"

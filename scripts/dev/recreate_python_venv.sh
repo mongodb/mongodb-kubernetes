@@ -61,7 +61,13 @@ install_pyenv() {
 }
 
 ensure_required_python() {
-    local required_version="${PYTHON_VERSION:-3.13.7}"
+    if [[ -z "${PYTHON_VERSION:-}" ]]; then
+        echo "Error: PYTHON_VERSION environment variable is not set or empty" >&2
+        echo "PYTHON_VERSION should be set in root-context" >&2
+        return 1
+    fi
+
+    local required_version="${PYTHON_VERSION}"
 
     echo "Setting up Python ${required_version}..." >&2
 
@@ -70,25 +76,38 @@ ensure_required_python() {
         return 1
     fi
 
-    # Install specific pinned version for consistency across runs
-    echo "Installing Python ${required_version} via pyenv..." >&2
-    # Use --skip-existing to avoid errors if version already exists
-    if pyenv install --skip-existing "${required_version}"; then
+    # Check if the required version is already installed
+    if pyenv versions --bare | grep -q "^${required_version}$"; then
+        echo "Python ${required_version} already installed via pyenv" >&2
         pyenv global "${required_version}"
         return 0
     fi
+
+    # Its not installed!
+    echo "Installing Python ${required_version} via pyenv..." >&2
+    if pyenv install "${required_version}"; then
+        pyenv global "${required_version}"
+        return 0
+    else
+        echo "Error: Failed to install Python ${required_version} via pyenv" >&2
+        return 1
+    fi
 }
 
-if [[ -d "${PROJECT_DIR}"/venv ]]; then
-  echo "Removing venv..."
-  cd "${PROJECT_DIR}"
+cd "${PROJECT_DIR}"
+if [[ -d "venv" ]]; then
+  echo "Removing existing venv..." >&2
   rm -rf "venv"
+  echo "Existing venv removed" >&2
+else
+  echo "No existing venv found" >&2
 fi
 
 # Ensure required Python version is available
 ensure_required_python
 
-python3 -m venv venv
+echo "Using Python: $(which python) ($(python --version))" >&2
+python -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
 
@@ -102,5 +121,4 @@ else
 fi
 
 echo "Python venv was recreated successfully."
-echo "Current python path: $(which python)"
-python --version
+echo "Using Python: $(which python) ($(python --version))" >&2

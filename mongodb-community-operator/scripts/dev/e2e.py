@@ -7,7 +7,6 @@ from typing import Dict
 
 import k8s_conditions
 import yaml
-from dev_config import DevConfig, Distro, load_config
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 
