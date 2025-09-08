@@ -13,9 +13,9 @@ set_limits() {
   echo "Increasing fs.inotify.max_user_watches"
   sudo sysctl -w fs.inotify.max_user_watches=10485760
 
-  echo "Increasing the number of open files"
+  echo "Increasing the number of open files and processes"
   nofile_max=$(cat /proc/sys/fs/nr_open)
-  nproc_max=$(ulimit -u)
+  nproc_max=65536
   sudo tee -a /etc/security/limits.conf <<EOF
   root hard nofile ${nofile_max}
   root hard nproc ${nproc_max}
@@ -26,6 +26,11 @@ set_limits() {
   * soft nofile ${nofile_max}
   * soft nproc ${nproc_max}
 EOF
+
+  echo "Setting kernel thread limits"
+  sudo sysctl -w kernel.threads-max=131072
+  sudo sysctl -w kernel.pid_max=131072
+  sudo sysctl -w vm.max_map_count=262144
 }
 
 # retrieve arch variable off the shell command line
@@ -149,6 +154,7 @@ start_minikube_cluster() {
   "${PROJECT_DIR:-.}/bin/minikube" delete 2>/dev/null || true
 
   local start_args=("--driver=podman")
+  start_args+=("--cpus=4" "--memory=8g")
 
   if [[ "${ARCH}" == "ppc64le" ]]; then
     echo "Using custom kicbase image for ppc64le with crictl..."
@@ -171,24 +177,6 @@ start_minikube_cluster() {
   fi
 }
 
-setup_podman() {
-  echo "Setting up podman for ${ARCH}..."
-
-  # Configure podman to use cgroupfs instead of systemd in CI
-  mkdir -p ~/.config/containers
-  cat > ~/.config/containers/containers.conf << EOF
-[containers]
-cgroup_manager = "cgroupfs"
-events_logger = "file"
-
-[engine]
-cgroup_manager = "cgroupfs"
-EOF
-
-}
-
-# Setup podman and container runtime
-setup_podman
 set_limits
 download_minikube
 
@@ -231,7 +219,6 @@ echo "=========================================="
 echo "✅ Setup Summary"
 echo "=========================================="
 echo "Architecture: ${ARCH}"
-echo "Container Runtime: podman"
 echo "Minikube Driver: podman"
 echo "Minikube: Default cluster"
 echo "Minikube: ${minikube_version}"
