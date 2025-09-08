@@ -601,6 +601,9 @@ task_groups:
     tasks:
       - e2e_community_replicaset_scale
       - e2e_search_community_basic
+      - e2e_search_community_tls
+      - e2e_search_external_basic
+      - e2e_search_external_tls
 
   # This is the task group that contains all the tests run in the e2e_mdb_kind_ubuntu_cloudqa build variant
   - name: e2e_mdb_kind_cloudqa_task_group
@@ -725,6 +728,9 @@ task_groups:
       - e2e_replica_set_oidc_workforce
       - e2e_sharded_cluster_oidc_m2m_group
       - e2e_sharded_cluster_oidc_m2m_user
+      # MongoDBSearch test group
+      - e2e_search_enterprise_basic
+      - e2e_search_enterprise_tls
     <<: *teardown_group
 
   # this task group contains just a one task, which is smoke testing whether the operator
