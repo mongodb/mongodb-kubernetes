@@ -199,7 +199,7 @@ spec:
                         items:
                           type: string
                         type: array
-                      keyFileSecretRef:
+                      keyfileSecretRef:
                         description: |-
                           SecretKeyRef is a reference to a value in a given secret in the same
                           namespace. Based on:

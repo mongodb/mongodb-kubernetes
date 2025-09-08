@@ -179,7 +179,7 @@ spec:
         - ${MDB_EXTERNAL_HOST_0}
         - ${MDB_EXTERNAL_HOST_1}
         - ${MDB_EXTERNAL_HOST_2}
-      keyFileSecretRef:
+      keyfileSecretRef:
         name: ${MDB_EXTERNAL_KEYFILE_SECRET_NAME}
         key: keyfile
       tls:
@@ -201,7 +201,7 @@ EOF
 The `MongoDBSearch.spec` fields in this example are:
 
 * `spec.source.external.hostAndPorts` - list of external MongoDB replica set members.
-* `spec.source.external.keyFileSecretRef` - reference to the keyfile secret used by the external replica set.
+* `spec.source.external.keyfileSecretRef` - reference to the keyfile secret used by the external replica set.
 * `spec.source.external.tls.enabled` - set to `false` to disable TLS between mongot and mongod.
 * `spec.username` and `spec.passwordSecretRef` - credentials for the search synchronization user in the external
   MongoDB.
