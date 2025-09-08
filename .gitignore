@@ -65,6 +65,7 @@ multi_cluster/examples/service_account_using_go/service_account_using_go
 _.yaml
 
 # Things we built or download for the e2e tests & local dev
+/mongodb-kubernetes
 multi-cluster-kube-config-creator
 multi-cluster-kube-config-creator_linux
 istio-*
