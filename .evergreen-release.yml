@@ -153,7 +153,7 @@ buildvariants:
 
   - name: prerelease_kind_code_snippets
     display_name: prerelease_kind_code_snippets
-    tags: [ "prerelease_code_snippets", "release" ]
+    tags: [ "release", "prerelease_code_snippets" ]
     allowed_requesters: [ "patch", "github_tag" ]
     depends_on:
       - name: "*"
@@ -166,7 +166,7 @@ buildvariants:
 
   - name: prerelease_gke_code_snippets
     display_name: prerelease_gke_code_snippets
-    tags: [ "prerelease_code_snippets", "release" ]
+    tags: [ "release", "prerelease_code_snippets" ]
     allowed_requesters: ["patch", "github_tag"]
     depends_on:
       - variant: release_images
@@ -179,7 +179,7 @@ buildvariants:
 
   - name: init_smoke_tests
     display_name: init_smoke_tests
-    tags: [ "e2e_smoke_release_test_suite" ]
+    tags: [ "release", "e2e_smoke_release_test_suite" ]
     allowed_requesters: [ "patch", "github_tag" ]
     run_on:
       - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
@@ -188,7 +188,7 @@ buildvariants:
 
   - name: e2e_smoke
     display_name: e2e_smoke
-    tags: [ "e2e_smoke_release_test_suite" ]
+    tags: [ "release", "e2e_smoke_release_test_suite" ]
     run_on:
       - ubuntu2404-large
     allowed_requesters: [ "patch", "github_tag" ]
@@ -202,7 +202,7 @@ buildvariants:
 
   - name: e2e_static_smoke
     display_name: e2e_static_smoke
-    tags: [ "e2e_smoke_release_test_suite" ]
+    tags: [ "release", "e2e_smoke_release_test_suite" ]
     run_on:
       - ubuntu2404-large
     allowed_requesters: [ "patch", "github_tag" ]
