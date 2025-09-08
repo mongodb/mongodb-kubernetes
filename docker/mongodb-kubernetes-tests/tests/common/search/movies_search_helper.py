@@ -1,3 +1,7 @@
+import logging
+
+import pymongo.errors
+from kubetester import kubetester
 from tests import test_logger
 from tests.common.search.search_tester import SearchTester
 
@@ -26,9 +30,33 @@ class SampleMoviesSearchHelper:
     def wait_for_search_indexes(self):
         self.search_tester.wait_for_search_indexes_ready(self.db_name, self.col_name)
 
-    def assert_search_query(self):
-        # sample taken from: https://www.mongodb.com/docs/atlas/atlas-search/tutorial/run-query/#run-a-complex-query-on-the-movies-collection-7
-        result = self.search_tester.client[self.db_name][self.col_name].aggregate(
+    def assert_search_query(self, retry_timeout: int = 1):
+        def wait_for_search_results():
+            # sample taken from: https://www.mongodb.com/docs/atlas/atlas-search/tutorial/run-query/#run-a-complex-query-on-the-movies-collection-7
+            count = 0
+            status_msg = ""
+            try:
+                result = self.execute_example_search_query()
+                status_msg = f"{self.db_name}/{self.col_name}: search query results:\n"
+                for r in result:
+                    status_msg += f"{r}\n"
+                    count += 1
+                status_msg += f"Count: {count}"
+                logger.debug(status_msg)
+            except pymongo.errors.PyMongoError as e:
+                logger.debug(f"error: {e}")
+
+            return count == 4, status_msg
+
+        kubetester.run_periodically(
+            fn=wait_for_search_results,
+            timeout=retry_timeout,
+            sleep_time=1,
+            msg="Search query to return correct data",
+        )
+
+    def execute_example_search_query(self):
+        return self.search_tester.client[self.db_name][self.col_name].aggregate(
             [
                 {
                     "$search": {
@@ -47,11 +75,3 @@ class SampleMoviesSearchHelper:
                 {"$project": {"title": 1, "plot": 1, "genres": 1, "_id": 0}},
             ]
         )
-
-        logger.debug(f"{self.db_name}/{self.col_name}: search query results:")
-        count = 0
-        for r in result:
-            logger.debug(r)
-            count += 1
-
-        assert count == 4
