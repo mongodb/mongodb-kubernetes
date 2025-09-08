@@ -29,9 +29,9 @@ cgroup_manager = \"cgroupfs\"
 runtime = \"crun\""
 
 mkdir -p ~/.config/containers
-echo "$config" > ~/.config/containers/containers.conf
+echo "${config}" > ~/.config/containers/containers.conf
 
 sudo mkdir -p /root/.config/containers
-echo "$config" | sudo tee /root/.config/containers/containers.conf >/dev/null
+echo "${config}" | sudo tee /root/.config/containers/containers.conf >/dev/null
 
 echo "✅ Configured crun"
