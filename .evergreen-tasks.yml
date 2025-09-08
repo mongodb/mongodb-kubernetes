@@ -77,7 +77,6 @@ tasks:
     commands:
       - func: test_code_snippets
       - func: sample_commit_output
-      - func: sample_commit_output
 
   - name: task_gke_multi_cluster_no_mesh_snippets
     tags: [ "code_snippets" ]
