@@ -145,7 +145,7 @@ func readLinesFromFile(name string) ([]string, error) {
 func writeLinesToFile(name string, lines []string) error {
 	output := strings.Join(lines, lineBreak)
 
-	err := os.WriteFile(name, []byte(output), 0o775)
+	err := os.WriteFile(name, []byte(output), 0o644)
 	if err != nil {
 		return xerrors.Errorf("error writing to file %s: %w", name, err)
 	}
@@ -168,7 +168,7 @@ func appendLinesToFile(name string, lines string) error {
 
 func getOmPropertiesFromEnvVars() map[string]string {
 	props := map[string]string{}
-	for _, pair := range os.Environ() {
+	for _, pair := range os.Environ() { // nolint:forbidigo
 		if !strings.HasPrefix(pair, omPropertyPrefix) {
 			continue
 		}
