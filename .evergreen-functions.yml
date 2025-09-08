@@ -26,7 +26,6 @@ variables:
       - execution
       - github_commit
       - image_name
-      - include_tags
       - is_patch
       - mms_eng_test_aws_access_key
       - mms_eng_test_aws_region
@@ -36,10 +35,8 @@ variables:
       - otel_collector_endpoint
       - otel_parent_id
       - otel_trace_id
-      - pin_tag_at
       - registry
       - requester
-      - skip_tags
       - task_name
       - triggered_by_git_tag
       - version_id

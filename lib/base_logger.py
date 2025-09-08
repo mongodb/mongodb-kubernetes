@@ -23,10 +23,3 @@ logger.setLevel(LOGLEVEL)
 logger.propagate = False
 logger.addHandler(stdout_handler)
 logger.addHandler(stderr_handler)
-
-# Sonar logger
-sonar_logger = logging.getLogger("sonar")
-sonar_logger.setLevel(LOGLEVEL)
-sonar_logger.propagate = False
-sonar_logger.addHandler(stdout_handler)
-sonar_logger.addHandler(stderr_handler)
