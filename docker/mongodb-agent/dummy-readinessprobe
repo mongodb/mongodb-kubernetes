@@ -18,11 +18,14 @@ execute_readiness_probe() {
   local init_pid="$1"
   local init_probe_path="/proc/$init_pid/root/probes/readinessprobe"
 
-  if [[ -f "$init_probe_path" && -x "$init_probe_path" ]]; then
-    exec "$init_probe_path"
-  else
-    echo "ERROR: Readiness probe binary not found or not executable at $init_probe_path"
+  if [[ ! -f "$init_probe_path" ]]; then
+    echo "ERROR: Readiness probe binary not found at $init_probe_path"
     exit 1
+  elif [[ ! -x "$init_probe_path" ]]; then
+    echo "ERROR: Readiness probe binary not executable at $init_probe_path"
+    exit 1
+  else
+    exec "$init_probe_path"
   fi
 }
 

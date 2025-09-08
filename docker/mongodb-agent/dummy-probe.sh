@@ -15,13 +15,16 @@ execute_liveness_probe() {
   local init_pid="$1"
   local init_probe_path="/proc/$init_pid/root/probes/probe.sh"
 
-  if [[ -f "$init_probe_path" && -x "$init_probe_path" ]]; then
+  if [[ ! -f "$init_probe_path" ]]; then
+    echo "ERROR: Liveness probe script not found at $init_probe_path"
+    exit 1
+  elif [[ ! -x "$init_probe_path" ]]; then
+    echo "ERROR: Liveness probe script not executable at $init_probe_path"
+    exit 1
+  else
     # Execute the actual probe script from the init-database container
     # This works because of shared process namespace - the probe can see all processes
     exec "$init_probe_path"
-  else
-    echo "ERROR: Liveness probe script not found or not executable at $init_probe_path"
-    exit 1
   fi
 }
 
