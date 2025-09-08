@@ -61,7 +61,7 @@ type MongoDBSource struct {
 
 type ExternalMongoDBSource struct {
 	HostAndPorts        []string             `json:"hostAndPorts,omitempty"`
-	KeyFileSecretKeyRef *userv1.SecretKeyRef `json:"keyFileSecretRef,omitempty"` // This is the mongod credential used to connect to the external MongoDB deployment
+	KeyFileSecretKeyRef *userv1.SecretKeyRef `json:"keyfileSecretRef,omitempty"` // This is the mongod credential used to connect to the external MongoDB deployment
 	// +optional
 	TLS *ExternalMongodTLS `json:"tls,omitempty"` // TLS configuration for the external MongoDB deployment
 }
