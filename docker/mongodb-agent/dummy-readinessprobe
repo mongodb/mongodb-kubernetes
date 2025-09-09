@@ -1,5 +1,40 @@
 #!/bin/bash
-# Dummy readiness probe that returns NOT READY until real probe is copied
-# Container should not be marked ready until real probe scripts are available
-echo "Using dummy readiness probe - container not ready until real probe script is copied"
-exit 1
+# Dynamic readiness probe that locates and executes the actual probe from init-database container
+
+# Function to find the init-database container PID
+find_init_container() {
+  local pid
+  pid=$(pgrep -f "agent-utilities-holder_marker" | head -n1)
+  if [[ -n "$pid" && -d "/proc/$pid/root/probes" ]]; then
+    echo "$pid"
+    return 0
+  fi
+  return 1
+}
+
+
+# Function to execute the actual readiness probe from init-database container
+execute_readiness_probe() {
+  local init_pid="$1"
+  local init_probe_path="/proc/$init_pid/root/probes/readinessprobe"
+
+  if [[ ! -f "$init_probe_path" ]]; then
+    echo "ERROR: Readiness probe binary not found at $init_probe_path"
+    exit 1
+  elif [[ ! -x "$init_probe_path" ]]; then
+    echo "ERROR: Readiness probe binary not executable at $init_probe_path"
+    exit 1
+  else
+    exec "$init_probe_path"
+  fi
+}
+
+# Main execution
+if init_pid=$(find_init_container); then
+  echo "Found init container with PID: $init_pid, executing readiness probe..."
+  execute_readiness_probe "$init_pid"
+else
+  echo "WARNING: Init container not found, container not ready"
+  # If we can't find the init container, the pod should not be marked as ready
+  exit 1
+fi
