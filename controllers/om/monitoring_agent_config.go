@@ -45,9 +45,9 @@ func (m *MonitoringAgentConfig) UnsetAgentPassword() {
 	m.MonitoringAgentTemplate.Password = util.MergoDelete
 }
 
-func (m *MonitoringAgentConfig) EnableX509Authentication(MonitoringAgentSubject string) {
-	m.MonitoringAgentTemplate.SSLPemKeyFile = util.AutomationAgentPemFilePath
-	m.SetAgentUserName(MonitoringAgentSubject)
+func (m *MonitoringAgentConfig) EnableX509Authentication(monitoringAgentSubject, automationAgentPemFilePath string) {
+	m.MonitoringAgentTemplate.SSLPemKeyFile = automationAgentPemFilePath
+	m.SetAgentUserName(monitoringAgentSubject)
 }
 
 func (m *MonitoringAgentConfig) DisableX509Authentication() {

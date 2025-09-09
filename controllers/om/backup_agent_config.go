@@ -49,8 +49,8 @@ func (bac *BackupAgentConfig) UnsetAgentPassword() {
 	bac.BackupAgentTemplate.Password = util.MergoDelete
 }
 
-func (bac *BackupAgentConfig) EnableX509Authentication(backupAgentSubject string) {
-	bac.BackupAgentTemplate.SSLPemKeyFile = util.AutomationAgentPemFilePath
+func (bac *BackupAgentConfig) EnableX509Authentication(backupAgentSubject, automationAgentPemFilePath string) {
+	bac.BackupAgentTemplate.SSLPemKeyFile = automationAgentPemFilePath
 	bac.SetAgentUserName(backupAgentSubject)
 }
 
