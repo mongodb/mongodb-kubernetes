@@ -146,7 +146,7 @@ buildvariants:
       - name: "*"
         variant: preflight_release_images
     run_on:
-      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+      - ubuntu2404-small
     tasks:
       - name: run_conditionally_prepare_and_upload_openshift_bundles
 
