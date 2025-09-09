@@ -19,7 +19,6 @@ _dump_all_non_default_namespaces() {
     fi
 
     mkdir -p logs
-
     namespaces=$(kubectl --context="${context}" get namespace --output=jsonpath="{.items[*].metadata.name}" | tr ' ' '\n' | \
       grep -v "default" | \
       grep -v "kube-node-lease" | \
@@ -43,8 +42,8 @@ _dump_all_non_default_namespaces() {
 }
 
 dump_all_non_default_namespaces() {
-    local context="${1}"
-    _dump_all_non_default_namespaces "$@" 2>&1 | prepend "${context}"
+  local context="${1}"
+  _dump_all_non_default_namespaces "$@" 2>&1 | prepend "${context}"
 }
 
 _dump_all() {
@@ -85,47 +84,49 @@ dump_all() {
 }
 
 dump_objects() {
-  local context=$1
-  local object=$2
-  local msg=$3
-  local namespace=${4}
-  local action=${5:-get -o yaml}
-  local out_file=${6:-""}
+    local context=$1
+    local object=$2
+    local msg=$3
+    local namespace=${4}
+    local action=${5:-get -o yaml}
+    local out_file=${6:-""}
 
-  # First check if the resource type exists
-  if ! kubectl --context="${context}" get "${object}" --no-headers -o name -n "${namespace}" >/dev/null 2>&1; then
-      # Resource type doesn't exist, skip silently
-      return
-  fi
+    # First check if the resource type exists
+    if ! kubectl --context="${context}" get "${object}" --no-headers -o name -n "${namespace}" >/dev/null 2>&1; then
+        # Resource type doesn't exist, skip silently
+        return
+    fi
 
-  # Check if there are any objects of this type
-  local resource_count
-  resource_count=$(kubectl --context="${context}" get "${object}" --no-headers -o name -n "${namespace}" 2>/dev/null | wc -l)
-  if [ "${resource_count}" -eq 0 ]; then
-      # Resource type exists but no objects of this type, return
-      return
-  fi
+    # Check if there are any objects of this type
+    local resource_count
+    resource_count=$(kubectl --context="${context}" get "${object}" --no-headers -o name -n "${namespace}" 2>/dev/null | wc -l)
+    if [ "${resource_count}" -eq 0 ]; then
+        # Resource type exists but no objects of this type, return
+        return
+    fi
 
-  # Capture output first to check if it contains actual resources
-  local temp_output
-  temp_output=$(kubectl --context="${context}" -n "${namespace}" "${action}" "${object}" 2>&1)
+    # Capture output first to check if it contains actual resources
+    local temp_output
+    # shellcheck disable=SC2086
+    temp_output=$(kubectl --context="${context}" -n "${namespace}" ${action} "${object}" 2>&1)
 
-  # Check if output contains actual resources (not just empty list)
-  # Skip if it's an empty YAML list (contains "items: []")
-  if printf '%s\n' "${temp_output}" | grep -Fq "items: []"; then
-      # Empty list, don't create file
-      return
-  fi
+    # Check if output contains actual resources (not just empty list)
+    # Skip if it's an empty YAML list (contains "items: []")
+    if printf '%s\n' "${temp_output}" | grep -Fq "items: []"; then
+        # Empty list, don't create file
+        return
+    fi
 
-  if [[ -n "${out_file}" ]]; then
-    {
+    if [[ -n "${out_file}" ]]; then
+      {
+        header "${msg}"
+        echo "${temp_output}"
+      } > "${out_file}"
+    else
       header "${msg}"
-      echo "${temp_output}"
-    } > "${out_file}"
-  else
-    header "${msg}"
-    kubectl --context="${context}" -n "${namespace}" "${action}" "${object}" 2>&1
-  fi
+      # shellcheck disable=SC2086
+      kubectl --context="${context}" -n "${namespace}" ${action} "${object}" 2>&1
+    fi
 }
 
 # get_operator_managed_pods returns a list of names of the Pods that are managed
@@ -186,7 +187,6 @@ dump_pod_logs() {
         fi
 
     done
-
 
     if kubectl --context="${context}" exec "${pod}" -n "${namespace}" -- ls /var/log/mongodb-mms-automation/automation-agent-stderr.log &>/dev/null; then
         kubectl --context="${context}" cp "${namespace}/${pod}:/var/log/mongodb-mms-automation/automation-agent-stderr.log" "logs/${prefix}${pod}-agent-stderr.log" &> /dev/null
