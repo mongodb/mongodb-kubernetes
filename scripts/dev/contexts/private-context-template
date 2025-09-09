@@ -101,3 +101,7 @@ export PRERELEASE_PULLSECRET_DOCKERCONFIGJSON="<dockerconfigjson secret>"
 
 # uncomment to enable license update with pre-commit script
 # export MDB_UPDATE_LICENSES=true
+
+# enable only for getting mongodb search rapid-releases from
+# 901841024863.dkr.ecr.us-east-1.amazonaws.com/mongot-community/rapid-releases
+export MDB_SEARCH_AWS_SSO_LOGIN="false"
