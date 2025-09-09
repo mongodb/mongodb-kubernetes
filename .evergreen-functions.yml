@@ -46,6 +46,7 @@ variables:
       - RELEASE_INITIAL_VERSION
       - RELEASE_INITIAL_COMMIT_SHA
       - RELEASE_OPERATOR_VERSION
+      - BUILD_SCENARIO
       - build_scenario
 
 functions:
