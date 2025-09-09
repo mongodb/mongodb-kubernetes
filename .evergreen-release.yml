@@ -182,7 +182,7 @@ buildvariants:
     tags: [ "release", "e2e_smoke_release_test_suite" ]
     allowed_requesters: [ "patch", "github_tag" ]
     run_on:
-      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+      - release-ubuntu2404-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     tasks:
       - name: build_test_image_for_smoke_tests
 

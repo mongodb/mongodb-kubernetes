@@ -1676,7 +1676,7 @@ buildvariants:
     max_hosts: -1
     tags: [ "pr_patch", "staging" ]
     run_on:
-      - ubuntu2404-small
+      - ubuntu2404-large
     tasks:
       - name: build_operator_ubi
       - name: build_operator_race_ubi
