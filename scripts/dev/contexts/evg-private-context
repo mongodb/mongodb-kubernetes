@@ -106,33 +106,34 @@ BUILD_SCENARIO_PATCH="patch" # CI build for a patch/pull request
 if [ -n "${BUILD_SCENARIO-}" ]; then
   echo "Build scenario has been set externally, not overriding it"
 elif [ "${GIT_TAG}" ]; then
-  export BUILD_SCENARIO=$BUILD_SCENARIO_RELEASE
+  BUILD_SCENARIO=$BUILD_SCENARIO_RELEASE
 elif [ "${IS_PATCH}" = "true" ]; then
-  export BUILD_SCENARIO=$BUILD_SCENARIO_PATCH
+  BUILD_SCENARIO=$BUILD_SCENARIO_PATCH
 else
-  export BUILD_SCENARIO=$BUILD_SCENARIO_STAGING
+  BUILD_SCENARIO=$BUILD_SCENARIO_STAGING
 fi
 echo "Setting BUILD_SCENARIO=${BUILD_SCENARIO}"
+export BUILD_SCENARIO="${BUILD_SCENARIO}"
 
-# Set BASE_REPO_URL and version_id based on build scenario
+# Set BASE_REPO_URL and OPERATOR_VERSION based on build scenario
 PATCH_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
 STAGING_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging"
 RELEASE_REPO_URL="quay.io/mongodb"
 case $BUILD_SCENARIO in
   "${BUILD_SCENARIO_RELEASE}")
-    export BASE_REPO_URL="${RELEASE_REPO_URL}"
-    export version_id="${GIT_TAG}"
+    BASE_REPO_URL="${RELEASE_REPO_URL}"
+    OPERATOR_VERSION="${GIT_TAG}"
     ;;
 
   "${BUILD_SCENARIO_STAGING}")
     COMMIT_SHA_SHORT=$(git rev-parse --short=8 HEAD)
-    export BASE_REPO_URL="${STAGING_REPO_URL}"
-    export version_id="${COMMIT_SHA_SHORT}"
+    BASE_REPO_URL="${STAGING_REPO_URL}"
+    OPERATOR_VERSION="${COMMIT_SHA_SHORT}"
     ;;
 
   "${BUILD_SCENARIO_PATCH}")
-    export BASE_REPO_URL="${PATCH_REPO_URL}"
-    #Don't change version_id for patch builds, it should be set by evergreen
+    BASE_REPO_URL="${PATCH_REPO_URL}"
+    OPERATOR_VERSION="${version_id}"
     ;;
 
   *)
@@ -141,6 +142,8 @@ case $BUILD_SCENARIO in
     ;;
 esac
 echo "Setting BASE_REPO_URL=${BASE_REPO_URL} for ${BUILD_SCENARIO} build scenario"
+export OPERATOR_VERSION="${OPERATOR_VERSION}"
+export BASE_REPO_URL="${BASE_REPO_URL}"
 
 ### Registries and images
 export REGISTRY="${BASE_REPO_URL}"
@@ -160,8 +163,3 @@ export MONGODB_ENTERPRISE_DATABASE_IMAGE="${DATABASE_REGISTRY}/mongodb-kubernete
 export OPS_MANAGER_REGISTRY=${QUAY_REGISTRY}
 export OPS_MANAGER_IMAGE_REPOSITORY="${OPS_MANAGER_REGISTRY}/mongodb-enterprise-ops-manager"
 export MDB_AGENT_IMAGE_REPOSITORY="${QUAY_REGISTRY}/mongodb-agent"
-
-# MCO
-# shellcheck disable=SC2154
-export READINESS_PROBE_IMAGE="${REGISTRY}/mongodb-kubernetes-readinessprobe:${version_id}"
-export VERSION_UPGRADE_HOOK_IMAGE="${REGISTRY}/mongodb-kubernetes-operator-version-upgrade-post-start-hook:${version_id}"

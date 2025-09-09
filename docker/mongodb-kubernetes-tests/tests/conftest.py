@@ -92,12 +92,7 @@ def version_id() -> str:
 
 
 def get_version_id():
-    """
-    Returns VERSION_ID if it has been defined, or "latest" otherwise.
-    """
-    if "OVERRIDE_VERSION_ID" in os.environ:
-        return os.environ["OVERRIDE_VERSION_ID"]
-    return os.environ.get("VERSION_ID", "latest")
+    return os.environ["OPERATOR_VERSION"]
 
 
 @fixture(scope="module")

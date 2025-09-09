@@ -45,19 +45,25 @@ export OPS_MANAGER_NAMESPACE="operator-testing-50-current"
 # Moved from the old set_env_context.sh
 export LOCAL_RUN=true
 
+# TODO: update comments
 # version_id is similar to version_id from Evergreen. Used to differentiate different builds. Can be constant
 # for local run
-version_id=${version_id:-"latest"}
+OPERATOR_VERSION=${OPERATOR_VERSION:-"latest"}
+READINESSPROBE_VERSION=${READINESSPROBE_VERSION:-"latest"}
+VERSION_UPGRADE_HOOK_VERSION=${VERSION_UPGRADE_HOOK_VERSION:-"latest"}
 if [[ "${OVERRIDE_VERSION_ID:-}" != "" ]]; then
-  version_id="${OVERRIDE_VERSION_ID}"
+  OPERATOR_VERSION="${OVERRIDE_VERSION_ID}"
+  READINESSPROBE_VERSION="${OVERRIDE_VERSION_ID}"
+  VERSION_UPGRADE_HOOK_VERSION="${OVERRIDE_VERSION_ID}"
 fi
-export version_id
-export VERSION_ID="${version_id}"
+export OPERATOR_VERSION="${OPERATOR_VERSION}"
 
-export INIT_APPDB_VERSION="${VERSION_ID}"
-export INIT_DATABASE_VERSION="${VERSION_ID}"
-export INIT_OPS_MANAGER_VERSION="${VERSION_ID}"
-export DATABASE_VERSION="${VERSION_ID}"
+export INIT_APPDB_VERSION="${OPERATOR_VERSION}"
+export INIT_DATABASE_VERSION="${OPERATOR_VERSION}"
+export INIT_OPS_MANAGER_VERSION="${OPERATOR_VERSION}"
+export DATABASE_VERSION="${OPERATOR_VERSION}"
+export READINESSPROBE_VERSION="${READINESSPROBE_VERSION}"
+export VERSION_UPGRADE_HOOK_VERSION="${VERSION_UPGRADE_HOOK_VERSION}"
 
 export KUBE_ENVIRONMENT_NAME=kind
 
@@ -102,8 +108,8 @@ export MDB_COMMUNITY_REPO_URL=quay.io/mongodb
 export MDB_COMMUNITY_AGENT_IMAGE=${AGENT_IMAGE}
 export MDB_COMMUNITY_IMAGE_TYPE=ubi8
 
-export READINESS_PROBE_IMAGE="${BASE_REPO_URL}/mongodb-kubernetes-readinessprobe:${version_id}"
-export VERSION_UPGRADE_HOOK_IMAGE="${BASE_REPO_URL}/mongodb-kubernetes-operator-version-upgrade-post-start-hook:${version_id}"
+export READINESS_PROBE_IMAGE="${BASE_REPO_URL}/mongodb-kubernetes-readinessprobe:${READINESSPROBE_VERSION}"
+export VERSION_UPGRADE_HOOK_IMAGE="${BASE_REPO_URL}/mongodb-kubernetes-operator-version-upgrade-post-start-hook:${VERSION_UPGRADE_HOOK_VERSION}"
 
 # Community Search
 export MDB_COMMUNITY_IMAGE=mongodb-community-server
