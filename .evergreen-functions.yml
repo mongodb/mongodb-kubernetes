@@ -566,7 +566,7 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: |
           source .generated/context.export.env
-          scripts/dev/run_python.sh scripts/release/pipeline_main.py ${image_name} --build-scenario $BUILD_SCENARIO --parallel ${all_agents}
+          scripts/dev/run_python.sh scripts/release/pipeline_main.py ${image_name} --build-scenario $BUILD_SCENARIO ${flags}
 
   # TODO: this function is very similar to pipeline and it will joined with it in the future
   release_operator_pipeline:

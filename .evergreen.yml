@@ -350,7 +350,7 @@ tasks:
       - func: pipeline
         vars:
           image_name: agent
-          all_agents: "--all-agents"
+          flags: "--parallel --all-agents"
 
   - name: release_all_currently_used_agents_on_ecr
     # this enables us to run this manually (patch) and release all agent versions to ECR to verify
@@ -362,7 +362,7 @@ tasks:
       - func: pipeline
         vars:
           image_name: agent
-          all_agents: "--current-agents"
+          flags: "--parallel --current-agents"
 
   - name: build_test_image
     commands:
@@ -435,6 +435,7 @@ tasks:
       - func: pipeline
         vars:
           image_name: agent
+          flags: "--parallel --current-agents"
 
   - name: build_init_database_image_ubi
     commands:
@@ -1676,7 +1677,7 @@ buildvariants:
     max_hosts: -1
     tags: [ "pr_patch", "staging" ]
     run_on:
-      - ubuntu2404-large
+      - ubuntu2404-small
     tasks:
       - name: build_operator_ubi
       - name: build_operator_race_ubi
