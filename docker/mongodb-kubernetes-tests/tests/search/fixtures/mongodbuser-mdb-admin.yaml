@@ -14,3 +14,4 @@ spec:
   roles:
   - name: root
     db: admin
+    

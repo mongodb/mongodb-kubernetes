@@ -12,7 +12,7 @@ func NewExternalSearchSource(namespace string, spec *searchv1.ExternalMongoDBSou
 	return &externalSearchResource{namespace: namespace, spec: spec}
 }
 
-// externalSearchResource implements SearchSourceDBResource for deployments managed outside the operator.
+// externalSearchResource implements SearchSourceDBResource for deployments managed outside the Kubernetes cluster.
 type externalSearchResource struct {
 	namespace string
 	spec      *searchv1.ExternalMongoDBSource
