@@ -311,7 +311,7 @@ tasks:
       - func: pipeline
         vars:
           image_name: agent
-          build_scenario: manual_release
+          BUILD_SCENARIO: manual_release
 
   - name: migrate_all_agents
     # this enables us to run this variant manually to build all the agents for the new registry
@@ -523,7 +523,7 @@ tasks:
       - func: pipeline
         vars:
           image_name: ops-manager
-          build_scenario: manual_release
+          BUILD_SCENARIO: manual_release
 
   - name: prepare_and_upload_openshift_bundles_for_e2e
     commands:
