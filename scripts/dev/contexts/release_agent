@@ -9,4 +9,3 @@ script_dir=$(dirname "${script_name}")
 source "${script_dir}/root-context"
 
 export preflight_submit=false
-export include_tags=release

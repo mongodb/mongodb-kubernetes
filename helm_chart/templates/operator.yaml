@@ -262,10 +262,6 @@ spec:
             - name: RELATED_IMAGE_{{ $mongodbImageEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
               value: "{{ $.Values.mongodb.repo }}/{{ $.Values.mongodb.name }}:{{ $version }}"
       {{- end }}
-      {{- if .Values.search }}
-            - name: RELATED_IMAGE_MDB_SEARCH_IMAGE_{{ .Values.search.community.version | replace "." "_" | replace "-" "_" }}
-              value: "{{ .Values.search.community.repo }}/{{ .Values.search.community.name }}:{{ $.Values.search.community.version }}"
-      {{- end }}
     {{- end }}
     {{- if .Values.search }}
             - name: MDB_SEARCH_COMMUNITY_REPO_URL
