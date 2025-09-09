@@ -38,6 +38,14 @@ extraEnvs:
 # We only want one of these collectors - any more and we'd produce duplicate data
 replicaCount: 1
 
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
+
 presets:
   # enables the k8sclusterreceiver and adds it to the metrics pipelines
   clusterMetrics:
