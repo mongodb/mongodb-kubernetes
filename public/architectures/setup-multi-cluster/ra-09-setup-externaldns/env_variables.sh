@@ -12,7 +12,7 @@
 #  ${K8S_CLUSTER_2_CONTEXT_NAME}
 #  ${MDB_GKE_PROJECT}
 
-export DNS_SA_NAME="external-dns-sa"
+export DNS_SA_NAME="external-dns-sa-${K8S_CLUSTER_SUFFIX:-""}"
 export DNS_SA_EMAIL="${DNS_SA_NAME}@${MDB_GKE_PROJECT}.iam.gserviceaccount.com"
 
 export CUSTOM_DOMAIN="mongodb.custom"
