@@ -139,7 +139,7 @@ def test_stateful_set_spec_updated(replica_set, namespace):
                 }
             ],
             "command": ["/bin/sh"],
-            "args": ["-c", "echo ok > /somewhere/busybox_file && sleep 10800"],
+            "args": ["-c", "echo ok > /somewhere/busybox_file && sleep 7200"],
         },
     ]
 
