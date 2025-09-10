@@ -156,14 +156,20 @@ func (s *MongoDBSearch) MongotConfigConfigMapNamespacedName() types.NamespacedNa
 }
 
 func (s *MongoDBSearch) SourceUserPasswordSecretRef() *userv1.SecretKeyRef {
+	var syncUserPasswordSecretKey *userv1.SecretKeyRef
 	if s.Spec.Source != nil && s.Spec.Source.PasswordSecretRef != nil {
-		return s.Spec.Source.PasswordSecretRef
+		syncUserPasswordSecretKey = s.Spec.Source.PasswordSecretRef
+	} else {
+		syncUserPasswordSecretKey = &userv1.SecretKeyRef{
+			Name: fmt.Sprintf("%s-%s-password", s.Name, s.SourceUsername()),
+		}
 	}
 
-	return &userv1.SecretKeyRef{
-		Name: fmt.Sprintf("%s-%s-password", s.Name, MongotDefaultSyncSourceUsername),
-		Key:  "password",
+	if syncUserPasswordSecretKey.Key == "" {
+		syncUserPasswordSecretKey.Key = "password"
 	}
+
+	return syncUserPasswordSecretKey
 }
 
 func (s *MongoDBSearch) SourceUsername() string {

@@ -677,12 +677,12 @@ func (r *ReconcileMongoDbReplicaSet) applySearchOverrides(ctx context.Context, r
 
 func (r *ReconcileMongoDbReplicaSet) mirrorKeyfileIntoSecretForMongot(ctx context.Context, d om.Deployment, rs *mdbv1.MongoDB, log *zap.SugaredLogger) error {
 	keyfileContents := maputil.ReadMapValueAsString(d, "auth", "key")
-	keyfileSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("%s-keyfile", rs.Name), Namespace: rs.Namespace}}
+	keyfileSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("%s-%s", rs.Name, search_controller.MongotKeyfileFilename), Namespace: rs.Namespace}}
 
 	log.Infof("Mirroring the replicaset %s's keyfile into the secret %s", rs.ObjectKey(), kube.ObjectKeyFromApiObject(keyfileSecret))
 
 	_, err := controllerutil.CreateOrUpdate(ctx, r.client, keyfileSecret, func() error {
-		keyfileSecret.StringData = map[string]string{"keyfile": keyfileContents}
+		keyfileSecret.StringData = map[string]string{search_controller.MongotKeyfileFilename: keyfileContents}
 		return controllerutil.SetOwnerReference(rs, keyfileSecret, r.client.Scheme())
 	})
 	if err != nil {
