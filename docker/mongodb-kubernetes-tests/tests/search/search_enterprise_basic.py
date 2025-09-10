@@ -105,7 +105,7 @@ def test_install_operator(namespace: str, operator_installation_config: dict[str
 @mark.e2e_search_enterprise_basic
 def test_create_database_resource(mdb: MongoDB):
     mdb.update()
-    mdb.assert_reaches_phase(Phase.Running, timeout=1000)
+    mdb.assert_reaches_phase(Phase.Running, timeout=300)
 
 
 @mark.e2e_search_enterprise_basic
@@ -140,8 +140,8 @@ def test_create_search_resource(mdbs: MongoDBSearch):
 
 @mark.e2e_search_enterprise_basic
 def test_wait_for_database_resource_ready(mdb: MongoDB):
-    mdb.assert_abandons_phase(Phase.Running, timeout=1800)
-    mdb.assert_reaches_phase(Phase.Running, timeout=1800)
+    mdb.assert_abandons_phase(Phase.Running, timeout=300)
+    mdb.assert_reaches_phase(Phase.Running, timeout=300)
 
     for idx in range(mdb.get_members()):
         mongod_config = yaml.safe_load(
