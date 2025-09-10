@@ -19,6 +19,9 @@ type externalSearchResource struct {
 }
 
 func (r *externalSearchResource) Validate() error {
+	// We don't know anything about the external MongoDB deployment, so we can't validate it.
+	// Perhaps in the future the Operator could attempt to connect to the external MongoDB instance
+	// and validate its configuration.
 	return nil
 }
 
