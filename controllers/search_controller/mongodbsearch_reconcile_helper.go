@@ -150,7 +150,7 @@ func (r *MongoDBSearchReconcileHelper) ensureSourceKeyfile(ctx context.Context, 
 		// make sure mongot pods get restarted if the keyfile changes
 		statefulset.WithPodSpecTemplate(podtemplatespec.WithAnnotations(
 			map[string]string{
-				"keyfileHash": hashBytes(keyfileSecret.Data["keyfile"]),
+				"keyfileHash": hashBytes(keyfileSecret.Data[MongotKeyfileFilename]),
 			},
 		)),
 	), nil
@@ -211,7 +211,7 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, l
 	op, err := controllerutil.CreateOrUpdate(ctx, r.client, cm, func() error {
 		resourceVersion := cm.ResourceVersion
 
-		cm.Data["config.yml"] = string(configData)
+		cm.Data[MongotConfigFilename] = string(configData)
 
 		cm.ResourceVersion = resourceVersion
 
@@ -355,21 +355,21 @@ func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResourc
 			ReplicaSet: mongot.ConfigReplicaSet{
 				HostAndPort:    hostAndPorts,
 				Username:       search.SourceUsername(),
-				PasswordFile:   "/tmp/sourceUserPassword",
+				PasswordFile:   TempSourceUserPasswordPath,
 				TLS:            ptr.To(false),
 				ReadPreference: ptr.To("secondaryPreferred"),
 				AuthSource:     ptr.To("admin"),
 			},
 		}
 		config.Storage = mongot.ConfigStorage{
-			DataPath: "/mongot/data/config.yml",
+			DataPath: MongotDataPath,
 		}
 		config.Server = mongot.ConfigServer{
 			Wireproto: &mongot.ConfigWireproto{
 				Address: "0.0.0.0:27027",
 				Authentication: &mongot.ConfigAuthentication{
 					Mode:    "keyfile",
-					KeyFile: "/tmp/keyfile",
+					KeyFile: TempKeyfilePath,
 				},
 			},
 		}
