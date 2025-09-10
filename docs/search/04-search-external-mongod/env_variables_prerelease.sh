@@ -1,7 +1,7 @@
 export K8S_CTX="<kube context name>"
 
 # specify prerelease version
-export PRERELEASE_VERSION="1.4.0-prerelease-68b9584ac0a75a00070384a0" # mongodb search version used is 1.53.0-95-g8411af86f
+export PRERELEASE_VERSION="1.4.0-prerelease-68bf4a882be4c1000749a75" # mongodb search version used is 1.53.0-95-g8411af86f
 
 # base64 of docker's config.json containing credentials to quay.io
 export PRERELEASE_IMAGE_PULLSECRET="<base64 of dockerconfigjson>"

@@ -11,7 +11,6 @@ export MDB_SEARCH_SYNC_USER_PASSWORD="search-sync-user-password-CHANGE-ME"
 export MDB_SEARCH_HOSTNAME="mdbs-search"
 
 # External MongoDB replica set members - REPLACE THESE VALUES with your actual external MongoDB hosts
-# For testing purposes, these point to the MongoDB Community resource created by test.sh
 # In production, replace with your actual external MongoDB replica set members
 export MDB_EXTERNAL_HOST_0="mdbc-rs-0.mdbc-rs-svc.${MDB_NS}.svc.cluster.local:27017"
 export MDB_EXTERNAL_HOST_1="mdbc-rs-1.mdbc-rs-svc.${MDB_NS}.svc.cluster.local:27017"
