@@ -44,7 +44,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/recovery"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	"github.com/mongodb/mongodb-kubernetes/controllers/search_controller"
+	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
@@ -657,7 +657,7 @@ func (r *ReconcileMongoDbReplicaSet) applySearchOverrides(ctx context.Context, r
 	if rs.Spec.AdditionalMongodConfig == nil {
 		rs.Spec.AdditionalMongodConfig = mdbv1.NewEmptyAdditionalMongodConfig()
 	}
-	searchMongodConfig := search_controller.GetMongodConfigParameters(search)
+	searchMongodConfig := searchcontroller.GetMongodConfigParameters(search)
 	rs.Spec.AdditionalMongodConfig.AddOption("setParameter", searchMongodConfig["setParameter"])
 
 	mdbVersion, err := semver.ParseTolerant(rs.Spec.Version)
@@ -669,7 +669,7 @@ func (r *ReconcileMongoDbReplicaSet) applySearchOverrides(ctx context.Context, r
 		if rs.Spec.Security == nil {
 			rs.Spec.Security = &mdbv1.Security{}
 		}
-		rs.Spec.Security.Roles = append(rs.Spec.Security.Roles, search_controller.SearchCoordinatorRole())
+		rs.Spec.Security.Roles = append(rs.Spec.Security.Roles, searchcontroller.SearchCoordinatorRole())
 	}
 
 	return true
@@ -677,12 +677,12 @@ func (r *ReconcileMongoDbReplicaSet) applySearchOverrides(ctx context.Context, r
 
 func (r *ReconcileMongoDbReplicaSet) mirrorKeyfileIntoSecretForMongot(ctx context.Context, d om.Deployment, rs *mdbv1.MongoDB, log *zap.SugaredLogger) error {
 	keyfileContents := maputil.ReadMapValueAsString(d, "auth", "key")
-	keyfileSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("%s-%s", rs.Name, search_controller.MongotKeyfileFilename), Namespace: rs.Namespace}}
+	keyfileSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("%s-%s", rs.Name, searchcontroller.MongotKeyfileFilename), Namespace: rs.Namespace}}
 
 	log.Infof("Mirroring the replicaset %s's keyfile into the secret %s", rs.ObjectKey(), kube.ObjectKeyFromApiObject(keyfileSecret))
 
 	_, err := controllerutil.CreateOrUpdate(ctx, r.client, keyfileSecret, func() error {
-		keyfileSecret.StringData = map[string]string{search_controller.MongotKeyfileFilename: keyfileContents}
+		keyfileSecret.StringData = map[string]string{searchcontroller.MongotKeyfileFilename: keyfileContents}
 		return controllerutil.SetOwnerReference(rs, keyfileSecret, r.client.Scheme())
 	})
 	if err != nil {
@@ -696,7 +696,7 @@ func (r *ReconcileMongoDbReplicaSet) lookupCorrespondingSearchResource(ctx conte
 	var search *searchv1.MongoDBSearch
 	searchList := &searchv1.MongoDBSearchList{}
 	if err := r.client.List(ctx, searchList, &client.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector(search_controller.MongoDBSearchIndexFieldName, rs.GetNamespace()+"/"+rs.GetName()),
+		FieldSelector: fields.OneTermEqualSelector(searchcontroller.MongoDBSearchIndexFieldName, rs.GetNamespace()+"/"+rs.GetName()),
 	}); err != nil {
 		log.Debugf("Failed to list MongoDBSearch resources: %v", err)
 	}
@@ -704,7 +704,7 @@ func (r *ReconcileMongoDbReplicaSet) lookupCorrespondingSearchResource(ctx conte
 	// and that this resource passes search validations. If either fails, proceed without a search target
 	// for the mongod automation config.
 	if len(searchList.Items) == 1 {
-		searchSource := search_controller.NewEnterpriseResourceSearchSource(rs)
+		searchSource := searchcontroller.NewEnterpriseResourceSearchSource(rs)
 		if searchSource.Validate() == nil {
 			search = &searchList.Items[0]
 		}
