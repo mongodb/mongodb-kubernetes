@@ -20,7 +20,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
-	"github.com/mongodb/mongodb-kubernetes/controllers/search_controller"
+	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
@@ -31,10 +31,10 @@ import (
 type MongoDBSearchReconciler struct {
 	kubeClient           kubernetesClient.Client
 	watch                *watch.ResourceWatcher
-	operatorSearchConfig search_controller.OperatorSearchConfig
+	operatorSearchConfig searchcontroller.OperatorSearchConfig
 }
 
-func newMongoDBSearchReconciler(client client.Client, operatorSearchConfig search_controller.OperatorSearchConfig) *MongoDBSearchReconciler {
+func newMongoDBSearchReconciler(client client.Client, operatorSearchConfig searchcontroller.OperatorSearchConfig) *MongoDBSearchReconciler {
 	return &MongoDBSearchReconciler{
 		kubeClient:           kubernetesClient.NewClient(client),
 		watch:                watch.NewResourceWatcher(),
@@ -74,14 +74,14 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		r.watch.AddWatchedResourceIfNotAdded(mdbSearch.Spec.Security.TLS.CertificateKeySecret.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
 	}
 
-	reconcileHelper := search_controller.NewMongoDBSearchReconcileHelper(kubernetesClient.NewClient(r.kubeClient), mdbSearch, searchSource, r.operatorSearchConfig)
+	reconcileHelper := searchcontroller.NewMongoDBSearchReconcileHelper(kubernetesClient.NewClient(r.kubeClient), mdbSearch, searchSource, r.operatorSearchConfig)
 
 	return reconcileHelper.Reconcile(ctx, log).ReconcileResult()
 }
 
-func (r *MongoDBSearchReconciler) getSourceMongoDBForSearch(ctx context.Context, kubeClient client.Client, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) (search_controller.SearchSourceDBResource, error) {
+func (r *MongoDBSearchReconciler) getSourceMongoDBForSearch(ctx context.Context, kubeClient client.Client, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) (searchcontroller.SearchSourceDBResource, error) {
 	if search.IsExternalMongoDBSource() {
-		return search_controller.NewExternalSearchSource(search.Namespace, search.Spec.Source.ExternalMongoDBSource), nil
+		return searchcontroller.NewExternalSearchSource(search.Namespace, search.Spec.Source.ExternalMongoDBSource), nil
 	}
 
 	sourceMongoDBResourceRef := search.GetMongoDBResourceRef()
@@ -99,7 +99,7 @@ func (r *MongoDBSearchReconciler) getSourceMongoDBForSearch(ctx context.Context,
 		}
 	} else {
 		r.watch.AddWatchedResourceIfNotAdded(sourceMongoDBResourceRef.Name, sourceMongoDBResourceRef.Namespace, watch.MongoDB, search.NamespacedName())
-		return search_controller.NewEnterpriseResourceSearchSource(mdb), nil
+		return searchcontroller.NewEnterpriseResourceSearchSource(mdb), nil
 	}
 
 	mdbc := &mdbcv1.MongoDBCommunity{}
@@ -109,7 +109,7 @@ func (r *MongoDBSearchReconciler) getSourceMongoDBForSearch(ctx context.Context,
 		}
 	} else {
 		r.watch.AddWatchedResourceIfNotAdded(sourceMongoDBResourceRef.Name, sourceMongoDBResourceRef.Namespace, "MongoDBCommunity", search.NamespacedName())
-		return search_controller.NewCommunityResourceSearchSource(mdbc), nil
+		return searchcontroller.NewCommunityResourceSearchSource(mdbc), nil
 	}
 
 	return nil, xerrors.Errorf("No database resource named %s found", sourceName)
@@ -125,8 +125,8 @@ func mdbcSearchIndexBuilder(rawObj client.Object) []string {
 	return []string{resourceRef.Namespace + "/" + resourceRef.Name}
 }
 
-func AddMongoDBSearchController(ctx context.Context, mgr manager.Manager, operatorSearchConfig search_controller.OperatorSearchConfig) error {
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &searchv1.MongoDBSearch{}, search_controller.MongoDBSearchIndexFieldName, mdbcSearchIndexBuilder); err != nil {
+func AddMongoDBSearchController(ctx context.Context, mgr manager.Manager, operatorSearchConfig searchcontroller.OperatorSearchConfig) error {
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &searchv1.MongoDBSearch{}, searchcontroller.MongoDBSearchIndexFieldName, mdbcSearchIndexBuilder); err != nil {
 		return err
 	}
 

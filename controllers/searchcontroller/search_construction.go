@@ -1,4 +1,4 @@
-package search_controller
+package searchcontroller
 
 import (
 	"fmt"
