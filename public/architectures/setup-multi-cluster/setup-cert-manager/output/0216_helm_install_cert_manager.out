@@ -1,6 +1,6 @@
 Release "cert-manager" does not exist. Installing it now.
 NAME: cert-manager
-LAST DEPLOYED: Tue Jul  8 07:13:38 2025
+LAST DEPLOYED: Mon Sep  8 17:52:47 2025
 NAMESPACE: cert-manager
 STATUS: deployed
 REVISION: 1

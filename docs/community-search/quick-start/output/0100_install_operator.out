@@ -1,6 +1,6 @@
 Release "mongodb-kubernetes" does not exist. Installing it now.
 NAME: mongodb-kubernetes
-LAST DEPLOYED: Tue Jul  8 07:04:51 2025
+LAST DEPLOYED: Mon Sep  8 17:40:02 2025
 NAMESPACE: mongodb
 STATUS: deployed
 REVISION: 1
@@ -11,7 +11,7 @@ dummy: value
 COMPUTED VALUES:
 agent:
   name: mongodb-agent
-  version: 108.0.2.8729-1
+  version: 108.0.12.8846-1
 community:
   agent:
     name: mongodb-agent
@@ -39,17 +39,17 @@ community:
     version: 4.4.0
 database:
   name: mongodb-kubernetes-database
-  version: 1.2.0
+  version: 1.3.0
 dummy: value
 initAppDb:
   name: mongodb-kubernetes-init-appdb
-  version: 1.2.0
+  version: 1.3.0
 initDatabase:
   name: mongodb-kubernetes-init-database
-  version: 1.2.0
+  version: 1.3.0
 initOpsManager:
   name: mongodb-kubernetes-init-ops-manager
-  version: 1.2.0
+  version: 1.3.0
 managedSecurityContext: false
 mongodb:
   appdbAssumeOldFormat: false
@@ -96,7 +96,7 @@ operator:
   vaultSecretBackend:
     enabled: false
     tlsSecretRef: ""
-  version: 1.2.0
+  version: 1.3.0
   watchedResources:
   - mongodb
   - opsmanagers
@@ -129,7 +129,6 @@ search:
     name: mongodb-search-community
     repo: quay.io/mongodb
     version: 1.47.0
-subresourceEnabled: true
 versionUpgradeHook:
   name: mongodb-kubernetes-operator-version-upgrade-post-start-hook
   version: 1.0.9
@@ -165,7 +164,7 @@ metadata:
   name: mongodb-kubernetes-operator
   namespace: mongodb
 ---
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
+# Source: mongodb-kubernetes/templates/operator-roles-clustermongodbroles.yaml
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -178,34 +177,7 @@ rules:
     resources:
       - clustermongodbroles
 ---
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
-kind: ClusterRole
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: mongodb-kubernetes-operator-mongodb-webhook
-rules:
-  - apiGroups:
-      - "admissionregistration.k8s.io"
-    resources:
-      - validatingwebhookconfigurations
-    verbs:
-      - get
-      - create
-      - update
-      - delete
-  - apiGroups:
-      - ""
-    resources:
-      - services
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - delete
----
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
+# Source: mongodb-kubernetes/templates/operator-roles-telemetry.yaml
 # Additional ClusterRole for clusterVersionDetection
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
@@ -233,7 +205,34 @@ rules:
     verbs:
       - list
 ---
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
+# Source: mongodb-kubernetes/templates/operator-roles-webhook.yaml
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-kubernetes-operator-mongodb-webhook-cr
+rules:
+  - apiGroups:
+      - "admissionregistration.k8s.io"
+    resources:
+      - validatingwebhookconfigurations
+    verbs:
+      - get
+      - create
+      - update
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - delete
+---
+# Source: mongodb-kubernetes/templates/operator-roles-clustermongodbroles.yaml
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -247,21 +246,7 @@ subjects:
     name: mongodb-kubernetes-operator
     namespace: mongodb
 ---
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
-kind: ClusterRoleBinding
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: mongodb-kubernetes-operator-mongodb-webhook-binding
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: mongodb-kubernetes-operator-mongodb-webhook
-subjects:
-  - kind: ServiceAccount
-    name: mongodb-kubernetes-operator
-    namespace: mongodb
----
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
+# Source: mongodb-kubernetes/templates/operator-roles-telemetry.yaml
 # ClusterRoleBinding for clusterVersionDetection
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
@@ -271,6 +256,20 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: mongodb-kubernetes-operator-cluster-telemetry
+subjects:
+  - kind: ServiceAccount
+    name: mongodb-kubernetes-operator
+    namespace: mongodb
+---
+# Source: mongodb-kubernetes/templates/operator-roles-webhook.yaml
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-kubernetes-operator-mongodb-webhook-crb
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mongodb-kubernetes-operator-mongodb-webhook-cr
 subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
@@ -298,7 +297,7 @@ rules:
       - delete
       - get
 ---
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
+# Source: mongodb-kubernetes/templates/operator-roles-base.yaml
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -378,7 +377,14 @@ rules:
       - opsmanagers/status
       - mongodbmulticluster/status
       - mongodbsearch/status
-
+---
+# Source: mongodb-kubernetes/templates/operator-roles-pvc-resize.yaml
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-kubernetes-operator-pvc-resize
+  namespace: mongodb
+rules:
   - apiGroups:
       - ''
     resources:
@@ -406,7 +412,7 @@ subjects:
     name: mongodb-kubernetes-appdb
     namespace: mongodb
 ---
-# Source: mongodb-kubernetes/templates/operator-roles.yaml
+# Source: mongodb-kubernetes/templates/operator-roles-base.yaml
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -416,6 +422,21 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: mongodb-kubernetes-operator
+subjects:
+  - kind: ServiceAccount
+    name: mongodb-kubernetes-operator
+    namespace: mongodb
+---
+# Source: mongodb-kubernetes/templates/operator-roles-pvc-resize.yaml
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-kubernetes-operator-pvc-resize-binding
+  namespace: mongodb
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mongodb-kubernetes-operator-pvc-resize
 subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
@@ -447,7 +468,7 @@ spec:
         runAsUser: 2000
       containers:
         - name: mongodb-kubernetes-operator
-          image: "quay.io/mongodb/mongodb-kubernetes:1.2.0"
+          image: "quay.io/mongodb/mongodb-kubernetes:1.3.0"
           imagePullPolicy: Always
           args:
             - -watch-resource=mongodb
@@ -492,25 +513,25 @@ spec:
             - name: INIT_DATABASE_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-kubernetes-init-database
             - name: INIT_DATABASE_VERSION
-              value: 1.2.0
+              value: 1.3.0
             - name: DATABASE_VERSION
-              value: 1.2.0
+              value: 1.3.0
             # Ops Manager
             - name: OPS_MANAGER_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-enterprise-ops-manager-ubi
             - name: INIT_OPS_MANAGER_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-kubernetes-init-ops-manager
             - name: INIT_OPS_MANAGER_VERSION
-              value: 1.2.0
+              value: 1.3.0
             # AppDB
             - name: INIT_APPDB_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-kubernetes-init-appdb
             - name: INIT_APPDB_VERSION
-              value: 1.2.0
+              value: 1.3.0
             - name: OPS_MANAGER_IMAGE_PULL_POLICY
               value: Always
             - name: AGENT_IMAGE
-              value: "quay.io/mongodb/mongodb-agent:108.0.2.8729-1"
+              value: "quay.io/mongodb/mongodb-agent:108.0.12.8846-1"
             - name: MDB_AGENT_IMAGE_REPOSITORY
               value: "quay.io/mongodb/mongodb-agent"
             - name: MONGODB_IMAGE
