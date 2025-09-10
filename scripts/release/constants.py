@@ -51,3 +51,12 @@ def get_version_id() -> str | None:
     :return: version_id (patch ID) or None if not set
     """
     return os.getenv("version_id")
+
+
+def get_github_commit() -> str | None:
+    """
+    ${github_commit} is the commit hash of the commit that triggered the patch run.
+    For non pull-request patches, it will be the same as ${revision}.
+    :return: github_commit or None if not set
+    """
+    return os.getenv("github_commit")

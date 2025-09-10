@@ -36,7 +36,6 @@ export INIT_DATABASE_IMAGE_REPOSITORY="${BASE_REPO_URL_SHARED}/mongodb-kubernete
 export DATABASE_REGISTRY=${BASE_REPO_URL_SHARED:-"${QUAY_REGISTRY}"}
 export OPS_MANAGER_REGISTRY="${QUAY_REGISTRY}"
 export MONGODB_REPO_URL="${QUAY_REGISTRY}"
-export APPDB_REGISTRY="${QUAY_REGISTRY}"
 export MONGODB_ENTERPRISE_DATABASE_IMAGE="${INIT_IMAGES_REGISTRY}/mongodb-kubernetes-database"
 export MDB_AGENT_IMAGE_OPERATOR_VERSION=latest
 export MDB_AGENT_IMAGE_REPOSITORY="${BASE_REPO_URL_SHARED}/mongodb-agent"
@@ -54,9 +53,6 @@ export INIT_OPS_MANAGER_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-kubern
 export MDB_OM_VERSION_MAPPING_PATH="${PROJECT_DIR}/release.json"
 export ENV_FILE="${PROJECT_DIR}/.ops-manager-env"
 export NAMESPACE_FILE="${PROJECT_DIR}/.namespace"
-
-# TO ensure we don't release by accident via pipeline.py
-export skip_tags="release"
 
 # This setting is set if you want to remove your namespaces after running the tests
 export ALWAYS_REMOVE_TESTING_NAMESPACE="true"

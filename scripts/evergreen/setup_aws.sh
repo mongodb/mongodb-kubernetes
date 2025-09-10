@@ -42,33 +42,33 @@ install_aws_cli_binary() {
 install_aws_cli_pip() {
     echo "Installing AWS CLI v1 via pip (for IBM architectures)..."
 
-    # Ensure pip is available
-    if ! command -v pip3 &> /dev/null && ! command -v pip &> /dev/null; then
-        echo "Error: pip is not available. Please install Python and pip first." >&2
+    if [[ ! -d "${PROJECT_DIR}/venv" ]]; then
+        echo "Error: Python venv not found at ${PROJECT_DIR}/venv. Please run recreate_python_venv.sh first." >&2
         return 1
     fi
 
-    # Use pip3 if available, otherwise pip
-    local pip_cmd="pip3"
-    if ! command -v pip3 &> /dev/null; then
-        pip_cmd="pip"
+    # Activate the venv
+    source "${PROJECT_DIR}/venv/bin/activate"
+
+    # Check if AWS CLI exists and works in the venv
+    if command -v aws &> /dev/null; then
+        if aws --version > /dev/null 2>&1; then
+            echo "AWS CLI is already installed and working in venv"
+            return 0
+        else
+            echo "AWS CLI exists but not functional, reinstalling in venv..."
+            pip uninstall -y awscli || true
+        fi
     fi
 
-    echo "Installing AWS CLI using ${pip_cmd}..."
-    ${pip_cmd} install --user awscli
-
-    # Add ~/.local/bin to PATH if not already there (where pip --user installs)
-    if [[ ":${PATH}:" != *":${HOME}/.local/bin:"* ]]; then
-        export PATH="${HOME}/.local/bin:${PATH}"
-        echo "Added ~/.local/bin to PATH"
-    fi
+    echo "Installing AWS CLI into venv using pip..."
+    pip install awscli
 
     # Verify installation
     if command -v aws &> /dev/null; then
-        echo "AWS CLI v1 installed successfully:"
-        aws --version
+        echo "AWS CLI v1 installed successfully in venv"
     else
-        echo "Error: AWS CLI v1 installation failed or not found in PATH" >&2
+        echo "Error: AWS CLI v1 installation failed" >&2
         return 1
     fi
 }

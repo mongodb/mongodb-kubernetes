@@ -22,6 +22,7 @@ download_and_install_binary "${PROJECT_DIR:-.}/bin" operator-manifest-tools "htt
 if [[ "${OS}" == "darwin" ]]; then
   brew install skopeo
 else
+  sudo apt-get update
   sudo apt install -y skopeo
 fi
 

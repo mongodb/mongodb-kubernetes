@@ -44,7 +44,6 @@ export INIT_OPS_MANAGER_REGISTRY=${INIT_IMAGES_REGISTRY-"${QUAY_REGISTRY}"}
 export INIT_DATABASE_REGISTRY=${INIT_IMAGES_REGISTRY:-"${QUAY_REGISTRY}"}
 export DATABASE_REGISTRY=${INIT_IMAGES_REGISTRY:-"${QUAY_REGISTRY}"}
 export OPS_MANAGER_REGISTRY=${QUAY_REGISTRY}
-export APPDB_REGISTRY=${QUAY_REGISTRY}
 export MONGODB_ENTERPRISE_DATABASE_IMAGE="${INIT_IMAGES_REGISTRY}/mongodb-kubernetes-database"
 export INIT_DATABASE_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-kubernetes-init-database"
 export MDB_AGENT_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-agent"
@@ -107,8 +106,8 @@ export CODE_SNIPPETS_COMMIT_OUTPUT=${code_snippets_commit_output:-"false"}
 
 # MCO
 # shellcheck disable=SC2154
-export READINESS_PROBE_IMAGE="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-readinessprobe:${version_id}"
-export VERSION_UPGRADE_HOOK_IMAGE="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-operator-version-upgrade-post-start-hook:${version_id}"
+export READINESS_PROBE_IMAGE="${BASE_REPO_URL}/mongodb-kubernetes-readinessprobe:${version_id}"
+export VERSION_UPGRADE_HOOK_IMAGE="${BASE_REPO_URL}/mongodb-kubernetes-operator-version-upgrade-post-start-hook:${version_id}"
 
 # TODO to be removed at public preview stage of community-search
 export COMMUNITY_PRIVATE_PREVIEW_PULLSECRET_DOCKERCONFIGJSON="${community_private_preview_pullsecret_dockerconfigjson}"

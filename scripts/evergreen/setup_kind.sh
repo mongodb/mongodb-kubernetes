@@ -9,7 +9,7 @@ os=$(uname | tr '[:upper:]' '[:lower:]')
 # Detect architecture
 arch_suffix=$(detect_architecture)
 # This should be changed when needed
-latest_version="v0.27.0"
+latest_version="v0.29.0"
 
 # Only proceed with installation if architecture is supported (amd64 or arm64)
 if [[ "${arch_suffix}" == "amd64" || "${arch_suffix}" == "arm64" ]]; then

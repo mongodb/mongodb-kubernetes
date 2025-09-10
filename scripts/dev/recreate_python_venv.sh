@@ -7,6 +7,13 @@ set -Eeou pipefail
 source scripts/dev/set_env_context.sh
 
 install_pyenv() {
+      # Install python3-venv package for Debian/Ubuntu systems if needed
+      if command -v apt-get &> /dev/null; then
+          echo "Installing python3-venv package for venv support..." >&2
+          sudo apt-get update -qq || true
+          sudo apt-get install -y python3-venv || true
+      fi
+
     # Check if pyenv directory exists first
     if [[ -d "${HOME}/.pyenv" ]]; then
         echo "pyenv directory already exists, setting up environment..." >&2
@@ -54,50 +61,60 @@ install_pyenv() {
 }
 
 ensure_required_python() {
-    local required_version="${PYTHON_VERSION:-3.13}"
-    local major_minor
-    major_minor=$(echo "${required_version}" | grep -oE '^[0-9]+\.[0-9]+')
+    if [[ -z "${PYTHON_VERSION:-}" ]]; then
+        echo "Error: PYTHON_VERSION environment variable is not set or empty" >&2
+        echo "PYTHON_VERSION should be set in root-context" >&2
+        return 1
+    fi
 
-    echo "Setting up Python ${required_version} (${major_minor}.x)..." >&2
+    local required_version="${PYTHON_VERSION}"
 
-    # Always install pyenv first
+    echo "Setting up Python ${required_version}..." >&2
+
     if ! install_pyenv; then
         echo "Error: Failed to install pyenv" >&2
         return 1
     fi
 
-    # Install latest version in the required series
-    local latest_version
-    latest_version=$(pyenv install --list | grep -E "^[[:space:]]*${major_minor}\.[0-9]+$" | tail -1 | xargs)
-    if [[ -n "${latest_version}" ]]; then
-        echo "Installing Python ${latest_version} via pyenv..." >&2
-        # Use --skip-existing to avoid errors if version already exists
-        if pyenv install --skip-existing "${latest_version}"; then
-            pyenv global "${latest_version}"
-            # Install python3-venv package for Debian/Ubuntu systems if needed
-            if command -v apt-get &> /dev/null; then
-                echo "Installing python3-venv package for venv support..." >&2
-                sudo apt-get update -qq || true
-                sudo apt-get install -y python3-venv || true
-            fi
-            return 0
-        fi
+    # Always update pyenv to ensure we have the latest Python versions available
+    # On static hosts we might have a stale pyenv installation.
+    echo "Updating pyenv to get latest Python versions..." >&2
+    if [[ -d "${HOME}/.pyenv/.git" ]]; then
+        cd "${HOME}/.pyenv" && git pull && cd - > /dev/null || echo "Warning: Failed to update pyenv via git" >&2
     fi
 
-    echo "Error: Unable to install Python ${major_minor} via pyenv" >&2
-    return 1
+    # Check if the required version is already installed
+    if pyenv versions --bare | grep -q "^${required_version}$"; then
+        echo "Python ${required_version} already installed via pyenv" >&2
+        pyenv global "${required_version}"
+        return 0
+    fi
+
+    # Its not installed!
+    echo "Installing Python ${required_version} via pyenv..." >&2
+    if pyenv install "${required_version}"; then
+        pyenv global "${required_version}"
+        return 0
+    else
+        echo "Error: Failed to install Python ${required_version} via pyenv" >&2
+        return 1
+    fi
 }
 
-if [[ -d "${PROJECT_DIR}"/venv ]]; then
-  echo "Removing venv..."
-  cd "${PROJECT_DIR}"
+cd "${PROJECT_DIR}"
+if [[ -d "venv" ]]; then
+  echo "Removing existing venv..." >&2
   rm -rf "venv"
+  echo "Existing venv removed" >&2
+else
+  echo "No existing venv found" >&2
 fi
 
 # Ensure required Python version is available
 ensure_required_python
 
-python3 -m venv venv
+echo "Using Python: $(which python) ($(python --version))" >&2
+python -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
 
@@ -111,5 +128,4 @@ else
 fi
 
 echo "Python venv was recreated successfully."
-echo "Current python path: $(which python)"
-python --version
+echo "Using Python: $(which python) ($(python --version))" >&2

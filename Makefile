@@ -300,8 +300,17 @@ test-race: generate fmt vet manifests golang-tests-race
 
 test: generate fmt vet manifests golang-tests
 
-# all-tests will run golang and python tests without race (used locally)
-all-tests: test python-tests
+# helm-tests will run helm chart unit tests
+helm-tests:
+	@echo "Running helm chart unit tests..."
+	@if ! helm plugin list | grep -q unittest; then \
+		echo "Installing helm-unittest plugin..."; \
+		helm plugin install https://github.com/helm-unittest/helm-unittest; \
+	fi
+	helm unittest helm_chart --color
+
+# all-tests will run golang, python, and helm tests without race (used locally)
+all-tests: test python-tests helm-tests
 
 # Build manager binary
 manager: generate fmt vet
@@ -359,7 +368,7 @@ docker-push:
 # Download controller-gen locally if necessary
 CONTROLLER_GEN = $(shell pwd)/bin/controller-gen
 controller-gen:
-	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@v0.15.0)
+	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@v0.18.0)
 
 # Download kustomize locally if necessary
 KUSTOMIZE = $(shell pwd)/bin/kustomize

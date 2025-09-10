@@ -8,8 +8,8 @@ SCRIPTS_DIR="/opt/scripts"
 # readiness always returns failure
 setup_dummy_probes() {
   echo "Setting up dummy probe scripts..."
-  cp /usr/local/bin/dummy-probe.sh "$SCRIPTS_DIR/probe.sh"
-  cp /usr/local/bin/dummy-readinessprobe "$SCRIPTS_DIR/readinessprobe"
+  cp --remove-destination /usr/local/bin/dummy-probe.sh "$SCRIPTS_DIR/probe.sh"
+  cp --remove-destination /usr/local/bin/dummy-readinessprobe "$SCRIPTS_DIR/readinessprobe"
   echo "Dummy probe scripts ready"
 }
 
@@ -38,21 +38,6 @@ link_agent_scripts() {
   done
 }
 
-# Link probe scripts from init container, replacing dummy ones
-link_probe_scripts() {
-  local init_probes_dir="$1"
-
-  echo "Linking probe scripts..."
-  for probe in probe.sh readinessprobe; do
-    if [[ -f "$init_probes_dir/$probe" ]]; then
-      ln -sf "$init_probes_dir/$probe" "$SCRIPTS_DIR/$probe"
-      echo "Replaced dummy $probe with real one"
-    else
-      echo "WARNING: $probe not found in init container"
-      exit 1
-    fi
-  done
-}
 
 # Main function to set up all files
 main() {
@@ -79,7 +64,6 @@ main() {
 
     # Link scripts from init container
     link_agent_scripts "$init_scripts"
-    link_probe_scripts "$init_probes"
 
     echo "File setup completed successfully"
     exit 0

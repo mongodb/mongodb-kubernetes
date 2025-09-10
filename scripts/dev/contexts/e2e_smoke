@@ -9,7 +9,6 @@ source "${script_dir}/root-context"
 source "${script_dir}/variables/om70"
 
 export DATABASE_REGISTRY="${QUAY_REGISTRY}"
-export APPDB_REGISTRY="${QUAY_REGISTRY}"
 export INIT_OPS_MANAGER_REGISTRY="${QUAY_REGISTRY}"
 export OPS_MANAGER_REGISTRY="${QUAY_REGISTRY}"
 export OPERATOR_REGISTRY="${QUAY_REGISTRY}"
@@ -17,13 +16,34 @@ export INIT_IMAGES_REGISTRY="${QUAY_REGISTRY}"
 export INIT_APPDB_REGISTRY="${QUAY_REGISTRY}"
 export INIT_DATABASE_REGISTRY="${QUAY_REGISTRY}"
 # Since we're sourcing this as an initial step, the jq might not be there. That's why we need bash magic here.
+# TODO: provide version overrides from the root-context based on the scenario
+# https://docs.google.com/document/d/1eJ8iKsI0libbpcJakGjxcPfbrTn8lmcZDbQH1UqMR_g/edit?tab=t.p76ry15gwmkk#bookmark=id.j8iox5gg46rp
 OPERATOR_VERSION="$(grep -o '"mongodbOperator": "[^"]*' release.json | grep -o '[^"]*$')"
+if [[ "${RELEASE_OPERATOR_VERSION:-}" != "" ]]; then
+  OPERATOR_VERSION="${RELEASE_OPERATOR_VERSION}"
+fi
 export OPERATOR_VERSION
+
 INIT_DATABASE_VERSION="$(grep -o '"initDatabaseVersion": "[^"]*' release.json | grep -o '[^"]*$')"
+if [[ "${RELEASE_OPERATOR_VERSION:-}" != "" ]]; then
+  INIT_DATABASE_VERSION="${RELEASE_OPERATOR_VERSION}"
+fi
 export INIT_DATABASE_VERSION
+
 INIT_APPDB_VERSION="$(grep -o '"initAppDbVersion": "[^"]*' release.json | grep -o '[^"]*$')"
+if [[ "${RELEASE_OPERATOR_VERSION:-}" != "" ]]; then
+  INIT_APPDB_VERSION="${RELEASE_OPERATOR_VERSION}"
+fi
 export INIT_APPDB_VERSION
+
 INIT_OPS_MANAGER_VERSION="$(grep -o '"initOpsManagerVersion": "[^"]*' release.json | grep -o '[^"]*$')"
+if [[ "${RELEASE_OPERATOR_VERSION:-}" != "" ]]; then
+  INIT_OPS_MANAGER_VERSION="${RELEASE_OPERATOR_VERSION}"
+fi
 export INIT_OPS_MANAGER_VERSION
+
 DATABASE_VERSION="$(grep -o '"databaseImageVersion": "[^"]*' release.json | grep -o '[^"]*$')"
+if [[ "${RELEASE_OPERATOR_VERSION:-}" != "" ]]; then
+  DATABASE_VERSION="${RELEASE_OPERATOR_VERSION}"
+fi
 export DATABASE_VERSION

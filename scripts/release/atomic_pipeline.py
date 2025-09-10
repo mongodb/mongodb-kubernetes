@@ -2,6 +2,7 @@
 
 """This atomic_pipeline script knows about the details of our Docker images
 and where to fetch and calculate parameters."""
+import datetime
 import json
 import os
 import shutil
@@ -62,7 +63,7 @@ def build_image(
     span = trace.get_current_span()
     span.set_attribute("mck.image_name", image_name)
 
-    registries = build_configuration.get_registries
+    registries = build_configuration.get_registries()
 
     build_args = build_args or {}
 
@@ -72,14 +73,21 @@ def build_image(
     span.set_attribute("mck.platforms", build_configuration.platforms)
 
     # Build the image once with all repository tags
-    all_tags = [f"{registry}:{build_configuration.version}" for registry in build_configuration.registries]
+    tags = []
+    for registry in registries:
+        tags.append(f"{registry}:{build_configuration.version}")
+        if build_configuration.latest_tag:
+            tags.append(f"{registry}:latest")
+        if build_configuration.olm_tag:
+            olm_tag = create_olm_version_tag(build_configuration.version)
+            tags.append(f"{registry}:{olm_tag}")
 
     logger.info(
-        f"Building image with tags {all_tags} for platforms={build_configuration.platforms}, dockerfile args: {build_args}"
+        f"Building image with tags {tags} for platforms={build_configuration.platforms}, dockerfile args: {build_args}"
     )
 
     execute_docker_build(
-        tags=all_tags,
+        tags=tags,
         dockerfile=build_configuration.dockerfile_path,
         path=build_path,
         args=build_args,
@@ -91,7 +99,7 @@ def build_image(
         logger.info("Logging in MongoDB Artifactory for Garasign image")
         mongodb_artifactory_login()
         logger.info("Signing image")
-        for registry in build_configuration.registries:
+        for registry in registries:
             sign_image(registry, build_configuration.version)
             verify_signature(registry, build_configuration.version)
 
@@ -118,9 +126,9 @@ def build_meko_tests_image(build_configuration: ImageBuildConfiguration):
     shutil.copyfile("release.json", "docker/mongodb-kubernetes-tests/release.json")
     shutil.copyfile("requirements.txt", requirements_dest)
 
-    python_version = os.getenv("PYTHON_VERSION", "3.13")
-    if python_version == "":
-        raise Exception("Missing PYTHON_VERSION environment variable")
+    python_version = os.getenv("PYTHON_VERSION")
+    if not python_version:
+        raise Exception("PYTHON_VERSION environment variable is not set or empty - it should be set in root-context")
 
     build_args = dict({"PYTHON_VERSION": python_version})
 
@@ -430,3 +438,9 @@ def queue_exception_handling(tasks_queue):
 def load_release_file() -> Dict:
     with open("release.json") as release:
         return json.load(release)
+
+
+def create_olm_version_tag(version: str) -> str:
+    now = datetime.datetime.now()
+    timestamp_suffix = now.strftime("%Y%m%d%H%M%S")
+    return f"{version}-olm-{timestamp_suffix}"

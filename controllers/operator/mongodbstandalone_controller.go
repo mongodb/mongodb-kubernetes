@@ -67,9 +67,9 @@ func AddStandaloneController(ctx context.Context, mgr manager.Manager, imageUrls
 	}
 
 	err = c.Watch(
-		source.Channel[client.Object](OmUpdateChannel,
+		source.Channel(OmUpdateChannel,
 			&handler.EnqueueRequestForObject{},
-			source.WithPredicates(watch.PredicatesForMongoDB(mdbv1.Standalone)),
+			source.WithPredicates[client.Object, reconcile.Request](watch.PredicatesForMongoDB(mdbv1.Standalone)),
 		))
 	if err != nil {
 		return xerrors.Errorf("not able to setup OmUpdateChannel to listent to update events from OM: %s", err)

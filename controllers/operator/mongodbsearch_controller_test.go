@@ -10,7 +10,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllertest"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -148,8 +147,8 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 	err = c.Get(ctx, search.StatefulSetNamespacedName(), sts)
 	assert.NoError(t, err)
 
-	queue := controllertest.Queue{Interface: workqueue.New()}
-	reconciler.mdbcWatcher.Create(ctx, event.CreateEvent{Object: mdbc}, &queue)
+	queue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+	reconciler.mdbcWatcher.Create(ctx, event.CreateEvent{Object: mdbc}, queue)
 	assert.Equal(t, 1, queue.Len())
 }
 
