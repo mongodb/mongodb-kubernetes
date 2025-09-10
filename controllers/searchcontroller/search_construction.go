@@ -83,7 +83,7 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sourceDBReso
 		persistenceConfig = mdbSearch.Spec.Persistence.SingleConfig
 	}
 
-	defaultPersistenceConfig := common.PersistenceConfig{Storage: "10G"}
+	defaultPersistenceConfig := common.PersistenceConfig{Storage: util.DefaultMongodStorageSize}
 	dataVolumeClaim := statefulset.WithVolumeClaim(dataVolumeName, construct.PvcFunc(dataVolumeName, persistenceConfig, defaultPersistenceConfig, nil))
 
 	podSecurityContext, _ := podtemplatespec.WithDefaultSecurityContextsModifications()
@@ -209,6 +209,7 @@ func createSearchResourceRequirements(requirements *corev1.ResourceRequirements)
 }
 
 func newSearchDefaultRequirements() corev1.ResourceRequirements {
+	// TODO: add default limits once there is an official mongot sizing guide
 	return corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
 			corev1.ResourceCPU:    construct.ParseQuantityOrZero("2"),
