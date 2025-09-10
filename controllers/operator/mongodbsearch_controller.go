@@ -80,6 +80,13 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 }
 
 func (r *MongoDBSearchReconciler) getSourceMongoDBForSearch(ctx context.Context, kubeClient client.Client, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) (searchcontroller.SearchSourceDBResource, error) {
+	// Resolve the source database for this Search instance.
+	// If .spec.source.external is defined immediately return the external search source.
+	// Otherwise, read .spec.source.mongodbResourceRef or use the implicit database resource name (same as the Search resource's name).
+	// Try to get a MongoDB CR with the computed name and return the enterprise search source if successful.
+	// Otherwise, try to get a MongoDBCommunity CR with the same name and return the community search source.
+	// If everything fails just error out and the controller will retry reconciliation.
+
 	if search.IsExternalMongoDBSource() {
 		return searchcontroller.NewExternalSearchSource(search.Namespace, search.Spec.Source.ExternalMongoDBSource), nil
 	}
