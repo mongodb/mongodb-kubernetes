@@ -17,7 +17,7 @@ spec:
         enabled: false
     username: search-sync-source
     passwordSecretRef:
-      name: mdbc-rs-search-sync-source-password
+      name: ${MDB_SEARCH_SYNC_SOURCE_PASSWORD_SECRET_NAME}
       key: password
   resourceRequirements:
     limits:

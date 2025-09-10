@@ -1,4 +1,4 @@
-export K8S_CTX="<kube context name>"
+export K8S_CTX="kind-kind"
 
 # specify prerelease version
 export PRERELEASE_VERSION="1.4.0-prerelease-68bf4a882be4c1000749a759" # mongodb search version used is 1.53.0-95-g8411af86f
