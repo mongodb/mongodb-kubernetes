@@ -9,7 +9,6 @@ source "${script_dir}/root-context"
 source "${script_dir}/variables/om70"
 
 export DATABASE_REGISTRY="${QUAY_REGISTRY}"
-export APPDB_REGISTRY="${QUAY_REGISTRY}"
 export INIT_OPS_MANAGER_REGISTRY="${QUAY_REGISTRY}"
 export OPS_MANAGER_REGISTRY="${QUAY_REGISTRY}"
 export OPERATOR_REGISTRY="${QUAY_REGISTRY}"
