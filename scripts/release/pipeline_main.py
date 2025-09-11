@@ -121,7 +121,7 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
 
     # Validate version - only agent can have None version as the versions are managed by the agent
     # which are externally retrieved from release.json
-    if version is None and image is not "agent":
+    if version is None and image != "agent":
         raise ValueError(f"Version cannot be empty for {image}.")
 
     return ImageBuildConfiguration(
