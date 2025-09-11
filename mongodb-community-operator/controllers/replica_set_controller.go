@@ -30,7 +30,7 @@ import (
 	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
-	"github.com/mongodb/mongodb-kubernetes/controllers/search_controller"
+	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/predicates"
@@ -707,7 +707,7 @@ func (r ReplicaSetReconciler) buildAutomationConfig(ctx context.Context, mdb mdb
 	var search *searchv1.MongoDBSearch
 	searchList := &searchv1.MongoDBSearchList{}
 	if err := r.client.List(ctx, searchList, &k8sClient.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector(search_controller.MongoDBSearchIndexFieldName, mdb.Namespace+"/"+mdb.Name),
+		FieldSelector: fields.OneTermEqualSelector(searchcontroller.MongoDBSearchIndexFieldName, mdb.Namespace+"/"+mdb.Name),
 	}); err != nil {
 		r.log.Debug(err)
 	}
@@ -715,7 +715,7 @@ func (r ReplicaSetReconciler) buildAutomationConfig(ctx context.Context, mdb mdb
 	// and that this resource passes search validations. If either fails, proceed without a search target
 	// for the mongod automation config.
 	if len(searchList.Items) == 1 {
-		searchSource := search_controller.NewCommunityResourceSearchSource(&mdb)
+		searchSource := searchcontroller.NewCommunityResourceSearchSource(&mdb)
 		if searchSource.Validate() == nil {
 			search = &searchList.Items[0]
 		}
@@ -842,7 +842,7 @@ func getMongodConfigSearchModification(search *searchv1.MongoDBSearch) automatio
 		return automationconfig.NOOP()
 	}
 
-	searchConfigParameters := search_controller.GetMongodConfigParameters(search)
+	searchConfigParameters := searchcontroller.GetMongodConfigParameters(search)
 	return func(ac *automationconfig.AutomationConfig) {
 		for i := range ac.Processes {
 			err := mergo.Merge(&ac.Processes[i].Args26, objx.New(searchConfigParameters), mergo.WithOverride)

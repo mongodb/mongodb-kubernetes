@@ -22,7 +22,7 @@ import (
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	"github.com/mongodb/mongodb-kubernetes/controllers/search_controller"
+	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/mongot"
@@ -53,11 +53,11 @@ func newMongoDBSearch(name, namespace, mdbcName string) *searchv1.MongoDBSearch 
 
 func newSearchReconcilerWithOperatorConfig(
 	mdbc *mdbcv1.MongoDBCommunity,
-	operatorConfig search_controller.OperatorSearchConfig,
+	operatorConfig searchcontroller.OperatorSearchConfig,
 	searches ...*searchv1.MongoDBSearch,
 ) (*MongoDBSearchReconciler, client.Client) {
 	builder := mock.NewEmptyFakeClientBuilder()
-	builder.WithIndex(&searchv1.MongoDBSearch{}, search_controller.MongoDBSearchIndexFieldName, mdbcSearchIndexBuilder)
+	builder.WithIndex(&searchv1.MongoDBSearch{}, searchcontroller.MongoDBSearchIndexFieldName, mdbcSearchIndexBuilder)
 
 	if mdbc != nil {
 		keyfileSecret := &corev1.Secret{
@@ -87,7 +87,7 @@ func newSearchReconciler(
 	mdbc *mdbcv1.MongoDBCommunity,
 	searches ...*searchv1.MongoDBSearch,
 ) (*MongoDBSearchReconciler, client.Client) {
-	return newSearchReconcilerWithOperatorConfig(mdbc, search_controller.OperatorSearchConfig{}, searches...)
+	return newSearchReconcilerWithOperatorConfig(mdbc, searchcontroller.OperatorSearchConfig{}, searches...)
 }
 
 func buildExpectedMongotConfig(search *searchv1.MongoDBSearch, mdbc *mdbcv1.MongoDBCommunity) mongot.Config {
@@ -100,21 +100,21 @@ func buildExpectedMongotConfig(search *searchv1.MongoDBSearch, mdbc *mdbcv1.Mong
 			ReplicaSet: mongot.ConfigReplicaSet{
 				HostAndPort:    hostAndPorts,
 				Username:       searchv1.MongotDefaultSyncSourceUsername,
-				PasswordFile:   "/tmp/sourceUserPassword",
+				PasswordFile:   searchcontroller.TempSourceUserPasswordPath,
 				TLS:            ptr.To(false),
 				ReadPreference: ptr.To("secondaryPreferred"),
 				AuthSource:     ptr.To("admin"),
 			},
 		},
 		Storage: mongot.ConfigStorage{
-			DataPath: "/mongot/data/config.yml",
+			DataPath: searchcontroller.MongotDataPath,
 		},
 		Server: mongot.ConfigServer{
 			Wireproto: &mongot.ConfigWireproto{
 				Address: "0.0.0.0:27027",
 				Authentication: &mongot.ConfigAuthentication{
 					Mode:    "keyfile",
-					KeyFile: "/tmp/keyfile",
+					KeyFile: searchcontroller.TempKeyfilePath,
 				},
 				TLS: mongot.ConfigTLS{Mode: mongot.ConfigTLSModeDisabled},
 			},
@@ -185,7 +185,7 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 	expectedConfig := buildExpectedMongotConfig(search, mdbc)
 	configYaml, err := yaml.Marshal(expectedConfig)
 	assert.NoError(t, err)
-	assert.Equal(t, string(configYaml), cm.Data["config.yml"])
+	assert.Equal(t, string(configYaml), cm.Data[searchcontroller.MongotConfigFilename])
 
 	sts := &appsv1.StatefulSet{}
 	err = c.Get(ctx, search.StatefulSetNamespacedName(), sts)
@@ -260,7 +260,7 @@ func TestMongoDBSearchReconcile_InvalidSearchImageVersion(t *testing.T) {
 							Spec: corev1.PodSpec{
 								Containers: []corev1.Container{
 									{
-										Name:  search_controller.MongotContainerName,
+										Name:  searchcontroller.MongotContainerName,
 										Image: "testrepo/mongot:1.47.0",
 									},
 								},
@@ -280,7 +280,7 @@ func TestMongoDBSearchReconcile_InvalidSearchImageVersion(t *testing.T) {
 			search.Spec.Version = tc.specVersion
 			search.Spec.StatefulSetConfiguration = tc.statefulSetConfig
 
-			operatorConfig := search_controller.OperatorSearchConfig{
+			operatorConfig := searchcontroller.OperatorSearchConfig{
 				SearchVersion: tc.operatorVersion,
 			}
 			reconciler, _ := newSearchReconcilerWithOperatorConfig(mdbc, operatorConfig, search)

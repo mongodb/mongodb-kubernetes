@@ -70,7 +70,7 @@ def mdbs(namespace: str, mdbc: MongoDBCommunity) -> MongoDBSearch:
         "source": {
             "external": {
                 "hostAndPorts": seeds,
-                "keyFileSecretRef": {"name": f"{mdbc.name}-keyfile", "key": "keyfile"},
+                "keyfileSecretRef": {"name": f"{mdbc.name}-keyfile", "key": "keyfile"},
                 "tls": {"enabled": False},
             },
             "passwordSecretRef": {"name": f"{MDBC_RESOURCE_NAME}-{MONGOT_USER_NAME}-password", "key": "password"},
@@ -104,18 +104,18 @@ def test_install_secrets(namespace: str, mdbs: MongoDBSearch):
 @mark.e2e_search_external_basic
 def test_create_database_resource(mdbc: MongoDBCommunity):
     mdbc.update()
-    mdbc.assert_reaches_phase(Phase.Running, timeout=1000)
+    mdbc.assert_reaches_phase(Phase.Running, timeout=300)
 
 
 @mark.e2e_search_external_basic
 def test_create_search_resource(mdbs: MongoDBSearch, mdbc: MongoDBCommunity):
     mdbs.update()
-    mdbs.assert_reaches_phase(Phase.Running, timeout=1000)
+    mdbs.assert_reaches_phase(Phase.Running, timeout=300)
 
 
 @mark.e2e_search_external_basic
 def test_wait_for_community_resource_ready(mdbc: MongoDBCommunity):
-    mdbc.assert_reaches_phase(Phase.Running, timeout=1800)
+    mdbc.assert_reaches_phase(Phase.Running, timeout=300)
 
 
 @fixture(scope="function")

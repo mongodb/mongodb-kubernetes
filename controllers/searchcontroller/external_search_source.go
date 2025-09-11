@@ -1,4 +1,4 @@
-package search_controller
+package searchcontroller
 
 import (
 	"k8s.io/apimachinery/pkg/types"
@@ -12,13 +12,16 @@ func NewExternalSearchSource(namespace string, spec *searchv1.ExternalMongoDBSou
 	return &externalSearchResource{namespace: namespace, spec: spec}
 }
 
-// externalSearchResource implements SearchSourceDBResource for deployments managed outside the operator.
+// externalSearchResource implements SearchSourceDBResource for deployments managed outside the Kubernetes cluster.
 type externalSearchResource struct {
 	namespace string
 	spec      *searchv1.ExternalMongoDBSource
 }
 
 func (r *externalSearchResource) Validate() error {
+	// We don't know anything about the external MongoDB deployment, so we can't validate it.
+	// Perhaps in the future the Operator could attempt to connect to the external MongoDB instance
+	// and validate its configuration.
 	return nil
 }
 

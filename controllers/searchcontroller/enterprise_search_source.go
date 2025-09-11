@@ -1,4 +1,4 @@
-package search_controller
+package searchcontroller
 
 import (
 	"fmt"
@@ -47,7 +47,7 @@ func (r EnterpriseResourceSearchSource) TLSConfig() *TLSSourceConfig {
 }
 
 func (r EnterpriseResourceSearchSource) KeyfileSecretName() string {
-	return fmt.Sprintf("%s-keyfile", r.Name)
+	return fmt.Sprintf("%s-%s", r.Name, MongotKeyfileFilename)
 }
 
 func (r EnterpriseResourceSearchSource) Validate() error {
