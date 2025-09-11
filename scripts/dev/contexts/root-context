@@ -44,13 +44,15 @@ export OPS_MANAGER_NAMESPACE="operator-testing-50-current"
 # Moved from the old set_env_context.sh
 export LOCAL_RUN=true
 
+#TODO: dont't override the latest image if you run staging workflow locally
+#TODO: write down how people can push images to their own repo
 OPERATOR_VERSION=${OPERATOR_VERSION:-"latest"}
 READINESS_PROBE_VERSION=${READINESS_PROBE_VERSION:-"latest"}
 VERSION_UPGRADE_WEBHOOK_VERSION=${VERSION_UPGRADE_WEBHOOK_VERSION:-"latest"}
 if [[ "${OVERRIDE_VERSION_ID:-}" != "" ]]; then
   OPERATOR_VERSION="${OVERRIDE_VERSION_ID}"
   READINESS_PROBE_VERSION="${OVERRIDE_VERSION_ID}"
-  VERSION_UPGRADE_WEBHOOK_VERSION="${OVERRIDE_VERSION_ID}"
+  VERSION_UPGRADE_WEBHOOK_VERSION="${OVERRIDE_VERSION_ID}" #TODO: not webhook, just hook
 fi
 
 export OPERATOR_VERSION="${OPERATOR_VERSION}"

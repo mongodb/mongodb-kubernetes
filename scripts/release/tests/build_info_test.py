@@ -7,7 +7,7 @@ from scripts.release.build.build_info import (
 )
 from scripts.release.build.build_scenario import BuildScenario
 
-
+#TODO: Target testdata (test build_info.json file) and not the production build_info.json file from codebase
 def test_load_build_info_development():
     expected_build_info = BuildInfo(
         images={
