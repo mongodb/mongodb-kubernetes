@@ -100,21 +100,21 @@ func buildExpectedMongotConfig(search *searchv1.MongoDBSearch, mdbc *mdbcv1.Mong
 			ReplicaSet: mongot.ConfigReplicaSet{
 				HostAndPort:    hostAndPorts,
 				Username:       searchv1.MongotDefaultSyncSourceUsername,
-				PasswordFile:   "/tmp/sourceUserPassword",
+				PasswordFile:   searchcontroller.TempSourceUserPasswordPath,
 				TLS:            ptr.To(false),
 				ReadPreference: ptr.To("secondaryPreferred"),
 				AuthSource:     ptr.To("admin"),
 			},
 		},
 		Storage: mongot.ConfigStorage{
-			DataPath: "/mongot/data/config.yml",
+			DataPath: searchcontroller.MongotDataPath,
 		},
 		Server: mongot.ConfigServer{
 			Wireproto: &mongot.ConfigWireproto{
 				Address: "0.0.0.0:27027",
 				Authentication: &mongot.ConfigAuthentication{
 					Mode:    "keyfile",
-					KeyFile: "/tmp/keyfile",
+					KeyFile: searchcontroller.TempKeyfilePath,
 				},
 				TLS: mongot.ConfigTLS{Mode: mongot.ConfigTLSModeDisabled},
 			},
@@ -185,7 +185,7 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 	expectedConfig := buildExpectedMongotConfig(search, mdbc)
 	configYaml, err := yaml.Marshal(expectedConfig)
 	assert.NoError(t, err)
-	assert.Equal(t, string(configYaml), cm.Data["config.yml"])
+	assert.Equal(t, string(configYaml), cm.Data[searchcontroller.MongotConfigFilename])
 
 	sts := &appsv1.StatefulSet{}
 	err = c.Get(ctx, search.StatefulSetNamespacedName(), sts)
