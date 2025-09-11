@@ -126,60 +126,41 @@ task_groups:
 
 buildvariants:
   # These variants are used to test the code snippets and each one can be used in patches
-  # Prerelease is especially used when the repo is tagged
   # More details in the TD: https://docs.google.com/document/d/1fuTxfRtP8QPtn7sKYxQM_AGcD6xycTZH8svngGxyKhc/edit?tab=t.0#bookmark=id.e8uva0393mbe
   - name: public_gke_code_snippets
     display_name: public_gke_code_snippets
+    tags: [ "manual_patch" ]
     allowed_requesters: [ "patch" ]
     run_on:
-      - ubuntu2204-small
+      - ubuntu2404-small
     tasks:
       - name: gke_code_snippets_task_group
 
-  - name: prerelease_gke_code_snippets
-    display_name: prerelease_gke_code_snippets
-    tags: [ "release" ]
-    allowed_requesters: [ "patch", "github_tag" ]
-    depends_on:
-      - variant: release_images
-        name: '*'
-        patch_optional: true
+  - name: public_kind_code_snippets
+    display_name: public_kind_code_snippets
+    tags: [ "manual_patch" ]
+    allowed_requesters: [ "patch" ]
     run_on:
-      - ubuntu2204-small
+      - ubuntu2404-large
     tasks:
-      - name: gke_code_snippets_task_group
+      - name: kind_code_snippets_task_group
 
   - name: private_gke_code_snippets
     display_name: private_gke_code_snippets
+    tags: [ "staging", "e2e_test_suite" ]
     allowed_requesters: [ "patch" ]
     run_on:
-      - ubuntu2204-small
+      - ubuntu2404-small
     <<: *base_om8_dependency
     tasks:
       - name: gke_code_snippets_task_group
 
   - name: private_kind_code_snippets
     display_name: private_kind_code_snippets
-    tags: [ "e2e_test_suite" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
     allowed_requesters: [ "patch", "github_pr" ]
     run_on:
-      - ubuntu2204-large
+      - ubuntu2404-large
     <<: *base_om8_dependency
-    tasks:
-      - name: kind_code_snippets_task_group
-
-  - name: prerelease_kind_code_snippets
-    display_name: prerelease_kind_code_snippets
-    allowed_requesters: [ "patch" ]
-    run_on:
-      - ubuntu2204-large
-    tasks:
-      - name: kind_code_snippets_task_group
-
-  - name: public_kind_code_snippets
-    display_name: public_kind_code_snippets
-    allowed_requesters: [ "patch" ]
-    run_on:
-      - ubuntu2204-large
     tasks:
       - name: kind_code_snippets_task_group

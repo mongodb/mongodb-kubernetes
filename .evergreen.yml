@@ -190,12 +190,22 @@ parameters:
     value: "false"
     description: set this to true if you would like the pipeline to automatically push a branch with updated snippets outputs
 
+# Each variant needs to be tagged with one or more tags referencing related build scenario:
+#  - pr_patch: for patches created by GitHub PRs
+#  - staging: for builds triggered when merging to master or release branch
+#  - release: for builds triggered on git tags
+# For variants that are **only** triggered manually (patch) or by PCT we should use "manual_patch" tag.
+# Examples: `migrate_all_agents`, `e2e_operator_perf` or `publish_om80_images`.
+#
+# This configuration allows us to run all the associated tasks for each scenario from evergreen command line.
+# This is especially helpful when making changes to `staging` or `release` variants and testing them using Evergreen
+# command line patches. For example there is no other way to trigger tasks that are run on merges to master other than
+# combining them together using aliases. The same applies for tasks being run on git tags.
+#
+# See https://docs.devprod.prod.corp.mongodb.com/evergreen/Project-Configuration/Project-and-Distro-Settings#project-aliases
 
 # Triggered manually or by PCT.
 patch_aliases:
-  - alias: "periodic_builds"
-    variant_tags: [ "periodic_build" ]
-    task: ".*"
   - alias: "periodic_teardowns"
     variant_tags: [ "periodic_teardown" ]
     task: ".*"
@@ -205,27 +215,25 @@ patch_aliases:
   - alias: "release_all_agents_manually"
     variant_tags: [ "release_all_agents_manually" ]
     task: ".*"
-  - alias: "release"
-    variant_tags: [ "release", "e2e_smoke_release_test_suite" ]
-    task_tags: [ "image_release", "binary_release", "image_preflight", "openshift_bundles", "code_snippets", "patch-run" ]
   - alias: "smoke_test_release"
     variant_tags: [ "e2e_smoke_release_test_suite" ]
     task_tags: [ "patch-run" ]
   - alias: "patch-run-cloudqa"
     variant_tags: [ "cloudqa_non_static" ]
     task: ".*"
+  - alias: "release"
+    variant_tags: [ "release" ]
+    task: ".*"
+  - alias: "staging"
+    variant_tags: [ "staging" ]
+    task: ".*"
+  - alias: "pr_patch"
+    variant_tags: [ "pr_patch" ]
+    task: ".*"
 
 # Triggered whenever the GitHub PR is created
 github_pr_aliases:
-  - variant_tags: [ "unit_tests" ]
-    task_tags: [ "unit_tests" ]
-  - variant_tags: [ "e2e_test_suite" ]
-    task_tags: [ "patch-run" ]
-  - variant_tags: [ "e2e_mco_test_suite" ]
-    task: ".*"
-  - variant_tags: [ "auto_bump" ]
-    task_tags: [ "patch-run" ]
-  - variant_tags: [ "release_agents_on_ecr" ]
+  - variant_tags: [ "pr_patch" ]
     task: ".*"
 
 # Allows to see evergreen checks in GitHub commits
@@ -237,8 +245,8 @@ github_checks_aliases:
 # Triggered on git tag
 git_tag_aliases:
   - git_tag: "^(\\d+\\.)?(\\d+\\.)?(\\d+)$"
-    variant_tags: [ "release", "e2e_smoke_release_test_suite" ]
-    task_tags: [ "image_release", "image_preflight", "binary_release", "openshift_bundles", "code_snippets", "patch-run" ]
+    variant_tags: [ "release" ]
+    task: ".*"
 
 tasks:
   - name: unit_tests_golang
@@ -1147,7 +1155,7 @@ buildvariants:
 
   - name: unit_tests
     display_name: "unit_tests"
-    tags: [ "unit_tests" ]
+    tags: [ "pr_patch", "staging", "unit_tests" ]
     run_on:
       - ubuntu2204-small #TODO: Uses older ubuntu2204, because for some reason on ubuntu2404 the helm binary is not found
     tasks:
@@ -1165,7 +1173,7 @@ buildvariants:
   # MongoDBCommunity build variant
   - name: e2e_mdb_community
     display_name: e2e_mdb_community
-    tags: [ "e2e_test_suite" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
     run_on:
       - ubuntu2404-large
     <<: *community_dependency
@@ -1175,7 +1183,7 @@ buildvariants:
   ## MongoDB build variants
   - name: e2e_mdb_kind_ubi_cloudqa
     display_name: e2e_mdb_kind_ubi_cloudqa
-    tags: [ "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
     run_on:
       - ubuntu2404-medium
     <<: *base_no_om_image_dependency
@@ -1184,7 +1192,7 @@ buildvariants:
 
   - name: e2e_custom_domain_mdb_kind_ubi_cloudqa
     display_name: e2e_custom_domain_mdb_kind_ubi_cloudqa
-    tags: [ "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_no_om_image_dependency
@@ -1193,7 +1201,7 @@ buildvariants:
 
   - name: e2e_static_mdb_kind_ubi_cloudqa
     display_name: e2e_static_mdb_kind_ubi_cloudqa
-    tags: [ "e2e_test_suite", "cloudqa", "static" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "static" ]
     run_on:
       - ubuntu2404-medium
     <<: *base_no_om_image_dependency
@@ -1202,7 +1210,7 @@ buildvariants:
 
   - name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
     display_name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
-    tags: [ "e2e_test_suite", "cloudqa", "static" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "static" ]
     run_on:
       - ubuntu2404-large
     depends_on:
@@ -1220,9 +1228,10 @@ buildvariants:
     tasks:
       - name: e2e_custom_domain_task_group
 
+  # We do not want to run openshift variants on every PR.
   - name: e2e_mdb_openshift_ubi_cloudqa
     display_name: e2e_mdb_openshift_ubi_cloudqa
-    tags: [ "e2e_openshift_test_suite", "cloudqa", "cloudqa_non_static" ]
+    tags: [ "staging", "e2e_openshift_test_suite", "cloudqa", "cloudqa_non_static" ]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1237,12 +1246,10 @@ buildvariants:
     tasks:
       - name: e2e_mdb_openshift_ubi_cloudqa_task_group
 
-  # This name is on purpose reversed from e2e_static_openshift to e2e_openshift_static.
-  # That is because we run a regex
-  # in evergreen for all variants matching e2e_static-*, but we do not want to run openshift variants on every pr.
-  - name: e2e_openshift_static_mdb_ubi_cloudqa
-    display_name: e2e_openshift_static_mdb_ubi_cloudqa
-    tags: [ "e2e_openshift_test_suite", "cloudqa", "static" ]
+  # We do not want to run openshift variants on every PR.
+  - name: e2e_static_openshift_mdb_ubi_cloudqa
+    display_name: e2e_static_openshift_mdb_ubi_cloudqa
+    tags: [ "staging", "e2e_openshift_test_suite", "cloudqa", "static" ]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1261,7 +1268,7 @@ buildvariants:
   # Isolated Ops Manager Tests for 6.0 version
   - name: e2e_om60_kind_ubi
     display_name: e2e_om60_kind_ubi
-    tags: [ "e2e_test_suite" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
     run_on:
       - ubuntu2204-medium-high-memory
     <<: *base_om6_dependency
@@ -1273,7 +1280,7 @@ buildvariants:
   # Isolated Ops Manager Tests for 6.0 version
   - name: e2e_static_om60_kind_ubi
     display_name: e2e_static_om60_kind_ubi
-    tags: [ "e2e_test_suite", "static" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "static" ]
     run_on:
       - ubuntu2404-medium
     <<: *base_om6_dependency
@@ -1283,7 +1290,7 @@ buildvariants:
 
   - name: e2e_om70_kind_ubi
     display_name: e2e_om70_kind_ubi
-    tags: [ "e2e_test_suite" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "patch" ]
     run_on:
       - ubuntu2204-medium-high-memory
     <<: *base_om7_dependency
@@ -1295,7 +1302,7 @@ buildvariants:
 
   - name: e2e_static_om70_kind_ubi
     display_name: e2e_static_om70_kind_ubi
-    tags: [ "e2e_test_suite", "static" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "static" ]
     run_on:
       - ubuntu2404-medium
     <<: *base_om7_dependency
@@ -1306,7 +1313,7 @@ buildvariants:
 
   - name: e2e_om80_kind_ubi
     display_name: e2e_om80_kind_ubi
-    tags: [ "e2e_test_suite" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
     run_on:
       - ubuntu2204-medium-high-memory
     <<: *base_om8_dependency
@@ -1318,7 +1325,7 @@ buildvariants:
 
   - name: e2e_static_om80_kind_ubi
     display_name: e2e_static_om80_kind_ubi
-    tags: [ "e2e_test_suite", "static" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "static" ]
     run_on:
       - ubuntu2404-medium
     <<: *base_om8_dependency
@@ -1329,7 +1336,7 @@ buildvariants:
 
   - name: e2e_operator_race_ubi_with_telemetry
     display_name: e2e_operator_race_ubi_with_telemetry
-    tags: [ "e2e_test_suite" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
     run_on:
       - ubuntu1804-xlarge
     <<: *base_om7_dependency_with_race
@@ -1338,7 +1345,7 @@ buildvariants:
 
   - name: e2e_smoke_ibm_power
     display_name: e2e_smoke_ibm_power
-    tags: [ "e2e_test_suite" ]
+    tags: [ "staging", "e2e_smoke_test_suite" ]
     run_on:
       - rhel9-power-small
       - rhel9-power-large
@@ -1361,7 +1368,7 @@ buildvariants:
 
   - name: e2e_static_smoke_ibm_power
     display_name: e2e_static_smoke_ibm_power
-    tags: [ "e2e_test_suite", "static" ]
+    tags: [ "staging", "e2e_smoke_test_suite", "static" ]
     run_on:
       - rhel9-power-small
       - rhel9-power-large
@@ -1384,7 +1391,7 @@ buildvariants:
 
   - name: e2e_smoke_ibm_z
     display_name: e2e_smoke_ibm_z
-    tags: [ "e2e_test_suite" ]
+    tags: [ "staging", "e2e_smoke_test_suite" ]
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large
@@ -1407,7 +1414,7 @@ buildvariants:
 
   - name: e2e_static_smoke_ibm_z
     display_name: e2e_static_smoke_ibm_z
-    tags: [ "e2e_test_suite", "static" ]
+    tags: [ "staging", "e2e_smoke_test_suite", "static" ]
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large
@@ -1430,7 +1437,7 @@ buildvariants:
 
   - name: e2e_smoke_arm
     display_name: e2e_smoke_arm
-    tags: [ "e2e_test_suite" ]
+    tags: [ "staging", "e2e_smoke_test_suite" ]
     run_on:
       - ubuntu2404-arm64-large
     allowed_requesters: [ "patch", "commit" ]
@@ -1440,7 +1447,7 @@ buildvariants:
 
   - name: e2e_static_smoke_arm
     display_name: e2e_smoke_arm
-    tags: [ "e2e_test_suite", "static" ]
+    tags: [ "staging", "e2e_smoke_test_suite", "static" ]
     run_on:
       - ubuntu2404-arm64-large
     allowed_requesters: [ "patch", "commit" ]
@@ -1450,7 +1457,7 @@ buildvariants:
 
   - name: e2e_multi_cluster_kind
     display_name: e2e_multi_cluster_kind
-    tags: [ "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om6_dependency
@@ -1459,7 +1466,7 @@ buildvariants:
 
   - name: e2e_static_multi_cluster_kind
     display_name: e2e_static_multi_cluster_kind
-    tags: [ "e2e_test_suite", "cloudqa", "static" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om6_dependency
@@ -1468,7 +1475,7 @@ buildvariants:
 
   - name: e2e_multi_cluster_2_clusters
     display_name: e2e_multi_cluster_2_clusters
-    tags: [ "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om6_dependency
@@ -1477,7 +1484,7 @@ buildvariants:
 
   - name: e2e_static_multi_cluster_2_clusters
     display_name: e2e_static_multi_cluster_2_clusters
-    tags: [ "e2e_test_suite", "cloudqa", "static" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om6_dependency
@@ -1486,7 +1493,7 @@ buildvariants:
 
   - name: e2e_multi_cluster_om_appdb
     display_name: e2e_multi_cluster_om_appdb
-    tags: [ "e2e_test_suite" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om6_dependency
@@ -1495,7 +1502,7 @@ buildvariants:
 
   - name: e2e_static_multi_cluster_om_appdb
     display_name: e2e_static_multi_cluster_om_appdb
-    tags: [ "e2e_test_suite", "static" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om6_dependency
@@ -1504,7 +1511,7 @@ buildvariants:
 
   - name: e2e_multi_cluster_om_operator_not_in_mesh
     display_name: e2e_multi_cluster_om_operator_not_in_mesh
-    tags: [ "e2e_test_suite" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om7_dependency
@@ -1515,7 +1522,7 @@ buildvariants:
 
   - name: e2e_operator_kind_ubi_cloudqa
     display_name: e2e_operator_kind_ubi_cloudqa
-    tags: [ "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_no_om_image_dependency
@@ -1524,7 +1531,7 @@ buildvariants:
 
   - name: e2e_static_operator_kind_ubi_cloudqa
     display_name: e2e_static_operator_kind_ubi_cloudqa
-    tags: [ "e2e_test_suite", "cloudqa", "static" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_no_om_image_dependency
@@ -1533,7 +1540,7 @@ buildvariants:
 
   - name: e2e_operator_no_webhook_roles_cloudqa
     display_name: e2e_operator_no_webhook_roles_cloudqa
-    tags: [ "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_no_om_image_dependency
@@ -1542,7 +1549,7 @@ buildvariants:
 
   - name: e2e_kind_olm_ubi
     display_name: e2e_kind_olm_ubi
-    tags: [ "e2e_test_suite" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
     run_on:
       - ubuntu2404-large
     depends_on:
@@ -1567,7 +1574,7 @@ buildvariants:
 
   - name: e2e_static_kind_olm_ubi
     display_name: e2e_static_kind_olm_ubi
-    tags: [ "e2e_test_suite", "static" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite", "static" ]
     run_on:
       - ubuntu2404-large
     depends_on:
@@ -1591,7 +1598,7 @@ buildvariants:
     # This variants runs the tests from MCO with the MEKO operator binary
   - name: e2e_mco_tests
     display_name: "e2e_mco_tests"
-    tags: [ "e2e_mco_test_suite" ]
+    tags: [ "pr_patch", "staging", "e2e_mco_test_suite" ]
     <<: *community_dependency
     run_on:
       - ubuntu2004-large
@@ -1600,7 +1607,7 @@ buildvariants:
 
   - name: e2e_operator_perf
     display_name: e2e_operator_perf
-    tags: [ "e2e_perf_test_suite" ]
+    tags: [ "manual_patch", "e2e_perf_test_suite" ]
     allowed_requesters: [ "patch" ]
     run_on:
       - ubuntu1804-xlarge
@@ -1610,7 +1617,7 @@ buildvariants:
 
   - name: e2e_operator_perf_one_thread
     display_name: e2e_operator_perf_one_thread
-    tags: [ "e2e_perf_test_suite" ]
+    tags: [ "manual_patch", "e2e_perf_test_suite" ]
     allowed_requesters: [ "patch" ]
     run_on:
       - ubuntu1804-xlarge
@@ -1620,7 +1627,7 @@ buildvariants:
 
   - name: e2e_operator_perf_thirty
     display_name: e2e_operator_perf_thirty
-    tags: [ "e2e_perf_test_suite" ]
+    tags: [ "manual_patch", "e2e_perf_test_suite" ]
     allowed_requesters: [ "patch" ]
     run_on:
       - ubuntu1804-xlarge
@@ -1633,6 +1640,7 @@ buildvariants:
   - name: init_test_run
     display_name: init_test_run
     max_hosts: -1
+    tags: [ "pr_patch", "staging" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -1652,6 +1660,7 @@ buildvariants:
   - name: init_test_run_ibm_power
     display_name: init_test_run_ibm_power
     max_hosts: -1
+    tags: [ "staging" ]
     run_on:
       - rhel9-power-small
       - rhel9-power-large
@@ -1661,6 +1670,7 @@ buildvariants:
   - name: init_test_run_ibm_z
     display_name: init_test_run_ibm_z
     max_hosts: -1
+    tags: [ "staging" ]
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large
@@ -1671,7 +1681,7 @@ buildvariants:
     priority: 70
     display_name: run_pre_commit
     allowed_requesters: [ "patch", "github_pr" ]
-    tags: [ "auto_bump" ]
+    tags: [ "pr_patch", "auto_bump" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -1694,7 +1704,7 @@ buildvariants:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
-
+    tags: [ "pr_patch", "staging" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -1706,6 +1716,7 @@ buildvariants:
 
   - name: preflight_release_images_check_only
     display_name: preflight_release_images_check_only
+    tags: [ "staging" ]
     run_on:
       - rhel90-large
     tasks:
@@ -1713,6 +1724,7 @@ buildvariants:
 
   - name: build_om60_images
     display_name: build_om60_images
+    tags: [ "pr_patch", "staging" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -1720,6 +1732,7 @@ buildvariants:
 
   - name: preflight_om60_images
     display_name: preflight_om60_images
+    tags: [ "staging" ]
     run_on:
       - rhel90-large
     tasks:
@@ -1727,6 +1740,7 @@ buildvariants:
 
   - name: build_om70_images
     display_name: build_om70_images
+    tags: [ "pr_patch", "staging" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -1734,6 +1748,7 @@ buildvariants:
 
   - name: preflight_om70_images
     display_name: preflight_om70_images
+    tags: [ "staging" ]
     run_on:
       - rhel90-large
     tasks:
@@ -1741,6 +1756,7 @@ buildvariants:
 
   - name: build_om80_images
     display_name: build_om80_images
+    tags: [ "pr_patch", "staging" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -1748,6 +1764,7 @@ buildvariants:
 
   - name: preflight_om80_images
     display_name: preflight_om80_images
+    tags: [ "staging" ]
     run_on:
       - rhel90-large
     tasks:
@@ -1756,7 +1773,7 @@ buildvariants:
     # It will be called by pct while bumping the agent cloud manager image
   - name: release_agent
     display_name: release_agent
-    tags: [ "release_agent" ]
+    tags: [ "manual_patch", "release_agent" ]
     run_on:
       - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     depends_on:
@@ -1777,7 +1794,7 @@ buildvariants:
     # has not changed, and you still want to push the images to ecr.
   - name: manual_ecr_release_agent
     display_name: Manual Agent Release for all versions
-    tags: [ "release_all_agents_manually" ]
+    tags: [ "manual_patch", "release_all_agents_manually" ]
     run_on:
       - ubuntu2404-large
     tasks:
@@ -1787,7 +1804,7 @@ buildvariants:
     # has not changed, and you still want to push the images to ecr.
   - name: manual_ecr_release_agent_currently_used
     display_name: manual_ecr_release_agent_currently_used
-    tags: [ "release_all_agents_manually" ]
+    tags: [ "manual_patch", "release_all_agents_manually" ]
     run_on:
       - ubuntu2404-large
     tasks:
@@ -1797,6 +1814,7 @@ buildvariants:
 
   - name: backup_csv_images
     display_name: "Backup CSV Images"
+    tags: [ "manual_patch" ]
     allowed_requesters: [ "patch" ]
     run_on:
       - ubuntu2404-small
@@ -1807,6 +1825,7 @@ buildvariants:
 
   - name: publish_om60_images
     display_name: publish_om60_images
+    tags: [ "manual_patch" ]
     allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
@@ -1821,6 +1840,7 @@ buildvariants:
 
   - name: publish_om70_images
     display_name: publish_om70_images
+    tags: [ "manual_patch" ]
     allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
@@ -1835,6 +1855,7 @@ buildvariants:
 
   - name: publish_om80_images
     display_name: publish_om80_images
+    tags: [ "manual_patch" ]
     allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
@@ -1849,6 +1870,7 @@ buildvariants:
 
   - name: migrate_all_agents
     display_name: migrate_all_agents
+    tags: [ "manual_patch" ]
     allowed_requesters: [ "patch" ]
     run_on:
       - ubuntu2404-large
