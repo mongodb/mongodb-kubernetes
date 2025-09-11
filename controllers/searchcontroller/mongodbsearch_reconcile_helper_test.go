@@ -95,3 +95,49 @@ func TestMongoDBSearchReconcileHelper_ValidateSingleMongoDBSearchForSearchSource
 		})
 	}
 }
+
+func TestNeedsSearchCoordinatorRolePolyfill(t *testing.T) {
+	cases := []struct {
+		name     string
+		version  string
+		expected bool
+	}{
+		{
+			name:     "MongoDB 8.0.x requires polyfill",
+			version:  "8.0.10",
+			expected: true,
+		},
+		{
+			name:     "MongoDB 8.1.x requires polyfill",
+			version:  "8.1.0",
+			expected: true,
+		},
+		{
+			name:     "MongoDB 8.2.0-rc0 treated as 8.2 (no polyfill)",
+			version:  "8.2.0-rc0",
+			expected: false,
+		},
+		{
+			name:     "MongoDB 8.2.0 and above do not require polyfill",
+			version:  "8.2.0",
+			expected: false,
+		},
+		{
+			name:     "MongoDB 8.2.0-ent treated as 8.2 (no polyfill)",
+			version:  "8.2.0-ent",
+			expected: false,
+		},
+		{
+			name:     "MongoDB 9.0.0 and above do not require polyfill",
+			version:  "9.0.0",
+			expected: false,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			actual := NeedsSearchCoordinatorRolePolyfill(c.version)
+			assert.Equal(t, c.expected, actual)
+		})
+	}
+}

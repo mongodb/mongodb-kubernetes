@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/blang/semver"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -660,11 +659,8 @@ func (r *ReconcileMongoDbReplicaSet) applySearchOverrides(ctx context.Context, r
 	searchMongodConfig := searchcontroller.GetMongodConfigParameters(search)
 	rs.Spec.AdditionalMongodConfig.AddOption("setParameter", searchMongodConfig["setParameter"])
 
-	mdbVersion, err := semver.ParseTolerant(rs.Spec.Version)
-	if err != nil {
-		log.Warnf("Failed to parse MongoDB version %q: %w. Proceeding without the automatic creation of the searchCoordinator role that's necessary for MongoDB <8.2", rs.Spec.Version, err)
-	} else if semver.MustParse("8.2.0").GT(mdbVersion) {
-		log.Infof("Polyfilling the searchCoordinator role for MongoDB %s", rs.Spec.Version)
+	if searchcontroller.NeedsSearchCoordinatorRolePolyfill(rs.Spec.GetMongoDBVersion()) {
+		log.Infof("Polyfilling the searchCoordinator role for MongoDB %s", rs.Spec.GetMongoDBVersion())
 
 		if rs.Spec.Security == nil {
 			rs.Spec.Security = &mdbv1.Security{}
