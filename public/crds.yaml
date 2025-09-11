@@ -4217,7 +4217,7 @@ spec:
                         items:
                           type: string
                         type: array
-                      keyFileSecretRef:
+                      keyfileSecretRef:
                         description: mongod keyfile used to connect to the external
                           MongoDB deployment
                         properties:
