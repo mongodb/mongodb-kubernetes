@@ -46,7 +46,6 @@ variables:
       - RELEASE_INITIAL_VERSION
       - RELEASE_INITIAL_COMMIT_SHA
       - OPERATOR_VERSION
-      - om_version #TODO: make it uppercase
       - BUILD_SCENARIO
 
 functions:
@@ -563,7 +562,7 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: |
           source .generated/context.export.env
-          scripts/dev/run_python.sh scripts/release/pipeline_main.py ops-manager --build-scenario $BUILD_SCENARIO --version $om_version
+          scripts/dev/run_python.sh scripts/release/pipeline_main.py ops-manager --build-scenario $BUILD_SCENARIO --version $OM_VERSION
 
   pipeline_readiness_probe:
     - *switch_context

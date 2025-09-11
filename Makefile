@@ -24,7 +24,7 @@ usage:
 	@ echo "  full:                           ('make' is an alias for this command) ensures K8s cluster is up, cleans Kubernetes"
 	@ echo "                                  resources, build-push-deploy operator, push-deploy database, create secrets, "
 	@ echo "                                  config map, resources etc"
-	@ echo "  appdb:                          build and push AppDB image. Specify 'om_version' in format '4.2.1' to provide the already released Ops Manager"
+	@ echo "  appdb:                          build and push AppDB image. Specify 'OM_VERSION' in format '4.2.1' to provide the already released Ops Manager"
 	@ echo "                                  version which will be used to find the matching tag and find the Automation Agent version. Add 'om_branch' "
 	@ echo "                                  if Ops Manager is not released yet and you want to have some git branch as the source "
 	@ echo "                                  parameters in ~/operator-dev/om"
