@@ -475,33 +475,6 @@ functions:
       params:
         files: [ "src/github.com/mongodb/mongodb-kubernetes/logs/*.suite" ]
 
-  upload_code_snippets_logs:
-    - command: s3.put
-      params:
-        aws_key: ${enterprise_aws_access_key_id}
-        aws_secret: ${enterprise_aws_secret_access_key}
-        local_files_include_filter:
-          - src/github.com/mongodb/mongodb-kubernetes/public/architectures/**/*.log
-          - src/github.com/mongodb/mongodb-kubernetes/docs/**/*.log
-        remote_file: logs/${task_id}/${execution}/
-        bucket: operator-e2e-artifacts
-        permissions: private
-        visibility: signed
-        content_type: text/plain
-    - command: s3.put
-      params:
-        aws_key: ${enterprise_aws_access_key_id}
-        aws_secret: ${enterprise_aws_secret_access_key}
-        local_files_include_filter:
-          - src/github.com/mongodb/mongodb-kubernetes/public/architectures/**/*.out
-          - src/github.com/mongodb/mongodb-kubernetes/docs/**/*.out
-        preserve_path: true
-        remote_file: logs/${task_id}/${execution}/
-        bucket: operator-e2e-artifacts
-        permissions: private
-        visibility: signed
-        content_type: text/plain
-
   preflight_image:
     - *switch_context
     - command: subprocess.exec
@@ -817,7 +790,7 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/code_snippets/sample_commit_output.sh
 
-  # it executes a script by convention: ./scripts/code_snippets/${task_name}_test.sh
+  # it executes a script by convention: ./scripts/code_snippets/tests/${task_name}
   test_code_snippets:
     - *switch_context
     - command: shell.exec
@@ -830,7 +803,7 @@ functions:
           - code_snippets_reset
           - task_name
         script: |
-          ./scripts/code_snippets/${task_name}_test.sh
+          ./scripts/code_snippets/tests/${task_name}
 
   #
   # kubectl mongodb plugin release functions
