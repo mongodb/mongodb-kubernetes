@@ -525,6 +525,7 @@ func NeedsSearchCoordinatorRolePolyfill(mongodbVersion string) bool {
 		return false
 	}
 
-	// the searchCoordinator role is built-in from MongoDB 8.2
-	return version.Major <= 8 && version.Minor < 2
+	// 8.0.10+ and 8.1.x need the polyfill, anything older is not supported and execution will never reach here,
+	// and anything newer already has the role built-in
+	return version.Major == 8 && version.Minor < 2
 }
