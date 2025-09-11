@@ -69,12 +69,12 @@ type ExternalMongoDBSource struct {
 }
 
 type ExternalMongodTLS struct {
-	// Optional
+	// +optional
 	CA *corev1.LocalObjectReference `json:"ca,omitempty"`
 }
 
 type Security struct {
-	// Optional
+	// +optional
 	TLS TLS `json:"tls"`
 }
 
