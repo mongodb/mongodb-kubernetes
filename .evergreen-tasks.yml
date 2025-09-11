@@ -861,6 +861,8 @@ tasks:
 
   - name: e2e_om_ops_manager_pod_spec
     tags: [ "patch-run" ]
+    run_on:
+      - ubuntu2404-large
     commands:
       - func: e2e_test
 
