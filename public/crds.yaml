@@ -4201,10 +4201,6 @@ spec:
                             type: string
                         type: object
                         x-kubernetes-map-type: atomic
-                      enabled:
-                        type: boolean
-                    required:
-                    - enabled
                     type: object
                 type: object
               source:

@@ -75,11 +75,10 @@ type ExternalMongodTLS struct {
 
 type Security struct {
 	// +optional
-	TLS TLS `json:"tls"`
+	TLS *TLS `json:"tls,omitempty"`
 }
 
 type TLS struct {
-	Enabled bool `json:"enabled"`
 	// CertificateKeySecret is a reference to a Secret containing a private key and certificate to use for TLS.
 	// The key and cert are expected to be PEM encoded and available at "tls.key" and "tls.crt".
 	// This is the same format used for the standard "kubernetes.io/tls" Secret type, but no specific type is required.
