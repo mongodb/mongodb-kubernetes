@@ -69,7 +69,6 @@ type ExternalMongoDBSource struct {
 }
 
 type ExternalMongodTLS struct {
-	Enabled bool `json:"enabled"`
 	// +optional
 	CA *corev1.LocalObjectReference `json:"ca,omitempty"`
 }
