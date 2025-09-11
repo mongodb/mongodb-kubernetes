@@ -74,7 +74,7 @@ type ExternalMongodTLS struct {
 }
 
 type Security struct {
-	// +optional
+	// Optional
 	TLS TLS `json:"tls"`
 }
 
