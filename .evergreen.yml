@@ -308,9 +308,8 @@ tasks:
       - func: setup_building_host
       - func: quay_login
       - func: setup_docker_sbom
-      - func: pipeline
+      - func: pipeline_agent
         vars:
-          image_name: agent
           BUILD_SCENARIO: manual_release
 
   - name: migrate_all_agents
@@ -347,22 +346,9 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
-      - func: pipeline
+      - func: pipeline_agent
         vars:
-          image_name: agent
           flags: "--parallel --all-agents"
-
-  - name: release_all_currently_used_agents_on_ecr
-    # this enables us to run this manually (patch) and release all agent versions to ECR to verify
-    # Dockerfile, script changes etc.
-    allowed_requesters: [ "patch" ]
-    commands:
-      - func: clone
-      - func: setup_building_host
-      - func: pipeline
-        vars:
-          image_name: agent
-          flags: "--parallel --current-agents"
 
   - name: build_test_image
     commands:
@@ -432,9 +418,8 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
-      - func: pipeline
+      - func: pipeline_agent
         vars:
-          image_name: agent
           flags: "--parallel --current-agents"
 
   - name: build_init_database_image_ubi
@@ -457,17 +442,13 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
-      - func: pipeline
-        vars:
-          image_name: readiness-probe
+      - func: pipeline_readiness_probe
 
-  - name: build_upgrade_hook_image
+  - name: build_version_upgrade_webhook_image
     commands:
       - func: clone
       - func: setup_building_host
-      - func: pipeline
-        vars:
-          image_name: upgrade-hook
+      - func: pipeline_version_upgrade_webhook
 
   - name: prepare_aws
     priority: 59
@@ -510,9 +491,7 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
-      - func: pipeline
-        vars:
-          image_name: ops-manager
+      - func: pipeline_ops_manager
 
   - name: publish_ops_manager
     commands:
@@ -520,9 +499,8 @@ tasks:
       - func: setup_building_host
       - func: quay_login
       - func: setup_docker_sbom
-      - func: pipeline
+      - func: pipeline_ops_manager
         vars:
-          image_name: ops-manager
           BUILD_SCENARIO: manual_release
 
   - name: prepare_and_upload_openshift_bundles_for_e2e
@@ -1202,7 +1180,7 @@ buildvariants:
   # e2e_<type>_<cluster>_<distro>[_<om_version>]
   # where <type> is any of mdb|om<version>|operator
   # where <cluster> is any of kind|openshift
-  # where <distro> is any of ubuntu|ubi
+  # where <distro> is any of ubuntu|ubi TODO: remove ubuntu and all references to UBI
   # where <om_version> denotes the OM version tested (e.g. om50, om60, cloudqa) - used only for MDB tests
 
   # MongoDBCommunity build variant
@@ -1689,7 +1667,7 @@ buildvariants:
       - name: build_database_image_ubi
       - name: build_agent_images_ubi
       - name: build_readiness_probe_image
-      - name: build_upgrade_hook_image
+      - name: build_version_upgrade_webhook_image
       - name: prepare_aws
 
   - name: init_test_run_ibm_power

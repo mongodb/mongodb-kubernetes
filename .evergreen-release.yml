@@ -13,7 +13,8 @@ tasks:
       - func: pipeline
         vars:
           image_name: meko-tests
-          build_scenario: --build-scenario patch
+          BUILD_SCENARIO: patch #TODO: we should use standard release scenario here and just push to staging or dev repo bases on build_info.json
+
 
   - name: release_operator
     tags: [ "image_release" ]
@@ -22,7 +23,7 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
-      - func: release_operator_pipeline
+      - func: pipeline
         vars:
           image_name: operator
 
@@ -34,7 +35,7 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
-      - func: release_operator_pipeline
+      - func: pipeline
         vars:
           image_name: init-appdb
 
@@ -45,7 +46,7 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
-      - func: release_operator_pipeline
+      - func: pipeline
         vars:
           image_name: init-database
 
@@ -56,7 +57,7 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
-      - func: release_operator_pipeline
+      - func: pipeline
         vars:
           image_name: init-ops-manager
 
@@ -67,7 +68,7 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
-      - func: release_operator_pipeline
+      - func: pipeline
         vars:
           image_name: database
 
