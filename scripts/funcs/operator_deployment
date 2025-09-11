@@ -16,7 +16,6 @@ get_operator_helm_values() {
     "registry.initDatabase=${INIT_DATABASE_REGISTRY}"
     "registry.agent=${AGENT_BASE_REGISTRY:-${REGISTRY}}"
     "registry.opsManager=${OPS_MANAGER_REGISTRY}"
-    "registry.appDb=${APPDB_REGISTRY}"
     "registry.database=${database_registry}"
     "opsManager.name=${OPS_MANAGER_NAME:=mongodb-enterprise-ops-manager-ubi}"
     "database.name=${database_name:=mongodb-kubernetes-database}"
@@ -38,6 +37,9 @@ get_operator_helm_values() {
     "search.community.name=${MDB_SEARCH_COMMUNITY_NAME}"
     "search.community.version=${MDB_SEARCH_COMMUNITY_VERSION}"
     "community.registry.agent=${AGENT_BASE_REGISTRY:-${REGISTRY}}"
+    "search.community.repo=${MDB_SEARCH_COMMUNITY_REPO_URL}"
+    "search.community.name=${MDB_SEARCH_COMMUNITY_NAME}"
+    "search.community.version=${MDB_SEARCH_COMMUNITY_VERSION}"
   )
 
   if [[ "${MDB_OPERATOR_TELEMETRY_INSTALL_CLUSTER_ROLE_INSTALLATION:-}" != "" ]]; then

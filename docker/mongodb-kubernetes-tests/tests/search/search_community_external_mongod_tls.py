@@ -123,7 +123,7 @@ def test_install_tls_secrets_and_configmaps(
 @mark.e2e_search_external_tls
 def test_create_database_resource(mdbc: MongoDBCommunity):
     mdbc.update()
-    mdbc.assert_reaches_phase(Phase.Running, timeout=1000)
+    mdbc.assert_reaches_phase(Phase.Running, timeout=300)
 
 
 @mark.e2e_search_external_tls
@@ -136,7 +136,7 @@ def test_create_search_resource(mdbs: MongoDBSearch, mdbc: MongoDBCommunity):
     mdbs["spec"]["source"] = {
         "external": {
             "hostAndPorts": seeds,
-            "keyFileSecretRef": {"name": f"{mdbc.name}-keyfile"},
+            "keyfileSecretRef": {"name": f"{mdbc.name}-keyfile"},
             "tls": {
                 "enabled": True,
                 "ca": {"name": f"{mdbc.name}-ca"},
@@ -154,7 +154,7 @@ def test_create_search_resource(mdbs: MongoDBSearch, mdbc: MongoDBCommunity):
 
 @mark.e2e_search_external_tls
 def test_wait_for_community_resource_ready(mdbc: MongoDBCommunity):
-    mdbc.assert_reaches_phase(Phase.Running, timeout=1800)
+    mdbc.assert_reaches_phase(Phase.Running, timeout=300)
 
 
 @fixture(scope="function")

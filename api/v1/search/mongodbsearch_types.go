@@ -62,9 +62,10 @@ type MongoDBSource struct {
 type ExternalMongoDBSource struct {
 	HostAndPorts []string `json:"hostAndPorts,omitempty"`
 	// mongod keyfile used to connect to the external MongoDB deployment
-	KeyFileSecretKeyRef *userv1.SecretKeyRef `json:"keyFileSecretRef,omitempty"`
+	KeyFileSecretKeyRef *userv1.SecretKeyRef `json:"keyfileSecretRef,omitempty"`
+	// TLS configuration for the external MongoDB deployment
 	// +optional
-	TLS *ExternalMongodTLS `json:"tls,omitempty"` // TLS configuration for the external MongoDB deployment
+	TLS *ExternalMongodTLS `json:"tls,omitempty"`
 }
 
 type ExternalMongodTLS struct {
@@ -83,8 +84,6 @@ type TLS struct {
 	// CertificateKeySecret is a reference to a Secret containing a private key and certificate to use for TLS.
 	// The key and cert are expected to be PEM encoded and available at "tls.key" and "tls.crt".
 	// This is the same format used for the standard "kubernetes.io/tls" Secret type, but no specific type is required.
-	// Alternatively, an entry tls.pem, containing the concatenation of cert and key, can be provided.
-	// If all of tls.pem, tls.crt and tls.key are present, the tls.pem one needs to be equal to the concatenation of tls.crt and tls.key
 	// +optional
 	CertificateKeySecret corev1.LocalObjectReference `json:"certificateKeySecretRef"`
 }
@@ -155,14 +154,20 @@ func (s *MongoDBSearch) MongotConfigConfigMapNamespacedName() types.NamespacedNa
 }
 
 func (s *MongoDBSearch) SourceUserPasswordSecretRef() *userv1.SecretKeyRef {
+	var syncUserPasswordSecretKey *userv1.SecretKeyRef
 	if s.Spec.Source != nil && s.Spec.Source.PasswordSecretRef != nil {
-		return s.Spec.Source.PasswordSecretRef
+		syncUserPasswordSecretKey = s.Spec.Source.PasswordSecretRef
+	} else {
+		syncUserPasswordSecretKey = &userv1.SecretKeyRef{
+			Name: fmt.Sprintf("%s-%s-password", s.Name, s.SourceUsername()),
+		}
 	}
 
-	return &userv1.SecretKeyRef{
-		Name: fmt.Sprintf("%s-%s-password", s.Name, MongotDefaultSyncSourceUsername),
-		Key:  "password",
+	if syncUserPasswordSecretKey.Key == "" {
+		syncUserPasswordSecretKey.Key = "password"
 	}
+
+	return syncUserPasswordSecretKey
 }
 
 func (s *MongoDBSearch) SourceUsername() string {

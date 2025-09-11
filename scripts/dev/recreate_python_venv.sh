@@ -76,6 +76,13 @@ ensure_required_python() {
         return 1
     fi
 
+    # Always update pyenv to ensure we have the latest Python versions available
+    # On static hosts we might have a stale pyenv installation.
+    echo "Updating pyenv to get latest Python versions..." >&2
+    if [[ -d "${HOME}/.pyenv/.git" ]]; then
+        cd "${HOME}/.pyenv" && git pull && cd - > /dev/null || echo "Warning: Failed to update pyenv via git" >&2
+    fi
+
     # Check if the required version is already installed
     if pyenv versions --bare | grep -q "^${required_version}$"; then
         echo "Python ${required_version} already installed via pyenv" >&2

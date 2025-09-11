@@ -36,7 +36,7 @@ _dump_all_non_default_namespaces() {
     for ns in ${namespaces}; do
         if kubectl --context="${context}" get namespace "${ns}" -o jsonpath='{.metadata.annotations}'; then
             echo "Dumping all diagnostic information for namespace ${ns}"
-            dump_namespace "${context}" "${ns}" "${prefix}"
+            dump_namespace "${context}" "${ns}" "${prefix}" | prepend "${ns}"
         fi
     done
 }
@@ -400,9 +400,11 @@ dump_namespace() {
     dump_objects "${context}" clusterserviceversions "OLM ClusterServiceVersions" "${namespace}" "get -o yaml" "logs/${prefix}z_olm_clusterserviceversions.txt" 2> /dev/null
     dump_objects "${context}" pods "Pods" "${namespace}" "get -o yaml" "logs/${prefix}z_pods.txt" 2> /dev/null
 
-    kubectl --context="${context}" get crd -o name
     # shellcheck disable=SC2046
-    kubectl --context="${context}" describe $(kubectl --context="${context}" get crd -o name | grep mongodb) > "logs/${prefix}z_mongodb_crds.log"
+    mongodb_crds=$(kubectl --context="${context}" get crd -o name | grep mongodb)
+    if [[ -n "${mongodb_crds}" ]]; then
+      kubectl --context="${context}" describe  > "logs/${prefix}z_mongodb_crds.log"
+    fi
 
     kubectl --context="${context}" describe nodes > "logs/${prefix}z_nodes_detailed.log" || true
 }
