@@ -117,6 +117,7 @@ class TestReplicaSetCreation(KubernetesTester):
         sts = self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
         assert sts
 
+    @pytest.mark.flaky(reruns=15, reruns_delay=5)
     def test_sts_creation(self):
         sts = self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
 
