@@ -108,7 +108,7 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
         raise ValueError(f"Image '{image}' is not defined in the build info for scenario '{build_scenario}'")
 
     # Resolve final values with overrides
-    version = args.version or image_build_info.version
+    version = args.version
     latest_tag = image_build_info.latest_tag
     olm_tag = image_build_info.olm_tag
     if args.registry:
@@ -121,7 +121,7 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
 
     # Validate version - only agent can have None version as the versions are managed by the agent
     # which are externally retrieved from release.json
-    if version is None and image not in ["agent"]:
+    if version is None and image is not "agent":
         raise ValueError(f"Version cannot be empty for {image}.")
 
     return ImageBuildConfiguration(
@@ -232,7 +232,7 @@ Options: {", ".join(supported_scenarios)}. For '{BuildScenario.DEVELOPMENT}' the
         metavar="",
         action="store",
         type=str,
-        help="Override the version/tag instead of resolving from build scenario. Default is to infer from environment variables based on the selected scenario.",
+        help="Version to use when building container image. Required for all images except for agent where we read it from release.json",
     )
     parser.add_argument(
         "-r",
