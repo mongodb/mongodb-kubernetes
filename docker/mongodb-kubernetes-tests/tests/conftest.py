@@ -92,7 +92,7 @@ def version_id() -> str:
 
 
 def get_version_id():
-    return os.environ["OPERATOR_VERSION"]
+    return os.environ["version_id"]
 
 
 @fixture(scope="module")

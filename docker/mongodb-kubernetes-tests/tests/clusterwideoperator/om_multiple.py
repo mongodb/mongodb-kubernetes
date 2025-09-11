@@ -13,13 +13,11 @@ from pytest import fixture, mark
 from tests.conftest import (
     get_central_cluster_client,
     get_evergreen_task_id,
-    get_member_cluster_api_client,
     get_member_cluster_clients,
     get_multi_cluster_operator_clustermode,
     get_multi_cluster_operator_installation_config,
     get_operator_clusterwide,
     get_operator_installation_config,
-    get_version_id,
     is_multi_cluster,
 )
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment

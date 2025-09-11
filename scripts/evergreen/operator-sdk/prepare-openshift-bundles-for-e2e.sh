@@ -22,6 +22,7 @@ set -Eeou pipefail
 # Required env vars:
 #   - BASE_REPO_URL (or REGISTRY for EVG run)
 #   - VERSION_ID (set in EVG as patch-id)
+#   - OPERATOR_VERSION (version of the current operator being built)
 
 # for get_operator_helm_values function
 source scripts/funcs/operator_deployment
@@ -202,7 +203,7 @@ meko_package_name="mongodb-enterprise"
 certified_operators_repo="https://github.com/redhat-openshift-ecosystem/certified-operators.git"
 current_operator_version_from_release_json=$(jq -r .mongodbOperator <release.json)
 current_incremented_operator_version_from_release_json=$(increment_version "${current_operator_version_from_release_json}")
-current_incremented_operator_version_from_release_json_with_version_id="${current_incremented_operator_version_from_release_json}-${VERSION_ID:-"latest"}"
+current_incremented_operator_version_from_release_json_with_version_id="${current_incremented_operator_version_from_release_json}-${VERSION_ID}"
 test_catalog_image="${base_repo_url}/mongodb-kubernetes-test-catalog:${current_incremented_operator_version_from_release_json_with_version_id}"
 certified_repo_cloned="$(clone_git_repo_into_temp ${certified_operators_repo})"
 
@@ -241,7 +242,7 @@ generate_helm_charts
 # prepare openshift bundles the same way it's built in release process from the current sources and helm charts.
 export CERTIFIED_BUNDLE_IMAGE=${current_bundle_image}
 export VERSION="${current_incremented_operator_version_from_release_json}"
-export OPERATOR_IMAGE="${OPERATOR_REGISTRY:-${REGISTRY}}/mongodb-kubernetes:${VERSION_ID}"
+export OPERATOR_IMAGE="${OPERATOR_REGISTRY:-${REGISTRY}}/mongodb-kubernetes:${OPERATOR_VERSION}"
 header "Preparing OpenShift bundles:"
 scripts/evergreen/operator-sdk/prepare-openshift-bundles.sh
 

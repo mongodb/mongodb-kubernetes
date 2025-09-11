@@ -538,8 +538,6 @@ functions:
       params:
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        include_expansions_in_env:
-          - version_id
         add_to_path:
           - ${workdir}/bin
         binary: scripts/evergreen/e2e/build_tests_image_ibm.sh
@@ -605,7 +603,7 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: |
           source .generated/context.export.env
-          scripts/dev/run_python.sh scripts/release/pipeline_main.py readinessprobe --build-scenario $BUILD_SCENARIO --version $READINESS_PROBE_VERSION
+          scripts/dev/run_python.sh scripts/release/pipeline_main.py readiness-probe --build-scenario $BUILD_SCENARIO --version $READINESS_PROBE_VERSION
 
   pipeline_version_upgrade_webhook:
     - *switch_context

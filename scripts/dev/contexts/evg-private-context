@@ -73,6 +73,7 @@ export IS_PATCH="${is_patch:-"unknown"}"
 export BUILD_ID="${build_id:-"unknown"}"
 export EXECUTION="${execution:-"unknown"}"
 export BUILD_VARIANT="${build_variant:-"unknown"}"
+export VERSION_ID="${version_id:-"unknown"}"
 export GIT_TAG="${triggered_by_git_tag:-}"
 
 # var used in pipeline.py to determine if we're running on EVG host
