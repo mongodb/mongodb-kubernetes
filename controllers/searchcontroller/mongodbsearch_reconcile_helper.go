@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/blang/semver"
 	"github.com/ghodss/yaml"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -513,4 +514,17 @@ func SearchCoordinatorRole() mdbv1.MongoDBRole {
 		},
 		AuthenticationRestrictions: nil,
 	}
+}
+
+// Because the first Search Public Preview support MongoDB Server 8.0.10 we need to polyfill the searchCoordinator role
+// TODO: Remove once we drop support for <8.2 in Search
+func NeedsSearchCoordinatorRolePolyfill(mongodbVersion string) bool {
+	version, err := semver.ParseTolerant(mongodbVersion)
+	if err != nil {
+		// if we can't determine the version, assume no need to polyfill
+		return false
+	}
+
+	// the searchCoordinator role is built-in from MongoDB 8.2
+	return version.Major <= 8 && version.Minor < 2
 }
