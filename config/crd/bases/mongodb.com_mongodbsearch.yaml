@@ -163,22 +163,13 @@ spec:
                   tls:
                     properties:
                       certificateKeySecretRef:
+                        $ref: '#/definitions/k8s.io~1api~1core~1v1~0LocalObjectReference'
                         description: |-
                           CertificateKeySecret is a reference to a Secret containing a private key and certificate to use for TLS.
                           The key and cert are expected to be PEM encoded and available at "tls.key" and "tls.crt".
                           This is the same format used for the standard "kubernetes.io/tls" Secret type, but no specific type is required.
-                        properties:
-                          name:
-                            default: ""
-                            description: |-
-                              Name of the referent.
-                              This field is effectively required, but due to backwards compatibility is
-                              allowed to be empty. Instances of this type with an empty value here are
-                              almost certainly wrong.
-                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                            type: string
-                        type: object
-                        x-kubernetes-map-type: atomic
+                    required:
+                      - certificateKeySecretRef
                     type: object
                 type: object
               source:
@@ -206,21 +197,9 @@ spec:
                         description: TLS configuration for the external MongoDB deployment
                         properties:
                           ca:
-                            description: |-
-                              LocalObjectReference contains enough information to let you locate the
-                              referenced object inside the same namespace.
-                            properties:
-                              name:
-                                default: ""
-                                description: |-
-                                  Name of the referent.
-                                  This field is effectively required, but due to backwards compatibility is
-                                  allowed to be empty. Instances of this type with an empty value here are
-                                  almost certainly wrong.
-                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                                type: string
-                            type: object
-                            x-kubernetes-map-type: atomic
+                            $ref: '#/definitions/k8s.io~1api~1core~1v1~0LocalObjectReference'
+                        required:
+                          - ca
                         type: object
                     type: object
                   mongodbResourceRef:

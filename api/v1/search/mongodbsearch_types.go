@@ -69,8 +69,7 @@ type ExternalMongoDBSource struct {
 }
 
 type ExternalMongodTLS struct {
-	// +optional
-	CA *corev1.LocalObjectReference `json:"ca,omitempty"`
+	CA *corev1.LocalObjectReference `json:"ca"`
 }
 
 type Security struct {
@@ -82,7 +81,6 @@ type TLS struct {
 	// CertificateKeySecret is a reference to a Secret containing a private key and certificate to use for TLS.
 	// The key and cert are expected to be PEM encoded and available at "tls.key" and "tls.crt".
 	// This is the same format used for the standard "kubernetes.io/tls" Secret type, but no specific type is required.
-	// +optional
 	CertificateKeySecret corev1.LocalObjectReference `json:"certificateKeySecretRef"`
 }
 
