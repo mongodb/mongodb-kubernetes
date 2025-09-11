@@ -26,7 +26,7 @@ func (r *externalSearchResource) Validate() error {
 }
 
 func (r *externalSearchResource) TLSConfig() *TLSSourceConfig {
-	if r.spec.TLS == nil || !r.spec.TLS.Enabled {
+	if r.spec.TLS == nil {
 		return nil
 	}
 

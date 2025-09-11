@@ -138,7 +138,6 @@ def test_create_search_resource(mdbs: MongoDBSearch, mdbc: MongoDBCommunity):
             "hostAndPorts": seeds,
             "keyfileSecretRef": {"name": f"{mdbc.name}-keyfile"},
             "tls": {
-                "enabled": True,
                 "ca": {"name": f"{mdbc.name}-ca"},
             },
         },
