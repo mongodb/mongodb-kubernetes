@@ -113,11 +113,11 @@ export MDB_COMMUNITY_REPO_URL=quay.io/mongodb
 export MDB_COMMUNITY_AGENT_IMAGE=${AGENT_IMAGE}
 export MDB_COMMUNITY_IMAGE_TYPE=ubi8
 
-MDB_SEARCH_COMMUNITY_VERSION="$(jq -r '.search.community.version' "${PROJECT_DIR}/release.json")"
-export MDB_SEARCH_COMMUNITY_VERSION
+MDB_SEARCH_VERSION="$(jq -r '.search.version' "${PROJECT_DIR}/release.json")"
+export MDB_SEARCH_VERSION
 
-export MDB_SEARCH_COMMUNITY_NAME="mongodb-search-community"
-export MDB_SEARCH_COMMUNITY_REPO_URL="quay.io/mongodb"
+export MDB_SEARCH_NAME="mongodb-search"
+export MDB_SEARCH_REPO_URL="quay.io/mongodb"
 
 
 if [[ ${MDB_BASH_DEBUG:-0} == 1 ]]; then

@@ -391,9 +391,9 @@ func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, image
 
 func setupMongoDBSearchCRD(ctx context.Context, mgr manager.Manager) error {
 	return operator.AddMongoDBSearchController(ctx, mgr, searchcontroller.OperatorSearchConfig{
-		SearchRepo:    env.ReadOrPanic("MDB_SEARCH_COMMUNITY_REPO_URL"),
-		SearchName:    env.ReadOrPanic("MDB_SEARCH_COMMUNITY_NAME"),
-		SearchVersion: env.ReadOrPanic("MDB_SEARCH_COMMUNITY_VERSION"),
+		SearchRepo:    env.ReadOrPanic("MDB_SEARCH_REPO_URL"),
+		SearchName:    env.ReadOrPanic("MDB_SEARCH_NAME"),
+		SearchVersion: env.ReadOrPanic("MDB_SEARCH_VERSION"),
 	})
 }
 

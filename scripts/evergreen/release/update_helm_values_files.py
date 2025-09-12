@@ -86,9 +86,7 @@ def update_helm_charts(operator_version, release):
     set_value_in_yaml_file("helm_chart/values.yaml", "operator.version", operator_version)
     set_value_in_yaml_file("helm_chart/Chart.yaml", "version", operator_version)
 
-    set_value_in_yaml_file(
-        "helm_chart/values.yaml", "search.community.version", release["search"]["community"]["version"]
-    )
+    set_value_in_yaml_file("helm_chart/values.yaml", "search.version", release["search"]["version"])
 
 
 def update_cluster_service_version(operator_version):
