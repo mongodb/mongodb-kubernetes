@@ -577,7 +577,7 @@ functions:
           source .generated/context.export.env
           scripts/dev/run_python.sh scripts/release/pipeline_main.py readiness-probe --build-scenario $BUILD_SCENARIO --version $READINESS_PROBE_VERSION
 
-  pipeline_version_upgrade_webhook:
+  pipeline_version_upgrade_hook:
     - *switch_context
     - command: shell.exec
       retry_on_failure: true
@@ -588,7 +588,7 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: |
           source .generated/context.export.env
-          scripts/dev/run_python.sh scripts/release/pipeline_main.py upgrade-hook --build-scenario $BUILD_SCENARIO --version $VERSION_UPGRADE_WEBHOOK_VERSION
+          scripts/dev/run_python.sh scripts/release/pipeline_main.py upgrade-hook --build-scenario $BUILD_SCENARIO --version $VERSION_UPGRADE_HOOK_VERSION
 
   teardown_cloud_qa_all:
     - *switch_context

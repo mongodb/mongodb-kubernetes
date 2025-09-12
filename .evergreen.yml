@@ -61,7 +61,7 @@ variables:
         variant: init_test_run
       - name: build_readiness_probe_image
         variant: init_test_run
-      - name: build_version_upgrade_webhook_image
+      - name: build_version_upgrade_hook_image
         variant: init_test_run
       - name: build_mco_test_image
         variant: init_test_run
@@ -435,11 +435,11 @@ tasks:
       - func: setup_building_host
       - func: pipeline_readiness_probe
 
-  - name: build_version_upgrade_webhook_image
+  - name: build_version_upgrade_hook_image
     commands:
       - func: clone
       - func: setup_building_host
-      - func: pipeline_version_upgrade_webhook
+      - func: pipeline_version_upgrade_hook
 
   - name: prepare_aws
     priority: 59
@@ -1651,7 +1651,7 @@ buildvariants:
       - name: build_database_image_ubi
       - name: build_agent_images_ubi
       - name: build_readiness_probe_image
-      - name: build_version_upgrade_webhook_image
+      - name: build_version_upgrade_hook_image
       - name: prepare_aws
 
   - name: init_test_run_ibm_power
