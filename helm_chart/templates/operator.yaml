@@ -264,12 +264,12 @@ spec:
       {{- end }}
     {{- end }}
     {{- if .Values.search }}
-            - name: MDB_SEARCH_COMMUNITY_REPO_URL
-              value: "{{ .Values.search.community.repo }}"
-            - name: MDB_SEARCH_COMMUNITY_NAME
-              value: "{{ .Values.search.community.name }}"
-            - name: MDB_SEARCH_COMMUNITY_VERSION
-              value: "{{ .Values.search.community.version }}"
+            - name: MDB_SEARCH_REPO_URL
+              value: "{{ .Values.search.repo }}"
+            - name: MDB_SEARCH_NAME
+              value: "{{ .Values.search.name }}"
+            - name: MDB_SEARCH_VERSION
+              value: "{{ .Values.search.version }}"
     {{- end }}
     {{- if .Values.customEnvVars }}
       {{- range split "&" .Values.customEnvVars }}

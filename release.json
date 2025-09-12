@@ -12,9 +12,7 @@
     "minimumSupportedVersion": "4.6"
   },
   "search": {
-    "community": {
-      "version": "1.47.0"
-    }
+    "version": "0.53.0"
   },
   "supportedImages": {
     "readinessprobe": {
