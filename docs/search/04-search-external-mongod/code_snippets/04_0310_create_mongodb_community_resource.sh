@@ -4,7 +4,7 @@ kind: MongoDBCommunity
 metadata:
   name: mdbc-rs
 spec:
-  version: ${MDB_VERSION}
+  version: ${MDB_VERSION}-ent
   type: ReplicaSet
   members: 3
   security:
