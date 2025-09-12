@@ -10,3 +10,5 @@ source "${script_dir}/variables/mongodb_latest"
 
 # This variable is needed otherwise the `fetch_om_information.sh` script is called and fails the test
 export OM_EXTERNALLY_CONFIGURED="true"
+
+source "${script_dir}/variables/mongodb_search_dev"

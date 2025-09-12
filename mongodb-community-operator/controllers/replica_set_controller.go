@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -29,7 +30,7 @@ import (
 	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
-	"github.com/mongodb/mongodb-kubernetes/controllers/search_controller"
+	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/predicates"
@@ -88,6 +89,9 @@ func NewReconciler(mgr manager.Manager, mongodbRepoUrl, mongodbImage, mongodbIma
 
 func findMdbcForSearch(ctx context.Context, rawObj k8sClient.Object) []reconcile.Request {
 	mdbSearch := rawObj.(*searchv1.MongoDBSearch)
+	if mdbSearch.GetMongoDBResourceRef() == nil {
+		return nil
+	}
 	return []reconcile.Request{
 		{NamespacedName: types.NamespacedName{Namespace: mdbSearch.GetMongoDBResourceRef().Namespace, Name: mdbSearch.GetMongoDBResourceRef().Name}},
 	}
@@ -703,7 +707,7 @@ func (r ReplicaSetReconciler) buildAutomationConfig(ctx context.Context, mdb mdb
 	var search *searchv1.MongoDBSearch
 	searchList := &searchv1.MongoDBSearchList{}
 	if err := r.client.List(ctx, searchList, &k8sClient.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector(search_controller.MongoDBSearchIndexFieldName, mdb.Namespace+"/"+mdb.Name),
+		FieldSelector: fields.OneTermEqualSelector(searchcontroller.MongoDBSearchIndexFieldName, mdb.Namespace+"/"+mdb.Name),
 	}); err != nil {
 		r.log.Debug(err)
 	}
@@ -711,8 +715,8 @@ func (r ReplicaSetReconciler) buildAutomationConfig(ctx context.Context, mdb mdb
 	// and that this resource passes search validations. If either fails, proceed without a search target
 	// for the mongod automation config.
 	if len(searchList.Items) == 1 {
-		searchSource := search_controller.NewSearchSourceDBResourceFromMongoDBCommunity(&mdb)
-		if search_controller.ValidateSearchSource(searchSource) == nil {
+		searchSource := searchcontroller.NewCommunityResourceSearchSource(&mdb)
+		if searchSource.Validate() == nil {
 			search = &searchList.Items[0]
 		}
 	}
@@ -727,6 +731,7 @@ func (r ReplicaSetReconciler) buildAutomationConfig(ctx context.Context, mdb mdb
 		prometheusModification,
 		processPortManager.GetPortsModification(),
 		getMongodConfigSearchModification(search),
+		searchCoordinatorCustomRoleModification(search, mdb.GetMongoDBVersion()),
 	)
 	if err != nil {
 		return automationconfig.AutomationConfig{}, fmt.Errorf("could not create an automation config: %s", err)
@@ -737,6 +742,66 @@ func (r ReplicaSetReconciler) buildAutomationConfig(ctx context.Context, mdb mdb
 	}
 
 	return automationConfig, nil
+}
+
+// TODO: remove this as soon as searchCoordinator builtin role is backported
+func searchCoordinatorCustomRoleModification(search *searchv1.MongoDBSearch, mongodbVersion string) automationconfig.Modification {
+	if search == nil || !searchcontroller.NeedsSearchCoordinatorRolePolyfill(mongodbVersion) {
+		return automationconfig.NOOP()
+	}
+
+	return func(ac *automationconfig.AutomationConfig) {
+		searchCoordinatorRole := searchCoordinatorCustomRoleStruct()
+		ac.Roles = append(ac.Roles, searchCoordinatorRole)
+	}
+}
+
+func searchCoordinatorCustomRoleStruct() automationconfig.CustomRole {
+	// direct translation of https://github.com/10gen/mongo/blob/6f8d95a513eea8f91ea9f5d895dd8a288dfcf725/src/mongo/db/auth/builtin_roles.yml#L652
+	return automationconfig.CustomRole{
+		Role: "searchCoordinator",
+		DB:   "admin",
+		Roles: []automationconfig.Role{
+			{
+				Role:     "clusterMonitor",
+				Database: "admin",
+			},
+			{
+				Role:     "directShardOperations",
+				Database: "admin",
+			},
+			{
+				Role:     "readAnyDatabase",
+				Database: "admin",
+			},
+		},
+		Privileges: []automationconfig.Privilege{
+			{
+				Resource: automationconfig.Resource{
+					DB:         ptr.To("__mdb_internal_search"),
+					Collection: ptr.To(""),
+				},
+				Actions: []string{
+					"changeStream", "collStats", "dbHash", "dbStats", "find",
+					"killCursors", "listCollections", "listIndexes", "listSearchIndexes",
+					// performRawDataOperations is available only on mongod master
+					// "performRawDataOperations",
+					"planCacheRead", "cleanupStructuredEncryptionData",
+					"compactStructuredEncryptionData", "convertToCapped", "createCollection",
+					"createIndex", "createSearchIndexes", "dropCollection", "dropIndex",
+					"dropSearchIndex", "insert", "remove", "renameCollectionSameDB",
+					"update", "updateSearchIndex",
+				},
+			},
+			{
+				Resource: automationconfig.Resource{
+					Cluster: true,
+				},
+				Actions: []string{"bypassDefaultMaxTimeMS"},
+			},
+		},
+		AuthenticationRestrictions: nil,
+	}
 }
 
 // OverrideToAutomationConfig turns an automation config override from the resource spec into an automation config
@@ -772,13 +837,12 @@ func getMongodConfigModification(mdb mdbv1.MongoDBCommunity) automationconfig.Mo
 // getMongodConfigModification will merge the additional configuration in the CRD
 // into the configuration set up by the operator.
 func getMongodConfigSearchModification(search *searchv1.MongoDBSearch) automationconfig.Modification {
-	if search == nil {
-		return func(config *automationconfig.AutomationConfig) {
-			// do nothing
-		}
+	// Condition for skipping add parameter if it is external mongod
+	if search == nil || search.IsExternalMongoDBSource() {
+		return automationconfig.NOOP()
 	}
 
-	searchConfigParameters := search_controller.GetMongodConfigParameters(search)
+	searchConfigParameters := searchcontroller.GetMongodConfigParameters(search)
 	return func(ac *automationconfig.AutomationConfig) {
 		for i := range ac.Processes {
 			err := mergo.Merge(&ac.Processes[i].Args26, objx.New(searchConfigParameters), mergo.WithOverride)

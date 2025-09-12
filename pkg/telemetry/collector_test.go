@@ -2,7 +2,9 @@ package telemetry
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"reflect"
 	"runtime"
 	"testing"
 	"time"
@@ -21,6 +23,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	mockClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
@@ -1157,10 +1160,15 @@ func findEventWithDeploymentUID(events []Event, deploymentUID string) *Event {
 type MockClient struct {
 	client.Client
 	MockList func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error
+	MockGet  func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error
 }
 
 func (m *MockClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
 	return m.MockList(ctx, list, opts...)
+}
+
+func (m *MockClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	return m.MockGet(ctx, key, obj, opts...)
 }
 
 func TestAddCommunityEvents(t *testing.T) {
@@ -1261,55 +1269,67 @@ func TestAddCommunityEvents(t *testing.T) {
 
 func TestAddSearchEvents(t *testing.T) {
 	operatorUUID := "test-operator-uuid"
-
 	now := time.Now()
 
+	mdbStatic := &mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "mdb-static", Annotations: map[string]string{architectures.ArchitectureAnnotation: string(architectures.Static)}}}
+	mdbNonStatic := &mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "mdb-nonstatic", Annotations: map[string]string{architectures.ArchitectureAnnotation: string(architectures.NonStatic)}}}
+	community := &mcov1.MongoDBCommunity{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "community-db"}}
+
 	testCases := []struct {
-		name      string
-		resources searchv1.MongoDBSearchList
-		events    []DeploymentUsageSnapshotProperties
+		name        string
+		searchItems []searchv1.MongoDBSearch
+		events      []DeploymentUsageSnapshotProperties
+		sources     map[reflect.Type][]client.Object
 	}{
 		{
-			name: "With resources",
-			resources: searchv1.MongoDBSearchList{
-				Items: []searchv1.MongoDBSearch{
-					{
-						ObjectMeta: metav1.ObjectMeta{
-							UID:  types.UID("search-1"),
-							Name: "test-search-1",
-						},
-					},
-					{
-						ObjectMeta: metav1.ObjectMeta{
-							UID:  types.UID("search-2"),
-							Name: "test-search-2",
-						},
-					},
-				},
+			name: "External source",
+			searchItems: []searchv1.MongoDBSearch{
+				{ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-external"), Name: "search-external", Namespace: "default"}, Spec: searchv1.MongoDBSearchSpec{Source: &searchv1.MongoDBSource{ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{}}}},
+			},
+			events: []DeploymentUsageSnapshotProperties{{
+				DeploymentUID:            "search-external",
+				OperatorID:               operatorUUID,
+				Architecture:             "external",
+				IsMultiCluster:           false,
+				Type:                     "Search",
+				IsRunningEnterpriseImage: false,
+			}},
+		},
+		{
+			name: "Enterprise static and non-static",
+			searchItems: []searchv1.MongoDBSearch{
+				{ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-static"), Name: "search-static", Namespace: "default"}, Spec: searchv1.MongoDBSearchSpec{Source: &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "mdb-static"}}}},
+				{ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-nonstatic"), Name: "search-nonstatic", Namespace: "default"}, Spec: searchv1.MongoDBSearchSpec{Source: &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "mdb-nonstatic"}}}},
 			},
 			events: []DeploymentUsageSnapshotProperties{
-				{
-					DeploymentUID:            "search-1",
-					OperatorID:               operatorUUID,
-					Architecture:             string(architectures.Static),
-					IsMultiCluster:           false,
-					Type:                     "Search",
-					IsRunningEnterpriseImage: false,
-				},
-				{
-					DeploymentUID:            "search-2",
-					OperatorID:               operatorUUID,
-					Architecture:             string(architectures.Static),
-					IsMultiCluster:           false,
-					Type:                     "Search",
-					IsRunningEnterpriseImage: false,
-				},
+				{DeploymentUID: "search-static", OperatorID: operatorUUID, Architecture: string(architectures.Static), IsMultiCluster: false, Type: "Search", IsRunningEnterpriseImage: true},
+				{DeploymentUID: "search-nonstatic", OperatorID: operatorUUID, Architecture: string(architectures.NonStatic), IsMultiCluster: false, Type: "Search", IsRunningEnterpriseImage: true},
+			},
+			sources: map[reflect.Type][]client.Object{
+				reflect.TypeOf(&mdbv1.MongoDB{}): {mdbStatic, mdbNonStatic},
 			},
 		},
 		{
-			name:      "With no resources",
-			resources: searchv1.MongoDBSearchList{},
-			events:    []DeploymentUsageSnapshotProperties{},
+			name: "Community source",
+			searchItems: []searchv1.MongoDBSearch{
+				{ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-community"), Name: "search-community", Namespace: "default"}, Spec: searchv1.MongoDBSearchSpec{Source: &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "community-db"}}}},
+			},
+			events: []DeploymentUsageSnapshotProperties{{DeploymentUID: "search-community", OperatorID: operatorUUID, Architecture: "static", IsMultiCluster: false, Type: "Search", IsRunningEnterpriseImage: false}},
+			sources: map[reflect.Type][]client.Object{
+				reflect.TypeOf(&mcov1.MongoDBCommunity{}): {community},
+			},
+		},
+		{
+			name: "Missing underlying resource (skipped)",
+			searchItems: []searchv1.MongoDBSearch{
+				{ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-missing"), Name: "search-missing", Namespace: "default"}, Spec: searchv1.MongoDBSearchSpec{Source: &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "does-not-exist"}}}},
+			},
+			events: []DeploymentUsageSnapshotProperties{},
+		},
+		{
+			name:        "No search resources",
+			searchItems: []searchv1.MongoDBSearch{},
+			events:      []DeploymentUsageSnapshotProperties{},
 		},
 	}
 
@@ -1318,9 +1338,22 @@ func TestAddSearchEvents(t *testing.T) {
 			mc := &MockClient{
 				MockList: func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
 					if l, ok := list.(*searchv1.MongoDBSearchList); ok {
-						*l = tc.resources
+						*l = searchv1.MongoDBSearchList{Items: tc.searchItems}
 					}
 					return nil
+				},
+				MockGet: func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					objects := tc.sources[reflect.TypeOf(obj)]
+					for _, o := range objects {
+						if o.GetName() == key.Name && o.GetNamespace() == key.Namespace {
+							// copy the arranged object into the obj pointer like controller-runtime's pkg/client/fake does
+							bytes, _ := json.Marshal(o)
+							json.Unmarshal(bytes, obj)
+							return nil
+						}
+					}
+
+					return errors.New("not found")
 				},
 			}
 

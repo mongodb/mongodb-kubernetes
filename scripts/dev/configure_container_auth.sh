@@ -158,12 +158,12 @@ fi
 
 aws ecr get-login-password --region "eu-west-1" | registry_login "AWS" "268558157000.dkr.ecr.eu-west-1.amazonaws.com"
 
-if [[ -n "${COMMUNITY_PRIVATE_PREVIEW_PULLSECRET_DOCKERCONFIGJSON:-}" ]]; then
+if [[ -n "${PRERELEASE_PULLSECRET_DOCKERCONFIGJSON:-}" ]]; then
   # log in to quay.io for the mongodb/mongodb-search-community private repo
   # TODO remove once we switch to the official repo in Public Preview
   quay_io_auth_file=$(mktemp)
   config_tmp=$(mktemp)
-  echo "${COMMUNITY_PRIVATE_PREVIEW_PULLSECRET_DOCKERCONFIGJSON}" | base64 -d > "${quay_io_auth_file}"
+  echo "${PRERELEASE_PULLSECRET_DOCKERCONFIGJSON}" | base64 -d > "${quay_io_auth_file}"
   exec_cmd jq -s '.[0] * .[1]' "${quay_io_auth_file}" "${CONFIG_PATH}" > "${config_tmp}"
   exec_cmd mv "${config_tmp}" "${CONFIG_PATH}"
   rm "${quay_io_auth_file}"
