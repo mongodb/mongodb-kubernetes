@@ -21,6 +21,7 @@ import (
 	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/v1/search"
+	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
@@ -364,25 +365,50 @@ func addCommunityEvents(ctx context.Context, operatorClusterClient kubeclient.Cl
 	return events
 }
 
+func resolveSearchSource(ctx context.Context, operatorClusterClient kubeclient.Client, source *userv1.MongoDBResourceRef) (architecture string, isEnterprise bool, ok bool) {
+	if source == nil {
+		return "external", false, true // we cheat and hijack the Architecture field to indicate this Search resource is configured with an external MongoDB source
+	}
+
+	key := kubeclient.ObjectKey{Namespace: source.Namespace, Name: source.Name}
+
+	mdb := &mdbv1.MongoDB{}
+	if err := operatorClusterClient.Get(ctx, key, mdb); err == nil {
+		return string(architectures.GetArchitecture(mdb.Annotations)), true, true
+	}
+
+	mdbc := &mcov1.MongoDBCommunity{}
+	if err := operatorClusterClient.Get(ctx, key, mdbc); err == nil {
+		return "static", false, true // Community is always static
+	}
+
+	return "", false, false // likely the database resource doesn't exist yet, skip telemetry for this item for now
+}
+
 func addSearchEvents(ctx context.Context, operatorClusterClient kubeclient.Client, operatorUUID string, now time.Time) []Event {
 	var events []Event
 	searchList := &searchv1.MongoDBSearchList{}
 
 	if err := operatorClusterClient.List(ctx, searchList); err != nil {
 		Logger.Warnf("failed to fetch MongoDBSearchList from Kubernetes: %v", err)
-	} else {
-		for _, item := range searchList.Items {
-			properties := DeploymentUsageSnapshotProperties{
-				DeploymentUID:            string(item.UID),
-				OperatorID:               operatorUUID,
-				Architecture:             string(architectures.Static), // Community Search is always static
-				IsMultiCluster:           false,                        // Community Search doesn't support multi-cluster
-				Type:                     "Search",
-				IsRunningEnterpriseImage: false, // Community search doesn't run enterprise
-			}
-			if event := createEvent(properties, now, Deployments); event != nil {
-				events = append(events, *event)
-			}
+		return nil
+	}
+
+	for _, item := range searchList.Items {
+		architecture, isEnterprise, ok := resolveSearchSource(ctx, operatorClusterClient, item.GetMongoDBResourceRef())
+		if !ok { // search source doesn't exist yet, don't generate a telemetry event
+			continue
+		}
+		properties := DeploymentUsageSnapshotProperties{
+			DeploymentUID:            string(item.UID),
+			OperatorID:               operatorUUID,
+			Architecture:             architecture,
+			IsMultiCluster:           false, // Search doesn't support multi-cluster
+			Type:                     "Search",
+			IsRunningEnterpriseImage: isEnterprise,
+		}
+		if event := createEvent(properties, now, Deployments); event != nil {
+			events = append(events, *event)
 		}
 	}
 	return events

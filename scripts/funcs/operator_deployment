@@ -16,7 +16,6 @@ get_operator_helm_values() {
     "registry.initDatabase=${INIT_DATABASE_REGISTRY}"
     "registry.agent=${AGENT_BASE_REGISTRY:-${REGISTRY}}"
     "registry.opsManager=${OPS_MANAGER_REGISTRY}"
-    "registry.appDb=${APPDB_REGISTRY}"
     "registry.database=${database_registry}"
     "opsManager.name=${OPS_MANAGER_NAME:=mongodb-enterprise-ops-manager-ubi}"
     "database.name=${database_name:=mongodb-kubernetes-database}"
@@ -34,6 +33,9 @@ get_operator_helm_values() {
     "operator.telemetry.send.enabled=${MDB_OPERATOR_TELEMETRY_SEND_ENABLED:-false}"
     # lets collect and save in the configmap as frequently as we can
     "operator.telemetry.collection.frequency=${MDB_OPERATOR_TELEMETRY_COLLECTION_FREQUENCY:-1m}"
+    "search.community.repo=${MDB_SEARCH_COMMUNITY_REPO_URL}"
+    "search.community.name=${MDB_SEARCH_COMMUNITY_NAME}"
+    "search.community.version=${MDB_SEARCH_COMMUNITY_VERSION}"
     "community.registry.agent=${AGENT_BASE_REGISTRY:-${REGISTRY}}"
   )
 
@@ -67,9 +69,11 @@ get_operator_helm_values() {
 
   # shellcheck disable=SC2154
   if [[ "${KUBE_ENVIRONMENT_NAME-}" = "multi" ]]; then
-    comma_separated_list="$(echo "${MEMBER_CLUSTERS}" | tr ' ' ',')"
-    # shellcheck disable=SC2154
-    config+=("multiCluster.clusters={${comma_separated_list}}")
+    if [[ -n "${MEMBER_CLUSTERS:-}" ]]; then
+      comma_separated_list="$(echo "${MEMBER_CLUSTERS}" | tr ' ' ',')"
+      # shellcheck disable=SC2154
+      config+=("multiCluster.clusters={${comma_separated_list}}")
+    fi
     config+=("operator.createOperatorServiceAccount=false")
   fi
 
