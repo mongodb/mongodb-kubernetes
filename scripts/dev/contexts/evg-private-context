@@ -86,8 +86,8 @@ export DELETE_KIND_NETWORK="true"
 # it's also set explicitly in public_*_snippets variants
 export CODE_SNIPPETS_COMMIT_OUTPUT=${code_snippets_commit_output:-"false"}
 
-# TODO to be removed at public preview stage of community-search
-export COMMUNITY_PRIVATE_PREVIEW_PULLSECRET_DOCKERCONFIGJSON="${community_private_preview_pullsecret_dockerconfigjson}"
+# shellcheck disable=SC2154
+export PRERELEASE_PULLSECRET_DOCKERCONFIGJSON="${community_private_preview_pullsecret_dockerconfigjson}"
 
 export cognito_user_pool_id="${cognito_user_pool_id}"
 export cognito_workload_federation_client_id="${cognito_workload_federation_client_id}"
