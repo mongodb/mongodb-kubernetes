@@ -103,6 +103,11 @@ func TestNeedsSearchCoordinatorRolePolyfill(t *testing.T) {
 		expected bool
 	}{
 		{
+			name:     "MongoDB 7.x and below do not require polyfill (unsupported by Search)",
+			version:  "7.3.0",
+			expected: false,
+		},
+		{
 			name:     "MongoDB 8.0.x requires polyfill",
 			version:  "8.0.10",
 			expected: true,

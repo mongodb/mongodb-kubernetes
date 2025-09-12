@@ -746,7 +746,7 @@ func (r ReplicaSetReconciler) buildAutomationConfig(ctx context.Context, mdb mdb
 
 // TODO: remove this as soon as searchCoordinator builtin role is backported
 func searchCoordinatorCustomRoleModification(search *searchv1.MongoDBSearch, mongodbVersion string) automationconfig.Modification {
-	if search == nil || searchcontroller.NeedsSearchCoordinatorRolePolyfill(mongodbVersion) {
+	if search == nil || !searchcontroller.NeedsSearchCoordinatorRolePolyfill(mongodbVersion) {
 		return automationconfig.NOOP()
 	}
 
