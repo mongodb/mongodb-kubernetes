@@ -1,0 +1,16 @@
+
+MongoDB resource
+NAME     PHASE     VERSION   TYPE         AGE
+mdb-rs   Running   8.0.10    ReplicaSet   4m59s
+
+MongoDBSearch resource
+NAME     PHASE     AGE
+mdb-rs   Running   2m12s
+
+Pods running in cluster k3d-k3s-default
+NAME                                          READY   STATUS    RESTARTS   AGE
+mdb-rs-0                                      1/1     Running   0          4m33s
+mdb-rs-1                                      1/1     Running   0          3m21s
+mdb-rs-2                                      1/1     Running   0          2m47s
+mdb-rs-search-0                               1/1     Running   0          75s
+mongodb-kubernetes-operator-64886c7b8-vnxgg   1/1     Running   0          5m1s
