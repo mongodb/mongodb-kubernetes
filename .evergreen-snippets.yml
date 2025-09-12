@@ -14,16 +14,21 @@ variables:
 
   - &setup_and_teardown_group_kind_code_snippets
     setup_task_can_fail_task: true
+    setup_group_can_fail_task: true
     setup_group:
       - func: clone
       - func: cleanup_exec_environment
       - func: download_kube_tools
       - func: configure_docker_auth
       - func: setup_kubernetes_environment
+      - func: python_venv
+      - func: setup_cloud_qa
     teardown_task:
       - func: upload_e2e_logs
       - func: upload_code_snippets_logs
       - func: upload_code_snippets_outputs
+      - func: teardown_kubernetes_environment
+      - func: teardown_cloud_qa
 
 # This variable is copied over from .evergreen.yml because anchors don't work for included files
   - &base_om8_dependency
@@ -110,6 +115,12 @@ tasks:
       - func: test_code_snippets
       - func: sample_commit_output
 
+  - name: test_kind_search_enterprise_snippets.sh
+    tags: [ "code_snippets", "patch-run" ]
+    commands:
+      - func: test_code_snippets
+      - func: sample_commit_output
+
 task_groups:
   - name: gke_code_snippets_task_group
     <<: *setup_and_teardown_group_gke_code_snippets
@@ -123,6 +134,7 @@ task_groups:
     max_hosts: -1
     tasks:
       - test_kind_search_community_snippets.sh
+      - test_kind_search_enterprise_snippets.sh
 
 buildvariants:
   # These variants are used to test the code snippets and each one can be used in patches

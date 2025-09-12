@@ -1,0 +1,13 @@
+Waiting for MongoDB resource to reach Running phase...
+mongodb.mongodb.com/mdb-rs condition met
+
+MongoDB resource
+NAME     PHASE     VERSION   TYPE         AGE
+mdb-rs   Running   8.0.10    ReplicaSet   2m47s
+
+Pods running in cluster k3d-k3s-default
+NAME                                          READY   STATUS    RESTARTS   AGE
+mdb-rs-0                                      1/1     Running   0          2m21s
+mdb-rs-1                                      1/1     Running   0          69s
+mdb-rs-2                                      1/1     Running   0          35s
+mongodb-kubernetes-operator-64886c7b8-vnxgg   1/1     Running   0          2m49s

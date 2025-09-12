@@ -84,7 +84,13 @@ tasks:
       - func: test_code_snippets
       - func: sample_commit_output
 
-  - name: task_kind_community_search_snippets
+  - name: task_kind_search_community_snippets
+    tags: [ "code_snippets", "patch-run" ]
+    commands:
+      - func: test_code_snippets
+      - func: sample_commit_output
+
+  - name: task_kind_search_enterprise_snippets
     tags: [ "code_snippets", "patch-run" ]
     commands:
       - func: test_code_snippets
@@ -861,6 +867,8 @@ tasks:
 
   - name: e2e_om_ops_manager_pod_spec
     tags: [ "patch-run" ]
+    run_on:
+      - ubuntu2404-large
     commands:
       - func: e2e_test
 
