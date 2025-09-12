@@ -13,8 +13,6 @@ spec:
       keyfileSecretRef:
         name: ${MDB_EXTERNAL_KEYFILE_SECRET_NAME}
         key: keyfile
-      tls:
-        enabled: false
     username: search-sync-source
     passwordSecretRef:
       name: mdbc-rs-search-sync-source-password

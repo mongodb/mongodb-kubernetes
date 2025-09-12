@@ -138,7 +138,6 @@ def test_create_search_resource(mdbs: MongoDBSearch, mdbc: MongoDBCommunity):
             "hostAndPorts": seeds,
             "keyfileSecretRef": {"name": f"{mdbc.name}-keyfile"},
             "tls": {
-                "enabled": True,
                 "ca": {"name": f"{mdbc.name}-ca"},
             },
         },
@@ -146,7 +145,7 @@ def test_create_search_resource(mdbs: MongoDBSearch, mdbc: MongoDBCommunity):
         "username": MONGOT_USER_NAME,
     }
 
-    mdbs["spec"]["security"] = {"tls": {"enabled": True, "certificateKeySecretRef": {"name": MDBS_TLS_SECRET_NAME}}}
+    mdbs["spec"]["security"] = {"tls": {"certificateKeySecretRef": {"name": MDBS_TLS_SECRET_NAME}}}
 
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=300)

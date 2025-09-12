@@ -228,7 +228,7 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, l
 }
 
 func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Context) (mongot.Modification, statefulset.Modification, error) {
-	if !r.mdbSearch.Spec.Security.TLS.Enabled {
+	if r.mdbSearch.Spec.Security.TLS == nil {
 		mongotModification := func(config *mongot.Config) {
 			config.Server.Wireproto.TLS.Mode = mongot.ConfigTLSModeDisabled
 		}
@@ -390,7 +390,7 @@ func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResourc
 
 func GetMongodConfigParameters(search *searchv1.MongoDBSearch) map[string]any {
 	searchTLSMode := automationconfig.TLSModeDisabled
-	if search.Spec.Security.TLS.Enabled {
+	if search.Spec.Security.TLS != nil {
 		searchTLSMode = automationconfig.TLSModeRequired
 	}
 	return map[string]any{
