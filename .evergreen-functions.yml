@@ -270,6 +270,7 @@ functions:
       params:
         add_to_path:
           - ${workdir}/bin
+          - ${workdir}/venv/bin
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/evergreen/lint_helm_chart.sh
 
