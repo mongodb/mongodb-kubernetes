@@ -74,14 +74,12 @@ tasks:
 # Each task is selected by convention by running scripts/code_snippets/${task_name}_test.sh
   - name: task_gke_multi_cluster_snippets
     tags: [ "code_snippets" ]
-    allowed_requesters: [ "patch", "github_tag" ]
     commands:
       - func: test_code_snippets
       - func: sample_commit_output
 
   - name: task_gke_multi_cluster_no_mesh_snippets
     tags: [ "code_snippets" ]
-    allowed_requesters: [ "patch", "github_tag" ]
     commands:
       - func: test_code_snippets
       - func: sample_commit_output
@@ -797,7 +795,6 @@ tasks:
 
   - name: e2e_om_ops_manager_backup
     tags: [ "patch-run" ]
-    allowed_requesters: [ "github_tag", "patch" ]
     commands:
       - func: "e2e_test"
 
@@ -870,6 +867,8 @@ tasks:
 
   - name: e2e_om_ops_manager_pod_spec
     tags: [ "patch-run" ]
+    run_on:
+      - ubuntu2404-large
     commands:
       - func: e2e_test
 
