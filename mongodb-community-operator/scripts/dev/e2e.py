@@ -81,7 +81,7 @@ def create_test_pod(args: argparse.Namespace, namespace: str) -> None:
             "containers": [
                 {
                     "name": TEST_POD_NAME,
-                    "image": f"{os.getenv('BASE_REPO_URL')}/mongodb-community-tests:{os.getenv('VERSION_ID')}",
+                    "image": f"{os.getenv('REGISTRY')}/mongodb-community-tests:{os.getenv('OPERATOR_VERSION')}",
                     "imagePullPolicy": "Always",
                     "env": [
                         {
