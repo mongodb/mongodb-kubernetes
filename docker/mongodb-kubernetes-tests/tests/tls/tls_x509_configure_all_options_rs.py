@@ -55,3 +55,6 @@ class TestReplicaSetEnableAllOptions(KubernetesTester):
     def test_rotate_clusterfile_with_sts_restarting(self, mdb: MongoDB, namespace: str):
         mdb.trigger_sts_restart()
         rotate_and_assert_certificates(mdb, namespace, "{}-clusterfile".format(MDB_RESOURCE))
+
+    def test_rotate_agent_certificate(self, mdb: MongoDB, namespace: str):
+        rotate_and_assert_certificates(mdb, namespace, "agent-certs")
