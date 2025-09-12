@@ -1,7 +1,6 @@
 > [!IMPORTANT]
 > This file is no longer maintained and updated.
-> All future Release Notes for MCK are available only
-> in [GitHub Releases Page](https://github.com/mongodb/mongodb-kubernetes/releases).
+> All future Release Notes for MCK are available only in [GitHub Releases Page](https://github.com/mongodb/mongodb-kubernetes/releases).
 
 # MCK 1.2.0 Release Notes
 
