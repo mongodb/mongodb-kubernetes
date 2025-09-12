@@ -179,6 +179,8 @@ spec:
                             type: string
                         type: object
                         x-kubernetes-map-type: atomic
+                    required:
+                      - certificateKeySecretRef
                     type: object
                 type: object
               source:
@@ -221,6 +223,8 @@ spec:
                                 type: string
                             type: object
                             x-kubernetes-map-type: atomic
+                        required:
+                          - ca
                         type: object
                     type: object
                   mongodbResourceRef:
