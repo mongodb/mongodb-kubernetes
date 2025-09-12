@@ -1,6 +1,8 @@
 [//]: # (Consider renaming or removing the header for next release, otherwise it appears as duplicate in the published release, e.g: https://github.com/mongodb/mongodb-enterprise-kubernetes/releases/tag/1.22.0 )
 <!-- Next Release -->
 
+# TODO: mention that all subsequent release notes will be available only through the public docs and GitHub release notes.
+
 # MCK 1.3.0 Release Notes
 
 ## Other Changes
