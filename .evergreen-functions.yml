@@ -514,81 +514,64 @@ functions:
           - ${workdir}/bin
         binary: scripts/evergreen/e2e/build_tests_image_ibm.sh
 
-  pipeline: #TODO: hide file sourcing in bash script and just pass some command line args
+  pipeline:
     - *switch_context
-    - command: shell.exec
+    - command: subprocess.exec
       retry_on_failure: true
       type: setup
       params:
         shell: bash
         <<: *e2e_include_expansions_in_env
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        script: |
-          source .generated/context.export.env
-          scripts/dev/run_python.sh scripts/release/pipeline_main.py ${image_name} --build-scenario $BUILD_SCENARIO --version $OPERATOR_VERSION
+        binary: scripts/release/pipeline.sh
+        env:
+          IMAGE_NAME: ${IMAGE_NAME}
 
   pipeline_agent:
     - *switch_context
-    - command: shell.exec
+    - command: subprocess.exec
       retry_on_failure: true
       type: setup
       params:
         shell: bash
         <<: *e2e_include_expansions_in_env
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        script: |
-          source .generated/context.export.env
-          scripts/dev/run_python.sh scripts/release/pipeline_main.py agent --build-scenario $BUILD_SCENARIO ${flags}
-
-  pipeline_migrate_agents:
-    - *switch_context
-    - command: subprocess.exec
-      retry_on_failure: false
-      type: setup
-      params:
-        shell: bash
-        <<: *e2e_include_expansions_in_env
-        working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/release/pipeline_migrate_agent.sh
+        binary: scripts/release/pipeline_agent.sh
+        env:
+          FLAGS: ${FLAGS}
 
   pipeline_ops_manager:
     - *switch_context
-    - command: shell.exec
+    - command: subprocess.exec
       retry_on_failure: true
       type: setup
       params:
         shell: bash
         <<: *e2e_include_expansions_in_env
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        script: |
-          source .generated/context.export.env
-          scripts/dev/run_python.sh scripts/release/pipeline_main.py ops-manager --build-scenario $BUILD_SCENARIO --version $OM_VERSION
+        binary: scripts/release/pipeline_ops_manager.sh
 
   pipeline_readiness_probe:
     - *switch_context
-    - command: shell.exec
+    - command: subprocess.exec
       retry_on_failure: true
       type: setup
       params:
         shell: bash
         <<: *e2e_include_expansions_in_env
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        script: |
-          source .generated/context.export.env
-          scripts/dev/run_python.sh scripts/release/pipeline_main.py readiness-probe --build-scenario $BUILD_SCENARIO --version $READINESS_PROBE_VERSION
+        binary: scripts/release/pipeline_readiness_probe.sh
 
   pipeline_version_upgrade_hook:
     - *switch_context
-    - command: shell.exec
+    - command: subprocess.exec
       retry_on_failure: true
       type: setup
       params:
         shell: bash
         <<: *e2e_include_expansions_in_env
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        script: |
-          source .generated/context.export.env
-          scripts/dev/run_python.sh scripts/release/pipeline_main.py upgrade-hook --build-scenario $BUILD_SCENARIO --version $VERSION_UPGRADE_HOOK_VERSION
+        binary: scripts/release/pipeline_version_upgrade_hook.sh
 
   teardown_cloud_qa_all:
     - *switch_context

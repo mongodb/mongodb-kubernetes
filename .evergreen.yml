@@ -298,7 +298,10 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
-      - func: pipeline_migrate_agents
+      - func: pipeline_agent
+        vars:
+          BUILD_SCENARIO: manual_release
+          FLAGS: "--all-agents -r quay.io/mongodb/mongodb-agent"
 
   - name: run_precommit_and_push
     tags: [ "patch-run" ]
@@ -327,7 +330,7 @@ tasks:
       - func: setup_building_host
       - func: pipeline_agent
         vars:
-          flags: "--parallel --all-agents"
+          FLAGS: "--all-agents"
 
   - name: release_all_currently_used_agents_on_ecr
     # this enables us to run this manually (patch) and release all agent versions to ECR to verify
@@ -336,10 +339,9 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
-      - func: pipeline
+      - func: pipeline_agent
         vars:
-          image_name: agent
-          flags: "--parallel --current-agents"
+          FLAGS: "--current-agents"
 
   - name: build_test_image
     commands:
@@ -348,7 +350,7 @@ tasks:
       - func: build_multi_cluster_binary
       - func: pipeline
         vars:
-          image_name: meko-tests
+          IMAGE_NAME: meko-tests
 
   - name: build_test_image_ibm
     commands:
@@ -371,7 +373,7 @@ tasks:
       - func: setup_building_host
       - func: pipeline
         vars:
-          image_name: mco-tests
+          IMAGE_NAME: mco-tests
 
   - name: build_operator_ubi
     commands:
@@ -379,7 +381,7 @@ tasks:
       - func: setup_building_host
       - func: pipeline
         vars:
-          image_name: operator
+          IMAGE_NAME: operator
 
   - name: build_operator_race_ubi
     commands:
@@ -387,7 +389,7 @@ tasks:
       - func: setup_building_host
       - func: pipeline
         vars:
-          image_name: operator-race
+          IMAGE_NAME: operator-race
 
   - name: build_init_om_images_ubi
     commands:
@@ -395,7 +397,7 @@ tasks:
       - func: setup_building_host
       - func: pipeline
         vars:
-          image_name: init-ops-manager
+          IMAGE_NAME: init-ops-manager
 
   - name: build_init_appdb_images_ubi
     commands:
@@ -403,7 +405,7 @@ tasks:
       - func: setup_building_host
       - func: pipeline
         vars:
-          image_name: init-appdb
+          IMAGE_NAME: init-appdb
 
   - name: build_agent_images_ubi
     commands:
@@ -419,7 +421,7 @@ tasks:
       - func: setup_building_host
       - func: pipeline
         vars:
-          image_name: init-database
+          IMAGE_NAME: init-database
 
   - name: build_database_image_ubi
     commands:
@@ -427,7 +429,7 @@ tasks:
       - func: setup_building_host
       - func: pipeline
         vars:
-          image_name: database
+          IMAGE_NAME: database
 
   - name: build_readiness_probe_image
     commands:
