@@ -89,8 +89,8 @@ def create_test_pod(args: argparse.Namespace, namespace: str) -> None:
                             "value": f"{args.cluster_wide}",
                         },
                         {
-                            "name": "VERSION_ID",
-                            "value": f"{os.getenv('VERSION_ID')}",
+                            "name": "OPERATOR_VERSION",
+                            "value": f"{os.getenv('OPERATOR_VERSION')}",
                         },
                         {
                             "name": "OPERATOR_REGISTRY",
