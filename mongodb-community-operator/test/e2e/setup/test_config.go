@@ -9,7 +9,7 @@ const (
 	testNamespaceEnvName            = "WATCH_NAMESPACE"
 	testCertManagerNamespaceEnvName = "TEST_CERT_MANAGER_NAMESPACE"
 	testCertManagerVersionEnvName   = "TEST_CERT_MANAGER_VERSION"
-	operatorImageRepoEnvName        = "BASE_REPO_URL"
+	operatorImageRepoEnvName        = "OPERATOR_REGISTRY"
 	clusterWideEnvName              = "CLUSTER_WIDE"
 	performCleanupEnvName           = "PERFORM_CLEANUP"
 	LocalOperatorEnvName            = "LOCAL_OPERATOR"

@@ -64,7 +64,7 @@ deploy_test_app() {
         "--set" "orgId=${OM_ORGID:-}"
         "--set" "imagePullSecrets=image-registries-secret"
         "--set" "managedSecurityContext=${MANAGED_SECURITY_CONTEXT:-false}"
-        "--set" "registry=${REGISTRY:-${BASE_REPO_URL}/${IMAGE_TYPE}}"
+        "--set" "registry=${REGISTRY}"
         "--set" "mdbDefaultArchitecture=${MDB_DEFAULT_ARCHITECTURE:-'non-static'}"
         "--set" "mdbImageType=${MDB_IMAGE_TYPE:-'ubi8'}"
         "--set" "clusterDomain=${CLUSTER_DOMAIN:-'cluster.local'}"

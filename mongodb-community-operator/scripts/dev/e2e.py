@@ -93,8 +93,8 @@ def create_test_pod(args: argparse.Namespace, namespace: str) -> None:
                             "value": f"{os.getenv('VERSION_ID')}",
                         },
                         {
-                            "name": "BASE_REPO_URL",
-                            "value": f"{os.getenv('BASE_REPO_URL')}",
+                            "name": "OPERATOR_REGISTRY",
+                            "value": f"{os.getenv('OPERATOR_REGISTRY')}",
                         },
                         {
                             "name": "MDB_COMMUNITY_AGENT_IMAGE",
