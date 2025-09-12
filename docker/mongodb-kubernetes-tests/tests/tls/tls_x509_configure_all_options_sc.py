@@ -90,14 +90,11 @@ class TestShardedClusterEnableAllOptions:
         ac_tester.assert_authentication_enabled()
         ac_tester.assert_expected_users(0)
 
-    def test_rotate_shard_cert_with_sts_restarting(self, sc: MongoDB, namespace: str):
-        sc.trigger_sts_restart("shard")
+    def test_rotate_shard_cert(self, sc: MongoDB, namespace: str):
         rotate_and_assert_certificates(sc, namespace, f"{MDB_RESOURCE_NAME}-0-cert")
 
-    def test_rotate_config_cert_with_sts_restarting(self, sc: MongoDB, namespace: str):
-        sc.trigger_sts_restart("config")
+    def test_rotate_config_cert(self, sc: MongoDB, namespace: str):
         rotate_and_assert_certificates(sc, namespace, f"{MDB_RESOURCE_NAME}-config-cert")
 
-    def test_rotate_mongos_cert_with_sts_restarting(self, sc: MongoDB, namespace: str):
-        sc.trigger_sts_restart("mongos")
+    def test_rotate_mongos_cert(self, sc: MongoDB, namespace: str):
         rotate_and_assert_certificates(sc, namespace, f"{MDB_RESOURCE_NAME}-mongos-cert")

@@ -390,7 +390,6 @@ def test_rotate_server_certs(replica_set: MongoDB, vault_namespace: str, vault_n
 def test_rotate_server_certs_with_sts_restarting(
     replica_set: MongoDB, vault_namespace: str, vault_name: str, namespace: str, issuer: str
 ):
-    replica_set.trigger_sts_restart()
     create_x509_mongodb_tls_certs(
         issuer,
         namespace,

@@ -48,10 +48,8 @@ class TestReplicaSetEnableAllOptions(KubernetesTester):
         ac_tester.assert_internal_cluster_authentication_enabled()
         ac_tester.assert_authentication_enabled()
 
-    def test_rotate_certificate_with_sts_restarting(self, mdb: MongoDB, namespace: str):
-        mdb.trigger_sts_restart()
+    def test_rotate_certificate(self, mdb: MongoDB, namespace: str):
         rotate_and_assert_certificates(mdb, namespace, "{}-cert".format(MDB_RESOURCE))
 
-    def test_rotate_clusterfile_with_sts_restarting(self, mdb: MongoDB, namespace: str):
-        mdb.trigger_sts_restart()
+    def test_rotate_clusterfile(self, mdb: MongoDB, namespace: str):
         rotate_and_assert_certificates(mdb, namespace, "{}-clusterfile".format(MDB_RESOURCE))
