@@ -570,7 +570,7 @@ task_groups:
       - e2e_search_external_basic
       - e2e_search_external_tls
 
-  # This is the task group that contains all the tests run in the e2e_mdb_kind_ubuntu_cloudqa build variant
+  # This is the task group that contains all the tests run in the e2e_mdb_kind_ubi_cloudqa build variant
   - name: e2e_mdb_kind_cloudqa_task_group
     max_hosts: -1
     <<: *setup_group
@@ -1164,7 +1164,7 @@ buildvariants:
   # e2e_<type>_<cluster>_<distro>[_<om_version>]
   # where <type> is any of mdb|om<version>|operator
   # where <cluster> is any of kind|openshift
-  # where <distro> is any of ubuntu|ubi TODO: remove ubuntu and all references to UBI
+  # where <distro> is only ubi
   # where <om_version> denotes the OM version tested (e.g. om50, om60, cloudqa) - used only for MDB tests
 
   # MongoDBCommunity build variant
