@@ -12,13 +12,13 @@ spec:
     spec:
       template:
         spec:
-          # FIXME workaround for sleep infinity hanging
+          # FIXME workaround for sleep 7200 hanging
           shareProcessNamespace: true
           containers:
           - name: sidecar1
             image: busybox
             command: ["sleep"]
-            args: [ "infinity" ]
+            args: [ "7200" ]
   opsManager:
     configMapRef:
       name: my-project

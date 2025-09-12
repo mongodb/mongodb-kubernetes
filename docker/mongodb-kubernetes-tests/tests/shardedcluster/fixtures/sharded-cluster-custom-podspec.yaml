@@ -43,7 +43,7 @@ spec:
           - name: sharded-cluster-sidecar
             image: busybox
             command: ["sleep"]
-            args: [ "infinity" ]
+            args: [ "7200" ]
             resources:
               limits:
                 cpu: "1"
@@ -63,7 +63,7 @@ spec:
             - name: sharded-cluster-sidecar-override
               image: busybox
               command: ["sleep"]
-              args: [ "infinity" ]
+              args: [ "7200" ]
               resources:
                 limits:
                   cpu: "1"

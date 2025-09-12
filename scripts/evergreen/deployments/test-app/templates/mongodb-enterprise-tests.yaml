@@ -55,7 +55,7 @@ spec:
   containers:
   - image: public.ecr.aws/docker/library/busybox:1.37.0
     name: keepalive
-    command: ["/bin/sh", "-c", "while true; do sleep 3600; done"]
+    command: ["/bin/sh", "-c", "while true; do sleep 7200; done"]
     volumeMounts:
       - name: results
         mountPath: /tmp/results

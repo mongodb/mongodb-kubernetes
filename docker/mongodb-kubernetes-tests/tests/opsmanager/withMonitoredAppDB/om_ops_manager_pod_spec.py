@@ -96,7 +96,7 @@ class TestOpsManagerCreation:
         appdb_sidecar_container = containers_by_name["appdb-sidecar"]
         assert appdb_sidecar_container.image == "busybox"
         assert appdb_sidecar_container.command == ["sleep"]
-        assert appdb_sidecar_container.args == ["infinity"]
+        assert appdb_sidecar_container.args == ["7200"]
 
     def test_appdb_persistence(self, ops_manager: MongoDBOpsManager, namespace: str):
         # appdb pod volume claim template
