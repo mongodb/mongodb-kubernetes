@@ -42,7 +42,7 @@ dump_cluster_information() {
     done
   else
     # Dump all the information we can from this namespace
-    dump_all || true
+    dump_all "$(kubectl config current-context)" || true
   fi
 }
 
