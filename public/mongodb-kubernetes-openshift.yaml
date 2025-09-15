@@ -603,9 +603,11 @@ spec:
               value: "quay.io/mongodb/mongodb-enterprise-server:8.0.0-ubi8"
             - name: RELATED_IMAGE_MONGODB_IMAGE_8_0_0_ubi9
               value: "quay.io/mongodb/mongodb-enterprise-server:8.0.0-ubi9"
-            - name: MDB_SEARCH_COMMUNITY_REPO_URL
+            - name: RELATED_IMAGE_MDB_SEARCH_IMAGE_0_53_0
+              value: "quay.io/mongodb/mongodb-search:0.53.0"
+            - name: MDB_SEARCH_REPO_URL
               value: "quay.io/mongodb"
-            - name: MDB_SEARCH_COMMUNITY_NAME
-              value: "mongodb-search-community"
-            - name: MDB_SEARCH_COMMUNITY_VERSION
-              value: "1.47.0"
+            - name: MDB_SEARCH_NAME
+              value: "mongodb-search"
+            - name: MDB_SEARCH_VERSION
+              value: "0.53.0"
