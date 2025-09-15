@@ -1001,6 +1001,24 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 		)
 	}
 
+	vars = append(vars, corev1.EnvVar{
+		Name: "POD_NAMESPACE",
+		ValueFrom: &corev1.EnvVarSource{
+			FieldRef: &corev1.ObjectFieldSelector{
+				FieldPath: "metadata.namespace",
+			},
+		},
+	})
+
+	vars = append(vars, corev1.EnvVar{
+		Name: "POD_NAME",
+		ValueFrom: &corev1.EnvVarSource{
+			FieldRef: &corev1.ObjectFieldSelector{
+				FieldPath: "metadata.name",
+			},
+		},
+	})
+
 	// This is only used for debugging
 	if useDebugAgent := os.Getenv(util.EnvVarDebug); useDebugAgent != "" { // nolint:forbidigo
 		zap.S().Debugf("running the agent in debug mode")
