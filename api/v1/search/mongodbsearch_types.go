@@ -10,6 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
@@ -46,6 +47,10 @@ type MongoDBSearchSpec struct {
 	// Configure security settings of the MongoDB Search server that MongoDB database is connecting to when performing search queries.
 	// +optional
 	Security Security `json:"security"`
+	// Configure verbosity of mongot logs. Defaults to INFO if not set.
+	// +kubebuilder:validation:Enum=TRACE;DEBUG;INFO;WARN;ERROR
+	// +optional
+	LogLevel mdb.LogLevel `json:"logLevel,omitempty"`
 }
 
 type MongoDBSource struct {
@@ -227,4 +232,12 @@ func (s *MongoDBSearch) GetMongotHealthCheckPort() int32 {
 
 func (s *MongoDBSearch) IsExternalMongoDBSource() bool {
 	return s.Spec.Source != nil && s.Spec.Source.ExternalMongoDBSource != nil
+}
+
+func (s *MongoDBSearch) GetLogLevel() mdb.LogLevel {
+	if s.Spec.LogLevel == "" {
+		return "INFO"
+	}
+
+	return s.Spec.LogLevel
 }

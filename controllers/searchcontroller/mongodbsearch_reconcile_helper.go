@@ -382,7 +382,7 @@ func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResourc
 			Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotHealthCheckPort()),
 		}
 		config.Logging = mongot.ConfigLogging{
-			Verbosity: "TRACE",
+			Verbosity: string(search.GetLogLevel()),
 			LogPath:   nil,
 		}
 	}

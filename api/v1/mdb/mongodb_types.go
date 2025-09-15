@@ -46,6 +46,7 @@ const (
 	Warn  LogLevel = "WARN"
 	Error LogLevel = "ERROR"
 	Fatal LogLevel = "FATAL"
+	Trace LogLevel = "TRACE"
 
 	Standalone     ResourceType = "Standalone"
 	ReplicaSet     ResourceType = "ReplicaSet"
