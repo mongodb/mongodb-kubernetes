@@ -34,7 +34,7 @@ usage: create_changelog.py [-h] [-c ] [-d ] [-e] -k  title
 Utility to easily create a new changelog entry file.
 
 positional arguments:
-  title                 Short title used in changelog filename
+  title                 Title used in changelog filename and passed as initial file contents
 
 options:
   -h, --help            show this help message and exit

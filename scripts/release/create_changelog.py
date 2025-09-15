@@ -53,7 +53,7 @@ if __name__ == "__main__":
   - '{str(ChangeKind.FIX)}' for bugfix entries
   - '{str(ChangeKind.OTHER)}' for other entries""",
     )
-    parser.add_argument("title", type=str, help="Short title used in changelog filename")
+    parser.add_argument("title", type=str, help="Title used in changelog filename and passed as initial file contents")
     args = parser.parse_args()
 
     title = args.title
@@ -75,6 +75,7 @@ if __name__ == "__main__":
         f.write(f"kind: {str(kind)}\n")
         f.write(f"date: {date_str}\n")
         f.write("---\n\n")
+        f.write(f"* {title}\n")
 
     if args.editor:
         editor = os.environ.get("EDITOR", "vi")  # Fallback to vim if EDITOR is not set
