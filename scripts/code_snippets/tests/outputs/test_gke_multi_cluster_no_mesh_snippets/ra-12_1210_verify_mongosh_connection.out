@@ -1,0 +1,15 @@
+{
+  authInfo: {
+    authenticatedUsers: [ { user: 'rs-user', db: 'admin' } ],
+    authenticatedUserRoles: [ { role: 'root', db: 'admin' } ]
+  },
+  ok: 1,
+  '$clusterTime': {
+    clusterTime: Timestamp({ t: 1757953343, i: 1 }),
+    signature: {
+      hash: Binary.createFromBase64('SWsbxCRftpIjdJHQ0siHTPgR4w4=', 0),
+      keyId: Long('7550352098899001350')
+    }
+  },
+  operationTime: Timestamp({ t: 1757953343, i: 1 })
+}

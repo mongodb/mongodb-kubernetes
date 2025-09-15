@@ -1,0 +1,15 @@
+Nodes in cluster gke_scratch-kubernetes-team_europe-central2-a_k8s-mdb-0-68c83135559fe800072cea69-25811
+NAME                                                  STATUS   ROLES    AGE   VERSION
+gke-k8s-mdb-0-68c8313555-default-pool-77c5570a-6q1t   Ready    <none>   88s   v1.33.4-gke.1036000
+gke-k8s-mdb-0-68c8313555-default-pool-77c5570a-8l77   Ready    <none>   84s   v1.33.4-gke.1036000
+gke-k8s-mdb-0-68c8313555-default-pool-77c5570a-p28j   Ready    <none>   85s   v1.33.4-gke.1036000
+
+Nodes in cluster gke_scratch-kubernetes-team_europe-central2-b_k8s-mdb-1-68c83135559fe800072cea69-25811
+NAME                                                  STATUS   ROLES    AGE   VERSION
+gke-k8s-mdb-1-68c8313555-default-pool-9f7786ee-2wgc   Ready    <none>   31s   v1.33.4-gke.1036000
+gke-k8s-mdb-1-68c8313555-default-pool-9f7786ee-ghlf   Ready    <none>   34s   v1.33.4-gke.1036000
+gke-k8s-mdb-1-68c8313555-default-pool-9f7786ee-m529   Ready    <none>   32s   v1.33.4-gke.1036000
+
+Nodes in cluster gke_scratch-kubernetes-team_europe-central2-c_k8s-mdb-2-68c83135559fe800072cea69-25811
+NAME                                                  STATUS   ROLES    AGE   VERSION
+gke-k8s-mdb-2-68c8313555-default-pool-d53cc441-cvgq   Ready    <none>   86s   v1.33.4-gke.1036000
