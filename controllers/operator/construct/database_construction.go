@@ -514,7 +514,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 	}
 	podTemplateModifications = append(podTemplateModifications, staticMods...)
 
-	return statefulset.Apply(
+	statefulSetModifications := []statefulset.Modification{
 		// StatefulSet metadata
 		statefulset.WithLabels(ssLabels),
 		statefulset.WithName(stsName),
@@ -524,10 +524,14 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 		statefulset.WithServiceName(opts.ServiceName),
 		statefulset.WithReplicas(opts.Replicas),
 		statefulset.WithOwnerReference(opts.OwnerReference),
+		// Set OnDelete update strategy for agent-controlled rolling restarts
+		statefulset.WithUpdateStrategyType(appsv1.OnDeleteStatefulSetStrategyType),
 		volumeClaimFuncs,
 		shareProcessNs,
 		statefulset.WithPodSpecTemplate(podtemplatespec.Apply(podTemplateModifications...)),
-	)
+	}
+
+	return statefulset.Apply(statefulSetModifications...)
 }
 
 func buildPersistentVolumeClaimsFuncs(opts DatabaseStatefulSetOptions) (map[string]persistentvolumeclaim.Modification, []corev1.VolumeMount) {
