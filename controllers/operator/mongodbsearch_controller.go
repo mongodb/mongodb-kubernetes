@@ -70,7 +70,7 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 	}
 
 	// Watch our own TLS certificate secret for changes
-	if mdbSearch.Spec.Security.TLS.Enabled {
+	if mdbSearch.Spec.Security.TLS != nil {
 		r.watch.AddWatchedResourceIfNotAdded(mdbSearch.Spec.Security.TLS.CertificateKeySecret.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
 	}
 

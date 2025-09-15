@@ -4201,10 +4201,8 @@ spec:
                             type: string
                         type: object
                         x-kubernetes-map-type: atomic
-                      enabled:
-                        type: boolean
                     required:
-                    - enabled
+                      - certificateKeySecretRef
                     type: object
                 type: object
               source:
@@ -4233,8 +4231,8 @@ spec:
                         properties:
                           ca:
                             description: |-
-                              LocalObjectReference contains enough information to let you locate the
-                              referenced object inside the same namespace.
+                              CA is a reference to a Secret containing the CA certificate that issued mongod's TLS certificate.
+                              The CA certificate is expected to be PEM encoded and available at the "ca.crt" key.
                             properties:
                               name:
                                 default: ""
@@ -4247,10 +4245,8 @@ spec:
                                 type: string
                             type: object
                             x-kubernetes-map-type: atomic
-                          enabled:
-                            type: boolean
                         required:
-                        - enabled
+                          - ca
                         type: object
                     type: object
                   mongodbResourceRef:

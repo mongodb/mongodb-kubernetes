@@ -59,7 +59,7 @@ def mdbs(namespace: str) -> MongoDBSearch:
     if "spec" not in resource:
         resource["spec"] = {}
 
-    resource["spec"]["security"] = {"tls": {"enabled": True, "certificateKeySecretRef": {"name": MDBS_TLS_SECRET_NAME}}}
+    resource["spec"]["security"] = {"tls": {"certificateKeySecretRef": {"name": MDBS_TLS_SECRET_NAME}}}
 
     return resource
 
