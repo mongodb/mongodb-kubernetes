@@ -3,6 +3,6 @@
 set -Eeou pipefail
 
 # Temporary development images built from mongot master
-export MDB_SEARCH_COMMUNITY_VERSION="1.53.0-78-g227f2593f" # Sep 2nd mongot master
-export MDB_SEARCH_COMMUNITY_NAME="mongot/community"
-export MDB_SEARCH_COMMUNITY_REPO_URL="268558157000.dkr.ecr.eu-west-1.amazonaws.com"
+#export MDB_SEARCH_VERSION="1.53.0-78-g227f2593f" # Sep 2nd mongot master
+#export MDB_SEARCH_NAME="mongot/community"
+#export MDB_SEARCH_REPO_URL="268558157000.dkr.ecr.eu-west-1.amazonaws.com"

@@ -218,9 +218,8 @@ community:
 
 # MongoDBSearch settings
 search:
-  community:
-    # Full Search container image url used for the MongoDB Community Search container will be constructed as {search.community.repo}/{search.community.name}:{search.community.version}
-    repo: quay.io/mongodb
-    name: mongodb-search-community
-    # default MongoDB Search version used; can be overridden by setting MongoDBSearch.spec.version field.
-    version: 1.47.0
+  # Full Search container image url used for the MongoDB Search container will be constructed as {search.repo}/{search.name}:{search.version}
+  repo: quay.io/mongodb
+  name: mongodb-search
+  # default MongoDB Search version used; can be overridden by setting MongoDBSearch.spec.version field.
+  version: 0.53.0
