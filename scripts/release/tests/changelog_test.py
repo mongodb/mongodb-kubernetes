@@ -69,7 +69,6 @@ date: 2025-07-10
 
     change_entry = extract_changelog_entry_from_contents(file_contents)
 
-    assert change_entry.title == "This is my change"
     assert change_entry.kind == ChangeKind.FEATURE
     assert change_entry.date == datetime.date(2025, 7, 10)
     assert (

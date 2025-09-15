@@ -35,10 +35,9 @@ class ChangeKind(StrEnum):
 
 
 class ChangeEntry:
-    def __init__(self, date: datetime, kind: ChangeKind, title: str, contents: str):
+    def __init__(self, date: datetime, kind: ChangeKind, contents: str):
         self.date = date
         self.kind = kind
-        self.title = title
         self.contents = contents
 
 
@@ -129,7 +128,7 @@ def extract_changelog_entry_from_contents(file_contents: str) -> ChangeEntry:
     ## Add newline to contents so the Markdown file also contains a newline at the end
     contents = data.content + "\n"
 
-    return ChangeEntry(date=date, title=str(data["title"]), kind=kind, contents=contents)
+    return ChangeEntry(date=date, kind=kind, contents=contents)
 
 
 def get_changelog_filename(title: str, kind: ChangeKind, date: datetime) -> str:
