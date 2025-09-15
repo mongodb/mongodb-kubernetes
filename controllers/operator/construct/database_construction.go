@@ -714,10 +714,13 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		configureContainerSecurityContext,
 	)}
 
+	// Hardcoded init database image for local development
+	hardcodedInitDatabaseImage := "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/nnguyen-kops/mongodb-kubernetes-init-database:latest"
+
 	agentUtilitiesHolderModifications := []func(*corev1.Container){container.Apply(
 		container.WithName(util.AgentContainerUtilitiesName),
 		container.WithArgs([]string{""}),
-		container.WithImage(opts.InitDatabaseImage),
+		container.WithImage(hardcodedInitDatabaseImage),
 		container.WithEnvs(databaseEnvVars(opts)...),
 		container.WithCommand([]string{"bash", "-c", "touch /tmp/agent-utilities-holder_marker && tail -F -n0 /tmp/agent-utilities-holder_marker"}),
 		configureContainerSecurityContext,
@@ -954,9 +957,12 @@ func databaseScriptsVolumeMount(readOnly bool) corev1.VolumeMount {
 func buildDatabaseInitContainer(initDatabaseImage string) container.Modification {
 	_, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 
+	// Hardcoded init database image for local development
+	hardcodedInitDatabaseImage := "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/nnguyen-kops/mongodb-kubernetes-init-database:latest"
+
 	return container.Apply(
 		container.WithName(InitDatabaseContainerName),
-		container.WithImage(initDatabaseImage),
+		container.WithImage(hardcodedInitDatabaseImage),
 		container.WithVolumeMounts([]corev1.VolumeMount{
 			databaseScriptsVolumeMount(false),
 		}),

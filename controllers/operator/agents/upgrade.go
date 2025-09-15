@@ -48,29 +48,7 @@ type ClientSecret struct {
 // happens and all existing MongoDBs are required to get agents upgraded (otherwise the "You need to upgrade the
 // automation agent before publishing other changes" error happens for automation config pushes from the Operator)
 func UpgradeAllIfNeeded(ctx context.Context, cs ClientSecret, omConnectionFactory om.ConnectionFactory, watchNamespace []string, isMulti bool) {
-	mux.Lock()
-	defer mux.Unlock()
-
-	if !time.Now().After(nextScheduledTime) {
-		return
-	}
-	log := zap.S()
-	log.Info("Performing a regular upgrade of Agents for all the MongoDB resources in the cluster...")
-
-	allMDBs, err := readAllMongoDBs(ctx, cs.Client, watchNamespace, isMulti)
-	if err != nil {
-		log.Errorf("Failed to read MongoDB resources to ensure Agents have the latest version: %s", err)
-		return
-	}
-
-	err = doUpgrade(ctx, cs.Client, cs.SecretClient, omConnectionFactory, allMDBs)
-	if err != nil {
-		log.Errorf("Failed to perform upgrade of Agents: %s", err)
-	}
-
-	log.Info("The upgrade of Agents for all the MongoDB resources in the cluster is finished.")
-
-	nextScheduledTime = nextScheduledTime.Add(pause)
+	return
 }
 
 // ScheduleUpgrade allows to reset the timer to Now() which makes sure the next MongoDB reconciliation will ensure
