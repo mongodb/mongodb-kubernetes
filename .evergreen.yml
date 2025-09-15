@@ -1282,7 +1282,7 @@ buildvariants:
     display_name: e2e_static_om60_kind_ubi
     tags: [ "pr_patch", "staging", "e2e_test_suite", "static" ]
     run_on:
-      - ubuntu2404-medium
+      - ubuntu2404-large
     <<: *base_om6_dependency
     tasks:
       - name: e2e_static_ops_manager_kind_only_task_group
@@ -1304,7 +1304,7 @@ buildvariants:
     display_name: e2e_static_om70_kind_ubi
     tags: [ "pr_patch", "staging", "e2e_test_suite", "static" ]
     run_on:
-      - ubuntu2404-medium
+      - ubuntu2404-large
     <<: *base_om7_dependency
     tasks:
       - name: e2e_static_ops_manager_kind_only_task_group
@@ -1327,7 +1327,7 @@ buildvariants:
     display_name: e2e_static_om80_kind_ubi
     tags: [ "pr_patch", "staging", "e2e_test_suite", "static" ]
     run_on:
-      - ubuntu2404-medium
+      - ubuntu2404-large
     <<: *base_om8_dependency
     tasks:
       - name: e2e_static_ops_manager_kind_only_task_group
