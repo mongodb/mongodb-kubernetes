@@ -95,6 +95,11 @@ func buildExpectedMongotConfig(search *searchv1.MongoDBSearch, mdbc *mdbcv1.Mong
 	for i := range mdbc.Spec.Members {
 		hostAndPorts = append(hostAndPorts, fmt.Sprintf("%s-%d.%s.%s.svc.cluster.local:%d", mdbc.Name, i, mdbc.Name+"-svc", search.Namespace, 27017))
 	}
+
+	logLevel := "INFO"
+	if search.Spec.LogLevel != "" {
+		logLevel = string(search.Spec.LogLevel)
+	}
 	return mongot.Config{
 		SyncSource: mongot.ConfigSyncSource{
 			ReplicaSet: mongot.ConfigReplicaSet{
@@ -127,7 +132,7 @@ func buildExpectedMongotConfig(search *searchv1.MongoDBSearch, mdbc *mdbcv1.Mong
 			Address: fmt.Sprintf("0.0.0.0:%d", search.GetMongotHealthCheckPort()),
 		},
 		Logging: mongot.ConfigLogging{
-			Verbosity: "TRACE",
+			Verbosity: logLevel,
 			LogPath:   nil,
 		},
 	}
@@ -164,6 +169,8 @@ func TestMongoDBSearchReconcile_MissingSource(t *testing.T) {
 func TestMongoDBSearchReconcile_Success(t *testing.T) {
 	ctx := context.Background()
 	search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
+	search.Spec.LogLevel = "WARN"
+
 	mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
 	reconciler, c := newSearchReconciler(mdbc, search)
 
