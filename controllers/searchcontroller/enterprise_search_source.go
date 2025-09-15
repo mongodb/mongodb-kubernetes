@@ -51,7 +51,7 @@ func (r EnterpriseResourceSearchSource) KeyfileSecretName() string {
 }
 
 func (r EnterpriseResourceSearchSource) Validate() error {
-	version, err := semver.ParseTolerant(r.Spec.GetMongoDBVersion())
+	version, err := semver.ParseTolerant(util.StripEnt(r.Spec.GetMongoDBVersion()))
 	if err != nil {
 		return xerrors.Errorf("error parsing MongoDB version '%s': %w", r.Spec.GetMongoDBVersion(), err)
 	} else if version.LT(semver.MustParse("8.0.10")) {
