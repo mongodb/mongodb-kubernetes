@@ -40,6 +40,12 @@ def ecr_login_boto3(region: str, account_id: str):
     logger.debug(f"ECR login succeeded: {status}")
 
 
+def check_if_image_exists(image_tag: str) -> bool:
+    docker_cmd = python_on_whales.docker
+
+    return docker_cmd.image.exists(image_tag)
+
+
 def ensure_buildx_builder(builder_name: str = DEFAULT_BUILDER_NAME) -> str:
     """
     Ensures a Docker Buildx builder exists for multi-platform builds.
@@ -79,6 +85,7 @@ def execute_docker_build(
         Dict[str, str],
         push: bool,
         platforms: list[str],
+        skip_if_exists: bool,
         builder_name: str = DEFAULT_BUILDER_NAME,
 ):
     """
@@ -97,6 +104,20 @@ def execute_docker_build(
     ecr_login_boto3(region="us-east-1", account_id="268558157000")
 
     docker_cmd = python_on_whales.docker
+
+    if skip_if_exists:
+        filtered_tags = []
+        for tag in tags:
+            if check_if_image_exists(tag):
+                logger.info(f"Image with tag {tag} already exists. Skipping it.")
+            else:
+                filtered_tags.append(tag)
+
+        if not filtered_tags:
+            logger.info("All specified image tags already exist. Skipping build.")
+            return
+
+        tags = filtered_tags
 
     try:
         # Convert build args to the format expected by python_on_whales

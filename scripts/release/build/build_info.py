@@ -26,6 +26,7 @@ class ImageInfo:
     sign: bool = False
     latest_tag: bool = False
     olm_tag: bool = False
+    skip_if_exists: bool = False
 
 
 @dataclass
@@ -78,6 +79,7 @@ def load_build_info(scenario: BuildScenario) -> BuildInfo:
             sign=scenario_data.get("sign", False),
             latest_tag=scenario_data.get("latest-tag", False),
             olm_tag=scenario_data.get("olm-tag", False),
+            skip_if_exists=scenario_data.get("skip-if-exists", False),
         )
 
     binaries = {}
