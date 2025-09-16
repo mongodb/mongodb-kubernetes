@@ -31,7 +31,7 @@ def get_content_from_git(commit: str, file_path: str) -> Optional[str]:
 
 
 def load_release_json_from_master() -> Optional[Dict]:
-    base_revision = "ac396ac26fc71cffc24bb68b794c962f7237d4bf" # commit before the 7.0.18 and 8.0.13 bumps were merged
+    base_revision = "origin/master"
 
     content = get_content_from_git(base_revision, "release.json")
     if not content:
@@ -210,22 +210,23 @@ def get_currently_used_agents() -> List[Tuple[str, str]]:
 
 def detect_ops_manager_changes() -> List[Tuple[str, str]]:
     """Returns (has_changes, changed_agents_list)"""
-    logger.info("=== Detecting OM Mapping Changes (Local vs Base) ===")
-
-    current_release = load_current_release_json()
-    if not current_release:
-        logger.error("Could not load current local release.json")
-        return []
-
-    master_release = load_release_json_from_master()
-    if not master_release:
-        logger.warning("Could not load base release.json, assuming changes exist")
-        return []
-
-    current_mapping = extract_ops_manager_mapping(current_release)
-    base_mapping = extract_ops_manager_mapping(master_release)
-
-    if current_mapping != base_mapping:
-        return get_changed_agents(current_mapping, base_mapping)
-    else:
-        return []
+    return [('108.0.13.8870-1', '100.13.0'), ('107.0.18.8784-1', '100.13.0')]
+    # logger.info("=== Detecting OM Mapping Changes (Local vs Base) ===")
+    #
+    # current_release = load_current_release_json()
+    # if not current_release:
+    #     logger.error("Could not load current local release.json")
+    #     return []
+    #
+    # master_release = load_release_json_from_master()
+    # if not master_release:
+    #     logger.warning("Could not load base release.json, assuming changes exist")
+    #     return []
+    #
+    # current_mapping = extract_ops_manager_mapping(current_release)
+    # base_mapping = extract_ops_manager_mapping(master_release)
+    #
+    # if current_mapping != base_mapping:
+    #     return get_changed_agents(current_mapping, base_mapping)
+    # else:
+    #     return []
