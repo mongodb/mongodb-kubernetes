@@ -4,16 +4,16 @@
     ns: 'sample_mflix.embedded_movies',
     firstBatch: [
       {
-        id: '68b9a74f02abb82501c67990',
+        id: '68c95d3cfa87d761d579ea7c',
         name: 'vector_index',
         type: 'vectorSearch',
         latestDefinition: {
           type: 'vectorSearch',
-          indexID: ObjectId('68b9a74f02abb82501c67990'),
+          indexID: ObjectId('68c95d3cfa87d761d579ea7c'),
           name: 'vector_index',
           database: 'sample_mflix',
           lastObservedCollectionName: 'embedded_movies',
-          collectionUUID: UUID('cace05a2-489b-46ff-b99f-d8621f5a99d5'),
+          collectionUUID: UUID('cfc63d42-16d8-4969-b90d-57cb4b3c3076'),
           numPartitions: 1,
           fields: [
             {
@@ -30,11 +30,11 @@
   },
   ok: 1,
   '$clusterTime': {
-    clusterTime: Timestamp({ t: 1756997516, i: 1 }),
+    clusterTime: Timestamp({ t: 1758027125, i: 1 }),
     signature: {
-      hash: Binary.createFromBase64('BXpSMHzI3V6cXoFjWjaeV0/OJK4=', 0),
-      keyId: Long('7546246397926834181')
+      hash: Binary.createFromBase64('YtqKE5GpLrzaA0gNWqgUd9G4KUg=', 0),
+      keyId: Long('7550668577859174405')
     }
   },
-  operationTime: Timestamp({ t: 1756997516, i: 1 })
+  operationTime: Timestamp({ t: 1758027125, i: 1 })
 }
