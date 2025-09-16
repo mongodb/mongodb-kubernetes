@@ -1,5 +1,5 @@
-mdb-rs [primary] test> switched to db sample_mflix
-mdb-rs [primary] sample_mflix> ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... [
+Enterprise mdb-rs [primary] test> switched to db sample_mflix
+Enterprise mdb-rs [primary] sample_mflix> ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ... [
   {
     plot: 'A sports agent stages an unconventional recruitment strategy to get talented Indian cricket players to play Major League Baseball.',
     genres: [ 'Biography', 'Drama', 'Sport' ],
@@ -19,4 +19,4 @@ mdb-rs [primary] sample_mflix> ... ... ... ... ... ... ... ... ... ... ... ... .
     released: ISODate('2013-03-03T00:00:00.000Z')
   }
 ]
-mdb-rs [primary] sample_mflix> 
+Enterprise mdb-rs [primary] sample_mflix> 
