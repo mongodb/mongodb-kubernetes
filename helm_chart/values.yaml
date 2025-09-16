@@ -22,7 +22,7 @@ operator:
   deployment_name: mongodb-kubernetes-operator
 
   # Version of mongodb-kubernetes-operator
-  version: 1.3.0
+  version: 1.4.0
 
   # The Custom Resources that will be watched by the Operator. Needs to be changed if only some of the CRDs are installed
   watchedResources:
@@ -123,11 +123,11 @@ operator:
 ## Database
 database:
   name: mongodb-kubernetes-database
-  version: 1.3.0
+  version: 1.4.0
 
 initDatabase:
   name: mongodb-kubernetes-init-database
-  version: 1.3.0
+  version: 1.4.0
 
 ## Ops Manager
 opsManager:
@@ -135,12 +135,12 @@ opsManager:
 
 initOpsManager:
   name: mongodb-kubernetes-init-ops-manager
-  version: 1.3.0
+  version: 1.4.0
 
 ## Application Database
 initAppDb:
   name: mongodb-kubernetes-init-appdb
-  version: 1.3.0
+  version: 1.4.0
 
 agent:
   name: mongodb-agent
@@ -222,4 +222,4 @@ search:
   repo: quay.io/mongodb
   name: mongodb-search
   # default MongoDB Search version used; can be overridden by setting MongoDBSearch.spec.version field.
-  version: 0.53.0
+  version: 0.53.1
