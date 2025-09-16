@@ -31,7 +31,7 @@ def get_content_from_git(commit: str, file_path: str) -> Optional[str]:
 
 
 def load_release_json_from_master() -> Optional[Dict]:
-    base_revision = "origin/master"
+    base_revision = "ac396ac26fc71cffc24bb68b794c962f7237d4bf" # commit before the 7.0.18 and 8.0.13 bumps were merged
 
     content = get_content_from_git(base_revision, "release.json")
     if not content:
