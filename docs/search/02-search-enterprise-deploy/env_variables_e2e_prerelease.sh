@@ -1,10 +1,8 @@
 export K8S_CTX="${CLUSTER_NAME}"
 
-export PRERELEASE_VERSION="1.4.0-prerelease-68b9584ac0a75a00070384a0"
-
-export PRERELEASE_IMAGE_PULLSECRET="${PRERELEASE_PULLSECRET_DOCKERCONFIGJSON}"
-export OPERATOR_ADDITIONAL_HELM_VALUES="registry.imagePullSecrets=prerelease-image-pullsecret"
-export OPERATOR_HELM_CHART="oci://quay.io/mongodb/staging/helm-chart/mongodb-kubernetes:${PRERELEASE_VERSION}"
+export PRERELEASE_IMAGE_PULLSECRET=""
+export OPERATOR_ADDITIONAL_HELM_VALUES=""
+export OPERATOR_HELM_CHART=${PROJECT_DIR}/helm_chart
 
 # we need project name with a timestamp (NAMESPACE in evg is randomized) to allow for cloud-qa cleanups
 export OPS_MANAGER_PROJECT_NAME="${NAMESPACE}-${MDB_RESOURCE_NAME}"
