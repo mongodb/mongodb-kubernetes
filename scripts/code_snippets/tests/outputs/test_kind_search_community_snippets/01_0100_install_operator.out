@@ -1,13 +1,12 @@
 Release "mongodb-kubernetes" does not exist. Installing it now.
 NAME: mongodb-kubernetes
-LAST DEPLOYED: Mon Sep  1 19:22:18 2025
+LAST DEPLOYED: Tue Sep 16 11:14:43 2025
 NAMESPACE: mongodb
 STATUS: deployed
 REVISION: 1
 TEST SUITE: None
 USER-SUPPLIED VALUES:
-registry:
-  imagePullSecrets: prerelease-image-pullsecret
+{}
 
 COMPUTED VALUES:
 agent:
@@ -21,7 +20,6 @@ community:
     imageType: ubi8
     name: mongodb-community-server
     repo: quay.io/mongodb
-  name: mongodb-database
   registry:
     agent: quay.io/mongodb
   resource:
@@ -40,16 +38,16 @@ community:
     version: 4.4.0
 database:
   name: mongodb-kubernetes-database
-  version: 1.4.0-prerelease-68b5c0bb136a0d0007a4c8a2
+  version: 1.4.0
 initAppDb:
   name: mongodb-kubernetes-init-appdb
-  version: 1.4.0-prerelease-68b5c0bb136a0d0007a4c8a2
+  version: 1.4.0
 initDatabase:
   name: mongodb-kubernetes-init-database
-  version: 1.4.0-prerelease-68b5c0bb136a0d0007a4c8a2
+  version: 1.4.0
 initOpsManager:
   name: mongodb-kubernetes-init-ops-manager
-  version: 1.4.0-prerelease-68b5c0bb136a0d0007a4c8a2
+  version: 1.4.0
 managedSecurityContext: false
 mongodb:
   appdbAssumeOldFormat: false
@@ -96,7 +94,7 @@ operator:
   vaultSecretBackend:
     enabled: false
     tlsSecretRef: ""
-  version: 1.4.0-prerelease-68b5c0bb136a0d0007a4c8a2
+  version: 1.4.0
   watchedResources:
   - mongodb
   - opsmanagers
@@ -113,22 +111,20 @@ readinessProbe:
   version: 1.0.22
 registry:
   agent: quay.io/mongodb
-  appDb: quay.io/mongodb/staging
-  database: quay.io/mongodb/staging
-  imagePullSecrets: prerelease-image-pullsecret
-  initAppDb: quay.io/mongodb/staging
-  initDatabase: quay.io/mongodb/staging
-  initOpsManager: quay.io/mongodb/staging
-  operator: quay.io/mongodb/staging
+  database: quay.io/mongodb
+  imagePullSecrets: null
+  initAppDb: quay.io/mongodb
+  initDatabase: quay.io/mongodb
+  initOpsManager: quay.io/mongodb
+  operator: quay.io/mongodb
   opsManager: quay.io/mongodb
   pullPolicy: Always
   readinessProbe: quay.io/mongodb
   versionUpgradeHook: quay.io/mongodb
 search:
-  community:
-    name: mongodb-search
-    repo: quay.io/mongodb/staging
-    version: latest
+  name: mongodb-search
+  repo: quay.io/mongodb
+  version: 0.53.1
 versionUpgradeHook:
   name: mongodb-kubernetes-operator-version-upgrade-post-start-hook
   version: 1.0.9
@@ -142,8 +138,6 @@ kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-appdb
   namespace: mongodb
-imagePullSecrets:
-  - name: prerelease-image-pullsecret
 ---
 # Source: mongodb-kubernetes/templates/database-roles.yaml
 apiVersion: v1
@@ -151,8 +145,6 @@ kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-database-pods
   namespace: mongodb
-imagePullSecrets:
-  - name: prerelease-image-pullsecret
 ---
 # Source: mongodb-kubernetes/templates/database-roles.yaml
 apiVersion: v1
@@ -160,8 +152,6 @@ kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-ops-manager
   namespace: mongodb
-imagePullSecrets:
-  - name: prerelease-image-pullsecret
 ---
 # Source: mongodb-kubernetes/templates/operator-sa.yaml
 apiVersion: v1
@@ -169,8 +159,6 @@ kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-operator
   namespace: mongodb
-imagePullSecrets:
-  - name: prerelease-image-pullsecret
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-clustermongodbroles.yaml
 kind: ClusterRole
@@ -217,7 +205,7 @@ rules:
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-kubernetes-operator-mongodb-webhook
+  name: mongodb-kubernetes-operator-mongodb-webhook-cr
 rules:
   - apiGroups:
       - "admissionregistration.k8s.io"
@@ -273,11 +261,11 @@ subjects:
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-kubernetes-operator-mongodb-webhook-binding
+  name: mongodb-kubernetes-operator-mongodb-webhook-crb
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: mongodb-kubernetes-operator-mongodb-webhook
+  name: mongodb-kubernetes-operator-mongodb-webhook-cr
 subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
@@ -474,11 +462,9 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 2000
-      imagePullSecrets:
-        - name: prerelease-image-pullsecret
       containers:
         - name: mongodb-kubernetes-operator
-          image: "quay.io/mongodb/staging/mongodb-kubernetes:1.4.0-prerelease-68b5c0bb136a0d0007a4c8a2"
+          image: "quay.io/mongodb/mongodb-kubernetes:1.4.0"
           imagePullPolicy: Always
           args:
             - -watch-resource=mongodb
@@ -519,25 +505,25 @@ spec:
               value: Always
             # Database
             - name: MONGODB_ENTERPRISE_DATABASE_IMAGE
-              value: quay.io/mongodb/staging/mongodb-kubernetes-database
+              value: quay.io/mongodb/mongodb-kubernetes-database
             - name: INIT_DATABASE_IMAGE_REPOSITORY
-              value: quay.io/mongodb/staging/mongodb-kubernetes-init-database
+              value: quay.io/mongodb/mongodb-kubernetes-init-database
             - name: INIT_DATABASE_VERSION
-              value: 1.4.0-prerelease-68b5c0bb136a0d0007a4c8a2
+              value: 1.4.0
             - name: DATABASE_VERSION
-              value: 1.4.0-prerelease-68b5c0bb136a0d0007a4c8a2
+              value: 1.4.0
             # Ops Manager
             - name: OPS_MANAGER_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-enterprise-ops-manager-ubi
             - name: INIT_OPS_MANAGER_IMAGE_REPOSITORY
-              value: quay.io/mongodb/staging/mongodb-kubernetes-init-ops-manager
+              value: quay.io/mongodb/mongodb-kubernetes-init-ops-manager
             - name: INIT_OPS_MANAGER_VERSION
-              value: 1.4.0-prerelease-68b5c0bb136a0d0007a4c8a2
+              value: 1.4.0
             # AppDB
             - name: INIT_APPDB_IMAGE_REPOSITORY
-              value: quay.io/mongodb/staging/mongodb-kubernetes-init-appdb
+              value: quay.io/mongodb/mongodb-kubernetes-init-appdb
             - name: INIT_APPDB_VERSION
-              value: 1.4.0-prerelease-68b5c0bb136a0d0007a4c8a2
+              value: 1.4.0
             - name: OPS_MANAGER_IMAGE_PULL_POLICY
               value: Always
             - name: AGENT_IMAGE
@@ -552,8 +538,6 @@ spec:
               value: ubi8
             - name: PERFORM_FAILOVER
               value: 'true'
-            - name: IMAGE_PULL_SECRETS
-              value: prerelease-image-pullsecret
             - name: MDB_MAX_CONCURRENT_RECONCILES
               value: "1"
             - name: POD_NAME
@@ -576,10 +560,10 @@ spec:
             - name: MDB_COMMUNITY_IMAGE_TYPE
               value: "ubi8"
             # Community Env Vars End
-            - name: MDB_SEARCH_COMMUNITY_REPO_URL
-              value: "quay.io/mongodb/staging"
-            - name: MDB_SEARCH_COMMUNITY_NAME
+            - name: MDB_SEARCH_REPO_URL
+              value: "quay.io/mongodb"
+            - name: MDB_SEARCH_NAME
               value: "mongodb-search"
-            - name: MDB_SEARCH_COMMUNITY_VERSION
-              value: "latest"
+            - name: MDB_SEARCH_VERSION
+              value: "0.53.1"
 
