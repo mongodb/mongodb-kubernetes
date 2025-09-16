@@ -436,7 +436,7 @@ spec:
             - name: MDB_SEARCH_NAME
               value: "mongodb-search"
             - name: MDB_SEARCH_VERSION
-              value: "0.53.0"
+              value: "0.53.1"
       volumes:
         - name: kube-config-volume
           secret:
