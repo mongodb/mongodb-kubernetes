@@ -10,6 +10,7 @@ else
     FLAGS="--parallel ${FLAGS}"
 fi
 
+# shellcheck disable=SC2086
 scripts/dev/run_python.sh scripts/release/pipeline.py agent \
     --build-scenario "${BUILD_SCENARIO}" \
-    "${FLAGS}"
+    ${FLAGS}
