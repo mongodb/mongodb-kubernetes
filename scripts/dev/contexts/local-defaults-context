@@ -20,32 +20,12 @@ export workdir
 # The main registry to use for local test runs
 # - global: <registry>/dev is the shared registry
 # - dedicated: <registry>/<my-registry>
-# Note: in our root-context we default the image tag to latest, if VERSION_ID is not preset on your machine
+# Note: in our root-context we default the image tag to latest, if OPERATOR_VERSION is not preset on your machine
 # Note2: For quick local development defaults we only use shared images
 export QUAY_REGISTRY=quay.io/mongodb
-export BASE_REPO_URL_SHARED="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
+export BASE_REPO_URL_SHARED="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging"
 # Note: the Operator registry (OPERATOR_REGISTRY variable) is defined in the private context
 export REGISTRY="${BASE_REPO_URL_SHARED}"
-
-export INIT_IMAGES_REGISTRY=${INIT_IMAGES_REGISTRY:-"${REGISTRY}"}
-
-export INIT_APPDB_REGISTRY="${BASE_REPO_URL_SHARED}"
-export INIT_OPS_MANAGER_REGISTRY=${BASE_REPO_URL_SHARED:-"${QUAY_REGISTRY}"}
-export INIT_DATABASE_REGISTRY=${BASE_REPO_URL_SHARED:-"${QUAY_REGISTRY}"}
-export INIT_DATABASE_IMAGE_REPOSITORY="${BASE_REPO_URL_SHARED}/mongodb-kubernetes-init-database"
-export DATABASE_REGISTRY=${BASE_REPO_URL_SHARED:-"${QUAY_REGISTRY}"}
-export OPS_MANAGER_REGISTRY="${QUAY_REGISTRY}"
-export MONGODB_REPO_URL="${QUAY_REGISTRY}"
-export MONGODB_ENTERPRISE_DATABASE_IMAGE="${INIT_IMAGES_REGISTRY}/mongodb-kubernetes-database"
-export MDB_AGENT_IMAGE_OPERATOR_VERSION=latest
-export MDB_AGENT_IMAGE_REPOSITORY="${BASE_REPO_URL_SHARED}/mongodb-agent"
-export AGENT_BASE_REGISTRY=${BASE_REPO_URL_SHARED}
-export AGENT_IMAGE="${MDB_AGENT_IMAGE_REPOSITORY}:12.0.35.7911-1"
-
-# these are needed to deploy OM
-export INIT_APPDB_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-kubernetes-init-appdb"
-export OPS_MANAGER_IMAGE_REPOSITORY="${QUAY_REGISTRY}/mongodb-enterprise-ops-manager-ubi"
-export INIT_OPS_MANAGER_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-kubernetes-init-ops-manager"
 
 # Environment variable needed for local development
 # Used in controllers/operator/mongodbopsmanager_controller.go

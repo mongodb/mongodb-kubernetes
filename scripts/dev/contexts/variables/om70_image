@@ -5,5 +5,5 @@ set -Eeou pipefail
 script_name=$(readlink -f "${BASH_SOURCE[0]}")
 script_dir=$(dirname "${script_name}")
 
-om_version=$(grep -E "^\s*-\s*&ops_manager_70_latest\s+(\S+)\s+#" < "${script_dir}"/../../../../.evergreen.yml | awk '{print $3}')
-export om_version
+OM_VERSION=$(grep -E "^\s*-\s*&ops_manager_70_latest\s+(\S+)\s+#" < "${script_dir}"/../../../../.evergreen.yml | awk '{print $3}')
+export OM_VERSION

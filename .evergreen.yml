@@ -1,3 +1,5 @@
+# For .evergreen.yml configuration and usage reference, see EVERGREEN.md file
+
 # 2h timeout for all the tasks
 exec_timeout_secs: 7200
 
@@ -61,7 +63,7 @@ variables:
         variant: init_test_run
       - name: build_readiness_probe_image
         variant: init_test_run
-      - name: build_upgrade_hook_image
+      - name: build_version_upgrade_hook_image
         variant: init_test_run
       - name: build_mco_test_image
         variant: init_test_run
@@ -190,20 +192,6 @@ parameters:
     value: "false"
     description: set this to true if you would like the pipeline to automatically push a branch with updated snippets outputs
 
-# Each variant needs to be tagged with one or more tags referencing related build scenario:
-#  - pr_patch: for patches created by GitHub PRs
-#  - staging: for builds triggered when merging to master or release branch
-#  - release: for builds triggered on git tags
-# For variants that are **only** triggered manually (patch) or by PCT we should use "manual_patch" tag.
-# Examples: `migrate_all_agents`, `e2e_operator_perf` or `publish_om80_images`.
-#
-# This configuration allows us to run all the associated tasks for each scenario from evergreen command line.
-# This is especially helpful when making changes to `staging` or `release` variants and testing them using Evergreen
-# command line patches. For example there is no other way to trigger tasks that are run on merges to master other than
-# combining them together using aliases. The same applies for tasks being run on git tags.
-#
-# See https://docs.devprod.prod.corp.mongodb.com/evergreen/Project-Configuration/Project-and-Distro-Settings#project-aliases
-
 # Triggered manually or by PCT.
 patch_aliases:
   - alias: "periodic_teardowns"
@@ -287,10 +275,9 @@ tasks:
       - func: setup_building_host
       - func: quay_login
       - func: setup_docker_sbom
-      - func: pipeline
+      - func: pipeline_agent
         vars:
-          image_name: agent
-          build_scenario: --build-scenario manual_release
+          BUILD_SCENARIO: manual_release
 
   - name: migrate_all_agents
     # this enables us to run this variant manually to build all the agents for the new registry
@@ -299,7 +286,10 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: quay_login
-      - func: pipeline_migrate_agents
+      - func: pipeline_agent
+        vars:
+          BUILD_SCENARIO: manual_release
+          FLAGS: "--all-agents -r quay.io/mongodb/mongodb-agent"
 
   - name: run_precommit_and_push
     tags: [ "patch-run" ]
@@ -326,10 +316,9 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
-      - func: pipeline
+      - func: pipeline_agent
         vars:
-          image_name: agent
-          all_agents: "--all-agents"
+          FLAGS: "--all-agents"
 
   - name: release_all_currently_used_agents_on_ecr
     # this enables us to run this manually (patch) and release all agent versions to ECR to verify
@@ -338,10 +327,9 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
-      - func: pipeline
+      - func: pipeline_agent
         vars:
-          image_name: agent
-          all_agents: "--current-agents"
+          FLAGS: "--current-agents"
 
   - name: build_test_image
     commands:
@@ -350,7 +338,7 @@ tasks:
       - func: build_multi_cluster_binary
       - func: pipeline
         vars:
-          image_name: meko-tests
+          IMAGE_NAME: meko-tests
 
   - name: build_test_image_ibm
     commands:
@@ -373,7 +361,7 @@ tasks:
       - func: setup_building_host
       - func: pipeline
         vars:
-          image_name: mco-tests
+          IMAGE_NAME: mco-tests
 
   - name: build_operator_ubi
     commands:
@@ -381,7 +369,7 @@ tasks:
       - func: setup_building_host
       - func: pipeline
         vars:
-          image_name: operator
+          IMAGE_NAME: operator
 
   - name: build_operator_race_ubi
     commands:
@@ -389,7 +377,7 @@ tasks:
       - func: setup_building_host
       - func: pipeline
         vars:
-          image_name: operator-race
+          IMAGE_NAME: operator-race
 
   - name: build_init_om_images_ubi
     commands:
@@ -397,7 +385,7 @@ tasks:
       - func: setup_building_host
       - func: pipeline
         vars:
-          image_name: init-ops-manager
+          IMAGE_NAME: init-ops-manager
 
   - name: build_init_appdb_images_ubi
     commands:
@@ -405,15 +393,15 @@ tasks:
       - func: setup_building_host
       - func: pipeline
         vars:
-          image_name: init-appdb
+          IMAGE_NAME: init-appdb
 
   - name: build_agent_images_ubi
     commands:
       - func: clone
       - func: setup_building_host
-      - func: pipeline
+      - func: pipeline_agent
         vars:
-          image_name: agent
+          FLAGS: "--current-agents"
 
   - name: build_init_database_image_ubi
     commands:
@@ -421,7 +409,7 @@ tasks:
       - func: setup_building_host
       - func: pipeline
         vars:
-          image_name: init-database
+          IMAGE_NAME: init-database
 
   - name: build_database_image_ubi
     commands:
@@ -429,23 +417,19 @@ tasks:
       - func: setup_building_host
       - func: pipeline
         vars:
-          image_name: database
+          IMAGE_NAME: database
 
   - name: build_readiness_probe_image
     commands:
       - func: clone
       - func: setup_building_host
-      - func: pipeline
-        vars:
-          image_name: readiness-probe
+      - func: pipeline_readiness_probe
 
-  - name: build_upgrade_hook_image
+  - name: build_version_upgrade_hook_image
     commands:
       - func: clone
       - func: setup_building_host
-      - func: pipeline
-        vars:
-          image_name: upgrade-hook
+      - func: pipeline_version_upgrade_hook
 
   - name: prepare_aws
     priority: 59
@@ -488,9 +472,7 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
-      - func: pipeline
-        vars:
-          image_name: ops-manager
+      - func: pipeline_ops_manager
 
   - name: publish_ops_manager
     commands:
@@ -498,10 +480,9 @@ tasks:
       - func: setup_building_host
       - func: quay_login
       - func: setup_docker_sbom
-      - func: pipeline
+      - func: pipeline_ops_manager
         vars:
-          image_name: ops-manager
-          build_scenario: --build-scenario manual_release
+          BUILD_SCENARIO: manual_release
 
   - name: prepare_and_upload_openshift_bundles_for_e2e
     commands:
@@ -579,7 +560,7 @@ task_groups:
       - e2e_search_external_basic
       - e2e_search_external_tls
 
-  # This is the task group that contains all the tests run in the e2e_mdb_kind_ubuntu_cloudqa build variant
+  # This is the task group that contains all the tests run in the e2e_mdb_kind_ubi_cloudqa build variant
   - name: e2e_mdb_kind_cloudqa_task_group
     max_hosts: -1
     <<: *setup_group
@@ -1173,7 +1154,7 @@ buildvariants:
   # e2e_<type>_<cluster>_<distro>[_<om_version>]
   # where <type> is any of mdb|om<version>|operator
   # where <cluster> is any of kind|openshift
-  # where <distro> is any of ubuntu|ubi
+  # where <distro> is only ubi
   # where <om_version> denotes the OM version tested (e.g. om50, om60, cloudqa) - used only for MDB tests
 
   # MongoDBCommunity build variant
@@ -1452,7 +1433,7 @@ buildvariants:
       - name: e2e_smoke_arm_task_group
 
   - name: e2e_static_smoke_arm
-    display_name: e2e_smoke_arm
+    display_name: e2e_static_smoke_arm
     tags: [ "staging", "e2e_smoke_test_suite", "static" ]
     run_on:
       - ubuntu2404-arm64-large
@@ -1660,7 +1641,7 @@ buildvariants:
       - name: build_database_image_ubi
       - name: build_agent_images_ubi
       - name: build_readiness_probe_image
-      - name: build_upgrade_hook_image
+      - name: build_version_upgrade_hook_image
       - name: prepare_aws
 
   - name: init_test_run_ibm_power

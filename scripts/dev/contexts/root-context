@@ -39,7 +39,6 @@ export OPERATOR_ENV=${OPERATOR_ENV:-"dev"}
 
 AGENT_VERSION="$(jq -r '.agentVersion' "${PROJECT_DIR}/release.json")"
 export AGENT_VERSION
-export AGENT_IMAGE="${MDB_AGENT_IMAGE_REPOSITORY}:${AGENT_VERSION}"
 
 # Ops Manager
 export OPS_MANAGER_NAMESPACE="operator-testing-50-current"
@@ -47,19 +46,48 @@ export OPS_MANAGER_NAMESPACE="operator-testing-50-current"
 # Moved from the old set_env_context.sh
 export LOCAL_RUN=true
 
-# version_id is similar to version_id from Evergreen. Used to differentiate different builds. Can be constant
-# for local run
-version_id=${version_id:-"latest"}
+OPERATOR_VERSION=${OPERATOR_VERSION:-"latest"}
+READINESS_PROBE_VERSION=${READINESS_PROBE_VERSION:-"latest"}
+VERSION_UPGRADE_HOOK_VERSION=${VERSION_UPGRADE_HOOK_VERSION:-"latest"}
 if [[ "${OVERRIDE_VERSION_ID:-}" != "" ]]; then
-  version_id="${OVERRIDE_VERSION_ID}"
+  OPERATOR_VERSION="${OVERRIDE_VERSION_ID}"
+  READINESS_PROBE_VERSION="${OVERRIDE_VERSION_ID}"
+  VERSION_UPGRADE_HOOK_VERSION="${OVERRIDE_VERSION_ID}"
 fi
-export version_id
-export VERSION_ID="${version_id}"
 
-export INIT_APPDB_VERSION="${VERSION_ID}"
-export INIT_DATABASE_VERSION="${VERSION_ID}"
-export INIT_OPS_MANAGER_VERSION="${VERSION_ID}"
-export DATABASE_VERSION="${VERSION_ID}"
+export OPERATOR_VERSION="${OPERATOR_VERSION}"
+export INIT_APPDB_VERSION="${OPERATOR_VERSION}"
+export INIT_DATABASE_VERSION="${OPERATOR_VERSION}"
+export INIT_OPS_MANAGER_VERSION="${OPERATOR_VERSION}"
+export DATABASE_VERSION="${OPERATOR_VERSION}"
+export READINESS_PROBE_VERSION="${READINESS_PROBE_VERSION}"
+export VERSION_UPGRADE_HOOK_VERSION="${VERSION_UPGRADE_HOOK_VERSION}"
+
+### Registries and images
+export QUAY_REGISTRY="quay.io/mongodb"
+export OPERATOR_REGISTRY=${REGISTRY}
+export INIT_IMAGES_REGISTRY=${INIT_IMAGES_REGISTRY:-${REGISTRY}}
+
+# Specific registries for different images, can be overridden if needed
+export INIT_APPDB_REGISTRY=${INIT_IMAGES_REGISTRY}
+export INIT_APPDB_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-kubernetes-init-appdb"
+export INIT_OPS_MANAGER_REGISTRY=${INIT_IMAGES_REGISTRY}
+export INIT_OPS_MANAGER_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-kubernetes-init-ops-manager"
+export INIT_DATABASE_REGISTRY=${INIT_IMAGES_REGISTRY}
+export INIT_DATABASE_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-kubernetes-init-database"
+export DATABASE_REGISTRY=${INIT_IMAGES_REGISTRY}
+export MONGODB_ENTERPRISE_DATABASE_IMAGE="${INIT_IMAGES_REGISTRY}/mongodb-kubernetes-database"
+export OPS_MANAGER_REGISTRY=${REGISTRY}
+export OPS_MANAGER_IMAGE_REPOSITORY="${OPS_MANAGER_REGISTRY}/mongodb-enterprise-ops-manager-ubi"
+export MDB_AGENT_REGISTRY=${REGISTRY}
+export MDB_AGENT_IMAGE_REPOSITORY="${MDB_AGENT_REGISTRY}/mongodb-agent"
+export MONGODB_REPO_URL="${QUAY_REGISTRY}"
+export MEKO_TESTS_REGISTRY=${REGISTRY}
+export MEKO_TESTS_IMAGE_REPOSITORY="${MEKO_TESTS_REGISTRY}/mongodb-kubernetes-tests"
+
+export AGENT_IMAGE="${MDB_AGENT_IMAGE_REPOSITORY}:${AGENT_VERSION}"
+export READINESS_PROBE_IMAGE="${REGISTRY}/mongodb-kubernetes-readinessprobe:${READINESS_PROBE_VERSION}"
+export VERSION_UPGRADE_HOOK_IMAGE="${REGISTRY}/mongodb-kubernetes-operator-version-upgrade-post-start-hook:${VERSION_UPGRADE_HOOK_VERSION}"
 
 export KUBE_ENVIRONMENT_NAME=kind
 
@@ -74,8 +102,6 @@ export KUBECONFIG
 if [[ "$(uname)" == "Linux" ]]; then
   export GOROOT=/opt/golang/go1.24
 fi
-
-export MONGODB_REPO_URL="quay.io/mongodb"
 
 export SIGNING_PUBLIC_KEY_URL="https://cosign.mongodb.com/mongodb-enterprise-kubernetes-operator.pem"
 
@@ -96,23 +122,13 @@ export OLM_VERSION=v0.31.0
 # Python version we use locally and in CI
 export PYTHON_VERSION=3.13.7
 
-
 ## MCO
-
 export MDB_COMMUNITY_IMAGE=mongodb-community-server
 export MDB_COMMUNITY_REPO_URL=quay.io/mongodb
 export MDB_COMMUNITY_AGENT_IMAGE=${AGENT_IMAGE}
 export MDB_COMMUNITY_IMAGE_TYPE=ubi8
-
-export READINESS_PROBE_IMAGE="${BASE_REPO_URL}/mongodb-kubernetes-readinessprobe:${version_id}"
-export VERSION_UPGRADE_HOOK_IMAGE="${BASE_REPO_URL}/mongodb-kubernetes-operator-version-upgrade-post-start-hook:${version_id}"
 
 # Community Search
-export MDB_COMMUNITY_IMAGE=mongodb-community-server
-export MDB_COMMUNITY_REPO_URL=quay.io/mongodb
-export MDB_COMMUNITY_AGENT_IMAGE=${AGENT_IMAGE}
-export MDB_COMMUNITY_IMAGE_TYPE=ubi8
-
 MDB_SEARCH_VERSION="$(jq -r '.search.version' "${PROJECT_DIR}/release.json")"
 export MDB_SEARCH_VERSION
 

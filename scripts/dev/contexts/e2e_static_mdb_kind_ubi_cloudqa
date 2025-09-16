@@ -11,7 +11,7 @@ export ops_manager_version="cloud_qa"
 export MDB_DEFAULT_ARCHITECTURE=static
 
 # This is required to be able to rebuild the om image and use that image which has been rebuilt
-export OPS_MANAGER_REGISTRY="${BASE_REPO_URL}"
+export OPS_MANAGER_REGISTRY="${REGISTRY}"
 CUSTOM_OM_VERSION=$(grep -E "^\s*-\s*&ops_manager_70_latest\s+(\S+)\s+#" <"${script_dir}"/../../../.evergreen.yml | awk '{print $3}')
 export CUSTOM_OM_VERSION
 
