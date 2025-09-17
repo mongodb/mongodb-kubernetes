@@ -85,7 +85,6 @@ def execute_docker_build(
         Dict[str, str],
         push: bool,
         platforms: list[str],
-        skip_if_exists: bool,
         builder_name: str = DEFAULT_BUILDER_NAME,
 ):
     """
@@ -104,20 +103,6 @@ def execute_docker_build(
     ecr_login_boto3(region="us-east-1", account_id="268558157000")
 
     docker_cmd = python_on_whales.docker
-
-    if skip_if_exists:
-        filtered_tags = []
-        for tag in tags:
-            if check_if_image_exists(tag):
-                logger.info(f"Image with tag {tag} already exists. Skipping it.")
-            else:
-                filtered_tags.append(tag)
-
-        if not filtered_tags:
-            logger.info("All specified image tags already exist. Skipping build.")
-            return
-
-        tags = filtered_tags
 
     try:
         # Convert build args to the format expected by python_on_whales

@@ -26,6 +26,7 @@ from scripts.release.agent.validation import (
 )
 from scripts.release.build.image_build_configuration import ImageBuildConfiguration
 from scripts.release.build.image_build_process import (
+    check_if_image_exists,
     execute_docker_build,
 )
 from scripts.release.build.image_signing import (
@@ -76,12 +77,20 @@ def build_image(
     # Build the image once with all repository tags
     tags = []
     for registry in registries:
-        tags.append(f"{registry}:{build_configuration.version}")
-        if build_configuration.latest_tag:
-            tags.append(f"{registry}:latest")
-        if build_configuration.olm_tag:
-            olm_tag = create_olm_version_tag(build_configuration.version)
-            tags.append(f"{registry}:{olm_tag}")
+        tag = f"{registry}:{build_configuration.version}"
+        if build_configuration.skip_if_exists and check_if_image_exists(tag):
+            logger.info(f"Image with tag {tag} already exists. Skipping it.")
+        else:
+            tags.append(tag)
+            if build_configuration.latest_tag:
+                tags.append(f"{registry}:latest")
+            if build_configuration.olm_tag:
+                olm_tag = create_olm_version_tag(build_configuration.version)
+                tags.append(f"{registry}:{olm_tag}")
+
+    if not tags:
+        logger.info("All specified image tags already exist. Skipping build.")
+        return
 
     logger.info(
         f"Building image with tags {tags} for platforms={build_configuration.platforms}, dockerfile args: {build_args}"
@@ -93,7 +102,6 @@ def build_image(
         path=build_path,
         args=build_args,
         push=True,
-        skip_if_exists=build_configuration.skip_if_exists,
         platforms=build_configuration.platforms,
     )
 
