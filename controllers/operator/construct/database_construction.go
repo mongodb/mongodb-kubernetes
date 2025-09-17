@@ -514,7 +514,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 	}
 	podTemplateModifications = append(podTemplateModifications, staticMods...)
 
-	return statefulset.Apply(
+	statefulSetModifications := []statefulset.Modification{
 		// StatefulSet metadata
 		statefulset.WithLabels(ssLabels),
 		statefulset.WithName(stsName),
@@ -524,10 +524,14 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 		statefulset.WithServiceName(opts.ServiceName),
 		statefulset.WithReplicas(opts.Replicas),
 		statefulset.WithOwnerReference(opts.OwnerReference),
+		// Set OnDelete update strategy for agent-controlled rolling restarts
+		statefulset.WithUpdateStrategyType(appsv1.OnDeleteStatefulSetStrategyType),
 		volumeClaimFuncs,
 		shareProcessNs,
 		statefulset.WithPodSpecTemplate(podtemplatespec.Apply(podTemplateModifications...)),
-	)
+	}
+
+	return statefulset.Apply(statefulSetModifications...)
 }
 
 func buildPersistentVolumeClaimsFuncs(opts DatabaseStatefulSetOptions) (map[string]persistentvolumeclaim.Modification, []corev1.VolumeMount) {
@@ -714,10 +718,13 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		configureContainerSecurityContext,
 	)}
 
+	// Hardcoded init database image for local development
+	hardcodedInitDatabaseImage := "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/nnguyen-kops/mongodb-kubernetes-init-database:latest"
+
 	agentUtilitiesHolderModifications := []func(*corev1.Container){container.Apply(
 		container.WithName(util.AgentContainerUtilitiesName),
 		container.WithArgs([]string{""}),
-		container.WithImage(opts.InitDatabaseImage),
+		container.WithImage(hardcodedInitDatabaseImage),
 		container.WithEnvs(databaseEnvVars(opts)...),
 		container.WithCommand([]string{"bash", "-c", "touch /tmp/agent-utilities-holder_marker && tail -F -n0 /tmp/agent-utilities-holder_marker"}),
 		configureContainerSecurityContext,
@@ -954,9 +961,12 @@ func databaseScriptsVolumeMount(readOnly bool) corev1.VolumeMount {
 func buildDatabaseInitContainer(initDatabaseImage string) container.Modification {
 	_, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 
+	// Hardcoded init database image for local development
+	hardcodedInitDatabaseImage := "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/nnguyen-kops/mongodb-kubernetes-init-database:latest"
+
 	return container.Apply(
 		container.WithName(InitDatabaseContainerName),
-		container.WithImage(initDatabaseImage),
+		container.WithImage(hardcodedInitDatabaseImage),
 		container.WithVolumeMounts([]corev1.VolumeMount{
 			databaseScriptsVolumeMount(false),
 		}),
@@ -1000,6 +1010,24 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 			},
 		)
 	}
+
+	vars = append(vars, corev1.EnvVar{
+		Name: "POD_NAMESPACE",
+		ValueFrom: &corev1.EnvVarSource{
+			FieldRef: &corev1.ObjectFieldSelector{
+				FieldPath: "metadata.namespace",
+			},
+		},
+	})
+
+	vars = append(vars, corev1.EnvVar{
+		Name: "POD_NAME",
+		ValueFrom: &corev1.EnvVarSource{
+			FieldRef: &corev1.ObjectFieldSelector{
+				FieldPath: "metadata.name",
+			},
+		},
+	})
 
 	// This is only used for debugging
 	if useDebugAgent := os.Getenv(util.EnvVarDebug); useDebugAgent != "" { // nolint:forbidigo
