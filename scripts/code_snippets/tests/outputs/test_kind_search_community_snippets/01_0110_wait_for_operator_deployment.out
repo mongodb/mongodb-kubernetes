@@ -2,8 +2,8 @@ Waiting for deployment "mongodb-kubernetes-operator" rollout to finish: 0 of 1 u
 deployment "mongodb-kubernetes-operator" successfully rolled out
 Operator deployment in mongodb namespace
 NAME                          READY   UP-TO-DATE   AVAILABLE   AGE
-mongodb-kubernetes-operator   1/1     1            1           2s
+mongodb-kubernetes-operator   1/1     1            1           4s
 
 Operator pod in mongodb namespace
 NAME                                           READY   STATUS    RESTARTS   AGE
-mongodb-kubernetes-operator-5b44cd54d4-rjxrj   1/1     Running   0          3s
+mongodb-kubernetes-operator-6f595c44dd-wq48x   1/1     Running   0          4s
