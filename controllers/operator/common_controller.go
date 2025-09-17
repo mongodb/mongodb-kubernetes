@@ -980,29 +980,19 @@ func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCo
 	d.AddMonitoringAndBackup(log, spec.GetSecurity().IsTLSEnabled(), caFilePath)
 	d.ConfigureTLS(spec.GetSecurity(), caFilePath)
 	d.ConfigureInternalClusterAuthentication(rs.GetProcessNames(), spec.GetSecurity().GetInternalClusterAuthenticationMode(), internalClusterPath)
-
-	// Set StatefulSet version in replica set settings for rolling restart coordination
+	// Set StatefulSet version in replica set member tags for rolling restart coordination
 	if statefulSetVersion != "" {
-		replicaSets, exists := d["replicaSets"]
-		if exists {
-			replicaSetList := replicaSets.([]interface{})
-			for _, rs := range replicaSetList {
-				replicaSet := rs.(map[string]interface{})
-
-				// Get or create settings
-				settings, exists := replicaSet["settings"]
-				if !exists {
-					settings = map[string]interface{}{}
-					replicaSet["settings"] = settings
+		replicaSets := d.GetReplicaSets()
+		for _, replicaSet := range replicaSets {
+				for _, member := range replicaSet.Members() {
+					tags := member.Tags()
+					// Add StatefulSet version tag
+					tags["kubeStatefulSetVersion"] = statefulSetVersion
+					member["tags"] = tags
 				}
-
-				settingsMap := settings.(map[string]interface{})
-				settingsMap["kube"] = map[string]interface{}{
-					"statefulSetVersion": statefulSetVersion,
-				}
-			}
-			log.Infof("Set StatefulSet version in replica set settings: %s", statefulSetVersion)
 		}
+		d.SetReplicaSets(replicaSets)
+		log.Infof("Set StatefulSet version in replica set member tags: %s", statefulSetVersion)
 	}
 
 	// if we don't set up a prometheus connection, then we don't want to set up prometheus for instance because we do not support it yet.

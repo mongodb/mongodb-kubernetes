@@ -195,7 +195,7 @@ agent-image-slow:
 	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py --parallel-factor 1 agent
 
 agent-image-custom:
-	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py agent --version "latest" --custom-agent-url "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/patches/68c96f4020b54e00079b0621/automation-agent/local/mongodb-mms-automation-agent-13.41.0.9776-1.linux_x86_64.tar.gz"
+	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py agent --version "latest" --custom-agent-url "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/patches/68caf1b06da1570007e898b4/automation-agent/local/mongodb-mms-automation-agent-13.41.0.9783-1.linux_x86_64.tar.gz"
 
 operator-image:
 	@ scripts/dev/run_python.sh scripts/release/pipeline_main.py operator

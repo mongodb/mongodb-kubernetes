@@ -6,7 +6,7 @@ set -euo pipefail
 # This script demonstrates how to use the new --custom-agent-url parameter
 # It leverages the pipeline_main.py by supplying a version (latest) which is used by atomic_pipeline.py
 
-CUSTOM_AGENT_URL="https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/patches/68c96f4020b54e00079b0621/automation-agent/local/mongodb-mms-automation-agent-13.41.0.9776-1.linux_x86_64.tar.gz"
+CUSTOM_AGENT_URL="https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/patches/68caf1b06da1570007e898b4/automation-agent/local/mongodb-mms-automation-agent-13.41.0.9783-1.linux_x86_64.tar.gz"
 VERSION="latest"
 
 echo "Testing custom agent build with URL: ${CUSTOM_AGENT_URL}"
@@ -25,4 +25,4 @@ scripts/dev/run_python.sh scripts/release/pipeline_main.py agent --version "${VE
 
 echo ""
 echo "Custom agent build completed!"
-echo "The image should now be available with tag '${VERSION}' containing your custom agent version 13.41.0.9772-1"
+echo "The image should now be available with tag '${VERSION}' containing your custom agent version 13.41.0.9782-1"

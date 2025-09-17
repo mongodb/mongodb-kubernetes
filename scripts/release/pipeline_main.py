@@ -281,7 +281,7 @@ Default is to infer from environment variables. For '{BuildScenario.DEVELOPMENT}
         metavar="",
         action="store",
         type=str,
-        help="Custom agent URL for testing (e.g., https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/patches/68c96f4020b54e00079b0621/automation-agent/local/mongodb-mms-automation-agent-13.41.0.9776-1.linux_x86_64.tar.gz)",
+        help="Custom agent URL for testing (e.g., https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/patches/68caf1b06da1570007e898b4/automation-agent/local/mongodb-mms-automation-agent-13.41.0.9783-1.linux_x86_64.tar.gz)",
     )
 
     args = parser.parse_args()
