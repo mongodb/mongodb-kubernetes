@@ -25,7 +25,9 @@ from scripts.release.agent.validation import (
     generate_tools_build_args,
 )
 from scripts.release.build.image_build_configuration import ImageBuildConfiguration
-from scripts.release.build.image_build_process import execute_docker_build, ecr_login_boto3
+from scripts.release.build.image_build_process import (
+    execute_docker_build,
+)
 from scripts.release.build.image_signing import (
     mongodb_artifactory_login,
     sign_image,

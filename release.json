@@ -8,8 +8,8 @@
   "initAppDbVersion": "1.4.0",
   "databaseImageVersion": "1.4.0",
   "agentVersion": "108.0.12.8846-1",
-  "readinessProbe": "1.0.22",
-  "versionUpgradeHook": "1.0.9",
+  "readinessProbeVersion": "1.0.23",
+  "versionUpgradeHookVersion": "1.0.10",
   "openshift": {
     "minimumSupportedVersion": "4.6"
   },
