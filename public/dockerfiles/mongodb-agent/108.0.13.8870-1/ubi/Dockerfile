@@ -1,17 +1,60 @@
-ARG imagebase
-FROM ${imagebase} as base
+FROM  --platform=${BUILDPLATFORM} registry.access.redhat.com/ubi9/ubi-minimal AS tools_downloader
+
+ARG TARGETPLATFORM
+ARG mongodb_tools_url
+ARG mongodb_tools_version_s390x
+ARG mongodb_tools_version_ppc64le
+ARG mongodb_tools_version_amd64
+ARG mongodb_tools_version_arm64
+
+RUN microdnf -y update --nodocs \
+  && microdnf -y install --nodocs tar gzip \
+  && microdnf clean all
+
+RUN case ${TARGETPLATFORM} in \
+     "linux/amd64")   export MONGODB_TOOLS_VERSION=${mongodb_tools_version_amd64}    ;; \
+     "linux/arm64")   export MONGODB_TOOLS_VERSION=${mongodb_tools_version_arm64}    ;; \
+     "linux/s390x")   export MONGODB_TOOLS_VERSION=${mongodb_tools_version_s390x}    ;; \
+     "linux/ppc64le") export MONGODB_TOOLS_VERSION=${mongodb_tools_version_ppc64le}  ;; \
+  esac \
+    && mkdir -p /tools \
+    && curl -o /tools/mongodb_tools.tgz "${mongodb_tools_url}/${MONGODB_TOOLS_VERSION}"
+
+RUN tar xfz /tools/mongodb_tools.tgz \
+    && mv mongodb-database-tools-*/bin/* /tools \
+    && chmod +x /tools/* \
+    && rm /tools/mongodb_tools.tgz \
+    && rm -r mongodb-database-tools-*
+
+FROM --platform=${BUILDPLATFORM} registry.access.redhat.com/ubi9/ubi-minimal AS agent_downloader
+
+ARG TARGETPLATFORM
+ARG mongodb_agent_url
+ARG mongodb_agent_version_s390x
+ARG mongodb_agent_version_ppc64le
+ARG mongodb_agent_version_amd64
+ARG mongodb_agent_version_arm64
+
+RUN microdnf -y update --nodocs \
+  && microdnf -y install --nodocs tar gzip \
+  && microdnf clean all
+
+RUN case ${TARGETPLATFORM} in \
+     "linux/amd64")   export MONGODB_AGENT_VERSION=${mongodb_agent_version_amd64}    ;; \
+     "linux/arm64")   export MONGODB_AGENT_VERSION=${mongodb_agent_version_arm64}    ;; \
+     "linux/s390x")   export MONGODB_AGENT_VERSION=${mongodb_agent_version_s390x}    ;; \
+     "linux/ppc64le") export MONGODB_AGENT_VERSION=${mongodb_agent_version_ppc64le}  ;; \
+  esac \
+    && mkdir -p /agent \
+    && curl -o /agent/mongodb_agent.tgz "${mongodb_agent_url}/${MONGODB_AGENT_VERSION}"
+
+RUN tar xfz /agent/mongodb_agent.tgz \
+    && mv mongodb-mms-automation-agent-*/mongodb-mms-automation-agent /agent/mongodb-agent \
+    && chmod +x /agent/mongodb-agent \
+    && rm /agent/mongodb_agent.tgz \
+    && rm -r mongodb-mms-automation-agent-*
 
 FROM registry.access.redhat.com/ubi9/ubi-minimal
-
-ARG version
-
-LABEL name="MongoDB Agent" \
-      version="${version}" \
-      summary="MongoDB Agent" \
-      description="MongoDB Agent" \
-      vendor="MongoDB" \
-      release="1" \
-      maintainer="support@mongodb.com"
 
 # Replace libcurl-minimal and curl-minimal with the full versions
 # https://bugzilla.redhat.com/show_bug.cgi?id=1994521
@@ -41,25 +84,30 @@ RUN mkdir -p /agent \
       && touch /var/log/mongodb-mms-automation/readiness.log \
       && chmod ugo+rw /var/log/mongodb-mms-automation/readiness.log
 
-COPY --from=base /data/mongodb-agent.tar.gz /agent
-COPY --from=base /data/mongodb-tools.tgz /agent
-COPY --from=base /data/LICENSE /licenses/LICENSE
-
 # Copy scripts to a safe location that won't be overwritten by volume mount
-COPY --from=base /opt/scripts/agent-launcher-shim.sh /usr/local/bin/agent-launcher-shim.sh
-COPY --from=base /opt/scripts/setup-agent-files.sh /usr/local/bin/setup-agent-files.sh
-COPY --from=base /opt/scripts/dummy-probe.sh /usr/local/bin/dummy-probe.sh
-COPY --from=base /opt/scripts/dummy-readinessprobe.sh /usr/local/bin/dummy-readinessprobe
+COPY ./docker/mongodb-kubernetes-init-database/content/LICENSE /licenses/LICENSE
+COPY ./docker/mongodb-agent/agent-launcher-shim.sh /usr/local/bin/agent-launcher-shim.sh
+COPY ./docker/mongodb-agent/setup-agent-files.sh /usr/local/bin/setup-agent-files.sh
+COPY ./docker/mongodb-agent/dummy-probe.sh /usr/local/bin/dummy-probe.sh
+COPY ./docker/mongodb-agent/dummy-readinessprobe /usr/local/bin/dummy-readinessprobe
 
-RUN tar xfz /agent/mongodb-agent.tar.gz \
-    && mv mongodb-mms-automation-agent-*/mongodb-mms-automation-agent /agent/mongodb-agent \
-    && chmod +x /agent/mongodb-agent \
-    && mkdir -p /var/lib/automation/config \
-    && chmod -R +r /var/lib/automation/config \
-    && rm /agent/mongodb-agent.tar.gz \
-    && rm -r mongodb-mms-automation-agent-*
+RUN mkdir -p /var/lib/automation/config \
+    && chmod -R +r /var/lib/automation/config
 
-RUN tar xfz /agent/mongodb-tools.tgz --directory /var/lib/mongodb-mms-automation/ && rm /agent/mongodb-tools.tgz
+RUN mkdir -p /tools /agent
+
+COPY --from=tools_downloader "/tools/" /tools/
+COPY --from=agent_downloader "/agent/" /agent/
+
+ARG version
+
+LABEL name="MongoDB Agent" \
+      version="${version}" \
+      summary="MongoDB Agent" \
+      description="MongoDB Agent" \
+      vendor="MongoDB" \
+      release="1" \
+      maintainer="support@mongodb.com"
 
 USER 2000
 CMD ["/agent/mongodb-agent", "-cluster=/var/lib/automation/config/automation-config.json"]
