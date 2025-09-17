@@ -139,6 +139,8 @@ buildvariants:
       - name: release_init_database
       - name: release_init_ops_manager
       - name: release_database
+      - name: release_readiness_probe
+      - name: release_version_upgrade_hook
 
   - name: preflight_release_images
     display_name: preflight_release_images
