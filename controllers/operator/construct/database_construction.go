@@ -527,6 +527,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 		volumeClaimFuncs,
 		shareProcessNs,
 		statefulset.WithPodSpecTemplate(podtemplatespec.Apply(podTemplateModifications...)),
+		statefulset.WithUpdateStrategyType(appsv1.OnDeleteStatefulSetStrategyType),
 	)
 }
 

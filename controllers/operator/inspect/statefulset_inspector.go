@@ -17,6 +17,7 @@ type StatefulSetState struct {
 	statefulSetKey     client.ObjectKey
 	updated            int32
 	ready              int32
+	replicas           int32
 	current            int32
 	wanted             int32
 	generation         int64
@@ -47,11 +48,15 @@ func (s StatefulSetState) GetMessage() string {
 }
 
 func (s StatefulSetState) IsReady() bool {
+	if s.updateStrategyType == appsv1.OnDeleteStatefulSetStrategyType {
+		return s.observedGeneration == s.generation &&
+			s.ready == s.wanted
+	}
 	isReady := s.updated == s.ready &&
 		s.ready == s.wanted &&
 		s.observedGeneration == s.generation &&
-		s.current == s.wanted
-	return isReady || s.updateStrategyType == appsv1.OnDeleteStatefulSetStrategyType
+		s.replicas == s.wanted
+	return isReady
 }
 
 func StatefulSet(set appsv1.StatefulSet) StatefulSetState {
@@ -59,7 +64,8 @@ func StatefulSet(set appsv1.StatefulSet) StatefulSetState {
 		statefulSetKey:     types.NamespacedName{Namespace: set.Namespace, Name: set.Name},
 		updated:            set.Status.UpdatedReplicas,
 		ready:              set.Status.ReadyReplicas,
-		current:            set.Status.Replicas,
+		replicas:           set.Status.Replicas,
+		current:            set.Status.CurrentReplicas,
 		wanted:             *set.Spec.Replicas,
 		observedGeneration: set.Status.ObservedGeneration,
 		generation:         set.Generation,

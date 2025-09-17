@@ -7,6 +7,8 @@ type Host struct {
 	Port              int    `json:"port"`
 	AuthMechanismName string `json:"authMechanismName"`
 	Id                string `json:"id"`
+	ReplicaStateName  string `json:"replicaStateName"`
+	TypeName          string `json:"typeName"`
 }
 
 type Result struct {

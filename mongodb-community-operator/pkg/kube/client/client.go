@@ -36,6 +36,7 @@ type Client interface {
 	DeleteStatefulSet(ctx context.Context, objectKey k8sClient.ObjectKey) error
 
 	pod.Getter
+	pod.Deleter
 }
 
 type KubernetesSecretClient interface {
@@ -96,6 +97,16 @@ func (c client) GetPod(ctx context.Context, objectKey k8sClient.ObjectKey) (core
 		return corev1.Pod{}, err
 	}
 	return p, nil
+}
+
+func (c client) DeletePod(ctx context.Context, key k8sClient.ObjectKey) error {
+	cm := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      key.Name,
+			Namespace: key.Namespace,
+		},
+	}
+	return c.Delete(ctx, &cm)
 }
 
 // GetSecret provides a thin wrapper and client.Client to access corev1.Secret types

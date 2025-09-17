@@ -10,10 +10,9 @@ import (
 	"strings"
 	"time"
 
+	gocmp "github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"go.uber.org/zap"
-
-	gocmp "github.com/google/go-cmp/cmp"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiEquality "k8s.io/apimachinery/pkg/api/equality"
@@ -217,5 +216,42 @@ func GetStatefulSetStatus(ctx context.Context, namespace, name string, client ku
 		zap.S().Debugf("StatefulSet %s/%s is ready on check attempt #%d, state: %+v: ", namespace, name, i, statefulSetState)
 	}
 
+	for i := int32(0); i < *set.Spec.Replicas; i++ {
+		podName := fmt.Sprintf("%s-%d", set.Name, i)
+		pod, err := client.GetPod(ctx, kube.ObjectKey(namespace, podName))
+		for apiErrors.IsNotFound(err) && i < 10 {
+			i++
+			zap.S().Debugf("Pod was not found: %s, attempt %d", err, i)
+			time.Sleep(time.Second * 1)
+			pod, err = client.GetPod(ctx, kube.ObjectKey(namespace, podName))
+		}
+
+		if pod.DeletionTimestamp != nil {
+			return workflow.Pending("Pod %s is being deleted", podName).WithRetry(10)
+		}
+	}
+
 	return workflow.OK()
+}
+
+func GetOutdatedPods(ctx context.Context, namespace, name string, client kubernetesClient.Client) ([]string, error) {
+	set, err := client.GetStatefulSet(ctx, kube.ObjectKey(namespace, name))
+	if err != nil {
+		return nil, err
+	}
+
+	var outdatedPods []string
+	for i := int32(0); i < *set.Spec.Replicas; i++ {
+		podName := fmt.Sprintf("%s-%d", set.Name, i)
+		pod, err := client.GetPod(ctx, kube.ObjectKey(namespace, podName))
+		if err != nil {
+			return nil, err
+		}
+
+		if pod.Labels == nil || pod.Labels["controller-revision-hash"] != set.Status.UpdateRevision {
+			outdatedPods = append(outdatedPods, podName)
+		}
+	}
+
+	return outdatedPods, nil
 }
