@@ -27,7 +27,6 @@ metadata:
   name: mongodb-kubernetes-appdb
   namespace: mongodb
 rules:
-  # Existing permissions
   - apiGroups:
       - ''
     resources:
@@ -42,33 +41,6 @@ rules:
       - patch
       - delete
       - get
-      - list        # List all pods in replica set for coordination
-  
-  # Additional permissions for agent coordination and self-deletion
-  - apiGroups:
-      - apps
-    resources:
-      - statefulsets
-    verbs:
-      - get         # Read StatefulSet to get target revision
-      - list        # List StatefulSets in namespace
-  - apiGroups:
-      - apps  
-    resources:
-      - controllerrevisions
-    verbs:
-      - get         # Read controller revisions for version comparison
-      - list        # List revisions to find target state
-  - apiGroups:
-      - ''
-    resources:
-      - configmaps
-    verbs:
-      - get         # Read coordination state ConfigMap
-      - list        # List ConfigMaps (for coordination state discovery)
-      - patch       # Update coordination state with own status
-      - update      # Update coordination state
-      - create      # Create coordination ConfigMap if needed
 ---
 # Source: mongodb-kubernetes/templates/database-roles.yaml
 kind: RoleBinding

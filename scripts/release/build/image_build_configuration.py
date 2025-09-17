@@ -21,6 +21,7 @@ class ImageBuildConfiguration:
     sign: bool = False
     all_agents: bool = False
     currently_used_agents: bool = False
+    custom_agent_url: Optional[str] = None
 
     def is_release_scenario(self) -> bool:
         return self.scenario == BuildScenario.RELEASE

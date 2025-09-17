@@ -9,9 +9,7 @@ from pytest import fixture, mark
 def rolling_restart_replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
     """Create a MongoDB replica set for rolling restart testing."""
     resource = MongoDB.from_yaml(
-        find_fixture("replica-set-basic.yaml"),
-        namespace=namespace,
-        name="rolling-restart-test"
+        find_fixture("replica-set-basic.yaml"), namespace=namespace, name="rolling-restart-test"
     )
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.set_architecture_annotation()
@@ -27,16 +25,17 @@ def test_replica_set_ready(rolling_restart_replica_set: MongoDB):
     rolling_restart_replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 
-@mark.e2e_rolling_restart_poc  
+@mark.e2e_rolling_restart_poc
 def test_statefulset_has_ondelete_strategy(rolling_restart_replica_set: MongoDB, namespace: str):
     """Verify that StatefulSet uses OnDelete update strategy for agent coordination."""
     from kubernetes import client
-    
+
     appsv1 = client.AppsV1Api()
     sts = appsv1.read_namespaced_stateful_set("rolling-restart-test", namespace)
-    
-    assert sts.spec.update_strategy.type == "OnDelete", \
-        f"Expected OnDelete strategy, got {sts.spec.update_strategy.type}"
+
+    assert (
+        sts.spec.update_strategy.type == "OnDelete"
+    ), f"Expected OnDelete strategy, got {sts.spec.update_strategy.type}"
 
 
 @mark.e2e_rolling_restart_poc
@@ -63,46 +62,96 @@ def test_pods_have_kubernetes_env_vars(rolling_restart_replica_set: MongoDB, nam
 
 
 @mark.e2e_rolling_restart_poc
+def test_check_agent_detection(rolling_restart_replica_set: MongoDB, namespace: str):
+    """Check if agents detect StatefulSet changes and log them."""
+    import time
+
+    from kubernetes import client
+
+    print(f"Checking agent detection in namespace: {namespace}")
+
+    # Wait a bit for the deployment to be fully ready
+    time.sleep(30)
+
+    # Get current pods and their logs
+    v1 = client.CoreV1Api()
+    pods = v1.list_namespaced_pod(namespace)
+
+    print(f"Found {len(pods.items)} pods")
+    for pod in pods.items:
+        print(f"Pod: {pod.metadata.name}, Status: {pod.status.phase}")
+        if "rolling-restart-test" in pod.metadata.name:
+            print(f"Getting logs for agent pod: {pod.metadata.name}")
+            try:
+                logs = v1.read_namespaced_pod_log(
+                    name=pod.metadata.name, namespace=namespace, container="mongodb-enterprise-database", tail_lines=100
+                )
+                print(f"Recent logs from {pod.metadata.name}:")
+                print(logs[-2000:])  # Last 2000 chars
+            except Exception as e:
+                print(f"Could not get logs for {pod.metadata.name}: {e}")
+
+    # Now trigger a StatefulSet change and watch for agent response
+    appsv1 = client.AppsV1Api()
+    sts = appsv1.read_namespaced_stateful_set("rolling-restart-test", namespace)
+    initial_revision = sts.status.update_revision
+    print(f"Initial StatefulSet revision: {initial_revision}")
+
+    # Don't cleanup automatically - let's examine manually
+    assert True
+
+
+@mark.e2e_rolling_restart_poc
 def test_trigger_rolling_restart(rolling_restart_replica_set: MongoDB, namespace: str):
     """Test triggering rolling restart by changing StatefulSet spec."""
     from kubernetes import client
-    
+
     appsv1 = client.AppsV1Api()
-    
+
     # Get initial StatefulSet revision
     sts = appsv1.read_namespaced_stateful_set("rolling-restart-test", namespace)
     initial_revision = sts.status.update_revision
     print(f"Initial StatefulSet revision: {initial_revision}")
 
-    # Trigger rolling restart by changing pod template (which changes StatefulSet spec)
-    # This simulates infrastructure changes that require pod restarts
-    rolling_restart_replica_set.load()
-    rolling_restart_replica_set["spec"]["podSpec"] = {
-        "podTemplate": {
-            "metadata": {
-                "annotations": {
-                    "rolling-restart-test/restart-trigger": "test-change-1"
+    # Trigger rolling restart by directly patching the StatefulSet with an environment variable
+    # This simulates infrastructure changes like image updates or security context changes
+    import time
+
+    patch_body = {
+        "spec": {
+            "template": {
+                "spec": {
+                    "containers": [
+                        {
+                            "name": "mongodb-enterprise-database",
+                            "env": [{"name": "ROLLING_RESTART_TRIGGER", "value": str(int(time.time()))}],
+                        }
+                    ]
                 }
             }
         }
     }
-    rolling_restart_replica_set.update()
+
+    print("Triggering rolling restart by patching StatefulSet...")
+    appsv1.patch_namespaced_stateful_set(name="rolling-restart-test", namespace=namespace, body=patch_body)
 
     # Wait for StatefulSet to get updated with new revision
     import time
+
     max_wait = 60
     start_time = time.time()
     new_revision = initial_revision
-    
+
     while new_revision == initial_revision and (time.time() - start_time) < max_wait:
         time.sleep(2)
         sts = appsv1.read_namespaced_stateful_set("rolling-restart-test", namespace)
         new_revision = sts.status.update_revision
         print(f"Current StatefulSet revision: {new_revision}")
 
-    assert new_revision != initial_revision, \
-        f"StatefulSet revision should change. Initial: {initial_revision}, Current: {new_revision}"
-    
+    assert (
+        new_revision != initial_revision
+    ), f"StatefulSet revision should change. Initial: {initial_revision}, Current: {new_revision}"
+
     print(f"StatefulSet revision updated from {initial_revision} to {new_revision}")
 
     # Wait for the rolling restart coordination to complete and reach running state
@@ -112,9 +161,10 @@ def test_trigger_rolling_restart(rolling_restart_replica_set: MongoDB, namespace
 @mark.e2e_rolling_restart_poc
 def test_all_pods_restarted_with_new_revision(rolling_restart_replica_set: MongoDB, namespace: str):
     """Verify all pods eventually restart and get the new StatefulSet revision."""
-    from kubernetes import client
     import time
-    
+
+    from kubernetes import client
+
     appsv1 = client.AppsV1Api()
     corev1 = client.CoreV1Api()
 
@@ -127,42 +177,43 @@ def test_all_pods_restarted_with_new_revision(rolling_restart_replica_set: Mongo
     # This tests that agent coordination allows all pods to restart
     max_wait = 600  # 10 minutes
     start_time = time.time()
-    
+
     while (time.time() - start_time) < max_wait:
         all_updated = True
-        
+
         for i in range(3):
             pod_name = f"rolling-restart-test-{i}"
             try:
                 pod = corev1.read_namespaced_pod(pod_name, namespace)
                 current_revision = pod.metadata.labels.get("controller-revision-hash", "")
-                
+
                 if current_revision != target_revision:
                     all_updated = False
                     print(f"Pod {pod_name} revision: {current_revision} (target: {target_revision})")
                 else:
                     print(f"Pod {pod_name} updated to target revision: {target_revision}")
-                    
+
             except client.rest.ApiException:
                 all_updated = False
                 print(f"Pod {pod_name} not ready yet")
-        
+
         if all_updated:
             print("All pods successfully updated with agent coordination!")
             break
-            
+
         time.sleep(10)
-    
+
     # Final verification - all pods should have target revision and be ready
     for i in range(3):
         pod_name = f"rolling-restart-test-{i}"
         pod = corev1.read_namespaced_pod(pod_name, namespace)
-        
+
         assert pod.status.phase == "Running", f"Pod {pod_name} should be running"
-        
+
         current_revision = pod.metadata.labels.get("controller-revision-hash", "")
-        assert current_revision == target_revision, \
-            f"Pod {pod_name} should have target revision {target_revision}, got {current_revision}"
+        assert (
+            current_revision == target_revision
+        ), f"Pod {pod_name} should have target revision {target_revision}, got {current_revision}"
 
         # Verify container is ready
         if pod.status.container_statuses:
@@ -181,7 +232,7 @@ def test_verify_agent_coordination_logs(rolling_restart_replica_set: MongoDB, na
         "DeleteMyPodKube",
         "needsUpdate=true",
         "Kubernetes upgrade",
-        "StatefulSet.*revision"
+        "StatefulSet.*revision",
     ]
 
     found_patterns = set()

@@ -334,7 +334,14 @@ def build_agent(build_configuration: ImageBuildConfiguration):
     Build the agent only for the latest operator for patches and operator releases.
 
     """
-    if build_configuration.all_agents:
+    if build_configuration.custom_agent_url:
+        if not build_configuration.version:
+            raise ValueError("When using custom_agent_url, version must be set (e.g., 'latest')")
+        agent_versions_to_build = [(build_configuration.version, "100.9.5")]
+        logger.info(
+            f"building custom agent from URL: {build_configuration.custom_agent_url} with version: {build_configuration.version}"
+        )
+    elif build_configuration.all_agents:
         agent_versions_to_build = get_all_agents_for_rebuild()
         logger.info("building all agents")
     elif build_configuration.currently_used_agents:
@@ -400,18 +407,45 @@ def build_agent_pipeline(
         f"======== Building agent pipeline for version {agent_version}, build configuration version: {build_configuration.version}"
     )
 
-    platform_build_args = generate_agent_build_args(
-        platforms=available_platforms, agent_version=agent_version, tools_version=tools_version
-    )
+    # Handle custom agent URL for testing
+    if build_configuration.custom_agent_url:
+        print(f"======== Using custom agent URL: {build_configuration.custom_agent_url}")
+        print(f"======== Using version from pipeline: {build_configuration_copy.version}")
 
-    agent_base_url = (
-        "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
-    )
+        # Extract the base URL and filename from the custom URL
+        custom_agent_base_url = build_configuration.custom_agent_url.rsplit("/", 1)[0]
+        custom_agent_filename = build_configuration.custom_agent_url.rsplit("/", 1)[1]
+
+        # Use the version provided by the pipeline (e.g., "latest") instead of extracting from URL
+        # This allows the pipeline_main.py to control the version tag used for the image
+
+        # Generate tools build args first (we still need MongoDB tools)
+        tools_build_args = generate_tools_build_args(available_platforms, tools_version)
+
+        # Use custom URL for agent, but keep standard tools
+        agent_build_args = {
+            "mongodb_agent_version_amd64": custom_agent_filename,
+            "mongodb_agent_version_arm64": custom_agent_filename,  # Fallback to same file
+            "mongodb_agent_version_s390x": custom_agent_filename,  # Fallback to same file
+            "mongodb_agent_version_ppc64le": custom_agent_filename,  # Fallback to same file
+        }
+
+        # Combine tools and agent build args
+        platform_build_args = {**tools_build_args, **agent_build_args}
+        agent_base_url = custom_agent_base_url
+    else:
+        platform_build_args = generate_agent_build_args(
+            platforms=available_platforms, agent_version=agent_version, tools_version=tools_version
+        )
+        agent_base_url = (
+            "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
+        )
+
     tools_base_url = "https://fastdl.mongodb.org/tools/db"
 
     args = {
-        "version": agent_version,
-        "agent_version": agent_version,
+        "version": build_configuration_copy.version,
+        "agent_version": build_configuration_copy.version,
         "mongodb_agent_url": agent_base_url,
         "mongodb_tools_url": tools_base_url,
         **platform_build_args,  # Add the platform-specific build args

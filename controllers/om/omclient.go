@@ -355,7 +355,7 @@ func (oc *HTTPOmConnection) OpsManagerVersion() versionutil.OpsManagerVersion {
 
 // UpdateDeployment updates a given deployment to the new deployment object passed as parameter.
 func (oc *HTTPOmConnection) UpdateDeployment(deployment Deployment) ([]byte, error) {
-	return oc.put(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", oc.GroupID()), deployment)
+	return oc.put(fmt.Sprintf("/automation/conf/%s", oc.GroupID()), deployment)
 }
 
 // ReadDeployment returns a Deployment object for this group

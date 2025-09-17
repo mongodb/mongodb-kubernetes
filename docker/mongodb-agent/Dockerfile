@@ -65,12 +65,15 @@ RUN  microdnf install -y libssh libpsl libbrotli \
 
 RUN microdnf install -y --disableplugin=subscription-manager --setopt=install_weak_deps=0 nss_wrapper
 # Copy-pasted from https://www.mongodb.com/docs/manual/tutorial/install-mongodb-enterprise-on-red-hat-tarball/
+# Temporarily skip cyrus-sasl due to systemd dependency issues in UBI9
 RUN microdnf install -y --disableplugin=subscription-manager \
+ krb5-libs openldap openssl xz-libs || \
+ microdnf install -y --disableplugin=subscription-manager --nobest \
  cyrus-sasl cyrus-sasl-gssapi cyrus-sasl-plain krb5-libs openldap openssl xz-libs
-# Dependencies for the Agent
-RUN microdnf install -y --disableplugin=subscription-manager  --setopt=install_weak_deps=0 \
-        net-snmp \
-        net-snmp-agent-libs
+# Dependencies for the Agent - skip net-snmp due to systemd dependency issues
+# RUN microdnf install -y --disableplugin=subscription-manager  --setopt=install_weak_deps=0 \
+#         net-snmp \
+#         net-snmp-agent-libs
 RUN microdnf install -y --disableplugin=subscription-manager \
     hostname tar gzip procps jq \
     && microdnf upgrade -y  \

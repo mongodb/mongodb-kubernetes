@@ -115,13 +115,14 @@ download_agent() {
     esac
 
     script_log "Downloading Agent version: ${AGENT_VERSION}"
-    script_log "Downloading a Mongodb Agent from ${base_url:?}"
     curl_opts=(
-        "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/patches/68c81e93cc2aec0007640bad/automation-agent/local/mongodb-mms-automation-agent-13.41.0.9772-1.linux_x86_64.tar.gz"
+        "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/patches/68c96f4020b54e00079b0621/automation-agent/local/mongodb-mms-automation-agent-13.41.0.9776-1.linux_x86_64.tar.gz"
 
         "--location" "--silent" "--retry" "3" "--fail" "-v"
         "--output" "automation-agent.tar.gz"
     );
+    script_log "Downloading a Mongodb Agent via ${curl_opts[0]:?}"
+
 
     if [ "${SSL_REQUIRE_VALID_MMS_CERTIFICATES-}" = "false" ]; then
         # If we are not expecting valid certs, `curl` should be run with `--insecure` option.
