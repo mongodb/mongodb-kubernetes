@@ -95,9 +95,9 @@ base_url="${base_url%/}" # Remove any accidentally defined trailing slashes
 declare -r base_url
 
 if [ -z "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" ]; then
-  # Download the Automation Agent from Ops Manager
+  # Download the Automation Agent from Ops Manager or custom URL
   # Note, that it will be skipped if the agent is supposed to be run in headless mode
-  if [[ -n "${base_url}" ]]; then
+  if [[ -n "${base_url}" ]] || [[ -n "${MDB_CUSTOM_AGENT_URL-}" ]]; then
       download_agent
   fi
 fi

@@ -1045,6 +1045,12 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 		vars = append(vars, corev1.EnvVar{Name: util.EnvVarAgentVersion, Value: agentVersion})
 	}
 
+	// Support for custom agent URL
+	if customAgentURL := os.Getenv(util.EnvVarCustomAgentURL); customAgentURL != "" { // nolint:forbidigo
+		zap.S().Debugf("using a custom agent URL: %s", customAgentURL)
+		vars = append(vars, corev1.EnvVar{Name: util.EnvVarCustomAgentURL, Value: customAgentURL})
+	}
+
 	// append any additional env vars specified.
 	vars = append(vars, opts.ExtraEnvs...)
 
