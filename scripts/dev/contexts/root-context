@@ -47,8 +47,10 @@ export OPS_MANAGER_NAMESPACE="operator-testing-50-current"
 export LOCAL_RUN=true
 
 if [[ "${OVERRIDE_VERSION_ID:-}" != "" ]]; then
-  echo "Overriding operator version with ${OVERRIDE_VERSION_ID}"
+  echo "Overriding operator related versions with ${OVERRIDE_VERSION_ID}"
   OPERATOR_VERSION="${OVERRIDE_VERSION_ID}"
+  READINESS_PROBE_VERSION="${OVERRIDE_VERSION_ID}"
+  VERSION_UPGRADE_HOOK_VERSION="${OVERRIDE_VERSION_ID}"
 fi
 
 export OPERATOR_VERSION="${OPERATOR_VERSION:-"latest"}"
