@@ -1030,6 +1030,7 @@ task_groups:
       - e2e_om_feature_controls
       - e2e_vault_setup_om
       - e2e_vault_setup_om_backup
+      - e2e_search_enterprise_tls
     <<: *teardown_group
 
   - name: e2e_static_ops_manager_kind_only_task_group
