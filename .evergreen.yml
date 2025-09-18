@@ -1131,6 +1131,15 @@ task_groups:
       - e2e_om_ops_manager_prometheus
     <<: *teardown_group
 
+  # Tests features only supported on OM80
+  - name: e2e_ops_manager_kind_8_0_only_task_group
+    max_hosts: -1
+    <<: *setup_group
+    <<: *setup_and_teardown_task
+    tasks:
+      - e2e_search_enterprise_tls
+    <<: *teardown_group
+
   # Tests features only supported on OM70 and OM80, its only upgrade test as we test upgrading from 6 to 7 or 7 to 8
   - name: e2e_ops_manager_upgrade_only_task_group
     max_hosts: -1
@@ -1341,6 +1350,7 @@ buildvariants:
       - name: e2e_ops_manager_kind_5_0_only_task_group_without_queryable_backup
       - name: e2e_ops_manager_kind_6_0_only_task_group
       - name: e2e_ops_manager_upgrade_only_task_group
+      - name: e2e_ops_manager_kind_8_0_only_task_group
 
   - name: e2e_static_om80_kind_ubi
     display_name: e2e_static_om80_kind_ubi

@@ -115,7 +115,7 @@ download_agent() {
     esac
 
     script_log "Downloading Agent version: ${AGENT_VERSION}"
-    script_log "Downloading a Mongodb Agent from ${base_url:?}"
+    script_log "Downloading a Mongodb Agent from ${base_url:?}/download/agent/automation/${AGENT_FILE}"
     curl_opts=(
         "${base_url}/download/agent/automation/${AGENT_FILE}"
 
@@ -133,11 +133,13 @@ download_agent() {
         curl_opts+=("--cacert" "${SSL_TRUSTED_MMS_SERVER_CERTIFICATE}")
     fi
 
+    echo "Executing curl command: curl ${curl_opts[*]}"
     if ! curl "${curl_opts[@]}" &>"${MMS_LOG_DIR}/curl.log"; then
         script_log "Error while downloading the Mongodb agent"
         exit 1
     fi
-    json_log 'agent-launcher-script' <"${MMS_LOG_DIR}/curl.log" >>"${MDB_LOG_FILE_AGENT_LAUNCHER_SCRIPT}"
+
+    grep -v -E "bytes data\]|\[no content\]" "${MMS_LOG_DIR}/curl.log" | json_log 'agent-launcher-script' >>"${MDB_LOG_FILE_AGENT_LAUNCHER_SCRIPT}"
     rm "${MMS_LOG_DIR}/curl.log" 2>/dev/null || true
 
     script_log "The Mongodb Agent binary downloaded, unpacking"
