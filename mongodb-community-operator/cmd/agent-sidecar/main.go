@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -28,6 +30,10 @@ const (
 
 	pollingInterval time.Duration = 1 * time.Second
 	pollingDuration time.Duration = 60 * time.Second
+
+	// Agent log file paths (typically in /var/log/mongodb-mms-automation/)
+	agentLogPath        = "/var/log/mongodb-mms-automation/automation-agent.log"
+	agentVerboseLogPath = "/var/log/mongodb-mms-automation/automation-agent-verbose.log"
 )
 
 // getCurrentStepInfo extracts current step and move information from health status
@@ -113,11 +119,171 @@ func conciseDiff(old, new interface{}) string {
 	return diffOutput
 }
 
+// AgentVersionInfo holds version information about the MongoDB automation agent
+type AgentVersionInfo struct {
+	Version     string `json:"version"`
+	ImageTag    string `json:"imageTag"`
+	Source      string `json:"source"`
+	LastChecked string `json:"lastChecked"`
+}
+
+// getAgentVersion attempts to determine the MongoDB automation agent version
+func getAgentVersion() AgentVersionInfo {
+	info := AgentVersionInfo{
+		LastChecked: time.Now().Format(time.RFC3339),
+	}
+
+	// Try to get version from agent logs first (most reliable)
+	if version := getVersionFromAgentLogs(); version != "" {
+		info.Version = version
+		info.Source = "agent_logs"
+		return info
+	}
+
+	// Fallback: try to get version from process list
+	if version := getVersionFromProcessList(); version != "" {
+		info.Version = version
+		info.Source = "process_list"
+		return info
+	}
+
+	info.Version = "unknown"
+	info.Source = "not_found"
+	return info
+}
+
+// getVersionFromAgentLogs reads the MongoDB automation agent logs to extract version information
+func getVersionFromAgentLogs() string {
+	// Try verbose log first, then regular log
+	logPaths := []string{agentVerboseLogPath, agentLogPath}
+
+	for _, logPath := range logPaths {
+		if version := readVersionFromLogFile(logPath); version != "" {
+			return version
+		}
+	}
+	return ""
+}
+
+// readVersionFromLogFile reads a log file and extracts version information
+func readVersionFromLogFile(logPath string) string {
+	file, err := os.Open(logPath)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+
+	// Read the first few KB of the log file where version info is typically logged
+	buffer := make([]byte, 8192)
+	n, err := file.Read(buffer)
+	if err != nil && err != io.EOF {
+		return ""
+	}
+
+	content := string(buffer[:n])
+
+	// Look for version patterns in agent logs
+	// Examples: "MongoDB Automation Agent version 108.0.12.8846-1"
+	//          "automation-agent version: 108.0.12.8846-1"
+	//          "Starting automation agent 108.0.12.8846-1"
+	versionRegex := regexp.MustCompile(`(?i)(?:automation.?agent|mongodb.?automation.?agent).*?version[:\s]+([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(?:\-[0-9]+)?)`)
+	matches := versionRegex.FindStringSubmatch(content)
+	if len(matches) > 1 {
+		return matches[1]
+	}
+
+	// Alternative pattern: look for version in startup messages
+	versionRegex2 := regexp.MustCompile(`(?i)starting.*?agent.*?([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(?:\-[0-9]+)?)`)
+	matches2 := versionRegex2.FindStringSubmatch(content)
+	if len(matches2) > 1 {
+		return matches2[1]
+	}
+
+	return ""
+}
+
+// getVersionFromProcessList attempts to get agent version from running processes
+func getVersionFromProcessList() string {
+	// Try to find the automation agent process and extract version from command line
+	// This is a fallback method when logs are not available
+
+	// Read /proc/*/cmdline to find automation agent processes
+	procDirs, err := os.ReadDir("/proc")
+	if err != nil {
+		return ""
+	}
+
+	for _, procDir := range procDirs {
+		if !procDir.IsDir() {
+			continue
+		}
+
+		// Check if directory name is numeric (PID)
+		if matched, _ := regexp.MatchString(`^\d+$`, procDir.Name()); !matched {
+			continue
+		}
+
+		cmdlinePath := fmt.Sprintf("/proc/%s/cmdline", procDir.Name())
+		cmdlineBytes, err := os.ReadFile(cmdlinePath)
+		if err != nil {
+			continue
+		}
+
+		cmdline := string(cmdlineBytes)
+
+		// Look for automation agent in command line
+		if strings.Contains(cmdline, "automation-agent") || strings.Contains(cmdline, "mongodb-mms-automation-agent") {
+			// Try to extract version from command line arguments
+			versionRegex := regexp.MustCompile(`([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(?:\-[0-9]+)?)`)
+			matches := versionRegex.FindStringSubmatch(cmdline)
+			if len(matches) > 1 {
+				return matches[1]
+			}
+		}
+	}
+
+	return ""
+}
+
+// startVersionAPI starts a simple HTTP server to expose agent version information
+func startVersionAPI(port string) {
+	http.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		versionInfo := getAgentVersion()
+		json.NewEncoder(w).Encode(versionInfo)
+	})
+
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{
+			"status": "healthy",
+			"time":   time.Now().Format(time.RFC3339),
+		})
+	})
+
+	go func() {
+		zap.S().Infof("Starting version API server on port %s", port)
+		if err := http.ListenAndServe(":"+port, nil); err != nil {
+			zap.S().Errorf("Version API server failed: %v", err)
+		}
+	}()
+}
+
 func main() {
 	ctx := context.Background()
 	logger := setupLogger()
 
-	logger.Info("Running agent sidecar for rolling restart coordination")
+	// Get and log agent version information
+	versionInfo := getAgentVersion()
+	logger.Infof("Running agent sidecar for rolling restart coordination")
+	logger.Infof("MongoDB Agent Version: %s (source: %s)", versionInfo.Version, versionInfo.Source)
+	if versionInfo.ImageTag != "" {
+		logger.Infof("Agent Image: %s", versionInfo.ImageTag)
+	}
+
+	// Start version API server on port 8080
+	startVersionAPI("8080")
 
 	if statusPath := os.Getenv(agentStatusFilePathEnv); statusPath == "" {
 		logger.Fatalf(`Required environment variable "%s" not set`, agentStatusFilePathEnv)

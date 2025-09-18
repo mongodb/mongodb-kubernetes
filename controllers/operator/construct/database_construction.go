@@ -364,10 +364,6 @@ func DatabaseStatefulSetHelper(mdb databaseStatefulSetSource, stsOpts *DatabaseS
 	}
 
 	extraEnvs = append(extraEnvs, ReadDatabaseProxyVarsFromEnv()...)
-	extraEnvs = append(extraEnvs, corev1.EnvVar{
-		Name:  "nam",
-		Value: "nam",
-	})
 	stsOpts.ExtraEnvs = extraEnvs
 
 	templateFunc := buildMongoDBPodTemplateSpec(*stsOpts, mdb)

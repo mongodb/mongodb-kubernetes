@@ -122,40 +122,24 @@ def test_trigger_rolling_restart(rolling_restart_replica_set: MongoDB, namespace
     # This simulates infrastructure changes like image updates or security context changes
     rolling_restart_trigger_value = str(int(time.time()))
 
-    # Use the MongoDB resource's statefulSet configuration to trigger the change
-    current_spec = rolling_restart_replica_set["spec"]
-
-    # Initialize statefulSet spec if it doesn't exist
-    if "statefulSet" not in current_spec:
-        current_spec["statefulSet"] = {"spec": {}}
-
-    if "spec" not in current_spec["statefulSet"]:
-        current_spec["statefulSet"]["spec"] = {}
-
-    if "template" not in current_spec["statefulSet"]["spec"]:
-        current_spec["statefulSet"]["spec"]["template"] = {"spec": {}}
-
-    if "spec" not in current_spec["statefulSet"]["spec"]["template"]:
-        current_spec["statefulSet"]["spec"]["template"]["spec"] = {}
-
-    if "containers" not in current_spec["statefulSet"]["spec"]["template"]["spec"]:
-        current_spec["statefulSet"]["spec"]["template"]["spec"]["containers"] = [{}]
-
-    # Ensure we have a container entry
-    if len(current_spec["statefulSet"]["spec"]["template"]["spec"]["containers"]) == 0:
-        current_spec["statefulSet"]["spec"]["template"]["spec"]["containers"] = [{}]
-
-    # Add/update environment variable in first container
-    container = current_spec["statefulSet"]["spec"]["template"]["spec"]["containers"][0]
-    if "env" not in container:
-        container["env"] = []
-
-    # Add the rolling restart trigger environment variable
-    container["env"] = [env for env in container.get("env", []) if env.get("name") != "ROLLING_RESTART_TRIGGER"]
-    container["env"].append({
-        "name": "ROLLING_RESTART_TRIGGER",
-        "value": rolling_restart_trigger_value
-    })
+    # Add podSpec with mongodb-enterprise-database container and env var to trigger rolling restart
+    rolling_restart_replica_set["spec"]["podSpec"] = {
+        "podTemplate": {
+            "spec": {
+                "containers": [
+                    {
+                        "name": "mongodb-enterprise-database",
+                        "env": [
+                            {
+                                "name": "ROLLING_RESTART_TRIGGER",
+                                "value": rolling_restart_trigger_value
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+    }
 
     print(f"Added ROLLING_RESTART_TRIGGER={rolling_restart_trigger_value} to MongoDB CRD")
 
