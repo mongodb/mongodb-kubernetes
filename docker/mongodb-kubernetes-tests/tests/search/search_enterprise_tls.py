@@ -1,19 +1,26 @@
+from typing import Optional
+
 import pymongo
 import yaml
 from kubetester import create_or_update_secret, try_load
 from kubetester.certs import create_mongodb_tls_certs, create_tls_certs
-from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import KubernetesTester, is_multi_cluster
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
 from kubetester.mongodb_user import MongoDBUser
+from kubetester.omtester import skip_if_cloud_manager
+from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
+from tests.common.ops_manager.cloud_manager import is_cloud_qa
 from tests.common.search import movies_search_helper
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.common.search.search_tester import SearchTester
 from tests.conftest import get_default_operator
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
+from tests.search.om_deployment import get_ops_manager
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -26,7 +33,7 @@ MONGOT_USER_PASSWORD = f"{MONGOT_USER_NAME}-password"
 USER_NAME = "mdb-user"
 USER_PASSWORD = f"{USER_NAME}-password"
 
-MDB_RESOURCE_NAME = "mdb-rs"
+MDB_RESOURCE_NAME = "mdb-ent-tls"
 
 # MongoDBSearch TLS configuration
 MDBS_TLS_SECRET_NAME = "mdbs-tls-secret"
@@ -39,6 +46,7 @@ def mdb(namespace: str, issuer_ca_configmap: str) -> MongoDB:
         name=MDB_RESOURCE_NAME,
         namespace=namespace,
     )
+    resource.configure(om=get_ops_manager(namespace), project_name=MDB_RESOURCE_NAME)
 
     if try_load(resource):
         return resource
@@ -113,6 +121,16 @@ def mongot_user(namespace: str, mdbs: MongoDBSearch) -> MongoDBUser:
 def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
     operator = get_default_operator(namespace, operator_installation_config=operator_installation_config)
     operator.assert_is_running()
+
+
+@mark.e2e_search_enterprise_tls
+@skip_if_cloud_manager
+def test_create_ops_manager(namespace: str):
+    ops_manager = get_ops_manager(namespace)
+    if ops_manager is not None:
+        ops_manager.update()
+    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1200)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_search_enterprise_tls
