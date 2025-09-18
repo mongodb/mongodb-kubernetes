@@ -85,12 +85,6 @@ download_agent() {
     pushd /tmp >/dev/null || true
 
 
-    if [[ -z "${MDB_AGENT_VERSION-}" ]]; then
-      AGENT_VERSION="latest"
-    else
-      AGENT_VERSION="${MDB_AGENT_VERSION}"
-    fi
-
     # Check if custom agent URL is provided
     if [[ -n "${MDB_CUSTOM_AGENT_URL-}" ]]; then
         script_log "Using custom agent URL: ${MDB_CUSTOM_AGENT_URL}"
@@ -101,6 +95,8 @@ download_agent() {
         );
         script_log "Downloading a Mongodb Agent via ${curl_opts[0]:?}"
     else
+        AGENT_VERSION="${MDB_AGENT_VERSION:-latest}"
+
         # Detect architecture for agent download
         local detected_arch
         detected_arch=$(uname -m)
