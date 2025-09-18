@@ -68,6 +68,29 @@ rules:
       - get
 
 ---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ $.Values.operator.baseName }}-database-pods
+  {{ $namespaceBlock }}
+rules:
+  - apiGroups:
+      - ''
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - delete
+  - apiGroups:
+      - apps
+    resources:
+      - statefulsets
+    verbs:
+      - get
+      - list
+
+---
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -80,6 +103,21 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: {{$.Values.operator.baseName}}-appdb
+    {{ $namespaceBlock }}
+
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{$.Values.operator.baseName}}-database-pods
+  {{ $namespaceBlock }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{$.Values.operator.baseName}}-database-pods
+subjects:
+  - kind: ServiceAccount
+    name: {{$.Values.operator.baseName}}-database-pods
     {{ $namespaceBlock }}
 
 {{- end }}
