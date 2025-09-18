@@ -149,10 +149,10 @@ agent:
 # This is only used by the MongoDBCommunity resource reconciler - START
 versionUpgradeHook:
   name: mongodb-kubernetes-operator-version-upgrade-post-start-hook
-  version: 1.0.9
+  version: 1.0.10
 readinessProbe:
   name: mongodb-kubernetes-readinessprobe
-  version: 1.0.22
+  version: 1.0.23
 # This is only used by the MongoDBCommunity resource reconciler - END
 
 # This is used by AppDB and by static containers to determine the image that the operator uses for databases.

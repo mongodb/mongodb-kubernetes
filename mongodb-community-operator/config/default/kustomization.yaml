@@ -1,6 +1,0 @@
-namePrefix: ""
-
-resources:
-  - ../crd
-  - ../rbac
-  - ../manager

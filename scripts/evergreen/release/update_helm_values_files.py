@@ -27,6 +27,8 @@ RELEASE_JSON_TO_HELM_KEY = {
     "initAppDbVersion": "initAppDb",
     "databaseImageVersion": "database",
     "agentVersion": "agent",
+    "readinessProbeVersion": "readinessProbe",
+    "versionUpgradeHookVersion": "versionUpgradeHook",
 }
 
 
