@@ -109,6 +109,7 @@ type DatabaseStatefulSetOptions struct {
 	DatabaseNonStaticImage string
 	MongodbImage           string
 	AgentImage             string
+	AgentSidecarImage      string
 
 	Annotations map[string]string
 	VaultConfig vault.VaultConfiguration
@@ -734,6 +735,43 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		configureContainerSecurityContext,
 	)}
 
+	// Agent sidecar container for health monitoring and pod deletion
+	agentSidecarModifications := []func(*corev1.Container){container.Apply(
+		container.WithName("agent-sidecar"),
+		container.WithImage(opts.AgentSidecarImage),
+		container.WithEnvs([]corev1.EnvVar{
+			{
+				Name: "POD_NAME",
+				ValueFrom: &corev1.EnvVarSource{
+					FieldRef: &corev1.ObjectFieldSelector{
+						FieldPath: "metadata.name",
+					},
+				},
+			},
+			{
+				Name: "POD_NAMESPACE",
+				ValueFrom: &corev1.EnvVarSource{
+					FieldRef: &corev1.ObjectFieldSelector{
+						FieldPath: "metadata.namespace",
+					},
+				},
+			},
+			{
+				Name:  "AGENT_STATUS_FILEPATH",
+				Value: "/var/log/mongodb-mms-automation/agent-health-status.json",
+			},
+		}...),
+		container.WithVolumeMounts([]corev1.VolumeMount{
+			{
+				Name:      util.PvcNameData,
+				MountPath: "/var/log/mongodb-mms-automation",
+				SubPath:   util.PvcNameLogs,
+				ReadOnly:  true,
+			},
+		}),
+		configureContainerSecurityContext,
+	)}
+
 	if opts.HostNameOverrideConfigmapName != "" {
 		volumes = append(volumes, statefulset.CreateVolumeFromConfigMap(opts.HostNameOverrideConfigmapName, opts.HostNameOverrideConfigmapName))
 		hostnameOverrideModification := container.WithVolumeMounts([]corev1.VolumeMount{
@@ -745,6 +783,7 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		agentContainerModifications = append(agentContainerModifications, hostnameOverrideModification)
 		mongodContainerModifications = append(mongodContainerModifications, hostnameOverrideModification)
 		agentUtilitiesHolderModifications = append(agentUtilitiesHolderModifications, hostnameOverrideModification)
+		agentSidecarModifications = append(agentSidecarModifications, hostnameOverrideModification)
 	}
 
 	mods := []podtemplatespec.Modification{
@@ -754,6 +793,11 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		podtemplatespec.WithContainerByIndex(0, agentContainerModifications...),
 		podtemplatespec.WithContainerByIndex(1, mongodContainerModifications...),
 		podtemplatespec.WithContainerByIndex(2, agentUtilitiesHolderModifications...),
+	}
+
+	// Add agent sidecar container if image is provided
+	if opts.AgentSidecarImage != "" {
+		mods = append(mods, podtemplatespec.WithContainerByIndex(3, agentSidecarModifications...))
 	}
 
 	return podtemplatespec.Apply(mods...)
@@ -785,6 +829,44 @@ func buildNonStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, 
 		container.WithEnvs(readinessEnvironmentVariablesToEnvVars(opts.AgentConfig.ReadinessProbe.EnvironmentVariables)...),
 	)}
 
+	// Agent sidecar container for health monitoring and pod deletion (non-static architecture)
+	_, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
+	agentSidecarModifications := []func(*corev1.Container){container.Apply(
+		container.WithName("agent-sidecar"),
+		container.WithImage(opts.AgentSidecarImage),
+		container.WithEnvs([]corev1.EnvVar{
+			{
+				Name: "POD_NAME",
+				ValueFrom: &corev1.EnvVarSource{
+					FieldRef: &corev1.ObjectFieldSelector{
+						FieldPath: "metadata.name",
+					},
+				},
+			},
+			{
+				Name: "POD_NAMESPACE",
+				ValueFrom: &corev1.EnvVarSource{
+					FieldRef: &corev1.ObjectFieldSelector{
+						FieldPath: "metadata.namespace",
+					},
+				},
+			},
+			{
+				Name:  "AGENT_STATUS_FILEPATH",
+				Value: "/var/log/mongodb-mms-automation/agent-health-status.json",
+			},
+		}...),
+		container.WithVolumeMounts([]corev1.VolumeMount{
+			{
+				Name:      util.PvcNameData,
+				MountPath: "/var/log/mongodb-mms-automation",
+				SubPath:   util.PvcNameLogs,
+				ReadOnly:  true,
+			},
+		}),
+		configureContainerSecurityContext,
+	)}
+
 	if opts.HostNameOverrideConfigmapName != "" {
 		volumes = append(volumes, statefulset.CreateVolumeFromConfigMap(opts.HostNameOverrideConfigmapName, opts.HostNameOverrideConfigmapName))
 		hostnameOverrideModification := container.WithVolumeMounts([]corev1.VolumeMount{
@@ -795,6 +877,7 @@ func buildNonStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, 
 		})
 		initContainerModifications = append(initContainerModifications, hostnameOverrideModification)
 		databaseContainerModifications = append(databaseContainerModifications, hostnameOverrideModification)
+		agentSidecarModifications = append(agentSidecarModifications, hostnameOverrideModification)
 	}
 
 	mods := []podtemplatespec.Modification{
@@ -804,6 +887,11 @@ func buildNonStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, 
 		podtemplatespec.WithVolumes(volumes),
 		podtemplatespec.WithContainerByIndex(0, databaseContainerModifications...),
 		podtemplatespec.WithInitContainerByIndex(0, initContainerModifications...),
+	}
+
+	// Add agent sidecar container if image is provided (non-static architecture)
+	if opts.AgentSidecarImage != "" {
+		mods = append(mods, podtemplatespec.WithContainerByIndex(1, agentSidecarModifications...))
 	}
 
 	return podtemplatespec.Apply(mods...)

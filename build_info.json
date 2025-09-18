@@ -253,6 +253,34 @@
         ]
       }
     },
+    "agent-sidecar": {
+      "dockerfile-path": "docker/mongodb-kubernetes-agent-sidecar/Dockerfile",
+      "patch": {
+        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/nnguyen-kops/agent-sidecar"],
+        "platforms": [
+          "linux/amd64"
+        ]
+      },
+      "staging": {
+        "sign": true,
+        "latest-tag": true,
+        "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/nnguyen-kops/agent-sidecar"],
+        "platforms": [
+          "linux/arm64",
+          "linux/amd64"
+        ]
+      },
+      "release": {
+        "version": "1.0.0",
+        "sign": true,
+        "olm-tag": true,
+        "repositories": ["quay.io/mongodb/mongodb-kubernetes-agent-sidecar"],
+        "platforms": [
+          "linux/arm64",
+          "linux/amd64"
+        ]
+      }
+    },
     "agent": {
       "dockerfile-path": "docker/mongodb-agent/Dockerfile",
       "patch": {

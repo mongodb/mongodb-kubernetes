@@ -103,8 +103,9 @@ def test_check_agent_detection(rolling_restart_replica_set: MongoDB, namespace: 
 
 @mark.e2e_rolling_restart_poc
 def test_trigger_rolling_restart(rolling_restart_replica_set: MongoDB, namespace: str):
-    """Test triggering rolling restart by changing StatefulSet spec."""
+    """Test triggering rolling restart by changing MongoDB CRD to cause operator StatefulSet update."""
     from kubernetes import client
+    import time
 
     appsv1 = client.AppsV1Api()
 
@@ -113,46 +114,71 @@ def test_trigger_rolling_restart(rolling_restart_replica_set: MongoDB, namespace
     initial_revision = sts.status.update_revision
     print(f"Initial StatefulSet revision: {initial_revision}")
 
-    # Trigger rolling restart by directly patching the StatefulSet with an environment variable
+    # Trigger rolling restart by modifying the MongoDB Custom Resource
+    # This causes the operator to update the StatefulSet, simulating real operator-driven changes
+    print("Triggering rolling restart by modifying MongoDB CRD...")
+
+    # Add or update an environment variable in the StatefulSet configuration
     # This simulates infrastructure changes like image updates or security context changes
-    import time
+    rolling_restart_trigger_value = str(int(time.time()))
 
-    patch_body = {
-        "spec": {
-            "template": {
-                "spec": {
-                    "containers": [
-                        {
-                            "name": "mongodb-enterprise-database",
-                            "env": [{"name": "ROLLING_RESTART_TRIGGER", "value": str(int(time.time()))}],
-                        }
-                    ]
-                }
-            }
-        }
-    }
+    # Use the MongoDB resource's statefulSet configuration to trigger the change
+    current_spec = rolling_restart_replica_set["spec"]
 
-    print("Triggering rolling restart by patching StatefulSet...")
-    appsv1.patch_namespaced_stateful_set(name="rolling-restart-test", namespace=namespace, body=patch_body)
+    # Initialize statefulSet spec if it doesn't exist
+    if "statefulSet" not in current_spec:
+        current_spec["statefulSet"] = {"spec": {}}
 
-    # Wait for StatefulSet to get updated with new revision
-    import time
+    if "spec" not in current_spec["statefulSet"]:
+        current_spec["statefulSet"]["spec"] = {}
 
-    max_wait = 60
+    if "template" not in current_spec["statefulSet"]["spec"]:
+        current_spec["statefulSet"]["spec"]["template"] = {"spec": {}}
+
+    if "spec" not in current_spec["statefulSet"]["spec"]["template"]:
+        current_spec["statefulSet"]["spec"]["template"]["spec"] = {}
+
+    if "containers" not in current_spec["statefulSet"]["spec"]["template"]["spec"]:
+        current_spec["statefulSet"]["spec"]["template"]["spec"]["containers"] = [{}]
+
+    # Ensure we have a container entry
+    if len(current_spec["statefulSet"]["spec"]["template"]["spec"]["containers"]) == 0:
+        current_spec["statefulSet"]["spec"]["template"]["spec"]["containers"] = [{}]
+
+    # Add/update environment variable in first container
+    container = current_spec["statefulSet"]["spec"]["template"]["spec"]["containers"][0]
+    if "env" not in container:
+        container["env"] = []
+
+    # Add the rolling restart trigger environment variable
+    container["env"] = [env for env in container.get("env", []) if env.get("name") != "ROLLING_RESTART_TRIGGER"]
+    container["env"].append({
+        "name": "ROLLING_RESTART_TRIGGER",
+        "value": rolling_restart_trigger_value
+    })
+
+    print(f"Added ROLLING_RESTART_TRIGGER={rolling_restart_trigger_value} to MongoDB CRD")
+
+    # Update the MongoDB resource - this will cause the operator to update the StatefulSet
+    rolling_restart_replica_set.update()
+
+    # Wait for StatefulSet to get updated with new revision by the operator
+    max_wait = 120  # Give operator time to reconcile
     start_time = time.time()
     new_revision = initial_revision
 
+    print("Waiting for operator to update StatefulSet...")
     while new_revision == initial_revision and (time.time() - start_time) < max_wait:
-        time.sleep(2)
+        time.sleep(5)
         sts = appsv1.read_namespaced_stateful_set("rolling-restart-test", namespace)
         new_revision = sts.status.update_revision
-        print(f"Current StatefulSet revision: {new_revision}")
+        print(f"Current StatefulSet revision: {new_revision} (waiting for change from {initial_revision})")
 
     assert (
         new_revision != initial_revision
-    ), f"StatefulSet revision should change. Initial: {initial_revision}, Current: {new_revision}"
+    ), f"StatefulSet revision should change after operator reconcile. Initial: {initial_revision}, Current: {new_revision}"
 
-    print(f"StatefulSet revision updated from {initial_revision} to {new_revision}")
+    print(f"Operator updated StatefulSet revision from {initial_revision} to {new_revision}")
 
     # Wait for the rolling restart coordination to complete and reach running state
     rolling_restart_replica_set.assert_reaches_phase(Phase.Running, timeout=600)

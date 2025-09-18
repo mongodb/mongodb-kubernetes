@@ -127,3 +127,10 @@ func WithAgentImage(image string) func(*construct.DatabaseStatefulSetOptions) {
 		opts.AgentImage = image
 	}
 }
+
+// WithAgentSidecarImage sets the AgentSidecarImage field.
+func WithAgentSidecarImage(image string) func(*construct.DatabaseStatefulSetOptions) {
+	return func(opts *construct.DatabaseStatefulSetOptions) {
+		opts.AgentSidecarImage = image
+	}
+}

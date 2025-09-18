@@ -329,6 +329,16 @@ def build_upgrade_hook_image(build_configuration: ImageBuildConfiguration):
     )
 
 
+def build_agent_sidecar_image(build_configuration: ImageBuildConfiguration):
+    """
+    Builds image used for agent health monitoring sidecar.
+    """
+
+    build_image(
+        build_configuration=build_configuration,
+    )
+
+
 def build_agent(build_configuration: ImageBuildConfiguration):
     """
     Build the agent only for the latest operator for patches and operator releases.

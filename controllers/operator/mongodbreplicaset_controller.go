@@ -214,6 +214,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
 		WithAgentImage(images.ContainerImage(r.imageUrls, architectures.MdbAgentImageRepo, automationAgentVersion)),
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, rs.Spec.Version, rs.GetAnnotations())),
+		WithAgentSidecarImage("268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/nnguyen-kops/agent-sidecar:latest"),
 	)
 
 	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)

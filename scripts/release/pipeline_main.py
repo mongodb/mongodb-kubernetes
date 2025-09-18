@@ -18,6 +18,7 @@ from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
 from lib.base_logger import logger
 from scripts.release.atomic_pipeline import (
     build_agent,
+    build_agent_sidecar_image,
     build_database_image,
     build_init_appdb_image,
     build_init_database_image,
@@ -31,6 +32,7 @@ from scripts.release.atomic_pipeline import (
 )
 from scripts.release.build.build_info import (
     AGENT_IMAGE,
+    AGENT_SIDECAR_IMAGE,
     DATABASE_IMAGE,
     INIT_APPDB_IMAGE,
     INIT_DATABASE_IMAGE,
@@ -73,6 +75,7 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         MCO_TESTS_IMAGE: build_mco_tests_image,
         READINESS_PROBE_IMAGE: build_readiness_probe_image,
         UPGRADE_HOOK_IMAGE: build_upgrade_hook_image,
+        AGENT_SIDECAR_IMAGE: build_agent_sidecar_image,
         DATABASE_IMAGE: build_database_image,
         AGENT_IMAGE: build_agent,
         # Init images
