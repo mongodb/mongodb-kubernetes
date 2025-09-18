@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"go.uber.org/zap"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -59,12 +60,12 @@ func main() {
 			continue
 		}
 
-		// Check if health status has changed
+		// Check if health status has changed (ignoring LastMongoUpTime)
 		if isFirstRead {
 			logger.Infof("Agent health status initialized: %s", getHealthSummary(health))
 			lastHealth = health
 			isFirstRead = false
-		} else if diff := cmp.Diff(lastHealth, health); diff != "" {
+		} else if diff := cmp.Diff(lastHealth, health, cmpopts.IgnoreFields(agent.ProcessHealth{}, "LastMongoUpTime")); diff != "" {
 			logger.Infof("Agent health status changed:\n%s", diff)
 			lastHealth = health
 		}
