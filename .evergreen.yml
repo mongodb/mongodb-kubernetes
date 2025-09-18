@@ -1277,7 +1277,7 @@ buildvariants:
 
   - name: e2e_om70_kind_ubi
     display_name: e2e_om70_kind_ubi
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "patch" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
     run_on:
       - ubuntu2204-medium-high-memory
     <<: *base_om7_dependency

@@ -52,7 +52,7 @@ def load_build_info(scenario: BuildScenario) -> BuildInfo:
     f"""
     Load build information based on the specified scenario.
 
-    :param scenario: BuildScenario enum value indicating the build scenario (e.g. "development", "patch", "staging", "release"). "development" scenario will return build info for "patch" scenario.
+    :param scenario: BuildScenario enum value indicating the build scenario (e.g. "development", "pr_patch", "staging", "release"). "development" scenario will return build info for "pr_patch" scenario.
     :return: BuildInfo object containing images, binaries, and helm charts information for specified scenario.
     """
 
@@ -60,9 +60,9 @@ def load_build_info(scenario: BuildScenario) -> BuildInfo:
         build_info = json.load(f)
 
     build_info_scenario = scenario
-    # For "development" builds, we use the "patch" scenario to get the build info
+    # For "development" builds, we use the "pr_patch" scenario to get the build info
     if scenario == BuildScenario.DEVELOPMENT:
-        build_info_scenario = BuildScenario.PATCH
+        build_info_scenario = BuildScenario.PR_PATCH
 
     images = {}
     for name, data in build_info["images"].items():

@@ -103,13 +103,13 @@ export MDB_UPDATE_LICENSES=true
 # BUILD_SCENARIO can be overridden externally if needed
 BUILD_SCENARIO_RELEASE="release" # Official release triggered by a git tag
 BUILD_SCENARIO_STAGING="staging" # CI build from a merge to the master
-BUILD_SCENARIO_PATCH="patch" # CI build for a patch/pull request
+BUILD_SCENARIO_PR_PATCH="pr_patch" # CI build for a pull request
 if [ -n "${BUILD_SCENARIO-}" ]; then
   echo "Build scenario has been set externally, not overriding it"
 elif [ "${GIT_TAG}" ]; then
   BUILD_SCENARIO=$BUILD_SCENARIO_RELEASE
 elif [ "${IS_PATCH}" == "true" ]; then
-  BUILD_SCENARIO=$BUILD_SCENARIO_PATCH
+  BUILD_SCENARIO=$BUILD_SCENARIO_PR_PATCH
 else
   BUILD_SCENARIO=$BUILD_SCENARIO_STAGING
 fi
@@ -118,7 +118,7 @@ export BUILD_SCENARIO="${BUILD_SCENARIO}"
 
 # Set REGISTRY and OPERATOR_VERSION based on build scenario
 # REGISTRY and OPERATOR_VERSION can be overridden externally if needed
-PATCH_REGISTRY="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
+PR_PATCH_REGISTRY="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
 STAGING_REGISTRY="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging"
 RELEASE_REGISTRY="quay.io/mongodb"
 case $BUILD_SCENARIO in
@@ -133,8 +133,8 @@ case $BUILD_SCENARIO in
     OPERATOR_VERSION="${OPERATOR_VERSION:-$COMMIT_SHA_SHORT}"
     ;;
 
-  "${BUILD_SCENARIO_PATCH}")
-    REGISTRY="${REGISTRY:-$PATCH_REGISTRY}"
+  "${BUILD_SCENARIO_PR_PATCH}")
+    REGISTRY="${REGISTRY:-$PR_PATCH_REGISTRY}"
     OPERATOR_VERSION="${OPERATOR_VERSION:-$VERSION_ID}"
     ;;
 

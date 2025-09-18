@@ -93,7 +93,7 @@ def test_load_build_info_development():
     assert build_info == expected_build_info
 
 
-def test_load_build_info_patch():
+def test_load_build_info_pr_patch():
     expected_build_info = BuildInfo(
         images={
             "operator": ImageInfo(
@@ -172,7 +172,7 @@ def test_load_build_info_patch():
         },
     )
 
-    build_info = load_build_info(BuildScenario.PATCH)
+    build_info = load_build_info(BuildScenario.PR_PATCH)
 
     assert build_info == expected_build_info
 

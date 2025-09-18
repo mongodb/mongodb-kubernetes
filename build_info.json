@@ -2,7 +2,7 @@
   "images": {
     "operator": {
       "dockerfile-path": "docker/mongodb-kubernetes-operator/Dockerfile",
-      "patch": {
+      "pr_patch": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes"],
         "platforms": [
           "linux/amd64"
@@ -32,7 +32,7 @@
     },
     "operator-race": {
       "dockerfile-path": "docker/mongodb-kubernetes-operator/Dockerfile",
-      "patch": {
+      "pr_patch": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes"],
         "platforms": [
           "linux/amd64"
@@ -48,7 +48,7 @@
     },
     "init-database": {
       "dockerfile-path": "docker/mongodb-kubernetes-init-database/Dockerfile",
-      "patch": {
+      "pr_patch": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-database"],
         "platforms": [
           "linux/amd64"
@@ -79,7 +79,7 @@
     },
     "init-appdb": {
       "dockerfile-path": "docker/mongodb-kubernetes-init-appdb/Dockerfile",
-      "patch": {
+      "pr_patch": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-appdb"],
         "platforms": [
           "linux/amd64"
@@ -110,7 +110,7 @@
     },
     "init-ops-manager": {
       "dockerfile-path": "docker/mongodb-kubernetes-init-ops-manager/Dockerfile",
-      "patch": {
+      "pr_patch": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-ops-manager"],
         "platforms": [
           "linux/amd64"
@@ -135,7 +135,7 @@
     },
     "database": {
       "dockerfile-path": "docker/mongodb-kubernetes-database/Dockerfile",
-      "patch": {
+      "pr_patch": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-database"],
         "platforms": [
           "linux/amd64"
@@ -166,7 +166,7 @@
     },
     "meko-tests": {
       "dockerfile-path": "docker/mongodb-kubernetes-tests/Dockerfile",
-      "patch": {
+      "pr_patch": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-tests"],
         "platforms": [
           "linux/amd64"
@@ -188,7 +188,7 @@
     },
     "mco-tests": {
       "dockerfile-path": "docker/mongodb-community-tests/Dockerfile",
-      "patch": {
+      "pr_patch": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-community-tests"],
         "platforms": [
           "linux/amd64"
@@ -203,7 +203,7 @@
     },
     "readiness-probe": {
       "dockerfile-path": "docker/mongodb-kubernetes-readinessprobe/Dockerfile",
-      "patch": {
+      "pr_patch": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-readinessprobe"],
         "platforms": [
           "linux/amd64"
@@ -232,7 +232,7 @@
     },
     "upgrade-hook": {
       "dockerfile-path": "docker/mongodb-kubernetes-upgrade-hook/Dockerfile",
-      "patch": {
+      "pr_patch": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-operator-version-upgrade-post-start-hook"],
         "platforms": [
           "linux/amd64"
@@ -259,7 +259,7 @@
     },
     "agent": {
       "dockerfile-path": "docker/mongodb-agent/Dockerfile",
-      "patch": {
+      "pr_patch": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent"],
         "platforms": [
           "linux/amd64"
@@ -289,7 +289,7 @@
     },
     "ops-manager": {
       "dockerfile-path": "docker/mongodb-enterprise-ops-manager/Dockerfile",
-      "patch": {
+      "pr_patch": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-ops-manager-ubi"],
         "platforms": [
           "linux/amd64"
@@ -314,7 +314,7 @@
   },
   "binaries": {
     "kubectl-mongodb": {
-      "patch": {
+      "pr_patch": {
         "s3-store": "s3://kubectl-mongodb/dev",
         "platforms": [
           "linux/amd64"
@@ -344,7 +344,7 @@
   },
   "helm-charts": {
     "mongodb-kubernetes": {
-      "patch": {
+      "pr_patch": {
         "repositories": ["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/helm-charts"]
       },
       "staging": {

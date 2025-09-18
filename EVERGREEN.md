@@ -1,11 +1,11 @@
 # Evergreen CI/CD Configuration Guide
 
 Each variant needs to be tagged with one or more tags referencing related build scenario:
- - pr_patch: for patches created by GitHub PRs
- - staging: for builds triggered when merging to master or release branch
- - release: for builds triggered on git tags
+ - `pr_patch`: for builds triggered by GitHub PRs
+ - `staging`: for builds triggered when merging to master or release branch
+ - `release`: for builds triggered on operator git tags
 
-For variants that are **only** triggered manually (patch) or by PCT we should use "manual_patch" tag.
+For variants that are **only** triggered manually (patch) or by PCT we should use `manual_patch` tag.
 Examples: `migrate_all_agents`, `e2e_operator_perf` or `publish_om80_images`.
 
 This configuration allows us to run all the associated tasks for each scenario from evergreen command line.
@@ -24,19 +24,19 @@ there is no git tag to pick up.
 
 ## Example commands
 
-### Full patch scenario:
+### Full PR patch scenario:
 
 ```shell
-evergreen patch -p mongodb-kubernetes -a pr_patch -d "Test PR patch build" -f -y -u --path .evergreen.yml
+evergreen patch -p mongodb-kubernetes -a pr_patch -d "Test PR patch build" -f -y -u --path .evergreen.yml --param BUILD_SCENARIO=pr_patch
 ```
 
-### Staging scenario:
+### Full staging scenario:
 
 ```shell
 evergreen patch -p mongodb-kubernetes -a staging -d "Test staging build" -f -y -u --path .evergreen.yml --param BUILD_SCENARIO=staging
 ```
 
-### Release scenario:
+### Full release scenario:
 
 ```shell
 evergreen patch -p mongodb-kubernetes -a release -d "Test release build" -f -y -u --path .evergreen.yml --param BUILD_SCENARIO=release --param OPERATOR_VERSION=1.3.0-rc

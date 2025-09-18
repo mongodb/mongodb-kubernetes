@@ -216,7 +216,7 @@ By default build information is read from 'build_info.json' file in the project 
         type=str,
         choices=supported_scenarios,
         help=f"""Build scenario when reading configuration from 'build_info.json'.
-Options: {", ".join(supported_scenarios)}. For '{BuildScenario.DEVELOPMENT}' the '{BuildScenario.PATCH}' scenario is used to read values from 'build_info.json'""",
+Options: {", ".join(supported_scenarios)}. For '{BuildScenario.DEVELOPMENT}' the '{BuildScenario.PR_PATCH}' scenario is used to read values from 'build_info.json'""",
     )
     parser.add_argument(
         "-p",
