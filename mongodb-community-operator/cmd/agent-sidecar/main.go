@@ -30,6 +30,89 @@ const (
 	pollingDuration time.Duration = 60 * time.Second
 )
 
+// getCurrentStepInfo extracts current step and move information from health status
+func getCurrentStepInfo(health agent.Health) string {
+	var info []string
+
+	for processName, status := range health.ProcessPlans {
+		if len(status.Plans) == 0 {
+			continue
+		}
+
+		// Get the most recent plan (last in the array)
+		latestPlan := status.Plans[len(status.Plans)-1]
+
+		// Find the current move and step
+		for _, move := range latestPlan.Moves {
+			for _, step := range move.Steps {
+				// If step is not completed, it's the current step
+				if step.Completed == nil && step.Started != nil {
+					info = append(info, fmt.Sprintf("%s: %s -> %s", processName, move.Move, step.Step))
+				}
+			}
+		}
+	}
+
+	if len(info) > 0 {
+		return fmt.Sprintf(" [Current: %s]", strings.Join(info, ", "))
+	}
+	return ""
+}
+
+// conciseDiff creates a more concise diff output showing only changed lines with minimal context
+func conciseDiff(old, new interface{}) string {
+	diff := cmp.Diff(old, new,
+		cmpopts.IgnoreFields(agent.ProcessHealth{}, "LastMongoUpTime"),
+		cmpopts.IgnoreFields(agent.PlanStatus{}, "Started", "Completed"),
+		cmpopts.IgnoreFields(agent.StepStatus{}, "Started", "Completed"),
+	)
+
+	if diff == "" {
+		return ""
+	}
+
+	// Add current step info if available
+	currentStepInfo := ""
+	if newHealth, ok := new.(agent.Health); ok {
+		currentStepInfo = getCurrentStepInfo(newHealth)
+	}
+
+	// Split diff into lines and filter to show only changed lines with exactly one line of context before/after
+	lines := strings.Split(diff, "\n")
+	var result []string
+	var addedLines = make(map[int]bool) // Track which lines we've already added
+
+	for i, line := range lines {
+		// Include lines that show actual changes (+ or -)
+		if strings.HasPrefix(line, "+") || strings.HasPrefix(line, "-") {
+			// Add exactly one line before for context (if exists and not already added)
+			if i > 0 && !addedLines[i-1] {
+				result = append(result, lines[i-1])
+				addedLines[i-1] = true
+			}
+
+			// Add the changed line
+			if !addedLines[i] {
+				result = append(result, line)
+				addedLines[i] = true
+			}
+
+			// Add exactly one line after for context (if exists and not already added)
+			if i < len(lines)-1 && !addedLines[i+1] {
+				result = append(result, lines[i+1])
+				addedLines[i+1] = true
+			}
+		}
+	}
+
+	diffOutput := strings.Join(result, "\n")
+	if currentStepInfo != "" {
+		diffOutput += currentStepInfo
+	}
+
+	return diffOutput
+}
+
 func main() {
 	ctx := context.Background()
 	logger := setupLogger()
@@ -65,9 +148,11 @@ func main() {
 			logger.Infof("Agent health status initialized: %s", getHealthSummary(health))
 			lastHealth = health
 			isFirstRead = false
-		} else if diff := cmp.Diff(lastHealth, health, cmpopts.IgnoreFields(agent.ProcessHealth{}, "LastMongoUpTime")); diff != "" {
-			logger.Infof("Agent health status changed:\n%s", diff)
-			lastHealth = health
+		} else {
+			if diff := conciseDiff(lastHealth, health); diff != "" {
+				logger.Infof("Agent health status changed:\n%s", diff)
+				lastHealth = health
+			}
 		}
 
 		shouldDelete, err := shouldDeletePod(health)
