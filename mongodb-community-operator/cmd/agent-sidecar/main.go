@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	"go.uber.org/zap"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -40,14 +41,15 @@ func main() {
 	}
 
 	// Continuously monitor agent health status for WaitDeleteMyPodKube step
+	var lastHealth agent.Health
+	var isFirstRead = true
 	for {
-		logger.Info("Checking agent health status for WaitDeleteMyPodKube step...")
-		health, err := waitForAgentHealthStatus()
+		health, err := getAgentHealthStatus()
 		if err != nil {
 			// If the pod has just restarted then the status file will not exist.
 			// In that case we continue monitoring
 			if os.IsNotExist(err) {
-				logger.Info("Agent health status file not found, continuing to monitor...")
+				logger.Info("Agent health status file not found, monitoring...")
 			} else {
 				logger.Errorf("Error getting the agent health file: %s", err)
 			}
@@ -55,6 +57,16 @@ func main() {
 			// Wait before trying again
 			time.Sleep(5 * time.Second)
 			continue
+		}
+
+		// Check if health status has changed
+		if isFirstRead {
+			logger.Infof("Agent health status initialized: %s", getHealthSummary(health))
+			lastHealth = health
+			isFirstRead = false
+		} else if diff := cmp.Diff(lastHealth, health); diff != "" {
+			logger.Infof("Agent health status changed:\n%s", diff)
+			lastHealth = health
 		}
 
 		shouldDelete, err := shouldDeletePod(health)
@@ -65,7 +77,7 @@ func main() {
 		}
 
 		if shouldDelete {
-			logger.Infof("Pod should be deleted - WaitDeleteMyPodKube step detected")
+			logger.Infof("🚨 WaitDeleteMyPodKube step detected - deleting pod")
 			if err := deletePod(ctx); err != nil {
 				// We should not raise an error if the Pod could not be deleted. It can have even
 				// worse consequences: Pod being restarted with the same version, and the agent
@@ -73,7 +85,7 @@ func main() {
 				logger.Errorf("Could not manually trigger restart of this Pod because of: %s", err)
 				logger.Errorf("Make sure the Pod is restarted in order for the upgrade process to continue")
 			} else {
-				logger.Info("Successfully deleted pod - waiting for restart...")
+				logger.Info("✅ Successfully deleted pod - waiting for restart...")
 			}
 
 			// If the Pod needs to be killed, we'll wait until the Pod
@@ -152,6 +164,8 @@ func getAgentHealthStatus() (agent.Health, error) {
 	return h, err
 }
 
+
+
 // readAgentHealthStatus reads an instance of health.Health from the provided
 // io.Reader
 func readAgentHealthStatus(reader io.Reader) (agent.Health, error) {
@@ -166,6 +180,51 @@ func readAgentHealthStatus(reader io.Reader) (agent.Health, error) {
 
 func getHostname() string {
 	return os.Getenv("HOSTNAME")
+}
+
+
+
+// getHealthSummary returns a concise summary of the current health status
+func getHealthSummary(health agent.Health) string {
+	hostname := getHostname()
+
+	// Check process health
+	status, hasStatus := health.Healthiness[hostname]
+	processStatus, hasProcessStatus := health.ProcessPlans[hostname]
+
+	if !hasStatus {
+		return "no_health_data"
+	}
+
+	goalState := "in_goal"
+	if !status.IsInGoalState {
+		goalState = "not_in_goal"
+	}
+
+	if !hasProcessStatus || len(processStatus.Plans) == 0 {
+		return fmt.Sprintf("%s_no_plans", goalState)
+	}
+
+	// Get the latest plan
+	latestPlan := processStatus.Plans[len(processStatus.Plans)-1]
+	if latestPlan.Completed != nil {
+		return fmt.Sprintf("%s_plan_completed", goalState)
+	}
+
+	// Find current move
+	for _, move := range latestPlan.Moves {
+		if move.Move == "WaitDeleteMyPodKube" {
+			return "waiting_for_pod_deletion"
+		}
+		// Check if this move has incomplete steps
+		for _, step := range move.Steps {
+			if step.Completed == nil {
+				return fmt.Sprintf("%s_executing_%s", goalState, move.Move)
+			}
+		}
+	}
+
+	return fmt.Sprintf("%s_plan_running", goalState)
 }
 
 // shouldDeletePod returns a boolean value indicating if this pod should be deleted

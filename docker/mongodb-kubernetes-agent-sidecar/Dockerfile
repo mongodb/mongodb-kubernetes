@@ -10,7 +10,7 @@ COPY mongodb-community-operator /go/src/github.com/mongodb/mongodb-kubernetes/mo
 
 ARG TARGETARCH
 ARG TARGETOS
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -a -o /data/scripts/agent-sidecar ./mongodb-community-operator/cmd/agentsidecar/main.go
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -a -o /data/scripts/agent-sidecar ./mongodb-community-operator/cmd/agent-sidecar/main.go
 
 FROM registry.access.redhat.com/ubi9/ubi-minimal
 
