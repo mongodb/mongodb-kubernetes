@@ -164,9 +164,10 @@ buildvariants:
     tasks:
       - name: kind_code_snippets_task_group
 
+    #TODO: this task was disabled from automatic runs due to GKE resource issues https://jira.mongodb.org/browse/CLOUDP-345083
   - name: private_gke_code_snippets
     display_name: private_gke_code_snippets
-    tags: [ "staging", "e2e_test_suite" ]
+    tags: [ "manual_patch", "e2e_test_suite" ]
     allowed_requesters: [ "patch" ]
     run_on:
       - ubuntu2404-small
@@ -177,7 +178,6 @@ buildvariants:
   - name: private_kind_code_snippets
     display_name: private_kind_code_snippets
     tags: [ "pr_patch", "staging", "e2e_test_suite" ]
-    allowed_requesters: [ "patch", "github_pr" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om8_dependency
