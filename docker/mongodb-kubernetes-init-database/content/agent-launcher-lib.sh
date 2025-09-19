@@ -138,7 +138,8 @@ download_agent() {
         script_log "Error while downloading the Mongodb agent"
         exit 1
     fi
-    json_log 'agent-launcher-script' <"${MMS_LOG_DIR}/curl.log" >>"${MDB_LOG_FILE_AGENT_LAUNCHER_SCRIPT}"
+
+    grep -v -E "bytes data\]|\[no content\]" "${MMS_LOG_DIR}/curl.log" | json_log 'agent-launcher-script' >>"${MDB_LOG_FILE_AGENT_LAUNCHER_SCRIPT}"
     rm "${MMS_LOG_DIR}/curl.log" 2>/dev/null || true
 
     script_log "The Mongodb Agent binary downloaded, unpacking"
