@@ -5,8 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/agent"
 )
 
@@ -379,4 +377,106 @@ func TestCurrentStepInfo(t *testing.T) {
 
 	t.Logf("Current step info: %s", stepInfo)
 	t.Logf("Test passed: Current step info extraction works correctly")
+}
+
+func TestGetLastGoalStateClusterConfigVersion(t *testing.T) {
+	// Test with health status that has config version
+	health := agent.Health{
+		ProcessPlans: map[string]agent.MmsDirectorStatus{
+			"test-pod-0": {
+				Name: "test-process",
+				LastGoalStateClusterConfigVersion: 42,
+			},
+		},
+	}
+
+	// Mock hostname for test
+	originalHostname := getHostname
+	defer func() { getHostname = originalHostname }()
+	getHostname = func() string { return "test-pod-0" }
+
+	version := getLastGoalStateClusterConfigVersion(health)
+	if version != 42 {
+		t.Errorf("Expected config version 42, but got %d", version)
+	}
+
+	// Test with missing process
+	getHostname = func() string { return "missing-pod" }
+	version = getLastGoalStateClusterConfigVersion(health)
+	if version != 0 {
+		t.Errorf("Expected config version 0 for missing process, but got %d", version)
+	}
+}
+
+func TestGetCurrentMoveAndStep(t *testing.T) {
+	startTime := time.Date(2019, 9, 11, 14, 20, 40, 0, time.UTC)
+
+	// Test with active step
+	health := agent.Health{
+		Healthiness: map[string]agent.ProcessHealth{
+			"test-pod-0": {
+				IsInGoalState:   false,
+				ExpectedToBeUp:  true,
+				LastMongoUpTime: 1568222195,
+			},
+		},
+		ProcessPlans: map[string]agent.MmsDirectorStatus{
+			"test-pod-0": {
+				Name: "test-process",
+				Plans: []*agent.PlanStatus{
+					{
+						Started: &startTime,
+						Moves: []*agent.MoveStatus{
+							{
+								Move: "Start",
+								Steps: []*agent.StepStatus{
+									{
+										Step:      "StartFresh",
+										Started:   &startTime,
+										Completed: nil, // Currently running
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Mock hostname for test
+	originalHostname := getHostname
+	defer func() { getHostname = originalHostname }()
+	getHostname = func() string { return "test-pod-0" }
+
+	result := getCurrentMoveAndStep(health)
+	expected := "not_in_goal (executing: Start -> StartFresh)"
+	if result != expected {
+		t.Errorf("Expected '%s', but got '%s'", expected, result)
+	}
+
+	// Test with WaitDeleteMyPodKube move
+	health.ProcessPlans["test-pod-0"].Plans[0].Moves[0].Move = "WaitDeleteMyPodKube"
+	result = getCurrentMoveAndStep(health)
+	expected = "not_in_goal (waiting for pod deletion)"
+	if result != expected {
+		t.Errorf("Expected '%s', but got '%s'", expected, result)
+	}
+
+	// Test with completed plan
+	completedTime := time.Date(2019, 9, 11, 14, 25, 0, 0, time.UTC)
+	health.ProcessPlans["test-pod-0"].Plans[0].Completed = &completedTime
+	result = getCurrentMoveAndStep(health)
+	expected = "not_in_goal (plan completed)"
+	if result != expected {
+		t.Errorf("Expected '%s', but got '%s'", expected, result)
+	}
+
+	// Test with no health data
+	getHostname = func() string { return "missing-pod" }
+	result = getCurrentMoveAndStep(health)
+	expected = "no health data"
+	if result != expected {
+		t.Errorf("Expected '%s', but got '%s'", expected, result)
+	}
 }

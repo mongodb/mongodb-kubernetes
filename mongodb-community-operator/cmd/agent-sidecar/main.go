@@ -11,8 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
 	"go.uber.org/zap"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -65,59 +63,7 @@ func getCurrentStepInfo(health agent.Health) string {
 	return ""
 }
 
-// conciseDiff creates a more concise diff output showing only changed lines with minimal context
-func conciseDiff(old, new interface{}) string {
-	diff := cmp.Diff(old, new,
-		cmpopts.IgnoreFields(agent.ProcessHealth{}, "LastMongoUpTime"),
-		cmpopts.IgnoreFields(agent.PlanStatus{}, "Started", "Completed"),
-		cmpopts.IgnoreFields(agent.StepStatus{}, "Started", "Completed"),
-	)
 
-	if diff == "" {
-		return ""
-	}
-
-	// Add current step info if available
-	currentStepInfo := ""
-	if newHealth, ok := new.(agent.Health); ok {
-		currentStepInfo = getCurrentStepInfo(newHealth)
-	}
-
-	// Split diff into lines and filter to show only changed lines with exactly one line of context before/after
-	lines := strings.Split(diff, "\n")
-	var result []string
-	var addedLines = make(map[int]bool) // Track which lines we've already added
-
-	for i, line := range lines {
-		// Include lines that show actual changes (+ or -)
-		if strings.HasPrefix(line, "+") || strings.HasPrefix(line, "-") {
-			// Add exactly one line before for context (if exists and not already added)
-			if i > 0 && !addedLines[i-1] {
-				result = append(result, lines[i-1])
-				addedLines[i-1] = true
-			}
-
-			// Add the changed line
-			if !addedLines[i] {
-				result = append(result, line)
-				addedLines[i] = true
-			}
-
-			// Add exactly one line after for context (if exists and not already added)
-			if i < len(lines)-1 && !addedLines[i+1] {
-				result = append(result, lines[i+1])
-				addedLines[i+1] = true
-			}
-		}
-	}
-
-	diffOutput := strings.Join(result, "\n")
-	if currentStepInfo != "" {
-		diffOutput += currentStepInfo
-	}
-
-	return diffOutput
-}
 
 // AgentVersionInfo holds version information about the MongoDB automation agent
 type AgentVersionInfo struct {
@@ -245,6 +191,55 @@ func getVersionFromProcessList() string {
 	return ""
 }
 
+// getLastGoalStateClusterConfigVersion extracts the LastGoalStateClusterConfigVersion from health status
+func getLastGoalStateClusterConfigVersion(health agent.Health) int64 {
+	hostname := getHostname()
+	if processStatus, ok := health.ProcessPlans[hostname]; ok {
+		return processStatus.LastGoalStateClusterConfigVersion
+	}
+	return 0
+}
+
+// getCurrentMoveAndStep returns a concise description of the current move and step
+func getCurrentMoveAndStep(health agent.Health) string {
+	hostname := getHostname()
+
+	// Check process health
+	status, hasStatus := health.Healthiness[hostname]
+	processStatus, hasProcessStatus := health.ProcessPlans[hostname]
+
+	if !hasStatus {
+		return "no health data"
+	}
+
+	goalState := "in_goal"
+	if !status.IsInGoalState {
+		goalState = "not_in_goal"
+	}
+
+	if !hasProcessStatus || len(processStatus.Plans) == 0 {
+		return fmt.Sprintf("%s (no plans)", goalState)
+	}
+
+	// Get the latest plan
+	latestPlan := processStatus.Plans[len(processStatus.Plans)-1]
+	if latestPlan.Completed != nil {
+		return fmt.Sprintf("%s (plan completed)", goalState)
+	}
+
+	// Find current move and step
+	for _, move := range latestPlan.Moves {
+		// Check if this move has incomplete steps
+		for _, step := range move.Steps {
+			if step.Completed == nil {
+				return fmt.Sprintf("current move: %s, current step: %s", move.Move, step.Step)
+			}
+		}
+	}
+
+	return fmt.Sprintf("%s (plan running)", goalState)
+}
+
 // startVersionAPI starts a simple HTTP server to expose agent version information
 func startVersionAPI(port string) {
 	http.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
@@ -291,7 +286,7 @@ func main() {
 	}
 
 	// Continuously monitor agent health status for WaitDeleteMyPodKube step
-	var lastHealth agent.Health
+	var lastConfigVersion int64 = -1
 	var isFirstRead = true
 	for {
 		health, err := getAgentHealthStatus()
@@ -309,16 +304,29 @@ func main() {
 			continue
 		}
 
-		// Check if health status has changed (ignoring LastMongoUpTime)
+		// Check if LastGoalStateClusterConfigVersion has changed
+		currentConfigVersion := getLastGoalStateClusterConfigVersion(health)
 		if isFirstRead {
-			logger.Infof("Agent health status initialized: %s", getHealthSummary(health))
-			lastHealth = health
-			isFirstRead = false
-		} else {
-			if diff := conciseDiff(lastHealth, health); diff != "" {
-				logger.Infof("Agent health status changed:\n%s", diff)
-				lastHealth = health
+			hostname := getHostname()
+			logger.Infof("Agent health status initialized for hostname '%s': %s", hostname, getCurrentMoveAndStep(health))
+
+			// Debug: show available hostnames in health data
+			var availableHostnames []string
+			for h := range health.Healthiness {
+				availableHostnames = append(availableHostnames, h)
 			}
+			if len(availableHostnames) > 0 {
+				logger.Infof("Available hostnames in health data: %v", availableHostnames)
+			} else {
+				logger.Warnf("No hostnames found in health data")
+			}
+
+			lastConfigVersion = currentConfigVersion
+			isFirstRead = false
+		} else if currentConfigVersion != lastConfigVersion {
+			logger.Infof("Cluster config version changed from %d to %d: %s",
+				lastConfigVersion, currentConfigVersion, getCurrentMoveAndStep(health))
+			lastConfigVersion = currentConfigVersion
 		}
 
 		shouldDelete, err := shouldDeletePod(health)
@@ -436,55 +444,17 @@ func getHostname() string {
 
 
 
-// getHealthSummary returns a concise summary of the current health status
-func getHealthSummary(health agent.Health) string {
-	hostname := getHostname()
 
-	// Check process health
-	status, hasStatus := health.Healthiness[hostname]
-	processStatus, hasProcessStatus := health.ProcessPlans[hostname]
-
-	if !hasStatus {
-		return "no_health_data"
-	}
-
-	goalState := "in_goal"
-	if !status.IsInGoalState {
-		goalState = "not_in_goal"
-	}
-
-	if !hasProcessStatus || len(processStatus.Plans) == 0 {
-		return fmt.Sprintf("%s_no_plans", goalState)
-	}
-
-	// Get the latest plan
-	latestPlan := processStatus.Plans[len(processStatus.Plans)-1]
-	if latestPlan.Completed != nil {
-		return fmt.Sprintf("%s_plan_completed", goalState)
-	}
-
-	// Find current move
-	for _, move := range latestPlan.Moves {
-		if move.Move == "WaitDeleteMyPodKube" {
-			return "waiting_for_pod_deletion"
-		}
-		// Check if this move has incomplete steps
-		for _, step := range move.Steps {
-			if step.Completed == nil {
-				return fmt.Sprintf("%s_executing_%s", goalState, move.Move)
-			}
-		}
-	}
-
-	return fmt.Sprintf("%s_plan_running", goalState)
-}
 
 // shouldDeletePod returns a boolean value indicating if this pod should be deleted
 // this would be the case if the agent is currently trying to execute WaitDeleteMyPodKube step
 func shouldDeletePod(health agent.Health) (bool, error) {
-	status, ok := health.ProcessPlans[getHostname()]
+	hostname := getHostname()
+	status, ok := health.ProcessPlans[hostname]
 	if !ok {
-		return false, fmt.Errorf("hostname %s was not in the process plans", getHostname())
+		// Don't error on missing hostname - this is normal during startup
+		// Just return false (don't delete) and let the monitoring continue
+		return false, nil
 	}
 	return isWaitingToBeDeleted(status), nil
 }
