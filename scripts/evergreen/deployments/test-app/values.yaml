@@ -7,7 +7,9 @@ managedSecurityContext: false
 apiKey: omApiKey
 orgId: ""
 projectId: omProjectId
-tag:
+mekoTestsRegistry:
+mekoTestsVersion:
+versionId:
 taskName: ${TASK_NAME}
 
 pytest:

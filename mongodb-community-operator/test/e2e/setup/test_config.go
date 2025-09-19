@@ -9,11 +9,11 @@ const (
 	testNamespaceEnvName            = "WATCH_NAMESPACE"
 	testCertManagerNamespaceEnvName = "TEST_CERT_MANAGER_NAMESPACE"
 	testCertManagerVersionEnvName   = "TEST_CERT_MANAGER_VERSION"
-	operatorImageRepoEnvName        = "BASE_REPO_URL"
+	operatorImageRepoEnvName        = "OPERATOR_REGISTRY"
 	clusterWideEnvName              = "CLUSTER_WIDE"
 	performCleanupEnvName           = "PERFORM_CLEANUP"
 	LocalOperatorEnvName            = "LOCAL_OPERATOR"
-	versionIdEnv                    = "VERSION_ID"
+	operatorVersionEnvName          = "OPERATOR_VERSION"
 )
 
 type TestConfig struct {
@@ -39,7 +39,7 @@ func LoadTestConfigFromEnv() TestConfig {
 		OperatorImage: "mongodb-kubernetes",
 		Namespace:     envvar.GetEnvOrDefault(testNamespaceEnvName, "mongodb-test"), // nolint:forbidigo
 		// The operator version is based on the versionID, which context sets either locally manually or evg per patch
-		OperatorVersion:      envvar.GetEnvOrDefault(versionIdEnv, ""),                                // nolint:forbidigo
+		OperatorVersion:      envvar.GetEnvOrDefault(operatorVersionEnvName, ""),                      // nolint:forbidigo
 		CertManagerNamespace: envvar.GetEnvOrDefault(testCertManagerNamespaceEnvName, "cert-manager"), // nolint:forbidigo
 		CertManagerVersion:   envvar.GetEnvOrDefault(testCertManagerVersionEnvName, "v1.5.3"),         // nolint:forbidigo
 		OperatorImageRepoUrl: envvar.GetEnvOrDefault(operatorImageRepoEnvName, "quay.io/mongodb"),     // nolint:forbidigo

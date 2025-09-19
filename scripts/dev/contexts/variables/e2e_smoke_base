@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+if [[ "${BUILD_SCENARIO}" == "release" ]]; then
+  export MEKO_TESTS_REGISTRY="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
+fi
