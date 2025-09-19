@@ -4,7 +4,7 @@ set -Eeou pipefail
 source scripts/funcs/printing
 source scripts/dev/set_env_context.sh
 
-tools="kubectl helm coreutils kind jq shellcheck python@${PYTHON_VERSION}"
+tools="kubectl helm coreutils kind jq shellcheck python@${PYTHON_VERSION} chart-testing"
 echo "The following tools will be installed using homebrew: ${tools}"
 echo "Note, that you must download 'go' and Docker by yourself"
 
@@ -27,6 +27,9 @@ elif [ "$(uname)" = "Linux" ] ; then # Ubuntu only
   go install sigs.k8s.io/kind
 
   sudo snap install --channel=edge shellcheck
+
+  # install helm chart testing tool chart-testing (ct)
+  ./setup_chart_testing_cli.sh
 
 else
   echo "This only works on OSX & Ubuntu - please install the tools yourself. Sorry!"
