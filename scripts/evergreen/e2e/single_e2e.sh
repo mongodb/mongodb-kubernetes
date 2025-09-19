@@ -31,6 +31,9 @@ deploy_test_app() {
     arch=$(uname -m)
 
     case "${arch}" in
+        aarch64|arm64)
+            tag="${tag}-arm64"
+            ;;
         ppc64le)
             tag="${tag}-ppc64le"
             ;;
@@ -38,7 +41,7 @@ deploy_test_app() {
             tag="${tag}-s390x"
             ;;
         *)
-            echo "Not IBM host, using default tag"
+            echo "amd64 host, using default tag"
             ;;
     esac
 

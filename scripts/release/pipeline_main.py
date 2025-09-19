@@ -118,6 +118,7 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     platforms = get_platforms_from_arg(args.platform) or image_build_info.platforms
     sign = args.sign or image_build_info.sign
     dockerfile_path = image_build_info.dockerfile_path
+    architecture_suffix = args.architecture_suffix or image_build_info.architecture_suffix
 
     # Validate version - only ops-manager and agent can have None version as the versions are managed by the agent
     # and om methods themselves, which are externally retrieved - om_version env var and release.json respectively
@@ -137,6 +138,7 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
         parallel_factor=args.parallel_factor,
         all_agents=args.all_agents,
         currently_used_agents=args.current_agents,
+        architecture_suffix=architecture_suffix
     )
 
 
@@ -274,6 +276,11 @@ Default is to infer from environment variables. For '{BuildScenario.DEVELOPMENT}
         "--current-agents",
         action="store_true",
         help="Build all currently used agent images.",
+    )
+    parser.add_argument(
+        "--architecture-suffix",
+        action="store_true",
+        help="Append architecture suffix to image tags for single platform builds"
     )
 
     args = parser.parse_args()

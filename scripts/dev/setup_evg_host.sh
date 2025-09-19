@@ -33,8 +33,8 @@ download_kind() {
   scripts/evergreen/setup_kind.sh /usr/local
 }
 
-download_curl() {
-  echo "Downloading curl..."
+download_kubectl() {
+  echo "Downloading kubectl..."
   curl -s -o kubectl -L https://dl.k8s.io/release/"$(curl -L -s https://dl.k8s.io/release/stable.txt)"/bin/linux/"${ARCH}"/kubectl
   chmod +x kubectl
   sudo mv kubectl /usr/local/bin/kubectl
@@ -51,7 +51,7 @@ download_helm() {
 
 set_limits
 download_kind &
-download_curl &
+#download_kubectl &
 download_helm &
 
 wait

@@ -34,6 +34,7 @@ class ImageInfo:
     sign: bool = False
     latest_tag: bool = False
     olm_tag: bool = False
+    architecture_suffix: bool = False
 
 
 @dataclass
@@ -112,6 +113,7 @@ def load_build_info(
             sign=scenario_data.get("sign", False),
             latest_tag=scenario_data.get("latest-tag", False),
             olm_tag=scenario_data.get("olm-tag", False),
+            architecture_suffix=scenario_data.get("architecture_suffix", False),
         )
 
     binaries = {}

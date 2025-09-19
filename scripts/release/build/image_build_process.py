@@ -79,6 +79,7 @@ def execute_docker_build(
         Dict[str, str],
         push: bool,
         platforms: list[str],
+        architecture_suffix: bool = False,
         builder_name: str = DEFAULT_BUILDER_NAME,
 ):
     """
@@ -90,6 +91,7 @@ def execute_docker_build(
     :param args: Build arguments dictionary
     :param push: Whether to push the image after building
     :param platforms: List of target platforms (e.g., ["linux/amd64", "linux/arm64"])
+    :param architecture_suffix: Whether to add the architecture of the image as a suffix to the tag
     :param builder_name: Name of the buildx builder to use
     """
     # Login to ECR before building
@@ -111,6 +113,11 @@ def execute_docker_build(
         # Use buildx for multi-platform builds
         if len(platforms) > 1:
             logger.info(f"Multi-platform build for {len(platforms)} architectures")
+        elif architecture_suffix and len(platforms) == 1:
+            arch = platforms[0].split("/")[1]
+            tags = [f"{tag}-{arch}" for tag in tags]
+            logger.info(f"Using architecture suffix '{arch}' for tags: {tags}")
+
 
         # Build the image using buildx, builder must be already initialized
         docker_cmd.buildx.build(

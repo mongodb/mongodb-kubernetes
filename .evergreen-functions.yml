@@ -535,7 +535,7 @@ functions:
         shell: bash
         <<: *e2e_include_expansions_in_env
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/dev/run_python.sh scripts/release/pipeline_main.py --parallel ${image_name} ${all_agents} ${build_scenario}
+        binary: scripts/dev/run_python.sh scripts/release/pipeline_main.py --parallel ${image_name} ${all_agents} ${build_scenario} ${platform}
 
   # TODO: this function is very similar to pipeline and it will joined with it in the future
   release_operator_pipeline:
