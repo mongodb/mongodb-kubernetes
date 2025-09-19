@@ -590,6 +590,20 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 		log.Infof("Successfully ensured StatefulSet in cluster: %s", locator.clusterName)
 	}
 
+	// Not scaling the first time
+	if len(stsLocators) == 0 {
+		outdatedPods, err := r.getOutdatedPods(ctx, mrs, log)
+
+		primaryPod, err := r.getPrimary(ctx, conn, mrs.Name, log)
+		if err != nil {
+			return workflow.Failed(xerrors.Errorf("failed to get primary pod: %w", err))
+		}
+
+		if status := r.deleteOutdatedPod(ctx, outdatedPods, primaryPod, log); !status.IsOK() {
+			return status
+		}
+	}
+
 	return workflow.OK()
 }
 
@@ -1104,6 +1118,35 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileOMCAConfigMap(ctx context.Con
 		log.Infof("Sucessfully ensured configmap: %s in cluster: %s", cm.Name, clusterSpecItem.ClusterName)
 	}
 	return nil
+}
+
+func (r *ReconcileMongoDbMultiReplicaSet) getOutdatedPods(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger) ([]PodIdentifier, error) {
+	clusterSpecList, err := mrs.GetClusterSpecItems()
+	if err != nil {
+		return nil, err
+	}
+
+	var outdatedPodsList []PodIdentifier
+	for _, item := range clusterSpecList {
+		memberClient, ok := r.memberClusterClientsMap[item.ClusterName]
+		if !ok {
+			log.Warnf(fmt.Sprintf("failed to reconcile statefulset: cluster %s missing from client map", item.ClusterName))
+			continue
+		}
+
+		stsName := mrs.MultiStatefulsetName(mrs.ClusterNum(item.ClusterName))
+
+		outdatedPods, err := statefulset.GetOutdatedPods(ctx, mrs.Namespace, stsName, memberClient)
+		if err != nil {
+			return nil, xerrors.Errorf("Failed to get outdated pods: %w", err)
+		}
+
+		for _, pod := range outdatedPods {
+			outdatedPodsList = append(outdatedPodsList, PodIdentifier{Name: pod, Namespace: mrs.Namespace, Client: memberClient})
+		}
+	}
+
+	return outdatedPodsList, nil
 }
 
 // AddMultiReplicaSetController creates a new MongoDbMultiReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller

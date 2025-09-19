@@ -8,6 +8,7 @@ type Host struct {
 	AuthMechanismName string `json:"authMechanismName"`
 	Id                string `json:"id"`
 	ReplicaStateName  string `json:"replicaStateName"`
+	ReplicaSetName    string `json:"replicaSetName"`
 	TypeName          string `json:"typeName"`
 }
 

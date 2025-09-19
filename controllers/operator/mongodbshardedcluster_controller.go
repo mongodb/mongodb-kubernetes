@@ -1415,6 +1415,27 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateShards(ctx context.Context
 			if workflowStatus := r.getMergedStatefulsetStatus(ctx, s, r.shardsMemberClustersMap[shardIdx], getShardStsName); !workflowStatus.IsOK() {
 				return workflowStatus
 			}
+		} else {
+			projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.commonController.client, r.commonController.SecretClient, s, log)
+			if err != nil {
+				return workflow.Failed(xerrors.Errorf("failed to read project config and credentials: %w", err))
+			}
+
+			conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.commonController.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, s.Namespace, log)
+			if err != nil {
+				return workflow.Failed(xerrors.Errorf("Failed to prepare Ops Manager connection: %w", err))
+			}
+			outdatedPods, err := r.getOutdatedPods(ctx, s, shardIdx, log)
+
+			primaryPod, err := r.commonController.getPrimary(ctx, conn, s.ShardRsName(shardIdx), log)
+			if err != nil {
+				return workflow.Failed(xerrors.Errorf("failed to get primary pod: %w", err))
+			}
+
+			if status := r.commonController.deleteOutdatedPod(ctx, outdatedPods, primaryPod, log); !status.IsOK() {
+				return status
+			}
+
 		}
 	}
 
@@ -1465,6 +1486,24 @@ func (r *ShardedClusterReconcileHelper) getMergedStatefulsetStatus(ctx context.C
 	}
 
 	return mergedStatefulSetStatus
+}
+
+func (r *ShardedClusterReconcileHelper) getOutdatedPods(ctx context.Context, s *mdbv1.MongoDB, shardIdx int, log *zap.SugaredLogger) ([]PodIdentifier, error) {
+	var outdatedPodsList []PodIdentifier
+	for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[shardIdx]) {
+		stsName := r.GetShardStsName(shardIdx, memberCluster)
+
+		outdatedPods, err := statefulset.GetOutdatedPods(ctx, s.Namespace, stsName, memberCluster.Client)
+		if err != nil {
+			return nil, xerrors.Errorf("Failed to get outdated pods: %w", err)
+		}
+
+		for _, pod := range outdatedPods {
+			outdatedPodsList = append(outdatedPodsList, PodIdentifier{Name: pod, Namespace: s.Namespace, Client: memberCluster.Client})
+		}
+	}
+
+	return outdatedPodsList, nil
 }
 
 func (r *ShardedClusterReconcileHelper) handlePVCResize(ctx context.Context, memberCluster multicluster.MemberCluster, sts *appsv1.StatefulSet, log *zap.SugaredLogger) workflow.Status {

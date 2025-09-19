@@ -32,9 +32,6 @@ spec:
               volumeMounts:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases
-
-
-
           initContainers:
             - name: setting-up-rhel-mongodb-4-2-8
               image: curlimages/curl:latest

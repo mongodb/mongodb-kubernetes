@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"reflect"
-
 	"github.com/blang/semver"
 	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
@@ -14,8 +12,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"reflect"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -363,6 +363,63 @@ func (r *ReconcileCommonController) scaleStatefulSet(ctx context.Context, namesp
 		set.Spec.Replicas = &replicas
 		return client.UpdateStatefulSet(ctx, set)
 	}
+}
+
+func (r *ReconcileCommonController) getPrimary(ctx context.Context, conn om.Connection, rsName string, log *zap.SugaredLogger) (string, error) {
+	hosts, err := conn.GetHosts()
+	if err != nil {
+		return "", xerrors.Errorf("Failed to get hosts from Ops Manager: %w", err)
+	}
+	log.Infof("Fetched %d hosts from Ops Manager", len(hosts.Results))
+
+	for _, h := range hosts.Results {
+		if h.ReplicaSetName == rsName && h.ReplicaStateName == "PRIMARY" {
+			log.Infof("Found primary host: %s for replicaset %s", h.Hostname, rsName)
+			return h.Hostname, nil
+		}
+	}
+	return "", xerrors.Errorf("No primary host found in Ops Manager for resource %s", rsName)
+}
+
+type PodIdentifier struct {
+	Namespace string
+	Name      string
+	Client    kubernetesClient.Client
+}
+
+func (r *ReconcileCommonController) deleteOutdatedPod(ctx context.Context, outdatedPods []PodIdentifier, primaryPod string, log *zap.SugaredLogger) workflow.Status {
+	//outdatedPods, err := statefulset.GetOutdatedPods(ctx, namespace, name, client)
+	//if err != nil {
+	//	return workflow.Failed(xerrors.Errorf("Failed to get outdated pods: %w", err))
+	//}
+	//
+	if len(outdatedPods) == 0 {
+		return workflow.OK()
+	}
+	//
+	//primaryPod, err := r.getPrimary(ctx, conn, name, log)
+	//if err != nil {
+	//	return workflow.Failed(xerrors.Errorf("Failed to get primary pod: %w", err))
+	//}
+
+	var deletedPod PodIdentifier
+	for _, pod := range outdatedPods {
+		if !strings.Contains(primaryPod, pod.Name) {
+			log.Infof("Outdated pod %s is not primary, proceeding to delete", pod)
+			deletedPod = pod
+			if err := pod.Client.DeletePod(ctx, kube.ObjectKey(pod.Namespace, pod.Name)); err != nil {
+				return workflow.Failed(xerrors.Errorf("Failed to delete pod %s: %w", pod.Name, err))
+			}
+			break
+		} else if len(outdatedPods) == 1 {
+			log.Infof("Restarting primary pod %s as it's the only outdated pod", primaryPod)
+			if err := pod.Client.DeletePod(ctx, kube.ObjectKey(pod.Namespace, pod.Name)); err != nil {
+				return workflow.Failed(xerrors.Errorf("Failed to delete primary pod %s: %w", primaryPod, err))
+			}
+		}
+	}
+
+	return workflow.Pending("Deleted outdated pod %s, waiting for it to be recreated", deletedPod)
 }
 
 // validateScram ensures that the SCRAM configuration is valid for the MongoDBResource

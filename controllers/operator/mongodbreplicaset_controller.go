@@ -3,7 +3,6 @@ package operator
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -295,7 +294,20 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 				return status
 			}
 
-			if status := r.deleteOutdatedPod(ctx, conn, rs, log); !status.IsOK() {
+			// TODO: only run this if the deployment is already configured in OM
+
+			outdatedPods, err := r.getOutdatedPods(ctx, rs)
+
+			if len(outdatedPods) == 0 {
+				return workflow.OK()
+			}
+
+			primaryPod, err := r.getPrimary(ctx, conn, rs.Name, log)
+			if err != nil {
+				return workflow.Failed(err)
+			}
+
+			if status := r.deleteOutdatedPod(ctx, outdatedPods, primaryPod, log); !status.IsOK() {
 				return status
 			}
 
@@ -546,57 +558,6 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 	return workflow.OK()
 }
 
-func (r *ReconcileMongoDbReplicaSet) getPrimary(ctx context.Context, conn om.Connection, rs *mdbv1.MongoDB, log *zap.SugaredLogger) (string, error) {
-	hosts, err := conn.GetHosts()
-	if err != nil {
-		return "", xerrors.Errorf("Failed to get hosts from Ops Manager: %w", err)
-	}
-	log.Infof("Fetched %d hosts from Ops Manager", len(hosts.Results))
-
-	for _, h := range hosts.Results {
-		if h.ReplicaStateName == "PRIMARY" {
-			log.Infof("Found primary host: %s", h.Hostname)
-			return strings.Split(h.Hostname, ".")[0], nil
-		}
-	}
-	return "", xerrors.Errorf("No primary host found in Ops Manager for replicaset %s", rs.Name)
-}
-
-func (r *ReconcileMongoDbReplicaSet) deleteOutdatedPod(ctx context.Context, conn om.Connection, rs *mdbv1.MongoDB, log *zap.SugaredLogger) workflow.Status {
-	outdatedPods, err := statefulset.GetOutdatedPods(ctx, rs.Namespace, rs.Name, r.client)
-	if err != nil {
-		return workflow.Failed(xerrors.Errorf("Failed to get outdated pods: %w", err))
-	}
-
-	if len(outdatedPods) == 0 {
-		return workflow.OK()
-	}
-
-	primaryPod, err := r.getPrimary(ctx, conn, rs, log)
-	if err != nil {
-		return workflow.Failed(xerrors.Errorf("Failed to get primary pod: %w", err))
-	}
-
-	var deletedPod string
-	for _, pod := range outdatedPods {
-		if pod != primaryPod {
-			log.Infof("Outdated pod %s is not primary, proceeding to delete", pod)
-			deletedPod = pod
-			if err := r.client.DeletePod(ctx, kube.ObjectKey(rs.Namespace, pod)); err != nil {
-				return workflow.Failed(xerrors.Errorf("Failed to delete pod %s: %w", pod, err))
-			}
-			break
-		} else if len(outdatedPods) == 1 {
-			log.Infof("Restarting primary pod %s as it's the only outdated pod", primaryPod)
-			if err := r.client.DeletePod(ctx, kube.ObjectKey(rs.Namespace, primaryPod)); err != nil {
-				return workflow.Failed(xerrors.Errorf("Failed to delete primary pod %s: %w", primaryPod, err))
-			}
-		}
-	}
-
-	return workflow.Pending("Deleted outdated pod %s, waiting for it to be recreated", deletedPod)
-}
-
 // updateOmDeploymentDisableTLSConfiguration checks if TLS configuration needs
 // to be disabled. In which case it will disable it and inform to the calling
 // function.
@@ -762,4 +723,18 @@ func (r *ReconcileMongoDbReplicaSet) lookupCorrespondingSearchResource(ctx conte
 		}
 	}
 	return search
+}
+
+func (r *ReconcileMongoDbReplicaSet) getOutdatedPods(ctx context.Context, rs *mdbv1.MongoDB) ([]PodIdentifier, error) {
+	outdatedPods, err := statefulset.GetOutdatedPods(ctx, rs.Namespace, rs.Name, r.client)
+	if err != nil {
+		return nil, xerrors.Errorf("Failed to get outdated pods: %w", err)
+	}
+
+	var outdatedPodsList []PodIdentifier
+	for _, pod := range outdatedPods {
+		outdatedPodsList = append(outdatedPodsList, PodIdentifier{Name: pod, Namespace: rs.Namespace, Client: r.client})
+	}
+
+	return outdatedPodsList, nil
 }
