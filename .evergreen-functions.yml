@@ -256,7 +256,7 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         add_to_path:
           - ${workdir}/bin
-        command: scripts/evergreen/setup_chart_testing_cli.sh
+        command: scripts/dev/setup_chart_testing_cli.sh
     - command: subprocess.exec
       type: test
       params:
@@ -272,7 +272,7 @@ functions:
           - ${workdir}/bin
           - ${workdir}/venv/bin
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/evergreen/lint_helm_chart.sh
+        binary: scripts/dev/lint_helm_chart.sh
 
   # Configures docker authentication to ECR and RH registries.
   setup_building_host:

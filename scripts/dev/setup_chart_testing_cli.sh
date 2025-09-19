@@ -8,8 +8,14 @@ set -Eeou pipefail
 
 source scripts/dev/set_env_context.sh
 
-bindir="${PROJECT_DIR}/bin"
-tmpdir="${PROJECT_DIR}/tmp"
+if [[ -n "${PROJECT_DIR:-}" ]]; then
+  bindir="${PROJECT_DIR}/bin"
+  tmpdir="${PROJECT_DIR}/tmp"
+else
+  bindir="${GOPATH}/bin"
+  tmpdir="${GOPATH}/tmp"
+fi
+
 mkdir -p "${bindir}" "${tmpdir}"
 
 curl -s --retry 3 -L -o "${tmpdir}/chart-testing_3.13.0_linux_amd64.tar.gz" "https://github.com/helm/chart-testing/releases/download/v3.13.0/chart-testing_3.13.0_linux_amd64.tar.gz"

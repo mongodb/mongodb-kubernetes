@@ -423,5 +423,5 @@ prepare-operator-configmap: # prepares the local environment to run a local oper
 
 # Lint the helm chart using helm chart-testing tool (`ct`) using the default configuration available at `helm_chart/tests/schemas/`
 lint-chart:
-	scripts/evergreen/lint_helm_chart.sh
+	scripts/dev/lint_helm_chart.sh
 	
