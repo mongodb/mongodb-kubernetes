@@ -267,9 +267,12 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		lastSpec = &mdbv1.MongoDbSpec{}
 	}
 
+	agentCertSecretName := s.GetSecurity().AgentClientCertificateSecretName(s.Name)
+	_, agentCertPath := r.agentCertHashAndPath(ctx, log, s.Namespace, agentCertSecretName, databaseSecretPath)
+
 	status := workflow.RunInGivenOrder(publishAutomationConfigFirst(ctx, r.client, *s, lastSpec, standaloneOpts, log),
 		func() workflow.Status {
-			return r.updateOmDeployment(ctx, conn, s, sts, false, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+			return r.updateOmDeployment(ctx, conn, s, sts, false, agentCertPath, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
 			if err = create.DatabaseInKubernetes(ctx, r.client, *s, sts, standaloneOpts, log); err != nil {
@@ -314,15 +317,13 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 	return r.updateStatus(ctx, s, status, log, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())))
 }
 
-func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, conn om.Connection, s *mdbv1.MongoDB, set appsv1.StatefulSet, isRecovering bool, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, conn om.Connection, s *mdbv1.MongoDB, set appsv1.StatefulSet, isRecovering bool, agentCertPath string, log *zap.SugaredLogger) workflow.Status {
 	if err := agents.WaitForRsAgentsToRegister(set, 0, s.Spec.GetClusterDomain(), conn, log, s); err != nil {
 		return workflow.Failed(err)
 	}
 
-	agentCertSecretSelector := s.GetSecurity().AgentClientCertificateSecretName(s.Name)
-
 	// TODO standalone PR
-	status, additionalReconciliationRequired := r.updateOmAuthentication(ctx, conn, []string{set.Name}, s, agentCertSecretSelector, "", "", isRecovering, log)
+	status, additionalReconciliationRequired := r.updateOmAuthentication(ctx, conn, []string{set.Name}, s, agentCertPath, "", "", isRecovering, log)
 	if !status.IsOK() {
 		return status
 	}

@@ -91,8 +91,7 @@ func TestUpdateOmAuthentication_NoAuthenticationEnabled(t *testing.T) {
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
 	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, omConnectionFactory.GetConnectionFunc)
-	agentCertSecretSelector := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name)
-	r.updateOmAuthentication(ctx, conn, processNames, rs, agentCertSecretSelector, "", "", false, zap.S())
+	r.updateOmAuthentication(ctx, conn, processNames, rs, "", "", "", false, zap.S())
 
 	ac, _ := conn.ReadAutomationConfig()
 
@@ -113,8 +112,7 @@ func TestUpdateOmAuthentication_EnableX509_TlsNotEnabled(t *testing.T) {
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
 	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, omConnectionFactory.GetConnectionFunc)
-	agentCertSecretSelector := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name)
-	status, isMultiStageReconciliation := r.updateOmAuthentication(ctx, conn, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, agentCertSecretSelector, "", "", false, zap.S())
+	status, isMultiStageReconciliation := r.updateOmAuthentication(ctx, conn, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", false, zap.S())
 
 	assert.True(t, status.IsOK(), "configuring both options at once should not result in a failed status")
 	assert.True(t, isMultiStageReconciliation, "configuring both tls and x509 at once should result in a multi stage reconciliation")
@@ -126,8 +124,7 @@ func TestUpdateOmAuthentication_EnableX509_WithTlsAlreadyEnabled(t *testing.T) {
 	omConnectionFactory := om.NewCachedOMConnectionFactoryWithInitializedConnection(om.NewMockedOmConnection(deployment.CreateFromReplicaSet("fake-mongoDBImage", false, rs)))
 	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
 	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, omConnectionFactory.GetConnectionFunc)
-	agentCertSecretSelector := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name)
-	status, isMultiStageReconciliation := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, agentCertSecretSelector, "", "", false, zap.S())
+	status, isMultiStageReconciliation := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", false, zap.S())
 
 	assert.True(t, status.IsOK(), "configuring x509 when tls has already been enabled should not result in a failed status")
 	assert.False(t, isMultiStageReconciliation, "if tls is already enabled, we should be able to configure x509 is a single reconciliation")
@@ -143,8 +140,7 @@ func TestUpdateOmAuthentication_AuthenticationIsNotConfigured_IfAuthIsNotSet(t *
 	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
 	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, omConnectionFactory.GetConnectionFunc)
 
-	agentCertSecretSelector := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name)
-	status, _ := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, agentCertSecretSelector, "", "", false, zap.S())
+	status, _ := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", false, zap.S())
 	assert.True(t, status.IsOK(), "no authentication should have been configured")
 
 	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
@@ -213,10 +209,10 @@ func TestUpdateOmAuthentication_EnableX509_FromEmptyDeployment(t *testing.T) {
 	omConnectionFactory := om.NewCachedOMConnectionFactoryWithInitializedConnection(om.NewMockedOmConnection(om.NewDeployment()))
 	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
 	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, omConnectionFactory.GetConnectionFunc)
-	createAgentCSRs(t, ctx, 1, r.client, certsv1.CertificateApproved)
+	secretName := util.AgentSecretName
+	createAgentCSRs(t, ctx, r.client, secretName, certsv1.CertificateApproved)
 
-	agentCertSecretSelector := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name)
-	status, isMultiStageReconciliation := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, agentCertSecretSelector, "", "", false, zap.S())
+	status, isMultiStageReconciliation := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", false, zap.S())
 	assert.True(t, status.IsOK(), "configuring x509 and tls when there are no processes should not result in a failed status")
 	assert.False(t, isMultiStageReconciliation, "if we are enabling tls and x509 at once, this should be done in a single reconciliation")
 }
@@ -812,17 +808,14 @@ func Test_NoExternalDomainPresent(t *testing.T) {
 }
 
 // createAgentCSRs creates all the agent CSRs needed for x509 at the specified condition type
-func createAgentCSRs(t *testing.T, ctx context.Context, numAgents int, client kubernetesClient.Client, conditionType certsv1.RequestConditionType) {
-	if numAgents != 1 && numAgents != 3 {
-		return
-	}
+func createAgentCSRs(t *testing.T, ctx context.Context, client kubernetesClient.Client, secretName string, conditionType certsv1.RequestConditionType) {
 	// create the secret the agent certs will exist in
 	certAuto, _ := os.ReadFile("testdata/certificates/cert_auto")
 
 	builder := secret.Builder().
 		SetNamespace(mock.TestNamespace).
-		SetName(util.AgentSecretName).
-		SetField(util.AutomationAgentPemSecretKey, string(certAuto))
+		SetName(secretName).
+		SetField(corev1.TLSCertKey, string(certAuto))
 
 	err := client.CreateSecret(ctx, builder.Build())
 	assert.NoError(t, err)

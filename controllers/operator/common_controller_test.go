@@ -19,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
@@ -418,7 +419,7 @@ func TestSecretWatcherWithAllResources(t *testing.T) {
 	// TODO: unify the watcher setup with the secret creation/mounting code in database creation
 	memberCert := rs.GetSecurity().MemberCertificateSecretName(rs.Name)
 	internalAuthCert := rs.GetSecurity().InternalClusterAuthSecretName(rs.Name)
-	agentCert := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name).Name
+	agentCert := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name)
 
 	expected := map[watch.Object][]types.NamespacedName{
 		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {kube.ObjectKey(mock.TestNamespace, rs.Name)},
@@ -452,6 +453,67 @@ func TestSecretWatcherWithSelfProvidedTLSSecretNames(t *testing.T) {
 	}
 
 	assert.Equal(t, expected, controller.resourceWatcher.GetWatchedResources())
+}
+
+func TestAgentCertHashAndPath(t *testing.T) {
+	ctx := context.Background()
+	kubeClient, _ := mock.NewDefaultFakeClient(
+		&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "tls-secret",
+				Namespace: mock.TestNamespace,
+			},
+			StringData: map[string]string{
+				corev1.TLSCertKey: "fake-contents",
+			},
+			Type: corev1.SecretTypeTLS,
+		},
+		&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "opaque-secret",
+				Namespace: mock.TestNamespace,
+			},
+			StringData: map[string]string{
+				corev1.TLSCertKey: "fake-contents",
+			},
+			Type: corev1.SecretTypeOpaque,
+		},
+	)
+	controller := NewReconcileCommonController(ctx, kubeClient)
+
+	tests := []struct {
+		name         string
+		secretName   string
+		expectedHash string
+		expectedPath string
+	}{
+		{
+			name:         "TLS secret",
+			secretName:   "tls-secret",
+			expectedHash: "IQJW7I2VWNTYUEKGVULPP2DET2KPWT6CD7TX5AYQYBQPMHFK76FA",
+			expectedPath: "/mongodb-automation/agent-certs/IQJW7I2VWNTYUEKGVULPP2DET2KPWT6CD7TX5AYQYBQPMHFK76FA",
+		},
+		{
+			name:         "Opaque secret",
+			secretName:   "opaque-secret",
+			expectedHash: "",
+			expectedPath: "",
+		},
+		{
+			name:         "Secret doesn't exist",
+			secretName:   "non-existent-secret",
+			expectedHash: "",
+			expectedPath: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			hash, path := controller.agentCertHashAndPath(ctx, zap.S(), mock.TestNamespace, tc.secretName, "")
+			assert.Equal(t, tc.expectedHash, hash)
+			assert.Equal(t, tc.expectedPath, path)
+		})
+	}
 }
 
 func assertSubjectFromFileFails(t *testing.T, filePath string) {

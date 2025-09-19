@@ -405,6 +405,7 @@ def test_rotate_server_certs_with_sts_restarting(
 @mark.e2e_vault_setup
 def test_rotate_agent_certs(replica_set: MongoDB, vault_namespace: str, vault_name: str, namespace: str):
     replica_set.load()
+    old_ac_version = KubernetesTester.get_automation_config()["version"]
     old_version = replica_set["metadata"]["annotations"]["agent-certs"]
     cmd = [
         "vault",
@@ -421,6 +422,15 @@ def test_rotate_agent_certs(replica_set: MongoDB, vault_namespace: str, vault_na
         return old_version != replica_set["metadata"]["annotations"]["agent-certs"]
 
     kubetester.wait_until(wait_for_agent_certs, timeout=600, sleep_time=10)
+
+    def check_version_increased() -> bool:
+        current_version = KubernetesTester.get_automation_config()["version"]
+        version_increased = current_version > old_ac_version
+
+        return version_increased
+
+    kubetester.wait_until(check_version_increased, timeout=600)
+    kubetester.kubetester.wait_processes_ready()
 
 
 @mark.e2e_vault_setup
