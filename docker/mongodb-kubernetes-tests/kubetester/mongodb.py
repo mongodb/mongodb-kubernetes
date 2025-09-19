@@ -269,6 +269,9 @@ class MongoDB(CustomObject, MongoDBCommon):
 
         if src_project_config_map_name is None and "cloudManager" in self["spec"]:
             src_project_config_map_name = self["spec"]["cloudManager"]["configMapRef"]["name"]
+        else:
+            # my-project cm and my-credentials secret are created by scripts/evergreen/e2e/configure_operator.sh
+            src_project_config_map_name = "my-project"
 
         try:
             src_cm = read_configmap(self.namespace, src_project_config_map_name, api_client=api_client)

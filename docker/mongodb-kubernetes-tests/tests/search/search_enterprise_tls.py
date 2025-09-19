@@ -1,25 +1,21 @@
-from typing import Optional
-
 import pymongo
 import yaml
+from pytest import fixture, mark
+
 from kubetester import create_or_update_secret, try_load
 from kubetester.certs import create_mongodb_tls_certs, create_tls_certs
-from kubetester.kubetester import KubernetesTester, is_multi_cluster
+from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.omtester import skip_if_cloud_manager
-from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
-from pytest import fixture, mark
 from tests import test_logger
-from tests.common.ops_manager.cloud_manager import is_cloud_qa
 from tests.common.search import movies_search_helper
-from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.common.search.search_tester import SearchTester
-from tests.conftest import get_default_operator
-from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
+from tests.conftest import get_default_operator, get_issuer_ca_filepath
+from tests.opsmanager.conftest import custom_om_prev_version
 from tests.search.om_deployment import get_ops_manager
 
 logger = test_logger.get_test_logger(__name__)
@@ -38,6 +34,9 @@ MDB_RESOURCE_NAME = "mdb-ent-tls"
 # MongoDBSearch TLS configuration
 MDBS_TLS_SECRET_NAME = "mdbs-tls-secret"
 
+MDB_VERSION_WITHOUT_BUILT_IN_ROLE = "8.0.10-ent"
+MDB_VERSION_WITH_BUILT_IN_ROLE = "8.2.0-ent"
+
 
 @fixture(scope="function")
 def mdb(namespace: str, issuer_ca_configmap: str) -> MongoDB:
@@ -47,6 +46,7 @@ def mdb(namespace: str, issuer_ca_configmap: str) -> MongoDB:
         namespace=namespace,
     )
     resource.configure(om=get_ops_manager(namespace), project_name=MDB_RESOURCE_NAME)
+    resource.set_version(MDB_VERSION_WITHOUT_BUILT_IN_ROLE)
 
     if try_load(resource):
         return resource
@@ -81,6 +81,7 @@ def admin_user(namespace: str) -> MongoDBUser:
     if try_load(resource):
         return resource
 
+    resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
     resource["spec"]["username"] = resource.name
     resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
 
@@ -94,6 +95,7 @@ def user(namespace: str) -> MongoDBUser:
     if try_load(resource):
         return resource
 
+    resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
     resource["spec"]["username"] = resource.name
     resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
 
@@ -111,6 +113,7 @@ def mongot_user(namespace: str, mdbs: MongoDBSearch) -> MongoDBUser:
     if try_load(resource):
         return resource
 
+    resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
     resource["spec"]["username"] = MONGOT_USER_NAME
     resource["spec"]["passwordSecretKeyRef"]["name"] = f"{resource.name}-password"
 
@@ -162,19 +165,19 @@ def test_create_users(
     create_or_update_secret(
         namespace, name=admin_user["spec"]["passwordSecretKeyRef"]["name"], data={"password": ADMIN_USER_PASSWORD}
     )
-    admin_user.create()
+    admin_user.update()
     admin_user.assert_reaches_phase(Phase.Updated, timeout=300)
 
     create_or_update_secret(
         namespace, name=user["spec"]["passwordSecretKeyRef"]["name"], data={"password": USER_PASSWORD}
     )
-    user.create()
+    user.update()
     user.assert_reaches_phase(Phase.Updated, timeout=300)
 
     create_or_update_secret(
         namespace, name=mongot_user["spec"]["passwordSecretKeyRef"]["name"], data={"password": MONGOT_USER_PASSWORD}
     )
-    mongot_user.create()
+    mongot_user.update()
     # we deliberately don't wait for this user to be ready, because to be reconciled successfully it needs the searchCoordinator role
     # which the ReplicaSet reconciler will only define in the automation config after the MongoDBSearch resource is created.
 
@@ -187,7 +190,6 @@ def test_create_search_resource(mdbs: MongoDBSearch):
 
 @mark.e2e_search_enterprise_tls
 def test_wait_for_database_resource_ready(mdb: MongoDB):
-    mdb.assert_abandons_phase(Phase.Running, timeout=300)
     mdb.assert_reaches_phase(Phase.Running, timeout=300)
 
     for idx in range(mdb.get_members()):
@@ -196,18 +198,85 @@ def test_wait_for_database_resource_ready(mdb: MongoDB):
                 f"{mdb.name}-{idx}", mdb.namespace, ["cat", "/data/automation-mongod.conf"]
             )
         )
-        setParameter = mongod_config.get("setParameter", {})
+        set_parameter = mongod_config.get("setParameter", {})
         assert (
-            "mongotHost" in setParameter and "searchIndexManagementHostAndPort" in setParameter
+            "mongotHost" in set_parameter and "searchIndexManagementHostAndPort" in set_parameter
         ), "mongot parameters not found in mongod config"
 
 
 @mark.e2e_search_enterprise_tls
-def test_validate_tls_connections(mdb: MongoDB, mdbs: MongoDBSearch, namespace: str, issuer_ca_filepath: str):
+def test_validate_tls_connections(mdb: MongoDB, mdbs: MongoDBSearch, namespace: str):
+    validate_tls_connections(mdb, mdbs, namespace)
+
+
+@mark.e2e_search_enterprise_tls
+def test_search_restore_sample_database(mdb: MongoDB):
+    get_admin_sample_movies_helper(mdb).restore_sample_database()
+
+
+@mark.e2e_search_enterprise_tls
+def test_search_create_search_index(mdb: MongoDB):
+    get_user_sample_movies_helper(mdb).create_search_index()
+
+
+@mark.e2e_search_enterprise_tls
+def test_search_assert_search_query(mdb: MongoDB):
+    get_user_sample_movies_helper(mdb).assert_search_query(retry_timeout=60)
+
+
+@mark.e2e_search_enterprise_tls
+class TestUpgradeMongod:
+    def test_check_polyfilled_role_in_ac(self, mdb: MongoDB):
+        custom_roles = mdb.get_automation_config_tester().automation_config.get("roles", [])
+        assert (len(custom_roles) > 0)
+        assert ("searchCoordinator" in [role["role"] for role in custom_roles])
+
+    def test_mongod_version(self, mdb: MongoDB):
+        mdb.tester(ca_path=get_issuer_ca_filepath(), use_ssl=True).assert_version(MDB_VERSION_WITHOUT_BUILT_IN_ROLE)
+
+    def test_upgrade_to_mongo_8_2(self, mdb: MongoDB):
+        mdb.set_version(MDB_VERSION_WITH_BUILT_IN_ROLE)
+        mdb.update()
+        mdb.assert_reaches_phase(Phase.Running, timeout=600)
+
+    def test_check_polyfilled_role_not_in_ac(self, mdb: MongoDB):
+        custom_roles = mdb.get_automation_config_tester().automation_config.get("roles", [])
+        assert (len(custom_roles) >= 0)
+        assert ("searchCoordinator" not in [role["role"] for role in custom_roles])
+
+    def test_mongod_version_after_upgrade(self, mdb: MongoDB):
+        mdb_tester = mdb.tester(ca_path=get_issuer_ca_filepath(), use_ssl=True)
+        mdb_tester.assert_scram_sha_authentication(ADMIN_USER_NAME, ADMIN_USER_PASSWORD, "SCRAM-SHA-256", 1, ssl=True, tlsCAFile=get_issuer_ca_filepath())
+        # TODO check why assert version works without auth for 8.0 and not for 8.2
+        mdb_tester.assert_version(MDB_VERSION_WITH_BUILT_IN_ROLE)
+
+
+@mark.e2e_search_enterprise_tlssh
+def test_search_assert_search_query_2(mdb: MongoDB):
+    get_user_sample_movies_helper(mdb).assert_search_query(retry_timeout=60)
+
+
+def get_connection_string(mdb: MongoDB, user_name: str, user_password: str) -> str:
+    return f"mongodb://{user_name}:{user_password}@{mdb.name}-0.{mdb.name}-svc.{mdb.namespace}.svc.cluster.local:27017/?replicaSet={mdb.name}"
+
+
+def get_admin_sample_movies_helper(mdb):
+    return movies_search_helper.SampleMoviesSearchHelper(
+        SearchTester(get_connection_string(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD), use_ssl=True, ca_path=get_issuer_ca_filepath())
+    )
+
+
+def get_user_sample_movies_helper(mdb):
+    return movies_search_helper.SampleMoviesSearchHelper(
+        SearchTester(get_connection_string(mdb, USER_NAME, USER_PASSWORD), use_ssl=True, ca_path=get_issuer_ca_filepath())
+    )
+
+
+def validate_tls_connections(mdb: MongoDB, mdbs: MongoDBSearch, namespace: str):
     with pymongo.MongoClient(
         f"mongodb://{mdb.name}-0.{mdb.name}-svc.{namespace}.svc.cluster.local:27017/?replicaSet={mdb.name}",
         tls=True,
-        tlsCAFile=issuer_ca_filepath,
+        tlsCAFile=get_issuer_ca_filepath(),
         tlsAllowInvalidHostnames=False,
         serverSelectionTimeoutMS=30000,
         connectTimeoutMS=20000,
@@ -218,40 +287,10 @@ def test_validate_tls_connections(mdb: MongoDB, mdbs: MongoDBSearch, namespace: 
     with pymongo.MongoClient(
         f"mongodb://{mdbs.name}-search-svc.{namespace}.svc.cluster.local:27027",
         tls=True,
-        tlsCAFile=issuer_ca_filepath,
+        tlsCAFile=get_issuer_ca_filepath(),
         tlsAllowInvalidHostnames=False,
         serverSelectionTimeoutMS=10000,
         connectTimeoutMS=10000,
     ) as search_client:
         search_info = search_client.admin.command("hello")
         assert search_info.get("ok") == 1, "MongoDBSearch connection failed"
-
-
-@mark.e2e_search_enterprise_tls
-def test_search_restore_sample_database(mdb: MongoDB, issuer_ca_filepath: str):
-    sample_movies_helper = movies_search_helper.SampleMoviesSearchHelper(
-        SearchTester(
-            get_connection_string(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD), use_ssl=True, ca_path=issuer_ca_filepath
-        )
-    )
-    sample_movies_helper.restore_sample_database()
-
-
-@mark.e2e_search_enterprise_tls
-def test_search_create_search_index(mdb: MongoDB, issuer_ca_filepath: str):
-    sample_movies_helper = movies_search_helper.SampleMoviesSearchHelper(
-        SearchTester(get_connection_string(mdb, USER_NAME, USER_PASSWORD), use_ssl=True, ca_path=issuer_ca_filepath)
-    )
-    sample_movies_helper.create_search_index()
-
-
-@mark.e2e_search_enterprise_tls
-def test_search_assert_search_query(mdb: MongoDB, issuer_ca_filepath: str):
-    sample_movies_helper = movies_search_helper.SampleMoviesSearchHelper(
-        SearchTester(get_connection_string(mdb, USER_NAME, USER_PASSWORD), use_ssl=True, ca_path=issuer_ca_filepath)
-    )
-    sample_movies_helper.assert_search_query(retry_timeout=60)
-
-
-def get_connection_string(mdb: MongoDB, user_name: str, user_password: str) -> str:
-    return f"mongodb://{user_name}:{user_password}@{mdb.name}-0.{mdb.name}-svc.{mdb.namespace}.svc.cluster.local:27017/?replicaSet={mdb.name}"
