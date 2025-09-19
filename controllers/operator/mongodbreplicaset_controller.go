@@ -252,7 +252,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	// See CLOUDP-189433 and CLOUDP-229222 for more details.
 	if recovery.ShouldTriggerRecovery(rs.Status.Phase != mdbstatus.PhaseRunning, rs.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", rs.Namespace, rs.Name, rs.Status.Phase, rs.Status.LastTransition)
-		automationConfigStatus := r.updateOmDeploymentRs(ctx, conn, rs.Status.Members, rs, sts, log, caFilePath, tlsCertPath, internalClusterCertPath, agentCertSecretSelector, prometheusCertHash, true, "").OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+		automationConfigStatus := r.updateOmDeploymentRs(ctx, conn, rs.Status.Members, rs, sts, log, caFilePath, tlsCertPath, internalClusterCertPath, agentCertSecretSelector, prometheusCertHash, true).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		deploymentError := create.DatabaseInKubernetes(ctx, r.client, *rs, sts, rsConfig, log)
 		if deploymentError != nil {
 			log.Errorf("Recovery failed because of deployment errors, %w", deploymentError)
@@ -267,17 +267,9 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		lastSpec = &mdbv1.MongoDbSpec{}
 	}
 
-	var statefulSetVersion string
-	kubeClient := r.client
-	currentSts, err := kubeClient.GetStatefulSet(ctx, kube.ObjectKey(rs.Namespace, rs.Name))
-	if err == nil {
-		// StatefulSet exists, get its target revision
-		statefulSetVersion = currentSts.Status.UpdateRevision
-	}
-
 	status = workflow.RunInGivenOrder(publishAutomationConfigFirst(ctx, r.client, *rs, lastSpec, rsConfig, log),
 		func() workflow.Status {
-			return r.updateOmDeploymentRs(ctx, conn, rs.Status.Members, rs, sts, log, caFilePath, tlsCertPath, internalClusterCertPath, agentCertSecretSelector, prometheusCertHash, false, statefulSetVersion).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+			return r.updateOmDeploymentRs(ctx, conn, rs.Status.Members, rs, sts, log, caFilePath, tlsCertPath, internalClusterCertPath, agentCertSecretSelector, prometheusCertHash, false).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
 			workflowStatus := create.HandlePVCResize(ctx, r.client, &sts, log)
@@ -438,7 +430,7 @@ func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
-func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, conn om.Connection, membersNumberBefore int, rs *mdbv1.MongoDB, set appsv1.StatefulSet, log *zap.SugaredLogger, caFilePath, tlsCertPath, internalClusterCertPath string, agentCertSecretSelector corev1.SecretKeySelector, prometheusCertHash string, isRecovering bool, statefulSetVersion string) workflow.Status {
+func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, conn om.Connection, membersNumberBefore int, rs *mdbv1.MongoDB, set appsv1.StatefulSet, log *zap.SugaredLogger, caFilePath, tlsCertPath, internalClusterCertPath string, agentCertSecretSelector corev1.SecretKeySelector, prometheusCertHash string, isRecovering bool) workflow.Status {
 	log.Debug("Entering UpdateOMDeployments")
 	// Only "concrete" RS members should be observed
 	// - if scaling down, let's observe only members that will remain after scale-down operation
@@ -485,6 +477,12 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 		prometheusCertHash: prometheusCertHash,
 	}
 
+	var statefulSetVersion string
+	currentSts, err := r.client.GetStatefulSet(ctx, kube.ObjectKey(rs.Namespace, rs.Name))
+	if err == nil {
+		// StatefulSet exists, get its target revision
+		statefulSetVersion = currentSts.Status.UpdateRevision
+	}
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			return ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.Name, replicaSet, caFilePath, internalClusterCertPath, &p, statefulSetVersion, log)
