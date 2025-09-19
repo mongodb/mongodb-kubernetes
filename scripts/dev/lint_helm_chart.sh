@@ -8,8 +8,8 @@ fi
 
 source scripts/dev/set_env_context.sh
 
-if [ -z "$PROJECT_DIR" ]; then
-  echo "Error: PROJECT_DIR environment variable is not set. Please set a context or set it to your MCK repo manually." >&2
+if [ -z "${PROJECT_DIR}" ]; then
+  echo "Error: PROJECT_DIR environment variable is not set. Please set a context or set it (PROJECT_DIR var) to your local MCK repo manually." >&2
   exit 1
 fi
 
