@@ -4,4 +4,4 @@ kind: feature
 date: 2025-09-09
 ---
 
-* Improved automation agent certificate rotation. The automation agent is automatically restarted when the agent's certificate is rotated.
+* Improve automation agent certificate rotation: the agent now restarts automatically when its certificate is renewed, ensuring smooth operation without manual intervention and allowing seamless certificate updates without requiring manual Pod restarts.
