@@ -265,7 +265,7 @@ functions:
           - ${workdir}/venv/bin
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/evergreen/check_precommit.sh
-    
+
   # Configures docker authentication to ECR and RH registries.
   setup_building_host:
     - *switch_context
