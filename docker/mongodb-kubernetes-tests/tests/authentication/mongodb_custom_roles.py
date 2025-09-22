@@ -1,13 +1,11 @@
 from kubetester import (
     find_fixture,
-    random_k8s_name,
     try_load,
     wait_until,
 )
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.mongodb_role import ClusterMongoDBRole, ClusterMongoDBRoleKind
-from kubetester.test_identifiers import set_test_identifier
 from pytest import fixture, mark
 from tests.multicluster.conftest import cluster_spec_list
 

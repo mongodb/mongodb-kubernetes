@@ -13,9 +13,9 @@ class AutomationConfigTester:
     users in MongoDB to be the ones defined in the Automation Config.
     """
 
-    def __init__(self, ac: Optional[Dict] = None):
+    def __init__(self, ac: Optional[Dict] = None, group_name: Optional[str] = None):
         if ac is None:
-            ac = KubernetesTester.get_automation_config()
+            ac = KubernetesTester.get_automation_config(group_name=group_name)
         self.automation_config = ac
 
     def get_replica_set_processes(self, rs_name: str) -> List[Dict]:
