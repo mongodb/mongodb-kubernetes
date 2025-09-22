@@ -65,7 +65,7 @@ func (m *MongoDBMultiCluster) GetCredentialsSecretNamespace() string {
 }
 
 func (m *MongoDBMultiCluster) GetProjectConfigMapName() string {
-	return m.Spec.OpsManagerConfig.ConfigMapRef.Name
+	return m.Spec.GetProject()
 }
 
 func (m *MongoDBMultiCluster) GetCredentialsSecretName() string {
