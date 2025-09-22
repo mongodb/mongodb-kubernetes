@@ -163,6 +163,10 @@ lint_code() {
   scripts/evergreen/lint_code.sh
 }
 
+lint_helm_chart() {
+  scripts/dev/lint_helm_chart.sh
+}
+
 function validate_snippets() {
   scripts/code_snippets/validate_snippets.py
 }
@@ -222,6 +226,7 @@ pre_commit() {
   run_job_in_background "python_formatting"
   run_job_in_background "check_erroneous_kubebuilder_annotations"
   run_job_in_background "validate_snippets"
+  run_job_in_background "lint_helm_chart"
 
   if wait_for_all_background_jobs; then
     echo -e "${GREEN}pre-commit: All checks passed!${NO_COLOR}"
