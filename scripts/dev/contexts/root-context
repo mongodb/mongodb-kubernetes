@@ -62,6 +62,7 @@ export INIT_OPS_MANAGER_VERSION="${VERSION_ID}"
 export DATABASE_VERSION="${VERSION_ID}"
 
 export KUBE_ENVIRONMENT_NAME=kind
+export CLUSTER_TYPE=kind
 
 # when using EVG ec2 instance, we copy kubeconfig locally and use it
 if [[ "${EVG_HOST_NAME:-}" != "" ]]; then
