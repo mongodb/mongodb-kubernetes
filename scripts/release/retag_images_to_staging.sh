@@ -2,8 +2,10 @@
 
 set -Eeou pipefail
 
+# SINGLE SHOT SCRIPT, NOT USED IN CI/CD PIPELINES
 # Utility used to retag and push container images from one repo to another
 # Useful for migrating images between different repositories (e.g. dev -> staging)
+
 
 image_exists() {
     local image_tag="$1"
