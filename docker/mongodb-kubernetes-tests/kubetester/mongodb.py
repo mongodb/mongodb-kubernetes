@@ -216,26 +216,6 @@ class MongoDB(CustomObject, MongoDBCommon):
             self["metadata"]["annotations"].update({"mongodb.com/v1.architecture": "static"})
             self.update()
 
-    def trigger_sts_restart(self, component=""):
-        """
-        Adds or changes a label from the pod template to trigger a rolling restart of that StatefulSet.
-        Leave component to empty if a ReplicaSet deployment is used.
-        Set component to either "shard", "config", "mongos" to trigger a restart of the respective StatefulSet.
-        """
-        pod_spec = "podSpec"
-        if component == "shard":
-            pod_spec = "shardPodSpec"
-        elif component == "config":
-            pod_spec = "configSrvPodSpec"
-        elif component == "mongos":
-            pod_spec = "mongosPodSpec"
-
-        self.load()
-        self["spec"][pod_spec] = {
-            "podTemplate": {"metadata": {"annotations": {"kubectl.kubernetes.io/restartedAt": str(time.time())}}}
-        }
-        self.update()
-
     def assert_connectivity_from_connection_string(self, cnx_string: str, tls: bool, ca_path: Optional[str] = None):
         """
         Tries to connect to a database using a connection string only.
@@ -278,10 +258,8 @@ class MongoDB(CustomObject, MongoDBCommon):
         tls_cert_secret_name: str,
     ):
         ensure_nested_objects(self, ["spec", "security", "tls"])
-        self["spec"]["security"] = {
-            "certsSecretPrefix": tls_cert_secret_name,
-            "tls": {"enabled": True, "ca": issuer_ca_configmap_name},
-        }
+        self["spec"]["security"]["certsSecretPrefix"] = tls_cert_secret_name
+        self["spec"]["security"]["tls"].update({"enabled": True, "ca": issuer_ca_configmap_name})
 
     def build_list_of_hosts(self):
         """Returns the list of full_fqdn:27017 for every member of the mongodb resource"""

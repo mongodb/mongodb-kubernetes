@@ -88,7 +88,7 @@ RUN mkdir -p /agent \
       && chmod ugo+rw /var/log/mongodb-mms-automation/readiness.log
 
 # Copy scripts to a safe location that won't be overwritten by volume mount
-COPY ./docker/mongodb-kubernetes-init-database/content/LICENSE /data/LICENSE
+COPY ./docker/mongodb-kubernetes-init-database/content/LICENSE /licenses/LICENSE
 COPY ./docker/mongodb-agent/agent-launcher-shim.sh /usr/local/bin/agent-launcher-shim.sh
 COPY ./docker/mongodb-agent/setup-agent-files.sh /usr/local/bin/setup-agent-files.sh
 COPY ./docker/mongodb-agent/dummy-probe.sh /usr/local/bin/dummy-probe.sh

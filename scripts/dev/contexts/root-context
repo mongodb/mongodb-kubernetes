@@ -6,10 +6,12 @@ script_name=$(readlink -f "${BASH_SOURCE[0]}")
 script_dir=$(dirname "${script_name}")
 source "${script_dir}/private-context"
 
-export PROJECT_DIR="${PWD}"
+PROJECT_DIR="$(realpath "${script_dir}/../../..")"
+export PROJECT_DIR
 export IMAGE_TYPE=ubi
 export UBI_IMAGE_WITHOUT_SUFFIX=true
 export WATCH_NAMESPACE=${WATCH_NAMESPACE:-${NAMESPACE}}
+export OPERATOR_NAME="mongodb-kubernetes-operator"
 
 #
 # changing variables below should not be necessary
@@ -35,7 +37,7 @@ fi
 
 export OPERATOR_ENV=${OPERATOR_ENV:-"dev"}
 
-AGENT_VERSION="$(jq -r '.agentVersion' release.json)"
+AGENT_VERSION="$(jq -r '.agentVersion' "${PROJECT_DIR}/release.json")"
 export AGENT_VERSION
 export AGENT_IMAGE="${MDB_AGENT_IMAGE_REPOSITORY}:${AGENT_VERSION}"
 
@@ -111,11 +113,11 @@ export MDB_COMMUNITY_REPO_URL=quay.io/mongodb
 export MDB_COMMUNITY_AGENT_IMAGE=${AGENT_IMAGE}
 export MDB_COMMUNITY_IMAGE_TYPE=ubi8
 
-MDB_SEARCH_COMMUNITY_VERSION="$(jq -r '.search.community.version' release.json)"
-export MDB_SEARCH_COMMUNITY_VERSION
+MDB_SEARCH_VERSION="$(jq -r '.search.version' "${PROJECT_DIR}/release.json")"
+export MDB_SEARCH_VERSION
 
-export MDB_SEARCH_COMMUNITY_NAME="mongodb-search-community"
-export MDB_SEARCH_COMMUNITY_REPO_URL="quay.io/mongodb"
+export MDB_SEARCH_NAME="mongodb-search"
+export MDB_SEARCH_REPO_URL="quay.io/mongodb"
 
 
 if [[ ${MDB_BASH_DEBUG:-0} == 1 ]]; then

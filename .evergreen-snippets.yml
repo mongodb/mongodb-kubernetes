@@ -14,16 +14,21 @@ variables:
 
   - &setup_and_teardown_group_kind_code_snippets
     setup_task_can_fail_task: true
+    setup_group_can_fail_task: true
     setup_group:
       - func: clone
       - func: cleanup_exec_environment
       - func: download_kube_tools
       - func: configure_docker_auth
       - func: setup_kubernetes_environment
+      - func: python_venv
+      - func: setup_cloud_qa
     teardown_task:
       - func: upload_e2e_logs
       - func: upload_code_snippets_logs
       - func: upload_code_snippets_outputs
+      - func: teardown_kubernetes_environment
+      - func: teardown_cloud_qa
 
 # This variable is copied over from .evergreen.yml because anchors don't work for included files
   - &base_om8_dependency
@@ -110,6 +115,18 @@ tasks:
       - func: test_code_snippets
       - func: sample_commit_output
 
+  - name: test_kind_search_enterprise_snippets.sh
+    tags: [ "code_snippets", "patch-run" ]
+    commands:
+      - func: test_code_snippets
+      - func: sample_commit_output
+
+  - name: test_kind_search_external_mongod_snippets.sh
+    tags: [ "code_snippets", "patch-run" ]
+    commands:
+      - func: test_code_snippets
+      - func: sample_commit_output
+
 task_groups:
   - name: gke_code_snippets_task_group
     <<: *setup_and_teardown_group_gke_code_snippets
@@ -123,63 +140,46 @@ task_groups:
     max_hosts: -1
     tasks:
       - test_kind_search_community_snippets.sh
+      - test_kind_search_enterprise_snippets.sh
+      - test_kind_search_external_mongod_snippets.sh
 
 buildvariants:
   # These variants are used to test the code snippets and each one can be used in patches
-  # Prerelease is especially used when the repo is tagged
   # More details in the TD: https://docs.google.com/document/d/1fuTxfRtP8QPtn7sKYxQM_AGcD6xycTZH8svngGxyKhc/edit?tab=t.0#bookmark=id.e8uva0393mbe
   - name: public_gke_code_snippets
     display_name: public_gke_code_snippets
+    tags: [ "manual_patch" ]
     allowed_requesters: [ "patch" ]
     run_on:
-      - ubuntu2204-small
+      - ubuntu2404-small
     tasks:
       - name: gke_code_snippets_task_group
 
-  - name: prerelease_gke_code_snippets
-    display_name: prerelease_gke_code_snippets
-    tags: [ "release" ]
-    allowed_requesters: [ "patch", "github_tag" ]
-    depends_on:
-      - variant: release_images
-        name: '*'
-        patch_optional: true
+  - name: public_kind_code_snippets
+    display_name: public_kind_code_snippets
+    tags: [ "manual_patch" ]
+    allowed_requesters: [ "patch" ]
     run_on:
-      - ubuntu2204-small
+      - ubuntu2404-large
     tasks:
-      - name: gke_code_snippets_task_group
+      - name: kind_code_snippets_task_group
 
+    #TODO: this task was disabled from automatic runs due to GKE resource issues https://jira.mongodb.org/browse/CLOUDP-345083
   - name: private_gke_code_snippets
     display_name: private_gke_code_snippets
+    tags: [ "manual_patch", "e2e_test_suite" ]
     allowed_requesters: [ "patch" ]
     run_on:
-      - ubuntu2204-small
+      - ubuntu2404-small
     <<: *base_om8_dependency
     tasks:
       - name: gke_code_snippets_task_group
 
   - name: private_kind_code_snippets
     display_name: private_kind_code_snippets
-    tags: [ "e2e_test_suite" ]
-    allowed_requesters: [ "patch", "github_pr" ]
+    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
     run_on:
-      - ubuntu2204-large
+      - ubuntu2404-large
     <<: *base_om8_dependency
-    tasks:
-      - name: kind_code_snippets_task_group
-
-  - name: prerelease_kind_code_snippets
-    display_name: prerelease_kind_code_snippets
-    allowed_requesters: [ "patch" ]
-    run_on:
-      - ubuntu2204-large
-    tasks:
-      - name: kind_code_snippets_task_group
-
-  - name: public_kind_code_snippets
-    display_name: public_kind_code_snippets
-    allowed_requesters: [ "patch" ]
-    run_on:
-      - ubuntu2204-large
     tasks:
       - name: kind_code_snippets_task_group

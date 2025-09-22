@@ -1,14 +1,6 @@
-[//]: # (Consider renaming or removing the header for next release, otherwise it appears as duplicate in the published release, e.g: https://github.com/mongodb/mongodb-enterprise-kubernetes/releases/tag/1.22.0 )
-<!-- Next Release -->
-
-# MCK 1.3.0 Release Notes
-
-## Other Changes
-* Optional permissions for `PersistentVolumeClaim` moved to a separate role. When managing the operator with Helm it is possible to disable permissions for `PersistentVolumeClaim` resources by setting `operator.enablePVCResize` value to `false` (`true` by default). When enabled, previously these permissions were part of the primary operator role. With this change, permissions have a separate role.
-* `subresourceEnabled` Helm value was removed. This setting used to be `true` by default and made it possible to exclude subresource permissions from the operator role by specifying `false` as the value. We are removing this configuration option, making the operator roles always have subresource permissions. This setting was introduced as a temporary solution for [this](https://bugzilla.redhat.com/show_bug.cgi?id=1803171) OpenShift issue. The issue has since been resolved and the setting is no longer needed.
-
-
-<!-- Past Releases -->
+> [!IMPORTANT]
+> This file is no longer maintained and updated.
+> All future Release Notes for MCK are available only in [GitHub Releases Page](https://github.com/mongodb/mongodb-kubernetes/releases).
 
 # MCK 1.2.0 Release Notes
 

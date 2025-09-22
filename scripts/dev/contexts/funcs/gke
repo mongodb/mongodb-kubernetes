@@ -1,0 +1,33 @@
+# Function to normalize identifier to contain only alphanumeric characters.
+# It's also cutting the string in the middle if exceeds max_len.
+# Example:
+#   normalize_identifier "mongodb_kubernetes_1.4.0_68c913f767d52d00076a2698" 25 -> mongodb-kubex2d00076a2698
+normalize_identifier() {
+    local str=$1
+    local max_len=$(($2 - 1))
+
+    # Convert to lowercase and replace invalid characters with hyphens
+    str=$(echo -n "${str}" | tr '[:upper:]_' '[:lower:]-' | sed 's/[^a-z0-9-]/-/g')
+    # Ensure it ends with alphanumeric
+
+    # Truncate to ${max_len} chars by cutting from middle
+    if [[ ${#str} -gt ${max_len} ]]; then
+        half_idx=$((max_len / 2))
+        local start_part="${str:0:${half_idx}}"
+        local end_part="${str: -${half_idx}}"
+        str="${start_part}x${end_part}"
+    fi
+
+    [[ ${str} =~ -$ ]] && str="${str}0"
+    echo -n "${str}"
+}
+
+# for prerelease tag builds we have:
+# version_id=mongodb_kubernetes_1.4.0_68c913f767d52d00076a2698-9041 (len=54)
+# k8s cluster name prefix: k8s-mdb-0- (len=10)
+# random suffix: -1234 (len=5)
+# K8S_CLUSTER_PREFIX must be shorter than 25 to make the final
+# gke identifier shorter than 40 characters.
+create_k8s_cluster_suffix() {
+  echo -n "$(normalize_identifier "${K8S_CLUSTER_SUFFIX:-"-${version_id}-${RANDOM}"}" 25)"
+}

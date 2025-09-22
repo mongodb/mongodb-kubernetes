@@ -28,7 +28,7 @@ spec:
               - name: sidecar1
                 image: busybox
                 command: ["sleep"]
-                args: [ "infinity" ]
+                args: [ "7200" ]
           volumeClaimTemplates:
           - metadata:
               name: data
@@ -44,7 +44,7 @@ spec:
               - name: sidecar2
                 image: busybox
                 command: ["sleep"]
-                args: [ "infinity" ]
+                args: [ "7200" ]
           volumeClaimTemplates:
           - metadata:
               name: data
@@ -60,7 +60,7 @@ spec:
               - name: sidecar3
                 image: busybox
                 command: ["sleep"]
-                args: [ "infinity" ]
+                args: [ "7200" ]
           volumeClaimTemplates:
           - metadata:
               name: data

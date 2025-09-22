@@ -15,8 +15,10 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/agent"
 )
@@ -337,7 +339,23 @@ func main() {
 		}
 
 		if shouldDelete {
-			logger.Infof("🚨 WaitDeleteMyPodKube step detected - deleting pod")
+			logger.Infof("🚨 WaitDeleteMyPodKube step detected - checking StatefulSet readiness before deletion")
+
+			// Check if the StatefulSet is ready (all pods passing readiness probes) before allowing pod deletion
+			isStatefulSetHealthy, err := isStatefulSetReadyAndHealthy(ctx)
+			if err != nil {
+				logger.Errorf("Error checking StatefulSet readiness: %s", err)
+				time.Sleep(5 * time.Second)
+				continue
+			}
+
+			if !isStatefulSetHealthy {
+				logger.Infof("StatefulSet pods are not all ready (readiness probes) - skipping pod deletion to maintain cluster stability")
+				time.Sleep(5 * time.Second)
+				continue
+			}
+
+			logger.Infof("StatefulSet pods are all ready - proceeding with pod deletion")
 			if err := deletePod(ctx); err != nil {
 				// We should not raise an error if the Pod could not be deleted. It can have even
 				// worse consequences: Pod being restarted with the same version, and the agent
@@ -478,6 +496,105 @@ func isWaitingToBeDeleted(healthStatus agent.MmsDirectorStatus) bool {
 		return false
 	}
 	return false
+}
+
+// getStatefulSetNameFromPodName extracts the StatefulSet name from a pod name
+// Pod names follow the pattern: {statefulset-name}-{index}
+func getStatefulSetNameFromPodName(podName string) string {
+	// Handle arbiter pods: {statefulset-name}-arb-{index}
+	if strings.Contains(podName, "-arb-") {
+		parts := strings.Split(podName, "-arb-")
+		if len(parts) >= 2 {
+			return parts[0]
+		}
+	}
+
+	// Handle regular pods: {statefulset-name}-{index}
+	lastDashIndex := strings.LastIndex(podName, "-")
+	if lastDashIndex == -1 {
+		return podName // fallback to full name if no dash found
+	}
+
+	// Check if the part after the last dash is a number
+	suffix := podName[lastDashIndex+1:]
+	if matched, _ := regexp.MatchString(`^\d+$`, suffix); matched {
+		return podName[:lastDashIndex]
+	}
+
+	return podName // fallback to full name if suffix is not a number
+}
+
+// isStatefulSetReadyAndHealthy checks if the StatefulSet that owns this pod has all pods ready (passing readiness probes)
+func isStatefulSetReadyAndHealthy(ctx context.Context) (bool, error) {
+	thisPod, err := getThisPod()
+	if err != nil {
+		return false, fmt.Errorf("could not get current pod: %w", err)
+	}
+
+	k8sClient, err := inClusterClient()
+	if err != nil {
+		return false, fmt.Errorf("could not get Kubernetes client: %w", err)
+	}
+
+	// Get the full pod object to check owner references
+	err = k8sClient.Get(ctx, types.NamespacedName{
+		Name:      thisPod.Name,
+		Namespace: thisPod.Namespace,
+	}, &thisPod)
+	if err != nil {
+		return false, fmt.Errorf("could not get pod details: %w", err)
+	}
+
+	// Extract StatefulSet name from pod name as fallback
+	statefulSetName := getStatefulSetNameFromPodName(thisPod.Name)
+
+	// Try to get StatefulSet name from owner references first
+	for _, ownerRef := range thisPod.GetOwnerReferences() {
+		if ownerRef.Kind == "StatefulSet" {
+			statefulSetName = ownerRef.Name
+			break
+		}
+	}
+
+	// Get the StatefulSet
+	var sts appsv1.StatefulSet
+	err = k8sClient.Get(ctx, types.NamespacedName{
+		Name:      statefulSetName,
+		Namespace: thisPod.Namespace,
+	}, &sts)
+	if err != nil {
+		return false, fmt.Errorf("could not get StatefulSet %s: %w", statefulSetName, err)
+	}
+
+	// Check if StatefulSet is ready and healthy
+	isReady := isStatefulSetReady(sts)
+
+	// Log StatefulSet status for debugging
+	zap.S().Infof("StatefulSet %s status: replicas=%d, ready=%d, current=%d, updated=%d, isReady=%t",
+		statefulSetName,
+		*sts.Spec.Replicas,
+		sts.Status.ReadyReplicas,
+		sts.Status.Replicas,
+		sts.Status.UpdatedReplicas,
+		isReady)
+
+	return isReady, nil
+}
+
+// isStatefulSetReady checks if a StatefulSet is ready based on readiness probes
+func isStatefulSetReady(sts appsv1.StatefulSet) bool {
+	if sts.Spec.Replicas == nil {
+		return false
+	}
+
+	expectedReplicas := *sts.Spec.Replicas
+
+	// Check if all replicas are ready (passing readiness probes)
+	// We don't care about update status, only that pods are ready and healthy
+	allReady := expectedReplicas == sts.Status.ReadyReplicas
+	allCurrent := expectedReplicas == sts.Status.Replicas
+
+	return allReady && allCurrent
 }
 
 // deletePod attempts to delete the pod this mongod is running in
