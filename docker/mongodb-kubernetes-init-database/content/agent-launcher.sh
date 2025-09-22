@@ -223,8 +223,8 @@ if [ "${debug}" = "true" ]; then
   cd ${mdb_downloads_dir} || true
   mkdir -p /var/lib/mongodb-mms-automation/gopath
   mkdir -p /var/lib/mongodb-mms-automation/go
-  curl -LO https://go.dev/dl/go1.20.1.linux-amd64.tar.gz
-  tar -xzf go1.20.1.linux-amd64.tar.gz
+  curl -LO https://go.dev/dl/go1.23.1.linux-amd64.tar.gz
+  tar -xzf go1.23.1.linux-amd64.tar.gz
   export GOPATH=${mdb_downloads_dir}/gopath
   export GOCACHE=${mdb_downloads_dir}/.cache
   export PATH=${PATH}:${mdb_downloads_dir}/go/bin
