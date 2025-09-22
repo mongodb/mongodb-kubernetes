@@ -3,10 +3,12 @@ package operator
 import (
 	"context"
 	"fmt"
-
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -15,10 +17,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
-
-	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
@@ -477,18 +475,23 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 		prometheusCertHash: prometheusCertHash,
 	}
 
-	var statefulSetVersion string
-	currentSts, err := r.client.GetStatefulSet(ctx, kube.ObjectKey(rs.Namespace, rs.Name))
-	if err == nil {
-		// StatefulSet exists, get its target revision
-		statefulSetVersion = currentSts.Status.UpdateRevision
-	}
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
-			return ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.Name, replicaSet, caFilePath, internalClusterCertPath, &p, statefulSetVersion, log)
+			return ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.Name, replicaSet, caFilePath, internalClusterCertPath, &p, log)
 		},
 		log,
 	)
+
+	_ = conn.ReadUpdateDeployment(
+		func(d om.Deployment) error {
+			currentVersion, err := d.GetVersion()
+			if err != nil {
+				return err
+			}
+			d.SetVersion(currentVersion + 1)
+			return nil
+		},
+		log)
 
 	if err != nil && !isRecovering {
 		return workflow.Failed(err)

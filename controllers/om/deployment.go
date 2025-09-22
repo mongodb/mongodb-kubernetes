@@ -996,6 +996,18 @@ func (d Deployment) SetReplicaSets(replicaSets []ReplicaSet) {
 	d["replicaSets"] = replicaSets
 }
 
+func (d Deployment) GetVersion() (int, error) {
+	version, ok := d["version"].(float64)
+	if ok {
+		return int(version), nil
+	}
+	return 0, xerrors.Errorf("Unexpected type of version variable: %T", version)
+}
+
+func (d Deployment) SetVersion(version int) {
+	d["version"] = version
+}
+
 func (d Deployment) addReplicaSet(rs ReplicaSet) {
 	d.SetReplicaSets(append(d.GetReplicaSets(), rs))
 }

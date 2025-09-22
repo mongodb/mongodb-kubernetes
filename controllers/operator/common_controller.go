@@ -965,7 +965,7 @@ type PrometheusConfiguration struct {
 	prometheusCertHash string
 }
 
-func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCommonSpec, lastMongodConfig map[string]interface{}, resourceName string, rs om.ReplicaSetWithProcesses, caFilePath string, internalClusterPath string, pc *PrometheusConfiguration, statefulSetVersion string, log *zap.SugaredLogger) error {
+func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCommonSpec, lastMongodConfig map[string]interface{}, resourceName string, rs om.ReplicaSetWithProcesses, caFilePath string, internalClusterPath string, pc *PrometheusConfiguration, log *zap.SugaredLogger) error {
 	// it is not possible to disable internal cluster authentication once enabled
 	if d.ExistingProcessesHaveInternalClusterAuthentication(rs.Processes) && spec.Security.GetInternalClusterAuthenticationMode() == "" {
 		return xerrors.Errorf("cannot disable x509 internal cluster authentication")
@@ -981,19 +981,6 @@ func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCo
 	d.ConfigureTLS(spec.GetSecurity(), caFilePath)
 	d.ConfigureInternalClusterAuthentication(rs.GetProcessNames(), spec.GetSecurity().GetInternalClusterAuthenticationMode(), internalClusterPath)
 	// Set StatefulSet version in replica set member tags for rolling restart coordination
-	if statefulSetVersion != "" {
-		replicaSets := d.GetReplicaSets()
-		for _, replicaSet := range replicaSets {
-				for _, member := range replicaSet.Members() {
-					tags := member.Tags()
-					// Add StatefulSet version tag
-					tags["kubeStatefulSetVersion"] = statefulSetVersion
-					member["tags"] = tags
-				}
-		}
-		d.SetReplicaSets(replicaSets)
-		log.Infof("Set StatefulSet version in replica set member tags: %s", statefulSetVersion)
-	}
 
 	// if we don't set up a prometheus connection, then we don't want to set up prometheus for instance because we do not support it yet.
 	if pc != nil {
