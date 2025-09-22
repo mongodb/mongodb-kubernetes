@@ -473,6 +473,10 @@ func isWaitingToBeDeleted(healthStatus agent.MmsDirectorStatus) bool {
 	if lastStep.Step == "WaitDeleteMyPodKube" && lastStep.Completed == nil && lastStep.Started != nil {
 		return true
 	}
+	if lastStep.Step == "WaitDeleteMyPodKube"  && lastStep.Completed == nil && lastStep.Started == nil {
+		zap.S().Infof("In WaitDeleteMyPodKube step, but not started yet - not deleting pod")
+		return false
+	}
 	return false
 }
 
