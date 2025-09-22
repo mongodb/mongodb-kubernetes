@@ -4,4 +4,37 @@ set -Eeou pipefail
 
 source scripts/dev/set_env_context.sh
 
-scripts/dev/run_python.sh scripts/release/pipeline.py "${IMAGE_NAME}" --build-scenario "${BUILD_SCENARIO}" --version "${OPERATOR_VERSION}"
+args=("${IMAGE_NAME}")
+args+=(--build-scenario "${BUILD_SCENARIO}")
+
+case $IMAGE_NAME in
+  "agent")
+    IMAGE_VERSION=""
+    ;;
+
+  "ops-manager")
+    IMAGE_VERSION="${OM_VERSION}"
+    ;;
+
+  "readiness-probe")
+    IMAGE_VERSION="${READINESS_PROBE_VERSION}"
+    ;;
+
+  "version-upgrade-hook")
+    IMAGE_VERSION="${VERSION_UPGRADE_HOOK_VERSION}"
+    ;;
+
+  *)
+    IMAGE_VERSION="${OPERATOR_VERSION}"
+    ;;
+esac
+
+if [[ "${IMAGE_VERSION}" != "" ]]; then
+    args+=(--version "${IMAGE_VERSION}")
+fi
+
+if [[ "${FLAGS:-}" != "" ]]; then
+    args+=("${FLAGS}")
+fi
+
+scripts/dev/run_python.sh scripts/release/pipeline.py "${args[@]}"

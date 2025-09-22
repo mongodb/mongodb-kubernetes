@@ -523,7 +523,7 @@ functions:
         shell: bash
         <<: *e2e_include_expansions_in_env
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/release/pipeline.sh
+        binary: IMAGE_VERSION=$OPERATOR_VERSION scripts/release/pipeline.sh
         env:
           IMAGE_NAME: ${IMAGE_NAME}
 
@@ -536,8 +536,9 @@ functions:
         shell: bash
         <<: *e2e_include_expansions_in_env
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/release/pipeline_agent.sh
+        binary: scripts/release/pipeline.sh
         env:
+          IMAGE_NAME: agent
           FLAGS: ${FLAGS}
 
   pipeline_ops_manager:
@@ -549,7 +550,7 @@ functions:
         shell: bash
         <<: *e2e_include_expansions_in_env
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/release/pipeline_ops_manager.sh
+        binary: IMAGE_VERSION=$OPERATOR_VERSION scripts/release/pipeline.sh
 
   pipeline_readiness_probe:
     - *switch_context
