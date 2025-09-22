@@ -460,18 +460,18 @@ func shouldDeletePod(health agent.Health) (bool, error) {
 }
 
 // isWaitingToBeDeleted determines if the agent is currently waiting
-// for the pod to be deleted by external sidecar. We check if the most recent step
+// for the pod to be deleted by external sidecar. We check if the current/last step
 // is "WaitDeleteMyPodKube"
 func isWaitingToBeDeleted(healthStatus agent.MmsDirectorStatus) bool {
 	if len(healthStatus.Plans) == 0 {
 		return false
 	}
 	lastPlan := healthStatus.Plans[len(healthStatus.Plans)-1]
-	for _, m := range lastPlan.Moves {
-		// Check if the current step is WaitDeleteMyPodKube
-		if m.Move == "WaitDeleteMyPodKube" {
-			return true
-		}
+
+	lastMove := lastPlan.Moves[len(lastPlan.Moves)-1]
+	lastStep := lastMove.Steps[len(lastMove.Steps)-1]
+	if lastStep.Step == "WaitDeleteMyPodKube" && lastStep.Completed == nil && lastStep.Started != nil {
+		return true
 	}
 	return false
 }
