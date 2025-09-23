@@ -18,18 +18,17 @@ spec:
       modes:
       - SCRAM
   agent:
-    logLevel: DEBUG
-  statefulSet:
-    spec:
-      template:
-        spec:
-          containers:
-          - name: mongodb-enterprise-database
-            resources:
-              limits:
-                cpu: "2"
-                memory: 2Gi
-              requests:
-                cpu: "1"
-                memory: 1Gi
+    logLevel: INFO
+  podSpec:
+    podTemplate:
+      spec:
+        containers:
+        - name: mongodb-enterprise-database
+          resources:
+            limits:
+              cpu: "2"
+              memory: 2Gi
+            requests:
+              cpu: "1"
+              memory: 1Gi
 EOF
