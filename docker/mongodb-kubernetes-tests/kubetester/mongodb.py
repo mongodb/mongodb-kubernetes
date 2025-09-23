@@ -37,6 +37,9 @@ TRACER = trace.get_tracer("evergreen-agent")
 
 
 class MongoDB(CustomObject, MongoDBCommon):
+    # project name set with configure
+    om_project_name: str
+
     def __init__(self, *args, **kwargs):
         with_defaults = {
             "plural": "mongodb",
@@ -256,6 +259,9 @@ class MongoDB(CustomObject, MongoDBCommon):
         # Note that if the MongoDB object is created in a different namespace than the Operator
         # then the secret needs to be copied there manually
         self["spec"]["credentials"] = om.api_key_secret(self.namespace, api_client=api_client)
+
+        self.om_project_name = project_name
+
         return self
 
     def configure_cloud_qa(
@@ -288,6 +294,8 @@ class MongoDB(CustomObject, MongoDBCommon):
 
         src_cm.update({"projectName": f"{self.namespace}-{project_name}"})
         create_or_update_configmap(self.namespace, new_project_config_map_name, src_cm, api_client=api_client)
+
+        self.om_project_name = project_name
 
         return self
 
