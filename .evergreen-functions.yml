@@ -242,7 +242,7 @@ functions:
         - ${workdir}/bin
       binary: scripts/dev/setup_evg_host.sh
 
-  setup_chart_testing_cli:
+  setup_chart_testing_cli: &setup_chart_testing_cli
     command: subprocess.exec
     type: setup
     params:
