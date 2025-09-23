@@ -242,6 +242,15 @@ functions:
         - ${workdir}/bin
       binary: scripts/dev/setup_evg_host.sh
 
+  setup_chart_testing_cli: &setup_chart_testing_cli
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+      command: scripts/dev/setup_chart_testing_cli.sh  
+
   lint_repo:
     - command: subprocess.exec
       type: setup
@@ -250,6 +259,7 @@ functions:
         add_to_path:
           - ${workdir}/bin
         command: scripts/evergreen/setup_yq.sh
+    - *setup_chart_testing_cli
     - command: subprocess.exec
       type: test
       params:

@@ -311,6 +311,7 @@ tasks:
       - command: github.generate_token
         params:
           expansion_name: GH_TOKEN
+      - func: setup_chart_testing_cli
       - command: subprocess.exec
         type: setup
         params:
