@@ -485,6 +485,8 @@ class MongoDB(CustomObject, MongoDBCommon):
 
     def get_automation_config_tester(self, **kwargs):
         """This is just a shortcut for getting automation config tester for replica set"""
+        if "group_name" not in kwargs and self.om_project_name is not None:
+            kwargs["group_name"] = self.om_project_name
         return self.get_om_tester().get_automation_config_tester(**kwargs)
 
     def get_external_domain(self):
