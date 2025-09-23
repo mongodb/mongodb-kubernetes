@@ -19,11 +19,13 @@ def mongodb_role():
 
     return resource.update()
 
+PROJECT_NAME_FIRST=f"first"
+PROJECT_NAME_SECOND=f"second"
 
 @fixture(scope="function")
 def replica_set(namespace: str, mongodb_role: ClusterMongoDBRole) -> MongoDB:
     resource = MongoDB.from_yaml(find_fixture("replica-set-scram.yaml"), namespace=namespace)
-    resource.configure(None, f"{resource.name}-first")
+    resource.configure(None, PROJECT_NAME_FIRST)
 
     if try_load(resource):
         return resource
