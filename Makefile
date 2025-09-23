@@ -420,3 +420,7 @@ prepare-local-olm-e2e:
 
 prepare-operator-configmap: # prepares the local environment to run a local operator
 	source scripts/dev/set_env_context.sh && source scripts/funcs/printing && source scripts/funcs/operator_deployment && prepare_operator_config_map "$(kubectl config current-context)"
+
+# Lint the helm chart using helm chart-testing tool (`ct`) using the default configuration available at `helm_chart/tests/schemas/`
+lint-chart:
+	scripts/dev/lint_helm_chart.sh

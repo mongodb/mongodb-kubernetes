@@ -251,6 +251,13 @@ functions:
           - ${workdir}/bin
         command: scripts/evergreen/setup_yq.sh
     - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        add_to_path:
+          - ${workdir}/bin
+        command: scripts/dev/setup_chart_testing_cli.sh
+    - command: subprocess.exec
       type: test
       params:
         add_to_path:
