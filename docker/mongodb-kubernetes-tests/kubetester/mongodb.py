@@ -37,8 +37,8 @@ TRACER = trace.get_tracer("evergreen-agent")
 
 
 class MongoDB(CustomObject, MongoDBCommon):
-    # project name set with configure
-    om_project_name: str
+    # project name set when configure method is called
+    om_project_name: Optional[str]
 
     def __init__(self, *args, **kwargs):
         with_defaults = {
@@ -48,6 +48,7 @@ class MongoDB(CustomObject, MongoDBCommon):
             "version": "v1",
         }
         with_defaults.update(kwargs)
+        self.om_project_name = None
         super(MongoDB, self).__init__(*args, **with_defaults)
 
     @classmethod
