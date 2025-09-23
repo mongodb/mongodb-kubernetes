@@ -45,7 +45,11 @@ def _prepare_test_environment(namespace) -> None:
 
     print("Creating Namespace")
     k8s_conditions.ignore_if_already_exists(
-        lambda: corev1.create_namespace(client.V1Namespace(metadata=dict(name=namespace)))
+        lambda: corev1.create_namespace(
+            client.V1Namespace(
+                metadata=dict(name=namespace, labels={"pod-security.kubernetes.io/enforce": "restricted"})
+            )
+        )
     )
 
     print("Creating Cluster Role Binding and Service Account for test pod")

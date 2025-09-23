@@ -329,6 +329,9 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 2000
+        fsGroup: 2000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: mongodb-kubernetes-operator-multi-cluster
           image: "quay.io/mongodb/mongodb-kubernetes:1.4.0"
@@ -353,6 +356,11 @@ spec:
             requests:
               cpu: 500m
               memory: 200Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: OPERATOR_ENV
               value: prod
