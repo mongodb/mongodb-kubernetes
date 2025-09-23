@@ -964,6 +964,7 @@ class KubernetesTester(object):
             group_id = KubernetesTester.get_om_group_id(group_name=group_name)
 
         url = build_automation_config_endpoint(KubernetesTester.get_om_base_url(), group_id)
+        logger.debug(f"KubernetesTester: getting automation config for group_name={group_name} from: {url}")
         response = KubernetesTester.om_request("get", url)
 
         return response.json()

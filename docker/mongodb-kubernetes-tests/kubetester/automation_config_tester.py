@@ -1,9 +1,12 @@
 from typing import Dict, List, Optional, Set, Tuple
 
 from kubetester.kubetester import KubernetesTester
+from tests import test_logger
 
 X509_AGENT_SUBJECT = "CN=mms-automation-agent,OU=MongoDB Kubernetes Operator,O=mms-automation-agent,L=NY,ST=NY,C=US"
 SCRAM_AGENT_USER = "mms-automation-agent"
+
+logger = test_logger.get_test_logger(__name__)
 
 
 class AutomationConfigTester:

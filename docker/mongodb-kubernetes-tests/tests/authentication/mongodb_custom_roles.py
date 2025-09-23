@@ -19,8 +19,10 @@ def mongodb_role():
 
     return resource.update()
 
-PROJECT_NAME_FIRST=f"first"
-PROJECT_NAME_SECOND=f"second"
+
+PROJECT_NAME_FIRST = f"first"
+PROJECT_NAME_SECOND = f"second"
+
 
 @fixture(scope="function")
 def replica_set(namespace: str, mongodb_role: ClusterMongoDBRole) -> MongoDB:
