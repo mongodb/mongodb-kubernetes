@@ -5,7 +5,7 @@ metadata:
   name: ${MDB_RESOURCE_NAME}
 spec:
   members: 3
-  version: ${MDB_VERSION}-ent
+  version: ${MDB_VERSION}
   type: ReplicaSet
   opsManager:
     configMapRef:
