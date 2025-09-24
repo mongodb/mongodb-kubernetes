@@ -36,8 +36,10 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 2000
+        seccompProfile:
+          type: RuntimeDefault
 {{- end }}
-{{- if .Values.registry.imagePullSecrets}}
+{{- if .Values.registry.imagePullSecrets }}
       imagePullSecrets:
         - name: {{ .Values.registry.imagePullSecrets }}
 {{- end }}
@@ -74,6 +76,13 @@ spec:
             requests:
               cpu: {{ .Values.operator.resources.requests.cpu }}
               memory: {{ .Values.operator.resources.requests.memory }}
+          {{- if not .Values.managedSecurityContext }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          {{- end }}
           env:
             - name: OPERATOR_ENV
               value: {{ .Values.operator.env }}

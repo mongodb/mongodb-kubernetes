@@ -273,6 +273,13 @@ def delete_namespace(name: str):
     c = client.CoreV1Api()
     c.delete_namespace(name, body=c.V1DeleteOptions())
 
+def label_namespace(name: str, labels: dict):
+    body = {
+        "metadata": {
+            "labels": labels
+        }
+    }
+    client.CoreV1Api().patch_namespace(name, body)
 
 def get_deployments(namespace: str):
     return client.AppsV1Api().list_namespaced_deployment(namespace)
