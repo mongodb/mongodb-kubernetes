@@ -9,21 +9,21 @@ get_operator_helm_values() {
 
   declare -a config=(
     "managedSecurityContext=${MANAGED_SECURITY_CONTEXT:-false}"
-    "registry.operator=${OPERATOR_REGISTRY:-${REGISTRY}}"
+    "registry.operator=${OPERATOR_REGISTRY}"
     "registry.imagePullSecrets=image-registries-secret"
     "registry.initOpsManager=${INIT_OPS_MANAGER_REGISTRY}"
     "registry.initAppDb=${INIT_APPDB_REGISTRY}"
     "registry.initDatabase=${INIT_DATABASE_REGISTRY}"
-    "registry.agent=${AGENT_BASE_REGISTRY:-${REGISTRY}}"
+    "registry.agent=${MDB_AGENT_REGISTRY}"
     "registry.opsManager=${OPS_MANAGER_REGISTRY}"
     "registry.database=${database_registry}"
     "opsManager.name=${OPS_MANAGER_NAME:=mongodb-enterprise-ops-manager-ubi}"
     "database.name=${database_name:=mongodb-kubernetes-database}"
-    "operator.version=${OPERATOR_VERSION-${VERSION_ID}}"
-    "initOpsManager.version=${INIT_OPS_MANAGER_VERSION:-${VERSION_ID}}"
-    "initAppDb.version=${INIT_APPDB_VERSION:-${VERSION_ID}}"
-    "initDatabase.version=${INIT_DATABASE_VERSION:-${VERSION_ID}}"
-    "database.version=${DATABASE_VERSION:-${VERSION_ID}}"
+    "operator.version=${OPERATOR_VERSION}"
+    "initOpsManager.version=${INIT_OPS_MANAGER_VERSION}"
+    "initAppDb.version=${INIT_APPDB_VERSION}"
+    "initDatabase.version=${INIT_DATABASE_VERSION}"
+    "database.version=${DATABASE_VERSION}"
     "agent.version=${AGENT_VERSION}"
     "mongodb.name=mongodb-enterprise-server"
     "mongodb.imageType=${MDB_IMAGE_TYPE:-ubi8}"
@@ -36,7 +36,7 @@ get_operator_helm_values() {
     "search.repo=${MDB_SEARCH_REPO_URL}"
     "search.name=${MDB_SEARCH_NAME}"
     "search.version=${MDB_SEARCH_VERSION}"
-    "community.registry.agent=${AGENT_BASE_REGISTRY:-${REGISTRY}}"
+    "community.registry.agent=${MDB_AGENT_REGISTRY}"
   )
 
   if [[ "${MDB_OPERATOR_TELEMETRY_INSTALL_CLUSTER_ROLE_INSTALLATION:-}" != "" ]]; then

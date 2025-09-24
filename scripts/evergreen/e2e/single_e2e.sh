@@ -22,23 +22,20 @@ deploy_test_app() {
     local context=${1}
     local helm_template_file
     helm_template_file=$(mktemp)
-    tag="${VERSION_ID:-latest}"
-    if [[ "${OVERRIDE_VERSION_ID:-}" != "" ]]; then
-      tag="${OVERRIDE_VERSION_ID}"
-    fi
+    meko_tests_version="${OPERATOR_VERSION}"
 
     local arch
     arch=$(uname -m)
 
     case "${arch}" in
         ppc64le)
-            tag="${tag}-ppc64le"
+            meko_tests_version="${meko_tests_version}-ppc64le"
             ;;
         s390x)
-            tag="${tag}-s390x"
+            meko_tests_version="${meko_tests_version}-s390x"
             ;;
         *)
-            echo "Not IBM host, using default tag"
+            echo "Not IBM host, using default meko_tests_version"
             ;;
     esac
 
@@ -51,10 +48,11 @@ deploy_test_app() {
     # note, that the 4 last parameters are used only for Mongodb resource testing - not for Ops Manager
     helm_params=(
         "--set" "taskId=${task_id:-'not-specified'}"
-        "--set" "repo=${BASE_REPO_URL:=268558157000.dkr.ecr.us-east-1.amazonaws.com/dev}"
         "--set" "namespace=${NAMESPACE}"
         "--set" "taskName=${task_name}"
-        "--set" "tag=${tag}"
+        "--set" "mekoTestsRegistry=${MEKO_TESTS_REGISTRY}"
+        "--set" "mekoTestsVersion=${meko_tests_version}"
+        "--set" "versionId=${VERSION_ID}"
         "--set" "aws.accessKey=${AWS_ACCESS_KEY_ID}"
         "--set" "aws.secretAccessKey=${AWS_SECRET_ACCESS_KEY}"
         "--set" "skipExecution=${SKIP_EXECUTION:-'false'}"
@@ -64,7 +62,7 @@ deploy_test_app() {
         "--set" "orgId=${OM_ORGID:-}"
         "--set" "imagePullSecrets=image-registries-secret"
         "--set" "managedSecurityContext=${MANAGED_SECURITY_CONTEXT:-false}"
-        "--set" "registry=${REGISTRY:-${BASE_REPO_URL}/${IMAGE_TYPE}}"
+        "--set" "registry=${REGISTRY}"
         "--set" "mdbDefaultArchitecture=${MDB_DEFAULT_ARCHITECTURE:-'non-static'}"
         "--set" "mdbImageType=${MDB_IMAGE_TYPE:-'ubi8'}"
         "--set" "clusterDomain=${CLUSTER_DOMAIN:-'cluster.local'}"

@@ -6,9 +6,9 @@ script_name=$(readlink -f "${BASH_SOURCE[0]}")
 script_dir=$(dirname "${script_name}")
 
 source "${script_dir}/root-context"
+source "${script_dir}/variables/e2e_smoke_base"
 
 export ops_manager_version="cloud_qa"
-
 
 export CUSTOM_MDB_VERSION=8.0.12-ent
 export KUBE_ENVIRONMENT_NAME=kind
