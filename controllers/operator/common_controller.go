@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"path/filepath"
 	"reflect"
 
 	"github.com/blang/semver"
@@ -30,6 +31,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
+	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
@@ -231,7 +233,7 @@ func (r *ReconcileCommonController) SetupCommonWatchers(watcherResource WatcherR
 		} else {
 			secretNames = []string{security.MemberCertificateSecretName(resourceNameForSecret)}
 			if security.ShouldUseX509("") {
-				secretNames = append(secretNames, security.AgentClientCertificateSecretName(resourceNameForSecret).Name)
+				secretNames = append(secretNames, security.AgentClientCertificateSecretName(resourceNameForSecret))
 			}
 		}
 		r.resourceWatcher.RegisterWatchedTLSResources(objectToReconcile, security.TLSConfig.CA, secretNames)
@@ -407,7 +409,7 @@ func getSubjectFromCertificate(cert string) (string, error) {
 // enables/disables authentication. If the authentication can't be fully configured, a boolean value indicating that
 // an additional reconciliation needs to be queued up to fully make the authentication changes is returned.
 // Note: updateOmAuthentication needs to be called before reconciling other auth related settings.
-func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, conn om.Connection, processNames []string, ar authentication.AuthResource, agentCertSecretSelector corev1.SecretKeySelector, caFilepath string, clusterFilePath string, isRecovering bool, log *zap.SugaredLogger) (status workflow.Status, multiStageReconciliation bool) {
+func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, conn om.Connection, processNames []string, ar authentication.AuthResource, agentCertPath, caFilepath, clusterFilePath string, isRecovering bool, log *zap.SugaredLogger) (status workflow.Status, multiStageReconciliation bool) {
 	// don't touch authentication settings if resource has not been configured with them
 	if ar.GetSecurity() == nil || ar.GetSecurity().Authentication == nil {
 		return workflow.OK(), false
@@ -480,30 +482,23 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 
 	log.Debugf("Using authentication options %+v", authentication.Redact(authOpts))
 
+	agentCertSecretName := ar.GetSecurity().AgentClientCertificateSecretName(ar.GetName())
+	agentCertSecretSelector := corev1.SecretKeySelector{
+		LocalObjectReference: corev1.LocalObjectReference{Name: agentCertSecretName},
+		Key:                  corev1.TLSCertKey,
+	}
+
 	wantToEnableAuthentication := ar.GetSecurity().Authentication.Enabled
 	if wantToEnableAuthentication && canConfigureAuthentication(ac, ar.GetSecurity().Authentication.GetModes(), log) {
 		log.Info("Configuring authentication for MongoDB resource")
 
 		if ar.GetSecurity().ShouldUseX509(ac.Auth.AutoAuthMechanism) || ar.GetSecurity().ShouldUseClientCertificates() {
-			agentSecret := &corev1.Secret{}
-			if err := r.client.Get(ctx, kube.ObjectKey(ar.GetNamespace(), agentCertSecretSelector.Name), agentSecret); client.IgnoreNotFound(err) != nil {
-				return workflow.Failed(err), false
-			}
-			// If the agent secret is of type TLS, we can find the certificate under the standard key,
-			// otherwise the concatenated PEM secret would contain the certificate and keys under the selector's
-			// Key identifying the agent.
-			// In single cluster workloads this path is working with the concatenated PEM secret,
-			//
-			// Important: In multi cluster it is working with the TLS secret in the central cluster, hence below selector update.
-			if agentSecret.Type == corev1.SecretTypeTLS {
-				agentCertSecretSelector.Key = corev1.TLSCertKey
-			}
-
 			authOpts, err = r.configureAgentSubjects(ctx, ar.GetNamespace(), agentCertSecretSelector, authOpts, log)
 			if err != nil {
 				return workflow.Failed(xerrors.Errorf("error configuring agent subjects: %w", err)), false
 			}
 			authOpts.AgentsShouldUseClientAuthentication = ar.GetSecurity().ShouldUseClientCertificates()
+			authOpts.AutoPEMKeyFilePath = agentCertPath
 		}
 		if ar.GetSecurity().ShouldUseLDAP(ac.Auth.AutoAuthMechanism) {
 			secretRef := ar.GetSecurity().Authentication.Agents.AutomationPasswordSecretRef
@@ -529,15 +524,6 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 		log.Debug("Attempting to enable authentication, but Ops Manager state will not allow this")
 		return workflow.OK(), true
 	} else {
-		agentSecret := &corev1.Secret{}
-		if err := r.client.Get(ctx, kube.ObjectKey(ar.GetNamespace(), agentCertSecretSelector.Name), agentSecret); client.IgnoreNotFound(err) != nil {
-			return workflow.Failed(err), false
-		}
-
-		if agentSecret.Type == corev1.SecretTypeTLS {
-			agentCertSecretSelector.Name = fmt.Sprintf("%s%s", agentCertSecretSelector.Name, certs.OperatorGeneratedCertSuffix)
-		}
-
 		// Should not fail if the Secret object with agent certs is not found.
 		// It will only exist on x509 client auth enabled deployments.
 		userOpts, err := r.readAgentSubjectsFromSecret(ctx, ar.GetNamespace(), agentCertSecretSelector, log)
@@ -595,17 +581,12 @@ func (r *ReconcileCommonController) readAgentSubjectsFromSecret(ctx context.Cont
 }
 
 func (r *ReconcileCommonController) clearProjectAuthenticationSettings(ctx context.Context, conn om.Connection, mdb *mdbv1.MongoDB, processNames []string, log *zap.SugaredLogger) error {
-	secretKeySelector := mdb.Spec.Security.AgentClientCertificateSecretName(mdb.Name)
-	agentSecret := &corev1.Secret{}
-	if err := r.client.Get(ctx, kube.ObjectKey(mdb.Namespace, secretKeySelector.Name), agentSecret); client.IgnoreNotFound(err) != nil {
-		return nil
+	agentCertSecretName := mdb.Spec.GetSecurity().AgentClientCertificateSecretName(mdb.Name)
+	agentCertSecretSelector := corev1.SecretKeySelector{
+		LocalObjectReference: corev1.LocalObjectReference{Name: agentCertSecretName},
+		Key:                  corev1.TLSCertKey,
 	}
-
-	if agentSecret.Type == corev1.SecretTypeTLS {
-		secretKeySelector.Name = fmt.Sprintf("%s%s", secretKeySelector.Name, certs.OperatorGeneratedCertSuffix)
-	}
-
-	userOpts, err := r.readAgentSubjectsFromSecret(ctx, mdb.Namespace, secretKeySelector, log)
+	userOpts, err := r.readAgentSubjectsFromSecret(ctx, mdb.Namespace, agentCertSecretSelector, log)
 	err = client.IgnoreNotFound(err)
 	if err != nil {
 		return err
@@ -631,8 +612,8 @@ func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(ctx context.
 		if !security.IsTLSEnabled() {
 			return workflow.Failed(xerrors.Errorf("Authentication mode for project is x509 but this MDB resource is not TLS enabled"))
 		}
-		agentSecretName := security.AgentClientCertificateSecretName(configurator.GetName()).Name
-		err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, configurator.GetSecretReadClient(), configurator.GetSecretWriteClient(), kube.ObjectKey(configurator.GetNamespace(), agentSecretName))
+		agentSecretName := security.AgentClientCertificateSecretName(configurator.GetName())
+		err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, configurator.GetSecretReadClient(), configurator.GetSecretWriteClient(), kube.ObjectKey(configurator.GetNamespace(), agentSecretName), log)
 		if err != nil {
 			return workflow.Failed(err)
 		}
@@ -721,6 +702,18 @@ func (r *ReconcileCommonController) deleteClusterResources(ctx context.Context, 
 	r.resourceWatcher.RemoveDependentWatchedResources(objectKey)
 
 	return errs
+}
+
+// agentCertHashAndPath returns a hash of an agent certificate along with file path
+// to the said certificate. File path also contains the hash.
+func (r *ReconcileCommonController) agentCertHashAndPath(ctx context.Context, log *zap.SugaredLogger, namespace, agentCertSecretName string, appdbSecretPath string) (string, string) {
+	agentCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, namespace, agentCertSecretName, appdbSecretPath, log)
+	agentCertPath := ""
+	if agentCertHash != "" {
+		agentCertPath = filepath.Join(util.AgentCertMountPath, agentCertHash)
+	}
+
+	return agentCertHash, agentCertPath
 }
 
 // isPrometheusSupported checks if Prometheus integration can be enabled.

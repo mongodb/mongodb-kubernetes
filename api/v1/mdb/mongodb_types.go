@@ -195,7 +195,7 @@ func (m *MongoDB) GetSecretsMountedIntoDBPod() []string {
 			secrets = append(secrets, tls)
 		}
 	}
-	agentCerts := m.GetSecurity().AgentClientCertificateSecretName(m.Name).Name
+	agentCerts := m.GetSecurity().AgentClientCertificateSecretName(m.Name)
 	if agentCerts != "" {
 		secrets = append(secrets, agentCerts)
 	}
@@ -852,7 +852,7 @@ func (s *Security) ShouldUseX509(currentAgentAuthMode string) bool {
 // AgentClientCertificateSecretName returns the name of the Secret that holds the agent
 // client TLS certificates.
 // If no custom name has been defined, it returns the default one.
-func (s Security) AgentClientCertificateSecretName(resourceName string) corev1.SecretKeySelector {
+func (s Security) AgentClientCertificateSecretName(resourceName string) string {
 	secretName := util.AgentSecretName
 
 	if s.CertificatesSecretsPrefix != "" {
@@ -862,10 +862,7 @@ func (s Security) AgentClientCertificateSecretName(resourceName string) corev1.S
 		secretName = s.Authentication.Agents.ClientCertificateSecretRefWrap.ClientCertificateSecretRef.Name
 	}
 
-	return corev1.SecretKeySelector{
-		Key:                  util.AutomationAgentPemSecretKey,
-		LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
-	}
+	return secretName
 }
 
 // The customer has set ClientCertificateSecretRef. This signals that client certs are required,

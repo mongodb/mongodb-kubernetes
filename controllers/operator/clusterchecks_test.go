@@ -234,7 +234,8 @@ func (c *clusterChecks) checkAgentCertsSecret(ctx context.Context, certificatesS
 	sec := corev1.Secret{}
 	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, fmt.Sprintf("%s-%s-%s-pem", certificatesSecretsPrefix, resourceName, util.AgentSecretName)), &sec)
 	require.NoError(c.t, err, "clusterName: %s", c.clusterName)
-	require.Contains(c.t, sec.Data, util.AutomationAgentPemSecretKey, "clusterName: %s", c.clusterName)
+	require.Contains(c.t, sec.Data, util.LatestHashSecretKey, "clusterName: %s", c.clusterName)
+	require.Contains(c.t, sec.Data, string(sec.Data[util.LatestHashSecretKey]), "clusterName: %s", c.clusterName)
 }
 
 func (c *clusterChecks) checkMongosCertsSecret(ctx context.Context, certificatesSecretsPrefix string, resourceName string, shouldExist bool) {
