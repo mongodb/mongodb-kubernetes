@@ -221,8 +221,6 @@ spec:
         mountPath: /tmp/results
       - name: diagnostics
         mountPath: /tmp/diagnostics
-      - name: meko-tests-home
-        mountPath: /home/meko-tests
       - name: helm-config
         mountPath: /.config
       - name: helm-cache

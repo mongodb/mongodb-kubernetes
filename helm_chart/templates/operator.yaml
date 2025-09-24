@@ -36,7 +36,6 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 2000
-        fsGroup: 2000
         seccompProfile:
           type: RuntimeDefault
 {{- end }}
