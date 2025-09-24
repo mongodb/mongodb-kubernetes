@@ -7,6 +7,8 @@ import urllib.parse
 from typing import Dict, List, Optional
 
 import semver
+from kubernetes.client import ApiException
+
 from kubeobject import CustomObject
 from kubernetes import client
 from kubetester import create_or_update_configmap, read_configmap
@@ -37,9 +39,6 @@ TRACER = trace.get_tracer("evergreen-agent")
 
 
 class MongoDB(CustomObject, MongoDBCommon):
-    # project name set when configure method is called
-    om_project_name: Optional[str]
-
     def __init__(self, *args, **kwargs):
         with_defaults = {
             "plural": "mongodb",
@@ -48,7 +47,6 @@ class MongoDB(CustomObject, MongoDBCommon):
             "version": "v1",
         }
         with_defaults.update(kwargs)
-        self.om_project_name = None
         super(MongoDB, self).__init__(*args, **with_defaults)
 
     @classmethod
@@ -261,14 +259,12 @@ class MongoDB(CustomObject, MongoDBCommon):
         # then the secret needs to be copied there manually
         self["spec"]["credentials"] = om.api_key_secret(self.namespace, api_client=api_client)
 
-        self.om_project_name = project_name
-
         return self
 
     def configure_cloud_qa(
         self,
         project_name,
-        src_project_config_map_name: str = None,
+        src_project_config_map_name: Optional[str] = None,
         api_client: Optional[client.ApiClient] = None,
     ) -> MongoDB:
         if "opsManager" in self["spec"]:
@@ -280,27 +276,16 @@ class MongoDB(CustomObject, MongoDBCommon):
         ensure_nested_objects(self, ["spec", "cloudManager", "configMapRef"])
         self["spec"]["cloudManager"]["configMapRef"]["name"] = new_project_config_map_name
 
+        # we update the project name by adding a namespace prefix to ensure uniqueness in shared cloud-qa projects
+        # the namespace prefix is not added if we run the test against
         src_cm.update({"projectName": f"{self.namespace}-{project_name}"})
         create_or_update_configmap(self.namespace, new_project_config_map_name, src_cm, api_client=api_client)
 
         return self
 
-    def get_project_config_map(self, api_client, src_project_config_map_name):
-        if src_project_config_map_name is None and "cloudManager" in self["spec"]:
-            src_project_config_map_name = self["spec"]["cloudManager"]["configMapRef"]["name"]
-        else:
-            # my-project cm and my-credentials secret are created by scripts/evergreen/e2e/configure_operator.sh
-            src_project_config_map_name = "my-project"
-        try:
-            src_cm = read_configmap(self.namespace, src_project_config_map_name, api_client=api_client)
-        except client.ApiException as e:
-            if e.status == 404:
-                logger.debug("project config map is not specified, trying my-project as the source")
-                src_cm = read_configmap(self.namespace, "my-project", api_client=api_client)
-            else:
-                raise e
-
-        return src_cm
+    def get_om_project_name(self) -> str:
+        project_cm = self.read_configmap()
+        return project_cm["projectName"]
 
     def configure_backup(self, mode: str = "enabled") -> MongoDB:
         ensure_nested_objects(self, ["spec", "backup"])
@@ -488,8 +473,8 @@ class MongoDB(CustomObject, MongoDBCommon):
 
     def get_automation_config_tester(self, **kwargs):
         """This is just a shortcut for getting automation config tester for replica set"""
-        if "group_name" not in kwargs and self.om_project_name is not None:
-            kwargs["group_name"] = self.om_project_name
+        if "group_name" not in kwargs:
+            kwargs["group_name"] = self.get_om_project_name()
         return self.get_om_tester().get_automation_config_tester(**kwargs)
 
     def get_external_domain(self):

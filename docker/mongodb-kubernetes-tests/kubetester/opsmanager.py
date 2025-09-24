@@ -687,16 +687,17 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         api_client: Optional[kubernetes.client.ApiClient] = None,
     ) -> str:
         """Creates the configmap containing the information needed to connect to OM"""
-        config_map_name = f"{mongodb_name}-config"
-        data = {
-            "baseUrl": self.om_status().get_url(),
-            "projectName": project_name,
-            "orgId": "",
-        }
+        config_map_name = f"{mongodb_name}-project-config"
 
         # the namespace can be different from OM one if the MongoDB is created in a separate namespace
         if namespace is None:
             namespace = self.namespace
+
+        data = {
+            "baseUrl": self.om_status().get_url(),
+            "projectName": f"{namespace}-{project_name}",
+            "orgId": "",
+        }
 
         try:
             create_configmap(namespace, config_map_name, data, api_client=api_client)
