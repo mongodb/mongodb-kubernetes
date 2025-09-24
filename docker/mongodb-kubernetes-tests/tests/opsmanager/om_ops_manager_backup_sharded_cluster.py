@@ -55,9 +55,11 @@ def ops_manager(
     )
 
     # Change pod-security mode from warn to enforce. This will make test fail if operator and deployments don't support enforce mode
-    label_namespace(
-        namespace, {"pod-security.kubernetes.io/enforce": None, "pod-security.kubernetes.io/warn": "restricted"}
-    )
+    # This will not work in multi-cluster, because Istio injects sidecar and that breaks restricted level
+    if not is_multi_cluster():
+        label_namespace(
+            namespace, {"pod-security.kubernetes.io/enforce": None, "pod-security.kubernetes.io/warn": "restricted"}
+        )
 
     try_load(resource)
     return resource
