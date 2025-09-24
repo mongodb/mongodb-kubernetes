@@ -30,6 +30,16 @@ func BuildFromStatefulSetWithReplicas(mongoDBImage string, forceEnterprise bool,
 	return rsWithProcesses
 }
 
+// BuildFromMongoDBWithReplicas returns a replica set that can be set in the Automation Config
+// based on the given MongoDB resource directly without requiring a StatefulSet.
+func BuildFromMongoDBWithReplicas(mongoDBImage string, forceEnterprise bool, mdb *mdbv1.MongoDB, replicas int, fcv string, tlsCertPath string) om.ReplicaSetWithProcesses {
+	members := process.CreateMongodProcessesFromMongoDB(mongoDBImage, forceEnterprise, mdb, replicas, fcv, tlsCertPath)
+	replicaSet := om.NewReplicaSet(mdb.Name, mdb.Spec.GetMongoDBVersion())
+	rsWithProcesses := om.NewReplicaSetWithProcesses(replicaSet, members, mdb.Spec.GetMemberOptions())
+	rsWithProcesses.SetHorizons(mdb.Spec.GetHorizonConfig())
+	return rsWithProcesses
+}
+
 // PrepareScaleDownFromMap performs additional steps necessary to make sure removed members are not primary (so no
 // election happens and replica set is available) (see
 // https://jira.mongodb.org/browse/HELP-3818?focusedCommentId=1548348 for more details)

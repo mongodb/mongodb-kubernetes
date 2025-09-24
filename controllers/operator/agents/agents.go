@@ -96,6 +96,19 @@ func WaitForRsAgentsToRegister(set appsv1.StatefulSet, members int, clusterName 
 	return nil
 }
 
+// WaitForRsAgentsToRegisterByResource waits for RS agents to register using MongoDB resource directly without StatefulSet
+func WaitForRsAgentsToRegisterByResource(rs *mdbv1.MongoDB, members int, omConnection om.Connection, log *zap.SugaredLogger) error {
+	hostnames, _ := dns.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain(), members, rs.Spec.DbCommonSpec.GetExternalDomain())
+
+	log = log.With("mongodb", rs.Name)
+
+	ok, msg := waitUntilRegistered(omConnection, log, retryParams{retrials: 5, waitSeconds: 3}, hostnames...)
+	if !ok {
+		return getAgentRegisterError(msg)
+	}
+	return nil
+}
+
 // WaitForRsAgentsToRegisterSpecifiedHostnames waits for the specified agents to registry with Ops Manager.
 func WaitForRsAgentsToRegisterSpecifiedHostnames(omConnection om.Connection, hostnames []string, log *zap.SugaredLogger) error {
 	ok, msg := waitUntilRegistered(omConnection, log, retryParams{retrials: 10, waitSeconds: 9}, hostnames...)
