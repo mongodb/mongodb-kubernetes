@@ -42,9 +42,7 @@ spec:
       emptyDir: { }
     - name: diagnostics
       emptyDir: { }
-    - name: helm-config
-      emptyDir: { }
-    - name: helm-cache
+    - name: tests-home-dir
       emptyDir: { }
   {{ if .Values.multiCluster.memberClusters }}
     - name: kube-config-volume
@@ -205,6 +203,9 @@ spec:
       value: {{ .Values.cognito_workload_url }}
     - name: cognito_workload_user_id
       value: {{ .Values.cognito_workload_user_id }}
+    # Used by helm to create .config and .cache directories. Also used by some tests that need to write files.
+    - name: HOME
+      value: /home/tests-home
     image: {{ .Values.repo }}/mongodb-kubernetes-tests:{{ .Values.tag }}
     # Options to pytest command should go in the pytest.ini file.
     command: ["pytest"]
@@ -221,10 +222,8 @@ spec:
         mountPath: /tmp/results
       - name: diagnostics
         mountPath: /tmp/diagnostics
-      - name: helm-config
-        mountPath: /.config
-      - name: helm-cache
-        mountPath: /.cache
+      - name: tests-home-dir
+        mountPath: /home/tests-home
     {{ if .Values.multiCluster.memberClusters }}
       - mountPath: /etc/config
         name: kube-config-volume
