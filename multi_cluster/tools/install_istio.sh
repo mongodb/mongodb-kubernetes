@@ -88,7 +88,7 @@ spec:
       network: network1
 EOF
 
-bin/istioctl install --set components.cni.enabled=true --context="${CTX_CLUSTER1}" -f cluster1.yaml -y &
+bin/istioctl install --context="${CTX_CLUSTER1}" --set components.cni.enabled=true -f cluster1.yaml -y &
 
 cat <<EOF >cluster2.yaml
 apiVersion: install.istio.io/v1alpha1
@@ -113,7 +113,7 @@ spec:
       network: network1
 EOF
 
-bin/istioctl install --set components.cni.enabled=true --context="${CTX_CLUSTER2}" -f cluster2.yaml -y &
+bin/istioctl install --context="${CTX_CLUSTER2}" --set components.cni.enabled=true -f cluster2.yaml -y &
 
 cat <<EOF >cluster3.yaml
 apiVersion: install.istio.io/v1alpha1
@@ -138,7 +138,7 @@ spec:
       network: network1
 EOF
 
-bin/istioctl install --set components.cni.enabled=true --context="${CTX_CLUSTER3}" -f cluster3.yaml -y &
+bin/istioctl install --context="${CTX_CLUSTER3}" --set components.cni.enabled=true -f cluster3.yaml -y &
 
 wait
 
