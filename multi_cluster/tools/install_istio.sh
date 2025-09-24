@@ -38,6 +38,7 @@ make -f ../tools/certs/Makefile.selfsigned.mk "${CTX_CLUSTER3}-cacerts" || make 
 # create cluster secret objects with the certs and keys
 kubectl --context="${CTX_CLUSTER1}" delete ns istio-system || true
 kubectl --context="${CTX_CLUSTER1}" create ns istio-system
+kubectl --context="${CTX_CLUSTER1}" label --overwrite ns istio-system pod-security.kubernetes.io/enforce=privileged
 kubectl --context="${CTX_CLUSTER1}" create secret generic cacerts -n istio-system \
   --from-file=${CTX_CLUSTER1}/ca-cert.pem \
   --from-file=${CTX_CLUSTER1}/ca-key.pem \
@@ -46,6 +47,7 @@ kubectl --context="${CTX_CLUSTER1}" create secret generic cacerts -n istio-syste
 
 kubectl --context="${CTX_CLUSTER2}" delete ns istio-system || true
 kubectl --context="${CTX_CLUSTER2}" create ns istio-system
+kubectl --context="${CTX_CLUSTER2}" label --overwrite ns istio-system pod-security.kubernetes.io/enforce=privileged
 kubectl --context="${CTX_CLUSTER2}" create secret generic cacerts -n istio-system \
   --from-file=${CTX_CLUSTER2}/ca-cert.pem \
   --from-file=${CTX_CLUSTER2}/ca-key.pem \
@@ -54,6 +56,7 @@ kubectl --context="${CTX_CLUSTER2}" create secret generic cacerts -n istio-syste
 
 kubectl --context="${CTX_CLUSTER3}" delete ns istio-system || true
 kubectl --context="${CTX_CLUSTER3}" create ns istio-system
+kubectl --context="${CTX_CLUSTER3}" label --overwrite ns istio-system pod-security.kubernetes.io/enforce=privileged
 kubectl --context="${CTX_CLUSTER3}" create secret generic cacerts -n istio-system \
   --from-file=${CTX_CLUSTER3}/ca-cert.pem \
   --from-file=${CTX_CLUSTER3}/ca-key.pem \
@@ -67,6 +70,10 @@ apiVersion: install.istio.io/v1alpha1
 kind: IstioOperator
 spec:
   tag: ${VERSION}
+  components:
+    cni:
+      namespace: istio-system
+      enabled: true
   meshConfig:
     defaultConfig:
       terminationDrainDuration: 30s
@@ -81,13 +88,17 @@ spec:
       network: network1
 EOF
 
-bin/istioctl install --context="${CTX_CLUSTER1}" -f cluster1.yaml -y &
+bin/istioctl install --set components.cni.enabled=true --context="${CTX_CLUSTER1}" -f cluster1.yaml -y &
 
 cat <<EOF >cluster2.yaml
 apiVersion: install.istio.io/v1alpha1
 kind: IstioOperator
 spec:
   tag: ${VERSION}
+  components:
+    cni:
+      namespace: istio-system
+      enabled: true
   meshConfig:
     defaultConfig:
       terminationDrainDuration: 30s
@@ -102,13 +113,17 @@ spec:
       network: network1
 EOF
 
-bin/istioctl install --context="${CTX_CLUSTER2}" -f cluster2.yaml -y &
+bin/istioctl install --set components.cni.enabled=true --context="${CTX_CLUSTER2}" -f cluster2.yaml -y &
 
 cat <<EOF >cluster3.yaml
 apiVersion: install.istio.io/v1alpha1
 kind: IstioOperator
 spec:
   tag: ${VERSION}
+  components:
+    cni:
+      namespace: istio-system
+      enabled: true
   meshConfig:
     defaultConfig:
       terminationDrainDuration: 30s
@@ -123,7 +138,7 @@ spec:
       network: network1
 EOF
 
-bin/istioctl install --context="${CTX_CLUSTER3}" -f cluster3.yaml -y &
+bin/istioctl install --set components.cni.enabled=true --context="${CTX_CLUSTER3}" -f cluster3.yaml -y &
 
 wait
 

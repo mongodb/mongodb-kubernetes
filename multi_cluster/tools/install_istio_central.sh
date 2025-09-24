@@ -10,4 +10,4 @@ source multi_cluster/tools/download_istio.sh
 cd istio-${VERSION}
 
 bin/istioctl x uninstall --context="${CTX_CLUSTER}" --purge --skip-confirmation
-bin/istioctl install --context="${CTX_CLUSTER}" --set profile=default --set meshConfig.outboundTrafficPolicy.mode=REGISTRY_ONLY --skip-confirmation
+bin/istioctl install --set components.cni.enabled=true --context="${CTX_CLUSTER}" --set profile=default --set meshConfig.outboundTrafficPolicy.mode=REGISTRY_ONLY --skip-confirmation
