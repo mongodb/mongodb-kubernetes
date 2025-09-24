@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"k8s.io/utils/ptr"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -441,6 +442,12 @@ func TestMergeContainer(t *testing.T) {
 			},
 		},
 		ReadinessProbe: otherDefaultContainer.ReadinessProbe,
+		SecurityContext: &corev1.SecurityContext{
+			AllowPrivilegeEscalation: ptr.To(false),
+			Capabilities: &corev1.Capabilities{
+				Drop: []corev1.Capability{"ALL"},
+			},
+		},
 	}
 	assert.Equal(t, secondExpected, mergedSpec.Spec.Containers[2])
 }
