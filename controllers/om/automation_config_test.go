@@ -599,10 +599,10 @@ func TestAssigningListsReassignsInDeployment(t *testing.T) {
 
 func TestAutomationConfigEquality(t *testing.T) {
 	deployment1 := NewDeployment()
-	deployment1.setReplicaSets([]ReplicaSet{NewReplicaSet("1", "5.0.0")})
+	deployment1.SetReplicaSets([]ReplicaSet{NewReplicaSet("1", "5.0.0")})
 
 	deployment2 := NewDeployment()
-	deployment2.setReplicaSets([]ReplicaSet{NewReplicaSet("2", "5.0.0")})
+	deployment2.SetReplicaSets([]ReplicaSet{NewReplicaSet("2", "5.0.0")})
 
 	authConfig := Auth{
 		Users: []*MongoDBUser{
@@ -1060,7 +1060,7 @@ func TestApplyInto(t *testing.T) {
 
 func changeTypes(deployment Deployment) error {
 	rs := deployment.GetReplicaSets()
-	deployment.setReplicaSets(rs)
+	deployment.SetReplicaSets(rs)
 	return nil
 }
 

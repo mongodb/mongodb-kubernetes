@@ -220,6 +220,11 @@ func (client *Client) authorizeRequest(method, hostname, path string, request *r
 		return err
 	}
 
+	if resp.StatusCode == http.StatusOK {
+		// No need to authorize, server didn't challenge us
+		return nil
+	}
+
 	if resp.StatusCode != http.StatusUnauthorized {
 		return apierror.New(
 			xerrors.Errorf(

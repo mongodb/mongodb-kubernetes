@@ -18,6 +18,7 @@ from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
 from lib.base_logger import logger
 from scripts.release.atomic_pipeline import (
     build_agent,
+    build_agent_sidecar_image,
     build_database_image,
     build_init_appdb_image,
     build_init_database_image,
@@ -31,6 +32,7 @@ from scripts.release.atomic_pipeline import (
 )
 from scripts.release.build.build_info import (
     AGENT_IMAGE,
+    AGENT_SIDECAR_IMAGE,
     DATABASE_IMAGE,
     INIT_APPDB_IMAGE,
     INIT_DATABASE_IMAGE,
@@ -73,6 +75,7 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         MCO_TESTS_IMAGE: build_mco_tests_image,
         READINESS_PROBE_IMAGE: build_readiness_probe_image,
         UPGRADE_HOOK_IMAGE: build_upgrade_hook_image,
+        AGENT_SIDECAR_IMAGE: build_agent_sidecar_image,
         DATABASE_IMAGE: build_database_image,
         AGENT_IMAGE: build_agent,
         # Init images
@@ -137,6 +140,7 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
         parallel_factor=args.parallel_factor,
         all_agents=args.all_agents,
         currently_used_agents=args.current_agents,
+        custom_agent_url=args.custom_agent_url,
     )
 
 
@@ -274,6 +278,13 @@ Default is to infer from environment variables. For '{BuildScenario.DEVELOPMENT}
         "--current-agents",
         action="store_true",
         help="Build all currently used agent images.",
+    )
+    parser.add_argument(
+        "--custom-agent-url",
+        metavar="",
+        action="store",
+        type=str,
+        help="Custom agent URL for testing (e.g., https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/patches/68caf1b06da1570007e898b4/automation-agent/local/mongodb-mms-automation-agent-13.41.0.9783-1.linux_x86_64.tar.gz)",
     )
 
     args = parser.parse_args()
