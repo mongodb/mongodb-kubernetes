@@ -5,8 +5,9 @@ from kubernetes.client.rest import ApiException
 from kubetester import (
     create_or_update_secret,
     get_default_storage_class,
+    label_namespace,
     try_load,
-    wait_until, create_or_update_namespace, label_namespace,
+    wait_until,
 )
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
@@ -54,10 +55,9 @@ def ops_manager(
     )
 
     # Change pod-security mode from warn to enforce. This will make test fail if operator and deployments don't support enforce mode
-    label_namespace(namespace, {
-        "pod-security.kubernetes.io/enforce": None,
-        "pod-security.kubernetes.io/warn": "restricted"
-    })
+    label_namespace(
+        namespace, {"pod-security.kubernetes.io/enforce": None, "pod-security.kubernetes.io/warn": "restricted"}
+    )
 
     try_load(resource)
     return resource
@@ -241,7 +241,7 @@ class TestBackupDatabasesAdded:
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Failed,
             msg_regexp=".*is configured to use SCRAM-SHA authentication mode, the user "
-                       "must be specified using 'mongodbUserRef'",
+            "must be specified using 'mongodbUserRef'",
         )
 
     def test_fix_om(self, ops_manager: MongoDBOpsManager, oplog_user: MongoDBUser):
