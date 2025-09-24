@@ -274,12 +274,23 @@ class MongoDB(CustomObject, MongoDBCommon):
         if "opsManager" in self["spec"]:
             del self["spec"]["opsManager"]
 
+        src_cm = self.get_project_config_map(api_client, src_project_config_map_name)
+
+        new_project_config_map_name = f"{self.name}-project-config"
+        ensure_nested_objects(self, ["spec", "cloudManager", "configMapRef"])
+        self["spec"]["cloudManager"]["configMapRef"]["name"] = new_project_config_map_name
+
+        src_cm.update({"projectName": f"{self.namespace}-{project_name}"})
+        create_or_update_configmap(self.namespace, new_project_config_map_name, src_cm, api_client=api_client)
+
+        return self
+
+    def get_project_config_map(self, api_client, src_project_config_map_name):
         if src_project_config_map_name is None and "cloudManager" in self["spec"]:
             src_project_config_map_name = self["spec"]["cloudManager"]["configMapRef"]["name"]
         else:
             # my-project cm and my-credentials secret are created by scripts/evergreen/e2e/configure_operator.sh
             src_project_config_map_name = "my-project"
-
         try:
             src_cm = read_configmap(self.namespace, src_project_config_map_name, api_client=api_client)
         except client.ApiException as e:
@@ -289,16 +300,7 @@ class MongoDB(CustomObject, MongoDBCommon):
             else:
                 raise e
 
-        new_project_config_map_name = f"{self.name}-project-config"
-        ensure_nested_objects(self, ["spec", "cloudManager", "configMapRef"])
-        self["spec"]["cloudManager"]["configMapRef"]["name"] = new_project_config_map_name
-
-        src_cm.update({"projectName": f"{self.namespace}-{project_name}"})
-        create_or_update_configmap(self.namespace, new_project_config_map_name, src_cm, api_client=api_client)
-
-        self.om_project_name = project_name
-
-        return self
+        return src_cm
 
     def configure_backup(self, mode: str = "enabled") -> MongoDB:
         ensure_nested_objects(self, ["spec", "backup"])
