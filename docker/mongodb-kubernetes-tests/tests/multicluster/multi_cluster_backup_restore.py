@@ -37,7 +37,6 @@ TEST_DATA = {"_id": "unique_id", "name": "John", "address": "Highway 37", "age":
 
 MONGODB_PORT = 30000
 
-
 HEAD_PATH = "/head/"
 OPLOG_RS_NAME = "my-mongodb-oplog"
 BLOCKSTORE_RS_NAME = "my-mongodb-blockstore"
@@ -155,7 +154,10 @@ def oplog_replica_set(
     resource["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    yield resource.update()
+
+    resource.update()
+
+    return resource
 
 
 @fixture(scope="module")
@@ -184,7 +186,9 @@ def blockstore_replica_set(
 
     resource.set_version(custom_mdb_version)
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    yield resource.update()
+    resource.update()
+
+    return resource
 
 
 @fixture(scope="module")
@@ -208,7 +212,9 @@ def blockstore_user(
     )
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    yield resource.update()
+    resource.update()
+
+    return resource
 
 
 @fixture(scope="module")
@@ -238,7 +244,8 @@ def oplog_user(
     )
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    yield resource.update()
+    resource.update()
+    return resource
 
 
 @mark.e2e_multi_cluster_backup_restore
@@ -377,7 +384,6 @@ class TestBackupForMongodb:
 
     @fixture(scope="function")
     def mongodb_multi_one_collection(self, mdb_client):
-
         # Ensure primary is available before proceeding
         wait_for_primary(mdb_client)
 
