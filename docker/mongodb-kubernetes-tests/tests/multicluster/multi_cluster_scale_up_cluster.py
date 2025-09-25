@@ -155,7 +155,7 @@ class TestNonSequentialMemberIdsInReplicaSet(KubernetesTester):
         mongodb_multi.assert_statefulsets_are_ready(member_cluster_clients)
         mongodb_multi.assert_reaches_phase(Phase.Running, timeout=600)
 
-    def test_change_project(self, mongodb_multi: MongoDBMulti, new_project_configmap: str):
+    def test_change_project(self, mongodb_multi: MongoDBMulti):
         new_project_name = f"{mongodb_multi.name}-new-project"
         old_rs_members = mongodb_multi.get_automation_config_tester(group_name=PROJECT_NAME).get_replica_set_members(
             mongodb_multi.name

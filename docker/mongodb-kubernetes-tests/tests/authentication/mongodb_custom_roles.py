@@ -17,7 +17,7 @@ def mongodb_role():
     if try_load(resource):
         return resource
 
-    return resource.update()
+    return resource
 
 
 PROJECT_NAME_FIRST = f"first"
@@ -90,6 +90,8 @@ def mc_replica_set(namespace: str, mongodb_role: ClusterMongoDBRole) -> MongoDBM
 def test_create_resources(
     mongodb_role: ClusterMongoDBRole, replica_set: MongoDB, sharded_cluster: MongoDB, mc_replica_set: MongoDBMulti
 ):
+    mongodb_role.update()
+
     replica_set.update()
     sharded_cluster.update()
     mc_replica_set.update()
@@ -131,6 +133,11 @@ def test_changing_role(
     wait_until(lambda: sharded_cluster.get_automation_config_tester().reached_version(sc_version + 1), timeout=120)
     wait_until(lambda: mc_replica_set.get_automation_config_tester().reached_version(mcrs_version + 1), timeout=120)
 
+
+@mark.e2e_mongodb_custom_roles
+def test_roles_after_change(
+    replica_set: MongoDB, sharded_cluster: MongoDB, mc_replica_set: MongoDBMulti, mongodb_role: ClusterMongoDBRole
+):
     replica_set.get_automation_config_tester().assert_expected_role(
         role_index=0, expected_value=mongodb_role.get_role()
     )
@@ -160,7 +167,9 @@ def test_deleting_role_does_not_remove_access(
         phase=Phase.Failed, msg_regexp=f"ClusterMongoDBRole '{mongodb_role.get_name()}' not found"
     )
 
-    # The role should still exist in the automation config
+
+@mark.e2e_mongodb_custom_roles
+def test_roles_still_exist_in_ac(replica_set: MongoDB, sharded_cluster: MongoDB, mc_replica_set: MongoDBMulti):
     replica_set.get_automation_config_tester().assert_has_expected_number_of_roles(expected_roles=1)
     sharded_cluster.get_automation_config_tester().assert_has_expected_number_of_roles(expected_roles=1)
     mc_replica_set.get_automation_config_tester().assert_has_expected_number_of_roles(expected_roles=1)
@@ -180,6 +189,9 @@ def test_removing_role_from_resources(replica_set: MongoDB, sharded_cluster: Mon
     wait_until(lambda: sharded_cluster.get_automation_config_tester().reached_version(sc_version + 1), timeout=120)
     wait_until(lambda: mc_replica_set.get_automation_config_tester().reached_version(mcrs_version + 1), timeout=120)
 
+
+@mark.e2e_mongodb_custom_roles
+def test_expected_number_of_roles(sharded_cluster: MongoDB, mc_replica_set: MongoDBMulti):
     sharded_cluster.get_automation_config_tester().assert_has_expected_number_of_roles(expected_roles=0)
     mc_replica_set.get_automation_config_tester().assert_has_expected_number_of_roles(expected_roles=0)
 
