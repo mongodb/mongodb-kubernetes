@@ -77,19 +77,15 @@ functions:
         echo "Finished initializing to the root context"
 
   switch_context: &switch_context
-    command: shell.exec
+    command: subprocess.exec
     type: setup
     params:
-      shell: bash
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       <<: *e2e_include_expansions_in_env
       add_to_path:
         - ${workdir}/bin
         - ${workdir}/google-cloud-sdk/bin
-      script: |
-        echo "Switching context"
-        scripts/dev/switch_context.sh "${build_variant}"
-        echo "Finished switching context"
+      command: scripts/dev/switch_context.sh "${build_variant}"
 
   python_venv: &python_venv
     command: subprocess.exec
@@ -249,7 +245,7 @@ functions:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       add_to_path:
         - ${workdir}/bin
-      command: scripts/dev/setup_chart_testing_cli.sh  
+      command: scripts/dev/setup_chart_testing_cli.sh
 
   lint_repo:
     - command: subprocess.exec
