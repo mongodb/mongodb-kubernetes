@@ -131,7 +131,6 @@ def create_or_update_configmap(
     data: Dict[str, str],
     api_client: Optional[kubernetes.client.ApiClient] = None,
 ) -> str:
-    print("Logging inside create_or_update configmap")
     try:
         create_configmap(namespace, name, data, api_client)
     except kubernetes.client.ApiException as e:
@@ -151,7 +150,6 @@ def create_or_update_service(
     selector=None,
     service: Optional[client.V1Service] = None,
 ) -> str:
-    print("Logging inside create_or_update_service")
     try:
         create_service(namespace, service_name, cluster_ip=cluster_ip, ports=ports, selector=selector, service=service)
     except kubernetes.client.ApiException as e:
