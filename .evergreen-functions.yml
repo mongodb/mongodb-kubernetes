@@ -301,7 +301,6 @@ functions:
   # the task configures the set of tools necessary for any task working with K8 cluster:
   # installs kubectl, jq, kind (if necessary), configures docker authentication
   download_kube_tools:
-    - *switch_context
     - *setup_kubectl
     - *setup_jq
     # we need aws to configure docker authentication
