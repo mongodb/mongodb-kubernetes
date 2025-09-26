@@ -9,6 +9,7 @@ import (
 
 	"github.com/blang/semver"
 	"github.com/ghodss/yaml"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/fields"
@@ -405,7 +406,8 @@ func GetMongodConfigParameters(search *searchv1.MongoDBSearch) map[string]any {
 
 func mongotHostAndPort(search *searchv1.MongoDBSearch) string {
 	svcName := search.SearchServiceNamespacedName()
-	return fmt.Sprintf("%s.%s.svc.cluster.local:%d", svcName.Name, svcName.Namespace, search.GetMongotPort())
+	clusterDomain := env.ReadOrDefault("CLUSTER_DOMAIN", "cluster.local")
+	return fmt.Sprintf("%s.%s.svc.%s:%d", svcName.Name, svcName.Namespace, clusterDomain, search.GetMongotPort())
 }
 
 func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSource(ctx context.Context) error {
