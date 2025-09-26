@@ -9,6 +9,7 @@ from typing import Dict, List, Optional
 import semver
 from kubeobject import CustomObject
 from kubernetes import client
+from kubernetes.client import ApiException
 from kubetester import create_or_update_configmap, read_configmap
 from kubetester.kubetester import (
     KubernetesTester,
@@ -230,7 +231,19 @@ class MongoDB(CustomObject, MongoDBCommon):
 
     def configure(
         self,
-        om: MongoDBOpsManager,
+        om: Optional[MongoDBOpsManager],
+        project_name: str,
+        ca_config_map_name: Optional[str] = None,
+        api_client: Optional[client.ApiClient] = None,
+    ) -> MongoDB:
+        if om is not None:
+            return self.configure_ops_manager(om, project_name, api_client=api_client)
+        else:
+            return self.configure_cloud_qa(project_name, api_client=api_client)
+
+    def configure_ops_manager(
+        self,
+        om: Optional[MongoDBOpsManager],
         project_name: str,
         api_client: Optional[client.ApiClient] = None,
     ) -> MongoDB:
@@ -245,7 +258,37 @@ class MongoDB(CustomObject, MongoDBCommon):
         # Note that if the MongoDB object is created in a different namespace than the Operator
         # then the secret needs to be copied there manually
         self["spec"]["credentials"] = om.api_key_secret(self.namespace, api_client=api_client)
+
         return self
+
+    def configure_cloud_qa(
+        self,
+        project_name,
+        api_client: Optional[client.ApiClient] = None,
+    ) -> MongoDB:
+        if "opsManager" in self["spec"]:
+            del self["spec"]["opsManager"]
+
+        src_cm_name = self.config_map_name
+        if src_cm_name is None:
+            src_cm_name = "my-project"
+
+        src_cm = self.read_configmap(config_map_name=src_cm_name, api_client=api_client)
+
+        new_project_config_map_name = f"{self.name}-project-config"
+        ensure_nested_objects(self, ["spec", "cloudManager", "configMapRef"])
+        self["spec"]["cloudManager"]["configMapRef"]["name"] = new_project_config_map_name
+
+        # we update the project name by adding a namespace prefix to ensure uniqueness in shared cloud-qa projects
+        # the namespace prefix is not added if we run the test against
+        src_cm.update({"projectName": f"{self.namespace}-{project_name}"})
+        create_or_update_configmap(self.namespace, new_project_config_map_name, src_cm, api_client=api_client)
+
+        return self
+
+    def get_om_project_name(self) -> str:
+        project_cm = self.read_configmap(self.config_map_name)
+        return project_cm["projectName"]
 
     def configure_backup(self, mode: str = "enabled") -> MongoDB:
         ensure_nested_objects(self, ["spec", "backup"])
@@ -277,8 +320,14 @@ class MongoDB(CustomObject, MongoDBCommon):
     def read_statefulset(self) -> client.V1StatefulSet:
         return client.AppsV1Api().read_namespaced_stateful_set(self.name, self.namespace)
 
-    def read_configmap(self) -> Dict[str, str]:
-        return KubernetesTester.read_configmap(self.namespace, self.config_map_name)
+    def read_configmap(
+        self, config_map_name: Optional[str], api_client: Optional[client.ApiClient] = None
+    ) -> Optional[Dict[str, str]]:
+        if config_map_name is None:
+            raise Exception(
+                "Project config map is empty. Modify resource yaml or use configure method to set spec.opsManager or spec.cloudManager fields."
+            )
+        return KubernetesTester.read_configmap(self.namespace, config_map_name, api_client=api_client)
 
     def mongo_uri(self, user_name: Optional[str] = None, password: Optional[str] = None) -> str:
         """Returns the mongo uri for the MongoDB resource. The logic matches the one in 'types.go'"""
@@ -427,12 +476,14 @@ class MongoDB(CustomObject, MongoDBCommon):
 
     def get_om_tester(self) -> OMTester:
         """Returns the OMTester instance based on MongoDB connectivity parameters"""
-        config_map = self.read_configmap()
+        config_map = self.read_configmap(self.config_map_name)
         secret = KubernetesTester.read_secret(self.namespace, self["spec"]["credentials"])
         return OMTester(OMContext.build_from_config_map_and_secret(config_map, secret))
 
     def get_automation_config_tester(self, **kwargs):
         """This is just a shortcut for getting automation config tester for replica set"""
+        if "group_name" not in kwargs:
+            kwargs["group_name"] = self.get_om_project_name()
         return self.get_om_tester().get_automation_config_tester(**kwargs)
 
     def get_external_domain(self):
@@ -446,10 +497,13 @@ class MongoDB(CustomObject, MongoDBCommon):
         return self["spec"].get("externalAccess", {}).get("externalDomain", None) or multi_cluster_external_domain
 
     @property
-    def config_map_name(self) -> str:
+    def config_map_name(self) -> Optional[str]:
         if "opsManager" in self["spec"]:
             return self["spec"]["opsManager"]["configMapRef"]["name"]
-        return self["spec"]["project"]
+        elif "cloudManager" in self["spec"]:
+            return self["spec"]["cloudManager"]["configMapRef"]["name"]
+
+        return self["spec"].get("project", None)
 
     def shard_replicaset_names(self) -> List[str]:
         return ["{}-{}".format(self.name, i) for i in range(1, self["spec"]["shardCount"])]

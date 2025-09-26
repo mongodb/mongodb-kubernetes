@@ -47,7 +47,7 @@ def get_sharded_resources(namespace: str) -> List[MongoDB]:
         # We set the resource name as the file name, but replace _ with - and lowercase,
         # to respect kubernetes naming constraints
         sc = load_resource(namespace, file_path)
-        sc["spec"]["opsManager"]["configMapRef"]["name"] = f"{file_to_resource_name(file_name)}-project-map"
+        sc.configure(None, f"{file_to_resource_name(file_name)}")
         resources.append(sc)
     return resources
 
