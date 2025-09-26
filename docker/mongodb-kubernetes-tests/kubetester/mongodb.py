@@ -233,6 +233,7 @@ class MongoDB(CustomObject, MongoDBCommon):
         self,
         om: Optional[MongoDBOpsManager],
         project_name: str,
+        ca_config_map_name: Optional[str] = None,
         api_client: Optional[client.ApiClient] = None,
     ) -> MongoDB:
         if om is not None:
