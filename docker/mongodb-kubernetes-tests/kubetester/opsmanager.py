@@ -13,7 +13,7 @@ from kubernetes.client.rest import ApiException
 from kubetester import (
     create_configmap,
     create_or_update_secret,
-    read_secret,
+    read_secret, create_or_update_configmap,
 )
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import (
@@ -684,6 +684,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         mongodb_name: str,
         project_name: str,
         namespace=None,
+        ca_config_map_name: Optional[str] = None,
         api_client: Optional[kubernetes.client.ApiClient] = None,
     ) -> str:
         """Creates the configmap containing the information needed to connect to OM"""
@@ -698,16 +699,10 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             "projectName": f"{namespace}-{project_name}",
             "orgId": "",
         }
+        if ca_config_map_name is not None:
+            data["sslMMSCAConfigMap"] = ca_config_map_name
 
-        try:
-            create_configmap(namespace, config_map_name, data, api_client=api_client)
-        except ApiException as e:
-            if e.status != 409:
-                raise
-
-            # If the ConfigMap already exist, it will be updated with
-            # an updated status_url()
-            KubernetesTester.update_configmap(namespace, config_map_name, data)
+        create_or_update_configmap(namespace, config_map_name, data, api_client=api_client)
 
         return config_map_name
 

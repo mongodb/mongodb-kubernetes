@@ -137,7 +137,7 @@ def oplog_replica_set(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=ops_manager.namespace,
         name=OPLOG_RS_NAME,
-    ).configure(ops_manager, "oplog")
+    ).configure(ops_manager, "oplog", issuer_ca_configmap)
     resource.configure_custom_tls(issuer_ca_configmap, oplog_certs_secret)
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.update()
@@ -192,28 +192,6 @@ class TestOpsManagerCreation:
             timeout=900,
         )
 
-    def test_add_custom_ca_to_project_configmap(
-        self, ops_manager: MongoDBOpsManager, issuer_ca_plus: str, namespace: str
-    ):
-        projects = [
-            ops_manager.get_or_create_mongodb_connection_config_map(OPLOG_RS_NAME, "oplog"),
-            ops_manager.get_or_create_mongodb_connection_config_map(BLOCKSTORE_RS_NAME, "blockstore"),
-            ops_manager.get_or_create_mongodb_connection_config_map(FIRST_PROJECT_RS_NAME, "firstProject"),
-            ops_manager.get_or_create_mongodb_connection_config_map(SECOND_PROJECT_RS_NAME, "secondProject"),
-            ops_manager.get_or_create_mongodb_connection_config_map(EXTERNAL_DOMAIN_RS_NAME, "externalDomain"),
-        ]
-
-        data = {
-            "sslMMSCAConfigMap": issuer_ca_plus,
-        }
-
-        for project in projects:
-            KubernetesTester.update_configmap(namespace, project, data)
-
-        # Give a few seconds for the operator to catch the changes on
-        # the project ConfigMaps
-        time.sleep(10)
-
     def test_backing_dbs_created(self, blockstore_replica_set: MongoDB, oplog_replica_set: MongoDB):
         oplog_replica_set.assert_reaches_phase(Phase.Running)
         blockstore_replica_set.assert_reaches_phase(Phase.Running)
@@ -248,7 +226,7 @@ class TestBackupForMongodb:
             yaml_fixture("replica-set-for-om.yaml"),
             namespace=namespace,
             name=FIRST_PROJECT_RS_NAME,
-        ).configure(ops_manager, "firstProject")
+        ).configure(ops_manager, "firstProject", ca_config_map_name=issuer_ca_configmap)
         # MongoD versions greater than 4.2.0 must be enterprise build to enable backup
         resource.set_version(ensure_ent_version(custom_mdb_version))
         resource.configure_backup(mode="enabled")
@@ -269,7 +247,7 @@ class TestBackupForMongodb:
             yaml_fixture("replica-set-for-om.yaml"),
             namespace=namespace,
             name=SECOND_PROJECT_RS_NAME,
-        ).configure(ops_manager, "secondProject")
+        ).configure(ops_manager, "secondProject", ca_config_map_name=issuer_ca_configmap)
         resource.set_version(ensure_ent_version(custom_mdb_prev_version))
         resource.configure_backup(mode="enabled")
         resource.configure_custom_tls(issuer_ca_configmap, second_project_certs)
@@ -289,7 +267,7 @@ class TestBackupForMongodb:
             yaml_fixture("replica-set-for-om.yaml"),
             namespace=namespace,
             name=EXTERNAL_DOMAIN_RS_NAME,
-        ).configure(ops_manager, "externalDomain")
+        ).configure(ops_manager, "externalDomain", ca_config_map_name=issuer_ca_configmap)
 
         resource.set_version(ensure_ent_version(custom_mdb_prev_version))
         resource.configure_backup(mode="enabled")

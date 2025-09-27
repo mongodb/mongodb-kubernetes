@@ -128,7 +128,6 @@ def oplog_replica_set(
 
     resource.configure(
         ops_manager,
-        project_name="development",
         ca_config_map_name=multi_cluster_issuer_ca_configmap,
         api_client=central_cluster_client,
     )
@@ -388,7 +387,6 @@ class TestBackupForMongodb:
             # the project configmap should be created in the central cluster.
         ).configure(
             ops_manager,
-            f"{namespace}-project-one",
             ca_config_map_name=multi_cluster_issuer_ca_configmap,
             api_client=central_cluster_client,
         )

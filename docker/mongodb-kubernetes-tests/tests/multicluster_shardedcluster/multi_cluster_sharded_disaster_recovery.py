@@ -122,7 +122,7 @@ def sc(namespace: str, custom_mdb_version: str, ops_manager: MongoDBOpsManager) 
     # if this is not executed, the resource uses default values for project and credentials (my-project/my-credentials)
     # which are created up by the preparation scripts.
     if not is_cloud_qa():
-        resource.configure(ops_manager, RESOURCE_NAME, api_client=get_central_cluster_client())
+        resource.configure(ops_manager, api_client=get_central_cluster_client())
 
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.set_architecture_annotation()

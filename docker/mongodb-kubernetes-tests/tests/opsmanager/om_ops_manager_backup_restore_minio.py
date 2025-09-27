@@ -205,7 +205,7 @@ def mdb_latest(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name=FIRST_PROJECT_RS_NAME,
-    ).configure(ops_manager, "mdbLatestProject")
+    ).configure(ops_manager, FIRST_PROJECT_RS_NAME)
     # MongoD versions greater than 4.2.0 must be enterprise build to enable backup
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.configure_backup(mode="enabled")
@@ -227,7 +227,7 @@ def mdb_prev(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name=SECOND_PROJECT_RS_NAME,
-    ).configure(ops_manager, "mdbPreviousProject")
+    ).configure(ops_manager, SECOND_PROJECT_RS_NAME)
     resource.set_version(ensure_ent_version(custom_mdb_prev_version))
     resource.configure_backup(mode="enabled")
     resource.configure_custom_tls(issuer_ca_configmap, second_project_certs)
@@ -256,12 +256,12 @@ def mdb_latest_test_collection(mdb_latest, ca_path: str):
 
 @fixture(scope="module")
 def mdb_prev_project(ops_manager: MongoDBOpsManager) -> OMTester:
-    return ops_manager.get_om_tester(project_name="mdbPreviousProject")
+    return ops_manager.get_om_tester(project_name=SECOND_PROJECT_RS_NAME)
 
 
 @fixture(scope="module")
 def mdb_latest_project(ops_manager: MongoDBOpsManager) -> OMTester:
-    return ops_manager.get_om_tester(project_name="mdbLatestProject")
+    return ops_manager.get_om_tester(project_name=FIRST_PROJECT_RS_NAME)
 
 
 @mark.e2e_om_ops_manager_backup_restore_minio

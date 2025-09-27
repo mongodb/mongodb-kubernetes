@@ -20,14 +20,10 @@ def mongodb_role():
     return resource
 
 
-PROJECT_NAME_FIRST = f"first"
-PROJECT_NAME_SECOND = f"second"
-
-
 @fixture(scope="function")
 def replica_set(namespace: str, mongodb_role: ClusterMongoDBRole) -> MongoDB:
     resource = MongoDB.from_yaml(find_fixture("replica-set-scram.yaml"), namespace=namespace)
-    resource.configure(None, PROJECT_NAME_FIRST)
+    resource.configure(None)
 
     if try_load(resource):
         return resource
@@ -46,7 +42,7 @@ def replica_set(namespace: str, mongodb_role: ClusterMongoDBRole) -> MongoDB:
 @fixture(scope="function")
 def sharded_cluster(namespace: str, mongodb_role: ClusterMongoDBRole) -> MongoDB:
     resource = MongoDB.from_yaml(find_fixture("sharded-cluster-scram-sha-1.yaml"), namespace=namespace)
-    resource.configure(None, f"{resource.name}-second")
+    resource.configure(None)
 
     if try_load(resource):
         return resource
@@ -68,7 +64,7 @@ def sharded_cluster(namespace: str, mongodb_role: ClusterMongoDBRole) -> MongoDB
 @fixture(scope="function")
 def mc_replica_set(namespace: str, mongodb_role: ClusterMongoDBRole) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(find_fixture("mongodb-multi.yaml"), namespace=namespace)
-    resource.configure(None, f"{resource.name}-third")
+    resource.configure(None)
 
     if try_load(resource):
         return resource
