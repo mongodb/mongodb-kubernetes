@@ -63,18 +63,6 @@ def ops_manager_certs(
     )
 
 
-def create_project_config_map(om: MongoDBOpsManager, mdb_name, project_name, client, custom_ca):
-    name = f"{mdb_name}-config"
-    data = {
-        "baseUrl": om.om_status().get_url(),
-        "projectName": project_name,
-        "sslMMSCAConfigMap": custom_ca,
-        "orgId": "",
-    }
-
-    create_or_update_configmap(om.namespace, name, data, client)
-
-
 def new_om_data_store(
     mdb: MongoDB,
     id: str,
@@ -134,24 +122,15 @@ def oplog_replica_set(
         namespace=namespace,
         name=OPLOG_RS_NAME,
     )
+    resource.configure(ops_manager, project_name=OPLOG_RS_NAME, api_client=central_cluster_client)
 
-    create_project_config_map(
-        om=ops_manager,
-        project_name="development",
-        mdb_name=OPLOG_RS_NAME,
-        client=central_cluster_client,
-        custom_ca=multi_cluster_issuer_ca_configmap,
-    )
-
-    resource.configure(ops_manager, "development")
-
-    resource["spec"]["opsManager"]["configMapRef"]["name"] = OPLOG_RS_NAME + "-config"
     resource.set_version(custom_mdb_version)
 
     resource["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    yield resource.update()
+    resource.update()
+    return resource
 
 
 @fixture(scope="module")
@@ -167,20 +146,11 @@ def blockstore_replica_set(
         namespace=namespace,
         name=BLOCKSTORE_RS_NAME,
     )
-
-    create_project_config_map(
-        om=ops_manager,
-        project_name="blockstore",
-        mdb_name=BLOCKSTORE_RS_NAME,
-        client=central_cluster_client,
-        custom_ca=multi_cluster_issuer_ca_configmap,
-    )
-
-    resource.configure(ops_manager, "blockstore")
+    resource.configure(ops_manager, api_client=central_cluster_client)
 
     resource.set_version(custom_mdb_version)
-    resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    yield resource.update()
+    resource.update()
+    return resource
 
 
 @fixture(scope="module")
@@ -204,7 +174,8 @@ def blockstore_user(
     )
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    yield resource.update()
+    resource.update()
+    return resource
 
 
 @fixture(scope="module")
@@ -234,7 +205,8 @@ def oplog_user(
     )
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    yield resource.update()
+    resource.update()
+    return resource
 
 
 @fixture(scope="module")
@@ -473,7 +445,7 @@ class TestBackupForMongodb:
             "multi-replica-set-one",
             namespace,
             # the project configmap should be created in the central cluster.
-        ).configure(ops_manager, f"{namespace}-project-one", api_client=central_cluster_client)
+        ).configure(ops_manager, api_client=central_cluster_client)
         resource.set_version(ensure_ent_version(custom_mdb_version))
 
         resource["spec"]["clusterSpecList"] = [

@@ -62,30 +62,6 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 
 
 @mark.e2e_multi_cluster_sharded_snippets
-def test_create_projects_configmaps(namespace: str):
-    for file_name in SNIPPETS_FILES:
-        base_cm = read_configmap(namespace=namespace, name="my-project")
-        # Validate required keys
-        required_keys = ["baseUrl", "orgId", "projectName"]
-        for key in required_keys:
-            if key not in base_cm:
-                raise KeyError(f"The OM/CM project configmap is missing the key: {key}")
-
-        create_or_update_configmap(
-            namespace=namespace,
-            name=f"{file_to_resource_name(file_name)}-project-map",
-            data={
-                "baseUrl": base_cm["baseUrl"],
-                "orgId": base_cm["orgId"],
-                # In EVG, we generate a unique ID for the project name in the 'my-project' configmap when we set up a
-                # test. To avoid project name collisions in between two concurrently running tasks in CloudQA,
-                # we concatenate it to the name of the mdb resource
-                "projectName": f"{base_cm['projectName']}-{file_to_resource_name(file_name)}",
-            },
-        )
-
-
-@mark.e2e_multi_cluster_sharded_snippets
 def test_create(namespace: str, custom_mdb_version: str, issuer_ca_configmap: str):
     for sc in get_sharded_resources(namespace):
         sc.set_version(ensure_ent_version(custom_mdb_version))

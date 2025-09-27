@@ -425,9 +425,11 @@ def mongodb_multi(
     multi_cluster_issuer_ca_configmap: str,
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace)
+    resource.configure(ops_manager, api_client=central_cluster_client)
+
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.set_architecture_annotation()
-    resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
+
     resource["spec"]["persistent"] = False
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [1, 1, 1])
     resource["spec"]["security"] = {
@@ -510,29 +512,7 @@ def mongodb_multi(
         },
     }
 
-    create_project_config_map(
-        om=ops_manager,
-        project_name="mongodb",
-        mdb_name=MDB_RESOURCE,
-        client=central_cluster_client,
-        custom_ca=multi_cluster_issuer_ca_configmap,
-    )
-
-    resource.configure(ops_manager, "mongodb", api_client=get_central_cluster_client())
-
     return resource
-
-
-def create_project_config_map(om: MongoDBOpsManager, mdb_name, project_name, client, custom_ca):
-    name = f"{mdb_name}-config"
-    data = {
-        "baseUrl": om.om_status().get_url(),
-        "projectName": project_name,
-        "sslMMSCAConfigMap": custom_ca,
-        "orgId": "",
-    }
-
-    create_or_update_configmap(om.namespace, name, data, client)
 
 
 @mark.e2e_multi_cluster_om_appdb_no_mesh

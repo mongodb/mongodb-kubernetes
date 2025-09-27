@@ -64,7 +64,7 @@ def get_replica_set(ops_manager, namespace: str, idx: int) -> MongoDB:
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name=name,
-    ).configure(ops_manager, name, api_client=get_central_cluster_client())
+    ).configure(ops_manager, api_client=get_central_cluster_client())
     resource.set_version(get_custom_mdb_version())
 
     try_load(resource)
@@ -77,7 +77,7 @@ def get_mdbmc(ops_manager, namespace: str, idx: int) -> MongoDBMulti:
         yaml_fixture("mongodb-multi-cluster.yaml"),
         namespace=namespace,
         name=name,
-    ).configure(ops_manager, name, api_client=get_central_cluster_client())
+    ).configure(ops_manager, api_client=get_central_cluster_client())
 
     try_load(resource)
     return resource
@@ -89,7 +89,7 @@ def get_sharded(ops_manager, namespace: str, idx: int) -> MongoDB:
         yaml_fixture("sharded-cluster-single.yaml"),
         namespace=namespace,
         name=name,
-    ).configure(ops_manager, name, api_client=get_central_cluster_client())
+    ).configure(ops_manager, api_client=get_central_cluster_client())
     try_load(resource)
     return resource
 
@@ -100,7 +100,7 @@ def get_standalone(ops_manager, namespace: str, idx: int) -> MongoDB:
         yaml_fixture("standalone.yaml"),
         namespace=namespace,
         name=name,
-    ).configure(ops_manager, name, api_client=get_central_cluster_client())
+    ).configure(ops_manager, api_client=get_central_cluster_client())
     try_load(resource)
     return resource
 

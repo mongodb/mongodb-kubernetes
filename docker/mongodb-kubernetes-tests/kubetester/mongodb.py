@@ -6,11 +6,13 @@ import time
 import urllib.parse
 from typing import Dict, List, Optional
 
+import kubernetes
 import semver
-from kubeobject import CustomObject
 from kubernetes import client
-from kubernetes.client import ApiException
-from kubetester import create_or_update_configmap, read_configmap
+from opentelemetry import trace
+
+from kubeobject import CustomObject
+from kubetester import create_or_update_configmap
 from kubetester.kubetester import (
     KubernetesTester,
     build_host_fqdn,
@@ -19,9 +21,7 @@ from kubetester.kubetester import (
     is_default_architecture_static,
 )
 from kubetester.omtester import OMContext, OMTester
-from opentelemetry import trace
 from tests import test_logger
-
 from .mongodb_common import MongoDBCommon
 from .mongodb_utils_state import in_desired_state
 from .mongotester import (
@@ -232,12 +232,16 @@ class MongoDB(CustomObject, MongoDBCommon):
     def configure(
         self,
         om: Optional[MongoDBOpsManager],
-        project_name: str,
+        project_name: Optional[str] = None,
         ca_config_map_name: Optional[str] = None,
         api_client: Optional[client.ApiClient] = None,
     ) -> MongoDB:
+        self.api = kubernetes.client.CustomObjectsApi(api_client)
+        if project_name is None:
+            project_name = self.name
+
         if om is not None:
-            return self.configure_ops_manager(om, project_name, api_client=api_client)
+            return self.configure_ops_manager(om, project_name, ca_config_map_name=ca_config_map_name, api_client=api_client)
         else:
             return self.configure_cloud_qa(project_name, api_client=api_client)
 
@@ -245,6 +249,7 @@ class MongoDB(CustomObject, MongoDBCommon):
         self,
         om: Optional[MongoDBOpsManager],
         project_name: str,
+        ca_config_map_name: Optional[str] = None,
         api_client: Optional[client.ApiClient] = None,
     ) -> MongoDB:
         if "project" in self["spec"]:
@@ -252,8 +257,11 @@ class MongoDB(CustomObject, MongoDBCommon):
 
         ensure_nested_objects(self, ["spec", "opsManager", "configMapRef"])
 
+        if ca_config_map_name is None:
+            ca_config_map_name = self["spec"].get("security", {}).get("tls", {}).get("ca", None)
+
         self["spec"]["opsManager"]["configMapRef"]["name"] = om.get_or_create_mongodb_connection_config_map(
-            self.name, project_name, self.namespace, api_client=api_client
+            self.name, project_name, self.namespace, ca_config_map_name=ca_config_map_name, api_client=api_client
         )
         # Note that if the MongoDB object is created in a different namespace than the Operator
         # then the secret needs to be copied there manually
