@@ -122,13 +122,12 @@ def oplog_replica_set(
         namespace=namespace,
         name=OPLOG_RS_NAME,
     )
-    resource.configure(ops_manager, project_name=OPLOG_RS_NAME, api_client=central_cluster_client)
+    resource.configure(ops_manager, api_client=central_cluster_client)
 
     resource.set_version(custom_mdb_version)
 
     resource["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
 
-    resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     resource.update()
     return resource
 
@@ -446,6 +445,7 @@ class TestBackupForMongodb:
             namespace,
             # the project configmap should be created in the central cluster.
         ).configure(ops_manager, api_client=central_cluster_client)
+
         resource.set_version(ensure_ent_version(custom_mdb_version))
 
         resource["spec"]["clusterSpecList"] = [
@@ -529,20 +529,6 @@ class TestBackupForMongodb:
         resource["spec"].update({"additionalMongodConfig": {"net": {"port": MONGODB_PORT}}})
 
         resource.configure_backup(mode="enabled")
-        resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-
-        data = KubernetesTester.read_configmap(
-            namespace, "multi-replica-set-one-config", api_client=central_cluster_client
-        )
-        KubernetesTester.delete_configmap(namespace, "multi-replica-set-one-config", api_client=central_cluster_client)
-        data["baseUrl"] = base_url
-        data["sslMMSCAConfigMap"] = multi_cluster_issuer_ca_configmap
-        create_or_update_configmap(
-            namespace,
-            "multi-replica-set-one-config",
-            data,
-            api_client=central_cluster_client,
-        )
 
         return resource.update()
 

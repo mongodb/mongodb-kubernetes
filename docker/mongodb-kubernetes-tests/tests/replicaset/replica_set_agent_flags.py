@@ -23,7 +23,7 @@ custom_readiness_log_path = "/var/log/mongodb-mms-automation/customReadinessLogF
 @fixture(scope="module")
 def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(find_fixture("replica-set-basic.yaml"), namespace=namespace, name="replica-set")
-    resource.configure(None, f"{resource.name}-first")
+    resource.configure(None)
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.set_architecture_annotation()
 
@@ -34,7 +34,7 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
 @fixture(scope="module")
 def second_replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(find_fixture("replica-set-basic.yaml"), namespace=namespace, name="replica-set-2")
-    resource.configure(None, f"{resource.name}-second")
+    resource.configure(None)
     resource.set_version(ensure_ent_version(custom_mdb_version))
 
     resource.update()

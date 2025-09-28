@@ -36,18 +36,13 @@ class BackupSnapshotScheduleTests:
     def mdb_version(self, custom_mdb_version):
         return custom_mdb_version
 
-    @fixture
-    def om_project_name(self):
-        return "backupSnapshotSchedule"
-
     def test_create_mdb_with_backup_enabled_and_configured_snapshot_schedule(
         self,
         mdb: MongoDB,
         ops_manager: MongoDBOpsManager,
         mdb_version: str,
-        om_project_name: str,
     ):
-        mdb.configure(ops_manager, om_project_name)
+        mdb.configure(ops_manager)
 
         mdb["spec"]["version"] = ensure_ent_version(mdb_version)
         mdb.configure_backup(mode="enabled")

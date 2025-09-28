@@ -39,9 +39,7 @@ def multi_cluster_s3_replica_set(
     appdb_member_cluster_names: list[str],
     custom_mdb_version: str,
 ) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(
-        yaml_fixture("mongodb-multi-cluster.yaml"), "multi-replica-set", namespace
-    )
+    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi-cluster.yaml"), "multi-replica-set", namespace)
     resource.configure(ops_manager, api_client=central_cluster_client)
 
     resource["spec"]["clusterSpecList"] = cluster_spec_list(appdb_member_cluster_names, [1, 2])

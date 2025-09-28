@@ -159,7 +159,7 @@ class TestNonSequentialMemberIdsInReplicaSet(KubernetesTester):
         old_rs_members = mongodb_multi.get_automation_config_tester(group_name=PROJECT_NAME).get_replica_set_members(
             mongodb_multi.name
         )
-        mongodb_multi.configure(None, new_project_name)
+        mongodb_multi.configure(None)
         mongodb_multi.update()
 
         mongodb_multi.assert_abandons_phase(phase=Phase.Running, timeout=300)

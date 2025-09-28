@@ -49,7 +49,7 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version) -> MongoDB:
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name=OPLOG_RS_NAME,
-    ).configure(ops_manager, "development")
+    ).configure(ops_manager)
     resource.set_version(ensure_ent_version(custom_mdb_version))
 
     setup_log_rotate_for_agents(resource, supports_process_log_rotation)
@@ -66,7 +66,7 @@ def blockstore_replica_set(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=ops_manager.namespace,
         name=BLOCKSTORE_RS_NAME,
-    ).configure(ops_manager, "blockstore")
+    ).configure(ops_manager)
     resource.set_version(ensure_ent_version(custom_mdb_version))
 
     return resource.update()

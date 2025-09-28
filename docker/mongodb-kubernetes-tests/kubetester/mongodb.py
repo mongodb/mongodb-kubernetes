@@ -8,10 +8,8 @@ from typing import Dict, List, Optional
 
 import kubernetes
 import semver
-from kubernetes import client
-from opentelemetry import trace
-
 from kubeobject import CustomObject
+from kubernetes import client
 from kubetester import create_or_update_configmap
 from kubetester.kubetester import (
     KubernetesTester,
@@ -21,7 +19,9 @@ from kubetester.kubetester import (
     is_default_architecture_static,
 )
 from kubetester.omtester import OMContext, OMTester
+from opentelemetry import trace
 from tests import test_logger
+
 from .mongodb_common import MongoDBCommon
 from .mongodb_utils_state import in_desired_state
 from .mongotester import (
@@ -241,7 +241,9 @@ class MongoDB(CustomObject, MongoDBCommon):
             project_name = self.name
 
         if om is not None:
-            return self.configure_ops_manager(om, project_name, ca_config_map_name=ca_config_map_name, api_client=api_client)
+            return self.configure_ops_manager(
+                om, project_name, ca_config_map_name=ca_config_map_name, api_client=api_client
+            )
         else:
             return self.configure_cloud_qa(project_name, api_client=api_client)
 

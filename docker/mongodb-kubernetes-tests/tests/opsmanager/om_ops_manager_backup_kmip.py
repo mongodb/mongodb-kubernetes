@@ -97,7 +97,7 @@ def mdb_latest(
         yaml_fixture(fixture_file_name),
         namespace=namespace,
         name=MONGODB_CR_NAME,
-    ).configure(ops_manager, "mdbLatestProject")
+    ).configure(ops_manager)
 
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.configure_backup(mode="enabled")

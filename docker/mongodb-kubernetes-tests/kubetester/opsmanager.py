@@ -12,8 +12,9 @@ from kubeobject import CustomObject
 from kubernetes.client.rest import ApiException
 from kubetester import (
     create_configmap,
+    create_or_update_configmap,
     create_or_update_secret,
-    read_secret, create_or_update_configmap,
+    read_secret,
 )
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import (

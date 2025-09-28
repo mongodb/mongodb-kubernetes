@@ -133,7 +133,7 @@ def sharded_cluster(
     vault_name: str,
 ) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("sharded-cluster.yaml"), namespace=namespace)
-    resource.configure(None, project_name="development")
+    resource.configure(None)
 
     resource["spec"]["cloudManager"]["configMapRef"]["name"] = sharded_cluster_configmap
 

@@ -77,7 +77,7 @@ def sharded_cluster(
         yaml_fixture("sharded-cluster.yaml"),
         namespace=namespace,
         name=MDB_RESOURCE,
-    ).configure(om=None, project_name=MDB_RESOURCE)
+    ).configure(om=None)
 
     if try_load(resource):
         return resource
@@ -108,7 +108,7 @@ def replica_set(
         yaml_fixture("replica-set-basic.yaml"),
         namespace=namespace,
         name=MDB_RS_RESOURCE,
-    ).configure(om=None, project_name=f"{MDB_RS_RESOURCE}")
+    ).configure(om=None)
 
     if try_load(resource):
         return resource

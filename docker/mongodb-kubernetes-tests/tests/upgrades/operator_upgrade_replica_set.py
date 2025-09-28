@@ -75,7 +75,8 @@ def replica_set_user(replica_set: MongoDB) -> MongoDBUser:
         },
     )
 
-    yield resource.create()
+    resource.create()
+    return resource
 
 
 @mark.e2e_operator_upgrade_replica_set

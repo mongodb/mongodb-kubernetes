@@ -128,7 +128,6 @@ def oplog_replica_set(
 
     resource.configure(
         ops_manager,
-        ca_config_map_name=multi_cluster_issuer_ca_configmap,
         api_client=central_cluster_client,
     )
 
@@ -136,8 +135,6 @@ def oplog_replica_set(
     resource.set_version(custom_mdb_version)
 
     resource["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
-
-    resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 
     resource.update()
 
@@ -159,13 +156,10 @@ def blockstore_replica_set(
     )
     resource.configure(
         ops_manager,
-        project_name="blockstore",
-        ca_config_map_name=multi_cluster_issuer_ca_configmap,
         api_client=central_cluster_client,
     )
 
     resource.set_version(custom_mdb_version)
-    resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     resource.update()
 
     return resource
@@ -387,7 +381,6 @@ class TestBackupForMongodb:
             # the project configmap should be created in the central cluster.
         ).configure(
             ops_manager,
-            ca_config_map_name=multi_cluster_issuer_ca_configmap,
             api_client=central_cluster_client,
         )
 
@@ -402,7 +395,6 @@ class TestBackupForMongodb:
         resource["spec"].update({"additionalMongodConfig": {"net": {"port": MONGODB_PORT}}})
 
         resource.configure_backup(mode="enabled")
-        resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 
         return resource.update()
 

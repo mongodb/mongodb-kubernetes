@@ -17,17 +17,12 @@ def generic_replicaset(
         name = KubernetesTester.random_k8s_name("rs-")
 
     rs = MongoDB(namespace=namespace, name=name)
+    rs.configure(ops_manager)
     rs["spec"] = {
         "members": 3,
         "type": "ReplicaSet",
         "persistent": False,
         "version": version,
     }
-
-    if ops_manager is None:
-        rs["spec"]["credentials"] = "my-credentials"
-        rs["spec"]["opsManager"] = {"configMapRef": {"name": "my-project"}}
-    else:
-        rs.configure(ops_manager, KubernetesTester.random_k8s_name("project-"))
 
     return rs

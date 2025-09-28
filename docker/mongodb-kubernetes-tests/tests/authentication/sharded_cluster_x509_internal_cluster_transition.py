@@ -39,7 +39,8 @@ def sc(namespace: str, server_certs, agent_certs: str, issuer_ca_configmap: str)
         },
         "authentication": {"enabled": True, "modes": ["X509"]},
     }
-    yield resource.update()
+    resource.update()
+    return resource
 
 
 @mark.e2e_sharded_cluster_internal_cluster_transition
