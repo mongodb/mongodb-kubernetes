@@ -52,7 +52,8 @@ def sharded_cluster(namespace: str, server_certs: str, agent_certs: str, issuer_
         namespace=namespace,
     )
     resource["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
-    yield resource.create()
+    resource.create()
+    return resource
 
 
 @pytest.mark.e2e_sharded_cluster_x509_to_scram_transition

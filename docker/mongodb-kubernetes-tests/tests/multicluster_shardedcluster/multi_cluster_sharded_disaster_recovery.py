@@ -110,7 +110,7 @@ class TestOpsManagerCreation:
 
 
 @fixture(scope="function")
-def sc(namespace: str, custom_mdb_version: str, ops_manager: MongoDBOpsManager) -> MongoDB:
+def sc(namespace: str, custom_mdb_version: str, ops_manager: Optional[MongoDBOpsManager]) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("sharded-cluster-scale-shards.yaml"), namespace=namespace, name=RESOURCE_NAME
     )
@@ -118,11 +118,7 @@ def sc(namespace: str, custom_mdb_version: str, ops_manager: MongoDBOpsManager) 
     if try_load(resource):
         return resource
 
-    # this allows us to reuse this test in both variants: with OMs and with Cloud QA
-    # if this is not executed, the resource uses default values for project and credentials (my-project/my-credentials)
-    # which are created up by the preparation scripts.
-    if not is_cloud_qa():
-        resource.configure(ops_manager, api_client=get_central_cluster_client())
+    resource.configure(ops_manager, api_client=get_central_cluster_client())
 
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.set_architecture_annotation()

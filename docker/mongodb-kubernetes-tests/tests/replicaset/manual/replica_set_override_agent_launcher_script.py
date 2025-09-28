@@ -37,11 +37,11 @@ def ops_manager(namespace: str, custom_version: str, custom_appdb_version) -> Mo
 
 
 @fixture(scope="function")
-def replica_set(ops_manager: str, namespace: str, custom_mdb_version: str) -> MongoDB:
+def replica_set(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         find_fixture("replica-set-override-agent-launcher-script.yaml"),
         namespace=namespace,
-    ).configure(ops_manager, "replica-set")
+    ).configure(ops_manager)
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource["spec"]["logLevel"] = "INFO"
     resource["spec"]["additionalMongodConfig"] = {

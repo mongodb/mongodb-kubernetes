@@ -63,7 +63,7 @@ def ops_manager(
 @fixture(scope="module")
 def replicaset0(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_prev_version: str):
     resource = MongoDB.from_yaml(_fixture("replica-set.yaml"), name="replicaset0", namespace=namespace).configure(
-        ops_manager, "replicaset0"
+        ops_manager
     )
 
     resource["spec"]["version"] = custom_mdb_prev_version
@@ -74,7 +74,7 @@ def replicaset0(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_prev_
 @fixture(scope="module")
 def replicaset1(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str):
     resource = MongoDB.from_yaml(_fixture("replica-set.yaml"), name="replicaset1", namespace=namespace).configure(
-        ops_manager, "replicaset1"
+        ops_manager
     )
     resource["spec"]["version"] = custom_mdb_version
 

@@ -38,7 +38,7 @@ def get_replica_set(ops_manager, namespace: str, idx: int) -> MongoDB:
         yaml_fixture("replica-set-perf.yaml"),
         namespace=namespace,
         name=name,
-    ).configure(ops_manager, name)
+    ).configure(ops_manager)
 
     replicas = int(os.getenv("PERF_TASK_REPLICAS", "3"))
     resource["spec"]["members"] = replicas

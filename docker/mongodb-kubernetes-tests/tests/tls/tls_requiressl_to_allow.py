@@ -32,7 +32,8 @@ def tls_replica_set(
     # no TLS to start with
     resource["spec"]["security"] = {}
 
-    yield resource.create()
+    resource.create()
+    return resource
 
     resource.delete()
 

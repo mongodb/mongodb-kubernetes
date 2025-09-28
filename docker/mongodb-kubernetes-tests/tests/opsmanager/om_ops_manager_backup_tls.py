@@ -79,7 +79,7 @@ def oplog_replica_set(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=ops_manager.namespace,
         name=OPLOG_RS_NAME,
-    ).configure(ops_manager, "development")
+    ).configure(ops_manager)
     resource.configure_custom_tls(app_db_issuer_ca_configmap, oplog_certs_secret)
     resource.set_version(ensure_ent_version(custom_mdb_version))
 
@@ -95,7 +95,7 @@ def blockstore_replica_set(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=ops_manager.namespace,
         name=BLOCKSTORE_RS_NAME,
-    ).configure(ops_manager, "blockstore")
+    ).configure(ops_manager)
     resource.configure_custom_tls(app_db_issuer_ca_configmap, blockstore_certs_secret)
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.update()
@@ -205,7 +205,7 @@ class TestBackupForMongodb:
             yaml_fixture("replica-set-for-om.yaml"),
             namespace=namespace,
             name="mdb-four-two",
-        ).configure(ops_manager, "firstProject")
+        ).configure(ops_manager)
         # MongoD versions greater than 4.2.0 must be enterprise build to enable backup
         resource.set_version(ensure_ent_version(custom_mdb_version))
         resource.configure_backup(mode="enabled")
@@ -218,7 +218,7 @@ class TestBackupForMongodb:
             yaml_fixture("replica-set-for-om.yaml"),
             namespace=namespace,
             name="mdb-four-zero",
-        ).configure(ops_manager, "secondProject")
+        ).configure(ops_manager)
         resource.set_version(ensure_ent_version(custom_mdb_prev_version))
         resource.configure_backup(mode="enabled")
         resource.update()

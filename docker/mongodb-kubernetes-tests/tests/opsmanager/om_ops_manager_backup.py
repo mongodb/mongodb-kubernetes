@@ -150,7 +150,7 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoD
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name=OPLOG_RS_NAME,
-    ).configure(ops_manager, "development")
+    ).configure(ops_manager)
     resource.set_version(custom_mdb_version)
 
     #  TODO: Remove when CLOUDP-60443 is fixed
@@ -159,7 +159,8 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoD
     # mongoURI not being updated unless pod is killed. This is documented in CLOUDP-60443, once resolved this skip & comment can be deleted
     resource["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
 
-    yield resource.update()
+    resource.update()
+    return resource
 
 
 @fixture(scope="module")
@@ -168,10 +169,11 @@ def s3_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoDB:
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name=S3_RS_NAME,
-    ).configure(ops_manager, "s3metadata")
+    ).configure(ops_manager)
 
     resource.set_version(custom_mdb_version)
-    yield resource.update()
+    resource.update()
+    return resource
 
 
 @fixture(scope="module")
@@ -180,9 +182,10 @@ def blockstore_replica_set(ops_manager, namespace, custom_mdb_version: str) -> M
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name=BLOCKSTORE_RS_NAME,
-    ).configure(ops_manager, "blockstore")
+    ).configure(ops_manager)
     resource.set_version(custom_mdb_version)
-    yield resource.update()
+    resource.update()
+    return resource
 
 
 @fixture(scope="module")
@@ -200,7 +203,8 @@ def blockstore_user(namespace, blockstore_replica_set: MongoDB) -> MongoDBUser:
         },
     )
 
-    yield resource.update()
+    resource.update()
+    return resource
 
 
 @fixture(scope="module")
@@ -224,7 +228,8 @@ def oplog_user(namespace, oplog_replica_set: MongoDB) -> MongoDBUser:
         },
     )
 
-    yield resource.update()
+    resource.update()
+    return resource
 
 
 @mark.e2e_om_ops_manager_backup
@@ -550,7 +555,7 @@ class TestBackupForMongodb:
             yaml_fixture("replica-set-for-om.yaml"),
             namespace=namespace,
             name="mdb-four-two",
-        ).configure(ops_manager, "firstProject")
+        ).configure(ops_manager)
         resource.set_version(ensure_ent_version(custom_mdb_version))
         resource.configure_backup(mode="disabled")
 
@@ -563,7 +568,7 @@ class TestBackupForMongodb:
             yaml_fixture("replica-set-for-om.yaml"),
             namespace=namespace,
             name="mdb-four-zero",
-        ).configure(ops_manager, "secondProject")
+        ).configure(ops_manager)
         resource.set_version(ensure_ent_version(custom_mdb_prev_version))
         resource.configure_backup(mode="disabled")
 
@@ -694,7 +699,7 @@ class TestAssignmentLabels:
             yaml_fixture("replica-set-for-om.yaml"),
             namespace=namespace,
             name=project_name,
-        ).configure(ops_manager, project_name)
+        ).configure(ops_manager)
         resource["spec"]["members"] = 1
         resource.set_version(ensure_ent_version(custom_mdb_version))
         resource["spec"]["backup"] = {}

@@ -137,7 +137,7 @@ def oplog_replica_set(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=ops_manager.namespace,
         name=OPLOG_RS_NAME,
-    ).configure(ops_manager, "oplog", issuer_ca_configmap)
+    ).configure(ops_manager)
     resource.configure_custom_tls(issuer_ca_configmap, oplog_certs_secret)
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.update()
@@ -152,7 +152,7 @@ def blockstore_replica_set(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=ops_manager.namespace,
         name=BLOCKSTORE_RS_NAME,
-    ).configure(ops_manager, "blockstore")
+    ).configure(ops_manager)
     resource.configure_custom_tls(issuer_ca_configmap, blockstore_certs_secret)
     resource.set_version(ensure_ent_version(custom_mdb_version))
 
@@ -226,7 +226,7 @@ class TestBackupForMongodb:
             yaml_fixture("replica-set-for-om.yaml"),
             namespace=namespace,
             name=FIRST_PROJECT_RS_NAME,
-        ).configure(ops_manager, "firstProject", ca_config_map_name=issuer_ca_configmap)
+        ).configure(ops_manager)
         # MongoD versions greater than 4.2.0 must be enterprise build to enable backup
         resource.set_version(ensure_ent_version(custom_mdb_version))
         resource.configure_backup(mode="enabled")
@@ -247,7 +247,7 @@ class TestBackupForMongodb:
             yaml_fixture("replica-set-for-om.yaml"),
             namespace=namespace,
             name=SECOND_PROJECT_RS_NAME,
-        ).configure(ops_manager, "secondProject", ca_config_map_name=issuer_ca_configmap)
+        ).configure(ops_manager)
         resource.set_version(ensure_ent_version(custom_mdb_prev_version))
         resource.configure_backup(mode="enabled")
         resource.configure_custom_tls(issuer_ca_configmap, second_project_certs)
@@ -267,7 +267,7 @@ class TestBackupForMongodb:
             yaml_fixture("replica-set-for-om.yaml"),
             namespace=namespace,
             name=EXTERNAL_DOMAIN_RS_NAME,
-        ).configure(ops_manager, "externalDomain", ca_config_map_name=issuer_ca_configmap)
+        ).configure(ops_manager)
 
         resource.set_version(ensure_ent_version(custom_mdb_prev_version))
         resource.configure_backup(mode="enabled")

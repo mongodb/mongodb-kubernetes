@@ -76,7 +76,7 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_prev_version: str) -> M
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name=OPLOG_RS_NAME,
-    ).configure(ops_manager, "development-oplog")
+    ).configure(ops_manager)
     resource.set_version(custom_mdb_prev_version)
 
     try_load(resource)
@@ -91,7 +91,7 @@ def mdb(ops_manager: MongoDBOpsManager, custom_mdb_prev_version: str) -> MongoDB
         name="my-replica-set",
     )
     resource.set_version(custom_mdb_prev_version)
-    resource.configure(ops_manager, "development")
+    resource.configure(ops_manager)
     try_load(resource)
     return resource
 

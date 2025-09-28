@@ -74,7 +74,7 @@ def replicaset0(
 ):
     """First replicaset to be created before Ops Manager is configured with HTTPS."""
     resource = MongoDB.from_yaml(_fixture("replica-set.yaml"), name="replicaset0", namespace=namespace).configure(
-        ops_manager, "replicaset0"
+        ops_manager
     )
     resource.set_version(custom_mdb_version)
     resource.configure_custom_tls(issuer_ca_configmap, certs_secret_prefix)

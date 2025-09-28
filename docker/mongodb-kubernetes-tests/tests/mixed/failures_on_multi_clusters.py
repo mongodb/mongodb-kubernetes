@@ -9,7 +9,8 @@ from pytest import fixture, mark
 def replica_set(namespace, custom_mdb_version: str):
     resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), namespace=namespace)
     resource.set_version(custom_mdb_version)
-    yield resource.create()
+    resource.create()
+    return resource
 
     resource.delete()
 
@@ -18,7 +19,8 @@ def replica_set(namespace, custom_mdb_version: str):
 def replica_set_single(namespace, custom_mdb_version: str):
     resource = MongoDB.from_yaml(yaml_fixture("replica-set-single.yaml"), namespace=namespace)
     resource.set_version(custom_mdb_version)
-    yield resource.create()
+    resource.create()
+    return resource
 
     resource.delete()
 
@@ -27,7 +29,8 @@ def replica_set_single(namespace, custom_mdb_version: str):
 def sharded_cluster(namespace, custom_mdb_version: str):
     resource = MongoDB.from_yaml(yaml_fixture("sharded-cluster.yaml"), namespace=namespace)
     resource.set_version(custom_mdb_version)
-    yield resource.create()
+    resource.create()
+    return resource
 
     resource.delete()
 
@@ -36,7 +39,8 @@ def sharded_cluster(namespace, custom_mdb_version: str):
 def sharded_cluster_single(namespace, custom_mdb_version: str):
     resource = MongoDB.from_yaml(yaml_fixture("sharded-cluster-single.yaml"), namespace=namespace)
     resource.set_version(custom_mdb_version)
-    yield resource.create()
+    resource.create()
+    return resource
 
     resource.delete()
 

@@ -51,12 +51,13 @@ def oplog_replica_set(ops_manager, custom_mdb_version: str) -> MongoDB:
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=ops_manager.namespace,
         name="my-mongodb-oplog",
-    ).configure(ops_manager, "development")
+    ).configure(ops_manager)
     resource.set_version(custom_mdb_version)
     resource["spec"]["members"] = 1
     resource["spec"]["persistent"] = True
 
-    yield resource.create()
+    resource.create()
+    return resource
 
 
 @fixture(scope="module")
@@ -65,13 +66,14 @@ def s3_replica_set(ops_manager: MongoDBOpsManager, custom_mdb_version: str) -> M
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=ops_manager.namespace,
         name="my-mongodb-s3",
-    ).configure(ops_manager, "s3metadata")
+    ).configure(ops_manager)
 
     resource.set_version(custom_mdb_version)
     resource["spec"]["members"] = 1
     resource["spec"]["persistent"] = True
 
-    yield resource.create()
+    resource.create()
+    return resource
 
 
 @fixture(scope="module")
@@ -80,7 +82,7 @@ def some_mdb(ops_manager: MongoDBOpsManager, custom_mdb_version: str) -> MongoDB
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=ops_manager.namespace,
         name="some-mdb",
-    ).configure(ops_manager, "someProject")
+    ).configure(ops_manager)
     resource.set_version(custom_mdb_version)
     resource["spec"]["persistent"] = True
 

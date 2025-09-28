@@ -123,7 +123,7 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoD
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name=OPLOG_RS_NAME,
-    ).configure(ops_manager, "development")
+    ).configure(ops_manager)
     resource.set_version(custom_mdb_version)
 
     resource["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
@@ -137,7 +137,7 @@ def s3_replica_set(ops_manager, namespace) -> MongoDB:
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name=S3_RS_NAME,
-    ).configure(ops_manager, "s3metadata")
+    ).configure(ops_manager)
 
     return resource.create()
 
@@ -148,7 +148,7 @@ def blockstore_replica_set(ops_manager, namespace, custom_mdb_version: str) -> M
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name=BLOCKSTORE_RS_NAME,
-    ).configure(ops_manager, "blockstore")
+    ).configure(ops_manager)
     resource.set_version(custom_mdb_version)
     return resource.create()
 
@@ -168,7 +168,7 @@ def blockstore_user(namespace, blockstore_replica_set: MongoDB) -> MongoDBUser:
         },
     )
 
-    yield resource.create()
+    resource.create()()
 
 
 @fixture(scope="module")
@@ -192,7 +192,8 @@ def oplog_user(namespace, oplog_replica_set: MongoDB) -> MongoDBUser:
         },
     )
 
-    yield resource.create()
+    resource.create()
+    return resource
 
 
 @mark.e2e_om_ops_manager_backup_manual
@@ -299,7 +300,7 @@ class TestBackupForMongodb:
             yaml_fixture("replica-set-for-om.yaml"),
             namespace=namespace,
             name="rs-fixed",
-        ).configure(ops_manager, "firstProject")
+        ).configure(ops_manager)
         resource.set_version(ensure_ent_version(custom_mdb_version))
 
         resource["spec"]["podSpec"] = {"podTemplate": {"spec": {}}}
@@ -330,7 +331,7 @@ class TestBackupForMongodb:
             yaml_fixture("replica-set-for-om.yaml"),
             namespace=namespace,
             name="rs-not-fixed",
-        ).configure(ops_manager, "secondProject")
+        ).configure(ops_manager)
         resource.set_version(ensure_ent_version(custom_mdb_version))
 
         resource["spec"]["podSpec"] = {"podTemplate": {"spec": {}}}

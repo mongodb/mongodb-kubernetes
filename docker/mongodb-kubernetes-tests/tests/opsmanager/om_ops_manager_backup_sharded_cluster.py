@@ -63,7 +63,7 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoD
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name=OPLOG_RS_NAME,
-    ).configure(ops_manager, "development")
+    ).configure(ops_manager)
     resource.set_version(custom_mdb_version)
 
     #  TODO: Remove when CLOUDP-60443 is fixed
@@ -81,7 +81,7 @@ def s3_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoDB:
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name=S3_RS_NAME,
-    ).configure(ops_manager, "s3metadata")
+    ).configure(ops_manager)
     resource.set_version(custom_mdb_version)
 
     return resource.update()
@@ -93,7 +93,7 @@ def blockstore_replica_set(ops_manager, namespace, custom_mdb_version: str) -> M
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name=BLOCKSTORE_RS_NAME,
-    ).configure(ops_manager, "blockstore")
+    ).configure(ops_manager)
     resource.set_version(custom_mdb_version)
 
     return resource.update()
@@ -139,7 +139,8 @@ def oplog_user(namespace, oplog_replica_set: MongoDB) -> MongoDBUser:
         },
     )
 
-    yield resource.update()
+    resource.update()
+    return resource
 
 
 @mark.e2e_om_ops_manager_backup_sharded_cluster
@@ -263,7 +264,7 @@ class TestBackupForMongodb:
             yaml_fixture("sharded-cluster-for-om.yaml"),
             namespace=namespace,
             name="mdb-four-two",
-        ).configure(ops_manager, "firstProject")
+        ).configure(ops_manager)
 
         if try_load(resource):
             return resource
@@ -288,7 +289,7 @@ class TestBackupForMongodb:
             yaml_fixture("sharded-cluster-for-om.yaml"),
             namespace=namespace,
             name="mdb-four-zero",
-        ).configure(ops_manager, "secondProject")
+        ).configure(ops_manager)
 
         if try_load(resource):
             return resource
