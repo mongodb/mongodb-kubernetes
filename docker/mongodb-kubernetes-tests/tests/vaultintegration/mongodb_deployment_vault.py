@@ -127,15 +127,12 @@ def clusterfile_certs(vault_namespace: str, vault_name: str, namespace: str, iss
 @fixture(scope="module")
 def sharded_cluster(
     namespace: str,
-    sharded_cluster_configmap: str,
     issuer: str,
     vault_namespace: str,
     vault_name: str,
 ) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("sharded-cluster.yaml"), namespace=namespace)
     resource.configure(None)
-
-    resource["spec"]["cloudManager"]["configMapRef"]["name"] = sharded_cluster_configmap
 
     # Password stored in Prometheus
     store_secret_in_vault(
