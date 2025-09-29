@@ -23,7 +23,6 @@ def get_ops_manager(namespace: str) -> Optional[MongoDBOpsManager]:
 
     resource.set_version(get_custom_om_version())
     resource.set_appdb_version(get_custom_appdb_version())
-    resource.allow_mdb_rc_versions()
 
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
