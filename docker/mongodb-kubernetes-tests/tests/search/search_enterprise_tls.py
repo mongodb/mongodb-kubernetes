@@ -9,13 +9,11 @@ from kubetester.mongodb_search import MongoDBSearch
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.omtester import skip_if_cloud_manager
 from kubetester.phase import Phase
-from mypyc.irbuild.function import check_native_override
 from pytest import fixture, mark
 from tests import test_logger
 from tests.common.search import movies_search_helper
 from tests.common.search.search_tester import SearchTester
 from tests.conftest import get_default_operator, get_issuer_ca_filepath
-from tests.opsmanager.conftest import custom_om_prev_version
 from tests.search.om_deployment import get_ops_manager
 
 logger = test_logger.get_test_logger(__name__)
@@ -130,8 +128,7 @@ def test_install_operator(namespace: str, operator_installation_config: dict[str
 @skip_if_cloud_manager
 def test_create_ops_manager(namespace: str):
     ops_manager = get_ops_manager(namespace)
-    if ops_manager is not None:
-        ops_manager.update()
+    ops_manager.update()
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1200)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
@@ -213,11 +210,6 @@ def test_wait_for_mongod_parameters(mdb: MongoDB):
         return parameters_are_set, f'Not all pods have mongot parameters set:\n{"\n".join(pod_parameters)}'
 
     run_periodically(lambda: check_mongod_parameters(), timeout=200)
-
-
-@mark.e2e_search_enterprise_tls
-def test_wait_for_database_resource_ready2(mdb: MongoDB):
-    mdb.assert_reaches_phase(Phase.Running, timeout=300)
 
 
 @mark.e2e_search_enterprise_tls
