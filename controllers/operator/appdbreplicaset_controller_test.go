@@ -377,7 +377,7 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 	require.NoError(t, err)
 
 	// attempt configuring monitoring when there is no api key secret
-	podVars, err := reconciler.tryConfigureMonitoringInOpsManager(ctx, opsManager, "password", zap.S())
+	podVars, err := reconciler.tryConfigureMonitoringInOpsManager(ctx, opsManager, "password", "/fake/agent-cert/path", zap.S())
 	assert.NoError(t, err)
 
 	assert.Empty(t, podVars.ProjectID)
@@ -408,7 +408,7 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 	assert.NoError(t, err)
 
 	// once the secret exists, monitoring should be fully configured
-	podVars, err = reconciler.tryConfigureMonitoringInOpsManager(ctx, opsManager, "password", zap.S())
+	podVars, err = reconciler.tryConfigureMonitoringInOpsManager(ctx, opsManager, "password", "/fake/agent-cert/path", zap.S())
 	assert.NoError(t, err)
 
 	assert.Equal(t, om.TestGroupID, podVars.ProjectID)
@@ -522,7 +522,7 @@ func TestTryConfigureMonitoringInOpsManagerWithExternalDomains(t *testing.T) {
 	require.NoError(t, err)
 
 	// attempt configuring monitoring when there is no api key secret
-	podVars, err := reconciler.tryConfigureMonitoringInOpsManager(ctx, opsManager, "password", zap.S())
+	podVars, err := reconciler.tryConfigureMonitoringInOpsManager(ctx, opsManager, "password", "/fake/agent-cert/path", zap.S())
 	assert.NoError(t, err)
 
 	assert.Empty(t, podVars.ProjectID)
@@ -553,7 +553,7 @@ func TestTryConfigureMonitoringInOpsManagerWithExternalDomains(t *testing.T) {
 	assert.NoError(t, err)
 
 	// once the secret exists, monitoring should be fully configured
-	podVars, err = reconciler.tryConfigureMonitoringInOpsManager(ctx, opsManager, "password", zap.S())
+	podVars, err = reconciler.tryConfigureMonitoringInOpsManager(ctx, opsManager, "password", "/fake/agent-cert/path", zap.S())
 	assert.NoError(t, err)
 
 	assert.Equal(t, om.TestGroupID, podVars.ProjectID)
