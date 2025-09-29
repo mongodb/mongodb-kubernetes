@@ -56,7 +56,8 @@ class TestReplicaSetUpgradeToTLSWithX509Project(KubernetesTester):
     def test_certificates_have_sane_subject(self, namespace):
         agent_certs = KubernetesTester.read_secret(namespace, "agent-certs-pem")
 
-        bytecert = bytes(agent_certs["mms-automation-agent-pem"], "utf-8")
+        latestHash = agent_certs["latestHash"]
+        bytecert = bytes(agent_certs[latestHash], "utf-8")
         cert = x509.load_pem_x509_certificate(bytecert, default_backend())
         names = get_names_from_certificate_attributes(cert)
 

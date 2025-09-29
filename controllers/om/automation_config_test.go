@@ -365,7 +365,7 @@ func TestCanResetAgentSSL(t *testing.T) {
 	ac.AgentSSL = &AgentSSL{
 		ClientCertificateMode: util.OptionalClientCertficates,
 		CAFilePath:            util.CAFilePathInContainer,
-		AutoPEMKeyFilePath:    util.AutomationAgentPemFilePath,
+		AutoPEMKeyFilePath:    "/fake/path/to/pem",
 	}
 
 	if err := ac.Apply(); err != nil {
@@ -374,7 +374,7 @@ func TestCanResetAgentSSL(t *testing.T) {
 
 	tls := cast.ToStringMap(ac.Deployment["tls"])
 	assert.Equal(t, tls["clientCertificateMode"], util.OptionalClientCertficates)
-	assert.Equal(t, tls["autoPEMKeyFilePath"], util.AutomationAgentPemFilePath)
+	assert.Equal(t, tls["autoPEMKeyFilePath"], "/fake/path/to/pem")
 	assert.Equal(t, tls["CAFilePath"], util.CAFilePathInContainer)
 
 	ac.AgentSSL = &AgentSSL{
