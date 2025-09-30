@@ -53,8 +53,6 @@ import (
 )
 
 const (
-	clusterDomain = "CLUSTER_DOMAIN"
-
 	lastSuccessfulConfiguration = "mongodb.com/v1.lastSuccessfulConfiguration"
 	lastAppliedMongoDBVersion   = "mongodb.com/v1.lastAppliedMongoDBVersion"
 )
@@ -236,7 +234,7 @@ func (r ReplicaSetReconciler) Reconcile(ctx context.Context, request reconcile.R
 	}
 
 	res, err := status.Update(ctx, r.client.Status(), &mdb, statusOptions().
-		withMongoURI(mdb.MongoURI(os.Getenv(clusterDomain))). // nolint:forbidigo
+		withMongoURI(mdb.MongoURI()). // nolint:forbidigo
 		withMongoDBMembers(mdb.AutomationConfigMembersThisReconciliation()).
 		withStatefulSetReplicas(mdb.StatefulSetReplicasThisReconciliation()).
 		withStatefulSetArbiters(mdb.StatefulSetArbitersThisReconciliation()).
@@ -249,7 +247,7 @@ func (r ReplicaSetReconciler) Reconcile(ctx context.Context, request reconcile.R
 		return res, err
 	}
 
-	if err := r.updateConnectionStringSecrets(ctx, mdb, os.Getenv(clusterDomain)); err != nil { // nolint:forbidigo
+	if err := r.updateConnectionStringSecrets(ctx, mdb); err != nil { // nolint:forbidigo
 		r.log.Errorf("Could not update connection string secrets: %s", err)
 	}
 
@@ -532,8 +530,8 @@ func (r ReplicaSetReconciler) ensureAutomationConfig(mdb mdbv1.MongoDBCommunity,
 }
 
 func buildAutomationConfig(mdb mdbv1.MongoDBCommunity, isEnterprise bool, auth automationconfig.Auth, currentAc automationconfig.AutomationConfig, modifications ...automationconfig.Modification) (automationconfig.AutomationConfig, error) {
-	domain := getDomain(mdb.ServiceName(), mdb.Namespace, os.Getenv(clusterDomain))        // nolint:forbidigo
-	arbiterDomain := getDomain(mdb.ServiceName(), mdb.Namespace, os.Getenv(clusterDomain)) // nolint:forbidigo
+	domain := getDomain(mdb.ServiceName(), mdb.Namespace, mdb.Spec.GetClusterDomain())        // nolint:forbidigo
+	arbiterDomain := getDomain(mdb.ServiceName(), mdb.Namespace, mdb.Spec.GetClusterDomain()) // nolint:forbidigo
 
 	zap.S().Debugw("AutomationConfigMembersThisReconciliation", "mdb.AutomationConfigMembersThisReconciliation()", mdb.AutomationConfigMembersThisReconciliation())
 

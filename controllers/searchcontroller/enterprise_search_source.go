@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/blang/semver"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -25,7 +24,7 @@ func NewEnterpriseResourceSearchSource(mdb *mdbv1.MongoDB) SearchSourceDBResourc
 
 func (r EnterpriseResourceSearchSource) HostSeeds() []string {
 	seeds := make([]string, r.Spec.Members)
-	clusterDomain := env.ReadOrDefault("CLUSTER_DOMAIN", "cluster.local")
+	clusterDomain := r.Spec.GetClusterDomain()
 	for i := range seeds {
 		seeds[i] = fmt.Sprintf("%s-%d.%s.%s.svc.%s:%d", r.Name, i, r.ServiceName(), r.Namespace, clusterDomain, r.Spec.GetAdditionalMongodConfig().GetPortOrDefault())
 	}
