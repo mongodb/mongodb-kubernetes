@@ -728,7 +728,7 @@ func (r ReplicaSetReconciler) buildAutomationConfig(ctx context.Context, mdb mdb
 		customRolesModification,
 		prometheusModification,
 		processPortManager.GetPortsModification(),
-		getMongodConfigSearchModification(search),
+		getMongodConfigSearchModification(search, mdb.Spec.GetClusterDomain()),
 		searchCoordinatorCustomRoleModification(search, mdb.GetMongoDBVersion()),
 	)
 	if err != nil {
@@ -834,13 +834,13 @@ func getMongodConfigModification(mdb mdbv1.MongoDBCommunity) automationconfig.Mo
 
 // getMongodConfigModification will merge the additional configuration in the CRD
 // into the configuration set up by the operator.
-func getMongodConfigSearchModification(search *searchv1.MongoDBSearch) automationconfig.Modification {
+func getMongodConfigSearchModification(search *searchv1.MongoDBSearch, clusterDomain string) automationconfig.Modification {
 	// Condition for skipping add parameter if it is external mongod
 	if search == nil || search.IsExternalMongoDBSource() {
 		return automationconfig.NOOP()
 	}
 
-	searchConfigParameters := searchcontroller.GetMongodConfigParameters(search)
+	searchConfigParameters := searchcontroller.GetMongodConfigParameters(search, clusterDomain)
 	return func(ac *automationconfig.AutomationConfig) {
 		for i := range ac.Processes {
 			err := mergo.Merge(&ac.Processes[i].Args26, objx.New(searchConfigParameters), mergo.WithOverride)

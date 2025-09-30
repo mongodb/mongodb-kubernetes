@@ -9,7 +9,6 @@ import (
 
 	"github.com/blang/semver"
 	"github.com/ghodss/yaml"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/fields"
@@ -389,24 +388,23 @@ func createMongotConfig(search *searchv1.MongoDBSearch, db SearchSourceDBResourc
 	}
 }
 
-func GetMongodConfigParameters(search *searchv1.MongoDBSearch) map[string]any {
+func GetMongodConfigParameters(search *searchv1.MongoDBSearch, clusterDomain string) map[string]any {
 	searchTLSMode := automationconfig.TLSModeDisabled
 	if search.Spec.Security.TLS != nil {
 		searchTLSMode = automationconfig.TLSModeRequired
 	}
 	return map[string]any{
 		"setParameter": map[string]any{
-			"mongotHost":                                      mongotHostAndPort(search),
-			"searchIndexManagementHostAndPort":                mongotHostAndPort(search),
+			"mongotHost":                                      mongotHostAndPort(search, clusterDomain),
+			"searchIndexManagementHostAndPort":                mongotHostAndPort(search, clusterDomain),
 			"skipAuthenticationToSearchIndexManagementServer": false,
 			"searchTLSMode":                                   string(searchTLSMode),
 		},
 	}
 }
 
-func mongotHostAndPort(search *searchv1.MongoDBSearch) string {
+func mongotHostAndPort(search *searchv1.MongoDBSearch, clusterDomain string) string {
 	svcName := search.SearchServiceNamespacedName()
-	clusterDomain := env.ReadOrDefault("CLUSTER_DOMAIN", "cluster.local")
 	return fmt.Sprintf("%s.%s.svc.%s:%d", svcName.Name, svcName.Namespace, clusterDomain, search.GetMongotPort())
 }
 
