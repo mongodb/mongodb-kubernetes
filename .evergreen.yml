@@ -15,7 +15,7 @@ variables:
 
   - &ops_manager_70_latest 7.0.18 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_80_latest 8.0.13 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_80_latest 8.0.14 # The order/index is important, since these are anchors. Please do not change
 
   # The dependency unification between static and non-static is intentional here.
   # Even though some images are exclusive, in EVG they all are built once and in parallel.
@@ -301,6 +301,7 @@ tasks:
       - command: github.generate_token
         params:
           expansion_name: GH_TOKEN
+      - func: setup_chart_testing_cli
       - command: subprocess.exec
         type: setup
         params:
@@ -1091,6 +1092,17 @@ task_groups:
       - e2e_om_ops_manager_backup
     <<: *teardown_group
 
+  # TODO (CLOUDP-346008): Remove this task group once the issue with queryable backup task is resolved in OM8
+  - name: e2e_ops_manager_kind_5_0_only_task_group_without_queryable_backup
+    max_hosts: -1
+    <<: *setup_group
+    <<: *setup_and_teardown_task
+    tasks:
+      - e2e_om_remotemode
+      - e2e_om_ops_manager_backup_restore
+      - e2e_om_ops_manager_backup
+    <<: *teardown_group
+
   # Tests features only supported on OM60
   - name: e2e_ops_manager_kind_6_0_only_task_group
     max_hosts: -1
@@ -1306,7 +1318,8 @@ buildvariants:
     <<: *base_om8_dependency
     tasks:
       - name: e2e_ops_manager_kind_only_task_group
-      - name: e2e_ops_manager_kind_5_0_only_task_group
+      # TODO (CLOUDP-346008): Replace this task group with e2e_ops_manager_kind_5_0_only_task_group once the issue with queryable backup task is resolved in OM8
+      - name: e2e_ops_manager_kind_5_0_only_task_group_without_queryable_backup
       - name: e2e_ops_manager_kind_6_0_only_task_group
       - name: e2e_ops_manager_upgrade_only_task_group
 

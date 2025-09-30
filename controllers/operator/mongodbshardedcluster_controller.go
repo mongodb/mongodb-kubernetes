@@ -1009,6 +1009,11 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 	log.Info("ShardedCluster.doShardedClusterProcessing")
 	sc := obj.(*mdbv1.MongoDB)
 
+	var databaseSecretPath string
+	if r.commonController.VaultClient != nil {
+		databaseSecretPath = r.commonController.VaultClient.DatabaseSecretPath()
+	}
+
 	if workflowStatus := ensureSupportedOpsManagerVersion(conn); workflowStatus.Phase() != mdbstatus.PhaseRunning {
 		return workflowStatus
 	}
@@ -1084,14 +1089,16 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		return workflowStatus
 	}
 
-	agentCertSecretSelector := sc.GetSecurity().AgentClientCertificateSecretName(sc.Name)
+	agentCertSecretName := sc.GetSecurity().AgentClientCertificateSecretName(sc.Name)
+	agentCertHash, agentCertPath := r.commonController.agentCertHashAndPath(ctx, log, sc.Namespace, agentCertSecretName, databaseSecretPath)
 
 	opts = deploymentOptions{
-		podEnvVars:              podEnvVars,
-		currentAgentAuthMode:    currentAgentAuthMode,
-		caFilePath:              caFilePath,
-		agentCertSecretSelector: agentCertSecretSelector,
-		prometheusCertHash:      prometheusCertHash,
+		podEnvVars:           podEnvVars,
+		currentAgentAuthMode: currentAgentAuthMode,
+		caFilePath:           caFilePath,
+		agentCertPath:        agentCertPath,
+		agentCertHash:        agentCertHash,
+		prometheusCertHash:   prometheusCertHash,
 	}
 	allConfigs := r.getAllConfigs(ctx, *sc, opts, log)
 
@@ -1168,6 +1175,9 @@ func getTLSSecretNames(sc *mdbv1.MongoDB) func() []string {
 		)
 		for i := 0; i < sc.Spec.ShardCount; i++ {
 			secretNames = append(secretNames, sc.GetSecurity().MemberCertificateSecretName(sc.ShardRsName(i)))
+		}
+		if sc.GetSecurity().ShouldUseX509("") {
+			secretNames = append(secretNames, sc.GetSecurity().AgentClientCertificateSecretName(sc.Name))
 		}
 		return secretNames
 	}
@@ -1789,14 +1799,15 @@ func (r *ShardedClusterReconcileHelper) prepareScaleDownShardedCluster(omClient 
 
 // deploymentOptions contains fields required for creating the OM deployment for the Sharded Cluster.
 type deploymentOptions struct {
-	podEnvVars              *env.PodEnvVars
-	currentAgentAuthMode    string
-	caFilePath              string
-	agentCertSecretSelector corev1.SecretKeySelector
-	certTLSType             map[string]bool
-	finalizing              bool
-	processNames            []string
-	prometheusCertHash      string
+	podEnvVars           *env.PodEnvVars
+	currentAgentAuthMode string
+	caFilePath           string
+	agentCertPath        string
+	agentCertHash        string
+	certTLSType          map[string]bool
+	finalizing           bool
+	processNames         []string
+	prometheusCertHash   string
 }
 
 // updateOmDeploymentShardedCluster performs OM registration operation for the sharded cluster. So the changes will be finally propagated
@@ -1950,7 +1961,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 
 	logDiffOfProcessNames(opts.processNames, healthyProcessesToWaitForReadyState, log.With("ctx", "updateOmAuthentication"))
 
-	workflowStatus, additionalReconciliationRequired := r.commonController.updateOmAuthentication(ctx, conn, healthyProcessesToWaitForReadyState, sc, opts.agentCertSecretSelector, opts.caFilePath, "", isRecovering, log)
+	workflowStatus, additionalReconciliationRequired := r.commonController.updateOmAuthentication(ctx, conn, healthyProcessesToWaitForReadyState, sc, opts.agentCertPath, opts.caFilePath, "", isRecovering, log)
 	if !workflowStatus.IsOK() {
 		if !isRecovering {
 			return nil, false, workflowStatus
@@ -2280,6 +2291,7 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 		PodEnvVars(opts.podEnvVars),
 		CurrentAgentAuthMechanism(opts.currentAgentAuthMode),
 		CertificateHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, certSecretName, databaseSecretPath, log)),
+		AgentCertHash(opts.agentCertHash),
 		InternalClusterHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, internalClusterSecretName, databaseSecretPath, log)),
 		PrometheusTLSCertHash(opts.prometheusCertHash),
 		WithVaultConfig(vaultConfig),
@@ -2311,6 +2323,7 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 		PodEnvVars(opts.podEnvVars),
 		CurrentAgentAuthMechanism(opts.currentAgentAuthMode),
 		CertificateHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, certSecretName, vaultConfig.DatabaseSecretPath, log)),
+		AgentCertHash(opts.agentCertHash),
 		InternalClusterHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, internalClusterSecretName, vaultConfig.DatabaseSecretPath, log)),
 		PrometheusTLSCertHash(opts.prometheusCertHash),
 		WithVaultConfig(vaultConfig),
@@ -2341,6 +2354,7 @@ func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc 
 		PodEnvVars(opts.podEnvVars),
 		CurrentAgentAuthMechanism(opts.currentAgentAuthMode),
 		CertificateHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, certSecretName, databaseSecretPath, log)),
+		AgentCertHash(opts.agentCertHash),
 		InternalClusterHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, internalClusterSecretName, databaseSecretPath, log)),
 		PrometheusTLSCertHash(opts.prometheusCertHash),
 		WithVaultConfig(vaultConfig),
