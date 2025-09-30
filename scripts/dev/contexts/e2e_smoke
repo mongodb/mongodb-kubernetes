@@ -6,5 +6,4 @@ script_name=$(readlink -f "${BASH_SOURCE[0]}")
 script_dir=$(dirname "${script_name}")
 
 source "${script_dir}/root-context"
-source "${script_dir}/variables/e2e_smoke_base"
 source "${script_dir}/variables/om70"
