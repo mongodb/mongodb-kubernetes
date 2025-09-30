@@ -401,8 +401,6 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: pipeline_agent
-        vars:
-          FLAGS: "--current-agents"
 
   - name: build_init_database_image_ubi
     commands:
