@@ -265,6 +265,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(ctx, rs, workflow.Failed(err), log)
 	}
 
+	// TODO: note for refactoring - vault is not supported on multi cluster RS yet
 	if vault.IsVaultSecretBackend() {
 		secrets := rs.GetSecretsMountedIntoDBPod()
 		vaultMap := make(map[string]string)
