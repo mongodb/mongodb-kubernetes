@@ -97,6 +97,7 @@ type deploymentOptionsRS struct {
 	//currentAgentAuthMode    string
 	//caFilePath              string
 	agentCertPath string
+	agentCertHash string
 	//certTLSType             map[string]bool
 	//finalizing              bool
 	//processNames            []string
@@ -184,8 +185,6 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	}
 	tlsCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, rs.Namespace, rsCertsConfig.CertSecretName, databaseSecretPath, log)
 	internalClusterCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, rs.Namespace, rsCertsConfig.InternalClusterSecretName, databaseSecretPath, log)
-	agentCertSecretName := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name)
-
 
 	tlsCertPath := ""
 	internalClusterCertPath := ""
@@ -196,12 +195,21 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		tlsCertPath = fmt.Sprintf("%s/%s", util.TLSCertMountPath, tlsCertHash)
 	}
 
+	agentCertSecretName := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name)
+	agentCertHash, agentCertPath := r.agentCertHashAndPath(ctx, log, rs.Namespace, agentCertSecretName, databaseSecretPath)
+
 	// TODO: (just as a note for current refactoring), we have the following limitation: The Kubernetes Operator doesn't
 	//  support integration with Prometheus for *multi-cluster* replica sets.
 	prometheusCertHash, err := certs.EnsureTLSCertsForPrometheus(ctx, r.SecretClient, rs.GetNamespace(), rs.GetPrometheus(), certs.Database, log)
 	if err != nil {
 		log.Infof("Could not generate certificates for Prometheus: %s", err)
 		return r.updateStatus(ctx, rs, workflow.Failed(err), log)
+	}
+
+	deploymentOpts := deploymentOptionsRS{
+		prometheusCertHash: prometheusCertHash,
+		agentCertPath:      agentCertPath,
+		agentCertHash:      agentCertHash,
 	}
 
 	// TODO: commented to simplify refactoring, because it might not be needed (not done in MC RS reconciler)
@@ -211,16 +219,6 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	//		return r.updateStatus(ctx, rs, workflow.Failed(xerrors.Errorf("Failed to prepare Replica Set for scaling down using Ops Manager: %w", err)), log)
 	//	}
 	//}
-
-	agentCertSecretSelector := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name)
-	agentCertSecretSelector.Name += certs.OperatorGeneratedCertSuffix
-
-	agentCertHash, agentCertPath := r.agentCertHashAndPath(ctx, log, rs.Namespace, agentCertSecretName, databaseSecretPath)
-
-	deploymentOpts := deploymentOptionsRS{
-		prometheusCertHash:      prometheusCertHash,
-		agentCertPath: agentCertPath,
-	}
 
 	// 4. Recovery
 
@@ -396,12 +394,7 @@ func (r *ReconcileMongoDbReplicaSet) reconcileMemberResources(ctx context.Contex
 		return status
 	}
 
-	if status := r.reconcileStatefulSet(ctx, rs, log, conn, projectConfig, deploymentOptions); !status.IsOK() {
-		return status
-	}
-
-	return workflow.OK()
-
+	return r.reconcileStatefulSet(ctx, rs, log, conn, projectConfig, deploymentOptions)
 }
 
 func (r *ReconcileMongoDbReplicaSet) reconcileStatefulSet(ctx context.Context, rs *mdbv1.MongoDB,
@@ -424,7 +417,7 @@ func (r *ReconcileMongoDbReplicaSet) reconcileStatefulSet(ctx context.Context, r
 	}
 
 	// Build the replica set config
-	rsConfig, err := r.buildStatefulSetOptions(ctx, rs, conn, projectConfig, currentAgentAuthMode, deploymentOptions.prometheusCertHash, log)
+	rsConfig, err := r.buildStatefulSetOptions(ctx, rs, conn, projectConfig, currentAgentAuthMode, deploymentOptions.prometheusCertHash, deploymentOptions.agentCertHash, log)
 	if err != nil {
 		return workflow.Failed(xerrors.Errorf("failed to build StatefulSet options: %w", err))
 	}
@@ -455,7 +448,7 @@ func (r *ReconcileMongoDbReplicaSet) reconcileStatefulSet(ctx context.Context, r
 }
 
 // buildStatefulSetOptions creates the options needed for constructing the StatefulSet
-func (r *ReconcileMongoDbReplicaSet) buildStatefulSetOptions(ctx context.Context, rs *mdbv1.MongoDB, conn om.Connection, projectConfig mdbv1.ProjectConfig, currentAgentAuthMode string, prometheusCertHash string, log *zap.SugaredLogger) (func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, error) {
+func (r *ReconcileMongoDbReplicaSet) buildStatefulSetOptions(ctx context.Context, rs *mdbv1.MongoDB, conn om.Connection, projectConfig mdbv1.ProjectConfig, currentAgentAuthMode string, prometheusCertHash string, agentCertHash string, log *zap.SugaredLogger) (func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, error) {
 	rsCertsConfig := certs.ReplicaSetConfig(*rs)
 
 	var vaultConfig vault.VaultConfiguration
@@ -486,6 +479,7 @@ func (r *ReconcileMongoDbReplicaSet) buildStatefulSetOptions(ctx context.Context
 		PodEnvVars(newPodVars(conn, projectConfig, rs.Spec.LogLevel)),
 		CurrentAgentAuthMechanism(currentAgentAuthMode),
 		CertificateHash(tlsCertHash),
+		AgentCertHash(agentCertHash),
 		InternalClusterHash(internalClusterCertHash),
 		PrometheusTLSCertHash(prometheusCertHash),
 		WithVaultConfig(vaultConfig),
@@ -630,9 +624,11 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 		prometheusCertHash: deploymentOptionsRS.prometheusCertHash,
 	}
 
+	shouldMirrorKeyfile := r.applySearchOverrides(ctx, rs, log)
+
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
-			if shouldMirrorKeyfileForMongot {
+			if shouldMirrorKeyfile {
 				if err := r.mirrorKeyfileIntoSecretForMongot(ctx, d, rs, log); err != nil {
 					return err
 				}
