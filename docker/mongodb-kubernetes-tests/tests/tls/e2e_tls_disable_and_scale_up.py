@@ -37,19 +37,13 @@ def test_rs_is_running(replica_set: MongoDB):
 @pytest.mark.e2e_disable_tls_scale_up
 def test_tls_is_disabled_and_scaled_up(replica_set: MongoDB):
     replica_set.load()
+    # Parameters must be changed at the same time
     replica_set["spec"]["members"] = 5
-
-    replica_set.update()
-
-
-@pytest.mark.e2e_disable_tls_scale_up
-def test_tls_is_disabled_and_scaled_up(replica_set: MongoDB):
-    replica_set.load()
     replica_set["spec"]["security"]["tls"]["enabled"] = False
     del replica_set["spec"]["additionalMongodConfig"]
 
     replica_set.update()
 
     # timeout is longer because the operator first needs to
-    # disable TLS and then, scale down one by one.
+    # disable TLS on existing members, then scale up one by one.
     replica_set.assert_reaches_phase(Phase.Running, timeout=800)
