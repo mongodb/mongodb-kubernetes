@@ -243,9 +243,12 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		lastSpec = &mdbv1.MongoDbSpec{}
 	}
 
-	// TODO: review conditions for publishing AC first, get rid of need for rsConfig (opts)
-	// make a special function for rs ? This one is in the common controller
-	publishAutomationConfigFirst := publishAutomationConfigFirstRS(ctx, r.client, *rs, lastSpec, log)
+	currentAgentAuthMode, err := conn.GetAgentAuthMode()
+	if err != nil {
+		return r.updateStatus(ctx, rs, workflow.Failed(xerrors.Errorf("failed to get agent auth mode: %w", err)), log)
+	}
+
+	publishAutomationConfigFirst := publishAutomationConfigFirstRS(ctx, r.client, *rs, lastSpec, currentAgentAuthMode, log)
 	status := workflow.RunInGivenOrder(publishAutomationConfigFirst,
 		func() workflow.Status {
 			return r.updateOmDeploymentRs(ctx, conn, rs.Status.Members, rs, log, tlsCertPath, internalClusterCertPath, deploymentOpts, false).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
@@ -290,7 +293,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	return r.updateStatus(ctx, rs, workflow.OK(), log, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), mdbstatus.MembersOption(rs), mdbstatus.NewPVCsStatusOptionEmptyStatus())
 }
 
-func publishAutomationConfigFirstRS(ctx context.Context, getter kubernetesClient.Client, mdb mdbv1.MongoDB, lastSpec *mdbv1.MongoDbSpec, log *zap.SugaredLogger) bool {
+func publishAutomationConfigFirstRS(ctx context.Context, getter kubernetesClient.Client, mdb mdbv1.MongoDB, lastSpec *mdbv1.MongoDbSpec, currentAgentAuthMode string, log *zap.SugaredLogger) bool {
 	namespacedName := kube.ObjectKey(mdb.Namespace, mdb.Name)
 	currentSts, err := getter.GetStatefulSet(ctx, namespacedName)
 	if err != nil {
@@ -318,14 +321,7 @@ func publishAutomationConfigFirstRS(ctx context.Context, getter kubernetesClient
 
 	}
 
-	// TODO: for now removing the need for sslmmscaconfigmap. Check for regression, and clarify for the need later
-	//if opts.PodVars.SSLMMSCAConfigMap == "" && statefulset.VolumeMountWithNameExists(volumeMounts, construct.CaCertName) {
-	//	log.Debug(automationConfigFirstMsg("SSLMMSCAConfigMap", "empty"))
-	//	return true
-	//}
-
-	// TODO: passed empty string to GetAgentMechanism for now, how to know the current one without relying on `opts` ?
-	if mdb.Spec.Security.GetAgentMechanism("") != util.X509 && statefulset.VolumeMountWithNameExists(volumeMounts, util.AgentSecretName) {
+	if mdb.Spec.Security.GetAgentMechanism(currentAgentAuthMode) != util.X509 && statefulset.VolumeMountWithNameExists(volumeMounts, util.AgentSecretName) {
 		log.Debug(automationConfigFirstMsg("project.AuthMode", "empty"))
 		return true
 	}
@@ -399,11 +395,6 @@ func (r *ReconcileMongoDbReplicaSet) reconcileMemberResources(ctx context.Contex
 
 func (r *ReconcileMongoDbReplicaSet) reconcileStatefulSet(ctx context.Context, rs *mdbv1.MongoDB,
 	log *zap.SugaredLogger, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS) workflow.Status {
-
-	currentAgentAuthMode, err := conn.GetAgentAuthMode()
-	if err != nil {
-		return workflow.Failed(xerrors.Errorf("failed to get agent auth mode: %w", err))
-	}
 
 	certConfigurator := certs.ReplicaSetX509CertConfigurator{MongoDB: rs, SecretClient: r.SecretClient}
 	status := r.ensureX509SecretAndCheckTLSType(ctx, certConfigurator, currentAgentAuthMode, log)
