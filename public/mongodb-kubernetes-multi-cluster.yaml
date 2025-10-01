@@ -329,6 +329,8 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 2000
+        runAsGroup: 2000
+        fsGroup: 2000
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -346,6 +348,8 @@ spec:
           command:
             - /usr/local/bin/mongodb-kubernetes-operator
           volumeMounts:
+            - mountPath: /tmp/k8s-webhook-server
+              name: webhook-server-dir
             - mountPath: /etc/config/kubeconfig
               name: kube-config-volume
           resources:
@@ -357,6 +361,7 @@ spec:
               memory: 200Mi
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop:
                 - ALL
@@ -445,6 +450,8 @@ spec:
             - name: MDB_SEARCH_VERSION
               value: "0.53.1"
       volumes:
+        - name: webhook-server-dir
+          emptyDir: {}
         - name: kube-config-volume
           secret:
             defaultMode: 420

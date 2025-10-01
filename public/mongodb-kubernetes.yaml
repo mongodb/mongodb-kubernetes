@@ -329,6 +329,8 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 2000
+        runAsGroup: 2000
+        fsGroup: 2000
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -344,6 +346,9 @@ spec:
             - -watch-resource=clustermongodbroles
           command:
             - /usr/local/bin/mongodb-kubernetes-operator
+          volumeMounts:
+            - mountPath: /tmp/k8s-webhook-server
+              name: webhook-server-dir
           resources:
             limits:
               cpu: 1100m
@@ -353,6 +358,7 @@ spec:
               memory: 200Mi
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop:
                 - ALL
@@ -440,3 +446,6 @@ spec:
               value: "mongodb-search"
             - name: MDB_SEARCH_VERSION
               value: "0.53.1"
+      volumes:
+        - name: webhook-server-dir
+          emptyDir: {}
