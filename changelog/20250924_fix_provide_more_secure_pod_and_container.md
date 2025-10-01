@@ -13,5 +13,5 @@ Operator deployment `securityContext` settings that have changed:
    - `capabilities.drop: [ ALL ]` - container level
    - `seccompProfile.type: RuntimeDefault` - pod level
 
-   > **Note**: If you require less restrictive `securityContext` settings please use `template` or `podTemplate` overrides.
-   > Detailed information about overrides can be found in [Modify Ops Manager or MongoDB Kubernetes Resource Containers](https://www.mongodb.com/docs/kubernetes/current/tutorial/modify-resource-image/).
+> **Note**: If you require less restrictive `securityContext` settings please use `template` or `podTemplate` overrides.
+> Detailed information about overrides can be found in [Modify Ops Manager or MongoDB Kubernetes Resource Containers](https://www.mongodb.com/docs/kubernetes/current/tutorial/modify-resource-image/).
