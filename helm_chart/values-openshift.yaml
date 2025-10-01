@@ -6,6 +6,10 @@ namespace: mongodb
 managedSecurityContext: true
 
 operator:
+  vaultSecretBackend:
+    # set to true if you want the operator to store secrets in Vault
+    enabled: false
+    tlsSecretRef: ''
   webhook:
     # registerConfiguration setting (default: true) controls if the operator should automatically register ValidatingWebhookConfiguration and if required for it cluster-wide roles should be installed.
     #

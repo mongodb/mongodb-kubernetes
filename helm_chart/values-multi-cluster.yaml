@@ -1,6 +1,10 @@
 operator:
   # Name that will be assigned to most internal Kubernetes objects like Deployment, ServiceAccount, Role etc.
   name: mongodb-kubernetes-operator-multi-cluster
+  vaultSecretBackend:
+    # set to true if you want the operator to store secrets in Vault
+    enabled: false
+    tlsSecretRef: ''
 
 multiCluster:
   # Specify if we want to deploy the operator in multi-cluster mode
