@@ -1,14 +1,14 @@
 package deployment
 
 import (
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"go.uber.org/zap"
 
 	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/replicaset"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
 // CreateFromReplicaSet builds the replica set for the automation config
