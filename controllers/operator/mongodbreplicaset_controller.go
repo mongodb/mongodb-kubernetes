@@ -93,15 +93,10 @@ func newReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imag
 
 // TODO: move above, and keep only relevant fields. Taken from sharded controller
 type deploymentOptionsRS struct {
-	//podEnvVars              *env.PodEnvVars
-	//currentAgentAuthMode    string
-	//caFilePath              string
-	agentCertPath string
-	agentCertHash string
-	//certTLSType             map[string]bool
-	//finalizing              bool
-	//processNames            []string
-	prometheusCertHash string
+	agentCertPath        string
+	agentCertHash        string
+	prometheusCertHash   string
+	currentAgentAuthMode string
 }
 
 // Generic Kubernetes Resources
@@ -206,10 +201,9 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(ctx, rs, workflow.Failed(err), log)
 	}
 
-	deploymentOpts := deploymentOptionsRS{
-		prometheusCertHash: prometheusCertHash,
-		agentCertPath:      agentCertPath,
-		agentCertHash:      agentCertHash,
+	currentAgentAuthMode, err := conn.GetAgentAuthMode()
+	if err != nil {
+		return r.updateStatus(ctx, rs, workflow.Failed(xerrors.Errorf("failed to get agent auth mode: %w", err)), log)
 	}
 
 	// TODO: commented to simplify refactoring, because it might not be needed (not done in MC RS reconciler)
@@ -219,6 +213,12 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	//		return r.updateStatus(ctx, rs, workflow.Failed(xerrors.Errorf("Failed to prepare Replica Set for scaling down using Ops Manager: %w", err)), log)
 	//	}
 	//}
+	deploymentOpts := deploymentOptionsRS{
+		prometheusCertHash:   prometheusCertHash,
+		agentCertPath:        agentCertPath,
+		agentCertHash:        agentCertHash,
+		currentAgentAuthMode: currentAgentAuthMode,
+	}
 
 	// 4. Recovery
 
@@ -243,12 +243,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		lastSpec = &mdbv1.MongoDbSpec{}
 	}
 
-	currentAgentAuthMode, err := conn.GetAgentAuthMode()
-	if err != nil {
-		return r.updateStatus(ctx, rs, workflow.Failed(xerrors.Errorf("failed to get agent auth mode: %w", err)), log)
-	}
-
-	publishAutomationConfigFirst := publishAutomationConfigFirstRS(ctx, r.client, *rs, lastSpec, currentAgentAuthMode, log)
+	publishAutomationConfigFirst := publishAutomationConfigFirstRS(ctx, r.client, *rs, lastSpec, deploymentOpts.currentAgentAuthMode, log)
 	status := workflow.RunInGivenOrder(publishAutomationConfigFirst,
 		func() workflow.Status {
 			return r.updateOmDeploymentRs(ctx, conn, rs.Status.Members, rs, log, tlsCertPath, internalClusterCertPath, deploymentOpts, false).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
@@ -397,7 +392,7 @@ func (r *ReconcileMongoDbReplicaSet) reconcileStatefulSet(ctx context.Context, r
 	log *zap.SugaredLogger, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS) workflow.Status {
 
 	certConfigurator := certs.ReplicaSetX509CertConfigurator{MongoDB: rs, SecretClient: r.SecretClient}
-	status := r.ensureX509SecretAndCheckTLSType(ctx, certConfigurator, currentAgentAuthMode, log)
+	status := r.ensureX509SecretAndCheckTLSType(ctx, certConfigurator, deploymentOptions.currentAgentAuthMode, log)
 	if !status.IsOK() {
 		return status
 	}
@@ -408,7 +403,7 @@ func (r *ReconcileMongoDbReplicaSet) reconcileStatefulSet(ctx context.Context, r
 	}
 
 	// Build the replica set config
-	rsConfig, err := r.buildStatefulSetOptions(ctx, rs, conn, projectConfig, currentAgentAuthMode, deploymentOptions.prometheusCertHash, deploymentOptions.agentCertHash, log)
+	rsConfig, err := r.buildStatefulSetOptions(ctx, rs, conn, projectConfig, deploymentOptions.currentAgentAuthMode, deploymentOptions.prometheusCertHash, deploymentOptions.agentCertHash, log)
 	if err != nil {
 		return workflow.Failed(xerrors.Errorf("failed to build StatefulSet options: %w", err))
 	}
