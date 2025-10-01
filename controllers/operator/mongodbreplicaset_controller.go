@@ -672,7 +672,6 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 //
 // Related ticket: CLOUDP-80768 (March 2021)
 // See also: e2e_tls_disable_and_scale_up.py test
-// See also: e2e_tls_disable_and_scale_down.py test
 func updateOmDeploymentDisableTLSConfiguration(conn om.Connection, mongoDBImage string, forceEnterprise bool, currentMemberCount int, rs *mdbv1.MongoDB, log *zap.SugaredLogger, caFilePath, tlsCertPath string) (bool, error) {
 	tlsConfigWasDisabled := false
 
