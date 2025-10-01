@@ -97,8 +97,8 @@ func PrepareScaleDownFromMap(omClient om.Connection, rsMembers map[string][]stri
 	return nil
 }
 
-func PrepareScaleDownFromStatefulSet(omClient om.Connection, statefulSet appsv1.StatefulSet, rs *mdbv1.MongoDB, log *zap.SugaredLogger) error {
-	_, podNames := dns.GetDnsForStatefulSetReplicasSpecified(statefulSet, rs.Spec.GetClusterDomain(), rs.Status.Members, nil)
+func PrepareScaleDownFromMongoDB(omClient om.Connection, rs *mdbv1.MongoDB, log *zap.SugaredLogger) error {
+	_, podNames := dns.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain(), rs.Status.Members, rs.Spec.DbCommonSpec.GetExternalDomain())
 	podNames = podNames[scale.ReplicasThisReconciliation(rs):rs.Status.Members]
 
 	if len(podNames) != 1 {

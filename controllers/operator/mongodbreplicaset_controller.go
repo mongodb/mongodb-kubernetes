@@ -206,13 +206,12 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(ctx, rs, workflow.Failed(xerrors.Errorf("failed to get agent auth mode: %w", err)), log)
 	}
 
-	// TODO: commented to simplify refactoring, because it might not be needed (not done in MC RS reconciler)
-	//// Check if we need to prepare for scale-down
-	//if scale.ReplicasThisReconciliation(rs) < rs.Status.Members {
-	//	if err := replicaset.PrepareScaleDownFromStatefulSet(conn, sts, rs, log); err != nil {
-	//		return r.updateStatus(ctx, rs, workflow.Failed(xerrors.Errorf("Failed to prepare Replica Set for scaling down using Ops Manager: %w", err)), log)
-	//	}
-	//}
+	// Check if we need to prepare for scale-down
+	if scale.ReplicasThisReconciliation(rs) < rs.Status.Members {
+		if err := replicaset.PrepareScaleDownFromMongoDB(conn, rs, log); err != nil {
+			return r.updateStatus(ctx, rs, workflow.Failed(xerrors.Errorf("Failed to prepare Replica Set for scaling down using Ops Manager: %w", err)), log)
+		}
+	}
 	deploymentOpts := deploymentOptionsRS{
 		prometheusCertHash:   prometheusCertHash,
 		agentCertPath:        agentCertPath,
