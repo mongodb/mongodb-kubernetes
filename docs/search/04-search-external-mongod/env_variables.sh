@@ -8,6 +8,7 @@ export MDB_ADMIN_USER_PASSWORD="admin-user-password-CHANGE-ME"
 export MDB_USER_PASSWORD="mdb-user-password-CHANGE-ME"
 export MDB_SEARCH_SYNC_USER_PASSWORD="search-sync-user-password-CHANGE-ME"
 
+export MDB_SEARCH_SERVICE_NAME="mdbs-search"
 export MDB_SEARCH_HOSTNAME="mdbs-search.example.com"
 
 # External MongoDB replica set members - REPLACE THESE VALUES with your actual external MongoDB hosts
