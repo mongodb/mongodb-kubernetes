@@ -339,6 +339,9 @@ spec:
             - -watch-resource=clustermongodbroles
           command:
             - /usr/local/bin/mongodb-kubernetes-operator
+          volumeMounts:
+            - mountPath: /tmp/k8s-webhook-server
+              name: webhook-server-dir
           resources:
             limits:
               cpu: 1100m
@@ -617,3 +620,6 @@ spec:
               value: "mongodb-search"
             - name: MDB_SEARCH_VERSION
               value: "0.53.1"
+      volumes:
+        - name: webhook-server-dir
+          emptyDir: {}
