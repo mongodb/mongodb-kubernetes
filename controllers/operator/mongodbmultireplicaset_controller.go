@@ -241,10 +241,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return r.updateStatus(ctx, &mrs, workflow.Failed(err), log)
 	}
 
-	// sort both actual and desired to match the effective and desired list version before comparing
-	sortClusterSpecList(desiredSpecList)
-	sortClusterSpecList(actualSpecList)
-
 	needToRequeue := !clusterSpecListsEqual(actualSpecList, desiredSpecList)
 	if needToRequeue {
 		return r.updateStatus(ctx, &mrs, workflow.Pending("MongoDBMultiCluster deployment is not yet ready, requeuing reconciliation."), log)
@@ -1277,8 +1273,32 @@ func sortClusterSpecList(clusterSpecList mdb.ClusterSpecList) {
 }
 
 func clusterSpecListsEqual(effective, desired mdb.ClusterSpecList) bool {
+	// for purposes of comparison, we don't want to compare entries with 0 members
+	effective = filterClusterSpecItem(effective, func(item mdb.ClusterSpecItem) bool {
+		return item.Members > 0
+	})
+	desired = filterClusterSpecItem(desired, func(item mdb.ClusterSpecItem) bool {
+		return item.Members > 0
+	})
+
+	// sort both actual and desired to match the effective and desired list version before comparing
+	sortClusterSpecList(effective)
+	sortClusterSpecList(desired)
+
 	comparer := cmp.Comparer(func(x, y automationconfig.MemberOptions) bool {
 		return true
 	})
+
 	return cmp.Equal(effective, desired, comparer)
+}
+
+// filterClusterSpecItem filters items out of a list based on provided predicate.
+func filterClusterSpecItem(items mdb.ClusterSpecList, fn func(item mdb.ClusterSpecItem) bool) mdb.ClusterSpecList {
+	var result mdb.ClusterSpecList
+	for _, item := range items {
+		if fn(item) {
+			result = append(result, item)
+		}
+	}
+	return result
 }
