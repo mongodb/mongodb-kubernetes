@@ -12,3 +12,4 @@ source "${script_dir}/root-context"
 export NAMESPACE=mongodb
 export CODE_SNIPPETS_FLAVOR=e2e_public
 export CODE_SNIPPETS_COMMIT_OUTPUT=true
+export ops_manager_version="cloud_qa"
