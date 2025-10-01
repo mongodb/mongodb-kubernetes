@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.18.0
+    controller-gen.kubebuilder.io/version: v0.15.0
   name: mongodbsearch.mongodb.com
 spec:
   group: mongodb.com
@@ -107,65 +107,9 @@ spec:
                     type: object
                 type: object
               resourceRequirements:
+                $ref: '#/definitions/k8s.io~1api~1core~1v1~0ResourceRequirements'
                 description: Configure resource requests and limits for the MongoDB
                   Search pods.
-                properties:
-                  claims:
-                    description: |-
-                      Claims lists the names of resources, defined in spec.resourceClaims,
-                      that are used by this container.
-
-                      This is an alpha field and requires enabling the
-                      DynamicResourceAllocation feature gate.
-
-                      This field is immutable. It can only be set for containers.
-                    items:
-                      description: ResourceClaim references one entry in PodSpec.ResourceClaims.
-                      properties:
-                        name:
-                          description: |-
-                            Name must match the name of one entry in pod.spec.resourceClaims of
-                            the Pod where this field is used. It makes that resource available
-                            inside a container.
-                          type: string
-                        request:
-                          description: |-
-                            Request is the name chosen for a request in the referenced claim.
-                            If empty, everything from the claim is made available, otherwise
-                            only the result of this request.
-                          type: string
-                      required:
-                      - name
-                      type: object
-                    type: array
-                    x-kubernetes-list-map-keys:
-                    - name
-                    x-kubernetes-list-type: map
-                  limits:
-                    additionalProperties:
-                      anyOf:
-                      - type: integer
-                      - type: string
-                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                      x-kubernetes-int-or-string: true
-                    description: |-
-                      Limits describes the maximum amount of compute resources allowed.
-                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-                    type: object
-                  requests:
-                    additionalProperties:
-                      anyOf:
-                      - type: integer
-                      - type: string
-                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                      x-kubernetes-int-or-string: true
-                    description: |-
-                      Requests describes the minimum amount of compute resources required.
-                      If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
-                      otherwise to an implementation-defined value. Requests cannot exceed Limits.
-                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-                    type: object
-                type: object
               security:
                 description: Configure security settings of the MongoDB Search server
                   that MongoDB database is connecting to when performing search queries.
@@ -173,22 +117,11 @@ spec:
                   tls:
                     properties:
                       certificateKeySecretRef:
+                        $ref: '#/definitions/k8s.io~1api~1core~1v1~0LocalObjectReference'
                         description: |-
                           CertificateKeySecret is a reference to a Secret containing a private key and certificate to use for TLS.
                           The key and cert are expected to be PEM encoded and available at "tls.key" and "tls.crt".
                           This is the same format used for the standard "kubernetes.io/tls" Secret type, but no specific type is required.
-                        properties:
-                          name:
-                            default: ""
-                            description: |-
-                              Name of the referent.
-                              This field is effectively required, but due to backwards compatibility is
-                              allowed to be empty. Instances of this type with an empty value here are
-                              almost certainly wrong.
-                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                            type: string
-                        type: object
-                        x-kubernetes-map-type: atomic
                     required:
                     - certificateKeySecretRef
                     type: object
@@ -218,21 +151,10 @@ spec:
                         description: TLS configuration for the external MongoDB deployment
                         properties:
                           ca:
+                            $ref: '#/definitions/k8s.io~1api~1core~1v1~0LocalObjectReference'
                             description: |-
                               CA is a reference to a Secret containing the CA certificate that issued mongod's TLS certificate.
                               The CA certificate is expected to be PEM encoded and available at the "ca.crt" key.
-                            properties:
-                              name:
-                                default: ""
-                                description: |-
-                                  Name of the referent.
-                                  This field is effectively required, but due to backwards compatibility is
-                                  allowed to be empty. Instances of this type with an empty value here are
-                                  almost certainly wrong.
-                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                                type: string
-                            type: object
-                            x-kubernetes-map-type: atomic
                         required:
                         - ca
                         type: object

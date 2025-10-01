@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.18.0
+    controller-gen.kubebuilder.io/version: v0.15.0
     service.binding: path={.metadata.name}-{.spec.users[0].db}-{.spec.users[0].name},objectType=Secret
     service.binding/connectionString: path={.metadata.name}-{.spec.users[0].db}-{.spec.users[0].name},objectType=Secret,sourceKey=connectionString.standardSrv
     service.binding/password: path={.metadata.name}-{.spec.users[0].db}-{.spec.users[0].name},objectType=Secret,sourceKey=password
@@ -330,24 +330,13 @@ spec:
                   authentication:
                     properties:
                       agentCertificateSecretRef:
+                        $ref: '#/definitions/k8s.io~1api~1core~1v1~0LocalObjectReference'
                         description: |-
                           AgentCertificateSecret is a reference to a Secret containing the certificate and the key for the automation agent
                           The secret needs to have available:
                           - certificate under key: "tls.crt"
                           - private key under key: "tls.key"
                           If additionally, tls.pem is present, then it needs to be equal to the concatenation of tls.crt and tls.key
-                        properties:
-                          name:
-                            default: ""
-                            description: |-
-                              Name of the referent.
-                              This field is effectively required, but due to backwards compatibility is
-                              allowed to be empty. Instances of this type with an empty value here are
-                              almost certainly wrong.
-                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                            type: string
-                        type: object
-                        x-kubernetes-map-type: atomic
                       agentMode:
                         description: AgentMode contains the authentication mode used
                           by the automation agent.
@@ -466,57 +455,24 @@ spec:
                       communication
                     properties:
                       caCertificateSecretRef:
+                        $ref: '#/definitions/k8s.io~1api~1core~1v1~0LocalObjectReference'
                         description: |-
                           CaCertificateSecret is a reference to a Secret containing the certificate for the CA which signed the server certificates
                           The certificate is expected to be available under the key "ca.crt"
-                        properties:
-                          name:
-                            default: ""
-                            description: |-
-                              Name of the referent.
-                              This field is effectively required, but due to backwards compatibility is
-                              allowed to be empty. Instances of this type with an empty value here are
-                              almost certainly wrong.
-                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                            type: string
-                        type: object
-                        x-kubernetes-map-type: atomic
                       caConfigMapRef:
+                        $ref: '#/definitions/k8s.io~1api~1core~1v1~0LocalObjectReference'
                         description: |-
                           CaConfigMap is a reference to a ConfigMap containing the certificate for the CA which signed the server certificates
                           The certificate is expected to be available under the key "ca.crt"
                           This field is ignored when CaCertificateSecretRef is configured
-                        properties:
-                          name:
-                            default: ""
-                            description: |-
-                              Name of the referent.
-                              This field is effectively required, but due to backwards compatibility is
-                              allowed to be empty. Instances of this type with an empty value here are
-                              almost certainly wrong.
-                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                            type: string
-                        type: object
-                        x-kubernetes-map-type: atomic
                       certificateKeySecretRef:
+                        $ref: '#/definitions/k8s.io~1api~1core~1v1~0LocalObjectReference'
                         description: |-
                           CertificateKeySecret is a reference to a Secret containing a private key and certificate to use for TLS.
                           The key and cert are expected to be PEM encoded and available at "tls.key" and "tls.crt".
                           This is the same format used for the standard "kubernetes.io/tls" Secret type, but no specific type is required.
                           Alternatively, an entry tls.pem, containing the concatenation of cert and key, can be provided.
                           If all of tls.pem, tls.crt and tls.key are present, the tls.pem one needs to be equal to the concatenation of tls.crt and tls.key
-                        properties:
-                          name:
-                            default: ""
-                            description: |-
-                              Name of the referent.
-                              This field is effectively required, but due to backwards compatibility is
-                              allowed to be empty. Instances of this type with an empty value here are
-                              almost certainly wrong.
-                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                            type: string
-                        type: object
-                        x-kubernetes-map-type: atomic
                       enabled:
                         type: boolean
                       optional:
