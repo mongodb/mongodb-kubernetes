@@ -91,3 +91,7 @@ docs/**/test.sh.run.log
 
 # goreleaser generated files
 dist
+
+# AI
+.mcp.json
+CLAUDE.md
