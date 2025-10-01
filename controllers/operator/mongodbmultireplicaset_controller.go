@@ -152,7 +152,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	if err != nil {
 		return r.updateStatus(ctx, &mrs, workflow.Failed(xerrors.Errorf("error establishing connection to Ops Manager: %w", err)), log)
 	}
-	// TODO: need to ensure supported OM version ?
 
 	log = log.With("MemberCluster Namespace", mrs.Namespace)
 
@@ -166,9 +165,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	}
 
 	r.SetupCommonWatchers(&mrs, nil, nil, mrs.Name)
-	// TODO: Need equivalent of validateMongoDBResource and checkIfHasExcessProcesses here ?
-
-	// TODO: ensure feature controls ?
 
 	// If tls is enabled we need to configure the "processes" array in opsManager/Cloud Manager with the
 	// correct tlsCertPath, with the new tls design, this path has the certHash in it(so that cert can be rotated
@@ -191,8 +187,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		}
 	}
 
-	// TODO: agentCertSecretSelector ?
-
 	agentCertSecretName := mrs.GetSecurity().AgentClientCertificateSecretName(mrs.GetName())
 	agentCertHash, agentCertPath := r.agentCertHashAndPath(ctx, log, mrs.Namespace, agentCertSecretName, "")
 
@@ -211,7 +205,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		}
 	}
 
-	// TODO: review conditions for publishing AC first
 	publishAutomationConfigFirst, err := r.publishAutomationConfigFirstMultiCluster(ctx, &mrs, log)
 	if err != nil {
 		return r.updateStatus(ctx, &mrs, workflow.Failed(err), log)
@@ -267,10 +260,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	return r.updateStatus(ctx, &mrs, workflow.OK(), log, mdbstatus.NewPVCsStatusOptionEmptyStatus())
 }
 
-// TODO: in multi cluster, the below function only checks a subset of conditions compared to the shared "publishAutomationConfigFirst" in common_controller.go,
-//
-//	which is used for single cluster replica set. Why, and are these enough ?
-//
 // publishAutomationConfigFirstMultiCluster returns a boolean indicating whether Ops Manager
 // needs to be updated before the StatefulSets are created for this resource.
 func (r *ReconcileMongoDbMultiReplicaSet) publishAutomationConfigFirstMultiCluster(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger) (bool, error) {
@@ -530,7 +519,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			}
 		}
 
-		// TODO: make a separate function similar to `buildStatefulSetOptions` in single rs controller?
 		opts := mconstruct.MultiClusterReplicaSetOptions(
 			mconstruct.WithClusterNum(clusterNum),
 			Replicas(replicasThisReconciliation),

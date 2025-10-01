@@ -91,7 +91,6 @@ func newReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imag
 	}
 }
 
-// TODO: move above, and keep only relevant fields. Taken from sharded controller
 type deploymentOptionsRS struct {
 	agentCertPath        string
 	agentCertHash        string
@@ -193,8 +192,6 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	agentCertSecretName := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name)
 	agentCertHash, agentCertPath := r.agentCertHashAndPath(ctx, log, rs.Namespace, agentCertSecretName, databaseSecretPath)
 
-	// TODO: (just as a note for current refactoring), we have the following limitation: The Kubernetes Operator doesn't
-	//  support integration with Prometheus for *multi-cluster* replica sets.
 	prometheusCertHash, err := certs.EnsureTLSCertsForPrometheus(ctx, r.SecretClient, rs.GetNamespace(), rs.GetPrometheus(), certs.Database, log)
 	if err != nil {
 		log.Infof("Could not generate certificates for Prometheus: %s", err)
@@ -265,7 +262,6 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(ctx, rs, workflow.Failed(err), log)
 	}
 
-	// TODO: note for refactoring - vault is not supported on multi cluster RS yet
 	if vault.IsVaultSecretBackend() {
 		secrets := rs.GetSecretsMountedIntoDBPod()
 		vaultMap := make(map[string]string)
