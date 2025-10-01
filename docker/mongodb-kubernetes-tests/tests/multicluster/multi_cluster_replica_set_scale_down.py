@@ -105,6 +105,7 @@ def test_ops_manager_has_been_updated_correctly_before_scaling():
 def test_scale_mongodb_multi(mongodb_multi: MongoDBMulti):
     mongodb_multi.load()
     mongodb_multi["spec"]["clusterSpecList"][0]["members"] = 1
+    # Testing scaling down to zero is required to test fix for https://jira.mongodb.org/browse/CLOUDP-324655
     mongodb_multi["spec"]["clusterSpecList"][1]["members"] = 0
     mongodb_multi["spec"]["clusterSpecList"][2]["members"] = 2
     mongodb_multi.update()
