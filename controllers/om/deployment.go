@@ -85,7 +85,7 @@ func BuildDeploymentFromBytes(jsonBytes []byte) (Deployment, error) {
 func NewDeployment() Deployment {
 	ans := Deployment{}
 	ans.setProcesses(make([]Process, 0))
-	ans.setReplicaSets(make([]ReplicaSet, 0))
+	ans.SetReplicaSets(make([]ReplicaSet, 0))
 	ans.setShardedClusters(make([]ShardedCluster, 0))
 	ans.setMonitoringVersions(make([]interface{}, 0))
 	ans.setBackupVersions(make([]interface{}, 0))
@@ -405,7 +405,7 @@ func (d Deployment) RemoveReplicaSetByName(name string, log *zap.SugaredLogger) 
 		}
 	}
 
-	d.setReplicaSets(toKeep)
+	d.SetReplicaSets(toKeep)
 
 	members := rs.Members()
 	processNames := make([]string, len(members))
@@ -992,12 +992,12 @@ func (d Deployment) GetReplicaSets() []ReplicaSet {
 	}
 }
 
-func (d Deployment) setReplicaSets(replicaSets []ReplicaSet) {
+func (d Deployment) SetReplicaSets(replicaSets []ReplicaSet) {
 	d["replicaSets"] = replicaSets
 }
 
 func (d Deployment) addReplicaSet(rs ReplicaSet) {
-	d.setReplicaSets(append(d.GetReplicaSets(), rs))
+	d.SetReplicaSets(append(d.GetReplicaSets(), rs))
 }
 
 func (d Deployment) getShardedClusters() []ShardedCluster {

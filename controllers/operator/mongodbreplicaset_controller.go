@@ -223,6 +223,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
 		WithAgentImage(images.ContainerImage(r.imageUrls, architectures.MdbAgentImageRepo, automationAgentVersion)),
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, rs.Spec.Version, rs.GetAnnotations())),
+		WithAgentSidecarImage("268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/nnguyen-kops/agent-sidecar:latest"),
 	)
 
 	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
@@ -273,6 +274,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	if err != nil {
 		lastSpec = &mdbv1.MongoDbSpec{}
 	}
+
 	status = workflow.RunInGivenOrder(publishAutomationConfigFirst(ctx, r.client, *rs, lastSpec, rsConfig, log),
 		func() workflow.Status {
 			return r.updateOmDeploymentRs(ctx, conn, rs.Status.Members, rs, sts, log, agentCertPath, caFilePath, tlsCertPath, internalClusterCertPath, prometheusCertHash, false, shouldMirrorKeyfile).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
@@ -496,6 +498,12 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 		prometheusCertHash: prometheusCertHash,
 	}
 
+	var statefulSetVersion string
+	currentSts, err := r.client.GetStatefulSet(ctx, kube.ObjectKey(rs.Namespace, rs.Name))
+	if err == nil {
+		// StatefulSet exists, get its target revision
+		statefulSetVersion = currentSts.Status.UpdateRevision
+	}
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			if shouldMirrorKeyfileForMongot {
@@ -503,7 +511,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 					return err
 				}
 			}
-			return ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.Name, replicaSet, caFilePath, internalClusterCertPath, &p, log)
+			return ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.Name, replicaSet, caFilePath, internalClusterCertPath, &p, statefulSetVersion, log)
 		},
 		log,
 	)

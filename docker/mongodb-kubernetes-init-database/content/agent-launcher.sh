@@ -95,9 +95,9 @@ base_url="${base_url%/}" # Remove any accidentally defined trailing slashes
 declare -r base_url
 
 if [ -z "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" ]; then
-  # Download the Automation Agent from Ops Manager
+  # Download the Automation Agent from Ops Manager or custom URL
   # Note, that it will be skipped if the agent is supposed to be run in headless mode
-  if [[ -n "${base_url}" ]]; then
+  if [[ -n "${base_url}" ]] || [[ -n "${MDB_CUSTOM_AGENT_URL-}" ]]; then
       download_agent
   fi
 fi
@@ -223,8 +223,8 @@ if [ "${debug}" = "true" ]; then
   cd ${mdb_downloads_dir} || true
   mkdir -p /var/lib/mongodb-mms-automation/gopath
   mkdir -p /var/lib/mongodb-mms-automation/go
-  curl -LO https://go.dev/dl/go1.20.1.linux-amd64.tar.gz
-  tar -xzf go1.20.1.linux-amd64.tar.gz
+  curl -LO https://go.dev/dl/go1.23.1.linux-amd64.tar.gz
+  tar -xzf go1.23.1.linux-amd64.tar.gz
   export GOPATH=${mdb_downloads_dir}/gopath
   export GOCACHE=${mdb_downloads_dir}/.cache
   export PATH=${PATH}:${mdb_downloads_dir}/go/bin
