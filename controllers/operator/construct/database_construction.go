@@ -216,6 +216,7 @@ func ReplicaSetOptions(additionalOpts ...func(options *DatabaseStatefulSetOption
 
 // shardedOptions group the shared logic for creating Shard, Config servers, and mongos options
 func shardedOptions(cfg shardedOptionCfg, additionalOpts ...func(options *DatabaseStatefulSetOptions)) DatabaseStatefulSetOptions {
+	// TODO: we should read from r.desiredConfigServerConfiguration.GetClusterSpecItem
 	clusterComponentSpec := cfg.componentSpec.GetClusterSpecItem(cfg.memberClusterName)
 	statefulSetConfiguration := clusterComponentSpec.StatefulSetConfiguration
 	var statefulSetSpecOverride *appsv1.StatefulSetSpec

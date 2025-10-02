@@ -98,5 +98,6 @@ func (s *ShardedClusterComponentSpec) GetClusterSpecItem(clusterName string) Clu
 		}
 	}
 	// it should never occur - we preprocess all clusterSpecLists
+	// TODO: this can actually happen if desired cluster is removed, but the deployment state is not yet updated and contains the old cluster config
 	panic(fmt.Errorf("clusterName %s not found in clusterSpecList", clusterName))
 }
