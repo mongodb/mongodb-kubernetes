@@ -3589,12 +3589,32 @@ func getMultiClusterFQDN(stsName string, namespace string, clusterIdx int, podId
 
 func generateExpectedDeploymentState(t *testing.T, sc *mdbv1.MongoDB) string {
 	lastSpec, _ := sc.GetLastSpec()
+
+	expectedProcessIds := om.ReplicaSetToProcessIds{
+		"slaney-0": om.ProcessNameToId{
+			"slaney-0-0": 0,
+			"slaney-0-1": 1,
+			"slaney-0-2": 2,
+		},
+		"slaney-1": om.ProcessNameToId{
+			"slaney-1-0": 0,
+			"slaney-1-1": 1,
+			"slaney-1-2": 2,
+		},
+		"slaney-config": om.ProcessNameToId{
+			"slaney-config-0": 0,
+			"slaney-config-1": 1,
+			"slaney-config-2": 2,
+		},
+	}
+
 	expectedState := ShardedClusterDeploymentState{
 		CommonDeploymentState: CommonDeploymentState{
 			ClusterMapping: map[string]int{},
 		},
 		LastAchievedSpec: lastSpec,
 		Status:           &sc.Status,
+		ProcessIds:       expectedProcessIds,
 	}
 	lastSpecBytes, err := json.Marshal(expectedState)
 	require.NoError(t, err)
