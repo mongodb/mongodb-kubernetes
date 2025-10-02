@@ -234,8 +234,8 @@ pre_commit() {
 
     local lint_helm_chart_status=$?
     if [ "$lint_helm_chart_status" -eq 0 ]; then
-      return 0
       echo -e "${GREEN}pre-commit: All checks passed!${NO_COLOR}"
+      return 0
     else
       return 1
     fi
