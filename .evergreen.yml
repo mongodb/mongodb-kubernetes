@@ -1369,6 +1369,7 @@ buildvariants:
       - rhel9-power-small
       - rhel9-power-large
     allowed_requesters: [ "patch", "commit" ]
+    disable: true
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1392,6 +1393,7 @@ buildvariants:
       - rhel9-power-small
       - rhel9-power-large
     allowed_requesters: [ "patch", "commit" ]
+    disable: true
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1415,6 +1417,7 @@ buildvariants:
       - rhel9-zseries-small
       - rhel9-zseries-large
     allowed_requesters: [ "patch", "commit" ]
+    disable: true
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1434,6 +1437,7 @@ buildvariants:
   - name: e2e_static_smoke_ibm_z
     display_name: e2e_static_smoke_ibm_z
     tags: [ "staging", "e2e_smoke_test_suite", "static" ]
+    disable: true
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large
@@ -1460,6 +1464,7 @@ buildvariants:
     run_on:
       - ubuntu2404-arm64-large
     allowed_requesters: [ "patch", "commit" ]
+    disable: true
     <<: *base_no_om_image_dependency
     tasks:
       - name: e2e_smoke_arm_task_group
@@ -1470,6 +1475,7 @@ buildvariants:
     run_on:
       - ubuntu2404-arm64-large
     allowed_requesters: [ "patch", "commit" ]
+    disable: true
     <<: *base_no_om_image_dependency
     tasks:
       - name: e2e_smoke_arm_task_group
