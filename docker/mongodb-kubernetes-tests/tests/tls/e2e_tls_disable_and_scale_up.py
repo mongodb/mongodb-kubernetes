@@ -1,5 +1,4 @@
 import pytest
-
 from kubetester import try_load
 from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs
 from kubetester.kubetester import fixture as load_fixture
