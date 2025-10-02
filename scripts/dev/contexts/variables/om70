@@ -2,12 +2,9 @@
 
 set -Eeou pipefail
 
-script_name=$(readlink -f "${BASH_SOURCE[0]}")
-script_dir=$(dirname "${script_name}")
-
-CUSTOM_OM_PREV_VERSION=$(grep -E "^\s*-\s*&ops_manager_60_latest\s+(\S+)\s+#" <"${script_dir}"/../../../../.evergreen.yml | awk '{print $3}')
+CUSTOM_OM_PREV_VERSION=$(grep -E "^\s*-\s*&ops_manager_60_latest\s+(\S+)\s+#" <"${PROJECT_DIR}"/.evergreen.yml | awk '{print $3}')
 export CUSTOM_OM_PREV_VERSION
-CUSTOM_OM_VERSION=$(grep -E "^\s*-\s*&ops_manager_70_latest\s+(\S+)\s+#" <"${script_dir}"/../../../../.evergreen.yml | awk '{print $3}')
+CUSTOM_OM_VERSION=$(grep -E "^\s*-\s*&ops_manager_70_latest\s+(\S+)\s+#" <"${PROJECT_DIR}"/.evergreen.yml | awk '{print $3}')
 export CUSTOM_OM_VERSION
 
 export CUSTOM_MDB_VERSION=7.0.18
