@@ -1,4 +1,6 @@
 import pytest
+
+from kubetester import try_load
 from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB
@@ -20,7 +22,8 @@ def replica_set(namespace: str, server_certs: str, issuer_ca_configmap: str) -> 
     # Set this ReplicaSet to allowSSL mode
     # this is the only mode that can go to "disabled" state.
     res["spec"]["additionalMongodConfig"] = {"net": {"ssl": {"mode": "allowSSL"}}}
-
+    if try_load(res):
+        return res
     return res.create()
 
 

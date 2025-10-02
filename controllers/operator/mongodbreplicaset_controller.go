@@ -234,25 +234,6 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	shouldMirrorKeyfile := r.applySearchOverrides(ctx, rs, log)
 
 	sts := construct.DatabaseStatefulSet(*rs, rsConfig, log)
-
-	// If TLS is being disabled, we need to lock the StatefulSet replicas at the current member count
-	// to prevent scaling during the TLS disable operation.
-	shouldLockMembers := false
-	omDeployment, err := conn.ReadDeployment()
-	if err != nil {
-		return r.updateStatus(ctx, rs, workflow.Failed(xerrors.Errorf("Failed to read deployment for TLS configuration check: %w", err)), log)
-	}
-	if omDeployment.TLSConfigurationWillBeDisabled(rs.Spec.GetSecurity()) {
-		shouldLockMembers = true
-		log.Infof("TLS is being disabled, locking StatefulSet replicas for this reconciliation at current member count: %d", rs.Status.Members)
-	}
-
-	if shouldLockMembers {
-		// Override the StatefulSet replicas to match current members, preventing scale up/down during TLS disable
-		replicas := int32(rs.Status.Members)
-		sts.Spec.Replicas = &replicas
-	}
-
 	if status := r.ensureRoles(ctx, rs.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, conn, kube.ObjectKeyFromApiObject(rs), log); !status.IsOK() {
 		return r.updateStatus(ctx, rs, status, log)
 	}
@@ -261,6 +242,19 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		if err := replicaset.PrepareScaleDownFromStatefulSet(conn, sts, rs, log); err != nil {
 			return r.updateStatus(ctx, rs, workflow.Failed(xerrors.Errorf("Failed to prepare Replica Set for scaling down using Ops Manager: %w", err)), log)
 		}
+	}
+
+	// Check if TLS is being disabled. If so, lock the StatefulSet replicas at the current member count
+	// to prevent scaling during the TLS disable operation.
+	// This must be done before passing the StatefulSet to OM reconciliation.
+	tlsWillBeDisabled, err := checkIfTLSWillBeDisabled(conn, rs, log)
+	if err != nil {
+		return r.updateStatus(ctx, rs, workflow.Failed(xerrors.Errorf("Failed to check TLS configuration: %w", err)), log)
+	}
+	if tlsWillBeDisabled {
+		log.Infof("TLS is being disabled, locking StatefulSet replicas at current member count: %d", rs.Status.Members)
+		replicas := int32(rs.Status.Members)
+		sts.Spec.Replicas = &replicas
 	}
 
 	internalClusterCertPath := ""
@@ -592,6 +586,16 @@ func updateOmDeploymentDisableTLSConfiguration(conn om.Connection, mongoDBImage 
 	)
 
 	return tlsConfigWasDisabled, err
+}
+
+// checkIfTLSWillBeDisabled checks if TLS configuration will be disabled in the next OM update
+// without modifying the deployment. This is used to determine if we should lock StatefulSet replicas.
+func checkIfTLSWillBeDisabled(conn om.Connection, rs *mdbv1.MongoDB, log *zap.SugaredLogger) (bool, error) {
+	deployment, err := conn.ReadDeployment()
+	if err != nil {
+		return false, err
+	}
+	return deployment.TLSConfigurationWillBeDisabled(rs.Spec.GetSecurity()), nil
 }
 
 func (r *ReconcileMongoDbReplicaSet) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
