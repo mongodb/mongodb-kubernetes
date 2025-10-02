@@ -234,6 +234,25 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	shouldMirrorKeyfile := r.applySearchOverrides(ctx, rs, log)
 
 	sts := construct.DatabaseStatefulSet(*rs, rsConfig, log)
+
+	// If TLS is being disabled, we need to lock the StatefulSet replicas at the current member count
+	// to prevent scaling during the TLS disable operation.
+	shouldLockMembers := false
+	omDeployment, err := conn.ReadDeployment()
+	if err != nil {
+		return r.updateStatus(ctx, rs, workflow.Failed(xerrors.Errorf("Failed to read deployment for TLS configuration check: %w", err)), log)
+	}
+	if omDeployment.TLSConfigurationWillBeDisabled(rs.Spec.GetSecurity()) {
+		shouldLockMembers = true
+		log.Infof("TLS is being disabled, locking StatefulSet replicas for this reconciliation at current member count: %d", rs.Status.Members)
+	}
+
+	if shouldLockMembers {
+		// Override the StatefulSet replicas to match current members, preventing scale up/down during TLS disable
+		replicas := int32(rs.Status.Members)
+		sts.Spec.Replicas = &replicas
+	}
+
 	if status := r.ensureRoles(ctx, rs.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, conn, kube.ObjectKeyFromApiObject(rs), log); !status.IsOK() {
 		return r.updateStatus(ctx, rs, status, log)
 	}
@@ -459,7 +478,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 		return workflow.Failed(err)
 	}
 
-	// If current operation is to Disable TLS, then we should the current members of the Replica Set,
+	// If current operation is to Disable TLS, then we should lock the current members of the Replica Set,
 	// this is, do not scale them up or down util TLS disabling has completed.
 	shouldLockMembers, err := updateOmDeploymentDisableTLSConfiguration(conn, r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, membersNumberBefore, rs, set, log, caFilePath, tlsCertPath)
 	if err != nil && !isRecovering {
