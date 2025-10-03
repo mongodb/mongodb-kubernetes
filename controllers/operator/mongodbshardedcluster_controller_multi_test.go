@@ -112,11 +112,11 @@ func ConvertTargetStateToMap(scName string, shardOverridesDistribution []map[str
 	return convertedMap
 }
 
-type BlockReconcileScalingBothWaysTestCase struct {
-	name         string
-	initialState MultiClusterShardedScalingStep
-	targetState  MultiClusterShardedScalingStep
-	expectError  bool
+type StateChangeTestCase struct {
+	name          string
+	initialState  MultiClusterShardedScalingStep
+	targetState   MultiClusterShardedScalingStep
+	expectedError string
 }
 
 // TestBlockReconcileScalingBothWays checks that we block reconciliation when member clusters in a replica set need to
@@ -125,7 +125,7 @@ func TestBlockReconcileScalingBothWays(t *testing.T) {
 	cluster1 := "member-cluster-1"
 	cluster2 := "member-cluster-2"
 	cluster3 := "member-cluster-3"
-	testCases := []BlockReconcileScalingBothWaysTestCase{
+	testCases := []StateChangeTestCase{
 		{
 			name: "No scaling",
 			initialState: MultiClusterShardedScalingStep{
@@ -152,7 +152,6 @@ func TestBlockReconcileScalingBothWays(t *testing.T) {
 					cluster1: 1, cluster2: 1, cluster3: 1,
 				},
 			},
-			expectError: false,
 		},
 		{
 			name: "Scaling in the same direction",
@@ -180,7 +179,6 @@ func TestBlockReconcileScalingBothWays(t *testing.T) {
 					cluster1: 1, cluster2: 1, cluster3: 3,
 				},
 			},
-			expectError: false,
 		},
 		{
 			name: "Scaling both directions: cfg server and mongos",
@@ -210,7 +208,7 @@ func TestBlockReconcileScalingBothWays(t *testing.T) {
 					cluster1: 1, cluster2: 1, cluster3: 1,
 				},
 			},
-			expectError: true,
+			expectedError: "Cannot perform scale up and scale down operations at the same time",
 		},
 		{
 			name: "Scale both ways because of shard override",
@@ -247,7 +245,7 @@ func TestBlockReconcileScalingBothWays(t *testing.T) {
 					{cluster1: 1, cluster2: 3, cluster3: 1},
 				},
 			},
-			expectError: true,
+			expectedError: "Cannot perform scale up and scale down operations at the same time",
 		},
 		{
 			// Increasing shardCount creates a new shard, that scales from 0 members. We want to block reconciliation
@@ -284,7 +282,7 @@ func TestBlockReconcileScalingBothWays(t *testing.T) {
 					{cluster1: 1, cluster2: 1, cluster3: 1},
 				},
 			},
-			expectError: true,
+			expectedError: "Cannot perform scale up and scale down operations at the same time",
 		},
 		{
 			// We move replicas from one cluster to another, without changing the total number, and we scale shards up
@@ -318,18 +316,200 @@ func TestBlockReconcileScalingBothWays(t *testing.T) {
 					{cluster1: 0, cluster2: 2, cluster3: 1}, // Moved two replicas by adding an override, but no scaling
 				},
 			},
-			expectError: true,
+			expectedError: "Cannot perform scale up and scale down operations at the same time",
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			BlockReconcileScalingBothWaysCase(t, tc)
+			StateChangeTest(t, tc)
 		})
 	}
 }
 
-func BlockReconcileScalingBothWaysCase(t *testing.T, tc BlockReconcileScalingBothWaysTestCase) {
+// TestBlockNonEmptyClusterSpecItemRemoval checks that we block reconciliation when user removes ClusterSpecItem from
+// the spec, while that cluster still has non-zero members in the current state
+func TestBlockNonEmptyClusterSpecItemRemoval(t *testing.T) {
+	cluster1 := "member-cluster-1"
+	cluster2 := "member-cluster-2"
+	cluster3 := "member-cluster-3"
+	testCases := []StateChangeTestCase{
+		{
+			name: "Removing zero-member shard ClusterSpecItem doesn't block reconciliation",
+			initialState: MultiClusterShardedScalingStep{
+				shardCount: 3,
+				configServerDistribution: map[string]int{
+					cluster1: 2, cluster2: 1, cluster3: 0,
+				},
+				mongosDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 0,
+				},
+				shardDistribution: map[string]int{
+					cluster1: 0, cluster2: 1, cluster3: 2,
+				},
+			},
+			targetState: MultiClusterShardedScalingStep{
+				shardCount: 3,
+				configServerDistribution: map[string]int{
+					cluster1: 2, cluster2: 1, cluster3: 0,
+				},
+				mongosDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 0,
+				},
+				shardDistribution: map[string]int{
+					cluster2: 1, cluster3: 2,
+				},
+			},
+		},
+		{
+			name: "Removing zero-member configSrv ClusterSpecItem doesn't block reconciliation",
+			initialState: MultiClusterShardedScalingStep{
+				shardCount: 3,
+				configServerDistribution: map[string]int{
+					cluster1: 2, cluster2: 1, cluster3: 0,
+				},
+				mongosDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 0,
+				},
+				shardDistribution: map[string]int{
+					cluster1: 0, cluster2: 1, cluster3: 2,
+				},
+			},
+			targetState: MultiClusterShardedScalingStep{
+				shardCount: 3,
+				configServerDistribution: map[string]int{
+					cluster1: 2, cluster2: 1,
+				},
+				mongosDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 0,
+				},
+				shardDistribution: map[string]int{
+					cluster1: 0, cluster2: 1, cluster3: 2,
+				},
+			},
+		},
+		{
+			name: "Removing zero-member mongos ClusterSpecItem doesn't block reconciliation",
+			initialState: MultiClusterShardedScalingStep{
+				shardCount: 3,
+				configServerDistribution: map[string]int{
+					cluster1: 2, cluster2: 1, cluster3: 0,
+				},
+				mongosDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 0,
+				},
+				shardDistribution: map[string]int{
+					cluster1: 0, cluster2: 1, cluster3: 2,
+				},
+			},
+			targetState: MultiClusterShardedScalingStep{
+				shardCount: 3,
+				configServerDistribution: map[string]int{
+					cluster1: 2, cluster2: 1, cluster3: 0,
+				},
+				mongosDistribution: map[string]int{
+					cluster1: 1, cluster2: 1,
+				},
+				shardDistribution: map[string]int{
+					cluster1: 0, cluster2: 1, cluster3: 2,
+				},
+			},
+		},
+		// TODO: this still fails with panic, because the r.allShardsMemberClusters does not contain previous cluster
+		// This is likely another bug
+		{
+			name: "Removing non-zero shard ClusterSpecItem blocks reconciliation",
+			initialState: MultiClusterShardedScalingStep{
+				shardCount: 3,
+				configServerDistribution: map[string]int{
+					cluster1: 2, cluster2: 1, cluster3: 2,
+				},
+				mongosDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 2,
+				},
+				shardDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 3,
+				},
+			},
+			targetState: MultiClusterShardedScalingStep{
+				shardCount: 3,
+				configServerDistribution: map[string]int{
+					cluster1: 2, cluster2: 1, cluster3: 2,
+				},
+				mongosDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 2,
+				},
+				shardDistribution: map[string]int{
+					cluster2: 1, cluster3: 3,
+				},
+			},
+		},
+		{
+			name: "Removing non-zero configSrv ClusterSpecItem blocks reconciliation",
+			initialState: MultiClusterShardedScalingStep{
+				shardCount: 3,
+				configServerDistribution: map[string]int{
+					cluster1: 2, cluster2: 1, cluster3: 2,
+				},
+				mongosDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 2,
+				},
+				shardDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 3,
+				},
+			},
+			targetState: MultiClusterShardedScalingStep{
+				shardCount: 3,
+				configServerDistribution: map[string]int{
+					cluster1: 2, cluster3: 2,
+				},
+				mongosDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 2,
+				},
+				shardDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 3,
+				},
+			},
+			expectedError: "Cannot remove configSrv member cluster member-cluster-2 with non-zero members count. Please scale down members to zero first",
+		},
+		{
+			name: "Removing non-zero mongos ClusterSpecItem blocks reconciliation",
+			initialState: MultiClusterShardedScalingStep{
+				shardCount: 3,
+				configServerDistribution: map[string]int{
+					cluster1: 2, cluster2: 1, cluster3: 2,
+				},
+				mongosDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 2,
+				},
+				shardDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 3,
+				},
+			},
+			targetState: MultiClusterShardedScalingStep{
+				shardCount: 3,
+				configServerDistribution: map[string]int{
+					cluster1: 2, cluster2: 1, cluster3: 2,
+				},
+				mongosDistribution: map[string]int{
+					cluster2: 1, cluster3: 2,
+				},
+				shardDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 3,
+				},
+			},
+			expectedError: "Cannot remove mongos member cluster member-cluster-1 with non-zero members count. Please scale down members to zero first",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			StateChangeTest(t, tc)
+		})
+	}
+}
+
+func StateChangeTest(t *testing.T, tc StateChangeTestCase) {
 	ctx := context.Background()
 	cluster1 := "member-cluster-1"
 	cluster2 := "member-cluster-2"
@@ -373,8 +553,8 @@ func BlockReconcileScalingBothWaysCase(t *testing.T, tc BlockReconcileScalingBot
 	require.NoError(t, err)
 	// The validation happens at the beginning of the reconciliation loop. We expect to fail immediately when scaling is
 	// invalid, or stay in pending phase otherwise.
-	if tc.expectError {
-		checkReconcileFailed(ctx, t, reconciler, sc, true, "Cannot perform scale up and scale down operations at the same time", kubeClient)
+	if tc.expectedError != "" {
+		checkReconcileFailed(ctx, t, reconciler, sc, true, tc.expectedError, kubeClient)
 	} else {
 		checkReconcilePending(ctx, t, reconciler, sc, "StatefulSet not ready", kubeClient, 3)
 	}

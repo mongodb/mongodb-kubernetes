@@ -292,63 +292,13 @@ func (r *ShardedClusterReconcileHelper) getShardNameToShardIdxMap() map[string]i
 	return mapping
 }
 
-func (r *ShardedClusterReconcileHelper) getShardClusterSpecList() mdbv1.ClusterSpecList {
-	spec := r.sc.Spec
-	if spec.IsMultiCluster() {
-		return spec.ShardSpec.ClusterSpecList
-	} else {
-		return mdbv1.ClusterSpecList{
-			{
-				ClusterName:  multicluster.LegacyCentralClusterName,
-				Members:      spec.MongodsPerShardCount,
-				MemberConfig: spec.MemberConfig,
-			},
-		}
-	}
-}
-
-func (r *ShardedClusterReconcileHelper) getMongosClusterSpecList() mdbv1.ClusterSpecList {
-	spec := r.sc.Spec
-	if spec.IsMultiCluster() {
-		// TODO return merged, desired mongos configuration
-		return spec.MongosSpec.ClusterSpecList
-	} else {
-		return mdbv1.ClusterSpecList{
-			{
-				ClusterName:                 multicluster.LegacyCentralClusterName,
-				Members:                     spec.MongosCount,
-				ExternalAccessConfiguration: spec.ExternalAccessConfiguration,
-			},
-		}
-	}
-}
-
-func (r *ShardedClusterReconcileHelper) getConfigSrvClusterSpecList() mdbv1.ClusterSpecList {
-	spec := r.sc.Spec
-	if spec.IsMultiCluster() {
-		return spec.ConfigSrvSpec.ClusterSpecList
-	} else {
-		return mdbv1.ClusterSpecList{
-			{
-				ClusterName:  multicluster.LegacyCentralClusterName,
-				Members:      spec.ConfigServerCount,
-				MemberConfig: spec.MemberConfig,
-			},
-		}
-	}
-}
-
 // prepareDesiredShardsConfiguration calculates full expected configuration of sharded cluster spec resource.
 // It returns map of each shard (by index) with its configuration over all clusters and applying all pods spec overrides.
 // In other words, this function is rendering final configuration of each shard over all member clusters applying all override logic.
 // The reconciler implementation should refer to this structure only without taking into consideration complexities of MongoDbSpec wrt sharded clusters.
 func (r *ShardedClusterReconcileHelper) prepareDesiredShardsConfiguration() map[int]*mdbv1.ShardedClusterComponentSpec {
 	spec := r.sc.Spec.DeepCopy()
-	// We initialize ClusterSpecList to contain a single legacy cluster in case of SingleCluster mode.
-	if spec.ShardSpec == nil {
-		spec.ShardSpec = &mdbv1.ShardedClusterComponentSpec{}
-	}
-	spec.ShardSpec.ClusterSpecList = r.getShardClusterSpecList()
+
 	// We don't need to do the same for shardOverrides for single-cluster as shardOverrides[].ClusterSpecList can be set only for Multi-Cluster mode.
 	// And we don't need that artificial legacy cluster as for single-cluster all necessary configuration is defined top-level.
 
@@ -359,8 +309,9 @@ func (r *ShardedClusterReconcileHelper) prepareDesiredShardsConfiguration() map[
 
 	for shardIdx := 0; shardIdx < max(spec.ShardCount, r.deploymentState.Status.ShardCount); shardIdx++ {
 		topLevelPersistenceOverride, topLevelPodSpecOverride := getShardTopLevelOverrides(spec, shardIdx)
+
 		shardComponentSpec := *spec.ShardSpec.DeepCopy()
-		shardComponentSpec.ClusterSpecList = processClusterSpecList(shardComponentSpec.ClusterSpecList, topLevelPodSpecOverride, topLevelPersistenceOverride)
+		shardComponentSpec.ClusterSpecList = processClusterSpecList(spec.GetShardClusterSpecList(), topLevelPodSpecOverride, topLevelPersistenceOverride)
 		shardComponentSpecs[shardIdx] = &shardComponentSpec
 	}
 
@@ -559,29 +510,21 @@ func extractOverridesFromPodSpec(podSpec *mdbv1.MongoDbPodSpec) (*corev1.PodTemp
 // We share the same logic and data structures used for Config Server, although some fields are not relevant for mongos
 // e.g MemberConfig. They will simply be ignored when the database is constructed
 func (r *ShardedClusterReconcileHelper) prepareDesiredMongosConfiguration() *mdbv1.ShardedClusterComponentSpec {
-	// We initialize ClusterSpecList to contain a single legacy cluster in case of SingleCluster mode.
-	spec := r.sc.Spec.DeepCopy()
-	if spec.MongosSpec == nil {
-		spec.MongosSpec = &mdbv1.ShardedClusterComponentSpec{}
-	}
-	spec.MongosSpec.ClusterSpecList = r.getMongosClusterSpecList()
-	topLevelPodSpecOverride, topLevelPersistenceOverride := extractOverridesFromPodSpec(spec.MongosPodSpec)
-	mongosComponentSpec := spec.MongosSpec.DeepCopy()
-	mongosComponentSpec.ClusterSpecList = processClusterSpecList(mongosComponentSpec.ClusterSpecList, topLevelPodSpecOverride, topLevelPersistenceOverride)
+	topLevelPodSpecOverride, topLevelPersistenceOverride := extractOverridesFromPodSpec(r.sc.Spec.MongosPodSpec)
+
+	mongosComponentSpec := r.sc.Spec.MongosSpec.DeepCopy()
+	mongosComponentSpec.ClusterSpecList = processClusterSpecList(r.sc.Spec.GetMongosClusterSpecList(), topLevelPodSpecOverride, topLevelPersistenceOverride)
+
 	return mongosComponentSpec
 }
 
 // prepareDesiredConfigServerConfiguration works the same way as prepareDesiredMongosConfiguration, but for config server
 func (r *ShardedClusterReconcileHelper) prepareDesiredConfigServerConfiguration() *mdbv1.ShardedClusterComponentSpec {
-	// We initialize ClusterSpecList to contain a single legacy cluster in case of SingleCluster mode.
-	spec := r.sc.Spec.DeepCopy()
-	if spec.ConfigSrvSpec == nil {
-		spec.ConfigSrvSpec = &mdbv1.ShardedClusterComponentSpec{}
-	}
-	spec.ConfigSrvSpec.ClusterSpecList = r.getConfigSrvClusterSpecList()
-	topLevelPodSpecOverride, topLevelPersistenceOverride := extractOverridesFromPodSpec(spec.ConfigSrvPodSpec)
-	configSrvComponentSpec := spec.ConfigSrvSpec.DeepCopy()
-	configSrvComponentSpec.ClusterSpecList = processClusterSpecList(configSrvComponentSpec.ClusterSpecList, topLevelPodSpecOverride, topLevelPersistenceOverride)
+	topLevelPodSpecOverride, topLevelPersistenceOverride := extractOverridesFromPodSpec(r.sc.Spec.ConfigSrvPodSpec)
+
+	configSrvComponentSpec := r.sc.Spec.ConfigSrvSpec.DeepCopy()
+	configSrvComponentSpec.ClusterSpecList = processClusterSpecList(r.sc.Spec.GetConfigSrvClusterSpecList(), topLevelPodSpecOverride, topLevelPersistenceOverride)
+
 	return configSrvComponentSpec
 }
 
@@ -886,6 +829,11 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	// global operations like publishing AC first.
 	// Therefore, we can obtain inconsistent behaviour in case scaling goes in both directions.
 	if err := blockScalingBothWays(r.getAllScalers()); err != nil {
+		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
+	}
+
+	// TODO: add comment why this was added
+	if err := r.blockNonEmptyClusterSpecItemRemoval(); err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
 
@@ -2974,6 +2922,28 @@ func (r *ShardedClusterReconcileHelper) getHealthyShardsProcesses() ([]string, [
 		}
 	}
 	return hostnames, processNames
+}
+
+func (r *ShardedClusterReconcileHelper) blockNonEmptyClusterSpecItemRemoval() error {
+	for _, shardCluster := range r.allShardsMemberClusters {
+		if !r.sc.Spec.ShardSpec.ClusterSpecItemExists(shardCluster.Name) && shardCluster.Replicas > 0 {
+			return xerrors.Errorf("Cannot remove shard member cluster %s with non-zero members count. Please scale down members to zero first", shardCluster.Name)
+		}
+	}
+
+	for _, configSrvCluster := range r.configSrvMemberClusters {
+		if !r.sc.Spec.ConfigSrvSpec.ClusterSpecItemExists(configSrvCluster.Name) && configSrvCluster.Replicas > 0 {
+			return xerrors.Errorf("Cannot remove configSrv member cluster %s with non-zero members count. Please scale down members to zero first", configSrvCluster.Name)
+		}
+	}
+
+	for _, mongosCluster := range r.mongosMemberClusters {
+		if !r.sc.Spec.MongosSpec.ClusterSpecItemExists(mongosCluster.Name) && mongosCluster.Replicas > 0 {
+			return xerrors.Errorf("Cannot remove mongos member cluster %s with non-zero members count. Please scale down members to zero first", mongosCluster.Name)
+		}
+	}
+
+	return nil
 }
 
 // checkForMongosDeadlock reports whether the cluster is in a deadlocked state due to mongos waiting on unhealthy

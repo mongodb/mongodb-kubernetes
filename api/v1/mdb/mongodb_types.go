@@ -25,6 +25,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
@@ -1663,6 +1664,48 @@ func (m *MongoDbSpec) GetTopology() string {
 
 func (m *MongoDbSpec) IsMultiCluster() bool {
 	return m.GetTopology() == ClusterTopologyMultiCluster
+}
+
+func (m *MongoDbSpec) GetShardClusterSpecList() ClusterSpecList {
+	if m.IsMultiCluster() {
+		return m.ShardSpec.ClusterSpecList
+	} else {
+		return ClusterSpecList{
+			{
+				ClusterName:  multicluster.LegacyCentralClusterName,
+				Members:      m.MongodsPerShardCount,
+				MemberConfig: m.MemberConfig,
+			},
+		}
+	}
+}
+
+func (m *MongoDbSpec) GetMongosClusterSpecList() ClusterSpecList {
+	if m.IsMultiCluster() {
+		return m.MongosSpec.ClusterSpecList
+	} else {
+		return ClusterSpecList{
+			{
+				ClusterName:                 multicluster.LegacyCentralClusterName,
+				Members:                     m.MongosCount,
+				ExternalAccessConfiguration: m.ExternalAccessConfiguration,
+			},
+		}
+	}
+}
+
+func (m *MongoDbSpec) GetConfigSrvClusterSpecList() ClusterSpecList {
+	if m.IsMultiCluster() {
+		return m.ConfigSrvSpec.ClusterSpecList
+	} else {
+		return ClusterSpecList{
+			{
+				ClusterName:  multicluster.LegacyCentralClusterName,
+				Members:      m.ConfigServerCount,
+				MemberConfig: m.MemberConfig,
+			},
+		}
+	}
 }
 
 type MongoDBConnectionStringBuilder struct {
