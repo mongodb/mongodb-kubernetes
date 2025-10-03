@@ -580,7 +580,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
 	// If current operation is to Disable TLS, then we should the current members of the Replica Set,
 	// this is, do not scale them up or down util TLS disabling has completed.
-	shouldLockMembers, err := updateOmDeploymentDisableTLSConfiguration(conn, r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, replicasTarget, rs, log, caFilePath, tlsCertPath)
+	shouldLockMembers, err := updateOmDeploymentDisableTLSConfiguration(conn, r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, membersNumberBefore, rs, log, caFilePath, tlsCertPath)
 	if err != nil && !isRecovering {
 		return workflow.Failed(err)
 	}
@@ -589,12 +589,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 	if shouldLockMembers {
 		// We should not add or remove members during this run, we'll wait for
 		// TLS to be completely disabled first.
-		// However, on first reconciliation when membersNumberBefore=0, we need to use replicasTarget
-		if membersNumberBefore == 0 {
-			updatedMembers = replicasTarget
-		} else {
-			updatedMembers = membersNumberBefore
-		}
+		updatedMembers = membersNumberBefore
 	} else {
 		updatedMembers = replicasTarget
 	}
@@ -664,17 +659,10 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 	return workflow.OK()
 }
 
-// updateOmDeploymentDisableTLSConfiguration handles the edge case where TLS is disabled while
-// simultaneously scaling the replica set. Without this safeguard, automation agents could fail during the
-// transition, or new pods might join with inconsistent TLS configuration.
-//
-// This function implements a two-phase reconciliation pattern:
-//  1. First reconciliation: Disable TLS on existing members (returns shouldLockMembers=true to prevent scaling)
-//  2. Second reconciliation: Once TLS is fully disabled, allow scaling operations to proceed
-//
-// Related ticket: CLOUDP-80768 (March 2021)
-// See also: e2e_tls_disable_and_scale_up.py test
-func updateOmDeploymentDisableTLSConfiguration(conn om.Connection, mongoDBImage string, forceEnterprise bool, currentMemberCount int, rs *mdbv1.MongoDB, log *zap.SugaredLogger, caFilePath, tlsCertPath string) (bool, error) {
+// updateOmDeploymentDisableTLSConfiguration checks if TLS configuration needs
+// to be disabled. In which case it will disable it and inform to the calling
+// function.
+func updateOmDeploymentDisableTLSConfiguration(conn om.Connection, mongoDBImage string, forceEnterprise bool, membersNumberBefore int, rs *mdbv1.MongoDB, log *zap.SugaredLogger, caFilePath, tlsCertPath string) (bool, error) {
 	tlsConfigWasDisabled := false
 
 	err := conn.ReadUpdateDeployment(
@@ -688,7 +676,7 @@ func updateOmDeploymentDisableTLSConfiguration(conn om.Connection, mongoDBImage 
 
 			// configure as many agents/Pods as we currently have, no more (in case
 			// there's a scale up change at the same time).
-			replicaSet := replicaset.BuildFromMongoDBWithReplicas(mongoDBImage, forceEnterprise, rs, currentMemberCount, rs.CalculateFeatureCompatibilityVersion(), tlsCertPath)
+			replicaSet := replicaset.BuildFromMongoDBWithReplicas(mongoDBImage, forceEnterprise, rs, membersNumberBefore, rs.CalculateFeatureCompatibilityVersion(), tlsCertPath)
 
 			lastConfig, err := rs.GetLastAdditionalMongodConfigByType(mdbv1.ReplicaSetConfig)
 			if err != nil {
