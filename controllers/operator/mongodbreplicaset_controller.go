@@ -479,7 +479,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 	// The effective replica count has already been computed in the caller (Reconcile)
 	// and applied to set.Spec.Replicas. We use that value directly here.
 	effectiveReplicas := int(*set.Spec.Replicas)
-	
+
 	err := agents.WaitForRsAgentsToRegister(*set, util_int.Min(membersNumberBefore, effectiveReplicas), rs.Spec.GetClusterDomain(), conn, log, rs)
 	if err != nil && !isRecovering {
 		return workflow.Failed(err)
@@ -529,7 +529,12 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 		return workflow.Failed(err)
 	}
 
-	if err := om.WaitForReadyState(conn, processNames, isRecovering, log); err != nil {
+	// Only wait for the processes that currently have pods. During scale-up, we add all desired
+	// processes to the automation config, but we only wait for the ones that exist now. The
+	// StatefulSet will be updated after this, creating new pods incrementally.
+	numProcessesToWait := util_int.Min(membersNumberBefore, effectiveReplicas)
+	processesToWait := processNames[:numProcessesToWait]
+	if err := om.WaitForReadyState(conn, processesToWait, isRecovering, log); err != nil {
 		return workflow.Failed(err)
 	}
 
