@@ -1,6 +1,7 @@
 import pymongo
 import yaml
-from kubetester import create_or_update_secret, run_periodically, try_load
+from kubernetes import client
+from kubetester import create_or_update_secret, run_periodically, try_load, wait_until
 from kubetester.certs import create_mongodb_tls_certs, create_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
@@ -163,12 +164,13 @@ def test_create_users(
         namespace, name=admin_user["spec"]["passwordSecretKeyRef"]["name"], data={"password": ADMIN_USER_PASSWORD}
     )
     admin_user.update()
-    admin_user.assert_reaches_phase(Phase.Updated, timeout=300)
 
     create_or_update_secret(
         namespace, name=user["spec"]["passwordSecretKeyRef"]["name"], data={"password": USER_PASSWORD}
     )
     user.update()
+
+    admin_user.assert_reaches_phase(Phase.Updated, timeout=300)
     user.assert_reaches_phase(Phase.Updated, timeout=300)
 
     create_or_update_secret(
@@ -192,6 +194,9 @@ def test_wait_for_database_resource_ready(mdb: MongoDB):
 
 @mark.e2e_search_enterprise_tls
 def test_wait_for_mongod_parameters(mdb: MongoDB):
+    # After search CR is deployed, MongoDB controller will pick it up
+    # and start adding searchCoordinator role and search-related
+    # parameters to the automation config.
     def check_mongod_parameters():
         parameters_are_set = True
         pod_parameters = []
@@ -209,7 +214,7 @@ def test_wait_for_mongod_parameters(mdb: MongoDB):
 
         return parameters_are_set, f'Not all pods have mongot parameters set:\n{"\n".join(pod_parameters)}'
 
-    run_periodically(lambda: check_mongod_parameters(), timeout=200)
+    run_periodically(check_mongod_parameters, timeout=200)
 
 
 @mark.e2e_search_enterprise_tls
@@ -233,6 +238,11 @@ def test_search_assert_search_query(mdb: MongoDB):
 
 
 @mark.e2e_search_enterprise_tls
+# This test class verifies if mongodb <8.2 can be upgraded to mongodb >=8.2
+# For mongod <8.2 the operator is automatically creating searchCoordinator customRole.
+# We test here that the role exists before upgrade, because
+# after mongodb is upgraded, the role should be removed from AC
+# From 8.2 searchCoordinator role is a built-in role.
 class TestUpgradeMongod:
     def test_check_polyfilled_role_in_ac(self, mdb: MongoDB):
         custom_roles = mdb.get_automation_config_tester().automation_config.get("roles", [])
@@ -240,6 +250,12 @@ class TestUpgradeMongod:
         assert "searchCoordinator" in [role["role"] for role in custom_roles]
 
     def test_mongod_version(self, mdb: MongoDB):
+        # This test is redundant when looking at the context of the full test file,
+        # as we deploy MDB_VERSION_WITHOUT_BUILT_IN_ROLE initially
+        # But it makes sense if we take into consideration TestUpgradeMongod test class alone.
+        # This checks the most important prerequisite for this test class to work.
+        # We check the version in case the test class is reused in another place
+        # or executed again when running locally.
         mdb.tester(ca_path=get_issuer_ca_filepath(), use_ssl=True).assert_version(MDB_VERSION_WITHOUT_BUILT_IN_ROLE)
 
     def test_upgrade_to_mongo_8_2(self, mdb: MongoDB):
@@ -257,13 +273,10 @@ class TestUpgradeMongod:
         mdb_tester.assert_scram_sha_authentication(
             ADMIN_USER_NAME, ADMIN_USER_PASSWORD, "SCRAM-SHA-256", 1, ssl=True, tlsCAFile=get_issuer_ca_filepath()
         )
-        # TODO check why assert version works without auth for 8.0 and not for 8.2
         mdb_tester.assert_version(MDB_VERSION_WITH_BUILT_IN_ROLE)
 
-
-@mark.e2e_search_enterprise_tlssh
-def test_search_assert_search_query_2(mdb: MongoDB):
-    get_user_sample_movies_helper(mdb).assert_search_query(retry_timeout=60)
+    def test_search_assert_search_query_after_upgrade(self, mdb: MongoDB):
+        get_user_sample_movies_helper(mdb).assert_search_query(retry_timeout=60)
 
 
 def get_connection_string(mdb: MongoDB, user_name: str, user_password: str) -> str:
