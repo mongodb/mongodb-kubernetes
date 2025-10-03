@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.15.0
+    controller-gen.kubebuilder.io/version: v0.18.0
   name: opsmanagers.mongodb.com
 spec:
   group: mongodb.com
@@ -730,7 +730,30 @@ spec:
                               automationLdapGroupDN:
                                 type: string
                               automationPasswordSecretRef:
-                                $ref: '#/definitions/k8s.io~1api~1core~1v1~0SecretKeySelector'
+                                description: SecretKeySelector selects a key of a
+                                  Secret.
+                                properties:
+                                  key:
+                                    description: The key of the secret to select from.  Must
+                                      be a valid secret key.
+                                    type: string
+                                  name:
+                                    default: ""
+                                    description: |-
+                                      Name of the referent.
+                                      This field is effectively required, but due to backwards compatibility is
+                                      allowed to be empty. Instances of this type with an empty value here are
+                                      almost certainly wrong.
+                                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                    type: string
+                                  optional:
+                                    description: Specify whether the Secret or its
+                                      key must be defined
+                                    type: boolean
+                                required:
+                                - key
+                                type: object
+                                x-kubernetes-map-type: atomic
                               automationUserName:
                                 type: string
                               clientCertificateSecretRef:
@@ -766,9 +789,29 @@ spec:
                               bindQueryUser:
                                 type: string
                               caConfigMapRef:
-                                $ref: '#/definitions/k8s.io~1api~1core~1v1~0ConfigMapKeySelector'
                                 description: Allows to point at a ConfigMap/key with
                                   a CA file to mount on the Pod
+                                properties:
+                                  key:
+                                    description: The key to select.
+                                    type: string
+                                  name:
+                                    default: ""
+                                    description: |-
+                                      Name of the referent.
+                                      This field is effectively required, but due to backwards compatibility is
+                                      allowed to be empty. Instances of this type with an empty value here are
+                                      almost certainly wrong.
+                                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                    type: string
+                                  optional:
+                                    description: Specify whether the ConfigMap or
+                                      its key must be defined
+                                    type: boolean
+                                required:
+                                - key
+                                type: object
+                                x-kubernetes-map-type: atomic
                               servers:
                                 items:
                                   type: string
@@ -1193,7 +1236,29 @@ spec:
                             CustomCertificateSecretRefs is a list of valid Certificate Authority certificate secrets
                             that apply to the associated S3 bucket.
                           items:
-                            $ref: '#/definitions/k8s.io~1api~1core~1v1~0SecretKeySelector'
+                            description: SecretKeySelector selects a key of a Secret.
+                            properties:
+                              key:
+                                description: The key of the secret to select from.  Must
+                                  be a valid secret key.
+                                type: string
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                              optional:
+                                description: Specify whether the Secret or its key
+                                  must be defined
+                                type: boolean
+                            required:
+                            - key
+                            type: object
+                            x-kubernetes-map-type: atomic
                           type: array
                         irsaEnabled:
                           description: |-
@@ -1263,7 +1328,29 @@ spec:
                             CustomCertificateSecretRefs is a list of valid Certificate Authority certificate secrets
                             that apply to the associated S3 bucket.
                           items:
-                            $ref: '#/definitions/k8s.io~1api~1core~1v1~0SecretKeySelector'
+                            description: SecretKeySelector selects a key of a Secret.
+                            properties:
+                              key:
+                                description: The key of the secret to select from.  Must
+                                  be a valid secret key.
+                                type: string
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                              optional:
+                                description: Specify whether the Secret or its key
+                                  must be defined
+                                type: boolean
+                            required:
+                            - key
+                            type: object
+                            x-kubernetes-map-type: atomic
                           type: array
                         irsaEnabled:
                           description: |-
@@ -1408,6 +1495,8 @@ spec:
                           required:
                           - spec
                           type: object
+                      required:
+                      - members
                       type: object
                     clusterDomain:
                       description: Cluster domain to override the default *.svc.cluster.local
@@ -1447,13 +1536,13 @@ spec:
                             Service when creating a ClusterIP type Service
                           type: string
                         externalTrafficPolicy:
-                          $ref: '#/definitions/k8s.io~1api~1core~1v1~0ServiceExternalTrafficPolicy'
                           description: |-
                             ExternalTrafficPolicy mechanism to preserve the client source IP.
                             Only supported on GCE and Google Kubernetes Engine.
                           enum:
                           - Cluster
                           - Local
+                          type: string
                         loadBalancerIP:
                           description: LoadBalancerIP IP that will be assigned to
                             this LoadBalancer.
@@ -1464,12 +1553,12 @@ spec:
                           format: int32
                           type: integer
                         type:
-                          $ref: '#/definitions/k8s.io~1api~1core~1v1~0ServiceType'
                           description: Type of the `Service` to be created.
                           enum:
                           - LoadBalancer
                           - NodePort
                           - ClusterIP
+                          type: string
                       required:
                       - type
                       type: object
@@ -1511,6 +1600,7 @@ spec:
                       - spec
                       type: object
                   required:
+                  - clusterName
                   - members
                   type: object
                 type: array
@@ -1536,13 +1626,13 @@ spec:
                       when creating a ClusterIP type Service
                     type: string
                   externalTrafficPolicy:
-                    $ref: '#/definitions/k8s.io~1api~1core~1v1~0ServiceExternalTrafficPolicy'
                     description: |-
                       ExternalTrafficPolicy mechanism to preserve the client source IP.
                       Only supported on GCE and Google Kubernetes Engine.
                     enum:
                     - Cluster
                     - Local
+                    type: string
                   loadBalancerIP:
                     description: LoadBalancerIP IP that will be assigned to this LoadBalancer.
                     type: string
@@ -1552,12 +1642,12 @@ spec:
                     format: int32
                     type: integer
                   type:
-                    $ref: '#/definitions/k8s.io~1api~1core~1v1~0ServiceType'
                     description: Type of the `Service` to be created.
                     enum:
                     - LoadBalancer
                     - NodePort
                     - ClusterIP
+                    type: string
                 required:
                 - type
                 type: object
@@ -1577,13 +1667,13 @@ spec:
                       when creating a ClusterIP type Service
                     type: string
                   externalTrafficPolicy:
-                    $ref: '#/definitions/k8s.io~1api~1core~1v1~0ServiceExternalTrafficPolicy'
                     description: |-
                       ExternalTrafficPolicy mechanism to preserve the client source IP.
                       Only supported on GCE and Google Kubernetes Engine.
                     enum:
                     - Cluster
                     - Local
+                    type: string
                   loadBalancerIP:
                     description: LoadBalancerIP IP that will be assigned to this LoadBalancer.
                     type: string
@@ -1593,12 +1683,12 @@ spec:
                     format: int32
                     type: integer
                   type:
-                    $ref: '#/definitions/k8s.io~1api~1core~1v1~0ServiceType'
                     description: Type of the `Service` to be created.
                     enum:
                     - LoadBalancer
                     - NodePort
                     - ClusterIP
+                    type: string
                 required:
                 - type
                 type: object
