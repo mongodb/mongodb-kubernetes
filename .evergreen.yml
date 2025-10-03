@@ -1738,6 +1738,8 @@ buildvariants:
     tags: [ "staging" ]
     run_on:
       - rhel90-large
+    expansions:
+      preflight_submit: false
     tasks:
       - name: preflight_images_task_group
 
@@ -1749,14 +1751,6 @@ buildvariants:
     tasks:
       - name: build_om_images
 
-  - name: preflight_om60_images
-    display_name: preflight_om60_images
-    tags: [ "staging" ]
-    run_on:
-      - rhel90-large
-    tasks:
-      - name: preflight_om_image
-
   - name: build_om70_images
     display_name: build_om70_images
     tags: [ "pr_patch", "staging" ]
@@ -1765,14 +1759,6 @@ buildvariants:
     tasks:
       - name: build_om_images
 
-  - name: preflight_om70_images
-    display_name: preflight_om70_images
-    tags: [ "staging" ]
-    run_on:
-      - rhel90-large
-    tasks:
-      - name: preflight_om_image
-
   - name: build_om80_images
     display_name: build_om80_images
     tags: [ "pr_patch", "staging" ]
@@ -1780,14 +1766,6 @@ buildvariants:
       - ubuntu2404-small
     tasks:
       - name: build_om_images
-
-  - name: preflight_om80_images
-    display_name: preflight_om80_images
-    tags: [ "staging" ]
-    run_on:
-      - rhel90-large
-    tasks:
-      - name: preflight_om_image
 
     # It will be called by pct while bumping the agent cloud manager image
   - name: release_agent
