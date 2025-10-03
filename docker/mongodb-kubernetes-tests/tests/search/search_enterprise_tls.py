@@ -188,11 +188,6 @@ def test_create_search_resource(mdbs: MongoDBSearch):
 
 
 @mark.e2e_search_enterprise_tls
-def test_wait_for_database_resource_ready(mdb: MongoDB):
-    mdb.assert_reaches_phase(Phase.Running, timeout=300)
-
-
-@mark.e2e_search_enterprise_tls
 def test_wait_for_mongod_parameters(mdb: MongoDB):
     # After search CR is deployed, MongoDB controller will pick it up
     # and start adding searchCoordinator role and search-related
@@ -215,6 +210,13 @@ def test_wait_for_mongod_parameters(mdb: MongoDB):
         return parameters_are_set, f'Not all pods have mongot parameters set:\n{"\n".join(pod_parameters)}'
 
     run_periodically(check_mongod_parameters, timeout=200)
+
+# After picking up MongoDBSearch CR, MongoDB reconciler will add mongod parameters.
+# But it will not immediately mark the MongoDB CR as Pending
+# spinning
+@mark.e2e_search_enterprise_tls
+def test_wait_for_database_resource_ready(mdb: MongoDB):
+    mdb.assert_reaches_phase(Phase.Running, timeout=300)
 
 
 @mark.e2e_search_enterprise_tls
@@ -244,11 +246,6 @@ def test_search_assert_search_query(mdb: MongoDB):
 # after mongodb is upgraded, the role should be removed from AC
 # From 8.2 searchCoordinator role is a built-in role.
 class TestUpgradeMongod:
-    def test_check_polyfilled_role_in_ac(self, mdb: MongoDB):
-        custom_roles = mdb.get_automation_config_tester().automation_config.get("roles", [])
-        assert len(custom_roles) > 0
-        assert "searchCoordinator" in [role["role"] for role in custom_roles]
-
     def test_mongod_version(self, mdb: MongoDB):
         # This test is redundant when looking at the context of the full test file,
         # as we deploy MDB_VERSION_WITHOUT_BUILT_IN_ROLE initially
@@ -257,6 +254,11 @@ class TestUpgradeMongod:
         # We check the version in case the test class is reused in another place
         # or executed again when running locally.
         mdb.tester(ca_path=get_issuer_ca_filepath(), use_ssl=True).assert_version(MDB_VERSION_WITHOUT_BUILT_IN_ROLE)
+
+    def test_check_polyfilled_role_in_ac(self, mdb: MongoDB):
+        custom_roles = mdb.get_automation_config_tester().automation_config.get("roles", [])
+        assert len(custom_roles) > 0
+        assert "searchCoordinator" in [role["role"] for role in custom_roles]
 
     def test_upgrade_to_mongo_8_2(self, mdb: MongoDB):
         mdb.set_version(MDB_VERSION_WITH_BUILT_IN_ROLE)
