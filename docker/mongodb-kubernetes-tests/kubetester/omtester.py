@@ -20,16 +20,9 @@ from kubetester.mongotester import BackgroundHealthChecker
 from kubetester.om_queryable_backups import OMQueryableBackup
 from opentelemetry import trace
 from requests.adapters import HTTPAdapter, Retry
+from tests.common.ops_manager.cloud_manager import is_cloud_qa
 
-from .kubetester import get_env_var_or_fail
-
-
-def running_cloud_manager():
-    "Determines if the current test is running against Cloud Manager"
-    return get_env_var_or_fail("OM_HOST") == "https://cloud-qa.mongodb.com"
-
-
-skip_if_cloud_manager = pytest.mark.skipif(running_cloud_manager(), reason="Do not run in Cloud Manager")
+skip_if_cloud_manager = pytest.mark.skipif(is_cloud_qa(), reason="Do not run in Cloud Manager")
 
 
 class BackupStatus(str, Enum):
