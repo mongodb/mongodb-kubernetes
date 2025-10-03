@@ -2,7 +2,9 @@ package om
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"maps"
 	"slices"
 	"sort"
@@ -40,6 +42,14 @@ func buildAutomationStatusFromBytes(b []byte) (*AutomationStatus, error) {
 	return as, nil
 }
 
+type PendingErr struct {
+	msg string
+}
+
+func (e PendingErr) Error() string {
+	return e.msg
+}
+
 // WaitForReadyState waits until the agents for relevant processes reach their state
 func WaitForReadyState(oc Connection, processNames []string, supressErrors bool, log *zap.SugaredLogger) error {
 	if len(processNames) == 0 {
@@ -70,6 +80,41 @@ func WaitForReadyState(oc Connection, processNames []string, supressErrors bool,
 	}
 	log.Info("MongoDB agents have reached READY state")
 	return nil
+}
+
+func CheckForReadyState(oc Connection, processNames []string, log *zap.SugaredLogger) workflow.Status {
+	err := CheckForReadyStateReturningError(oc, processNames, log)
+
+	if err != nil {
+		pendingErr := PendingErr{}
+		if ok := errors.As(err, &pendingErr); ok {
+			return workflow.Pending(pendingErr.Error())
+		}
+
+		return workflow.Failed(err)
+	}
+
+	return workflow.OK()
+}
+
+func CheckForReadyStateReturningError(oc Connection, processNames []string, log *zap.SugaredLogger) error {
+	if len(processNames) == 0 {
+		log.Infow("Not checking for MongoDB agents to reach READY state (no expected processes to check)")
+		return nil
+	}
+
+	log.Infow("Checking if MongoDB agents reached READY state...", "processes", processNames)
+	as, err := oc.ReadAutomationStatus()
+	if err != nil {
+		return xerrors.Errorf("Error reading Automation Agents status: %s", err)
+	}
+
+	if allReachedGoalState, msg := checkAutomationStatusIsGoal(as, processNames, log); allReachedGoalState {
+		log.Info("MongoDB agents have reached READY state")
+		return nil
+	} else {
+		return PendingErr{fmt.Sprintf("MongoDB agents haven't reached READY state; %s", msg)}
+	}
 }
 
 // CheckAutomationStatusIsGoal returns true if all the relevant processes are in Goal
