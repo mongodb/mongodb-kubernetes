@@ -586,10 +586,19 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 	}
 
 	var updatedMembers int
+	// This lock member logic will be removed soon, we should rather block possibility to disable tls + scale
+	// Tracked in CLOUDP-349087
 	if shouldLockMembers {
 		// We should not add or remove members during this run, we'll wait for
 		// TLS to be completely disabled first.
-		updatedMembers = membersNumberBefore
+		// However, on first reconciliation (membersNumberBefore=0), we need to use replicasTarget
+		// because the OM deployment is initialized with TLS enabled by default.
+		log.Debugf("locking members for this reconciliation because TLS was disabled")
+		if membersNumberBefore == 0 {
+			updatedMembers = replicasTarget
+		} else {
+			updatedMembers = membersNumberBefore
+		}
 	} else {
 		updatedMembers = replicasTarget
 	}
