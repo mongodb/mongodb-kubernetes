@@ -93,3 +93,7 @@ docs/**/test.sh.run.log
 dist
 logs
 *.run.log
+
+# AI
+.mcp.json
+CLAUDE.md
