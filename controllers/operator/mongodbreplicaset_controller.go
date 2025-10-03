@@ -254,8 +254,9 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 
 	// Compute effective replicas for this reconciliation
 	var effectiveReplicas int32
-	if tlsWillBeDisabled {
-		// Lock at current member count during TLS disable
+	if tlsWillBeDisabled && rs.Status.Members > 0 {
+		// Lock at current member count during TLS disable, but only if there are existing members.
+		// For initial creation (Members == 0), use normal scaling logic.
 		effectiveReplicas = int32(rs.Status.Members)
 		log.Infof("TLS is being disabled, locking replicas at current member count: %d", rs.Status.Members)
 	} else {
