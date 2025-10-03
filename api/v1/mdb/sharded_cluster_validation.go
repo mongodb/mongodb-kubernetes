@@ -43,6 +43,14 @@ func ShardedClusterMultiValidators() []func(m MongoDB) []v1.ValidationResult {
 	}
 }
 
+func ShardedClusterMultiUpdateValidators() []func(newObj, oldObj MongoDbSpec) v1.ValidationResult {
+	return []func(newObj, oldObj MongoDbSpec) v1.ValidationResult{
+		nonEmptyShardClusterSpecItemRemoval,
+		nonEmptyConfigSrvClusterSpecItemRemoval,
+		nonEmptyMongosClusterSpecItemRemoval,
+	}
+}
+
 // This applies to any topology
 func shardCountSpecified(m MongoDB) v1.ValidationResult {
 	if m.Spec.ShardCount == 0 {
@@ -369,6 +377,30 @@ func validateMemberClusterIsSubsetOfKubeConfig(m MongoDB) v1.ValidationResult {
 			return v1.ValidationWarning("Warning when validating %s ClusterSpecList: %s", specList.name, validationResult.Msg)
 		} else if validationResult.Level == v1.ErrorLevel {
 			return v1.ValidationError("Error when validating %s ClusterSpecList: %s", specList.name, validationResult.Msg)
+		}
+	}
+
+	return v1.ValidationSuccess()
+}
+
+func nonEmptyShardClusterSpecItemRemoval(newObj, oldObj MongoDbSpec) v1.ValidationResult {
+	return nonEmptyClusterSpecItemRemoval("shard", newObj.ShardSpec, oldObj.ShardSpec)
+}
+
+func nonEmptyConfigSrvClusterSpecItemRemoval(newObj, oldObj MongoDbSpec) v1.ValidationResult {
+	return nonEmptyClusterSpecItemRemoval("configSrv", newObj.ConfigSrvSpec, oldObj.ConfigSrvSpec)
+}
+
+func nonEmptyMongosClusterSpecItemRemoval(newObj, oldObj MongoDbSpec) v1.ValidationResult {
+	return nonEmptyClusterSpecItemRemoval("mongos", newObj.MongosSpec, oldObj.MongosSpec)
+}
+
+// This validation blocks removing ClusterSpecItem if members count is more than zero (ShardedCluster). If user wants to remove
+// the cluster, they should first scale down members to zero and then remove the ClusterSpecItem.
+func nonEmptyClusterSpecItemRemoval(kind string, newClusterSpec, oldClusterSpec *ShardedClusterComponentSpec) v1.ValidationResult {
+	for _, oldClusterSpecItem := range oldClusterSpec.ClusterSpecList {
+		if !newClusterSpec.ClusterSpecItemExists(oldClusterSpecItem.ClusterName) && oldClusterSpecItem.Members > 0 {
+			return v1.ValidationError("Cannot remove %s cluster %s with non-zero members count. Please scale down members to zero first", kind, oldClusterSpecItem.ClusterName)
 		}
 	}
 
