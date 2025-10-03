@@ -266,26 +266,16 @@ class MongoDB(CustomObject, MongoDBCommon):
     def configure_cloud_qa(
         self,
         project_name,
-        src_project_config_map_name: str = None,
         api_client: Optional[client.ApiClient] = None,
     ) -> MongoDB:
         if "opsManager" in self["spec"]:
             del self["spec"]["opsManager"]
 
-        if src_project_config_map_name is None and "cloudManager" in self["spec"]:
+        src_project_config_map_name = "my-project"
+        if "cloudManager" in self["spec"]:
             src_project_config_map_name = self["spec"]["cloudManager"]["configMapRef"]["name"]
-        else:
-            # my-project cm and my-credentials secret are created by scripts/evergreen/e2e/configure_operator.sh
-            src_project_config_map_name = "my-project"
 
-        try:
-            src_cm = read_configmap(self.namespace, src_project_config_map_name, api_client=api_client)
-        except client.ApiException as e:
-            if e.status == 404:
-                logger.debug("project config map is not specified, trying my-project as the source")
-                src_cm = read_configmap(self.namespace, "my-project", api_client=api_client)
-            else:
-                raise e
+        src_cm = read_configmap(self.namespace, src_project_config_map_name, api_client=api_client)
 
         new_project_config_map_name = f"{self.name}-project-config"
         ensure_nested_objects(self, ["spec", "cloudManager", "configMapRef"])
