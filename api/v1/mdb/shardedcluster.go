@@ -91,13 +91,26 @@ func (s *ShardedClusterComponentSpec) GetAgentConfig() *AgentConfig {
 	return &s.Agent
 }
 
+func (s *ShardedClusterComponentSpec) ClusterSpecItemExists(clusterName string) bool {
+	return s.getClusterSpecItemOrNil(clusterName) != nil
+}
+
 func (s *ShardedClusterComponentSpec) GetClusterSpecItem(clusterName string) ClusterSpecItem {
-	for i := range s.ClusterSpecList {
-		if s.ClusterSpecList[i].ClusterName == clusterName {
-			return s.ClusterSpecList[i]
-		}
+	if clusterSpecItem := s.getClusterSpecItemOrNil(clusterName); clusterSpecItem != nil {
+		return *clusterSpecItem
 	}
+
 	// it should never occur - we preprocess all clusterSpecLists
 	// TODO: this can actually happen if desired cluster is removed, but the deployment state is not yet updated and contains the old cluster config
 	panic(fmt.Errorf("clusterName %s not found in clusterSpecList", clusterName))
+}
+
+func (s *ShardedClusterComponentSpec) getClusterSpecItemOrNil(clusterName string) *ClusterSpecItem {
+	for i := range s.ClusterSpecList {
+		if s.ClusterSpecList[i].ClusterName == clusterName {
+			return &s.ClusterSpecList[i]
+		}
+	}
+
+	return nil
 }
