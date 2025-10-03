@@ -211,6 +211,7 @@ def test_wait_for_mongod_parameters(mdb: MongoDB):
 
     run_periodically(check_mongod_parameters, timeout=200)
 
+
 # After picking up MongoDBSearch CR, MongoDB reconciler will add mongod parameters.
 # But it will not immediately mark the MongoDB CR as Pending
 # spinning
