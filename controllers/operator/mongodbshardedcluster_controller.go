@@ -2,7 +2,9 @@ package operator
 
 import (
 	"context"
+	goerrors "errors"
 	"fmt"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"slices"
 	"sort"
 	"strings"
@@ -11,7 +13,6 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
-	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
@@ -1611,6 +1612,7 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 	}
 
 	logDiffOfProcessNames(processNames, r.getHealthyProcessNames(), log.With("ctx", "cleanOpsManagerState"))
+	// we're onDelete, we cannot requeue, so we need to wait
 	if err := om.WaitForReadyState(conn, r.getHealthyProcessNames(), false, log); err != nil {
 		return err
 	}
@@ -1849,13 +1851,12 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 
 	healthyProcessesToWaitForReadyState := r.getHealthyProcessNamesToWaitForReadyState(conn, log)
 	logDiffOfProcessNames(processNames, healthyProcessesToWaitForReadyState, log.With("ctx", "updateOmDeploymentShardedCluster"))
-	if err = om.WaitForReadyState(conn, healthyProcessesToWaitForReadyState, isRecovering, log); err != nil {
-		if !isRecovering {
-			if shardsRemoving {
-				return workflow.Pending("automation agents haven't reached READY state: shards removal in progress: %v", err)
-			}
-			return workflow.Failed(err)
+
+	if !isRecovering {
+		if workflowStatus := om.CheckForReadyState(conn, healthyProcessesToWaitForReadyState, log); !workflowStatus.IsOK() {
+			return workflowStatus
 		}
+	} else {
 		logWarnIgnoredDueToRecovery(log, err)
 	}
 
@@ -1873,11 +1874,15 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 
 		healthyProcessesToWaitForReadyState := r.getHealthyProcessNamesToWaitForReadyState(conn, log)
 		logDiffOfProcessNames(processNames, healthyProcessesToWaitForReadyState, log.With("ctx", "shardsRemoving"))
-		if err = om.WaitForReadyState(conn, healthyProcessesToWaitForReadyState, isRecovering, log); err != nil {
-			if !isRecovering {
-				return workflow.Failed(xerrors.Errorf("automation agents haven't reached READY state while cleaning replica set and processes: %w", err))
-			}
+		if isRecovering {
 			logWarnIgnoredDueToRecovery(log, err)
+		}
+		if err = om.CheckForReadyStateReturningError(conn, healthyProcessesToWaitForReadyState, log); err != nil {
+			pendingErr := om.PendingErr{}
+			if ok := goerrors.As(err, &pendingErr); ok {
+				return workflow.Pending(pendingErr.Error())
+			}
+			return workflow.Failed(err)
 		}
 	}
 
@@ -2042,8 +2047,13 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 
 	healthyProcessesToWaitForReadyState = r.getHealthyProcessNamesToWaitForReadyState(conn, log)
 	logDiffOfProcessNames(opts.processNames, healthyProcessesToWaitForReadyState, log.With("ctx", "publishDeployment"))
-	if err := om.WaitForReadyState(conn, healthyProcessesToWaitForReadyState, isRecovering, log); err != nil {
-		return nil, shardsRemoving, workflow.Failed(err)
+
+	if !isRecovering {
+		if workflowStatus := om.CheckForReadyState(conn, healthyProcessesToWaitForReadyState, log); workflowStatus != workflow.OK() {
+			return nil, shardsRemoving, workflowStatus
+		}
+	} else {
+		log.Warnf("Ignoring checking for ready state due to recovering")
 	}
 
 	if additionalReconciliationRequired {

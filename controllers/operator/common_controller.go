@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"reflect"
@@ -427,9 +428,12 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 		return workflow.Failed(err), false
 	}
 
-	// we need to wait for all agents to be ready before configuring any authentication settings
-	if err := om.WaitForReadyState(conn, processNames, isRecovering, log); err != nil {
-		return workflow.Failed(err), false
+	if !isRecovering {
+		if workflowStatus := om.CheckForReadyState(conn, processNames, log); !workflowStatus.IsOK() {
+			return workflowStatus, false
+		}
+	} else {
+		log.Warnf("Ignoring checking for ready state due to recovering")
 	}
 
 	clientCerts := util.OptionalClientCertficates
@@ -515,6 +519,10 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 		}
 
 		if err := authentication.Configure(conn, authOpts, isRecovering, log); err != nil {
+			pendingErr := om.PendingErr{}
+			if ok := errors.As(err, &pendingErr); ok {
+				return workflow.Pending(pendingErr.Error()), false
+			}
 			return workflow.Failed(err), false
 		}
 	} else if wantToEnableAuthentication {
@@ -534,6 +542,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 
 		authOpts.UserOptions = userOpts
 		if err := authentication.Disable(conn, authOpts, false, log); err != nil {
+
 			return workflow.Failed(err), false
 		}
 	}

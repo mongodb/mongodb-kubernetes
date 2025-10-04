@@ -91,7 +91,7 @@ func Configure(conn om.Connection, opts Options, isRecovering bool, log *zap.Sug
 		if isRecovering {
 			return nil
 		}
-		return om.WaitForReadyState(conn, opts.ProcessNames, false, log)
+		return om.CheckForReadyStateReturningError(conn, opts.ProcessNames, log)
 	}
 
 	// we need to make sure the desired authentication mechanism for the agent exists. If the desired agent
@@ -172,6 +172,7 @@ func Disable(conn om.Connection, opts Options, deleteUsers bool, log *zap.Sugare
 			return xerrors.Errorf("error read/updating automation config: %w", err)
 		}
 
+		// Disable is called also onDelete, so we cannot requeue here, we must wait
 		if err := om.WaitForReadyState(conn, opts.ProcessNames, false, log); err != nil {
 			return xerrors.Errorf("error waiting for ready state: %w", err)
 		}
@@ -222,7 +223,7 @@ func Disable(conn om.Connection, opts Options, deleteUsers bool, log *zap.Sugare
 		return xerrors.Errorf("error read/updating backup agent config: %w", err)
 	}
 
-	if err := om.WaitForReadyState(conn, opts.ProcessNames, false, log); err != nil {
+	if err := om.CheckForReadyStateReturningError(conn, opts.ProcessNames, log); err != nil {
 		return xerrors.Errorf("error waiting for ready state: %w", err)
 	}
 

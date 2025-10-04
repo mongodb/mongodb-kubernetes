@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	goerrors "errors"
 	"fmt"
 
 	"go.uber.org/zap"
@@ -240,6 +241,10 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 
 	if scale.ReplicasThisReconciliation(rs) < rs.Status.Members {
 		if err := replicaset.PrepareScaleDownFromStatefulSet(conn, sts, rs, log); err != nil {
+			pendingErr := om.PendingErr{}
+			if ok := goerrors.As(err, &pendingErr); ok {
+				return r.updateStatus(ctx, rs, workflow.Pending(pendingErr.Error()), log)
+			}
 			return r.updateStatus(ctx, rs, workflow.Failed(xerrors.Errorf("Failed to prepare Replica Set for scaling down using Ops Manager: %w", err)), log)
 		}
 	}
@@ -512,8 +517,12 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(ctx context.Context, c
 		return workflow.Failed(err)
 	}
 
-	if err := om.WaitForReadyState(conn, processNames, isRecovering, log); err != nil {
-		return workflow.Failed(err)
+	if !isRecovering {
+		if workflowStatus := om.CheckForReadyState(conn, processNames, log); !workflowStatus.IsOK() {
+			return workflowStatus
+		}
+	} else {
+		log.Warnf("Ignoring checking for ready state due to recovering")
 	}
 
 	reconcileResult, _ := ReconcileLogRotateSetting(conn, rs.Spec.Agent, log)

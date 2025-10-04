@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path"
 	"sort"
@@ -550,6 +551,10 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	// it's possible that Ops Manager will not be available when we attempt to configure AppDB monitoring
 	// in Ops Manager. This is not a blocker to continue with the rest of the reconciliation.
 	if err != nil {
+		pendingErr := om.PendingErr{}
+		if ok := errors.As(err, &pendingErr); ok {
+			return r.updateStatus(ctx, opsManager, workflow.Pending(pendingErr.Error()), log, omStatusOption)
+		}
 		log.Errorf("Unable to configure monitoring of AppDB: %s, configuration will be attempted next reconciliation.", err)
 
 		if podVars.ProjectID != "" {

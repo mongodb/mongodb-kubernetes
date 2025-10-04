@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"sort"
@@ -213,6 +214,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	status := workflow.RunInGivenOrder(publishAutomationConfigFirst,
 		func() workflow.Status {
 			if err := r.updateOmDeploymentRs(ctx, conn, mrs, agentCertPath, tlsCertPath, internalClusterCertPath, false, log); err != nil {
+				pendingErr := om.PendingErr{}
+				if ok := errors.As(err, &pendingErr); ok {
+					return workflow.Pending(pendingErr.Error())
+				}
 				return workflow.Failed(err)
 			}
 			return workflow.OK()
@@ -789,9 +794,14 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 			reachableProcessNames = append(reachableProcessNames, proc.Name())
 		}
 	}
-	if err := om.WaitForReadyState(conn, reachableProcessNames, isRecovering, log); err != nil && !isRecovering {
+	if isRecovering {
+		return nil
+	}
+
+	if err := om.CheckForReadyStateReturningError(conn, reachableProcessNames, log); err != nil {
 		return err
 	}
+
 	return nil
 }
 
