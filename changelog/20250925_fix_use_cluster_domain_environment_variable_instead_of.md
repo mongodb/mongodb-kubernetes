@@ -1,5 +1,5 @@
 ---
-kind: fix
+kind: feature
 date: 2025-09-25
 ---
 
