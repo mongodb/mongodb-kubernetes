@@ -298,6 +298,7 @@ func (r *ShardedClusterReconcileHelper) getShardNameToShardIdxMap() map[string]i
 // The reconciler implementation should refer to this structure only without taking into consideration complexities of MongoDbSpec wrt sharded clusters.
 func (r *ShardedClusterReconcileHelper) prepareDesiredShardsConfiguration() map[int]*mdbv1.ShardedClusterComponentSpec {
 	spec := r.sc.Spec.DeepCopy()
+	spec.ShardSpec.ClusterSpecList = spec.GetShardClusterSpecList()
 
 	// We don't need to do the same for shardOverrides for single-cluster as shardOverrides[].ClusterSpecList can be set only for Multi-Cluster mode.
 	// And we don't need that artificial legacy cluster as for single-cluster all necessary configuration is defined top-level.
@@ -311,7 +312,7 @@ func (r *ShardedClusterReconcileHelper) prepareDesiredShardsConfiguration() map[
 		topLevelPersistenceOverride, topLevelPodSpecOverride := getShardTopLevelOverrides(spec, shardIdx)
 
 		shardComponentSpec := *spec.ShardSpec.DeepCopy()
-		shardComponentSpec.ClusterSpecList = processClusterSpecList(spec.GetShardClusterSpecList(), topLevelPodSpecOverride, topLevelPersistenceOverride)
+		shardComponentSpec.ClusterSpecList = processClusterSpecList(shardComponentSpec.ClusterSpecList, topLevelPodSpecOverride, topLevelPersistenceOverride)
 		shardComponentSpecs[shardIdx] = &shardComponentSpec
 	}
 
