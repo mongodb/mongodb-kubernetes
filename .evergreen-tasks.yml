@@ -58,6 +58,9 @@ tasks:
       - func: setup_preflight
       - func: preflight_image
         vars:
+          image_name: mongodb-agent-ubi
+      - func: preflight_image
+        vars:
           image_name: mongodb-agent
 
   - name: preflight_om_image
@@ -1318,4 +1321,3 @@ tasks:
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
-
