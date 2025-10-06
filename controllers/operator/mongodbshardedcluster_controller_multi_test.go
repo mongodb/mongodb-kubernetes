@@ -443,6 +443,9 @@ func TestBlockNonEmptyClusterSpecItemRemoval(t *testing.T) {
 					cluster2: 1, cluster3: 3,
 				},
 			},
+			// Full error message `Cannot remove shard member cluster member-cluster-1 with non-zero members count in shard [x]. Please scale down members to zero first`,
+			// but the shard index can be 0, 1 or 2 depending on map iteration order. Thus, we only check the error substring here.
+			expectedError: "Cannot remove shard member cluster member-cluster-1 with non-zero members count in shard",
 		},
 		{
 			name: "Removing non-zero configSrv ClusterSpecItem blocks reconciliation",

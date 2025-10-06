@@ -2925,9 +2925,11 @@ func (r *ShardedClusterReconcileHelper) getHealthyShardsProcesses() ([]string, [
 }
 
 func (r *ShardedClusterReconcileHelper) blockNonEmptyClusterSpecItemRemoval() error {
-	for _, shardCluster := range r.allShardsMemberClusters {
-		if !r.sc.Spec.ShardSpec.ClusterSpecItemExists(shardCluster.Name) && shardCluster.Replicas > 0 {
-			return xerrors.Errorf("Cannot remove shard member cluster %s with non-zero members count. Please scale down members to zero first", shardCluster.Name)
+	for shardIdx, shardClusters := range r.shardsMemberClustersMap {
+		for _, shardCluster := range shardClusters {
+			if !r.sc.Spec.ShardSpec.ClusterSpecItemExists(shardCluster.Name) && shardCluster.Replicas > 0 {
+				return xerrors.Errorf("Cannot remove shard member cluster %s with non-zero members count in shard %d. Please scale down members to zero first", shardCluster.Name, shardIdx)
+			}
 		}
 	}
 
