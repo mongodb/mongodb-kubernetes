@@ -447,6 +447,7 @@ func TestBlockNonEmptyClusterSpecItemRemoval(t *testing.T) {
 			// but the shard index can be 0, 1 or 2 depending on map iteration order. Thus, we only check the error substring here.
 			expectedError: "Cannot remove shard member cluster member-cluster-1 with non-zero members count in shard",
 		},
+		// TODO: add test case for sharded overrides
 		{
 			name: "Removing non-zero configSrv ClusterSpecItem blocks reconciliation",
 			initialState: MultiClusterShardedScalingStep{

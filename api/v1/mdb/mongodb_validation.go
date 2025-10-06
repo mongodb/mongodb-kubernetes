@@ -472,8 +472,6 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 					}
 				}
 			}
-
-			updateValidators = append(updateValidators, ShardedClusterMultiUpdateValidators()...)
 		} else {
 			for _, validator := range ShardedClusterSingleValidators() {
 				res := validator(*m)

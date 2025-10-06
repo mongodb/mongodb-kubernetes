@@ -2927,20 +2927,20 @@ func (r *ShardedClusterReconcileHelper) getHealthyShardsProcesses() ([]string, [
 func (r *ShardedClusterReconcileHelper) blockNonEmptyClusterSpecItemRemoval() error {
 	for shardIdx, shardClusters := range r.shardsMemberClustersMap {
 		for _, shardCluster := range shardClusters {
-			if !r.sc.Spec.ShardSpec.ClusterSpecItemExists(shardCluster.Name) && shardCluster.Replicas > 0 {
+			if !r.desiredShardsConfiguration[shardIdx].ClusterSpecItemExists(shardCluster.Name) && shardCluster.Replicas > 0 {
 				return xerrors.Errorf("Cannot remove shard member cluster %s with non-zero members count in shard %d. Please scale down members to zero first", shardCluster.Name, shardIdx)
 			}
 		}
 	}
 
 	for _, configSrvCluster := range r.configSrvMemberClusters {
-		if !r.sc.Spec.ConfigSrvSpec.ClusterSpecItemExists(configSrvCluster.Name) && configSrvCluster.Replicas > 0 {
+		if !r.desiredConfigServerConfiguration.ClusterSpecItemExists(configSrvCluster.Name) && configSrvCluster.Replicas > 0 {
 			return xerrors.Errorf("Cannot remove configSrv member cluster %s with non-zero members count. Please scale down members to zero first", configSrvCluster.Name)
 		}
 	}
 
 	for _, mongosCluster := range r.mongosMemberClusters {
-		if !r.sc.Spec.MongosSpec.ClusterSpecItemExists(mongosCluster.Name) && mongosCluster.Replicas > 0 {
+		if !r.desiredMongosConfiguration.ClusterSpecItemExists(mongosCluster.Name) && mongosCluster.Replicas > 0 {
 			return xerrors.Errorf("Cannot remove mongos member cluster %s with non-zero members count. Please scale down members to zero first", mongosCluster.Name)
 		}
 	}
