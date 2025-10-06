@@ -415,8 +415,6 @@ func TestBlockNonEmptyClusterSpecItemRemoval(t *testing.T) {
 				},
 			},
 		},
-		// TODO: this still fails with panic, because the r.allShardsMemberClusters does not contain previous cluster
-		// This is likely another bug
 		{
 			name: "Removing non-zero shard ClusterSpecItem blocks reconciliation",
 			initialState: MultiClusterShardedScalingStep{
@@ -447,7 +445,99 @@ func TestBlockNonEmptyClusterSpecItemRemoval(t *testing.T) {
 			// but the shard index can be 0, 1 or 2 depending on map iteration order. Thus, we only check the error substring here.
 			expectedError: "Cannot remove shard member cluster member-cluster-1 with non-zero members count in shard",
 		},
-		// TODO: add test case for sharded overrides
+		{
+			name: "Removing non-zero shard ClusterSpecItem from shard override blocks reconciliation",
+			initialState: MultiClusterShardedScalingStep{
+				shardCount: 3,
+				configServerDistribution: map[string]int{
+					cluster1: 2, cluster2: 1, cluster3: 2,
+				},
+				mongosDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 2,
+				},
+				shardDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 3,
+				},
+			},
+			targetState: MultiClusterShardedScalingStep{
+				shardCount: 3,
+				configServerDistribution: map[string]int{
+					cluster1: 2, cluster2: 1, cluster3: 2,
+				},
+				mongosDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 2,
+				},
+				shardDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 3,
+				},
+				shardOverrides: []map[string]int{
+					{
+						cluster1: 1, cluster2: 1, cluster3: 3,
+					},
+					{
+						cluster1: 1, cluster2: 1, cluster3: 3,
+					},
+					// Dropping cluster1 from shard 2
+					{
+						cluster2: 1, cluster3: 3,
+					},
+				},
+			},
+			// Full error message `Cannot remove shard member cluster member-cluster-1 with non-zero members count in shard [x]. Please scale down members to zero first`,
+			// but the shard index can be 0, 1 or 2 depending on map iteration order. Thus, we only check the error substring here.
+			expectedError: "Cannot remove shard member cluster member-cluster-1 with non-zero members count in shard 2. Please scale down members to zero first",
+		},
+		{
+			name: "Removing zero-member shard ClusterSpecItem from shard override doesn't block reconciliation",
+			initialState: MultiClusterShardedScalingStep{
+				shardCount: 3,
+				configServerDistribution: map[string]int{
+					cluster1: 2, cluster2: 1, cluster3: 2,
+				},
+				mongosDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 2,
+				},
+				shardDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 3,
+				},
+				shardOverrides: []map[string]int{
+					{
+						cluster1: 1, cluster2: 2, cluster3: 3,
+					},
+					{
+						cluster1: 1, cluster2: 0, cluster3: 3,
+					},
+					{
+						cluster1: 1, cluster2: 2, cluster3: 3,
+					},
+				},
+			},
+			targetState: MultiClusterShardedScalingStep{
+				shardCount: 3,
+				configServerDistribution: map[string]int{
+					cluster1: 2, cluster2: 1, cluster3: 2,
+				},
+				mongosDistribution: map[string]int{
+					cluster1: 1, cluster2: 1, cluster3: 2,
+				},
+				// Dropping cluster2
+				shardDistribution: map[string]int{
+					cluster1: 1, cluster3: 3,
+				},
+				shardOverrides: []map[string]int{
+					{
+						cluster1: 1, cluster2: 2, cluster3: 3,
+					},
+					// Dropping cluster2 from shard 0
+					{
+						cluster1: 1, cluster3: 3,
+					},
+					{
+						cluster1: 1, cluster2: 2, cluster3: 3,
+					},
+				},
+			},
+		},
 		{
 			name: "Removing non-zero configSrv ClusterSpecItem blocks reconciliation",
 			initialState: MultiClusterShardedScalingStep{
@@ -2785,7 +2875,7 @@ func TestComputeMembersToScaleDown(t *testing.T) {
 			_, omConnectionFactory := mock.NewDefaultFakeClient(targetSpec)
 			memberClusterMap := getFakeMultiClusterMapWithClusters(memberClusterNames, omConnectionFactory)
 
-			_, reconcileHelper, _, _, err := defaultClusterReconciler(ctx, nil, "", "", targetSpec, memberClusterMap)
+			_, reconcileHelper, _, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", targetSpec, memberClusterMap)
 			assert.NoError(t, err)
 
 			membersToScaleDown := reconcileHelper.computeMembersToScaleDown(tc.cfgServerCurrentClusters, tc.shardsCurrentClusters, zap.S())

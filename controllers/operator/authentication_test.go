@@ -65,7 +65,7 @@ func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_Sh
 	ctx := context.Background()
 	scWithTls := test.DefaultClusterBuilder().EnableTLS().EnableX509().SetName("sc-with-tls").SetTLSCA("custom-ca").Build()
 
-	reconciler, _, client, _, err := defaultClusterReconciler(ctx, nil, "", "", scWithTls, nil)
+	reconciler, _, client, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", scWithTls, nil)
 	require.NoError(t, err)
 	addKubernetesTlsResources(ctx, client, scWithTls)
 
@@ -76,7 +76,7 @@ func TestX509CanBeEnabled_WhenThereAreOnlyTlsDeployments_ShardedCluster(t *testi
 	ctx := context.Background()
 	scWithTls := test.DefaultClusterBuilder().EnableTLS().EnableX509().SetName("sc-with-tls").SetTLSCA("custom-ca").Build()
 
-	reconciler, _, client, _, err := defaultClusterReconciler(ctx, nil, "", "", scWithTls, nil)
+	reconciler, _, client, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", scWithTls, nil)
 	require.NoError(t, err)
 	addKubernetesTlsResources(ctx, client, scWithTls)
 
@@ -333,7 +333,7 @@ func TestX509InternalClusterAuthentication_CanBeEnabledWithScram_ShardedCluster(
 		EnableX509InternalClusterAuth().
 		Build()
 
-	r, _, kubeClient, omConnectionFactory, _ := defaultClusterReconciler(ctx, nil, "", "", sc, nil)
+	r, _, kubeClient, omConnectionFactory, _ := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil)
 	addKubernetesTlsResources(ctx, r.client, sc)
 	checkReconcileSuccessful(ctx, t, r, sc, kubeClient)
 
@@ -770,15 +770,16 @@ func Test_NoAdditionalDomainsPresent(t *testing.T) {
 	// The default secret we create does not contain additional domains so it will not be valid for this RS
 	rs.Spec.Security.TLSConfig.AdditionalCertificateDomains = []string{"foo"}
 
-	reconciler, _, client, _, err := defaultClusterReconciler(ctx, nil, "", "", rs, nil)
-	require.NoError(t, err)
-	addKubernetesTlsResources(ctx, client, rs)
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, omConnectionFactory.GetConnectionFunc)
+	addKubernetesTlsResources(ctx, kubeClient, rs)
 
-	secret := &corev1.Secret{}
+	certSecret := &corev1.Secret{}
 
-	_ = client.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-cert", rs.Name), Namespace: rs.Namespace}, secret)
+	_ = kubeClient.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-cert", rs.Name), Namespace: rs.Namespace}, certSecret)
 
-	err = certs.VerifyAndEnsureCertificatesForStatefulSet(ctx, reconciler.SecretClient, reconciler.SecretClient, fmt.Sprintf("%s-cert", rs.Name), certs.ReplicaSetConfig(*rs), nil)
+	err := certs.VerifyAndEnsureCertificatesForStatefulSet(ctx, reconciler.SecretClient, reconciler.SecretClient, fmt.Sprintf("%s-cert", rs.Name), certs.ReplicaSetConfig(*rs), nil)
+	require.Error(t, err)
 	for i := 0; i < rs.Spec.Members; i++ {
 		expectedErrorMessage := fmt.Sprintf("domain %s-%d.foo is not contained in the list of DNSNames", rs.Name, i)
 		assert.Contains(t, err.Error(), expectedErrorMessage)
