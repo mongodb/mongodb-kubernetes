@@ -24,6 +24,6 @@ def build_agent_gather_versions(release: Dict[str, str]):
 
 
 def get_supported_version_for_image(image: str) -> List[str]:
-    if image == "mongodb-agent" or image == "mongodb-agent-ubi":
+    if image == "mongodb-agent":
         return build_agent_gather_versions(get_release())
     return sorted(get_release()["supportedImages"][image]["versions"])
