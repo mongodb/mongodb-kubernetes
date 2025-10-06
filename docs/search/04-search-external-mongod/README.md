@@ -50,7 +50,8 @@ export MDB_USER_PASSWORD="mdb-user-password-CHANGE-ME"
 # user for MongoDB Search to connect to the replica set to synchronise data from
 export MDB_SEARCH_SYNC_USER_PASSWORD="search-sync-user-password-CHANGE-ME"
 
-export MDB_SEARCH_HOSTNAME="mdbs-search"
+export MDB_SEARCH_SERVICE_NAME="mdbs-search"
+export MDB_SEARCH_HOSTNAME="mdbs-search.example.com"
 
 # External MongoDB replica set members - REPLACE THESE VALUES with your actual external MongoDB hosts
 # For testing purposes, these point to the MongoDB Community resource created by test.sh
