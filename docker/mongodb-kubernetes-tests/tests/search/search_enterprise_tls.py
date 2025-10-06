@@ -1,7 +1,6 @@
 import pymongo
 import yaml
-from kubernetes import client
-from kubetester import create_or_update_secret, run_periodically, try_load, wait_until
+from kubetester import create_or_update_secret, run_periodically, try_load
 from kubetester.certs import create_mongodb_tls_certs, create_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
@@ -212,11 +211,12 @@ def test_wait_for_mongod_parameters(mdb: MongoDB):
     run_periodically(check_mongod_parameters, timeout=200)
 
 
-# After picking up MongoDBSearch CR, MongoDB reconciler will add mongod parameters.
-# But it will not immediately mark the MongoDB CR as Pending
-# spinning
+# After picking up MongoDBSearch CR, MongoDB reconciler will add mongod parameters to each process.
+# Due to how MongoDB reconciler works (blocking on waiting for agents and not changing the status to pending)
+# the phase won't be updated to Pending and we need to wait by checking agents' status directly in OM.
 @mark.e2e_search_enterprise_tls
-def test_wait_for_database_resource_ready(mdb: MongoDB):
+def test_wait_for_agents_ready(mdb: MongoDB):
+    mdb.get_om_tester().wait_agents_ready()
     mdb.assert_reaches_phase(Phase.Running, timeout=300)
 
 
