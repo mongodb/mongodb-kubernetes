@@ -353,8 +353,12 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, con
 		return workflow.Failed(err)
 	}
 
-	if err := om.WaitForReadyState(conn, []string{set.Name}, isRecovering, log); err != nil {
-		return workflow.Failed(err)
+	if !isRecovering {
+		if workflowStatus := om.CheckForReadyState(conn, []string{set.Name}, log); status != workflow.OK() {
+			return workflowStatus
+		}
+	} else {
+		log.Warnf("Ignoring checking for ready state due to recovering")
 	}
 
 	if additionalReconciliationRequired {
