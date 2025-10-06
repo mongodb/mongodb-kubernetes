@@ -511,20 +511,24 @@ func extractOverridesFromPodSpec(podSpec *mdbv1.MongoDbPodSpec) (*corev1.PodTemp
 // We share the same logic and data structures used for Config Server, although some fields are not relevant for mongos
 // e.g MemberConfig. They will simply be ignored when the database is constructed
 func (r *ShardedClusterReconcileHelper) prepareDesiredMongosConfiguration() *mdbv1.ShardedClusterComponentSpec {
-	topLevelPodSpecOverride, topLevelPersistenceOverride := extractOverridesFromPodSpec(r.sc.Spec.MongosPodSpec)
+	spec := r.sc.Spec.DeepCopy()
+	spec.MongosSpec.ClusterSpecList = spec.GetMongosClusterSpecList()
 
-	mongosComponentSpec := r.sc.Spec.MongosSpec.DeepCopy()
-	mongosComponentSpec.ClusterSpecList = processClusterSpecList(r.sc.Spec.GetMongosClusterSpecList(), topLevelPodSpecOverride, topLevelPersistenceOverride)
+	topLevelPodSpecOverride, topLevelPersistenceOverride := extractOverridesFromPodSpec(spec.MongosPodSpec)
+	mongosComponentSpec := spec.MongosSpec.DeepCopy()
+	mongosComponentSpec.ClusterSpecList = processClusterSpecList(mongosComponentSpec.ClusterSpecList, topLevelPodSpecOverride, topLevelPersistenceOverride)
 
 	return mongosComponentSpec
 }
 
 // prepareDesiredConfigServerConfiguration works the same way as prepareDesiredMongosConfiguration, but for config server
 func (r *ShardedClusterReconcileHelper) prepareDesiredConfigServerConfiguration() *mdbv1.ShardedClusterComponentSpec {
-	topLevelPodSpecOverride, topLevelPersistenceOverride := extractOverridesFromPodSpec(r.sc.Spec.ConfigSrvPodSpec)
+	spec := r.sc.Spec.DeepCopy()
+	spec.ConfigSrvSpec.ClusterSpecList = spec.GetConfigSrvClusterSpecList()
 
-	configSrvComponentSpec := r.sc.Spec.ConfigSrvSpec.DeepCopy()
-	configSrvComponentSpec.ClusterSpecList = processClusterSpecList(r.sc.Spec.GetConfigSrvClusterSpecList(), topLevelPodSpecOverride, topLevelPersistenceOverride)
+	topLevelPodSpecOverride, topLevelPersistenceOverride := extractOverridesFromPodSpec(spec.ConfigSrvPodSpec)
+	configSrvComponentSpec := spec.ConfigSrvSpec.DeepCopy()
+	configSrvComponentSpec.ClusterSpecList = processClusterSpecList(configSrvComponentSpec.ClusterSpecList, topLevelPodSpecOverride, topLevelPersistenceOverride)
 
 	return configSrvComponentSpec
 }
@@ -833,7 +837,10 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
 
-	// TODO: add comment why this was added
+	// We cannot allow removing cluster specification if the cluster is not scaled down to zero.
+	// For example: we have 3 members in a cluster, and we try to remove the entire cluster spec. The operator is scaling members down one by one.
+	// We could remove one member successfully, but recreate other members with default configuration, rather the one that was used before.
+	// Removing cluster spec would remove all non-default cluster configuration i.e. priority, persistence, etc. and that can lead to unexpected issues.
 	if err := r.blockNonEmptyClusterSpecItemRemoval(); err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
@@ -912,7 +919,6 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	if sc.Spec.ShardCount < r.deploymentState.Status.ShardCount {
 		r.removeUnusedStatefulsets(ctx, sc, log)
 	}
-	// TODO: we should also remove unused configSrv and mongos statefulsets
 
 	annotationsToAdd, err := getAnnotationsForResource(sc)
 	if err != nil {
