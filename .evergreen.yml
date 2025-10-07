@@ -1698,6 +1698,9 @@ buildvariants:
     display_name: init_test_run_ibm_power
     max_hosts: -1
     tags: [ "staging" ]
+    # TODO: Re-enable when staging is added to pipeline
+    # https://jira.mongodb.org/browse/CLOUDP-349096
+    disable: true
     run_on:
       - rhel9-power-small
       - rhel9-power-large
@@ -1708,6 +1711,9 @@ buildvariants:
     display_name: init_test_run_ibm_z
     max_hosts: -1
     tags: [ "staging" ]
+    # TODO: Re-enable when staging is added to pipeline
+    # https://jira.mongodb.org/browse/CLOUDP-349096
+    disable: true
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large
