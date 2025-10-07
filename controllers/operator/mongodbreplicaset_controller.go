@@ -216,6 +216,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		currentAgentAuthMode: currentAgentAuthMode,
 	}
 
+	// 3. Search Overrides
 	// Apply search overrides early so searchCoordinator role is present before ensureRoles runs
 	// This must happen before the ordering logic to ensure roles are synced regardless of order
 	shouldMirrorKeyfile := r.applySearchOverrides(ctx, rs, log)
@@ -237,7 +238,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		}
 	}
 
-	// 5. Actual kube resources deployment and OM updates
+	// 5. Actual reconciliation execution, Ops Manager and kubernetes resources update
 	lastSpec, err := rs.GetLastSpec()
 	if err != nil {
 		lastSpec = &mdbv1.MongoDbSpec{}
