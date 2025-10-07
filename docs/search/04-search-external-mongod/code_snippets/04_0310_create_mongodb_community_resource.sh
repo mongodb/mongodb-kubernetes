@@ -35,22 +35,17 @@ spec:
               - "killCursors"
               - "listCollections"
               - "listIndexes"
-              - "listSearchIndexes"
               - "planCacheRead"
-              - "cleanupStructuredEncryptionData"
               - "compactStructuredEncryptionData"
               - "convertToCapped"
               - "createCollection"
               - "createIndex"
-              - "createSearchIndexes"
               - "dropCollection"
               - "dropIndex"
-              - "dropSearchIndex"
               - "insert"
               - "remove"
               - "renameCollectionSameDB"
               - "update"
-              - "updateSearchIndex"
           - resource:
               cluster: true
             actions:
