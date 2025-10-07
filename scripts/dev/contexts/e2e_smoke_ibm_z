@@ -8,5 +8,5 @@ script_dir=$(dirname "${script_name}")
 source "${script_dir}/root-context"
 source "${script_dir}/variables/e2e_ibm_smoke_base"
 
-CUSTOM_OM_VERSION=$(grep -E "^\s*-\s*&ops_manager_70_latest\s+(\S+)\s+#" <"${script_dir}"/../../../.evergreen.yml | awk '{print $3}')
+CUSTOM_OM_VERSION=$(grep -E "^\s*-\s*&ops_manager_70_latest\s+(\S+)\s+#" <"${PROJECT_DIR}"/.evergreen.yml | awk '{print $3}')
 export CUSTOM_OM_VERSION
