@@ -75,23 +75,6 @@ func PrepareScaleDownFromMap(omClient om.Connection, rsMembers map[string][]stri
 		log.Debugw("Marked replica set members as non-voting", "replica set with members", rsMembers)
 	}
 
-	// TODO practice shows that automation agents can get stuck on setting db to "disabled" also it seems that this process
-	// works correctly without explicit disabling - feel free to remove this code after some time when it is clear
-	// that everything works correctly without disabling
-
-	// Stage 2. Set disabled to true
-	//err = omClient.ReadUpdateDeployment(
-	//	func(d om.Deployment) error {
-	//		d.DisableProcesses(allProcesses)
-	//		return nil
-	//	},
-	//)
-	//
-	//if err != nil {
-	//	return errors.New(fmt.Sprintf("Unable to set disabled to true, hosts: %v, err: %w", allProcesses, err))
-	//}
-	//log.Debugw("Disabled processes", "processes", allProcesses)
-
 	log.Infow("Performed some preliminary steps to support scale down", "hosts", processes)
 
 	return nil
