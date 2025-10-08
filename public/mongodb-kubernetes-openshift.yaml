@@ -444,8 +444,6 @@ spec:
               value: "quay.io/mongodb/mongodb-agent:107.0.17.8771-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_18_8784_1
               value: "quay.io/mongodb/mongodb-agent:107.0.18.8784-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_108_0_0_8694_1
-              value: "quay.io/mongodb/mongodb-agent:108.0.0.8694-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_1_8718_1
               value: "quay.io/mongodb/mongodb-agent:108.0.1.8718-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_11_8830_1
