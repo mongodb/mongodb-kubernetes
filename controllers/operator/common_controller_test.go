@@ -419,22 +419,36 @@ func TestCheckEmptyStringsInPrivilegesEquivalentToNotPassingFields(t *testing.T)
 		Privileges: []mdbv1.Privilege{
 			{
 				Resource: mdbv1.Resource{
-					Db:         "config",
-					Collection: "", // Explicit empty string
+					Db:         ptr.To("config"),
+					Collection: ptr.To(""), // Explicit empty string
 				},
 				Actions: []string{"find", "update", "insert", "remove"},
 			},
 			{
 				Resource: mdbv1.Resource{
-					Db:         "users",
-					Collection: "usersCollection",
+					Db:         ptr.To("users"),
+					Collection: ptr.To("usersCollection"),
 				},
 				Actions: []string{"update", "insert", "remove"},
 			},
 			{
 				Resource: mdbv1.Resource{
-					Db:         "", // Explicit empty string
-					Collection: "", // Explicit empty string
+					Db:         ptr.To(""), // Explicit empty string
+					Collection: ptr.To(""), // Explicit empty string
+				},
+				Actions: []string{"find"},
+			},
+			{
+				Resource: mdbv1.Resource{
+					Cluster: ptr.To(true),
+				},
+				Actions: []string{"find"},
+			},
+			{
+				Resource: mdbv1.Resource{
+					Cluster:    ptr.To(true),
+					Db:         ptr.To(""),
+					Collection: ptr.To(""),
 				},
 				Actions: []string{"find"},
 			},
@@ -452,21 +466,27 @@ func TestCheckEmptyStringsInPrivilegesEquivalentToNotPassingFields(t *testing.T)
 		Privileges: []mdbv1.Privilege{
 			{
 				Resource: mdbv1.Resource{
-					Db: "config",
+					Db: ptr.To("config"),
 					// field not set, should pass ""
 				},
 				Actions: []string{"find", "update", "insert", "remove"},
 			},
 			{
 				Resource: mdbv1.Resource{
-					Db:         "users",
-					Collection: "usersCollection",
+					Db:         ptr.To("users"),
+					Collection: ptr.To("usersCollection"),
 				},
 				Actions: []string{"update", "insert", "remove"},
 			},
 			{
 				Resource: mdbv1.Resource{
 					// fields not set, should be passed as empty strings
+				},
+				Actions: []string{"find"},
+			},
+			{
+				Resource: mdbv1.Resource{
+					Cluster: ptr.To(true),
 				},
 				Actions: []string{"find"},
 			},
@@ -486,16 +506,26 @@ func TestCheckEmptyStringsInPrivilegesEquivalentToNotPassingFields(t *testing.T)
 	assert.True(t, ok)
 	require.Len(t, roles, 2)
 
-	assert.Equal(t, "config", roles[0].Privileges[0].Resource.Db)
-	assert.Equal(t, "", roles[0].Privileges[0].Resource.Collection)
+	// we iterate over two created privileges because both should end with the same result
+	for i := range 2 {
+		assert.Nil(t, roles[i].Privileges[0].Resource.Cluster)
+		assert.Equal(t, ptr.To("config"), roles[i].Privileges[0].Resource.Db)
+		// even if the db or collection field is not passed it must result in empty string
+		assert.Equal(t, ptr.To(""), roles[i].Privileges[0].Resource.Collection)
 
-	assert.Equal(t, "users", roles[0].Privileges[1].Resource.Db)
-	assert.Equal(t, "usersCollection", roles[0].Privileges[1].Resource.Collection)
+		assert.Nil(t, roles[i].Privileges[1].Resource.Cluster)
+		assert.Equal(t, ptr.To("users"), roles[i].Privileges[1].Resource.Db)
+		assert.Equal(t, ptr.To("usersCollection"), roles[i].Privileges[1].Resource.Collection)
 
-	assert.Equal(t, "", roles[0].Privileges[2].Resource.Db)
-	assert.Equal(t, "", roles[0].Privileges[2].Resource.Collection)
+		assert.Nil(t, roles[i].Privileges[2].Resource.Cluster)
+		assert.Equal(t, ptr.To(""), roles[i].Privileges[2].Resource.Db)
+		assert.Equal(t, ptr.To(""), roles[i].Privileges[2].Resource.Collection)
 
-	assert.True(t, reflect.DeepEqual(roles[0].Privileges, roles[1].Privileges))
+		require.NotNil(t, roles[i].Privileges[3].Resource.Cluster)
+		assert.True(t, *roles[i].Privileges[3].Resource.Cluster)
+		assert.Nil(t, roles[i].Privileges[3].Resource.Db)
+		assert.Nil(t, roles[i].Privileges[3].Resource.Collection)
+	}
 }
 
 func TestSecretWatcherWithAllResources(t *testing.T) {
