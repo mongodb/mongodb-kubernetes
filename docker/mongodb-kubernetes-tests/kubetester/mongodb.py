@@ -92,6 +92,7 @@ class MongoDB(CustomObject, MongoDBCommon):
             # Kubernetes API server may timeout during high load, but the request may still complete.
             # This is particularly common when deploying many resources simultaneously.
             "but may still be processing the request",
+            "Client.Timeout exceeded while awaiting headers",
         )
 
         start_time = time.time()
