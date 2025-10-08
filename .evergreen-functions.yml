@@ -268,7 +268,6 @@ functions:
 
   # Configures docker authentication to ECR and RH registries.
   setup_building_host:
-    - *switch_context
     - *python_venv
     - *setup_aws
     - *setup_evg_host
@@ -277,7 +276,6 @@ functions:
   # This differs for normal evg_host as we require minikube instead of kind for
   # IBM machines also install aws cli via pip instead and use podman
   setup_building_host_minikube:
-    - *switch_context
     - command: subprocess.exec
       type: setup
       params:
@@ -351,7 +349,6 @@ functions:
         command: "docker login quay.io -u ${quay_prod_username} -p ${quay_prod_robot_token}"
 
   setup_cloud_qa:
-    - *switch_context
     - command: shell.exec
       type: setup
       params:
@@ -482,7 +479,6 @@ functions:
         files: [ "src/github.com/mongodb/mongodb-kubernetes/logs/*.suite" ]
 
   preflight_image:
-    - *switch_context
     - command: subprocess.exec
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -510,7 +506,6 @@ functions:
           - ${workdir}
 
   build_test_image_ibm:
-    - *switch_context
     - command: subprocess.exec
       params:
         shell: bash
@@ -520,10 +515,8 @@ functions:
         binary: scripts/evergreen/e2e/build_tests_image_ibm.sh
 
   pipeline:
-    - *switch_context
     - command: subprocess.exec
       retry_on_failure: true
-      type: setup
       params:
         shell: bash
         <<: *e2e_include_expansions_in_env
@@ -533,10 +526,8 @@ functions:
           IMAGE_NAME: ${IMAGE_NAME}
 
   pipeline_agent:
-    - *switch_context
     - command: subprocess.exec
       retry_on_failure: true
-      type: setup
       params:
         shell: bash
         <<: *e2e_include_expansions_in_env
@@ -546,10 +537,8 @@ functions:
           FLAGS: ${FLAGS}
 
   pipeline_ops_manager:
-    - *switch_context
     - command: subprocess.exec
       retry_on_failure: true
-      type: setup
       params:
         shell: bash
         <<: *e2e_include_expansions_in_env
@@ -557,10 +546,8 @@ functions:
         binary: scripts/release/pipeline_ops_manager.sh
 
   pipeline_readiness_probe:
-    - *switch_context
     - command: subprocess.exec
       retry_on_failure: true
-      type: setup
       params:
         shell: bash
         <<: *e2e_include_expansions_in_env
@@ -568,10 +555,8 @@ functions:
         binary: scripts/release/pipeline_readiness_probe.sh
 
   pipeline_version_upgrade_hook:
-    - *switch_context
     - command: subprocess.exec
       retry_on_failure: true
-      type: setup
       params:
         shell: bash
         <<: *e2e_include_expansions_in_env
@@ -579,7 +564,6 @@ functions:
         binary: scripts/release/pipeline_version_upgrade_hook.sh
 
   teardown_cloud_qa_all:
-    - *switch_context
     - command: shell.exec
       type: setup
       params:
@@ -735,7 +719,6 @@ functions:
           make sbom-tests
 
   generate_perf_tests_tasks:
-    - *switch_context
     - command: shell.exec
       type: setup
       params:
@@ -820,7 +803,6 @@ functions:
 
   # it executes a script by convention: ./scripts/code_snippets/tests/${task_name}
   test_code_snippets:
-    - *switch_context
     - command: shell.exec
       params:
         shell: bash
