@@ -6,4 +6,4 @@ mongodb-kubernetes-operator   1/1     1            1           3s
 
 Operator pod in mongodb namespace
 NAME                                          READY   STATUS    RESTARTS   AGE
-mongodb-kubernetes-operator-fc996f567-5vn5h   1/1     Running   0          3s
+mongodb-kubernetes-operator-fc996f567-qt4c9   1/1     Running   0          3s
