@@ -99,8 +99,8 @@ func TestReplicaSetWithConnectionString(t *testing.T) {
 		t.Run("Test Add New Connection String Option to Resource", mongodbtests.AddConnectionStringOption(ctx, &mdb, "readPreference", "wrong"))
 		t.Run("Test Secrets Are Updated", mongodbtests.MongoDBReachesRunningPhase(ctx, &mdb))
 		scramUser = mdb.GetAuthUsers()[0]
-		t.Run("Test Basic Connectivity", tester.ConnectivityRejected(ctx, WithURI(mdb.MongoURI("")), WithoutTls(), WithReplicaSet(mdb.Name)))
-		t.Run("Test SRV Connectivity", tester.ConnectivityRejected(ctx, WithURI(mdb.MongoSRVURI("")), WithoutTls(), WithReplicaSet(mdb.Name)))
+		t.Run("Test Basic Connectivity", tester.ConnectivityRejected(ctx, WithURI(mdb.MongoURI()), WithoutTls(), WithReplicaSet(mdb.Name)))
+		t.Run("Test SRV Connectivity", tester.ConnectivityRejected(ctx, WithURI(mdb.MongoSRVURI()), WithoutTls(), WithReplicaSet(mdb.Name)))
 		t.Run("Test Basic Connectivity with generated connection string secret",
 			tester.ConnectivityRejected(ctx, WithURI(mongodbtests.GetConnectionStringForUser(ctx, mdb, scramUser))))
 		t.Run("Test SRV Connectivity with generated connection string secret",
