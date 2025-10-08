@@ -490,7 +490,7 @@ func SearchCoordinatorRole() mdbv1.MongoDBRole {
 		Privileges: []mdbv1.Privilege{
 			{
 				Resource: mdbv1.Resource{
-					Db: "__mdb_internal_search",
+					Db: ptr.To("__mdb_internal_search"),
 				},
 				Actions: []string{
 					"changeStream", "collStats", "dbHash", "dbStats", "find",

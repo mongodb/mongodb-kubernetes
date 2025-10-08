@@ -57,6 +57,14 @@ def get_expected_role(role_name: str) -> dict:
                     "find"
                 ]
             },
+            {
+                "resource": {
+                    "cluster": True
+                },
+                "actions": [
+                    "bypassWriteBlockingMode"
+                ]
+            }
         ],
         "authenticationRestrictions": [
             {
