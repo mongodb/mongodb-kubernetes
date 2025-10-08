@@ -222,6 +222,15 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/evergreen/setup_docker_sbom.sh
 
+  helm_registry_login:
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+      binary: scripts/dev/helm_registry_login.sh
+
   # Logs into all used registries
   configure_docker_auth: &configure_docker_auth
     command: subprocess.exec
@@ -490,6 +499,15 @@ functions:
           - image_version
           - rh_pyxis
         binary: scripts/dev/run_python.sh scripts/preflight_images.py --image ${image_name} --submit "${preflight_submit}"
+
+  # publish_helm_chart packages and publishes the MCK helm chart to the OCI container registry
+  publish_helm_chart:
+    - command: subprocess.exec
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        include_expansions_in_env:
+          - version_id
+        binary: scripts/dev/run_python.sh scripts/publish_helm_chart.py
 
   build_multi_cluster_binary:
     - command: subprocess.exec
