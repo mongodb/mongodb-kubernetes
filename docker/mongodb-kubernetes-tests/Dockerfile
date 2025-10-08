@@ -45,7 +45,8 @@ RUN apt-get -qq update \
     libldap2-dev \
     libsasl2-dev \
     git \
-    openssl
+    openssl \
+    unzip
 
 RUN mkdir -p /tmp/mongodb-tools && \
     tar xfz /tmp/mongodb-tools.tgz -C /tmp/mongodb-tools && \
@@ -65,6 +66,11 @@ RUN curl --fail --retry 3 -L -o "${HELM_NAME}" "https://get.helm.sh/${HELM_NAME}
 RUN curl -LO "https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/${TARGETARCH}/kubectl" \
     && chmod +x ./kubectl \
     && mv ./kubectl /usr/local/bin/kubectl
+
+# install aws, required to run helm registry login while running the tests
+RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" \
+    && unzip -q awscliv2.zip \
+    && ./aws/install
 
 COPY --from=builder /venv /venv
 
