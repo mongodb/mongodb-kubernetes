@@ -267,7 +267,6 @@ functions:
 
   # Configures docker authentication to ECR and RH registries.
   setup_building_host:
-    - *switch_context
     - *python_venv
     - *setup_aws
     - *setup_evg_host
@@ -276,7 +275,6 @@ functions:
   # This differs for normal evg_host as we require minikube instead of kind for
   # IBM machines also install aws cli via pip instead and use podman
   setup_building_host_minikube:
-    - *switch_context
     - command: subprocess.exec
       type: setup
       params:
@@ -350,7 +348,6 @@ functions:
         command: "docker login quay.io -u ${quay_prod_username} -p ${quay_prod_robot_token}"
 
   setup_cloud_qa:
-    - *switch_context
     - command: shell.exec
       type: setup
       params:
@@ -481,7 +478,6 @@ functions:
         files: [ "src/github.com/mongodb/mongodb-kubernetes/logs/*.suite" ]
 
   preflight_image:
-    - *switch_context
     - command: subprocess.exec
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -509,7 +505,6 @@ functions:
           - ${workdir}
 
   build_test_image_ibm:
-    - *switch_context
     - command: subprocess.exec
       params:
         shell: bash
@@ -521,7 +516,6 @@ functions:
         binary: scripts/evergreen/e2e/build_tests_image_ibm.sh
 
   pipeline_migrate_agents:
-    - *switch_context
     - command: subprocess.exec
       retry_on_failure: false
       type: setup
@@ -532,7 +526,6 @@ functions:
         binary: scripts/release/pipeline_migrate_agent.sh
 
   pipeline:
-    - *switch_context
     - command: subprocess.exec
       retry_on_failure: true
       type: setup
@@ -544,7 +537,6 @@ functions:
 
   # TODO: this function is very similar to pipeline and it will joined with it in the future
   release_operator_pipeline:
-    - *switch_context
     - command: subprocess.exec
       retry_on_failure: true
       type: setup
@@ -556,7 +548,6 @@ functions:
         binary: scripts/dev/run_python.sh scripts/release/pipeline_main.py ${image_name} --build-scenario release --version ${RELEASE_OPERATOR_VERSION|*triggered_by_git_tag}
 
   teardown_cloud_qa_all:
-    - *switch_context
     - command: shell.exec
       type: setup
       params:
@@ -712,7 +703,6 @@ functions:
           make sbom-tests
 
   generate_perf_tests_tasks:
-    - *switch_context
     - command: shell.exec
       type: setup
       params:
@@ -797,7 +787,6 @@ functions:
 
   # it executes a script by convention: ./scripts/code_snippets/tests/${task_name}
   test_code_snippets:
-    - *switch_context
     - command: shell.exec
       params:
         shell: bash

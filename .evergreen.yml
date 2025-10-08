@@ -71,12 +71,14 @@ variables:
     setup_group:
       - func: clone
       - func: download_kube_tools
+      - func: switch_context
       - func: setup_building_host
 
   - &setup_group_ibm
     setup_group_can_fail_task: true
     setup_group:
       - func: clone
+      - func: switch_context
       - func: setup_building_host_minikube
       - func: build_multi_cluster_binary
 
@@ -85,6 +87,7 @@ variables:
     setup_group:
       - func: clone
       - func: download_kube_tools
+      - func: switch_context
       - func: setup_building_host
       - func: build_multi_cluster_binary
 
@@ -93,6 +96,7 @@ variables:
     setup_task:
       - func: cleanup_exec_environment
       - func: configure_docker_auth
+      - func: switch_context
       - func: setup_kubernetes_environment
       - func: setup_cloud_qa
     teardown_task_can_fail_task: true
@@ -107,6 +111,7 @@ variables:
       - func: cleanup_exec_environment
       - func: configure_docker_auth
       - func: setup_kubernetes_environment
+      - func: switch_context
     teardown_task_can_fail_task: true
     teardown_task:
       - func: upload_e2e_logs
@@ -464,6 +469,7 @@ tasks:
   - name: generate_perf_tasks_one_thread
     commands:
       - func: clone
+      - func: switch_context
       - func: generate_perf_tests_tasks
         vars:
           variant: e2e_operator_perf_one_thread
@@ -472,6 +478,7 @@ tasks:
   - name: generate_perf_tasks_10_thread
     commands:
       - func: clone
+      - func: switch_context
       - func: generate_perf_tests_tasks
         vars:
           variant: e2e_operator_perf
@@ -480,6 +487,7 @@ tasks:
   - name: generate_perf_tasks_30_thread
     commands:
       - func: clone
+      - func: switch_context
       - func: generate_perf_tests_tasks
         vars:
           variant: e2e_operator_perf_thirty
@@ -488,6 +496,7 @@ tasks:
   - name: build_om_images
     commands:
       - func: clone
+      - func: switch_context
       - func: setup_building_host
       - func: pipeline
         vars:
@@ -496,6 +505,7 @@ tasks:
   - name: publish_ops_manager
     commands:
       - func: clone
+      - func: switch_context
       - func: setup_building_host
       - func: quay_login
       - func: setup_docker_sbom
