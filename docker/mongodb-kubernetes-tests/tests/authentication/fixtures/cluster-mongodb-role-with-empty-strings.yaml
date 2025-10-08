@@ -9,10 +9,6 @@ spec:
     - db: "admin"
       role: "read"
   privileges:
-#    - resource:
-#        cluster: true
-#      actions:
-#        - "addShard"
     - resource:
         db: "config"
         collection: ""
@@ -33,6 +29,10 @@ spec:
         collection: ""
       actions:
         - "find"
+    - resource:
+        cluster: true
+      actions:
+        - "bypassWriteBlockingMode"
   authenticationRestrictions:
     - clientSource:
         - "127.0.0.0/8"
