@@ -10,6 +10,8 @@ from tests import test_logger
 
 logger = test_logger.get_test_logger(__name__)
 
+HELM_REGISTRY_AWS_REGION = "us-east-1" 
+HELM_ECR_REGISTRY = "268558157000.dkr.ecr.us-east-1.amazonaws.com"
 
 def helm_template(
     helm_args: Dict,
@@ -162,8 +164,14 @@ def helm_upgrade(
     chart_dir = helm_chart_path if helm_override_path else _helm_chart_dir(helm_chart_path)
 
     if apply_crds_first:
+        # right now tests image has the entire helm_chart directory, maybe we should just copy the CRDs
         apply_crds_from_chart(chart_dir)
 
+    # login to helm registry because we are going to install published helm chart
+    if not helm_registry_login():
+        raise Exception(f"Failed logging in to the helm registry {HELM_ECR_REGISTRY}")
+
+    chart_dir = f"oci://{HELM_ECR_REGISTRY}/dev/helm-charts/mongodb-kubernetes"
     command_args = _create_helm_args(helm_args, helm_options)
     args = [
         "helm",
@@ -173,7 +181,7 @@ def helm_upgrade(
         *command_args,
         name,
     ]
-
+    custom_operator_version = "0.0.0+68e3eec04df1df00072e1bb2"
     if custom_operator_version:
         args.append(f"--version={custom_operator_version}")
 
@@ -182,6 +190,80 @@ def helm_upgrade(
     command = " ".join(args)
     process_run_and_check(command, check=True, capture_output=True, shell=True)
 
+def helm_registry_login():
+    logger.info(f"Attempting to log into ECR registry: {HELM_ECR_REGISTRY}, using helm registry login.")
+    
+    aws_command = [
+        "aws", 
+        "ecr", 
+        "get-login-password", 
+        "--region", 
+        HELM_REGISTRY_AWS_REGION
+    ]
+    
+    # as we can see the password is being provided by stdin, that would mean we will have to
+    # pipe the aws_command (it figures out the password) into helm_command.
+    helm_command = [
+        "helm", 
+        "registry", 
+        "login", 
+        "--username", 
+        "AWS", 
+        "--password-stdin", 
+        HELM_ECR_REGISTRY
+    ]
+
+    try:
+        logger.info("Starting AWS ECR credential retrieval.")
+        aws_proc = subprocess.Popen(
+            aws_command, 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE,
+            text=True  # Treat input/output as text strings
+        )
+        
+        logger.info("Starting Helm registry login.")
+        helm_proc = subprocess.Popen(
+            helm_command, 
+            stdin=aws_proc.stdout, 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        
+        # Close the stdout stream of aws_proc in the parent process 
+        # to prevent resource leakage (only needed if you plan to do more processing)
+        aws_proc.stdout.close() 
+
+        # Wait for the Helm command (helm_proc) to finish and capture its output
+        helm_stdout, helm_stderr = helm_proc.communicate()
+        
+        # Wait for the AWS process to finish as well
+        aws_proc.wait() 
+
+        if aws_proc.returncode != 0:
+            logger.error(f"aws command to get password failed, (Exit Code {aws_proc.returncode}).")
+            # We captured AWS stderr directly, so print it
+            _, aws_stderr = aws_proc.communicate() 
+            logger.error(aws_stderr)
+            return False
+            
+        if helm_proc.returncode == 0:
+            logger.info("Login to helm registry was successful.")
+            logger.info(helm_stdout.strip())
+            return True
+        else:
+            logger.error(f"Login to helm registry failed, (Exit Code {helm_proc.returncode}).")
+            logger.error(helm_stderr.strip())
+            return False
+
+    except FileNotFoundError as e:
+        # This catches errors if 'aws' or 'helm' are not in the PATH
+        logger.error(f"Command not found. Please ensure '{e.filename}' is installed and in your system's PATH.")
+        return False
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}.")
+        return False
 
 def apply_crds_from_chart(chart_dir: str):
     crd_files = glob.glob(os.path.join(chart_dir, "crds", "*.yaml"))
